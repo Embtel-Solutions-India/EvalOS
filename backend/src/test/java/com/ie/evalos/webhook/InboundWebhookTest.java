@@ -228,6 +228,9 @@ class InboundWebhookTest {
 		WebhookEvent alreadySeen = mock(WebhookEvent.class);
 		given(alreadySeen.getId()).willReturn(UUID.randomUUID());
 		given(alreadySeen.getBrandId()).willReturn(BRAND_IE);
+		// Processed, which is what makes it a duplicate rather than a failed attempt
+		// waiting to be retried.
+		given(alreadySeen.isProcessed()).willReturn(true);
 		given(webhookEvents.findBySourceAndExternalId(WebhookSource.GHL, INVOICE))
 				.willReturn(Optional.of(alreadySeen));
 
@@ -304,6 +307,38 @@ class InboundWebhookTest {
 		verify(webhookEvents, org.mockito.Mockito.atLeastOnce()).save(archived.capture());
 		assertThat(archived.getValue().isProcessed()).isFalse();
 		assertThat(archived.getValue().getError()).contains("expert roster unreachable");
+	}
+
+	/**
+	 * The second half of the retry contract, and the half that is easy to lose: after a
+	 * failure the archive row exists but is unprocessed, so the dedupe lookup finds it.
+	 * If that counts as a duplicate the handler never runs again and a paid case is gone
+	 * for good — the redelivery has to retry, and still not create a second case.
+	 */
+	@Test
+	void aRedeliveryAfterAFailureRetriesInsteadOfLookingLikeADuplicate() throws Exception {
+		String body = paymentBody(INVOICE);
+		willThrow(new IllegalStateException("transient database blip")).given(intake).intake(any(), any());
+
+		deliverSigned(body).andExpect(status().is5xxServerError());
+
+		// What the archive now looks like to the next delivery: present, but unprocessed.
+		ArgumentCaptor<WebhookEvent> failed = ArgumentCaptor.forClass(WebhookEvent.class);
+		verify(webhookEvents, org.mockito.Mockito.atLeastOnce()).save(failed.capture());
+		WebhookEvent unprocessed = failed.getValue();
+		assertThat(unprocessed.isProcessed()).isFalse();
+		given(webhookEvents.findBySourceAndExternalId(WebhookSource.GHL, INVOICE))
+				.willReturn(Optional.of(unprocessed));
+
+		org.mockito.Mockito.reset(intake);
+		deliverSigned(body)
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.data.status").value("accepted"));
+
+		// The retry ran the handler exactly once more, and reused the same archive row.
+		verify(intake).intake(any(Brand.class), any(CaseIntakeService.NewCase.class));
+		assertThat(unprocessed.isProcessed()).isTrue();
+		assertThat(unprocessed.getError()).isNull();
 	}
 
 	@Test

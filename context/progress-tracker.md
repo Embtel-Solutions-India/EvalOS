@@ -460,6 +460,17 @@ Update this file after every meaningful implementation change.
   no case for a paid deal, and handed the caller the *other brand's* event id.
   `V12` keeps the spec's `UNIQUE (source, external_id)`; the gateway now refuses the
   collision loudly instead of dropping it silently.
+  (g0) **Defect found by the post-commit spec audit and fixed: a failed delivery
+  could never be retried.** The dedupe check short-circuited on *any* archived row,
+  so after a handler failure (which archives the row unprocessed and returns a
+  retriable 5xx) the redelivery was answered `duplicate` and the handler never ran
+  again — the paid case was lost for good. "Already seen" is not "already done": the
+  gateway now only treats a row as a duplicate when `processed` is true, and reuses
+  the unprocessed row as the retry, so a redelivery succeeds without creating a
+  second case. This was acceptance criterion 7's second clause, and it survived
+  because the original test asserted only the 5xx and the recorded error, never the
+  recovery. `InboundWebhookTest.aRedeliveryAfterAFailureRetriesInsteadOfLooking\
+  LikeADuplicate` now covers it (written failing first, to prove the defect).
   (g) **`ChecklistTemplates` is a static map, not a table.** It moves into the
   database the first time a Brand Manager needs to edit a checklist without a
   deploy; the seed for that table is this map.

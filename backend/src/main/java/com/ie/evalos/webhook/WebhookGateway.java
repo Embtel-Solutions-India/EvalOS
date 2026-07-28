@@ -90,7 +90,13 @@ public class WebhookGateway {
 		// evidence of anything, and archiving it would let anyone who can reach the URL
 		// fill the table.
 		Optional<WebhookEvent> alreadySeen = webhookEvents.findBySourceAndExternalId(source, externalId);
-		if (alreadySeen.isPresent()) {
+		WebhookEvent archived;
+
+		if (alreadySeen.isEmpty()) {
+			archived = webhookEvents.save(
+					new WebhookEvent(source, eventType, externalId, brand.getId(), true, rawBody));
+		}
+		else {
 			WebhookEvent previous = alreadySeen.get();
 			// The idempotency key is unique per source, not per brand, and each brand is a
 			// separately-numbering GHL sub-account — so two brands can legitimately issue
@@ -105,13 +111,18 @@ public class WebhookGateway {
 				throw new WebhookRejected(HttpStatus.CONFLICT, "EXTERNAL_ID_BRAND_CONFLICT",
 						"This idempotency key is already in use by another brand");
 			}
-			log.info("Duplicate {} '{}' external id {} for brand {} — no second side effect",
+			if (previous.isProcessed()) {
+				log.info("Duplicate {} '{}' external id {} for brand {} — no second side effect",
+						source, eventType, externalId, brand.getId());
+				return Ack.duplicate(previous.getId());
+			}
+			// Archived but never processed, so the last attempt failed and this redelivery
+			// is the retry it asked for. Reusing the row is what keeps the retry from
+			// creating a second case: "already seen" is not the same as "already done".
+			log.info("Retrying {} '{}' external id {} for brand {} after an earlier failure",
 					source, eventType, externalId, brand.getId());
-			return Ack.duplicate(previous.getId());
+			archived = previous;
 		}
-
-		WebhookEvent archived = webhookEvents.save(
-				new WebhookEvent(source, eventType, externalId, brand.getId(), true, rawBody));
 
 		try {
 			router.route(brand, eventType, rawBody);
