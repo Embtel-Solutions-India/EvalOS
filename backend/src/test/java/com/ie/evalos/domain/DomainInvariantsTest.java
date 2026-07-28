@@ -2,7 +2,9 @@ package com.ie.evalos.domain;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import com.ie.evalos.repository.AuditEventRepository;
@@ -18,6 +20,9 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
+import org.springframework.beans.factory.config.BeanDefinition;
+import org.springframework.context.annotation.ClassPathScanningCandidateComponentProvider;
+import org.springframework.core.type.filter.AssignableTypeFilter;
 import org.springframework.data.repository.CrudRepository;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -55,6 +60,37 @@ class DomainInvariantsTest {
 						.isTrue();
 			}
 		}
+		// Forgetting an axis the entity actually has widens reads silently, which is
+		// the one failure direction ScopePredicate cannot fail closed on. The team
+		// axis is mechanical, so it is checked; the assignee axis is a judgement
+		// (PayoutLedger.recorded_by is not one) and stays the repository's to state.
+		if (declaresField(entity, "teamId")) {
+			assertThat(scope.team())
+					.as("%s has a team_id column, so its scope must narrow by it", entity.getSimpleName())
+					.isEqualTo("teamId");
+		}
+	}
+
+	/**
+	 * A new scoped entity whose repository never declared its axes would read
+	 * brand-wide without anything failing, so adding one has to break this test.
+	 */
+	@Test
+	void everyScopedEntityHasARepositoryThatDeclaresItsScope() {
+		var scanner = new ClassPathScanningCandidateComponentProvider(false);
+		scanner.addIncludeFilter(new AssignableTypeFilter(ScopedEntity.class));
+
+		Set<String> mapped = scanner.findCandidateComponents(ScopedEntity.class.getPackageName()).stream()
+				.map(BeanDefinition::getBeanClassName)
+				.collect(Collectors.toSet());
+		Set<String> declared = scopedRepositories()
+				.map(arguments -> ((Class<?>) arguments.get()[1]).getName())
+				.collect(Collectors.toSet());
+
+		assertThat(mapped)
+				.as("every ScopedEntity needs a ScopedRepository listed in scopedRepositories()")
+				.isNotEmpty()
+				.isEqualTo(declared);
 	}
 
 	@Test

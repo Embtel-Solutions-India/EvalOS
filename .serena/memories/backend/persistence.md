@@ -34,9 +34,13 @@ naming the entity attributes that carry brand / team / assignee. That yields `fi
 - `Case` is the only type using all three axes (`brandId`, `teamId`, `assignedCm`); `Notification`
   scopes by `recipientId` as its assignee; contacts, checklist items, experts and payouts are
   brand-only (`recorded_by` names who typed the row, not who owns it).
-- `DomainInvariantsTest` reflects over every `SCOPE` and fails if an attribute name is not a real
-  mapped field — a typo there would otherwise surface as a runtime failure in the query that was
-  supposed to keep two brands apart.
+- `scopeFields()` is abstract on purpose — **never** give it a brand-only default. Forgetting to
+  declare a team/assignee axis widens reads, the one direction `ScopePredicate` cannot fail closed on.
+- `DomainInvariantsTest` guards all three ways that can go wrong: every `SCOPE` attribute must be a
+  real mapped field (a typo would otherwise surface as a runtime failure in the query meant to keep two
+  brands apart); an entity declaring `teamId` must scope by it; and **every** `ScopedEntity` subclass
+  on the classpath must appear in the test's repository table, so adding an entity without declaring
+  its scope breaks the build.
 
 ## Append-only audit
 
@@ -48,8 +52,15 @@ Enforced three independent ways, because lost audit history is unrecoverable:
 3. A `BEFORE UPDATE OR DELETE` trigger in `V10` raises for every role, including the owner (a GRANT
    cannot do this: the app connects as the table owner, and an owner ignores REVOKE).
 
-`AuditEvent` is deliberately **not** a `ScopedEntity` — `brand_id` is nullable for system events —
-and its `created_at` is stamped by the database clock (`insertable = false`).
+`AuditEvent` is deliberately **not** a `ScopedEntity` — `brand_id` is nullable for system events — but
+it stamps `created_at` in `@PrePersist` like everything else: **one clock for every timestamp in the
+schema**, so a timeline interleaving an object's `created_at` with its audit rows orders correctly. DB
+`DEFAULT now()` stays as the backstop for raw-SQL inserts only.
+
+Every column carries an explicit `@Column(name = ...)`, including single-word ones and `id`. Nothing
+relies on `CamelCaseToUnderscoresNamingStrategy`: the column name is a contract shared with the Flyway
+migrations, and the strategy does not always agree with it (`retention30SentAt` derives to
+`retention30_sent_at`, not the actual `retention_30_sent_at`).
 
 `service/AuditService.recordEvent(objectType, objectId, action, actorId, before, after)` is the only
 writer. It joins the caller's transaction, so the trail commits with the change it describes or not at

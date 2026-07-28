@@ -10,6 +10,7 @@ import jakarta.persistence.Enumerated;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
+import jakarta.persistence.PrePersist;
 import jakarta.persistence.Table;
 
 import org.hibernate.annotations.JdbcTypeCode;
@@ -33,6 +34,7 @@ public class AuditEvent {
 
 	@Id
 	@GeneratedValue(strategy = GenerationType.UUID)
+	@Column(name = "id", updatable = false)
 	private UUID id;
 
 	@Column(name = "brand_id", updatable = false)
@@ -46,7 +48,7 @@ public class AuditEvent {
 	private UUID objectId;
 
 	@Enumerated(EnumType.STRING)
-	@Column(nullable = false, updatable = false)
+	@Column(name = "action", nullable = false, updatable = false)
 	private AuditAction action;
 
 	/** The staff member who acted, or null when the actor is the system. */
@@ -61,8 +63,13 @@ public class AuditEvent {
 	@Column(name = "after_snapshot", updatable = false)
 	private String afterSnapshot;
 
-	/** Stamped by the database, so the ordering of the trail is the DB's clock. */
-	@Column(name = "created_at", nullable = false, insertable = false, updatable = false)
+	/**
+	 * Stamped on persist from the same clock as {@link ScopedEntity}, deliberately:
+	 * a timeline that interleaves an object's {@code created_at} with its audit
+	 * rows only orders correctly if both come from one clock. The column keeps its
+	 * {@code DEFAULT now()} as a backstop for rows inserted by raw SQL.
+	 */
+	@Column(name = "created_at", nullable = false, updatable = false)
 	private Instant createdAt;
 
 	protected AuditEvent() {
@@ -80,20 +87,19 @@ public class AuditEvent {
 		this.afterSnapshot = afterSnapshot;
 	}
 
+	@PrePersist
+	void stampCreatedAt() {
+		if (createdAt == null) {
+			createdAt = Instant.now();
+		}
+	}
+
 	public UUID getId() {
 		return id;
 	}
 
 	public UUID getBrandId() {
 		return brandId;
-	}
-
-	public String getObjectType() {
-		return objectType;
-	}
-
-	public UUID getObjectId() {
-		return objectId;
 	}
 
 	public AuditAction getAction() {

@@ -32,8 +32,10 @@ public class Expert extends ScopedEntity {
 	@Column(name = "full_name")
 	private String fullName;
 
+	@Column(name = "title")
 	private String title;
 
+	@Column(name = "institution")
 	private String institution;
 
 	/** Taxonomy tags matching draws on (Unit 11). */
@@ -46,9 +48,11 @@ public class Expert extends ScopedEntity {
 	private String[] secondaryFields;
 
 	@Enumerated(EnumType.STRING)
+	@Column(name = "availability")
 	private Availability availability;
 
 	@Enumerated(EnumType.STRING)
+	@Column(name = "tier")
 	private ExpertTier tier;
 
 	/** 1–10. */
@@ -86,6 +90,7 @@ public class Expert extends ScopedEntity {
 	@Column(name = "date_onboarded")
 	private LocalDate dateOnboarded;
 
+	@Column(name = "notes")
 	private String notes;
 
 	/**

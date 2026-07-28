@@ -21,12 +21,14 @@ public class Notification extends ScopedEntity {
 	private UUID recipientId;
 
 	@Enumerated(EnumType.STRING)
+	@Column(name = "type")
 	private NotificationType type;
 
 	/** Loose reference: a notification may outlive the case it points at. */
 	@Column(name = "case_id")
 	private UUID caseId;
 
+	@Column(name = "body")
 	private String body;
 
 	@Column(name = "read", nullable = false)
@@ -34,20 +36,5 @@ public class Notification extends ScopedEntity {
 
 	protected Notification() {
 		// for JPA
-	}
-
-	public Notification(UUID brandId, UUID recipientId, NotificationType type, String body) {
-		super(brandId);
-		this.recipientId = recipientId;
-		this.type = type;
-		this.body = body;
-	}
-
-	public boolean isRead() {
-		return read;
-	}
-
-	public void markRead() {
-		this.read = true;
 	}
 }

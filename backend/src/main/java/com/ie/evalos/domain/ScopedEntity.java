@@ -28,6 +28,7 @@ public abstract class ScopedEntity {
 
 	@Id
 	@GeneratedValue(strategy = GenerationType.UUID)
+	@Column(name = "id", updatable = false)
 	private UUID id;
 
 	@Column(name = "brand_id", nullable = false, updatable = false)

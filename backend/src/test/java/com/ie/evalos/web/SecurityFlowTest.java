@@ -153,9 +153,14 @@ class SecurityFlowTest {
 	@Test
 	void tamperedTokenIsUnauthenticated() throws Exception {
 		String token = jwtService.issue(GM);
-		// Flip the last character of the signature.
-		String tampered = token.substring(0, token.length() - 1)
-				+ (token.endsWith("A") ? "B" : "A");
+		// Flip the first character of the signature, not the last: base64url of a
+		// 32-byte HMAC is 43 characters, so the final one carries only four
+		// meaningful bits and a flip there can decode to the same signature and
+		// still verify. The first character is fully significant.
+		int signature = token.lastIndexOf('.') + 1;
+		String tampered = token.substring(0, signature)
+				+ (token.charAt(signature) == 'A' ? 'B' : 'A')
+				+ token.substring(signature + 1);
 
 		mockMvc.perform(get("/api/me").header(HttpHeaders.AUTHORIZATION, "Bearer " + tampered))
 				.andExpect(status().isUnauthorized())

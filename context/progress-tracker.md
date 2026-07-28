@@ -253,6 +253,38 @@ Update this file after every meaningful implementation change.
   (m) Fixed in passing: `README.md` said a Brand Manager sees "four" seeded team
   members; the seed gives them three.
 
+- **Unit 03 review pass — three data-contract ambiguities closed** (all verified
+  by `verify` + the DB suite; no schema change, so no new migration):
+  (a) **One clock for every timestamp.** `AuditEvent.created_at` was
+  database-stamped (`insertable = false`) while every `ScopedEntity` stamps in
+  `@PrePersist`. Two clocks in one schema means a timeline interleaving a row's
+  `created_at` with its audit rows can order wrongly once app and DB sit on
+  different hosts. Audit now stamps in Java like everything else; the column keeps
+  `DEFAULT now()` as the raw-SQL backstop.
+  (b) **No column name is derived.** Roughly 20 single-word columns (plus both
+  `id`s) relied on `CamelCaseToUnderscoresNamingStrategy` to guess their name.
+  Every column is now spelled out with `@Column(name = ...)`, matching Unit 02's
+  `TeamMember`. This is deliberately *more* code: the column name is a contract
+  shared with the migrations, and the strategy does not always agree with it —
+  `retention30SentAt` derives to `retention30_sent_at`, not the real
+  `retention_30_sent_at`.
+  (c) **The scope axis can no longer be forgotten.** `scopeFields()` stays
+  abstract (a brand-only default would fail *open*), and `DomainInvariantsTest`
+  now also asserts that an entity declaring `teamId` scopes by it, and that every
+  `ScopedEntity` subclass on the classpath appears in the repository scope table —
+  so adding an entity without declaring its scope breaks the build.
+  Also cut in the same pass: 44 lines of accessors and creation constructors with
+  no caller (4 entity constructors, `Notification.isRead`/`markRead`,
+  `AuditEvent.getObjectType`/`getObjectId`).
+
+- **Unit 02 latent test bug, surfaced and fixed.**
+  `SecurityFlowTest.tamperedTokenIsUnauthenticated` flipped the **last** character
+  of the JWT signature. base64url of a 32-byte HMAC is 43 characters, so the final
+  one carries only four meaningful bits — flipping it can decode to the same
+  signature, and the tampered token then verifies (the test returned 200, not 401).
+  It had been passing on the luck of what the signature ended with. It now flips
+  the first, fully significant, signature character.
+
 - Reconciled from three source documents (`IE_CRM_Spec_v2`, the Hybrid Platform
   Architecture, and the Feature Inventory FRD) into the EvalOS Technical Design
   Document v1.1, which is the source of truth. Where the original context files

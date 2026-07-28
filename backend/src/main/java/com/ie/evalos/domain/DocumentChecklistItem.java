@@ -20,9 +20,11 @@ public class DocumentChecklistItem extends ScopedEntity {
 	@Column(name = "case_id")
 	private UUID caseId;
 
+	@Column(name = "label")
 	private String label;
 
 	@Enumerated(EnumType.STRING)
+	@Column(name = "status")
 	private ChecklistItemStatus status;
 
 	@Column(name = "updated_at")
@@ -30,12 +32,5 @@ public class DocumentChecklistItem extends ScopedEntity {
 
 	protected DocumentChecklistItem() {
 		// for JPA
-	}
-
-	public DocumentChecklistItem(UUID brandId, UUID caseId, String label, ChecklistItemStatus status) {
-		super(brandId);
-		this.caseId = caseId;
-		this.label = label;
-		this.status = status;
 	}
 }

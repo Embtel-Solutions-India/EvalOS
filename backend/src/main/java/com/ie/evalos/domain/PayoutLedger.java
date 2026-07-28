@@ -25,15 +25,20 @@ public class PayoutLedger extends ScopedEntity {
 	@Column(name = "expert_id")
 	private UUID expertId;
 
+	@Column(name = "amount")
 	private BigDecimal amount;
 
+	@Column(name = "currency")
 	private String currency;
 
 	@Enumerated(EnumType.STRING)
+	@Column(name = "status")
 	private PayoutStatus status;
 
+	@Column(name = "method")
 	private String method;
 
+	@Column(name = "reference")
 	private String reference;
 
 	@Column(name = "due_date")
@@ -48,13 +53,5 @@ public class PayoutLedger extends ScopedEntity {
 
 	protected PayoutLedger() {
 		// for JPA
-	}
-
-	public PayoutLedger(UUID brandId, UUID caseId, UUID expertId, BigDecimal amount, PayoutStatus status) {
-		super(brandId);
-		this.caseId = caseId;
-		this.expertId = expertId;
-		this.amount = amount;
-		this.status = status;
 	}
 }

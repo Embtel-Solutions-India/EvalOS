@@ -63,6 +63,7 @@ public class Case extends ScopedEntity {
 	@Column(name = "deal_value")
 	private BigDecimal dealValue;
 
+	@Column(name = "deadline")
 	private Instant deadline;
 
 	@Enumerated(EnumType.STRING)

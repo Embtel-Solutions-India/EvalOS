@@ -1,7 +1,6 @@
 package com.ie.evalos.domain;
 
 import java.time.Instant;
-import java.util.UUID;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -26,10 +25,13 @@ public class ContactSnapshot extends ScopedEntity {
 	@Column(name = "full_name")
 	private String fullName;
 
+	@Column(name = "email")
 	private String email;
 
+	@Column(name = "phone")
 	private String phone;
 
+	@Column(name = "company")
 	private String company;
 
 	@Enumerated(EnumType.STRING)
@@ -58,10 +60,5 @@ public class ContactSnapshot extends ScopedEntity {
 
 	protected ContactSnapshot() {
 		// for JPA
-	}
-
-	public ContactSnapshot(UUID brandId, String ghlContactId) {
-		super(brandId);
-		this.ghlContactId = ghlContactId;
 	}
 }
