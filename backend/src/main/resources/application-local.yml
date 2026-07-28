@@ -1,0 +1,8 @@
+# Local dev: env still wins, but a stock localhost Postgres works out of the box.
+spring:
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/evalos}
+    username: ${DB_USER:evalos}
+    password: ${DB_PASSWORD:evalos}
+  jpa:
+    show-sql: true

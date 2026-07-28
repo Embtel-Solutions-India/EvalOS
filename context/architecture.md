@@ -1,0 +1,236 @@
+# EvalOS — Architecture Context
+
+## Stack
+
+| Layer            | Technology                                        | Role                                                                              |
+| ---------------- | ------------------------------------------------- | --------------------------------------------------------------------------------- |
+| API / runtime    | Java 21 + Spring Boot (Spring Web MVC) + Maven     | REST API, webhook receivers, service orchestration                                |
+| Database         | PostgreSQL + Spring Data JPA (Hibernate)           | System of record: brands, cases, experts, payout ledger, contact snapshots, audit |
+| Migrations       | Flyway                                             | Versioned schema — every change is a new migration, never an edited one           |
+| Internal auth    | Spring Security + JWT + role authorities (RBAC/ABAC) | Staff login; per-role + brand/team/assignee authorization (optional SSO later)   |
+| Portal auth      | Separate Spring Security filter chains (scoped, link-based) | Expert portal and client draft-review portal — isolated from internal auth |
+| Frontend         | React + TypeScript (Vite SPA) + Tailwind           | Internal role-based dashboards, client portal, expert portal                      |
+| Raw documents    | Google Drive (existing)                            | Client document folders — link stored on the case, not re-hosted                  |
+| E-signature      | Dropbox Sign API                                   | Expert electronic sign-off + storage of signed letters                            |
+| Notifications    | In-app notification center (staff) + GHL (clients) + Dropbox Sign (experts) | No EvalOS mail server                                            |
+| Background work  | Spring `@Scheduled` + `@Async` (+ app events) + a persisted `scheduled_job` table | SLA timers, reminders, escalations, auto-reassign, retention/countdown timers, Handoff C |
+| Integration seam | Inbound webhook gateway + outbound webhook dispatcher (+ GHL & Dropbox Sign clients) | Receive GHL/Dropbox Sign events; emit EvalOS lifecycle events to subscribers |
+
+**No object storage.** EvalOS hosts no files. Client documents and drafts are
+referenced by Google Drive link; signed letters live in Dropbox Sign; the
+redacted CV is generated on demand (and, if persisted, written to the case's
+Drive folder — never to a database blob).
+
+Repository layout is a monorepo: `backend/` (Spring Boot) and `frontend/`
+(React + Vite). Java lives under the base package `com.ie.evalos`.
+
+## Multi-Tenancy (brands)
+
+- **Shared database, row-level tenancy.** Every scoped entity carries a
+  mandatory `brand_id`. Brands are tenants of one system (International
+  Evaluations, XpertsPortal, and any future brand).
+- **Query-layer scoping.** A scoping mechanism (JPA Specifications / Hibernate
+  filters) injects `brand + team + assignee` predicates into every scoped query
+  at the repository layer. Access is enforced in data access, never only hidden
+  in the UI. A query written without brand scoping is a defect.
+- **Brand resolution at Handoff A.** Each brand is a separate GHL sub-account and
+  gets its **own inbound webhook endpoint with a secret token**; the endpoint
+  determines `brand_id` even when GHL's payload omits it. The brand ↔ endpoint
+  mapping is 1:1.
+- **The GM is the only cross-brand role.** Everyone else is hard-locked to their
+  brand (Brand Manager) or narrower (team/self).
+
+## System Boundaries
+
+Java packages under `com.ie.evalos`:
+
+- `web` — REST controllers. Thin: validate, authorize, call a service, return a
+  DTO. No business logic. Controllers accept/return DTOs, never JPA entities.
+- `service` — business logic: case lifecycle/state machine, expert matching,
+  payout creation, QC, brand-scoped queries. All rules and `@Transactional`
+  boundaries live here.
+- `domain` — JPA entities (and enums like `Stage`, `PayoutStatus`, `Role`).
+  Mapping and invariants only, no business orchestration.
+- `repository` — Spring Data JPA repositories; brand/team/assignee scoping filters.
+- `integration` — outbound clients for the GHL API and Dropbox Sign.
+- `webhook` — inbound webhook gateway: signature/secret verification,
+  idempotency, raw-payload archival, brand resolution, routing to a domain
+  service. Sources: GHL (per-brand endpoints), Dropbox Sign.
+- `event` — internal domain events (Spring `ApplicationEvent`) published on
+  lifecycle transitions, plus the outbound webhook dispatcher (subscriber
+  registry, HMAC signing, retry/backoff, dead-letter, delivery log, replay).
+- `job` — `@Scheduled` / `@Async` workers backed by the `scheduled_job` table
+  (SLA, reminders, auto-reassign, retention/countdown, Handoff-C dispatch).
+- `notification` — in-app staff notification center (create/list/mark-read);
+  client-facing messages are emitted as domain events for GHL to deliver.
+- `security` — Spring Security config, JWT, RBAC roles + ABAC scoping, ownership
+  checks; the separate expert-portal and client-portal filter chains.
+- `config` — application configuration and beans.
+- `common` — shared utilities including the field-level encryption converter for
+  the optional expert `payment_detail`, error types, and the response envelope.
+
+Frontend under `frontend/src`: `components/ui` (generated primitives),
+`features` (board, case detail, dashboards, client portal, expert portal),
+`lib` (API client, hooks).
+
+## Storage Model
+
+- **PostgreSQL (system of record)**: brands, brand-scoped case records, stage +
+  per-stage timestamps, document-checklist state, expert profiles, payout ledger
+  entries, read-only contact snapshots synced from GHL, in-app notifications, and
+  the append-only audit trail. Relational integrity via foreign keys; JSONB only
+  for genuinely schemaless blobs (e.g. raw webhook payload archive).
+- **Google Drive (existing, external)**: raw client document folders and drafts.
+  EvalOS stores the Drive link on the case; it does not re-host documents.
+- **Dropbox Sign (external)**: signed letters + e-signature workflow + storage.
+- **Redacted CV**: generated on demand from the expert profile; not persisted to
+  any EvalOS-hosted store.
+- **Encrypted at rest (field-level)**: the single optional expert
+  `payment_detail` field, via a JPA `AttributeConverter`. Never logged, never
+  placed in a DTO, webhook payload, or chat tool. (Payouts are manual and no
+  bank/card processing occurs, so this is the only sensitive field.)
+
+## Auth and Access Model
+
+- **Internal staff** authenticate via Spring Security with a JWT (optional SSO
+  later). Roles map to authorities: `GM`, `BRAND_MANAGER`, `PROJECT_MANAGER`,
+  `PROJECT_COORDINATOR`, `CASE_MANAGER`, `EXPERT_NETWORK_MANAGER`. Endpoint
+  access is guarded with method security (`@PreAuthorize`); row access is scoped
+  by `brand + team + assignee` in the service/repository layer.
+- **Scope tiers (ABAC).** All (GM) · Brand (Brand Manager) · Team (PM) · Self
+  (Coordinator, Case Manager). The ENM is a supply-side axis: expert/roster data
+  yes; client identity/case content no.
+- **Clients** access the draft-review portal via a passwordless link delivered
+  through GHL (a separate, scoped filter chain). They see only their own case's
+  draft, and can approve or request revisions.
+- **Experts** access assigned cases via the secure link in the Dropbox Sign
+  request / shared by the Case Manager (a separate, scoped filter chain), and can
+  only ever see cases assigned to them.
+- Role, brand, and ownership checks run before any mutation.
+
+## The Three Handoffs (the front/back seam)
+
+- **Handoff A — GHL → EvalOS (trigger: payment confirmed).** GHL fires a webhook
+  to that brand's dedicated endpoint when the invoice is paid; the webhook is the
+  proof of payment. The `webhook` gateway verifies the secret, resolves the
+  brand from the endpoint token, deduplicates on the invoice/payment id
+  (idempotency), archives the raw payload, then the case service creates a
+  brand-tagged case at `DOC_COLLECTION` in the brand pool, syncs the contact
+  snapshot, opens the document checklist, and notifies the GM/Brand-Manager
+  pool. EvalOS does **not** talk to the payment processor.
+- **Handoff B — internal (trigger: client approves draft).** The case moves to
+  `EXPERT_SIGNING` and appears in the expert portal with draft + evidence + goal;
+  Dropbox Sign issues the signing request. Exception paths: request-evidence
+  opens a client task; decline returns the case to `EXPERT_DECLINED_REMATCHING`
+  with the reason logged and the match engine proposing the next expert.
+- **Handoff C — EvalOS → GHL (trigger: delivered).** On QC-complete delivery,
+  EvalOS emits a signed outbound `case.delivered` webhook to its subscribers
+  (GHL first; its inbound automation URL starts the review + referral track and
+  stamps the closed value). The payout ledger entry (Pending) is created in the
+  same transaction. Delivered/active contacts are synced to GHL's global
+  suppression list so no cold/bulk campaign ever emails a current client.
+
+## Case State Machine (EvalOS-owned stages 3–7)
+
+Canonical 8-stage business pipeline; GHL owns stages 1 (Marketing), 2 (Sales),
+and 8 (Retention). EvalOS's internal `Stage` enum covers stages 3–7:
+
+```
+DOC_COLLECTION → EXPERT_ASSIGNMENT → DRAFT_GENERATION → EXPERT_SIGNING → FINAL_DELIVERY → CLOSED
+```
+
+Exception states reachable from any active stage: `ON_HOLD_AWAITING_CLIENT`,
+`EXPERT_DECLINED_REMATCHING` (→ EXPERT_ASSIGNMENT), `REFUND_REQUESTED`. The
+draft/PM-review/client-review loops live *within* `DRAFT_GENERATION`, tracked by
+`pm_approval_status`, `client_approval_status`, and `draft_version_count`. Only
+declared transitions are allowed; each writes an audit entry. SLA math runs on
+`America/Los_Angeles` (9–5 PT, US federal holidays); timestamps stored UTC.
+
+**Refund handling:** `REFUND_REQUESTED` is approvable by **GM only**. On
+approval: the case moves to `REFUND_REQUESTED`; revenue-recognition is reversed
+(the case drops out of "Delivered" on dashboards); any Pending payout for the
+case is voided/blocked; a refund signal fires to GHL. Audit-logged like any
+transition.
+
+## Webhooks (inbound & outbound)
+
+EvalOS has a webhook subsystem with two independent halves. Neither carries
+business logic in the transport layer; both are idempotent and observable.
+
+### Inbound gateway (`webhook` package)
+1. **Verify** the source signature / shared secret before the body is
+   deserialized. Unverified requests are dropped and logged — never processed.
+2. **Resolve brand** from the per-brand endpoint token (Handoff A).
+3. **Deduplicate** on the source event id / invoice id (idempotency); a replayed
+   event never produces a second side effect.
+4. **Archive** the raw payload (JSONB) for audit and replay.
+5. **Route** to the matching handler, which calls a domain service.
+6. **Acknowledge** fast; slow work is handed to a `job`. Failures return a
+   retriable status so the source re-delivers.
+
+Inbound sources and events:
+- **GHL** — `payment.confirmed` (Handoff A, per-brand endpoint); `refund.requested`
+  → Refund Requested exception state (GM-only approval to finalize);
+  `contact.updated` → refresh the read-only contact snapshot. (Refund/contact
+  events are recognized by the gateway; build them when the payloads are confirmed.)
+- **Dropbox Sign** — `signature_request.signed` / `..._declined` / `..._viewed`
+  callbacks drive expert sign-off status instead of polling.
+
+### Outbound dispatcher (`event` + `webhook.outbound`)
+EvalOS publishes internal **domain events** on every lifecycle transition. The
+dispatcher subscribes and delivers to registered external subscribers:
+- **Signed** payloads (HMAC over body + timestamp).
+- **Retry with backoff**, a **dead-letter** after N attempts, and a **delivery
+  log** with **replay**.
+- A **subscriber registry** (URL + secret + subscribed event types); GHL is the
+  first subscriber. Client-facing messages are delivered by GHL off these events
+  (no EvalOS mail server).
+
+Outbound event catalog (initial): `case.created`, `documents.completed`,
+`expert.assigned`, `draft.client_approved`, `expert.signed`, `case.delivered`,
+`payout.created`, `case.closed`, plus client-notification triggers
+(`checklist.requested`, `draft.ready_for_client`, `case.delivered_to_client`).
+Payloads carry brand/case/contact/attribution refs only — **never** the
+`payment_detail` field or internal notes.
+
+## Non-Functional Targets (v1)
+
+- Scale: 50–100 cases per brand per month. No microservices, message broker, or
+  sharding — a single Spring Boot app + one Postgres.
+- Availability ~99%, single region; nightly DB backups (RPO ~24h).
+- Document retention is handled in Drive, not by EvalOS.
+
+## Invariants
+
+1. **Brand isolation.** Every scoped query filters by `brand_id`; no code path
+   returns another brand's data. The GM is the only cross-brand role.
+2. A case is in exactly one system's custody at any moment. EvalOS never runs
+   marketing, sales, nurture/cold email, ad attribution, or invoicing.
+3. Role, brand, and ownership are enforced before every mutation. Case Managers,
+   clients, and experts never see data outside their assignment.
+4. The optional expert `payment_detail` is encrypted at rest and never appears in
+   logs, webhook payloads, DTOs, chat tools, or any response body.
+5. `Delivered` is the sole revenue-recognition event. Collected-but-undelivered
+   value is tracked as open liability (refund exposure), never as earned. A
+   GM-approved refund reverses recognition and voids the pending payout.
+6. Controllers stay thin and never run long-lived work. SLA timers, reminders,
+   auto-reassignment, retention/countdown, and Handoff C run in `job`.
+7. EvalOS is the system of record for cases, experts, and payouts. Contact data
+   is a read-only, brand-tagged snapshot synced from GHL and is never mutated.
+8. Payment signals only ever enter through a per-brand GHL webhook endpoint — no
+   other code path may create a case or mark a deal paid.
+9. Schema changes ship as new Flyway migrations. An applied migration is never
+   edited in place.
+10. Every inbound webhook is signature-verified, brand-resolved, deduplicated,
+    and archived before it produces any side effect.
+11. Every outbound webhook is HMAC-signed, retried with backoff, dead-lettered on
+    exhaustion, and recorded in the delivery log. Outbound payloads never contain
+    the `payment_detail` field or role-restricted internal notes.
+12. Webhook transport carries no business logic — it verifies, routes to a
+    service, or delivers a published domain event.
+13. Every state transition on every object writes an append-only, non-editable
+    audit entry (actor, action, timestamp). The audit table has no update or
+    delete path.
+14. EvalOS hosts no files and sends no email. Documents are Drive links, signed
+    letters are in Dropbox Sign, staff alerts are in-app, and client/expert
+    messages go through GHL / Dropbox Sign.

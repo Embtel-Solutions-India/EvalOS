@@ -1,0 +1,32 @@
+# Build output
+target/
+dist/
+node_modules/
+
+# Env / secrets — every real value comes from the environment
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+npm-debug.log*
+
+# IDE / editor
+.idea/
+.vscode/
+*.iml
+*.iws
+*.ipr
+.classpath
+.project
+.settings/
+.factorypath
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Local agent config (shared Serena memories are committed; see .serena/.gitignore)
+.claude/settings.local.json
