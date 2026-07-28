@@ -114,6 +114,11 @@ public class Expert extends ScopedEntity {
 		this.fullName = fullName;
 	}
 
+	/** Read by the state machine before an expert is put on a case (Unit 04). */
+	public Availability getAvailability() {
+		return availability;
+	}
+
 	@JsonIgnore
 	public String getPaymentDetail() {
 		return paymentDetail;

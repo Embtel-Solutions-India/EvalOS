@@ -1,5 +1,7 @@
 package com.ie.evalos.common;
 
+import com.ie.evalos.domain.IllegalTransitionException;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
@@ -33,6 +35,17 @@ public class ApiExceptionHandler {
 	public ResponseEntity<ApiResponse<Void>> onAuthentication(AuthenticationException ex) {
 		return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
 				.body(ApiResponse.error("INVALID_CREDENTIALS", "Email or password is incorrect"));
+	}
+
+	/**
+	 * A declared-transition violation is a conflict, not a bad request: the body was
+	 * valid and the caller was permitted, the case is just not in that state. The
+	 * message is safe to return — it names a stage and an action, nothing scoped.
+	 */
+	@ExceptionHandler(IllegalTransitionException.class)
+	public ResponseEntity<ApiResponse<Void>> onIllegalTransition(IllegalTransitionException ex) {
+		return ResponseEntity.status(HttpStatus.CONFLICT)
+				.body(ApiResponse.error("ILLEGAL_TRANSITION", ex.getMessage()));
 	}
 
 	@ExceptionHandler({ AccessDeniedException.class, ForbiddenException.class })

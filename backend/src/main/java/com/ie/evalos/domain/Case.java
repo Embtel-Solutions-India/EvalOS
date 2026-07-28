@@ -74,6 +74,13 @@ public class Case extends ScopedEntity {
 	@Column(name = "exception_state", nullable = false)
 	private ExceptionState exceptionState = ExceptionState.NONE;
 
+	/**
+	 * When the wait the case is in now began — restamped by every transition, not
+	 * only the ones that change stage. The SLA budget belongs to the wait, not to
+	 * the stage as a whole: a PM review round inside {@code DRAFT_GENERATION} has
+	 * its own 12 hours. The stage timeline itself is reconstructable from the audit
+	 * trail, which is append-only, so nothing is lost by reusing this column.
+	 */
 	@Column(name = "stage_entered_at")
 	private Instant stageEnteredAt;
 
@@ -148,5 +155,154 @@ public class Case extends ScopedEntity {
 		super(brandId);
 		this.caseCode = caseCode;
 		this.currentStage = currentStage;
+	}
+
+	// The setters below are the state machine's write surface. They are deliberately
+	// plain: the rule about which of them may be called, and when, lives in
+	// CaseTransitions and CaseLifecycleService, never in the entity.
+
+	public UUID getTeamId() {
+		return teamId;
+	}
+
+	public void setTeamId(UUID teamId) {
+		this.teamId = teamId;
+	}
+
+	public String getCaseCode() {
+		return caseCode;
+	}
+
+	public PoolStatus getPoolStatus() {
+		return poolStatus;
+	}
+
+	public void setPoolStatus(PoolStatus poolStatus) {
+		this.poolStatus = poolStatus;
+	}
+
+	public UUID getAssignedPm() {
+		return assignedPm;
+	}
+
+	public void setAssignedPm(UUID assignedPm) {
+		this.assignedPm = assignedPm;
+	}
+
+	public UUID getAssignedCm() {
+		return assignedCm;
+	}
+
+	public void setAssignedCm(UUID assignedCm) {
+		this.assignedCm = assignedCm;
+	}
+
+	public UUID getContactId() {
+		return contactId;
+	}
+
+	public ServiceType getServiceType() {
+		return serviceType;
+	}
+
+	/** Role-restricted: a DTO exposes this to GM, Brand Manager and PM only. */
+	public BigDecimal getDealValue() {
+		return dealValue;
+	}
+
+	public Instant getDeadline() {
+		return deadline;
+	}
+
+	public Stage getCurrentStage() {
+		return currentStage;
+	}
+
+	public void setCurrentStage(Stage currentStage) {
+		this.currentStage = currentStage;
+	}
+
+	public ExceptionState getExceptionState() {
+		return exceptionState;
+	}
+
+	public void setExceptionState(ExceptionState exceptionState) {
+		this.exceptionState = exceptionState;
+	}
+
+	public Instant getStageEnteredAt() {
+		return stageEnteredAt;
+	}
+
+	public void setStageEnteredAt(Instant stageEnteredAt) {
+		this.stageEnteredAt = stageEnteredAt;
+	}
+
+	public SlaStatus getSlaStatus() {
+		return slaStatus;
+	}
+
+	public void setSlaStatus(SlaStatus slaStatus) {
+		this.slaStatus = slaStatus;
+	}
+
+	public UUID getExpertId() {
+		return expertId;
+	}
+
+	public void setExpertId(UUID expertId) {
+		this.expertId = expertId;
+	}
+
+	public ExpertSignStatus getExpertSignStatus() {
+		return expertSignStatus;
+	}
+
+	public void setExpertSignStatus(ExpertSignStatus expertSignStatus) {
+		this.expertSignStatus = expertSignStatus;
+	}
+
+	public int getDraftVersionCount() {
+		return draftVersionCount;
+	}
+
+	public void setDraftVersionCount(int draftVersionCount) {
+		this.draftVersionCount = draftVersionCount;
+	}
+
+	public PmApprovalStatus getPmApprovalStatus() {
+		return pmApprovalStatus;
+	}
+
+	public void setPmApprovalStatus(PmApprovalStatus pmApprovalStatus) {
+		this.pmApprovalStatus = pmApprovalStatus;
+	}
+
+	public ClientApprovalStatus getClientApprovalStatus() {
+		return clientApprovalStatus;
+	}
+
+	public void setClientApprovalStatus(ClientApprovalStatus clientApprovalStatus) {
+		this.clientApprovalStatus = clientApprovalStatus;
+	}
+
+	public String getCampaignAttribution() {
+		return campaignAttribution;
+	}
+
+	public Instant getDeliveryDate() {
+		return deliveryDate;
+	}
+
+	public void setDeliveryDate(Instant deliveryDate) {
+		this.deliveryDate = deliveryDate;
+	}
+
+	public Instant getCaseClosedDate() {
+		return caseClosedDate;
+	}
+
+	public void setCaseClosedDate(Instant caseClosedDate) {
+		this.caseClosedDate = caseClosedDate;
 	}
 }

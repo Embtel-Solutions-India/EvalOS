@@ -99,7 +99,10 @@ Frontend under `frontend/src`: `components/ui` (generated primitives),
   by `brand + team + assignee` in the service/repository layer.
 - **Scope tiers (ABAC).** All (GM) · Brand (Brand Manager) · Team (PM) · Self
   (Coordinator, Case Manager). The ENM is a supply-side axis: expert/roster data
-  yes; client identity/case content no.
+  yes; client identity/case content no. *(Self-tier scoping needs a column that
+  names the caller. `evalos_case` has `assigned_cm` but no `assigned_coordinator`,
+  so a Coordinator's case scope is not yet expressible — open question, Unit 04
+  note (a).)*
 - **Clients** access the draft-review portal via a passwordless link delivered
   through GHL (a separate, scoped filter chain). They see only their own case's
   draft, and can approve or request revisions.
@@ -192,6 +195,17 @@ Outbound event catalog (initial): `case.created`, `documents.completed`,
 (`checklist.requested`, `draft.ready_for_client`, `case.delivered_to_client`).
 Payloads carry brand/case/contact/attribution refs only — **never** the
 `payment_detail` field or internal notes.
+
+Unit 04 publishes one event per declared transition, so the lifecycle set is
+complete rather than illustrative — `case.pm_assigned`, `documents.completed`,
+`expert.assigned`, `draft.submitted`, `draft.returned`, `draft.pm_approved`,
+`draft.ready_for_client`, `draft.revision_requested`, `draft.client_approved`,
+`expert.signed`, `expert.declined`, `qc.approved`, `case.delivered`,
+`case.closed`, `case.on_hold`, `case.resumed`, `case.refund_requested`,
+`case.refunded`, `case.refund_denied`. The four not in the list above
+(`case.pm_assigned`, `expert.declined`, `case.resumed`, `case.refund_denied`)
+exist because every transition owes exactly one event. They live in
+`event/CaseEvents.Type`, which is where a new type is added.
 
 ## Non-Functional Targets (v1)
 

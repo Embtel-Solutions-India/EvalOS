@@ -1,5 +1,8 @@
 package com.ie.evalos.repository;
 
+import java.util.List;
+import java.util.UUID;
+
 import com.ie.evalos.domain.DocumentChecklistItem;
 import com.ie.evalos.service.ScopePredicate;
 
@@ -15,4 +18,11 @@ public interface DocumentChecklistItemRepository extends ScopedRepository<Docume
 	default ScopePredicate.Fields scopeFields() {
 		return SCOPE;
 	}
+
+	/**
+	 * Every item on one case. Not scoped on its own: only call it with a case id
+	 * that came back from {@code CaseRepository.findScoped}, which already proved the
+	 * caller may see it.
+	 */
+	List<DocumentChecklistItem> findByCaseId(UUID caseId);
 }

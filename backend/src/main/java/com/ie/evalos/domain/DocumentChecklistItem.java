@@ -33,4 +33,8 @@ public class DocumentChecklistItem extends ScopedEntity {
 	protected DocumentChecklistItem() {
 		// for JPA
 	}
+
+	public ChecklistItemStatus getStatus() {
+		return status;
+	}
 }

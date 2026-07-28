@@ -10,6 +10,13 @@ public enum Role {
 	GM(Tier.ALL),
 	BRAND_MANAGER(Tier.BRAND),
 	PROJECT_MANAGER(Tier.TEAM),
+	// Self, per the design. Note the open gap this leaves: `evalos_case`'s assignee
+	// axis is `assigned_cm`, which only ever holds a Case Manager, so a Coordinator
+	// currently matches no case and their declared stage actions (docs-complete,
+	// send-to-client, deliver, close) answer 403 at runtime. Closing it needs an
+	// `assigned_coordinator` column and a migration — see the open question in
+	// context/progress-tracker.md. Do not close it by widening the predicate: a
+	// scope that matches when it should not is the failure mode this design avoids.
 	PROJECT_COORDINATOR(Tier.SELF),
 	CASE_MANAGER(Tier.SELF),
 	EXPERT_NETWORK_MANAGER(Tier.SUPPLY);
