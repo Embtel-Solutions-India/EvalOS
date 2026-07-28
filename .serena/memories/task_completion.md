@@ -14,10 +14,13 @@ backend, since nothing else catches a runtime regression.
 
 ## backend/ changes
 
-1. `.\mvnw.cmd verify` — compile + slice tests, no Docker required. Use `clean verify` if surefire
-   fails to discover tests (stale `target/`).
-2. A test that needs a real schema needs a real Postgres; there is none on this machine. If you
-   cannot run it, **say so explicitly** rather than reporting it as passing.
+1. `.\mvnw.cmd verify` — compile + slice/unit tests, no Docker or database required. Use
+   `clean verify` if surefire fails to discover tests (stale `target/`).
+2. Touched an entity, migration, repository, converter or anything else persistence-shaped? Also run
+   the gated DB test (`-Devalos.db.test=true`, see `mem:suggested_commands`) — `verify` alone never
+   loads a `ddl-auto=validate` context, so a mapping/schema mismatch passes it silently. Prove a new
+   migration on a throwaway database as well as the dev one.
+3. If a check could not be run, **say so explicitly** rather than reporting it as passing.
 
 ## Every unit (from `context/ai-workflow-rules.md`)
 

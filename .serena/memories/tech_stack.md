@@ -26,9 +26,13 @@ a dependency only in the unit where it first unlocks real behavior.
 - Spring Boot **3.5.16** parent, Java 21 (`java.version` property; the toolchain JDK may be newer —
   compilation targets 21). Boot 3 artifact naming: `spring-boot-starter-web` and a single
   `spring-boot-starter-test`.
-- Starters: `web`, `data-jpa`, `validation`, `actuator`. `flyway-core` +
-  `flyway-database-postgresql`. `postgresql` driver at `runtime` scope.
-- **No Lombok, no Testcontainers, no Spring Security yet** — all three were dropped from the
-  Initializr default in Unit 01 (records + constructor injection instead of Lombok; Security arrives
-  with Unit 02). Boot 4 was deliberately downgraded to 3.x to match the unit spec.
+- Starters: `web`, `data-jpa`, `validation`, `actuator`, `security`. `flyway-core` +
+  `flyway-database-postgresql`. `postgresql` driver at `runtime` scope. `spring-security-test` at test
+  scope.
+- JWT: **jjwt 0.13.0** (`jjwt-api` compile, `jjwt-impl` + `jjwt-jackson` runtime) — the 0.11 builder
+  API is wrong here; use `Jwts.builder().subject(...).signWith(key)` and
+  `Jwts.parser().verifyWith(key).build().parseSignedClaims(...)`.
+- **No Lombok and no Testcontainers** — both dropped from the Initializr default in Unit 01 (records +
+  constructor injection instead of Lombok). There is no Docker on this machine, so DB-dependent tests
+  are gated rather than containerised. Boot 4 was deliberately downgraded to 3.x per the unit spec.
 - Maven Wrapper is committed — use it rather than a system `mvn`.

@@ -19,8 +19,9 @@ Technical Design Document v1.1**; where a context file conflicts with it, v1.1 w
   `context/progress-tracker.md` instead.
 - Update `context/progress-tracker.md` after every meaningful change; update the relevant context
   file (and the TDD) if a decision changes.
-- **Current state:** Unit 01 (scaffold) done. Unit 02 (tenancy/auth/RBAC) next — there is still no
-  domain model, no entities, no security config.
+- **Current state:** Units 01–03 done — scaffold + envelope, the tenancy/auth/RBAC spine, and the
+  full domain schema (`V1`–`V10`, all entities, repositories, audit, field encryption). Unit 04 (case
+  state machine + SLA computation) is next. No endpoints exist yet beyond auth/health/team-members.
 
 ## Layout
 

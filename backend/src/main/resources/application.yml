@@ -23,6 +23,10 @@ evalos:
       # environment that forgets it must fail to start, not sign with a guess.
       secret: ${JWT_SECRET}
       ttl: ${JWT_TTL:PT8H}
+    # AES-256 key for the one encrypted field (expert.payment_detail), base64 of
+    # exactly 32 bytes. No default, for the same reason as the signing key: an
+    # environment that forgets it must fail to start, not write plaintext.
+    field-key: ${EVALOS_FIELD_KEY}
 
 server:
   port: ${SERVER_PORT:8080}

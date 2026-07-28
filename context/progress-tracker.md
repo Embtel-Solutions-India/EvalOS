@@ -4,11 +4,11 @@ Update this file after every meaningful implementation change.
 
 ## Current Phase
 
-- Phase 1 — Structure the data (the spine). Units 01–02 built; Unit 03 next.
+- Phase 1 — Structure the data (the spine). Units 01–03 built; Unit 04 next.
 
 ## Current Goal
 
-- Unit 03 — the remaining domain entities on top of the Unit 02 tenancy spine.
+- Unit 04 — the case state machine over the schema Unit 03 laid down.
 
 ## Completed
 
@@ -65,6 +65,45 @@ Update this file after every meaningful implementation change.
     `ddl-auto=validate` passed, and the acceptance flow verified end-to-end
     (GM all 5, Brand-Mgr IE only 3, Case-Mgr 403, no/garbage/flipped-sig token
     401, login-body `brandId` ignored). The DB half is no longer a gap.
+- **Unit 03 — Domain model & migrations.** The system-of-record schema:
+  - Entities + `V4`–`V10`: `ContactSnapshot`, `Case` (table `evalos_case`),
+    `DocumentChecklistItem`, `Expert`, `PayoutLedger`, `Notification`,
+    `AuditEvent` — every foreign key a raw UUID rather than an association, as in
+    Unit 02, so scoping stays a plain column predicate.
+  - The 21 vocabulary enums in `domain/`. `NotificationType` and `AuditAction`
+    are open: their columns carry no CHECK, so later units add values without a
+    migration.
+  - `domain/ScopedEntity` (`@MappedSuperclass`) — the `id`/`brand_id`/`created_at`
+    every scoped row shares, with a `@PrePersist` hook that stamps `created_at`
+    and **refuses a row with no brand**. `brand_id` is `updatable = false`: a row
+    never changes brand.
+  - `common/PaymentDetailConverter` — AES-256-GCM, fresh 12-byte IV per write,
+    stored as `base64(iv || ciphertext||tag)`, key from `EVALOS_FIELD_KEY` via
+    `evalos.security.field-key` (no prod default, local dev default only). GCM is
+    authenticated, so an edited column fails to decrypt rather than returning
+    plausible plaintext. The cost is that the column is not searchable.
+  - `repository/ScopedRepository` — `findScoped(ctx)` and `findScoped(ctx, id)`
+    built on the Unit 02 `ScopePredicate`; each repository declares only which of
+    its columns carry brand / team / assignee. `Case` is the one type using all
+    three axes (`brandId`, `teamId`, `assignedCm`); `Notification` scopes by
+    recipient; the rest are brand-only.
+  - Append-only audit, enforced three times over: `AuditEventRepository` extends
+    the bare `Repository` marker (so no `delete*` exists to call), every
+    `AuditEvent` column is mapped `updatable = false`, and a
+    `BEFORE UPDATE OR DELETE` trigger raises. `AuditService.recordEvent(...)`
+    joins the caller's transaction, so the trail commits with the change it
+    describes or not at all.
+  - Verified: `./mvnw clean verify` BUILD SUCCESS, 37 tests (31 run —
+    `SecurityFlowTest` 10, `DomainInvariantsTest` 9, `ScopePredicateTest` 6,
+    `PaymentDetailConverterTest` 5, `HealthControllerTest` 1 — plus 6 DB-gated),
+    **and live against local Postgres 18**: on a fresh `evalos_unit03` database
+    all 11 migrations applied in order, the next boot was a no-op,
+    `ddl-auto=validate` passed (so `text[]` and `jsonb` map correctly),
+    `payment_detail` is base64 ciphertext in raw SQL and plaintext through the
+    entity, a Brand Manager's `findScoped` returned only their brand's expert
+    while the GM saw both, a brand-less row was refused before insert, and raw
+    `UPDATE`/`DELETE` on `audit_event` both raised. The dev `evalos` database was
+    then migrated forward and re-verified.
 
 ## In Progress
 
@@ -72,8 +111,8 @@ Update this file after every meaningful implementation change.
 
 ## Next Up
 
-- Unit 03 — remaining domain entities. Open it with a Testcontainers
-  `@SpringBootTest` to close the standing DB-verification gap for V1–V3.
+- Unit 04 — case state machine (calls `AuditService.recordEvent` on each
+  transition, computes `sla_status`).
 
 ## Open Questions
 
@@ -159,6 +198,60 @@ Update this file after every meaningful implementation change.
   `@Value`, not `@ConfigurationProperties`. (e) The JWT carries role/brand/team,
   so a role or brand change only takes effect on the next login; the 8h TTL
   bounds it. Revisit if instant revocation is ever required.
+
+- **Unit 03 deviations / gaps to close.**
+  (a) **Flyway out-of-order, local only.** The `V900` local seed sits above every
+  real migration, so on a dev database that had already run it, `V4`–`V10` looked
+  out of order and Flyway refused them — a latent Unit 02 defect that Unit 03's
+  first new migration surfaced. Fixed with `spring.flyway.out-of-order: true` in
+  the `local` profile, the only profile that applies the seed; `prod` keeps the
+  strict default. Fresh databases were never affected.
+  (b) **Accessors are added when a consumer appears.** Entities carry their mapped
+  fields, a creation constructor for the required columns, and nothing else;
+  Hibernate uses field access, so getters are not needed to persist or validate.
+  `ScopedEntity` exposes `id`/`brandId`/`createdAt`, `Expert` exposes
+  `payment_detail`, and `AuditEvent` has full getters because its finders return
+  rows to be read. Unit 04 adds the stage/SLA accessors the state machine needs
+  rather than 400 lines of speculative boilerplate now.
+  (c) **`created_at` added to three tables** the spec's per-table lists omitted
+  (`contact_snapshot`, `document_checklist_item`, `expert`) — the spec's blanket
+  "every table has `brand_id` and timestamps" plus deliverable 6's `created_at`
+  stamp both call for it.
+  (d) **Columns with a spec default are NOT NULL** (`draft_version_count`,
+  `google_review_requested`, `total_cases_completed`, `current_active_count`,
+  `total_payments_pending`) because the Java fields are primitives / never null.
+  (e) **`evalos_case.expert_id`'s foreign key is added in `V7`**, not `V5`: the
+  `expert` table does not exist yet at `V5`. The column and its
+  `(brand_id, expert_id)` index are in `V5` as specified.
+  (f) **Audit brand is derived, not passed.** `recordEvent(...)` has no `brandId`
+  parameter, so the brand comes from `TenantContext` — never from an argument a
+  caller could get wrong. A system action outside a request records a null brand,
+  which the nullable column allows; so does a GM action, since a GM has no brand.
+  (g) **`object_type` stays a `String`**, matching the spec's signature. No
+  `AuditObjectType` enum is defined anywhere in the design; add one if Unit 04
+  finds the loose strings drifting.
+  (h) **`text[]` columns map as `String[]`**, not enum arrays — `PerformanceFlag`
+  is the vocabulary, applied at the service layer. Enum-array mapping buys
+  nothing here and risks `ddl-auto=validate` mismatches.
+  (i) **No CHECK constraints on the enum columns.** The spec does not ask for
+  them; `V3`'s `role` CHECK was Unit 02's own call. Cheap to add later if a
+  hand-written row ever needs guarding.
+  (j) `ScopePredicate` still lives in `service` (Unit 02 put it there) and
+  `repository` now imports it — inverted layering, but it is a static helper with
+  no dependencies, so there is no cycle and moving it would touch Unit 02 code for
+  no behavioural gain.
+  (k) **Contact snapshot columns stay updatable.** Invariant 7 means EvalOS
+  business rules never mutate them, not that the column is physically read-only —
+  `architecture.md` has GHL's `contact.updated` refreshing the snapshot, and
+  `updatable = false` would block that writer too. The rule is documented on the
+  entity instead.
+  (l) **Testcontainers gap still open.** The DB checks live in
+  `LocalPostgresIntegrationTest`, gated on `-Devalos.db.test=true`, because this
+  machine has no Docker; `./mvnw verify` therefore stays green anywhere and skips
+  those 6. Convert it to Testcontainers when CI (or Docker) exists — the test
+  bodies will not need to change, only how the database is provided.
+  (m) Fixed in passing: `README.md` said a Brand Manager sees "four" seeded team
+  members; the seed gives them three.
 
 - Reconciled from three source documents (`IE_CRM_Spec_v2`, the Hybrid Platform
   Architecture, and the Feature Inventory FRD) into the EvalOS Technical Design

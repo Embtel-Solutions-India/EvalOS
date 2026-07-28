@@ -220,19 +220,29 @@ method anywhere; enforce with a DB grant where possible.
 
 ## Acceptance criteria
 
-- [ ] Fresh DB: `V1`–`V10` apply in order with no error; a second startup is a
-      no-op.
-- [ ] App starts with `ddl-auto=validate` — entities match the migrated schema
-      exactly (no Hibernate mismatch).
-- [ ] Every scoped table has a NOT NULL `brand_id` and the specified indexes.
-- [ ] `Expert.payment_detail` is stored as ciphertext (verify in raw SQL), reads
+- [x] Fresh DB: `V1`–`V10` apply in order with no error; a second startup is a
+      no-op. (Verified on a fresh `evalos_unit03` database: 11 migrations applied
+      including the local seed, then "Schema is up to date. No migration
+      necessary." on the next boot.)
+- [x] App starts with `ddl-auto=validate` — entities match the migrated schema
+      exactly (no Hibernate mismatch). Covers `text[]` and `jsonb`.
+- [x] Every scoped table has a NOT NULL `brand_id` and the specified indexes.
+      (Confirmed in `information_schema` / `pg_indexes`; `audit_event` is the one
+      nullable `brand_id`, by design.)
+- [x] `Expert.payment_detail` is stored as ciphertext (verified in raw SQL), reads
       back as plaintext through the entity, and never appears in any DTO, log
-      line, or `toString`.
-- [ ] The audit repository has no update/delete method; attempting a mutation to
-      an existing audit row is not possible through the app.
-- [ ] Repositories return only the caller's brand data when used with the Unit 02
-      scope mechanism (unit test with two brands).
-- [ ] `./mvnw verify` green.
+      line, or `toString`. (`Expert` has no `toString`; the field and its getter
+      are `@JsonIgnore`.)
+- [x] The audit repository has no update/delete method; attempting a mutation to
+      an existing audit row is not possible through the app. (Enforced three
+      ways: `Repository` marker rather than `JpaRepository`, every column mapped
+      `updatable = false`, and a `BEFORE UPDATE OR DELETE` trigger. Raw-SQL
+      `UPDATE` and `DELETE` both raise.)
+- [x] Repositories return only the caller's brand data when used with the Unit 02
+      scope mechanism (two-brand test: a Brand Manager sees only their brand's
+      expert, the GM sees both, and the by-id variant is scoped too).
+- [x] `./mvnw verify` green — 37 tests, 31 run and 6 skipped (the DB-gated
+      integration test; run it with `-Devalos.db.test=true`).
 
 ## Invariants honored
 

@@ -32,7 +32,13 @@ Full rules live in `context/code-standards.md` — this is the distilled, enforc
   service → return a DTO in `ApiResponse`. Business rules live in `service`, never in controllers or
   entities. Errors are mapped centrally by a `@RestControllerAdvice` from typed domain exceptions.
 - Bean Validation on every inbound request DTO and webhook payload — parse-then-trust.
-- Test classes are package-private (`class HealthControllerTest`), slice-scoped (`@WebMvcTest`).
+- Test classes are package-private (`class HealthControllerTest`), slice-scoped (`@WebMvcTest`) or
+  plain unit tests. A test that needs a real database is gated, not silently skipped —
+  `mem:suggested_commands`.
+- Persistence conventions are load-bearing, not stylistic: scoped entities extend `ScopedEntity`,
+  foreign keys are raw `UUID`s rather than associations, scoped reads go through
+  `ScopedRepository.findScoped(...)`, and accessors are written when a consumer appears rather than
+  upfront. Details in `mem:backend/persistence`.
 
 ## Protected — do not touch without explicit instruction
 

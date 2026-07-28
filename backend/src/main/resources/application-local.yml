@@ -10,8 +10,16 @@ spring:
     # The seed lives in its own location that only this profile lists, so a
     # prod boot cannot apply it even though the file ships in the jar.
     locations: classpath:db/migration,classpath:db/migration/local
+    # The seed is deliberately numbered V900, above every real migration, so on a
+    # dev database that has already run it the next unit's V-N looks like an
+    # out-of-order migration and Flyway refuses it. Allowed here only: this is the
+    # one profile that applies the seed, and prod keeps the strict default.
+    out-of-order: true
 
 evalos:
   security:
     jwt:
       secret: ${JWT_SECRET:local-dev-signing-key-change-me-not-for-deployment}
+    # base64('local-dev-field-key-not-for-prod'). Throwaway: rows encrypted with
+    # it are local rows, and a real key never appears in this file.
+    field-key: ${EVALOS_FIELD_KEY:bG9jYWwtZGV2LWZpZWxkLWtleS1ub3QtZm9yLXByb2Q=}

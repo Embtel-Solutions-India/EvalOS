@@ -31,7 +31,9 @@ export DB_PASSWORD=evalos
 
 No secrets are committed — every value comes from the environment. The `prod`
 profile (`SPRING_PROFILES_ACTIVE=prod`) has no defaults at all, including
-`JWT_SECRET` (32 bytes minimum) — it will refuse to start without one.
+`JWT_SECRET` (32 bytes minimum) and `EVALOS_FIELD_KEY` (base64 of exactly 32
+bytes, the AES-256 key for the encrypted `expert.payment_detail`) — it will
+refuse to start without either.
 
 **2. Backend** (port 8080; Flyway applies `db/migration` on startup):
 
@@ -63,7 +65,7 @@ curl -s localhost:8080/api/team-members -H "Authorization: Bearer $TOKEN"
 ```
 
 Swap the GM token for `bm.ie@evalos.local`'s and `/api/team-members` returns only
-that brand's four members. A Case Manager token gets `403`.
+that brand's three members. A Case Manager token gets `403`.
 
 **3. Frontend** (port 5173; `/api` is proxied to 8080):
 
@@ -78,4 +80,14 @@ npm run dev
 ```bash
 cd backend  && ./mvnw verify
 cd frontend && npm run build
+```
+
+`./mvnw verify` needs no database. The persistence checks that do — migrations
+apply, `ddl-auto=validate` agrees with every entity, `payment_detail` is
+ciphertext on disk, scoped finders keep two brands apart, audit rows cannot be
+edited — are one opt-in command against a real PostgreSQL:
+
+```bash
+cd backend && ./mvnw test -Devalos.db.test=true -Dtest=LocalPostgresIntegrationTest \
+  -DDB_URL=jdbc:postgresql://localhost:5432/evalos
 ```

@@ -1,0 +1,65 @@
+package com.ie.evalos.service;
+
+import java.util.UUID;
+
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.ie.evalos.domain.AuditAction;
+import com.ie.evalos.domain.AuditEvent;
+import com.ie.evalos.repository.AuditEventRepository;
+import com.ie.evalos.security.TenantContext;
+
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+/**
+ * The one way an audit row is written. Every state change in EvalOS records one
+ * (invariant 13), and because this joins the caller's transaction, the trail
+ * commits with the change it describes or not at all.
+ *
+ * <p>Pass DTOs or plain maps as snapshots, not entities: a snapshot is a record of
+ * what the fields were, not a live object graph to be lazily loaded later. The
+ * expert's {@code payment_detail} is {@code @JsonIgnore}d, so it stays out of a
+ * snapshot even if an entity is passed by mistake.
+ */
+@Service
+public class AuditService {
+
+	private final AuditEventRepository auditEvents;
+	private final ObjectMapper objectMapper;
+
+	AuditService(AuditEventRepository auditEvents, ObjectMapper objectMapper) {
+		this.auditEvents = auditEvents;
+		this.objectMapper = objectMapper;
+	}
+
+	/**
+	 * @param objectType what was acted on, e.g. {@code CASE}, {@code EXPERT}
+	 * @param actorId    the staff member responsible, or null for a system action
+	 * @param before     state before the change, or null when there was none
+	 * @param after      state after the change, or null when the object is gone
+	 * @return the persisted row, whose {@code created_at} the database stamps
+	 */
+	@Transactional
+	public AuditEvent recordEvent(String objectType, UUID objectId, AuditAction action, UUID actorId,
+			Object before, Object after) {
+		// The brand is not a parameter on purpose: it comes from the authenticated
+		// caller, never from an argument a caller could get wrong. A system action
+		// outside a request has no brand, which the nullable column allows.
+		UUID brandId = TenantContext.find().map(TenantContext::brandId).orElse(null);
+		return auditEvents.save(new AuditEvent(
+				brandId, objectType, objectId, action, actorId, asJson(before), asJson(after)));
+	}
+
+	private String asJson(Object snapshot) {
+		if (snapshot == null) {
+			return null;
+		}
+		try {
+			return objectMapper.writeValueAsString(snapshot);
+		}
+		catch (JsonProcessingException ex) {
+			throw new IllegalArgumentException("Audit snapshot could not be serialized", ex);
+		}
+	}
+}
