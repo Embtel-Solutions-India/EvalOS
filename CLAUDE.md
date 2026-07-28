@@ -25,6 +25,7 @@ Individual unit specs live alongside it as `context/specs/NN-name.md` and are
 generated just before each unit is built.
 
 Two rules that override convenience everywhere:
+
 - **Brand-scoped by default.** Every scoped query filters by `brand_id`
   (plus team/assignee where applicable). A query without brand scoping is a bug.
 - **Append-only truth.** Audit and assignment history are never updated or

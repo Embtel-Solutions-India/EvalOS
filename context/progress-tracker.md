@@ -4,12 +4,11 @@ Update this file after every meaningful implementation change.
 
 ## Current Phase
 
-- Phase 1 — Structure the data (the spine). Unit 01 built; Unit 02 next.
+- Phase 1 — Structure the data (the spine). Units 01–02 built; Unit 03 next.
 
 ## Current Goal
 
-- Unit 02 — tenancy, auth & RBAC (brands, users, Spring Security + JWT,
-  brand/team/assignee scoping).
+- Unit 03 — the remaining domain entities on top of the Unit 02 tenancy spine.
 
 ## Completed
 
@@ -38,14 +37,43 @@ Update this file after every meaningful implementation change.
   - Root `README.md` with run + verify steps.
   - Verified: `./mvnw clean verify` BUILD SUCCESS (1 test), `npm run build`
     clean.
+- **Unit 02 — Multi-tenancy + Auth & RBAC/ABAC.** The guard rails everything
+  scoped now depends on:
+  - `Brand` + `TeamMember` entities and `V2`/`V3` migrations. `team_member`
+    carries a CHECK that only a GM row may have a NULL `brand_id`, so a
+    mis-seeded row cannot silently become cross-brand.
+  - `Role` enum carries its own ABAC `Tier` (`ALL/BRAND/TEAM/SELF/SUPPLY`), so
+    no query re-derives scope from the role name.
+  - `security/`: stateless bearer-only `SecurityFilterChain`, BCrypt,
+    `EvalOsUserDetailsService`, `JwtService` (HS256, claims carry
+    member/role/brand/team so scoping needs no DB hit), `JwtFilter`,
+    `StaffPrincipal`, `TenantContext` (read off the security context — brand
+    never comes from a body, query, or header).
+  - `ScopePredicate` — the one place brand/team/assignee predicates are built;
+    **fails closed** (a brand-locked role with no brand matches nothing, not
+    everything). `OwnershipGuard` is its write-side counterpart.
+  - Endpoints: `POST /api/auth/login`, `GET /api/me`,
+    `GET /api/team-members` (`@PreAuthorize` GM/Brand-Manager, scoped in the
+    service). `ApiErrors` writes the envelope for filter-chain 401/403s, which
+    never reach `@RestControllerAdvice`.
+  - Local-only seed `db/migration/local/V900__seed_local.sql` (2 brands,
+    5 logins, password `DevPassw0rd!`), reachable only because the `local`
+    profile is the only one listing that Flyway location.
+  - Verified: `./mvnw clean verify` BUILD SUCCESS, 17 tests
+    (`SecurityFlowTest` 10, `ScopePredicateTest` 6, `HealthControllerTest` 1),
+    **plus a live run against local Postgres** — V1–V3 + V900 seed applied,
+    `ddl-auto=validate` passed, and the acceptance flow verified end-to-end
+    (GM all 5, Brand-Mgr IE only 3, Case-Mgr 403, no/garbage/flipped-sig token
+    401, login-body `brandId` ignored). The DB half is no longer a gap.
 
 ## In Progress
 
-- None.
+- Nothing.
 
 ## Next Up
 
-- Unit 02 — Tenancy, auth & RBAC.
+- Unit 03 — remaining domain entities. Open it with a Testcontainers
+  `@SpringBootTest` to close the standing DB-verification gap for V1–V3.
 
 ## Open Questions
 
@@ -114,6 +142,23 @@ Update this file after every meaningful implementation change.
   webfonts are not bundled. (c) Boot 3.5.16 chosen over the Initializr's 4.1.0
   to match the spec's "Spring Boot 3.x". (d) Stale `backend/target/` from the
   old scaffold breaks surefire discovery — run `./mvnw clean verify` once.
+
+- **Unit 02 deviations / gaps to close.** (a) ~~DB half unverified~~ —
+  **closed**: verified live against local Postgres (postgres/1234, db `evalos`
+  created this session). Unit 03 should still add a Testcontainers
+  `@SpringBootTest` so the DB path is covered in CI, not just by a manual local
+  run (and to re-add the testcontainers deps dropped when the scaffold was
+  re-based). (b) `/api/me`
+  lives in `AuthController`, not the spec's separate `MeController` — same
+  concern (staff identity), one fewer file. (c) `@WebMvcTest` slices must
+  `@Import` the security stack and set `evalos.security.jwt.secret`, because
+  `JwtFilter` is picked up as a `Filter` bean while `JwtService` is not — that
+  is what broke Unit 01's `HealthControllerTest`; it now imports the real
+  `SecurityConfig` and so also asserts health stays public. (d) The IDE flags
+  `evalos.*` as an unknown property — expected, those values are read with
+  `@Value`, not `@ConfigurationProperties`. (e) The JWT carries role/brand/team,
+  so a role or brand change only takes effect on the next login; the 8h TTL
+  bounds it. Revisit if instant revocation is ever required.
 
 - Reconciled from three source documents (`IE_CRM_Spec_v2`, the Hybrid Platform
   Architecture, and the Feature Inventory FRD) into the EvalOS Technical Design

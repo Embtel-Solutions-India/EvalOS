@@ -40,44 +40,48 @@ rejected (401/403).
 ## Data / schema
 
 ### `brand` (migration `V2__brand.sql`)
-| column                 | type          | notes                                   |
-| ---------------------- | ------------- | --------------------------------------- |
-| id                     | uuid PK       | `gen_random_uuid()`                     |
-| name                   | text NOT NULL |                                         |
-| slug                   | text UNIQUE   | url-safe brand key                      |
-| active                 | boolean NOT NULL default true |                         |
-| webhook_endpoint_token | text UNIQUE NOT NULL | resolves brand at Handoff A       |
-| created_at             | timestamptz NOT NULL default now() |                    |
+
+| column                 | type                               | notes                       |
+| ---------------------- | ---------------------------------- | --------------------------- |
+| id                     | uuid PK                            | `gen_random_uuid()`         |
+| name                   | text NOT NULL                      |                             |
+| slug                   | text UNIQUE                        | url-safe brand key          |
+| active                 | boolean NOT NULL default true      |                             |
+| webhook_endpoint_token | text UNIQUE NOT NULL               | resolves brand at Handoff A |
+| created_at             | timestamptz NOT NULL default now() |                             |
 
 ### `team_member` (migration `V3__team_member.sql`)
-| column        | type          | notes                                              |
-| ------------- | ------------- | -------------------------------------------------- |
-| id            | uuid PK       |                                                    |
-| brand_id      | uuid FK→brand | **nullable** — NULL means all brands (GM only)     |
-| team_id       | uuid          | nullable; groups a PM's team                        |
-| role          | text NOT NULL | one of the `Role` enum values                       |
-| email         | text UNIQUE NOT NULL |                                             |
-| password_hash | text NOT NULL | BCrypt                                              |
-| display_name  | text NOT NULL |                                                    |
-| reports_to    | uuid FK→team_member | nullable (hierarchy)                          |
-| active        | boolean NOT NULL default true |                                    |
-| created_at    | timestamptz NOT NULL default now() |                               |
+
+| column        | type                               | notes                                          |
+| ------------- | ---------------------------------- | ---------------------------------------------- |
+| id            | uuid PK                            |                                                |
+| brand_id      | uuid FK→brand                      | **nullable** — NULL means all brands (GM only) |
+| team_id       | uuid                               | nullable; groups a PM's team                   |
+| role          | text NOT NULL                      | one of the `Role` enum values                  |
+| email         | text UNIQUE NOT NULL               |                                                |
+| password_hash | text NOT NULL                      | BCrypt                                         |
+| display_name  | text NOT NULL                      |                                                |
+| reports_to    | uuid FK→team_member                | nullable (hierarchy)                           |
+| active        | boolean NOT NULL default true      |                                                |
+| created_at    | timestamptz NOT NULL default now() |                                                |
 
 Index: `(brand_id, role)`, `(email)`.
 
 ### `Role` enum
+
 `GM · BRAND_MANAGER · PROJECT_MANAGER · PROJECT_COORDINATOR · CASE_MANAGER ·
 EXPERT_NETWORK_MANAGER`. No Head-of-Evals, no interns.
 
 ### Scope tiers (ABAC)
-| Role                   | Tier   | Reads                                            |
-| ---------------------- | ------ | ------------------------------------------------ |
-| GM                     | All    | every brand                                      |
-| BRAND_MANAGER          | Brand  | own brand only                                   |
-| PROJECT_MANAGER        | Team   | own brand + own team                             |
-| PROJECT_COORDINATOR    | Self   | own brand + assigned                             |
-| CASE_MANAGER           | Self   | own brand + assigned                             |
-| EXPERT_NETWORK_MANAGER | Supply | own brand experts/roster (not case content)      |
+
+| Role                   | Tier   | Reads                                       |
+| ---------------------- | ------ | ------------------------------------------- |
+| GM                     | All    | every brand                                 |
+| BRAND_MANAGER          | Brand  | own brand only                              |
+| PROJECT_MANAGER        | Team   | own brand + own team                        |
+| PROJECT_COORDINATOR    | Self   | own brand + assigned                        |
+| CASE_MANAGER           | Self   | own brand + assigned                        |
+| EXPERT_NETWORK_MANAGER | Supply | own brand experts/roster (not case content) |
 
 ## Deliverables
 
@@ -89,9 +93,9 @@ EXPERT_NETWORK_MANAGER`. No Head-of-Evals, no interns.
 3. **Auth endpoints** (`web`):
    - `POST /api/auth/login` `{ email, password }` → `{ token, role, brandId }`.
    - `GET /api/me` → the authenticated principal's `{ id, displayName, role,
-     brandId, teamId }`.
+brandId, teamId }`.
 4. **`TenantContext`** — request-scoped holder of `{ memberId, role, brandId,
-   teamId }`, populated by the JWT filter from the principal. Never trusts a
+teamId }`, populated by the JWT filter from the principal. Never trusts a
    body/query field for brand.
 5. **Scoping mechanism** (`repository` + `service`): a reusable
    `ScopePredicate`/Specification builder that, given the `TenantContext`,
@@ -106,24 +110,32 @@ EXPERT_NETWORK_MANAGER`. No Head-of-Evals, no interns.
 
 ## Endpoints summary
 
-| Method | Path                | Auth        | Scope          |
-| ------ | ------------------- | ----------- | -------------- |
-| POST   | /api/auth/login     | public      | —              |
-| GET    | /api/me             | any staff   | self           |
-| GET    | /api/team-members   | GM, Brand Mgr | brand-scoped |
+| Method | Path              | Auth          | Scope        |
+| ------ | ----------------- | ------------- | ------------ |
+| POST   | /api/auth/login   | public        | —            |
+| GET    | /api/me           | any staff     | self         |
+| GET    | /api/team-members | GM, Brand Mgr | brand-scoped |
 
 ## Acceptance criteria
 
-- [ ] A seeded GM logs in via `/api/auth/login` and receives a JWT.
-- [ ] `/api/me` returns the correct role and `brandId` (null for GM).
-- [ ] A Brand Manager token on `/api/team-members` returns only that brand's
-      members; a GM token returns all brands'.
-- [ ] A Case Manager token on `/api/team-members` is `403`.
-- [ ] No token → `401`. Tampered/expired token → `401`.
-- [ ] The scope predicate is applied in the repository/service, not the
+- [x] A seeded GM logs in via `/api/auth/login` and receives a JWT.
+      (`SecurityFlowTest.seededGmLogsInAndReceivesAToken`)
+- [x] `/api/me` returns the correct role and `brandId` (null for GM).
+- [x] A Brand Manager token on `/api/team-members` returns only that brand's
+      members; a GM token returns all brands'. (Predicate proven per tier in
+      `ScopePredicateTest`; HTTP path in `SecurityFlowTest`.)
+- [x] A Case Manager token on `/api/team-members` is `403`.
+- [x] No token → `401`. Tampered/expired token → `401`.
+- [x] The scope predicate is applied in the repository/service, not the
       controller, and there is no code path to pass `brandId` from the request
       body.
-- [ ] `./mvnw verify` green; `ddl-auto=validate` passes against V2/V3.
+- [x] `./mvnw verify` green (17 tests) and **verified end-to-end against a real
+      local Postgres**: V1–V3 + the V900 seed all apply, `ddl-auto=validate`
+      passes (the app boots), and the full acceptance flow above was run live —
+      GM sees all 5 members, Brand-Manager IE sees only their 3, Case-Manager
+      gets 403, no/garbage/flipped-signature tokens all 401, and a `brandId`
+      planted in the login body is ignored (the token still carries the seeded
+      brand).
 
 ## Invariants honored
 

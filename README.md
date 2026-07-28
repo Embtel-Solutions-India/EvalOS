@@ -30,7 +30,8 @@ export DB_PASSWORD=evalos
 ```
 
 No secrets are committed — every value comes from the environment. The `prod`
-profile (`SPRING_PROFILES_ACTIVE=prod`) has no defaults at all.
+profile (`SPRING_PROFILES_ACTIVE=prod`) has no defaults at all, including
+`JWT_SECRET` (32 bytes minimum) — it will refuse to start without one.
 
 **2. Backend** (port 8080; Flyway applies `db/migration` on startup):
 
@@ -41,6 +42,28 @@ cd backend
 
 - `GET /api/health` → `{"success":true,"data":{"status":"UP","service":"evalos","time":"…"}}`
 - `GET /actuator/health`
+
+The `local` profile also applies `db/migration/local`, which seeds two brands and
+five staff logins — all with the password `DevPassw0rd!`:
+
+| email               | role            | brand                     |
+| ------------------- | --------------- | ------------------------- |
+| `gm@evalos.local`   | GM              | — (all brands)            |
+| `bm.ie@evalos.local`| Brand Manager   | International Evaluations |
+| `bm.xp@evalos.local`| Brand Manager   | XpertsPortal              |
+| `pm.ie@evalos.local`| Project Manager | International Evaluations |
+| `cm.ie@evalos.local`| Case Manager    | International Evaluations |
+
+```bash
+TOKEN=$(curl -s localhost:8080/api/auth/login -H 'Content-Type: application/json' \
+  -d '{"email":"gm@evalos.local","password":"DevPassw0rd!"}' | jq -r .data.token)
+
+curl -s localhost:8080/api/me           -H "Authorization: Bearer $TOKEN"
+curl -s localhost:8080/api/team-members -H "Authorization: Bearer $TOKEN"
+```
+
+Swap the GM token for `bm.ie@evalos.local`'s and `/api/team-members` returns only
+that brand's four members. A Case Manager token gets `403`.
 
 **3. Frontend** (port 5173; `/api` is proxied to 8080):
 

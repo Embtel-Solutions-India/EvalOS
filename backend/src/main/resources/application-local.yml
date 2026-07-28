@@ -2,7 +2,16 @@
 spring:
   datasource:
     url: ${DB_URL:jdbc:postgresql://localhost:5432/evalos}
-    username: ${DB_USER:evalos}
-    password: ${DB_PASSWORD:evalos}
+    username: ${DB_USER:postgres}
+    password: ${DB_PASSWORD:1234}
   jpa:
     show-sql: true
+  flyway:
+    # The seed lives in its own location that only this profile lists, so a
+    # prod boot cannot apply it even though the file ships in the jar.
+    locations: classpath:db/migration,classpath:db/migration/local
+
+evalos:
+  security:
+    jwt:
+      secret: ${JWT_SECRET:local-dev-signing-key-change-me-not-for-deployment}

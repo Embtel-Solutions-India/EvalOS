@@ -16,6 +16,14 @@ spring:
     enabled: true
     locations: classpath:db/migration
 
+evalos:
+  security:
+    jwt:
+      # HS256 signing key, 32 bytes minimum. No default on purpose: an
+      # environment that forgets it must fail to start, not sign with a guess.
+      secret: ${JWT_SECRET}
+      ttl: ${JWT_TTL:PT8H}
+
 server:
   port: ${SERVER_PORT:8080}
 
