@@ -1,5 +1,6 @@
 package com.ie.evalos.repository;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -8,7 +9,9 @@ import com.ie.evalos.domain.AuditAction;
 import com.ie.evalos.domain.AuditEvent;
 import com.ie.evalos.domain.Case;
 import com.ie.evalos.domain.Expert;
+import com.ie.evalos.domain.PayoutStatus;
 import com.ie.evalos.domain.Role;
+import com.ie.evalos.domain.SlaStatus;
 import com.ie.evalos.domain.Stage;
 import com.ie.evalos.security.TenantContext;
 import com.ie.evalos.service.AuditService;
@@ -59,6 +62,12 @@ class LocalPostgresIntegrationTest {
 
 	@Autowired
 	CaseRepository cases;
+
+	@Autowired
+	DocumentChecklistItemRepository checklistItems;
+
+	@Autowired
+	PayoutLedgerRepository payouts;
 
 	@Autowired
 	AuditEventRepository auditEvents;
@@ -112,6 +121,43 @@ class LocalPostgresIntegrationTest {
 		assertThat(cases.findScoped(brandManagerOfIe(), saved.getId())).isPresent();
 	}
 
+	/**
+	 * Unit 04's board filters are Criteria predicates over attribute *names*, so a
+	 * renamed field would only break when the SQL is actually generated — which no
+	 * mocked repository ever does.
+	 */
+	@Test
+	void theBoardFiltersGenerateValidSqlOnTopOfTheScope() {
+		Case subject = new Case(BRAND_IE, "EV-" + UUID.randomUUID(), Stage.EXPERT_SIGNING);
+		subject.setStageEnteredAt(Instant.now());
+		subject.setSlaStatus(SlaStatus.AT_RISK);
+		UUID id = cases.save(subject).getId();
+
+		assertThat(ids(cases.findScoped(brandManagerOfIe(), Stage.EXPERT_SIGNING, SlaStatus.AT_RISK, null)))
+				.contains(id);
+		assertThat(ids(cases.findScoped(brandManagerOfIe(), Stage.DOC_COLLECTION, null, null)))
+				.doesNotContain(id);
+		assertThat(ids(cases.findScoped(brandManagerOfIe(), null, SlaStatus.OVERDUE, null)))
+				.doesNotContain(id);
+		// A deadline filter on a case with no deadline: the row drops out, it does not error.
+		assertThat(ids(cases.findScoped(brandManagerOfIe(), null, null, Instant.now())))
+				.doesNotContain(id);
+
+		// And a case in another brand stays out however the filters are combined.
+		UUID other = cases.save(new Case(BRAND_XP, "XP-" + UUID.randomUUID(), Stage.EXPERT_SIGNING)).getId();
+		assertThat(ids(cases.findScoped(brandManagerOfIe(), Stage.EXPERT_SIGNING, null, null)))
+				.doesNotContain(other);
+	}
+
+	/** The two derived finders Unit 04 added, executed rather than merely resolved. */
+	@Test
+	void theCaseScopedFindersReturnOnlyThatCasesRows() {
+		UUID caseId = cases.save(new Case(BRAND_IE, "EV-" + UUID.randomUUID(), Stage.DOC_COLLECTION)).getId();
+
+		assertThat(checklistItems.findByCaseId(caseId)).isEmpty();
+		assertThat(payouts.findByCaseIdAndStatus(caseId, PayoutStatus.PENDING)).isEmpty();
+	}
+
 	@Test
 	void aRowWithNoBrandNeverReachesTheDatabase() {
 		assertThatThrownBy(() -> experts.save(new Expert(null, "Nobody's Expert")))
@@ -137,6 +183,10 @@ class LocalPostgresIntegrationTest {
 				.hasMessageContaining("append-only");
 		assertThatThrownBy(() -> jdbc.update("DELETE FROM audit_event WHERE id = ?", recorded.getId()))
 				.hasMessageContaining("append-only");
+	}
+
+	private static List<UUID> ids(List<Case> found) {
+		return found.stream().map(Case::getId).toList();
 	}
 
 	private static TenantContext brandManagerOfIe() {

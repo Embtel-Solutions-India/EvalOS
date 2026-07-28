@@ -54,4 +54,13 @@ public class PayoutLedger extends ScopedEntity {
 	protected PayoutLedger() {
 		// for JPA
 	}
+
+	public PayoutStatus getStatus() {
+		return status;
+	}
+
+	/** Written by the refund path (Unit 04) to void a pending row, and by Unit 16. */
+	public void setStatus(PayoutStatus status) {
+		this.status = status;
+	}
 }

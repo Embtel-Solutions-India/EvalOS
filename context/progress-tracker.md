@@ -4,11 +4,12 @@ Update this file after every meaningful implementation change.
 
 ## Current Phase
 
-- Phase 1 — Structure the data (the spine). Units 01–03 built; Unit 04 next.
+- Phase 1 — Structure the data (the spine). Units 01–04 built; Unit 05 next.
 
 ## Current Goal
 
-- Unit 04 — the case state machine over the schema Unit 03 laid down.
+- Unit 05 — Handoff A: the per-brand GHL `payment.confirmed` webhook, idempotent
+  case creation at `DOC_COLLECTION`, contact snapshot sync, checklist open.
 
 ## Completed
 
@@ -104,6 +105,44 @@ Update this file after every meaningful implementation change.
     while the GM saw both, a brand-less row was refused before insert, and raw
     `UPDATE`/`DELETE` on `audit_event` both raised. The dev `evalos` database was
     then migrated forward and re-verified.
+- **Unit 04 — Case lifecycle service (state machine).** The spine now moves:
+  - `service/CaseTransitions` — the declared table as a whitelist: `(from, action)
+    → to`, plus the four actions that are legal *only* while a case holds a
+    specific exception state. An exception state is not an extra stage: the case
+    keeps its stage and accepts nothing but its way out, which is how "exception ↔
+    prior stage" works with no column remembering the prior stage — it never left
+    it. Each `Action` carries its own event type and audit action, so a transition
+    cannot be logged as one thing and published as another.
+  - `service/CaseLifecycleService` — 18 transition methods, all funnelling through
+    one `apply(...)`: set stage → restamp the clock → refresh SLA → save → one
+    `AuditService.recordEvent` → one `CaseEvent`, inside the caller's transaction.
+    Reads go through `findScoped`, so another brand's case (or another CM's) is
+    simply absent.
+  - `service/BusinessCalendar` — 09:00–17:00 America/Los_Angeles, weekends and the
+    eleven US federal holidays, including the Sat→Fri / Sun→Mon observance shift
+    and the New-Year shift that falls back into the previous December.
+    `elapsedBusinessTime` and `plusBusinessTime` (negative amount subtracts).
+  - `service/SlaCalculator` — per-stage business-hour budgets (doc collection 24h =
+    3 days, expert assignment 4h, first draft 48h, PM review 12h, client review
+    48h, expert sign 24h, QC 2h), `AT_RISK` at 75% spent, null when no clock runs
+    (closed, or in an exception state).
+  - `service/RefundService` — GM-only, checked at the endpoint *and* in the service
+    because it is the one path that touches money. Voids every `PENDING` payout,
+    closes the case flagged refunded, publishes `case.refunded`.
+  - `event/CaseEvents` — 19 event types with their wire names, and one `CaseEvent`
+    payload carrying brand/case/contact/attribution/stage and nothing else.
+  - `web/CaseController` — 20 endpoints, one per transition, `@PreAuthorize` per the
+    spec's actor table; `deal_value` projected only for GM / Brand Mgr / PM.
+    `domain/IllegalTransitionException` → 409 `ILLEGAL_TRANSITION`.
+  - Verified: `./mvnw clean verify` BUILD SUCCESS, 60 tests (52 run —
+    `CaseLifecycleServiceTest` 11, `SecurityFlowTest` 10, `DomainInvariantsTest`
+    10, `ScopePredicateTest` 6, `CaseControllerTest` 6, `PaymentDetailConverterTest`
+    5, `BusinessCalendarTest` 3, `HealthControllerTest` 1 — plus 8 DB-gated), **and
+    the 8 DB-gated checks green against local Postgres 18**: the context boots with
+    the new derived finders, `ddl-auto=validate` still passes after the accessors
+    were added, and the board filters generate real SQL on top of the scope
+    predicate (a Criteria attribute name that no mocked repository would ever
+    catch).
 
 ## In Progress
 
@@ -111,10 +150,20 @@ Update this file after every meaningful implementation change.
 
 ## Next Up
 
-- Unit 04 — case state machine (calls `AuditService.recordEvent` on each
-  transition, computes `sla_status`).
+- Unit 05 — Handoff A (per-brand GHL `payment.confirmed` webhook creates the
+  case through the Unit 04 service).
 
 ## Open Questions
+
+- **Coordinator case scope (blocks four Unit 04 endpoints at runtime).**
+  `PROJECT_COORDINATOR` is `Tier.SELF`, but no `evalos_case` column names a
+  coordinator, so their scoped read matches nothing and `docs-complete`,
+  `draft/send-to-client`, `deliver` and `close` will 403 live. Decide between:
+  (a) add `assigned_coordinator` to `evalos_case` in a new migration and make it the
+  Coordinator's Self axis (assignment happens alongside `assign-pm`/`assign-cm`);
+  (b) make the Coordinator `Tier.TEAM`, sharing the PM's team scope; or (c) accept
+  that Coordinators act through a PM until a later unit. Needed before Unit 08/09
+  put the board in front of a Coordinator.
 
 - **Full brand list** — International Evaluations and XpertsPortal confirmed;
   confirm any others before seeding brands / webhook endpoints.
@@ -276,6 +325,58 @@ Update this file after every meaningful implementation change.
   Also cut in the same pass: 44 lines of accessors and creation constructors with
   no caller (4 entity constructors, `Notification.isRead`/`markRead`,
   `AuditEvent.getObjectType`/`getObjectId`).
+
+- **Unit 04 deviations / decisions to confirm.**
+  (a) **`PROJECT_COORDINATOR` stays `Tier.SELF`** — decided, and it leaves a known
+  runtime gap tracked as an open question below. The spec's transition table makes
+  the Coordinator the actor for docs-complete, send-to-client, deliver and close,
+  but `evalos_case`'s assignee axis is `assigned_cm`, which only ever holds a Case
+  Manager. So a Coordinator's `findScoped` matches no case, and those four
+  endpoints answer 403 in a live system even though their role gate passes. Briefly
+  moved to `Tier.TEAM` during the build, then reverted on instruction. Closing the
+  gap needs an `assigned_coordinator` column and a migration — **not** a widened
+  predicate, which would fail open. The warning lives on the enum constant.
+  (b) **`assignPm` stamps `team_id` from the PM's row.** Nothing else populated it,
+  so PM/Coordinator team scoping would never have matched either. Pool → PM is the
+  moment a case acquires a team.
+  (c) **`stage_entered_at` means "when the current wait began"**, restamped by every
+  transition rather than only the ones that change stage. Without it a second PM
+  review round would inherit the first round's spent clock, and there is no column
+  for a sub-loop timestamp (Unit 04 adds no migration). The stage timeline is still
+  reconstructable from the audit trail.
+  (d) **"Flagged refunded" is `CLOSED` + `exception_state = REFUND_REQUESTED`** —
+  confirmed as the reading of the requirement. No
+  refunded column exists and no migration was in scope. `RefundService.isRefunded`
+  / `isRevenueRecognized` are the single reading of that pair — Unit 17's dashboards
+  must sum through them, not through `delivery_date` alone. A *requested* refund is
+  deliberately not a reversal.
+  (e) **An out-of-scope case answers 403, not 404**, because it reuses
+  `ForbiddenException`: whether a case id exists is itself another brand's
+  information, and this needed no new exception type or handler branch.
+  (f) **Four event types added to the catalog** beyond the spec's list —
+  `case.pm_assigned`, `expert.declined`, `case.resumed`, `case.refund_denied` —
+  because the acceptance criterion is exactly one event per transition and those
+  four had none. `checklist.requested` and `case.delivered_to_client` are *not*
+  defined yet: Units 05/06 add them when something publishes them.
+  (g) **The GM is a superuser on every transition** — decided. Each gate is the
+  spec's actor column *plus* the GM, applied as one `GM_OR` constant prefixed onto
+  every `@PreAuthorize` rather than eighteen hand-maintained role lists, so a new
+  route cannot forget it. The two refund rulings stay GM-**only** (GM-also would be
+  meaningless there), and `RefundService` re-checks the role in the service because
+  it is the one path that touches money. The route table in `CaseControllerTest`
+  asserts the GM gets through all twenty.
+  (h) **One exception state at a time.** A case on hold must be resumed before a
+  refund can be requested. Simplest correct reading of the schema (there is one
+  `exception_state` column); revisit if a client on hold asking for a refund turns
+  out to be common.
+  (i) **Client/expert transitions are staff-recorded for now.**
+  `clientApproveDraft`, `clientRequestRevisions`, `expertSigned` and
+  `expertDeclined` have staff endpoints so a case is not stuck before Units 14/15
+  exist. Those units call the same service methods behind their own filter chains —
+  and will need a principal, since `apply(...)` reads the actor from
+  `TenantContext.current()`.
+  (j) **Testcontainers gap still open** (carried from Unit 03). The two new DB
+  checks live in the same `-Devalos.db.test=true` gated class.
 
 - **Unit 02 latent test bug, surfaced and fixed.**
   `SecurityFlowTest.tamperedTokenIsUnauthenticated` flipped the **last** character
