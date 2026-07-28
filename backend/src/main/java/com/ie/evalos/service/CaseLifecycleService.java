@@ -103,14 +103,35 @@ public class CaseLifecycleService {
 
 	// --- reads ---------------------------------------------------------------
 
+	/**
+	 * The board read. SLA status is recomputed rather than read back from the row: the
+	 * stored column is only as fresh as the last transition, and a case left sitting
+	 * past its budget goes overdue without anything writing to it. The SLA filter is
+	 * therefore applied after the refresh instead of in SQL.
+	 */
 	@Transactional(readOnly = true)
 	public List<Case> list(Stage stage, SlaStatus slaStatus, Instant dueBefore) {
-		return cases.findScoped(TenantContext.current(), stage, slaStatus, dueBefore);
+		List<Case> scoped = cases.findScoped(TenantContext.current(), stage, dueBefore);
+		scoped.forEach(this::withCurrentSla);
+		if (slaStatus == null) {
+			return scoped;
+		}
+		return scoped.stream().filter(subject -> subject.getSlaStatus() == slaStatus).toList();
 	}
 
 	@Transactional(readOnly = true)
 	public Case read(UUID caseId) {
-		return load(caseId);
+		return withCurrentSla(load(caseId));
+	}
+
+	/**
+	 * Restates the RAG status as of now on an in-memory row. The read transactions are
+	 * readOnly, so this is not flushed back; if it ever were, the value written would
+	 * be the same one the next transition computes, so it is harmless either way.
+	 */
+	private Case withCurrentSla(Case subject) {
+		subject.setSlaStatus(sla.statusOf(subject));
+		return subject;
 	}
 
 	// --- assignment ----------------------------------------------------------
@@ -371,15 +392,16 @@ public class CaseLifecycleService {
 		return item.getStatus() == ChecklistItemStatus.APPROVED || item.getStatus() == ChecklistItemStatus.UPLOADED;
 	}
 
-	/** A member may only be put on a case in their own brand, in the role the action needs. */
+	/**
+	 * A member may only be put on a case in their own brand, in the role the action
+	 * needs. Brand and role are in the query rather than checked after the row is in
+	 * hand, and the one message covers every way the lookup can fail: this exception
+	 * reaches the caller as a 409 body, so "wrong brand", "wrong role" and "no such
+	 * member" have to be indistinguishable from outside.
+	 */
 	private TeamMember member(UUID memberId, Role expected, UUID brandId) {
-		TeamMember member = teamMembers.findById(memberId)
-				.orElseThrow(() -> new IllegalTransitionException("No such team member: " + memberId));
-		if (member.getRole() != expected || !brandId.equals(member.getBrandId())) {
-			throw new IllegalTransitionException(
-					"Team member %s is not a %s in this brand".formatted(memberId, expected));
-		}
-		return member;
+		return teamMembers.findByIdAndBrandIdAndRole(memberId, brandId, expected)
+				.orElseThrow(() -> new IllegalTransitionException("No %s available for this case".formatted(expected)));
 	}
 
 	/** The scoped read is what keeps one brand's roster out of another brand's case. */

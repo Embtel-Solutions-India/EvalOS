@@ -7,12 +7,15 @@ import java.util.UUID;
 
 import com.ie.evalos.domain.AuditAction;
 import com.ie.evalos.domain.AuditEvent;
+import com.ie.evalos.domain.Brand;
 import com.ie.evalos.domain.Case;
 import com.ie.evalos.domain.Expert;
 import com.ie.evalos.domain.PayoutStatus;
 import com.ie.evalos.domain.Role;
 import com.ie.evalos.domain.SlaStatus;
 import com.ie.evalos.domain.Stage;
+import com.ie.evalos.domain.WebhookEvent;
+import com.ie.evalos.domain.WebhookSource;
 import com.ie.evalos.security.TenantContext;
 import com.ie.evalos.service.AuditService;
 
@@ -58,6 +61,12 @@ class LocalPostgresIntegrationTest {
 	JdbcTemplate jdbc;
 
 	@Autowired
+	BrandRepository brands;
+
+	@Autowired
+	WebhookEventRepository webhookEvents;
+
+	@Autowired
 	ExpertRepository experts;
 
 	@Autowired
@@ -80,7 +89,42 @@ class LocalPostgresIntegrationTest {
 		List<String> versions = jdbc.queryForList(
 				"SELECT version FROM flyway_schema_history WHERE success ORDER BY installed_rank", String.class);
 
-		assertThat(versions).containsSubsequence("1", "2", "3", "4", "5", "6", "7", "8", "9", "10");
+		assertThat(versions).containsSubsequence("1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12");
+	}
+
+	/**
+	 * The gateway's idempotency guarantee is a database constraint, not an
+	 * application check: two concurrent redeliveries would both pass a
+	 * check-then-insert, so only the unique index actually stops the second case.
+	 */
+	@Test
+	void oneExternalIdFromOneSourceCanOnlyBeArchivedOnce() {
+		String externalId = "INV-" + UUID.randomUUID();
+		WebhookEvent first = webhookEvents.save(new WebhookEvent(
+				WebhookSource.GHL, "payment.confirmed", externalId, BRAND_IE, true, "{\"invoice_ref\":\"x\"}"));
+
+		assertThat(webhookEvents.findBySourceAndExternalId(WebhookSource.GHL, externalId))
+				.get().extracting(WebhookEvent::getId).isEqualTo(first.getId());
+
+		assertThatThrownBy(() -> webhookEvents.saveAndFlush(new WebhookEvent(
+				WebhookSource.GHL, "payment.confirmed", externalId, BRAND_IE, true, "{}")))
+				.hasStackTraceContaining("uq_webhook_event_source_external");
+
+		// The same id from a different source is a different event, and is allowed.
+		assertThat(webhookEvents.save(new WebhookEvent(
+				WebhookSource.DROPBOX_SIGN, "signature_request.signed", externalId, BRAND_IE, true, "{}"))
+				.getId()).isNotNull();
+	}
+
+	/** The per-brand secret column V11 added, mapped and readable through the entity. */
+	@Test
+	void eachSeededBrandCarriesItsOwnWebhookSecret() {
+		assertThat(brands.findByWebhookEndpointTokenAndActiveTrue("local-ie-webhook-token"))
+				.get().extracting(Brand::getGhlWebhookSecret).isEqualTo("local-ie-webhook-secret");
+		assertThat(brands.findByWebhookEndpointTokenAndActiveTrue("local-xp-webhook-token"))
+				.get().extracting(Brand::getGhlWebhookSecret).isEqualTo("local-xp-webhook-secret");
+		// A token nobody issued resolves to nothing, so its deliveries are 404s.
+		assertThat(brands.findByWebhookEndpointTokenAndActiveTrue("not-a-token")).isEmpty();
 	}
 
 	@Test
@@ -133,19 +177,17 @@ class LocalPostgresIntegrationTest {
 		subject.setSlaStatus(SlaStatus.AT_RISK);
 		UUID id = cases.save(subject).getId();
 
-		assertThat(ids(cases.findScoped(brandManagerOfIe(), Stage.EXPERT_SIGNING, SlaStatus.AT_RISK, null)))
+		assertThat(ids(cases.findScoped(brandManagerOfIe(), Stage.EXPERT_SIGNING, null)))
 				.contains(id);
-		assertThat(ids(cases.findScoped(brandManagerOfIe(), Stage.DOC_COLLECTION, null, null)))
-				.doesNotContain(id);
-		assertThat(ids(cases.findScoped(brandManagerOfIe(), null, SlaStatus.OVERDUE, null)))
+		assertThat(ids(cases.findScoped(brandManagerOfIe(), Stage.DOC_COLLECTION, null)))
 				.doesNotContain(id);
 		// A deadline filter on a case with no deadline: the row drops out, it does not error.
-		assertThat(ids(cases.findScoped(brandManagerOfIe(), null, null, Instant.now())))
+		assertThat(ids(cases.findScoped(brandManagerOfIe(), null, Instant.now())))
 				.doesNotContain(id);
 
 		// And a case in another brand stays out however the filters are combined.
 		UUID other = cases.save(new Case(BRAND_XP, "XP-" + UUID.randomUUID(), Stage.EXPERT_SIGNING)).getId();
-		assertThat(ids(cases.findScoped(brandManagerOfIe(), Stage.EXPERT_SIGNING, null, null)))
+		assertThat(ids(cases.findScoped(brandManagerOfIe(), Stage.EXPERT_SIGNING, null)))
 				.doesNotContain(other);
 	}
 

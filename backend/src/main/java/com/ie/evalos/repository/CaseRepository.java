@@ -29,14 +29,17 @@ public interface CaseRepository extends ScopedRepository<Case> {
 	 * The board read: the caller's scope first, then the optional filters on top. A
 	 * null filter is simply not applied — the scope is never optional, so no
 	 * combination of parameters can widen it.
+	 *
+	 * <p>SLA status is deliberately not a filter here. It is derived from the clock, so
+	 * the stored column is only as fresh as the last transition and a case can go
+	 * overdue with nothing writing to it; filtering on it in SQL would silently miss
+	 * exactly the rows a board asks for. {@code CaseLifecycleService.list} recomputes
+	 * and then filters.
 	 */
-	default List<Case> findScoped(TenantContext ctx, Stage stage, SlaStatus slaStatus, Instant dueBefore) {
+	default List<Case> findScoped(TenantContext ctx, Stage stage, Instant dueBefore) {
 		Specification<Case> spec = ScopePredicate.of(ctx, SCOPE);
 		if (stage != null) {
 			spec = spec.and((root, query, cb) -> cb.equal(root.get("currentStage"), stage));
-		}
-		if (slaStatus != null) {
-			spec = spec.and((root, query, cb) -> cb.equal(root.get("slaStatus"), slaStatus));
 		}
 		if (dueBefore != null) {
 			spec = spec.and((root, query, cb) -> cb.lessThanOrEqualTo(root.get("deadline"), dueBefore));

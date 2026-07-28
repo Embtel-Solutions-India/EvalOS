@@ -34,6 +34,19 @@ public class DocumentChecklistItem extends ScopedEntity {
 		// for JPA
 	}
 
+	/** Seeded from the service-type template at intake, one row per required document. */
+	public DocumentChecklistItem(UUID brandId, UUID caseId, String label, ChecklistItemStatus status) {
+		super(brandId);
+		this.caseId = caseId;
+		this.label = label;
+		this.status = status;
+		this.updatedAt = Instant.now();
+	}
+
+	public String getLabel() {
+		return label;
+	}
+
 	public ChecklistItemStatus getStatus() {
 		return status;
 	}

@@ -24,6 +24,9 @@ public final class CaseEvents {
 	 */
 	public enum Type {
 
+		CASE_CREATED("case.created"),
+		/** Tells GHL to send the client their document checklist (Unit 18). */
+		CHECKLIST_REQUESTED("checklist.requested"),
 		PM_ASSIGNED("case.pm_assigned"),
 		DOCUMENTS_COMPLETED("documents.completed"),
 		EXPERT_ASSIGNED("expert.assigned"),

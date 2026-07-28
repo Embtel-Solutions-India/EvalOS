@@ -197,12 +197,35 @@ public class Case extends ScopedEntity {
 		this.assignedCm = assignedCm;
 	}
 
+	// The setters below are written exactly once, by Handoff A at intake (Unit 05).
+	// Nothing afterwards changes what the customer bought or what they paid.
+
 	public UUID getContactId() {
 		return contactId;
 	}
 
+	public void setContactId(UUID contactId) {
+		this.contactId = contactId;
+	}
+
 	public ServiceType getServiceType() {
 		return serviceType;
+	}
+
+	public void setServiceType(ServiceType serviceType) {
+		this.serviceType = serviceType;
+	}
+
+	public void setServiceSubtype(ServiceSubtype serviceSubtype) {
+		this.serviceSubtype = serviceSubtype;
+	}
+
+	public void setVisaCategory(VisaCategory visaCategory) {
+		this.visaCategory = visaCategory;
+	}
+
+	public void setClientType(ClientType clientType) {
+		this.clientType = clientType;
 	}
 
 	/** Role-restricted: a DTO exposes this to GM, Brand Manager and PM only. */
@@ -210,8 +233,28 @@ public class Case extends ScopedEntity {
 		return dealValue;
 	}
 
+	public void setDealValue(BigDecimal dealValue) {
+		this.dealValue = dealValue;
+	}
+
 	public Instant getDeadline() {
 		return deadline;
+	}
+
+	public void setDeadline(Instant deadline) {
+		this.deadline = deadline;
+	}
+
+	public void setDriveLink(String driveLink) {
+		this.driveLink = driveLink;
+	}
+
+	public void setInvoiceRef(String invoiceRef) {
+		this.invoiceRef = invoiceRef;
+	}
+
+	public void setCampaignAttribution(String campaignAttribution) {
+		this.campaignAttribution = campaignAttribution;
 	}
 
 	public Stage getCurrentStage() {

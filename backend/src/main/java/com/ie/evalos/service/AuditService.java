@@ -51,6 +51,23 @@ public class AuditService {
 				brandId, objectType, objectId, action, actorId, asJson(before), asJson(after)));
 	}
 
+	/**
+	 * The same trail, for an action with no authenticated caller to derive a brand
+	 * from — today only an inbound webhook, which resolved its brand from the
+	 * endpoint token before writing anything.
+	 *
+	 * <p>Separately named rather than an overload with a brand parameter, so no
+	 * request-scoped caller can reach it and quietly claim a brand: the argument is
+	 * only trustworthy because the endpoint token is the most authoritative brand
+	 * signal in the system (invariant 8). The actor is always the system.
+	 */
+	@Transactional
+	public AuditEvent recordSystemEvent(UUID brandId, String objectType, UUID objectId, AuditAction action,
+			Object before, Object after) {
+		return auditEvents.save(new AuditEvent(
+				brandId, objectType, objectId, action, null, asJson(before), asJson(after)));
+	}
+
 	private String asJson(Object snapshot) {
 		if (snapshot == null) {
 			return null;

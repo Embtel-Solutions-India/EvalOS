@@ -4,12 +4,13 @@ Update this file after every meaningful implementation change.
 
 ## Current Phase
 
-- Phase 1 — Structure the data (the spine). Units 01–04 built; Unit 05 next.
+- Phase 1 — Structure the data (the spine) is complete: Units 01–05 built. Phase 2
+  begins at Unit 06.
 
 ## Current Goal
 
-- Unit 05 — Handoff A: the per-brand GHL `payment.confirmed` webhook, idempotent
-  case creation at `DOC_COLLECTION`, contact snapshot sync, checklist open.
+- Unit 06 — the in-app staff notification centre, the first subscriber to the
+  domain events Units 04 and 05 publish.
 
 ## Completed
 
@@ -144,16 +145,68 @@ Update this file after every meaningful implementation change.
     predicate (a Criteria attribute name that no mocked repository would ever
     catch).
 
+- **Unit 05 — Inbound webhook gateway + GHL payment handler (Handoff A).** The
+  door the business actually comes through:
+  - `webhook/WebhookGateway` — resolve brand → verify → dedupe → archive → route →
+    ack. Deliberately **not** `@Transactional`: each step commits on its own, which
+    is what lets the archive row outlive a failed handler and record why. Brand
+    resolution runs before verification (the spec lists it second) because the HMAC
+    secret belongs to the brand — a lookup is not a side effect, so the rule it
+    protects still holds.
+  - `webhook/WebhookVerifier` — HMAC-SHA256 over the exact bytes received, compared
+    with `MessageDigest.isEqual`. No secret, no header, bad hex and a wrong digest
+    all fail identically, so nothing is learnable from the response.
+  - `webhook/{InboundWebhookController, WebhookRouter, GhlPaymentHandler,
+    WebhookRejected}` — one public endpoint per brand, the event-type vocabulary
+    (`payment.confirmed` live; `refund.requested`/`contact.updated` recognized and
+    logged no-ops), and parse-then-trust validation of the payload.
+  - `service/CaseIntakeService` — the one thing that creates a case: contact sync,
+    case in the pool, checklist from `ChecklistTemplates`, GM + Brand-Manager pool
+    notification, audit row, `case.created` + `checklist.requested`. All in one
+    transaction, so a failed delivery leaves nothing behind.
+  - `domain/WebhookEvent` + `V12` (unique `(source, external_id)`), `V11` for the
+    per-brand secret, `V901` local seed. `AuditService.recordSystemEvent` so a
+    webhook's audit row carries the brand it resolved rather than a null.
+  - `DomainInvariantsTest` now enforces invariant 8 structurally: only
+    `GhlPaymentHandler` may take `CaseIntakeService`, so adding a
+    `POST /api/cases` that creates a case breaks the build.
+  - Verified: `./mvnw clean verify` BUILD SUCCESS, 85 tests (75 run — new:
+    `InboundWebhookTest` 12, `CaseIntakeServiceTest` 7 — plus 10 DB-gated), the 10
+    DB-gated checks green against local Postgres 18 (`V11`/`V12`/`V901` applied,
+    `validate` passes, the unique key actually refuses a second archive), **and a
+    live end-to-end run**: a signed `payment.confirmed` created exactly one case
+    (`IE-2026-375863`, DOC_COLLECTION / IN_POOL / ON_TRACK / 1450.00) with a
+    6-item `REQUIRED` checklist, a contact snapshot, two `NEW_CASE_IN_POOL`
+    notifications (GM + that brand's manager only), an audit row carrying the
+    resolved brand and a null actor, and a processed `webhook_event`; a replay
+    returned `duplicate` and created nothing; a wrong signature 401; an unknown
+    token 404.
+
 ## In Progress
 
 - Nothing.
 
 ## Next Up
 
-- Unit 05 — Handoff A (per-brand GHL `payment.confirmed` webhook creates the
-  case through the Unit 04 service).
+- Unit 06 — in-app staff notification centre (subscribes to the Unit 04/05 domain
+  events that are currently published to nobody).
 
 ## Open Questions
+
+- **Idempotency key must be per brand, not per source (drops paid cases).**
+  `V12`'s `UNIQUE (source, external_id)` is brand-agnostic, but each brand is a
+  separate GHL sub-account numbering its own invoices, so two brands can legitimately
+  send the same `invoice_ref`. Demonstrated live: the second brand's delivery was
+  acked as a duplicate, no case was created, and the ack returned the first brand's
+  event id. The gateway now answers 409 `EXTERNAL_ID_BRAND_CONFLICT` and logs at
+  ERROR so nothing is lost silently, but the paid case still needs an operator. Fix
+  is a migration changing the constraint to `(source, brand_id, external_id)` and
+  deleting that guard. Needed before a second brand goes live.
+
+- **GHL contract still unconfirmed** (was already open, now load-bearing): the
+  `payment.confirmed` payload shape, the signature header name, and the HMAC
+  encoding are all this unit's assumptions. Everything else about Handoff A is
+  verified; these three are what a real GHL sub-account has to agree with.
 
 - **Coordinator case scope (blocks four Unit 04 endpoints at runtime).**
   `PROJECT_COORDINATOR` is `Tier.SELF`, but no `evalos_case` column names a
@@ -377,6 +430,46 @@ Update this file after every meaningful implementation change.
   `TenantContext.current()`.
   (j) **Testcontainers gap still open** (carried from Unit 03). The two new DB
   checks live in the same `-Devalos.db.test=true` gated class.
+
+- **Unit 05 deviations / decisions to confirm.**
+  (a) **A rejected signature is logged, not archived.** `webhook_event` only ever
+  holds deliveries that verified, so `signature_verified` is always true today. An
+  unverified body is not evidence of anything, and archiving it would let anyone who
+  can reach the URL fill the table — and the unique `(source, external_id)` would
+  collide on the second attempt anyway. The spec's step 1 says "log", which this is.
+  (b) **Audit records `CASE` + `AuditAction.CREATED`**, not a literal `CASE_CREATED`
+  action, matching Unit 04's object-type + action convention. The pair reads the
+  same and needs no new enum value.
+  (c) **`AuditService.recordSystemEvent` takes the brand explicitly.** Unit 03 note
+  (f) refused a `brandId` parameter on `recordEvent`; a webhook has no authenticated
+  caller, so without this every case creation would audit against a null brand and
+  drop out of that brand's trail. Separately named so no request-scoped caller can
+  reach it, and the argument is only trustworthy because the endpoint token is the
+  most authoritative brand signal there is (invariant 8).
+  (d) **`case_code` is `<initials>-<year>-<6 hex>`** (`IE-2026-375863`). Random
+  rather than a per-brand sequence, which would need a counter table and a lock; a
+  collision hits the unique constraint and returns a retriable 5xx.
+  (e) **The signature header name is configuration**
+  (`evalos.webhook.signature-header`, default `X-Evalos-Signature`) because GHL's
+  real header is unconfirmed. The one knob this unit needs to be re-pointed without
+  a code change. The **payload shape is also assumed**, and is deliberately confined
+  to `GhlPaymentHandler.PaymentConfirmed` so a correction is one file.
+  (f) **A cross-brand idempotency-key collision is a 409, not a duplicate** — see
+  the open question below. Reached live during verification: XpertsPortal posting its
+  own `INV-LIVE-0001` was swallowed as International Evaluations' duplicate, created
+  no case for a paid deal, and handed the caller the *other brand's* event id.
+  `V12` keeps the spec's `UNIQUE (source, external_id)`; the gateway now refuses the
+  collision loudly instead of dropping it silently.
+  (g) **`ChecklistTemplates` is a static map, not a table.** It moves into the
+  database the first time a Brand Manager needs to edit a checklist without a
+  deploy; the seed for that table is this map.
+  (h) **A `ponytail-review` pass on this unit found ~35 lines of uncontroversial
+  cruft** (a `text`-column truncation guard, two unused `ContactSnapshot` getters,
+  two `Ack` factory methods, a redundant `List.copyOf`, a speculative `"id"`
+  idempotency-key candidate) plus a larger optional cut: the transport record and
+  the intake command record declare the same 21 fields with a 17-line mapper
+  between them. Shipped as-is by decision; the transport/command split is what keeps
+  an unconfirmed payload shape out of `service`.
 
 - **Unit 02 latent test bug, surfaced and fixed.**
   `SecurityFlowTest.tamperedTokenIsUnauthenticated` flipped the **last** character

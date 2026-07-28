@@ -1,5 +1,6 @@
 package com.ie.evalos.service;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -18,6 +19,7 @@ import com.ie.evalos.domain.PayoutLedger;
 import com.ie.evalos.domain.PayoutStatus;
 import com.ie.evalos.domain.PoolStatus;
 import com.ie.evalos.domain.Role;
+import com.ie.evalos.domain.SlaStatus;
 import com.ie.evalos.domain.Stage;
 import com.ie.evalos.domain.TeamMember;
 import com.ie.evalos.event.CaseEvents;
@@ -105,8 +107,8 @@ class CaseLifecycleServiceTest {
 
 		given(cases.findScoped(any(TenantContext.class), any(UUID.class))).willReturn(Optional.of(subject));
 		given(cases.save(any(Case.class))).willAnswer(invocation -> invocation.getArgument(0));
-		given(teamMembers.findById(PM_ID)).willReturn(Optional.of(pm));
-		given(teamMembers.findById(CM_ID)).willReturn(Optional.of(cm));
+		given(teamMembers.findByIdAndBrandIdAndRole(PM_ID, BRAND, Role.PROJECT_MANAGER)).willReturn(Optional.of(pm));
+		given(teamMembers.findByIdAndBrandIdAndRole(CM_ID, BRAND, Role.CASE_MANAGER)).willReturn(Optional.of(cm));
 		given(experts.findScoped(any(TenantContext.class), eq(EXPERT_ID))).willReturn(Optional.of(assigned));
 		given(experts.findScoped(any(TenantContext.class), eq(OTHER_EXPERT_ID))).willReturn(Optional.of(replacement));
 		given(checklistItems.findByCaseId(any())).willReturn(completeChecklist);
@@ -373,5 +375,51 @@ class CaseLifecycleServiceTest {
 		assertTrue(!subject.getStageEnteredAt().isBefore(afterAssignment),
 				"the PM review round starts its own 12 hours");
 		verify(audit, times(4)).recordEvent(anyString(), any(), any(), any(), any(), any());
+	}
+
+	/** Doc collection budgets three business days; thirty calendar days is past it however you count. */
+	private void sittingWellPastItsBudgetButStoredAsOnTrack() {
+		subject.setStageEnteredAt(Instant.now().minus(Duration.ofDays(30)));
+		subject.setSlaStatus(SlaStatus.ON_TRACK);
+	}
+
+	@Test
+	void slaStatusIsRecomputedOnReadRatherThanReadBackFromTheRow() {
+		sittingWellPastItsBudgetButStoredAsOnTrack();
+		actAs(Role.BRAND_MANAGER);
+
+		assertEquals(SlaStatus.OVERDUE, lifecycle.read(CASE_ID).getSlaStatus(),
+				"a case left sitting past its budget is overdue even though nothing wrote to it");
+	}
+
+	@Test
+	void theBoardSlaFilterMatchesOnTheRecomputedStatusNotTheStoredColumn() {
+		sittingWellPastItsBudgetButStoredAsOnTrack();
+		given(cases.findScoped(any(TenantContext.class), any(), any())).willReturn(List.of(subject));
+		actAs(Role.BRAND_MANAGER);
+
+		assertEquals(1, lifecycle.list(null, SlaStatus.OVERDUE, null).size(),
+				"a board filtering for overdue has to find the case whose column still says on-track");
+		assertTrue(lifecycle.list(null, SlaStatus.ON_TRACK, null).isEmpty(),
+				"and must not still find it under the stale value");
+	}
+
+	@Test
+	void aMemberOutsideTheBrandIsIndistinguishableFromOneThatDoesNotExist() {
+		actAs(Role.BRAND_MANAGER);
+		UUID anotherBrandsPm = UUID.randomUUID();
+		UUID nobody = UUID.randomUUID();
+
+		// Neither id is stubbed, because neither can come back: brand and role are in the
+		// query, so there is no row in hand to tell the two failures apart.
+		String forAnotherBrand = assertThrows(IllegalTransitionException.class,
+				() -> lifecycle.assignPm(CASE_ID, anotherBrandsPm)).getMessage();
+		String forNobody = assertThrows(IllegalTransitionException.class,
+				() -> lifecycle.assignPm(CASE_ID, nobody)).getMessage();
+
+		assertEquals(forNobody, forAnotherBrand, "the 409 body must not be an existence oracle");
+		assertFalse(forAnotherBrand.contains(anotherBrandsPm.toString()),
+				"nor echo an id the caller does not own");
+		verify(teamMembers, never()).findById(any());
 	}
 }

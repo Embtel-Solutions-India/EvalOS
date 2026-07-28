@@ -37,4 +37,24 @@ public class Notification extends ScopedEntity {
 	protected Notification() {
 		// for JPA
 	}
+
+	public Notification(UUID brandId, UUID recipientId, NotificationType type, UUID caseId, String body) {
+		super(brandId);
+		this.recipientId = recipientId;
+		this.type = type;
+		this.caseId = caseId;
+		this.body = body;
+	}
+
+	public UUID getRecipientId() {
+		return recipientId;
+	}
+
+	public NotificationType getType() {
+		return type;
+	}
+
+	public String getBody() {
+		return body;
+	}
 }

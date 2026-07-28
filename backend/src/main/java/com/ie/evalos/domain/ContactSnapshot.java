@@ -1,6 +1,7 @@
 package com.ie.evalos.domain;
 
 import java.time.Instant;
+import java.util.UUID;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -60,5 +61,47 @@ public class ContactSnapshot extends ScopedEntity {
 
 	protected ContactSnapshot() {
 		// for JPA
+	}
+
+	public ContactSnapshot(UUID brandId, String ghlContactId) {
+		super(brandId);
+		this.ghlContactId = ghlContactId;
+		this.dateFirstCaptured = Instant.now();
+	}
+
+	/**
+	 * Replaces the snapshot wholesale from GHL and restamps {@code synced_at}. The
+	 * <em>only</em> writer of these fields: invariant 7 means no EvalOS business rule
+	 * mutates a synced contact, and this is the sync, not a business rule. Called at
+	 * Handoff A and, later, by GHL's {@code contact.updated}.
+	 */
+	public void syncFromGhl(String fullName, String email, String phone, String company, ClientType clientType,
+			SourceChannel sourceChannel, String utmSource, String utmMedium, String utmCampaign) {
+		this.fullName = fullName;
+		this.email = email;
+		this.phone = phone;
+		this.company = company;
+		this.clientType = clientType;
+		this.sourceChannel = sourceChannel;
+		this.utmSource = utmSource;
+		this.utmMedium = utmMedium;
+		this.utmCampaign = utmCampaign;
+		this.syncedAt = Instant.now();
+	}
+
+	public String getGhlContactId() {
+		return ghlContactId;
+	}
+
+	public String getFullName() {
+		return fullName;
+	}
+
+	public String getEmail() {
+		return email;
+	}
+
+	public Instant getSyncedAt() {
+		return syncedAt;
 	}
 }
