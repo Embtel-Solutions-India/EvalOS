@@ -89,16 +89,8 @@ public class ContactSnapshot extends ScopedEntity {
 		this.syncedAt = Instant.now();
 	}
 
-	public String getGhlContactId() {
-		return ghlContactId;
-	}
-
 	public String getFullName() {
 		return fullName;
-	}
-
-	public String getEmail() {
-		return email;
 	}
 
 	public Instant getSyncedAt() {

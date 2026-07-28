@@ -231,7 +231,7 @@ class InboundWebhookTest {
 		// Processed, which is what makes it a duplicate rather than a failed attempt
 		// waiting to be retried.
 		given(alreadySeen.isProcessed()).willReturn(true);
-		given(webhookEvents.findBySourceAndExternalId(WebhookSource.GHL, INVOICE))
+		given(webhookEvents.findBySourceAndBrandIdAndExternalId(WebhookSource.GHL, BRAND_IE, INVOICE))
 				.willReturn(Optional.of(alreadySeen));
 
 		deliverSigned(paymentBody(INVOICE))
@@ -244,25 +244,22 @@ class InboundWebhookTest {
 
 	/**
 	 * Two brands are two GHL sub-accounts numbering their own invoices, so the same
-	 * invoice ref can arrive twice legitimately. The unique key is per source, not per
-	 * brand, so this cannot be processed — but it must not look like a duplicate
-	 * either, or a paid case would vanish and this brand would be handed another
-	 * brand's event id.
+	 * invoice ref arriving for a different brand is a different event and gets its own
+	 * case. The lookup is brand-scoped, matching the unique key, so the other brand's
+	 * row is not even a candidate.
 	 */
 	@Test
-	void anotherBrandsIdempotencyKeyIsAConflictNotADuplicate() throws Exception {
-		WebhookEvent otherBrands = mock(WebhookEvent.class);
-		given(otherBrands.getId()).willReturn(UUID.randomUUID());
-		given(otherBrands.getBrandId()).willReturn(BRAND_XP);
-		given(webhookEvents.findBySourceAndExternalId(WebhookSource.GHL, INVOICE))
-				.willReturn(Optional.of(otherBrands));
+	void thesameInvoiceRefFromAnotherBrandIsItsOwnEvent() throws Exception {
+		// Only XpertsPortal has archived this invoice ref. International Evaluations
+		// asking about the same ref must not find it.
+		given(webhookEvents.findBySourceAndBrandIdAndExternalId(WebhookSource.GHL, BRAND_XP, INVOICE))
+				.willReturn(Optional.of(mock(WebhookEvent.class)));
 
 		deliverSigned(paymentBody(INVOICE))
-				.andExpect(status().isConflict())
-				.andExpect(jsonPath("$.error.code").value("EXTERNAL_ID_BRAND_CONFLICT"));
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.data.status").value("accepted"));
 
-		verify(intake, never()).intake(any(), any());
-		verify(webhookEvents, never()).save(any());
+		verify(intake).intake(any(Brand.class), any(CaseIntakeService.NewCase.class));
 	}
 
 	@Test
@@ -327,7 +324,7 @@ class InboundWebhookTest {
 		verify(webhookEvents, org.mockito.Mockito.atLeastOnce()).save(failed.capture());
 		WebhookEvent unprocessed = failed.getValue();
 		assertThat(unprocessed.isProcessed()).isFalse();
-		given(webhookEvents.findBySourceAndExternalId(WebhookSource.GHL, INVOICE))
+		given(webhookEvents.findBySourceAndBrandIdAndExternalId(WebhookSource.GHL, BRAND_IE, INVOICE))
 				.willReturn(Optional.of(unprocessed));
 
 		org.mockito.Mockito.reset(intake);

@@ -33,9 +33,6 @@ import org.hibernate.type.SqlTypes;
 @Table(name = "webhook_event")
 public class WebhookEvent {
 
-	/** Long errors are truncated rather than failing the row that records them. */
-	private static final int MAX_ERROR = 2000;
-
 	@Id
 	@GeneratedValue(strategy = GenerationType.UUID)
 	@Column(name = "id", updatable = false)
@@ -102,9 +99,7 @@ public class WebhookEvent {
 
 	/** Records why the handler failed. The row stays unprocessed so a redelivery retries it. */
 	public void recordError(String message) {
-		this.processed = false;
-		this.error = message == null ? "(no message)"
-				: message.substring(0, Math.min(message.length(), MAX_ERROR));
+		this.error = message == null ? "(no message)" : message;
 	}
 
 	public UUID getId() {

@@ -37,20 +37,12 @@ public class WebhookGateway {
 	 * that is what a GHL payment is identified by; the rest let a new source be
 	 * deduplicated without touching this class.
 	 */
-	private static final String[] EXTERNAL_ID_FIELDS = { "invoice_ref", "payment_id", "event_id", "id" };
+	private static final String[] EXTERNAL_ID_FIELDS = { "invoice_ref", "payment_id", "event_id" };
 
 	private static final String EVENT_TYPE_FIELD = "event_type";
 
 	/** What the source is told. A duplicate is a success: it already happened. */
 	public record Ack(String status, UUID eventId) {
-
-		static Ack accepted(UUID eventId) {
-			return new Ack("accepted", eventId);
-		}
-
-		static Ack duplicate(UUID eventId) {
-			return new Ack("duplicate", eventId);
-		}
 	}
 
 	private final BrandRepository brands;
@@ -89,39 +81,25 @@ public class WebhookGateway {
 		// A rejected signature is logged, not archived: an unverified body is not
 		// evidence of anything, and archiving it would let anyone who can reach the URL
 		// fill the table.
-		Optional<WebhookEvent> alreadySeen = webhookEvents.findBySourceAndExternalId(source, externalId);
-		WebhookEvent archived;
+		// Scoped to the brand, matching the unique key: two brands numbering their own
+		// invoices may send the same external id, and each is its own event.
+		Optional<WebhookEvent> alreadySeen = webhookEvents
+				.findBySourceAndBrandIdAndExternalId(source, brand.getId(), externalId);
 
-		if (alreadySeen.isEmpty()) {
-			archived = webhookEvents.save(
-					new WebhookEvent(source, eventType, externalId, brand.getId(), true, rawBody));
+		if (alreadySeen.map(WebhookEvent::isProcessed).orElse(false)) {
+			log.info("Duplicate {} '{}' external id {} for brand {} — no second side effect",
+					source, eventType, externalId, brand.getId());
+			return new Ack("duplicate", alreadySeen.get().getId());
 		}
-		else {
-			WebhookEvent previous = alreadySeen.get();
-			// The idempotency key is unique per source, not per brand, and each brand is a
-			// separately-numbering GHL sub-account — so two brands can legitimately issue
-			// the same invoice number. Treating that as this brand's duplicate would drop a
-			// paid case silently and hand this caller another brand's event id, so it is
-			// refused loudly instead. The root fix is a per-brand unique key; see the open
-			// question in context/progress-tracker.md.
-			if (!brand.getId().equals(previous.getBrandId())) {
-				log.error("External id {} from {} is already archived against brand {}; brand {} cannot "
-						+ "be processed under the same key — a paid case is waiting on a per-brand "
-						+ "idempotency key", externalId, source, previous.getBrandId(), brand.getId());
-				throw new WebhookRejected(HttpStatus.CONFLICT, "EXTERNAL_ID_BRAND_CONFLICT",
-						"This idempotency key is already in use by another brand");
-			}
-			if (previous.isProcessed()) {
-				log.info("Duplicate {} '{}' external id {} for brand {} — no second side effect",
-						source, eventType, externalId, brand.getId());
-				return Ack.duplicate(previous.getId());
-			}
-			// Archived but never processed, so the last attempt failed and this redelivery
-			// is the retry it asked for. Reusing the row is what keeps the retry from
-			// creating a second case: "already seen" is not the same as "already done".
+
+		// Archived but never processed means the last attempt failed and this delivery is
+		// the retry it asked for. Reusing that row is what keeps the retry from creating a
+		// second case: "already seen" is not the same as "already done".
+		WebhookEvent archived = alreadySeen.orElseGet(() -> webhookEvents.save(
+				new WebhookEvent(source, eventType, externalId, brand.getId(), true, rawBody)));
+		if (alreadySeen.isPresent()) {
 			log.info("Retrying {} '{}' external id {} for brand {} after an earlier failure",
 					source, eventType, externalId, brand.getId());
-			archived = previous;
 		}
 
 		try {
@@ -137,7 +115,7 @@ public class WebhookGateway {
 			throw ex;
 		}
 		webhookEvents.save(archived);
-		return Ack.accepted(archived.getId());
+		return new Ack("accepted", archived.getId());
 	}
 
 	private JsonNode parse(String rawBody) {

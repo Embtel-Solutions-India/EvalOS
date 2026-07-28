@@ -7,6 +7,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import com.ie.evalos.domain.AuditAction;
@@ -206,7 +207,7 @@ public class CaseIntakeService {
 	private static String brandPrefix(String slug) {
 		List<String> words = Arrays.stream(slug.split("-")).filter(word -> !word.isBlank()).toList();
 		if (words.size() > 1) {
-			return words.stream().limit(3).map(word -> word.substring(0, 1).toUpperCase()).reduce("", String::concat);
+			return words.stream().map(word -> word.substring(0, 1).toUpperCase()).collect(Collectors.joining());
 		}
 		return slug.substring(0, Math.min(2, slug.length())).toUpperCase();
 	}

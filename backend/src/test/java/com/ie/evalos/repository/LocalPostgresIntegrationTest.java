@@ -89,31 +89,60 @@ class LocalPostgresIntegrationTest {
 		List<String> versions = jdbc.queryForList(
 				"SELECT version FROM flyway_schema_history WHERE success ORDER BY installed_rank", String.class);
 
-		assertThat(versions).containsSubsequence("1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12");
+		assertThat(versions)
+				.containsSubsequence("1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13");
 	}
 
 	/**
 	 * The gateway's idempotency guarantee is a database constraint, not an
 	 * application check: two concurrent redeliveries would both pass a
 	 * check-then-insert, so only the unique index actually stops the second case.
+	 *
+	 * <p>Scoped by brand (V13), because two brands are two GHL sub-accounts numbering
+	 * their own invoices. A brand-agnostic key made the second brand's paid case look
+	 * like the first brand's duplicate.
 	 */
 	@Test
-	void oneExternalIdFromOneSourceCanOnlyBeArchivedOnce() {
+	void oneExternalIdPerBrandPerSourceCanOnlyBeArchivedOnce() {
 		String externalId = "INV-" + UUID.randomUUID();
 		WebhookEvent first = webhookEvents.save(new WebhookEvent(
 				WebhookSource.GHL, "payment.confirmed", externalId, BRAND_IE, true, "{\"invoice_ref\":\"x\"}"));
 
-		assertThat(webhookEvents.findBySourceAndExternalId(WebhookSource.GHL, externalId))
+		assertThat(webhookEvents.findBySourceAndBrandIdAndExternalId(WebhookSource.GHL, BRAND_IE, externalId))
 				.get().extracting(WebhookEvent::getId).isEqualTo(first.getId());
 
 		assertThatThrownBy(() -> webhookEvents.saveAndFlush(new WebhookEvent(
 				WebhookSource.GHL, "payment.confirmed", externalId, BRAND_IE, true, "{}")))
-				.hasStackTraceContaining("uq_webhook_event_source_external");
+				.hasStackTraceContaining("uq_webhook_event_source_brand_external");
 
-		// The same id from a different source is a different event, and is allowed.
+		// The same invoice ref from the other brand is a different event, and is allowed —
+		// this is the case V12's constraint silently dropped.
+		WebhookEvent otherBrand = webhookEvents.save(new WebhookEvent(
+				WebhookSource.GHL, "payment.confirmed", externalId, BRAND_XP, true, "{}"));
+		assertThat(otherBrand.getId()).isNotEqualTo(first.getId());
+		assertThat(webhookEvents.findBySourceAndBrandIdAndExternalId(WebhookSource.GHL, BRAND_XP, externalId))
+				.get().extracting(WebhookEvent::getId).isEqualTo(otherBrand.getId());
+
+		// And the same id from a different source is a different event too.
 		assertThat(webhookEvents.save(new WebhookEvent(
 				WebhookSource.DROPBOX_SIGN, "signature_request.signed", externalId, BRAND_IE, true, "{}"))
 				.getId()).isNotNull();
+	}
+
+	/**
+	 * {@code brand_id} is nullable, and Postgres treats NULLs as distinct by default —
+	 * which would have let two brand-less rows share a key and lose the deduplication
+	 * the constraint exists for. V13 declares NULLS NOT DISTINCT.
+	 */
+	@Test
+	void twoBrandlessRowsStillDeduplicate() {
+		String externalId = "EVT-" + UUID.randomUUID();
+		webhookEvents.save(new WebhookEvent(
+				WebhookSource.DROPBOX_SIGN, "signature_request.viewed", externalId, null, true, "{}"));
+
+		assertThatThrownBy(() -> webhookEvents.saveAndFlush(new WebhookEvent(
+				WebhookSource.DROPBOX_SIGN, "signature_request.viewed", externalId, null, true, "{}")))
+				.hasStackTraceContaining("uq_webhook_event_source_brand_external");
 	}
 
 	/** The per-brand secret column V11 added, mapped and readable through the entity. */

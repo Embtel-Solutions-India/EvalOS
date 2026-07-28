@@ -164,17 +164,19 @@ Update this file after every meaningful implementation change.
     case in the pool, checklist from `ChecklistTemplates`, GM + Brand-Manager pool
     notification, audit row, `case.created` + `checklist.requested`. All in one
     transaction, so a failed delivery leaves nothing behind.
-  - `domain/WebhookEvent` + `V12` (unique `(source, external_id)`), `V11` for the
+  - `domain/WebhookEvent` + `V12`, narrowed by `V13` to
+    `UNIQUE NULLS NOT DISTINCT (source, brand_id, external_id)`; `V11` for the
     per-brand secret, `V901` local seed. `AuditService.recordSystemEvent` so a
     webhook's audit row carries the brand it resolved rather than a null.
   - `DomainInvariantsTest` now enforces invariant 8 structurally: only
     `GhlPaymentHandler` may take `CaseIntakeService`, so adding a
     `POST /api/cases` that creates a case breaks the build.
-  - Verified: `./mvnw clean verify` BUILD SUCCESS, 85 tests (75 run — new:
-    `InboundWebhookTest` 12, `CaseIntakeServiceTest` 7 — plus 10 DB-gated), the 10
-    DB-gated checks green against local Postgres 18 (`V11`/`V12`/`V901` applied,
-    `validate` passes, the unique key actually refuses a second archive), **and a
-    live end-to-end run**: a signed `payment.confirmed` created exactly one case
+  - Verified: `./mvnw clean verify` BUILD SUCCESS, 87 tests (76 run — new:
+    `InboundWebhookTest` 13, `CaseIntakeServiceTest` 7 — plus 11 DB-gated), the 11
+    DB-gated checks green against local Postgres 18 (`V11`–`V13` + `V901` applied,
+    `validate` passes, the brand-scoped unique key refuses a second archive per brand
+    while allowing the same invoice ref from another brand, and two brand-less rows
+    still deduplicate), **and a live end-to-end run**: a signed `payment.confirmed` created exactly one case
     (`IE-2026-375863`, DOC_COLLECTION / IN_POOL / ON_TRACK / 1450.00) with a
     6-item `REQUIRED` checklist, a contact snapshot, two `NEW_CASE_IN_POOL`
     notifications (GM + that brand's manager only), an audit row carrying the
@@ -192,16 +194,6 @@ Update this file after every meaningful implementation change.
   events that are currently published to nobody).
 
 ## Open Questions
-
-- **Idempotency key must be per brand, not per source (drops paid cases).**
-  `V12`'s `UNIQUE (source, external_id)` is brand-agnostic, but each brand is a
-  separate GHL sub-account numbering its own invoices, so two brands can legitimately
-  send the same `invoice_ref`. Demonstrated live: the second brand's delivery was
-  acked as a duplicate, no case was created, and the ack returned the first brand's
-  event id. The gateway now answers 409 `EXTERNAL_ID_BRAND_CONFLICT` and logs at
-  ERROR so nothing is lost silently, but the paid case still needs an operator. Fix
-  is a migration changing the constraint to `(source, brand_id, external_id)` and
-  deleting that guard. Needed before a second brand goes live.
 
 - **GHL contract still unconfirmed** (was already open, now load-bearing): the
   `payment.confirmed` payload shape, the signature header name, and the HMAC
@@ -454,12 +446,17 @@ Update this file after every meaningful implementation change.
   real header is unconfirmed. The one knob this unit needs to be re-pointed without
   a code change. The **payload shape is also assumed**, and is deliberately confined
   to `GhlPaymentHandler.PaymentConfirmed` so a correction is one file.
-  (f) **A cross-brand idempotency-key collision is a 409, not a duplicate** — see
-  the open question below. Reached live during verification: XpertsPortal posting its
-  own `INV-LIVE-0001` was swallowed as International Evaluations' duplicate, created
-  no case for a paid deal, and handed the caller the *other brand's* event id.
-  `V12` keeps the spec's `UNIQUE (source, external_id)`; the gateway now refuses the
-  collision loudly instead of dropping it silently.
+  (f) **The idempotency key is scoped by brand (`V13`), replacing the spec's
+  `UNIQUE (source, external_id)`.** Closed, was an open question. The spec's key is
+  brand-agnostic while each brand is a separate GHL sub-account numbering its own
+  invoices; reached live, XpertsPortal posting its own `INV-LIVE-0001` was swallowed
+  as International Evaluations' duplicate, created no case for a paid deal, and
+  handed the caller the *other brand's* event id. `V13` makes it
+  `UNIQUE NULLS NOT DISTINCT (source, brand_id, external_id)` and the lookup became
+  `findBySourceAndBrandIdAndExternalId`, so each brand's key is its own; the interim
+  409 guard is deleted. `NULLS NOT DISTINCT` because `brand_id` is nullable and
+  Postgres would otherwise treat two brand-less rows as distinct, losing exactly the
+  deduplication the constraint exists for.
   (g0) **Defect found by the post-commit spec audit and fixed: a failed delivery
   could never be retried.** The dedupe check short-circuited on *any* archived row,
   so after a handler failure (which archives the row unprocessed and returns a
@@ -474,13 +471,14 @@ Update this file after every meaningful implementation change.
   (g) **`ChecklistTemplates` is a static map, not a table.** It moves into the
   database the first time a Brand Manager needs to edit a checklist without a
   deploy; the seed for that table is this map.
-  (h) **A `ponytail-review` pass on this unit found ~35 lines of uncontroversial
-  cruft** (a `text`-column truncation guard, two unused `ContactSnapshot` getters,
-  two `Ack` factory methods, a redundant `List.copyOf`, a speculative `"id"`
-  idempotency-key candidate) plus a larger optional cut: the transport record and
-  the intake command record declare the same 21 fields with a 17-line mapper
-  between them. Shipped as-is by decision; the transport/command split is what keeps
-  an unconfirmed payload shape out of `service`.
+  (h) **A `ponytail-review` pass found ~35 lines of cruft, now cut**: a truncation
+  guard on an unbounded `text` column, a redundant `processed = false`, two unused
+  `ContactSnapshot` getters, two `Ack` factory methods, a redundant `List.copyOf`
+  around `toList()`, a speculative `"id"` idempotency-key candidate, and a
+  `reduce("", String::concat)` that is `Collectors.joining()`. **Not** cut, by
+  decision: the transport record and the intake command record declare the same 21
+  fields with a mapper between them — that split is what keeps an unconfirmed payload
+  shape out of `service`, and the payload shape is the thing most likely to change.
 
 - **Unit 02 latent test bug, surfaced and fixed.**
   `SecurityFlowTest.tamperedTokenIsUnauthenticated` flipped the **last** character

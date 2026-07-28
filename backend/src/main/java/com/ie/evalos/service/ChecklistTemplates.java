@@ -57,6 +57,6 @@ public final class ChecklistTemplates {
 	}
 
 	private static List<String> concat(List<String> base, String... extra) {
-		return List.copyOf(Stream.concat(base.stream(), Stream.of(extra)).toList());
+		return Stream.concat(base.stream(), Stream.of(extra)).toList();
 	}
 }
