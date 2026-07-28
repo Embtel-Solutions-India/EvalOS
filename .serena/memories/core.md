@@ -12,7 +12,8 @@ point; `context/` holds the working build context (`project-overview`, `architec
 `code-standards`, `ai-workflow-rules`, `progress-tracker`). The authoritative design is the **EvalOS
 Technical Design Document v1.1**; where a context file conflicts with it, v1.1 wins.
 
-- Ordered unit list: `context/specs/00-build-plan.md` (20 units, 3 phases). Individual specs
+- Ordered unit list: `context/00-build-plan.md` — note it sits at `context/` root, **not** in
+  `specs/`, despite what `CLAUDE.md` and the tracker say (20 units, 3 phases). Individual specs
   `context/specs/NN-name.md` are generated **just before** each unit is built.
 - Do not invent product behavior absent from the context files — add an open question to
   `context/progress-tracker.md` instead.
