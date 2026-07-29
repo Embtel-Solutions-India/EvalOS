@@ -2,8 +2,11 @@ package com.ie.evalos.repository;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
 
 import com.ie.evalos.domain.Case;
+import com.ie.evalos.domain.ServiceType;
 import com.ie.evalos.domain.SlaStatus;
 import com.ie.evalos.domain.Stage;
 import com.ie.evalos.security.TenantContext;
@@ -24,6 +27,21 @@ public interface CaseRepository extends ScopedRepository<Case> {
 	default ScopePredicate.Fields scopeFields() {
 		return SCOPE;
 	}
+
+	/**
+	 * The case a repeat delivery of the same contact belongs to, if there is one.
+	 * Intake is create-or-update: one open case per contact per service, so a contact
+	 * buying a second service opens a second case, and a contact coming back after the
+	 * first case closed opens a new one.
+	 *
+	 * <p>Brand is a parameter rather than a scope predicate because Handoff A runs with
+	 * no authenticated caller — it comes from the endpoint token. {@code findFirst}
+	 * with an explicit order rather than a single-result finder: if two open cases ever
+	 * exist for one pair, this has to pick the newest deterministically instead of
+	 * throwing where a paid case is waiting.
+	 */
+	Optional<Case> findFirstByBrandIdAndContactIdAndServiceTypeAndCurrentStageNotOrderByCreatedAtDesc(
+			UUID brandId, UUID contactId, ServiceType serviceType, Stage excludedStage);
 
 	/**
 	 * The board read: the caller's scope first, then the optional filters on top. A

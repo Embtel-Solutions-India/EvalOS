@@ -31,6 +31,7 @@ public final class CaseTransitions {
 	 */
 	public enum Action {
 
+		MARK_PAID(CaseEvents.Type.CASE_PAID, AuditAction.UPDATED),
 		ASSIGN_PM(CaseEvents.Type.PM_ASSIGNED, AuditAction.ASSIGNED),
 		MARK_DOCS_COMPLETE(CaseEvents.Type.DOCUMENTS_COMPLETED, AuditAction.STAGE_CHANGED),
 		ASSIGN_CASE_MANAGER(CaseEvents.Type.EXPERT_ASSIGNED, AuditAction.ASSIGNED),
@@ -100,8 +101,12 @@ public final class CaseTransitions {
 		declare(Stage.FINAL_DELIVERY, Action.DELIVER_TO_CLIENT, Stage.FINAL_DELIVERY);
 		declare(Stage.FINAL_DELIVERY, Action.CONFIRM_RECEIPT_AND_CLOSE, Stage.CLOSED);
 
-		// Legal wherever the case is still being worked, and stage-preserving.
+		// Legal wherever the case is still being worked, and stage-preserving. MARK_PAID
+		// is here rather than only on DOC_COLLECTION because payment clearing late is a
+		// bookkeeping reality, not an illegal state — the guard that matters is the one
+		// stopping an unpaid case from reaching an expert.
 		for (Stage active : ACTIVE) {
+			declare(active, Action.MARK_PAID, active);
 			declare(active, Action.ASSIGN_PM, active);
 			declare(active, Action.PUT_ON_HOLD, active);
 			declare(active, Action.REQUEST_REFUND, active);

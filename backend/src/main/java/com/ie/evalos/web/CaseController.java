@@ -24,6 +24,7 @@ import com.ie.evalos.service.RefundService;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Positive;
 
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -83,6 +84,8 @@ public class CaseController {
 			PmApprovalStatus pmApprovalStatus,
 			ClientApprovalStatus clientApprovalStatus,
 			int draftVersionCount,
+			boolean paid,
+			Instant paidAt,
 			boolean revenueRecognized,
 			BigDecimal dealValue) {
 
@@ -93,7 +96,8 @@ public class CaseController {
 					subject.getDeliveryDate(), subject.getCaseClosedDate(), subject.getAssignedPm(),
 					subject.getAssignedCm(), subject.getExpertId(), subject.getExpertSignStatus(),
 					subject.getPmApprovalStatus(), subject.getClientApprovalStatus(),
-					subject.getDraftVersionCount(), RefundService.isRevenueRecognized(subject),
+					subject.getDraftVersionCount(), subject.isPaid(), subject.getPaidAt(),
+					RefundService.isRevenueRecognized(subject),
 					SEES_DEAL_VALUE.contains(ctx.role()) ? subject.getDealValue() : null);
 		}
 	}
@@ -109,6 +113,10 @@ public class CaseController {
 
 	/** Return comments, hold reasons, decline reasons, revision notes — all free text. */
 	public record ReasonRequest(@NotBlank String reason) {
+	}
+
+	/** What was actually taken, and the invoice it sits against. */
+	public record MarkPaidRequest(@NotNull @Positive BigDecimal dealValue, String invoiceRef) {
 	}
 
 	private final CaseLifecycleService lifecycle;
@@ -139,6 +147,19 @@ public class CaseController {
 	@GetMapping("/{id}")
 	public ApiResponse<CaseSummary> read(@PathVariable UUID id) {
 		return summary(lifecycle.read(id));
+	}
+
+	// --- payment -------------------------------------------------------------
+
+	/**
+	 * Records the money. Handoff A creates a case from a GHL contact, before payment, so
+	 * this is what makes it workable — nothing reaches an expert until it is called.
+	 * Same gate as assigning a PM, because both are the brand's commercial decisions.
+	 */
+	@PostMapping("/{id}/mark-paid")
+	@PreAuthorize(GM_OR + "hasRole('BRAND_MANAGER')")
+	public ApiResponse<CaseSummary> markPaid(@PathVariable UUID id, @Valid @RequestBody MarkPaidRequest request) {
+		return summary(lifecycle.markPaid(id, request.dealValue(), request.invoiceRef()));
 	}
 
 	// --- assignment ----------------------------------------------------------

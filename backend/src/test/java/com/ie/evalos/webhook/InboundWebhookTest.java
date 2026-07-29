@@ -52,7 +52,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * and gated entirely by the path token and the HMAC.
  */
 @WebMvcTest(controllers = InboundWebhookController.class)
-@Import({ WebhookGateway.class, WebhookVerifier.class, WebhookRouter.class, GhlPaymentHandler.class,
+@Import({ WebhookGateway.class, WebhookVerifier.class, WebhookRouter.class, GhlContactHandler.class,
 		SecurityConfig.class, JwtService.class, ApiErrors.class })
 @TestPropertySource(properties = {
 		"evalos.security.jwt.secret=test-signing-key-that-is-long-enough-for-hs256",
@@ -64,7 +64,8 @@ class InboundWebhookTest {
 	private static final UUID BRAND_IE = UUID.fromString("11111111-1111-1111-1111-111111111111");
 	private static final UUID BRAND_XP = UUID.fromString("22222222-2222-2222-2222-222222222222");
 
-	private static final String INVOICE = "INV-99123";
+	/** GHL's own delivery id: the idempotency key now that a contact has no invoice. */
+	private static final String EVENT_ID = "evt-99123";
 
 	@Autowired
 	MockMvc mockMvc;
@@ -93,12 +94,12 @@ class InboundWebhookTest {
 		given(webhookEvents.save(any(WebhookEvent.class))).willAnswer(call -> call.getArgument(0));
 	}
 
-	/** A realistic payment.confirmed body, snake_case as GHL sends it. */
-	private static String paymentBody(String invoiceRef) {
+	/** A realistic contact.created body, snake_case as GHL sends it. */
+	private static String contactBody(String eventId) {
 		return """
 				{
-				  "event_type": "payment.confirmed",
-				  "invoice_ref": "%s",
+				  "event_type": "contact.created",
+				  "event_id": "%s",
 				  "quote_amount": 1450.00,
 				  "service_type": "EXPERT_OPINION_LETTER",
 				  "visa_category": "EB2_NIW",
@@ -111,7 +112,7 @@ class InboundWebhookTest {
 				    "client_type": "ATTORNEY",
 				    "source": "GOOGLE_ADS"
 				  }
-				}""".formatted(invoiceRef);
+				}""".formatted(eventId);
 	}
 
 	private static String sign(String body) {
@@ -142,7 +143,7 @@ class InboundWebhookTest {
 
 	@Test
 	void aSignedPaymentIsAcceptedArchivedAndRouted() throws Exception {
-		String body = paymentBody(INVOICE);
+		String body = contactBody(EVENT_ID);
 
 		deliverSigned(body)
 				.andExpect(status().isOk())
@@ -153,8 +154,8 @@ class InboundWebhookTest {
 
 		ArgumentCaptor<WebhookEvent> archived = ArgumentCaptor.forClass(WebhookEvent.class);
 		verify(webhookEvents, org.mockito.Mockito.atLeastOnce()).save(archived.capture());
-		assertThat(archived.getValue().getEventType()).isEqualTo("payment.confirmed");
-		assertThat(archived.getValue().getExternalId()).isEqualTo(INVOICE);
+		assertThat(archived.getValue().getEventType()).isEqualTo("contact.created");
+		assertThat(archived.getValue().getExternalId()).isEqualTo(EVENT_ID);
 		assertThat(archived.getValue().getBrandId()).isEqualTo(BRAND_IE);
 		assertThat(archived.getValue().isProcessed()).isTrue();
 		assertThat(archived.getValue().getError()).isNull();
@@ -163,7 +164,7 @@ class InboundWebhookTest {
 	@Test
 	void theBrandComesFromTheEndpointTokenNeverFromTheBody() throws Exception {
 		// The body claims another brand. It is not consulted (invariant 8).
-		String body = paymentBody(INVOICE).replace("\"contact\": {",
+		String body = contactBody(EVENT_ID).replace("\"contact\": {",
 				"\"brand_id\": \"" + BRAND_XP + "\",\n  \"contact\": {");
 
 		deliverSigned(body).andExpect(status().isOk());
@@ -175,7 +176,7 @@ class InboundWebhookTest {
 
 	@Test
 	void aWrongSignatureIsRejectedWithNoSideEffect() throws Exception {
-		deliver(TOKEN, paymentBody(INVOICE), sign("a different body"))
+		deliver(TOKEN, contactBody(EVENT_ID), sign("a different body"))
 				.andExpect(status().isUnauthorized())
 				.andExpect(jsonPath("$.error.code").value("SIGNATURE_INVALID"));
 
@@ -185,11 +186,11 @@ class InboundWebhookTest {
 
 	@Test
 	void aMissingOrMalformedSignatureIsRejectedTheSameWay() throws Exception {
-		deliver(TOKEN, paymentBody(INVOICE), null)
+		deliver(TOKEN, contactBody(EVENT_ID), null)
 				.andExpect(status().isUnauthorized())
 				.andExpect(jsonPath("$.error.code").value("SIGNATURE_INVALID"));
 
-		deliver(TOKEN, paymentBody(INVOICE), "not-hex-at-all")
+		deliver(TOKEN, contactBody(EVENT_ID), "not-hex-at-all")
 				.andExpect(status().isUnauthorized())
 				.andExpect(jsonPath("$.error.code").value("SIGNATURE_INVALID"));
 
@@ -204,7 +205,7 @@ class InboundWebhookTest {
 		given(brands.findByWebhookEndpointTokenAndActiveTrue("no-secret-yet"))
 				.willReturn(Optional.of(unconfigured));
 
-		deliver("no-secret-yet", paymentBody(INVOICE), sign(paymentBody(INVOICE)))
+		deliver("no-secret-yet", contactBody(EVENT_ID), sign(contactBody(EVENT_ID)))
 				.andExpect(status().isUnauthorized())
 				.andExpect(jsonPath("$.error.code").value("SIGNATURE_INVALID"));
 
@@ -213,7 +214,7 @@ class InboundWebhookTest {
 
 	@Test
 	void anUnknownEndpointTokenIsNotFound() throws Exception {
-		String body = paymentBody(INVOICE);
+		String body = contactBody(EVENT_ID);
 
 		deliver("someone-elses-token", body, sign(body))
 				.andExpect(status().isNotFound())
@@ -231,10 +232,10 @@ class InboundWebhookTest {
 		// Processed, which is what makes it a duplicate rather than a failed attempt
 		// waiting to be retried.
 		given(alreadySeen.isProcessed()).willReturn(true);
-		given(webhookEvents.findBySourceAndBrandIdAndExternalId(WebhookSource.GHL, BRAND_IE, INVOICE))
+		given(webhookEvents.findBySourceAndBrandIdAndExternalId(WebhookSource.GHL, BRAND_IE, EVENT_ID))
 				.willReturn(Optional.of(alreadySeen));
 
-		deliverSigned(paymentBody(INVOICE))
+		deliverSigned(contactBody(EVENT_ID))
 				.andExpect(status().isOk())
 				.andExpect(jsonPath("$.data.status").value("duplicate"));
 
@@ -252,10 +253,10 @@ class InboundWebhookTest {
 	void thesameInvoiceRefFromAnotherBrandIsItsOwnEvent() throws Exception {
 		// Only XpertsPortal has archived this invoice ref. International Evaluations
 		// asking about the same ref must not find it.
-		given(webhookEvents.findBySourceAndBrandIdAndExternalId(WebhookSource.GHL, BRAND_XP, INVOICE))
+		given(webhookEvents.findBySourceAndBrandIdAndExternalId(WebhookSource.GHL, BRAND_XP, EVENT_ID))
 				.willReturn(Optional.of(mock(WebhookEvent.class)));
 
-		deliverSigned(paymentBody(INVOICE))
+		deliverSigned(contactBody(EVENT_ID))
 				.andExpect(status().isOk())
 				.andExpect(jsonPath("$.data.status").value("accepted"));
 
@@ -268,12 +269,12 @@ class InboundWebhookTest {
 				.andExpect(status().isBadRequest())
 				.andExpect(jsonPath("$.error.code").value("MALFORMED_PAYLOAD"));
 
-		String noKey = "{\"event_type\":\"payment.confirmed\"}";
+		String noKey = "{\"event_type\":\"contact.created\"}";
 		deliver(TOKEN, noKey, sign(noKey))
 				.andExpect(status().isBadRequest())
 				.andExpect(jsonPath("$.error.code").value("MISSING_EXTERNAL_ID"));
 
-		String noType = "{\"invoice_ref\":\"INV-1\"}";
+		String noType = "{\"event_id\":\"evt-1\"}";
 		deliver(TOKEN, noType, sign(noType))
 				.andExpect(status().isBadRequest())
 				.andExpect(jsonPath("$.error.code").value("MISSING_EVENT_TYPE"));
@@ -283,7 +284,7 @@ class InboundWebhookTest {
 
 	@Test
 	void aPayloadMissingARequiredFieldIsABadRequest() throws Exception {
-		String noServiceType = paymentBody(INVOICE).replace("\"service_type\": \"EXPERT_OPINION_LETTER\",", "");
+		String noServiceType = contactBody(EVENT_ID).replace("\"service_type\": \"EXPERT_OPINION_LETTER\",", "");
 
 		deliverSigned(noServiceType)
 				.andExpect(status().isBadRequest())
@@ -298,7 +299,7 @@ class InboundWebhookTest {
 				.given(intake).intake(any(), any());
 
 		// A 5xx is what makes GHL redeliver; a 4xx would silently drop a paid case.
-		deliverSigned(paymentBody(INVOICE)).andExpect(status().is5xxServerError());
+		deliverSigned(contactBody(EVENT_ID)).andExpect(status().is5xxServerError());
 
 		ArgumentCaptor<WebhookEvent> archived = ArgumentCaptor.forClass(WebhookEvent.class);
 		verify(webhookEvents, org.mockito.Mockito.atLeastOnce()).save(archived.capture());
@@ -314,7 +315,7 @@ class InboundWebhookTest {
 	 */
 	@Test
 	void aRedeliveryAfterAFailureRetriesInsteadOfLookingLikeADuplicate() throws Exception {
-		String body = paymentBody(INVOICE);
+		String body = contactBody(EVENT_ID);
 		willThrow(new IllegalStateException("transient database blip")).given(intake).intake(any(), any());
 
 		deliverSigned(body).andExpect(status().is5xxServerError());
@@ -324,7 +325,7 @@ class InboundWebhookTest {
 		verify(webhookEvents, org.mockito.Mockito.atLeastOnce()).save(failed.capture());
 		WebhookEvent unprocessed = failed.getValue();
 		assertThat(unprocessed.isProcessed()).isFalse();
-		given(webhookEvents.findBySourceAndBrandIdAndExternalId(WebhookSource.GHL, BRAND_IE, INVOICE))
+		given(webhookEvents.findBySourceAndBrandIdAndExternalId(WebhookSource.GHL, BRAND_IE, EVENT_ID))
 				.willReturn(Optional.of(unprocessed));
 
 		org.mockito.Mockito.reset(intake);

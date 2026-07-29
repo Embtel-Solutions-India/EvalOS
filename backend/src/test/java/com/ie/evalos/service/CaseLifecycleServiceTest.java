@@ -1,5 +1,6 @@
 package com.ie.evalos.service;
 
+import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
@@ -26,6 +27,7 @@ import com.ie.evalos.event.CaseEvents;
 import com.ie.evalos.repository.CaseRepository;
 import com.ie.evalos.repository.DocumentChecklistItemRepository;
 import com.ie.evalos.repository.ExpertRepository;
+import com.ie.evalos.repository.NotificationRepository;
 import com.ie.evalos.repository.PayoutLedgerRepository;
 import com.ie.evalos.repository.TeamMemberRepository;
 import com.ie.evalos.security.StaffPrincipal;
@@ -74,6 +76,7 @@ class CaseLifecycleServiceTest {
 	private static final UUID CM_ID = UUID.randomUUID();
 	private static final UUID EXPERT_ID = UUID.randomUUID();
 	private static final UUID OTHER_EXPERT_ID = UUID.randomUUID();
+	private static final BigDecimal PAID = new BigDecimal("1450.00");
 
 	private final CaseRepository cases = mock(CaseRepository.class);
 	private final DocumentChecklistItemRepository checklistItems = mock(DocumentChecklistItemRepository.class);
@@ -83,9 +86,11 @@ class CaseLifecycleServiceTest {
 	private final AuditService audit = mock(AuditService.class);
 	private final ApplicationEventPublisher events = mock(ApplicationEventPublisher.class);
 
+	private final NotificationRepository notifications = mock(NotificationRepository.class);
 	private final SlaCalculator sla = new SlaCalculator(new BusinessCalendar());
+	private final PoolNotifier pool = new PoolNotifier(teamMembers, notifications);
 	private final CaseLifecycleService lifecycle = new CaseLifecycleService(
-			cases, checklistItems, experts, teamMembers, audit, sla, events);
+			cases, checklistItems, experts, teamMembers, audit, sla, pool, events);
 	private final RefundService refunds = new RefundService(lifecycle, payouts);
 
 	private Case subject;
@@ -151,6 +156,7 @@ class CaseLifecycleServiceTest {
 	/** Everything the walk needs before the draft loops start. */
 	private void walkToDraftGeneration() {
 		actAs(Role.BRAND_MANAGER);
+		lifecycle.markPaid(CASE_ID, PAID, "INV-0001");
 		lifecycle.assignPm(CASE_ID, PM_ID);
 		actAs(Role.PROJECT_COORDINATOR);
 		lifecycle.markDocsComplete(CASE_ID);
@@ -200,8 +206,9 @@ class CaseLifecycleServiceTest {
 		assertNull(subject.getSlaStatus(), "a closed case runs no clock");
 
 		// Exactly one audit entry and one event per hop, and in the declared order.
-		verify(audit, times(11)).recordEvent(any(), any(), any(), any(), any(), any());
+		verify(audit, times(12)).recordEvent(any(), any(), any(), any(), any(), any());
 		assertEquals(List.of(
+				CaseEvents.Type.CASE_PAID,
 				CaseEvents.Type.PM_ASSIGNED,
 				CaseEvents.Type.DOCUMENTS_COMPLETED,
 				CaseEvents.Type.EXPERT_ASSIGNED,
@@ -212,7 +219,7 @@ class CaseLifecycleServiceTest {
 				CaseEvents.Type.EXPERT_SIGNED,
 				CaseEvents.Type.QC_APPROVED,
 				CaseEvents.Type.CASE_DELIVERED,
-				CaseEvents.Type.CASE_CLOSED), publishedEventTypes(11));
+				CaseEvents.Type.CASE_CLOSED), publishedEventTypes(12));
 	}
 
 	@Test
@@ -228,6 +235,7 @@ class CaseLifecycleServiceTest {
 
 	@Test
 	void docsCompleteNeedsAProjectManagerAndAFinishedChecklist() {
+		subject.setPaid(true);
 		actAs(Role.PROJECT_COORDINATOR);
 		assertThrows(IllegalTransitionException.class, () -> lifecycle.markDocsComplete(CASE_ID));
 
@@ -240,6 +248,35 @@ class CaseLifecycleServiceTest {
 		actAs(Role.PROJECT_COORDINATOR);
 		assertThrows(IllegalTransitionException.class, () -> lifecycle.markDocsComplete(CASE_ID));
 		assertEquals(Stage.DOC_COLLECTION, subject.getCurrentStage());
+	}
+
+	/**
+	 * Handoff A now creates a case from a contact, so an unpaid case is a normal state.
+	 * Documents may be gathered against one — that costs nothing — but the next hop
+	 * engages an expert, and every later stage is only reachable through it.
+	 */
+	@Test
+	void anUnpaidCaseGetsNoFurtherThanDocCollection() {
+		actAs(Role.BRAND_MANAGER);
+		lifecycle.assignPm(CASE_ID, PM_ID);
+
+		actAs(Role.PROJECT_COORDINATOR);
+		assertEquals("the case has not been paid",
+				assertThrows(IllegalTransitionException.class, () -> lifecycle.markDocsComplete(CASE_ID))
+						.getMessage());
+		assertEquals(Stage.DOC_COLLECTION, subject.getCurrentStage());
+		assertFalse(RefundService.isRevenueRecognized(subject), "and it is not revenue either");
+
+		actAs(Role.BRAND_MANAGER);
+		lifecycle.markPaid(CASE_ID, PAID, "INV-0001");
+		assertTrue(subject.isPaid());
+		assertEquals(PAID, subject.getDealValue());
+		assertThrows(IllegalTransitionException.class, () -> lifecycle.markPaid(CASE_ID, PAID, "INV-0002"),
+				"paying twice is a mistake, not an update");
+
+		actAs(Role.PROJECT_COORDINATOR);
+		lifecycle.markDocsComplete(CASE_ID);
+		assertEquals(Stage.EXPERT_ASSIGNMENT, subject.getCurrentStage());
 	}
 
 	@Test
@@ -288,6 +325,7 @@ class CaseLifecycleServiceTest {
 	@Test
 	void anUnavailableExpertCannotBePutOnACase() {
 		actAs(Role.BRAND_MANAGER);
+		lifecycle.markPaid(CASE_ID, PAID, null);
 		lifecycle.assignPm(CASE_ID, PM_ID);
 		actAs(Role.PROJECT_COORDINATOR);
 		lifecycle.markDocsComplete(CASE_ID);
@@ -305,6 +343,7 @@ class CaseLifecycleServiceTest {
 	void onlyTheGmMayRuleOnARefund() {
 		subject.setCurrentStage(Stage.FINAL_DELIVERY);
 		subject.setDeliveryDate(Instant.now());
+		subject.setPaid(true);
 
 		actAs(Role.PROJECT_COORDINATOR);
 		lifecycle.requestRefund(CASE_ID, "client changed their mind");
@@ -319,6 +358,7 @@ class CaseLifecycleServiceTest {
 	void approvedRefundReversesRecognitionAndVoidsThePendingPayout() {
 		subject.setCurrentStage(Stage.FINAL_DELIVERY);
 		subject.setDeliveryDate(Instant.now());
+		subject.setPaid(true);
 
 		PayoutLedger pending = mock(PayoutLedger.class);
 		List<PayoutLedger> owed = List.of(pending);
@@ -343,6 +383,7 @@ class CaseLifecycleServiceTest {
 	void aDeniedRefundPutsTheCaseBackWhereItWas() {
 		subject.setCurrentStage(Stage.FINAL_DELIVERY);
 		subject.setDeliveryDate(Instant.now());
+		subject.setPaid(true);
 
 		actAs(Role.PROJECT_COORDINATOR);
 		lifecycle.requestRefund(CASE_ID, "client changed their mind");
@@ -374,7 +415,7 @@ class CaseLifecycleServiceTest {
 
 		assertTrue(!subject.getStageEnteredAt().isBefore(afterAssignment),
 				"the PM review round starts its own 12 hours");
-		verify(audit, times(4)).recordEvent(anyString(), any(), any(), any(), any(), any());
+		verify(audit, times(5)).recordEvent(anyString(), any(), any(), any(), any(), any());
 	}
 
 	/** Doc collection budgets three business days; thirty calendar days is past it however you count. */

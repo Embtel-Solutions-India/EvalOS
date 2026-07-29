@@ -82,7 +82,10 @@ public class RefundService {
 	 * figure filters on this rather than on {@code delivery_date} alone.
 	 */
 	public static boolean isRevenueRecognized(Case subject) {
-		return subject.getDeliveryDate() != null && !isRefunded(subject);
+		// Paid as well as delivered: since Handoff A moved to contact intake, a case can
+		// exist and even be worked without money behind it, so delivery alone no longer
+		// implies earned.
+		return subject.isPaid() && subject.getDeliveryDate() != null && !isRefunded(subject);
 	}
 
 	/**

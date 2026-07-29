@@ -16,7 +16,7 @@ import com.ie.evalos.repository.NotificationRepository;
 import com.ie.evalos.repository.PayoutLedgerRepository;
 import com.ie.evalos.service.CaseIntakeService;
 import com.ie.evalos.service.ScopePredicate;
-import com.ie.evalos.webhook.GhlPaymentHandler;
+import com.ie.evalos.webhook.GhlContactHandler;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -96,13 +96,16 @@ class DomainInvariantsTest {
 	}
 
 	/**
-	 * Invariant 8: a case is created by the GHL payment webhook and by nothing else.
-	 * Asserted structurally because the failure mode is somebody adding a
+	 * Invariant 8: a case is created by the inbound GHL contact webhook and by nothing
+	 * else. Asserted structurally because the failure mode is somebody adding a
 	 * {@code POST /api/cases} — which would compile, pass every other test, and let a
-	 * case exist without a payment behind it.
+	 * case exist that GHL has never heard of.
+	 *
+	 * <p>Payment no longer gates creation, so this is now the only thing keeping case
+	 * creation to one door. It matters more than it did, not less.
 	 */
 	@Test
-	void onlyTheGhlPaymentHandlerCanCreateACase() {
+	void onlyTheGhlContactHandlerCanCreateACase() {
 		var scanner = new ClassPathScanningCandidateComponentProvider(true);
 
 		Set<String> injectors = scanner.findCandidateComponents("com.ie.evalos").stream()
@@ -112,7 +115,7 @@ class DomainInvariantsTest {
 
 		assertThat(injectors)
 				.as("case creation is Handoff A's alone — see CaseIntakeService")
-				.containsExactly(GhlPaymentHandler.class.getName());
+				.containsExactly(GhlContactHandler.class.getName());
 	}
 
 	private static boolean takesTheIntakeService(String className) {

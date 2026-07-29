@@ -1,5 +1,6 @@
 package com.ie.evalos.service;
 
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
@@ -15,6 +16,7 @@ import com.ie.evalos.domain.ExceptionState;
 import com.ie.evalos.domain.Expert;
 import com.ie.evalos.domain.ExpertSignStatus;
 import com.ie.evalos.domain.IllegalTransitionException;
+import com.ie.evalos.domain.NotificationType;
 import com.ie.evalos.domain.PmApprovalStatus;
 import com.ie.evalos.domain.PoolStatus;
 import com.ie.evalos.domain.Role;
@@ -67,6 +69,7 @@ public class CaseLifecycleService {
 			ClientApprovalStatus clientApprovalStatus,
 			int draftVersionCount,
 			SlaStatus slaStatus,
+			boolean paid,
 			String note) {
 
 		static CaseSnapshot of(Case subject) {
@@ -77,7 +80,7 @@ public class CaseLifecycleService {
 			return new CaseSnapshot(subject.getCurrentStage(), subject.getExceptionState(), subject.getPoolStatus(),
 					subject.getAssignedPm(), subject.getAssignedCm(), subject.getExpertId(),
 					subject.getExpertSignStatus(), subject.getPmApprovalStatus(), subject.getClientApprovalStatus(),
-					subject.getDraftVersionCount(), subject.getSlaStatus(), note);
+					subject.getDraftVersionCount(), subject.getSlaStatus(), subject.isPaid(), note);
 		}
 	}
 
@@ -87,10 +90,11 @@ public class CaseLifecycleService {
 	private final TeamMemberRepository teamMembers;
 	private final AuditService audit;
 	private final SlaCalculator sla;
+	private final PoolNotifier pool;
 	private final ApplicationEventPublisher events;
 
 	CaseLifecycleService(CaseRepository cases, DocumentChecklistItemRepository checklistItems, ExpertRepository experts,
-			TeamMemberRepository teamMembers, AuditService audit, SlaCalculator sla,
+			TeamMemberRepository teamMembers, AuditService audit, SlaCalculator sla, PoolNotifier pool,
 			ApplicationEventPublisher events) {
 		this.cases = cases;
 		this.checklistItems = checklistItems;
@@ -98,6 +102,7 @@ public class CaseLifecycleService {
 		this.teamMembers = teamMembers;
 		this.audit = audit;
 		this.sla = sla;
+		this.pool = pool;
 		this.events = events;
 	}
 
@@ -132,6 +137,35 @@ public class CaseLifecycleService {
 	private Case withCurrentSla(Case subject) {
 		subject.setSlaStatus(sla.statusOf(subject));
 		return subject;
+	}
+
+	// --- payment -------------------------------------------------------------
+
+	/**
+	 * Records that the money arrived. Handoff A no longer proves payment — a case is
+	 * created from a GHL contact, before anyone has paid — so this is the fact that
+	 * turns a lead into workable, recognisable business. GM and Brand Manager only.
+	 *
+	 * <p>The pool alert lives here rather than at creation: this is the moment somebody
+	 * has to assign a project manager.
+	 */
+	@Transactional
+	public Case markPaid(UUID caseId, BigDecimal dealValue, String invoiceRef) {
+		Case subject = load(caseId);
+		Stage to = CaseTransitions.target(subject, Action.MARK_PAID);
+		requireState(!subject.isPaid(), "the case is already paid");
+
+		Case paid = apply(subject, to, Action.MARK_PAID, invoiceRef, c -> {
+			c.setPaid(true);
+			c.setPaidAt(Instant.now());
+			c.setDealValue(dealValue);
+			if (invoiceRef != null && !invoiceRef.isBlank()) {
+				c.setInvoiceRef(invoiceRef);
+			}
+		});
+		pool.alert(paid.getBrandId(), paid.getId(), NotificationType.NEW_CASE_IN_POOL,
+				"Case %s is paid and needs a project manager.".formatted(paid.getCaseCode()));
+		return paid;
 	}
 
 	// --- assignment ----------------------------------------------------------
@@ -174,6 +208,11 @@ public class CaseLifecycleService {
 	public Case markDocsComplete(UUID caseId) {
 		Case subject = load(caseId);
 		Stage to = CaseTransitions.target(subject, Action.MARK_DOCS_COMPLETE);
+		// The one place unpaid work stops. Documents may be gathered from a lead — that
+		// costs EvalOS nothing — but everything past here engages an expert, so it waits
+		// for the money. Guarding here covers every later stage, because none of them is
+		// reachable without passing through this transition.
+		requireState(subject.isPaid(), "the case has not been paid");
 		requireState(subject.getAssignedPm() != null, "no project manager is assigned yet");
 
 		List<DocumentChecklistItem> items = checklistItems.findByCaseId(subject.getId());

@@ -22,20 +22,27 @@ public class WebhookRouter {
 
 	private static final Logger log = LoggerFactory.getLogger(WebhookRouter.class);
 
-	static final String PAYMENT_CONFIRMED = "payment.confirmed";
+	static final String CONTACT_CREATED = "contact.created";
 
-	/** Recognized in the design, payloads not yet confirmed — deliberate no-ops. */
+	/**
+	 * Recognized in the design, payloads not yet confirmed — deliberate no-ops.
+	 *
+	 * <p>{@code contact.updated} stays here rather than routing to the contact handler.
+	 * Intake is create-or-update, so it would technically work — but an edit to a
+	 * contact is not a reason to open a case, and routing it there would turn every
+	 * field change in GHL into new work for a brand that never asked for it.
+	 */
 	private static final Set<String> DEFERRED = Set.of("refund.requested", "contact.updated");
 
-	private final GhlPaymentHandler ghlPayments;
+	private final GhlContactHandler ghlContacts;
 
-	WebhookRouter(GhlPaymentHandler ghlPayments) {
-		this.ghlPayments = ghlPayments;
+	WebhookRouter(GhlContactHandler ghlContacts) {
+		this.ghlContacts = ghlContacts;
 	}
 
 	void route(Brand brand, String eventType, String rawBody) {
-		if (PAYMENT_CONFIRMED.equals(eventType)) {
-			ghlPayments.handle(brand, rawBody);
+		if (CONTACT_CREATED.equals(eventType)) {
+			ghlContacts.handle(brand, rawBody);
 		}
 		else if (DEFERRED.contains(eventType)) {
 			log.info("Event type '{}' is recognized but not yet implemented — archived and acked", eventType);

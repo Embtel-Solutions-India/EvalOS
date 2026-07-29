@@ -63,6 +63,22 @@ public class Case extends ScopedEntity {
 	@Column(name = "deal_value")
 	private BigDecimal dealValue;
 
+	/**
+	 * Whether the money has arrived. Since Handoff A moved to contact intake a case
+	 * exists before it is paid, so this is a fact recorded on the case rather than the
+	 * reason it exists. Written only by {@code CaseLifecycleService.markPaid} — or by
+	 * intake when GHL already knows the contact paid.
+	 *
+	 * <p>Two things depend on it: no case reaches an expert unpaid (the guard is on
+	 * {@code markDocsComplete}), and no unpaid case counts as earned revenue
+	 * (invariant 5, via {@code RefundService.isRevenueRecognized}).
+	 */
+	@Column(name = "paid", nullable = false)
+	private boolean paid;
+
+	@Column(name = "paid_at")
+	private Instant paidAt;
+
 	@Column(name = "deadline")
 	private Instant deadline;
 
@@ -216,8 +232,16 @@ public class Case extends ScopedEntity {
 		this.serviceType = serviceType;
 	}
 
+	public ServiceSubtype getServiceSubtype() {
+		return serviceSubtype;
+	}
+
 	public void setServiceSubtype(ServiceSubtype serviceSubtype) {
 		this.serviceSubtype = serviceSubtype;
+	}
+
+	public VisaCategory getVisaCategory() {
+		return visaCategory;
 	}
 
 	public void setVisaCategory(VisaCategory visaCategory) {
@@ -237,12 +261,32 @@ public class Case extends ScopedEntity {
 		this.dealValue = dealValue;
 	}
 
+	public boolean isPaid() {
+		return paid;
+	}
+
+	public void setPaid(boolean paid) {
+		this.paid = paid;
+	}
+
+	public Instant getPaidAt() {
+		return paidAt;
+	}
+
+	public void setPaidAt(Instant paidAt) {
+		this.paidAt = paidAt;
+	}
+
 	public Instant getDeadline() {
 		return deadline;
 	}
 
 	public void setDeadline(Instant deadline) {
 		this.deadline = deadline;
+	}
+
+	public String getDriveLink() {
+		return driveLink;
 	}
 
 	public void setDriveLink(String driveLink) {

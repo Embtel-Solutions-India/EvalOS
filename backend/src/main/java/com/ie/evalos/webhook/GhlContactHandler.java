@@ -5,8 +5,8 @@ import java.time.Instant;
 import java.util.Set;
 import java.util.UUID;
 
-import com.fasterxml.jackson.databind.PropertyNamingStrategies;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.PropertyNamingStrategies;
 import com.fasterxml.jackson.databind.annotation.JsonNaming;
 import com.ie.evalos.domain.Brand;
 import com.ie.evalos.domain.ClientType;
@@ -27,34 +27,43 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
 
 /**
- * Handoff A's handler: GHL says an invoice was paid, EvalOS takes custody. The
- * webhook is the proof of payment — EvalOS never talks to a payment processor.
+ * Handoff A's handler: GHL says a contact was created, EvalOS takes custody of the
+ * work that contact represents.
+ *
+ * <p>This used to be a payment handler, and the difference matters. The webhook is no
+ * longer proof of payment — it is proof that somebody exists and wants something. The
+ * case it creates is unpaid until a GM or Brand Manager records the money, and
+ * nothing that costs an expert's time can happen before then.
  *
  * <p>Parse-then-trust. The payload is deserialized and validated in full before the
- * intake service is called, so a malformed delivery is a 400 that GHL will not
- * retry rather than a half-created case.
+ * intake service is called, so a malformed delivery is a 400 that GHL will not retry
+ * rather than a half-created case.
  *
  * <p>The payload shape is the design's assumption, not a confirmed contract (see the
  * open question in the progress tracker). It is deliberately kept in this class so a
  * correction to it is one file and never reaches the service.
  */
 @Component
-public class GhlPaymentHandler {
+public class GhlContactHandler {
 
 	/** GHL sends snake_case; unknown extra fields are ignored, as Boot defaults to. */
 	@JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
-	public record PaymentConfirmed(
+	public record ContactCreated(
 			@NotNull @Valid Contact contact,
+			/** Which service this contact asked for. Required: it decides the checklist,
+			 * and it is half of the key that says which case this contact belongs to. */
 			@NotNull ServiceType serviceType,
 			ServiceSubtype serviceSubtype,
 			VisaCategory visaCategory,
 			UUID selectedExpertId,
-			@NotNull @Positive BigDecimal quoteAmount,
+			/** A quote, not a payment. {@code markPaid} records what was actually taken. */
+			@Positive BigDecimal quoteAmount,
 			Instant deadline,
 			String driveLink,
 			String invoiceRef,
-			String paymentId,
-			String campaignAttribution) {
+			String campaignAttribution,
+			/** True only when GHL already knows this contact paid. Defaults to false. */
+			boolean paid) {
 
 		@JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
 		public record Contact(
@@ -75,49 +84,42 @@ public class GhlPaymentHandler {
 	private final ObjectMapper objectMapper;
 	private final Validator validator;
 
-	GhlPaymentHandler(CaseIntakeService intake, ObjectMapper objectMapper, Validator validator) {
+	GhlContactHandler(CaseIntakeService intake, ObjectMapper objectMapper, Validator validator) {
 		this.intake = intake;
 		this.objectMapper = objectMapper;
 		this.validator = validator;
 	}
 
 	void handle(Brand brand, String rawBody) {
-		PaymentConfirmed payload = validated(parse(rawBody));
-		intake.intake(brand, toCommand(payload));
+		intake.intake(brand, toCommand(validated(parse(rawBody))));
 	}
 
-	private PaymentConfirmed parse(String rawBody) {
+	private ContactCreated parse(String rawBody) {
 		try {
-			return objectMapper.readValue(rawBody, PaymentConfirmed.class);
+			return objectMapper.readValue(rawBody, ContactCreated.class);
 		}
 		catch (com.fasterxml.jackson.core.JsonProcessingException ex) {
 			throw new WebhookRejected(HttpStatus.BAD_REQUEST, "MALFORMED_PAYLOAD",
-					"payment.confirmed payload could not be read");
+					"contact payload could not be read");
 		}
 	}
 
-	private PaymentConfirmed validated(PaymentConfirmed payload) {
-		Set<ConstraintViolation<PaymentConfirmed>> violations = validator.validate(payload);
+	private ContactCreated validated(ContactCreated payload) {
+		Set<ConstraintViolation<ContactCreated>> violations = validator.validate(payload);
 		if (!violations.isEmpty()) {
-			ConstraintViolation<PaymentConfirmed> first = violations.iterator().next();
+			ConstraintViolation<ContactCreated> first = violations.iterator().next();
 			throw new WebhookRejected(HttpStatus.BAD_REQUEST, "VALIDATION_FAILED",
 					first.getPropertyPath() + " " + first.getMessage());
-		}
-		// The idempotency key the gateway deduplicated on has to be one of these, so a
-		// payload carrying neither would create a second case on redelivery.
-		if (blank(payload.invoiceRef()) && blank(payload.paymentId())) {
-			throw new WebhookRejected(HttpStatus.BAD_REQUEST, "VALIDATION_FAILED",
-					"one of invoice_ref or payment_id is required");
 		}
 		return payload;
 	}
 
 	/**
 	 * Transport shape → domain command. The brand is not read from the payload at any
-	 * point: it is the one the endpoint token resolved to (invariant 8).
+	 * point: it is the one the endpoint token resolved to.
 	 */
-	private static CaseIntakeService.NewCase toCommand(PaymentConfirmed payload) {
-		PaymentConfirmed.Contact contact = payload.contact();
+	private static CaseIntakeService.NewCase toCommand(ContactCreated payload) {
+		ContactCreated.Contact contact = payload.contact();
 		return new CaseIntakeService.NewCase(
 				new CaseIntakeService.ContactDetails(contact.ghlContactId(), contact.fullName(), contact.email(),
 						contact.phone(), contact.company(), contact.clientType(), contact.source(),
@@ -129,11 +131,8 @@ public class GhlPaymentHandler {
 				payload.quoteAmount(),
 				payload.deadline(),
 				payload.driveLink(),
-				blank(payload.invoiceRef()) ? payload.paymentId() : payload.invoiceRef(),
-				payload.campaignAttribution());
-	}
-
-	private static boolean blank(String value) {
-		return value == null || value.isBlank();
+				payload.invoiceRef(),
+				payload.campaignAttribution(),
+				payload.paid());
 	}
 }

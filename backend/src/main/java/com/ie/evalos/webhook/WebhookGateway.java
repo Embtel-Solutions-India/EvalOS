@@ -33,11 +33,14 @@ public class WebhookGateway {
 	private static final Logger log = LoggerFactory.getLogger(WebhookGateway.class);
 
 	/**
-	 * Where the idempotency key is looked for, in order. Invoice ref first because
-	 * that is what a GHL payment is identified by; the rest let a new source be
-	 * deduplicated without touching this class.
+	 * Where the idempotency key is looked for, in order. The source's own event id
+	 * first: a contact has no invoice, and keying on the contact id instead would make
+	 * a returning client's second order look like a duplicate.
+	 *
+	 * <p>A payload carrying none of these is rejected rather than processed — see
+	 * {@link #externalId}.
 	 */
-	private static final String[] EXTERNAL_ID_FIELDS = { "invoice_ref", "payment_id", "event_id" };
+	private static final String[] EXTERNAL_ID_FIELDS = { "event_id", "webhook_id", "id" };
 
 	private static final String EVENT_TYPE_FIELD = "event_type";
 

@@ -17,22 +17,17 @@ import com.ie.evalos.domain.ChecklistItemStatus;
 import com.ie.evalos.domain.ClientType;
 import com.ie.evalos.domain.ContactSnapshot;
 import com.ie.evalos.domain.DocumentChecklistItem;
-import com.ie.evalos.domain.Notification;
 import com.ie.evalos.domain.NotificationType;
 import com.ie.evalos.domain.PoolStatus;
-import com.ie.evalos.domain.Role;
 import com.ie.evalos.domain.ServiceSubtype;
 import com.ie.evalos.domain.ServiceType;
 import com.ie.evalos.domain.SourceChannel;
 import com.ie.evalos.domain.Stage;
-import com.ie.evalos.domain.TeamMember;
 import com.ie.evalos.domain.VisaCategory;
 import com.ie.evalos.event.CaseEvents;
 import com.ie.evalos.repository.CaseRepository;
 import com.ie.evalos.repository.ContactSnapshotRepository;
 import com.ie.evalos.repository.DocumentChecklistItemRepository;
-import com.ie.evalos.repository.NotificationRepository;
-import com.ie.evalos.repository.TeamMemberRepository;
 
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
@@ -67,7 +62,13 @@ public class CaseIntakeService {
 			String utmCampaign) {
 	}
 
-	/** What a confirmed payment says the case is. Transport-agnostic on purpose. */
+	/**
+	 * What an inbound GHL contact says the case is. Transport-agnostic on purpose.
+	 *
+	 * <p>{@code dealValue} is a quote, not a payment — it may be null, and it is
+	 * {@code markPaid} that records the amount actually taken. {@code paid} is only
+	 * true when GHL already knows the contact paid.
+	 */
 	public record NewCase(
 			ContactDetails contact,
 			ServiceType serviceType,
@@ -78,49 +79,107 @@ public class CaseIntakeService {
 			Instant deadline,
 			String driveLink,
 			String invoiceRef,
-			String campaignAttribution) {
+			String campaignAttribution,
+			boolean paid) {
 	}
 
 	private final CaseRepository cases;
 	private final ContactSnapshotRepository contacts;
 	private final DocumentChecklistItemRepository checklistItems;
-	private final NotificationRepository notifications;
-	private final TeamMemberRepository teamMembers;
 	private final AuditService audit;
 	private final SlaCalculator sla;
+	private final PoolNotifier pool;
 	private final ApplicationEventPublisher events;
 
 	CaseIntakeService(CaseRepository cases, ContactSnapshotRepository contacts,
-			DocumentChecklistItemRepository checklistItems, NotificationRepository notifications,
-			TeamMemberRepository teamMembers, AuditService audit, SlaCalculator sla,
-			ApplicationEventPublisher events) {
+			DocumentChecklistItemRepository checklistItems, AuditService audit, SlaCalculator sla,
+			PoolNotifier pool, ApplicationEventPublisher events) {
 		this.cases = cases;
 		this.contacts = contacts;
 		this.checklistItems = checklistItems;
-		this.notifications = notifications;
-		this.teamMembers = teamMembers;
 		this.audit = audit;
 		this.sla = sla;
+		this.pool = pool;
 		this.events = events;
 	}
 
 	/**
-	 * One transaction: sync the contact, create the case in the pool, open its
-	 * checklist, notify the pool, write the audit row, publish the two events. Any
-	 * failure rolls all of it back, so a redelivery starts from nothing.
+	 * One transaction, and create-or-update rather than create: sync the contact, then
+	 * either refresh the case this contact already has open for this service or open a
+	 * new one. Any failure rolls all of it back, so a redelivery starts from nothing.
+	 *
+	 * <p>One open case per contact per service. A contact buying a second service opens
+	 * a second case; a contact coming back after the first one closed opens a new one.
 	 */
 	@Transactional
 	public Case intake(Brand brand, NewCase request) {
 		ContactSnapshot contact = syncContact(brand.getId(), request.contact());
-		Case created = cases.save(newCase(brand, request, contact.getId()));
 
+		Optional<Case> open = cases
+				.findFirstByBrandIdAndContactIdAndServiceTypeAndCurrentStageNotOrderByCreatedAtDesc(
+						brand.getId(), contact.getId(), request.serviceType(), Stage.CLOSED);
+		if (open.isPresent()) {
+			return refresh(brand, open.get(), request);
+		}
+		return create(brand, request, contact.getId());
+	}
+
+	/**
+	 * A repeat delivery for a case that is already open. The contact snapshot has just
+	 * been re-synced; beyond that this only fills in what is still blank.
+	 *
+	 * <p>It deliberately cannot move the case. A GHL workflow re-firing must not reset a
+	 * stage, drop an assignment, or un-pay a case that somebody has since paid — so
+	 * stage, assignment and {@code paid} are never touched here, and no lifecycle event
+	 * is published because nothing in the lifecycle happened.
+	 */
+	private Case refresh(Brand brand, Case subject, NewCase request) {
+		CaseLifecycleService.CaseSnapshot before = CaseLifecycleService.CaseSnapshot.of(subject);
+		if (subject.getDeadline() == null) {
+			subject.setDeadline(request.deadline());
+		}
+		if (subject.getDriveLink() == null) {
+			subject.setDriveLink(request.driveLink());
+		}
+		if (subject.getVisaCategory() == null) {
+			subject.setVisaCategory(request.visaCategory());
+		}
+		if (subject.getServiceSubtype() == null) {
+			subject.setServiceSubtype(request.serviceSubtype());
+		}
+		if (subject.getCampaignAttribution() == null) {
+			subject.setCampaignAttribution(request.campaignAttribution());
+		}
+		if (subject.getDealValue() == null) {
+			subject.setDealValue(request.dealValue());
+		}
+		Case saved = cases.save(subject);
+		audit.recordSystemEvent(brand.getId(), OBJECT_TYPE, saved.getId(), AuditAction.UPDATED,
+				before, CaseLifecycleService.CaseSnapshot.of(saved, "refreshed from GHL contact"));
+		return saved;
+	}
+
+	private Case create(Brand brand, NewCase request, UUID contactId) {
+		Case created = cases.save(newCase(brand, request, contactId));
 		seedChecklist(created, request.serviceType());
-		notifyPool(brand, created);
 
 		audit.recordSystemEvent(brand.getId(), OBJECT_TYPE, created.getId(), AuditAction.CREATED,
 				null, CaseLifecycleService.CaseSnapshot.of(created));
 		events.publishEvent(CaseEvents.CaseEvent.of(CaseEvents.Type.CASE_CREATED, created));
 		events.publishEvent(CaseEvents.CaseEvent.of(CaseEvents.Type.CHECKLIST_REQUESTED, created));
+
+		// A lead is not a pool arrival. The GM and Brand Manager hear about it, but the
+		// alert that says "assign a PM" is raised by markPaid, when there is money.
+		pool.alert(brand.getId(), created.getId(), NotificationType.NEW_LEAD,
+				"New %s lead %s from %s.".formatted(brand.getName(), created.getCaseCode(),
+						request.contact().fullName()));
+
+		if (request.paid()) {
+			// GHL already knew this contact had paid, so the case skips the lead state.
+			events.publishEvent(CaseEvents.CaseEvent.of(CaseEvents.Type.CASE_PAID, created));
+			pool.alert(brand.getId(), created.getId(), NotificationType.NEW_CASE_IN_POOL,
+					"Case %s is paid and needs a project manager.".formatted(created.getCaseCode()));
+		}
 		return created;
 	}
 
@@ -164,6 +223,10 @@ public class CaseIntakeService {
 		created.setCampaignAttribution(request.campaignAttribution());
 		// Pre-selected during the sale; the PM still confirms availability at assignment.
 		created.setExpertId(request.selectedExpertId());
+		created.setPaid(request.paid());
+		if (request.paid()) {
+			created.setPaidAt(Instant.now());
+		}
 		created.setSlaStatus(sla.statusOf(created));
 		return created;
 	}
@@ -173,19 +236,6 @@ public class CaseIntakeService {
 			checklistItems.save(new DocumentChecklistItem(
 					created.getBrandId(), created.getId(), label, ChecklistItemStatus.REQUIRED));
 		}
-	}
-
-	/** The pool is watched by the GM and by that brand's Brand Managers, nobody else. */
-	private void notifyPool(Brand brand, Case created) {
-		String body = "New paid case %s is in the %s pool and needs a project manager."
-				.formatted(created.getCaseCode(), brand.getName());
-
-		Stream.concat(
-				teamMembers.findByActiveTrueAndRole(Role.GM).stream(),
-				teamMembers.findByActiveTrueAndRoleAndBrandId(Role.BRAND_MANAGER, brand.getId()).stream())
-				.map(TeamMember::getId)
-				.forEach(recipient -> notifications.save(new Notification(
-						brand.getId(), recipient, NotificationType.NEW_CASE_IN_POOL, created.getId(), body)));
 	}
 
 	/**

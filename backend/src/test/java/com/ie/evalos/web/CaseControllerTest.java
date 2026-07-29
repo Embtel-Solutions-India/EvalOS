@@ -65,6 +65,8 @@ class CaseControllerTest {
 	}
 
 	private static final List<Route> ROUTES = List.of(
+			new Route("/mark-paid", Role.BRAND_MANAGER, Role.PROJECT_MANAGER,
+					"{\"dealValue\":1450.00,\"invoiceRef\":\"INV-0001\"}"),
 			new Route("/assign-pm", Role.BRAND_MANAGER, Role.PROJECT_MANAGER,
 					"{\"pmId\":\"%s\"}".formatted(SOME_ID)),
 			new Route("/assign-cm", Role.PROJECT_MANAGER, Role.PROJECT_COORDINATOR,
@@ -127,6 +129,7 @@ class CaseControllerTest {
 	@Test
 	void everyTransitionRouteAnswersItsDeclaredRoleAndNobodyElse() throws Exception {
 		Case result = aCase();
+		given(lifecycle.markPaid(any(), any(), any())).willReturn(result);
 		given(lifecycle.assignPm(any(), any())).willReturn(result);
 		given(lifecycle.assignCaseManager(any(), any(), any())).willReturn(result);
 		given(lifecycle.markDocsComplete(any())).willReturn(result);

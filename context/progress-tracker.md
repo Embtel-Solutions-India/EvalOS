@@ -146,7 +146,9 @@ Update this file after every meaningful implementation change.
     catch).
 
 - **Unit 05 — Inbound webhook gateway + GHL payment handler (Handoff A).** The
-  door the business actually comes through:
+  door the business actually comes through. *(The payment-handler half is
+  superseded by Unit 05a below — the trigger is now `contact.created`. Everything
+  about the gateway itself still stands.)*
   - `webhook/WebhookGateway` — resolve brand → verify → dedupe → archive → route →
     ack. Deliberately **not** `@Transactional`: each step commits on its own, which
     is what lets the archive row outlive a failed handler and record why. Brand
@@ -184,6 +186,45 @@ Update this file after every meaningful implementation change.
     returned `duplicate` and created nothing; a wrong signature 401; an unknown
     token 404.
 
+- **Unit 05a — Handoff A re-pointed from payment to contact.** A design correction,
+  not a new unit: the business does not want to wait for money to start a case, so
+  the trigger moved and payment became a fact recorded on the case.
+  - `webhook/GhlContactHandler` replaces `GhlPaymentHandler`; the router's live
+    event type is `contact.created`. `contact.updated` deliberately stays a
+    recognized no-op — intake is create-or-update so routing it there would
+    technically work, but an edit in GHL is not a reason to open a case.
+  - The gateway's idempotency-key candidates are now `event_id`, `webhook_id`,
+    `id` — a contact has no invoice, and keying on the contact id would make a
+    returning client's second order look like a duplicate.
+  - `V14__case_paid.sql` — `paid boolean NOT NULL DEFAULT false` + `paid_at`, and
+    `(brand_id, paid)`. Defaulting false is the safe direction. No `paid_by`: the
+    audit trail already records who, and a second record of one fact can disagree.
+  - `CaseLifecycleService.markPaid` + `POST /api/cases/{id}/mark-paid`, GM or Brand
+    Manager (same gate as assigning a PM — both are the brand's commercial call).
+    Declared on every active stage, because payment clearing late is bookkeeping
+    reality, not an illegal state.
+  - **The guard that matters is one line, in one place:** `markDocsComplete`
+    refuses an unpaid case. Every later stage is only reachable through that
+    transition, so guarding there covers all of them. Doc collection against an
+    unpaid case is deliberately allowed — it costs EvalOS nothing.
+  - `RefundService.isRevenueRecognized` is now `paid && delivered && !refunded`
+    (invariant 5 restated). Delivery alone no longer implies earned.
+  - `CaseIntakeService.intake` became create-**or-update**: one open case per
+    contact per service. A refresh only fills blanks and can never move the case —
+    a re-firing GHL workflow must not reset a stage, drop an assignment, or un-pay
+    a case. It publishes no lifecycle event, because nothing in the lifecycle
+    happened. `NewCase.paid` lets intake skip straight to paid when GHL already
+    knows.
+  - `service/PoolNotifier` — the recipient rule (GM + that brand's Brand Managers)
+    extracted from intake because two callers now need it: `NEW_LEAD` on creation,
+    `NEW_CASE_IN_POOL` on payment. Unit 06 replaces it with event listeners.
+  - Verified: `./mvnw verify` BUILD SUCCESS, 92 tests (81 run — new
+    `anUnpaidCaseGetsNoFurtherThanDocCollection`, `/mark-paid` added to
+    `CaseControllerTest`'s route table so the GM-superuser guarantee still covers
+    every route), **and the 11 DB-gated checks green against local Postgres 18** —
+    `V14` applied and `ddl-auto=validate` passed, so `paid`/`paid_at` match the
+    entity.
+
 ## In Progress
 
 - Nothing.
@@ -196,9 +237,13 @@ Update this file after every meaningful implementation change.
 ## Open Questions
 
 - **GHL contract still unconfirmed** (was already open, now load-bearing): the
-  `payment.confirmed` payload shape, the signature header name, and the HMAC
-  encoding are all this unit's assumptions. Everything else about Handoff A is
-  verified; these three are what a real GHL sub-account has to agree with.
+  `contact.created` payload shape, the signature header name, and the HMAC
+  encoding are all assumptions. Everything else about Handoff A is verified; these
+  three are what a real GHL sub-account has to agree with. The payload shape is
+  confined to `GhlContactHandler.ContactCreated` so a correction is one file.
+  **Also unconfirmed: which GHL contact event actually fires.** `contact.created`
+  is the assumption; if the real trigger is a pipeline-stage or form-submission
+  event, only `WebhookRouter`'s one constant changes.
 
 - **Coordinator case scope (blocks four Unit 04 endpoints at runtime).**
   `PROJECT_COORDINATOR` is `Tier.SELF`, but no `evalos_case` column names a
@@ -217,7 +262,7 @@ Update this file after every meaningful implementation change.
 - **StatCommand** — internal module or external BI, and the "six operating
   conditions" the dashboards feed. Undefined; do not build a StatCommand
   integration until specified.
-- **GHL webhook/API contract** — (a) per-brand inbound `payment.confirmed`
+- **GHL webhook/API contract** — (a) per-brand inbound `contact.created`
   payload + signing secret (Unit 05); (b) outbound subscriber URL + secret for
   `case.delivered` and the ability to send client-facing transactional messages
   on EvalOS event triggers (Unit 18); (c) which extra inbound GHL events to
@@ -255,9 +300,11 @@ Update this file after every meaningful implementation change.
   expert notifications via Dropbox Sign (portal-only nudges).
 - **Payouts**: manual ledger form, no payment-platform/disbursement rail. Single
   optional encrypted `payment_detail` field.
-- **Handoff A**: GHL fires the per-brand "payment confirmed" webhook (the webhook
-  is the proof); EvalOS creates the case idempotently. No direct payment-processor
-  integration.
+- **Handoff A**: GHL fires the per-brand "contact created" webhook; EvalOS creates
+  the case idempotently, **unpaid**. Payment is a separate fact recorded on the
+  case by a GM or Brand Manager (`paid` / `paid_at`, `POST /mark-paid`), and no
+  unpaid case may leave `DOC_COLLECTION`. Revenue recognition is paid **and**
+  delivered. No direct payment-processor integration.
 - **E-signature**: Dropbox Sign.
 - **Contacts**: GHL is the owner; EvalOS keeps a read-only, brand-tagged snapshot.
 - **NFR**: 50–100 cases/brand/month; ~99% availability, single region; nightly

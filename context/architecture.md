@@ -113,14 +113,28 @@ Frontend under `frontend/src`: `components/ui` (generated primitives),
 
 ## The Three Handoffs (the front/back seam)
 
-- **Handoff A — GHL → EvalOS (trigger: payment confirmed).** GHL fires a webhook
-  to that brand's dedicated endpoint when the invoice is paid; the webhook is the
-  proof of payment. The `webhook` gateway verifies the secret, resolves the
-  brand from the endpoint token, deduplicates on the invoice/payment id
-  (idempotency), archives the raw payload, then the case service creates a
-  brand-tagged case at `DOC_COLLECTION` in the brand pool, syncs the contact
-  snapshot, opens the document checklist, and notifies the GM/Brand-Manager
-  pool. EvalOS does **not** talk to the payment processor.
+- **Handoff A — GHL → EvalOS (trigger: contact created).** GHL fires a webhook to
+  that brand's dedicated endpoint when a contact is created; the webhook is proof
+  that somebody wants something, **not** proof of payment. The `webhook` gateway
+  verifies the secret, resolves the brand from the endpoint token, deduplicates
+  on the source event id (idempotency), archives the raw payload, then the case
+  service creates-or-refreshes a brand-tagged case at `DOC_COLLECTION` in the
+  brand pool, syncs the contact snapshot, opens the document checklist, and
+  notifies the GM/Brand-Manager pool. EvalOS does **not** talk to the payment
+  processor.
+
+  Payment is a separate fact recorded on the case (`paid` / `paid_at`) by a GM or
+  Brand Manager through the `mark-paid` transition — or by intake itself when GHL
+  already knows the contact paid. Two things depend on it: **no case reaches an
+  expert unpaid** (the guard is on the `DOC_COLLECTION → EXPERT_ASSIGNMENT`
+  transition, which every later stage is only reachable through), and **no unpaid
+  case counts as earned revenue**. Document collection against an unpaid case is
+  deliberately allowed — it costs EvalOS nothing.
+
+  One open case per contact per service: a repeat delivery refreshes the case
+  that contact already has open, never resetting its stage, assignment, or
+  `paid`. A contact buying a second service opens a second case; one returning
+  after the first case closed opens a new one.
 - **Handoff B — internal (trigger: client approves draft).** The case moves to
   `EXPERT_SIGNING` and appears in the expert portal with draft + evidence + goal;
   Dropbox Sign issues the signing request. Exception paths: request-evidence
@@ -164,18 +178,22 @@ business logic in the transport layer; both are idempotent and observable.
 1. **Verify** the source signature / shared secret before the body is
    deserialized. Unverified requests are dropped and logged — never processed.
 2. **Resolve brand** from the per-brand endpoint token (Handoff A).
-3. **Deduplicate** on the source event id / invoice id (idempotency); a replayed
-   event never produces a second side effect.
+3. **Deduplicate** on the source event id (idempotency), scoped by brand; a
+   replayed event never produces a second side effect. "Already seen" is not
+   "already done" — only a *processed* row is a duplicate, so a redelivery after
+   a handler failure retries instead of being swallowed.
 4. **Archive** the raw payload (JSONB) for audit and replay.
 5. **Route** to the matching handler, which calls a domain service.
 6. **Acknowledge** fast; slow work is handed to a `job`. Failures return a
    retriable status so the source re-delivers.
 
 Inbound sources and events:
-- **GHL** — `payment.confirmed` (Handoff A, per-brand endpoint); `refund.requested`
+- **GHL** — `contact.created` (Handoff A, per-brand endpoint); `refund.requested`
   → Refund Requested exception state (GM-only approval to finalize);
-  `contact.updated` → refresh the read-only contact snapshot. (Refund/contact
-  events are recognized by the gateway; build them when the payloads are confirmed.)
+  `contact.updated` → refresh the read-only contact snapshot. (Refund/contact-update
+  events are recognized by the gateway; build them when the payloads are confirmed.
+  `contact.updated` deliberately does *not* route to intake: an edit in GHL is not
+  a reason to open a case.)
 - **Dropbox Sign** — `signature_request.signed` / `..._declined` / `..._viewed`
   callbacks drive expert sign-off status instead of polling.
 
@@ -224,15 +242,19 @@ exist because every transition owes exactly one event. They live in
    clients, and experts never see data outside their assignment.
 4. The optional expert `payment_detail` is encrypted at rest and never appears in
    logs, webhook payloads, DTOs, chat tools, or any response body.
-5. `Delivered` is the sole revenue-recognition event. Collected-but-undelivered
-   value is tracked as open liability (refund exposure), never as earned. A
-   GM-approved refund reverses recognition and voids the pending payout.
+5. **Paid *and* `Delivered`** is revenue recognition. Since Handoff A moved to
+   contact intake a case can exist, and be worked, with no money behind it, so
+   delivery alone no longer implies earned. Collected-but-undelivered value is
+   tracked as open liability (refund exposure), never as earned. A GM-approved
+   refund reverses recognition and voids the pending payout.
 6. Controllers stay thin and never run long-lived work. SLA timers, reminders,
    auto-reassignment, retention/countdown, and Handoff C run in `job`.
 7. EvalOS is the system of record for cases, experts, and payouts. Contact data
    is a read-only, brand-tagged snapshot synced from GHL and is never mutated.
-8. Payment signals only ever enter through a per-brand GHL webhook endpoint — no
-   other code path may create a case or mark a deal paid.
+8. A case is only ever created through a per-brand GHL webhook endpoint — no other
+   code path may create one. Marking a case **paid** is a separate, deliberate
+   staff act (GM or Brand Manager, or intake when GHL already reports it paid),
+   and no unpaid case may pass `DOC_COLLECTION`.
 9. Schema changes ship as new Flyway migrations. An applied migration is never
    edited in place.
 10. Every inbound webhook is signature-verified, brand-resolved, deduplicated,
