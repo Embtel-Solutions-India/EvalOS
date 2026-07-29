@@ -162,8 +162,10 @@ Update this file after every meaningful implementation change.
     all fail identically, so nothing is learnable from the response.
   - `webhook/{InboundWebhookController, WebhookRouter, GhlPaymentHandler,
     WebhookRejected}` — one public endpoint per brand, the event-type vocabulary
-    (`payment.confirmed` live; `refund.requested`/`contact.updated` recognized and
-    logged no-ops), and parse-then-trust validation of the payload.
+    (`payment.confirmed` live *as of this unit*; `refund.requested`/`contact.updated`
+    recognized and logged no-ops), and parse-then-trust validation of the payload.
+    **`GhlPaymentHandler` and the `payment.confirmed` route no longer exist** — Unit 05a
+    replaced both. Nothing in the running system handles `payment.confirmed` today.
   - `service/CaseIntakeService` — the one thing that creates a case: contact sync,
     case in the pool, checklist from `ChecklistTemplates`, GM + Brand-Manager pool
     notification, audit row, `case.created` + `checklist.requested`. All in one
@@ -174,19 +176,22 @@ Update this file after every meaningful implementation change.
     webhook's audit row carries the brand it resolved rather than a null.
   - `DomainInvariantsTest` now enforces invariant 8 structurally: only
     `GhlPaymentHandler` may take `CaseIntakeService`, so adding a
-    `POST /api/cases` that creates a case breaks the build.
+    `POST /api/cases` that creates a case breaks the build. (The test now names
+    `GhlContactHandler`; the guarantee is unchanged.)
   - Verified: `./mvnw clean verify` BUILD SUCCESS, 87 tests (76 run — new:
     `InboundWebhookTest` 13, `CaseIntakeServiceTest` 7 — plus 11 DB-gated), the 11
     DB-gated checks green against local Postgres 18 (`V11`–`V13` + `V901` applied,
     `validate` passes, the brand-scoped unique key refuses a second archive per brand
     while allowing the same invoice ref from another brand, and two brand-less rows
-    still deduplicate), **and a live end-to-end run**: a signed `payment.confirmed` created exactly one case
-    (`IE-2026-375863`, DOC_COLLECTION / IN_POOL / ON_TRACK / 1450.00) with a
-    6-item `REQUIRED` checklist, a contact snapshot, two `NEW_CASE_IN_POOL`
-    notifications (GM + that brand's manager only), an audit row carrying the
-    resolved brand and a null actor, and a processed `webhook_event`; a replay
-    returned `duplicate` and created nothing; a wrong signature 401; an unknown
-    token 404.
+    still deduplicate).
+  - **The `payment.confirmed` live-run evidence that used to sit here has been removed, not
+    re-dated.** It recorded a signed `payment.confirmed` creating `IE-2026-375863`, and that
+    handler was deleted in Unit 05a — so it was evidence for code that no longer exists, which
+    is worse than no evidence: it read as a current guarantee about the live intake path.
+    The gateway behaviour it also demonstrated (replay → `duplicate`, wrong signature → 401,
+    unknown token → 404) is re-proved against `contact.created` in the Unit 05/05a live-run
+    entry below, which is the only live evidence for Handoff A that still describes the
+    running system.
 
 - **Unit 05a — Handoff A re-pointed from payment to contact.** A design correction,
   not a new unit: the business does not want to wait for money to start a case, so
@@ -498,11 +503,22 @@ Update this file after every meaningful implementation change.
 - **GHL contract still unconfirmed** (was already open, now load-bearing): the
   `contact.created` payload shape, the signature header name, and the HMAC
   encoding are all assumptions. Everything else about Handoff A is verified; these
-  three are what a real GHL sub-account has to agree with. The payload shape is
-  confined to `GhlContactHandler.ContactCreated` so a correction is one file.
-  **Also unconfirmed: which GHL contact event actually fires.** `contact.created`
-  is the assumption; if the real trigger is a pipeline-stage or form-submission
-  event, only `WebhookRouter`'s one constant changes.
+  three are what a real GHL sub-account has to agree with.
+  **How far a correction reaches, honestly** — the earlier claim that the payload shape is
+  "confined to one file" was too optimistic and only ever held for one of three cases:
+  - a **renamed or re-typed** field is one file: `GhlContactHandler.ContactCreated` and its
+    `@JsonProperty`, because the record is transport-only;
+  - a **new field that has to reach the case** is at least three: the transport record, the
+    mapper to `CaseIntakeService.NewCase`, and `NewCase`/`ContactDetails` themselves — that
+    split is deliberate (Unit 05 note (h) kept an unconfirmed shape out of `service`), but it
+    means the shape is *isolated*, not *confined*;
+  - a **field that turns out not to exist** may also touch `CaseIntakeService` where it is
+    applied to the entity, and the intake tests.
+
+  The signature header is genuinely one knob (`evalos.webhook.signature-header`, config, no
+  code change). **Also unconfirmed: which GHL contact event actually fires.**
+  `contact.created` is the assumption; if the real trigger is a pipeline-stage or
+  form-submission event, that one *is* a single constant in `WebhookRouter`.
 
 - **Full brand list** — International Evaluations and XpertsPortal confirmed;
   confirm any others before seeding brands / webhook endpoints.
@@ -738,8 +754,12 @@ Update this file after every meaningful implementation change.
   (e) **The signature header name is configuration**
   (`evalos.webhook.signature-header`, default `X-Evalos-Signature`) because GHL's
   real header is unconfirmed. The one knob this unit needs to be re-pointed without
-  a code change. The **payload shape is also assumed**, and is deliberately confined
-  to `GhlPaymentHandler.PaymentConfirmed` so a correction is one file.
+  a code change — and it is the only claim in this note that survived. The **payload shape is
+  also assumed**, and was isolated in `GhlPaymentHandler.PaymentConfirmed`. **Both halves of
+  that are now stale**: `GhlPaymentHandler` was deleted in Unit 05a (the shape moved to
+  `GhlContactHandler.ContactCreated`), and "a correction is one file" was never true for a
+  field that has to reach the case — see the open question below for what a correction actually
+  touches.
   (f) **The idempotency key is scoped by brand (`V13`), replacing the spec's
   `UNIQUE (source, external_id)`.** Closed, was an open question. The spec's key is
   brand-agnostic while each brand is a separate GHL sub-account numbering its own
@@ -762,9 +782,17 @@ Update this file after every meaningful implementation change.
   because the original test asserted only the 5xx and the recorded error, never the
   recovery. `InboundWebhookTest.aRedeliveryAfterAFailureRetriesInsteadOfLooking\
   LikeADuplicate` now covers it (written failing first, to prove the defect).
-  (g) **`ChecklistTemplates` is a static map, not a table.** It moves into the
-  database the first time a Brand Manager needs to edit a checklist without a
-  deploy; the seed for that table is this map.
+  (g) **`ChecklistTemplates` is a static map, and it is the source of truth only for a case
+  that does not exist yet.** It is read exactly once — by `CaseIntakeService`, to create the
+  `document_checklist_item` rows. **From that moment the rows are authoritative and the map is
+  not.** Nothing re-reads it for an existing case, so editing a template can never change a
+  case already in flight.
+  **This is the fact Unit 10 rests on**: the checklist board edits rows, and there is no
+  template to keep in step with them. `CaseDetailService.ChecklistSummary` counts rows for the
+  same reason, and its "complete" test is `markDocsComplete`'s, not the template's.
+  It moves into the database the first time a Brand Manager needs to edit a template without a
+  deploy, and the seed for that table would be this map — but that would only change where
+  *new* checklists come from. It would still not reach a case in flight.
   (h) **A `ponytail-review` pass found ~35 lines of cruft, now cut**: a truncation
   guard on an unbounded `text` column, a redundant `processed = false`, two unused
   `ContactSnapshot` getters, two `Ack` factory methods, a redundant `List.copyOf`
@@ -836,26 +864,28 @@ Update this file after every meaningful implementation change.
   route is ever added. Note this is XSS-exposed in a way an httpOnly cookie would not
   be — accepted for a staff-only internal tool, and worth reconsidering before any
   external surface (Units 14/15) reuses this code.
-  (d) **The brand filter is state, not yet a parameter.** The spec says the GM's
-  selection is "passed as a `brandId` filter to scoped API calls", but no endpoint in
-  this unit takes one — `/api/notifications` is recipient-keyed and the case list is
-  Unit 08. Holding it in `filters.tsx` now is what lets Unit 08 be additive; sending it
-  nowhere is honest rather than inventing a parameter the server ignores.
+  (d) ~~The brand filter is state, not yet a parameter~~ — **superseded by Unit 08.**
+  `GET /api/cases/board` takes `brandId`, applied after the scoped read so it can only ever
+  narrow. Holding it in `filters.tsx` first is what let Unit 08 be purely additive.
   (e) **Six dashboards are one component plus a table**, not six files. The spec says
   "one page per role"; this is one page per role, driven by data.
   **The PRIMARY KPI names are slot labels, not agreed metrics** — Unit 17 owns the real
   ones. Every tile is a skeleton bar, never a number: a plausible fake figure on an
   operations dashboard is worse than a blank one.
-  (f) **Three `oxlint` warnings accepted**: `react/only-export-components` on
-  `lib/auth.tsx` and `features/shell/filters.tsx`, the standard cost of a provider and
-  its hook in one file. It is a dev Fast-Refresh concern, not correctness, and splitting
-  four files to silence it is churn. `npm run lint` still exits clean.
+  (f) ~~Three `oxlint` warnings accepted~~ — **superseded, and the note was wrong.** It
+  dismissed `react/only-export-components` as a dev-ergonomics concern; the browser pass below
+  found the consequence (HMR threw `useAuth must be used inside AuthProvider`). The providers
+  were split into `lib/authContext.ts` and `features/shell/filtersContext.ts` and lint is
+  completely clean. Recorded because the reasoning is the lesson: a lint rule dismissed as
+  cosmetic was describing a real defect.
   (g) **`/cases` is shared by four roles** (GM, Brand Manager, PM, Coordinator) rather
   than being four routes, since the spec's per-role labels ("all brands" / "team" /
   "own") describe *scope*, which the server applies — not different screens.
-  (h) **No frontend test suite**, so `navFor`/`mayReach` are covered by the browser pass
-  below rather than by assertions. Adding a test framework was out of scope for this
-  unit; worth doing before the nav table grows past one screen.
+  (h) ~~No frontend test suite~~ — **superseded by Unit 08** (Vitest) **and Unit 09**, which
+  added `navigation.test.ts`. The prediction in this note held exactly: the gap was worth
+  closing "before the nav table grows past one screen", and by Unit 09 the table had grown a
+  parameterized route that needed its own gate. `navFor`/`mayReach` now have assertions
+  instead of a browser pass.
 
 - **Unit 07 browser pass — all six acceptance criteria confirmed, two defects found and
   fixed.** Driven through Chrome against the running stack.
@@ -958,10 +988,9 @@ Update this file after every meaningful implementation change.
   Manager get `full` on all five columns instead. A KPI roll-up is a dashboard, not a board
   column — Unit 17 owns it.
 
-- **Unit 07 notes superseded by Unit 08.** Note (d) — "the brand filter is state, not yet a
-  parameter" — is closed: `GET /api/cases/board` takes `brandId`, applied after the scope so
-  it can only narrow. Note (g)'s reasoning ("scope, not different screens") is what `/board`
-  and `/my-cases` sharing one component now rests on.
+- **Unit 07 note (g) is what Unit 08 leaned on.** "Scope, not different screens" is the reason
+  `/board` and `/my-cases` are one component. Still current, unlike (d), (f) and (h), which are
+  struck through above.
 
 - **Unit 09 deviations / decisions to confirm.**
   (a) **The spec's deliverables 3 and 5 contradict each other on strategy notes** — 3 says

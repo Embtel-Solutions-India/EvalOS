@@ -53,8 +53,15 @@ export type BoardCard = {
   expertSignStatus: 'PENDING' | 'SIGNED' | 'OVERDUE' | 'REASSIGNED' | null
   pmApprovalStatus: 'PENDING' | 'APPROVED' | 'RETURNED' | null
   clientApprovalStatus: 'PENDING' | 'APPROVED' | 'REVISION_REQUESTED' | null
-  /** Null for every role outside GM / Brand Manager / PM — the server omits it. */
-  dealValue: string | null
+  /**
+   * Null for every role outside GM / Brand Manager / PM — the server omits it.
+   *
+   * A number, not a string: Jackson serializes the Java `BigDecimal` as a JSON number, which
+   * `CaseBoardControllerTest` asserts (`.value(1450.00)`). Typed as a string it happened to
+   * render, because React stringifies either — the mismatch only surfaced when something
+   * tried to format it.
+   */
+  dealValue: number | null
 }
 
 export type BoardData = {

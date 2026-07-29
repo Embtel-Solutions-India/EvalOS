@@ -1,5 +1,5 @@
-import { Link } from 'react-router-dom'
-import type { BoardCard, QuickAction, SlaStatus } from './boardRules'
+import { Link } from "react-router-dom";
+import type { BoardCard, QuickAction, SlaStatus } from "./boardRules";
 
 /**
  * One case as a card: client, service, deadline with its RAG badge, who holds it, and the
@@ -10,20 +10,44 @@ import type { BoardCard, QuickAction, SlaStatus } from './boardRules'
  * are red stops meaning anything.
  */
 
-const SLA_TOKEN: Record<SlaStatus, { fg: string; bg: string; label: string }> = {
-  ON_TRACK: { fg: 'var(--status-green)', bg: 'var(--status-green-bg)', label: 'On track' },
-  AT_RISK: { fg: 'var(--status-amber)', bg: 'var(--status-amber-bg)', label: 'At risk' },
-  OVERDUE: { fg: 'var(--status-red)', bg: 'var(--status-red-bg)', label: 'Overdue' },
-}
+const SLA_TOKEN: Record<SlaStatus, { fg: string; bg: string; label: string }> =
+  {
+    ON_TRACK: {
+      fg: "var(--status-green)",
+      bg: "var(--status-green-bg)",
+      label: "On track",
+    },
+    AT_RISK: {
+      fg: "var(--status-amber)",
+      bg: "var(--status-amber-bg)",
+      label: "At risk",
+    },
+    OVERDUE: {
+      fg: "var(--status-red)",
+      bg: "var(--status-red-bg)",
+      label: "Overdue",
+    },
+  };
+
+/**
+ * Built once rather than per card.
+ *
+ * ponytail: USD is hardcoded, and that is an assumption — a multi-brand system could sell in
+ * another currency, and nothing on the case records one. Fine while every brand bills in USD
+ * (the SLA calendar and the service types are all US-facing); the upgrade is a currency column
+ * on the brand, not a guess here.
+ */
+const MONEY = new Intl.NumberFormat(undefined, { style: 'currency', currency: 'USD' })
 
 /** The draft sub-status `ui-context.md` asks the Draft / Report column to show. */
 function draftChip(card: BoardCard): string | null {
-  if (card.currentStage !== 'DRAFT_GENERATION') return null
-  if (card.clientApprovalStatus === 'PENDING') return 'Client review'
-  if (card.clientApprovalStatus === 'REVISION_REQUESTED') return 'Revisions asked'
-  if (card.pmApprovalStatus === 'PENDING') return 'PM review'
-  if (card.pmApprovalStatus === 'RETURNED') return 'Returned to CM'
-  return 'Draft in progress'
+  if (card.currentStage !== "DRAFT_GENERATION") return null;
+  if (card.clientApprovalStatus === "PENDING") return "Client review";
+  if (card.clientApprovalStatus === "REVISION_REQUESTED")
+    return "Revisions asked";
+  if (card.pmApprovalStatus === "PENDING") return "PM review";
+  if (card.pmApprovalStatus === "RETURNED") return "Returned to CM";
+  return "Draft in progress";
 }
 
 export default function CaseCard({
@@ -33,22 +57,25 @@ export default function CaseCard({
   error,
   onAction,
 }: {
-  card: BoardCard
-  actions: readonly QuickAction[]
-  busy: boolean
-  error: string | null
-  onAction: (action: QuickAction) => void
+  card: BoardCard;
+  actions: readonly QuickAction[];
+  busy: boolean;
+  error: string | null;
+  onAction: (action: QuickAction) => void;
 }) {
-  const sla = card.slaStatus ? SLA_TOKEN[card.slaStatus] : null
-  const chip = draftChip(card)
+  const sla = card.slaStatus ? SLA_TOKEN[card.slaStatus] : null;
+  const chip = draftChip(card);
 
   return (
     <article
       className="rounded-lg border p-3"
       style={{
         // Only OVERDUE tints. At-risk gets a badge, not a whole coloured card.
-        background: card.slaStatus === 'OVERDUE' ? 'var(--status-red-bg)' : 'var(--bg-surface)',
-        borderColor: 'var(--border-default)',
+        background:
+          card.slaStatus === "OVERDUE"
+            ? "var(--status-red-bg)"
+            : "var(--bg-surface)",
+        borderColor: "var(--border-default)",
         opacity: busy ? 0.55 : 1,
       }}
     >
@@ -58,7 +85,7 @@ export default function CaseCard({
         <Link
           to={`/cases/${card.id}`}
           className="font-mono text-xs underline-offset-2 hover:underline"
-          style={{ color: 'var(--text-muted)' }}
+          style={{ color: "var(--text-muted)" }}
         >
           {card.caseCode}
         </Link>
@@ -73,44 +100,56 @@ export default function CaseCard({
       </div>
 
       <Link to={`/cases/${card.id}`} className="mt-1.5 block">
-        <p className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
-          {card.clientName ?? 'Unnamed contact'}
+        <p
+          className="text-sm font-semibold"
+          style={{ color: "var(--text-primary)" }}
+        >
+          {card.clientName ?? "Unnamed contact"}
         </p>
       </Link>
-      <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
-        {card.serviceType?.replaceAll('_', ' ').toLowerCase() ?? 'service not set'}
+      <p className="text-xs" style={{ color: "var(--text-muted)" }}>
+        {card.serviceType?.replaceAll("_", " ").toLowerCase() ??
+          "service not set"}
       </p>
 
-      <dl className="font-num mt-2 space-y-0.5 text-xs tabular-nums" style={{ color: 'var(--text-muted)' }}>
+      <dl
+        className="font-num mt-2 space-y-0.5 text-xs tabular-nums"
+        style={{ color: "var(--text-muted)" }}
+      >
         <div className="flex justify-between gap-2">
           <dt>Due</dt>
-          <dd>{card.deadline ? new Date(card.deadline).toLocaleDateString() : '—'}</dd>
+          <dd>
+            {card.deadline ? new Date(card.deadline).toLocaleDateString() : "—"}
+          </dd>
         </div>
         {/* Null for every role the server does not project it to, so absent means not allowed. */}
         {card.dealValue !== null && (
           <div className="flex justify-between gap-2">
             <dt>Value</dt>
-            <dd>{card.dealValue}</dd>
+            <dd>{MONEY.format(card.dealValue)}</dd>
           </div>
         )}
       </dl>
 
       <div className="mt-2 flex flex-wrap gap-1">
         {chip && <Chip>{chip}</Chip>}
-        {card.currentStage === 'EXPERT_SIGNING' && card.expertSignStatus && (
+        {card.currentStage === "EXPERT_SIGNING" && card.expertSignStatus && (
           <Chip>Sign: {card.expertSignStatus.toLowerCase()}</Chip>
         )}
-        {card.poolStatus === 'IN_POOL' && <Chip>Unassigned</Chip>}
+        {card.poolStatus === "IN_POOL" && <Chip>Unassigned</Chip>}
       </div>
 
       {error && (
-        <p className="mt-2 text-xs" style={{ color: 'var(--status-red)' }}>
+        <p className="mt-2 text-xs" style={{ color: "var(--status-red)" }}>
           {error}
         </p>
       )}
 
       {actions.length > 0 && (
-        <div className="mt-2 flex flex-wrap gap-1.5 border-t pt-2" style={{ borderColor: 'var(--border-default)' }}>
+        <div
+          className="mt-2 flex flex-wrap gap-1.5 border-t pt-2"
+          style={{ borderColor: "var(--border-default)" }}
+        >
           {actions.map((action) => (
             <button
               key={action.path}
@@ -118,7 +157,10 @@ export default function CaseCard({
               disabled={busy}
               onClick={() => onAction(action)}
               className="rounded-md px-2 py-1 text-xs font-medium disabled:opacity-40"
-              style={{ background: 'var(--bg-raised)', color: 'var(--accent-primary)' }}
+              style={{
+                background: "var(--bg-raised)",
+                color: "var(--accent-primary)",
+              }}
             >
               {action.label}
             </button>
@@ -126,16 +168,16 @@ export default function CaseCard({
         </div>
       )}
     </article>
-  )
+  );
 }
 
 function Chip({ children }: { children: React.ReactNode }) {
   return (
     <span
       className="rounded-md px-1.5 py-0.5 text-xs"
-      style={{ background: 'var(--bg-raised)', color: 'var(--text-muted)' }}
+      style={{ background: "var(--bg-raised)", color: "var(--text-muted)" }}
     >
       {children}
     </span>
-  )
+  );
 }
