@@ -28,7 +28,7 @@ Before moving to the next unit:
 1. The unit works end to end within its defined scope.
 2. No invariant in `context/architecture.md` is violated — especially brand scoping on every query,
    role+ownership before every mutation, `payment_detail` never exposed, an audit entry on every
-   transition, thin handlers, GHL-only payment path, no files, no email.
+   transition, thin handlers, GHL-webhook-only case creation, no files, no email.
 3. `context/progress-tracker.md` reflects the completed work (mark in-progress when starting, and
    record deviations/unverified acceptance criteria when finishing).
 4. Both verify commands above are green.
