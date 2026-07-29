@@ -59,6 +59,11 @@ class LocalPostgresIntegrationTest {
 	private static final UUID BRAND_XP = UUID.fromString("22222222-2222-2222-2222-222222222222");
 	private static final UUID GM = UUID.fromString("aaaaaaaa-0000-0000-0000-000000000001");
 	private static final UUID BM_IE = UUID.fromString("aaaaaaaa-0000-0000-0000-000000000002");
+	// Seeded members, so the assignment columns' foreign keys resolve: V900's IE Case
+	// Manager and V902's IE Coordinator.
+	private static final UUID CM_IE = UUID.fromString("aaaaaaaa-0000-0000-0000-000000000005");
+	private static final UUID COORDINATOR_IE = UUID.fromString("aaaaaaaa-0000-0000-0000-000000000006");
+	private static final UUID TEAM_IE = UUID.fromString("bbbbbbbb-0000-0000-0000-000000000001");
 
 	private static final String DETAIL = "Wire to Bank of Nowhere, acct 12345678";
 
@@ -349,6 +354,47 @@ class LocalPostgresIntegrationTest {
 				.doesNotContain(other);
 	}
 
+	/**
+	 * The defect Unit 08 fixed, proved against real SQL: a Self-tier caller matches a case
+	 * naming them in <em>any</em> assignment slot.
+	 *
+	 * <p>Before {@code V17} and the widened axis, {@code evalos_case}'s only assignee
+	 * column was {@code assigned_cm}, so a Coordinator's scoped read matched nothing at
+	 * all — their board was empty and the four transitions they are the actor for answered
+	 * 403 on their own cases. This is the one that would silently regress if the OR were
+	 * dropped back to a single column, and no mocked repository would notice.
+	 */
+	@Test
+	void aSelfCallerReadsCasesAssignedToThemInEitherSlot() {
+		Case coordinated = new Case(BRAND_IE, "EV-" + UUID.randomUUID(), Stage.DOC_COLLECTION);
+		coordinated.setAssignedCoordinator(COORDINATOR_IE);
+		UUID coordinatedId = cases.save(coordinated).getId();
+
+		Case managed = new Case(BRAND_IE, "EV-" + UUID.randomUUID(), Stage.DRAFT_GENERATION);
+		managed.setAssignedCm(CM_IE);
+		UUID managedId = cases.save(managed).getId();
+
+		UUID unassignedId = cases.save(new Case(BRAND_IE, "EV-" + UUID.randomUUID(), Stage.DOC_COLLECTION)).getId();
+
+		// Each Self caller sees their own slot and neither sees the other's or the pool's.
+		assertThat(ids(cases.findScoped(coordinatorOfIe())))
+				.contains(coordinatedId)
+				.doesNotContain(managedId, unassignedId);
+		assertThat(ids(cases.findScoped(caseManagerOfIe())))
+				.contains(managedId)
+				.doesNotContain(coordinatedId, unassignedId);
+
+		// And the single-row variant agrees, which is what the write path loads through.
+		assertThat(cases.findScoped(coordinatorOfIe(), coordinatedId)).isPresent();
+		assertThat(cases.findScoped(coordinatorOfIe(), managedId)).isEmpty();
+
+		// A case assigned to a Coordinator in another brand stays out regardless.
+		Case otherBrand = new Case(BRAND_XP, "XP-" + UUID.randomUUID(), Stage.DOC_COLLECTION);
+		otherBrand.setAssignedCoordinator(COORDINATOR_IE);
+		UUID otherBrandId = cases.save(otherBrand).getId();
+		assertThat(ids(cases.findScoped(coordinatorOfIe()))).doesNotContain(otherBrandId);
+	}
+
 	/** The two derived finders Unit 04 added, executed rather than merely resolved. */
 	@Test
 	void theCaseScopedFindersReturnOnlyThatCasesRows() {
@@ -395,5 +441,13 @@ class LocalPostgresIntegrationTest {
 
 	private static TenantContext gm() {
 		return new TenantContext(GM, Role.GM, null, null);
+	}
+
+	private static TenantContext coordinatorOfIe() {
+		return new TenantContext(COORDINATOR_IE, Role.PROJECT_COORDINATOR, BRAND_IE, TEAM_IE);
+	}
+
+	private static TenantContext caseManagerOfIe() {
+		return new TenantContext(CM_IE, Role.CASE_MANAGER, BRAND_IE, TEAM_IE);
 	}
 }

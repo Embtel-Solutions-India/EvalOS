@@ -40,6 +40,15 @@ public class Case extends ScopedEntity {
 	@Column(name = "assigned_cm")
 	private UUID assignedCm;
 
+	/**
+	 * The Coordinator who chases the documents and drives delivery. A second assignment
+	 * slot rather than a reuse of {@link #assignedCm}: both people are on the case at
+	 * once, and {@code ScopePredicate} reads every slot, so whoever is assigned sees the
+	 * case on their board.
+	 */
+	@Column(name = "assigned_coordinator")
+	private UUID assignedCoordinator;
+
 	@Column(name = "contact_id")
 	private UUID contactId;
 
@@ -211,6 +220,14 @@ public class Case extends ScopedEntity {
 
 	public void setAssignedCm(UUID assignedCm) {
 		this.assignedCm = assignedCm;
+	}
+
+	public UUID getAssignedCoordinator() {
+		return assignedCoordinator;
+	}
+
+	public void setAssignedCoordinator(UUID assignedCoordinator) {
+		this.assignedCoordinator = assignedCoordinator;
 	}
 
 	// The setters below are written exactly once, by Handoff A at intake (Unit 05).

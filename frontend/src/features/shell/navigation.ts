@@ -53,8 +53,15 @@ export const NAV_ITEMS: readonly NavItem[] = [
   },
   { path: '/brands', label: 'Brands', roles: ['GM'], becomes: 'Brand administration' },
 
-  // Project Manager.
-  { path: '/board', label: 'Board', roles: ['PROJECT_MANAGER'], becomes: 'Kanban production board (Unit 08)' },
+  // The production board. Four roles, one screen: the spec's per-role wording ("all
+  // brands" / "own brand" / "team" / a Coordinator's read view) describes *scope*, which
+  // the server applies — not four different boards.
+  {
+    path: '/board',
+    label: 'Board',
+    roles: ['GM', 'BRAND_MANAGER', 'PROJECT_MANAGER', 'PROJECT_COORDINATOR'],
+    becomes: 'Kanban production board',
+  },
 
   // Project Coordinator.
   {
@@ -65,8 +72,9 @@ export const NAV_ITEMS: readonly NavItem[] = [
   },
   { path: '/delivery', label: 'Delivery', roles: ['PROJECT_COORDINATOR'], becomes: 'Final delivery queue (Unit 13)' },
 
-  // Case Manager.
-  { path: '/my-cases', label: 'My Cases', roles: ['CASE_MANAGER'], becomes: 'Assigned cases (Unit 08)' },
+  // Case Manager. Their docket is the same board narrowed by their own assignment, which
+  // the server does — so this is the board, not a second screen.
+  { path: '/my-cases', label: 'My Cases', roles: ['CASE_MANAGER'], becomes: 'Cases assigned to you' },
 
   // Expert Network Manager.
   {

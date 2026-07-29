@@ -29,7 +29,7 @@ import org.springframework.transaction.annotation.Transactional;
  */
 public interface NotificationRepository extends ScopedRepository<Notification> {
 
-	ScopePredicate.Fields SCOPE = new ScopePredicate.Fields("brandId", null, "recipientId");
+	ScopePredicate.Fields SCOPE = new ScopePredicate.Fields("brandId", null, List.of("recipientId"));
 
 	@Override
 	default ScopePredicate.Fields scopeFields() {

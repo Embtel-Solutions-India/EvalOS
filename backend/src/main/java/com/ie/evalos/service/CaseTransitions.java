@@ -33,6 +33,7 @@ public final class CaseTransitions {
 
 		MARK_PAID(CaseEvents.Type.CASE_PAID, AuditAction.UPDATED),
 		ASSIGN_PM(CaseEvents.Type.PM_ASSIGNED, AuditAction.ASSIGNED),
+		ASSIGN_COORDINATOR(CaseEvents.Type.COORDINATOR_ASSIGNED, AuditAction.ASSIGNED),
 		MARK_DOCS_COMPLETE(CaseEvents.Type.DOCUMENTS_COMPLETED, AuditAction.STAGE_CHANGED),
 		ASSIGN_CASE_MANAGER(CaseEvents.Type.EXPERT_ASSIGNED, AuditAction.ASSIGNED),
 		SUBMIT_DRAFT(CaseEvents.Type.DRAFT_SUBMITTED, AuditAction.UPDATED),
@@ -108,6 +109,10 @@ public final class CaseTransitions {
 		for (Stage active : ACTIVE) {
 			declare(active, Action.MARK_PAID, active);
 			declare(active, Action.ASSIGN_PM, active);
+			// A Coordinator can be put on a case at any point it is still being worked —
+			// they chase documents early and drive delivery late, and a case that changed
+			// hands mid-pipeline must not need a stage rewind to be re-staffed.
+			declare(active, Action.ASSIGN_COORDINATOR, active);
 			declare(active, Action.PUT_ON_HOLD, active);
 			declare(active, Action.REQUEST_REFUND, active);
 		}

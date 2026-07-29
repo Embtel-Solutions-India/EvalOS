@@ -7,7 +7,6 @@ import java.util.UUID;
 
 import com.ie.evalos.domain.Case;
 import com.ie.evalos.domain.ServiceType;
-import com.ie.evalos.domain.SlaStatus;
 import com.ie.evalos.domain.Stage;
 import com.ie.evalos.security.TenantContext;
 import com.ie.evalos.service.ScopePredicate;
@@ -15,13 +14,19 @@ import com.ie.evalos.service.ScopePredicate;
 import org.springframework.data.jpa.domain.Specification;
 
 /**
- * The one repository where all three scope axes are live: a Brand Manager reads
- * the brand, a Project Manager or Coordinator their team, and a Case Manager only
- * the cases assigned to them.
+ * The one repository where all three scope axes are live: a Brand Manager reads the
+ * brand, a Project Manager their team, and a Case Manager or Coordinator only the
+ * cases assigned to them.
+ *
+ * <p>Two assignment columns, not one. A case is a single pipeline that a Coordinator
+ * and a Case Manager work at different points, so "assigned to me" has to mean either
+ * slot — with only {@code assigned_cm} declared, a Coordinator read matched nothing at
+ * all and their board came back empty.
  */
 public interface CaseRepository extends ScopedRepository<Case> {
 
-	ScopePredicate.Fields SCOPE = new ScopePredicate.Fields("brandId", "teamId", "assignedCm");
+	ScopePredicate.Fields SCOPE =
+			new ScopePredicate.Fields("brandId", "teamId", List.of("assignedCm", "assignedCoordinator"));
 
 	@Override
 	default ScopePredicate.Fields scopeFields() {

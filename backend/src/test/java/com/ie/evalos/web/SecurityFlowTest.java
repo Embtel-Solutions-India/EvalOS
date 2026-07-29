@@ -65,6 +65,9 @@ class SecurityFlowTest {
 	private static final StaffPrincipal CASE_MANAGER = new StaffPrincipal(
 			UUID.randomUUID(), "cm.ie@evalos.local", "Chris Mabry", Role.CASE_MANAGER, BRAND_IE, TEAM,
 			PASSWORD_HASH, true);
+	private static final StaffPrincipal PROJECT_MANAGER = new StaffPrincipal(
+			UUID.randomUUID(), "pm.ie@evalos.local", "Priya Menon", Role.PROJECT_MANAGER, BRAND_IE, TEAM,
+			PASSWORD_HASH, true);
 
 	@Autowired
 	MockMvc mockMvc;
@@ -194,5 +197,36 @@ class SecurityFlowTest {
 				.andExpect(status().isOk());
 
 		verify(teamMembers).findAll(ArgumentMatchers.<Specification<TeamMember>>any());
+	}
+
+	/**
+	 * The assignment picker's roster read (Unit 08). A Project Manager assigns Case Managers
+	 * and Coordinators, so they may read this — while still being refused the staff directory
+	 * above, which is why the two are separate routes with separate projections.
+	 */
+	@Test
+	void aProjectManagerMayReadTheAssignableRosterButNotTheDirectory() throws Exception {
+		willReturn(List.of()).given(teamMembers).findAll(any(Specification.class));
+
+		mockMvc.perform(get("/api/team-members/assignable")
+				.param("role", "CASE_MANAGER")
+				.header(HttpHeaders.AUTHORIZATION, bearer(PROJECT_MANAGER)))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.success").value(true));
+
+		// Still scoped: a Specification, never an unscoped findAll().
+		verify(teamMembers).findAll(ArgumentMatchers.<Specification<TeamMember>>any());
+
+		mockMvc.perform(get("/api/team-members").header(HttpHeaders.AUTHORIZATION, bearer(PROJECT_MANAGER)))
+				.andExpect(status().isForbidden());
+	}
+
+	@Test
+	void aCaseManagerMayNotReadTheAssignableRosterEither() throws Exception {
+		mockMvc.perform(get("/api/team-members/assignable")
+				.param("role", "CASE_MANAGER")
+				.header(HttpHeaders.AUTHORIZATION, bearer(CASE_MANAGER)))
+				.andExpect(status().isForbidden())
+				.andExpect(jsonPath("$.error.code").value("FORBIDDEN"));
 	}
 }
