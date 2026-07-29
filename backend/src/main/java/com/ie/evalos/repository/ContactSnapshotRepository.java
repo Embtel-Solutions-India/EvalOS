@@ -8,7 +8,9 @@ import com.ie.evalos.service.ScopePredicate;
 
 /**
  * Contacts carry no team or assignee axis: everyone who may read a brand may read
- * that brand's contacts. Writes belong to the GHL sync only (invariant 7).
+ * that brand's contacts. Writes come from Handoff A's contact sync, plus the write-once
+ * GHL-id backfill on {@code ContactSnapshot} — never from an EvalOS business rule
+ * mutating a synced field (invariant 7).
  */
 public interface ContactSnapshotRepository extends ScopedRepository<ContactSnapshot> {
 

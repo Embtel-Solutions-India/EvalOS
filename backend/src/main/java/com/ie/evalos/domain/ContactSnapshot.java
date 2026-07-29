@@ -11,9 +11,18 @@ import jakarta.persistence.Table;
 
 /**
  * A brand-tagged copy of a GHL contact. GHL owns this data; EvalOS is not its
- * system of record (invariant 7). The only writer is the contact sync driven by
- * GHL's {@code contact.updated} event — no EvalOS business rule mutates a
- * synced field.
+ * system of record (invariant 7): no EvalOS business rule mutates a synced field.
+ *
+ * <p>Two writers, and the split is the point:
+ * <ul>
+ * <li>{@link #syncFromGhl} replaces the synced fields wholesale from a GHL payload.
+ *     Driven by Handoff A's {@code contact.created} today; {@code contact.updated} is
+ *     recognized by the router but still a deliberate no-op, so it is not a driver yet.
+ * <li>{@link #linkGhlContact} writes the GHL id, and <em>only</em> when it is absent.
+ *     This one is EvalOS inference rather than a passthrough — it repairs a row matched
+ *     by email — which is why it is write-once and separate. It does not touch a synced
+ *     field, so invariant 7 still holds: identity is not content.
+ * </ul>
  */
 @Entity
 @Table(name = "contact_snapshot")
@@ -70,6 +79,22 @@ public class ContactSnapshot extends ScopedEntity {
 	}
 
 	/**
+	 * Fills in the GHL id on a row that was created without one — a snapshot matched by
+	 * email because the delivery carried no id, then repaired when a later delivery does.
+	 *
+	 * <p><strong>Write-once.</strong> An id already present is never replaced: two GHL
+	 * contacts sharing an email would otherwise let the second silently take over the
+	 * first's snapshot, and every case pointing at it. Separate from
+	 * {@link #syncFromGhl} for exactly that reason — the id is identity, not synced data.
+	 */
+	public void linkGhlContact(String ghlContactId) {
+		if (ghlContactId != null && !ghlContactId.isBlank()
+				&& (this.ghlContactId == null || this.ghlContactId.isBlank())) {
+			this.ghlContactId = ghlContactId;
+		}
+	}
+
+	/**
 	 * Replaces the snapshot wholesale from GHL and restamps {@code synced_at}. The
 	 * <em>only</em> writer of these fields: invariant 7 means no EvalOS business rule
 	 * mutates a synced contact, and this is the sync, not a business rule. Called at
@@ -87,6 +112,10 @@ public class ContactSnapshot extends ScopedEntity {
 		this.utmMedium = utmMedium;
 		this.utmCampaign = utmCampaign;
 		this.syncedAt = Instant.now();
+	}
+
+	public String getGhlContactId() {
+		return ghlContactId;
 	}
 
 	public String getFullName() {

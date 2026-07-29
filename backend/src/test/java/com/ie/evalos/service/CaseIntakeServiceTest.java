@@ -14,8 +14,6 @@ import com.ie.evalos.domain.ClientType;
 import com.ie.evalos.domain.ContactSnapshot;
 import com.ie.evalos.domain.DocumentChecklistItem;
 import com.ie.evalos.domain.ExceptionState;
-import com.ie.evalos.domain.Notification;
-import com.ie.evalos.domain.NotificationType;
 import com.ie.evalos.domain.PoolStatus;
 import com.ie.evalos.domain.Role;
 import com.ie.evalos.domain.ServiceType;
@@ -172,6 +170,40 @@ class CaseIntakeServiceTest {
 		assertThat(publishedTypes())
 				.containsExactly(CaseEvents.Type.CASE_CREATED, CaseEvents.Type.CHECKLIST_REQUESTED)
 				.doesNotContain(CaseEvents.Type.CASE_PAID);
+	}
+
+	/**
+	 * The sequential half of the duplicate-contact defect: a first delivery with no GHL id
+	 * stores a snapshot without one, and a later delivery *with* the id must find that row
+	 * by email rather than inserting a second. The lookups used to be exclusive returns,
+	 * so the email branch was unreachable whenever an id was present.
+	 */
+	@Test
+	void aDeliveryCarryingAnIdFindsTheRowThatWasStoredWithoutOne() {
+		ContactSnapshot idless = new ContactSnapshot(BRAND, null);
+		given(contacts.findByBrandIdAndGhlContactId(BRAND, "ghl-c-1")).willReturn(Optional.empty());
+		given(contacts.findByBrandIdAndEmailIgnoreCase(BRAND, "anita@raolaw.example"))
+				.willReturn(Optional.of(idless));
+
+		intake.intake(brand, contact("ghl-c-1", "anita@raolaw.example"));
+
+		// The existing row is reused, and repaired with the id so it stops depending on
+		// the email matching forever.
+		verify(contacts).save(idless);
+		assertThat(idless.getGhlContactId()).isEqualTo("ghl-c-1");
+	}
+
+	/** Write-once: a second GHL contact sharing an email cannot take over the first's row. */
+	@Test
+	void anExistingGhlIdIsNeverOverwritten() {
+		ContactSnapshot owned = new ContactSnapshot(BRAND, "ghl-original");
+		given(contacts.findByBrandIdAndGhlContactId(BRAND, "ghl-impostor")).willReturn(Optional.empty());
+		given(contacts.findByBrandIdAndEmailIgnoreCase(BRAND, "anita@raolaw.example"))
+				.willReturn(Optional.of(owned));
+
+		intake.intake(brand, contact("ghl-impostor", "anita@raolaw.example"));
+
+		assertThat(owned.getGhlContactId()).isEqualTo("ghl-original");
 	}
 
 	@Test

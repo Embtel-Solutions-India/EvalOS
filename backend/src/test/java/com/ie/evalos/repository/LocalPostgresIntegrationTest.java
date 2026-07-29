@@ -102,7 +102,41 @@ class LocalPostgresIntegrationTest {
 
 		assertThat(versions)
 				.containsSubsequence("1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13",
-						"14", "15");
+						"14", "15", "16");
+	}
+
+	/**
+	 * V16's half of the duplicate-case race. V15 keyed on {@code contact_id}, which is
+	 * only unique once a snapshot exists — so for a contact EvalOS had never seen, two
+	 * concurrent deliveries each inserted their own snapshot and both passed V15.
+	 *
+	 * <p>Both keys are asserted because the payload does not guarantee a GHL id: intake
+	 * falls back to email, so that path needs constraining too.
+	 */
+	@Test
+	void aContactIsUniquePerBrandByGhlIdAndByEmail() {
+		String ghlId = "ghl-" + UUID.randomUUID();
+		String email = "dup-" + UUID.randomUUID() + "@example.test";
+
+		ContactSnapshot first = new ContactSnapshot(BRAND_IE, ghlId);
+		first.syncFromGhl("First Contact", email, null, null, null, null, null, null, null);
+		contacts.saveAndFlush(first);
+
+		ContactSnapshot sameGhlId = new ContactSnapshot(BRAND_IE, ghlId);
+		assertThatThrownBy(() -> contacts.saveAndFlush(sameGhlId))
+				.hasStackTraceContaining("uq_contact_per_brand_ghl_id");
+
+		// Case-insensitive: a capitalised address is the same person, matching the finder
+		// intake uses (findByBrandIdAndEmailIgnoreCase).
+		ContactSnapshot sameEmail = new ContactSnapshot(BRAND_IE, "ghl-" + UUID.randomUUID());
+		sameEmail.syncFromGhl("Same Email", email.toUpperCase(), null, null, null, null, null, null, null);
+		assertThatThrownBy(() -> contacts.saveAndFlush(sameEmail))
+				.hasStackTraceContaining("uq_contact_per_brand_email");
+
+		// The other brand keeps its own contacts: both keys are brand-scoped (invariant 1).
+		ContactSnapshot otherBrand = new ContactSnapshot(BRAND_XP, ghlId);
+		otherBrand.syncFromGhl("Other Brand", email, null, null, null, null, null, null, null);
+		assertThat(contacts.saveAndFlush(otherBrand).getId()).isNotNull();
 	}
 
 	/**

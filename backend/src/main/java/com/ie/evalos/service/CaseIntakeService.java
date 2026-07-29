@@ -183,20 +183,44 @@ public class CaseIntakeService {
 	private ContactSnapshot syncContact(UUID brandId, ContactDetails details) {
 		ContactSnapshot contact = existingContact(brandId, details)
 				.orElseGet(() -> new ContactSnapshot(brandId, details.ghlContactId()));
+		// Repairs a row that was matched by email because it had no GHL id. Without this
+		// the id never lands and every later delivery re-matches by email — which works
+		// until the email changes, and then it is a second contact again.
+		contact.linkGhlContact(details.ghlContactId());
 		contact.syncFromGhl(details.fullName(), details.email(), details.phone(), details.company(),
 				details.clientType(), details.sourceChannel(), details.utmSource(), details.utmMedium(),
 				details.utmCampaign());
 		return contacts.save(contact);
 	}
 
+	/**
+	 * Both lookups, in order of authority — <strong>not</strong> one or the other.
+	 *
+	 * <p>These used to be exclusive returns, which needed no race to duplicate a contact:
+	 * the payload carries no {@code @NotBlank} on the GHL id, so a first delivery could
+	 * store a snapshot with a null {@code ghl_contact_id}; a later delivery *with* the id
+	 * then missed the id lookup, never reached the email one, and inserted a second
+	 * snapshot — and therefore a second case for the same contact and service.
+	 *
+	 * <p>Falling through to email fixes the reading. {@code syncContact} then backfills
+	 * the id onto the row it found, so the same delivery cannot keep re-matching by email
+	 * forever.
+	 */
 	private Optional<ContactSnapshot> existingContact(UUID brandId, ContactDetails details) {
-		if (details.ghlContactId() != null && !details.ghlContactId().isBlank()) {
-			return contacts.findByBrandIdAndGhlContactId(brandId, details.ghlContactId());
-		}
-		if (details.email() != null && !details.email().isBlank()) {
-			return contacts.findByBrandIdAndEmailIgnoreCase(brandId, details.email());
-		}
-		return Optional.empty();
+		return byGhlContactId(brandId, details.ghlContactId())
+				.or(() -> byEmail(brandId, details.email()));
+	}
+
+	private Optional<ContactSnapshot> byGhlContactId(UUID brandId, String ghlContactId) {
+		return ghlContactId == null || ghlContactId.isBlank()
+				? Optional.empty()
+				: contacts.findByBrandIdAndGhlContactId(brandId, ghlContactId);
+	}
+
+	private Optional<ContactSnapshot> byEmail(UUID brandId, String email) {
+		return email == null || email.isBlank()
+				? Optional.empty()
+				: contacts.findByBrandIdAndEmailIgnoreCase(brandId, email);
 	}
 
 	private Case newCase(Brand brand, NewCase request, UUID contactId) {

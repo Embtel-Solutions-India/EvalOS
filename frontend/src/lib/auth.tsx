@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { api, unwrap } from './api'
 import { AuthContext, type AuthState } from './authContext'
-import { clearToken, getToken, setToken, type StaffIdentity } from './session'
+import { clearToken, getToken, onTokenCleared, setToken, type StaffIdentity } from './session'
 
 /**
  * Who is signed in. `/api/me` is the authority — login only hands back a token, and the
@@ -14,6 +14,16 @@ export default function AuthProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<AuthState>(() =>
     getToken() ? { status: 'loading' } : { status: 'anonymous' },
   )
+
+  /**
+   * A 401 from any call drops the token in `api.ts`; this is what turns that into an
+   * actual sign-out. Without it the shell kept rendering with a stale identity and no
+   * token, silently 401ing every request until the user reloaded by hand.
+   */
+  useEffect(() => {
+    onTokenCleared(() => setState({ status: 'anonymous' }))
+    return () => onTokenCleared(null)
+  }, [])
 
   /** Hydrate from a token that survived a reload. Once, on mount; a failure means log in. */
   useEffect(() => {
