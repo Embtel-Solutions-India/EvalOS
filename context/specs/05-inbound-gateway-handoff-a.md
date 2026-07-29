@@ -1,5 +1,20 @@
 # Unit 05 — Inbound webhook gateway + GHL payment handler (Handoff A)
 
+> **Built, then partly superseded by Unit 05a.** The gateway half of this spec stands
+> as written. The handler half does not: Handoff A now fires on **`contact.created`**,
+> not `payment.confirmed`, and creates an **unpaid** case. Payment is recorded
+> afterwards via `POST /api/cases/{id}/mark-paid`.
+>
+> Specifically dead here: `payment.confirmed` and `GhlPaymentHandler` (now
+> `contact.created` / `GhlContactHandler`); "idempotency key = `invoice_ref`" (now
+> `event_id`, then `webhook_id` — never a bare `id`); `UNIQUE (source, external_id)`
+> (now `UNIQUE NULLS NOT DISTINCT (source, brand_id, external_id)`, `V13`); and
+> invariant 8's wording (a webhook creates the case, but marking it paid is a staff
+> act). Case creation is still **only** through this door.
+>
+> Current truth: `context/architecture.md` (Handoff A + invariants 5 and 8) and the
+> Unit 05 / 05a entries in `context/progress-tracker.md`. Migrations now run to `V15`.
+
 **Phase:** 1 — Structure the data (the spine)
 **Depends on:** 03, 04
 **Unlocks:** 15 (Dropbox Sign reuses the gateway), 18/19 (downstream of created cases)

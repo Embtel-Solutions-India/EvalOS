@@ -4,13 +4,13 @@ Update this file after every meaningful implementation change.
 
 ## Current Phase
 
-- Phase 1 — Structure the data (the spine) is complete: Units 01–05 built. Phase 2
-  begins at Unit 06.
+- Phase 1 — Structure the data (the spine) is complete: Units 01–05 built, plus 05a.
+  Phase 2 is under way: Units 06 (notification centre) and 07 (app shell) are done.
 
 ## Current Goal
 
-- Unit 06 — the in-app staff notification centre, the first subscriber to the
-  domain events Units 04 and 05 publish.
+- Unit 08 — the Kanban production board and case table, the first screens to mount
+  inside Unit 07's shell and the first consumers of the brand/date filters it holds.
 
 ## Completed
 
@@ -271,14 +271,130 @@ Update this file after every meaningful implementation change.
     proves the index refuses the second open case while still allowing another service
     and a repeat purchase after close.
 
+- **Unit 05/05a live end-to-end run — acceptance criterion 1 closed for the current
+  handler.** The previous live evidence (`IE-2026-375863`) was a signed
+  `payment.confirmed` recorded before the pivot, so nothing had exercised
+  `contact.created` over real HTTP + HMAC + Postgres. Now it has, against the running
+  app on the `local` profile:
+  - A signed `contact.created` → `200 accepted`; the replay of the same `event_id` →
+    `200 duplicate` and no second case. Wrong signature → `401 SIGNATURE_INVALID`;
+    unknown token → `404 UNKNOWN_ENDPOINT`. **A payload carrying only a resource `id`
+    → `400 MISSING_EXTERNAL_ID`**, which is the review fix behaving as intended: it
+    fails loudly rather than deduplicating on a contact id.
+  - The created case (`IE-2026-5DFC40`) is `DOC_COLLECTION` / `IN_POOL` / `ON_TRACK`,
+    **`paid = false`**, `deal_value = 900.00` (the quote), `revenueRecognized = false`,
+    with a 4-item `REQUIRED` checklist, a contact snapshot, and
+    `NEW_LEAD` ×2 (GM + that brand's manager only).
+  - `assign-pm` succeeds while unpaid — doc collection is deliberately allowed to
+    proceed — and then **`docs-complete` answers `409 ILLEGAL_TRANSITION` "the case has
+    not been paid"**. After `mark-paid` it answers `409 "not every checklist item is
+    uploaded or approved"`, i.e. the paid guard clears and the next precondition takes
+    over, in that order. `NEW_CASE_IN_POOL` ×2 is raised at payment, not creation.
+  - `mark-paid` corrected `950.00 → 1600.00 → 1725.50` with `paid_at` unchanged across
+    both corrections, and a `CASE_MANAGER` bearer got `403` from the service-layer
+    guard.
+  - `webhook_event` holds exactly one processed, verified row per valid delivery and
+    **nothing at all** for the rejected attempts — an unverified body is logged, never
+    archived. Audit shows `CREATED actor=SYSTEM brand=<IE>` for the webhook and a null
+    brand for the GM's action, both as designed.
+  - Gap noted, not a defect: **the seed has no `PROJECT_COORDINATOR` login**, so the
+    four Coordinator-gated transitions can only be driven as GM locally. That is the
+    same Coordinator-scope open question below, now visible in the seed as well as the
+    schema.
+
+- **Unit 06 — In-app notification centre.** The events Units 04/05 published to nobody
+  now reach somebody. No migration: the `notification` table is Unit 03's.
+  - `notification/NotificationListeners` — the spec's event → recipient table as a
+    literal table (`EnumMap` of event → recipient function + heading + message), so a
+    mis-wired row is a data diff rather than a buried branch. Synchronous, so it runs
+    inside the transition's transaction: a rolled-back transition cannot leave an alert
+    claiming it happened.
+  - `notification/RecipientResolver` — the one place role → member lookup lives. Every
+    lookup names the brand except the GM's, which is brand-less by definition. Returns
+    **empty rather than a fallback** when no PM/CM is assigned: an alert addressed to
+    "whoever" is how a queue nobody reads gets built.
+  - `notification/NotificationService` — the only writer of the table, and the only
+    reader the endpoints use. Writes join the caller's transaction.
+  - `web/NotificationController` — the four spec routes. **No `@PreAuthorize` and no
+    recipient parameter**, deliberately: every staff role has a bell and none may read
+    another's, so identity narrows every route and a role gate would be the wrong tool.
+  - `service/PoolNotifier` **deleted** — its two call sites are the `case.created` and
+    `case.paid` listeners now, which is what the spec's "event-driven, no manual
+    triggers" asks for. `CaseIntakeService` and `CaseLifecycleService` each lost a
+    dependency.
+  - Verified: `./mvnw verify` BUILD SUCCESS, **126 tests** (113 run — new
+    `NotificationListenersTest` 14, `NotificationServiceTest` 10,
+    `NotificationControllerTest` 6), and **13 DB-gated green against local Postgres 18**.
+
+- **Unit 07 — App shell + role/brand-scoped routing.** The frontend stops being a
+  health-check page. **First unit since 01 to touch `frontend/`.**
+  - Backend: `web/BrandController` + `service/BrandQueryService` +
+    `BrandRepository.findByActiveTrueOrderByNameAsc`. `GET /api/brands` is **GM-only,
+    gated twice** (route and service) because it is the one deliberately cross-brand
+    read in the app — knowing the shape of the business is itself cross-brand
+    information. `BrandOption` projects `id`/`name`/`slug` only: the webhook token and
+    signing secret live on the same entity and must never leave it.
+  - `lib/session.ts` — token in a module variable mirrored to **sessionStorage** (dies
+    with the tab). `lib/api.ts` gained a request interceptor that attaches the bearer
+    and a response interceptor that drops the token on **401 only** — a 403 means
+    "signed in, not allowed", which is a screen, not a logout.
+  - `lib/auth.tsx` — `AuthProvider` with a three-state discriminated union
+    (`loading`/`anonymous`/`authenticated`). **Role and brand come from `/api/me`, never
+    from the login response**, so there is one source of identity rather than two that
+    can disagree.
+  - `features/shell/navigation.ts` — **the nav and the route allow-list are one table.**
+    Two tables is how a screen ends up deep-linkable but unlisted, or listed and then
+    403. `navFor(role)` filters it; `mayReach(role, path)` guards the router against the
+    same field.
+  - `features/shell/{AppShell, LeftNav, TopBar, BrandSwitcher, DateFilter,
+    NotificationBell, PlaceholderPage, filters}` — the shell from `ui-context.md`.
+    `filters.tsx` holds `activeBrandId` (null = all brands, GM only) and `dateRange`.
+  - `features/auth/LoginPage`, `components/Forbidden`, `features/dashboards/RoleDashboard`.
+    403 is a **screen, not a redirect**, so the refused URL stays visible.
+  - Deleted `components/Layout.tsx` and `pages/Dashboard.tsx` — the shell supersedes
+    both; the Unit 01 health-check page had no remaining caller.
+  - `V902` local seed adds the **Project Coordinator and Expert Network Manager logins
+    V900 never had** (`pc.ie@`, `enm.ie@`), because acceptance criterion 1 is "each of
+    the six roles" and four of six is not that.
+  - Verified: `npm run build` clean (tsc + vite), `npm run lint` no errors,
+    `./mvnw verify` BUILD SUCCESS **126 tests** (new `BrandControllerTest` 3), and
+    **live against the running stack**: all six roles authenticate, `/api/me` returns
+    the right role and brand for each, `/api/brands` is 200 for the GM and **403 for
+    all five other roles**, the brand payload carries only `id`/`name`/`slug`, the
+    notification list/read-all/count round-trip works through the bell's endpoints, a
+    garbage token is 401, and the Vite `/api` proxy plus SPA deep-links serve.
+
 ## In Progress
 
 - Nothing.
 
 ## Next Up
 
-- Unit 06 — in-app staff notification centre (subscribes to the Unit 04/05 domain
-  events that are currently published to nobody).
+- Unit 08 — Kanban production board + case table. Its spec is not written yet
+  (`context/specs/` stops at 07); generate it before building, per `CLAUDE.md`.
+
+## Known Defects (found by review, not yet fixed)
+
+- **Intake can create duplicate contacts and duplicate cases — two ways.** Found by
+  a `/code-review` pass over Unit 06, both verified against the code, both **open**.
+  1. **`V15`'s index does not close the race it claims to.** `contact_snapshot` (V4)
+     has no unique constraint on `(brand_id, ghl_contact_id)` or on email, so two
+     concurrent `contact.created` deliveries for a contact EvalOS has never seen each
+     insert their own snapshot, get different `contact_id`s, and both pass
+     `V15`'s `(brand_id, contact_id, service_type)` index — two case codes, two
+     checklists, two `NEW_LEAD` alerts. **The comment in
+     `V15__one_open_case_per_contact_service.sql` asserting this "cannot race" is
+     therefore wrong for a new contact**; it holds only once a snapshot exists. Fix:
+     a `V16` unique index on `contact_snapshot (brand_id, ghl_contact_id)` (and
+     probably `lower(email)`), which needs a duplicate check against existing data
+     first.
+  2. **`CaseIntakeService.existingContact` needs no race at all.**
+     `ContactCreated.Contact.ghlContactId` has no `@NotBlank`, so a first delivery can
+     store `ghl_contact_id = NULL`. Its two lookups are exclusive `return`s, so a
+     later delivery *with* the id misses the id branch, never tries email, and inserts
+     a second snapshot — and `ContactSnapshot.syncFromGhl` never writes
+     `ghlContactId`, so the first row is never repaired. Second snapshot → second
+     case. Fix: try both lookups (`.or(...)`) and backfill the id on an email match.
 
 ## Open Questions
 
@@ -572,6 +688,130 @@ Update this file after every meaningful implementation change.
   decision: the transport record and the intake command record declare the same 21
   fields with a mapper between them — that split is what keeps an unconfirmed payload
   shape out of `service`, and the payload shape is the thing most likely to change.
+
+- **Unit 06 deviations / decisions to confirm.**
+  (a) **The spec's `case.created` row is split in two.** The spec maps
+  `case.created (pool arrival)` to GM + Brand Manager, but Unit 05a moved the ground
+  under that: `case.created` is now a *lead*, and `case.paid` is the pool arrival. Both
+  are mapped — `NEW_LEAD` ("somebody is asking") and `NEW_CASE_IN_POOL` ("assign a
+  project manager") — to the same recipients the spec names. This is the spec's intent,
+  not its letter.
+  (b) **The pool arrival is announced once per case.** `apply(...)` publishes one event
+  per transition *including* a `mark-paid` that only corrects the amount, so the listener
+  checks `existsByCaseIdAndType` before raising `NEW_CASE_IN_POOL`. The guard lives here
+  rather than in `markPaid` because "announce once" is a property of the notification,
+  not of the transition — and it also holds if anything later re-publishes the event.
+  (c) **The centre deliberately does not use `findScoped`.** That applies the caller's
+  *tier*, and the GM's tier is ALL — a GM's scoped read would return every member's
+  notifications in every brand. "My notifications" is an identity question, not a scope
+  one, so every finder names `recipientId` explicitly and no tier can widen it. The
+  `SCOPE` constant stays declared because `DomainInvariantsTest` requires one.
+  (d) **Three mapped events are not implemented, because their event types do not
+  exist yet.** `sla.breached` / `sla.escalation` (Unit 19) and `kpi.threshold_breached`
+  (Unit 17/19) are in the spec's table; nothing publishes them, and inventing
+  `CaseEvents.Type` entries with no publisher would be scaffolding. `SLA_AT_RISK`,
+  `SLA_OVERDUE` and the recipient rule (assigned PM + Brand Manager / Brand Manager +
+  GM) are the only parts still to add when those units land.
+  (e) **`case.delivered_to_client` is `CASE_DELIVERED`** — the spec's third
+  client-facing name; the catalog has had `case.delivered` since Unit 04. All three
+  client-facing events are listed explicitly in `CLIENT_FACING` rather than left to fall
+  through the unmapped default, so "no staff alert" reads as a decision.
+  (f) **Notification bodies no longer name the brand or the contact.** `PoolNotifier`
+  built "New International Evaluations lead IE-2026-0001 from Anita Rao"; the listener
+  builds "New lead IE-2026-0001." The event payload carries neither name, the case code
+  already encodes the brand, and the row is brand-tagged — so this avoids loading a
+  `Brand` and a `ContactSnapshot` per alert to restate what the reader already has.
+  (g) **`markAllReadFor` carries its own `@Transactional`.** A `@Modifying` bulk update
+  throws `TransactionRequiredException` without one. Found by the DB test calling the
+  repository directly; the annotation means a future caller who forgets cannot break it.
+  (h) **Accessors added per the consumer-appeared rule** (Unit 03 note b):
+  `Notification.getCaseId`/`isRead`/`markRead`. `markRead` is one-way — the centre has
+  no unread button, so there is no setter to flip it back.
+  (i) **Coordinator recipients resolve by role across the brand**, plural, because the
+  spec's table names the role rather than a member — and because no `evalos_case` column
+  names a coordinator (the open question below). This is the one route whose recipients
+  are not derived from the case itself.
+  (j) **Not verified live.** Unit 06 has no live-run acceptance criterion and all six of
+  its criteria are covered by tests, but the four endpoints have not been exercised over
+  real HTTP, and the listeners have not been observed firing end to end from a webhook.
+
+- **Unit 07 deviations / decisions to confirm.**
+  (a) **No `components/ui/` primitives were generated.** `ui-context.md` calls for a
+  shadcn/Radix set there and `ai-workflow-rules.md` marks it protected, but the
+  directory has never existed and nothing in this unit needed it: the brand switcher is
+  a native `<select>` and the bell dropdown a native `<details>`. Both ship keyboard
+  handling, focus and a11y semantics a hand-rolled version would have to reimplement.
+  Generate the set when a table, dialog or tabs is actually required (Unit 08).
+  (b) **Lucide is not installed; the one icon is inline SVG.** One bell does not earn a
+  dependency. Add Lucide when a screen needs a dozen.
+  (c) **`sessionStorage`, and there is no refresh strategy** — the spec asks for
+  "in-memory + refresh strategy", but no refresh endpoint exists (the JWT is issued once
+  for 8h). Token in memory, mirrored to sessionStorage so a reload does not bounce the
+  user to login; the 401 interceptor is the whole expiry story. Revisit if a refresh
+  route is ever added. Note this is XSS-exposed in a way an httpOnly cookie would not
+  be — accepted for a staff-only internal tool, and worth reconsidering before any
+  external surface (Units 14/15) reuses this code.
+  (d) **The brand filter is state, not yet a parameter.** The spec says the GM's
+  selection is "passed as a `brandId` filter to scoped API calls", but no endpoint in
+  this unit takes one — `/api/notifications` is recipient-keyed and the case list is
+  Unit 08. Holding it in `filters.tsx` now is what lets Unit 08 be additive; sending it
+  nowhere is honest rather than inventing a parameter the server ignores.
+  (e) **Six dashboards are one component plus a table**, not six files. The spec says
+  "one page per role"; this is one page per role, driven by data.
+  **The PRIMARY KPI names are slot labels, not agreed metrics** — Unit 17 owns the real
+  ones. Every tile is a skeleton bar, never a number: a plausible fake figure on an
+  operations dashboard is worse than a blank one.
+  (f) **Three `oxlint` warnings accepted**: `react/only-export-components` on
+  `lib/auth.tsx` and `features/shell/filters.tsx`, the standard cost of a provider and
+  its hook in one file. It is a dev Fast-Refresh concern, not correctness, and splitting
+  four files to silence it is churn. `npm run lint` still exits clean.
+  (g) **`/cases` is shared by four roles** (GM, Brand Manager, PM, Coordinator) rather
+  than being four routes, since the spec's per-role labels ("all brands" / "team" /
+  "own") describe *scope*, which the server applies — not different screens.
+  (h) **No frontend test suite**, so `navFor`/`mayReach` are covered by the browser pass
+  below rather than by assertions. Adding a test framework was out of scope for this
+  unit; worth doing before the nav table grows past one screen.
+
+- **Unit 07 browser pass — all six acceptance criteria confirmed, two defects found and
+  fixed.** Driven through Chrome against the running stack.
+  - **Criterion 1** — all six roles land on their own dashboard with exactly the spec's
+    nav set: GM `Dashboard|Cases|Experts|Payouts|Brands`, Brand Manager the same minus
+    Brands, PM `Dashboard|Cases|Experts|Board`, Coordinator
+    `Dashboard|Cases|Doc Checklists|Delivery`, Case Manager `Dashboard|My Cases`, ENM
+    `Dashboard|Payouts|Expert Database`. Each shows its own PRIMARY KPI tile.
+  - **Criterion 2** — the GM's switcher lists "All brands" plus both brands from
+    `/api/brands`, and selecting one flips the dashboard label from "all brands" to
+    "one brand". Every other role gets the static "Your brand" label and **no
+    `<select>` in the DOM at all**.
+  - **Criterion 3** — the bell lists live rows, the empty state reads correctly for a
+    recipient with none, and mark-all-read repaints the badge.
+  - **Criterion 4** — deep-linking a Case Manager to `/brands` renders the 403 view
+    inside the shell with the URL preserved.
+  - **Criterion 5** — sign out returns to login and clears the session; navigating to
+    `/login` while signed in redirects to the dashboard.
+  - **Criterion 6** — `npm run build` clean, and after the two fixes below a hard reload
+    plus a bell open produces **zero console output**.
+  - **Defect 1, fixed: the dev API logger reported aborted requests as errors.**
+    StrictMode double-invokes effects and the cleanup aborts the first request, so the
+    console filled with `[api] GET /notifications/unread-count -> network error` for
+    calls that were merely superseded. Now skipped via `axios.isCancel`.
+  - **Defect 2, fixed: HMR crashed the app, and the lint warning was right.** Note (f)
+    dismissed three `react/only-export-components` warnings as a Fast-Refresh
+    ergonomics concern. The browser pass caught the consequence: editing any module in
+    the auth import graph threw `useAuth must be used inside AuthProvider` from `App`
+    via `performReactRefresh`, needing a manual reload. Split into `lib/authContext.ts`
+    and `features/shell/filtersContext.ts` (context + hooks) with the providers left as
+    the only export of their files. **`npm run lint` is now completely clean** and the
+    three warnings in note (f) no longer apply.
+  - Cosmetic deviation left as-is: **nav item *order* differs from the spec's per-role
+    prose** for three roles (the spec puts Board second for a PM and Expert Database
+    before Payouts for an ENM; `NAV_ITEMS` is one globally-ordered table, so shared
+    items come first). Every *set* is correct. Fixing it needs a per-role order field —
+    worth doing if a role's primary screen being last actually bothers anyone.
+  - Hygiene note: `LocalPostgresIntegrationTest` writes rows into the **dev** `evalos`
+    database and leaves them behind — the bell shows notifications with bodies `"old"`
+    and `"fresh"` from `theNotificationCentreFindersRunAgainstRealSql`. Harmless, but
+    the dev database now needs a reset before any demo.
 
 - **Unit 02 latent test bug, surfaced and fixed.**
   `SecurityFlowTest.tamperedTokenIsUnauthenticated` flipped the **last** character

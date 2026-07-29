@@ -54,7 +54,20 @@ public class Notification extends ScopedEntity {
 		return type;
 	}
 
+	public UUID getCaseId() {
+		return caseId;
+	}
+
 	public String getBody() {
 		return body;
+	}
+
+	public boolean isRead() {
+		return read;
+	}
+
+	/** One-way: the centre has no unread button, so there is no setter to flip it back. */
+	public void markRead() {
+		this.read = true;
 	}
 }

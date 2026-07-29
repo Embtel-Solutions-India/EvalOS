@@ -1,9 +1,13 @@
 # EvalOS — Core
 
 Back-of-house production CRM for a **multi-brand** credential-evaluation business (International
-Evaluations, XpertsPortal). Takes custody of a case at "payment confirmed" in GoHighLevel (GHL) and
-owns it to signed delivery + expert payout. GHL stays front-of-house (leads, sales, invoicing,
-review campaigns); **EvalOS never does marketing, sales, or invoicing.**
+Evaluations, XpertsPortal). Takes custody at **`contact.created`** in GoHighLevel (GHL) and owns the
+case to signed delivery + expert payout. GHL stays front-of-house (leads, sales, invoicing, review
+campaigns); **EvalOS never does marketing, sales, or invoicing.**
+
+The custody trigger moved off payment in Unit 05a: a case now exists **before** money does, unpaid,
+and payment is a fact recorded on it. Anything written against "the webhook proves payment" is
+pre-05a and wrong.
 
 ## Spec-driven build — read before coding
 
@@ -19,9 +23,12 @@ Technical Design Document v1.1**; where a context file conflicts with it, v1.1 w
   `context/progress-tracker.md` instead.
 - Update `context/progress-tracker.md` after every meaningful change; update the relevant context
   file (and the TDD) if a decision changes.
-- **Current state:** Units 01–03 done — scaffold + envelope, the tenancy/auth/RBAC spine, and the
-  full domain schema (`V1`–`V10`, all entities, repositories, audit, field encryption). Unit 04 (case
-  state machine + SLA computation) is next. No endpoints exist yet beyond auth/health/team-members.
+- **Current state:** Units 01–06 done, including 05a (the custody-trigger move). Scaffold + envelope,
+  the tenancy/auth/RBAC spine, the domain schema, the case state machine + SLA, the inbound webhook
+  gateway with Handoff A, and the in-app notification centre. Migrations run to `V15`. ~28 endpoints:
+  auth/health/team-members, the per-transition case routes, and four notification routes.
+  **Unit 07 (app shell + routing) is next** — the first surface, including the bell over Unit 06's
+  endpoints. The backend is still the only half past Unit 01.
 
 ## Layout
 
@@ -46,7 +53,11 @@ Monorepo, but no root build: each half is built and run from **inside its own di
   migration is never edited.
 - **No object storage, no mail server.** Documents are Google Drive links, signed letters live in
   Dropbox Sign, staff alerts are in-app, client messages go out through GHL. Do not add S3 or SMTP.
-- **Payment enters only via a per-brand GHL webhook endpoint** — no other path creates a case.
+- **A case is created only by a per-brand GHL webhook endpoint** — no other path, enforced
+  structurally by `DomainInvariantsTest` (only the contact handler may depend on `CaseIntakeService`,
+  so adding a `POST /api/cases` breaks the build). Marking one **paid** is a separate staff act.
+- **Unpaid work stops at `DOC_COLLECTION`.** Revenue is recognized only when paid **and** delivered.
+  Both live in `mem:backend/lifecycle`.
 - Module contract is HTTP under `/api`, same-origin in dev via the Vite proxy; no CORS config exists
   on either side — add endpoints under `/api` rather than introducing CORS.
 
