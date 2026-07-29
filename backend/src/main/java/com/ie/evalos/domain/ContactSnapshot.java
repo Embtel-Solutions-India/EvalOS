@@ -70,6 +70,22 @@ public class ContactSnapshot extends ScopedEntity {
 	}
 
 	/**
+	 * Fills in the GHL id on a row that was created without one — a snapshot matched by
+	 * email because the delivery carried no id, then repaired when a later delivery does.
+	 *
+	 * <p><strong>Write-once.</strong> An id already present is never replaced: two GHL
+	 * contacts sharing an email would otherwise let the second silently take over the
+	 * first's snapshot, and every case pointing at it. Separate from
+	 * {@link #syncFromGhl} for exactly that reason — the id is identity, not synced data.
+	 */
+	public void linkGhlContact(String ghlContactId) {
+		if (ghlContactId != null && !ghlContactId.isBlank()
+				&& (this.ghlContactId == null || this.ghlContactId.isBlank())) {
+			this.ghlContactId = ghlContactId;
+		}
+	}
+
+	/**
 	 * Replaces the snapshot wholesale from GHL and restamps {@code synced_at}. The
 	 * <em>only</em> writer of these fields: invariant 7 means no EvalOS business rule
 	 * mutates a synced contact, and this is the sync, not a business rule. Called at
@@ -87,6 +103,10 @@ public class ContactSnapshot extends ScopedEntity {
 		this.utmMedium = utmMedium;
 		this.utmCampaign = utmCampaign;
 		this.syncedAt = Instant.now();
+	}
+
+	public String getGhlContactId() {
+		return ghlContactId;
 	}
 
 	public String getFullName() {

@@ -364,6 +364,39 @@ Update this file after every meaningful implementation change.
     notification list/read-all/count round-trip works through the bell's endpoints, a
     garbage token is 401, and the Vite `/api` proxy plus SPA deep-links serve.
 
+- **Contact identity — the two duplicate-case defects the Unit 06 review found, fixed.**
+  Both let intake create a second contact and therefore a second case for one piece of
+  work. Neither was in Unit 06's own code; the review just found them there.
+  - **`V16__contact_identity.sql`.** `contact_snapshot` had **no unique key at all**, so
+    `V15`'s `(brand_id, contact_id, service_type)` index was only unique once a snapshot
+    existed — for a contact EvalOS had never seen, two concurrent deliveries each
+    inserted their own snapshot, got different `contact_id`s, and both sailed through.
+    `V16` adds partial unique indexes on `(brand_id, ghl_contact_id)` and
+    `(brand_id, lower(email))`. `lower(...)` because the lookup is
+    `findByBrandIdAndEmailIgnoreCase` — a capitalised address must not become a second
+    person. Verified no duplicates existed in the dev database first.
+    **`V15`'s comment claiming the race "cannot race" stays wrong on disk**: it is
+    applied, and an applied migration is never edited (invariant 9). `V16`'s header
+    corrects the record instead.
+  - **`CaseIntakeService.existingContact` needed no race at all.** Its two lookups were
+    exclusive `return`s, so a delivery carrying a GHL id that missed the id lookup never
+    tried email — and since the payload has no `@NotBlank` on that id, a first delivery
+    could store a snapshot without one. Second snapshot, second case, no concurrency
+    required. Now falls through with `.or(...)`, and `ContactSnapshot.linkGhlContact`
+    backfills the id onto an email-matched row so it stops depending on the email
+    forever. **Write-once**: an id already present is never replaced, because two GHL
+    contacts sharing an email would otherwise let the second take over the first's
+    snapshot and every case pointing at it.
+  - Verified: `./mvnw verify` BUILD SUCCESS **129 tests** (new: the sequential-duplicate
+    case and the write-once guard), and **14 DB-gated green** — `V16` applied and
+    `aContactIsUniquePerBrandByGhlIdAndByEmail` proves both indexes refuse a duplicate
+    while the other brand keeps its own contact with the same id and email.
+  - Decision worth confirming: **one email per contact per brand is now enforced**, not
+    just assumed. An `ATTORNEY` contact may be a firm, so a shared office inbox across
+    several applicants would now be refused rather than silently merged. Refusing is the
+    safer half — a wrong merge attaches a case to the wrong person — but if it fires in
+    practice the fix is a real contact key from GHL, not dropping the index.
+
 ## In Progress
 
 - Nothing.
@@ -372,29 +405,6 @@ Update this file after every meaningful implementation change.
 
 - Unit 08 — Kanban production board + case table. Its spec is not written yet
   (`context/specs/` stops at 07); generate it before building, per `CLAUDE.md`.
-
-## Known Defects (found by review, not yet fixed)
-
-- **Intake can create duplicate contacts and duplicate cases — two ways.** Found by
-  a `/code-review` pass over Unit 06, both verified against the code, both **open**.
-  1. **`V15`'s index does not close the race it claims to.** `contact_snapshot` (V4)
-     has no unique constraint on `(brand_id, ghl_contact_id)` or on email, so two
-     concurrent `contact.created` deliveries for a contact EvalOS has never seen each
-     insert their own snapshot, get different `contact_id`s, and both pass
-     `V15`'s `(brand_id, contact_id, service_type)` index — two case codes, two
-     checklists, two `NEW_LEAD` alerts. **The comment in
-     `V15__one_open_case_per_contact_service.sql` asserting this "cannot race" is
-     therefore wrong for a new contact**; it holds only once a snapshot exists. Fix:
-     a `V16` unique index on `contact_snapshot (brand_id, ghl_contact_id)` (and
-     probably `lower(email)`), which needs a duplicate check against existing data
-     first.
-  2. **`CaseIntakeService.existingContact` needs no race at all.**
-     `ContactCreated.Contact.ghlContactId` has no `@NotBlank`, so a first delivery can
-     store `ghl_contact_id = NULL`. Its two lookups are exclusive `return`s, so a
-     later delivery *with* the id misses the id branch, never tries email, and inserts
-     a second snapshot — and `ContactSnapshot.syncFromGhl` never writes
-     `ghlContactId`, so the first row is never repaired. Second snapshot → second
-     case. Fix: try both lookups (`.or(...)`) and backfill the id on an email match.
 
 ## Open Questions
 
