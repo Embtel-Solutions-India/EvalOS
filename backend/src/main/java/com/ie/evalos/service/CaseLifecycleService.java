@@ -142,30 +142,55 @@ public class CaseLifecycleService {
 	// --- payment -------------------------------------------------------------
 
 	/**
-	 * Records that the money arrived. Handoff A no longer proves payment — a case is
+	 * Records what was actually taken. Handoff A no longer proves payment — a case is
 	 * created from a GHL contact, before anyone has paid — so this is the fact that
-	 * turns a lead into workable, recognisable business. GM and Brand Manager only.
+	 * turns a lead into workable, recognisable business.
 	 *
-	 * <p>The pool alert lives here rather than at creation: this is the moment somebody
-	 * has to assign a project manager.
+	 * <p>GM and Brand Manager only, re-checked here as well as at the endpoint. A method
+	 * security annotation guards one route; this guards the operation, so a later caller
+	 * — a job, a webhook handler, another service — cannot reach it as anyone else. The
+	 * same reasoning as {@code RefundService}: this writes money.
+	 *
+	 * <p>**Callable on an already-paid case, deliberately.** {@code paid} and
+	 * {@code paid_at} are write-once — the moment the money arrived does not change, and
+	 * re-stamping it would lose it. The *amount* is a different matter: a case GHL
+	 * reported as already paid carries the quote, because a quote is all the contact
+	 * webhook knows, and somebody has to be able to replace it with the figure actually
+	 * collected. Only ever one value, never a running total, so correcting it cannot
+	 * double-count.
+	 *
+	 * <p>The pool alert fires only on the first payment: it says "assign a project
+	 * manager", and a corrected amount does not need a second one.
 	 */
 	@Transactional
 	public Case markPaid(UUID caseId, BigDecimal dealValue, String invoiceRef) {
+		requirePaymentRole();
 		Case subject = load(caseId);
 		Stage to = CaseTransitions.target(subject, Action.MARK_PAID);
-		requireState(!subject.isPaid(), "the case is already paid");
+		boolean firstPayment = !subject.isPaid();
 
 		Case paid = apply(subject, to, Action.MARK_PAID, invoiceRef, c -> {
-			c.setPaid(true);
-			c.setPaidAt(Instant.now());
 			c.setDealValue(dealValue);
 			if (invoiceRef != null && !invoiceRef.isBlank()) {
 				c.setInvoiceRef(invoiceRef);
 			}
+			if (firstPayment) {
+				c.setPaid(true);
+				c.setPaidAt(Instant.now());
+			}
 		});
-		pool.alert(paid.getBrandId(), paid.getId(), NotificationType.NEW_CASE_IN_POOL,
-				"Case %s is paid and needs a project manager.".formatted(paid.getCaseCode()));
+		if (firstPayment) {
+			pool.alert(paid.getBrandId(), paid.getId(), NotificationType.NEW_CASE_IN_POOL,
+					"Case %s is paid and needs a project manager.".formatted(paid.getCaseCode()));
+		}
 		return paid;
+	}
+
+	private static void requirePaymentRole() {
+		Role role = TenantContext.current().role();
+		if (role != Role.GM && role != Role.BRAND_MANAGER) {
+			throw new ForbiddenException("Only the GM or a Brand Manager may record a payment");
+		}
 	}
 
 	// --- assignment ----------------------------------------------------------
@@ -345,7 +370,13 @@ public class CaseLifecycleService {
 
 	// --- delivery and close --------------------------------------------------
 
-	/** Handoff C. {@code case.delivered} is the sole revenue-recognition event (invariant 5). */
+	/**
+	 * Handoff C. Delivery is one of the two facts revenue recognition needs — paid
+	 * <em>and</em> delivered, per invariant 5 as restated when Handoff A moved to contact
+	 * intake. Delivering an unpaid case recognizes nothing; see
+	 * {@code RefundService.isRevenueRecognized}, which is the only place that reads the
+	 * pair.
+	 */
 	@Transactional
 	public Case deliverToClient(UUID caseId) {
 		Case subject = load(caseId);

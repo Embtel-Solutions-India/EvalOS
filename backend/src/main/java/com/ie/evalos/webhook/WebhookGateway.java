@@ -37,10 +37,17 @@ public class WebhookGateway {
 	 * first: a contact has no invoice, and keying on the contact id instead would make
 	 * a returning client's second order look like a duplicate.
 	 *
+	 * <p>Both names are delivery-scoped on purpose. A bare {@code "id"} was tried and
+	 * removed twice: in most webhook envelopes it is the *resource's* id, so a returning
+	 * client's second order would carry the id of the first and be swallowed as a
+	 * duplicate — exactly the failure moving off {@code invoice_ref} was meant to avoid.
+	 * If GHL turns out to send only a resource id, the answer is a delivery-id header,
+	 * not this list.
+	 *
 	 * <p>A payload carrying none of these is rejected rather than processed — see
 	 * {@link #externalId}.
 	 */
-	private static final String[] EXTERNAL_ID_FIELDS = { "event_id", "webhook_id", "id" };
+	private static final String[] EXTERNAL_ID_FIELDS = { "event_id", "webhook_id" };
 
 	private static final String EVENT_TYPE_FIELD = "event_type";
 

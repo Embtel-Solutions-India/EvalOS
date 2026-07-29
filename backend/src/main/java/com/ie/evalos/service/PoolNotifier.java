@@ -17,10 +17,14 @@ import org.springframework.stereotype.Component;
  * every brand, and that brand's own Brand Managers. Nobody else — a pool alert is
  * about work nobody owns yet, and the roles who assign it are these two.
  *
- * <p>Exists because two callers need it: intake raises {@code NEW_LEAD} when a
- * contact arrives, and {@code markPaid} raises {@code NEW_CASE_IN_POOL} when the
- * money does. Unit 06 replaces this with event listeners and a recipient resolver;
- * until then this is the one place the recipient rule lives.
+ * <p>Exists because more than one caller needs it. Three call sites today:
+ * {@code CaseIntakeService} raises {@code NEW_LEAD} when a contact arrives and
+ * {@code NEW_CASE_IN_POOL} when that contact arrived already paid, and
+ * {@code CaseLifecycleService.markPaid} raises {@code NEW_CASE_IN_POOL} when the money
+ * turns up later. Change the recipients or the copy for one and check the others.
+ *
+ * <p>Unit 06 replaces this with event listeners and a recipient resolver; until then
+ * this is the one place the recipient rule lives.
  */
 @Component
 public class PoolNotifier {

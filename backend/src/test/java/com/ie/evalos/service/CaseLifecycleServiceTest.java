@@ -271,12 +271,46 @@ class CaseLifecycleServiceTest {
 		lifecycle.markPaid(CASE_ID, PAID, "INV-0001");
 		assertTrue(subject.isPaid());
 		assertEquals(PAID, subject.getDealValue());
-		assertThrows(IllegalTransitionException.class, () -> lifecycle.markPaid(CASE_ID, PAID, "INV-0002"),
-				"paying twice is a mistake, not an update");
 
 		actAs(Role.PROJECT_COORDINATOR);
 		lifecycle.markDocsComplete(CASE_ID);
 		assertEquals(Stage.EXPERT_ASSIGNMENT, subject.getCurrentStage());
+	}
+
+	/**
+	 * The amount is correctable, the moment it arrived is not. A case GHL reported as
+	 * already paid carries only the quote, because a quote is all the contact webhook
+	 * knows — so if the figure actually collected differs, somebody has to be able to
+	 * replace it. Re-stamping {@code paidAt} would lose when the money landed.
+	 */
+	@Test
+	void theAmountCanBeCorrectedButThePaymentMomentIsWriteOnce() {
+		subject.setPaid(true);
+		Instant whenTheMoneyLanded = Instant.now().minus(Duration.ofDays(3));
+		subject.setPaidAt(whenTheMoneyLanded);
+		subject.setDealValue(new BigDecimal("1200.00"));
+
+		actAs(Role.BRAND_MANAGER);
+		lifecycle.markPaid(CASE_ID, PAID, "INV-0009");
+
+		assertEquals(PAID, subject.getDealValue(), "the collected figure replaces the quote");
+		assertEquals("INV-0009", subject.getInvoiceRef());
+		assertEquals(whenTheMoneyLanded, subject.getPaidAt(), "and the original moment survives");
+		// A correction is not a second pool arrival — nobody needs telling twice.
+		verify(notifications, never()).save(any());
+	}
+
+	/** The money path re-checks the role in the service, not only at the endpoint. */
+	@Test
+	void onlyTheGmOrABrandManagerMayRecordAPayment() {
+		for (Role role : List.of(Role.PROJECT_MANAGER, Role.PROJECT_COORDINATOR, Role.CASE_MANAGER,
+				Role.EXPERT_NETWORK_MANAGER)) {
+			actAs(role);
+			assertThrows(ForbiddenException.class, () -> lifecycle.markPaid(CASE_ID, PAID, "INV-0001"),
+					role + " must not be able to record money");
+		}
+		assertFalse(subject.isPaid());
+		verifyNoInteractions(audit, events);
 	}
 
 	@Test

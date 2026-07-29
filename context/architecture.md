@@ -131,10 +131,18 @@ Frontend under `frontend/src`: `components/ui` (generated primitives),
   case counts as earned revenue**. Document collection against an unpaid case is
   deliberately allowed — it costs EvalOS nothing.
 
+  `mark-paid` stays callable on a paid case: `paid` / `paid_at` are write-once,
+  but the **amount is correctable**, because a contact that arrived already paid
+  carries only the quote and somebody has to be able to record what was actually
+  collected. One value, never a running total, so a correction cannot
+  double-count.
+
   One open case per contact per service: a repeat delivery refreshes the case
   that contact already has open, never resetting its stage, assignment, or
   `paid`. A contact buying a second service opens a second case; one returning
-  after the first case closed opens a new one.
+  after the first case closed opens a new one. Enforced by a **partial unique
+  index** (`V15`), not by the lookup — a lookup followed by an insert is a
+  check-then-act that two concurrent deliveries can both win.
 - **Handoff B — internal (trigger: client approves draft).** The case moves to
   `EXPERT_SIGNING` and appears in the expert portal with draft + evidence + goal;
   Dropbox Sign issues the signing request. Exception paths: request-evidence

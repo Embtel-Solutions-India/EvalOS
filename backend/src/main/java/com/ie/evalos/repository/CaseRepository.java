@@ -35,10 +35,14 @@ public interface CaseRepository extends ScopedRepository<Case> {
 	 * first case closed opens a new one.
 	 *
 	 * <p>Brand is a parameter rather than a scope predicate because Handoff A runs with
-	 * no authenticated caller — it comes from the endpoint token. {@code findFirst}
-	 * with an explicit order rather than a single-result finder: if two open cases ever
-	 * exist for one pair, this has to pick the newest deterministically instead of
-	 * throwing where a paid case is waiting.
+	 * no authenticated caller — it comes from the endpoint token.
+	 *
+	 * <p>This read is not what enforces the rule: {@code V15}'s partial unique index is,
+	 * because a lookup followed by an insert is a check-then-act that two concurrent
+	 * deliveries can both win. The read is the fast path that turns a redelivery into a
+	 * refresh; the index is what makes the race lose safely. {@code findFirst} with an
+	 * explicit order because rows predating that index may still pair up, and picking the
+	 * newest deterministically beats throwing where a paid case is waiting.
 	 */
 	Optional<Case> findFirstByBrandIdAndContactIdAndServiceTypeAndCurrentStageNotOrderByCreatedAtDesc(
 			UUID brandId, UUID contactId, ServiceType serviceType, Stage excludedStage);

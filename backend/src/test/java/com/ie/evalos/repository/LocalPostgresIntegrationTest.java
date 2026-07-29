@@ -9,9 +9,11 @@ import com.ie.evalos.domain.AuditAction;
 import com.ie.evalos.domain.AuditEvent;
 import com.ie.evalos.domain.Brand;
 import com.ie.evalos.domain.Case;
+import com.ie.evalos.domain.ContactSnapshot;
 import com.ie.evalos.domain.Expert;
 import com.ie.evalos.domain.PayoutStatus;
 import com.ie.evalos.domain.Role;
+import com.ie.evalos.domain.ServiceType;
 import com.ie.evalos.domain.SlaStatus;
 import com.ie.evalos.domain.Stage;
 import com.ie.evalos.domain.WebhookEvent;
@@ -73,6 +75,9 @@ class LocalPostgresIntegrationTest {
 	CaseRepository cases;
 
 	@Autowired
+	ContactSnapshotRepository contacts;
+
+	@Autowired
 	DocumentChecklistItemRepository checklistItems;
 
 	@Autowired
@@ -90,7 +95,45 @@ class LocalPostgresIntegrationTest {
 				"SELECT version FROM flyway_schema_history WHERE success ORDER BY installed_rank", String.class);
 
 		assertThat(versions)
-				.containsSubsequence("1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13");
+				.containsSubsequence("1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13",
+						"14", "15");
+	}
+
+	/**
+	 * "One open case per contact per service" is a database constraint for the same
+	 * reason the webhook key is: intake looks the case up and then inserts, and two
+	 * concurrent {@code contact.created} deliveries carrying different event ids are not
+	 * deduplicated by the gateway, so both can pass the lookup. Only V15's partial unique
+	 * index makes the second one lose.
+	 *
+	 * <p>Partial on {@code current_stage <> 'CLOSED'}, which is the half most easily got
+	 * wrong: a contact coming back after their first case closed is new business, not a
+	 * duplicate, and must still be allowed a row.
+	 */
+	@Test
+	void oneOpenCasePerContactPerServiceIsEnforcedByTheDatabase() {
+		UUID contactId = contacts.save(new ContactSnapshot(BRAND_IE, "ghl-" + UUID.randomUUID())).getId();
+
+		cases.save(openCaseFor(contactId, ServiceType.EXPERT_OPINION_LETTER));
+
+		assertThatThrownBy(() -> cases.saveAndFlush(openCaseFor(contactId, ServiceType.EXPERT_OPINION_LETTER)))
+				.hasStackTraceContaining("uq_case_open_per_contact_service");
+
+		// A different service for the same contact is a second, legitimate case.
+		assertThat(cases.save(openCaseFor(contactId, ServiceType.CREDENTIAL_EVALUATION)).getId()).isNotNull();
+
+		// And once the first case closes, the same service may be bought again.
+		Case closed = openCaseFor(contactId, ServiceType.TRANSLATION);
+		closed.setCurrentStage(Stage.CLOSED);
+		cases.saveAndFlush(closed);
+		assertThat(cases.saveAndFlush(openCaseFor(contactId, ServiceType.TRANSLATION)).getId()).isNotNull();
+	}
+
+	private static Case openCaseFor(UUID contactId, ServiceType serviceType) {
+		Case subject = new Case(BRAND_IE, "EV-" + UUID.randomUUID(), Stage.DOC_COLLECTION);
+		subject.setContactId(contactId);
+		subject.setServiceType(serviceType);
+		return subject;
 	}
 
 	/**

@@ -8,7 +8,6 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Collectors;
-import java.util.stream.Stream;
 
 import com.ie.evalos.domain.AuditAction;
 import com.ie.evalos.domain.Brand;
@@ -168,8 +167,10 @@ public class CaseIntakeService {
 		events.publishEvent(CaseEvents.CaseEvent.of(CaseEvents.Type.CASE_CREATED, created));
 		events.publishEvent(CaseEvents.CaseEvent.of(CaseEvents.Type.CHECKLIST_REQUESTED, created));
 
-		// A lead is not a pool arrival. The GM and Brand Manager hear about it, but the
-		// alert that says "assign a PM" is raised by markPaid, when there is money.
+		// A lead is not a pool arrival: NEW_LEAD says "somebody is asking", NEW_CASE_IN_POOL
+		// says "assign a project manager", and only money earns the second one. Normally
+		// markPaid raises it later; the block below is the one case where both fire at once,
+		// because GHL told us the contact had already paid.
 		pool.alert(brand.getId(), created.getId(), NotificationType.NEW_LEAD,
 				"New %s lead %s from %s.".formatted(brand.getName(), created.getCaseCode(),
 						request.contact().fullName()));

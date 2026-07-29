@@ -225,6 +225,52 @@ Update this file after every meaningful implementation change.
     `V14` applied and `ddl-auto=validate` passed, so `paid`/`paid_at` match the
     entity.
 
+- **Unit 05a review pass — six findings, all fixed.** A five-lens review of `b28b0f5`
+  (CLAUDE.md/invariants, bug scan, git history, prior review feedback, comment
+  contracts). Two were real defects on the money path:
+  (a) **`"id"` had come back into the webhook idempotency-key fallback**, having been
+  deliberately cut in `f65b2f1`. In most envelopes `id` is the *resource's* id, so a
+  returning client's second order would carry the first one's key and be answered
+  `duplicate` — the very failure moving off `invoice_ref` was meant to avoid. The list
+  is now `{ event_id, webhook_id }` and a payload with neither is refused. If GHL
+  turns out to send only a resource id, the answer is a delivery-id header, not this
+  list.
+  (b) **A case GHL reported as already paid could never have its amount corrected.**
+  Intake set `deal_value` from `quote_amount` — a quote is all the contact webhook
+  knows — and `markPaid` refused an already-paid case, so the quote became the
+  permanent revenue figure. `markPaid` is now callable on a paid case: the amount and
+  invoice ref are correctable, while `paid` / `paid_at` stay write-once (the moment the
+  money landed does not change) and the pool alert fires only on the first payment.
+  Only ever one value, never a running total, so correcting it cannot double-count.
+  (c) **`markPaid` had no service-layer role check.** Unit 04 note (g) established that
+  a money path re-checks in the service, not only at the endpoint —
+  `RefundService.requireGm` does. `markPaid` now has its own GM-or-Brand-Manager guard,
+  with `onlyTheGmOrABrandManagerMayRecordAPayment` covering it.
+  (d) **`V15__one_open_case_per_contact_service.sql`** — "one open case per contact per
+  service" was a check-then-act with nothing behind it: two `contact.created`
+  deliveries with different event ids are not deduplicated by the gateway (they are
+  genuinely different deliveries), so both could pass the lookup and both create a
+  case. A partial unique index on `(brand_id, contact_id, service_type)
+  WHERE current_stage <> 'CLOSED'` cannot race; the loser's transaction rolls back, the
+  gateway answers a retriable 5xx, and the redelivery refreshes the committed row —
+  which is what intake wanted anyway. Partial because a contact returning after their
+  first case closed is new business, not a duplicate.
+  (e) **Two "sole revenue-recognition" javadocs were left false** by 05a's change to
+  invariant 5 — `deliverToClient` and the new `CASE_PAID`. Both now say paid *and*
+  delivered, and point at `isRevenueRecognized` as the only reader of the pair.
+  (f) **The `NEW_CASE_IN_POOL` comment contract was false.** Intake's comment said
+  `markPaid` raises that alert; intake raises it eight lines later, for a
+  contact that arrived paid. `PoolNotifier`'s javadoc claimed two callers where there
+  are three. Both corrected — the paid-at-intake double alert is intended behaviour,
+  only the comments were wrong.
+  - Also cut: a dead `java.util.stream.Stream` import left behind when `PoolNotifier`
+    was extracted.
+  - Verified: `./mvnw verify` BUILD SUCCESS, 95 tests (83 run), and **12 DB-gated green
+    against local Postgres 18** — `V15` applied out-of-order on the dev database
+    without conflict, and `oneOpenCasePerContactPerServiceIsEnforcedByTheDatabase`
+    proves the index refuses the second open case while still allowing another service
+    and a repeat purchase after close.
+
 ## In Progress
 
 - Nothing.

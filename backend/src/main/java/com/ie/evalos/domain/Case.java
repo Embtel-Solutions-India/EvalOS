@@ -289,6 +289,10 @@ public class Case extends ScopedEntity {
 		return driveLink;
 	}
 
+	public String getInvoiceRef() {
+		return invoiceRef;
+	}
+
 	public void setDriveLink(String driveLink) {
 		this.driveLink = driveLink;
 	}
