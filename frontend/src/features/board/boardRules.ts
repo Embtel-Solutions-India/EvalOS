@@ -137,6 +137,10 @@ export const STAGE_ACCESS: Record<Role, Record<Stage, StageAccess>> = {
     EXPERT_ASSIGNMENT: 'status',
     DRAFT_GENERATION: 'full',
     EXPERT_SIGNING: 'full',
+    // Confirmed intended: the case leaves their board once QC passes, even though assigned_cm
+    // still names them. Delivery is the Coordinator's stage, and a CM's board is the work in
+    // front of them. Not lost — still in their scope, so an exception lane and the detail page
+    // both still reach it.
     FINAL_DELIVERY: 'none',
   },
   EXPERT_NETWORK_MANAGER: {

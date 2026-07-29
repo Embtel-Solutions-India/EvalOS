@@ -131,6 +131,11 @@ public class CaseController {
 	 * written for, and the GM. Narrower than {@code deal_value} on purpose — this is working
 	 * guidance between two named people on one case, not a commercial figure the brand's
 	 * management needs.
+	 *
+	 * <p><strong>The Brand Manager is deliberately not here, and that is confirmed</strong> rather
+	 * than an oversight: they keep {@code deal_value}, which is the field their role turns on.
+	 * Note the asymmetry — a Brand Manager sees what the case is worth and not how it will be
+	 * argued, while a Case Manager sees the reverse.
 	 */
 	private static final Set<Role> SEES_STRATEGY_NOTES = Set.of(Role.GM, Role.PROJECT_MANAGER, Role.CASE_MANAGER);
 

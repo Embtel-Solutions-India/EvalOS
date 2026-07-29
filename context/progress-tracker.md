@@ -978,12 +978,14 @@ Update this file after every meaningful implementation change.
   loses the stage actions, **no action is ever offered to a role its route would refuse**
   (the whole point of the client table), one-exception-at-a-time, refund rulings GM-only not
   GM-also, and the date window widening monotonically.
-  (j) **A Case Manager loses sight of a case at delivery.** `STAGE_ACCESS` gives them `none`
-  on `FINAL_DELIVERY`, so a case they drafted disappears from their board once QC passes,
-  even though `assigned_cm` still names them. That is the matrix's intent — delivery is the
-  Coordinator's stage — and the case is still reachable in an exception lane and (from Unit
-  09) by direct link. Confirm it is what the documentation team actually wants; it is one
-  cell to change if not.
+  (j) **A Case Manager loses sight of a case at delivery — confirmed intended, no change.**
+  `STAGE_ACCESS.CASE_MANAGER.FINAL_DELIVERY` is `none`, so a case they drafted leaves their
+  board once QC passes, even though `assigned_cm` still names them. That is the matrix's `—`
+  cell and the intended hand-off: delivery is the Coordinator's stage, and a CM's board is the
+  work in front of them rather than everything they have ever touched.
+  **It is not lost, only off the board** — the case stays in the CM's scope, so it still appears
+  in an exception lane if one is raised, and the Unit 09 detail page opens by direct link. Worth
+  keeping in mind if a CM ever needs a "delivered" view; that would be a filter, not this cell.
   (k) **`Head/Vert Mgr`'s KPI column is not modelled as a stage access.** GM and Brand
   Manager get `full` on all five columns instead. A KPI roll-up is a dashboard, not a board
   column — Unit 17 owns it.
@@ -995,10 +997,16 @@ Update this file after every meaningful implementation change.
 - **Unit 09 deviations / decisions to confirm.**
   (a) **The spec's deliverables 3 and 5 contradict each other on strategy notes** — 3 says
   "visible to PM + CM", 5 says "any PM-only note hidden from Case Manager / Coordinator". Read as:
-  3 is the specific rule for this field and 5's wording is loose. Implemented as read for
-  GM/PM/CM, write for PM/GM, hidden from Brand Manager / Coordinator / ENM. **Excluding the Brand
-  Manager is the debatable half** — they manage the brand but these are working notes between two
-  named people on one case. One entry in `SEES_STRATEGY_NOTES` if that is wrong.
+  3 is the specific rule for this field and 5's wording is loose.
+  **Confirmed, no change: the Brand Manager does not see strategy notes.** The rule as built and
+  now agreed —
+  - read (`SEES_STRATEGY_NOTES`): **GM, Project Manager, Case Manager**
+  - write (`MAY_EDIT_STRATEGY_NOTES`): **GM, Project Manager**
+  - no read, no write: **Brand Manager, Project Coordinator, Expert Network Manager**
+
+  The reasoning that stands: these are working notes between the two named people on one case,
+  not commercial information the brand's management needs. A Brand Manager keeps `deal_value`,
+  which is the field their role actually turns on.
   (b) **`CaseDetailService` is a fourth backend file the spec's list does not name.** The spec has
   `GET /api/cases/{id}` returning a "full case DTO" but lists only the timeline service and
   controller; assembling client + expert + checklist is multi-repository work that does not belong
