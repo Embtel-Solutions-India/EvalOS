@@ -16,7 +16,6 @@ import com.ie.evalos.domain.ExceptionState;
 import com.ie.evalos.domain.Expert;
 import com.ie.evalos.domain.ExpertSignStatus;
 import com.ie.evalos.domain.IllegalTransitionException;
-import com.ie.evalos.domain.NotificationType;
 import com.ie.evalos.domain.PmApprovalStatus;
 import com.ie.evalos.domain.PoolStatus;
 import com.ie.evalos.domain.Role;
@@ -90,11 +89,10 @@ public class CaseLifecycleService {
 	private final TeamMemberRepository teamMembers;
 	private final AuditService audit;
 	private final SlaCalculator sla;
-	private final PoolNotifier pool;
 	private final ApplicationEventPublisher events;
 
 	CaseLifecycleService(CaseRepository cases, DocumentChecklistItemRepository checklistItems, ExpertRepository experts,
-			TeamMemberRepository teamMembers, AuditService audit, SlaCalculator sla, PoolNotifier pool,
+			TeamMemberRepository teamMembers, AuditService audit, SlaCalculator sla,
 			ApplicationEventPublisher events) {
 		this.cases = cases;
 		this.checklistItems = checklistItems;
@@ -102,7 +100,6 @@ public class CaseLifecycleService {
 		this.teamMembers = teamMembers;
 		this.audit = audit;
 		this.sla = sla;
-		this.pool = pool;
 		this.events = events;
 	}
 
@@ -159,8 +156,8 @@ public class CaseLifecycleService {
 	 * collected. Only ever one value, never a running total, so correcting it cannot
 	 * double-count.
 	 *
-	 * <p>The pool alert fires only on the first payment: it says "assign a project
-	 * manager", and a corrected amount does not need a second one.
+	 * <p>The pool alert is not raised here. Unit 06 listens for {@code case.paid} and
+	 * announces the arrival once, however many times a correction re-publishes it.
 	 */
 	@Transactional
 	public Case markPaid(UUID caseId, BigDecimal dealValue, String invoiceRef) {
@@ -169,7 +166,7 @@ public class CaseLifecycleService {
 		Stage to = CaseTransitions.target(subject, Action.MARK_PAID);
 		boolean firstPayment = !subject.isPaid();
 
-		Case paid = apply(subject, to, Action.MARK_PAID, invoiceRef, c -> {
+		return apply(subject, to, Action.MARK_PAID, invoiceRef, c -> {
 			c.setDealValue(dealValue);
 			if (invoiceRef != null && !invoiceRef.isBlank()) {
 				c.setInvoiceRef(invoiceRef);
@@ -179,11 +176,6 @@ public class CaseLifecycleService {
 				c.setPaidAt(Instant.now());
 			}
 		});
-		if (firstPayment) {
-			pool.alert(paid.getBrandId(), paid.getId(), NotificationType.NEW_CASE_IN_POOL,
-					"Case %s is paid and needs a project manager.".formatted(paid.getCaseCode()));
-		}
-		return paid;
 	}
 
 	private static void requirePaymentRole() {

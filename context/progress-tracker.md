@@ -4,13 +4,13 @@ Update this file after every meaningful implementation change.
 
 ## Current Phase
 
-- Phase 1 — Structure the data (the spine) is complete: Units 01–05 built. Phase 2
-  begins at Unit 06.
+- Phase 1 — Structure the data (the spine) is complete: Units 01–05 built, plus 05a.
+  Phase 2 is under way: Unit 06 (notification centre) is done.
 
 ## Current Goal
 
-- Unit 06 — the in-app staff notification centre, the first subscriber to the
-  domain events Units 04 and 05 publish.
+- Unit 07 — the app shell and routing, which puts the first surface in front of the
+  notification centre Unit 06 just built.
 
 ## Completed
 
@@ -302,14 +302,38 @@ Update this file after every meaningful implementation change.
     same Coordinator-scope open question below, now visible in the seed as well as the
     schema.
 
+- **Unit 06 — In-app notification centre.** The events Units 04/05 published to nobody
+  now reach somebody. No migration: the `notification` table is Unit 03's.
+  - `notification/NotificationListeners` — the spec's event → recipient table as a
+    literal table (`EnumMap` of event → recipient function + heading + message), so a
+    mis-wired row is a data diff rather than a buried branch. Synchronous, so it runs
+    inside the transition's transaction: a rolled-back transition cannot leave an alert
+    claiming it happened.
+  - `notification/RecipientResolver` — the one place role → member lookup lives. Every
+    lookup names the brand except the GM's, which is brand-less by definition. Returns
+    **empty rather than a fallback** when no PM/CM is assigned: an alert addressed to
+    "whoever" is how a queue nobody reads gets built.
+  - `notification/NotificationService` — the only writer of the table, and the only
+    reader the endpoints use. Writes join the caller's transaction.
+  - `web/NotificationController` — the four spec routes. **No `@PreAuthorize` and no
+    recipient parameter**, deliberately: every staff role has a bell and none may read
+    another's, so identity narrows every route and a role gate would be the wrong tool.
+  - `service/PoolNotifier` **deleted** — its two call sites are the `case.created` and
+    `case.paid` listeners now, which is what the spec's "event-driven, no manual
+    triggers" asks for. `CaseIntakeService` and `CaseLifecycleService` each lost a
+    dependency.
+  - Verified: `./mvnw verify` BUILD SUCCESS, **126 tests** (113 run — new
+    `NotificationListenersTest` 14, `NotificationServiceTest` 10,
+    `NotificationControllerTest` 6), and **13 DB-gated green against local Postgres 18**.
+
 ## In Progress
 
 - Nothing.
 
 ## Next Up
 
-- Unit 06 — in-app staff notification centre (subscribes to the Unit 04/05 domain
-  events that are currently published to nobody).
+- Unit 07 — app shell + routing (`context/specs/07-app-shell-routing.md`), which hangs
+  the notification bell off Unit 06's four endpoints.
 
 ## Open Questions
 
@@ -603,6 +627,52 @@ Update this file after every meaningful implementation change.
   decision: the transport record and the intake command record declare the same 21
   fields with a mapper between them — that split is what keeps an unconfirmed payload
   shape out of `service`, and the payload shape is the thing most likely to change.
+
+- **Unit 06 deviations / decisions to confirm.**
+  (a) **The spec's `case.created` row is split in two.** The spec maps
+  `case.created (pool arrival)` to GM + Brand Manager, but Unit 05a moved the ground
+  under that: `case.created` is now a *lead*, and `case.paid` is the pool arrival. Both
+  are mapped — `NEW_LEAD` ("somebody is asking") and `NEW_CASE_IN_POOL` ("assign a
+  project manager") — to the same recipients the spec names. This is the spec's intent,
+  not its letter.
+  (b) **The pool arrival is announced once per case.** `apply(...)` publishes one event
+  per transition *including* a `mark-paid` that only corrects the amount, so the listener
+  checks `existsByCaseIdAndType` before raising `NEW_CASE_IN_POOL`. The guard lives here
+  rather than in `markPaid` because "announce once" is a property of the notification,
+  not of the transition — and it also holds if anything later re-publishes the event.
+  (c) **The centre deliberately does not use `findScoped`.** That applies the caller's
+  *tier*, and the GM's tier is ALL — a GM's scoped read would return every member's
+  notifications in every brand. "My notifications" is an identity question, not a scope
+  one, so every finder names `recipientId` explicitly and no tier can widen it. The
+  `SCOPE` constant stays declared because `DomainInvariantsTest` requires one.
+  (d) **Three mapped events are not implemented, because their event types do not
+  exist yet.** `sla.breached` / `sla.escalation` (Unit 19) and `kpi.threshold_breached`
+  (Unit 17/19) are in the spec's table; nothing publishes them, and inventing
+  `CaseEvents.Type` entries with no publisher would be scaffolding. `SLA_AT_RISK`,
+  `SLA_OVERDUE` and the recipient rule (assigned PM + Brand Manager / Brand Manager +
+  GM) are the only parts still to add when those units land.
+  (e) **`case.delivered_to_client` is `CASE_DELIVERED`** — the spec's third
+  client-facing name; the catalog has had `case.delivered` since Unit 04. All three
+  client-facing events are listed explicitly in `CLIENT_FACING` rather than left to fall
+  through the unmapped default, so "no staff alert" reads as a decision.
+  (f) **Notification bodies no longer name the brand or the contact.** `PoolNotifier`
+  built "New International Evaluations lead IE-2026-0001 from Anita Rao"; the listener
+  builds "New lead IE-2026-0001." The event payload carries neither name, the case code
+  already encodes the brand, and the row is brand-tagged — so this avoids loading a
+  `Brand` and a `ContactSnapshot` per alert to restate what the reader already has.
+  (g) **`markAllReadFor` carries its own `@Transactional`.** A `@Modifying` bulk update
+  throws `TransactionRequiredException` without one. Found by the DB test calling the
+  repository directly; the annotation means a future caller who forgets cannot break it.
+  (h) **Accessors added per the consumer-appeared rule** (Unit 03 note b):
+  `Notification.getCaseId`/`isRead`/`markRead`. `markRead` is one-way — the centre has
+  no unread button, so there is no setter to flip it back.
+  (i) **Coordinator recipients resolve by role across the brand**, plural, because the
+  spec's table names the role rather than a member — and because no `evalos_case` column
+  names a coordinator (the open question below). This is the one route whose recipients
+  are not derived from the case itself.
+  (j) **Not verified live.** Unit 06 has no live-run acceptance criterion and all six of
+  its criteria are covered by tests, but the four endpoints have not been exercised over
+  real HTTP, and the listeners have not been observed firing end to end from a webhook.
 
 - **Unit 02 latent test bug, surfaced and fixed.**
   `SecurityFlowTest.tamperedTokenIsUnauthenticated` flipped the **last** character

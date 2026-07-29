@@ -11,6 +11,8 @@ import com.ie.evalos.domain.Brand;
 import com.ie.evalos.domain.Case;
 import com.ie.evalos.domain.ContactSnapshot;
 import com.ie.evalos.domain.Expert;
+import com.ie.evalos.domain.Notification;
+import com.ie.evalos.domain.NotificationType;
 import com.ie.evalos.domain.PayoutStatus;
 import com.ie.evalos.domain.Role;
 import com.ie.evalos.domain.ServiceType;
@@ -25,6 +27,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -78,6 +81,9 @@ class LocalPostgresIntegrationTest {
 	ContactSnapshotRepository contacts;
 
 	@Autowired
+	NotificationRepository notifications;
+
+	@Autowired
 	DocumentChecklistItemRepository checklistItems;
 
 	@Autowired
@@ -97,6 +103,52 @@ class LocalPostgresIntegrationTest {
 		assertThat(versions)
 				.containsSubsequence("1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13",
 						"14", "15");
+	}
+
+	/**
+	 * Unit 06's finders, executed rather than merely resolved. Worth a real database
+	 * because {@code read} is a column name close enough to SQL's reserved words that
+	 * quoting matters, because {@code OrderByReadAscCreatedAtDesc} is a two-key sort that
+	 * only proves itself on rows, and because {@code markAllReadFor} is a bulk UPDATE
+	 * that no mock can get wrong.
+	 */
+	@Test
+	void theNotificationCentreFindersRunAgainstRealSql() {
+		UUID recipient = UUID.fromString("aaaaaaaa-0000-0000-0000-000000000001");
+		UUID other = UUID.fromString("aaaaaaaa-0000-0000-0000-000000000002");
+		UUID caseId = UUID.randomUUID();
+
+		Notification read = new Notification(BRAND_IE, recipient, NotificationType.STAGE_CHANGED, caseId, "old");
+		read.markRead();
+		notifications.saveAll(List.of(
+				read,
+				new Notification(BRAND_IE, recipient, NotificationType.NEW_CASE_IN_POOL, caseId, "fresh"),
+				new Notification(BRAND_IE, other, NotificationType.NEW_LEAD, caseId, "not yours")));
+		notifications.flush();
+
+		long unreadBefore = notifications.countByRecipientIdAndReadFalse(recipient);
+		assertThat(unreadBefore).isPositive();
+
+		// Unread first. Nothing else about the order is asserted: other tests share this
+		// database, so only the relationship between these rows is stable.
+		List<Notification> page = notifications.findByRecipientIdOrderByReadAscCreatedAtDesc(
+				recipient, PageRequest.of(0, 50));
+		assertThat(page).isNotEmpty()
+				.extracting(Notification::getRecipientId).containsOnly(recipient);
+		assertThat(page.get(0).isRead()).isFalse();
+
+		// Another member's row is invisible through the recipient-keyed finder.
+		assertThat(notifications.findByIdAndRecipientId(page.get(0).getId(), other)).isEmpty();
+		assertThat(notifications.findByIdAndRecipientId(page.get(0).getId(), recipient)).isPresent();
+
+		assertThat(notifications.existsByCaseIdAndType(caseId, NotificationType.NEW_CASE_IN_POOL)).isTrue();
+		assertThat(notifications.existsByCaseIdAndType(UUID.randomUUID(), NotificationType.NEW_CASE_IN_POOL))
+				.isFalse();
+
+		// The bulk update clears this member's unread rows and nobody else's.
+		assertThat(notifications.markAllReadFor(recipient)).isEqualTo((int) unreadBefore);
+		assertThat(notifications.countByRecipientIdAndReadFalse(recipient)).isZero();
+		assertThat(notifications.countByRecipientIdAndReadFalse(other)).isPositive();
 	}
 
 	/**

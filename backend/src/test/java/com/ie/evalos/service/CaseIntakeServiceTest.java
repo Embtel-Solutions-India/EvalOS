@@ -71,11 +71,8 @@ class CaseIntakeServiceTest {
 	private final ApplicationEventPublisher events = mock(ApplicationEventPublisher.class);
 
 	private final SlaCalculator sla = new SlaCalculator(new BusinessCalendar());
-	// Real notifier over mocked repositories, so the recipient rule is exercised rather
-	// than stubbed away — it is the thing worth asserting about a pool alert.
-	private final PoolNotifier pool = new PoolNotifier(teamMembers, notifications);
 	private final CaseIntakeService intake = new CaseIntakeService(
-			cases, contacts, checklistItems, audit, sla, pool, events);
+			cases, contacts, checklistItems, audit, sla, events);
 
 	private final Brand brand = mock(Brand.class);
 
@@ -162,22 +159,19 @@ class CaseIntakeServiceTest {
 				.contains("CV or résumé");
 	}
 
+	/**
+	 * Intake announces; it no longer decides who hears. Unit 06 turned the pool alert
+	 * into a listener, so what this asserts is the *event* — that a lead publishes
+	 * `case.created` and not `case.paid`. Who receives what is
+	 * {@code NotificationListenersTest}'s job.
+	 */
 	@Test
-	void theGmAndTheBrandsManagerGetALeadAlertAndNobodyElse() {
+	void anUnpaidLeadAnnouncesItselfAsCreatedAndNotAsPaid() {
 		intake.intake(brand, contact("ghl-c-1", "anita@raolaw.example"));
 
-		ArgumentCaptor<Notification> raised = ArgumentCaptor.forClass(Notification.class);
-		verify(notifications, org.mockito.Mockito.times(2)).save(raised.capture());
-
-		assertThat(raised.getAllValues())
-				.allSatisfy(notification -> {
-					// A lead, not a pool arrival — nothing needs assigning until it is paid.
-					assertThat(notification.getType()).isEqualTo(NotificationType.NEW_LEAD);
-					assertThat(notification.getBrandId()).isEqualTo(BRAND);
-					assertThat(notification.getBody()).contains("International Evaluations", "Anita Rao");
-				})
-				.extracting(Notification::getRecipientId)
-				.containsExactlyInAnyOrder(GM_ID, BRAND_MANAGER_ID);
+		assertThat(publishedTypes())
+				.containsExactly(CaseEvents.Type.CASE_CREATED, CaseEvents.Type.CHECKLIST_REQUESTED)
+				.doesNotContain(CaseEvents.Type.CASE_PAID);
 	}
 
 	@Test
@@ -244,9 +238,9 @@ class CaseIntakeServiceTest {
 		assertThat(result.getCurrentStage()).isEqualTo(Stage.EXPERT_SIGNING);
 		assertThat(result.isPaid()).isTrue();
 		assertThat(result.getAssignedPm()).isNotNull();
-		// No second checklist, no second lead alert, and nothing in the lifecycle happened.
+		// No second checklist, and nothing in the lifecycle happened — so no event, which
+		// is also what stops Unit 06 raising a second alert.
 		verify(checklistItems, never()).save(any());
-		verify(notifications, never()).save(any());
 		verify(events, never()).publishEvent(any(Object.class));
 		verify(audit).recordSystemEvent(eq(BRAND), eq("CASE"), any(), eq(AuditAction.UPDATED), any(), any());
 	}
@@ -278,19 +272,18 @@ class CaseIntakeServiceTest {
 
 	/** GHL sometimes already knows the contact paid; the case then skips the lead state. */
 	@Test
-	void aContactGhlAlreadyKnowsIsPaidArrivesPaidAndAlertsThePool() {
+	void aContactGhlAlreadyKnowsIsPaidArrivesPaidAndAnnouncesBoth() {
 		Case created = intake.intake(brand,
 				contact("ghl-c-1", "anita@raolaw.example", ServiceType.EXPERT_OPINION_LETTER, true));
 
 		assertThat(created.isPaid()).isTrue();
 		assertThat(created.getPaidAt()).isNotNull();
 
-		ArgumentCaptor<Notification> raised = ArgumentCaptor.forClass(Notification.class);
-		verify(notifications, org.mockito.Mockito.times(4)).save(raised.capture());
-		assertThat(raised.getAllValues()).extracting(Notification::getType)
-				.containsOnly(NotificationType.NEW_LEAD, NotificationType.NEW_CASE_IN_POOL);
-
-		assertThat(publishedTypes()).contains(CaseEvents.Type.CASE_PAID);
+		// Both announcements land at once, so Unit 06 raises the lead alert and the pool
+		// alert together. That the second is not a duplicate of a later correction is
+		// NotificationListenersTest's assertion, not this one's.
+		assertThat(publishedTypes()).containsExactly(
+				CaseEvents.Type.CASE_CREATED, CaseEvents.Type.CHECKLIST_REQUESTED, CaseEvents.Type.CASE_PAID);
 	}
 
 	private List<CaseEvents.Type> publishedTypes() {

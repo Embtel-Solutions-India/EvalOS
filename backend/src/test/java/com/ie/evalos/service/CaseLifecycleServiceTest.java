@@ -86,11 +86,9 @@ class CaseLifecycleServiceTest {
 	private final AuditService audit = mock(AuditService.class);
 	private final ApplicationEventPublisher events = mock(ApplicationEventPublisher.class);
 
-	private final NotificationRepository notifications = mock(NotificationRepository.class);
 	private final SlaCalculator sla = new SlaCalculator(new BusinessCalendar());
-	private final PoolNotifier pool = new PoolNotifier(teamMembers, notifications);
 	private final CaseLifecycleService lifecycle = new CaseLifecycleService(
-			cases, checklistItems, experts, teamMembers, audit, sla, pool, events);
+			cases, checklistItems, experts, teamMembers, audit, sla, events);
 	private final RefundService refunds = new RefundService(lifecycle, payouts);
 
 	private Case subject;
@@ -296,8 +294,8 @@ class CaseLifecycleServiceTest {
 		assertEquals(PAID, subject.getDealValue(), "the collected figure replaces the quote");
 		assertEquals("INV-0009", subject.getInvoiceRef());
 		assertEquals(whenTheMoneyLanded, subject.getPaidAt(), "and the original moment survives");
-		// A correction is not a second pool arrival — nobody needs telling twice.
-		verify(notifications, never()).save(any());
+		// That a correction does not raise a second pool alert is now Unit 06's guard, in
+		// NotificationListenersTest — this method no longer knows what a notification is.
 	}
 
 	/** The money path re-checks the role in the service, not only at the endpoint. */

@@ -14,10 +14,11 @@ route) · `event` (domain events + outbound HMAC dispatcher) · `job` (`@Schedul
 `notification` (in-app staff center) · `security` · `common` (envelope, encryption converter, error
 types) · `config`.
 
-`web`/`service`/`domain`/`repository`/`security`/`common`/`webhook`/`event` are populated;
-`integration`, `job`, `notification` are still empty `.gitkeep` placeholders. Put code in the package
+`web`/`service`/`domain`/`repository`/`security`/`common`/`webhook`/`event`/`notification` are
+populated; `integration` and `job` are still empty `.gitkeep` placeholders. Put code in the package
 that matches the concern — controllers never hold logic, entities never leave the service layer (map
-to DTOs). `event` currently only *publishes*: nothing subscribes until Unit 06.
+to DTOs). `notification/NotificationListeners` is the only subscriber to `event` so far; the outbound
+dispatcher (Unit 18) is the next.
 
 ## Response envelope — non-negotiable
 

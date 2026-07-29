@@ -23,12 +23,12 @@ Technical Design Document v1.1**; where a context file conflicts with it, v1.1 w
   `context/progress-tracker.md` instead.
 - Update `context/progress-tracker.md` after every meaningful change; update the relevant context
   file (and the TDD) if a decision changes.
-- **Current state:** Units 01–05 done, plus 05a (the custody-trigger move). Scaffold + envelope, the
-  tenancy/auth/RBAC spine, the domain schema, the case state machine + SLA, and the inbound webhook
-  gateway with Handoff A. Migrations run to `V15`. ~24 endpoints: auth/health/team-members plus the
-  per-transition case routes. **Unit 06 (in-app staff notification centre) is next** — it is the
-  first subscriber to the domain events Units 04/05 publish to nobody, and it replaces
-  `service/PoolNotifier` with event listeners.
+- **Current state:** Units 01–06 done, including 05a (the custody-trigger move). Scaffold + envelope,
+  the tenancy/auth/RBAC spine, the domain schema, the case state machine + SLA, the inbound webhook
+  gateway with Handoff A, and the in-app notification centre. Migrations run to `V15`. ~28 endpoints:
+  auth/health/team-members, the per-transition case routes, and four notification routes.
+  **Unit 07 (app shell + routing) is next** — the first surface, including the bell over Unit 06's
+  endpoints. The backend is still the only half past Unit 01.
 
 ## Layout
 

@@ -16,7 +16,6 @@ import com.ie.evalos.domain.ChecklistItemStatus;
 import com.ie.evalos.domain.ClientType;
 import com.ie.evalos.domain.ContactSnapshot;
 import com.ie.evalos.domain.DocumentChecklistItem;
-import com.ie.evalos.domain.NotificationType;
 import com.ie.evalos.domain.PoolStatus;
 import com.ie.evalos.domain.ServiceSubtype;
 import com.ie.evalos.domain.ServiceType;
@@ -87,18 +86,16 @@ public class CaseIntakeService {
 	private final DocumentChecklistItemRepository checklistItems;
 	private final AuditService audit;
 	private final SlaCalculator sla;
-	private final PoolNotifier pool;
 	private final ApplicationEventPublisher events;
 
 	CaseIntakeService(CaseRepository cases, ContactSnapshotRepository contacts,
 			DocumentChecklistItemRepository checklistItems, AuditService audit, SlaCalculator sla,
-			PoolNotifier pool, ApplicationEventPublisher events) {
+			ApplicationEventPublisher events) {
 		this.cases = cases;
 		this.contacts = contacts;
 		this.checklistItems = checklistItems;
 		this.audit = audit;
 		this.sla = sla;
-		this.pool = pool;
 		this.events = events;
 	}
 
@@ -164,22 +161,16 @@ public class CaseIntakeService {
 
 		audit.recordSystemEvent(brand.getId(), OBJECT_TYPE, created.getId(), AuditAction.CREATED,
 				null, CaseLifecycleService.CaseSnapshot.of(created));
+		// Unit 06 listens for these and raises the staff alerts: CASE_CREATED is a lead
+		// arriving ("somebody is asking"), CASE_PAID is the pool arrival ("assign a project
+		// manager"). Nothing here decides who hears about it.
 		events.publishEvent(CaseEvents.CaseEvent.of(CaseEvents.Type.CASE_CREATED, created));
 		events.publishEvent(CaseEvents.CaseEvent.of(CaseEvents.Type.CHECKLIST_REQUESTED, created));
 
-		// A lead is not a pool arrival: NEW_LEAD says "somebody is asking", NEW_CASE_IN_POOL
-		// says "assign a project manager", and only money earns the second one. Normally
-		// markPaid raises it later; the block below is the one case where both fire at once,
-		// because GHL told us the contact had already paid.
-		pool.alert(brand.getId(), created.getId(), NotificationType.NEW_LEAD,
-				"New %s lead %s from %s.".formatted(brand.getName(), created.getCaseCode(),
-						request.contact().fullName()));
-
 		if (request.paid()) {
-			// GHL already knew this contact had paid, so the case skips the lead state.
+			// GHL already knew this contact had paid, so the case skips the lead state and
+			// both alerts land at once.
 			events.publishEvent(CaseEvents.CaseEvent.of(CaseEvents.Type.CASE_PAID, created));
-			pool.alert(brand.getId(), created.getId(), NotificationType.NEW_CASE_IN_POOL,
-					"Case %s is paid and needs a project manager.".formatted(created.getCaseCode()));
 		}
 		return created;
 	}
