@@ -90,6 +90,7 @@ class NotificationControllerTest {
 				.andExpect(jsonPath("$.data").value(7));
 	}
 
+	/** All three read routes answer the same shape: the badge value after the call. */
 	@Test
 	void markReadReturnsTheRepaintedBadge() throws Exception {
 		given(notifications.myUnreadCount()).willReturn(2L);
@@ -97,20 +98,18 @@ class NotificationControllerTest {
 		mockMvc.perform(post("/api/notifications/{id}/read", UUID.randomUUID())
 				.header(HttpHeaders.AUTHORIZATION, bearer(Role.PROJECT_MANAGER)))
 				.andExpect(status().isOk())
-				.andExpect(jsonPath("$.data.marked").value(1))
-				.andExpect(jsonPath("$.data.unread").value(2));
+				.andExpect(jsonPath("$.data").value(2));
 	}
 
 	@Test
-	void readAllReportsHowManyItCleared() throws Exception {
+	void readAllClearsTheBadge() throws Exception {
 		given(notifications.markAllRead()).willReturn(5);
 		given(notifications.myUnreadCount()).willReturn(0L);
 
 		mockMvc.perform(post("/api/notifications/read-all")
 				.header(HttpHeaders.AUTHORIZATION, bearer(Role.GM)))
 				.andExpect(status().isOk())
-				.andExpect(jsonPath("$.data.marked").value(5))
-				.andExpect(jsonPath("$.data.unread").value(0));
+				.andExpect(jsonPath("$.data").value(0));
 	}
 
 	/** Somebody else's notification surfaces as the standard 403, not a 500. */

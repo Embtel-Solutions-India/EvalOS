@@ -1,8 +1,8 @@
 package com.ie.evalos.notification;
 
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.UUID;
+import java.util.stream.Stream;
 
 import com.ie.evalos.domain.Case;
 import com.ie.evalos.domain.Role;
@@ -32,11 +32,15 @@ public class RecipientResolver {
 		this.teamMembers = teamMembers;
 	}
 
-	/** The GM plus that brand's Brand Managers — who watch a pool nobody owns yet. */
+	/**
+	 * The GM plus that brand's Brand Managers — who watch a pool nobody owns yet. No
+	 * dedupe: a member holds one role, so the two queries cannot return the same row.
+	 */
 	public List<UUID> gmAndBrandManagers(UUID brandId) {
-		LinkedHashSet<UUID> recipients = new LinkedHashSet<>(gm());
-		recipients.addAll(ids(teamMembers.findByActiveTrueAndRoleAndBrandId(Role.BRAND_MANAGER, brandId)));
-		return List.copyOf(recipients);
+		return Stream.concat(
+				gm().stream(),
+				ids(teamMembers.findByActiveTrueAndRoleAndBrandId(Role.BRAND_MANAGER, brandId)).stream())
+				.toList();
 	}
 
 	public List<UUID> gm() {

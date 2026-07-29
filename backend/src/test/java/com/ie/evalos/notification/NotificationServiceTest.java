@@ -144,6 +144,7 @@ class NotificationServiceTest {
 		verify(notifications).markAllReadFor(ME);
 	}
 
+	/** No {@code actAs} here on purpose: a listener creates rows outside any request. */
 	@Test
 	void createWritesOneRowPerRecipientTaggedWithTheGivenBrand() {
 		service.create(BRAND, List.of(ME, SOMEBODY_ELSE), NotificationType.NEW_LEAD, CASE_ID, "a lead");
@@ -154,14 +155,6 @@ class NotificationServiceTest {
 				.allSatisfy(row -> assertThat(row.getBrandId()).isEqualTo(BRAND))
 				.extracting(Notification::getRecipientId)
 				.containsExactly(ME, SOMEBODY_ELSE);
-	}
-
-	/** No caller, no problem: a listener creates rows outside any request. */
-	@Test
-	void createNeedsNoAuthenticatedCaller() {
-		service.create(BRAND, List.of(ME), NotificationType.NEW_LEAD, CASE_ID, "a lead");
-
-		verify(notifications).save(any(Notification.class));
 	}
 
 	@Test

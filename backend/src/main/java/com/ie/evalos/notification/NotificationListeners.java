@@ -1,11 +1,9 @@
 package com.ie.evalos.notification;
 
 import java.util.EnumMap;
-import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 import java.util.UUID;
 import java.util.function.BiFunction;
 
@@ -28,8 +26,7 @@ import org.springframework.stereotype.Component;
  * a rolled-back transition must not leave an alert claiming it happened.
  *
  * <p><strong>Silence is a decision, not an omission.</strong> An event absent from
- * {@link #ROUTES} raises nothing, and the two reasons are separated below so a reader
- * can tell "client-facing, deliberately no staff alert" from "no rule written yet".
+ * {@code ROUTES} raises nothing — see {@link #on} for the two reasons that can be.
  */
 @Component
 public class NotificationListeners {
@@ -98,16 +95,6 @@ public class NotificationListeners {
 		return Map.entry(event, new Route(type, recipients, message));
 	}
 
-	/**
-	 * Published for GHL to deliver to the client (Unit 18), never turned into a staff
-	 * alert and never emailed by EvalOS (invariant 14). Listed rather than left to fall
-	 * through the default, so that "no staff notification" is visibly a decision.
-	 */
-	private static final Set<CaseEvents.Type> CLIENT_FACING = EnumSet.of(
-			CaseEvents.Type.CHECKLIST_REQUESTED,
-			CaseEvents.Type.DRAFT_READY_FOR_CLIENT,
-			CaseEvents.Type.CASE_DELIVERED);
-
 	private final CaseRepository cases;
 	private final RecipientResolver recipients;
 	private final NotificationService notifications;
@@ -120,9 +107,10 @@ public class NotificationListeners {
 
 	@EventListener
 	public void on(CaseEvents.CaseEvent event) {
-		if (CLIENT_FACING.contains(event.type())) {
-			return;
-		}
+		// Absent from the table means nothing is raised, for either of two reasons: it is
+		// client-facing (`checklist.requested`, `draft.ready_for_client`, `case.delivered`
+		// go to GHL via Unit 18 and are never a staff alert — invariant 14), or the spec
+		// writes no rule for it. Both are decisions; neither needs its own branch.
 		Route route = ROUTES.get(event.type());
 		if (route == null) {
 			return;

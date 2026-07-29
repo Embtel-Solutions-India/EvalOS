@@ -110,18 +110,6 @@ class NotificationListenersTest {
 	}
 
 	@Test
-	void everyMappedEventReachesExactlyTheMappedRecipients() {
-		assertThat(recipientsOf(CaseEvents.Type.CASE_CREATED))
-				.as("a lead is watched by the GM and that brand's manager")
-				.containsExactlyInAnyOrder(GM, BRAND_MANAGER);
-	}
-
-	@Test
-	void thePoolArrivalGoesToTheGmAndBrandManager() {
-		assertThat(recipientsOf(CaseEvents.Type.CASE_PAID)).containsExactlyInAnyOrder(GM, BRAND_MANAGER);
-	}
-
-	@Test
 	void theAssignedPmIsToldWhatNeedsTheirAttention() {
 		assertThat(recipientsOf(CaseEvents.Type.DOCUMENTS_COMPLETED)).containsExactly(PM);
 	}
@@ -144,6 +132,10 @@ class NotificationListenersTest {
 	/** The spec's whole table in one pass, so a mis-wired row cannot hide. */
 	@Test
 	void theWholeMapMatchesTheSpecTable() {
+		assertThat(recipientsOf(CaseEvents.Type.CASE_CREATED))
+				.as("a lead is watched by the GM and that brand's manager")
+				.containsExactlyInAnyOrder(GM, BRAND_MANAGER);
+		assertThat(recipientsOf(CaseEvents.Type.CASE_PAID)).containsExactlyInAnyOrder(GM, BRAND_MANAGER);
 		assertThat(recipientsOf(CaseEvents.Type.DRAFT_SUBMITTED)).containsExactly(PM);
 		assertThat(recipientsOf(CaseEvents.Type.EXPERT_SIGNED)).containsExactly(PM);
 		assertThat(recipientsOf(CaseEvents.Type.DRAFT_RETURNED)).containsExactly(CM);

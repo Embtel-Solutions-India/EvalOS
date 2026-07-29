@@ -44,16 +44,15 @@ public class NotificationController {
 		}
 	}
 
-	/** Returned by both mark-read routes so a client can repaint the badge in one call. */
-	public record ReadResult(int marked, long unread) {
-	}
-
 	private final NotificationService notifications;
 
 	NotificationController(NotificationService notifications) {
 		this.notifications = notifications;
 	}
 
+	// page/size are clamped in the service rather than constrained here: parameter
+	// constraints raise HandlerMethodValidationException, which ApiExceptionHandler does
+	// not map, so a negative page would be a 500 instead of the 400 it looks like.
 	@GetMapping
 	public ApiResponse<List<NotificationView>> list(
 			@RequestParam(defaultValue = "0") int page,
@@ -61,20 +60,21 @@ public class NotificationController {
 		return ApiResponse.ok(notifications.mine(page, size).stream().map(NotificationView::of).toList());
 	}
 
+	/** All three read routes answer the same thing: the badge value after the call. */
 	@GetMapping("/unread-count")
 	public ApiResponse<Long> unreadCount() {
 		return ApiResponse.ok(notifications.myUnreadCount());
 	}
 
 	@PostMapping("/{id}/read")
-	public ApiResponse<ReadResult> markRead(@PathVariable UUID id) {
+	public ApiResponse<Long> markRead(@PathVariable UUID id) {
 		notifications.markRead(id);
-		return ApiResponse.ok(new ReadResult(1, notifications.myUnreadCount()));
+		return ApiResponse.ok(notifications.myUnreadCount());
 	}
 
 	@PostMapping("/read-all")
-	public ApiResponse<ReadResult> markAllRead() {
-		int marked = notifications.markAllRead();
-		return ApiResponse.ok(new ReadResult(marked, notifications.myUnreadCount()));
+	public ApiResponse<Long> markAllRead() {
+		notifications.markAllRead();
+		return ApiResponse.ok(notifications.myUnreadCount());
 	}
 }
