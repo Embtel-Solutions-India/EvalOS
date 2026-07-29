@@ -5,7 +5,8 @@ import LoginPage from './features/auth/LoginPage'
 import RoleDashboard from './features/dashboards/RoleDashboard'
 import AppShell from './features/shell/AppShell'
 import PlaceholderPage from './features/shell/PlaceholderPage'
-import { NAV_ITEMS, mayReach } from './features/shell/navigation'
+import CaseDetailPage from './features/case/CaseDetail'
+import { CASE_DETAIL_PATH, NAV_ITEMS, mayReach } from './features/shell/navigation'
 import { useAuth, useMe } from './lib/authContext'
 import NotFound from './pages/NotFound'
 
@@ -54,6 +55,16 @@ export default function App() {
       <Route element={<AppShell />}>
         <Route index element={<Navigate to="/dashboard" replace />} />
         <Route path="/dashboard" element={<RoleDashboard />} />
+
+        {/* Reached from a board card, so it has no nav entry — but the same table gates it. */}
+        <Route
+          path={CASE_DETAIL_PATH}
+          element={
+            <RoleRoute path={CASE_DETAIL_PATH}>
+              <CaseDetailPage />
+            </RoleRoute>
+          }
+        />
 
         {NAV_ITEMS.filter((item) => item.path !== '/dashboard').map((item) => (
           <Route

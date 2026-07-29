@@ -7,6 +7,7 @@ import java.util.UUID;
 import java.util.function.Consumer;
 
 import com.ie.evalos.common.ForbiddenException;
+import com.ie.evalos.domain.AuditAction;
 import com.ie.evalos.domain.Availability;
 import com.ie.evalos.domain.Case;
 import com.ie.evalos.domain.ChecklistItemStatus;
@@ -239,6 +240,36 @@ public class CaseLifecycleService {
 			c.setExpertId(expert.getId());
 			c.setExpertSignStatus(ExpertSignStatus.PENDING);
 		});
+	}
+
+	/** What a strategy-notes edit records. The text is the change, so the text is the snapshot. */
+	public record StrategyNotesSnapshot(String pmStrategyNotes) {
+	}
+
+	/**
+	 * The PM's guidance to the Case Manager working the draft.
+	 *
+	 * <p><strong>Deliberately not routed through {@link #apply}.</strong> This is not a
+	 * transition: nothing about the case's state changes. Reusing {@code apply} would restamp
+	 * {@code stage_entered_at} and so silently reset the SLA clock — editing a note would buy
+	 * the case a fresh budget on whatever it is waiting for — and would publish a lifecycle
+	 * event for something that did not happen in the lifecycle. It still writes an audit row,
+	 * because invariant 13 is about every change, not every transition.
+	 *
+	 * <p>Legal at any stage, including a case in an exception state and a closed one: notes are
+	 * a record of thinking, and the transition table has no business gating them.
+	 */
+	@Transactional
+	public Case updateStrategyNotes(UUID caseId, String notes) {
+		Case subject = load(caseId);
+		StrategyNotesSnapshot before = new StrategyNotesSnapshot(subject.getPmStrategyNotes());
+
+		subject.setPmStrategyNotes(notes);
+		Case saved = cases.save(subject);
+
+		audit.recordEvent(OBJECT_TYPE, saved.getId(), AuditAction.UPDATED, TenantContext.current().memberId(),
+				before, new StrategyNotesSnapshot(notes));
+		return saved;
 	}
 
 	// --- document collection -------------------------------------------------

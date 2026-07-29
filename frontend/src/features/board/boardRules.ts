@@ -53,8 +53,15 @@ export type BoardCard = {
   expertSignStatus: 'PENDING' | 'SIGNED' | 'OVERDUE' | 'REASSIGNED' | null
   pmApprovalStatus: 'PENDING' | 'APPROVED' | 'RETURNED' | null
   clientApprovalStatus: 'PENDING' | 'APPROVED' | 'REVISION_REQUESTED' | null
-  /** Null for every role outside GM / Brand Manager / PM — the server omits it. */
-  dealValue: string | null
+  /**
+   * Null for every role outside GM / Brand Manager / PM — the server omits it.
+   *
+   * A number, not a string: Jackson serializes the Java `BigDecimal` as a JSON number, which
+   * `CaseBoardControllerTest` asserts (`.value(1450.00)`). Typed as a string it happened to
+   * render, because React stringifies either — the mismatch only surfaced when something
+   * tried to format it.
+   */
+  dealValue: number | null
 }
 
 export type BoardData = {
@@ -130,6 +137,10 @@ export const STAGE_ACCESS: Record<Role, Record<Stage, StageAccess>> = {
     EXPERT_ASSIGNMENT: 'status',
     DRAFT_GENERATION: 'full',
     EXPERT_SIGNING: 'full',
+    // Confirmed intended: the case leaves their board once QC passes, even though assigned_cm
+    // still names them. Delivery is the Coordinator's stage, and a CM's board is the work in
+    // front of them. Not lost — still in their scope, so an exception lane and the detail page
+    // both still reach it.
     FINAL_DELIVERY: 'none',
   },
   EXPERT_NETWORK_MANAGER: {

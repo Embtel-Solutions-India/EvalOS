@@ -13,6 +13,7 @@ import com.ie.evalos.security.EvalOsUserDetailsService;
 import com.ie.evalos.security.JwtService;
 import com.ie.evalos.security.SecurityConfig;
 import com.ie.evalos.security.StaffPrincipal;
+import com.ie.evalos.service.CaseDetailService;
 import com.ie.evalos.service.CaseLifecycleService;
 import com.ie.evalos.service.RefundService;
 
@@ -30,6 +31,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.willThrow;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -104,6 +106,9 @@ class CaseControllerTest {
 
 	@MockitoBean
 	RefundService refunds;
+
+	@MockitoBean
+	CaseDetailService details;
 
 	@MockitoBean
 	EvalOsUserDetailsService userDetailsService;
@@ -193,12 +198,138 @@ class CaseControllerTest {
 
 	@Test
 	void anotherBrandsCaseIsNotReachable() throws Exception {
-		willThrow(new ForbiddenException("No case in this caller's scope")).given(lifecycle).read(any());
+		willThrow(new ForbiddenException("No case in this caller's scope")).given(details).detail(any());
 
 		mockMvc.perform(get("/api/cases/{id}", CASE_ID)
 				.header(HttpHeaders.AUTHORIZATION, bearer(Role.BRAND_MANAGER)))
 				.andExpect(status().isForbidden())
 				.andExpect(jsonPath("$.error.code").value("FORBIDDEN"));
+	}
+
+	private void givenDetail() {
+		given(details.detail(any())).willReturn(new CaseDetailService.CaseWithContext(
+				withNotes(), "Anita Rao", "Zara Okonkwo", "TIER_1",
+				new CaseDetailService.ChecklistSummary(6, 4)));
+	}
+
+	private static Case withNotes() {
+		Case subject = aCase();
+		subject.setPmStrategyNotes("Lead with the publication record.");
+		subject.setDriveLink("https://drive.example/abc");
+		return subject;
+	}
+
+	/**
+	 * Spec deliverable 5: the restriction is a projection, not client-side hiding. A role that
+	 * may not read the notes gets a payload with no notes in it, so there is nothing to reveal.
+	 */
+	@Test
+	void strategyNotesAreProjectedOnlyToTheRolesThatMayReadThem() throws Exception {
+		givenDetail();
+
+		for (Role sees : List.of(Role.GM, Role.PROJECT_MANAGER, Role.CASE_MANAGER)) {
+			mockMvc.perform(get("/api/cases/{id}", CASE_ID).header(HttpHeaders.AUTHORIZATION, bearer(sees)))
+					.andExpect(status().isOk())
+					.andExpect(jsonPath("$.data.pmStrategyNotes").value("Lead with the publication record."));
+		}
+		for (Role blind : List.of(Role.BRAND_MANAGER, Role.PROJECT_COORDINATOR, Role.EXPERT_NETWORK_MANAGER)) {
+			mockMvc.perform(get("/api/cases/{id}", CASE_ID).header(HttpHeaders.AUTHORIZATION, bearer(blind)))
+					.andExpect(status().isOk())
+					// The case itself still reads; only the field is absent.
+					.andExpect(jsonPath("$.data.summary.caseCode").value("IE-2026-0001"))
+					.andExpect(jsonPath("$.data.pmStrategyNotes").doesNotExist());
+		}
+	}
+
+	/**
+	 * The bug the Unit 09 review found: read access must be STATED, not inferred from write
+	 * access. A Case Manager reads the notes but cannot write them, so any client deriving "may I
+	 * see this?" from `mayEditStrategyNotes` gets the one read-only role wrong — and it shows up
+	 * on every case before the PM has written anything, because then the value is null either way.
+	 */
+	@Test
+	void readAccessToStrategyNotesIsStatedSeparatelyFromWriteAccess() throws Exception {
+		Case noNotesYet = aCase();
+		given(details.detail(any())).willReturn(new CaseDetailService.CaseWithContext(
+				noNotesYet, "Anita Rao", null, null, new CaseDetailService.ChecklistSummary(0, 0)));
+
+		// The Case Manager: sees, cannot edit. Both flags must disagree, and the value is null
+		// because nothing has been written — not because it was withheld.
+		mockMvc.perform(get("/api/cases/{id}", CASE_ID).header(HttpHeaders.AUTHORIZATION, bearer(Role.CASE_MANAGER)))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.data.maySeeStrategyNotes").value(true))
+				.andExpect(jsonPath("$.data.mayEditStrategyNotes").value(false))
+				.andExpect(jsonPath("$.data.pmStrategyNotes").doesNotExist());
+
+		// A role that genuinely may not read gets false for both, so the client can tell the two
+		// null cases apart.
+		mockMvc.perform(get("/api/cases/{id}", CASE_ID)
+				.header(HttpHeaders.AUTHORIZATION, bearer(Role.PROJECT_COORDINATOR)))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.data.maySeeStrategyNotes").value(false))
+				.andExpect(jsonPath("$.data.mayEditStrategyNotes").value(false));
+
+		// And the write-capable roles see as well as edit.
+		for (Role writer : List.of(Role.GM, Role.PROJECT_MANAGER)) {
+			mockMvc.perform(get("/api/cases/{id}", CASE_ID).header(HttpHeaders.AUTHORIZATION, bearer(writer)))
+					.andExpect(status().isOk())
+					.andExpect(jsonPath("$.data.maySeeStrategyNotes").value(true))
+					.andExpect(jsonPath("$.data.mayEditStrategyNotes").value(true));
+		}
+	}
+
+	@Test
+	void onlyThePmAndTheGmMayWriteStrategyNotes() throws Exception {
+		givenDetail();
+		given(lifecycle.updateStrategyNotes(any(), any())).willReturn(withNotes());
+		String body = "{\"pmStrategyNotes\":\"Lead with the publication record.\"}";
+
+		for (Role allowed : List.of(Role.GM, Role.PROJECT_MANAGER)) {
+			mockMvc.perform(patch("/api/cases/{id}/strategy-notes", CASE_ID)
+					.header(HttpHeaders.AUTHORIZATION, bearer(allowed))
+					.contentType(MediaType.APPLICATION_JSON).content(body))
+					.andExpect(status().isOk())
+					.andExpect(jsonPath("$.data.mayEditStrategyNotes").value(true));
+		}
+		// The Case Manager reads them and cannot write them — the whole point of the panel.
+		for (Role refused : List.of(Role.CASE_MANAGER, Role.BRAND_MANAGER, Role.PROJECT_COORDINATOR)) {
+			mockMvc.perform(patch("/api/cases/{id}/strategy-notes", CASE_ID)
+					.header(HttpHeaders.AUTHORIZATION, bearer(refused))
+					.contentType(MediaType.APPLICATION_JSON).content(body))
+					.andExpect(status().isForbidden());
+		}
+	}
+
+	@Test
+	void blankStrategyNotesAreAllowedBecauseClearingThemIsAnEdit() throws Exception {
+		givenDetail();
+		given(lifecycle.updateStrategyNotes(any(), any())).willReturn(aCase());
+
+		mockMvc.perform(patch("/api/cases/{id}/strategy-notes", CASE_ID)
+				.header(HttpHeaders.AUTHORIZATION, bearer(Role.PROJECT_MANAGER))
+				.contentType(MediaType.APPLICATION_JSON).content("{\"pmStrategyNotes\":\"\"}"))
+				.andExpect(status().isOk());
+
+		// Absent is still a bad request: clearing is explicit, not implied by omission.
+		mockMvc.perform(patch("/api/cases/{id}/strategy-notes", CASE_ID)
+				.header(HttpHeaders.AUTHORIZATION, bearer(Role.PROJECT_MANAGER))
+				.contentType(MediaType.APPLICATION_JSON).content("{}"))
+				.andExpect(status().isBadRequest());
+	}
+
+	@Test
+	void theDetailPayloadCarriesTheJoinedContextThePageDraws() throws Exception {
+		givenDetail();
+
+		mockMvc.perform(get("/api/cases/{id}", CASE_ID)
+				.header(HttpHeaders.AUTHORIZATION, bearer(Role.PROJECT_MANAGER)))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.data.clientName").value("Anita Rao"))
+				.andExpect(jsonPath("$.data.expertName").value("Zara Okonkwo"))
+				.andExpect(jsonPath("$.data.expertTier").value("TIER_1"))
+				.andExpect(jsonPath("$.data.driveLink").value("https://drive.example/abc"))
+				.andExpect(jsonPath("$.data.checklistTotal").value(6))
+				.andExpect(jsonPath("$.data.checklistComplete").value(4));
 	}
 
 	@Test
