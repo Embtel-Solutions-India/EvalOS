@@ -1,5 +1,5 @@
 import { Outlet } from 'react-router-dom'
-import { FiltersProvider } from './filters'
+import FiltersProvider from './filters'
 import LeftNav from './LeftNav'
 import TopBar from './TopBar'
 

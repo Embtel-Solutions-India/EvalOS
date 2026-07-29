@@ -1,5 +1,5 @@
-import { useMe } from '../../lib/auth'
-import { useFilters } from '../shell/filters'
+import { useMe } from '../../lib/authContext'
+import { useFilters } from '../shell/filtersContext'
 import type { Role } from '../../lib/session'
 
 /**

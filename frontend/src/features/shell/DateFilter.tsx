@@ -1,4 +1,4 @@
-import { useFilters, type DateRange } from './filters'
+import { useFilters, type DateRange } from './filtersContext'
 
 const RANGES: readonly { value: DateRange; label: string }[] = [
   { value: 'today', label: 'Today' },

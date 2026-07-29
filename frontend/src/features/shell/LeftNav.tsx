@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom'
-import { useMe } from '../../lib/auth'
+import { useMe } from '../../lib/authContext'
 import { navFor } from './navigation'
 
 const ROLE_LABELS: Record<string, string> = {

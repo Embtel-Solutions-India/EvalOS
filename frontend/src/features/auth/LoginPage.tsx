@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useAuth } from '../../lib/auth'
+import { useAuth } from '../../lib/authContext'
 
 type Submit = { status: 'idle' } | { status: 'sending' } | { status: 'failed'; message: string }
 

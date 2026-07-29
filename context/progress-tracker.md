@@ -768,11 +768,50 @@ Update this file after every meaningful implementation change.
   (g) **`/cases` is shared by four roles** (GM, Brand Manager, PM, Coordinator) rather
   than being four routes, since the spec's per-role labels ("all brands" / "team" /
   "own") describe *scope*, which the server applies — not different screens.
-  (h) **Not verified in a browser.** The API half is verified live for all six roles,
-  and `npm run build` proves it compiles, but acceptance criteria 1–4 are visual (the
-  nav set per role, the switcher, the bell dropdown, the 403 view) and no browser pass
-  has been done. There is also no frontend test suite to assert `navFor`/`mayReach`
-  without adding a test framework, which this unit did not do.
+  (h) **No frontend test suite**, so `navFor`/`mayReach` are covered by the browser pass
+  below rather than by assertions. Adding a test framework was out of scope for this
+  unit; worth doing before the nav table grows past one screen.
+
+- **Unit 07 browser pass — all six acceptance criteria confirmed, two defects found and
+  fixed.** Driven through Chrome against the running stack.
+  - **Criterion 1** — all six roles land on their own dashboard with exactly the spec's
+    nav set: GM `Dashboard|Cases|Experts|Payouts|Brands`, Brand Manager the same minus
+    Brands, PM `Dashboard|Cases|Experts|Board`, Coordinator
+    `Dashboard|Cases|Doc Checklists|Delivery`, Case Manager `Dashboard|My Cases`, ENM
+    `Dashboard|Payouts|Expert Database`. Each shows its own PRIMARY KPI tile.
+  - **Criterion 2** — the GM's switcher lists "All brands" plus both brands from
+    `/api/brands`, and selecting one flips the dashboard label from "all brands" to
+    "one brand". Every other role gets the static "Your brand" label and **no
+    `<select>` in the DOM at all**.
+  - **Criterion 3** — the bell lists live rows, the empty state reads correctly for a
+    recipient with none, and mark-all-read repaints the badge.
+  - **Criterion 4** — deep-linking a Case Manager to `/brands` renders the 403 view
+    inside the shell with the URL preserved.
+  - **Criterion 5** — sign out returns to login and clears the session; navigating to
+    `/login` while signed in redirects to the dashboard.
+  - **Criterion 6** — `npm run build` clean, and after the two fixes below a hard reload
+    plus a bell open produces **zero console output**.
+  - **Defect 1, fixed: the dev API logger reported aborted requests as errors.**
+    StrictMode double-invokes effects and the cleanup aborts the first request, so the
+    console filled with `[api] GET /notifications/unread-count -> network error` for
+    calls that were merely superseded. Now skipped via `axios.isCancel`.
+  - **Defect 2, fixed: HMR crashed the app, and the lint warning was right.** Note (f)
+    dismissed three `react/only-export-components` warnings as a Fast-Refresh
+    ergonomics concern. The browser pass caught the consequence: editing any module in
+    the auth import graph threw `useAuth must be used inside AuthProvider` from `App`
+    via `performReactRefresh`, needing a manual reload. Split into `lib/authContext.ts`
+    and `features/shell/filtersContext.ts` (context + hooks) with the providers left as
+    the only export of their files. **`npm run lint` is now completely clean** and the
+    three warnings in note (f) no longer apply.
+  - Cosmetic deviation left as-is: **nav item *order* differs from the spec's per-role
+    prose** for three roles (the spec puts Board second for a PM and Expert Database
+    before Payouts for an ENM; `NAV_ITEMS` is one globally-ordered table, so shared
+    items come first). Every *set* is correct. Fixing it needs a per-role order field —
+    worth doing if a role's primary screen being last actually bothers anyone.
+  - Hygiene note: `LocalPostgresIntegrationTest` writes rows into the **dev** `evalos`
+    database and leaves them behind — the bell shows notifications with bodies `"old"`
+    and `"fresh"` from `theNotificationCentreFindersRunAgainstRealSql`. Harmless, but
+    the dev database now needs a reset before any demo.
 
 - **Unit 02 latent test bug, surfaced and fixed.**
   `SecurityFlowTest.tamperedTokenIsUnauthenticated` flipped the **last** character

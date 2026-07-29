@@ -28,7 +28,10 @@ api.interceptors.response.use(
     // next render sees no session and the router sends the user to login. 403 is left
     // alone: it means "signed in, not allowed", which is a screen, not a logout.
     if (error.response?.status === 401) clearToken()
-    if (import.meta.env.DEV) {
+    // StrictMode double-invokes effects in dev and the cleanup aborts the first
+    // request, so an abort is the normal path, not a failure. Logging it as one filled
+    // the console with "network error" for requests that were simply superseded.
+    if (import.meta.env.DEV && !axios.isCancel(error)) {
       const status = error.response?.status ?? 'network error'
       console.error(`[api] ${error.config?.method?.toUpperCase()} ${error.config?.url} -> ${status}`)
     }

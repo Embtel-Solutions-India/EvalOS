@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { api, unwrap } from '../../lib/api'
-import { useMe } from '../../lib/auth'
-import { useFilters } from './filters'
+import { useMe } from '../../lib/authContext'
+import { useFilters } from './filtersContext'
 
 type BrandOption = { id: string; name: string; slug: string }
 

@@ -5,7 +5,7 @@ import RoleDashboard from './features/dashboards/RoleDashboard'
 import AppShell from './features/shell/AppShell'
 import PlaceholderPage from './features/shell/PlaceholderPage'
 import { NAV_ITEMS, mayReach } from './features/shell/navigation'
-import { useAuth, useMe } from './lib/auth'
+import { useAuth, useMe } from './lib/authContext'
 import NotFound from './pages/NotFound'
 
 /**

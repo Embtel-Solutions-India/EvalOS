@@ -1,4 +1,4 @@
-import { useAuth } from '../../lib/auth'
+import { useAuth } from '../../lib/authContext'
 import BrandSwitcher from './BrandSwitcher'
 import DateFilter from './DateFilter'
 import NotificationBell from './NotificationBell'
