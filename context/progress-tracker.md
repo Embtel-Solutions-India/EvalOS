@@ -473,9 +473,9 @@ Update this file after every meaningful implementation change.
     and every read, and several `none` cells were already empty by scope alone (a case naming
     a CM has long left Doc Collection). Held as **one table** rather than a context file, for
     the reason `navigation.ts` gives: a second copy is a copy that drifts.
-  - Verified: `./mvnw verify` BUILD SUCCESS **146 tests**, and **all 146 green with zero
+  - Verified: `./mvnw verify` BUILD SUCCESS **148 tests**, and **all 148 green with zero
     skipped against local Postgres 18** (`-Devalos.db.test=true`): `V17` applied on top of
-    20 existing migrations, `ddl-auto=validate` passed. `npm test` **17 tests** green
+    20 existing migrations, `ddl-auto=validate` passed. `npm test` **18 tests** green
     (`vitest run`, mutation-checked). And
     `aSelfCallerReadsCasesAssignedToThemInEitherSlot` proves in real SQL that a Coordinator
     reads the case naming them and not the CM's, the CM reads theirs and not the
@@ -961,6 +961,77 @@ Update this file after every meaningful implementation change.
   parameter" — is closed: `GET /api/cases/board` takes `brandId`, applied after the scope so
   it can only narrow. Note (g)'s reasoning ("scope, not different screens") is what `/board`
   and `/my-cases` sharing one component now rests on.
+
+- **Unit 08 review pass — 8 findings, 7 fixed, 1 left as a product decision.** A medium-effort
+  review of `026427e`. Two were reachable defects that hid or misreported real work:
+  (a) **Every case with no deadline was invisible on the board, permanently.** The board always
+  sends a window (`dueBeforeFor` has no "all" range) and the predicate was
+  `deadline <= :dueBefore`, so SQL's `NULL <= x` being *unknown* dropped every undated row from
+  every column and lane, with no setting that revealed it. Intake leaves the column null
+  whenever GHL sends no date — there is no `@NotNull` on it — so this was the normal path.
+  The rest of the stack was written as though undated cards arrived (`Comparator.nullsLast`
+  "undated last", `Due —` on the card); both were unreachable. Fixed in the predicate, not the
+  caller, so `GET /api/cases?dueBefore=` gets it too:
+  `deadline IS NULL OR deadline <= :dueBefore`. Undated work is unbounded-risk work; it belongs
+  in "what needs attention by then", never hidden by it.
+  `aCaseWithNoDeadlineSurvivesTheDeadlineFilter` is DB-gated because only real SQL has NULL
+  semantics to get wrong.
+  (b) **No refusal reason ever reached the user.** `unwrap` reads the envelope only on a 2xx,
+  and every deliberate refusal is a non-2xx — a 409 carries "the case has not been paid" in the
+  body while axios sets `message` to "Request failed with status code 409". So the reason was
+  fetched, parsed and thrown away, and `boardRules.ts`'s own comment claiming actions "surface
+  the reason inline" was false. Fixed in the `api.ts` response interceptor, which lifts
+  `error.error.message` onto the Error — one place, so **every** caller in the app gets it, not
+  just the board.
+  (c) **`<dialog open>` is not modal**, so none of the platform behaviour the comment claimed
+  actually happened: Escape did nothing, `onCancel` never fired, `::backdrop` was never
+  generated (the `backdrop:` class was inert) and focus was not trapped — cards behind the
+  dialog stayed tabbable. Now opened with `showModal()` via a ref.
+  (d) **The pool lane's "Assign PM" was inert for a PM**, and the lane was always empty for
+  them anyway: `assign-pm` is what stamps `team_id`, so a pool case has no team and a PM's TEAM
+  scope never matches it — and the route is gated to GM / Brand Manager regardless. `SEES_POOL`
+  is now the two commercial roles. Deviates from the spec, which names the PM; the spec's
+  version cannot work.
+  (e) **`setMonth` overflow widened the window by up to 3 days** (31 Jan + 1 month = 3 March;
+  29 Feb + 1 year = 1 March). The existing test asserted only "later than now", which 3 March
+  satisfies, so it passed while the bug was live — now clamped, and pinned by two tests that
+  name the month.
+  (f) **An inactive member could still be assigned.** `member()` queried brand + role but not
+  `active`, so a departed member was staffable by direct POST or by a dialog left open across a
+  deactivation — while `assignable` filtered them out, making the picker's "cannot offer
+  somebody the transition would refuse" guarantee one-directional. Fixed in the shared lookup,
+  so assign-pm and assign-cm are covered too, not just the reviewed one.
+  (g) **On-hold unassigned cases were missing from the pool count.** The server puts an
+  exception-holding case in its lane *instead of* its stage column, and the lane read only
+  `stages` — understating exactly the cases most likely to be both unassigned and held
+  (awaiting client documents).
+  - **Left as-is, deliberately:** the Case Manager losing sight of a case at `FINAL_DELIVERY`.
+    That is the matrix's own `—` cell, already recorded as note (j) and raised with the user;
+    changing it to `status` is a one-cell product decision, not a defect fix.
+  - Verified: `./mvnw verify -Devalos.db.test=true` **148 tests, 0 skipped**, `npm test` 18,
+    build and lint clean.
+
+- **`npm audit`: 2 high findings, assessed as not exposed, deliberately not "fixed".**
+  `GHSA-qwww-vcr4-c8h2` — react-router **7.12.0 – 8.2.0**, an **RSC-mode** CSRF bypass
+  (actions executing before a 400). Installed is react-router 7.18.1 via
+  react-router-dom 7.18.1, so the version range matches.
+  - **Not reachable here.** EvalOS uses react-router declaratively and only:
+    `BrowserRouter`, `Routes`, `Route`, `Navigate`, `Link`, `NavLink`, `Outlet`,
+    `useLocation`. No `createBrowserRouter`/`RouterProvider` (data mode), no route
+    `loader`/`action`, no `useFetcher`/`useSubmit`, no react-router `<Form>`, no
+    framework mode, no `react-router.config.ts`. RSC mode requires an RSC-capable server;
+    this is a static Vite bundle talking to Spring Boot over `/api`. The vulnerable code
+    path does not exist in the build.
+  - **`npm audit fix --force` would make things worse.** It downgrades react-router-dom to
+    **7.11.0** — backwards across seven minors of real fixes, and still a breaking change.
+    Do not run it.
+  - **The actual fix is react-router 8.3.0** (the first version above the range). That is a
+    major bump, and in v8 `react-router-dom` is gone — imports move to `react-router`. For
+    this app that is mostly an import-specifier change across 7 files, but it is a
+    deliberate upgrade with its own browser pass, not a drive-by inside a feature unit.
+  - Decision: **accept and revisit when a v8 bump is scheduled.** Re-assess immediately if
+    EvalOS ever adopts data mode, framework mode, or RSC — at that point the finding
+    becomes live rather than theoretical.
 
 - **Unit 02 latent test bug, surfaced and fixed.**
   `SecurityFlowTest.tamperedTokenIsUnauthenticated` flipped the **last** character

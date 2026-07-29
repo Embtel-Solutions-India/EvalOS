@@ -395,7 +395,23 @@ export function dueBeforeFor(range: DateRange, now: Date = new Date()): string {
   const end = new Date(now)
   end.setHours(23, 59, 59, 999)
   if (range === 'week') end.setDate(end.getDate() + 7)
-  if (range === 'month') end.setMonth(end.getMonth() + 1)
-  if (range === 'year') end.setFullYear(end.getFullYear() + 1)
+  if (range === 'month') addMonths(end, 1)
+  if (range === 'year') addMonths(end, 12)
   return end.toISOString()
+}
+
+/**
+ * Adds calendar months, clamping to the target month's length.
+ *
+ * `setMonth` alone overflows: 31 January plus one month is 3 March, and 29 February plus a
+ * year is 1 March. Both silently widen the window past the range the user picked, which is
+ * the same class of bug as narrowing it — the filter stops meaning what its label says.
+ */
+function addMonths(date: Date, months: number): void {
+  const day = date.getDate()
+  date.setDate(1)
+  date.setMonth(date.getMonth() + months)
+  // Day 0 of the following month is the last day of this one.
+  const lastDay = new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate()
+  date.setDate(Math.min(day, lastDay))
 }

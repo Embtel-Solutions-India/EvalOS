@@ -1,5 +1,6 @@
 package com.ie.evalos.repository;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -344,14 +345,44 @@ class LocalPostgresIntegrationTest {
 				.contains(id);
 		assertThat(ids(cases.findScoped(brandManagerOfIe(), Stage.DOC_COLLECTION, null)))
 				.doesNotContain(id);
-		// A deadline filter on a case with no deadline: the row drops out, it does not error.
+		// A deadline filter on a case with no deadline keeps the row — see the dedicated test
+		// below for why dropping it was a defect rather than a detail.
 		assertThat(ids(cases.findScoped(brandManagerOfIe(), null, Instant.now())))
-				.doesNotContain(id);
+				.contains(id);
 
 		// And a case in another brand stays out however the filters are combined.
 		UUID other = cases.save(new Case(BRAND_XP, "XP-" + UUID.randomUUID(), Stage.EXPERT_SIGNING)).getId();
 		assertThat(ids(cases.findScoped(brandManagerOfIe(), Stage.EXPERT_SIGNING, null)))
 				.doesNotContain(other);
+	}
+
+	/**
+	 * A case with no deadline is still on the board.
+	 *
+	 * <p>The board always sends a deadline window (the shell's date filter has no "all" option),
+	 * and `deadline <= :dueBefore` alone drops undated rows, because SQL `NULL <= x` is unknown
+	 * rather than true. Intake leaves the column null whenever the GHL payload carries no date —
+	 * there is no `@NotNull` on it — so those cases were invisible in every column and every
+	 * lane, on every screen, with no setting that revealed them. Exactly the kind of thing only
+	 * real SQL shows: a mocked repository has no NULL semantics to get wrong.
+	 */
+	@Test
+	void aCaseWithNoDeadlineSurvivesTheDeadlineFilter() {
+		Case undated = cases.save(new Case(BRAND_IE, "EV-" + UUID.randomUUID(), Stage.DOC_COLLECTION));
+		Case dated = new Case(BRAND_IE, "EV-" + UUID.randomUUID(), Stage.DOC_COLLECTION);
+		dated.setDeadline(Instant.now().plus(Duration.ofDays(3)));
+		UUID datedId = cases.save(dated).getId();
+
+		Case wayOut = new Case(BRAND_IE, "EV-" + UUID.randomUUID(), Stage.DOC_COLLECTION);
+		wayOut.setDeadline(Instant.now().plus(Duration.ofDays(400)));
+		UUID wayOutId = cases.save(wayOut).getId();
+
+		List<UUID> withinAWeek = ids(cases.findScoped(brandManagerOfIe(), null,
+				Instant.now().plus(Duration.ofDays(7))));
+
+		assertThat(withinAWeek).contains(undated.getId(), datedId);
+		// The filter still filters: a case due next year is not "due within a week".
+		assertThat(withinAWeek).doesNotContain(wayOutId);
 	}
 
 	/**

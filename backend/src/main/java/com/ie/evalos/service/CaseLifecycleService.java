@@ -484,7 +484,11 @@ public class CaseLifecycleService {
 	 * member" have to be indistinguishable from outside.
 	 */
 	private TeamMember member(UUID memberId, Role expected, UUID brandId) {
-		return teamMembers.findByIdAndBrandIdAndRole(memberId, brandId, expected)
+		// `active` is part of the query for the same reason brand and role are: somebody who
+		// has left the company is not "available for this case", and a dialog left open across
+		// a deactivation would otherwise still assign them. One place, so all three assignment
+		// transitions get it rather than the one that happened to be reviewed.
+		return teamMembers.findByIdAndBrandIdAndRoleAndActiveTrue(memberId, brandId, expected)
 				.orElseThrow(() -> new IllegalTransitionException("No %s available for this case".formatted(expected)));
 	}
 

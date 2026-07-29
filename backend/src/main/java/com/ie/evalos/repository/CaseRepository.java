@@ -69,7 +69,16 @@ public interface CaseRepository extends ScopedRepository<Case> {
 			spec = spec.and((root, query, cb) -> cb.equal(root.get("currentStage"), stage));
 		}
 		if (dueBefore != null) {
-			spec = spec.and((root, query, cb) -> cb.lessThanOrEqualTo(root.get("deadline"), dueBefore));
+			// A case with no deadline passes the filter. `deadline <= :dueBefore` alone is
+			// SQL-correct and operationally wrong: `NULL <= x` is unknown, so an undated case
+			// is dropped from every window — and since the board always sends a window, such
+			// a case became invisible on every screen with no setting that revealed it.
+			// Intake leaves the column null whenever GHL sends no date, so this is the normal
+			// path, not an edge case. Undated work is unbounded-risk work; it belongs in any
+			// answer to "what needs attention by then", never hidden by it.
+			spec = spec.and((root, query, cb) -> cb.or(
+					cb.isNull(root.get("deadline")),
+					cb.lessThanOrEqualTo(root.get("deadline"), dueBefore)));
 		}
 		return findAll(spec);
 	}

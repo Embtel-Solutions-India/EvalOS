@@ -112,9 +112,9 @@ class CaseLifecycleServiceTest {
 
 		given(cases.findScoped(any(TenantContext.class), any(UUID.class))).willReturn(Optional.of(subject));
 		given(cases.save(any(Case.class))).willAnswer(invocation -> invocation.getArgument(0));
-		given(teamMembers.findByIdAndBrandIdAndRole(PM_ID, BRAND, Role.PROJECT_MANAGER)).willReturn(Optional.of(pm));
-		given(teamMembers.findByIdAndBrandIdAndRole(CM_ID, BRAND, Role.CASE_MANAGER)).willReturn(Optional.of(cm));
-		given(teamMembers.findByIdAndBrandIdAndRole(COORDINATOR_ID, BRAND, Role.PROJECT_COORDINATOR))
+		given(teamMembers.findByIdAndBrandIdAndRoleAndActiveTrue(PM_ID, BRAND, Role.PROJECT_MANAGER)).willReturn(Optional.of(pm));
+		given(teamMembers.findByIdAndBrandIdAndRoleAndActiveTrue(CM_ID, BRAND, Role.CASE_MANAGER)).willReturn(Optional.of(cm));
+		given(teamMembers.findByIdAndBrandIdAndRoleAndActiveTrue(COORDINATOR_ID, BRAND, Role.PROJECT_COORDINATOR))
 				.willReturn(Optional.of(coordinator));
 		given(experts.findScoped(any(TenantContext.class), eq(EXPERT_ID))).willReturn(Optional.of(assigned));
 		given(experts.findScoped(any(TenantContext.class), eq(OTHER_EXPERT_ID))).willReturn(Optional.of(replacement));
@@ -245,6 +245,25 @@ class CaseLifecycleServiceTest {
 		lifecycle.assignCoordinator(CASE_ID, COORDINATOR_ID);
 		assertEquals(COORDINATOR_ID, subject.getAssignedCoordinator());
 		assertEquals(Stage.DRAFT_GENERATION, subject.getCurrentStage());
+	}
+
+	/**
+	 * Somebody who has left is not "available for this case". The check is in the shared
+	 * member lookup, so this covers assign-pm and assign-cm as well: a dialog left open
+	 * across a deactivation, or a direct POST with a remembered id, cannot staff a departed
+	 * member onto live work.
+	 */
+	@Test
+	void aDeactivatedMemberCannotBeAssigned() {
+		actAs(Role.PROJECT_MANAGER);
+		UUID departed = UUID.randomUUID();
+		// The active-filtered finder is what the service calls, so an inactive row is simply
+		// absent — the same way a wrong brand or wrong role is.
+		given(teamMembers.findByIdAndBrandIdAndRoleAndActiveTrue(departed, BRAND, Role.PROJECT_COORDINATOR))
+				.willReturn(Optional.empty());
+
+		assertThrows(IllegalTransitionException.class, () -> lifecycle.assignCoordinator(CASE_ID, departed));
+		assertNull(subject.getAssignedCoordinator());
 	}
 
 	@Test

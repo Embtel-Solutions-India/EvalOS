@@ -31,8 +31,16 @@ type LoadState =
   | { status: 'ready'; data: BoardData }
   | { status: 'failed'; message: string }
 
-/** Roles that can act on the pool, per the spec. A CM has no pool — nothing is theirs yet. */
-const SEES_POOL = ['GM', 'BRAND_MANAGER', 'PROJECT_MANAGER'] as const
+/**
+ * Who gets the pool lane.
+ *
+ * The spec names the PM here too, but a PM cannot have a pool: `assign-pm` is what stamps
+ * `team_id`, so before it runs the case has no team and a PM's TEAM scope never matches it —
+ * and `assign-pm` is gated to GM / Brand Manager anyway. Listing them produced a lane that
+ * was always empty and an "Assign PM" button that silently did nothing when clicked. The
+ * pool is the commercial roles' queue.
+ */
+const SEES_POOL = ['GM', 'BRAND_MANAGER'] as const
 
 export default function BoardView() {
   const me = useMe()
@@ -129,7 +137,11 @@ export default function BoardView() {
 
   const pool = useMemo(() => {
     if (state.status !== 'ready') return []
-    return Object.values(state.data.stages)
+    // Lanes as well as columns: the server puts a case holding an exception state in its lane
+    // *instead of* its stage column, and an unassigned case awaiting client documents is
+    // exactly the kind that gets held. Reading only `stages` understated the one number this
+    // lane exists to give.
+    return [...Object.values(state.data.stages), ...Object.values(state.data.exceptions)]
       .flat()
       .filter((card) => card.poolStatus === 'IN_POOL')
   }, [state])

@@ -24,6 +24,18 @@ api.interceptors.request.use((config) => {
 api.interceptors.response.use(
   (response) => response,
   (error) => {
+    // Lift the server's reason onto the Error itself.
+    //
+    // `unwrap` below only reads the envelope on a 2xx, and every deliberate refusal is a
+    // non-2xx — a 409 ILLEGAL_TRANSITION carries "the case has not been paid" in the body
+    // while axios sets `message` to "Request failed with status code 409". Callers show
+    // `error.message`, so without this the actual reason is fetched, parsed, and thrown
+    // away, and the inline explanation on a refused action says nothing.
+    const envelope = error.response?.data
+    if (typeof envelope?.error?.message === 'string') {
+      error.message = envelope.error.message
+    }
+
     // An expired or rejected token is dropped here rather than in each caller, so the
     // next render sees no session and the router sends the user to login. 403 is left
     // alone: it means "signed in, not allowed", which is a screen, not a logout.

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { fetchAssignable, fetchAvailableExperts } from './boardApi'
 import type { ActionField, PickerOption, QuickAction } from './boardRules'
 
@@ -7,8 +7,13 @@ import type { ActionField, PickerOption, QuickAction } from './boardRules'
  *
  * One generic form rather than ten hand-written ones: the actions differ only in which
  * fields they collect, and a dialog per transition would be ten copies of the same submit
- * handler. A native `<dialog>` so Escape, focus trapping and the backdrop come from the
- * platform.
+ * handler.
+ *
+ * Opened with `showModal()` rather than the `open` attribute, because only the modal path
+ * gives the platform behaviour this leans on: Escape (which fires `cancel`), a real
+ * `::backdrop`, and focus trapped inside the form. With `open` alone the dialog renders but
+ * Escape does nothing, the backdrop class is inert, and tab focus walks out into the board
+ * behind it.
  *
  * Assignment fields are `<select>`s loaded from the scoped roster and expert endpoints. An
  * id is not something a user knows or should be asked to type — and a *generated* id would
@@ -28,13 +33,25 @@ export default function QuickActionDialog({
 }) {
   const [values, setValues] = useState<Record<string, string>>({})
   const fields = action.fields ?? []
+  const dialog = useRef<HTMLDialogElement>(null)
+
+  useEffect(() => {
+    // The component only renders while an action is pending, so this opens once on mount.
+    dialog.current?.showModal()
+  }, [])
 
   return (
     <dialog
-      open
+      ref={dialog}
       className="fixed inset-0 z-20 m-auto rounded-xl border p-0 backdrop:bg-black/30"
       style={{ background: 'var(--bg-surface)', borderColor: 'var(--border-default)' }}
-      onCancel={onCancel}
+      // Escape reaches this now that the dialog is modal. `preventDefault` first, because
+      // the parent unmounts us and letting the platform also close a removed node is how a
+      // stale dialog ends up stuck open on the next render.
+      onCancel={(event) => {
+        event.preventDefault()
+        onCancel()
+      }}
     >
       <form
         className="w-88 p-5"

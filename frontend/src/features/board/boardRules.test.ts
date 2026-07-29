@@ -210,10 +210,19 @@ describe('dueBeforeFor', () => {
     expect(new Set(windows).size).toBe(windows.length)
   })
 
-  it('rolls a month-end date forward without landing in the wrong month', () => {
-    // 31 Jan + 1 month is the classic JS date trap; assert whatever it does is stable and
-    // still in the future rather than silently behind the caller.
+  it('clamps a month-end date instead of overflowing into the month after next', () => {
+    // The original assertion here was only "later than now", which 3 March satisfies just as
+    // well as 28 February — so it passed while `setMonth` overflowed and quietly widened the
+    // window by three days. Pin the month.
     const janEnd = new Date('2026-01-31T12:00:00Z')
-    expect(new Date(dueBeforeFor('month', janEnd)).getTime()).toBeGreaterThan(janEnd.getTime())
+    expect(new Date(dueBeforeFor('month', janEnd)).getMonth()).toBe(1) // February, not March
+  })
+
+  it('clamps a leap day rolled forward a year', () => {
+    const leapDay = new Date('2028-02-29T12:00:00Z')
+    const oneYearOn = new Date(dueBeforeFor('year', leapDay))
+    expect(oneYearOn.getFullYear()).toBe(2029)
+    expect(oneYearOn.getMonth()).toBe(1) // still February, not 1 March
+    expect(oneYearOn.getDate()).toBe(28)
   })
 })
