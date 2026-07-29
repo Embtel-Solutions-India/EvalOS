@@ -271,6 +271,37 @@ Update this file after every meaningful implementation change.
     proves the index refuses the second open case while still allowing another service
     and a repeat purchase after close.
 
+- **Unit 05/05a live end-to-end run — acceptance criterion 1 closed for the current
+  handler.** The previous live evidence (`IE-2026-375863`) was a signed
+  `payment.confirmed` recorded before the pivot, so nothing had exercised
+  `contact.created` over real HTTP + HMAC + Postgres. Now it has, against the running
+  app on the `local` profile:
+  - A signed `contact.created` → `200 accepted`; the replay of the same `event_id` →
+    `200 duplicate` and no second case. Wrong signature → `401 SIGNATURE_INVALID`;
+    unknown token → `404 UNKNOWN_ENDPOINT`. **A payload carrying only a resource `id`
+    → `400 MISSING_EXTERNAL_ID`**, which is the review fix behaving as intended: it
+    fails loudly rather than deduplicating on a contact id.
+  - The created case (`IE-2026-5DFC40`) is `DOC_COLLECTION` / `IN_POOL` / `ON_TRACK`,
+    **`paid = false`**, `deal_value = 900.00` (the quote), `revenueRecognized = false`,
+    with a 4-item `REQUIRED` checklist, a contact snapshot, and
+    `NEW_LEAD` ×2 (GM + that brand's manager only).
+  - `assign-pm` succeeds while unpaid — doc collection is deliberately allowed to
+    proceed — and then **`docs-complete` answers `409 ILLEGAL_TRANSITION` "the case has
+    not been paid"**. After `mark-paid` it answers `409 "not every checklist item is
+    uploaded or approved"`, i.e. the paid guard clears and the next precondition takes
+    over, in that order. `NEW_CASE_IN_POOL` ×2 is raised at payment, not creation.
+  - `mark-paid` corrected `950.00 → 1600.00 → 1725.50` with `paid_at` unchanged across
+    both corrections, and a `CASE_MANAGER` bearer got `403` from the service-layer
+    guard.
+  - `webhook_event` holds exactly one processed, verified row per valid delivery and
+    **nothing at all** for the rejected attempts — an unverified body is logged, never
+    archived. Audit shows `CREATED actor=SYSTEM brand=<IE>` for the webhook and a null
+    brand for the GM's action, both as designed.
+  - Gap noted, not a defect: **the seed has no `PROJECT_COORDINATOR` login**, so the
+    four Coordinator-gated transitions can only be driven as GM locally. That is the
+    same Coordinator-scope open question below, now visible in the seed as well as the
+    schema.
+
 ## In Progress
 
 - Nothing.
