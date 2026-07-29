@@ -5,12 +5,12 @@ Update this file after every meaningful implementation change.
 ## Current Phase
 
 - Phase 1 — Structure the data (the spine) is complete: Units 01–05 built, plus 05a.
-  Phase 2 is under way: Unit 06 (notification centre) is done.
+  Phase 2 is under way: Units 06 (notification centre) and 07 (app shell) are done.
 
 ## Current Goal
 
-- Unit 07 — the app shell and routing, which puts the first surface in front of the
-  notification centre Unit 06 just built.
+- Unit 08 — the Kanban production board and case table, the first screens to mount
+  inside Unit 07's shell and the first consumers of the brand/date filters it holds.
 
 ## Completed
 
@@ -326,14 +326,75 @@ Update this file after every meaningful implementation change.
     `NotificationListenersTest` 14, `NotificationServiceTest` 10,
     `NotificationControllerTest` 6), and **13 DB-gated green against local Postgres 18**.
 
+- **Unit 07 — App shell + role/brand-scoped routing.** The frontend stops being a
+  health-check page. **First unit since 01 to touch `frontend/`.**
+  - Backend: `web/BrandController` + `service/BrandQueryService` +
+    `BrandRepository.findByActiveTrueOrderByNameAsc`. `GET /api/brands` is **GM-only,
+    gated twice** (route and service) because it is the one deliberately cross-brand
+    read in the app — knowing the shape of the business is itself cross-brand
+    information. `BrandOption` projects `id`/`name`/`slug` only: the webhook token and
+    signing secret live on the same entity and must never leave it.
+  - `lib/session.ts` — token in a module variable mirrored to **sessionStorage** (dies
+    with the tab). `lib/api.ts` gained a request interceptor that attaches the bearer
+    and a response interceptor that drops the token on **401 only** — a 403 means
+    "signed in, not allowed", which is a screen, not a logout.
+  - `lib/auth.tsx` — `AuthProvider` with a three-state discriminated union
+    (`loading`/`anonymous`/`authenticated`). **Role and brand come from `/api/me`, never
+    from the login response**, so there is one source of identity rather than two that
+    can disagree.
+  - `features/shell/navigation.ts` — **the nav and the route allow-list are one table.**
+    Two tables is how a screen ends up deep-linkable but unlisted, or listed and then
+    403. `navFor(role)` filters it; `mayReach(role, path)` guards the router against the
+    same field.
+  - `features/shell/{AppShell, LeftNav, TopBar, BrandSwitcher, DateFilter,
+    NotificationBell, PlaceholderPage, filters}` — the shell from `ui-context.md`.
+    `filters.tsx` holds `activeBrandId` (null = all brands, GM only) and `dateRange`.
+  - `features/auth/LoginPage`, `components/Forbidden`, `features/dashboards/RoleDashboard`.
+    403 is a **screen, not a redirect**, so the refused URL stays visible.
+  - Deleted `components/Layout.tsx` and `pages/Dashboard.tsx` — the shell supersedes
+    both; the Unit 01 health-check page had no remaining caller.
+  - `V902` local seed adds the **Project Coordinator and Expert Network Manager logins
+    V900 never had** (`pc.ie@`, `enm.ie@`), because acceptance criterion 1 is "each of
+    the six roles" and four of six is not that.
+  - Verified: `npm run build` clean (tsc + vite), `npm run lint` no errors,
+    `./mvnw verify` BUILD SUCCESS **126 tests** (new `BrandControllerTest` 3), and
+    **live against the running stack**: all six roles authenticate, `/api/me` returns
+    the right role and brand for each, `/api/brands` is 200 for the GM and **403 for
+    all five other roles**, the brand payload carries only `id`/`name`/`slug`, the
+    notification list/read-all/count round-trip works through the bell's endpoints, a
+    garbage token is 401, and the Vite `/api` proxy plus SPA deep-links serve.
+
 ## In Progress
 
 - Nothing.
 
 ## Next Up
 
-- Unit 07 — app shell + routing (`context/specs/07-app-shell-routing.md`), which hangs
-  the notification bell off Unit 06's four endpoints.
+- Unit 08 — Kanban production board + case table. Its spec is not written yet
+  (`context/specs/` stops at 07); generate it before building, per `CLAUDE.md`.
+
+## Known Defects (found by review, not yet fixed)
+
+- **Intake can create duplicate contacts and duplicate cases — two ways.** Found by
+  a `/code-review` pass over Unit 06, both verified against the code, both **open**.
+  1. **`V15`'s index does not close the race it claims to.** `contact_snapshot` (V4)
+     has no unique constraint on `(brand_id, ghl_contact_id)` or on email, so two
+     concurrent `contact.created` deliveries for a contact EvalOS has never seen each
+     insert their own snapshot, get different `contact_id`s, and both pass
+     `V15`'s `(brand_id, contact_id, service_type)` index — two case codes, two
+     checklists, two `NEW_LEAD` alerts. **The comment in
+     `V15__one_open_case_per_contact_service.sql` asserting this "cannot race" is
+     therefore wrong for a new contact**; it holds only once a snapshot exists. Fix:
+     a `V16` unique index on `contact_snapshot (brand_id, ghl_contact_id)` (and
+     probably `lower(email)`), which needs a duplicate check against existing data
+     first.
+  2. **`CaseIntakeService.existingContact` needs no race at all.**
+     `ContactCreated.Contact.ghlContactId` has no `@NotBlank`, so a first delivery can
+     store `ghl_contact_id = NULL`. Its two lookups are exclusive `return`s, so a
+     later delivery *with* the id misses the id branch, never tries email, and inserts
+     a second snapshot — and `ContactSnapshot.syncFromGhl` never writes
+     `ghlContactId`, so the first row is never repaired. Second snapshot → second
+     case. Fix: try both lookups (`.or(...)`) and backfill the id on an email match.
 
 ## Open Questions
 
@@ -673,6 +734,45 @@ Update this file after every meaningful implementation change.
   (j) **Not verified live.** Unit 06 has no live-run acceptance criterion and all six of
   its criteria are covered by tests, but the four endpoints have not been exercised over
   real HTTP, and the listeners have not been observed firing end to end from a webhook.
+
+- **Unit 07 deviations / decisions to confirm.**
+  (a) **No `components/ui/` primitives were generated.** `ui-context.md` calls for a
+  shadcn/Radix set there and `ai-workflow-rules.md` marks it protected, but the
+  directory has never existed and nothing in this unit needed it: the brand switcher is
+  a native `<select>` and the bell dropdown a native `<details>`. Both ship keyboard
+  handling, focus and a11y semantics a hand-rolled version would have to reimplement.
+  Generate the set when a table, dialog or tabs is actually required (Unit 08).
+  (b) **Lucide is not installed; the one icon is inline SVG.** One bell does not earn a
+  dependency. Add Lucide when a screen needs a dozen.
+  (c) **`sessionStorage`, and there is no refresh strategy** — the spec asks for
+  "in-memory + refresh strategy", but no refresh endpoint exists (the JWT is issued once
+  for 8h). Token in memory, mirrored to sessionStorage so a reload does not bounce the
+  user to login; the 401 interceptor is the whole expiry story. Revisit if a refresh
+  route is ever added. Note this is XSS-exposed in a way an httpOnly cookie would not
+  be — accepted for a staff-only internal tool, and worth reconsidering before any
+  external surface (Units 14/15) reuses this code.
+  (d) **The brand filter is state, not yet a parameter.** The spec says the GM's
+  selection is "passed as a `brandId` filter to scoped API calls", but no endpoint in
+  this unit takes one — `/api/notifications` is recipient-keyed and the case list is
+  Unit 08. Holding it in `filters.tsx` now is what lets Unit 08 be additive; sending it
+  nowhere is honest rather than inventing a parameter the server ignores.
+  (e) **Six dashboards are one component plus a table**, not six files. The spec says
+  "one page per role"; this is one page per role, driven by data.
+  **The PRIMARY KPI names are slot labels, not agreed metrics** — Unit 17 owns the real
+  ones. Every tile is a skeleton bar, never a number: a plausible fake figure on an
+  operations dashboard is worse than a blank one.
+  (f) **Three `oxlint` warnings accepted**: `react/only-export-components` on
+  `lib/auth.tsx` and `features/shell/filters.tsx`, the standard cost of a provider and
+  its hook in one file. It is a dev Fast-Refresh concern, not correctness, and splitting
+  four files to silence it is churn. `npm run lint` still exits clean.
+  (g) **`/cases` is shared by four roles** (GM, Brand Manager, PM, Coordinator) rather
+  than being four routes, since the spec's per-role labels ("all brands" / "team" /
+  "own") describe *scope*, which the server applies — not different screens.
+  (h) **Not verified in a browser.** The API half is verified live for all six roles,
+  and `npm run build` proves it compiles, but acceptance criteria 1–4 are visual (the
+  nav set per role, the switcher, the bell dropdown, the 403 view) and no browser pass
+  has been done. There is also no frontend test suite to assert `navFor`/`mayReach`
+  without adding a test framework, which this unit did not do.
 
 - **Unit 02 latent test bug, surfaced and fixed.**
   `SecurityFlowTest.tamperedTokenIsUnauthenticated` flipped the **last** character
