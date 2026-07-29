@@ -29,16 +29,6 @@ const SLA_TOKEN: Record<SlaStatus, { fg: string; bg: string; label: string }> =
     },
   };
 
-/**
- * Built once rather than per card.
- *
- * ponytail: USD is hardcoded, and that is an assumption — a multi-brand system could sell in
- * another currency, and nothing on the case records one. Fine while every brand bills in USD
- * (the SLA calendar and the service types are all US-facing); the upgrade is a currency column
- * on the brand, not a guess here.
- */
-const MONEY = new Intl.NumberFormat(undefined, { style: 'currency', currency: 'USD' })
-
 /** The draft sub-status `ui-context.md` asks the Draft / Report column to show. */
 function draftChip(card: BoardCard): string | null {
   if (card.currentStage !== "DRAFT_GENERATION") return null;
@@ -126,7 +116,7 @@ export default function CaseCard({
         {card.dealValue !== null && (
           <div className="flex justify-between gap-2">
             <dt>Value</dt>
-            <dd>{MONEY.format(card.dealValue)}</dd>
+            <dd>{card.dealValue}</dd>
           </div>
         )}
       </dl>

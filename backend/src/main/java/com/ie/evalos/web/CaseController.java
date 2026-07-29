@@ -157,6 +157,15 @@ public class CaseController {
 			int checklistComplete,
 			/** Null for every role outside GM / PM / CM. */
 			String pmStrategyNotes,
+			/**
+			 * Whether this caller may READ the notes, stated rather than inferred.
+			 *
+			 * <p>Without this the client had to guess, and the only signal available was
+			 * {@code mayEditStrategyNotes} — which is wrong for the Case Manager, the one role that
+			 * reads without writing. A null {@code pmStrategyNotes} means "withheld" or "not written
+			 * yet" and nothing can tell those apart from the value alone.
+			 */
+			boolean maySeeStrategyNotes,
 			/** Whether this caller may write the notes, so the client need not re-derive the rule. */
 			boolean mayEditStrategyNotes) {
 
@@ -172,6 +181,7 @@ public class CaseController {
 					context.checklist().total(),
 					context.checklist().complete(),
 					seesNotes ? subject.getPmStrategyNotes() : null,
+					seesNotes,
 					MAY_EDIT_STRATEGY_NOTES.contains(ctx.role()));
 		}
 	}

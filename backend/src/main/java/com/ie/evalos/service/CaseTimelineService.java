@@ -21,6 +21,7 @@ import com.ie.evalos.service.CaseLifecycleService.CaseSnapshot;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -92,7 +93,7 @@ public class CaseTimelineService {
 
 		List<AuditEvent> rows = auditEvents.findByObjectTypeAndObjectIdOrderByCreatedAtAsc(
 				OBJECT_TYPE, subject.getId());
-		Map<UUID, String> actors = actorNames(rows);
+		Map<UUID, String> actors = actorNames(rows, subject.getBrandId());
 
 		return rows.stream().map(row -> entry(row, actors)).toList();
 	}
@@ -130,8 +131,21 @@ public class CaseTimelineService {
 		}
 	}
 
-	/** One query for every actor on the timeline rather than one per row. */
-	private Map<UUID, String> actorNames(List<AuditEvent> rows) {
+	/**
+	 * One query for every actor on the timeline rather than one per row, narrowed to the brand
+	 * that owns the case.
+	 *
+	 * <p>Brand-scoped at the query, not by the caller's tier. {@code ScopePredicate} would be the
+	 * wrong tool here: it applies the *caller's* tier, and a Case Manager is {@code Tier.SELF} —
+	 * so a CM reading their own case's history would resolve only their own name and see every
+	 * colleague as "System". The case's brand is the correct axis, the same reasoning the
+	 * notification centre records for not using {@code findScoped}.
+	 *
+	 * <p>A null {@code brand_id} is included deliberately: the GM is the one brand-less member
+	 * (see {@code TeamMember}'s CHECK constraint) and a GM who acted on the case is a real actor
+	 * whose name must resolve.
+	 */
+	private Map<UUID, String> actorNames(List<AuditEvent> rows, UUID brandId) {
 		List<UUID> actorIds = rows.stream()
 				.map(AuditEvent::getActorId)
 				.filter(Objects::nonNull)
@@ -140,7 +154,10 @@ public class CaseTimelineService {
 		if (actorIds.isEmpty()) {
 			return Map.of();
 		}
-		return teamMembers.findAllById(actorIds).stream()
+		Specification<TeamMember> inThisBrand = (root, query, cb) -> cb.and(
+				root.get("id").in(actorIds),
+				cb.or(cb.equal(root.get("brandId"), brandId), cb.isNull(root.get("brandId"))));
+		return teamMembers.findAll(inThisBrand).stream()
 				.collect(Collectors.toMap(TeamMember::getId, TeamMember::getDisplayName, (first, second) -> first));
 	}
 }

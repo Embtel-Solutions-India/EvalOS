@@ -241,6 +241,43 @@ class CaseControllerTest {
 		}
 	}
 
+	/**
+	 * The bug the Unit 09 review found: read access must be STATED, not inferred from write
+	 * access. A Case Manager reads the notes but cannot write them, so any client deriving "may I
+	 * see this?" from `mayEditStrategyNotes` gets the one read-only role wrong — and it shows up
+	 * on every case before the PM has written anything, because then the value is null either way.
+	 */
+	@Test
+	void readAccessToStrategyNotesIsStatedSeparatelyFromWriteAccess() throws Exception {
+		Case noNotesYet = aCase();
+		given(details.detail(any())).willReturn(new CaseDetailService.CaseWithContext(
+				noNotesYet, "Anita Rao", null, null, new CaseDetailService.ChecklistSummary(0, 0)));
+
+		// The Case Manager: sees, cannot edit. Both flags must disagree, and the value is null
+		// because nothing has been written — not because it was withheld.
+		mockMvc.perform(get("/api/cases/{id}", CASE_ID).header(HttpHeaders.AUTHORIZATION, bearer(Role.CASE_MANAGER)))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.data.maySeeStrategyNotes").value(true))
+				.andExpect(jsonPath("$.data.mayEditStrategyNotes").value(false))
+				.andExpect(jsonPath("$.data.pmStrategyNotes").doesNotExist());
+
+		// A role that genuinely may not read gets false for both, so the client can tell the two
+		// null cases apart.
+		mockMvc.perform(get("/api/cases/{id}", CASE_ID)
+				.header(HttpHeaders.AUTHORIZATION, bearer(Role.PROJECT_COORDINATOR)))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.data.maySeeStrategyNotes").value(false))
+				.andExpect(jsonPath("$.data.mayEditStrategyNotes").value(false));
+
+		// And the write-capable roles see as well as edit.
+		for (Role writer : List.of(Role.GM, Role.PROJECT_MANAGER)) {
+			mockMvc.perform(get("/api/cases/{id}", CASE_ID).header(HttpHeaders.AUTHORIZATION, bearer(writer)))
+					.andExpect(status().isOk())
+					.andExpect(jsonPath("$.data.maySeeStrategyNotes").value(true))
+					.andExpect(jsonPath("$.data.mayEditStrategyNotes").value(true));
+		}
+	}
+
 	@Test
 	void onlyThePmAndTheGmMayWriteStrategyNotes() throws Exception {
 		givenDetail();

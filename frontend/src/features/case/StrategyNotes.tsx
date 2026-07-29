@@ -4,11 +4,14 @@ import type { CaseDetail } from './caseApi'
 /**
  * The PM's guidance to the Case Manager working the draft.
  *
- * Three states, and the middle one is the point: a role that may not read the notes gets
- * `pmStrategyNotes: null` from the server and is told the field exists but is not theirs —
- * rather than shown an empty box that looks like nobody has written anything. Whether the
- * viewer may *write* is also the server's answer (`mayEditStrategyNotes`), not a role check
- * repeated here.
+ * Three states, and the middle one is the point: a role that may not read the notes is told the
+ * field exists but is not theirs, rather than shown an empty box that looks like nobody has
+ * written anything.
+ *
+ * **Read and write are two separate answers from the server, and both have to be.** The Case
+ * Manager reads without writing, so neither flag implies the other; and `pmStrategyNotes` is
+ * null both when the server withholds it and when the PM simply has not written it yet, so the
+ * value cannot stand in for either flag.
  */
 export default function StrategyNotes({
   detail,
@@ -22,9 +25,11 @@ export default function StrategyNotes({
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  // Absent means the server withheld it. `mayEdit` implies read access, so a PM whose notes
-  // are genuinely empty is not mistaken for a role that cannot see them.
-  const withheld = detail.pmStrategyNotes === null && !detail.mayEditStrategyNotes
+  // The server's own answer, not a guess. This was inferred from `mayEditStrategyNotes`, which
+  // is wrong for the Case Manager — the one role that reads without writing — so every case
+  // before the PM wrote anything told a CM the notes were not theirs while naming their own
+  // role. A null value cannot distinguish "withheld" from "not written yet"; only this can.
+  const withheld = !detail.maySeeStrategyNotes
 
   async function save() {
     setSaving(true)

@@ -1030,6 +1030,42 @@ Update this file after every meaningful implementation change.
   writes an audit row, so the timeline is stale the moment the case changes — and a timeline that
   lags the case it describes is worse than a slightly slower page.
 
+- **Unit 09 review pass — 1 reported defect and 2 scoping cleanups, all fixed.** A five-lens
+  review of `773bf0a` produced six candidates; two were pre-existing, three scored below the
+  reporting bar, and one was a real bug. Fixed all three that were worth fixing.
+  (a) **Read access to the strategy notes was inferred from write access, and the Case Manager is
+  the one role where that is wrong.** `StrategyNotes` computed
+  `withheld = pmStrategyNotes === null && !mayEditStrategyNotes`. A CM reads without writing, and
+  a null value means *either* "withheld" *or* "not written yet" — so on every case before the PM
+  wrote anything, a Case Manager was shown "Visible to the project manager and case manager on
+  this case", naming their own role while denying them the field. The DTO now states
+  **`maySeeStrategyNotes`** alongside `mayEditStrategyNotes` and the client reads it directly;
+  neither flag implies the other, and the value implies neither. Covered by
+  `readAccessToStrategyNotesIsStatedSeparatelyFromWriteAccess`, which asserts the CM's two flags
+  *disagree* — the case the old backend test missed by always supplying a non-null string.
+  (b) **`CaseTimelineService` resolved actor names through the unscoped `findAllById`.**
+  `TeamMemberRepository`'s javadoc forbids unscoped reads across brands and CLAUDE.md's first rule
+  says a query without brand scoping is a bug. Now a `Specification` narrowing to the **case's**
+  brand. **Deliberately not `ScopePredicate`** — that applies the *caller's* tier, and a CM is
+  `Tier.SELF`, so a tier-scoped lookup would resolve only their own name and render every
+  colleague as "System". Null `brand_id` is included because the GM is the one brand-less member
+  and a GM who acted is a real actor. `aReadOnlyCallerStillSeesTheirColleaguesNames` pins exactly
+  that.
+  (c) **`CaseDetailService` read the contact through the inherited `findById`.** `ScopedRepository`
+  calls a scoped read that skips `findScoped` a defect, and `ContactSnapshotRepository` grants no
+  carve-out for `findById` the way the checklist finder does for itself. Nothing was reachable —
+  the id comes off an already-scoped case — but `contact_id` has no brand in its foreign key, so
+  the safety rested on provenance rather than on the query. Now `findScoped`, which is brand-only
+  for every role (a Self caller with no assignment column is deliberately not narrowed), so it
+  returns the same rows for anyone who could already open the case.
+  - **Not fixed, and why**: the `apply()` "one place a case is written" javadoc was already false
+    before this unit (`CaseIntakeService` writes too) — pre-existing, and worth its own pass over
+    all four call sites rather than a drive-by. The `navigation.ts` "same table" wording is
+    imprecise now that `PARAMETERIZED` is a second array; the design is right and the test pins
+    it, so this is a comment to reword, not a defect to fix.
+  - Verified: `./mvnw verify -Devalos.db.test=true` **160 tests, 0 skipped**; `npm test` 24;
+    build and lint clean.
+
 - **Unit 08 review pass — 8 findings, 7 fixed, 1 left as a product decision.** A medium-effort
   review of `026427e`. Two were reachable defects that hid or misreported real work:
   (a) **Every case with no deadline was invisible on the board, permanently.** The board always
@@ -1123,7 +1159,7 @@ Update this file after every meaningful implementation change.
   - Two of my own test-authoring bugs, caught by the suite: a `verify` with no call before it,
     and a mock stubbed *inside* a `willReturn` argument — the exact trap `CaseLifecycleServiceTest`
     already documents.
-  - Verified: `./mvnw verify -Devalos.db.test=true` **158 tests, 0 skipped** against local
+  - Verified: `./mvnw verify -Devalos.db.test=true` **160 tests, 0 skipped** against local
     Postgres 18; `npm test` **24** (new `navigation.test.ts` 6); build and lint clean.
 
 - **`npm audit`: 2 high findings, assessed as not exposed, deliberately not "fixed".**

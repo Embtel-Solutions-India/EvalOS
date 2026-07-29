@@ -29,6 +29,12 @@ export type CaseDetail = {
   checklistComplete: number
   /** Null for every role outside GM / PM / CM — the server omits it rather than the client. */
   pmStrategyNotes: string | null
+  /**
+   * Whether this caller may READ the notes. Stated by the server because it cannot be derived:
+   * `pmStrategyNotes` is null both when withheld and when simply unwritten, and read access is
+   * not the same set as write access (the Case Manager reads without writing).
+   */
+  maySeeStrategyNotes: boolean
   /** The server's own answer, so the client does not re-derive the write rule. */
   mayEditStrategyNotes: boolean
 }

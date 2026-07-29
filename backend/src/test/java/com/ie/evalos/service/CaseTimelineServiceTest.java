@@ -78,6 +78,12 @@ class CaseTimelineServiceTest {
 				.willReturn(List.of(rows));
 	}
 
+	@SuppressWarnings("unchecked")
+	private void givenActors(TeamMember... members) {
+		given(teamMembers.findAll(any(org.springframework.data.jpa.domain.Specification.class)))
+				.willReturn(List.of(members));
+	}
+
 	private static TeamMember named(String displayName) {
 		TeamMember member = mock(TeamMember.class);
 		given(member.getId()).willReturn(ACTOR);
@@ -93,7 +99,7 @@ class CaseTimelineServiceTest {
 		// Built before the stubbing, not inside the willReturn argument: a mock created there
 		// leaves the outer stubbing unfinished (the same trap CaseLifecycleServiceTest names).
 		TeamMember actor = named("Priya Menon");
-		given(teamMembers.findAllById(List.of(ACTOR))).willReturn(List.of(actor));
+		givenActors(actor);
 
 		List<TimelineEntry> entries = timeline.forCase(CASE_ID);
 
@@ -105,6 +111,36 @@ class CaseTimelineServiceTest {
 			// The reason is the point of the entry — a hold with no reason on the trail is useless.
 			assertThat(entry.note()).isEqualTo("waiting on transcripts");
 		});
+	}
+
+	/**
+	 * Actor names are resolved by the CASE's brand, not by the caller's tier.
+	 *
+	 * <p>This is why {@code ScopePredicate} is deliberately not used here: a Case Manager is
+	 * {@code Tier.SELF}, so a tier-scoped lookup would match only their own row and every
+	 * colleague on the timeline would read "System". The query must narrow by brand and still
+	 * return other people.
+	 */
+	@Test
+	void aReadOnlyCallerStillSeesTheirColleaguesNames() {
+		theCase();
+		UUID otherActor = UUID.randomUUID();
+		givenRows(
+				row(AuditAction.ASSIGNED, ACTOR, snapshotJson(Stage.DOC_COLLECTION, ExceptionState.NONE, null)),
+				row(AuditAction.UPDATED, otherActor, snapshotJson(Stage.DOC_COLLECTION, ExceptionState.NONE, null)));
+
+		TeamMember pm = named("Priya Menon");
+		TeamMember coordinator = mock(TeamMember.class);
+		given(coordinator.getId()).willReturn(otherActor);
+		given(coordinator.getDisplayName()).willReturn("Priya Chandra");
+		givenActors(pm, coordinator);
+
+		List<TimelineEntry> entries = timeline.forCase(CASE_ID);
+
+		assertThat(entries).extracting(TimelineEntry::actorName)
+				.containsExactly("Priya Menon", "Priya Chandra");
+		// A Specification, never the unscoped findAllById it replaced.
+		verify(teamMembers).findAll(any(org.springframework.data.jpa.domain.Specification.class));
 	}
 
 	@Test

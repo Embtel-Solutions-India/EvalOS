@@ -6,6 +6,7 @@ import java.util.UUID;
 
 import com.ie.evalos.domain.Case;
 import com.ie.evalos.domain.ChecklistItemStatus;
+import com.ie.evalos.domain.ContactSnapshot;
 import com.ie.evalos.domain.DocumentChecklistItem;
 import com.ie.evalos.domain.Expert;
 import com.ie.evalos.repository.ContactSnapshotRepository;
@@ -59,15 +60,22 @@ public class CaseDetailService {
 	public CaseWithContext detail(UUID caseId) {
 		Case subject = lifecycle.read(caseId);
 
+		// Scoped, not the inherited findById: ScopedRepository's own javadoc calls a scoped read
+		// that skips findScoped a defect, and ContactSnapshotRepository grants no carve-out for
+		// findById the way the checklist finder does for itself. The contact id does come off an
+		// already-scoped case, so nothing was reachable through it — but the contact FK is
+		// `contact_id REFERENCES contact_snapshot(id)` with no brand in the key, so the safety was
+		// resting on provenance rather than on the query. Both axes are brand-only for every role
+		// (a Self caller with no assignment column is deliberately not narrowed), so this reads
+		// the same rows for everyone who could already open the case.
+		TenantContext caller = TenantContext.current();
 		String clientName = Optional.ofNullable(subject.getContactId())
-				.flatMap(contacts::findById)
-				.map(contact -> contact.getFullName())
+				.flatMap(id -> contacts.findScoped(caller, id))
+				.map(ContactSnapshot::getFullName)
 				.orElse(null);
 
-		// Scoped, unlike the two lookups either side: an expert is a brand-wide resource with
-		// its own repository scope, so there is no reason not to apply it.
 		Optional<Expert> expert = Optional.ofNullable(subject.getExpertId())
-				.flatMap(id -> experts.findScoped(TenantContext.current(), id));
+				.flatMap(id -> experts.findScoped(caller, id));
 
 		List<DocumentChecklistItem> items = checklistItems.findByCaseId(subject.getId());
 		ChecklistSummary checklist = new ChecklistSummary(items.size(),
