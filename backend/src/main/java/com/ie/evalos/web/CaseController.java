@@ -18,6 +18,7 @@ import com.ie.evalos.domain.ServiceType;
 import com.ie.evalos.domain.SlaStatus;
 import com.ie.evalos.domain.Stage;
 import com.ie.evalos.security.TenantContext;
+import com.ie.evalos.service.CaseDetailService;
 import com.ie.evalos.service.CaseLifecycleService;
 import com.ie.evalos.service.RefundService;
 
@@ -28,6 +29,7 @@ import jakarta.validation.constraints.Positive;
 
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -117,6 +119,61 @@ public class CaseController {
 	public record AssignCoordinatorRequest(@NotNull UUID coordinatorId) {
 	}
 
+	/**
+	 * Blank clears the notes, so this is {@code @NotNull} rather than {@code @NotBlank} —
+	 * deleting guidance that no longer applies is a legitimate edit.
+	 */
+	public record StrategyNotesRequest(@NotNull String pmStrategyNotes) {
+	}
+
+	/**
+	 * Who may read the PM's strategy notes: the PM who writes them, the Case Manager they are
+	 * written for, and the GM. Narrower than {@code deal_value} on purpose — this is working
+	 * guidance between two named people on one case, not a commercial figure the brand's
+	 * management needs.
+	 */
+	private static final Set<Role> SEES_STRATEGY_NOTES = Set.of(Role.GM, Role.PROJECT_MANAGER, Role.CASE_MANAGER);
+
+	/**
+	 * The case as the detail page reads it: everything in the summary, plus the joined context
+	 * a single case needs and the two role-restricted fields.
+	 *
+	 * <p>Both restrictions are applied here, in the projection, rather than hidden by the
+	 * client: a field the caller may not see is absent from the payload, so there is nothing to
+	 * reveal with dev tools (spec deliverable 5, invariant 3).
+	 */
+	public record CaseDetail(
+			CaseSummary summary,
+			String clientName,
+			String driveLink,
+			String expertName,
+			String expertTier,
+			int checklistTotal,
+			int checklistComplete,
+			/** Null for every role outside GM / PM / CM. */
+			String pmStrategyNotes,
+			/** Whether this caller may write the notes, so the client need not re-derive the rule. */
+			boolean mayEditStrategyNotes) {
+
+		static CaseDetail of(CaseDetailService.CaseWithContext context, TenantContext ctx) {
+			Case subject = context.subject();
+			boolean seesNotes = SEES_STRATEGY_NOTES.contains(ctx.role());
+			return new CaseDetail(
+					CaseSummary.of(subject, ctx),
+					context.clientName(),
+					subject.getDriveLink(),
+					context.expertName(),
+					context.expertTier(),
+					context.checklist().total(),
+					context.checklist().complete(),
+					seesNotes ? subject.getPmStrategyNotes() : null,
+					MAY_EDIT_STRATEGY_NOTES.contains(ctx.role()));
+		}
+	}
+
+	/** The PM owns the notes; the GM is a superuser here as on every other write. */
+	private static final Set<Role> MAY_EDIT_STRATEGY_NOTES = Set.of(Role.GM, Role.PROJECT_MANAGER);
+
 	public record ExpertRequest(@NotNull UUID expertId) {
 	}
 
@@ -130,10 +187,12 @@ public class CaseController {
 
 	private final CaseLifecycleService lifecycle;
 	private final RefundService refunds;
+	private final CaseDetailService details;
 
-	CaseController(CaseLifecycleService lifecycle, RefundService refunds) {
+	CaseController(CaseLifecycleService lifecycle, RefundService refunds, CaseDetailService details) {
 		this.lifecycle = lifecycle;
 		this.refunds = refunds;
+		this.details = details;
 	}
 
 	private static ApiResponse<CaseSummary> summary(Case subject) {
@@ -154,8 +213,21 @@ public class CaseController {
 	}
 
 	@GetMapping("/{id}")
-	public ApiResponse<CaseSummary> read(@PathVariable UUID id) {
-		return summary(lifecycle.read(id));
+	public ApiResponse<CaseDetail> read(@PathVariable UUID id) {
+		return ApiResponse.ok(CaseDetail.of(details.detail(id), TenantContext.current()));
+	}
+
+	/**
+	 * Not a transition, so not a POST alongside the eighteen below: nothing about the case's
+	 * state changes, and the service deliberately leaves the stage clock alone. It still writes
+	 * an audit row, so the edit appears on the timeline.
+	 */
+	@PatchMapping("/{id}/strategy-notes")
+	@PreAuthorize(GM_OR + "hasRole('PROJECT_MANAGER')")
+	public ApiResponse<CaseDetail> updateStrategyNotes(@PathVariable UUID id,
+			@Valid @RequestBody StrategyNotesRequest request) {
+		lifecycle.updateStrategyNotes(id, request.pmStrategyNotes());
+		return read(id);
 	}
 
 	// --- payment -------------------------------------------------------------

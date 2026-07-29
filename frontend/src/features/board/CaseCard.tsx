@@ -1,3 +1,4 @@
+import { Link } from 'react-router-dom'
 import type { BoardCard, QuickAction, SlaStatus } from './boardRules'
 
 /**
@@ -52,9 +53,15 @@ export default function CaseCard({
       }}
     >
       <div className="flex items-baseline justify-between gap-2">
-        <span className="font-mono text-xs" style={{ color: 'var(--text-muted)' }}>
+        {/* A real link, not an onClick: middle-click and "open in new tab" are how people
+            actually work a board, and a div with a handler breaks both. */}
+        <Link
+          to={`/cases/${card.id}`}
+          className="font-mono text-xs underline-offset-2 hover:underline"
+          style={{ color: 'var(--text-muted)' }}
+        >
           {card.caseCode}
-        </span>
+        </Link>
         {sla && (
           <span
             className="rounded-md px-1.5 py-0.5 text-xs font-semibold"
@@ -65,9 +72,11 @@ export default function CaseCard({
         )}
       </div>
 
-      <p className="mt-1.5 text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
-        {card.clientName ?? 'Unnamed contact'}
-      </p>
+      <Link to={`/cases/${card.id}`} className="mt-1.5 block">
+        <p className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
+          {card.clientName ?? 'Unnamed contact'}
+        </p>
+      </Link>
       <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
         {card.serviceType?.replaceAll('_', ' ').toLowerCase() ?? 'service not set'}
       </p>

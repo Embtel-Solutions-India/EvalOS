@@ -1,0 +1,90 @@
+package com.ie.evalos.service;
+
+import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
+
+import com.ie.evalos.domain.Case;
+import com.ie.evalos.domain.ChecklistItemStatus;
+import com.ie.evalos.domain.DocumentChecklistItem;
+import com.ie.evalos.domain.Expert;
+import com.ie.evalos.repository.ContactSnapshotRepository;
+import com.ie.evalos.repository.DocumentChecklistItemRepository;
+import com.ie.evalos.repository.ExpertRepository;
+import com.ie.evalos.security.TenantContext;
+
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+/**
+ * Assembles one case with the three things the detail page needs that the case row does not
+ * carry: who the client is, who the expert is, and how the document checklist stands.
+ *
+ * <p>The case itself comes from {@link CaseLifecycleService#read}, so scope and the 403 for
+ * an out-of-scope case are decided in exactly one place — this service never builds its own
+ * predicate and therefore cannot disagree with the rest of the system about what the caller
+ * may see. Everything else is looked up by an id that came off a case the caller already
+ * proved they could read.
+ */
+@Service
+public class CaseDetailService {
+
+	/** How the checklist stands, for the summary chip. The board itself is Unit 10. */
+	public record ChecklistSummary(int total, int complete) {
+	}
+
+	/** One case plus the joined reads the detail page draws. */
+	public record CaseWithContext(
+			Case subject,
+			String clientName,
+			String expertName,
+			String expertTier,
+			ChecklistSummary checklist) {
+	}
+
+	private final CaseLifecycleService lifecycle;
+	private final ContactSnapshotRepository contacts;
+	private final ExpertRepository experts;
+	private final DocumentChecklistItemRepository checklistItems;
+
+	CaseDetailService(CaseLifecycleService lifecycle, ContactSnapshotRepository contacts, ExpertRepository experts,
+			DocumentChecklistItemRepository checklistItems) {
+		this.lifecycle = lifecycle;
+		this.contacts = contacts;
+		this.experts = experts;
+		this.checklistItems = checklistItems;
+	}
+
+	@Transactional(readOnly = true)
+	public CaseWithContext detail(UUID caseId) {
+		Case subject = lifecycle.read(caseId);
+
+		String clientName = Optional.ofNullable(subject.getContactId())
+				.flatMap(contacts::findById)
+				.map(contact -> contact.getFullName())
+				.orElse(null);
+
+		// Scoped, unlike the two lookups either side: an expert is a brand-wide resource with
+		// its own repository scope, so there is no reason not to apply it.
+		Optional<Expert> expert = Optional.ofNullable(subject.getExpertId())
+				.flatMap(id -> experts.findScoped(TenantContext.current(), id));
+
+		List<DocumentChecklistItem> items = checklistItems.findByCaseId(subject.getId());
+		ChecklistSummary checklist = new ChecklistSummary(items.size(),
+				(int) items.stream().filter(CaseDetailService::isComplete).count());
+
+		return new CaseWithContext(subject, clientName,
+				expert.map(Expert::getFullName).orElse(null),
+				expert.map(Expert::getTier).map(Enum::name).orElse(null),
+				checklist);
+	}
+
+	/**
+	 * The same definition {@code markDocsComplete} gates on — uploaded or approved. Kept in
+	 * step with it deliberately: a summary chip reading "6 of 6" while the transition refuses
+	 * because one item is only uploaded would be worse than no chip.
+	 */
+	private static boolean isComplete(DocumentChecklistItem item) {
+		return item.getStatus() == ChecklistItemStatus.APPROVED || item.getStatus() == ChecklistItemStatus.UPLOADED;
+	}
+}

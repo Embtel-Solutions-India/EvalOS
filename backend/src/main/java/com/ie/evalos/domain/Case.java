@@ -302,6 +302,19 @@ public class Case extends ScopedEntity {
 		this.deadline = deadline;
 	}
 
+	/**
+	 * The PM's guidance to the Case Manager. Role-restricted in the DTO, and written only by
+	 * {@code CaseLifecycleService.updateStrategyNotes} — which is not a transition, so it
+	 * deliberately leaves the stage clock alone.
+	 */
+	public String getPmStrategyNotes() {
+		return pmStrategyNotes;
+	}
+
+	public void setPmStrategyNotes(String pmStrategyNotes) {
+		this.pmStrategyNotes = pmStrategyNotes;
+	}
+
 	public String getDriveLink() {
 		return driveLink;
 	}

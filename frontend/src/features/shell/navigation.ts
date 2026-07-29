@@ -85,6 +85,26 @@ export const NAV_ITEMS: readonly NavItem[] = [
   },
 ]
 
+/**
+ * Routes that are reachable but not listed, because they need a parameter.
+ *
+ * `/cases/:id` has no nav entry — you arrive from a board card — but it still needs a role
+ * allow-list, and it needs to live in the same table for the reason the header comment gives:
+ * a screen whose gate is declared somewhere else is how one ends up deep-linkable but
+ * unguarded. Every staff role can open a case; **which** cases is the server's scope, which is
+ * why the list here is every role rather than a subset.
+ */
+export const CASE_DETAIL_PATH = '/cases/:id'
+
+const PARAMETERIZED: readonly NavItem[] = [
+  {
+    path: CASE_DETAIL_PATH,
+    label: 'Case',
+    roles: ALL_ROLES,
+    becomes: 'Case detail',
+  },
+]
+
 export function navFor(role: Role): readonly NavItem[] {
   return NAV_ITEMS.filter((item) => item.roles.includes(role))
 }
@@ -93,6 +113,13 @@ export function itemFor(path: string): NavItem | undefined {
   return NAV_ITEMS.find((item) => item.path === path)
 }
 
+/**
+ * The router's half of the table, over listed and parameterized routes alike.
+ *
+ * Unknown paths return false, so a route added without an entry is refused rather than open —
+ * the safe direction, and the reason this stays a lookup instead of a default-allow.
+ */
 export function mayReach(role: Role, path: string): boolean {
-  return itemFor(path)?.roles.includes(role) ?? false
+  const item = itemFor(path) ?? PARAMETERIZED.find((candidate) => candidate.path === path)
+  return item?.roles.includes(role) ?? false
 }

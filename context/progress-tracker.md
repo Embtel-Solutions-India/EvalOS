@@ -5,14 +5,14 @@ Update this file after every meaningful implementation change.
 ## Current Phase
 
 - Phase 1 — Structure the data (the spine) is complete: Units 01–05 built, plus 05a.
-  Phase 2 is under way: Units 06 (notification centre), 07 (app shell) and 08 (production
-  board) are done.
+  Phase 2 is under way: Units 06 (notification centre), 07 (app shell), 08 (production board)
+  and 09 (case detail) are done.
 
 ## Current Goal
 
-- Unit 09 — case detail, which the board's cards deep-link into. It is the working surface
-  for the PM, Case Manager and Coordinator, and the first screen to read the append-only
-  audit trail Unit 03 built.
+- Unit 10 — document checklist board + Coordinator flow, the **final unit of Phase 1**. It
+  completes the intake→production handoff and is the screen `DocumentsPanel` already links to.
+  No longer gated: the Coordinator's scope became real in Unit 08.
 
 ## Completed
 
@@ -488,9 +488,10 @@ Update this file after every meaningful implementation change.
 
 ## Next Up
 
-- Unit 09 — Case detail page (`context/specs/09-case-detail.md`), then Unit 10 (doc
-  checklist + Coordinator flow), which closes Phase 1. Unit 10 is **no longer gated**: the
-  Coordinator's scope is real as of Unit 08.
+- Unit 10 — Document checklist board + Coordinator flow
+  (`context/specs/10-doc-checklist-coordinator.md`), which closes Phase 1. `DocumentsPanel`
+  already links to `/checklists`, and `CaseDetailService.ChecklistSummary` is the counts it
+  will own properly.
 
 ## Open Questions
 
@@ -962,6 +963,36 @@ Update this file after every meaningful implementation change.
   it can only narrow. Note (g)'s reasoning ("scope, not different screens") is what `/board`
   and `/my-cases` sharing one component now rests on.
 
+- **Unit 09 deviations / decisions to confirm.**
+  (a) **The spec's deliverables 3 and 5 contradict each other on strategy notes** — 3 says
+  "visible to PM + CM", 5 says "any PM-only note hidden from Case Manager / Coordinator". Read as:
+  3 is the specific rule for this field and 5's wording is loose. Implemented as read for
+  GM/PM/CM, write for PM/GM, hidden from Brand Manager / Coordinator / ENM. **Excluding the Brand
+  Manager is the debatable half** — they manage the brand but these are working notes between two
+  named people on one case. One entry in `SEES_STRATEGY_NOTES` if that is wrong.
+  (b) **`CaseDetailService` is a fourth backend file the spec's list does not name.** The spec has
+  `GET /api/cases/{id}` returning a "full case DTO" but lists only the timeline service and
+  controller; assembling client + expert + checklist is multi-repository work that does not belong
+  in a controller.
+  (c) **`CaseDetail` nests the summary** rather than flattening 21 fields into it, so the board
+  and the detail page share one shape. Costs the client a `detail.summary.x` hop; the alternative
+  is two definitions of the same case that can drift.
+  (d) **The timeline shows the `note` to every role that can open the case.** It carries hold
+  reasons, decline reasons, revision notes and — from `markPaid` — an invoice reference. Only
+  `deal_value` is restricted by invariant 3, and an invoice ref is not it. Flagging because it is
+  the one adjacent-to-money field a Case Manager can now see; say so and it becomes a projection
+  like the others.
+  (e) **`AuditAction` has no dedicated value for a notes edit** — it records `UPDATED`, matching
+  Unit 05 note (b)'s object-type + action convention. The timeline reads "updated" for both a
+  notes edit and a payment correction; the snapshot distinguishes them, the label does not.
+  (f) **No expert *link* on the expert card.** Unit 11 owns the expert screen; a card that named
+  a destination which does not exist would be worse than one that does not.
+  (g) **`DocumentsPanel` links to `/checklists`, not to this case's checklist.** Unit 10 defines
+  that route's shape; the link goes to the board it will own rather than inventing a URL now.
+  (h) **The page reloads both reads after every action** instead of patching state. A transition
+  writes an audit row, so the timeline is stale the moment the case changes — and a timeline that
+  lags the case it describes is worse than a slightly slower page.
+
 - **Unit 08 review pass — 8 findings, 7 fixed, 1 left as a product decision.** A medium-effort
   review of `026427e`. Two were reachable defects that hid or misreported real work:
   (a) **Every case with no deadline was invisible on the board, permanently.** The board always
@@ -1010,6 +1041,53 @@ Update this file after every meaningful implementation change.
     changing it to `status` is a one-cell product decision, not a defect fix.
   - Verified: `./mvnw verify -Devalos.db.test=true` **148 tests, 0 skipped**, `npm test` 18,
     build and lint clean.
+
+- **Unit 09 — Case detail page.** The first unit that reads the audit trail back out.
+  - `service/CaseTimelineService` + `web/CaseTimelineController` → `GET /api/cases/{id}/timeline`,
+    oldest first. **The scoped load runs before a single audit row is fetched**, so an
+    out-of-scope case answers 403 rather than becoming a way to read another brand's history by
+    guessing an id. No `@PreAuthorize`: every role that can open a case can read what happened
+    to it, and opening it is what the scope decides.
+  - **The restricted-field rule is satisfied structurally, not by filtering.** The spec asks the
+    timeline not to surface fields the caller may not see (e.g. deal value to a CM). Each stored
+    snapshot is parsed into the typed `CaseSnapshot` and only three components are projected, so
+    a field added to the snapshot later cannot arrive by accident — and `CaseSnapshot` has never
+    carried `deal_value`. `DomainInvariantsTest.theAuditSnapshotCarriesNoRoleRestrictedField`
+    fails the build if `dealValue`, `invoiceRef` or `pmStrategyNotes` is ever added to it, because
+    adding one would leak through a screen nobody would re-check.
+  - **An unparseable snapshot still becomes a timeline entry.** Audit rows are permanent while the
+    snapshot shape moves (`assignedCoordinator` was added in Unit 08, and a notes edit stores a
+    different record entirely). Letting one bad row throw would take out the whole history —
+    the opposite of what an append-only trail is for. Action, actor and timestamp live in real
+    columns, so they survive regardless.
+  - `service/CaseDetailService` joins the three things a single case needs that the row does not
+    carry — client name, expert, checklist counts. The case itself comes from
+    `CaseLifecycleService.read`, so **scope is decided in one place** and this service cannot
+    disagree with the rest of the system about what the caller may see. The checklist's
+    "complete" definition is deliberately the same one `markDocsComplete` gates on.
+  - `PATCH /api/cases/{id}/strategy-notes` + `CaseLifecycleService.updateStrategyNotes`.
+    **Deliberately not routed through `apply(...)`**: it is not a transition, and reusing `apply`
+    would restamp `stage_entered_at` and so silently reset the SLA clock — editing a note would
+    buy the case a fresh budget — and publish a lifecycle event for something that did not
+    happen. It still writes an audit row, because invariant 13 is about every change, not every
+    transition. A PATCH rather than a POST for the same reason.
+  - **Two role gates on the detail DTO, both projections rather than client-side hiding**:
+    `deal_value` keeps its GM/BM/PM rule, and `pm_strategy_notes` is narrower — GM, PM, CM only
+    (the PM who writes them and the CM they are for). Writing is PM + GM. The DTO also answers
+    `mayEditStrategyNotes` so the client does not re-derive the rule.
+  - Frontend `features/case/*` (`CaseDetail`, `DocumentsPanel`, `DraftPanel`, `ExpertCard`,
+    `Timeline`, `StageActions`, `StrategyNotes`, `caseApi`). **The stage-action header reuses
+    `boardRules.actionsFor` and the board's dialog and POST** — which transitions are legal does
+    not depend on which screen you are on, and two tables would be two answers.
+  - `/cases/:id` is gated by the *same* nav table via a `PARAMETERIZED` list, even though it has
+    no nav entry (you arrive from a board card). A gate declared elsewhere is how a screen ends
+    up deep-linkable but unguarded. Board cards now link to it — a real `<Link>`, so middle-click
+    and open-in-new-tab work.
+  - Two of my own test-authoring bugs, caught by the suite: a `verify` with no call before it,
+    and a mock stubbed *inside* a `willReturn` argument — the exact trap `CaseLifecycleServiceTest`
+    already documents.
+  - Verified: `./mvnw verify -Devalos.db.test=true` **158 tests, 0 skipped** against local
+    Postgres 18; `npm test` **24** (new `navigation.test.ts` 6); build and lint clean.
 
 - **`npm audit`: 2 high findings, assessed as not exposed, deliberately not "fixed".**
   `GHSA-qwww-vcr4-c8h2` — react-router **7.12.0 – 8.2.0**, an **RSC-mode** CSRF bypass

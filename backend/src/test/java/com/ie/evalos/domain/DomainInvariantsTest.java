@@ -16,6 +16,7 @@ import com.ie.evalos.repository.ExpertRepository;
 import com.ie.evalos.repository.NotificationRepository;
 import com.ie.evalos.repository.PayoutLedgerRepository;
 import com.ie.evalos.service.CaseIntakeService;
+import com.ie.evalos.service.CaseLifecycleService;
 import com.ie.evalos.service.ScopePredicate;
 import com.ie.evalos.webhook.GhlContactHandler;
 
@@ -128,6 +129,22 @@ class DomainInvariantsTest {
 		catch (ClassNotFoundException ex) {
 			throw new IllegalStateException(ex);
 		}
+	}
+
+	/**
+	 * The audit snapshot must not carry {@code deal_value}.
+	 *
+	 * <p>Unit 09 reads the trail back out as a timeline, visible to every role that can open
+	 * the case — including the Case Manager, whom invariant 3 keeps away from the deal value.
+	 * The timeline is safe because the snapshot never held it, not because the timeline filters
+	 * it out, and that is a property worth failing the build over: adding it here would leak it
+	 * through a screen nobody would think to re-check.
+	 */
+	@Test
+	void theAuditSnapshotCarriesNoRoleRestrictedField() {
+		assertThat(CaseLifecycleService.CaseSnapshot.class.getRecordComponents())
+				.extracting(java.lang.reflect.RecordComponent::getName)
+				.doesNotContain("dealValue", "invoiceRef", "pmStrategyNotes");
 	}
 
 	@Test

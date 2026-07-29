@@ -120,6 +120,11 @@ public class Expert extends ScopedEntity {
 		return fullName;
 	}
 
+	/** Unit 09's expert card. Matching preference reads it properly in Unit 11. */
+	public ExpertTier getTier() {
+		return tier;
+	}
+
 	/** Set by Unit 11's roster screen; today only tests and seed data write it. */
 	public void setAvailability(Availability availability) {
 		this.availability = availability;
