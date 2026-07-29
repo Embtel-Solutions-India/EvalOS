@@ -11,9 +11,18 @@ import jakarta.persistence.Table;
 
 /**
  * A brand-tagged copy of a GHL contact. GHL owns this data; EvalOS is not its
- * system of record (invariant 7). The only writer is the contact sync driven by
- * GHL's {@code contact.updated} event — no EvalOS business rule mutates a
- * synced field.
+ * system of record (invariant 7): no EvalOS business rule mutates a synced field.
+ *
+ * <p>Two writers, and the split is the point:
+ * <ul>
+ * <li>{@link #syncFromGhl} replaces the synced fields wholesale from a GHL payload.
+ *     Driven by Handoff A's {@code contact.created} today; {@code contact.updated} is
+ *     recognized by the router but still a deliberate no-op, so it is not a driver yet.
+ * <li>{@link #linkGhlContact} writes the GHL id, and <em>only</em> when it is absent.
+ *     This one is EvalOS inference rather than a passthrough — it repairs a row matched
+ *     by email — which is why it is write-once and separate. It does not touch a synced
+ *     field, so invariant 7 still holds: identity is not content.
+ * </ul>
  */
 @Entity
 @Table(name = "contact_snapshot")

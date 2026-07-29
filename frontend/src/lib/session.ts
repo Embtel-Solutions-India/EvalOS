@@ -31,6 +31,21 @@ const TOKEN_KEY = 'evalos.token'
 
 let token: string | null = sessionStorage.getItem(TOKEN_KEY)
 
+/**
+ * Called when the token is dropped, so React learns about it.
+ *
+ * A single slot rather than an emitter: there is exactly one `AuthProvider` by
+ * construction, and a list of subscribers for one subscriber is machinery nobody reads.
+ * Without this, clearing the token only mutated a module variable — the shell went on
+ * rendering as signed-in with no token, and every request 401'd silently until a manual
+ * reload.
+ */
+let onCleared: (() => void) | null = null
+
+export function onTokenCleared(handler: (() => void) | null): void {
+  onCleared = handler
+}
+
 export function getToken(): string | null {
   return token
 }
@@ -43,4 +58,5 @@ export function setToken(value: string): void {
 export function clearToken(): void {
   token = null
   sessionStorage.removeItem(TOKEN_KEY)
+  onCleared?.()
 }
