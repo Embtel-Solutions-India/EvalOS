@@ -1,5 +1,7 @@
 package com.ie.evalos.service;
 
+import java.math.BigDecimal;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -18,12 +20,14 @@ import com.ie.evalos.domain.PayoutLedger;
 import com.ie.evalos.domain.PayoutStatus;
 import com.ie.evalos.domain.PoolStatus;
 import com.ie.evalos.domain.Role;
+import com.ie.evalos.domain.SlaStatus;
 import com.ie.evalos.domain.Stage;
 import com.ie.evalos.domain.TeamMember;
 import com.ie.evalos.event.CaseEvents;
 import com.ie.evalos.repository.CaseRepository;
 import com.ie.evalos.repository.DocumentChecklistItemRepository;
 import com.ie.evalos.repository.ExpertRepository;
+import com.ie.evalos.repository.NotificationRepository;
 import com.ie.evalos.repository.PayoutLedgerRepository;
 import com.ie.evalos.repository.TeamMemberRepository;
 import com.ie.evalos.security.StaffPrincipal;
@@ -72,6 +76,7 @@ class CaseLifecycleServiceTest {
 	private static final UUID CM_ID = UUID.randomUUID();
 	private static final UUID EXPERT_ID = UUID.randomUUID();
 	private static final UUID OTHER_EXPERT_ID = UUID.randomUUID();
+	private static final BigDecimal PAID = new BigDecimal("1450.00");
 
 	private final CaseRepository cases = mock(CaseRepository.class);
 	private final DocumentChecklistItemRepository checklistItems = mock(DocumentChecklistItemRepository.class);
@@ -81,9 +86,11 @@ class CaseLifecycleServiceTest {
 	private final AuditService audit = mock(AuditService.class);
 	private final ApplicationEventPublisher events = mock(ApplicationEventPublisher.class);
 
+	private final NotificationRepository notifications = mock(NotificationRepository.class);
 	private final SlaCalculator sla = new SlaCalculator(new BusinessCalendar());
+	private final PoolNotifier pool = new PoolNotifier(teamMembers, notifications);
 	private final CaseLifecycleService lifecycle = new CaseLifecycleService(
-			cases, checklistItems, experts, teamMembers, audit, sla, events);
+			cases, checklistItems, experts, teamMembers, audit, sla, pool, events);
 	private final RefundService refunds = new RefundService(lifecycle, payouts);
 
 	private Case subject;
@@ -105,8 +112,8 @@ class CaseLifecycleServiceTest {
 
 		given(cases.findScoped(any(TenantContext.class), any(UUID.class))).willReturn(Optional.of(subject));
 		given(cases.save(any(Case.class))).willAnswer(invocation -> invocation.getArgument(0));
-		given(teamMembers.findById(PM_ID)).willReturn(Optional.of(pm));
-		given(teamMembers.findById(CM_ID)).willReturn(Optional.of(cm));
+		given(teamMembers.findByIdAndBrandIdAndRole(PM_ID, BRAND, Role.PROJECT_MANAGER)).willReturn(Optional.of(pm));
+		given(teamMembers.findByIdAndBrandIdAndRole(CM_ID, BRAND, Role.CASE_MANAGER)).willReturn(Optional.of(cm));
 		given(experts.findScoped(any(TenantContext.class), eq(EXPERT_ID))).willReturn(Optional.of(assigned));
 		given(experts.findScoped(any(TenantContext.class), eq(OTHER_EXPERT_ID))).willReturn(Optional.of(replacement));
 		given(checklistItems.findByCaseId(any())).willReturn(completeChecklist);
@@ -149,6 +156,7 @@ class CaseLifecycleServiceTest {
 	/** Everything the walk needs before the draft loops start. */
 	private void walkToDraftGeneration() {
 		actAs(Role.BRAND_MANAGER);
+		lifecycle.markPaid(CASE_ID, PAID, "INV-0001");
 		lifecycle.assignPm(CASE_ID, PM_ID);
 		actAs(Role.PROJECT_COORDINATOR);
 		lifecycle.markDocsComplete(CASE_ID);
@@ -198,8 +206,9 @@ class CaseLifecycleServiceTest {
 		assertNull(subject.getSlaStatus(), "a closed case runs no clock");
 
 		// Exactly one audit entry and one event per hop, and in the declared order.
-		verify(audit, times(11)).recordEvent(any(), any(), any(), any(), any(), any());
+		verify(audit, times(12)).recordEvent(any(), any(), any(), any(), any(), any());
 		assertEquals(List.of(
+				CaseEvents.Type.CASE_PAID,
 				CaseEvents.Type.PM_ASSIGNED,
 				CaseEvents.Type.DOCUMENTS_COMPLETED,
 				CaseEvents.Type.EXPERT_ASSIGNED,
@@ -210,7 +219,7 @@ class CaseLifecycleServiceTest {
 				CaseEvents.Type.EXPERT_SIGNED,
 				CaseEvents.Type.QC_APPROVED,
 				CaseEvents.Type.CASE_DELIVERED,
-				CaseEvents.Type.CASE_CLOSED), publishedEventTypes(11));
+				CaseEvents.Type.CASE_CLOSED), publishedEventTypes(12));
 	}
 
 	@Test
@@ -226,6 +235,7 @@ class CaseLifecycleServiceTest {
 
 	@Test
 	void docsCompleteNeedsAProjectManagerAndAFinishedChecklist() {
+		subject.setPaid(true);
 		actAs(Role.PROJECT_COORDINATOR);
 		assertThrows(IllegalTransitionException.class, () -> lifecycle.markDocsComplete(CASE_ID));
 
@@ -238,6 +248,69 @@ class CaseLifecycleServiceTest {
 		actAs(Role.PROJECT_COORDINATOR);
 		assertThrows(IllegalTransitionException.class, () -> lifecycle.markDocsComplete(CASE_ID));
 		assertEquals(Stage.DOC_COLLECTION, subject.getCurrentStage());
+	}
+
+	/**
+	 * Handoff A now creates a case from a contact, so an unpaid case is a normal state.
+	 * Documents may be gathered against one — that costs nothing — but the next hop
+	 * engages an expert, and every later stage is only reachable through it.
+	 */
+	@Test
+	void anUnpaidCaseGetsNoFurtherThanDocCollection() {
+		actAs(Role.BRAND_MANAGER);
+		lifecycle.assignPm(CASE_ID, PM_ID);
+
+		actAs(Role.PROJECT_COORDINATOR);
+		assertEquals("the case has not been paid",
+				assertThrows(IllegalTransitionException.class, () -> lifecycle.markDocsComplete(CASE_ID))
+						.getMessage());
+		assertEquals(Stage.DOC_COLLECTION, subject.getCurrentStage());
+		assertFalse(RefundService.isRevenueRecognized(subject), "and it is not revenue either");
+
+		actAs(Role.BRAND_MANAGER);
+		lifecycle.markPaid(CASE_ID, PAID, "INV-0001");
+		assertTrue(subject.isPaid());
+		assertEquals(PAID, subject.getDealValue());
+
+		actAs(Role.PROJECT_COORDINATOR);
+		lifecycle.markDocsComplete(CASE_ID);
+		assertEquals(Stage.EXPERT_ASSIGNMENT, subject.getCurrentStage());
+	}
+
+	/**
+	 * The amount is correctable, the moment it arrived is not. A case GHL reported as
+	 * already paid carries only the quote, because a quote is all the contact webhook
+	 * knows — so if the figure actually collected differs, somebody has to be able to
+	 * replace it. Re-stamping {@code paidAt} would lose when the money landed.
+	 */
+	@Test
+	void theAmountCanBeCorrectedButThePaymentMomentIsWriteOnce() {
+		subject.setPaid(true);
+		Instant whenTheMoneyLanded = Instant.now().minus(Duration.ofDays(3));
+		subject.setPaidAt(whenTheMoneyLanded);
+		subject.setDealValue(new BigDecimal("1200.00"));
+
+		actAs(Role.BRAND_MANAGER);
+		lifecycle.markPaid(CASE_ID, PAID, "INV-0009");
+
+		assertEquals(PAID, subject.getDealValue(), "the collected figure replaces the quote");
+		assertEquals("INV-0009", subject.getInvoiceRef());
+		assertEquals(whenTheMoneyLanded, subject.getPaidAt(), "and the original moment survives");
+		// A correction is not a second pool arrival — nobody needs telling twice.
+		verify(notifications, never()).save(any());
+	}
+
+	/** The money path re-checks the role in the service, not only at the endpoint. */
+	@Test
+	void onlyTheGmOrABrandManagerMayRecordAPayment() {
+		for (Role role : List.of(Role.PROJECT_MANAGER, Role.PROJECT_COORDINATOR, Role.CASE_MANAGER,
+				Role.EXPERT_NETWORK_MANAGER)) {
+			actAs(role);
+			assertThrows(ForbiddenException.class, () -> lifecycle.markPaid(CASE_ID, PAID, "INV-0001"),
+					role + " must not be able to record money");
+		}
+		assertFalse(subject.isPaid());
+		verifyNoInteractions(audit, events);
 	}
 
 	@Test
@@ -286,6 +359,7 @@ class CaseLifecycleServiceTest {
 	@Test
 	void anUnavailableExpertCannotBePutOnACase() {
 		actAs(Role.BRAND_MANAGER);
+		lifecycle.markPaid(CASE_ID, PAID, null);
 		lifecycle.assignPm(CASE_ID, PM_ID);
 		actAs(Role.PROJECT_COORDINATOR);
 		lifecycle.markDocsComplete(CASE_ID);
@@ -303,6 +377,7 @@ class CaseLifecycleServiceTest {
 	void onlyTheGmMayRuleOnARefund() {
 		subject.setCurrentStage(Stage.FINAL_DELIVERY);
 		subject.setDeliveryDate(Instant.now());
+		subject.setPaid(true);
 
 		actAs(Role.PROJECT_COORDINATOR);
 		lifecycle.requestRefund(CASE_ID, "client changed their mind");
@@ -317,6 +392,7 @@ class CaseLifecycleServiceTest {
 	void approvedRefundReversesRecognitionAndVoidsThePendingPayout() {
 		subject.setCurrentStage(Stage.FINAL_DELIVERY);
 		subject.setDeliveryDate(Instant.now());
+		subject.setPaid(true);
 
 		PayoutLedger pending = mock(PayoutLedger.class);
 		List<PayoutLedger> owed = List.of(pending);
@@ -341,6 +417,7 @@ class CaseLifecycleServiceTest {
 	void aDeniedRefundPutsTheCaseBackWhereItWas() {
 		subject.setCurrentStage(Stage.FINAL_DELIVERY);
 		subject.setDeliveryDate(Instant.now());
+		subject.setPaid(true);
 
 		actAs(Role.PROJECT_COORDINATOR);
 		lifecycle.requestRefund(CASE_ID, "client changed their mind");
@@ -372,6 +449,52 @@ class CaseLifecycleServiceTest {
 
 		assertTrue(!subject.getStageEnteredAt().isBefore(afterAssignment),
 				"the PM review round starts its own 12 hours");
-		verify(audit, times(4)).recordEvent(anyString(), any(), any(), any(), any(), any());
+		verify(audit, times(5)).recordEvent(anyString(), any(), any(), any(), any(), any());
+	}
+
+	/** Doc collection budgets three business days; thirty calendar days is past it however you count. */
+	private void sittingWellPastItsBudgetButStoredAsOnTrack() {
+		subject.setStageEnteredAt(Instant.now().minus(Duration.ofDays(30)));
+		subject.setSlaStatus(SlaStatus.ON_TRACK);
+	}
+
+	@Test
+	void slaStatusIsRecomputedOnReadRatherThanReadBackFromTheRow() {
+		sittingWellPastItsBudgetButStoredAsOnTrack();
+		actAs(Role.BRAND_MANAGER);
+
+		assertEquals(SlaStatus.OVERDUE, lifecycle.read(CASE_ID).getSlaStatus(),
+				"a case left sitting past its budget is overdue even though nothing wrote to it");
+	}
+
+	@Test
+	void theBoardSlaFilterMatchesOnTheRecomputedStatusNotTheStoredColumn() {
+		sittingWellPastItsBudgetButStoredAsOnTrack();
+		given(cases.findScoped(any(TenantContext.class), any(), any())).willReturn(List.of(subject));
+		actAs(Role.BRAND_MANAGER);
+
+		assertEquals(1, lifecycle.list(null, SlaStatus.OVERDUE, null).size(),
+				"a board filtering for overdue has to find the case whose column still says on-track");
+		assertTrue(lifecycle.list(null, SlaStatus.ON_TRACK, null).isEmpty(),
+				"and must not still find it under the stale value");
+	}
+
+	@Test
+	void aMemberOutsideTheBrandIsIndistinguishableFromOneThatDoesNotExist() {
+		actAs(Role.BRAND_MANAGER);
+		UUID anotherBrandsPm = UUID.randomUUID();
+		UUID nobody = UUID.randomUUID();
+
+		// Neither id is stubbed, because neither can come back: brand and role are in the
+		// query, so there is no row in hand to tell the two failures apart.
+		String forAnotherBrand = assertThrows(IllegalTransitionException.class,
+				() -> lifecycle.assignPm(CASE_ID, anotherBrandsPm)).getMessage();
+		String forNobody = assertThrows(IllegalTransitionException.class,
+				() -> lifecycle.assignPm(CASE_ID, nobody)).getMessage();
+
+		assertEquals(forNobody, forAnotherBrand, "the 409 body must not be an existence oracle");
+		assertFalse(forAnotherBrand.contains(anotherBrandsPm.toString()),
+				"nor echo an id the caller does not own");
+		verify(teamMembers, never()).findById(any());
 	}
 }

@@ -33,6 +33,14 @@ public class Brand {
 	@Column(name = "webhook_endpoint_token", nullable = false, unique = true)
 	private String webhookEndpointToken;
 
+	/**
+	 * The HMAC secret this brand's inbound GHL webhooks are verified against. Null
+	 * until it is set, which fails closed: nothing can be verified, so nothing is
+	 * accepted. Never log it and never put it in a DTO.
+	 */
+	@Column(name = "ghl_webhook_secret")
+	private String ghlWebhookSecret;
+
 	@Column(name = "created_at", nullable = false, insertable = false, updatable = false)
 	private Instant createdAt;
 
@@ -58,6 +66,10 @@ public class Brand {
 
 	public String getWebhookEndpointToken() {
 		return webhookEndpointToken;
+	}
+
+	public String getGhlWebhookSecret() {
+		return ghlWebhookSecret;
 	}
 
 	public Instant getCreatedAt() {

@@ -7,12 +7,17 @@ import java.util.UUID;
 
 import com.ie.evalos.domain.AuditAction;
 import com.ie.evalos.domain.AuditEvent;
+import com.ie.evalos.domain.Brand;
 import com.ie.evalos.domain.Case;
+import com.ie.evalos.domain.ContactSnapshot;
 import com.ie.evalos.domain.Expert;
 import com.ie.evalos.domain.PayoutStatus;
 import com.ie.evalos.domain.Role;
+import com.ie.evalos.domain.ServiceType;
 import com.ie.evalos.domain.SlaStatus;
 import com.ie.evalos.domain.Stage;
+import com.ie.evalos.domain.WebhookEvent;
+import com.ie.evalos.domain.WebhookSource;
 import com.ie.evalos.security.TenantContext;
 import com.ie.evalos.service.AuditService;
 
@@ -58,10 +63,19 @@ class LocalPostgresIntegrationTest {
 	JdbcTemplate jdbc;
 
 	@Autowired
+	BrandRepository brands;
+
+	@Autowired
+	WebhookEventRepository webhookEvents;
+
+	@Autowired
 	ExpertRepository experts;
 
 	@Autowired
 	CaseRepository cases;
+
+	@Autowired
+	ContactSnapshotRepository contacts;
 
 	@Autowired
 	DocumentChecklistItemRepository checklistItems;
@@ -80,7 +94,109 @@ class LocalPostgresIntegrationTest {
 		List<String> versions = jdbc.queryForList(
 				"SELECT version FROM flyway_schema_history WHERE success ORDER BY installed_rank", String.class);
 
-		assertThat(versions).containsSubsequence("1", "2", "3", "4", "5", "6", "7", "8", "9", "10");
+		assertThat(versions)
+				.containsSubsequence("1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13",
+						"14", "15");
+	}
+
+	/**
+	 * "One open case per contact per service" is a database constraint for the same
+	 * reason the webhook key is: intake looks the case up and then inserts, and two
+	 * concurrent {@code contact.created} deliveries carrying different event ids are not
+	 * deduplicated by the gateway, so both can pass the lookup. Only V15's partial unique
+	 * index makes the second one lose.
+	 *
+	 * <p>Partial on {@code current_stage <> 'CLOSED'}, which is the half most easily got
+	 * wrong: a contact coming back after their first case closed is new business, not a
+	 * duplicate, and must still be allowed a row.
+	 */
+	@Test
+	void oneOpenCasePerContactPerServiceIsEnforcedByTheDatabase() {
+		UUID contactId = contacts.save(new ContactSnapshot(BRAND_IE, "ghl-" + UUID.randomUUID())).getId();
+
+		cases.save(openCaseFor(contactId, ServiceType.EXPERT_OPINION_LETTER));
+
+		assertThatThrownBy(() -> cases.saveAndFlush(openCaseFor(contactId, ServiceType.EXPERT_OPINION_LETTER)))
+				.hasStackTraceContaining("uq_case_open_per_contact_service");
+
+		// A different service for the same contact is a second, legitimate case.
+		assertThat(cases.save(openCaseFor(contactId, ServiceType.CREDENTIAL_EVALUATION)).getId()).isNotNull();
+
+		// And once the first case closes, the same service may be bought again.
+		Case closed = openCaseFor(contactId, ServiceType.TRANSLATION);
+		closed.setCurrentStage(Stage.CLOSED);
+		cases.saveAndFlush(closed);
+		assertThat(cases.saveAndFlush(openCaseFor(contactId, ServiceType.TRANSLATION)).getId()).isNotNull();
+	}
+
+	private static Case openCaseFor(UUID contactId, ServiceType serviceType) {
+		Case subject = new Case(BRAND_IE, "EV-" + UUID.randomUUID(), Stage.DOC_COLLECTION);
+		subject.setContactId(contactId);
+		subject.setServiceType(serviceType);
+		return subject;
+	}
+
+	/**
+	 * The gateway's idempotency guarantee is a database constraint, not an
+	 * application check: two concurrent redeliveries would both pass a
+	 * check-then-insert, so only the unique index actually stops the second case.
+	 *
+	 * <p>Scoped by brand (V13), because two brands are two GHL sub-accounts numbering
+	 * their own invoices. A brand-agnostic key made the second brand's paid case look
+	 * like the first brand's duplicate.
+	 */
+	@Test
+	void oneExternalIdPerBrandPerSourceCanOnlyBeArchivedOnce() {
+		String externalId = "INV-" + UUID.randomUUID();
+		WebhookEvent first = webhookEvents.save(new WebhookEvent(
+				WebhookSource.GHL, "payment.confirmed", externalId, BRAND_IE, true, "{\"invoice_ref\":\"x\"}"));
+
+		assertThat(webhookEvents.findBySourceAndBrandIdAndExternalId(WebhookSource.GHL, BRAND_IE, externalId))
+				.get().extracting(WebhookEvent::getId).isEqualTo(first.getId());
+
+		assertThatThrownBy(() -> webhookEvents.saveAndFlush(new WebhookEvent(
+				WebhookSource.GHL, "payment.confirmed", externalId, BRAND_IE, true, "{}")))
+				.hasStackTraceContaining("uq_webhook_event_source_brand_external");
+
+		// The same invoice ref from the other brand is a different event, and is allowed —
+		// this is the case V12's constraint silently dropped.
+		WebhookEvent otherBrand = webhookEvents.save(new WebhookEvent(
+				WebhookSource.GHL, "payment.confirmed", externalId, BRAND_XP, true, "{}"));
+		assertThat(otherBrand.getId()).isNotEqualTo(first.getId());
+		assertThat(webhookEvents.findBySourceAndBrandIdAndExternalId(WebhookSource.GHL, BRAND_XP, externalId))
+				.get().extracting(WebhookEvent::getId).isEqualTo(otherBrand.getId());
+
+		// And the same id from a different source is a different event too.
+		assertThat(webhookEvents.save(new WebhookEvent(
+				WebhookSource.DROPBOX_SIGN, "signature_request.signed", externalId, BRAND_IE, true, "{}"))
+				.getId()).isNotNull();
+	}
+
+	/**
+	 * {@code brand_id} is nullable, and Postgres treats NULLs as distinct by default —
+	 * which would have let two brand-less rows share a key and lose the deduplication
+	 * the constraint exists for. V13 declares NULLS NOT DISTINCT.
+	 */
+	@Test
+	void twoBrandlessRowsStillDeduplicate() {
+		String externalId = "EVT-" + UUID.randomUUID();
+		webhookEvents.save(new WebhookEvent(
+				WebhookSource.DROPBOX_SIGN, "signature_request.viewed", externalId, null, true, "{}"));
+
+		assertThatThrownBy(() -> webhookEvents.saveAndFlush(new WebhookEvent(
+				WebhookSource.DROPBOX_SIGN, "signature_request.viewed", externalId, null, true, "{}")))
+				.hasStackTraceContaining("uq_webhook_event_source_brand_external");
+	}
+
+	/** The per-brand secret column V11 added, mapped and readable through the entity. */
+	@Test
+	void eachSeededBrandCarriesItsOwnWebhookSecret() {
+		assertThat(brands.findByWebhookEndpointTokenAndActiveTrue("local-ie-webhook-token"))
+				.get().extracting(Brand::getGhlWebhookSecret).isEqualTo("local-ie-webhook-secret");
+		assertThat(brands.findByWebhookEndpointTokenAndActiveTrue("local-xp-webhook-token"))
+				.get().extracting(Brand::getGhlWebhookSecret).isEqualTo("local-xp-webhook-secret");
+		// A token nobody issued resolves to nothing, so its deliveries are 404s.
+		assertThat(brands.findByWebhookEndpointTokenAndActiveTrue("not-a-token")).isEmpty();
 	}
 
 	@Test
@@ -133,19 +249,17 @@ class LocalPostgresIntegrationTest {
 		subject.setSlaStatus(SlaStatus.AT_RISK);
 		UUID id = cases.save(subject).getId();
 
-		assertThat(ids(cases.findScoped(brandManagerOfIe(), Stage.EXPERT_SIGNING, SlaStatus.AT_RISK, null)))
+		assertThat(ids(cases.findScoped(brandManagerOfIe(), Stage.EXPERT_SIGNING, null)))
 				.contains(id);
-		assertThat(ids(cases.findScoped(brandManagerOfIe(), Stage.DOC_COLLECTION, null, null)))
-				.doesNotContain(id);
-		assertThat(ids(cases.findScoped(brandManagerOfIe(), null, SlaStatus.OVERDUE, null)))
+		assertThat(ids(cases.findScoped(brandManagerOfIe(), Stage.DOC_COLLECTION, null)))
 				.doesNotContain(id);
 		// A deadline filter on a case with no deadline: the row drops out, it does not error.
-		assertThat(ids(cases.findScoped(brandManagerOfIe(), null, null, Instant.now())))
+		assertThat(ids(cases.findScoped(brandManagerOfIe(), null, Instant.now())))
 				.doesNotContain(id);
 
 		// And a case in another brand stays out however the filters are combined.
 		UUID other = cases.save(new Case(BRAND_XP, "XP-" + UUID.randomUUID(), Stage.EXPERT_SIGNING)).getId();
-		assertThat(ids(cases.findScoped(brandManagerOfIe(), Stage.EXPERT_SIGNING, null, null)))
+		assertThat(ids(cases.findScoped(brandManagerOfIe(), Stage.EXPERT_SIGNING, null)))
 				.doesNotContain(other);
 	}
 

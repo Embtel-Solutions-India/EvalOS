@@ -1,5 +1,6 @@
 package com.ie.evalos.service;
 
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
@@ -15,6 +16,7 @@ import com.ie.evalos.domain.ExceptionState;
 import com.ie.evalos.domain.Expert;
 import com.ie.evalos.domain.ExpertSignStatus;
 import com.ie.evalos.domain.IllegalTransitionException;
+import com.ie.evalos.domain.NotificationType;
 import com.ie.evalos.domain.PmApprovalStatus;
 import com.ie.evalos.domain.PoolStatus;
 import com.ie.evalos.domain.Role;
@@ -67,6 +69,7 @@ public class CaseLifecycleService {
 			ClientApprovalStatus clientApprovalStatus,
 			int draftVersionCount,
 			SlaStatus slaStatus,
+			boolean paid,
 			String note) {
 
 		static CaseSnapshot of(Case subject) {
@@ -77,7 +80,7 @@ public class CaseLifecycleService {
 			return new CaseSnapshot(subject.getCurrentStage(), subject.getExceptionState(), subject.getPoolStatus(),
 					subject.getAssignedPm(), subject.getAssignedCm(), subject.getExpertId(),
 					subject.getExpertSignStatus(), subject.getPmApprovalStatus(), subject.getClientApprovalStatus(),
-					subject.getDraftVersionCount(), subject.getSlaStatus(), note);
+					subject.getDraftVersionCount(), subject.getSlaStatus(), subject.isPaid(), note);
 		}
 	}
 
@@ -87,10 +90,11 @@ public class CaseLifecycleService {
 	private final TeamMemberRepository teamMembers;
 	private final AuditService audit;
 	private final SlaCalculator sla;
+	private final PoolNotifier pool;
 	private final ApplicationEventPublisher events;
 
 	CaseLifecycleService(CaseRepository cases, DocumentChecklistItemRepository checklistItems, ExpertRepository experts,
-			TeamMemberRepository teamMembers, AuditService audit, SlaCalculator sla,
+			TeamMemberRepository teamMembers, AuditService audit, SlaCalculator sla, PoolNotifier pool,
 			ApplicationEventPublisher events) {
 		this.cases = cases;
 		this.checklistItems = checklistItems;
@@ -98,19 +102,95 @@ public class CaseLifecycleService {
 		this.teamMembers = teamMembers;
 		this.audit = audit;
 		this.sla = sla;
+		this.pool = pool;
 		this.events = events;
 	}
 
 	// --- reads ---------------------------------------------------------------
 
+	/**
+	 * The board read. SLA status is recomputed rather than read back from the row: the
+	 * stored column is only as fresh as the last transition, and a case left sitting
+	 * past its budget goes overdue without anything writing to it. The SLA filter is
+	 * therefore applied after the refresh instead of in SQL.
+	 */
 	@Transactional(readOnly = true)
 	public List<Case> list(Stage stage, SlaStatus slaStatus, Instant dueBefore) {
-		return cases.findScoped(TenantContext.current(), stage, slaStatus, dueBefore);
+		List<Case> scoped = cases.findScoped(TenantContext.current(), stage, dueBefore);
+		scoped.forEach(this::withCurrentSla);
+		if (slaStatus == null) {
+			return scoped;
+		}
+		return scoped.stream().filter(subject -> subject.getSlaStatus() == slaStatus).toList();
 	}
 
 	@Transactional(readOnly = true)
 	public Case read(UUID caseId) {
-		return load(caseId);
+		return withCurrentSla(load(caseId));
+	}
+
+	/**
+	 * Restates the RAG status as of now on an in-memory row. The read transactions are
+	 * readOnly, so this is not flushed back; if it ever were, the value written would
+	 * be the same one the next transition computes, so it is harmless either way.
+	 */
+	private Case withCurrentSla(Case subject) {
+		subject.setSlaStatus(sla.statusOf(subject));
+		return subject;
+	}
+
+	// --- payment -------------------------------------------------------------
+
+	/**
+	 * Records what was actually taken. Handoff A no longer proves payment — a case is
+	 * created from a GHL contact, before anyone has paid — so this is the fact that
+	 * turns a lead into workable, recognisable business.
+	 *
+	 * <p>GM and Brand Manager only, re-checked here as well as at the endpoint. A method
+	 * security annotation guards one route; this guards the operation, so a later caller
+	 * — a job, a webhook handler, another service — cannot reach it as anyone else. The
+	 * same reasoning as {@code RefundService}: this writes money.
+	 *
+	 * <p>**Callable on an already-paid case, deliberately.** {@code paid} and
+	 * {@code paid_at} are write-once — the moment the money arrived does not change, and
+	 * re-stamping it would lose it. The *amount* is a different matter: a case GHL
+	 * reported as already paid carries the quote, because a quote is all the contact
+	 * webhook knows, and somebody has to be able to replace it with the figure actually
+	 * collected. Only ever one value, never a running total, so correcting it cannot
+	 * double-count.
+	 *
+	 * <p>The pool alert fires only on the first payment: it says "assign a project
+	 * manager", and a corrected amount does not need a second one.
+	 */
+	@Transactional
+	public Case markPaid(UUID caseId, BigDecimal dealValue, String invoiceRef) {
+		requirePaymentRole();
+		Case subject = load(caseId);
+		Stage to = CaseTransitions.target(subject, Action.MARK_PAID);
+		boolean firstPayment = !subject.isPaid();
+
+		Case paid = apply(subject, to, Action.MARK_PAID, invoiceRef, c -> {
+			c.setDealValue(dealValue);
+			if (invoiceRef != null && !invoiceRef.isBlank()) {
+				c.setInvoiceRef(invoiceRef);
+			}
+			if (firstPayment) {
+				c.setPaid(true);
+				c.setPaidAt(Instant.now());
+			}
+		});
+		if (firstPayment) {
+			pool.alert(paid.getBrandId(), paid.getId(), NotificationType.NEW_CASE_IN_POOL,
+					"Case %s is paid and needs a project manager.".formatted(paid.getCaseCode()));
+		}
+		return paid;
+	}
+
+	private static void requirePaymentRole() {
+		Role role = TenantContext.current().role();
+		if (role != Role.GM && role != Role.BRAND_MANAGER) {
+			throw new ForbiddenException("Only the GM or a Brand Manager may record a payment");
+		}
 	}
 
 	// --- assignment ----------------------------------------------------------
@@ -153,6 +233,11 @@ public class CaseLifecycleService {
 	public Case markDocsComplete(UUID caseId) {
 		Case subject = load(caseId);
 		Stage to = CaseTransitions.target(subject, Action.MARK_DOCS_COMPLETE);
+		// The one place unpaid work stops. Documents may be gathered from a lead — that
+		// costs EvalOS nothing — but everything past here engages an expert, so it waits
+		// for the money. Guarding here covers every later stage, because none of them is
+		// reachable without passing through this transition.
+		requireState(subject.isPaid(), "the case has not been paid");
 		requireState(subject.getAssignedPm() != null, "no project manager is assigned yet");
 
 		List<DocumentChecklistItem> items = checklistItems.findByCaseId(subject.getId());
@@ -285,7 +370,13 @@ public class CaseLifecycleService {
 
 	// --- delivery and close --------------------------------------------------
 
-	/** Handoff C. {@code case.delivered} is the sole revenue-recognition event (invariant 5). */
+	/**
+	 * Handoff C. Delivery is one of the two facts revenue recognition needs — paid
+	 * <em>and</em> delivered, per invariant 5 as restated when Handoff A moved to contact
+	 * intake. Delivering an unpaid case recognizes nothing; see
+	 * {@code RefundService.isRevenueRecognized}, which is the only place that reads the
+	 * pair.
+	 */
 	@Transactional
 	public Case deliverToClient(UUID caseId) {
 		Case subject = load(caseId);
@@ -371,15 +462,16 @@ public class CaseLifecycleService {
 		return item.getStatus() == ChecklistItemStatus.APPROVED || item.getStatus() == ChecklistItemStatus.UPLOADED;
 	}
 
-	/** A member may only be put on a case in their own brand, in the role the action needs. */
+	/**
+	 * A member may only be put on a case in their own brand, in the role the action
+	 * needs. Brand and role are in the query rather than checked after the row is in
+	 * hand, and the one message covers every way the lookup can fail: this exception
+	 * reaches the caller as a 409 body, so "wrong brand", "wrong role" and "no such
+	 * member" have to be indistinguishable from outside.
+	 */
 	private TeamMember member(UUID memberId, Role expected, UUID brandId) {
-		TeamMember member = teamMembers.findById(memberId)
-				.orElseThrow(() -> new IllegalTransitionException("No such team member: " + memberId));
-		if (member.getRole() != expected || !brandId.equals(member.getBrandId())) {
-			throw new IllegalTransitionException(
-					"Team member %s is not a %s in this brand".formatted(memberId, expected));
-		}
-		return member;
+		return teamMembers.findByIdAndBrandIdAndRole(memberId, brandId, expected)
+				.orElseThrow(() -> new IllegalTransitionException("No %s available for this case".formatted(expected)));
 	}
 
 	/** The scoped read is what keeps one brand's roster out of another brand's case. */

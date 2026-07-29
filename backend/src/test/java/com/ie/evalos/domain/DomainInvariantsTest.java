@@ -14,7 +14,9 @@ import com.ie.evalos.repository.DocumentChecklistItemRepository;
 import com.ie.evalos.repository.ExpertRepository;
 import com.ie.evalos.repository.NotificationRepository;
 import com.ie.evalos.repository.PayoutLedgerRepository;
+import com.ie.evalos.service.CaseIntakeService;
 import com.ie.evalos.service.ScopePredicate;
+import com.ie.evalos.webhook.GhlContactHandler;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -91,6 +93,40 @@ class DomainInvariantsTest {
 				.as("every ScopedEntity needs a ScopedRepository listed in scopedRepositories()")
 				.isNotEmpty()
 				.isEqualTo(declared);
+	}
+
+	/**
+	 * Invariant 8: a case is created by the inbound GHL contact webhook and by nothing
+	 * else. Asserted structurally because the failure mode is somebody adding a
+	 * {@code POST /api/cases} — which would compile, pass every other test, and let a
+	 * case exist that GHL has never heard of.
+	 *
+	 * <p>Payment no longer gates creation, so this is now the only thing keeping case
+	 * creation to one door. It matters more than it did, not less.
+	 */
+	@Test
+	void onlyTheGhlContactHandlerCanCreateACase() {
+		var scanner = new ClassPathScanningCandidateComponentProvider(true);
+
+		Set<String> injectors = scanner.findCandidateComponents("com.ie.evalos").stream()
+				.map(BeanDefinition::getBeanClassName)
+				.filter(DomainInvariantsTest::takesTheIntakeService)
+				.collect(Collectors.toSet());
+
+		assertThat(injectors)
+				.as("case creation is Handoff A's alone — see CaseIntakeService")
+				.containsExactly(GhlContactHandler.class.getName());
+	}
+
+	private static boolean takesTheIntakeService(String className) {
+		try {
+			return Stream.of(Class.forName(className).getDeclaredConstructors())
+					.flatMap(constructor -> Stream.of(constructor.getParameterTypes()))
+					.anyMatch(CaseIntakeService.class::equals);
+		}
+		catch (ClassNotFoundException ex) {
+			throw new IllegalStateException(ex);
+		}
 	}
 
 	@Test

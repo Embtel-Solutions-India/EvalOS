@@ -4,12 +4,13 @@ Update this file after every meaningful implementation change.
 
 ## Current Phase
 
-- Phase 1 — Structure the data (the spine). Units 01–04 built; Unit 05 next.
+- Phase 1 — Structure the data (the spine) is complete: Units 01–05 built. Phase 2
+  begins at Unit 06.
 
 ## Current Goal
 
-- Unit 05 — Handoff A: the per-brand GHL `payment.confirmed` webhook, idempotent
-  case creation at `DOC_COLLECTION`, contact snapshot sync, checklist open.
+- Unit 06 — the in-app staff notification centre, the first subscriber to the
+  domain events Units 04 and 05 publish.
 
 ## Completed
 
@@ -144,16 +145,151 @@ Update this file after every meaningful implementation change.
     predicate (a Criteria attribute name that no mocked repository would ever
     catch).
 
+- **Unit 05 — Inbound webhook gateway + GHL payment handler (Handoff A).** The
+  door the business actually comes through. *(The payment-handler half is
+  superseded by Unit 05a below — the trigger is now `contact.created`. Everything
+  about the gateway itself still stands.)*
+  - `webhook/WebhookGateway` — resolve brand → verify → dedupe → archive → route →
+    ack. Deliberately **not** `@Transactional`: each step commits on its own, which
+    is what lets the archive row outlive a failed handler and record why. Brand
+    resolution runs before verification (the spec lists it second) because the HMAC
+    secret belongs to the brand — a lookup is not a side effect, so the rule it
+    protects still holds.
+  - `webhook/WebhookVerifier` — HMAC-SHA256 over the exact bytes received, compared
+    with `MessageDigest.isEqual`. No secret, no header, bad hex and a wrong digest
+    all fail identically, so nothing is learnable from the response.
+  - `webhook/{InboundWebhookController, WebhookRouter, GhlPaymentHandler,
+    WebhookRejected}` — one public endpoint per brand, the event-type vocabulary
+    (`payment.confirmed` live; `refund.requested`/`contact.updated` recognized and
+    logged no-ops), and parse-then-trust validation of the payload.
+  - `service/CaseIntakeService` — the one thing that creates a case: contact sync,
+    case in the pool, checklist from `ChecklistTemplates`, GM + Brand-Manager pool
+    notification, audit row, `case.created` + `checklist.requested`. All in one
+    transaction, so a failed delivery leaves nothing behind.
+  - `domain/WebhookEvent` + `V12`, narrowed by `V13` to
+    `UNIQUE NULLS NOT DISTINCT (source, brand_id, external_id)`; `V11` for the
+    per-brand secret, `V901` local seed. `AuditService.recordSystemEvent` so a
+    webhook's audit row carries the brand it resolved rather than a null.
+  - `DomainInvariantsTest` now enforces invariant 8 structurally: only
+    `GhlPaymentHandler` may take `CaseIntakeService`, so adding a
+    `POST /api/cases` that creates a case breaks the build.
+  - Verified: `./mvnw clean verify` BUILD SUCCESS, 87 tests (76 run — new:
+    `InboundWebhookTest` 13, `CaseIntakeServiceTest` 7 — plus 11 DB-gated), the 11
+    DB-gated checks green against local Postgres 18 (`V11`–`V13` + `V901` applied,
+    `validate` passes, the brand-scoped unique key refuses a second archive per brand
+    while allowing the same invoice ref from another brand, and two brand-less rows
+    still deduplicate), **and a live end-to-end run**: a signed `payment.confirmed` created exactly one case
+    (`IE-2026-375863`, DOC_COLLECTION / IN_POOL / ON_TRACK / 1450.00) with a
+    6-item `REQUIRED` checklist, a contact snapshot, two `NEW_CASE_IN_POOL`
+    notifications (GM + that brand's manager only), an audit row carrying the
+    resolved brand and a null actor, and a processed `webhook_event`; a replay
+    returned `duplicate` and created nothing; a wrong signature 401; an unknown
+    token 404.
+
+- **Unit 05a — Handoff A re-pointed from payment to contact.** A design correction,
+  not a new unit: the business does not want to wait for money to start a case, so
+  the trigger moved and payment became a fact recorded on the case.
+  - `webhook/GhlContactHandler` replaces `GhlPaymentHandler`; the router's live
+    event type is `contact.created`. `contact.updated` deliberately stays a
+    recognized no-op — intake is create-or-update so routing it there would
+    technically work, but an edit in GHL is not a reason to open a case.
+  - The gateway's idempotency-key candidates are now `event_id`, `webhook_id`,
+    `id` — a contact has no invoice, and keying on the contact id would make a
+    returning client's second order look like a duplicate.
+  - `V14__case_paid.sql` — `paid boolean NOT NULL DEFAULT false` + `paid_at`, and
+    `(brand_id, paid)`. Defaulting false is the safe direction. No `paid_by`: the
+    audit trail already records who, and a second record of one fact can disagree.
+  - `CaseLifecycleService.markPaid` + `POST /api/cases/{id}/mark-paid`, GM or Brand
+    Manager (same gate as assigning a PM — both are the brand's commercial call).
+    Declared on every active stage, because payment clearing late is bookkeeping
+    reality, not an illegal state.
+  - **The guard that matters is one line, in one place:** `markDocsComplete`
+    refuses an unpaid case. Every later stage is only reachable through that
+    transition, so guarding there covers all of them. Doc collection against an
+    unpaid case is deliberately allowed — it costs EvalOS nothing.
+  - `RefundService.isRevenueRecognized` is now `paid && delivered && !refunded`
+    (invariant 5 restated). Delivery alone no longer implies earned.
+  - `CaseIntakeService.intake` became create-**or-update**: one open case per
+    contact per service. A refresh only fills blanks and can never move the case —
+    a re-firing GHL workflow must not reset a stage, drop an assignment, or un-pay
+    a case. It publishes no lifecycle event, because nothing in the lifecycle
+    happened. `NewCase.paid` lets intake skip straight to paid when GHL already
+    knows.
+  - `service/PoolNotifier` — the recipient rule (GM + that brand's Brand Managers)
+    extracted from intake because two callers now need it: `NEW_LEAD` on creation,
+    `NEW_CASE_IN_POOL` on payment. Unit 06 replaces it with event listeners.
+  - Verified: `./mvnw verify` BUILD SUCCESS, 92 tests (81 run — new
+    `anUnpaidCaseGetsNoFurtherThanDocCollection`, `/mark-paid` added to
+    `CaseControllerTest`'s route table so the GM-superuser guarantee still covers
+    every route), **and the 11 DB-gated checks green against local Postgres 18** —
+    `V14` applied and `ddl-auto=validate` passed, so `paid`/`paid_at` match the
+    entity.
+
+- **Unit 05a review pass — six findings, all fixed.** A five-lens review of `b28b0f5`
+  (CLAUDE.md/invariants, bug scan, git history, prior review feedback, comment
+  contracts). Two were real defects on the money path:
+  (a) **`"id"` had come back into the webhook idempotency-key fallback**, having been
+  deliberately cut in `f65b2f1`. In most envelopes `id` is the *resource's* id, so a
+  returning client's second order would carry the first one's key and be answered
+  `duplicate` — the very failure moving off `invoice_ref` was meant to avoid. The list
+  is now `{ event_id, webhook_id }` and a payload with neither is refused. If GHL
+  turns out to send only a resource id, the answer is a delivery-id header, not this
+  list.
+  (b) **A case GHL reported as already paid could never have its amount corrected.**
+  Intake set `deal_value` from `quote_amount` — a quote is all the contact webhook
+  knows — and `markPaid` refused an already-paid case, so the quote became the
+  permanent revenue figure. `markPaid` is now callable on a paid case: the amount and
+  invoice ref are correctable, while `paid` / `paid_at` stay write-once (the moment the
+  money landed does not change) and the pool alert fires only on the first payment.
+  Only ever one value, never a running total, so correcting it cannot double-count.
+  (c) **`markPaid` had no service-layer role check.** Unit 04 note (g) established that
+  a money path re-checks in the service, not only at the endpoint —
+  `RefundService.requireGm` does. `markPaid` now has its own GM-or-Brand-Manager guard,
+  with `onlyTheGmOrABrandManagerMayRecordAPayment` covering it.
+  (d) **`V15__one_open_case_per_contact_service.sql`** — "one open case per contact per
+  service" was a check-then-act with nothing behind it: two `contact.created`
+  deliveries with different event ids are not deduplicated by the gateway (they are
+  genuinely different deliveries), so both could pass the lookup and both create a
+  case. A partial unique index on `(brand_id, contact_id, service_type)
+  WHERE current_stage <> 'CLOSED'` cannot race; the loser's transaction rolls back, the
+  gateway answers a retriable 5xx, and the redelivery refreshes the committed row —
+  which is what intake wanted anyway. Partial because a contact returning after their
+  first case closed is new business, not a duplicate.
+  (e) **Two "sole revenue-recognition" javadocs were left false** by 05a's change to
+  invariant 5 — `deliverToClient` and the new `CASE_PAID`. Both now say paid *and*
+  delivered, and point at `isRevenueRecognized` as the only reader of the pair.
+  (f) **The `NEW_CASE_IN_POOL` comment contract was false.** Intake's comment said
+  `markPaid` raises that alert; intake raises it eight lines later, for a
+  contact that arrived paid. `PoolNotifier`'s javadoc claimed two callers where there
+  are three. Both corrected — the paid-at-intake double alert is intended behaviour,
+  only the comments were wrong.
+  - Also cut: a dead `java.util.stream.Stream` import left behind when `PoolNotifier`
+    was extracted.
+  - Verified: `./mvnw verify` BUILD SUCCESS, 95 tests (83 run), and **12 DB-gated green
+    against local Postgres 18** — `V15` applied out-of-order on the dev database
+    without conflict, and `oneOpenCasePerContactPerServiceIsEnforcedByTheDatabase`
+    proves the index refuses the second open case while still allowing another service
+    and a repeat purchase after close.
+
 ## In Progress
 
 - Nothing.
 
 ## Next Up
 
-- Unit 05 — Handoff A (per-brand GHL `payment.confirmed` webhook creates the
-  case through the Unit 04 service).
+- Unit 06 — in-app staff notification centre (subscribes to the Unit 04/05 domain
+  events that are currently published to nobody).
 
 ## Open Questions
+
+- **GHL contract still unconfirmed** (was already open, now load-bearing): the
+  `contact.created` payload shape, the signature header name, and the HMAC
+  encoding are all assumptions. Everything else about Handoff A is verified; these
+  three are what a real GHL sub-account has to agree with. The payload shape is
+  confined to `GhlContactHandler.ContactCreated` so a correction is one file.
+  **Also unconfirmed: which GHL contact event actually fires.** `contact.created`
+  is the assumption; if the real trigger is a pipeline-stage or form-submission
+  event, only `WebhookRouter`'s one constant changes.
 
 - **Coordinator case scope (blocks four Unit 04 endpoints at runtime).**
   `PROJECT_COORDINATOR` is `Tier.SELF`, but no `evalos_case` column names a
@@ -172,7 +308,7 @@ Update this file after every meaningful implementation change.
 - **StatCommand** — internal module or external BI, and the "six operating
   conditions" the dashboards feed. Undefined; do not build a StatCommand
   integration until specified.
-- **GHL webhook/API contract** — (a) per-brand inbound `payment.confirmed`
+- **GHL webhook/API contract** — (a) per-brand inbound `contact.created`
   payload + signing secret (Unit 05); (b) outbound subscriber URL + secret for
   `case.delivered` and the ability to send client-facing transactional messages
   on EvalOS event triggers (Unit 18); (c) which extra inbound GHL events to
@@ -210,9 +346,11 @@ Update this file after every meaningful implementation change.
   expert notifications via Dropbox Sign (portal-only nudges).
 - **Payouts**: manual ledger form, no payment-platform/disbursement rail. Single
   optional encrypted `payment_detail` field.
-- **Handoff A**: GHL fires the per-brand "payment confirmed" webhook (the webhook
-  is the proof); EvalOS creates the case idempotently. No direct payment-processor
-  integration.
+- **Handoff A**: GHL fires the per-brand "contact created" webhook; EvalOS creates
+  the case idempotently, **unpaid**. Payment is a separate fact recorded on the
+  case by a GM or Brand Manager (`paid` / `paid_at`, `POST /mark-paid`), and no
+  unpaid case may leave `DOC_COLLECTION`. Revenue recognition is paid **and**
+  delivered. No direct payment-processor integration.
 - **E-signature**: Dropbox Sign.
 - **Contacts**: GHL is the owner; EvalOS keeps a read-only, brand-tagged snapshot.
 - **NFR**: 50–100 cases/brand/month; ~99% availability, single region; nightly
@@ -377,6 +515,63 @@ Update this file after every meaningful implementation change.
   `TenantContext.current()`.
   (j) **Testcontainers gap still open** (carried from Unit 03). The two new DB
   checks live in the same `-Devalos.db.test=true` gated class.
+
+- **Unit 05 deviations / decisions to confirm.**
+  (a) **A rejected signature is logged, not archived.** `webhook_event` only ever
+  holds deliveries that verified, so `signature_verified` is always true today. An
+  unverified body is not evidence of anything, and archiving it would let anyone who
+  can reach the URL fill the table — and the unique `(source, external_id)` would
+  collide on the second attempt anyway. The spec's step 1 says "log", which this is.
+  (b) **Audit records `CASE` + `AuditAction.CREATED`**, not a literal `CASE_CREATED`
+  action, matching Unit 04's object-type + action convention. The pair reads the
+  same and needs no new enum value.
+  (c) **`AuditService.recordSystemEvent` takes the brand explicitly.** Unit 03 note
+  (f) refused a `brandId` parameter on `recordEvent`; a webhook has no authenticated
+  caller, so without this every case creation would audit against a null brand and
+  drop out of that brand's trail. Separately named so no request-scoped caller can
+  reach it, and the argument is only trustworthy because the endpoint token is the
+  most authoritative brand signal there is (invariant 8).
+  (d) **`case_code` is `<initials>-<year>-<6 hex>`** (`IE-2026-375863`). Random
+  rather than a per-brand sequence, which would need a counter table and a lock; a
+  collision hits the unique constraint and returns a retriable 5xx.
+  (e) **The signature header name is configuration**
+  (`evalos.webhook.signature-header`, default `X-Evalos-Signature`) because GHL's
+  real header is unconfirmed. The one knob this unit needs to be re-pointed without
+  a code change. The **payload shape is also assumed**, and is deliberately confined
+  to `GhlPaymentHandler.PaymentConfirmed` so a correction is one file.
+  (f) **The idempotency key is scoped by brand (`V13`), replacing the spec's
+  `UNIQUE (source, external_id)`.** Closed, was an open question. The spec's key is
+  brand-agnostic while each brand is a separate GHL sub-account numbering its own
+  invoices; reached live, XpertsPortal posting its own `INV-LIVE-0001` was swallowed
+  as International Evaluations' duplicate, created no case for a paid deal, and
+  handed the caller the *other brand's* event id. `V13` makes it
+  `UNIQUE NULLS NOT DISTINCT (source, brand_id, external_id)` and the lookup became
+  `findBySourceAndBrandIdAndExternalId`, so each brand's key is its own; the interim
+  409 guard is deleted. `NULLS NOT DISTINCT` because `brand_id` is nullable and
+  Postgres would otherwise treat two brand-less rows as distinct, losing exactly the
+  deduplication the constraint exists for.
+  (g0) **Defect found by the post-commit spec audit and fixed: a failed delivery
+  could never be retried.** The dedupe check short-circuited on *any* archived row,
+  so after a handler failure (which archives the row unprocessed and returns a
+  retriable 5xx) the redelivery was answered `duplicate` and the handler never ran
+  again — the paid case was lost for good. "Already seen" is not "already done": the
+  gateway now only treats a row as a duplicate when `processed` is true, and reuses
+  the unprocessed row as the retry, so a redelivery succeeds without creating a
+  second case. This was acceptance criterion 7's second clause, and it survived
+  because the original test asserted only the 5xx and the recorded error, never the
+  recovery. `InboundWebhookTest.aRedeliveryAfterAFailureRetriesInsteadOfLooking\
+  LikeADuplicate` now covers it (written failing first, to prove the defect).
+  (g) **`ChecklistTemplates` is a static map, not a table.** It moves into the
+  database the first time a Brand Manager needs to edit a checklist without a
+  deploy; the seed for that table is this map.
+  (h) **A `ponytail-review` pass found ~35 lines of cruft, now cut**: a truncation
+  guard on an unbounded `text` column, a redundant `processed = false`, two unused
+  `ContactSnapshot` getters, two `Ack` factory methods, a redundant `List.copyOf`
+  around `toList()`, a speculative `"id"` idempotency-key candidate, and a
+  `reduce("", String::concat)` that is `Collectors.joining()`. **Not** cut, by
+  decision: the transport record and the intake command record declare the same 21
+  fields with a mapper between them — that split is what keeps an unconfirmed payload
+  shape out of `service`, and the payload shape is the thing most likely to change.
 
 - **Unit 02 latent test bug, surfaced and fixed.**
   `SecurityFlowTest.tamperedTokenIsUnauthenticated` flipped the **last** character

@@ -2,8 +2,9 @@
 
 EvalOS is the back-of-house production CRM for a **multi-brand** credential-
 evaluation business (brands include International Evaluations and XpertsPortal).
-It takes custody of a case the moment a customer pays in GoHighLevel (GHL) and
-owns it through signed delivery and expert payout. GHL remains the front of
+It takes custody the moment a contact is created in GoHighLevel (GHL), records
+the payment against that case, and owns it through signed delivery and expert
+payout. GHL remains the front of
 house (leads, sales, invoicing, review campaigns). EvalOS never does marketing,
 sales, or invoicing.
 

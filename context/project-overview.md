@@ -9,8 +9,9 @@ and expert opinion letters) by matching paying customers (immigration attorneys,
 employers, staffing firms, individuals) with US university professors and
 industry experts. GoHighLevel (GHL) stays the "front of house" and owns lead
 capture, nurture, quoting, invoicing, payment collection, and post-delivery
-review campaigns. EvalOS takes over the instant a customer pays: it turns each
-paid deal into a structured, brand-scoped case, drives it through production,
+review campaigns. EvalOS takes over the instant a contact lands in GHL: it turns
+each enquiry into a structured, brand-scoped case, records the payment against
+it, drives it through production,
 routes it to an expert for electronic sign-off, delivers the signed letter, and
 records the expert payout. It replaces three fragile tools that hold the truth
 today — a case-tracking Google Sheet, an expert Google Sheet, and a WhatsApp
@@ -22,9 +23,10 @@ own brand. The GM sees across all brands.
 
 ## Goals
 
-1. Every paid case is auto-created in EvalOS from a GHL "payment confirmed"
-   webhook (the webhook itself is the proof of payment) — the manual
-   sales-to-PM email handoff is eliminated (0 manual handoffs).
+1. Every case is auto-created in EvalOS from a GHL "contact created" webhook — the
+   manual sales-to-PM email handoff is eliminated (0 manual handoffs). The case
+   starts unpaid; payment is recorded on it, and nothing reaches an expert before
+   then.
 2. Every case is a structured, brand-scoped record with a stage, an owner, and
    per-stage timestamps — replacing the case-tracking Google Sheet.
 3. Each brand's experts live in a structured database maintained by that brand's
@@ -60,11 +62,15 @@ content) and manages the expert roster, but not case content.
 The case lifecycle, from EvalOS's point of view (EvalOS owns stages 3–7 of the
 8-stage business pipeline; GHL owns 1–2 and 8):
 
-1. **Payment confirmed in GHL** → GHL fires the payment webhook to that brand's
-   dedicated endpoint (Handoff A). EvalOS creates a case at **Document
+1. **Contact created in GHL** → GHL fires the contact webhook to that brand's
+   dedicated endpoint (Handoff A). EvalOS creates an **unpaid** case at **Document
    Collection**, tags it with the brand, syncs a read-only contact snapshot from
-   GHL, opens the service-specific document checklist, and drops the case in the
-   brand pool (unassigned) for the GM/Brand Manager to assign to a PM.
+   GHL, opens the service-specific document checklist, drops the case in the brand
+   pool (unassigned), and raises a `NEW_LEAD` alert to the GM/Brand Manager.
+1b. **Payment recorded.** A GM or Brand Manager marks the case paid (amount +
+   invoice ref); that raises the `NEW_CASE_IN_POOL` alert that says a PM is
+   needed. Documents may be collected before this, but the case cannot leave
+   Document Collection unpaid — everything past it engages an expert.
 2. **Document collection.** The Project Coordinator tracks required vs. uploaded
    documents (files live in Google Drive; the case holds the Drive link) and
    chases the client via GHL. When the package is complete, the Coordinator
@@ -144,7 +150,8 @@ The case lifecycle, from EvalOS's point of view (EvalOS owns stages 3–7 of the
   cross-brand for the GM. Built off precomputed read models.
 
 ### Integrations / Handoffs
-- Handoff A (inbound): GHL payment webhook (per-brand endpoint) → create case.
+- Handoff A (inbound): GHL contact webhook (per-brand endpoint) → create unpaid
+  case; a GM/Brand Manager records payment on it separately.
 - Handoff B (internal): client-approved → expert portal + Dropbox Sign.
 - Handoff C (outbound): Delivered → GHL review/referral trigger + payout entry.
 - Dropbox Sign for e-signature. Google Drive for document links.

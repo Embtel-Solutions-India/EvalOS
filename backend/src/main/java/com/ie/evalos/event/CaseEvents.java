@@ -24,6 +24,14 @@ public final class CaseEvents {
 	 */
 	public enum Type {
 
+		/** A contact became a case. Since Handoff A moved to contact intake this is a
+		 * lead arriving, not a paid case — {@link #CASE_PAID} is the pool arrival. */
+		CASE_CREATED("case.created"),
+		/** Money confirmed against a case. One of the two facts revenue recognition needs;
+		 * {@link #CASE_DELIVERED} is the other. Neither is sufficient alone (invariant 5). */
+		CASE_PAID("case.paid"),
+		/** Tells GHL to send the client their document checklist (Unit 18). */
+		CHECKLIST_REQUESTED("checklist.requested"),
 		PM_ASSIGNED("case.pm_assigned"),
 		DOCUMENTS_COMPLETED("documents.completed"),
 		EXPERT_ASSIGNED("expert.assigned"),

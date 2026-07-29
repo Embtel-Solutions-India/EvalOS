@@ -63,6 +63,22 @@ public class Case extends ScopedEntity {
 	@Column(name = "deal_value")
 	private BigDecimal dealValue;
 
+	/**
+	 * Whether the money has arrived. Since Handoff A moved to contact intake a case
+	 * exists before it is paid, so this is a fact recorded on the case rather than the
+	 * reason it exists. Written only by {@code CaseLifecycleService.markPaid} — or by
+	 * intake when GHL already knows the contact paid.
+	 *
+	 * <p>Two things depend on it: no case reaches an expert unpaid (the guard is on
+	 * {@code markDocsComplete}), and no unpaid case counts as earned revenue
+	 * (invariant 5, via {@code RefundService.isRevenueRecognized}).
+	 */
+	@Column(name = "paid", nullable = false)
+	private boolean paid;
+
+	@Column(name = "paid_at")
+	private Instant paidAt;
+
 	@Column(name = "deadline")
 	private Instant deadline;
 
@@ -197,12 +213,43 @@ public class Case extends ScopedEntity {
 		this.assignedCm = assignedCm;
 	}
 
+	// The setters below are written exactly once, by Handoff A at intake (Unit 05).
+	// Nothing afterwards changes what the customer bought or what they paid.
+
 	public UUID getContactId() {
 		return contactId;
 	}
 
+	public void setContactId(UUID contactId) {
+		this.contactId = contactId;
+	}
+
 	public ServiceType getServiceType() {
 		return serviceType;
+	}
+
+	public void setServiceType(ServiceType serviceType) {
+		this.serviceType = serviceType;
+	}
+
+	public ServiceSubtype getServiceSubtype() {
+		return serviceSubtype;
+	}
+
+	public void setServiceSubtype(ServiceSubtype serviceSubtype) {
+		this.serviceSubtype = serviceSubtype;
+	}
+
+	public VisaCategory getVisaCategory() {
+		return visaCategory;
+	}
+
+	public void setVisaCategory(VisaCategory visaCategory) {
+		this.visaCategory = visaCategory;
+	}
+
+	public void setClientType(ClientType clientType) {
+		this.clientType = clientType;
 	}
 
 	/** Role-restricted: a DTO exposes this to GM, Brand Manager and PM only. */
@@ -210,8 +257,52 @@ public class Case extends ScopedEntity {
 		return dealValue;
 	}
 
+	public void setDealValue(BigDecimal dealValue) {
+		this.dealValue = dealValue;
+	}
+
+	public boolean isPaid() {
+		return paid;
+	}
+
+	public void setPaid(boolean paid) {
+		this.paid = paid;
+	}
+
+	public Instant getPaidAt() {
+		return paidAt;
+	}
+
+	public void setPaidAt(Instant paidAt) {
+		this.paidAt = paidAt;
+	}
+
 	public Instant getDeadline() {
 		return deadline;
+	}
+
+	public void setDeadline(Instant deadline) {
+		this.deadline = deadline;
+	}
+
+	public String getDriveLink() {
+		return driveLink;
+	}
+
+	public String getInvoiceRef() {
+		return invoiceRef;
+	}
+
+	public void setDriveLink(String driveLink) {
+		this.driveLink = driveLink;
+	}
+
+	public void setInvoiceRef(String invoiceRef) {
+		this.invoiceRef = invoiceRef;
+	}
+
+	public void setCampaignAttribution(String campaignAttribution) {
+		this.campaignAttribution = campaignAttribution;
 	}
 
 	public Stage getCurrentStage() {
