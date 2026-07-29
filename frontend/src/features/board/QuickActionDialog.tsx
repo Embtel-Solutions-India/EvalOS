@@ -1,0 +1,225 @@
+import { useEffect, useRef, useState } from 'react'
+import { fetchAssignable, fetchAvailableExperts } from './boardApi'
+import type { ActionField, PickerOption, QuickAction } from './boardRules'
+
+/**
+ * The one dialog every input-taking action uses, driven by the action's own field list.
+ *
+ * One generic form rather than ten hand-written ones: the actions differ only in which
+ * fields they collect, and a dialog per transition would be ten copies of the same submit
+ * handler.
+ *
+ * Opened with `showModal()` rather than the `open` attribute, because only the modal path
+ * gives the platform behaviour this leans on: Escape (which fires `cancel`), a real
+ * `::backdrop`, and focus trapped inside the form. With `open` alone the dialog renders but
+ * Escape does nothing, the backdrop class is inert, and tab focus walks out into the board
+ * behind it.
+ *
+ * Assignment fields are `<select>`s loaded from the scoped roster and expert endpoints. An
+ * id is not something a user knows or should be asked to type — and a *generated* id would
+ * be worse than useless, since the transition looks the row up and refuses anything that is
+ * not an existing member of the right role in the case's brand.
+ */
+export default function QuickActionDialog({
+  action,
+  caseCode,
+  onCancel,
+  onConfirm,
+}: {
+  action: QuickAction
+  caseCode: string
+  onCancel: () => void
+  onConfirm: (values: Record<string, string>) => void
+}) {
+  const [values, setValues] = useState<Record<string, string>>({})
+  const fields = action.fields ?? []
+  const dialog = useRef<HTMLDialogElement>(null)
+
+  useEffect(() => {
+    // The component only renders while an action is pending, so this opens once on mount.
+    dialog.current?.showModal()
+  }, [])
+
+  return (
+    <dialog
+      ref={dialog}
+      className="fixed inset-0 z-20 m-auto rounded-xl border p-0 backdrop:bg-black/30"
+      style={{ background: 'var(--bg-surface)', borderColor: 'var(--border-default)' }}
+      // Escape reaches this now that the dialog is modal. `preventDefault` first, because
+      // the parent unmounts us and letting the platform also close a removed node is how a
+      // stale dialog ends up stuck open on the next render.
+      onCancel={(event) => {
+        event.preventDefault()
+        onCancel()
+      }}
+    >
+      <form
+        className="w-88 p-5"
+        onSubmit={(event) => {
+          event.preventDefault()
+          onConfirm(values)
+        }}
+      >
+        <h2 className="text-base font-semibold tracking-tight">{action.label}</h2>
+        <p className="font-mono mt-0.5 text-xs" style={{ color: 'var(--text-muted)' }}>
+          {caseCode}
+        </p>
+
+        <div className="mt-4 space-y-3">
+          {fields.map((field) => (
+            <Field
+              key={field.name}
+              field={field}
+              value={values[field.name] ?? ''}
+              onChange={(value) => setValues((previous) => ({ ...previous, [field.name]: value }))}
+            />
+          ))}
+          {fields.length === 0 && (
+            <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
+              This records the transition on {caseCode}. It cannot be undone from here.
+            </p>
+          )}
+        </div>
+
+        <div className="mt-5 flex justify-end gap-2">
+          <button
+            type="button"
+            onClick={onCancel}
+            className="rounded-md px-3 py-1.5 text-sm font-medium"
+            style={{ background: 'var(--bg-raised)' }}
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            className="rounded-md px-3 py-1.5 text-sm font-medium text-white"
+            style={{ background: 'var(--accent-primary)' }}
+          >
+            {action.label}
+          </button>
+        </div>
+      </form>
+    </dialog>
+  )
+}
+
+const LABEL_CLASS = 'block text-xs font-medium'
+const INPUT_CLASS = 'mt-1 w-full rounded-md border px-2.5 py-1.5 text-sm'
+const INPUT_STYLE = { background: 'var(--bg-base)', borderColor: 'var(--border-default)' }
+
+function Field({
+  field,
+  value,
+  onChange,
+}: {
+  field: ActionField
+  value: string
+  onChange: (value: string) => void
+}) {
+  const isPicker = field.kind === 'member' || field.kind === 'expert'
+  // Required unless the label says otherwise — the server validates too, this just avoids
+  // a round trip for an empty box.
+  const required = !field.label.includes('optional')
+
+  return (
+    <label className="block">
+      <span className={LABEL_CLASS} style={{ color: 'var(--text-muted)' }}>
+        {field.label}
+      </span>
+      {isPicker ? (
+        <Picker field={field} value={value} onChange={onChange} required={required} />
+      ) : (
+        <input
+          required={required}
+          type={field.kind === 'amount' ? 'number' : 'text'}
+          step={field.kind === 'amount' ? '0.01' : undefined}
+          min={field.kind === 'amount' ? '0.01' : undefined}
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          className={`${INPUT_CLASS} ${field.kind === 'amount' ? 'font-num tabular-nums' : ''}`}
+          style={INPUT_STYLE}
+        />
+      )}
+    </label>
+  )
+}
+
+type Options = { status: 'loading' } | { status: 'ready'; items: PickerOption[] } | { status: 'failed' }
+
+/**
+ * A choice from the rows the caller may actually assign.
+ *
+ * An empty list is a real answer, not an error: a PM with no Coordinator on their team has
+ * nobody to assign, and saying so beats an empty dropdown that looks broken.
+ */
+function Picker({
+  field,
+  value,
+  onChange,
+  required,
+}: {
+  field: ActionField
+  value: string
+  onChange: (value: string) => void
+  required: boolean
+}) {
+  const [options, setOptions] = useState<Options>({ status: 'loading' })
+  const memberRole = field.memberRole
+
+  useEffect(() => {
+    const controller = new AbortController()
+    const load = field.kind === 'expert' || !memberRole
+      ? fetchAvailableExperts(controller.signal)
+      : fetchAssignable(memberRole, controller.signal)
+
+    load
+      .then((items) => setOptions({ status: 'ready', items }))
+      .catch(() => {
+        if (!controller.signal.aborted) setOptions({ status: 'failed' })
+      })
+    return () => controller.abort()
+  }, [field.kind, memberRole])
+
+  if (options.status === 'loading') {
+    return (
+      <p className="mt-1 text-sm" style={{ color: 'var(--text-muted)' }}>
+        Loading…
+      </p>
+    )
+  }
+
+  if (options.status === 'failed') {
+    return (
+      <p className="mt-1 text-sm" style={{ color: 'var(--status-red)' }}>
+        Could not load the list.
+      </p>
+    )
+  }
+
+  if (options.items.length === 0) {
+    return (
+      <p className="mt-1 text-sm" style={{ color: 'var(--text-muted)' }}>
+        {field.kind === 'expert'
+          ? 'No available expert in this brand.'
+          : 'Nobody in that role is in your scope.'}
+      </p>
+    )
+  }
+
+  return (
+    <select
+      required={required}
+      value={value}
+      onChange={(event) => onChange(event.target.value)}
+      className={INPUT_CLASS}
+      style={INPUT_STYLE}
+    >
+      <option value="">Choose…</option>
+      {options.items.map((option) => (
+        <option key={option.id} value={option.id}>
+          {option.label}
+        </option>
+      ))}
+    </select>
+  )
+}

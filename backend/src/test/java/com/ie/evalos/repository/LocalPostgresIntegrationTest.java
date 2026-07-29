@@ -1,5 +1,6 @@
 package com.ie.evalos.repository;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -59,6 +60,11 @@ class LocalPostgresIntegrationTest {
 	private static final UUID BRAND_XP = UUID.fromString("22222222-2222-2222-2222-222222222222");
 	private static final UUID GM = UUID.fromString("aaaaaaaa-0000-0000-0000-000000000001");
 	private static final UUID BM_IE = UUID.fromString("aaaaaaaa-0000-0000-0000-000000000002");
+	// Seeded members, so the assignment columns' foreign keys resolve: V900's IE Case
+	// Manager and V902's IE Coordinator.
+	private static final UUID CM_IE = UUID.fromString("aaaaaaaa-0000-0000-0000-000000000005");
+	private static final UUID COORDINATOR_IE = UUID.fromString("aaaaaaaa-0000-0000-0000-000000000006");
+	private static final UUID TEAM_IE = UUID.fromString("bbbbbbbb-0000-0000-0000-000000000001");
 
 	private static final String DETAIL = "Wire to Bank of Nowhere, acct 12345678";
 
@@ -339,14 +345,85 @@ class LocalPostgresIntegrationTest {
 				.contains(id);
 		assertThat(ids(cases.findScoped(brandManagerOfIe(), Stage.DOC_COLLECTION, null)))
 				.doesNotContain(id);
-		// A deadline filter on a case with no deadline: the row drops out, it does not error.
+		// A deadline filter on a case with no deadline keeps the row — see the dedicated test
+		// below for why dropping it was a defect rather than a detail.
 		assertThat(ids(cases.findScoped(brandManagerOfIe(), null, Instant.now())))
-				.doesNotContain(id);
+				.contains(id);
 
 		// And a case in another brand stays out however the filters are combined.
 		UUID other = cases.save(new Case(BRAND_XP, "XP-" + UUID.randomUUID(), Stage.EXPERT_SIGNING)).getId();
 		assertThat(ids(cases.findScoped(brandManagerOfIe(), Stage.EXPERT_SIGNING, null)))
 				.doesNotContain(other);
+	}
+
+	/**
+	 * A case with no deadline is still on the board.
+	 *
+	 * <p>The board always sends a deadline window (the shell's date filter has no "all" option),
+	 * and `deadline <= :dueBefore` alone drops undated rows, because SQL `NULL <= x` is unknown
+	 * rather than true. Intake leaves the column null whenever the GHL payload carries no date —
+	 * there is no `@NotNull` on it — so those cases were invisible in every column and every
+	 * lane, on every screen, with no setting that revealed them. Exactly the kind of thing only
+	 * real SQL shows: a mocked repository has no NULL semantics to get wrong.
+	 */
+	@Test
+	void aCaseWithNoDeadlineSurvivesTheDeadlineFilter() {
+		Case undated = cases.save(new Case(BRAND_IE, "EV-" + UUID.randomUUID(), Stage.DOC_COLLECTION));
+		Case dated = new Case(BRAND_IE, "EV-" + UUID.randomUUID(), Stage.DOC_COLLECTION);
+		dated.setDeadline(Instant.now().plus(Duration.ofDays(3)));
+		UUID datedId = cases.save(dated).getId();
+
+		Case wayOut = new Case(BRAND_IE, "EV-" + UUID.randomUUID(), Stage.DOC_COLLECTION);
+		wayOut.setDeadline(Instant.now().plus(Duration.ofDays(400)));
+		UUID wayOutId = cases.save(wayOut).getId();
+
+		List<UUID> withinAWeek = ids(cases.findScoped(brandManagerOfIe(), null,
+				Instant.now().plus(Duration.ofDays(7))));
+
+		assertThat(withinAWeek).contains(undated.getId(), datedId);
+		// The filter still filters: a case due next year is not "due within a week".
+		assertThat(withinAWeek).doesNotContain(wayOutId);
+	}
+
+	/**
+	 * The defect Unit 08 fixed, proved against real SQL: a Self-tier caller matches a case
+	 * naming them in <em>any</em> assignment slot.
+	 *
+	 * <p>Before {@code V17} and the widened axis, {@code evalos_case}'s only assignee
+	 * column was {@code assigned_cm}, so a Coordinator's scoped read matched nothing at
+	 * all — their board was empty and the four transitions they are the actor for answered
+	 * 403 on their own cases. This is the one that would silently regress if the OR were
+	 * dropped back to a single column, and no mocked repository would notice.
+	 */
+	@Test
+	void aSelfCallerReadsCasesAssignedToThemInEitherSlot() {
+		Case coordinated = new Case(BRAND_IE, "EV-" + UUID.randomUUID(), Stage.DOC_COLLECTION);
+		coordinated.setAssignedCoordinator(COORDINATOR_IE);
+		UUID coordinatedId = cases.save(coordinated).getId();
+
+		Case managed = new Case(BRAND_IE, "EV-" + UUID.randomUUID(), Stage.DRAFT_GENERATION);
+		managed.setAssignedCm(CM_IE);
+		UUID managedId = cases.save(managed).getId();
+
+		UUID unassignedId = cases.save(new Case(BRAND_IE, "EV-" + UUID.randomUUID(), Stage.DOC_COLLECTION)).getId();
+
+		// Each Self caller sees their own slot and neither sees the other's or the pool's.
+		assertThat(ids(cases.findScoped(coordinatorOfIe())))
+				.contains(coordinatedId)
+				.doesNotContain(managedId, unassignedId);
+		assertThat(ids(cases.findScoped(caseManagerOfIe())))
+				.contains(managedId)
+				.doesNotContain(coordinatedId, unassignedId);
+
+		// And the single-row variant agrees, which is what the write path loads through.
+		assertThat(cases.findScoped(coordinatorOfIe(), coordinatedId)).isPresent();
+		assertThat(cases.findScoped(coordinatorOfIe(), managedId)).isEmpty();
+
+		// A case assigned to a Coordinator in another brand stays out regardless.
+		Case otherBrand = new Case(BRAND_XP, "XP-" + UUID.randomUUID(), Stage.DOC_COLLECTION);
+		otherBrand.setAssignedCoordinator(COORDINATOR_IE);
+		UUID otherBrandId = cases.save(otherBrand).getId();
+		assertThat(ids(cases.findScoped(coordinatorOfIe()))).doesNotContain(otherBrandId);
 	}
 
 	/** The two derived finders Unit 04 added, executed rather than merely resolved. */
@@ -395,5 +472,13 @@ class LocalPostgresIntegrationTest {
 
 	private static TenantContext gm() {
 		return new TenantContext(GM, Role.GM, null, null);
+	}
+
+	private static TenantContext coordinatorOfIe() {
+		return new TenantContext(COORDINATOR_IE, Role.PROJECT_COORDINATOR, BRAND_IE, TEAM_IE);
+	}
+
+	private static TenantContext caseManagerOfIe() {
+		return new TenantContext(CM_IE, Role.CASE_MANAGER, BRAND_IE, TEAM_IE);
 	}
 }

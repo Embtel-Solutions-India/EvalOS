@@ -29,7 +29,7 @@ import org.springframework.transaction.annotation.Transactional;
  */
 public interface NotificationRepository extends ScopedRepository<Notification> {
 
-	ScopePredicate.Fields SCOPE = new ScopePredicate.Fields("brandId", null, "recipientId");
+	ScopePredicate.Fields SCOPE = new ScopePredicate.Fields("brandId", null, List.of("recipientId"));
 
 	@Override
 	default ScopePredicate.Fields scopeFields() {
@@ -45,7 +45,7 @@ public interface NotificationRepository extends ScopedRepository<Notification> {
 	/**
 	 * Mark-read's load. Recipient is in the query rather than checked afterwards, so
 	 * another member's notification is indistinguishable from one that does not exist —
-	 * the same reason `TeamMemberRepository.findByIdAndBrandIdAndRole` reads that way.
+	 * the same reason `TeamMemberRepository.findByIdAndBrandIdAndRoleAndActiveTrue` reads that way.
 	 */
 	Optional<Notification> findByIdAndRecipientId(UUID id, UUID recipientId);
 

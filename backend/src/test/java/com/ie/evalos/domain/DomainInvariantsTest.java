@@ -2,6 +2,7 @@ package com.ie.evalos.domain;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -55,13 +56,13 @@ class DomainInvariantsTest {
 	@MethodSource("scopedRepositories")
 	void everyScopeFieldNamesARealMappedAttribute(ScopePredicate.Fields scope, Class<?> entity) {
 		assertThat(scope.brand()).isNotNull();
-		for (String attribute : new String[] { scope.brand(), scope.team(), scope.assignee() }) {
-			if (attribute != null) {
+		Stream<String> attributes = Stream.concat(
+				Stream.of(scope.brand(), scope.team()),
+				scope.assignees().stream());
+		attributes.filter(Objects::nonNull).forEach(attribute ->
 				assertThat(declaresField(entity, attribute))
 						.as("%s has no field '%s'", entity.getSimpleName(), attribute)
-						.isTrue();
-			}
-		}
+						.isTrue());
 		// Forgetting an axis the entity actually has widens reads silently, which is
 		// the one failure direction ScopePredicate cannot fail closed on. The team
 		// axis is mechanical, so it is checked; the assignee axis is a judgement

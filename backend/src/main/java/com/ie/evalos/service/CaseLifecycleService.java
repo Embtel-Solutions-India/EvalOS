@@ -62,6 +62,7 @@ public class CaseLifecycleService {
 			PoolStatus poolStatus,
 			UUID assignedPm,
 			UUID assignedCm,
+			UUID assignedCoordinator,
 			UUID expertId,
 			ExpertSignStatus expertSignStatus,
 			PmApprovalStatus pmApprovalStatus,
@@ -77,9 +78,10 @@ public class CaseLifecycleService {
 
 		static CaseSnapshot of(Case subject, String note) {
 			return new CaseSnapshot(subject.getCurrentStage(), subject.getExceptionState(), subject.getPoolStatus(),
-					subject.getAssignedPm(), subject.getAssignedCm(), subject.getExpertId(),
-					subject.getExpertSignStatus(), subject.getPmApprovalStatus(), subject.getClientApprovalStatus(),
-					subject.getDraftVersionCount(), subject.getSlaStatus(), subject.isPaid(), note);
+					subject.getAssignedPm(), subject.getAssignedCm(), subject.getAssignedCoordinator(),
+					subject.getExpertId(), subject.getExpertSignStatus(), subject.getPmApprovalStatus(),
+					subject.getClientApprovalStatus(), subject.getDraftVersionCount(), subject.getSlaStatus(),
+					subject.isPaid(), note);
 		}
 	}
 
@@ -200,6 +202,26 @@ public class CaseLifecycleService {
 			c.setTeamId(pm.getTeamId());
 			c.setPoolStatus(PoolStatus.ASSIGNED);
 		});
+	}
+
+	/**
+	 * Puts a Coordinator on the case. This is what makes their scope real: their tier is
+	 * SELF, so until a case names them in {@code assigned_coordinator} they cannot read
+	 * it — and the four transitions the design makes them the actor for would 403 on
+	 * their own work.
+	 *
+	 * <p>Re-assignable, unlike {@code assignPm}, which refuses a case that has left the
+	 * pool. There is no pool for coordination and staff change; the audit trail records
+	 * each hand-over, so the column only ever needs to hold who has it now.
+	 */
+	@Transactional
+	public Case assignCoordinator(UUID caseId, UUID coordinatorId) {
+		Case subject = load(caseId);
+		Stage to = CaseTransitions.target(subject, Action.ASSIGN_COORDINATOR);
+		TeamMember coordinator = member(coordinatorId, Role.PROJECT_COORDINATOR, subject.getBrandId());
+
+		return apply(subject, to, Action.ASSIGN_COORDINATOR, null,
+				c -> c.setAssignedCoordinator(coordinator.getId()));
 	}
 
 	/** PM → CM, with the expert the CM will draft for. */
@@ -462,7 +484,11 @@ public class CaseLifecycleService {
 	 * member" have to be indistinguishable from outside.
 	 */
 	private TeamMember member(UUID memberId, Role expected, UUID brandId) {
-		return teamMembers.findByIdAndBrandIdAndRole(memberId, brandId, expected)
+		// `active` is part of the query for the same reason brand and role are: somebody who
+		// has left the company is not "available for this case", and a dialog left open across
+		// a deactivation would otherwise still assign them. One place, so all three assignment
+		// transitions get it rather than the one that happened to be reviewed.
+		return teamMembers.findByIdAndBrandIdAndRoleAndActiveTrue(memberId, brandId, expected)
 				.orElseThrow(() -> new IllegalTransitionException("No %s available for this case".formatted(expected)));
 	}
 

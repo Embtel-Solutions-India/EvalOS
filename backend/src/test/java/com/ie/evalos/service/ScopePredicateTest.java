@@ -1,5 +1,6 @@
 package com.ie.evalos.service;
 
+import java.util.List;
 import java.util.UUID;
 
 import com.ie.evalos.domain.Role;
@@ -26,7 +27,12 @@ import static org.mockito.Mockito.verify;
  */
 class ScopePredicateTest {
 
-	private static final ScopePredicate.Fields FIELDS = new ScopePredicate.Fields("brandId", "teamId", "assignedTo");
+	/**
+	 * Two assignment columns, as {@code evalos_case} has: a case is one pipeline and the
+	 * Coordinator and the Case Manager on it hold different slots.
+	 */
+	private static final ScopePredicate.Fields FIELDS =
+			new ScopePredicate.Fields("brandId", "teamId", List.of("assignedTo", "assignedAlso"));
 
 	private static final UUID MEMBER = UUID.randomUUID();
 	private static final UUID BRAND = UUID.randomUUID();
@@ -38,12 +44,14 @@ class ScopePredicateTest {
 	private final Path<Object> brandPath = mock(Path.class);
 	private final Path<Object> teamPath = mock(Path.class);
 	private final Path<Object> assigneePath = mock(Path.class);
+	private final Path<Object> otherAssigneePath = mock(Path.class);
 
 	@BeforeEach
 	void stubPaths() {
 		doReturn(brandPath).when(root).get("brandId");
 		doReturn(teamPath).when(root).get("teamId");
 		doReturn(assigneePath).when(root).get("assignedTo");
+		doReturn(otherAssigneePath).when(root).get("assignedAlso");
 		doReturn(mock(Predicate.class)).when(cb).equal(any(), any(Object.class));
 	}
 
@@ -92,6 +100,40 @@ class ScopePredicateTest {
 		verify(cb).equal(brandPath, BRAND);
 		verify(cb).equal(assigneePath, MEMBER);
 		verify(cb, never()).equal(teamPath, TEAM);
+	}
+
+	/**
+	 * The regression this axis was widened to fix. With one assignment column a
+	 * Coordinator matched nothing at all: their slot was not the column, so their board
+	 * came back empty and the four transitions they are the actor for answered 403 on
+	 * their own cases. Every slot is tested, and they are OR'd — a case naming them in
+	 * either one is theirs.
+	 */
+	@Test
+	void aSelfCallerMatchesEveryAssignmentSlotNotJustTheFirst() {
+		applyAs(Role.PROJECT_COORDINATOR, BRAND, TEAM);
+
+		verify(cb).equal(brandPath, BRAND);
+		verify(cb).equal(assigneePath, MEMBER);
+		verify(cb).equal(otherAssigneePath, MEMBER);
+		// OR, not AND: requiring both slots would mean nobody ever matched.
+		verify(cb).or(any(Predicate[].class));
+		verify(cb, never()).equal(teamPath, TEAM);
+	}
+
+	/**
+	 * An entity with no assignment column stays brand-wide for a Self caller rather than
+	 * matching nothing: a Case Manager reads their brand's expert roster. Asserted so the
+	 * empty list is visibly a decision — it is the one place this predicate does not
+	 * narrow, and narrowing it would need a column the table does not have.
+	 */
+	@Test
+	void aSelfCallerOnAnEntityWithNoAssignmentColumnStaysBrandWide() {
+		ScopePredicate.<Object>of(new TenantContext(MEMBER, Role.CASE_MANAGER, BRAND, TEAM),
+				ScopePredicate.Fields.brandOnly("brandId")).toPredicate(root, null, cb);
+
+		verify(cb).equal(brandPath, BRAND);
+		verify(cb, never()).or(any(Predicate[].class));
 	}
 
 	@Test

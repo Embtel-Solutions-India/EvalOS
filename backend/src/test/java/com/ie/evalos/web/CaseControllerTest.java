@@ -71,6 +71,8 @@ class CaseControllerTest {
 					"{\"pmId\":\"%s\"}".formatted(SOME_ID)),
 			new Route("/assign-cm", Role.PROJECT_MANAGER, Role.PROJECT_COORDINATOR,
 					"{\"cmId\":\"%s\",\"expertId\":\"%s\"}".formatted(SOME_ID, SOME_ID)),
+			new Route("/assign-coordinator", Role.PROJECT_MANAGER, Role.CASE_MANAGER,
+					"{\"coordinatorId\":\"%s\"}".formatted(SOME_ID)),
 			new Route("/docs-complete", Role.PROJECT_COORDINATOR, Role.CASE_MANAGER, null),
 			new Route("/draft/submit", Role.CASE_MANAGER, Role.PROJECT_MANAGER, null),
 			new Route("/draft/pm-approve", Role.PROJECT_MANAGER, Role.CASE_MANAGER, null),
@@ -132,6 +134,7 @@ class CaseControllerTest {
 		given(lifecycle.markPaid(any(), any(), any())).willReturn(result);
 		given(lifecycle.assignPm(any(), any())).willReturn(result);
 		given(lifecycle.assignCaseManager(any(), any(), any())).willReturn(result);
+		given(lifecycle.assignCoordinator(any(), any())).willReturn(result);
 		given(lifecycle.markDocsComplete(any())).willReturn(result);
 		given(lifecycle.submitDraft(any())).willReturn(result);
 		given(lifecycle.pmApproveDraft(any())).willReturn(result);

@@ -115,6 +115,16 @@ public class Expert extends ScopedEntity {
 	}
 
 	/** Read by the state machine before an expert is put on a case (Unit 04). */
+	/** Added for Unit 08's assignment picker — the first consumer that needed to show a name. */
+	public String getFullName() {
+		return fullName;
+	}
+
+	/** Set by Unit 11's roster screen; today only tests and seed data write it. */
+	public void setAvailability(Availability availability) {
+		this.availability = availability;
+	}
+
 	public Availability getAvailability() {
 		return availability;
 	}

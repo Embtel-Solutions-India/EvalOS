@@ -33,6 +33,7 @@ public final class CaseEvents {
 		/** Tells GHL to send the client their document checklist (Unit 18). */
 		CHECKLIST_REQUESTED("checklist.requested"),
 		PM_ASSIGNED("case.pm_assigned"),
+		COORDINATOR_ASSIGNED("case.coordinator_assigned"),
 		DOCUMENTS_COMPLETED("documents.completed"),
 		EXPERT_ASSIGNED("expert.assigned"),
 		DRAFT_SUBMITTED("draft.submitted"),

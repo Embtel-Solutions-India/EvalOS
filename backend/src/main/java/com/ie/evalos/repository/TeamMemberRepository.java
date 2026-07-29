@@ -26,7 +26,7 @@ public interface TeamMemberRepository extends JpaRepository<TeamMember, UUID>, J
 	 * able to tell a member id belonging to another brand from one that does not
 	 * exist, and that difference is only invisible if the row never comes back.
 	 */
-	Optional<TeamMember> findByIdAndBrandIdAndRole(UUID id, UUID brandId, Role role);
+	Optional<TeamMember> findByIdAndBrandIdAndRoleAndActiveTrue(UUID id, UUID brandId, Role role);
 
 	/**
 	 * The GM pool. Deliberately not brand-filtered — the GM is the one brand-less

@@ -58,8 +58,12 @@ public class CaseController {
 	 */
 	private static final String GM_OR = "hasRole('GM') or ";
 
-	/** Who may see what a case was sold for. */
-	private static final Set<Role> SEES_DEAL_VALUE = Set.of(Role.GM, Role.BRAND_MANAGER, Role.PROJECT_MANAGER);
+	/**
+	 * Who may see what a case was sold for. Package-private rather than private because
+	 * {@code CaseBoardController} projects the same field and this must stay one list —
+	 * two copies is how a Case Manager ends up seeing the deal value on one screen.
+	 */
+	static final Set<Role> SEES_DEAL_VALUE = Set.of(Role.GM, Role.BRAND_MANAGER, Role.PROJECT_MANAGER);
 
 	/**
 	 * The case as staff read it. No {@code pm_strategy_notes} and no drive link: this
@@ -79,6 +83,7 @@ public class CaseController {
 			Instant caseClosedDate,
 			UUID assignedPm,
 			UUID assignedCm,
+			UUID assignedCoordinator,
 			UUID expertId,
 			ExpertSignStatus expertSignStatus,
 			PmApprovalStatus pmApprovalStatus,
@@ -94,7 +99,8 @@ public class CaseController {
 					subject.getExceptionState(), subject.getPoolStatus(), subject.getSlaStatus(),
 					subject.getServiceType(), subject.getDeadline(), subject.getStageEnteredAt(),
 					subject.getDeliveryDate(), subject.getCaseClosedDate(), subject.getAssignedPm(),
-					subject.getAssignedCm(), subject.getExpertId(), subject.getExpertSignStatus(),
+					subject.getAssignedCm(), subject.getAssignedCoordinator(),
+					subject.getExpertId(), subject.getExpertSignStatus(),
 					subject.getPmApprovalStatus(), subject.getClientApprovalStatus(),
 					subject.getDraftVersionCount(), subject.isPaid(), subject.getPaidAt(),
 					RefundService.isRevenueRecognized(subject),
@@ -106,6 +112,9 @@ public class CaseController {
 	}
 
 	public record AssignCmRequest(@NotNull UUID cmId, @NotNull UUID expertId) {
+	}
+
+	public record AssignCoordinatorRequest(@NotNull UUID coordinatorId) {
 	}
 
 	public record ExpertRequest(@NotNull UUID expertId) {
@@ -174,6 +183,17 @@ public class CaseController {
 	@PreAuthorize(GM_OR + "hasRole('PROJECT_MANAGER')")
 	public ApiResponse<CaseSummary> assignCm(@PathVariable UUID id, @Valid @RequestBody AssignCmRequest request) {
 		return summary(lifecycle.assignCaseManager(id, request.cmId(), request.expertId()));
+	}
+
+	/**
+	 * Staffs the Coordinator. Same gate as assigning a PM plus the PM themselves, because
+	 * all three are decisions about who works the case rather than about the case's state.
+	 */
+	@PostMapping("/{id}/assign-coordinator")
+	@PreAuthorize(GM_OR + "hasAnyRole('BRAND_MANAGER', 'PROJECT_MANAGER')")
+	public ApiResponse<CaseSummary> assignCoordinator(@PathVariable UUID id,
+			@Valid @RequestBody AssignCoordinatorRequest request) {
+		return summary(lifecycle.assignCoordinator(id, request.coordinatorId()));
 	}
 
 	// --- document collection -------------------------------------------------

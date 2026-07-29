@@ -5,12 +5,14 @@ Update this file after every meaningful implementation change.
 ## Current Phase
 
 - Phase 1 — Structure the data (the spine) is complete: Units 01–05 built, plus 05a.
-  Phase 2 is under way: Units 06 (notification centre) and 07 (app shell) are done.
+  Phase 2 is under way: Units 06 (notification centre), 07 (app shell) and 08 (production
+  board) are done.
 
 ## Current Goal
 
-- Unit 08 — the Kanban production board and case table, the first screens to mount
-  inside Unit 07's shell and the first consumers of the brand/date filters it holds.
+- Unit 09 — case detail, which the board's cards deep-link into. It is the working surface
+  for the PM, Case Manager and Coordinator, and the first screen to read the append-only
+  audit trail Unit 03 built.
 
 ## Completed
 
@@ -397,14 +399,98 @@ Update this file after every meaningful implementation change.
     safer half — a wrong merge attaches a case to the wrong person — but if it fires in
     practice the fix is a real contact key from GHL, not dropping the index.
 
+- **Unit 08 — Production Kanban board.** The first screen with real data in it, and the
+  first consumer of the shell's brand and date filters.
+  - **The scope defect it had to fix first.** `ScopePredicate.Fields` carried one
+    `assignee` attribute and `CaseRepository` declared `assignedCm`, so "assigned to me"
+    only ever meant the Case Manager. A case is one pipeline worked by several people in
+    different slots, so a Coordinator (also `Tier.SELF`) matched **no case at all**: empty
+    board, and 403 on the four transitions the design makes them the actor for. The axis
+    is now a **set** of attributes and a SELF caller matches when *any* of them names them
+    (`assignedCm` OR `assignedCoordinator`). Fixed in the one place all callers route
+    through, not per-query. `V17__case_assigned_coordinator.sql` adds the missing column +
+    `(brand_id, assigned_coordinator, current_stage)`, mirroring the CM's board index.
+    **Closed by giving the axis its column, not by widening the predicate** — an entity
+    with no assignment column (expert, payout) is still deliberately brand-wide for a SELF
+    caller, and that is now asserted rather than implied.
+  - `POST /api/cases/{id}/assign-coordinator` (+ `ASSIGN_COORDINATOR` action and
+    `case.coordinator_assigned`), because a column nothing populates is the same bug with
+    an extra migration. GM / Brand Manager / PM — all three are staffing decisions.
+    Declared on every active stage and **re-assignable**, unlike `assignPm`: coordination
+    changes hands mid-pipeline and there is no pool to leave. `CaseSnapshot` gained the
+    field too, or the audit row for the assignment would show a before/after that look
+    identical.
+  - `service/CaseBoardService` + `web/CaseBoardController` → `GET /api/cases/board`,
+    grouped into the five stage columns and three exception lanes. **Calls
+    `CaseLifecycleService.list` rather than building a second scoped query** — a board that
+    filtered its own way could disagree with every other read about what the caller may
+    see, and it inherits the SLA recompute for free. One batched query for the client
+    names, not one per card.
+  - **A case appears exactly once**: in its exception lane if it holds one, in its stage
+    column otherwise — a case on hold is not also sitting in Doc Collection. `CLOSED` is
+    not a column, so a settled refund drops out of the lane and the lane stays a queue of
+    things still needing a decision.
+  - **`brandId` is accepted on this one endpoint** (the GM's switcher, which Unit 07 note
+    (d) deferred to here) and applied **after** the scoped read. It can only ever narrow:
+    a Brand Manager naming another brand gets an empty board, not that brand's cases.
+    `CaseBoardServiceTest.theBrandFilterOnlyEverNarrows` is what holds that.
+  - `CaseController.SEES_DEAL_VALUE` went package-private so the board projects through
+    the *same* list. Two copies is how a Case Manager ends up seeing the deal value on one
+    screen; the board test asserts all six roles.
+  - Frontend `features/board/*` (`BoardView`, `StageColumn`, `CaseCard`, `PoolLane`,
+    `QuickActionDialog`, `boardApi`). `/board` for GM / Brand Manager / PM / Coordinator
+    and `/my-cases` for the Case Manager are **the same component** — the spec's per-role
+    wording describes scope, which the server applies.
+  - **Defect caught by its own test, before it ever ran live:** `Map.of()` throws on a
+    `null` key rather than answering null, and `contact_id` is nullable — so a board
+    holding one contactless case NPE'd. The null check in `forCaller` is load-bearing.
+  - **Assignment picks a person, it does not ask for a UUID.** The first pass left
+    `assign-pm` / `assign-cm` / `assign-coordinator` / `reassign-expert` collecting ids by
+    hand, because no roster read existed that a PM could call. Two narrow endpoints close it:
+    `GET /api/team-members/assignable?role=` (GM / Brand Manager / **PM**) and
+    `GET /api/experts` (GM / Brand Manager / PM / ENM, `AVAILABLE` only).
+    - **Both are deliberately separate, narrower projections**, not widened versions of
+      existing routes. `assignable` returns `{id, displayName}` and nothing else, so a PM can
+      staff a case while still being refused the staff directory (`/api/team-members` stays
+      GM/Brand-Manager, asserted in the same test). `/api/experts` returns `{id, fullName}`:
+      the encrypted `payment_detail` is on that entity and must never leave it, and the
+      quality/performance fields are Unit 11's with their own audience.
+    - **The picker cannot offer what the write side would refuse.** `assignable` applies the
+      same scope predicate, so a PM sees their team — which is the rule
+      `assignCaseManager` enforces ("case manager is not on this case's team"). `/api/experts`
+      filters to `AVAILABLE` because `availableExpert` rejects anything else. An empty list
+      says why rather than rendering an empty dropdown.
+    - **No `uuid` package.** Nothing in the frontend mints an id — Postgres does
+      (`gen_random_uuid()`), and a generated one would just fail the `team_member` lookup.
+      The blocker was a missing read, not a missing generator.
+  - **`STAGE_ACCESS` — how much of each stage a role works.** `full` (drives it) / `status`
+    (watches it) / `none` (not drawn). A `status` role keeps the stage-*preserving* actions —
+    a Coordinator watching a draft can still put the case on hold — and loses only the ones
+    declared *from* that stage. PM full through signing, status on delivery; Coordinator full
+    on the two ends and status through the middle; Case Manager full on draft + signing only;
+    ENM full on signing, status on assignment and delivery. GM and Brand Manager see all five.
+    **Convenience, not enforcement** (principle 7) — the server still gates every transition
+    and every read, and several `none` cells were already empty by scope alone (a case naming
+    a CM has long left Doc Collection). Held as **one table** rather than a context file, for
+    the reason `navigation.ts` gives: a second copy is a copy that drifts.
+  - Verified: `./mvnw verify` BUILD SUCCESS **148 tests**, and **all 148 green with zero
+    skipped against local Postgres 18** (`-Devalos.db.test=true`): `V17` applied on top of
+    20 existing migrations, `ddl-auto=validate` passed. `npm test` **18 tests** green
+    (`vitest run`, mutation-checked). And
+    `aSelfCallerReadsCasesAssignedToThemInEitherSlot` proves in real SQL that a Coordinator
+    reads the case naming them and not the CM's, the CM reads theirs and not the
+    Coordinator's, neither sees the unassigned pool row, and another brand's case stays out
+    even when it names the same Coordinator. `npm run build` clean, `npm run lint` clean.
+
 ## In Progress
 
 - Nothing.
 
 ## Next Up
 
-- Unit 08 — Kanban production board + case table. Its spec is not written yet
-  (`context/specs/` stops at 07); generate it before building, per `CLAUDE.md`.
+- Unit 09 — Case detail page (`context/specs/09-case-detail.md`), then Unit 10 (doc
+  checklist + Coordinator flow), which closes Phase 1. Unit 10 is **no longer gated**: the
+  Coordinator's scope is real as of Unit 08.
 
 ## Open Questions
 
@@ -416,16 +502,6 @@ Update this file after every meaningful implementation change.
   **Also unconfirmed: which GHL contact event actually fires.** `contact.created`
   is the assumption; if the real trigger is a pipeline-stage or form-submission
   event, only `WebhookRouter`'s one constant changes.
-
-- **Coordinator case scope (blocks four Unit 04 endpoints at runtime).**
-  `PROJECT_COORDINATOR` is `Tier.SELF`, but no `evalos_case` column names a
-  coordinator, so their scoped read matches nothing and `docs-complete`,
-  `draft/send-to-client`, `deliver` and `close` will 403 live. Decide between:
-  (a) add `assigned_coordinator` to `evalos_case` in a new migration and make it the
-  Coordinator's Self axis (assignment happens alongside `assign-pm`/`assign-cm`);
-  (b) make the Coordinator `Tier.TEAM`, sharing the PM's team scope; or (c) accept
-  that Coordinators act through a PM until a later unit. Needed before Unit 08/09
-  put the board in front of a Coordinator.
 
 - **Full brand list** — International Evaluations and XpertsPortal confirmed;
   confirm any others before seeding brands / webhook endpoints.
@@ -591,15 +667,13 @@ Update this file after every meaningful implementation change.
   `AuditEvent.getObjectType`/`getObjectId`).
 
 - **Unit 04 deviations / decisions to confirm.**
-  (a) **`PROJECT_COORDINATOR` stays `Tier.SELF`** — decided, and it leaves a known
-  runtime gap tracked as an open question below. The spec's transition table makes
-  the Coordinator the actor for docs-complete, send-to-client, deliver and close,
-  but `evalos_case`'s assignee axis is `assigned_cm`, which only ever holds a Case
-  Manager. So a Coordinator's `findScoped` matches no case, and those four
-  endpoints answer 403 in a live system even though their role gate passes. Briefly
-  moved to `Tier.TEAM` during the build, then reverted on instruction. Closing the
-  gap needs an `assigned_coordinator` column and a migration — **not** a widened
-  predicate, which would fail open. The warning lives on the enum constant.
+  (a) **`PROJECT_COORDINATOR` stays `Tier.SELF`** — decided, and the runtime gap it left
+  is **closed by Unit 08**, by the route this note called for: `V17` adds
+  `assigned_coordinator` and the assignee axis became a *set* of columns, so a SELF caller
+  matches a case naming them in any slot. Briefly moved to `Tier.TEAM` during the Unit 04
+  build, then reverted on instruction — and reverting was right: the fix was the missing
+  column, **not** a widened predicate, which would have failed open. The warning that lived
+  on the enum constant is now a record of what was fixed.
   (b) **`assignPm` stamps `team_id` from the PM's row.** Nothing else populated it,
   so PM/Coordinator team scoping would never have matched either. Pool → PM is the
   moment a case acquires a team.
@@ -822,6 +896,142 @@ Update this file after every meaningful implementation change.
     database and leaves them behind — the bell shows notifications with bodies `"old"`
     and `"fresh"` from `theNotificationCentreFindersRunAgainstRealSql`. Harmless, but
     the dev database now needs a reset before any demo.
+
+- **Unit 08 deviations / decisions to confirm.**
+  (a) **The move is not optimistic.** The spec asks for "optimistic move with rollback on
+  error". The board posts the transition and re-reads instead. The server decides the target
+  stage from its own table, so an optimistic move means *guessing* where the card lands and
+  being wrong on every guard (unpaid, checklist incomplete, wrong exception state) — the
+  refusal is the common case, not the exception. A refused action shows its reason on the
+  card and nothing moves. Revisit if the ~200ms settle is ever felt.
+  (b) ~~Member and expert ids are text inputs~~ — **closed in the same unit**: both are
+  `<select>`s over the two scoped picker endpoints above. `GET /api/experts` is a **partial
+  pre-empt of Unit 11** and named `ExpertPickerController` to say so: no search, no taxonomy
+  matching, no quality scores, no sheet upload. Unit 11 supersedes the screen; the endpoint
+  can stay as the picker's read.
+  (c) **The client quick-action table duplicates Unit 04's transition table.** Unavoidable
+  given the spec asks for legal-actions-per-card, and deliberately kept as *one* table in
+  `boardApi.ts` with the server as the authority — every action surfaces its 409 inline
+  rather than assuming success. If the two drift, the server wins and the user sees why.
+  (d) **No drag-and-drop.** The spec puts free drag out of scope (moves are constrained to
+  legal transitions), so actions are buttons. A drag that can only ever drop in one place is
+  a button with extra steps.
+  (e) **The pool is a lane over the stage data, not a separate query.** A case in the pool is
+  in `DOC_COLLECTION` like any other and appears in that column too — the lane is the same
+  work seen through "what has nobody picked up". GM / Brand Manager / PM only; a Case Manager
+  has no pool because nothing in it is theirs yet.
+  (f) **`GET /api/cases/board` has no `@PreAuthorize`.** Every staff role has a board and
+  none can widen it; a role with nothing assigned gets empty columns, which is a screen, not
+  a refusal. Only `dealValue` is role-dependent.
+  (g) **Still no `components/ui/` primitives** (carried from Unit 07 note (a)). The dialog is
+  a native `<dialog>` and the filters native `<select>`s — Escape, focus trapping, the
+  backdrop and keyboard handling all come from the platform. Unit 09's case detail is the
+  first screen likely to actually need the generated set (tabs, a real table).
+  (h) **`/cases` is still a placeholder.** Spec 08's deliverables are all board; the dense
+  sortable case *table* `ui-context.md` describes is not among them, so `/cases` was left
+  pointing at the placeholder rather than quietly aliasing it to the board.
+  (i) ~~Frontend has no test suite~~ — **closed** (the gap Unit 07 note (h) opened).
+  **Vitest, one dev dependency, no jsdom.** The board's decision logic was split into
+  `features/board/boardRules.ts` — types, `STAGE_COLUMNS`, `STAGE_ACCESS`, `QUICK_ACTIONS`,
+  `actionsFor`, `columnsFor`, `dueBeforeFor` — which imports nothing but a type, so it tests
+  in the node environment with no DOM and no server. `boardApi.ts` keeps the four HTTP calls.
+  The split was worth doing on its own terms: `session.ts` reads `sessionStorage` at module
+  load, so anything importing the old combined module needed a browser to be tested at all.
+  `dueBeforeFor` moved out of `BoardView` and now takes an injectable `now`, because date
+  window arithmetic is exactly what breaks silently.
+  **17 tests, and they were mutation-checked** — flipping one `STAGE_ACCESS` cell from
+  `status` to `full` failed two of them, so they are not vacuous. They cover: every
+  role×stage cell is defined, every role can work at least one stage (a table typo would
+  otherwise leave somebody a board they can only stare at), the Case Manager's two hidden
+  columns, the Coordinator's watch-the-middle row, a watching role keeps hold/refund but
+  loses the stage actions, **no action is ever offered to a role its route would refuse**
+  (the whole point of the client table), one-exception-at-a-time, refund rulings GM-only not
+  GM-also, and the date window widening monotonically.
+  (j) **A Case Manager loses sight of a case at delivery.** `STAGE_ACCESS` gives them `none`
+  on `FINAL_DELIVERY`, so a case they drafted disappears from their board once QC passes,
+  even though `assigned_cm` still names them. That is the matrix's intent — delivery is the
+  Coordinator's stage — and the case is still reachable in an exception lane and (from Unit
+  09) by direct link. Confirm it is what the documentation team actually wants; it is one
+  cell to change if not.
+  (k) **`Head/Vert Mgr`'s KPI column is not modelled as a stage access.** GM and Brand
+  Manager get `full` on all five columns instead. A KPI roll-up is a dashboard, not a board
+  column — Unit 17 owns it.
+
+- **Unit 07 notes superseded by Unit 08.** Note (d) — "the brand filter is state, not yet a
+  parameter" — is closed: `GET /api/cases/board` takes `brandId`, applied after the scope so
+  it can only narrow. Note (g)'s reasoning ("scope, not different screens") is what `/board`
+  and `/my-cases` sharing one component now rests on.
+
+- **Unit 08 review pass — 8 findings, 7 fixed, 1 left as a product decision.** A medium-effort
+  review of `026427e`. Two were reachable defects that hid or misreported real work:
+  (a) **Every case with no deadline was invisible on the board, permanently.** The board always
+  sends a window (`dueBeforeFor` has no "all" range) and the predicate was
+  `deadline <= :dueBefore`, so SQL's `NULL <= x` being *unknown* dropped every undated row from
+  every column and lane, with no setting that revealed it. Intake leaves the column null
+  whenever GHL sends no date — there is no `@NotNull` on it — so this was the normal path.
+  The rest of the stack was written as though undated cards arrived (`Comparator.nullsLast`
+  "undated last", `Due —` on the card); both were unreachable. Fixed in the predicate, not the
+  caller, so `GET /api/cases?dueBefore=` gets it too:
+  `deadline IS NULL OR deadline <= :dueBefore`. Undated work is unbounded-risk work; it belongs
+  in "what needs attention by then", never hidden by it.
+  `aCaseWithNoDeadlineSurvivesTheDeadlineFilter` is DB-gated because only real SQL has NULL
+  semantics to get wrong.
+  (b) **No refusal reason ever reached the user.** `unwrap` reads the envelope only on a 2xx,
+  and every deliberate refusal is a non-2xx — a 409 carries "the case has not been paid" in the
+  body while axios sets `message` to "Request failed with status code 409". So the reason was
+  fetched, parsed and thrown away, and `boardRules.ts`'s own comment claiming actions "surface
+  the reason inline" was false. Fixed in the `api.ts` response interceptor, which lifts
+  `error.error.message` onto the Error — one place, so **every** caller in the app gets it, not
+  just the board.
+  (c) **`<dialog open>` is not modal**, so none of the platform behaviour the comment claimed
+  actually happened: Escape did nothing, `onCancel` never fired, `::backdrop` was never
+  generated (the `backdrop:` class was inert) and focus was not trapped — cards behind the
+  dialog stayed tabbable. Now opened with `showModal()` via a ref.
+  (d) **The pool lane's "Assign PM" was inert for a PM**, and the lane was always empty for
+  them anyway: `assign-pm` is what stamps `team_id`, so a pool case has no team and a PM's TEAM
+  scope never matches it — and the route is gated to GM / Brand Manager regardless. `SEES_POOL`
+  is now the two commercial roles. Deviates from the spec, which names the PM; the spec's
+  version cannot work.
+  (e) **`setMonth` overflow widened the window by up to 3 days** (31 Jan + 1 month = 3 March;
+  29 Feb + 1 year = 1 March). The existing test asserted only "later than now", which 3 March
+  satisfies, so it passed while the bug was live — now clamped, and pinned by two tests that
+  name the month.
+  (f) **An inactive member could still be assigned.** `member()` queried brand + role but not
+  `active`, so a departed member was staffable by direct POST or by a dialog left open across a
+  deactivation — while `assignable` filtered them out, making the picker's "cannot offer
+  somebody the transition would refuse" guarantee one-directional. Fixed in the shared lookup,
+  so assign-pm and assign-cm are covered too, not just the reviewed one.
+  (g) **On-hold unassigned cases were missing from the pool count.** The server puts an
+  exception-holding case in its lane *instead of* its stage column, and the lane read only
+  `stages` — understating exactly the cases most likely to be both unassigned and held
+  (awaiting client documents).
+  - **Left as-is, deliberately:** the Case Manager losing sight of a case at `FINAL_DELIVERY`.
+    That is the matrix's own `—` cell, already recorded as note (j) and raised with the user;
+    changing it to `status` is a one-cell product decision, not a defect fix.
+  - Verified: `./mvnw verify -Devalos.db.test=true` **148 tests, 0 skipped**, `npm test` 18,
+    build and lint clean.
+
+- **`npm audit`: 2 high findings, assessed as not exposed, deliberately not "fixed".**
+  `GHSA-qwww-vcr4-c8h2` — react-router **7.12.0 – 8.2.0**, an **RSC-mode** CSRF bypass
+  (actions executing before a 400). Installed is react-router 7.18.1 via
+  react-router-dom 7.18.1, so the version range matches.
+  - **Not reachable here.** EvalOS uses react-router declaratively and only:
+    `BrowserRouter`, `Routes`, `Route`, `Navigate`, `Link`, `NavLink`, `Outlet`,
+    `useLocation`. No `createBrowserRouter`/`RouterProvider` (data mode), no route
+    `loader`/`action`, no `useFetcher`/`useSubmit`, no react-router `<Form>`, no
+    framework mode, no `react-router.config.ts`. RSC mode requires an RSC-capable server;
+    this is a static Vite bundle talking to Spring Boot over `/api`. The vulnerable code
+    path does not exist in the build.
+  - **`npm audit fix --force` would make things worse.** It downgrades react-router-dom to
+    **7.11.0** — backwards across seven minors of real fixes, and still a breaking change.
+    Do not run it.
+  - **The actual fix is react-router 8.3.0** (the first version above the range). That is a
+    major bump, and in v8 `react-router-dom` is gone — imports move to `react-router`. For
+    this app that is mostly an import-specifier change across 7 files, but it is a
+    deliberate upgrade with its own browser pass, not a drive-by inside a feature unit.
+  - Decision: **accept and revisit when a v8 bump is scheduled.** Re-assess immediately if
+    EvalOS ever adopts data mode, framework mode, or RSC — at that point the finding
+    becomes live rather than theoretical.
 
 - **Unit 02 latent test bug, surfaced and fixed.**
   `SecurityFlowTest.tamperedTokenIsUnauthenticated` flipped the **last** character

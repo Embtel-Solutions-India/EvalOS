@@ -74,6 +74,7 @@ class CaseLifecycleServiceTest {
 	private static final UUID CASE_ID = UUID.randomUUID();
 	private static final UUID PM_ID = UUID.randomUUID();
 	private static final UUID CM_ID = UUID.randomUUID();
+	private static final UUID COORDINATOR_ID = UUID.randomUUID();
 	private static final UUID EXPERT_ID = UUID.randomUUID();
 	private static final UUID OTHER_EXPERT_ID = UUID.randomUUID();
 	private static final BigDecimal PAID = new BigDecimal("1450.00");
@@ -103,6 +104,7 @@ class CaseLifecycleServiceTest {
 		// willReturn(...) argument leaves the outer stubbing unfinished.
 		TeamMember pm = member(PM_ID, Role.PROJECT_MANAGER, TEAM);
 		TeamMember cm = member(CM_ID, Role.CASE_MANAGER, TEAM);
+		TeamMember coordinator = member(COORDINATOR_ID, Role.PROJECT_COORDINATOR, TEAM);
 		Expert assigned = expert(EXPERT_ID, Availability.AVAILABLE);
 		Expert replacement = expert(OTHER_EXPERT_ID, Availability.AVAILABLE);
 		List<DocumentChecklistItem> completeChecklist = List.of(
@@ -110,8 +112,10 @@ class CaseLifecycleServiceTest {
 
 		given(cases.findScoped(any(TenantContext.class), any(UUID.class))).willReturn(Optional.of(subject));
 		given(cases.save(any(Case.class))).willAnswer(invocation -> invocation.getArgument(0));
-		given(teamMembers.findByIdAndBrandIdAndRole(PM_ID, BRAND, Role.PROJECT_MANAGER)).willReturn(Optional.of(pm));
-		given(teamMembers.findByIdAndBrandIdAndRole(CM_ID, BRAND, Role.CASE_MANAGER)).willReturn(Optional.of(cm));
+		given(teamMembers.findByIdAndBrandIdAndRoleAndActiveTrue(PM_ID, BRAND, Role.PROJECT_MANAGER)).willReturn(Optional.of(pm));
+		given(teamMembers.findByIdAndBrandIdAndRoleAndActiveTrue(CM_ID, BRAND, Role.CASE_MANAGER)).willReturn(Optional.of(cm));
+		given(teamMembers.findByIdAndBrandIdAndRoleAndActiveTrue(COORDINATOR_ID, BRAND, Role.PROJECT_COORDINATOR))
+				.willReturn(Optional.of(coordinator));
 		given(experts.findScoped(any(TenantContext.class), eq(EXPERT_ID))).willReturn(Optional.of(assigned));
 		given(experts.findScoped(any(TenantContext.class), eq(OTHER_EXPERT_ID))).willReturn(Optional.of(replacement));
 		given(checklistItems.findByCaseId(any())).willReturn(completeChecklist);
@@ -218,6 +222,59 @@ class CaseLifecycleServiceTest {
 				CaseEvents.Type.QC_APPROVED,
 				CaseEvents.Type.CASE_DELIVERED,
 				CaseEvents.Type.CASE_CLOSED), publishedEventTypes(12));
+	}
+
+	/**
+	 * The Coordinator's assignment slot. Without it their tier (SELF) matched no case at
+	 * all, so this is what makes their board and their four transitions reachable.
+	 * Re-assignable on purpose, and at any active stage — coordination changes hands.
+	 */
+	@Test
+	void aCoordinatorCanBeAssignedAndReassignedAtAnyActiveStage() {
+		actAs(Role.PROJECT_MANAGER);
+
+		lifecycle.assignCoordinator(CASE_ID, COORDINATOR_ID);
+		assertEquals(COORDINATOR_ID, subject.getAssignedCoordinator());
+		// Stage-preserving: staffing a case is not moving it.
+		assertEquals(Stage.DOC_COLLECTION, subject.getCurrentStage());
+		assertEquals(List.of(CaseEvents.Type.COORDINATOR_ASSIGNED), publishedEventTypes(1));
+
+		// Later in the pipeline, and to somebody else, both still legal.
+		walkToDraftGeneration();
+		actAs(Role.PROJECT_MANAGER);
+		lifecycle.assignCoordinator(CASE_ID, COORDINATOR_ID);
+		assertEquals(COORDINATOR_ID, subject.getAssignedCoordinator());
+		assertEquals(Stage.DRAFT_GENERATION, subject.getCurrentStage());
+	}
+
+	/**
+	 * Somebody who has left is not "available for this case". The check is in the shared
+	 * member lookup, so this covers assign-pm and assign-cm as well: a dialog left open
+	 * across a deactivation, or a direct POST with a remembered id, cannot staff a departed
+	 * member onto live work.
+	 */
+	@Test
+	void aDeactivatedMemberCannotBeAssigned() {
+		actAs(Role.PROJECT_MANAGER);
+		UUID departed = UUID.randomUUID();
+		// The active-filtered finder is what the service calls, so an inactive row is simply
+		// absent — the same way a wrong brand or wrong role is.
+		given(teamMembers.findByIdAndBrandIdAndRoleAndActiveTrue(departed, BRAND, Role.PROJECT_COORDINATOR))
+				.willReturn(Optional.empty());
+
+		assertThrows(IllegalTransitionException.class, () -> lifecycle.assignCoordinator(CASE_ID, departed));
+		assertNull(subject.getAssignedCoordinator());
+	}
+
+	@Test
+	void aCoordinatorFromAnotherBrandCannotBePutOnTheCase() {
+		actAs(Role.PROJECT_MANAGER);
+		UUID outsider = UUID.randomUUID();
+
+		// Same indistinguishable message as every other member lookup: wrong brand, wrong
+		// role and no such member must not be tellable apart from outside.
+		assertThrows(IllegalTransitionException.class, () -> lifecycle.assignCoordinator(CASE_ID, outsider));
+		assertNull(subject.getAssignedCoordinator());
 	}
 
 	@Test
