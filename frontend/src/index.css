@@ -5,4 +5,35 @@ body {
   background: var(--bg-base);
   color: var(--text-primary);
   font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Every number the eye scans down a column: deadlines, counts, currency, case IDs. */
+.font-num,
+.font-mono,
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+/* One visible focus ring for the whole app. Keyboard operation of a board is not optional.
+   No radius of its own: box-shadow already follows the element's, and setting one here
+   re-cornered every focused card (rounded-lg) and modal (rounded-xl) to the badge radius. */
+:where(a, button, select, input, summary, [tabindex]):focus-visible {
+  outline: none;
+  box-shadow: var(--ring-focus);
+}
+
+/* The board scrolls horizontally by design; a fat scrollbar eats a card row. */
+.scroll-slim {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-default) transparent;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
 }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Role } from '../../lib/session'
-import { CASE_DETAIL_PATH, NAV_ITEMS, itemFor, mayReach, navFor } from './navigation'
+import { CASE_DETAIL_PATH, NAV_ITEMS, boardPathFor, itemFor, mayReach, navFor, navSectionsFor } from './navigation'
 
 /**
  * The nav table is also the route allow-list, so a mistake here is a screen that is either
@@ -68,5 +68,53 @@ describe('the nav and route table', () => {
   it('lists no path twice, so one entry is always the answer', () => {
     const paths = NAV_ITEMS.map((item) => item.path)
     expect(new Set(paths).size).toBe(paths.length)
+  })
+
+  it('groups every listed item exactly once, in table order', () => {
+    // Grouping is by consecutive runs, so an item filed out of order would split its heading
+    // in two — which is the failure this asserts against, not just the item count.
+    for (const role of ALL_ROLES) {
+      const sections = navSectionsFor(role)
+      const headings = sections.map((section) => section.group)
+      expect(new Set(headings).size, `${role} has a repeated heading`).toBe(headings.length)
+      expect(sections.flatMap((section) => section.items.map((item) => item.path))).toEqual(
+        navFor(role).map((item) => item.path),
+      )
+    }
+  })
+
+  it('pins the checklist screen to its backend gate, and keeps delivery out of the nav', () => {
+    // The case detail page's "Manage the checklist" link is gated on exactly this, after the
+    // browser pass found it answering 403 for a Project Manager — and, then, for the GM.
+    // **This list must equal ChecklistController.COORDINATION**, the gate on
+    // /api/checklists/board and the three writes under it.
+    expect(ALL_ROLES.filter((role) => mayReach(role, '/checklists'))).toEqual([
+      'GM',
+      'BRAND_MANAGER',
+      'PROJECT_COORDINATOR',
+    ])
+    // The Project Manager stays out, even though they may call docs-complete.
+    expect(mayReach('PROJECT_MANAGER', '/checklists')).toBe(false)
+
+    // `/delivery` is gone, and its absence is asserted rather than assumed. It promised a queue
+    // no unit in the build plan builds, while `deliver` and `close` are Unit 04 transitions the
+    // Coordinator already drives from the board — and for a whole unit its role list claimed a
+    // backend gate it did not have. Re-adding it without a screen behind it reinstates both
+    // problems, so fail here if anybody does.
+    expect(itemFor('/delivery')).toBeUndefined()
+    for (const role of ALL_ROLES) {
+      expect(mayReach(role, '/delivery'), `${role} can still reach /delivery`).toBe(false)
+    }
+  })
+
+  it('never offers a role a way out it would be refused', () => {
+    // The placeholder's escape link. A link that answers 403 is worse than no link.
+    for (const role of ALL_ROLES) {
+      const way = boardPathFor(role)
+      expect(mayReach(role, way.path) || way.path === '/dashboard', `${role} → ${way.path}`).toBe(true)
+    }
+    expect(boardPathFor('CASE_MANAGER').path).toBe('/my-cases')
+    // No board of their own today, so they get their dashboard rather than somebody else's board.
+    expect(boardPathFor('EXPERT_NETWORK_MANAGER').path).toBe('/dashboard')
   })
 })

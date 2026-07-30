@@ -13,6 +13,7 @@ const ACTION_LABEL: Record<string, string> = {
   UPDATED: 'updated',
   ASSIGNED: 'assigned',
   STAGE_CHANGED: 'moved stage',
+  CHASED: 'chased the client',
   DELETED: 'deleted',
   EXPORTED: 'exported',
   LOGIN: 'signed in',

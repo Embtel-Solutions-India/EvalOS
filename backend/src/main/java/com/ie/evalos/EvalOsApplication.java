@@ -9,5 +9,4 @@ public class EvalOsApplication {
 	public static void main(String[] args) {
 		SpringApplication.run(EvalOsApplication.class, args);
 	}
-
 }

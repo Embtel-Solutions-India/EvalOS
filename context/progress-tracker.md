@@ -4,15 +4,24 @@ Update this file after every meaningful implementation change.
 
 ## Current Phase
 
-- Phase 1 — Structure the data (the spine) is complete: Units 01–05 built, plus 05a.
-  Phase 2 is under way: Units 06 (notification centre), 07 (app shell), 08 (production board)
-  and 09 (case detail) are done.
+- **Phase 1 — Structure the data (the spine) is complete.** Units 01–10, plus 05a. Per
+  `context/specs/00-build-plan.md` the phase boundaries are 01–10 / 11–17 / 18–20, so Units 06
+  (notification centre), 07 (app shell), 08 (production board), 09 (case detail) and 10 (doc
+  checklist) are all Phase 1 — this tracker had been calling 06 onward "Phase 2" since Unit 06,
+  which the build plan does not say. Corrected here rather than left to compound.
+- **Phase 2 — Connect the seams has not started.** It is Units 11–17. The build plan's
+  `## Phase 3` heading used to sit above Unit 17 and contradict its own roadmap line; the heading
+  moved to Unit 18, so Dashboards is Phase 2 wherever you read it.
+- **Phase 1 is now verified, not just written.** All 183 backend tests execute with none skipped —
+  the 18 DB-backed ones included, for the first time since Unit 03 wrote them — and CI runs them
+  against a real Postgres on every push. See the entry at the end of Completed.
 
 ## Current Goal
 
-- Unit 10 — document checklist board + Coordinator flow, the **final unit of Phase 1**. It
-  completes the intake→production handoff and is the screen `DocumentsPanel` already links to.
-  No longer gated: the Coordinator's scope became real in Unit 08.
+- Unit 11 — Expert database (ENM) + bulk sheet upload, the first unit of Phase 2. Nothing in
+  Phase 1 is outstanding. Read **Phase 2 readiness** under Next Up first: the expert field-tag
+  taxonomy is undefined and Unit 12's match scoring depends on it, so it wants deciding inside
+  this unit rather than after it.
 
 ## Completed
 
@@ -487,18 +496,448 @@ Update this file after every meaningful implementation change.
     Coordinator's, neither sees the unassigned pool row, and another brand's case stays out
     even when it names the same Coordinator. `npm run build` clean, `npm run lint` clean.
 
+- **Visual pass over the shell and the board.** No unit, no backend change, no new dependency —
+  the frontend built across Units 07–09 read as a wireframe, and three of its stated design
+  intentions were not actually reaching the screen.
+  - **The fonts were never loaded.** `ui-context.md` asks for tabular figures on every column
+    of dates, counts and case IDs; `tokens.css` declared Inter / IBM Plex Mono as font *stacks*
+    with system fallbacks and Unit 01 note (b) recorded that the webfonts were not bundled. No
+    system fallback has `tabular-nums`, so **every `tabular-nums` class in the app — 15 files —
+    was a no-op for three units.** Now linked in `index.html` (`preconnect` + one `css2`
+    request, `display=swap`), with a `.font-num`/`.font-mono`/`.tabular-nums` rule in
+    `index.css` so the feature applies rather than being requested per element.
+  - **`tokens.css` gained three derived tokens, no new colours**: `--shadow-card`,
+    `--shadow-pop` (both the primary text colour at low alpha, so a surface never picks up a
+    hue outside the system) and `--ring-focus` (the accent). `index.css` spends them on one
+    app-wide `:focus-visible` ring — keyboard operation of a board is not optional — plus a
+    `prefers-reduced-motion` block and `.scroll-slim` for the board's horizontal scroller.
+  - **`/cases` is deleted from the nav, and no unit ever builds it.** It was a placeholder
+    labelled "Case table (Unit 08)" — which is what Unit 08 *did* ship, as the board. So four
+    roles had the app's one screen with live data listed *second*, under a page that could only
+    ever say "not built yet". Unit 08 note (h) chose not to alias the two; the right fix was
+    one entry, not two. `/board` is now labelled "Production board" and nothing links to
+    `/cases` (`/cases/:id` is untouched — it is the detail route, not a nav item).
+  - **The nav is grouped** — Overview / Pipeline / Records / Admin — via a `group` field on the
+    same `NAV_ITEMS` table, built into sections by **consecutive runs** rather than by
+    filtering per group, so the table's order is the screen's order and a heading cannot appear
+    twice. This also fixes the Unit 07 browser pass's "cosmetic deviation": three roles had
+    their primary screen listed last because `NAV_ITEMS` was one flat global order. Grouping
+    gave the ordering a home without adding a per-role order field.
+  - **`boardPathFor(role)` — the placeholder now offers the way out.** A dead end is a design
+    failure, but a hardcoded escape link is a 403 with extra steps, so it walks `/board` then
+    `/my-cases` **through `mayReach`** and falls back to the dashboard for the one role that can
+    reach neither today (the ENM). Same table, same gate as the router.
+  - **`SlaRail` — the board's one instrument.** Each column is capped by a 3px bar split by its
+    cases' SLA mix, red-first, so the five columns side by side read as a single line: where the
+    risk has collected, not just how much work there is. `slaMix` keeps **`unknown` as a fourth
+    band** rather than folding it into `onTrack` — `SlaCalculator` returns null for a closed case
+    and for one holding an exception state, and colouring those green would report a stalled
+    column as healthy. Empty columns keep a hairline so the rail stays continuous, and the bar
+    carries an `aria-label` naming the counts, since a colour-only instrument is not one.
+  - **Columns are numbered by their place in the whole pipeline**, so a Case Manager's first
+    column is 2 of 5. Numbering their subset from 1 would say the work starts with them. Lanes
+    get no number: an exception is not a step. The lanes also moved under a "Off the pipeline"
+    heading with a held count, and `readOnly` became a "watching" chip instead of the word
+    "status" tucked beside a number.
+  - **The board header states the risk, not the volume**: scope + owner filter as an eyebrow,
+    then "N cases in view" with overdue / at-risk counts, or "all inside SLA" when there are
+    none. It counts **only what is drawn** (this role's columns plus the lanes), so the number
+    always matches what the reader can count on screen. `isMine` was extracted from the owner
+    filter and is now also passed to every card, so "mine" is visible without filtering to it.
+  - The read-failure panel says **"Nothing was changed"** and names the likely cause. A retry
+    button with no reassurance about a *read* failure invites the user to wonder what it half-did.
+  - Verified: `npm test` **29 tests** (3 new, and **mutation-checked** — folding `unknown` into
+    `onTrack` fails the SLA-band test, and numbering the columns after the `none` cells are
+    filtered fails the step test; each failed exactly one test and the file was restored
+    byte-identically, confirmed by an unchanged bundle hash). `npm run build` clean,
+    `npm run lint` clean. Backend untouched.
+- **Visual-pass browser verification — confirmed, and it found four defects.** Driven through
+  Chrome against the running stack (Postgres 18 + `mvnw spring-boot:run` on `local` + Vite),
+  signed in as all six seeded roles.
+  - **The webfonts load and the tabular figures are real, measured rather than assumed.**
+    `document.fonts.check` is true for Inter and IBM Plex Mono (faces 400/500/600/700), and a
+    probe span carrying the app's own classes measures `111111` and `000000` at **exactly the
+    same width (54.475px)** with `font-variant-numeric: tabular-nums` computed. That is the
+    Unit 01 gap closed with evidence, not a link tag that might be doing nothing.
+  - **The SLA rail reads correctly per column** and carries the counts in its `aria-label`
+    ("Doc Collection: 4 on track, 103 no clock running"), so the instrument is not colour-only.
+  - **Defect 1, in this pass's own header: "all inside SLA" over a board that was mostly
+    unknown.** The GM's board showed *150 cases in view · all inside SLA* while the rails
+    directly beneath it reported **127 of the 150 with no clock running** — the headline branched
+    on `overdue === 0 && atRisk === 0`, which is exactly the overstatement `slaMix` keeps a
+    separate `unknown` band to prevent. The header and the instrument disagreed about the same
+    data, on screen, at the same time. The predicate moved into `boardRules.allInsideSla` (a
+    display branch that wrong is a display branch worth testing) and now also requires
+    `unknown === 0` and `onTrack > 0`, so an empty board claims nothing. The board reads
+    *150 cases in view · 127 with no clock running*.
+  - **Defect 2: the case detail page's "Manage the checklist" link answered 403 for every role
+    but one.** `/checklists` is the Coordinator's screen, and the client nav table has no
+    superuser row the way the backend's `@PreAuthorize` does — so a **Project Manager clicking
+    it landed on the 403 screen, and so would the GM**. Pre-existing from Unit 09 note (g),
+    found by clicking it. Now gated on `mayReach`, the same table the router guards against, and
+    pinned by a test asserting the Coordinator is the *only* role that may reach that path.
+  - **Defect 3: the case detail failure state sent a Case Manager and an ENM to a 403.** It
+    hardcoded `/board`; `/cases/:id` is open to every role, so the escape hatch on the error
+    screen was itself refused for the two roles without `/board`. Now `boardPathFor`, verified
+    live: the ENM gets "Back to your dashboard" and the Case Manager "Go to my cases".
+    **This is the second and third instance of one bug** — a link offered without checking the
+    reader's allow-list — which is why `boardPathFor` exists at all. Worth grepping for a fourth
+    before adding any new cross-screen link. (`components/Forbidden` is fine: `/dashboard` is
+    reachable by every role.)
+  - **Defect 4: two sentences ran together on the placeholder** ("Document checklist tracking
+    (Unit 10) Everything else in your scope is already live") because the nav table's `becomes`
+    strings are labels with no trailing punctuation. Two elements now.
+  - Per-role confirmations: the grouped nav renders the right set and headings for all six
+    roles; the **Case Manager's columns are numbered 2, 3, 4** — whole-pipeline numbering working
+    as designed rather than renumbering their subset from 1 — with the "watching" chip on Expert
+    Assignment and a "Yours" badge on their cards; the Coordinator's placeholder offers "Go to
+    production board" and the **ENM correctly falls back to the dashboard**, being the one role
+    with no board; the ENM's Expert database now precedes Payouts, and a PM's board sits directly
+    under Dashboard, which was the Unit 07 ordering deviation.
+  - **The heading now comes from the nav table**, so `/my-cases` is headed "My cases" rather than
+    "Production board" — and the eyebrow's owner half is drawn only when the filter narrows,
+    because "everyone" is false for a Case Manager whose board the server has already scoped to
+    them.
+  - **The focus ring fires**, confirmed on a keyboard-focused nav link: `:focus-visible` matched
+    and the computed `box-shadow` was exactly `--ring-focus`
+    (`rgb(255,255,255) 0 0 0 2px, rgb(53,82,224) 0 0 0 4px`). **Partial:** I could not get the
+    automation to land real Tab focus on a `<button>` — CDP `.focus()` never sets
+    `:focus-visible`, and after a navigation the Tab keys went to the browser UI. The rule covers
+    buttons by the same selector, but the button case is unobserved; worth one manual Tab when
+    somebody is at the keyboard.
+  - Console is clean on a fresh load of the board and of a case detail (Vite + React DevTools
+    notices only). The exceptions seen mid-pass were HMR firing between two of my own sequential
+    edits, where a symbol was used a moment before its import landed — not a live defect, but a
+    reminder that in this app HMR runs the half-edited file.
+  - Verified after the fixes: `npm test` **31**, `npm run build` clean, `npm run lint` clean.
+
+- **Unit 10 — Document checklist board + Coordinator flow. Phase 1 is closed.** The screen
+  `DocumentsPanel` has linked to since Unit 09, and the last piece of the intake→production
+  handoff. **No migration** — the `document_checklist_item` table is Unit 03's and nothing
+  needed a new column.
+  - `service/ChecklistService` — the board, the two item writes, and the chase. **Nothing here
+    moves a case**: `docs-complete` stays Unit 04's transition on `CaseController`, so this unit
+    maintains the rows that guard reads rather than owning a second copy of the rule. Every read
+    starts from `CaseLifecycleService.read`, so scope is decided where the rest of the system
+    decides it.
+  - **The board is built on `CaseBoardService.forCaller`, not a second scoped query** — the same
+    reasoning that service gives for building on `CaseLifecycleService.list`. It inherits the
+    scope, the SLA recompute, the batched client names, and the rule that `brandId` can only ever
+    narrow. Filtered to `DOC_COLLECTION`; **a case holding an exception state stays listed**,
+    which is the opposite of the production board on purpose — "on hold awaiting client" is
+    exactly the case whose documents have not arrived, and dropping it would hide the queue this
+    screen exists to show.
+  - **"Last chased" is derived from the append-only trail, not a column on the case.** New
+    `AuditAction.CHASED` (open vocabulary, no CHECK, no migration) plus one batched finder,
+    `AuditEventRepository.findByObjectTypeAndActionAndObjectIdIn`. The chase had to be recorded
+    regardless, so a second copy of the fact would only be a second thing that can disagree —
+    and Unit 19's timers inherit the answer for free. The finder is a **read**: the whitelist in
+    `DomainInvariantsTest.theAuditRepositoryCannotChangeHistory` was widened by one name, which is
+    what that test is for, and nothing there can still change a row.
+  - Checklist audit rows are written against the **case**, not the item, with the change stated
+    in `CaseSnapshot.note` ("Passport: REQUIRED → UPLOADED"). The Coordinator's work therefore
+    appears on the Unit 09 timeline with no change to `CaseTimelineService` — a trail is only
+    useful if one screen shows all of it.
+  - `web/ChecklistController` — five routes, no class-level `@RequestMapping` because the board
+    is its own screen (`/api/checklists/board`) while the items belong to a case
+    (`/api/cases/{id}/checklist…`). The per-case **read has no role gate**, like the timeline:
+    every role that can open a case can see what it is waiting for, and the scoped load decides
+    which cases those are. The four writes are gated to GM / Brand Manager / Coordinator.
+  - **`ChecklistItemStatus.isComplete()` — one predicate where there were two, about to be three.**
+    `markDocsComplete`, the case-detail summary chip and now the board all have to agree on "this
+    document is in", and `CaseDetailService` was keeping its copy in step by comment. A chip
+    reading "6 of 6" over a transition that then refuses is the failure; one enum method is the fix.
+  - **`checklistSatisfied`, deliberately not `mayMarkComplete`.** The transition also requires the
+    case to be paid and to have a PM. Restating those in the client would be the copy that goes
+    stale, so the button is enabled on the checklist alone and the server answers 409 naming
+    whichever precondition failed — which the panel shows. Same reason an empty checklist is
+    **not** satisfied: `markDocsComplete` refuses one, so a full bar would say the opposite.
+  - `event/CaseEvents` gained `checklist.reminder` (published by the chase) and
+    `docs.escalation.day3`. **The second is declared and published by nothing** — Unit 19 owns the
+    timer, Unit 10 owns the contract it fires against, which is what the spec's "SLA / reminder
+    hooks" section asks for.
+  - A chase outside `DOC_COLLECTION` is refused (409). Not a formality: it reaches a real client
+    through GHL, so it is a mistake made *outwardly*. No cool-off between chases — a Coordinator
+    sending two is answering a phone call, and the trail records both.
+  - Frontend `features/checklist/*` (`ChecklistBoard`, `CaseChecklist`, `checklistApi`,
+    `checklistRules` + its test). A **list, not a Kanban**: one column, and what varies between
+    these cases is how complete and how old they are, which reads better in rows.
+    **Aging is not the SLA** — `SlaCalculator` measures business hours against a stage budget;
+    the spec's 24h/48h bands are wall-clock, which is what a client experiences, so
+    `checklistRules` computes them client-side from `stageEnteredAt` and they stay live between
+    reloads. An untimed case is `unknown`, never green, for the reason `slaMix` keeps that band.
+  - **The pending-docs queue is a split, not a re-sort**, so the server's longest-wait-first order
+    survives in both halves. A case is due a chase when the documents are short, the wait is past
+    24h, **and** nothing was sent in the last 24h — the third condition is what makes the queue
+    empty when the Coordinator works it rather than nagging about a client contacted an hour ago.
+  - `markDocsComplete` on the panel goes through the board's own `performAction` and the
+    `docs-complete` entry in `QUICK_ACTIONS`, not a second POST: pressing it on a board card and
+    pressing it here have to be the same operation.
+  - `App.tsx`'s `BOARD_ROUTES` set became a `SCREENS` map, so a unit landing its screen is one
+    entry rather than another branch.
+  - Verified: `./mvnw verify` BUILD SUCCESS **180 tests** (16 DB-gated skipped) — new
+    `ChecklistServiceTest` 12, `ChecklistControllerTest` 8. `npm test` **44 tests** (13 new),
+    `npm run build` clean.
+
+- **Decision taken, closing the Unit 09 open question: the GM and Brand Manager reach
+  `/checklists` and `/delivery`.** Both were `PROJECT_COORDINATOR`-only, so the GM — a superuser
+  on every backend transition — could not open the screen that drives one. That is an
+  inconsistency rather than a safeguard, and "the GM sees everything" is the rule everywhere else.
+  All three roles get the **writes** as well as the read: a screen a Brand Manager can watch but
+  not touch would need a second permission concept for no stated need, and every write names its
+  actor in the trail. **The Project Manager is deliberately still out**, even though they may call
+  `docs-complete` — they act on the outcome, not the chase, and the per-case read is open to them.
+  The nav table and the backend `@PreAuthorize` now carry the same three roles, and
+  `navigation.test.ts` says so explicitly, because a client offering a screen the server refuses
+  is the exact failure that table exists to prevent.
+
+### Unit 10 code review — four Important findings fixed, and the drift they exposed
+
+A review of `a3d3770..74bcacb` (the visual pass plus Unit 10) found **no Critical issues**: brand
+scoping and append-only both held under tracing, "no new migration" was correct, and "Phase 1
+closes" was substantiated. What it did find was two defects sitting in the exact flow Unit 10 was
+built to serve, and both were the same shape — a client offering something the server or the data
+would not back.
+
+- **A Brand Manager got an enabled "Mark docs complete" button the backend answered 403 on.**
+  Unit 10 widened `/checklists` and its three writes to the Brand Manager but left
+  `CaseController.docsComplete` on `GM · PROJECT_COORDINATOR · PROJECT_MANAGER`, and
+  `CaseChecklist` gates that button on `checklistSatisfied` alone rather than on
+  `QUICK_ACTIONS.roles`. **Resolved by widening the backend, not by hiding the button**
+  (confirmed decision): a role that can add a required document, approve one, and chase the
+  client, but not say the collection is finished, has the screen without its purpose. The gate is
+  now `GM · BRAND_MANAGER · PROJECT_COORDINATOR · PROJECT_MANAGER`, and both halves are pinned —
+  `CaseControllerTest.docsCompleteAdmitsEveryRoleThatWorksTheChecklistScreen` walks the four
+  admitted roles and the two refused, and `boardRules.test.ts` asserts the client's role list
+  equals it. This is the same assertion `navigation.test.ts` makes for the screen; the seam that
+  leaked was one layer down, on the action.
+- **The pending-docs queue did not empty when the Coordinator worked it.** `needsChase` reads
+  `card.lastChasedAt`, but `CaseChecklist.onChase` only updated its own local state, so a chased
+  row stayed under "Due a chase" and the "N due a chase" count stayed stale until a full reload —
+  precisely the nagging the 24-hour condition exists to prevent. `ChecklistBoard` now patches the
+  one card with the server's timestamp (patched, not reloaded: a reload would re-sort every row
+  underneath somebody mid-triage).
+- **The chase response contradicted its own comment.** `ChecklistController.chase` claimed it
+  answers the refreshed checklist "instead of holding a value the trail would have to agree
+  with", but `ChecklistView` had no `lastChasedAt`, so the panel stamped `new Date()` and
+  displayed the browser's clock. `lastChasedAt` is now on both `ChecklistService.CaseChecklist`
+  and `ChecklistView`, read through the same batched trail query the board uses; the panel's
+  local `chasedAt` state and its `lastChasedAt` prop are gone. That also fixed the
+  reset-on-collapse bug, where reopening a panel after a chase showed "Never chased" again.
+- **The two deliberately-unscoped finders had no real-SQL brand-isolation test.**
+  `DocumentChecklistItemRepository.findByCaseIdIn` and
+  `AuditEventRepository.findByObjectTypeAndActionAndObjectIdIn` carry no brand predicate by
+  design, protected by a javadoc convention ("do not call it with ids that came from a
+  request"). Two tests added to `LocalPostgresIntegrationTest`: `findScoped` keeps two brands'
+  checklist items apart while `findByCaseIdIn` answers for whatever ids it is handed, and the
+  chase finder returns every chase, only chases, and only for the ids given. **Both are
+  DB-gated and did not execute** — see the honesty note below.
+
+Minors from the same review, applied: the unused `--shadow-pop` token deleted; `border-radius`
+dropped from the global `:focus-visible` rule, which had been re-cornering every focused card
+(`rounded-lg`) and modal (`rounded-xl`) to the badge radius; the header's "N ready for the PM"
+relabelled **"N with all documents in"**, because it counted unpaid cases that the row two lines
+down chips as "Unpaid" for exactly the reason docs-complete would refuse them — the same
+header-contradicts-instrument class as the `allInsideSla` defect the visual pass fixed;
+`aria-controls` added to the Open/Hide-checklist button; `ChecklistService.setStatus`/`addItem`
+now return `void`, since every caller re-reads the whole checklist and discarded the row.
+
+**Test state, stated plainly.** Backend **183 passed, 0 failed, 18 skipped**; frontend **45
+passed**; `tsc -b`, `vite build`, and `oxlint` clean. All 18 skips are
+`LocalPostgresIntegrationTest`, which now includes the two new brand-isolation tests — so the
+finders they cover are still **unproven against real SQL on this machine**. "18 DB-gated skipped"
+is not "18 passed", and the reviewer's recommendation stands: get a Postgres (or Testcontainers)
+into the loop before Unit 11, which adds the expert roster and the encrypted `payment_detail`.
+That is Unit 01 note (a), still open since the scaffold.
+
+**One spec correction, one plan correction, one standards correction.** All three were drift
+between a context file and the code, which `CLAUDE.md` requires closing rather than carrying:
+
+- `specs/10-doc-checklist-coordinator.md` acceptance criterion 1 said "the Coordinator's **brand**
+  cases in DOC_COLLECTION". `PROJECT_COORDINATOR` is `Tier.SELF`, so the scoped read matches on
+  `assigned_coordinator` — the implementation is right and the sentence was wrong. Corrected, with
+  the consequence stated: an intake case with no coordinator assigned appears on no Coordinator's
+  board, is visible to the GM and Brand Manager, and is staffed from the production board.
+- `specs/00-build-plan.md` still described Unit 05 as the GHL **`payment.confirmed`** handler with
+  idempotency on the invoice id. Handoff A is `contact.created` deduped on the source event id,
+  which is what `WebhookRouter.CONTACT_CREATED` and `architecture.md` both say. Corrected — the
+  commit that moved this file and fixed the phase count missed it.
+- `ui-context.md` mandated Lucide React and a shadcn/Radix set in `frontend/src/components/ui/`.
+  Neither exists, neither is in `package.json`, and `LeftNav.tsx` explicitly declines both and
+  draws inline SVG paths. The standard now records what the code does and when to revisit it:
+  Radix stays the intended source for the first component with real focus-trapping or ARIA
+  behaviour, and Lucide for when the glyph count outgrows inline paths. The "data tables" surface
+  is marked as unused now that `/cases` is deleted.
+
+### PR #7 review — two findings the Unit 10 review had missed
+
+A second review pass over the same range, run on the open PR. It surfaced two real defects that
+the first pass did not, and both are the same failure the first pass thought it had closed —
+applied to one caller and not its siblings.
+
+- **Only the chase told the board anything.** The Unit 10 review fix made a chase patch the
+  board's copy of the case, but a status change and an item add still refreshed the open panel
+  only. The board draws four things from its own copy — the completeness bar, the "all documents
+  in" chip, the header counts, and `needsChase` — so marking the last document APPROVED enabled
+  the panel's own complete button while the row sat under "Due a chase" with a stale fraction
+  until the next full reload. Fixed at the root rather than per caller: all three writes already
+  funnel through `CaseChecklist.run`, so the notification lives there and no future write can
+  forget it. The patch itself is now a pure function, `applyChecklistToCard`, with three tests —
+  including the exact scenario, that a finished case leaves the queue.
+- **`/delivery`'s nav entry outran its own backend gate.** Unit 10 widened it to
+  `GM · BRAND_MANAGER · PROJECT_COORDINATOR` under a comment claiming "the backend gate on these
+  routes says the same three roles". True for `/checklists`; false for `/delivery`, whose only
+  transitions (`CaseController.deliver`, `.close`) are `GM_OR + hasRole('PROJECT_COORDINATOR')`.
+  Narrowed to match the gate. No Brand Manager ever hit a 403 because the route still renders a
+  placeholder — but that is a reason it went unnoticed, not a reason it was safe.
+
+**The test was part of the defect, not the safety net.** `navigation.test.ts` asserted
+`['/checklists', '/delivery']` against one shared role list, so it read as though it had checked
+both gates while pinning the wrong answer for one of them. It now asserts each path separately
+against its own gate, and names why. Worth remembering when writing the next table-driven test:
+looping two subjects against one expectation asserts the *intersection* of what you meant.
+
+**And then the `/delivery` entry was deleted outright** — the open question it had been carrying
+since Unit 07 is now closed by decision rather than narrowed again. The reasoning is the one that
+deleted `/cases` during the visual pass: it promised a "final delivery queue (Unit 13)" that
+Unit 13 is not (Unit 13 is *Redacted CV generation*), **no unit anywhere in the build plan builds
+a final delivery queue**, and `deliver`/`close` are Unit 04 transitions the Coordinator already
+drives from the production board. So it was a label over a placeholder that also spent a unit
+claiming a gate it did not have. Nothing is lost: both transitions stay reachable exactly where
+they were.
+
+Routes are generated from `NAV_ITEMS`, so deleting the entry deleted the route with it and
+`/delivery` now falls through to the not-found view. Its absence is asserted, not assumed —
+re-adding it without a screen behind it fails `navigation.test.ts`. Whoever builds the real
+screen sets the role list from what the screen does; the build plan is unchanged, because the
+missing unit is the honest state of it.
+
+Frontend 48 passed; `tsc -b`, `vite build`, `oxlint` clean. Backend untouched by any of this.
+
+### Phase 1's last gap closed: the DB-backed suite actually runs, and CI runs it
+
+**All 183 backend tests now execute. Zero skipped.**
+
+`LocalPostgresIntegrationTest`'s 18 tests were the ones putting brand-scoping predicates,
+`ddl-auto=validate`, the payment-detail ciphertext and the append-only trigger in front of real
+SQL — and they had never run in the ten units since Unit 03 wrote them. They pass. That includes
+the two brand-isolation tests added for Unit 10's unscoped-by-design finders, so those finders are
+now proven rather than promised.
+
+**A number this tracker kept getting wrong.** It has been reporting "183 passed, 18 skipped".
+Surefire's `Tests run: 183 ... Skipped: 18` counts skips *inside* the 183, so the real figure was
+**165 executing and 18 not**. "183 passed / 18 skipped" added up to more tests than exist and read
+as though the skips were extra. Now it is genuinely 183 executing.
+
+Three things were in the way, and all three are fixed:
+
+- **The suite wrote into the dev database.** It now runs in its own `evalos_test` schema, pinned by
+  `currentSchema`, so a misconfiguration fails outright instead of quietly writing next door. A
+  schema rather than a second database because Flyway can create a schema and cannot create a
+  database — no setup step a fresh checkout could skip. The URL comes from `DB_TEST_URL` and
+  deliberately not `DB_URL`: a developer with `DB_URL` exported at their dev database would
+  otherwise have these inserts follow it straight back into `public`.
+- **Nothing ever set the gate.** The suite is gated on `-Devalos.db.test=true` so `./mvnw test`
+  stays green on a machine with no Postgres, and for ten units nobody passed it. A flag nobody
+  sets is the same as a test nobody wrote. **There was no CI in this repo at all** — no
+  `.github/` directory. `.github/workflows/ci.yml` now runs the backend against a `postgres:16`
+  service container with the flag on, plus a frontend job (`npm test`, `npm run build` which is
+  also the typecheck, `oxlint`), on every push to `main`/`Development` and every PR.
+- **`backend/mvnw` was mode 100644 in git.** Not executable, so `./mvnw` would have failed on any
+  Linux or macOS checkout, CI included. Fixed with `git update-index --chmod=+x`.
+
+Not Testcontainers: it needs a running Docker daemon (Docker Desktop is installed on this machine
+but its daemon is down), and the point of the suite is to run against whatever Postgres is already
+there. The CI service container gives the same isolation without the dependency.
+
+The stale claim in the test's own javadoc — "this machine has no Docker" — is corrected too.
+
+**Verified in CI, not just locally.** Run 30586327885: backend `Tests run: 183, Failures: 0,
+Errors: 0, Skipped: 0` against a `postgres:16` service container, frontend 3 files / 48 tests
+passed with a clean build and lint. Both jobs green.
+
+**One known limitation, and it is CI's, not the suite's.** The frontend job runs `npm install`
+rather than `npm ci`. `package-lock.json` is written on Windows, where npm records
+`@rolldown/binding-wasm32-wasi` and `@tailwindcss/oxide-wasm32-wasi` but not their `@emnapi/*`
+dependencies — this host never needs the wasm fallback, so it never resolves them — and `npm ci`
+on Linux rejects the lockfile as out of sync. Neither `--package-lock-only` nor
+`--os=linux --cpu=x64` materialises the entries from here, so the lockfile cannot be made
+installable off-Windows by the machine that writes it. **The cost is that CI resolves within
+semver ranges instead of pinning**, so a bad upstream patch release can reach it. Regenerating the
+lockfile once on Linux restores `npm ci`; the reason and that exit condition are written into
+`ci.yml` rather than left as folklore. CI caught this on its first run, which is most of the
+argument for having it — `npm ci` would have failed the same way for any Linux or macOS
+contributor.
+
 ## In Progress
 
 - Nothing.
 
 ## Next Up
 
-- Unit 10 — Document checklist board + Coordinator flow
-  (`context/specs/10-doc-checklist-coordinator.md`), which closes Phase 1. `DocumentsPanel`
-  already links to `/checklists`, and `CaseDetailService.ChecklistSummary` is the counts it
-  will own properly.
+- Unit 11 — Expert database. `ExpertPickerController` already exists as the narrow
+  `{id, fullName}` read Unit 08 needed; Unit 11 supersedes it with the real screen (search,
+  taxonomy matching, quality scores, sheet upload) and can keep the endpoint as the picker's read.
+
+### Phase 2 readiness — which open questions block which unit
+
+Checked before starting Phase 2, so a unit is not begun against an assumption. **Nothing blocks
+Unit 11's start**, but two items bite inside it, and each later unit has a named external
+dependency that is not yet confirmed. Phase 2 is Units 11–17 (see the boundary note in the build
+plan — the `## Phase 3` heading had been contradicting that).
+
+**Unit 11 — Expert database.** Two decisions land inside this unit, not before it:
+- **The field-tag taxonomy is undefined.** `Expert.primaryFields` / `secondaryFields` are
+  `String[]` with no controlled vocabulary and no CHECK. Free text is fine for a roster a human
+  reads, but **Unit 12's match scoring matches on these tags**, and "Mechanical Engineering" will
+  not match "mechanical engg". Whoever fills the roster is choosing the vocabulary, so the sheet
+  upload's column mapping and the tag list want deciding together, in this unit.
+- **`payment_detail` needs a real `EVALOS_FIELD_KEY` outside local.** No default by design — an
+  environment that forgets it fails to start rather than writing plaintext. Fine for dev; a
+  deployment blocker whenever one happens, and this is the unit that first writes the field.
+
+**Unit 13 — Redacted CV generation.** The plan says the output is "served on demand (**or written
+to the case's Drive folder**)". **There is no Google Drive integration** — `Case.driveLink` is a
+string and the architecture's "no object storage" rule means EvalOS holds links, never bytes.
+Writing to Drive needs an API client, OAuth credentials and a service account that do not exist.
+Serve-on-demand only needs none of that. Decide which before the unit, because one of the two
+readings adds an external integration to the phase.
+
+**Unit 14 — Client draft-review portal.** The portal link reaches the client "via GHL". That is
+open question (b) below — whether GHL can send a client-facing transactional message on an EvalOS
+event trigger. If it cannot, the portal is built and unreachable.
+
+**Unit 15 — Expert portal + Handoff B.** The heaviest external dependency in the phase, and
+nothing exists yet beyond the `DROPBOX_SIGN` enum value and staff-recorded stand-ins for the
+signed/declined callbacks. Needs: a Dropbox Sign account, an API key, the **callback signing
+secret** (already open below), and a signature-request template. The inbound gateway is ready for
+it — `WebhookSource.DROPBOX_SIGN` and the brand-scoped idempotency key are in place.
+
+**Unit 16 — Payout ledger.** Self-contained. `payout_ledger` exists from Unit 03 and the plan is
+explicit that there is no disbursement rail. No blocking question.
+
+**Unit 17 — Dashboards.** Two open questions attach directly, both listed below: whether
+sales/marketing dashboards are GHL-native (default: yes, EvalOS does not build them), and
+**StatCommand**, which is still undefined — the standing instruction is not to build an
+integration for it until it is specified.
+
+**Cross-cutting, not unit-specific.** The GHL contract (payload shape, signature header, HMAC
+encoding, and which contact event actually fires) is the largest risk to code already shipped
+rather than to Phase 2, since Handoff A runs on assumptions today. The full brand list matters
+whenever a third brand is seeded. Staff SSO stays deferred.
 
 ## Open Questions
+
+- ~~**`/delivery` is labelled "Final delivery queue (Unit 13)" and Unit 13 is not that.**~~ —
+  **closed by decision: the nav entry is deleted.** See the PR #7 review entry above.
+- **The dev `evalos` database still holds ~150 junk cases** in `public`, written by
+  `LocalPostgresIntegrationTest` before it was moved to its own schema (`EV-<uuid>` case codes,
+  "Unnamed contact", "SERVICE NOT SET") — the Unit 07 hygiene note grown into a board that is
+  103/107 test rows in its first column. **The cause is fixed** (the suite writes to
+  `evalos_test` now, so the pile cannot grow), but the existing rows are still there and the
+  database needs a reset before any demo. Not cleaned up here: deleting rows from somebody's
+  database is not a drive-by, and `public` also holds whatever real dev data exists. A targeted
+  `DELETE FROM evalos_case WHERE case_code LIKE 'EV-%'` would do it — on request, not unasked.
 
 - **GHL contract still unconfirmed** (was already open, now load-bearing): the
   `contact.created` payload shape, the signature header name, and the HMAC
@@ -582,9 +1021,11 @@ Update this file after every meaningful implementation change.
   compile + the health-endpoint test only — a full context-load test needs a
   Postgres, and this machine has neither Docker nor a local Postgres, so
   "app starts, Flyway applies V1 once" is **unverified**; add a Testcontainers
-  `@SpringBootTest` in Unit 03 when entities make it worth it. (b) Inter /
+  `@SpringBootTest` in Unit 03 when entities make it worth it. (b) ~~Inter /
   IBM Plex Mono are declared as font stacks with system fallbacks; the actual
-  webfonts are not bundled. (c) Boot 3.5.16 chosen over the Initializr's 4.1.0
+  webfonts are not bundled.~~ — **closed by the visual pass above**, and it was not
+  cosmetic: no system fallback carries `tabular-nums`, so every tabular-figure class
+  added in Units 07–09 was inert until the faces loaded. (c) Boot 3.5.16 chosen over the Initializr's 4.1.0
   to match the spec's "Spring Boot 3.x". (d) Stale `backend/target/` from the
   old scaffold breaks surefire discovery — run `./mvnw clean verify` once.
 
@@ -918,11 +1359,16 @@ Update this file after every meaningful implementation change.
     and `features/shell/filtersContext.ts` (context + hooks) with the providers left as
     the only export of their files. **`npm run lint` is now completely clean** and the
     three warnings in note (f) no longer apply.
-  - Cosmetic deviation left as-is: **nav item *order* differs from the spec's per-role
+  - ~~Cosmetic deviation left as-is: **nav item *order* differs from the spec's per-role
     prose** for three roles (the spec puts Board second for a PM and Expert Database
     before Payouts for an ENM; `NAV_ITEMS` is one globally-ordered table, so shared
     items come first). Every *set* is correct. Fixing it needs a per-role order field —
-    worth doing if a role's primary screen being last actually bothers anyone.
+    worth doing if a role's primary screen being last actually bothers anyone.~~ —
+    **closed by the visual pass above, and it did not need the per-role order field.**
+    Grouping the one table (Overview / Pipeline / Records / Admin) puts each role's
+    pipeline screen directly under the dashboard, which is what the spec's prose was
+    describing. The deviation was real, not cosmetic: a PM's board was listed under a
+    placeholder.
   - Hygiene note: `LocalPostgresIntegrationTest` writes rows into the **dev** `evalos`
     database and leaves them behind — the bell shows notifications with bodies `"old"`
     and `"fresh"` from `theNotificationCentreFindersRunAgainstRealSql`. Harmless, but

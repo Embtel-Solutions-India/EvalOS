@@ -32,6 +32,21 @@ public final class CaseEvents {
 		CASE_PAID("case.paid"),
 		/** Tells GHL to send the client their document checklist (Unit 18). */
 		CHECKLIST_REQUESTED("checklist.requested"),
+		/**
+		 * Chase the client for the documents still outstanding. Raised manually by the
+		 * Coordinator (Unit 10) and on the 24h/48h timers (Unit 19) — the same event either
+		 * way, because GHL delivers the message and does not care which one asked.
+		 * EvalOS sends no mail itself (invariant 14).
+		 */
+		CHECKLIST_REMINDER("checklist.reminder"),
+		/**
+		 * A case still short of its documents after three business days.
+		 *
+		 * <p>Declared here and published by nothing yet: Unit 19 owns the timer, and Unit 10
+		 * owns the contract it fires against. Unlike {@link #CHECKLIST_REMINDER} this one is
+		 * inward — an in-app alert to the PM and Brand Manager, not a client message.
+		 */
+		DOCS_ESCALATION_DAY3("docs.escalation.day3"),
 		PM_ASSIGNED("case.pm_assigned"),
 		COORDINATOR_ASSIGNED("case.coordinator_assigned"),
 		DOCUMENTS_COMPLETED("documents.completed"),

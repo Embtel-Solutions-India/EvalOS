@@ -102,6 +102,10 @@ public class AuditEvent {
 		return brandId;
 	}
 
+	public UUID getObjectId() {
+		return objectId;
+	}
+
 	public AuditAction getAction() {
 		return action;
 	}

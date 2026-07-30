@@ -43,11 +43,29 @@ public class DocumentChecklistItem extends ScopedEntity {
 		this.updatedAt = Instant.now();
 	}
 
+	/**
+	 * The Coordinator's one write (Unit 10). Restamps {@code updated_at} in the same call,
+	 * so a status can never be changed without the clock moving with it — which is what the
+	 * board's "last touched" column reads.
+	 */
+	public void markStatus(ChecklistItemStatus status) {
+		this.status = status;
+		this.updatedAt = Instant.now();
+	}
+
+	public UUID getCaseId() {
+		return caseId;
+	}
+
 	public String getLabel() {
 		return label;
 	}
 
 	public ChecklistItemStatus getStatus() {
 		return status;
+	}
+
+	public Instant getUpdatedAt() {
+		return updatedAt;
 	}
 }

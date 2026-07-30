@@ -285,8 +285,16 @@ public class CaseController {
 
 	// --- document collection -------------------------------------------------
 
+	/**
+	 * The Brand Manager is on this gate because Unit 10 gave them the checklist screen and its
+	 * three writes. A role that can add a required document, mark one approved, and chase the
+	 * client, but not say the collection is finished, would be offered the one button the screen
+	 * builds towards and refused it — which is the client-offers-what-the-server-refuses failure
+	 * {@code ChecklistController.COORDINATION} exists to avoid, one layer down. The Project
+	 * Manager stays because they act on the outcome even though they do not run the chase.
+	 */
 	@PostMapping("/{id}/docs-complete")
-	@PreAuthorize(GM_OR + "hasAnyRole('PROJECT_COORDINATOR', 'PROJECT_MANAGER')")
+	@PreAuthorize(GM_OR + "hasAnyRole('BRAND_MANAGER', 'PROJECT_COORDINATOR', 'PROJECT_MANAGER')")
 	public ApiResponse<CaseSummary> docsComplete(@PathVariable UUID id) {
 		return summary(lifecycle.markDocsComplete(id));
 	}

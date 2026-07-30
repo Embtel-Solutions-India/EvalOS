@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useLocation } from 'react-router-dom'
 import { useMe } from '../../lib/authContext'
 import { useFilters } from '../shell/filtersContext'
+import { itemFor } from '../shell/navigation'
 import CaseCard from './CaseCard'
 import PoolLane from './PoolLane'
 import QuickActionDialog from './QuickActionDialog'
@@ -9,8 +11,10 @@ import { fetchBoard, performAction } from './boardApi'
 import {
   EXCEPTION_LANES,
   actionsFor,
+  allInsideSla,
   columnsFor,
   dueBeforeFor,
+  slaMix,
   type BoardCard,
   type BoardData,
   type QuickAction,
@@ -44,6 +48,7 @@ const SEES_POOL = ['GM', 'BRAND_MANAGER'] as const
 
 export default function BoardView() {
   const me = useMe()
+  const { pathname } = useLocation()
   const { activeBrandId, dateRange } = useFilters()
 
   const [state, setState] = useState<LoadState>({ status: 'loading' })
@@ -120,19 +125,22 @@ export default function BoardView() {
     [run],
   )
 
+  /** The viewer holds this case in one of its three assignable slots. */
+  const isMine = useCallback(
+    (card: BoardCard) =>
+      card.assignedPm === me.id || card.assignedCm === me.id || card.assignedCoordinator === me.id,
+    [me.id],
+  )
+
   const visible = useCallback(
     (cards: readonly BoardCard[]) =>
       cards.filter((card) => {
         if (serviceFilter !== 'all' && card.serviceType !== serviceFilter) return false
         if (urgentOnly && card.slaStatus !== 'AT_RISK' && card.slaStatus !== 'OVERDUE') return false
-        if (ownerFilter === 'mine') {
-          return (
-            card.assignedPm === me.id || card.assignedCm === me.id || card.assignedCoordinator === me.id
-          )
-        }
+        if (ownerFilter === 'mine') return isMine(card)
         return true
       }),
-    [me.id, ownerFilter, serviceFilter, urgentOnly],
+    [isMine, ownerFilter, serviceFilter, urgentOnly],
   )
 
   const pool = useMemo(() => {
@@ -160,13 +168,16 @@ export default function BoardView() {
         className="rounded-lg border p-4"
         style={{ background: 'var(--status-red-bg)', borderColor: 'var(--border-default)' }}
       >
-        <p className="text-sm" style={{ color: 'var(--status-red)' }}>
+        <p className="text-sm font-medium" style={{ color: 'var(--status-red)' }}>
           {state.message}
+        </p>
+        <p className="mt-1 text-sm" style={{ color: 'var(--text-muted)' }}>
+          Nothing was changed. Try the read again — if it keeps failing, your session may have expired.
         </p>
         <button
           type="button"
           onClick={() => void load()}
-          className="mt-2 rounded-md px-3 py-1.5 text-sm font-medium text-white"
+          className="mt-3 rounded-md px-3 py-1.5 text-sm font-medium text-white"
           style={{ background: 'var(--accent-primary)' }}
         >
           Try again
@@ -176,18 +187,85 @@ export default function BoardView() {
   }
 
   const board = state.data
+  const columns = columnsFor(me.role).map((column) => ({
+    ...column,
+    cards: visible(board.stages[column.stage] ?? []),
+  }))
+  const lanes = EXCEPTION_LANES.map((lane) => ({
+    ...lane,
+    cards: visible(board.exceptions[lane.state] ?? []),
+  }))
+
+  // The headline counts only what is drawn — the role's own columns plus the lanes — so the
+  // number always matches what the reader can count on screen.
+  const inView = [...columns, ...lanes].flatMap((group) => group.cards)
+  const mix = slaMix(inView)
 
   return (
-    <div className="flex min-h-0 flex-col gap-4">
-      <header className="flex flex-wrap items-end justify-between gap-3">
+    <div className="flex min-h-0 flex-col gap-5">
+      <header className="flex flex-wrap items-end justify-between gap-x-6 gap-y-3">
         <div>
-          <h1 className="text-lg font-semibold tracking-tight">Production board</h1>
-          <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
-            {me.role === 'GM'
-              ? activeBrandId
-                ? 'One brand, every case in your scope.'
-                : 'All brands, every case in your scope.'
-              : 'Every case in your scope.'}
+          {/*
+            The owner half is drawn only when the filter is actually narrowing. It used to read
+            "everyone" whenever the filter was off, which is false for a Case Manager: the server
+            has already scoped their board to their own assignments, so "everyone" *is* them. An
+            eyebrow that overstates the scope of what you are looking at is worse than a shorter
+            one, and the cards carry a "Yours" badge regardless.
+          */}
+          <p
+            className="text-[11px] font-semibold tracking-[0.08em] uppercase"
+            style={{ color: 'var(--text-muted)' }}
+          >
+            {me.role === 'GM' ? (activeBrandId ? 'One brand' : 'All brands') : 'Your brand'}
+            {ownerFilter === 'mine' && ' · assigned to you'}
+          </p>
+          {/* Titled from the nav table, so `/my-cases` is headed "My cases" rather than telling a
+              Case Manager they are looking at a screen whose name is in somebody else's nav. */}
+          <h1 className="mt-1 text-xl font-semibold tracking-tight">
+            {itemFor(pathname)?.label ?? 'Production board'}
+          </h1>
+          {/* The thesis of the screen: not how many cases exist, but how many are in trouble. */}
+          <p className="font-num mt-1 flex flex-wrap items-baseline gap-x-2 text-sm tabular-nums">
+            <span style={{ color: 'var(--text-muted)' }}>
+              {inView.length} {inView.length === 1 ? 'case' : 'cases'} in view
+            </span>
+            {mix.overdue > 0 && (
+              <>
+                <Dot />
+                <span className="font-semibold" style={{ color: 'var(--status-red)' }}>
+                  {mix.overdue} overdue
+                </span>
+              </>
+            )}
+            {mix.atRisk > 0 && (
+              <>
+                <Dot />
+                <span className="font-semibold" style={{ color: 'var(--status-amber)' }}>
+                  {mix.atRisk} at risk
+                </span>
+              </>
+            )}
+            {/*
+              "All inside SLA" requires a clock on every case — not merely no red and no amber.
+              `slaMix` keeps `unknown` a separate band precisely because a case with no clock
+              running (closed, or holding an exception state) is not a healthy one, and the rail
+              above draws it grey rather than green. A headline that called those cases green
+              would contradict the instrument directly underneath it, on the same data.
+            */}
+            {allInsideSla(mix) && (
+              <>
+                <Dot />
+                <span className="font-semibold" style={{ color: 'var(--status-green)' }}>
+                  all inside SLA
+                </span>
+              </>
+            )}
+            {mix.unknown > 0 && (
+              <>
+                <Dot />
+                <span style={{ color: 'var(--text-muted)' }}>{mix.unknown} with no clock running</span>
+              </>
+            )}
           </p>
         </div>
 
@@ -214,9 +292,15 @@ export default function BoardView() {
               { value: 'TRANSLATION', label: 'Translation' },
             ]}
           />
-          <label className="flex items-center gap-1.5 text-sm">
+          <label
+            className="flex cursor-pointer items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-sm"
+            style={{
+              borderColor: urgentOnly ? 'var(--status-amber)' : 'var(--border-default)',
+              background: urgentOnly ? 'var(--status-amber-bg)' : 'var(--bg-surface)',
+            }}
+          >
             <input type="checkbox" checked={urgentOnly} onChange={(e) => setUrgentOnly(e.target.checked)} />
-            At risk / overdue only
+            At risk or overdue
           </label>
         </div>
       </header>
@@ -231,46 +315,54 @@ export default function BoardView() {
         />
       )}
 
-      <div className="flex gap-3 overflow-x-auto pb-2">
-        {columnsFor(me.role).map(({ stage, label, access }) => {
-          const cards = visible(board.stages[stage] ?? [])
-          return (
-            <StageColumn key={stage} label={label} count={cards.length} readOnly={access === 'status'}>
+      <div className="scroll-slim flex gap-3 overflow-x-auto pb-2">
+        {columns.map(({ stage, label, access, step, cards }) => (
+          <StageColumn
+            key={stage}
+            label={label}
+            step={step}
+            count={cards.length}
+            mix={slaMix(cards)}
+            readOnly={access === 'status'}
+          >
+            {cards.map((card) => (
+              <CaseCard
+                key={card.id}
+                card={card}
+                actions={actionsFor(card, me.role)}
+                busy={busyCaseId === card.id}
+                mine={isMine(card)}
+                error={cardErrors[card.id] ?? null}
+                onAction={(action) => onAction(card, action)}
+              />
+            ))}
+          </StageColumn>
+        ))}
+      </div>
+
+      <details open className="border-t pt-4" style={{ borderColor: 'var(--border-default)' }}>
+        <summary className="cursor-pointer text-sm font-semibold tracking-tight">
+          Off the pipeline
+          <span className="font-num ml-2 font-normal tabular-nums" style={{ color: 'var(--text-muted)' }}>
+            {lanes.reduce((total, lane) => total + lane.cards.length, 0)} held
+          </span>
+        </summary>
+        <div className="scroll-slim mt-3 flex gap-3 overflow-x-auto pb-2">
+          {lanes.map(({ state: lane, label, cards }) => (
+            <StageColumn key={lane} label={label} count={cards.length} mix={slaMix(cards)} tone="lane">
               {cards.map((card) => (
                 <CaseCard
                   key={card.id}
                   card={card}
                   actions={actionsFor(card, me.role)}
                   busy={busyCaseId === card.id}
+                  mine={isMine(card)}
                   error={cardErrors[card.id] ?? null}
                   onAction={(action) => onAction(card, action)}
                 />
               ))}
             </StageColumn>
-          )
-        })}
-      </div>
-
-      <details open>
-        <summary className="cursor-pointer text-sm font-semibold tracking-tight">Exception lanes</summary>
-        <div className="mt-2 flex gap-3 overflow-x-auto pb-2">
-          {EXCEPTION_LANES.map(({ state: lane, label }) => {
-            const cards = visible(board.exceptions[lane] ?? [])
-            return (
-              <StageColumn key={lane} label={label} count={cards.length}>
-                {cards.map((card) => (
-                  <CaseCard
-                    key={card.id}
-                    card={card}
-                    actions={actionsFor(card, me.role)}
-                    busy={busyCaseId === card.id}
-                    error={cardErrors[card.id] ?? null}
-                    onAction={(action) => onAction(card, action)}
-                  />
-                ))}
-              </StageColumn>
-            )
-          })}
+          ))}
         </div>
       </details>
 
@@ -283,6 +375,14 @@ export default function BoardView() {
         />
       )}
     </div>
+  )
+}
+
+function Dot() {
+  return (
+    <span aria-hidden style={{ color: 'var(--border-default)' }}>
+      ·
+    </span>
   )
 }
 

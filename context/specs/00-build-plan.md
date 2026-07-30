@@ -12,6 +12,13 @@ row-level tenancy by `brand_id`, brand-scoped queries throughout.
 Sequence maps to the roadmap: Units 01–10 = Phase 1 (structure the data),
 11–17 = Phase 2 (connect the seams), 18–20 = Phase 3 (close the loop).
 
+The `## Phase 3` heading below used to sit above Unit 17, contradicting that line
+and putting Dashboards in a different phase depending on which part of this file
+you read. The heading moved to Unit 18 rather than the sentence changing, because
+the sentence is the one quoting the roadmap. Unit order is unaffected either way —
+what the boundary decides is when Unit 17's open questions (dashboard ownership,
+StatCommand) become blocking.
+
 Generate a `specs/NN-name.md` for a unit just before building it.
 
 ---
@@ -59,15 +66,23 @@ and the brand-scoped case REST controller. Each transition publishes an internal
 domain event for the outbound dispatcher (Unit 18).
 Depends on: 02, 03.
 
-### Unit 05 — Inbound webhook gateway + GHL payment handler (Handoff A)
+### Unit 05 — Inbound webhook gateway + GHL contact handler (Handoff A)
 Builds: the reusable inbound gateway (secret verification, **per-brand endpoint
-→ brand_id resolution**, idempotency on invoice/payment id, raw-payload archival,
-handler routing, fast ack) and its first handler — GHL `payment.confirmed` →
-contact-snapshot sync, brand-tagged case creation at `DOC_COLLECTION` in the
-brand pool, document-checklist open, GM/Brand-Manager pool notification. Reused
-by Dropbox Sign in Unit 15. This is the only path that may create a case.
+→ brand_id resolution**, idempotency on the **source event id** scoped by brand,
+raw-payload archival, handler routing, fast ack) and its first handler — GHL
+`contact.created` → contact-snapshot sync, brand-tagged case creation at
+`DOC_COLLECTION` in the brand pool, document-checklist open, GM/Brand-Manager
+pool notification. Reused by Dropbox Sign in Unit 15. This is the only path that
+may create a case.
 Depends on: 03, 04. (Confirm GHL payload + per-brand signing secret first.
 `refund.requested` / `contact.updated` handlers recognized but deferred.)
+
+The trigger is **contact created, not payment confirmed** — the webhook is proof
+somebody wants something, not proof of payment, and payment is recorded against
+the case afterwards (`mark-paid`, Unit 04). This paragraph is corrected from an
+earlier draft that named `payment.confirmed` and keyed idempotency on the
+invoice id; `architecture.md`'s Handoff A and `WebhookRouter.CONTACT_CREATED` are
+what the code implements.
 
 ### Unit 06 — In-app notification center
 Builds: the Notification service + brand-scoped staff notification center
@@ -151,16 +166,16 @@ tracking; the weekly batch view; and expert-facing payout status in the portal.
 Ledger only — no disbursement rail, no payment-platform integration.
 Depends on: 03, 11.
 
----
-
-## Phase 3 — Close the loop
-
 ### Unit 17 — Dashboards (read models)
 Builds: the production-side role dashboards (GM cross-brand; Brand Manager, PM,
 Coordinator, Case Manager, ENM within brand) — money-in vs. delivered (open
 liability), cycle time by stage, expert utilization & acceptance rate, review
 capture — reading precomputed read models refreshed on events.
 Depends on: 04, 11, 16.
+
+---
+
+## Phase 3 — Close the loop
 
 ### Unit 18 — Outbound webhook dispatcher + Handoff C (delivered)
 Builds: the reusable outbound dispatcher (subscribes to the domain events

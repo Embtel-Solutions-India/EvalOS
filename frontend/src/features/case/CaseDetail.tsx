@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useMe } from '../../lib/authContext'
+import { boardPathFor } from '../shell/navigation'
 import QuickActionDialog from '../board/QuickActionDialog'
 import { performAction } from '../board/boardApi'
 import type { QuickAction } from '../board/boardRules'
@@ -31,6 +32,7 @@ export default function CaseDetailPage() {
   const { id } = useParams<{ id: string }>()
   const me = useMe()
 
+  const way = boardPathFor(me.role)
   const [state, setState] = useState<LoadState>({ status: 'loading' })
   const [pending, setPending] = useState<QuickAction | null>(null)
   const [busy, setBusy] = useState(false)
@@ -116,8 +118,19 @@ export default function CaseDetailPage() {
         <p className="text-sm" style={{ color: 'var(--status-red)' }}>
           {state.message}
         </p>
-        <Link to="/board" className="mt-2 inline-block text-sm font-medium" style={{ color: 'var(--accent-primary)' }}>
-          Back to the board
+        {/*
+          Routed through the nav table, not hardcoded to `/board`. `/cases/:id` is open to every
+          role, so this error state is reachable by a Case Manager (whose board is `/my-cases`)
+          and by an Expert Network Manager (who has no board at all) — both of whom got a 403
+          from the escape hatch on the failure screen. Found in the browser pass by opening a
+          case a Coordinator is not assigned to.
+        */}
+        <Link
+          to={way.path}
+          className="mt-2 inline-block text-sm font-medium"
+          style={{ color: 'var(--accent-primary)' }}
+        >
+          {way.label}
         </Link>
       </div>
     )

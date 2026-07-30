@@ -1,6 +1,7 @@
 import { Navigate, Route, Routes } from 'react-router-dom'
 import Forbidden from './components/Forbidden'
 import BoardView from './features/board/BoardView'
+import ChecklistBoard from './features/checklist/ChecklistBoard'
 import LoginPage from './features/auth/LoginPage'
 import RoleDashboard from './features/dashboards/RoleDashboard'
 import AppShell from './features/shell/AppShell'
@@ -20,10 +21,17 @@ import NotFound from './pages/NotFound'
  * redirecting, so the user can see which URL was refused.
  */
 /**
- * The paths Unit 08's board serves. Two paths, one component: a Case Manager's "My Cases"
- * is the board narrowed by their own assignment, and the narrowing is the server's job.
+ * The nav paths that have a real screen behind them; everything else in `NAV_ITEMS` still
+ * renders the placeholder until its unit lands.
+ *
+ * `/board` and `/my-cases` are the same component on purpose: a Case Manager's "My cases" is
+ * the board narrowed by their own assignment, and the narrowing is the server's job.
  */
-const BOARD_ROUTES = new Set(['/board', '/my-cases'])
+const SCREENS: Record<string, React.ReactNode> = {
+  '/board': <BoardView />,
+  '/my-cases': <BoardView />,
+  '/checklists': <ChecklistBoard />,
+}
 
 export default function App() {
   const { state } = useAuth()
@@ -71,9 +79,7 @@ export default function App() {
             key={item.path}
             path={item.path}
             element={
-              <RoleRoute path={item.path}>
-                {BOARD_ROUTES.has(item.path) ? <BoardView /> : <PlaceholderPage />}
-              </RoleRoute>
+              <RoleRoute path={item.path}>{SCREENS[item.path] ?? <PlaceholderPage />}</RoleRoute>
             }
           />
         ))}

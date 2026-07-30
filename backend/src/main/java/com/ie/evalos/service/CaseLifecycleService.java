@@ -10,7 +10,6 @@ import com.ie.evalos.common.ForbiddenException;
 import com.ie.evalos.domain.AuditAction;
 import com.ie.evalos.domain.Availability;
 import com.ie.evalos.domain.Case;
-import com.ie.evalos.domain.ChecklistItemStatus;
 import com.ie.evalos.domain.ClientApprovalStatus;
 import com.ie.evalos.domain.DocumentChecklistItem;
 import com.ie.evalos.domain.ExceptionState;
@@ -287,7 +286,7 @@ public class CaseLifecycleService {
 
 		List<DocumentChecklistItem> items = checklistItems.findByCaseId(subject.getId());
 		requireState(!items.isEmpty(), "the document checklist is empty");
-		requireState(items.stream().allMatch(CaseLifecycleService::isComplete),
+		requireState(items.stream().allMatch(item -> item.getStatus().isComplete()),
 				"not every checklist item is uploaded or approved");
 
 		return apply(subject, to, Action.MARK_DOCS_COMPLETE, null, c -> {
@@ -501,10 +500,6 @@ public class CaseLifecycleService {
 		if (!condition) {
 			throw new IllegalTransitionException(why);
 		}
-	}
-
-	private static boolean isComplete(DocumentChecklistItem item) {
-		return item.getStatus() == ChecklistItemStatus.APPROVED || item.getStatus() == ChecklistItemStatus.UPLOADED;
 	}
 
 	/**

@@ -10,7 +10,9 @@ import com.ie.evalos.domain.AuditAction;
 import com.ie.evalos.domain.AuditEvent;
 import com.ie.evalos.domain.Brand;
 import com.ie.evalos.domain.Case;
+import com.ie.evalos.domain.ChecklistItemStatus;
 import com.ie.evalos.domain.ContactSnapshot;
+import com.ie.evalos.domain.DocumentChecklistItem;
 import com.ie.evalos.domain.Expert;
 import com.ie.evalos.domain.Notification;
 import com.ie.evalos.domain.NotificationType;
@@ -30,6 +32,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.test.context.TestPropertySource;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -41,18 +44,41 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * payment detail is ciphertext on disk, scoped finders keep two brands apart, and
  * the audit table refuses to be edited.
  *
- * <p>Disabled unless {@code -Devalos.db.test=true} is passed, because it needs a
- * database that a clean checkout has no way to provide. There is no Testcontainers
- * dependency: this machine has no Docker, and a test that cannot run is worse than
- * one that says how to run it.
+ * <p><strong>It runs in its own schema.</strong> These tests insert freely, and until
+ * they were given {@code evalos_test} their rows landed in {@code public} beside real
+ * dev data — about 150 junk cases at the last count, filling the first column of the
+ * board a developer was trying to read. {@code currentSchema} pins every unqualified
+ * statement here, so a misconfiguration fails outright rather than quietly writing
+ * next door. A schema and not a second database, because Flyway can create a schema
+ * and cannot create a database: nothing here needs a setup step a fresh checkout
+ * could skip.
+ *
+ * <p>The URL comes from {@code DB_TEST_URL} and deliberately <em>not</em> from
+ * {@code DB_URL}. A developer with {@code DB_URL} exported at their dev database
+ * would otherwise have these inserts follow it straight back into {@code public},
+ * which is the problem this class just stopped having.
+ *
+ * <p>Still gated on {@code -Devalos.db.test=true}, so {@code ./mvnw test} stays green
+ * on a machine with no Postgres. That gate is also why these were unproven for ten
+ * units — a flag nobody sets is the same as a test nobody wrote — so CI now passes it
+ * on every push; see {@code .github/workflows/ci.yml}.
+ *
+ * <p>No Testcontainers: it needs a running Docker daemon, and the point of this suite
+ * is to run against whatever Postgres is already there.
  *
  * <pre>
- * ./mvnw test -Devalos.db.test=true -Dtest=LocalPostgresIntegrationTest \
- *     -DDB_URL=jdbc:postgresql://localhost:5432/evalos
+ * ./mvnw test -Devalos.db.test=true -Dtest=LocalPostgresIntegrationTest
  * </pre>
  */
 @SpringBootTest
 @EnabledIfSystemProperty(named = "evalos.db.test", matches = "true")
+@TestPropertySource(properties = {
+		"spring.datasource.url=${DB_TEST_URL:jdbc:postgresql://localhost:5432/evalos?currentSchema=evalos_test}",
+		"spring.flyway.schemas=evalos_test",
+		"spring.flyway.create-schemas=true",
+		"spring.jpa.properties.hibernate.default_schema=evalos_test",
+		"spring.jpa.show-sql=false",
+})
 class LocalPostgresIntegrationTest {
 
 	/** Seeded by {@code V900__seed_local.sql}. */
@@ -433,6 +459,82 @@ class LocalPostgresIntegrationTest {
 
 		assertThat(checklistItems.findByCaseId(caseId)).isEmpty();
 		assertThat(payouts.findByCaseIdAndStatus(caseId, PayoutStatus.PENDING)).isEmpty();
+	}
+
+	/**
+	 * Unit 10's checklist reads, and the line between what the database enforces and what a
+	 * calling convention does.
+	 *
+	 * <p>{@code findScoped} keeps two brands' items apart, and that is what protects the one
+	 * path taking an item id straight from a request. {@code findByCaseIdIn} has no brand
+	 * predicate at all — it answers for whatever case ids it is handed — so its javadoc's "do
+	 * not call it with ids that came from a request" is load-bearing rather than decorative.
+	 * Both halves are asserted, because a future caller passing an unscoped id would be a brand
+	 * leak that no mocked repository could ever show.
+	 */
+	@Test
+	void checklistItemsAreScopedByBrandAndTheBatchedFinderIsNot() {
+		UUID ieCase = cases.save(new Case(BRAND_IE, "EV-" + UUID.randomUUID(), Stage.DOC_COLLECTION)).getId();
+		UUID xpCase = cases.save(new Case(BRAND_XP, "XP-" + UUID.randomUUID(), Stage.DOC_COLLECTION)).getId();
+
+		UUID ieItem = checklistItems.save(new DocumentChecklistItem(
+				BRAND_IE, ieCase, "Passport", ChecklistItemStatus.REQUIRED)).getId();
+		UUID xpItem = checklistItems.save(new DocumentChecklistItem(
+				BRAND_XP, xpCase, "Passport", ChecklistItemStatus.REQUIRED)).getId();
+
+		// The single-row read every write goes through: the other brand's item is simply absent,
+		// which is what refuses a caller who guessed an id.
+		assertThat(checklistItems.findScoped(brandManagerOfIe(), ieItem)).isPresent();
+		assertThat(checklistItems.findScoped(brandManagerOfIe(), xpItem)).isEmpty();
+		assertThat(checklistItems.findScoped(gm(), xpItem)).isPresent();
+
+		// And the batched finder is brand-blind by design: the caller's already-scoped id list
+		// is the only thing keeping the two brands apart on the board.
+		assertThat(checklistItems.findByCaseIdIn(List.of(ieCase)))
+				.extracting(DocumentChecklistItem::getId).containsExactly(ieItem);
+		assertThat(checklistItems.findByCaseIdIn(List.of(ieCase, xpCase)))
+				.extracting(DocumentChecklistItem::getId).contains(ieItem, xpItem);
+	}
+
+	/**
+	 * "Last chased" read back out of the append-only trail rather than kept in a column
+	 * (Unit 10), against real SQL.
+	 *
+	 * <p>Worth a database because it is a three-key derived query over an enum column and an
+	 * {@code IN} list, and because {@code ChecklistService} reduces the result to one timestamp
+	 * per case by taking the maximum — which only means anything if the query really returns
+	 * every chase and nothing but chases. Brand-blind for the same reason as the finder above,
+	 * and asserted so that stays a decision rather than a surprise.
+	 */
+	@Test
+	void theChaseFinderAnswersOnlyChasesAndOnlyForTheIdsItIsGiven() {
+		UUID ieCase = cases.save(new Case(BRAND_IE, "EV-" + UUID.randomUUID(), Stage.DOC_COLLECTION)).getId();
+		UUID xpCase = cases.save(new Case(BRAND_XP, "XP-" + UUID.randomUUID(), Stage.DOC_COLLECTION)).getId();
+
+		auditService.recordEvent("CASE", ieCase, AuditAction.CHASED, COORDINATOR_IE, null,
+				Map.of("note", "Document chase sent to the client"));
+		auditService.recordEvent("CASE", xpCase, AuditAction.CHASED, COORDINATOR_IE, null,
+				Map.of("note", "Document chase sent to the client"));
+		// A status edit on the same case must not read as a chase, or the queue would retire a
+		// row the client was never contacted about.
+		auditService.recordEvent("CASE", ieCase, AuditAction.UPDATED, COORDINATOR_IE, null,
+				Map.of("note", "Passport: REQUIRED → UPLOADED"));
+
+		assertThat(auditEvents.findByObjectTypeAndActionAndObjectIdIn(
+				"CASE", AuditAction.CHASED, List.of(ieCase)))
+				.singleElement()
+				.satisfies(event -> {
+					assertThat(event.getObjectId()).isEqualTo(ieCase);
+					assertThat(event.getCreatedAt()).isNotNull();
+				});
+
+		assertThat(auditEvents.findByObjectTypeAndActionAndObjectIdIn(
+				"CASE", AuditAction.CHASED, List.of(ieCase, xpCase)))
+				.extracting(AuditEvent::getObjectId).containsExactlyInAnyOrder(ieCase, xpCase);
+
+		// A case nobody chased has no chase, which is the null the board draws as "never chased".
+		assertThat(auditEvents.findByObjectTypeAndActionAndObjectIdIn(
+				"CASE", AuditAction.CHASED, List.of(UUID.randomUUID()))).isEmpty();
 	}
 
 	@Test

@@ -147,6 +147,12 @@ class DomainInvariantsTest {
 				.doesNotContain("dealValue", "invoiceRef", "pmStrategyNotes");
 	}
 
+	/**
+	 * The whitelist is the point: a method added here has to be added deliberately, and the
+	 * only ones that may be are {@code save} and reads. Unit 10 added
+	 * {@code findByObjectTypeAndActionAndObjectIdIn} so the Coordinator's board can read "last
+	 * chased" back out of the trail rather than keeping a second copy of it on the case.
+	 */
 	@Test
 	void theAuditRepositoryCannotChangeHistory() {
 		assertThat(AuditEventRepository.class.getMethods())
@@ -154,7 +160,8 @@ class DomainInvariantsTest {
 				.containsExactlyInAnyOrder(
 						"save",
 						"findByObjectTypeAndObjectIdOrderByCreatedAtAsc",
-						"findByBrandIdOrderByCreatedAtDesc");
+						"findByBrandIdOrderByCreatedAtDesc",
+						"findByObjectTypeAndActionAndObjectIdIn");
 
 		// Not a CrudRepository, so delete/deleteAll are not inherited either.
 		assertThat(CrudRepository.class.isAssignableFrom(AuditEventRepository.class)).isFalse();

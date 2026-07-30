@@ -21,6 +21,12 @@
   --status-red-bg: #feecec;
   --status-amber-bg: #fef3e2;
   --status-green-bg: #e8f6ec;
+
+  /* Elevation and focus. Derived from the palette above rather than new colours: the
+     shadow is the primary text colour at low alpha, so a surface never picks up a hue
+     that is not in the system, and the ring is the accent. */
+  --shadow-card: 0 1px 2px rgb(26 29 35 / 0.05);
+  --ring-focus: 0 0 0 2px var(--bg-surface), 0 0 0 4px var(--accent-primary);
 }
 
 /* Tailwind theme: fonts and the radius scale (rounded-md/lg/xl). */

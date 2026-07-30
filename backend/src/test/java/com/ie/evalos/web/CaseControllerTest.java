@@ -171,6 +171,29 @@ class CaseControllerTest {
 		}
 	}
 
+	/**
+	 * Unit 10's widening, pinned rather than trusted.
+	 *
+	 * <p>The route table above carries one actor per path, which was enough until the checklist
+	 * screen gave the Brand Manager every other write on this stage — leaving them an enabled
+	 * "Mark docs complete" button that this gate answered 403 on. The client half of the same
+	 * assertion lives in {@code boardRules.test.ts}; the two lists have to agree.
+	 */
+	@Test
+	void docsCompleteAdmitsEveryRoleThatWorksTheChecklistScreen() throws Exception {
+		given(lifecycle.markDocsComplete(any())).willReturn(aCase());
+		Route route = new Route("/docs-complete", Role.PROJECT_COORDINATOR, null, null);
+
+		for (Role admitted : List.of(Role.GM, Role.BRAND_MANAGER, Role.PROJECT_COORDINATOR,
+				Role.PROJECT_MANAGER)) {
+			perform(route, admitted, 200);
+		}
+		// Neither of these runs document collection or acts on its outcome.
+		for (Role refused : List.of(Role.CASE_MANAGER, Role.EXPERT_NETWORK_MANAGER)) {
+			perform(route, refused, 403);
+		}
+	}
+
 	@Test
 	void aTransitionAnswersTheStandardEnvelope() throws Exception {
 		given(lifecycle.markDocsComplete(any())).willReturn(aCase());
