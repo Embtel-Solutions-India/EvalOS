@@ -19,9 +19,11 @@ Update this file after every meaningful implementation change.
 ## Current Goal
 
 - Unit 11 — Expert database (ENM) + bulk sheet upload, the first unit of Phase 2. Nothing in
-  Phase 1 is outstanding. Read **Phase 2 readiness** under Next Up first: the expert field-tag
-  taxonomy is undefined and Unit 12's match scoring depends on it, so it wants deciding inside
-  this unit rather than after it.
+  Phase 1 is outstanding. **Its spec is now written** (`context/specs/11-expert-database.md`),
+  along with every other remaining unit's — see the spec-writing entry at the end of Completed.
+  The field-tag taxonomy question is closed by decision (a closed `FieldTag` enum); what is left
+  is confirming the **values** with the ENM, which is the one thing that must happen before the
+  migration lands. Read **Phase 2 readiness** under Next Up before starting.
 
 ## Completed
 
@@ -869,6 +871,36 @@ lockfile once on Linux restores `npm ci`; the reason and that exit condition are
 argument for having it — `npm ci` would have failed the same way for any Linux or macOS
 contributor.
 
+- **Specs 11–20 written in one pass, and the three decisions that shaped them.** Documentation only
+  — no backend or frontend change, so `./mvnw verify` and `npm run build` were not re-run.
+  `context/specs/` now holds a spec for every remaining unit, in the format Units 01–10 established.
+  - **A deviation from the build plan, recorded in the build plan.** It says "generate a
+    `specs/NN-name.md` for a unit just before building it", and this wrote ten at once. The rule is
+    right and stays as written; specs 11–20 are therefore **drafts to be re-read and revised at the
+    start of their own unit**, and 18–20 carry that warning in their own headers. The rule earned its
+    keep immediately: two real defects surfaced only because a later spec looked back at an earlier
+    one (Unit 11's dead load counters, Unit 16's payout race), which is the failure a just-in-time
+    spec avoids by not existing yet.
+  - **Decision 1 — the expert field-tag taxonomy is a closed enum**, unknown tags rejected. Exact
+    matching for Unit 12, at the cost of a migration per new discipline and a strict sheet import.
+  - **Decision 2 — the redacted CV is written to Drive as well as served on demand.** Adds the first
+    Google Drive API integration, its credentials, and a per-brand access requirement. Both costs are
+    now open questions above rather than assumptions inside a spec.
+  - **Decision 3 — all ten specs now, not Phase 2's seven.** Which is what produced the deviation
+    above.
+  - Two design calls inside the specs are **deviations from the plan's wording rather than from its
+    intent**, both argued in Phase 2 readiness above and both reversible without touching anything
+    else in their spec: Unit 17 recommends **live aggregates** over event-refreshed read models at
+    this scale, and Unit 19 reads the `scheduled_job` table as a **run ledger** with sweepers, rather
+    than a queue of one row per future timer — so a missed run self-heals and idempotency keeps coming
+    from the data (the `CHASED` audit rows, the `retention_*_sent_at` columns) rather than from a
+    second record of the same fact.
+  - Verified by consistency check, not by tests: every spec's **Depends on** matches the build plan,
+    no spec depends on a higher-numbered unit, every symbol named either exists in
+    `backend/src/main/java/com/ie/evalos` today or is listed in that spec's "Files touched
+    (created)", no spec proposes editing an applied migration or a protected file, and none carries a
+    `TBD`/`TODO`.
+
 ## In Progress
 
 - Nothing.
@@ -886,22 +918,58 @@ Unit 11's start**, but two items bite inside it, and each later unit has a named
 dependency that is not yet confirmed. Phase 2 is Units 11–17 (see the boundary note in the build
 plan — the `## Phase 3` heading had been contradicting that).
 
-**Unit 11 — Expert database.** Two decisions land inside this unit, not before it:
-- **The field-tag taxonomy is undefined.** `Expert.primaryFields` / `secondaryFields` are
-  `String[]` with no controlled vocabulary and no CHECK. Free text is fine for a roster a human
-  reads, but **Unit 12's match scoring matches on these tags**, and "Mechanical Engineering" will
-  not match "mechanical engg". Whoever fills the roster is choosing the vocabulary, so the sheet
-  upload's column mapping and the tag list want deciding together, in this unit.
+**Unit 11 — Expert database.** ~~The field-tag taxonomy is undefined.~~ **Closed by decision: a
+closed `FieldTag` enum, unknown tags rejected**, enforced both as a Java enum and as a database
+`CHECK` on `primary_fields` / `secondary_fields` / `letter_types` (the `team_member` brand-CHECK
+pattern from Unit 02). Unit 12 matches on these tags and "Mechanical Engineering" would never have
+matched "mechanical engg", so exact matching was worth the cost — which is a **migration per new
+discipline** and a strict sheet import. What remains is not a question about the mechanism but
+about the values: **the starter list in the spec needs the ENM's sign-off before the migration
+lands** (now an open question below).
 - **`payment_detail` needs a real `EVALOS_FIELD_KEY` outside local.** No default by design — an
   environment that forgets it fails to start rather than writing plaintext. Fine for dev; a
   deployment blocker whenever one happens, and this is the unit that first writes the field.
+- **Two defects found while writing the specs, both fixed in the specs rather than at build time.**
+  `expert.current_active_count` and `total_cases_completed` are `NOT NULL DEFAULT 0` from `V7` and
+  **nothing has ever written either** — so Unit 11's roster would have shown every expert as free
+  and Unit 12's load factor would have been a constant. Both are now **derived** with one batched
+  count over `evalos_case` (`ExpertLoadService`), and the columns are left dead rather than
+  starting to maintain a counter that has to be adjusted on assign, close, refund, reassign and
+  decline. `total_payments_pending` gets the same treatment in Unit 16. Separately, the build plan
+  lists a **fee** among Unit 11's expert fields and `V7` has no fee column — `standard_fee` is
+  added, and it is what Unit 16 prefills a payout with.
 
-**Unit 13 — Redacted CV generation.** The plan says the output is "served on demand (**or written
-to the case's Drive folder**)". **There is no Google Drive integration** — `Case.driveLink` is a
-string and the architecture's "no object storage" rule means EvalOS holds links, never bytes.
-Writing to Drive needs an API client, OAuth credentials and a service account that do not exist.
-Serve-on-demand only needs none of that. Decide which before the unit, because one of the two
-readings adds an external integration to the phase.
+**Unit 13 — Redacted CV generation.** ~~Serve on demand, or also write to Drive?~~ **Closed by
+decision: both.** Served on demand *and* written into the case's Drive folder.
+
+This adds the **first Google Drive API integration in EvalOS** and is the more expensive of the two
+readings, so what it costs is on the record: a Google Cloud **service account**, its **JSON key**
+env-bound with no non-local default, and **per-brand write access** on each brand's case-folder
+tree (a service account with blanket access to both brands' Drives is a cross-brand hole outside
+the database that no `brand_id` predicate can close). `google-api-services-drive` +
+`google-auth-library-oauth2-http` land in that unit. `architecture.md`'s stack table describes
+Drive as "link stored on the case, not re-hosted" and needs updating with the unit — Drive becomes
+an outbound client, not just a URL column. **None of it exists**, which is why Unit 13 now has a
+gating open question where the serve-on-demand-only reading would have had none.
+
+No PDF library is needed: the generated HTML is uploaded with a Google-Doc target mime type and
+Drive converts on the way in, and Drive's own export produces a PDF if one is ever wanted.
+
+**Unit 14 — a defect it must close first.** `frontend/src/features/case/DraftPanel.tsx` renders
+"Open the current draft ↗" pointing at `detail.driveLink`, and **there is no `draft_link` anywhere
+in the backend or the frontend**. `drive_link` is the client's *own document folder*. Internally
+that is a mislabel; put a client-facing portal on top of it and it is a leak — the portal would
+hand the client a link to a folder whose contents and sharing EvalOS does not control, labelled as
+"your draft". Unit 14 adds `draft_link` and re-points `DraftPanel` at it; `drive_link` is never
+sent to the portal, not even as a fallback.
+
+**Unit 14 — a consequence of append-only, worth knowing before it surprises somebody.** The portal
+needs the audit trail to say *the client* approved the draft, and `audit_event.actor_id` currently
+means "staff member, or null for the system". Adding `actor_type` is fine, but the column must be
+**nullable with no default and the existing rows are not backfilled** — `V10` installs a
+`BEFORE UPDATE OR DELETE` trigger that raises, so **no `UPDATE` can ever touch them**. A
+`NOT NULL DEFAULT 'STAFF'` would stamp the Unit 05 webhook rows `STAFF` when they are genuinely
+`SYSTEM`, permanently and unfixably. First unit to feel that the append-only guarantee has teeth.
 
 **Unit 14 — Client draft-review portal.** The portal link reaches the client "via GHL". That is
 open question (b) below — whether GHL can send a client-facing transactional message on an EvalOS
@@ -913,13 +981,57 @@ signed/declined callbacks. Needs: a Dropbox Sign account, an API key, the **call
 secret** (already open below), and a signature-request template. The inbound gateway is ready for
 it — `WebhookSource.DROPBOX_SIGN` and the brand-scoped idempotency key are in place.
 
+**Unit 15 — one thing to answer before any code.** The inbound gateway resolves `brand_id` from
+the **per-brand endpoint token**, and that step is a protected file. GHL satisfies it naturally
+(one sub-account per brand, so one endpoint per brand). **Dropbox Sign may not**: one account means
+one callback URL, and the endpoint token then cannot tell the brands apart. Preferred answer is one
+Dropbox Sign account or API app **per brand**, each pointed at that brand's own EvalOS endpoint —
+the gateway then works unchanged. If that is impossible, brand has to come from the callback's
+`metadata` case id, which **is a change to the protected brand-resolution step** and needs explicit
+instruction rather than a quiet fallback inside the handler.
+
+Also settled while writing the spec: the build plan's "auto-reassign" is read as **auto-prompt**,
+matching `project-overview.md`'s "the case auto-prompts reassignment". `REASSIGN_EXPERT` requires
+`EXPERT_DECLINED_REMATCHING` and an expert who has not answered has not declined — silently pulling
+a case off an expert who was about to sign, and mailing a second expert the same letter, is worse
+than a late case. Where the two documents differ the narrower reading wins.
+
 **Unit 16 — Payout ledger.** Self-contained. `payout_ledger` exists from Unit 03 and the plan is
 explicit that there is no disbursement rail. No blocking question.
+
+One finding from writing the spec: `deliverToClient` guards `deliveryDate == null`, but `Case` has
+no `@Version`, so two concurrent deliveries can both read null, both save, and **both create a
+payout row** — the same check-then-act shape `V15` was written for. A partial unique index on
+`payout_ledger (case_id) WHERE status <> 'VOIDED'` cannot race. Also decided: payout **writes** are
+GM / Brand Manager (recording that money left is a commercial act, same gate as `mark-paid`, and
+re-checked in the service like `RefundService`), **reads** include the ENM. If the business says the
+ENM records payouts in practice that is a one-line widening of two guards — worth taking as a
+decision rather than assuming here.
 
 **Unit 17 — Dashboards.** Two open questions attach directly, both listed below: whether
 sales/marketing dashboards are GHL-native (default: yes, EvalOS does not build them), and
 **StatCommand**, which is still undefined — the standing instruction is not to build an
 integration for it until it is specified.
+
+A third item is a **deviation from the build plan's wording, recorded rather than taken quietly**.
+The plan and `architecture.md` both say "precomputed read models refreshed on events". At the NFR's
+stated scale — 50–100 cases per brand per month, two brands — every metric is a `GROUP BY` over a
+few thousand indexed rows, which Postgres answers in single-digit milliseconds. An event-refreshed
+read model buys latency nobody needs and costs a **second source of truth for the open-liability
+figure**, plus exactly the staleness class this project already has three instances of (the
+`allInsideSla` header, the checklist chip, the "N ready for the PM" count — each a cached or derived
+display disagreeing with the instrument beside it). **The spec recommends computing live**, with
+aggregates pushed into SQL, and adding a materialized layer only when a measurement shows it is
+needed — and if added, as a cache in front of the same functions so the live query stays the
+definition. The metric definitions, the API and the UI are identical either way; only the source of
+the numbers changes. **Confirm at build time**; if the answer is "build the read models anyway",
+nothing else in the spec moves.
+
+Also decided: the **review-capture metric cannot be fully computed inside EvalOS.** EvalOS knows how
+many review requests it fired (`google_review_requested`); the reviews themselves land on Google and
+the campaign runs in GHL. So the tile is labelled **"review requests sent"** and claims nothing about
+captures — a tile naming a metric it cannot compute is the same failure as a header contradicting its
+instrument. Whether GHL should report captures back is now an open question below.
 
 **Cross-cutting, not unit-specific.** The GHL contract (payload shape, signature header, HMAC
 encoding, and which contact event actually fires) is the largest risk to code already shipped
@@ -971,8 +1083,40 @@ whenever a third brand is seeded. Staff SSO stays deferred.
   `case.delivered` and the ability to send client-facing transactional messages
   on EvalOS event triggers (Unit 18); (c) which extra inbound GHL events to
   handle now vs later (`refund.requested`, `contact.updated`).
+- **`FieldTag` value list needs the ENM's sign-off** (Unit 11) — the *mechanism* is settled (a
+  closed enum + database CHECK); the vocabulary is not. `11-expert-database.md` carries a ~28-entry
+  starter list to react to, explicitly not to adopt unreviewed. Whoever fills the roster is choosing
+  the vocabulary, and adding a tag later is a new migration widening the CHECK — never an edit to the
+  applied one. **Confirm before the migration lands**, not after.
+- **Google Drive credentials + service account** (Unit 13) — new, and gating. The decision to write
+  the redacted CV into the case's Drive folder means a Google Cloud service account, its JSON key
+  (env-bound, no non-local default), the Drive API enabled, and **per-brand write access** on each
+  brand's folder tree. None of it exists. This was not a question before, because the build plan's
+  "or written to the case's Drive folder" wording let Unit 13 avoid Drive entirely.
 - **Dropbox Sign callback secret** — signing secret for signed/declined/viewed
   callbacks (Unit 15).
+- **Which Dropbox Sign account structure** (Unit 15) — one API app per brand (preferred; the
+  gateway's per-brand endpoint resolution then works unchanged) vs. one shared account, which forces
+  brand resolution from callback `metadata` and **is a change to a protected step**. Answer before
+  writing the handler.
+- **Sign-off to add `actor_type` to the audit trail** (Unit 14) — `ai-workflow-rules.md` protects
+  "the audit-trail entity and its write path" and asks for explicit instruction before any change.
+  Unit 14 needs one nullable column and a third writer so a client's draft approval is attributed to
+  *the client* rather than to a null actor indistinguishable from a webhook's. Append-only is not
+  weakened — no update/delete path, every column still `updatable = false`, the `V10` trigger
+  untouched — but the rule wants instruction, not an argument. If refused, the fallback is a worse
+  trail for the one action a client performs in the system.
+- **Whether GHL reports review captures back** (Unit 17) — EvalOS can only count review *requests
+  sent*. Actual captures live on Google and in GHL's campaign; reading them back would be a new
+  inbound integration nobody has specified. Until then the tile is labelled for what it measures.
+- **Whether EvalOS may send case data to an external AI API at all** (Unit 20) — a product and
+  compliance decision, not an implementation one. It would be the first outbound flow of internal
+  case content to a third party (Drive holds documents EvalOS links to; Dropbox Sign holds letters it
+  does not read; GHL is the front office EvalOS serves). The spec's whitelist excludes
+  `payment_detail`, all client and expert identity, and every free-text field — which leaves
+  anonymous tag-level data, and is also the honest argument that the layer's value is limited. Note
+  the **anomaly-detection half of Unit 20 needs no AI at all** (>15% vs a 4-week mean is arithmetic)
+  and ships regardless of how this is answered.
 - **Staff SSO** — optional/later; JWT password login for v1.
 - **FO-2026-CRM-01** — full credential-handling rules (disclaimer text captured
   per brand; remaining rules assumed satisfied by encryption + RBAC + audit).
