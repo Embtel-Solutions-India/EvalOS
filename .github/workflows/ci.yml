@@ -1,0 +1,92 @@
+name: CI
+
+# The DB-backed suite is why this file exists.
+#
+# `LocalPostgresIntegrationTest` is gated behind `-Devalos.db.test=true` so that a
+# laptop with no Postgres can still run `./mvnw test`. For ten units nothing ever
+# set that flag, which made the one suite that puts brand-scoping predicates,
+# `ddl-auto=validate`, the payment-detail ciphertext and the append-only trigger in
+# front of real SQL the one suite nobody ran. A flag nobody sets is the same as a
+# test nobody wrote. This job sets it.
+
+on:
+  push:
+    branches: [main, Development]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  backend:
+    name: Backend (against real Postgres)
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        # Matches the local dev server the suite was written against.
+        image: postgres:16
+        env:
+          POSTGRES_DB: evalos
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        # Without the health gate, Flyway's first migration races the server's
+        # startup and the job fails on a connection refused rather than a test.
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Test, including the 18 DB-gated tests
+        working-directory: backend
+        env:
+          # DB_TEST_URL, not DB_URL: the suite writes into its own `evalos_test`
+          # schema and must not be redirectable to a database holding real rows.
+          DB_TEST_URL: jdbc:postgresql://localhost:5432/evalos?currentSchema=evalos_test
+          DB_USER: postgres
+          DB_PASSWORD: postgres
+        run: ./mvnw --batch-mode test -Devalos.db.test=true
+
+      # The surefire XML is the only record of which tests actually ran. Keep it on
+      # failure, because "18 skipped" and "18 passed" both exit zero from a distance.
+      - name: Keep the surefire reports
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: surefire-reports
+          path: backend/target/surefire-reports/
+
+  frontend:
+    name: Frontend
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - run: npm ci
+
+      - run: npm test
+
+      # `build` is `tsc -b && vite build`, so this is the typecheck as well.
+      - run: npm run build
+
+      - run: npm run lint

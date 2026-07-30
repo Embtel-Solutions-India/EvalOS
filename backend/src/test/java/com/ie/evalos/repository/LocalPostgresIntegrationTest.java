@@ -32,6 +32,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.test.context.TestPropertySource;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -43,18 +44,41 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * payment detail is ciphertext on disk, scoped finders keep two brands apart, and
  * the audit table refuses to be edited.
  *
- * <p>Disabled unless {@code -Devalos.db.test=true} is passed, because it needs a
- * database that a clean checkout has no way to provide. There is no Testcontainers
- * dependency: this machine has no Docker, and a test that cannot run is worse than
- * one that says how to run it.
+ * <p><strong>It runs in its own schema.</strong> These tests insert freely, and until
+ * they were given {@code evalos_test} their rows landed in {@code public} beside real
+ * dev data — about 150 junk cases at the last count, filling the first column of the
+ * board a developer was trying to read. {@code currentSchema} pins every unqualified
+ * statement here, so a misconfiguration fails outright rather than quietly writing
+ * next door. A schema and not a second database, because Flyway can create a schema
+ * and cannot create a database: nothing here needs a setup step a fresh checkout
+ * could skip.
+ *
+ * <p>The URL comes from {@code DB_TEST_URL} and deliberately <em>not</em> from
+ * {@code DB_URL}. A developer with {@code DB_URL} exported at their dev database
+ * would otherwise have these inserts follow it straight back into {@code public},
+ * which is the problem this class just stopped having.
+ *
+ * <p>Still gated on {@code -Devalos.db.test=true}, so {@code ./mvnw test} stays green
+ * on a machine with no Postgres. That gate is also why these were unproven for ten
+ * units — a flag nobody sets is the same as a test nobody wrote — so CI now passes it
+ * on every push; see {@code .github/workflows/ci.yml}.
+ *
+ * <p>No Testcontainers: it needs a running Docker daemon, and the point of this suite
+ * is to run against whatever Postgres is already there.
  *
  * <pre>
- * ./mvnw test -Devalos.db.test=true -Dtest=LocalPostgresIntegrationTest \
- *     -DDB_URL=jdbc:postgresql://localhost:5432/evalos
+ * ./mvnw test -Devalos.db.test=true -Dtest=LocalPostgresIntegrationTest
  * </pre>
  */
 @SpringBootTest
 @EnabledIfSystemProperty(named = "evalos.db.test", matches = "true")
+@TestPropertySource(properties = {
+		"spring.datasource.url=${DB_TEST_URL:jdbc:postgresql://localhost:5432/evalos?currentSchema=evalos_test}",
+		"spring.flyway.schemas=evalos_test",
+		"spring.flyway.create-schemas=true",
+		"spring.jpa.properties.hibernate.default_schema=evalos_test",
+		"spring.jpa.show-sql=false",
+})
 class LocalPostgresIntegrationTest {
 
 	/** Seeded by {@code V900__seed_local.sql}. */

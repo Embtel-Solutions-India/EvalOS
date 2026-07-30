@@ -9,12 +9,19 @@ Update this file after every meaningful implementation change.
   (notification centre), 07 (app shell), 08 (production board), 09 (case detail) and 10 (doc
   checklist) are all Phase 1 — this tracker had been calling 06 onward "Phase 2" since Unit 06,
   which the build plan does not say. Corrected here rather than left to compound.
-- **Phase 2 — Connect the seams has not started.** It is Units 11–17.
+- **Phase 2 — Connect the seams has not started.** It is Units 11–17. The build plan's
+  `## Phase 3` heading used to sit above Unit 17 and contradict its own roadmap line; the heading
+  moved to Unit 18, so Dashboards is Phase 2 wherever you read it.
+- **Phase 1 is now verified, not just written.** All 183 backend tests execute with none skipped —
+  the 18 DB-backed ones included, for the first time since Unit 03 wrote them — and CI runs them
+  against a real Postgres on every push. See the entry at the end of Completed.
 
 ## Current Goal
 
 - Unit 11 — Expert database (ENM) + bulk sheet upload, the first unit of Phase 2. Nothing in
-  Phase 1 is outstanding.
+  Phase 1 is outstanding. Read **Phase 2 readiness** under Next Up first: the expert field-tag
+  taxonomy is undefined and Unit 12's match scoring depends on it, so it wants deciding inside
+  this unit rather than after it.
 
 ## Completed
 
@@ -805,8 +812,45 @@ re-adding it without a screen behind it fails `navigation.test.ts`. Whoever buil
 screen sets the role list from what the screen does; the build plan is unchanged, because the
 missing unit is the honest state of it.
 
-Frontend 48 passed; `tsc -b`, `vite build`, `oxlint` clean. Backend untouched by any of this, so
-it stands at 183 passed / 0 failed / 18 skipped.
+Frontend 48 passed; `tsc -b`, `vite build`, `oxlint` clean. Backend untouched by any of this.
+
+### Phase 1's last gap closed: the DB-backed suite actually runs, and CI runs it
+
+**All 183 backend tests now execute. Zero skipped.**
+
+`LocalPostgresIntegrationTest`'s 18 tests were the ones putting brand-scoping predicates,
+`ddl-auto=validate`, the payment-detail ciphertext and the append-only trigger in front of real
+SQL — and they had never run in the ten units since Unit 03 wrote them. They pass. That includes
+the two brand-isolation tests added for Unit 10's unscoped-by-design finders, so those finders are
+now proven rather than promised.
+
+**A number this tracker kept getting wrong.** It has been reporting "183 passed, 18 skipped".
+Surefire's `Tests run: 183 ... Skipped: 18` counts skips *inside* the 183, so the real figure was
+**165 executing and 18 not**. "183 passed / 18 skipped" added up to more tests than exist and read
+as though the skips were extra. Now it is genuinely 183 executing.
+
+Three things were in the way, and all three are fixed:
+
+- **The suite wrote into the dev database.** It now runs in its own `evalos_test` schema, pinned by
+  `currentSchema`, so a misconfiguration fails outright instead of quietly writing next door. A
+  schema rather than a second database because Flyway can create a schema and cannot create a
+  database — no setup step a fresh checkout could skip. The URL comes from `DB_TEST_URL` and
+  deliberately not `DB_URL`: a developer with `DB_URL` exported at their dev database would
+  otherwise have these inserts follow it straight back into `public`.
+- **Nothing ever set the gate.** The suite is gated on `-Devalos.db.test=true` so `./mvnw test`
+  stays green on a machine with no Postgres, and for ten units nobody passed it. A flag nobody
+  sets is the same as a test nobody wrote. **There was no CI in this repo at all** — no
+  `.github/` directory. `.github/workflows/ci.yml` now runs the backend against a `postgres:16`
+  service container with the flag on, plus a frontend job (`npm test`, `npm run build` which is
+  also the typecheck, `oxlint`), on every push to `main`/`Development` and every PR.
+- **`backend/mvnw` was mode 100644 in git.** Not executable, so `./mvnw` would have failed on any
+  Linux or macOS checkout, CI included. Fixed with `git update-index --chmod=+x`.
+
+Not Testcontainers: it needs a running Docker daemon (Docker Desktop is installed on this machine
+but its daemon is down), and the point of the suite is to run against whatever Postgres is already
+there. The CI service container gives the same isolation without the dependency.
+
+The stale claim in the test's own javadoc — "this machine has no Docker" — is corrected too.
 
 ## In Progress
 
@@ -818,16 +862,65 @@ it stands at 183 passed / 0 failed / 18 skipped.
   `{id, fullName}` read Unit 08 needed; Unit 11 supersedes it with the real screen (search,
   taxonomy matching, quality scores, sheet upload) and can keep the endpoint as the picker's read.
 
+### Phase 2 readiness — which open questions block which unit
+
+Checked before starting Phase 2, so a unit is not begun against an assumption. **Nothing blocks
+Unit 11's start**, but two items bite inside it, and each later unit has a named external
+dependency that is not yet confirmed. Phase 2 is Units 11–17 (see the boundary note in the build
+plan — the `## Phase 3` heading had been contradicting that).
+
+**Unit 11 — Expert database.** Two decisions land inside this unit, not before it:
+- **The field-tag taxonomy is undefined.** `Expert.primaryFields` / `secondaryFields` are
+  `String[]` with no controlled vocabulary and no CHECK. Free text is fine for a roster a human
+  reads, but **Unit 12's match scoring matches on these tags**, and "Mechanical Engineering" will
+  not match "mechanical engg". Whoever fills the roster is choosing the vocabulary, so the sheet
+  upload's column mapping and the tag list want deciding together, in this unit.
+- **`payment_detail` needs a real `EVALOS_FIELD_KEY` outside local.** No default by design — an
+  environment that forgets it fails to start rather than writing plaintext. Fine for dev; a
+  deployment blocker whenever one happens, and this is the unit that first writes the field.
+
+**Unit 13 — Redacted CV generation.** The plan says the output is "served on demand (**or written
+to the case's Drive folder**)". **There is no Google Drive integration** — `Case.driveLink` is a
+string and the architecture's "no object storage" rule means EvalOS holds links, never bytes.
+Writing to Drive needs an API client, OAuth credentials and a service account that do not exist.
+Serve-on-demand only needs none of that. Decide which before the unit, because one of the two
+readings adds an external integration to the phase.
+
+**Unit 14 — Client draft-review portal.** The portal link reaches the client "via GHL". That is
+open question (b) below — whether GHL can send a client-facing transactional message on an EvalOS
+event trigger. If it cannot, the portal is built and unreachable.
+
+**Unit 15 — Expert portal + Handoff B.** The heaviest external dependency in the phase, and
+nothing exists yet beyond the `DROPBOX_SIGN` enum value and staff-recorded stand-ins for the
+signed/declined callbacks. Needs: a Dropbox Sign account, an API key, the **callback signing
+secret** (already open below), and a signature-request template. The inbound gateway is ready for
+it — `WebhookSource.DROPBOX_SIGN` and the brand-scoped idempotency key are in place.
+
+**Unit 16 — Payout ledger.** Self-contained. `payout_ledger` exists from Unit 03 and the plan is
+explicit that there is no disbursement rail. No blocking question.
+
+**Unit 17 — Dashboards.** Two open questions attach directly, both listed below: whether
+sales/marketing dashboards are GHL-native (default: yes, EvalOS does not build them), and
+**StatCommand**, which is still undefined — the standing instruction is not to build an
+integration for it until it is specified.
+
+**Cross-cutting, not unit-specific.** The GHL contract (payload shape, signature header, HMAC
+encoding, and which contact event actually fires) is the largest risk to code already shipped
+rather than to Phase 2, since Handoff A runs on assumptions today. The full brand list matters
+whenever a third brand is seeded. Staff SSO stays deferred.
+
 ## Open Questions
 
 - ~~**`/delivery` is labelled "Final delivery queue (Unit 13)" and Unit 13 is not that.**~~ —
   **closed by decision: the nav entry is deleted.** See the PR #7 review entry above.
-- **The dev `evalos` database now holds ~150 junk cases** written by `LocalPostgresIntegrationTest`
-  (`EV-<uuid>` case codes, "Unnamed contact", "SERVICE NOT SET"), which is the Unit 07 hygiene
-  note grown from two notification rows into a board that is 103/107 test rows in its first
-  column. They are harmless and they made the SLA rail easy to read, but the database needs a
-  reset before any demo, and the tests should write to their own database rather than the dev one.
-  Not cleaned up here: deleting rows from a database is not a drive-by.
+- **The dev `evalos` database still holds ~150 junk cases** in `public`, written by
+  `LocalPostgresIntegrationTest` before it was moved to its own schema (`EV-<uuid>` case codes,
+  "Unnamed contact", "SERVICE NOT SET") — the Unit 07 hygiene note grown into a board that is
+  103/107 test rows in its first column. **The cause is fixed** (the suite writes to
+  `evalos_test` now, so the pile cannot grow), but the existing rows are still there and the
+  database needs a reset before any demo. Not cleaned up here: deleting rows from somebody's
+  database is not a drive-by, and `public` also holds whatever real dev data exists. A targeted
+  `DELETE FROM evalos_case WHERE case_code LIKE 'EV-%'` would do it — on request, not unasked.
 
 - **GHL contract still unconfirmed** (was already open, now load-bearing): the
   `contact.created` payload shape, the signature header name, and the HMAC

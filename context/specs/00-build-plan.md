@@ -12,6 +12,13 @@ row-level tenancy by `brand_id`, brand-scoped queries throughout.
 Sequence maps to the roadmap: Units 01–10 = Phase 1 (structure the data),
 11–17 = Phase 2 (connect the seams), 18–20 = Phase 3 (close the loop).
 
+The `## Phase 3` heading below used to sit above Unit 17, contradicting that line
+and putting Dashboards in a different phase depending on which part of this file
+you read. The heading moved to Unit 18 rather than the sentence changing, because
+the sentence is the one quoting the roadmap. Unit order is unaffected either way —
+what the boundary decides is when Unit 17's open questions (dashboard ownership,
+StatCommand) become blocking.
+
 Generate a `specs/NN-name.md` for a unit just before building it.
 
 ---
@@ -159,16 +166,16 @@ tracking; the weekly batch view; and expert-facing payout status in the portal.
 Ledger only — no disbursement rail, no payment-platform integration.
 Depends on: 03, 11.
 
----
-
-## Phase 3 — Close the loop
-
 ### Unit 17 — Dashboards (read models)
 Builds: the production-side role dashboards (GM cross-brand; Brand Manager, PM,
 Coordinator, Case Manager, ENM within brand) — money-in vs. delivered (open
 liability), cycle time by stage, expert utilization & acceptance rate, review
 capture — reading precomputed read models refreshed on events.
 Depends on: 04, 11, 16.
+
+---
+
+## Phase 3 — Close the loop
 
 ### Unit 18 — Outbound webhook dispatcher + Handoff C (delivered)
 Builds: the reusable outbound dispatcher (subscribes to the domain events
