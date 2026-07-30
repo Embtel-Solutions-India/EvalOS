@@ -5,8 +5,10 @@ import {
   STAGE_ACCESS,
   STAGE_COLUMNS,
   actionsFor,
+  allInsideSla,
   columnsFor,
   dueBeforeFor,
+  slaMix,
   type BoardCard,
   type ExceptionState,
   type Stage,
@@ -89,6 +91,13 @@ describe('STAGE_ACCESS', () => {
     }
   })
 
+  it('numbers a column by its place in the whole pipeline, not in the role subset', () => {
+    // A Case Manager's first column is stage 2 of 5. Numbering it 1 would say the work starts
+    // with them — which is what happens if the `none` cells are filtered before the index.
+    expect(columnsFor('CASE_MANAGER').map((column) => column.step)).toEqual([2, 3, 4])
+    expect(columnsFor('GM').map((column) => column.step)).toEqual([1, 2, 3, 4, 5])
+  })
+
   it('marks the Coordinator watching the middle of the pipeline and working both ends', () => {
     const access = Object.fromEntries(
       columnsFor('PROJECT_COORDINATOR').map((column) => [column.stage, column.access]),
@@ -100,6 +109,45 @@ describe('STAGE_ACCESS', () => {
       EXPERT_SIGNING: 'status',
       FINAL_DELIVERY: 'full',
     })
+  })
+})
+
+describe('slaMix', () => {
+  it('counts a case with no clock as its own band, never as on track', () => {
+    // A closed case and one holding an exception state both get a null SLA status, and
+    // colouring them green would report a stalled column as healthy — the whole reason
+    // `unknown` is a fourth band rather than a fold into `onTrack`.
+    expect(
+      slaMix([
+        card({ slaStatus: 'ON_TRACK' }),
+        card({ slaStatus: 'AT_RISK' }),
+        card({ slaStatus: 'OVERDUE' }),
+        card({ slaStatus: 'OVERDUE' }),
+        card({ slaStatus: null }),
+      ]),
+    ).toEqual({ onTrack: 1, atRisk: 1, overdue: 2, unknown: 1 })
+  })
+
+  it('refuses to claim "all inside SLA" over cases with no clock running', () => {
+    // The live board found this: 150 cases, 0 overdue, 0 at risk — and 127 with no clock, which
+    // the header reported as "all inside SLA" while the rail directly under it drew them grey.
+    expect(allInsideSla({ onTrack: 23, atRisk: 0, overdue: 0, unknown: 127 })).toBe(false)
+    expect(allInsideSla({ onTrack: 23, atRisk: 0, overdue: 0, unknown: 0 })).toBe(true)
+    expect(allInsideSla({ onTrack: 5, atRisk: 1, overdue: 0, unknown: 0 })).toBe(false)
+    expect(allInsideSla({ onTrack: 5, atRisk: 0, overdue: 1, unknown: 0 })).toBe(false)
+    // An empty board makes no claim either way.
+    expect(allInsideSla({ onTrack: 0, atRisk: 0, overdue: 0, unknown: 0 })).toBe(false)
+  })
+
+  it('totals every card exactly once, so the rail is the whole column', () => {
+    const cards = [
+      card({ slaStatus: 'ON_TRACK' }),
+      card({ slaStatus: null }),
+      card({ slaStatus: 'AT_RISK' }),
+    ]
+    const mix = slaMix(cards)
+    expect(mix.onTrack + mix.atRisk + mix.overdue + mix.unknown).toBe(cards.length)
+    expect(slaMix([])).toEqual({ onTrack: 0, atRisk: 0, overdue: 0, unknown: 0 })
   })
 })
 

@@ -18,7 +18,14 @@ export type NavItem = {
   roles: readonly Role[]
   /** Shown under the label on the placeholder page, so it is clear what lands here. */
   becomes: string
+  /**
+   * The nav heading this item sits under. Grouping is by consecutive runs of this value,
+   * so the order of {@link NAV_ITEMS} is the order on screen.
+   */
+  group: NavGroup
 }
+
+export type NavGroup = 'Overview' | 'Pipeline' | 'Records' | 'Admin'
 
 const ALL_ROLES: readonly Role[] = [
   'GM',
@@ -30,59 +37,74 @@ const ALL_ROLES: readonly Role[] = [
 ]
 
 export const NAV_ITEMS: readonly NavItem[] = [
-  { path: '/dashboard', label: 'Dashboard', roles: ALL_ROLES, becomes: 'Role dashboard (Unit 17)' },
+  { path: '/dashboard', label: 'Dashboard', roles: ALL_ROLES, becomes: 'Role dashboard (Unit 17)', group: 'Overview' },
 
-  // GM + Brand Manager: the commercial view.
+  // The production board. Four roles, one screen: the spec's per-role wording ("all
+  // brands" / "own brand" / "team" / a Coordinator's read view) describes *scope*, which
+  // the server applies — not four different boards.
+  //
+  // **There is no separate "Cases" screen and no unit builds one.** A `/cases` placeholder
+  // used to sit above this labelled "Case table (Unit 08)", which is what Unit 08 shipped
+  // *as this board* — so the one screen with live data was listed second, below a page that
+  // could only ever say "not built yet". Two entries for one screen is how that happens.
   {
-    path: '/cases',
-    label: 'Cases',
+    path: '/board',
+    label: 'Production board',
     roles: ['GM', 'BRAND_MANAGER', 'PROJECT_MANAGER', 'PROJECT_COORDINATOR'],
-    becomes: 'Case table (Unit 08)',
+    becomes: 'Kanban production board',
+    group: 'Pipeline',
   },
+
+  // Case Manager. Their docket is the same board narrowed by their own assignment, which
+  // the server does — so this is the board, not a second screen.
+  {
+    path: '/my-cases',
+    label: 'My cases',
+    roles: ['CASE_MANAGER'],
+    becomes: 'Cases assigned to you',
+    group: 'Pipeline',
+  },
+
+  // Project Coordinator.
+  {
+    path: '/checklists',
+    label: 'Doc checklists',
+    roles: ['PROJECT_COORDINATOR'],
+    becomes: 'Document checklist tracking (Unit 10)',
+    group: 'Pipeline',
+  },
+  {
+    path: '/delivery',
+    label: 'Delivery',
+    roles: ['PROJECT_COORDINATOR'],
+    becomes: 'Final delivery queue (Unit 13)',
+    group: 'Pipeline',
+  },
+
   {
     path: '/experts',
     label: 'Experts',
     roles: ['GM', 'BRAND_MANAGER', 'PROJECT_MANAGER'],
     becomes: 'Expert database (Unit 11)',
+    group: 'Records',
+  },
+  // Expert Network Manager.
+  {
+    path: '/expert-database',
+    label: 'Expert database',
+    roles: ['EXPERT_NETWORK_MANAGER'],
+    becomes: 'Expert roster + sheet upload (Unit 11)',
+    group: 'Records',
   },
   {
     path: '/payouts',
     label: 'Payouts',
     roles: ['GM', 'BRAND_MANAGER', 'EXPERT_NETWORK_MANAGER'],
     becomes: 'Payout ledger (Unit 16)',
-  },
-  { path: '/brands', label: 'Brands', roles: ['GM'], becomes: 'Brand administration' },
-
-  // The production board. Four roles, one screen: the spec's per-role wording ("all
-  // brands" / "own brand" / "team" / a Coordinator's read view) describes *scope*, which
-  // the server applies — not four different boards.
-  {
-    path: '/board',
-    label: 'Board',
-    roles: ['GM', 'BRAND_MANAGER', 'PROJECT_MANAGER', 'PROJECT_COORDINATOR'],
-    becomes: 'Kanban production board',
+    group: 'Records',
   },
 
-  // Project Coordinator.
-  {
-    path: '/checklists',
-    label: 'Doc Checklists',
-    roles: ['PROJECT_COORDINATOR'],
-    becomes: 'Document checklist tracking (Unit 10)',
-  },
-  { path: '/delivery', label: 'Delivery', roles: ['PROJECT_COORDINATOR'], becomes: 'Final delivery queue (Unit 13)' },
-
-  // Case Manager. Their docket is the same board narrowed by their own assignment, which
-  // the server does — so this is the board, not a second screen.
-  { path: '/my-cases', label: 'My Cases', roles: ['CASE_MANAGER'], becomes: 'Cases assigned to you' },
-
-  // Expert Network Manager.
-  {
-    path: '/expert-database',
-    label: 'Expert Database',
-    roles: ['EXPERT_NETWORK_MANAGER'],
-    becomes: 'Expert roster + sheet upload (Unit 11)',
-  },
+  { path: '/brands', label: 'Brands', roles: ['GM'], becomes: 'Brand administration', group: 'Admin' },
 ]
 
 /**
@@ -102,11 +124,43 @@ const PARAMETERIZED: readonly NavItem[] = [
     label: 'Case',
     roles: ALL_ROLES,
     becomes: 'Case detail',
+    group: 'Pipeline',
   },
 ]
 
 export function navFor(role: Role): readonly NavItem[] {
   return NAV_ITEMS.filter((item) => item.roles.includes(role))
+}
+
+/**
+ * This role's nav as headed sections, in table order.
+ *
+ * Built from consecutive runs rather than by filtering per group, so the table's order is
+ * the screen's order and a heading can never appear twice.
+ */
+export function navSectionsFor(role: Role): readonly { group: NavGroup; items: readonly NavItem[] }[] {
+  const sections: { group: NavGroup; items: NavItem[] }[] = []
+  for (const item of navFor(role)) {
+    const last = sections.at(-1)
+    if (last?.group === item.group) last.items.push(item)
+    else sections.push({ group: item.group, items: [item] })
+  }
+  return sections
+}
+
+/**
+ * The live screen to send this role to when the one they asked for is not built.
+ *
+ * The board under its two names, then the dashboard — checked through {@link mayReach} so a
+ * role that can reach neither (the Expert Network Manager today) is never offered a link
+ * that answers 403.
+ */
+export function boardPathFor(role: Role): { path: string; label: string } {
+  for (const path of ['/board', '/my-cases']) {
+    const item = itemFor(path)
+    if (item && mayReach(role, path)) return { path, label: `Go to ${item.label.toLowerCase()}` }
+  }
+  return { path: '/dashboard', label: 'Back to your dashboard' }
 }
 
 export function itemFor(path: string): NavItem | undefined {

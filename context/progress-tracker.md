@@ -487,6 +487,121 @@ Update this file after every meaningful implementation change.
     Coordinator's, neither sees the unassigned pool row, and another brand's case stays out
     even when it names the same Coordinator. `npm run build` clean, `npm run lint` clean.
 
+- **Visual pass over the shell and the board.** No unit, no backend change, no new dependency —
+  the frontend built across Units 07–09 read as a wireframe, and three of its stated design
+  intentions were not actually reaching the screen.
+  - **The fonts were never loaded.** `ui-context.md` asks for tabular figures on every column
+    of dates, counts and case IDs; `tokens.css` declared Inter / IBM Plex Mono as font *stacks*
+    with system fallbacks and Unit 01 note (b) recorded that the webfonts were not bundled. No
+    system fallback has `tabular-nums`, so **every `tabular-nums` class in the app — 15 files —
+    was a no-op for three units.** Now linked in `index.html` (`preconnect` + one `css2`
+    request, `display=swap`), with a `.font-num`/`.font-mono`/`.tabular-nums` rule in
+    `index.css` so the feature applies rather than being requested per element.
+  - **`tokens.css` gained three derived tokens, no new colours**: `--shadow-card`,
+    `--shadow-pop` (both the primary text colour at low alpha, so a surface never picks up a
+    hue outside the system) and `--ring-focus` (the accent). `index.css` spends them on one
+    app-wide `:focus-visible` ring — keyboard operation of a board is not optional — plus a
+    `prefers-reduced-motion` block and `.scroll-slim` for the board's horizontal scroller.
+  - **`/cases` is deleted from the nav, and no unit ever builds it.** It was a placeholder
+    labelled "Case table (Unit 08)" — which is what Unit 08 *did* ship, as the board. So four
+    roles had the app's one screen with live data listed *second*, under a page that could only
+    ever say "not built yet". Unit 08 note (h) chose not to alias the two; the right fix was
+    one entry, not two. `/board` is now labelled "Production board" and nothing links to
+    `/cases` (`/cases/:id` is untouched — it is the detail route, not a nav item).
+  - **The nav is grouped** — Overview / Pipeline / Records / Admin — via a `group` field on the
+    same `NAV_ITEMS` table, built into sections by **consecutive runs** rather than by
+    filtering per group, so the table's order is the screen's order and a heading cannot appear
+    twice. This also fixes the Unit 07 browser pass's "cosmetic deviation": three roles had
+    their primary screen listed last because `NAV_ITEMS` was one flat global order. Grouping
+    gave the ordering a home without adding a per-role order field.
+  - **`boardPathFor(role)` — the placeholder now offers the way out.** A dead end is a design
+    failure, but a hardcoded escape link is a 403 with extra steps, so it walks `/board` then
+    `/my-cases` **through `mayReach`** and falls back to the dashboard for the one role that can
+    reach neither today (the ENM). Same table, same gate as the router.
+  - **`SlaRail` — the board's one instrument.** Each column is capped by a 3px bar split by its
+    cases' SLA mix, red-first, so the five columns side by side read as a single line: where the
+    risk has collected, not just how much work there is. `slaMix` keeps **`unknown` as a fourth
+    band** rather than folding it into `onTrack` — `SlaCalculator` returns null for a closed case
+    and for one holding an exception state, and colouring those green would report a stalled
+    column as healthy. Empty columns keep a hairline so the rail stays continuous, and the bar
+    carries an `aria-label` naming the counts, since a colour-only instrument is not one.
+  - **Columns are numbered by their place in the whole pipeline**, so a Case Manager's first
+    column is 2 of 5. Numbering their subset from 1 would say the work starts with them. Lanes
+    get no number: an exception is not a step. The lanes also moved under a "Off the pipeline"
+    heading with a held count, and `readOnly` became a "watching" chip instead of the word
+    "status" tucked beside a number.
+  - **The board header states the risk, not the volume**: scope + owner filter as an eyebrow,
+    then "N cases in view" with overdue / at-risk counts, or "all inside SLA" when there are
+    none. It counts **only what is drawn** (this role's columns plus the lanes), so the number
+    always matches what the reader can count on screen. `isMine` was extracted from the owner
+    filter and is now also passed to every card, so "mine" is visible without filtering to it.
+  - The read-failure panel says **"Nothing was changed"** and names the likely cause. A retry
+    button with no reassurance about a *read* failure invites the user to wonder what it half-did.
+  - Verified: `npm test` **29 tests** (3 new, and **mutation-checked** — folding `unknown` into
+    `onTrack` fails the SLA-band test, and numbering the columns after the `none` cells are
+    filtered fails the step test; each failed exactly one test and the file was restored
+    byte-identically, confirmed by an unchanged bundle hash). `npm run build` clean,
+    `npm run lint` clean. Backend untouched.
+- **Visual-pass browser verification — confirmed, and it found four defects.** Driven through
+  Chrome against the running stack (Postgres 18 + `mvnw spring-boot:run` on `local` + Vite),
+  signed in as all six seeded roles.
+  - **The webfonts load and the tabular figures are real, measured rather than assumed.**
+    `document.fonts.check` is true for Inter and IBM Plex Mono (faces 400/500/600/700), and a
+    probe span carrying the app's own classes measures `111111` and `000000` at **exactly the
+    same width (54.475px)** with `font-variant-numeric: tabular-nums` computed. That is the
+    Unit 01 gap closed with evidence, not a link tag that might be doing nothing.
+  - **The SLA rail reads correctly per column** and carries the counts in its `aria-label`
+    ("Doc Collection: 4 on track, 103 no clock running"), so the instrument is not colour-only.
+  - **Defect 1, in this pass's own header: "all inside SLA" over a board that was mostly
+    unknown.** The GM's board showed *150 cases in view · all inside SLA* while the rails
+    directly beneath it reported **127 of the 150 with no clock running** — the headline branched
+    on `overdue === 0 && atRisk === 0`, which is exactly the overstatement `slaMix` keeps a
+    separate `unknown` band to prevent. The header and the instrument disagreed about the same
+    data, on screen, at the same time. The predicate moved into `boardRules.allInsideSla` (a
+    display branch that wrong is a display branch worth testing) and now also requires
+    `unknown === 0` and `onTrack > 0`, so an empty board claims nothing. The board reads
+    *150 cases in view · 127 with no clock running*.
+  - **Defect 2: the case detail page's "Manage the checklist" link answered 403 for every role
+    but one.** `/checklists` is the Coordinator's screen, and the client nav table has no
+    superuser row the way the backend's `@PreAuthorize` does — so a **Project Manager clicking
+    it landed on the 403 screen, and so would the GM**. Pre-existing from Unit 09 note (g),
+    found by clicking it. Now gated on `mayReach`, the same table the router guards against, and
+    pinned by a test asserting the Coordinator is the *only* role that may reach that path.
+  - **Defect 3: the case detail failure state sent a Case Manager and an ENM to a 403.** It
+    hardcoded `/board`; `/cases/:id` is open to every role, so the escape hatch on the error
+    screen was itself refused for the two roles without `/board`. Now `boardPathFor`, verified
+    live: the ENM gets "Back to your dashboard" and the Case Manager "Go to my cases".
+    **This is the second and third instance of one bug** — a link offered without checking the
+    reader's allow-list — which is why `boardPathFor` exists at all. Worth grepping for a fourth
+    before adding any new cross-screen link. (`components/Forbidden` is fine: `/dashboard` is
+    reachable by every role.)
+  - **Defect 4: two sentences ran together on the placeholder** ("Document checklist tracking
+    (Unit 10) Everything else in your scope is already live") because the nav table's `becomes`
+    strings are labels with no trailing punctuation. Two elements now.
+  - Per-role confirmations: the grouped nav renders the right set and headings for all six
+    roles; the **Case Manager's columns are numbered 2, 3, 4** — whole-pipeline numbering working
+    as designed rather than renumbering their subset from 1 — with the "watching" chip on Expert
+    Assignment and a "Yours" badge on their cards; the Coordinator's placeholder offers "Go to
+    production board" and the **ENM correctly falls back to the dashboard**, being the one role
+    with no board; the ENM's Expert database now precedes Payouts, and a PM's board sits directly
+    under Dashboard, which was the Unit 07 ordering deviation.
+  - **The heading now comes from the nav table**, so `/my-cases` is headed "My cases" rather than
+    "Production board" — and the eyebrow's owner half is drawn only when the filter narrows,
+    because "everyone" is false for a Case Manager whose board the server has already scoped to
+    them.
+  - **The focus ring fires**, confirmed on a keyboard-focused nav link: `:focus-visible` matched
+    and the computed `box-shadow` was exactly `--ring-focus`
+    (`rgb(255,255,255) 0 0 0 2px, rgb(53,82,224) 0 0 0 4px`). **Partial:** I could not get the
+    automation to land real Tab focus on a `<button>` — CDP `.focus()` never sets
+    `:focus-visible`, and after a navigation the Tab keys went to the browser UI. The rule covers
+    buttons by the same selector, but the button case is unobserved; worth one manual Tab when
+    somebody is at the keyboard.
+  - Console is clean on a fresh load of the board and of a case detail (Vite + React DevTools
+    notices only). The exceptions seen mid-pass were HMR firing between two of my own sequential
+    edits, where a symbol was used a moment before its import landed — not a live defect, but a
+    reminder that in this app HMR runs the half-edited file.
+  - Verified after the fixes: `npm test` **31**, `npm run build` clean, `npm run lint` clean.
+
 ## In Progress
 
 - Nothing.
@@ -499,6 +614,20 @@ Update this file after every meaningful implementation change.
   will own properly.
 
 ## Open Questions
+
+- **Should the GM (and a Brand Manager) reach `/checklists` and `/delivery`?** Today the nav
+  table gives both to `PROJECT_COORDINATOR` alone, so the GM — a superuser on every backend
+  transition — cannot open the doc checklist board from anywhere. The browser pass surfaced this
+  as a 403 on the case detail link, which is now correctly hidden; the underlying product question
+  is untouched. **Decide before Unit 10 ships that screen**, because "the GM sees everything" is
+  the rule everywhere else in the system, and a one-line `roles` edit closes it if that is the
+  intent. Left as-is rather than guessed at: widening a role gate is a decision, not a fix.
+- **The dev `evalos` database now holds ~150 junk cases** written by `LocalPostgresIntegrationTest`
+  (`EV-<uuid>` case codes, "Unnamed contact", "SERVICE NOT SET"), which is the Unit 07 hygiene
+  note grown from two notification rows into a board that is 103/107 test rows in its first
+  column. They are harmless and they made the SLA rail easy to read, but the database needs a
+  reset before any demo, and the tests should write to their own database rather than the dev one.
+  Not cleaned up here: deleting rows from a database is not a drive-by.
 
 - **GHL contract still unconfirmed** (was already open, now load-bearing): the
   `contact.created` payload shape, the signature header name, and the HMAC
@@ -582,9 +711,11 @@ Update this file after every meaningful implementation change.
   compile + the health-endpoint test only — a full context-load test needs a
   Postgres, and this machine has neither Docker nor a local Postgres, so
   "app starts, Flyway applies V1 once" is **unverified**; add a Testcontainers
-  `@SpringBootTest` in Unit 03 when entities make it worth it. (b) Inter /
+  `@SpringBootTest` in Unit 03 when entities make it worth it. (b) ~~Inter /
   IBM Plex Mono are declared as font stacks with system fallbacks; the actual
-  webfonts are not bundled. (c) Boot 3.5.16 chosen over the Initializr's 4.1.0
+  webfonts are not bundled.~~ — **closed by the visual pass above**, and it was not
+  cosmetic: no system fallback carries `tabular-nums`, so every tabular-figure class
+  added in Units 07–09 was inert until the faces loaded. (c) Boot 3.5.16 chosen over the Initializr's 4.1.0
   to match the spec's "Spring Boot 3.x". (d) Stale `backend/target/` from the
   old scaffold breaks surefire discovery — run `./mvnw clean verify` once.
 
@@ -918,11 +1049,16 @@ Update this file after every meaningful implementation change.
     and `features/shell/filtersContext.ts` (context + hooks) with the providers left as
     the only export of their files. **`npm run lint` is now completely clean** and the
     three warnings in note (f) no longer apply.
-  - Cosmetic deviation left as-is: **nav item *order* differs from the spec's per-role
+  - ~~Cosmetic deviation left as-is: **nav item *order* differs from the spec's per-role
     prose** for three roles (the spec puts Board second for a PM and Expert Database
     before Payouts for an ENM; `NAV_ITEMS` is one globally-ordered table, so shared
     items come first). Every *set* is correct. Fixing it needs a per-role order field —
-    worth doing if a role's primary screen being last actually bothers anyone.
+    worth doing if a role's primary screen being last actually bothers anyone.~~ —
+    **closed by the visual pass above, and it did not need the per-role order field.**
+    Grouping the one table (Overview / Pipeline / Records / Admin) puts each role's
+    pipeline screen directly under the dashboard, which is what the spec's prose was
+    describing. The deviation was real, not cosmetic: a PM's board was listed under a
+    placeholder.
   - Hygiene note: `LocalPostgresIntegrationTest` writes rows into the **dev** `evalos`
     database and leaves them behind — the bell shows notifications with bodies `"old"`
     and `"fresh"` from `theNotificationCentreFindersRunAgainstRealSql`. Harmless, but

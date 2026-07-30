@@ -1,4 +1,6 @@
 import { Link } from 'react-router-dom'
+import { useMe } from '../../lib/authContext'
+import { mayReach } from '../shell/navigation'
 import type { CaseDetail } from './caseApi'
 
 /**
@@ -9,6 +11,7 @@ import type { CaseDetail } from './caseApi'
  * The checklist itself is Unit 10; this is the summary chip and the way in.
  */
 export default function DocumentsPanel({ detail }: { detail: CaseDetail }) {
+  const me = useMe()
   const { checklistTotal, checklistComplete } = detail
   const outstanding = checklistTotal - checklistComplete
   const done = checklistTotal > 0 && outstanding === 0
@@ -55,13 +58,22 @@ export default function DocumentsPanel({ detail }: { detail: CaseDetail }) {
         </span>
       </div>
 
-      <Link
-        to="/checklists"
-        className="mt-3 inline-block text-sm font-medium"
-        style={{ color: 'var(--accent-primary)' }}
-      >
-        Manage the checklist
-      </Link>
+      {/*
+        Gated on the same nav table the router guards against. `/checklists` is the Coordinator's
+        screen, so this link answered 403 for every other role that can open a case — the GM
+        included, since the client nav table has no superuser row. Found by clicking it as a
+        Project Manager. A link nobody else can follow is worse than no link: it reads as a
+        permission problem with the reader's account rather than a screen that is not theirs.
+      */}
+      {mayReach(me.role, '/checklists') && (
+        <Link
+          to="/checklists"
+          className="mt-3 inline-block text-sm font-medium"
+          style={{ color: 'var(--accent-primary)' }}
+        >
+          Manage the checklist
+        </Link>
+      )}
     </section>
   )
 }

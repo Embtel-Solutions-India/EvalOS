@@ -389,11 +389,58 @@ export function actionsFor(card: BoardCard, role: Role): readonly QuickAction[] 
   })
 }
 
-/** The columns this role works or watches, in pipeline order. `none` cells are not drawn. */
-export function columnsFor(role: Role): readonly { stage: Stage; label: string; access: StageAccess }[] {
-  return STAGE_COLUMNS.map(({ stage, label }) => ({ stage, label, access: STAGE_ACCESS[role][stage] })).filter(
-    (column) => column.access !== 'none',
-  )
+/**
+ * The columns this role works or watches, in pipeline order. `none` cells are not drawn.
+ *
+ * `step` is the case's position in the **whole** pipeline, not in this role's subset — a Case
+ * Manager's first column is still stage 3 of 5, and numbering it 1 would say the work starts
+ * with them. The number is only worth drawing because the stages genuinely are a sequence.
+ */
+export function columnsFor(
+  role: Role,
+): readonly { stage: Stage; label: string; access: StageAccess; step: number }[] {
+  return STAGE_COLUMNS.map(({ stage, label }, index) => ({
+    stage,
+    label,
+    access: STAGE_ACCESS[role][stage],
+    step: index + 1,
+  })).filter((column) => column.access !== 'none')
+}
+
+/**
+ * How a column's cases are split across the RAG statuses, for the rail above it.
+ *
+ * `unknown` is its own band rather than being folded into `onTrack`: a case with no clock
+ * running (closed, or holding an exception state — `SlaCalculator` returns null for both) is
+ * not the same as one comfortably inside its budget, and colouring it green would overstate
+ * the board's health. Counts, not percentages — the bar turns them into widths, and doing
+ * that here would lose the numbers the header prints.
+ */
+export type SlaMix = { onTrack: number; atRisk: number; overdue: number; unknown: number }
+
+export function slaMix(cards: readonly BoardCard[]): SlaMix {
+  const mix: SlaMix = { onTrack: 0, atRisk: 0, overdue: 0, unknown: 0 }
+  for (const card of cards) {
+    if (card.slaStatus === 'ON_TRACK') mix.onTrack += 1
+    else if (card.slaStatus === 'AT_RISK') mix.atRisk += 1
+    else if (card.slaStatus === 'OVERDUE') mix.overdue += 1
+    else mix.unknown += 1
+  }
+  return mix
+}
+
+/**
+ * Whether the board may claim every case is inside its SLA.
+ *
+ * Not the same as "no red and no amber": a case with **no clock running** is not a case that is
+ * doing well, and the rail draws that band grey rather than green for exactly this reason. The
+ * headline has to agree with the instrument below it, on the same data — the live board found
+ * this the hard way, reporting "all inside SLA" over 150 cases of which 127 had no clock.
+ *
+ * Requires `onTrack > 0` so an empty board makes no claim at all.
+ */
+export function allInsideSla(mix: SlaMix): boolean {
+  return mix.overdue === 0 && mix.atRisk === 0 && mix.unknown === 0 && mix.onTrack > 0
 }
 
 /**
