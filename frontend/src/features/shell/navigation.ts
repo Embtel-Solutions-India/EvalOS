@@ -65,18 +65,22 @@ export const NAV_ITEMS: readonly NavItem[] = [
     group: 'Pipeline',
   },
 
-  // Project Coordinator.
+  // The Coordinator's two stages — the two ends of the pipeline — plus the two oversight
+  // roles. The GM and Brand Manager are here by decision, not by drift: the GM is a superuser
+  // on every backend transition, so a screen that drives one and that they cannot open is an
+  // inconsistency rather than a safeguard, and the backend gate on these routes says the same
+  // three roles. The Coordinator still owns the work; the other two watch their brand.
   {
     path: '/checklists',
     label: 'Doc checklists',
-    roles: ['PROJECT_COORDINATOR'],
-    becomes: 'Document checklist tracking (Unit 10)',
+    roles: ['GM', 'BRAND_MANAGER', 'PROJECT_COORDINATOR'],
+    becomes: 'Document checklist tracking',
     group: 'Pipeline',
   },
   {
     path: '/delivery',
     label: 'Delivery',
-    roles: ['PROJECT_COORDINATOR'],
+    roles: ['GM', 'BRAND_MANAGER', 'PROJECT_COORDINATOR'],
     becomes: 'Final delivery queue (Unit 13)',
     group: 'Pipeline',
   },

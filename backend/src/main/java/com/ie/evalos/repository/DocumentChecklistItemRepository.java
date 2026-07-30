@@ -1,5 +1,6 @@
 package com.ie.evalos.repository;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.UUID;
 
@@ -25,4 +26,14 @@ public interface DocumentChecklistItemRepository extends ScopedRepository<Docume
 	 * caller may see it.
 	 */
 	List<DocumentChecklistItem> findByCaseId(UUID caseId);
+
+	/**
+	 * Every item on a page of cases, in one query rather than one per row.
+	 *
+	 * <p>Same rule as {@link #findByCaseId} and the same reasoning {@code CaseBoardService}
+	 * gives for its batched name lookup: the ids come from cases a scoped read already
+	 * decided the caller may see, so nothing is disclosed that those rows did not already
+	 * disclose. Do not call it with ids that came from a request.
+	 */
+	List<DocumentChecklistItem> findByCaseIdIn(Collection<UUID> caseIds);
 }

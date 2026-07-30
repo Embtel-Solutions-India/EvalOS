@@ -5,7 +5,6 @@ import java.util.Optional;
 import java.util.UUID;
 
 import com.ie.evalos.domain.Case;
-import com.ie.evalos.domain.ChecklistItemStatus;
 import com.ie.evalos.domain.ContactSnapshot;
 import com.ie.evalos.domain.DocumentChecklistItem;
 import com.ie.evalos.domain.Expert;
@@ -79,20 +78,11 @@ public class CaseDetailService {
 
 		List<DocumentChecklistItem> items = checklistItems.findByCaseId(subject.getId());
 		ChecklistSummary checklist = new ChecklistSummary(items.size(),
-				(int) items.stream().filter(CaseDetailService::isComplete).count());
+				(int) items.stream().filter(item -> item.getStatus().isComplete()).count());
 
 		return new CaseWithContext(subject, clientName,
 				expert.map(Expert::getFullName).orElse(null),
 				expert.map(Expert::getTier).map(Enum::name).orElse(null),
 				checklist);
-	}
-
-	/**
-	 * The same definition {@code markDocsComplete} gates on — uploaded or approved. Kept in
-	 * step with it deliberately: a summary chip reading "6 of 6" while the transition refuses
-	 * because one item is only uploaded would be worse than no chip.
-	 */
-	private static boolean isComplete(DocumentChecklistItem item) {
-		return item.getStatus() == ChecklistItemStatus.APPROVED || item.getStatus() == ChecklistItemStatus.UPLOADED;
 	}
 }

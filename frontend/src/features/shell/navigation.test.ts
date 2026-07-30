@@ -83,11 +83,20 @@ describe('the nav and route table', () => {
     }
   })
 
-  it('keeps the checklist screen the Coordinator\'s alone', () => {
+  it('keeps the Coordinator screens to the Coordinator and the two oversight roles', () => {
     // The case detail page's "Manage the checklist" link is gated on exactly this, after the
-    // browser pass found it answering 403 for a Project Manager — and for the GM, since this
-    // table has no superuser row the way the backend's @PreAuthorize does.
-    expect(ALL_ROLES.filter((role) => mayReach(role, '/checklists'))).toEqual(['PROJECT_COORDINATOR'])
+    // browser pass found it answering 403 for a Project Manager — and, then, for the GM.
+    //
+    // Unit 10 widened it by decision rather than by drift: the GM is a superuser on every
+    // backend transition, so a screen driving one that they cannot open is an inconsistency.
+    // **This list must equal the backend gate** on /api/checklists/board and the three writes
+    // under it (ChecklistControllerTest.COORDINATION) — a client that offers a screen the
+    // server refuses is the exact failure this table exists to prevent. The Project Manager
+    // stays out of both, even though they may call docs-complete.
+    const coordination: readonly Role[] = ['GM', 'BRAND_MANAGER', 'PROJECT_COORDINATOR']
+    for (const path of ['/checklists', '/delivery']) {
+      expect(ALL_ROLES.filter((role) => mayReach(role, path)), path).toEqual(coordination)
+    }
   })
 
   it('never offers a role a way out it would be refused', () => {

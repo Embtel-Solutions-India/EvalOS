@@ -4,15 +4,13 @@ Update this file after every meaningful implementation change.
 
 ## Current Phase
 
-- Phase 1 — Structure the data (the spine) is complete: Units 01–05 built, plus 05a.
-  Phase 2 is under way: Units 06 (notification centre), 07 (app shell), 08 (production board)
-  and 09 (case detail) are done.
+- **Phase 1 is closed.** Units 01–05 + 05a built the spine, and Unit 10 — the last Phase-1
+  unit — completes the intake→production handoff. Phase 2 is under way: Units 06
+  (notification centre), 07 (app shell), 08 (production board) and 09 (case detail) are done.
 
 ## Current Goal
 
-- Unit 10 — document checklist board + Coordinator flow, the **final unit of Phase 1**. It
-  completes the intake→production handoff and is the screen `DocumentsPanel` already links to.
-  No longer gated: the Coordinator's scope became real in Unit 08.
+- Unit 11 — expert database. Nothing in Phase 1 is outstanding.
 
 ## Completed
 
@@ -602,26 +600,105 @@ Update this file after every meaningful implementation change.
     reminder that in this app HMR runs the half-edited file.
   - Verified after the fixes: `npm test` **31**, `npm run build` clean, `npm run lint` clean.
 
+- **Unit 10 — Document checklist board + Coordinator flow. Phase 1 is closed.** The screen
+  `DocumentsPanel` has linked to since Unit 09, and the last piece of the intake→production
+  handoff. **No migration** — the `document_checklist_item` table is Unit 03's and nothing
+  needed a new column.
+  - `service/ChecklistService` — the board, the two item writes, and the chase. **Nothing here
+    moves a case**: `docs-complete` stays Unit 04's transition on `CaseController`, so this unit
+    maintains the rows that guard reads rather than owning a second copy of the rule. Every read
+    starts from `CaseLifecycleService.read`, so scope is decided where the rest of the system
+    decides it.
+  - **The board is built on `CaseBoardService.forCaller`, not a second scoped query** — the same
+    reasoning that service gives for building on `CaseLifecycleService.list`. It inherits the
+    scope, the SLA recompute, the batched client names, and the rule that `brandId` can only ever
+    narrow. Filtered to `DOC_COLLECTION`; **a case holding an exception state stays listed**,
+    which is the opposite of the production board on purpose — "on hold awaiting client" is
+    exactly the case whose documents have not arrived, and dropping it would hide the queue this
+    screen exists to show.
+  - **"Last chased" is derived from the append-only trail, not a column on the case.** New
+    `AuditAction.CHASED` (open vocabulary, no CHECK, no migration) plus one batched finder,
+    `AuditEventRepository.findByObjectTypeAndActionAndObjectIdIn`. The chase had to be recorded
+    regardless, so a second copy of the fact would only be a second thing that can disagree —
+    and Unit 19's timers inherit the answer for free. The finder is a **read**: the whitelist in
+    `DomainInvariantsTest.theAuditRepositoryCannotChangeHistory` was widened by one name, which is
+    what that test is for, and nothing there can still change a row.
+  - Checklist audit rows are written against the **case**, not the item, with the change stated
+    in `CaseSnapshot.note` ("Passport: REQUIRED → UPLOADED"). The Coordinator's work therefore
+    appears on the Unit 09 timeline with no change to `CaseTimelineService` — a trail is only
+    useful if one screen shows all of it.
+  - `web/ChecklistController` — five routes, no class-level `@RequestMapping` because the board
+    is its own screen (`/api/checklists/board`) while the items belong to a case
+    (`/api/cases/{id}/checklist…`). The per-case **read has no role gate**, like the timeline:
+    every role that can open a case can see what it is waiting for, and the scoped load decides
+    which cases those are. The four writes are gated to GM / Brand Manager / Coordinator.
+  - **`ChecklistItemStatus.isComplete()` — one predicate where there were two, about to be three.**
+    `markDocsComplete`, the case-detail summary chip and now the board all have to agree on "this
+    document is in", and `CaseDetailService` was keeping its copy in step by comment. A chip
+    reading "6 of 6" over a transition that then refuses is the failure; one enum method is the fix.
+  - **`checklistSatisfied`, deliberately not `mayMarkComplete`.** The transition also requires the
+    case to be paid and to have a PM. Restating those in the client would be the copy that goes
+    stale, so the button is enabled on the checklist alone and the server answers 409 naming
+    whichever precondition failed — which the panel shows. Same reason an empty checklist is
+    **not** satisfied: `markDocsComplete` refuses one, so a full bar would say the opposite.
+  - `event/CaseEvents` gained `checklist.reminder` (published by the chase) and
+    `docs.escalation.day3`. **The second is declared and published by nothing** — Unit 19 owns the
+    timer, Unit 10 owns the contract it fires against, which is what the spec's "SLA / reminder
+    hooks" section asks for.
+  - A chase outside `DOC_COLLECTION` is refused (409). Not a formality: it reaches a real client
+    through GHL, so it is a mistake made *outwardly*. No cool-off between chases — a Coordinator
+    sending two is answering a phone call, and the trail records both.
+  - Frontend `features/checklist/*` (`ChecklistBoard`, `CaseChecklist`, `checklistApi`,
+    `checklistRules` + its test). A **list, not a Kanban**: one column, and what varies between
+    these cases is how complete and how old they are, which reads better in rows.
+    **Aging is not the SLA** — `SlaCalculator` measures business hours against a stage budget;
+    the spec's 24h/48h bands are wall-clock, which is what a client experiences, so
+    `checklistRules` computes them client-side from `stageEnteredAt` and they stay live between
+    reloads. An untimed case is `unknown`, never green, for the reason `slaMix` keeps that band.
+  - **The pending-docs queue is a split, not a re-sort**, so the server's longest-wait-first order
+    survives in both halves. A case is due a chase when the documents are short, the wait is past
+    24h, **and** nothing was sent in the last 24h — the third condition is what makes the queue
+    empty when the Coordinator works it rather than nagging about a client contacted an hour ago.
+  - `markDocsComplete` on the panel goes through the board's own `performAction` and the
+    `docs-complete` entry in `QUICK_ACTIONS`, not a second POST: pressing it on a board card and
+    pressing it here have to be the same operation.
+  - `App.tsx`'s `BOARD_ROUTES` set became a `SCREENS` map, so a unit landing its screen is one
+    entry rather than another branch.
+  - Verified: `./mvnw verify` BUILD SUCCESS **180 tests** (16 DB-gated skipped) — new
+    `ChecklistServiceTest` 12, `ChecklistControllerTest` 8. `npm test` **44 tests** (13 new),
+    `npm run build` clean.
+
+- **Decision taken, closing the Unit 09 open question: the GM and Brand Manager reach
+  `/checklists` and `/delivery`.** Both were `PROJECT_COORDINATOR`-only, so the GM — a superuser
+  on every backend transition — could not open the screen that drives one. That is an
+  inconsistency rather than a safeguard, and "the GM sees everything" is the rule everywhere else.
+  All three roles get the **writes** as well as the read: a screen a Brand Manager can watch but
+  not touch would need a second permission concept for no stated need, and every write names its
+  actor in the trail. **The Project Manager is deliberately still out**, even though they may call
+  `docs-complete` — they act on the outcome, not the chase, and the per-case read is open to them.
+  The nav table and the backend `@PreAuthorize` now carry the same three roles, and
+  `navigation.test.ts` says so explicitly, because a client offering a screen the server refuses
+  is the exact failure that table exists to prevent.
+
 ## In Progress
 
 - Nothing.
 
 ## Next Up
 
-- Unit 10 — Document checklist board + Coordinator flow
-  (`context/specs/10-doc-checklist-coordinator.md`), which closes Phase 1. `DocumentsPanel`
-  already links to `/checklists`, and `CaseDetailService.ChecklistSummary` is the counts it
-  will own properly.
+- Unit 11 — Expert database. `ExpertPickerController` already exists as the narrow
+  `{id, fullName}` read Unit 08 needed; Unit 11 supersedes it with the real screen (search,
+  taxonomy matching, quality scores, sheet upload) and can keep the endpoint as the picker's read.
 
 ## Open Questions
 
-- **Should the GM (and a Brand Manager) reach `/checklists` and `/delivery`?** Today the nav
-  table gives both to `PROJECT_COORDINATOR` alone, so the GM — a superuser on every backend
-  transition — cannot open the doc checklist board from anywhere. The browser pass surfaced this
-  as a 403 on the case detail link, which is now correctly hidden; the underlying product question
-  is untouched. **Decide before Unit 10 ships that screen**, because "the GM sees everything" is
-  the rule everywhere else in the system, and a one-line `roles` edit closes it if that is the
-  intent. Left as-is rather than guessed at: widening a role gate is a decision, not a fix.
+- **`context/specs/00-build-plan.md` does not exist on disk.** `CLAUDE.md` and
+  `ai-workflow-rules.md` both name it as the authoritative ordered unit list — the file every
+  scoping rule points at ("work on one unit at a time, in the order set by …"). Every individual
+  spec `NN-*.md` is present, so the order has been carried in this tracker instead. Not
+  reconstructed here because inventing the canonical plan from the specs that survive is a
+  decision about what Phases 2 and 3 contain, not a fix. Either restore it or amend the two files
+  that cite it.
 - **The dev `evalos` database now holds ~150 junk cases** written by `LocalPostgresIntegrationTest`
   (`EV-<uuid>` case codes, "Unnamed contact", "SERVICE NOT SET"), which is the Unit 07 hygiene
   note grown from two notification rows into a board that is 103/107 test rows in its first

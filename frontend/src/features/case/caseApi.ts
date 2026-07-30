@@ -44,6 +44,8 @@ export type AuditAction =
   | 'UPDATED'
   | 'ASSIGNED'
   | 'STAGE_CHANGED'
+  /** A document chase went to the client (Unit 10). Nothing about the case changed. */
+  | 'CHASED'
   | 'DELETED'
   | 'EXPORTED'
   | 'LOGIN'
