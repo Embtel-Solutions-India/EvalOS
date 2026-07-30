@@ -210,6 +210,23 @@ describe('actionsFor', () => {
     }
   })
 
+  it('pins the docs-complete roles to the backend gate', () => {
+    // The one transition the checklist screen drives, and the seam that leaked: the screen was
+    // widened to the Brand Manager without the action being widened with it, so they got an
+    // enabled button the server answered 403 on. navigation.test.ts pins the screen's own role
+    // list to COORDINATION; this pins the action's, one layer down.
+    //
+    // **This list must equal CaseController.docsComplete's @PreAuthorize**, minus the GM, whom
+    // actionsFor adds everywhere.
+    const docsComplete = QUICK_ACTIONS.find((action) => action.path === 'docs-complete')
+    expect(docsComplete?.roles).toEqual(['BRAND_MANAGER', 'PROJECT_COORDINATOR', 'PROJECT_MANAGER'])
+
+    // And every role that can open the checklist screen can finish what the screen is for.
+    for (const role of ['GM', 'BRAND_MANAGER', 'PROJECT_COORDINATOR'] as const) {
+      expect(paths('DOC_COLLECTION', role), role).toContain('docs-complete')
+    }
+  })
+
   it('gives the GM every action their stage allows', () => {
     // GM is a superuser on every transition, so the board must not be where that stops.
     expect(paths('DOC_COLLECTION', 'GM')).toContain('docs-complete')

@@ -15,11 +15,12 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
-/* One visible focus ring for the whole app. Keyboard operation of a board is not optional. */
+/* One visible focus ring for the whole app. Keyboard operation of a board is not optional.
+   No radius of its own: box-shadow already follows the element's, and setting one here
+   re-cornered every focused card (rounded-lg) and modal (rounded-xl) to the badge radius. */
 :where(a, button, select, input, summary, [tabindex]):focus-visible {
   outline: none;
   box-shadow: var(--ring-focus);
-  border-radius: var(--radius-md);
 }
 
 /* The board scrolls horizontally by design; a fat scrollbar eats a card row. */

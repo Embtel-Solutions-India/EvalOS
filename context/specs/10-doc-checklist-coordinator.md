@@ -75,8 +75,15 @@ against the Pacific business calendar.
    24h/48h surfaced at the top with the chase prompt.
 
 ## Acceptance criteria
-- [ ] The board shows only the Coordinator's brand cases in DOC_COLLECTION, with
-      correct completeness and 24h/48h aging indicators.
+- [ ] The board shows only the cases in DOC_COLLECTION that the caller's scope
+      admits, with correct completeness and 24h/48h aging indicators. For a
+      Project Coordinator that is **the cases assigned to them**, not their
+      brand's: the role is `Tier.SELF` (`architecture.md`, access tiers), so the
+      scoped read matches on `assigned_coordinator`. The two oversight roles on
+      this screen (GM, Brand Manager) see the brand or all brands. An intake case
+      with no coordinator assigned therefore appears on no Coordinator's board —
+      it is visible to oversight, and staffed from the production board's
+      `assign-coordinator` action.
 - [ ] Setting an item status persists and writes an audit entry; adding a
       required item makes the case "incomplete" until resolved.
 - [ ] **Send chase** emits `checklist.reminder` (assert via test subscriber) for

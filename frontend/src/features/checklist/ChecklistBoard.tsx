@@ -65,6 +65,25 @@ export default function ChecklistBoard() {
     void load()
   }, [load])
 
+  /**
+   * A chase retires the case from the pending-docs queue, which is the whole point of the
+   * 24-hour condition in `needsChase` — so the one card is patched with the server's timestamp
+   * rather than the board being re-read. Patched, not reloaded: a reload would re-sort every
+   * row underneath the Coordinator mid-triage.
+   */
+  const onChased = useCallback((caseId: string, lastChasedAt: string | null) => {
+    setState((current) =>
+      current.status === 'ready'
+        ? {
+            ...current,
+            cards: current.cards.map((card) =>
+              card.id === caseId ? { ...card, lastChasedAt } : card,
+            ),
+          }
+        : current,
+    )
+  }, [])
+
   if (state.status === 'loading') {
     return (
       <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
@@ -99,7 +118,10 @@ export default function ChecklistBoard() {
 
   const { chase, rest } = splitByChase(state.cards)
   const outstanding = state.cards.filter((card) => !card.checklistSatisfied).length
-  const ready = state.cards.length - outstanding
+  // Not "ready for the PM": docs-complete also wants the case paid and staffed, and this count
+  // includes unpaid cases — which the row two lines down chips as "Unpaid" for that exact
+  // reason. The header states what it can actually see.
+  const documentsIn = state.cards.length - outstanding
 
   return (
     <div className="flex flex-col gap-5">
@@ -124,11 +146,11 @@ export default function ChecklistBoard() {
               </span>
             </>
           )}
-          {ready > 0 && (
+          {documentsIn > 0 && (
             <>
               <Dot />
               <span className="font-semibold" style={{ color: 'var(--status-green)' }}>
-                {ready} ready for the PM
+                {documentsIn} with all documents in
               </span>
             </>
           )}
@@ -153,6 +175,7 @@ export default function ChecklistBoard() {
           cards={chase}
           openCaseId={openCaseId}
           onToggle={setOpenCaseId}
+          onChased={onChased}
           onCaseLeftTheStage={onCaseLeftTheStage}
         />
       )}
@@ -162,6 +185,7 @@ export default function ChecklistBoard() {
           cards={rest}
           openCaseId={openCaseId}
           onToggle={setOpenCaseId}
+          onChased={onChased}
           onCaseLeftTheStage={onCaseLeftTheStage}
         />
       )}
@@ -175,6 +199,7 @@ function Section({
   cards,
   openCaseId,
   onToggle,
+  onChased,
   onCaseLeftTheStage,
 }: {
   heading: string
@@ -182,6 +207,7 @@ function Section({
   cards: readonly ChecklistCard[]
   openCaseId: string | null
   onToggle: (caseId: string | null) => void
+  onChased: (caseId: string, lastChasedAt: string | null) => void
   onCaseLeftTheStage: () => void
 }) {
   return (
@@ -204,6 +230,7 @@ function Section({
             card={card}
             open={openCaseId === card.id}
             onToggle={() => onToggle(openCaseId === card.id ? null : card.id)}
+            onChased={onChased}
             onCaseLeftTheStage={onCaseLeftTheStage}
           />
         ))}
@@ -216,16 +243,19 @@ function Row({
   card,
   open,
   onToggle,
+  onChased,
   onCaseLeftTheStage,
 }: {
   card: ChecklistCard
   open: boolean
   onToggle: () => void
+  onChased: (caseId: string, lastChasedAt: string | null) => void
   onCaseLeftTheStage: () => void
 }) {
   const hours = agingHours(card.stageEnteredAt)
   const band = agingBand(hours)
   const percent = completionPercent(card.complete, card.total)
+  const panelId = `checklist-panel-${card.id}`
 
   return (
     <li
@@ -292,6 +322,7 @@ function Row({
           type="button"
           onClick={onToggle}
           aria-expanded={open}
+          aria-controls={panelId}
           className="rounded-md bg-(--bg-raised) px-2.5 py-1.5 text-sm font-medium text-(--accent-primary) transition-colors hover:bg-(--accent-primary) hover:text-white"
         >
           {open ? 'Hide checklist' : 'Open checklist'}
@@ -301,10 +332,10 @@ function Row({
       {/* Mounted only when open, so the board makes one request per case the user asks for
           rather than one per row on load. */}
       {open && (
-        <div className="border-t" style={{ borderColor: 'var(--border-default)' }}>
+        <div id={panelId} className="border-t" style={{ borderColor: 'var(--border-default)' }}>
           <CaseChecklist
             caseId={card.id}
-            lastChasedAt={card.lastChasedAt}
+            onChased={(lastChasedAt) => onChased(card.id, lastChasedAt)}
             onCaseLeftTheStage={onCaseLeftTheStage}
           />
         </div>

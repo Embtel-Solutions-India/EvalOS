@@ -100,9 +100,11 @@ class ChecklistControllerTest {
 				new DocumentChecklistItem(BRAND_IE, CASE_ID, "Transcripts", ChecklistItemStatus.APPROVED),
 				new DocumentChecklistItem(BRAND_IE, CASE_ID, "Translation", ChecklistItemStatus.MISSING));
 
-		given(checklists.forCase(any())).willReturn(new ChecklistService.CaseChecklist(subject, items));
+		Instant chasedYesterday = Instant.now().minus(1, ChronoUnit.DAYS);
+		given(checklists.forCase(any()))
+				.willReturn(new ChecklistService.CaseChecklist(subject, items, chasedYesterday));
 		given(checklists.board(any())).willReturn(List.of(
-				new ChecklistService.BoardRow(subject, "Anita Rao", 4, 3, Instant.now().minus(1, ChronoUnit.DAYS))));
+				new ChecklistService.BoardRow(subject, "Anita Rao", 4, 3, chasedYesterday)));
 	}
 
 	/** The five routes and the verb + body each needs, so the gate can be walked as data. */
@@ -161,7 +163,11 @@ class ChecklistControllerTest {
 				.andExpect(jsonPath("$.data.total").value(4))
 				.andExpect(jsonPath("$.data.complete").value(3))
 				// One item is MISSING, so the documents are not all in.
-				.andExpect(jsonPath("$.data.checklistSatisfied").value(false));
+				.andExpect(jsonPath("$.data.checklistSatisfied").value(false))
+				// The trail's chase timestamp, not the browser's clock: the panel showed its own
+				// until this field existed, and the board reads it to retire the row from the
+				// pending-docs queue.
+				.andExpect(jsonPath("$.data.lastChasedAt").exists());
 	}
 
 	@Test

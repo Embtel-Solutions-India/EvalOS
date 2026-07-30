@@ -74,10 +74,19 @@ case IDs so numbers align.
 
 ## Component Library
 
-Tailwind CSS with a headless component set (shadcn/ui-style, built on Radix
-primitives) in `frontend/src/components/ui/`. Add components via the CLI or as
-vetted primitives — do not hand-roll one-off versions of table, dialog, select,
-or tabs. These generated `ui/` components are protected (see
+Tailwind CSS, with components written in the feature folder that owns them.
+
+**There is no `frontend/src/components/ui/` set, and that is current rather than
+pending.** Through Unit 10 no screen has needed a table, dialog, drawer, or tabs,
+so installing shadcn/ui and Radix to generate primitives nothing renders would be
+scaffolding for later. `components/` holds only what more than one feature shares
+(today `Forbidden.tsx`).
+
+The rule that mattered still holds: **do not hand-roll a second version of
+something that already exists.** Radix remains the intended source for anything
+with focus-trapping or ARIA behaviour worth not writing twice — a real modal,
+combobox, or tab set. The first screen that needs one adds the vetted primitive
+then, and that is the point at which `ui/` is created and becomes protected (see
 `ai-workflow-rules.md`).
 
 ## Layout Patterns
@@ -95,7 +104,12 @@ or tabs. These generated `ui/` components are protected (see
   Draft / Report column shows draft sub-status chips (Draft in progress · PM
   review · Client review). Cards show client, service type, deadline (RAG), owner.
 - **Data tables**: dense rows, sortable, a dedicated RAG status column, row click
-  opens the case. Overdue rows tinted with the `*-bg` status token.
+  opens the case. Overdue rows tinted with the `*-bg` status token. No screen uses
+  this pattern yet — Unit 10 deleted the `/cases` list as a duplicate of the
+  production board, and the dashboards below the RAG tiles are where it lands
+  first. The checklist board is deliberately a list of rows rather than a table:
+  one stage, so there is nothing to sort by that the server's longest-wait-first
+  order does not already answer.
 - **Case detail**: two-column — left is documents (Drive link) + draft + expert,
   right is the timeline/audit trail. Stage actions sit in a sticky header.
 - **Client portal**: single centered column, one case, the drafted letter with
@@ -106,4 +120,11 @@ or tabs. These generated `ui/` components are protected (see
 
 ## Icons
 
-Lucide React. Stroke-based only. `h-4 w-4` inline, `h-5 w-5` in buttons and nav.
+Stroke-based only, `h-4 w-4` inline and `h-5 w-5` in buttons and nav.
+
+Drawn as inline SVG paths in the component that uses them (see `LeftNav.tsx`), not
+imported from Lucide React — which is **not** a dependency. The shell needs about
+eight glyphs, and a package for that is heavier than the paths. The sizes above
+are Lucide's own convention, so adopting the library later is an import and a
+find-and-replace rather than a re-layout; do that once the glyph count makes the
+inline paths the bigger cost.

@@ -32,12 +32,17 @@ type Busy = 'idle' | 'saving' | 'chasing' | 'completing'
 
 export default function CaseChecklist({
   caseId,
-  lastChasedAt,
+  onChased,
   onCaseLeftTheStage,
 }: {
   caseId: string
-  /** From the board card, so the panel can say when the client was last contacted. */
-  lastChasedAt: string | null
+  /**
+   * A chase changes which half of the board this case belongs in, and the board owns that
+   * split — so the server's new timestamp is handed up rather than kept here. Without this the
+   * row stayed under "Due a chase" until a full reload, which is the nagging the 24-hour rule
+   * exists to stop.
+   */
+  onChased: (lastChasedAt: string | null) => void
   /** Docs complete moves the case to the PM, so the board above has to re-read. */
   onCaseLeftTheStage: () => void
 }) {
@@ -45,7 +50,6 @@ export default function CaseChecklist({
   const [busy, setBusy] = useState<Busy>('idle')
   const [error, setError] = useState<string | null>(null)
   const [newLabel, setNewLabel] = useState('')
-  const [chasedAt, setChasedAt] = useState(lastChasedAt)
 
   useEffect(() => {
     const controller = new AbortController()
@@ -78,10 +82,10 @@ export default function CaseChecklist({
   const onChase = useCallback(async () => {
     await run('chasing', async () => {
       const refreshed = await sendChase(caseId)
-      setChasedAt(new Date().toISOString())
+      onChased(refreshed.lastChasedAt)
       return refreshed
     })
-  }, [caseId, run])
+  }, [caseId, onChased, run])
 
   const onAdd = useCallback(async () => {
     const label = newLabel.trim()
@@ -124,7 +128,7 @@ export default function CaseChecklist({
   }
 
   const working = busy !== 'idle'
-  const sinceChase = agingHours(chasedAt)
+  const sinceChase = agingHours(view.lastChasedAt)
 
   return (
     <div className="flex flex-col gap-3 p-3">
@@ -145,7 +149,7 @@ export default function CaseChecklist({
           </span>
         )}
         <span className="font-num text-xs tabular-nums" style={{ color: 'var(--text-muted)' }}>
-          {chasedAt ? `Last chased ${agingLabel(sinceChase)} ago` : 'Never chased'}
+          {view.lastChasedAt ? `Last chased ${agingLabel(sinceChase)} ago` : 'Never chased'}
         </span>
       </div>
 

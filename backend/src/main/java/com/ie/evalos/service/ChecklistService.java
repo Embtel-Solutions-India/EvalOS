@@ -68,8 +68,13 @@ public class ChecklistService {
 	 * in Google Drive and EvalOS holds the link and never the bytes (invariant 14), so the
 	 * link is the only route to the actual files and a checklist without it is a list of
 	 * things you cannot go and look at.
+	 *
+	 * <p>{@code lastChasedAt} is here for the same reason it is on {@link BoardRow}, and
+	 * because the panel is the screen that changes it: without it the client had to stamp its
+	 * own clock after a chase, which is a second copy of a fact the trail already holds and
+	 * showed the browser's time rather than the recorded one.
 	 */
-	public record CaseChecklist(Case subject, List<DocumentChecklistItem> items) {
+	public record CaseChecklist(Case subject, List<DocumentChecklistItem> items, Instant lastChasedAt) {
 
 		public int complete() {
 			return (int) items.stream().filter(item -> item.getStatus().isComplete()).count();
@@ -177,7 +182,8 @@ public class ChecklistService {
 	@Transactional(readOnly = true)
 	public CaseChecklist forCase(UUID caseId) {
 		Case subject = lifecycle.read(caseId);
-		return new CaseChecklist(subject, checklistItems.findByCaseId(subject.getId()));
+		return new CaseChecklist(subject, checklistItems.findByCaseId(subject.getId()),
+				lastChased(List.of(subject.getId())).get(subject.getId()));
 	}
 
 	/**
@@ -188,17 +194,19 @@ public class ChecklistService {
 	 * only useful if one screen shows all of it. Nothing about the case row changes, so the
 	 * before and after snapshots are identical except for the note, which states the change:
 	 * that is what {@code CaseSnapshot.note} is for.
+	 *
+	 * <p>Returns nothing. Every caller answers the whole refreshed checklist through
+	 * {@code forCase}, so a saved row handed back here was only ever discarded.
 	 */
 	@Transactional
-	public DocumentChecklistItem setStatus(UUID caseId, UUID itemId, ChecklistItemStatus status) {
+	public void setStatus(UUID caseId, UUID itemId, ChecklistItemStatus status) {
 		Case subject = lifecycle.read(caseId);
 		DocumentChecklistItem item = itemOn(subject, itemId);
 		ChecklistItemStatus before = item.getStatus();
 
 		item.markStatus(status);
-		DocumentChecklistItem saved = checklistItems.save(item);
+		checklistItems.save(item);
 		record(subject, AuditAction.UPDATED, "%s: %s → %s".formatted(item.getLabel(), before, status));
-		return saved;
 	}
 
 	/**
@@ -206,17 +214,19 @@ public class ChecklistService {
 	 *
 	 * <p>Opens as {@code REQUIRED}, which is what makes the case incomplete again — no extra
 	 * rule is needed for that, because {@code markDocsComplete} already refuses a case with any
-	 * item that is not uploaded or approved. Adding one is therefore the way to reopen a case
-	 * whose documents turned out to be short.
+	 * item that is not uploaded or approved. Inside {@code DOC_COLLECTION} that makes adding an
+	 * item the way to reopen a case whose documents turned out to be short; past that stage the
+	 * case has already left the guard behind, and adding one records the requirement on the
+	 * trail without pulling the case back. Neither write is stage-guarded — only the chase is,
+	 * because only the chase reaches the client.
 	 */
 	@Transactional
-	public DocumentChecklistItem addItem(UUID caseId, String label) {
+	public void addItem(UUID caseId, String label) {
 		Case subject = lifecycle.read(caseId);
-		DocumentChecklistItem item = checklistItems.save(new DocumentChecklistItem(
+		checklistItems.save(new DocumentChecklistItem(
 				subject.getBrandId(), subject.getId(), label, ChecklistItemStatus.REQUIRED));
 
 		record(subject, AuditAction.CREATED, "Required document added: " + label);
-		return item;
 	}
 
 	/**

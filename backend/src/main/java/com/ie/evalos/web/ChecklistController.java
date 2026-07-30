@@ -78,6 +78,11 @@ public class ChecklistController {
 	 *                           the copy that goes stale. The client enables the button on
 	 *                           this, the server refuses with the real reason, and the reason
 	 *                           is shown.
+	 * @param lastChasedAt       when the client was last chased, read out of the append-only
+	 *                           trail. Sent so the panel can show it and the board can retire
+	 *                           the row from the pending-docs queue without stamping a clock of
+	 *                           its own — which is what it was doing, and it showed the
+	 *                           browser's time rather than the recorded one.
 	 */
 	public record ChecklistView(
 			UUID caseId,
@@ -85,7 +90,8 @@ public class ChecklistController {
 			List<ChecklistItemView> items,
 			int total,
 			int complete,
-			boolean checklistSatisfied) {
+			boolean checklistSatisfied,
+			Instant lastChasedAt) {
 	}
 
 	/**
@@ -177,6 +183,9 @@ public class ChecklistController {
 	 *
 	 * <p>Answers the refreshed checklist rather than a timestamp, so the caller re-reads the
 	 * one authoritative view instead of holding a value the trail would have to agree with.
+	 * The view carries {@code lastChasedAt} for exactly that reason — it is the trail's answer,
+	 * and the client showing its own clock instead was the drift this sentence claimed to have
+	 * prevented.
 	 */
 	@PostMapping("/api/cases/{id}/chase")
 	@PreAuthorize(COORDINATION)
@@ -202,6 +211,7 @@ public class ChecklistController {
 				checklist.items().stream().map(ChecklistItemView::of).toList(),
 				checklist.items().size(),
 				checklist.complete(),
-				checklist.satisfied());
+				checklist.satisfied(),
+				checklist.lastChasedAt());
 	}
 }

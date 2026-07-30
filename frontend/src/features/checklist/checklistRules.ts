@@ -35,6 +35,8 @@ export type ChecklistView = {
    * reason applies rather than this client re-deriving the rule.
    */
   checklistSatisfied: boolean
+  /** The trail's answer, not the browser's clock — see `needsChase`, which reads it. */
+  lastChasedAt: string | null
 }
 
 export type ChecklistCard = {

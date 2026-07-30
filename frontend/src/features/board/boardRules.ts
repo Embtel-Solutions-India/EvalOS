@@ -199,7 +199,9 @@ export const QUICK_ACTIONS: readonly QuickAction[] = [
   {
     path: 'docs-complete',
     label: 'Docs complete',
-    roles: ['PROJECT_COORDINATOR', 'PROJECT_MANAGER'],
+    // The Brand Manager is here because the checklist screen gives them every other write on
+    // this stage; see the gate on CaseController.docsComplete, which this list must match.
+    roles: ['BRAND_MANAGER', 'PROJECT_COORDINATOR', 'PROJECT_MANAGER'],
     stages: ['DOC_COLLECTION'],
   },
   {

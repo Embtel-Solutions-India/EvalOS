@@ -684,6 +684,84 @@ Update this file after every meaningful implementation change.
   `navigation.test.ts` says so explicitly, because a client offering a screen the server refuses
   is the exact failure that table exists to prevent.
 
+### Unit 10 code review — four Important findings fixed, and the drift they exposed
+
+A review of `a3d3770..74bcacb` (the visual pass plus Unit 10) found **no Critical issues**: brand
+scoping and append-only both held under tracing, "no new migration" was correct, and "Phase 1
+closes" was substantiated. What it did find was two defects sitting in the exact flow Unit 10 was
+built to serve, and both were the same shape — a client offering something the server or the data
+would not back.
+
+- **A Brand Manager got an enabled "Mark docs complete" button the backend answered 403 on.**
+  Unit 10 widened `/checklists` and its three writes to the Brand Manager but left
+  `CaseController.docsComplete` on `GM · PROJECT_COORDINATOR · PROJECT_MANAGER`, and
+  `CaseChecklist` gates that button on `checklistSatisfied` alone rather than on
+  `QUICK_ACTIONS.roles`. **Resolved by widening the backend, not by hiding the button**
+  (confirmed decision): a role that can add a required document, approve one, and chase the
+  client, but not say the collection is finished, has the screen without its purpose. The gate is
+  now `GM · BRAND_MANAGER · PROJECT_COORDINATOR · PROJECT_MANAGER`, and both halves are pinned —
+  `CaseControllerTest.docsCompleteAdmitsEveryRoleThatWorksTheChecklistScreen` walks the four
+  admitted roles and the two refused, and `boardRules.test.ts` asserts the client's role list
+  equals it. This is the same assertion `navigation.test.ts` makes for the screen; the seam that
+  leaked was one layer down, on the action.
+- **The pending-docs queue did not empty when the Coordinator worked it.** `needsChase` reads
+  `card.lastChasedAt`, but `CaseChecklist.onChase` only updated its own local state, so a chased
+  row stayed under "Due a chase" and the "N due a chase" count stayed stale until a full reload —
+  precisely the nagging the 24-hour condition exists to prevent. `ChecklistBoard` now patches the
+  one card with the server's timestamp (patched, not reloaded: a reload would re-sort every row
+  underneath somebody mid-triage).
+- **The chase response contradicted its own comment.** `ChecklistController.chase` claimed it
+  answers the refreshed checklist "instead of holding a value the trail would have to agree
+  with", but `ChecklistView` had no `lastChasedAt`, so the panel stamped `new Date()` and
+  displayed the browser's clock. `lastChasedAt` is now on both `ChecklistService.CaseChecklist`
+  and `ChecklistView`, read through the same batched trail query the board uses; the panel's
+  local `chasedAt` state and its `lastChasedAt` prop are gone. That also fixed the
+  reset-on-collapse bug, where reopening a panel after a chase showed "Never chased" again.
+- **The two deliberately-unscoped finders had no real-SQL brand-isolation test.**
+  `DocumentChecklistItemRepository.findByCaseIdIn` and
+  `AuditEventRepository.findByObjectTypeAndActionAndObjectIdIn` carry no brand predicate by
+  design, protected by a javadoc convention ("do not call it with ids that came from a
+  request"). Two tests added to `LocalPostgresIntegrationTest`: `findScoped` keeps two brands'
+  checklist items apart while `findByCaseIdIn` answers for whatever ids it is handed, and the
+  chase finder returns every chase, only chases, and only for the ids given. **Both are
+  DB-gated and did not execute** — see the honesty note below.
+
+Minors from the same review, applied: the unused `--shadow-pop` token deleted; `border-radius`
+dropped from the global `:focus-visible` rule, which had been re-cornering every focused card
+(`rounded-lg`) and modal (`rounded-xl`) to the badge radius; the header's "N ready for the PM"
+relabelled **"N with all documents in"**, because it counted unpaid cases that the row two lines
+down chips as "Unpaid" for exactly the reason docs-complete would refuse them — the same
+header-contradicts-instrument class as the `allInsideSla` defect the visual pass fixed;
+`aria-controls` added to the Open/Hide-checklist button; `ChecklistService.setStatus`/`addItem`
+now return `void`, since every caller re-reads the whole checklist and discarded the row.
+
+**Test state, stated plainly.** Backend **183 passed, 0 failed, 18 skipped**; frontend **45
+passed**; `tsc -b`, `vite build`, and `oxlint` clean. All 18 skips are
+`LocalPostgresIntegrationTest`, which now includes the two new brand-isolation tests — so the
+finders they cover are still **unproven against real SQL on this machine**. "18 DB-gated skipped"
+is not "18 passed", and the reviewer's recommendation stands: get a Postgres (or Testcontainers)
+into the loop before Unit 11, which adds the expert roster and the encrypted `payment_detail`.
+That is Unit 01 note (a), still open since the scaffold.
+
+**One spec correction, one plan correction, one standards correction.** All three were drift
+between a context file and the code, which `CLAUDE.md` requires closing rather than carrying:
+
+- `specs/10-doc-checklist-coordinator.md` acceptance criterion 1 said "the Coordinator's **brand**
+  cases in DOC_COLLECTION". `PROJECT_COORDINATOR` is `Tier.SELF`, so the scoped read matches on
+  `assigned_coordinator` — the implementation is right and the sentence was wrong. Corrected, with
+  the consequence stated: an intake case with no coordinator assigned appears on no Coordinator's
+  board, is visible to the GM and Brand Manager, and is staffed from the production board.
+- `specs/00-build-plan.md` still described Unit 05 as the GHL **`payment.confirmed`** handler with
+  idempotency on the invoice id. Handoff A is `contact.created` deduped on the source event id,
+  which is what `WebhookRouter.CONTACT_CREATED` and `architecture.md` both say. Corrected — the
+  commit that moved this file and fixed the phase count missed it.
+- `ui-context.md` mandated Lucide React and a shadcn/Radix set in `frontend/src/components/ui/`.
+  Neither exists, neither is in `package.json`, and `LeftNav.tsx` explicitly declines both and
+  draws inline SVG paths. The standard now records what the code does and when to revisit it:
+  Radix stays the intended source for the first component with real focus-trapping or ARIA
+  behaviour, and Lucide for when the glyph count outgrows inline paths. The "data tables" surface
+  is marked as unused now that `/cases` is deleted.
+
 ## In Progress
 
 - Nothing.
