@@ -852,6 +852,23 @@ there. The CI service container gives the same isolation without the dependency.
 
 The stale claim in the test's own javadoc — "this machine has no Docker" — is corrected too.
 
+**Verified in CI, not just locally.** Run 30586327885: backend `Tests run: 183, Failures: 0,
+Errors: 0, Skipped: 0` against a `postgres:16` service container, frontend 3 files / 48 tests
+passed with a clean build and lint. Both jobs green.
+
+**One known limitation, and it is CI's, not the suite's.** The frontend job runs `npm install`
+rather than `npm ci`. `package-lock.json` is written on Windows, where npm records
+`@rolldown/binding-wasm32-wasi` and `@tailwindcss/oxide-wasm32-wasi` but not their `@emnapi/*`
+dependencies — this host never needs the wasm fallback, so it never resolves them — and `npm ci`
+on Linux rejects the lockfile as out of sync. Neither `--package-lock-only` nor
+`--os=linux --cpu=x64` materialises the entries from here, so the lockfile cannot be made
+installable off-Windows by the machine that writes it. **The cost is that CI resolves within
+semver ranges instead of pinning**, so a bad upstream patch release can reach it. Regenerating the
+lockfile once on Linux restores `npm ci`; the reason and that exit condition are written into
+`ci.yml` rather than left as folklore. CI caught this on its first run, which is most of the
+argument for having it — `npm ci` would have failed the same way for any Linux or macOS
+contributor.
+
 ## In Progress
 
 - Nothing.
