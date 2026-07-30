@@ -65,10 +65,16 @@ export const NAV_ITEMS: readonly NavItem[] = [
     group: 'Pipeline',
   },
 
-  // The Coordinator's two stages — the two ends of the pipeline. Each entry's role list is the
-  // backend gate for that stage's routes and nothing wider. **The two gates are not the same**,
-  // and one comment covering both while claiming they were is exactly what let the second one
-  // drift: the Coordinator owns both stages, but oversight only reaches into one of them.
+  // The Coordinator's document-collection stage. The role list is the backend gate for that
+  // stage's routes and nothing wider.
+  //
+  // **There is deliberately no `/delivery` entry beside it.** It promised a "final delivery
+  // queue (Unit 13)" that Unit 13 is not — no unit in the build plan builds one — while
+  // `deliver` and `close` are Unit 04 transitions the Coordinator already drives from the board.
+  // So it was a label over a placeholder, which is exactly what `/cases` was before the visual
+  // pass deleted it, and it spent a whole unit listing a role (Brand Manager) that its own gate
+  // refused. Add it back with the screen rather than ahead of it, and set the roles from what
+  // the screen actually does.
   {
     path: '/checklists',
     label: 'Doc checklists',
@@ -78,19 +84,6 @@ export const NAV_ITEMS: readonly NavItem[] = [
     // the writes on this screen.
     roles: ['GM', 'BRAND_MANAGER', 'PROJECT_COORDINATOR'],
     becomes: 'Document checklist tracking',
-    group: 'Pipeline',
-  },
-  {
-    path: '/delivery',
-    label: 'Delivery',
-    // CaseController.deliver and .close are GM_OR + hasRole('PROJECT_COORDINATOR') — no Brand
-    // Manager. They were listed here regardless until a review caught it. Nobody hit a 403
-    // because this route still renders a placeholder, but a nav entry that outruns its own gate
-    // is the failure this table exists to prevent, so it is narrowed to the gate rather than
-    // left to become one the day the screen is built. Revisit the list then — and note that no
-    // unit in the build plan builds it (see the open question in progress-tracker.md).
-    roles: ['GM', 'PROJECT_COORDINATOR'],
-    becomes: 'Final delivery queue (Unit 13)',
     group: 'Pipeline',
   },
 

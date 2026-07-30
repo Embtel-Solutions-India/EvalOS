@@ -790,8 +790,23 @@ both gates while pinning the wrong answer for one of them. It now asserts each p
 against its own gate, and names why. Worth remembering when writing the next table-driven test:
 looping two subjects against one expectation asserts the *intersection* of what you meant.
 
-Frontend 48 passed (was 45); `tsc -b`, `vite build`, `oxlint` clean. Backend untouched by these
-two fixes, so it stands at 183 passed / 0 failed / 18 skipped.
+**And then the `/delivery` entry was deleted outright** — the open question it had been carrying
+since Unit 07 is now closed by decision rather than narrowed again. The reasoning is the one that
+deleted `/cases` during the visual pass: it promised a "final delivery queue (Unit 13)" that
+Unit 13 is not (Unit 13 is *Redacted CV generation*), **no unit anywhere in the build plan builds
+a final delivery queue**, and `deliver`/`close` are Unit 04 transitions the Coordinator already
+drives from the production board. So it was a label over a placeholder that also spent a unit
+claiming a gate it did not have. Nothing is lost: both transitions stay reachable exactly where
+they were.
+
+Routes are generated from `NAV_ITEMS`, so deleting the entry deleted the route with it and
+`/delivery` now falls through to the not-found view. Its absence is asserted, not assumed —
+re-adding it without a screen behind it fails `navigation.test.ts`. Whoever builds the real
+screen sets the role list from what the screen does; the build plan is unchanged, because the
+missing unit is the honest state of it.
+
+Frontend 48 passed; `tsc -b`, `vite build`, `oxlint` clean. Backend untouched by any of this, so
+it stands at 183 passed / 0 failed / 18 skipped.
 
 ## In Progress
 
@@ -805,15 +820,8 @@ two fixes, so it stands at 183 passed / 0 failed / 18 skipped.
 
 ## Open Questions
 
-- **`/delivery` is labelled "Final delivery queue (Unit 13)" and Unit 13 is not that.** Per the
-  build plan Unit 13 is *Redacted CV generation*; **no unit anywhere in the plan builds a final
-  delivery queue screen**, though `deliver` and `close` are Unit 04 transitions the Coordinator
-  already drives from the board. So the nav entry promises a screen that is not on the roadmap.
-  Either the plan needs the unit or the nav entry needs to go — not guessed at here, the same
-  reasoning that deleted `/cases` in the visual pass. **Narrowed to `GM · PROJECT_COORDINATOR` in
-  the meantime** (see the PR-review entry below): Unit 10 had widened it to three roles, which the
-  backend gate on `deliver`/`close` does not admit. The question of whether the entry should exist
-  at all is still open.
+- ~~**`/delivery` is labelled "Final delivery queue (Unit 13)" and Unit 13 is not that.**~~ —
+  **closed by decision: the nav entry is deleted.** See the PR #7 review entry above.
 - **The dev `evalos` database now holds ~150 junk cases** written by `LocalPostgresIntegrationTest`
   (`EV-<uuid>` case codes, "Unnamed contact", "SERVICE NOT SET"), which is the Unit 07 hygiene
   note grown from two notification rows into a board that is 103/107 test rows in its first
