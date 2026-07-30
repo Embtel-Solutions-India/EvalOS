@@ -32,17 +32,19 @@ type Busy = 'idle' | 'saving' | 'chasing' | 'completing'
 
 export default function CaseChecklist({
   caseId,
-  onChased,
+  onChecklistChanged,
   onCaseLeftTheStage,
 }: {
   caseId: string
   /**
-   * A chase changes which half of the board this case belongs in, and the board owns that
-   * split — so the server's new timestamp is handed up rather than kept here. Without this the
-   * row stayed under "Due a chase" until a full reload, which is the nagging the 24-hour rule
-   * exists to stop.
+   * Every write here changes something the board draws from its own copy of the case, and the
+   * board owns that copy — so the refreshed checklist is handed up rather than kept here.
+   *
+   * Reported from `run`, so all three writes report it rather than the chase alone: a status
+   * change left the row's fraction stale and a finished case sitting under "Due a chase" until
+   * the next full reload, which is the nagging the 24-hour rule exists to stop.
    */
-  onChased: (lastChasedAt: string | null) => void
+  onChecklistChanged: (view: ChecklistView) => void
   /** Docs complete moves the case to the PM, so the board above has to re-read. */
   onCaseLeftTheStage: () => void
 }) {
@@ -63,29 +65,31 @@ export default function CaseChecklist({
   }, [caseId])
 
   /**
-   * One place every write goes through, so none of them can forget to clear the last error or
-   * to leave the panel disabled if the server refuses. A refusal leaves the checklist exactly
-   * as the last successful read had it — nothing is optimistically moved.
+   * One place every write goes through, so none of them can forget to clear the last error, to
+   * leave the panel disabled if the server refuses, or to tell the board what changed. A
+   * refusal leaves the checklist exactly as the last successful read had it — nothing is
+   * optimistically moved, and the board is told nothing.
    */
-  const run = useCallback(async (state: Busy, write: () => Promise<ChecklistView>) => {
-    setBusy(state)
-    setError(null)
-    try {
-      setView(await write())
-    } catch (cause: unknown) {
-      setError(cause instanceof Error ? cause.message : 'That change was refused')
-    } finally {
-      setBusy('idle')
-    }
-  }, [])
+  const run = useCallback(
+    async (state: Busy, write: () => Promise<ChecklistView>) => {
+      setBusy(state)
+      setError(null)
+      try {
+        const refreshed = await write()
+        setView(refreshed)
+        onChecklistChanged(refreshed)
+      } catch (cause: unknown) {
+        setError(cause instanceof Error ? cause.message : 'That change was refused')
+      } finally {
+        setBusy('idle')
+      }
+    },
+    [onChecklistChanged],
+  )
 
   const onChase = useCallback(async () => {
-    await run('chasing', async () => {
-      const refreshed = await sendChase(caseId)
-      onChased(refreshed.lastChasedAt)
-      return refreshed
-    })
-  }, [caseId, onChased, run])
+    await run('chasing', () => sendChase(caseId))
+  }, [caseId, run])
 
   const onAdd = useCallback(async () => {
     const label = newLabel.trim()

@@ -83,20 +83,32 @@ describe('the nav and route table', () => {
     }
   })
 
-  it('keeps the Coordinator screens to the Coordinator and the two oversight roles', () => {
+  it('pins each Coordinator screen to its own backend gate, which are not the same gate', () => {
     // The case detail page's "Manage the checklist" link is gated on exactly this, after the
     // browser pass found it answering 403 for a Project Manager — and, then, for the GM.
     //
-    // Unit 10 widened it by decision rather than by drift: the GM is a superuser on every
-    // backend transition, so a screen driving one that they cannot open is an inconsistency.
-    // **This list must equal the backend gate** on /api/checklists/board and the three writes
-    // under it (ChecklistControllerTest.COORDINATION) — a client that offers a screen the
-    // server refuses is the exact failure this table exists to prevent. The Project Manager
-    // stays out of both, even though they may call docs-complete.
-    const coordination: readonly Role[] = ['GM', 'BRAND_MANAGER', 'PROJECT_COORDINATOR']
-    for (const path of ['/checklists', '/delivery']) {
-      expect(ALL_ROLES.filter((role) => mayReach(role, path)), path).toEqual(coordination)
-    }
+    // Asserted one path at a time. Looping both against a single expectation is what hid the
+    // /delivery mismatch for a whole unit: /checklists genuinely is COORDINATION, delivery's
+    // transitions are Coordinator-only, and one shared list asserted the wrong thing for one of
+    // them while reading as though it had checked both.
+
+    // ChecklistController.COORDINATION, exactly — /api/checklists/board and its three writes.
+    expect(ALL_ROLES.filter((role) => mayReach(role, '/checklists'))).toEqual([
+      'GM',
+      'BRAND_MANAGER',
+      'PROJECT_COORDINATOR',
+    ])
+
+    // CaseController.deliver / .close: GM_OR + hasRole('PROJECT_COORDINATOR'). No Brand Manager,
+    // so the nav must not offer them the screen those two transitions are the point of.
+    expect(ALL_ROLES.filter((role) => mayReach(role, '/delivery'))).toEqual([
+      'GM',
+      'PROJECT_COORDINATOR',
+    ])
+
+    // The Project Manager stays out of both, even though they may call docs-complete.
+    expect(mayReach('PROJECT_MANAGER', '/checklists')).toBe(false)
+    expect(mayReach('PROJECT_MANAGER', '/delivery')).toBe(false)
   })
 
   it('never offers a role a way out it would be refused', () => {

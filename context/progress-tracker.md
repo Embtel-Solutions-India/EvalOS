@@ -762,6 +762,37 @@ between a context file and the code, which `CLAUDE.md` requires closing rather t
   behaviour, and Lucide for when the glyph count outgrows inline paths. The "data tables" surface
   is marked as unused now that `/cases` is deleted.
 
+### PR #7 review — two findings the Unit 10 review had missed
+
+A second review pass over the same range, run on the open PR. It surfaced two real defects that
+the first pass did not, and both are the same failure the first pass thought it had closed —
+applied to one caller and not its siblings.
+
+- **Only the chase told the board anything.** The Unit 10 review fix made a chase patch the
+  board's copy of the case, but a status change and an item add still refreshed the open panel
+  only. The board draws four things from its own copy — the completeness bar, the "all documents
+  in" chip, the header counts, and `needsChase` — so marking the last document APPROVED enabled
+  the panel's own complete button while the row sat under "Due a chase" with a stale fraction
+  until the next full reload. Fixed at the root rather than per caller: all three writes already
+  funnel through `CaseChecklist.run`, so the notification lives there and no future write can
+  forget it. The patch itself is now a pure function, `applyChecklistToCard`, with three tests —
+  including the exact scenario, that a finished case leaves the queue.
+- **`/delivery`'s nav entry outran its own backend gate.** Unit 10 widened it to
+  `GM · BRAND_MANAGER · PROJECT_COORDINATOR` under a comment claiming "the backend gate on these
+  routes says the same three roles". True for `/checklists`; false for `/delivery`, whose only
+  transitions (`CaseController.deliver`, `.close`) are `GM_OR + hasRole('PROJECT_COORDINATOR')`.
+  Narrowed to match the gate. No Brand Manager ever hit a 403 because the route still renders a
+  placeholder — but that is a reason it went unnoticed, not a reason it was safe.
+
+**The test was part of the defect, not the safety net.** `navigation.test.ts` asserted
+`['/checklists', '/delivery']` against one shared role list, so it read as though it had checked
+both gates while pinning the wrong answer for one of them. It now asserts each path separately
+against its own gate, and names why. Worth remembering when writing the next table-driven test:
+looping two subjects against one expectation asserts the *intersection* of what you meant.
+
+Frontend 48 passed (was 45); `tsc -b`, `vite build`, `oxlint` clean. Backend untouched by these
+two fixes, so it stands at 183 passed / 0 failed / 18 skipped.
+
 ## In Progress
 
 - Nothing.
@@ -777,9 +808,12 @@ between a context file and the code, which `CLAUDE.md` requires closing rather t
 - **`/delivery` is labelled "Final delivery queue (Unit 13)" and Unit 13 is not that.** Per the
   build plan Unit 13 is *Redacted CV generation*; **no unit anywhere in the plan builds a final
   delivery queue screen**, though `deliver` and `close` are Unit 04 transitions the Coordinator
-  already drives from the board. So the nav entry promises a screen that is not on the roadmap,
-  and Unit 10 has just widened it to three roles. Either the plan needs the unit or the nav entry
-  needs to go — not guessed at here, the same reasoning that deleted `/cases` in the visual pass.
+  already drives from the board. So the nav entry promises a screen that is not on the roadmap.
+  Either the plan needs the unit or the nav entry needs to go — not guessed at here, the same
+  reasoning that deleted `/cases` in the visual pass. **Narrowed to `GM · PROJECT_COORDINATOR` in
+  the meantime** (see the PR-review entry below): Unit 10 had widened it to three roles, which the
+  backend gate on `deliver`/`close` does not admit. The question of whether the entry should exist
+  at all is still open.
 - **The dev `evalos` database now holds ~150 junk cases** written by `LocalPostgresIntegrationTest`
   (`EV-<uuid>` case codes, "Unnamed contact", "SERVICE NOT SET"), which is the Unit 07 hygiene
   note grown from two notification rows into a board that is 103/107 test rows in its first

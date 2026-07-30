@@ -3,10 +3,12 @@ import {
   agingBand,
   agingHours,
   agingLabel,
+  applyChecklistToCard,
   completionPercent,
   needsChase,
   splitByChase,
   type ChecklistCard,
+  type ChecklistView,
 } from './checklistRules'
 
 /**
@@ -41,6 +43,64 @@ function card(overrides: Partial<ChecklistCard> = {}): ChecklistCard {
     ...overrides,
   }
 }
+
+function view(overrides: Partial<ChecklistView> = {}): ChecklistView {
+  return {
+    caseId: 'c1',
+    driveLink: 'https://drive.example/abc',
+    items: [],
+    total: 4,
+    complete: 2,
+    checklistSatisfied: false,
+    lastChasedAt: null,
+    ...overrides,
+  }
+}
+
+describe('applyChecklistToCard', () => {
+  it('takes the four derived fields from the refreshed checklist and leaves the rest alone', () => {
+    const patched = applyChecklistToCard(
+      card({ total: 4, complete: 2, checklistSatisfied: false, lastChasedAt: null }),
+      view({ total: 5, complete: 5, checklistSatisfied: true, lastChasedAt: hoursAgo(1) }),
+    )
+
+    expect(patched.total).toBe(5)
+    expect(patched.complete).toBe(5)
+    expect(patched.checklistSatisfied).toBe(true)
+    expect(patched.lastChasedAt).toBe(hoursAgo(1))
+
+    // Identity and ranking are the board's, not the panel's — a write to one case's documents
+    // must not be able to re-sort the queue or rename a row.
+    expect(patched.id).toBe('c1')
+    expect(patched.caseCode).toBe('IE-2026-0001')
+    expect(patched.stageEnteredAt).toBe(hoursAgo(30))
+    expect(patched.paid).toBe(true)
+  })
+
+  it('retires the row from the pending-docs queue when the last document arrives', () => {
+    // The defect this exists to stop: a status change refreshed the open panel only, so a
+    // finished case sat under "Due a chase" showing a stale fraction until the next full reload.
+    const waiting = card({ stageEnteredAt: hoursAgo(30), checklistSatisfied: false })
+    expect(needsChase(waiting, NOW)).toBe(true)
+
+    const finished = applyChecklistToCard(
+      waiting,
+      view({ total: 4, complete: 4, checklistSatisfied: true }),
+    )
+    expect(needsChase(finished, NOW)).toBe(false)
+    expect(splitByChase([finished], NOW).chase).toHaveLength(0)
+  })
+
+  it('resets the 24-hour clock when the write was a chase', () => {
+    // Still unsatisfied here, so the row leaves the queue on the chase clock alone.
+    const waiting = card({ stageEnteredAt: hoursAgo(30), lastChasedAt: null })
+    expect(needsChase(waiting, NOW)).toBe(true)
+
+    const chased = applyChecklistToCard(waiting, view({ lastChasedAt: hoursAgo(1) }))
+    expect(chased.checklistSatisfied).toBe(false)
+    expect(needsChase(chased, NOW)).toBe(false)
+  })
+})
 
 describe('aging', () => {
   it('measures wall-clock hours since the case entered the stage', () => {

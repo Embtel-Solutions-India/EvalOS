@@ -155,3 +155,25 @@ export function completionPercent(complete: number, total: number): number {
   if (total <= 0) return 0
   return Math.round((complete / total) * 100)
 }
+
+/**
+ * The board's copy of a case, brought back in line with a checklist the panel just re-read.
+ *
+ * The board draws four things from its own copy rather than from the open panel — the
+ * completeness bar, the "all documents in" chip, the header counts, and `needsChase` — so a
+ * write that refreshes only the panel leaves all four stale. Every write answers the whole
+ * refreshed checklist, which is what makes this a copy rather than a recomputation.
+ *
+ * Applied to *every* write, not just the chase: patching one of the three left a status change
+ * showing the old fraction and a finished case still sitting under "Due a chase" until the next
+ * full reload.
+ */
+export function applyChecklistToCard(card: ChecklistCard, view: ChecklistView): ChecklistCard {
+  return {
+    ...card,
+    total: view.total,
+    complete: view.complete,
+    checklistSatisfied: view.checklistSatisfied,
+    lastChasedAt: view.lastChasedAt,
+  }
+}

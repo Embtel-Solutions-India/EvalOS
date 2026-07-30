@@ -65,14 +65,17 @@ export const NAV_ITEMS: readonly NavItem[] = [
     group: 'Pipeline',
   },
 
-  // The Coordinator's two stages — the two ends of the pipeline — plus the two oversight
-  // roles. The GM and Brand Manager are here by decision, not by drift: the GM is a superuser
-  // on every backend transition, so a screen that drives one and that they cannot open is an
-  // inconsistency rather than a safeguard, and the backend gate on these routes says the same
-  // three roles. The Coordinator still owns the work; the other two watch their brand.
+  // The Coordinator's two stages — the two ends of the pipeline. Each entry's role list is the
+  // backend gate for that stage's routes and nothing wider. **The two gates are not the same**,
+  // and one comment covering both while claiming they were is exactly what let the second one
+  // drift: the Coordinator owns both stages, but oversight only reaches into one of them.
   {
     path: '/checklists',
     label: 'Doc checklists',
+    // ChecklistController.COORDINATION. The GM and Brand Manager are here by decision, not by
+    // drift: the GM is a superuser on every backend transition, so a screen driving one that
+    // they cannot open is an inconsistency rather than a safeguard, and the Brand Manager has
+    // the writes on this screen.
     roles: ['GM', 'BRAND_MANAGER', 'PROJECT_COORDINATOR'],
     becomes: 'Document checklist tracking',
     group: 'Pipeline',
@@ -80,7 +83,13 @@ export const NAV_ITEMS: readonly NavItem[] = [
   {
     path: '/delivery',
     label: 'Delivery',
-    roles: ['GM', 'BRAND_MANAGER', 'PROJECT_COORDINATOR'],
+    // CaseController.deliver and .close are GM_OR + hasRole('PROJECT_COORDINATOR') — no Brand
+    // Manager. They were listed here regardless until a review caught it. Nobody hit a 403
+    // because this route still renders a placeholder, but a nav entry that outruns its own gate
+    // is the failure this table exists to prevent, so it is narrowed to the gate rather than
+    // left to become one the day the screen is built. Revisit the list then — and note that no
+    // unit in the build plan builds it (see the open question in progress-tracker.md).
+    roles: ['GM', 'PROJECT_COORDINATOR'],
     becomes: 'Final delivery queue (Unit 13)',
     group: 'Pipeline',
   },

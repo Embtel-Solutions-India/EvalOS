@@ -9,9 +9,11 @@ import {
   agingBand,
   agingHours,
   agingLabel,
+  applyChecklistToCard,
   completionPercent,
   splitByChase,
   type ChecklistCard,
+  type ChecklistView,
 } from './checklistRules'
 
 /**
@@ -66,18 +68,19 @@ export default function ChecklistBoard() {
   }, [load])
 
   /**
-   * A chase retires the case from the pending-docs queue, which is the whole point of the
-   * 24-hour condition in `needsChase` — so the one card is patched with the server's timestamp
-   * rather than the board being re-read. Patched, not reloaded: a reload would re-sort every
-   * row underneath the Coordinator mid-triage.
+   * Every checklist write re-ranks or retires the row it came from — a chase resets the 24-hour
+   * clock in `needsChase`, and the last document arriving takes the case out of the queue
+   * altogether — so the one card is patched from the refreshed checklist rather than the board
+   * being re-read. Patched, not reloaded: a reload would re-sort every row underneath the
+   * Coordinator mid-triage.
    */
-  const onChased = useCallback((caseId: string, lastChasedAt: string | null) => {
+  const onChecklistChanged = useCallback((caseId: string, view: ChecklistView) => {
     setState((current) =>
       current.status === 'ready'
         ? {
             ...current,
             cards: current.cards.map((card) =>
-              card.id === caseId ? { ...card, lastChasedAt } : card,
+              card.id === caseId ? applyChecklistToCard(card, view) : card,
             ),
           }
         : current,
@@ -175,7 +178,7 @@ export default function ChecklistBoard() {
           cards={chase}
           openCaseId={openCaseId}
           onToggle={setOpenCaseId}
-          onChased={onChased}
+          onChecklistChanged={onChecklistChanged}
           onCaseLeftTheStage={onCaseLeftTheStage}
         />
       )}
@@ -185,7 +188,7 @@ export default function ChecklistBoard() {
           cards={rest}
           openCaseId={openCaseId}
           onToggle={setOpenCaseId}
-          onChased={onChased}
+          onChecklistChanged={onChecklistChanged}
           onCaseLeftTheStage={onCaseLeftTheStage}
         />
       )}
@@ -199,7 +202,7 @@ function Section({
   cards,
   openCaseId,
   onToggle,
-  onChased,
+  onChecklistChanged,
   onCaseLeftTheStage,
 }: {
   heading: string
@@ -207,7 +210,7 @@ function Section({
   cards: readonly ChecklistCard[]
   openCaseId: string | null
   onToggle: (caseId: string | null) => void
-  onChased: (caseId: string, lastChasedAt: string | null) => void
+  onChecklistChanged: (caseId: string, view: ChecklistView) => void
   onCaseLeftTheStage: () => void
 }) {
   return (
@@ -230,7 +233,7 @@ function Section({
             card={card}
             open={openCaseId === card.id}
             onToggle={() => onToggle(openCaseId === card.id ? null : card.id)}
-            onChased={onChased}
+            onChecklistChanged={onChecklistChanged}
             onCaseLeftTheStage={onCaseLeftTheStage}
           />
         ))}
@@ -243,13 +246,13 @@ function Row({
   card,
   open,
   onToggle,
-  onChased,
+  onChecklistChanged,
   onCaseLeftTheStage,
 }: {
   card: ChecklistCard
   open: boolean
   onToggle: () => void
-  onChased: (caseId: string, lastChasedAt: string | null) => void
+  onChecklistChanged: (caseId: string, view: ChecklistView) => void
   onCaseLeftTheStage: () => void
 }) {
   const hours = agingHours(card.stageEnteredAt)
@@ -335,7 +338,7 @@ function Row({
         <div id={panelId} className="border-t" style={{ borderColor: 'var(--border-default)' }}>
           <CaseChecklist
             caseId={card.id}
-            onChased={(lastChasedAt) => onChased(card.id, lastChasedAt)}
+            onChecklistChanged={(view) => onChecklistChanged(card.id, view)}
             onCaseLeftTheStage={onCaseLeftTheStage}
           />
         </div>
