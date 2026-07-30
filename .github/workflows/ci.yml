@@ -82,7 +82,22 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
-      - run: npm ci
+      # `npm install`, not `npm ci`, and not by preference.
+      #
+      # package-lock.json is generated on Windows, where npm records
+      # @rolldown/binding-wasm32-wasi and @tailwindcss/oxide-wasm32-wasi but omits
+      # their @emnapi/* dependencies — this host never needs the wasm fallback, so
+      # it never resolves them. `npm ci` on Linux then rejects the lockfile as out
+      # of sync ("Missing: @emnapi/core@1.11.3 from lock file"), and neither
+      # --package-lock-only nor --os=linux --cpu=x64 materialises those entries
+      # from Windows. So the lockfile cannot be made installable off-Windows from
+      # the machine that writes it.
+      #
+      # The cost is that this resolves within semver ranges instead of pinning, so
+      # a bad upstream patch release can reach CI. Going back to `npm ci` needs the
+      # lockfile regenerated once on Linux and committed — do that when there is a
+      # Linux box or a working Docker daemon to hand.
+      - run: npm install --no-audit --no-fund
 
       - run: npm test
 
