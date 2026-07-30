@@ -4,13 +4,17 @@ Update this file after every meaningful implementation change.
 
 ## Current Phase
 
-- **Phase 1 is closed.** Units 01–05 + 05a built the spine, and Unit 10 — the last Phase-1
-  unit — completes the intake→production handoff. Phase 2 is under way: Units 06
-  (notification centre), 07 (app shell), 08 (production board) and 09 (case detail) are done.
+- **Phase 1 — Structure the data (the spine) is complete.** Units 01–10, plus 05a. Per
+  `context/specs/00-build-plan.md` the phase boundaries are 01–10 / 11–17 / 18–20, so Units 06
+  (notification centre), 07 (app shell), 08 (production board), 09 (case detail) and 10 (doc
+  checklist) are all Phase 1 — this tracker had been calling 06 onward "Phase 2" since Unit 06,
+  which the build plan does not say. Corrected here rather than left to compound.
+- **Phase 2 — Connect the seams has not started.** It is Units 11–17.
 
 ## Current Goal
 
-- Unit 11 — expert database. Nothing in Phase 1 is outstanding.
+- Unit 11 — Expert database (ENM) + bulk sheet upload, the first unit of Phase 2. Nothing in
+  Phase 1 is outstanding.
 
 ## Completed
 
@@ -692,13 +696,12 @@ Update this file after every meaningful implementation change.
 
 ## Open Questions
 
-- **`context/specs/00-build-plan.md` does not exist on disk.** `CLAUDE.md` and
-  `ai-workflow-rules.md` both name it as the authoritative ordered unit list — the file every
-  scoping rule points at ("work on one unit at a time, in the order set by …"). Every individual
-  spec `NN-*.md` is present, so the order has been carried in this tracker instead. Not
-  reconstructed here because inventing the canonical plan from the specs that survive is a
-  decision about what Phases 2 and 3 contain, not a fix. Either restore it or amend the two files
-  that cite it.
+- **`/delivery` is labelled "Final delivery queue (Unit 13)" and Unit 13 is not that.** Per the
+  build plan Unit 13 is *Redacted CV generation*; **no unit anywhere in the plan builds a final
+  delivery queue screen**, though `deliver` and `close` are Unit 04 transitions the Coordinator
+  already drives from the board. So the nav entry promises a screen that is not on the roadmap,
+  and Unit 10 has just widened it to three roles. Either the plan needs the unit or the nav entry
+  needs to go — not guessed at here, the same reasoning that deleted `/cases` in the visual pass.
 - **The dev `evalos` database now holds ~150 junk cases** written by `LocalPostgresIntegrationTest`
   (`EV-<uuid>` case codes, "Unnamed contact", "SERVICE NOT SET"), which is the Unit 07 hygiene
   note grown from two notification rows into a board that is 103/107 test rows in its first
