@@ -9,19 +9,26 @@ Update this file after every meaningful implementation change.
   (notification centre), 07 (app shell), 08 (production board), 09 (case detail) and 10 (doc
   checklist) are all Phase 1 — this tracker had been calling 06 onward "Phase 2" since Unit 06,
   which the build plan does not say. Corrected here rather than left to compound.
-- **Phase 2 — Connect the seams has not started.** It is Units 11–17. The build plan's
-  `## Phase 3` heading used to sit above Unit 17 and contradict its own roadmap line; the heading
-  moved to Unit 18, so Dashboards is Phase 2 wherever you read it.
-- **Phase 1 is now verified, not just written.** All 183 backend tests execute with none skipped —
-  the 18 DB-backed ones included, for the first time since Unit 03 wrote them — and CI runs them
-  against a real Postgres on every push. See the entry at the end of Completed.
+- **Phase 2 — Connect the seams is under way.** It is Units 11–17. **Unit 11 (expert database
+  + sheet upload) is complete and verified**; Unit 12 is next. The build plan's `## Phase 3`
+  heading used to sit above Unit 17 and contradict its own roadmap line; the heading moved to
+  Unit 18, so Dashboards is Phase 2 wherever you read it.
+- **Verified, not just written.** All **229** backend tests execute with none skipped — the
+  22 DB-backed ones included — plus 61 frontend tests, and CI runs the DB suite against a real
+  Postgres on every push. (It was 183 backend / 44 frontend at the end of Phase 1.) See the
+  Unit 11 entry at the end of Completed.
 
 ## Current Goal
 
-- Unit 11 — Expert database (ENM) + bulk sheet upload, the first unit of Phase 2. Nothing in
-  Phase 1 is outstanding. Read **Phase 2 readiness** under Next Up first: the expert field-tag
-  taxonomy is undefined and Unit 12's match scoring depends on it, so it wants deciding inside
-  this unit rather than after it.
+- Unit 12 — Match scoring engine. It reads the taxonomy Unit 11 established and reuses
+  `ExpertLoadService` rather than counting cases again; the roster it scores over is now real
+  data with a closed vocabulary behind it. Its spec (`context/specs/12-match-scoring-engine.md`)
+  was written in the Phase 2 batch and is **a draft to re-read and revise at the start of the
+  unit**, not a settled contract.
+- Carried forward from Unit 11, unfinished business rather than a blocker: **the `FieldTag`
+  value list is still unsigned by an ENM.** It shipped on instruction, so Unit 12 will be
+  scoring against a vocabulary that may still change — and a change is a migration widening
+  `V18`'s CHECK plus the enum plus the frontend list, together.
 
 ## Completed
 
@@ -869,15 +876,245 @@ lockfile once on Linux restores `npm ci`; the reason and that exit condition are
 argument for having it — `npm ci` would have failed the same way for any Linux or macOS
 contributor.
 
+- **Specs 11–20 written in one pass, and the three decisions that shaped them.** Documentation only
+  — no backend or frontend change, so `./mvnw verify` and `npm run build` were not re-run.
+  `context/specs/` now holds a spec for every remaining unit, in the format Units 01–10 established.
+  - **A deviation from the build plan, recorded in the build plan.** It says "generate a
+    `specs/NN-name.md` for a unit just before building it", and this wrote ten at once. The rule is
+    right and stays as written; specs 11–20 are therefore **drafts to be re-read and revised at the
+    start of their own unit**, and 18–20 carry that warning in their own headers. The rule earned its
+    keep immediately: two real defects surfaced only because a later spec looked back at an earlier
+    one (Unit 11's dead load counters, Unit 16's payout race), which is the failure a just-in-time
+    spec avoids by not existing yet.
+  - **Decision 1 — the expert field-tag taxonomy is a closed enum**, unknown tags rejected. Exact
+    matching for Unit 12, at the cost of a migration per new discipline and a strict sheet import.
+  - **Decision 2 — the redacted CV is written to Drive as well as served on demand.** Adds the first
+    Google Drive API integration, its credentials, and a per-brand access requirement. Both costs are
+    now open questions above rather than assumptions inside a spec.
+  - **Decision 3 — all ten specs now, not Phase 2's seven.** Which is what produced the deviation
+    above.
+  - Two design calls inside the specs are **deviations from the plan's wording rather than from its
+    intent**, both argued in Phase 2 readiness above and both reversible without touching anything
+    else in their spec: Unit 17 recommends **live aggregates** over event-refreshed read models at
+    this scale, and Unit 19 reads the `scheduled_job` table as a **run ledger** with sweepers, rather
+    than a queue of one row per future timer — so a missed run self-heals and idempotency keeps coming
+    from the data (the `CHASED` audit rows, the `retention_*_sent_at` columns) rather than from a
+    second record of the same fact.
+  - Verified by consistency check, not by tests: every spec's **Depends on** matches the build plan,
+    no spec depends on a higher-numbered unit, every symbol named either exists in
+    `backend/src/main/java/com/ie/evalos` today or is listed in that spec's "Files touched
+    (created)", no spec proposes editing an applied migration or a protected file, and none carries a
+    `TBD`/`TODO`.
+
+- **Specs 11–20 review pass — six findings, all fixed, plus one stale line in
+  `architecture.md`.** Documentation only; no backend or frontend change, so `./mvnw verify` and
+  `npm run build` were not re-run. Every code claim the ten specs make was re-checked against the
+  tree and held (the dead `V7` counters, the missing `draft_link` behind `DraftPanel`'s "Open the
+  current draft", `RefundService` voiding only `PENDING`, `SEES_DEAL_VALUE` including the PM). What
+  the previous entry's consistency check could not catch was **semantics across specs** — it
+  verified that every named symbol exists and no unit depends on a higher-numbered one, which is
+  exactly the class of check that passes while two specs disagree about what a column means.
+  - **A timed-out expert could never be rematched, and `TIMED_OUT` was unreachable.**
+    `CaseTransitions.REQUIRES_EXCEPTION` pins `REASSIGN_EXPERT` to `EXPERT_DECLINED_REMATCHING`,
+    which only `EXPERT_DECLINED` sets — so a 24h timeout had no legal path to a rematch, while
+    Unit 15 said `TIMED_OUT` is stamped "when the case is actually reassigned after a timeout" and
+    Unit 19 pinned that the timer must not move the case. **Decision: a fourth declared action,
+    `EXPERT_TIMED_OUT`** (GM · Brand Manager · PM), mirroring `EXPERT_DECLINED`'s stage-preserving
+    shape and setting the same exception state. Rejected the two alternatives: recording silence as
+    a decline corrupts the trail this unit exists to keep straight, and widening `REASSIGN_EXPERT`
+    removes the guard against pulling a case off an expert mid-signature. `TIMED_OUT` is now
+    written by Unit 15, by a person, prompted by Unit 19's clock — the clock never fires it.
+  - **Unit 17's money tiles did not add up once a refund existed.** `Collected` was
+    `SUM(deal_value) where paid` with no refund filter, while `Recognized` and `Open liability`
+    both excluded refunds — so refunded money read as still collected, against invariant 5's
+    "a refund reverses recognition". **Decision: refunds out of `Collected`, and a `Refunded`
+    figure of its own**, so `Collected = Recognized + Open liability` exactly and the money that
+    moved is still visible rather than hidden. A new acceptance criterion asserts the arithmetic.
+  - **Unit 18 would have shipped the outbound HMAC secret in a migration.** The inbound half
+    settled this in `V11__brand_ghl_secret.sql`: nullable, because that fails closed, real value
+    from the environment, literals only in `local/V901`. The outbound `webhook_subscriber.secret`
+    now inherits that verbatim, plus the rule that **a subscriber with no secret is never delivered
+    to** — an unsigned outbound payload would breach invariant 11.
+  - **Unit 19's chase guard did not implement its own acceptance criterion.** "Nothing fires within
+    24h of the last chase" chases a stuck case every 24h forever; the criterion says once per
+    threshold, and Unit 10 defined two reminders. **Decision: the guard is per threshold**, keyed on
+    the count of `CHASED` rows — 24h, then 48h, then nothing, with the day-3 escalation carrying it
+    after that.
+  - **Units 12 and 15 disagreed about the offer `outcome`.** Unit 12 says it leaves `OFFERED`
+    exactly once; Unit 15 stamped `ACCEPTED` on both the portal Accept and the Dropbox Sign
+    callback, which both fire on the happy path. **Decision: first write wins, later writes of the
+    same outcome are no-ops**, and the guard lives in Unit 12 with the column rather than in each
+    caller.
+  - **Unit 20 described `claude-opus-5`'s thinking config wrongly.** Adaptive is not "the only
+    supported mode" — it is the *default*, `ThinkingConfigDisabled` is legal at effort `high` or
+    below, and only a fixed `budgetTokens` is rejected outright. Corrected, with the consequence
+    that matters added: thinking counts against `maxTokens`, so that has to be sized for the
+    reasoning plus the note. The rest of that block verified clean — model id, $5/$25 pricing,
+    `output_config.effort`, and `.outputConfig(Suggestion.class)` for record-derived structured
+    output.
+  - Also: **Unit 13's `Depends on` omitted 04 and 09** (it reads cases through
+    `CaseLifecycleService.read` and mounts a panel into `CaseDetail.tsx`), and a note was added to
+    Unit 12 that `ASSIGN_CASE_MANAGER` legitimately carries the expert —
+    `assignCaseManager(caseId, cmId, expertId)` publishing `EXPERT_ASSIGNED`. The method name reads
+    as staff-only and is not, which is worth one line in the spec to save the next reader the same
+    double-take.
+  - **`architecture.md` corrected, not just a spec.** Its scope-tiers note still said
+    `evalos_case` has no `assigned_coordinator` and a Coordinator's case scope "is not yet
+    expressible". `V17` added that column and widened `ScopePredicate.Fields` to a set of
+    assignment attributes; several of the 11–20 specs reason about Self-tier scoping, so the stale
+    line was the one thing here that could mislead a build rather than merely a reader.
+
+### Unit 11 — Expert database (ENM) + sheet upload · complete and verified
+
+The first unit of Phase 2, built against `context/specs/11-expert-database.md`. The ENM's
+Google Sheet is replaced: a brand-scoped roster with search and filters, an availability
+board, a profile they can edit, and a bulk sheet upload that validates before it writes.
+
+**Two build-time confirmations, taken before any code** because the spec asked for both
+rather than defaulting them:
+
+- **The `FieldTag` / `LetterType` values are the spec's starter list, shipped *without* the
+  ENM's sign-off.** Instructed. The mechanism was already decided (closed enum + database
+  CHECK), so only the vocabulary is unconfirmed, and widening it is a new migration that
+  widens the CHECK — never an edit to `V18` (invariant 9). **The gating open question stays
+  open**, and the migration, the enum and `frontend/.../expertRules.ts` say so in their own
+  headers. Expect the list to disagree with what an ENM actually recruits into; that is not
+  a defect, it is the unsigned decision showing.
+- **The import accepts CSV *and* XLSX.** Instructed, against the spec's own recommendation
+  of CSV-only: `poi-ooxml` is ~10 MB with transitives against `commons-csv`'s ~50 KB. Bought
+  so an ENM can upload straight out of Excel with no File → Download → CSV step. The cost
+  stops at the edge — both parsers produce one row shape, so there is one validator and one
+  importer, and `ExpertImportService` is the only class that touches either library.
+
+**Shipped.** `V18` (`email`, `phone`, `letter_types`, `standard_fee`; three vocabulary
+CHECKs; the partial unique index `uq_expert_per_brand_email` on `(brand_id, lower(email))`;
+a GIN index on `primary_fields` **for Unit 12**, not for this unit's filter).
+`domain/FieldTag` + `domain/LetterType`. `service/ExpertService` (roster, board, CRUD,
+availability, the write-only payment detail), `service/ExpertImportService`,
+`service/ExpertLoadService`. `web/ExpertController` — 9 endpoints, all under `/api/experts`
+beside the untouched Unit 08 picker. Frontend `features/experts/*`: roster table,
+availability board, profile/edit panel, and the pick → map → report → confirm upload flow.
+`V903` seeds six experts across the two brands with legal tags.
+
+**Decisions worth knowing before the next unit:**
+
+- **Load is derived, and the two `V7` counters stay dead.** `ExpertLoadService` answers from
+  one batched `count(*) FILTER (WHERE …)` over `evalos_case`, keyed by expert id, one query
+  per roster page. `current_active_count` / `total_cases_completed` are still never written
+  and are never read. The DB-gated test asserts an expert with two open cases reports a load
+  of **2 while the column beside it is still 0** — so "fixing" the derivation by starting to
+  increment the counter fails the build. Unit 12 reuses this service rather than counting
+  again.
+- **The roster filters run in memory over the scoped page, and no new query was added.**
+  `ExpertRepository` gained exactly one finder (`findByBrandIdAndEmailIgnoreCase`, the
+  import's upsert key). Search/tag/letter/availability/tier narrow the list `findScoped`
+  already returned, so scope stays decided in one place. A brand's roster is tens of rows;
+  the GIN index is for Unit 12's per-case containment query, which is a different shape.
+- **A request may name a brand, in one place, and it is not a scope.** This is the first
+  unit where staff create a scoped row, and a GM has no brand of their own. `brandId` on
+  create/import says *where the row goes*; `OwnershipGuard` decides whether the caller may
+  act there. Recorded in `architecture.md` under Multi-Tenancy so it stays an exception
+  rather than becoming a habit.
+- **A rejected import answers 200 with a report whose `imported` is false.** The envelope
+  carries one code and one message on failure, and a rejection has one reason per bad row.
+  The report is the response either way and the screen reads `imported`; there is no
+  "import anyway" button.
+- **`ApiExceptionHandler` gained three handlers**, one of which was a real gap: an unknown
+  enum in a request body used to fall through to the catch-all and answer **500** for what
+  is squarely a bad request. It now answers 400 naming the value it did not recognise —
+  `MECHANICAL ENGG is not a known FieldTag` — without echoing Jackson's message, which
+  quotes the payload and enumerates every legal value. Plus `InvalidRequestException` (400)
+  and an upload-too-large 400.
+- **`/experts` and `/expert-database` were two nav paths for one screen** — one given to the
+  GM/BM/PM, the other to the ENM — so which URL a role bookmarked for the same page depended
+  on their role. Merged into one `/experts` entry whose role list equals
+  `ExpertController.ROSTER_READ`, and `navigation.test.ts` now pins that equality and
+  asserts the old path is gone, exactly as it does for `/delivery`.
+
+**Verified, not just written.**
+
+- `./mvnw verify -Devalos.db.test=true`: **229 backend tests, 0 failures, none skipped**
+  (was 183). The 4 new DB-gated ones prove what only real SQL can: the three CHECKs refuse
+  `'mechanical engg'` from a raw `UPDATE` while accepting legal tags and NULL, the partial
+  unique index refuses a second row for one email in a brand and allows the other brand's,
+  the derived load reads 2 against a stored 0, and the new aggregate is brand-blind by
+  design (the `findByCaseIdIn` convention, asserted).
+- Frontend: **61 vitest tests**, `npm run lint` clean, `npm run build` clean.
+- `ExpertControllerTest` walks **every** route with a service returning an expert whose
+  `payment_detail` is set and greps each serialized body — the spec's acceptance criterion as
+  a test. It asserts on `"paymentDetail"` *quoted*, because `paymentDetailOnFile` is a
+  legitimate member and the bare substring would forbid the boolean the screens need.
+- **Ran against the real app and the real database** (`V18` + `V903` applied to the dev
+  schema out of order, as the local profile intends). Walked as the IE ENM: roster
+  brand-scoped with no payment detail anywhere; the XP expert 403 for the ENM and 200 for
+  the GM; an unknown tag 400 with the value named; create, then payment-detail write, then a
+  profile read containing **zero** occurrences of the secret; PM read 200 / write 403;
+  setting `ON_LEAVE` removes the expert from the Unit 08 picker; a 4-row sheet with three bad
+  rows imports **nothing** and reports all three with row number, column and reason
+  (including *"did you mean MECHANICAL_ENGINEERING?"*); a clean sheet validates writing
+  nothing, imports 2, and **re-uploads as 2 updated with the roster total unchanged**; a
+  mapping naming `paymentDetail` is refused outright.
+- Browser pass over the four screens as the ENM. Two things it caught and fixed:
+  `RFE_RESPONSE` rendered as "Rfe response" (a term of art spelled wrong), and the roster's
+  filtered count sat in the header on the availability and upload tabs, describing a screen
+  it had not counted — the same failure class as the three stale headers Phase 1 recorded.
+
+**One dev-data note, not a defect of this unit.** The dev `public` schema holds ~46 junk
+experts (`Dr Ada Verify`, `IE Roster <uuid>`) from integration-test runs that predate the
+`evalos_test` schema — the same pollution `LocalPostgresIntegrationTest`'s own comment
+describes for ~150 junk cases. They now dominate the roster screen and show as 46
+`INACTIVE` on the availability board. They are historical rows in a dev database, so they
+have been left alone rather than deleted on somebody's behalf; clearing them is one
+`DELETE` whenever that is wanted.
+
+### Unit 11 code review — three defects fixed, and the one it keeps catching
+
+Five independent reviewers over `main...development` (CLAUDE.md compliance, a shallow bug scan,
+git history, prior PR feedback, and the guidance written in the code's own comments). Two came back
+clean; three findings were confirmed by reading the source and fixed, plus one comment inaccuracy.
+
+1. **A Project Manager was shown write controls the server refuses — for the third unit running.**
+   `ExpertRoster` computed `mayWrite` and used it to hide "Add an expert" and the upload tab, then
+   never passed it to `ExpertProfile`, where the actual writes live. A PM opening any profile got a
+   live edit form, four availability buttons and a payment-detail Save, all answered 403 —
+   `ExpertControllerTest.aProjectManagerReadsTheRosterAndDoesNotEditIt` was asserting that 403 the
+   whole time. Worse than a cosmetic affordance: the PM fills in the form, saves, and loses the
+   edit. **This is the same defect Unit 09 and Unit 10 were each reviewed for** ("a client offering
+   something the server or the data would not back", and then "applied to one caller and not its
+   siblings"). The gate is now a required prop on the panel rather than something each component
+   re-derives, and a reader gets the availability *state* instead of buttons.
+2. **`ExpertService.apply` claimed a default it did not apply.** The comment said an expert with
+   nothing said about availability is `AVAILABLE`; the code passed the null straight through. The
+   UI never showed it (its empty form defaults to `AVAILABLE`) but the import did: a legacy sheet
+   with no availability column — and only `fullName` is a required mapping — would import fifty
+   experts as null, none of which the assignment picker can offer, and report success. Now coerced
+   in `apply`, so an edit cannot clear it back to "not set" either, and the profile form no longer
+   offers a blank the server would overwrite. A new import test covers the missing-column sheet.
+3. **`filters === NO_FILTERS` was an identity check.** Every filter change makes a new object, so
+   typing one character into the search box and deleting it left the header saying "N experts
+   matching" and an empty roster blaming filters that were not applied — permanently. Replaced with
+   `hasFilters()`, compared by value, treating an all-spaces search as no filter because the server
+   trims before searching. Three tests.
+4. **Two javadocs called the create endpoint "the one place a request may name a brand"** while the
+   same file accepted `brandId` on both import endpoints for the same reason. Reworded to name all
+   three and to point at `architecture.md`, which already had the policy right — the list to audit
+   should be in one place, and it is not a javadoc.
+
+Verified after the fixes: **230 backend tests** (DB-gated included, none skipped) and **64 frontend
+tests**, lint and build clean.
+
+The lesson worth carrying into Unit 12: the recurring bug in this codebase is a client offering an
+action the server will refuse, and it recurs because each screen re-derives its own gate. Where a
+screen has more than one component that writes, the gate belongs to the screen and is passed down.
+
 ## In Progress
 
 - Nothing.
 
 ## Next Up
 
-- Unit 11 — Expert database. `ExpertPickerController` already exists as the narrow
-  `{id, fullName}` read Unit 08 needed; Unit 11 supersedes it with the real screen (search,
-  taxonomy matching, quality scores, sheet upload) and can keep the endpoint as the picker's read.
+- Unit 12 — Match scoring engine. Reads the taxonomy and `ExpertLoadService` Unit 11 builds
+  rather than counting or matching again.
 
 ### Phase 2 readiness — which open questions block which unit
 
@@ -886,22 +1123,64 @@ Unit 11's start**, but two items bite inside it, and each later unit has a named
 dependency that is not yet confirmed. Phase 2 is Units 11–17 (see the boundary note in the build
 plan — the `## Phase 3` heading had been contradicting that).
 
-**Unit 11 — Expert database.** Two decisions land inside this unit, not before it:
-- **The field-tag taxonomy is undefined.** `Expert.primaryFields` / `secondaryFields` are
-  `String[]` with no controlled vocabulary and no CHECK. Free text is fine for a roster a human
-  reads, but **Unit 12's match scoring matches on these tags**, and "Mechanical Engineering" will
-  not match "mechanical engg". Whoever fills the roster is choosing the vocabulary, so the sheet
-  upload's column mapping and the tag list want deciding together, in this unit.
+**Unit 11 — Expert database. BUILT — see the Unit 11 entry at the end of Completed.** What
+follows is the readiness note written before it, kept because the two items it flagged both
+played out: the field-tag list shipped unsigned (still an open question), and the dead `V7`
+counters were derived rather than maintained. `EVALOS_FIELD_KEY` is now genuinely load-bearing
+outside local — this unit writes `payment_detail` from a screen.
+
+~~The field-tag taxonomy is undefined.~~ **Closed by decision: a
+closed `FieldTag` enum, unknown tags rejected**, enforced both as a Java enum and as a database
+`CHECK` on `primary_fields` / `secondary_fields` / `letter_types` (the `team_member` brand-CHECK
+pattern from Unit 02). Unit 12 matches on these tags and "Mechanical Engineering" would never have
+matched "mechanical engg", so exact matching was worth the cost — which is a **migration per new
+discipline** and a strict sheet import. What remains is not a question about the mechanism but
+about the values: **the starter list in the spec needs the ENM's sign-off before the migration
+lands** (now an open question below).
 - **`payment_detail` needs a real `EVALOS_FIELD_KEY` outside local.** No default by design — an
   environment that forgets it fails to start rather than writing plaintext. Fine for dev; a
   deployment blocker whenever one happens, and this is the unit that first writes the field.
+- **Two defects found while writing the specs, both fixed in the specs rather than at build time.**
+  `expert.current_active_count` and `total_cases_completed` are `NOT NULL DEFAULT 0` from `V7` and
+  **nothing has ever written either** — so Unit 11's roster would have shown every expert as free
+  and Unit 12's load factor would have been a constant. Both are now **derived** with one batched
+  count over `evalos_case` (`ExpertLoadService`), and the columns are left dead rather than
+  starting to maintain a counter that has to be adjusted on assign, close, refund, reassign and
+  decline. `total_payments_pending` gets the same treatment in Unit 16. Separately, the build plan
+  lists a **fee** among Unit 11's expert fields and `V7` has no fee column — `standard_fee` is
+  added, and it is what Unit 16 prefills a payout with.
 
-**Unit 13 — Redacted CV generation.** The plan says the output is "served on demand (**or written
-to the case's Drive folder**)". **There is no Google Drive integration** — `Case.driveLink` is a
-string and the architecture's "no object storage" rule means EvalOS holds links, never bytes.
-Writing to Drive needs an API client, OAuth credentials and a service account that do not exist.
-Serve-on-demand only needs none of that. Decide which before the unit, because one of the two
-readings adds an external integration to the phase.
+**Unit 13 — Redacted CV generation.** ~~Serve on demand, or also write to Drive?~~ **Closed by
+decision: both.** Served on demand *and* written into the case's Drive folder.
+
+This adds the **first Google Drive API integration in EvalOS** and is the more expensive of the two
+readings, so what it costs is on the record: a Google Cloud **service account**, its **JSON key**
+env-bound with no non-local default, and **per-brand write access** on each brand's case-folder
+tree (a service account with blanket access to both brands' Drives is a cross-brand hole outside
+the database that no `brand_id` predicate can close). `google-api-services-drive` +
+`google-auth-library-oauth2-http` land in that unit. `architecture.md`'s stack table describes
+Drive as "link stored on the case, not re-hosted" and needs updating with the unit — Drive becomes
+an outbound client, not just a URL column. **None of it exists**, which is why Unit 13 now has a
+gating open question where the serve-on-demand-only reading would have had none.
+
+No PDF library is needed: the generated HTML is uploaded with a Google-Doc target mime type and
+Drive converts on the way in, and Drive's own export produces a PDF if one is ever wanted.
+
+**Unit 14 — a defect it must close first.** `frontend/src/features/case/DraftPanel.tsx` renders
+"Open the current draft ↗" pointing at `detail.driveLink`, and **there is no `draft_link` anywhere
+in the backend or the frontend**. `drive_link` is the client's *own document folder*. Internally
+that is a mislabel; put a client-facing portal on top of it and it is a leak — the portal would
+hand the client a link to a folder whose contents and sharing EvalOS does not control, labelled as
+"your draft". Unit 14 adds `draft_link` and re-points `DraftPanel` at it; `drive_link` is never
+sent to the portal, not even as a fallback.
+
+**Unit 14 — a consequence of append-only, worth knowing before it surprises somebody.** The portal
+needs the audit trail to say *the client* approved the draft, and `audit_event.actor_id` currently
+means "staff member, or null for the system". Adding `actor_type` is fine, but the column must be
+**nullable with no default and the existing rows are not backfilled** — `V10` installs a
+`BEFORE UPDATE OR DELETE` trigger that raises, so **no `UPDATE` can ever touch them**. A
+`NOT NULL DEFAULT 'STAFF'` would stamp the Unit 05 webhook rows `STAFF` when they are genuinely
+`SYSTEM`, permanently and unfixably. First unit to feel that the append-only guarantee has teeth.
 
 **Unit 14 — Client draft-review portal.** The portal link reaches the client "via GHL". That is
 open question (b) below — whether GHL can send a client-facing transactional message on an EvalOS
@@ -913,13 +1192,57 @@ signed/declined callbacks. Needs: a Dropbox Sign account, an API key, the **call
 secret** (already open below), and a signature-request template. The inbound gateway is ready for
 it — `WebhookSource.DROPBOX_SIGN` and the brand-scoped idempotency key are in place.
 
+**Unit 15 — one thing to answer before any code.** The inbound gateway resolves `brand_id` from
+the **per-brand endpoint token**, and that step is a protected file. GHL satisfies it naturally
+(one sub-account per brand, so one endpoint per brand). **Dropbox Sign may not**: one account means
+one callback URL, and the endpoint token then cannot tell the brands apart. Preferred answer is one
+Dropbox Sign account or API app **per brand**, each pointed at that brand's own EvalOS endpoint —
+the gateway then works unchanged. If that is impossible, brand has to come from the callback's
+`metadata` case id, which **is a change to the protected brand-resolution step** and needs explicit
+instruction rather than a quiet fallback inside the handler.
+
+Also settled while writing the spec: the build plan's "auto-reassign" is read as **auto-prompt**,
+matching `project-overview.md`'s "the case auto-prompts reassignment". `REASSIGN_EXPERT` requires
+`EXPERT_DECLINED_REMATCHING` and an expert who has not answered has not declined — silently pulling
+a case off an expert who was about to sign, and mailing a second expert the same letter, is worse
+than a late case. Where the two documents differ the narrower reading wins.
+
 **Unit 16 — Payout ledger.** Self-contained. `payout_ledger` exists from Unit 03 and the plan is
 explicit that there is no disbursement rail. No blocking question.
+
+One finding from writing the spec: `deliverToClient` guards `deliveryDate == null`, but `Case` has
+no `@Version`, so two concurrent deliveries can both read null, both save, and **both create a
+payout row** — the same check-then-act shape `V15` was written for. A partial unique index on
+`payout_ledger (case_id) WHERE status <> 'VOIDED'` cannot race. Also decided: payout **writes** are
+GM / Brand Manager (recording that money left is a commercial act, same gate as `mark-paid`, and
+re-checked in the service like `RefundService`), **reads** include the ENM. If the business says the
+ENM records payouts in practice that is a one-line widening of two guards — worth taking as a
+decision rather than assuming here.
 
 **Unit 17 — Dashboards.** Two open questions attach directly, both listed below: whether
 sales/marketing dashboards are GHL-native (default: yes, EvalOS does not build them), and
 **StatCommand**, which is still undefined — the standing instruction is not to build an
 integration for it until it is specified.
+
+A third item is a **deviation from the build plan's wording, recorded rather than taken quietly**.
+The plan and `architecture.md` both say "precomputed read models refreshed on events". At the NFR's
+stated scale — 50–100 cases per brand per month, two brands — every metric is a `GROUP BY` over a
+few thousand indexed rows, which Postgres answers in single-digit milliseconds. An event-refreshed
+read model buys latency nobody needs and costs a **second source of truth for the open-liability
+figure**, plus exactly the staleness class this project already has three instances of (the
+`allInsideSla` header, the checklist chip, the "N ready for the PM" count — each a cached or derived
+display disagreeing with the instrument beside it). **The spec recommends computing live**, with
+aggregates pushed into SQL, and adding a materialized layer only when a measurement shows it is
+needed — and if added, as a cache in front of the same functions so the live query stays the
+definition. The metric definitions, the API and the UI are identical either way; only the source of
+the numbers changes. **Confirm at build time**; if the answer is "build the read models anyway",
+nothing else in the spec moves.
+
+Also decided: the **review-capture metric cannot be fully computed inside EvalOS.** EvalOS knows how
+many review requests it fired (`google_review_requested`); the reviews themselves land on Google and
+the campaign runs in GHL. So the tile is labelled **"review requests sent"** and claims nothing about
+captures — a tile naming a metric it cannot compute is the same failure as a header contradicting its
+instrument. Whether GHL should report captures back is now an open question below.
 
 **Cross-cutting, not unit-specific.** The GHL contract (payload shape, signature header, HMAC
 encoding, and which contact event actually fires) is the largest risk to code already shipped
@@ -971,8 +1294,46 @@ whenever a third brand is seeded. Staff SSO stays deferred.
   `case.delivered` and the ability to send client-facing transactional messages
   on EvalOS event triggers (Unit 18); (c) which extra inbound GHL events to
   handle now vs later (`refund.requested`, `contact.updated`).
+- **`FieldTag` value list still needs the ENM's sign-off** (Unit 11) — the *mechanism* is settled
+  (a closed enum + database CHECK); the vocabulary is not. ~~Confirm before the migration lands.~~
+  **The migration landed first, on instruction**: `V18` ships the spec's 28-entry starter list plus
+  5 letter types, unreviewed, and `domain/FieldTag`, the migration header and the frontend's
+  `expertRules.ts` all say so where somebody will read them. So this is no longer "confirm before
+  building" but **confirm and then widen**: a tag the ENM actually recruits into and this list does
+  not have needs a new migration widening the CHECK, the enum, and the frontend list, moved
+  together — never an edit to `V18` (invariant 9). Unit 12 scores on these tags, so the sooner it
+  is confirmed the less there is to re-check. Note what the closed vocabulary already bought: a
+  sheet row saying "MECHANICAL ENGG" is rejected with the closest legal tag named, instead of
+  quietly becoming an expert Unit 12 could never match.
+- **Google Drive credentials + service account** (Unit 13) — new, and gating. The decision to write
+  the redacted CV into the case's Drive folder means a Google Cloud service account, its JSON key
+  (env-bound, no non-local default), the Drive API enabled, and **per-brand write access** on each
+  brand's folder tree. None of it exists. This was not a question before, because the build plan's
+  "or written to the case's Drive folder" wording let Unit 13 avoid Drive entirely.
 - **Dropbox Sign callback secret** — signing secret for signed/declined/viewed
   callbacks (Unit 15).
+- **Which Dropbox Sign account structure** (Unit 15) — one API app per brand (preferred; the
+  gateway's per-brand endpoint resolution then works unchanged) vs. one shared account, which forces
+  brand resolution from callback `metadata` and **is a change to a protected step**. Answer before
+  writing the handler.
+- **Sign-off to add `actor_type` to the audit trail** (Unit 14) — `ai-workflow-rules.md` protects
+  "the audit-trail entity and its write path" and asks for explicit instruction before any change.
+  Unit 14 needs one nullable column and a third writer so a client's draft approval is attributed to
+  *the client* rather than to a null actor indistinguishable from a webhook's. Append-only is not
+  weakened — no update/delete path, every column still `updatable = false`, the `V10` trigger
+  untouched — but the rule wants instruction, not an argument. If refused, the fallback is a worse
+  trail for the one action a client performs in the system.
+- **Whether GHL reports review captures back** (Unit 17) — EvalOS can only count review *requests
+  sent*. Actual captures live on Google and in GHL's campaign; reading them back would be a new
+  inbound integration nobody has specified. Until then the tile is labelled for what it measures.
+- **Whether EvalOS may send case data to an external AI API at all** (Unit 20) — a product and
+  compliance decision, not an implementation one. It would be the first outbound flow of internal
+  case content to a third party (Drive holds documents EvalOS links to; Dropbox Sign holds letters it
+  does not read; GHL is the front office EvalOS serves). The spec's whitelist excludes
+  `payment_detail`, all client and expert identity, and every free-text field — which leaves
+  anonymous tag-level data, and is also the honest argument that the layer's value is limited. Note
+  the **anomaly-detection half of Unit 20 needs no AI at all** (>15% vs a 4-week mean is arithmetic)
+  and ships regardless of how this is answered.
 - **Staff SSO** — optional/later; JWT password login for v1.
 - **FO-2026-CRM-01** — full credential-handling rules (disclaimer text captured
   per brand; remaining rules assumed satisfied by encryption + RBAC + audit).
@@ -1003,7 +1364,26 @@ whenever a third brand is seeded. Staff SSO stays deferred.
 - **No mail server**: staff in-app notification center; client messages via GHL;
   expert notifications via Dropbox Sign (portal-only nudges).
 - **Payouts**: manual ledger form, no payment-platform/disbursement rail. Single
-  optional encrypted `payment_detail` field.
+  optional encrypted `payment_detail` field — **write-only from Unit 11 on**: one
+  `PUT` sets it, no endpoint reads it back, no DTO declares it, and the sheet import
+  refuses a column mapped to it. Screens get a derived "on file" boolean.
+- **Expert taxonomy** (Unit 11): `FieldTag` and `LetterType` are **closed** vocabularies,
+  enforced as Java enums *and* as database CHECKs (`V18`), because neither covers the
+  other's writer. Exact matching for Unit 12 at the cost of a migration per new
+  discipline. The shipped values are the spec's starter list and are **not ENM-signed**.
+- **Expert load and payouts-pending are derived, never counted into a column.**
+  `expert.current_active_count`, `total_cases_completed` and `total_payments_pending`
+  exist from `V7`, have never been written, and stay that way: `ExpertLoadService` answers
+  from one batched grouped count over `evalos_case` per page, and Unit 16 does the same
+  over `payout_ledger`. A counter would need adjusting on assign, close, refund, reassign
+  and decline.
+- **Roster maintenance is a sheet upload** (CSV *and* XLSX), validated in a dry run, then
+  imported all-or-nothing in one transaction, upserting on `(brand_id, lower(email))` —
+  the partial unique index, not the lookup, is what makes a concurrent re-upload lose.
+  Rows are never deleted by an import. The file is parsed in memory and never stored.
+- **A request may name a brand only when creating a row, never to scope a read.** `brandId`
+  on `POST /api/experts` and the imports exists because a GM has no brand of their own;
+  `OwnershipGuard` decides whether the caller may act in it.
 - **Handoff A**: GHL fires the per-brand "contact created" webhook; EvalOS creates
   the case idempotently, **unpaid**. Payment is a separate fact recorded on the
   case by a GM or Brand Manager (`paid` / `paid_at`, `POST /mark-paid`), and no

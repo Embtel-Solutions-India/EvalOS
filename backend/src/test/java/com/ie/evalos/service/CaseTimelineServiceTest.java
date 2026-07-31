@@ -11,7 +11,6 @@ import com.ie.evalos.domain.Case;
 import com.ie.evalos.domain.ExceptionState;
 import com.ie.evalos.domain.PmApprovalStatus;
 import com.ie.evalos.domain.PoolStatus;
-import com.ie.evalos.domain.Role;
 import com.ie.evalos.domain.SlaStatus;
 import com.ie.evalos.domain.Stage;
 import com.ie.evalos.domain.TeamMember;
@@ -21,6 +20,8 @@ import com.ie.evalos.service.CaseLifecycleService.CaseSnapshot;
 import com.ie.evalos.service.CaseTimelineService.TimelineEntry;
 
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentMatchers;
+import org.springframework.data.jpa.domain.Specification;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -140,7 +141,7 @@ class CaseTimelineServiceTest {
 		assertThat(entries).extracting(TimelineEntry::actorName)
 				.containsExactly("Priya Menon", "Priya Chandra");
 		// A Specification, never the unscoped findAllById it replaced.
-		verify(teamMembers).findAll(any(org.springframework.data.jpa.domain.Specification.class));
+		verify(teamMembers).findAll(ArgumentMatchers.<Specification<TeamMember>>any());
 	}
 
 	@Test

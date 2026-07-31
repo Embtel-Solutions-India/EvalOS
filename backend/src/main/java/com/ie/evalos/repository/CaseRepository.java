@@ -1,6 +1,7 @@
 package com.ie.evalos.repository;
 
 import java.time.Instant;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -12,6 +13,8 @@ import com.ie.evalos.security.TenantContext;
 import com.ie.evalos.service.ScopePredicate;
 
 import org.springframework.data.jpa.domain.Specification;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 /**
  * The one repository where all three scope axes are live: a Brand Manager reads the
@@ -51,6 +54,43 @@ public interface CaseRepository extends ScopedRepository<Case> {
 	 */
 	Optional<Case> findFirstByBrandIdAndContactIdAndServiceTypeAndCurrentStageNotOrderByCreatedAtDesc(
 			UUID brandId, UUID contactId, ServiceType serviceType, Stage excludedStage);
+
+	/**
+	 * How many cases each of these experts is carrying, and has finished, in one query
+	 * for a whole roster page.
+	 *
+	 * <p>Native SQL rather than JPQL for two reasons: {@code FILTER (WHERE …)} is what
+	 * makes this one grouped pass instead of two, and this entity's JPQL name is
+	 * {@code Case}, which is also a JPQL keyword. The counts are what
+	 * {@code ExpertLoadService} answers with — {@code expert.current_active_count} and
+	 * {@code total_cases_completed} exist but have never been written by anything, so
+	 * reading them would report every expert as free.
+	 *
+	 * <p>"Completed" excludes a refunded case, matching {@code RefundService.isRefunded}:
+	 * a {@code CLOSED} case still holding {@code REFUND_REQUESTED} is one whose refund the
+	 * GM approved, and it is not work delivered.
+	 *
+	 * <p><strong>Deliberately brand-unscoped</strong>, like
+	 * {@code DocumentChecklistItemRepository.findByCaseIdIn}: it aggregates over expert
+	 * ids the caller already read through {@code ExpertRepository.findScoped}. Do not
+	 * call it with ids that came from a request. Asserted in
+	 * {@code LocalPostgresIntegrationTest}, because a future caller passing an unscoped
+	 * id would be a brand leak no mocked repository could show.
+	 *
+	 * @return one row per expert that has at least one case: {@code [expert_id, active,
+	 *         completed]}. An expert with no cases is absent, not zero — the caller
+	 *         supplies the zero.
+	 */
+	@Query(nativeQuery = true, value = """
+			SELECT expert_id,
+			       count(*) FILTER (WHERE current_stage <> 'CLOSED')                     AS active,
+			       count(*) FILTER (WHERE current_stage = 'CLOSED'
+			                          AND exception_state <> 'REFUND_REQUESTED')         AS completed
+			  FROM evalos_case
+			 WHERE expert_id IN (:expertIds)
+			 GROUP BY expert_id
+			""")
+	List<Object[]> countCasesPerExpert(@Param("expertIds") Collection<UUID> expertIds);
 
 	/**
 	 * The board read: the caller's scope first, then the optional filters on top. A

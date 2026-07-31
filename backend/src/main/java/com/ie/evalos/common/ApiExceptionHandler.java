@@ -1,5 +1,6 @@
 package com.ie.evalos.common;
 
+import com.fasterxml.jackson.databind.exc.InvalidFormatException;
 import com.ie.evalos.domain.IllegalTransitionException;
 import com.ie.evalos.webhook.WebhookRejected;
 
@@ -7,11 +8,13 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.AuthenticationException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
 
 /**
  * One place that turns exceptions into the standard envelope. Messages stay
@@ -30,6 +33,40 @@ public class ApiExceptionHandler {
 				.map(error -> error.getField() + " " + error.getDefaultMessage())
 				.orElse("Request is not valid");
 		return ResponseEntity.badRequest().body(ApiResponse.error("VALIDATION_FAILED", detail));
+	}
+
+	/**
+	 * A body Jackson could not bind. Unit 11 made this worth handling: the expert form
+	 * carries closed vocabularies ({@code FieldTag}, {@code LetterType}), and an unknown
+	 * tag has to be a 400 that says which value was not recognised — before this, it fell
+	 * through to the catch-all and answered 500 for what is squarely a bad request.
+	 *
+	 * <p>Only the offending value and the vocabulary's name are echoed, never Jackson's
+	 * own message: that quotes the surrounding JSON and enumerates every accepted value,
+	 * which is a payload echo and a vocabulary dump for the sake of one wrong word.
+	 */
+	@ExceptionHandler(HttpMessageNotReadableException.class)
+	public ResponseEntity<ApiResponse<Void>> onUnreadableBody(HttpMessageNotReadableException ex) {
+		String detail = ex.getCause() instanceof InvalidFormatException invalid
+				? "%s is not a known %s".formatted(invalid.getValue(), invalid.getTargetType().getSimpleName())
+				: "Request body is not valid";
+		return ResponseEntity.badRequest().body(ApiResponse.error("VALIDATION_FAILED", detail));
+	}
+
+	/** A request the caller can fix, stating what to fix. See the exception's own note. */
+	@ExceptionHandler(InvalidRequestException.class)
+	public ResponseEntity<ApiResponse<Void>> onInvalidRequest(InvalidRequestException ex) {
+		return ResponseEntity.badRequest().body(ApiResponse.error("VALIDATION_FAILED", ex.getMessage()));
+	}
+
+	/**
+	 * A sheet larger than the configured limit. A 400 rather than the container's 500:
+	 * the ENM re-exports a smaller file, which is something they can act on.
+	 */
+	@ExceptionHandler(MaxUploadSizeExceededException.class)
+	public ResponseEntity<ApiResponse<Void>> onUploadTooLarge(MaxUploadSizeExceededException ex) {
+		return ResponseEntity.badRequest()
+				.body(ApiResponse.error("UPLOAD_TOO_LARGE", "That file is larger than the import accepts"));
 	}
 
 	@ExceptionHandler(AuthenticationException.class)

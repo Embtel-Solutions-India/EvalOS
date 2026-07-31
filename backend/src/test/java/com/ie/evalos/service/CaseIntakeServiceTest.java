@@ -26,7 +26,6 @@ import com.ie.evalos.event.CaseEvents;
 import com.ie.evalos.repository.CaseRepository;
 import com.ie.evalos.repository.ContactSnapshotRepository;
 import com.ie.evalos.repository.DocumentChecklistItemRepository;
-import com.ie.evalos.repository.NotificationRepository;
 import com.ie.evalos.repository.TeamMemberRepository;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -63,7 +62,6 @@ class CaseIntakeServiceTest {
 	private final CaseRepository cases = mock(CaseRepository.class);
 	private final ContactSnapshotRepository contacts = mock(ContactSnapshotRepository.class);
 	private final DocumentChecklistItemRepository checklistItems = mock(DocumentChecklistItemRepository.class);
-	private final NotificationRepository notifications = mock(NotificationRepository.class);
 	private final TeamMemberRepository teamMembers = mock(TeamMemberRepository.class);
 	private final AuditService audit = mock(AuditService.class);
 	private final ApplicationEventPublisher events = mock(ApplicationEventPublisher.class);

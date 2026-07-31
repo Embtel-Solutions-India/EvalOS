@@ -1,9 +1,11 @@
 # backend/ — Core
 
-Spring Boot 3.5.16 / Java 21, base package `com.ie.evalos`, Maven Wrapper committed. Units 01–05 +
-05a built: config + response envelope, the tenancy/auth/RBAC spine, the domain schema, the case state
-machine + SLA, and the inbound webhook gateway with Handoff A. Unit 06 (staff notification centre) is
-next.
+Spring Boot 3.5.16 / Java 21, base package `com.ie.evalos`, Maven Wrapper committed. **Units 01–10 +
+05a (all of Phase 1) and Unit 11 are built**: config + response envelope, the tenancy/auth/RBAC
+spine, the domain schema, the case state machine + SLA, the inbound webhook gateway with Handoff A,
+the staff notification centre, the board/case-detail/checklist reads behind four frontend surfaces,
+and the expert database + sheet upload. Unit 12 (match scoring) is next. See `mem:core` for counts
+and the phase map.
 
 ## Package boundaries (all under `com.ie.evalos`)
 
@@ -25,7 +27,13 @@ dispatcher (Unit 18) is the next.
 `common/ApiResponse<T>` (`success`, `data`, `error{code,message}`, `@JsonInclude(NON_NULL)`) is
 returned by **every** endpoint; `ApiResponse.ok(...)` / `.error(...)`. `common/ApiExceptionHandler`
 (`@RestControllerAdvice`) maps exceptions to it — but failures raised **inside the security filter
-chain never reach the advice**, so `common/ApiErrors` writes the envelope for those 401/403s. The
+chain never reach the advice**, so `common/ApiErrors` writes the envelope for those 401/403s.
+Handled: validation (400), `HttpMessageNotReadableException` (400 — an unknown enum value in a body
+used to fall through to the catch-all and answer **500**; the message names the offending value but
+never echoes Jackson's, which quotes the payload and lists every legal value),
+`InvalidRequestException` (400, message returned — same "may not be an existence oracle" rule as
+`IllegalTransitionException`), `MaxUploadSizeExceededException` (400), auth (401), forbidden (403),
+`IllegalTransitionException` (409), webhook rejection (its own status), catch-all (500). The
 frontend's typed mirror lives in `frontend/src/lib/api.ts`.
 
 ## Config & schema
@@ -40,7 +48,9 @@ frontend's typed mirror lives in `frontend/src/lib/api.ts`.
   contact_snapshot · `V5` evalos_case · `V6` document_checklist_item · `V7` expert (+ the deferred
   `evalos_case.expert_id` FK) · `V8` payout_ledger · `V9` notification · `V10` audit_event · `V11`
   brand GHL secret · `V12` webhook_event · `V13` brand-scoped webhook idempotency key · `V14`
-  `evalos_case.paid`/`paid_at` · `V15` partial unique index for one open case per contact+service.
+  `evalos_case.paid`/`paid_at` · `V15` partial unique index for one open case per contact+service ·
+  `V16` contact identity · `V17` `evalos_case.assigned_coordinator` · `V18` expert contact columns +
+  the closed-vocabulary CHECKs + the per-brand email index (see `mem:backend/persistence`).
   **Never edit an applied migration** — `V12`'s constraint was once renamed in place, which would
   have made `V13`'s `DROP CONSTRAINT` fail on a fresh database while breaking checksums on existing
   ones.
@@ -54,7 +64,9 @@ frontend's typed mirror lives in `frontend/src/lib/api.ts`.
 ## Running & tests
 
 - **A reachable Postgres is required to start.** This machine has PostgreSQL 18 with the `evalos`
-  database migrated to `V15` — see `mem:suggested_commands`.
+  database migrated to `V18` (+ the `V90x` local seeds) — see `mem:suggested_commands`. Its `public`
+  schema also holds ~46 junk experts and ~150 junk cases from integration-test runs that predate the
+  `evalos_test` schema; they are dev noise, not data, and they show up on the roster screen.
 - Map every controller under `/api` (the Vite dev proxy). Endpoints are **secured by default**: a new
   one answers 401 until `SecurityConfig` permits it or the caller bears a token.
 - Tests are slice (`@WebMvcTest`) or plain unit tests needing no DB, so `verify` is green anywhere.

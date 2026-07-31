@@ -16,19 +16,42 @@ point; `context/` holds the working build context (`project-overview`, `architec
 `code-standards`, `ai-workflow-rules`, `progress-tracker`). The authoritative design is the **EvalOS
 Technical Design Document v1.1**; where a context file conflicts with it, v1.1 wins.
 
-- Ordered unit list: `context/00-build-plan.md` — note it sits at `context/` root, **not** in
-  `specs/`, despite what `CLAUDE.md` and the tracker say (20 units, 3 phases). Individual specs
-  `context/specs/NN-name.md` are generated **just before** each unit is built.
+- Ordered unit list: **`context/specs/00-build-plan.md`** (20 units, 3 phases). An earlier version of
+  this memory claimed it sits at `context/` root and that `CLAUDE.md` was wrong about it — that was
+  itself wrong; `CLAUDE.md` has always been right.
+- Unit specs are `context/specs/NN-name.md`. **01–10 were generated just before each unit was built;
+  11–20 were written in one pass at the start of Phase 2.** The just-in-time rule stands as the
+  default, so 11–20 are **drafts to re-read and revise at the start of their own unit**, not settled
+  contracts (18–20 say so in their own headers). Writing them ahead already produced four
+  corrections to earlier assumptions, which is the cost the rule exists to avoid.
 - Do not invent product behavior absent from the context files — add an open question to
-  `context/progress-tracker.md` instead.
+  `context/progress-tracker.md` instead. That file is also where **decisions and their costs** are
+  recorded (Phase 2 readiness section + Open Questions); read it rather than re-deriving why
+  something was chosen.
 - Update `context/progress-tracker.md` after every meaningful change; update the relevant context
   file (and the TDD) if a decision changes.
-- **Current state:** Units 01–06 done, including 05a (the custody-trigger move). Scaffold + envelope,
-  the tenancy/auth/RBAC spine, the domain schema, the case state machine + SLA, the inbound webhook
-  gateway with Handoff A, and the in-app notification centre. Migrations run to `V15`. ~28 endpoints:
-  auth/health/team-members, the per-transition case routes, and four notification routes.
-  **Unit 07 (app shell + routing) is next** — the first surface, including the bell over Unit 06's
-  endpoints. The backend is still the only half past Unit 01.
+
+**Current state: Phase 1 (Units 01–10 + 05a) is complete and verified, and Phase 2 has started.**
+Scaffold + response envelope, the tenancy/auth/RBAC spine, the domain schema, the case state machine
++ SLA calendar, the inbound webhook gateway with Handoff A, the in-app notification centre, and five
+live frontend surfaces (app shell + role routing, production Kanban board, case detail + timeline,
+document checklist board, expert database). CI runs the DB suite against a real Postgres on every
+push.
+
+**Phase 2 is Units 11–17 and is under way. Unit 11 (expert database + sheet upload) is complete
+and verified; Unit 12 (match scoring) is next.** Migrations run to **`V18`**; ~53 endpoints; **229
+backend tests, none skipped** (22 DB-backed) and 61 frontend tests. Unit 11 added the closed
+`FieldTag`/`LetterType` vocabularies (enum **and** DB CHECK), `email`/`phone`/`letter_types`/
+`standard_fee` on `expert`, the write-only `payment_detail` path, `ExpertLoadService` (load derived
+from `evalos_case`, never from the dead `V7` counters), the CSV+XLSX roster import, and the
+`/experts` screen — details in `mem:backend/persistence` and the tracker's Unit 11 entry.
+**The `FieldTag` values shipped WITHOUT the ENM's sign-off**, on instruction: still an open
+question, and widening the list now means a new migration widening `V18`'s CHECK plus the enum plus
+`frontend/src/features/experts/expertRules.ts`, moved together.
+Phase boundaries are 01–10 / 11–17 / 18–20 — earlier tracker entries mislabelled 06 onward as Phase 2
+and were corrected.
+Later units carry named external dependencies that do not exist yet (Google Drive service account for
+13, Dropbox Sign account for 15, GHL outbound contract for 18) — all listed in the tracker.
 
 ## Layout
 
@@ -40,24 +63,43 @@ Monorepo, but no root build: each half is built and run from **inside its own di
 - `frontend/` — Vite + React 19 + TS SPA. `mem:frontend/core` for routing, the HTTP layer, and the
   design-token styling system.
 - `context/` — the specs and design docs above. `README.md` — local run + verify steps.
-- No root `package.json`, workspace tool, CI config, or Docker compose.
+- `.github/workflows/ci.yml` — the only CI. Note it runs **`npm install`, not `npm ci`**: the
+  lockfile is written on Windows and records wasm-fallback bindings without their `@emnapi/*` deps,
+  which `npm ci` rejects on Linux. Cost is that CI resolves within semver ranges instead of pinning;
+  regenerating the lockfile once on Linux restores `npm ci`. Reason is written into `ci.yml`.
+- No root `package.json`, workspace tool, or Docker compose.
 
 ## Project-wide invariants (override convenience everywhere)
 
 - **Brand-scoped by default.** Every scoped query filters by `brand_id` (plus team/assignee where
   applicable). A query without brand scoping is a defect, enforced at the repository/service layer —
-  never only in the UI. GM is the only cross-brand role.
+  never only in the UI. GM is the only cross-brand role. **One exception, added in Unit 11 and not
+  a scope:** `POST /api/experts` and the two import endpoints take an optional `brandId` naming
+  *where a new row goes*, because a GM has no brand of their own and this is the first unit where
+  staff create a scoped row. `OwnershipGuard.assertCanAct` decides whether the caller may act there,
+  so a brand-locked role naming another brand gets a 403. Reads never take brand from a request; a
+  `brandId` on a read can only narrow.
 - **Append-only truth.** Audit + assignment history are never updated or deleted; no update/delete
-  path may exist on those repositories.
+  path may exist on those repositories. This has a consequence worth knowing before you hit it:
+  `audit_event` rows **can never be backfilled** — see `mem:backend/persistence`.
 - **Flyway owns the schema.** `ddl-auto: validate`. Every change is a new migration; an applied
   migration is never edited.
 - **No object storage, no mail server.** Documents are Google Drive links, signed letters live in
   Dropbox Sign, staff alerts are in-app, client messages go out through GHL. Do not add S3 or SMTP.
+  (Phase 2 adds a Drive **API client** for one write path in Unit 13 — links-only stops being the
+  whole story there, but EvalOS still hosts no bytes.) Unit 11 added the one **upload** — the expert
+  roster sheet — and it holds too: parsed in memory, never stored, with
+  `multipart.file-size-threshold` set equal to `max-file-size` so the container cannot spool it to a
+  temp file.
 - **A case is created only by a per-brand GHL webhook endpoint** — no other path, enforced
   structurally by `DomainInvariantsTest` (only the contact handler may depend on `CaseIntakeService`,
   so adding a `POST /api/cases` breaks the build). Marking one **paid** is a separate staff act.
 - **Unpaid work stops at `DOC_COLLECTION`.** Revenue is recognized only when paid **and** delivered.
   Both live in `mem:backend/lifecycle`.
+- **A client-offered link/action must be checked against the reader's allow-list.** Four separate
+  defects have been one bug: a screen or escape hatch linked without `mayReach`. `navigation.ts` is
+  one table for nav + router + allow-list, and `boardPathFor(role)` walks it. Grep before adding any
+  cross-screen link.
 - Module contract is HTTP under `/api`, same-origin in dev via the Vite proxy; no CORS config exists
   on either side — add endpoints under `/api` rather than introducing CORS.
 

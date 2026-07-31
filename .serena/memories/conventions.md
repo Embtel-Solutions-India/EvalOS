@@ -31,7 +31,11 @@ Full rules live in `context/code-standards.md` — this is the distilled, enforc
 - Controllers are thin: `@Valid` the request DTO → authorize (role + brand + ownership) → call a
   service → return a DTO in `ApiResponse`. Business rules live in `service`, never in controllers or
   entities. Errors are mapped centrally by a `@RestControllerAdvice` from typed domain exceptions.
-- Bean Validation on every inbound request DTO and webhook payload — parse-then-trust.
+- Bean Validation on every inbound request DTO and webhook payload — parse-then-trust. Where two
+  paths write the same object, define the constraints **once** and run them both ways: Unit 11's
+  `ExpertService.ExpertForm` is bound with `@Valid` by the controller and validated programmatically
+  through a `Validator` by the sheet import, so "a quality score is 1–10" cannot come to mean two
+  things.
 - Test classes are package-private (`class HealthControllerTest`), slice-scoped (`@WebMvcTest`) or
   plain unit tests. A test that needs a real database is gated, not silently skipped —
   `mem:suggested_commands`.

@@ -21,6 +21,16 @@ StatCommand) become blocking.
 
 Generate a `specs/NN-name.md` for a unit just before building it.
 
+**Units 01–10 followed that rule; Units 11–20 did not.** All ten remaining specs
+were written in one pass at the start of Phase 2, by decision, so the whole
+remaining shape is on paper at once. The rule stays as written because it is the
+right default — a spec written ten units early is written against code that does
+not exist. So specs 11–20 are **drafts to be re-read and revised at the start of
+their own unit**, not settled contracts, and 18–20 say so in their own headers.
+Two of them already carry corrections found while writing later specs (Unit 11's
+derived load, Unit 16's payout uniqueness), which is the failure mode the
+just-in-time rule exists to avoid, caught early rather than at build time.
+
 ---
 
 ## Phase 1 — Structure the data (the spine)

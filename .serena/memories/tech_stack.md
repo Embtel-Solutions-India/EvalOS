@@ -17,8 +17,11 @@ a dependency only in the unit where it first unlocks real behavior.
   `@theme`). There is deliberately **no `tailwind.config.js`**; extend the `@theme` block in
   `src/styles/tokens.css` instead.
 - oxlint (not ESLint) — config `frontend/.oxlintrc.json`, plugins react/typescript/oxc.
-- axios for HTTP. No state-management, data-fetching, or test library installed; **no test runner at
-  all** — frontend changes are verified by typecheck + lint + manual run.
+- axios for HTTP. No state-management or data-fetching library. **Vitest is installed**
+  (`npm run test` → `vitest run`) and is used for pure rules modules — `boardRules`,
+  `checklistRules`, `navigation`, `expertRules` — not for component rendering: there is no
+  jsdom/Testing Library, so a component's behaviour is still verified by typecheck + lint + running
+  it.
 - Planned but not installed: shadcn/ui-style Radix primitives, Lucide icons.
 
 ## backend/
@@ -32,6 +35,11 @@ a dependency only in the unit where it first unlocks real behavior.
 - JWT: **jjwt 0.13.0** (`jjwt-api` compile, `jjwt-impl` + `jjwt-jackson` runtime) — the 0.11 builder
   API is wrong here; use `Jwts.builder().subject(...).signWith(key)` and
   `Jwts.parser().verifyWith(key).build().parseSignedClaims(...)`.
+- **The sheet import's two parsers (Unit 11): `commons-csv` 1.12.0 and `poi-ooxml` 5.4.1.** Only
+  `service/ExpertImportService` uses either. POI is ~10 MB with transitives against commons-csv's
+  ~50 KB and was bought on instruction so an ENM can upload `.xlsx` straight from Excel; both feed
+  one validator, so nothing downstream knows which format arrived. Note commons-csv 1.12 uses
+  `CSVFormat.DEFAULT.builder()…build()` — `.get()` is 1.13+.
 - **No Lombok and no Testcontainers** — both dropped from the Initializr default in Unit 01 (records +
   constructor injection instead of Lombok). There is no Docker on this machine, so DB-dependent tests
   are gated rather than containerised. Boot 4 was deliberately downgraded to 3.x per the unit spec.

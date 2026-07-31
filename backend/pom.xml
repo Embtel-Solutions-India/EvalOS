@@ -17,6 +17,8 @@
 	<properties>
 		<java.version>21</java.version>
 		<jjwt.version>0.13.0</jjwt.version>
+		<commons-csv.version>1.12.0</commons-csv.version>
+		<poi.version>5.4.1</poi.version>
 	</properties>
 
 	<dependencies>
@@ -69,6 +71,23 @@
 			<groupId>org.postgresql</groupId>
 			<artifactId>postgresql</artifactId>
 			<scope>runtime</scope>
+		</dependency>
+		<!--
+			Unit 11's sheet import. Both parsers are here because the Expert Network
+			Manager uploads straight from Excel and from a Sheets CSV export;
+			poi-ooxml is ~10 MB with transitives against commons-csv's ~50 KB, which is
+			the whole cost of accepting .xlsx and is recorded in the progress tracker.
+			Nothing outside ExpertImportService touches either one.
+		-->
+		<dependency>
+			<groupId>org.apache.commons</groupId>
+			<artifactId>commons-csv</artifactId>
+			<version>${commons-csv.version}</version>
+		</dependency>
+		<dependency>
+			<groupId>org.apache.poi</groupId>
+			<artifactId>poi-ooxml</artifactId>
+			<version>${poi.version}</version>
 		</dependency>
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
