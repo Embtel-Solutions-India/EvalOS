@@ -74,7 +74,7 @@
 		</dependency>
 		<!--
 			Unit 11's sheet import. Both parsers are here because the Expert Network
-			Manager uploads straight from Excel as well as from a Sheets CSV export;
+			Manager uploads straight from Excel and from a Sheets CSV export;
 			poi-ooxml is ~10 MB with transitives against commons-csv's ~50 KB, which is
 			the whole cost of accepting .xlsx and is recorded in the progress tracker.
 			Nothing outside ExpertImportService touches either one.
