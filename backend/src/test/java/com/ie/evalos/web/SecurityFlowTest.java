@@ -29,7 +29,6 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import org.mockito.ArgumentMatchers;
 
-import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.willReturn;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.verify;
@@ -179,7 +178,7 @@ class SecurityFlowTest {
 
 	@Test
 	void brandManagerListsThroughTheScopedQuery() throws Exception {
-		willReturn(List.of()).given(teamMembers).findAll(any(Specification.class));
+		willReturn(List.of()).given(teamMembers).findAll(ArgumentMatchers.<Specification<TeamMember>>any());
 
 		mockMvc.perform(get("/api/team-members").header(HttpHeaders.AUTHORIZATION, bearer(BRAND_MANAGER)))
 				.andExpect(status().isOk())
@@ -191,7 +190,7 @@ class SecurityFlowTest {
 
 	@Test
 	void gmListsThroughTheScopedQueryToo() throws Exception {
-		willReturn(List.of()).given(teamMembers).findAll(any(Specification.class));
+		willReturn(List.of()).given(teamMembers).findAll(ArgumentMatchers.<Specification<TeamMember>>any());
 
 		mockMvc.perform(get("/api/team-members").header(HttpHeaders.AUTHORIZATION, bearer(GM)))
 				.andExpect(status().isOk());
@@ -206,7 +205,7 @@ class SecurityFlowTest {
 	 */
 	@Test
 	void aProjectManagerMayReadTheAssignableRosterButNotTheDirectory() throws Exception {
-		willReturn(List.of()).given(teamMembers).findAll(any(Specification.class));
+		willReturn(List.of()).given(teamMembers).findAll(ArgumentMatchers.<Specification<TeamMember>>any());
 
 		mockMvc.perform(get("/api/team-members/assignable")
 				.param("role", "CASE_MANAGER")

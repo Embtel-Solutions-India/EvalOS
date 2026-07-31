@@ -67,16 +67,27 @@ is how a case gets there without an expert assigned.
 
 ## New actions on the transition table
 
-Three, all declared **from `EXPERT_SIGNING` only**, because these are things only
-an expert with a case in front of them can do. Each carries its own event and
-audit action, per `CaseTransitions.Action`'s contract that a transition cannot be
-logged as one thing and published as another.
+Four, all declared **from `EXPERT_SIGNING` only**. Three are things only an expert
+with a case in front of them can do; the fourth is a staff act about an expert who
+did nothing, and the reason it has to exist is set out under the sign SLA below.
+Each carries its own event and audit action, per `CaseTransitions.Action`'s
+contract that a transition cannot be logged as one thing and published as another.
 
 | Action | Lands on | Effect | New event |
 | --- | --- | --- | --- |
 | `EXPERT_ACCEPTED` | `EXPERT_SIGNING` (in place) | stamps the offer `ACCEPTED`; the expert has taken the case | `expert.accepted` |
 | `EXPERT_REQUEST_EVIDENCE` | `EXPERT_SIGNING` (in place) | sets `ON_HOLD_AWAITING_CLIENT`, **adds a required checklist item** carrying the expert's description | `expert.evidence_requested` |
 | `EXPERT_DECLINED` | *already exists* | sets `EXPERT_DECLINED_REMATCHING`; `REASSIGN_EXPERT` is the declared way out | `expert.declined` (exists) |
+| `EXPERT_TIMED_OUT` | `EXPERT_SIGNING` (in place) | sets `EXPERT_DECLINED_REMATCHING` and stamps the offer `TIMED_OUT`. **GM · Brand Manager · PM**, never the expert and never a job | `expert.timed_out` |
+
+`EXPERT_TIMED_OUT` mirrors `EXPERT_DECLINED`'s exact shape — stage-preserving,
+setting the same exception state, so `REASSIGN_EXPERT` (which
+`CaseTransitions.REQUIRES_EXCEPTION` pins to `EXPERT_DECLINED_REMATCHING`) is the
+way out of both without being widened. It is a **separate action rather than a
+reuse of `EXPERT_DECLINED`** for the reason this whole unit exists: "the expert
+refused" and "the expert never answered" are different facts about a person whose
+acceptance rate the match engine scores, and recording silence as a refusal would
+put a decline the expert never made into the trail and into their rate.
 
 `EXPERT_DECLINED` and `REASSIGN_EXPERT` are **already built** (Unit 04) and already
 wired into `REQUIRES_EXCEPTION`. This unit only lets the expert be the one who
@@ -125,8 +136,12 @@ inbound gateway: verify → resolve brand → dedupe → archive → route → a
 (invariant 10). A new `webhook/DropboxSignHandler` and its router entries; the
 gateway itself is untouched and stays a protected file.
 
-- `signed` → `EXPERT_SIGNED` (the Unit 04 transition), sign status `SIGNED`, offer
-  `ACCEPTED`.
+- `signed` → `EXPERT_SIGNED` (the Unit 04 transition), sign status `SIGNED`, and the
+  offer stamped `ACCEPTED` **only if it is still `OFFERED`**. An expert who pressed
+  Accept in the portal and then signed produces two writes of the same outcome on
+  the ordinary happy path, and Unit 12's rule is that an outcome leaves `OFFERED`
+  exactly once — so the second write is a no-op, not a second stamp and not an
+  error. First write wins, whichever act arrives first.
 - `declined` → `EXPERT_DECLINED` with the reason from the callback.
 - `viewed` → stamps a viewed timestamp only. **No transition** — looking at a
   document is not an act on the case, and giving it one would put a meaningless
@@ -193,6 +208,7 @@ Staff-side, on the normal chain:
 | --- | --- | --- | --- |
 | POST | /api/cases/{id}/expert-portal-link | GM · Brand Manager · PM · CM | mint the expert link (the CM-shared path, for when Dropbox Sign's own link is not the route in) |
 | POST | /api/cases/{id}/expert/resend-signature-request | GM · Brand Manager · PM · CM | re-issue the Dropbox Sign request; audited |
+| POST | /api/cases/{id}/expert/timed-out | GM · Brand Manager · PM | → `EXPERT_TIMED_OUT`. The human answer to the 24h prompt: stamps the offer `TIMED_OUT` and opens the rematch. **Not on the CM's list** — taking a case off an expert is the same weight of call as staffing it |
 
 Audit rows from the portal use `AuditService.recordPortalEvent` with
 `actor_type = EXPERT` (Unit 14's column), so "the expert declined" and "a Case
@@ -210,16 +226,27 @@ Pacific business calendar.
 - `expert.sign_overdue` at 24h → notification, and the case is **flagged for
   reassignment** — surfaced to the PM with the Unit 12 shortlist for the next
   expert.
-- **Auto-reassign proposes; it does not reassign.** `REASSIGN_EXPERT` requires
-  `EXPERT_DECLINED_REMATCHING`, and an expert who has not answered has not
-  declined. Silently pulling a case off an expert who was about to sign, and
-  emailing a second expert the same letter, is worse than a late case. The
-  build plan's "auto-reassign" is read as **auto-prompt**, which is also the
-  wording `project-overview.md` uses ("the case auto-prompts reassignment").
-  Where the two documents differ, the narrower reading wins and is recorded here.
-- `TIMED_OUT` on the offer row (declared in Unit 12, written by nobody until now)
-  is stamped when the case is actually reassigned after a timeout, so the
-  acceptance rate reflects silence as well as refusal.
+- **Auto-reassign proposes; it does not reassign.** Silently pulling a case off an
+  expert who was about to sign, and emailing a second expert the same letter, is
+  worse than a late case. The build plan's "auto-reassign" is read as
+  **auto-prompt**, which is also the wording `project-overview.md` uses ("the case
+  auto-prompts reassignment"). Where the two documents differ, the narrower reading
+  wins and is recorded here.
+- **And the prompt needs somewhere to lead, which is why `EXPERT_TIMED_OUT`
+  exists.** `REASSIGN_EXPERT` requires `EXPERT_DECLINED_REMATCHING`
+  (`CaseTransitions.REQUIRES_EXCEPTION`), and an expert who has not answered has
+  not declined — so before this action was declared there was **no legal path from
+  a 24h timeout to a rematch at all**, and `TIMED_OUT` was an outcome nothing could
+  ever write. An earlier draft of this file said `TIMED_OUT` is "stamped when the
+  case is actually reassigned after a timeout" without saying how the case got
+  there; the honest answers were a staff member firing `EXPERT_DECLINED` on an
+  expert who never declined, or widening `REASSIGN_EXPERT` to fire from anywhere.
+  The first corrupts the trail this unit exists to keep straight; the second
+  removes the guard that stops a case being pulled off an expert mid-signature.
+  So: the timer prompts, and a **human fires `EXPERT_TIMED_OUT`**, which is the act
+  that both stamps the offer `TIMED_OUT` and opens the rematch. `TIMED_OUT` is
+  therefore written **here**, by a person, not by Unit 19's clock — the clock only
+  raises the notification that asks for it.
 
 ## Frontend deliverables
 
@@ -237,7 +264,10 @@ Pacific business calendar.
    that EvalOS is waiting on the client — not on the expert.
 6. Staff side: the case detail expert card gains the signature-request status, the
    viewed timestamp, the sign deadline, and **Resend request**; the production
-   board's `EXPERT_SIGNING` column shows the 20h/24h warning state.
+   board's `EXPERT_SIGNING` column shows the 20h/24h warning state. Past 24h the
+   card also offers **Mark timed out & rematch** (`EXPERT_TIMED_OUT`), which is the
+   answer to the overdue prompt — confirmed, and worded so it is not mistaken for
+   recording a decline the expert never made.
 
 ## Acceptance criteria
 
@@ -257,6 +287,16 @@ Pacific business calendar.
 - [ ] Decline sets `EXPERT_DECLINED_REMATCHING`, stamps the offer `DECLINED` with
       the reason, and the case appears in the board's rematching lane with a
       shortlist for the next expert.
+- [ ] **A timed-out case can actually be rematched, and the trail says why.**
+      `EXPERT_TIMED_OUT` sets `EXPERT_DECLINED_REMATCHING`, stamps the offer
+      `TIMED_OUT` (not `DECLINED`), and `REASSIGN_EXPERT` then succeeds — asserted
+      end to end, because before this action existed the path did not close.
+      An expert who timed out shows no decline in their audit trail and no
+      `DECLINED` row against their acceptance rate.
+- [ ] The expert cannot fire `EXPERT_TIMED_OUT` (no portal route reaches it) and a
+      CM gets 403 from the staff route.
+- [ ] Accepting in the portal and then signing leaves the offer `ACCEPTED` with
+      **one** outcome write — the callback's stamp is a no-op, not a second one.
 - [ ] A replayed `signature_request.signed` callback signs once — the second is
       answered `duplicate` and produces no second audit row or event.
 - [ ] A `..._viewed` callback stamps the timestamp and produces **no** transition
@@ -294,10 +334,12 @@ Migration `V<next>__case_signature_request.sql` — `signature_request_id`,
 `expert_viewed_at`, `sign_deadline_at` on `evalos_case`. Frontend:
 `frontend/src/features/expert-portal/*` (`ExpertCaseView`, `expertPortalApi`).
 
-**Modified.** `service/CaseTransitions.java` — the two new actions.
+**Modified.** `service/CaseTransitions.java` — the three new actions
+(`EXPERT_ACCEPTED`, `EXPERT_REQUEST_EVIDENCE`, `EXPERT_TIMED_OUT`).
 `event/CaseEvents.java` — `expert.accepted`, `expert.evidence_requested`,
-`expert.sign_overdue_warning`, `expert.sign_overdue`.
-`service/CaseLifecycleService.java` — the two new transition methods.
+`expert.timed_out`, `expert.sign_overdue_warning`, `expert.sign_overdue`.
+`service/CaseLifecycleService.java` — the three new transition methods, and the
+first-write-wins guard on the offer outcome.
 `webhook/WebhookRouter.java` — the three Dropbox Sign event types.
 `service/ChecklistService.java` — the add-item path reused by request-evidence.
 `notification/NotificationListeners.java` — the new events' recipients.

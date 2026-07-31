@@ -901,6 +901,64 @@ contributor.
     (created)", no spec proposes editing an applied migration or a protected file, and none carries a
     `TBD`/`TODO`.
 
+- **Specs 11–20 review pass — six findings, all fixed, plus one stale line in
+  `architecture.md`.** Documentation only; no backend or frontend change, so `./mvnw verify` and
+  `npm run build` were not re-run. Every code claim the ten specs make was re-checked against the
+  tree and held (the dead `V7` counters, the missing `draft_link` behind `DraftPanel`'s "Open the
+  current draft", `RefundService` voiding only `PENDING`, `SEES_DEAL_VALUE` including the PM). What
+  the previous entry's consistency check could not catch was **semantics across specs** — it
+  verified that every named symbol exists and no unit depends on a higher-numbered one, which is
+  exactly the class of check that passes while two specs disagree about what a column means.
+  - **A timed-out expert could never be rematched, and `TIMED_OUT` was unreachable.**
+    `CaseTransitions.REQUIRES_EXCEPTION` pins `REASSIGN_EXPERT` to `EXPERT_DECLINED_REMATCHING`,
+    which only `EXPERT_DECLINED` sets — so a 24h timeout had no legal path to a rematch, while
+    Unit 15 said `TIMED_OUT` is stamped "when the case is actually reassigned after a timeout" and
+    Unit 19 pinned that the timer must not move the case. **Decision: a fourth declared action,
+    `EXPERT_TIMED_OUT`** (GM · Brand Manager · PM), mirroring `EXPERT_DECLINED`'s stage-preserving
+    shape and setting the same exception state. Rejected the two alternatives: recording silence as
+    a decline corrupts the trail this unit exists to keep straight, and widening `REASSIGN_EXPERT`
+    removes the guard against pulling a case off an expert mid-signature. `TIMED_OUT` is now
+    written by Unit 15, by a person, prompted by Unit 19's clock — the clock never fires it.
+  - **Unit 17's money tiles did not add up once a refund existed.** `Collected` was
+    `SUM(deal_value) where paid` with no refund filter, while `Recognized` and `Open liability`
+    both excluded refunds — so refunded money read as still collected, against invariant 5's
+    "a refund reverses recognition". **Decision: refunds out of `Collected`, and a `Refunded`
+    figure of its own**, so `Collected = Recognized + Open liability` exactly and the money that
+    moved is still visible rather than hidden. A new acceptance criterion asserts the arithmetic.
+  - **Unit 18 would have shipped the outbound HMAC secret in a migration.** The inbound half
+    settled this in `V11__brand_ghl_secret.sql`: nullable, because that fails closed, real value
+    from the environment, literals only in `local/V901`. The outbound `webhook_subscriber.secret`
+    now inherits that verbatim, plus the rule that **a subscriber with no secret is never delivered
+    to** — an unsigned outbound payload would breach invariant 11.
+  - **Unit 19's chase guard did not implement its own acceptance criterion.** "Nothing fires within
+    24h of the last chase" chases a stuck case every 24h forever; the criterion says once per
+    threshold, and Unit 10 defined two reminders. **Decision: the guard is per threshold**, keyed on
+    the count of `CHASED` rows — 24h, then 48h, then nothing, with the day-3 escalation carrying it
+    after that.
+  - **Units 12 and 15 disagreed about the offer `outcome`.** Unit 12 says it leaves `OFFERED`
+    exactly once; Unit 15 stamped `ACCEPTED` on both the portal Accept and the Dropbox Sign
+    callback, which both fire on the happy path. **Decision: first write wins, later writes of the
+    same outcome are no-ops**, and the guard lives in Unit 12 with the column rather than in each
+    caller.
+  - **Unit 20 described `claude-opus-5`'s thinking config wrongly.** Adaptive is not "the only
+    supported mode" — it is the *default*, `ThinkingConfigDisabled` is legal at effort `high` or
+    below, and only a fixed `budgetTokens` is rejected outright. Corrected, with the consequence
+    that matters added: thinking counts against `maxTokens`, so that has to be sized for the
+    reasoning plus the note. The rest of that block verified clean — model id, $5/$25 pricing,
+    `output_config.effort`, and `.outputConfig(Suggestion.class)` for record-derived structured
+    output.
+  - Also: **Unit 13's `Depends on` omitted 04 and 09** (it reads cases through
+    `CaseLifecycleService.read` and mounts a panel into `CaseDetail.tsx`), and a note was added to
+    Unit 12 that `ASSIGN_CASE_MANAGER` legitimately carries the expert —
+    `assignCaseManager(caseId, cmId, expertId)` publishing `EXPERT_ASSIGNED`. The method name reads
+    as staff-only and is not, which is worth one line in the spec to save the next reader the same
+    double-take.
+  - **`architecture.md` corrected, not just a spec.** Its scope-tiers note still said
+    `evalos_case` has no `assigned_coordinator` and a Coordinator's case scope "is not yet
+    expressible". `V17` added that column and widened `ScopePredicate.Fields` to a set of
+    assignment attributes; several of the 11–20 specs reason about Self-tier scoping, so the stale
+    line was the one thing here that could mislead a build rather than merely a reader.
+
 ## In Progress
 
 - Nothing.

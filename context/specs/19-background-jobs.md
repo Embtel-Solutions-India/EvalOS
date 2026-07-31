@@ -121,10 +121,10 @@ overdue on Saturday morning.
 
 | Job | Tick | Finds | Does | Idempotency from |
 | --- | --- | --- | --- | --- |
-| `DocChaseSweep` | 30 min | `DOC_COLLECTION`, checklist incomplete, ≥24h and ≥48h business since `stage_entered_at` | publishes `checklist.reminder` (Unit 10's event → GHL chases the client) | the `CHASED` audit rows; nothing fires within 24h of the last chase |
+| `DocChaseSweep` | 30 min | `DOC_COLLECTION`, checklist incomplete, ≥24h and ≥48h business since `stage_entered_at` | publishes `checklist.reminder` (Unit 10's event → GHL chases the client) | **per threshold**, from the count of `CHASED` audit rows: the 24h chase fires when there are none, the 48h chase when there is one, and **nothing after that** |
 | `DocEscalationSweep` | 1 h | `DOC_COLLECTION`, incomplete at 3 business days | publishes `docs.escalation.day3` → in-app to the PM + Brand Manager, and flags the board | the Unit 06 notification rows |
 | `StageSlaSweep` | 30 min | any active case whose `SlaCalculator` status is `AT_RISK`/`BREACHED` and whose stored `sla_status` is stale | refreshes `sla_status`, notifies the stage's owner on a transition into breach | the stored `sla_status` — it only notifies on a change |
-| `ExpertSignSweep` | 30 min | `EXPERT_SIGNING`, unsigned, ≥20h and ≥24h business | 20h warning to CM + PM; at 24h `expert.sign_overdue` + the reassignment prompt with Unit 12's shortlist | notification rows per threshold |
+| `ExpertSignSweep` | 30 min | `EXPERT_SIGNING`, unsigned, ≥20h and ≥24h business | 20h warning to CM + PM; at 24h `expert.sign_overdue` + the reassignment prompt with Unit 12's shortlist. **The prompt asks a human to fire Unit 15's `EXPERT_TIMED_OUT`; this sweep never fires it** | notification rows per threshold |
 | `RetentionSweep` | daily | `CLOSED`, un-refunded, 30/90/180/365 **wall-clock** days since `case_closed_date` | publishes the retention event → GHL runs the sequence; stamps the matching `retention_*_sent_at` | the four `retention_*_sent_at` columns |
 | `OutboxSender` | 1 min | `PENDING`/`FAILED` deliveries with `next_attempt_at <= now()` | signs and posts (Unit 18's logic, moved not rewritten) | the delivery row's `status`/`attempts`, claimed `FOR UPDATE SKIP LOCKED` |
 
@@ -202,7 +202,12 @@ starts sweeps races its own fixtures.
 - [ ] The 24h sign timer raises the prompt and **does not move the case** — the
       expert is still assigned and `REASSIGN_EXPERT` still requires
       `EXPERT_DECLINED_REMATCHING`. Asserted, because this is where an "auto-reassign"
-      reading would do real damage.
+      reading would do real damage. The way forward is a human firing Unit 15's
+      `EXPERT_TIMED_OUT`; **no sweep may fire it**, asserted by there being no call
+      site for it in this package.
+- [ ] A `DOC_COLLECTION` case still incomplete a week later has been chased
+      **twice, not seven times** — the 24h and 48h reminders and no more; the day-3
+      escalation is what carries it after that.
 - [ ] One case throwing inside a sweep does not prevent the other cases in the same
       sweep from being processed, and the run is recorded `FAILED` with the error.
 - [ ] Every event and notification a sweep raises carries the **case's** brand, and a

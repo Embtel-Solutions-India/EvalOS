@@ -113,8 +113,11 @@ trusts is worse than no widget.
 
 - **Dependency:** `com.anthropic:anthropic-java`, added here and nowhere earlier.
 - **Model:** `claude-opus-5` — the current Opus. $5 / $25 per million input /
-  output tokens. Adaptive thinking (`ThinkingConfigAdaptive`), which is the only
-  supported mode on this model family; a fixed `budgetTokens` is rejected.
+  output tokens. Adaptive thinking (`ThinkingConfigAdaptive`) — which is also the
+  default, so thinking runs whether or not it is set, and a fixed `budgetTokens`
+  is rejected outright. (`ThinkingConfigDisabled` is legal at effort `high` or
+  below, and is not wanted here.) Because thinking counts against `maxTokens`,
+  size that for the reasoning plus the note, not the note alone.
   `output_config.effort` at `medium` — this is a short structured judgement, not
   long-horizon work.
 - **Structured output**, not prose parsing: the Java SDK derives a JSON schema

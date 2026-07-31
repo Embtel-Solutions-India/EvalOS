@@ -91,7 +91,7 @@ New migrations (next free `V`-numbers).
 | `id`, `brand_id`, `created_at` | `brand_id` **nullable** — a subscriber may be brand-specific (each brand's GHL sub-account) or global |
 | `name` | e.g. `GHL_IE` |
 | `target_url` | where to post |
-| `secret` | the HMAC key. Written by migration/config, **never returned by any endpoint** — the same rule `BrandOption` follows for the brand's webhook token |
+| `secret` | the HMAC key. **Nullable, and that fails closed** — see below. Never returned by any endpoint, the same rule `BrandOption` follows for the brand's webhook token |
 | `event_types` | `text[]` of subscribed wire names |
 | `active` | a subscriber is disabled, not deleted |
 
@@ -109,6 +109,20 @@ New migrations (next free `V`-numbers).
 
 Indexes: `(status, next_attempt_at)` for the sender's claim query,
 `(brand_id, event_type, created_at)` for the log view, `(case_id)`.
+
+**The secret is nullable and comes from the environment, not from a migration.**
+An earlier draft of the row above said "written by migration/config", which would
+put a live signing key in a file that ships in the jar and sits in git history.
+The inbound half already settled this the other way and its reasoning transfers
+exactly: `V11__brand_ghl_secret.sql` made the brand's secret nullable *because*
+that fails closed — "a brand with no secret cannot verify anything, so every
+webhook to its endpoint is rejected until the secret is set. The alternative (a
+`NOT NULL` with a default) would ship a known secret." So here: the column is
+nullable, **a subscriber with no secret is never delivered to** (an unsigned
+outbound payload would breach invariant 11), the real value is set out of band from
+env-backed config, and literal values appear only in the `local` seed — the same
+split `local/V901__seed_local_webhook_secrets.sql` already uses, with the same
+throwaway-values note.
 
 **A delivery row is never rewritten to hide a failure.** Attempts increment on the
 row; a *replay* creates a new row pointing at the old one, so the log tells the
@@ -263,6 +277,10 @@ move it rather than write a second one.
 - [ ] `deal_value` appears on `case.delivered` and on **no other event type**.
 - [ ] No response from any route contains a subscriber secret; asserted across all
       five routes.
+- [ ] **A subscriber with no secret is never delivered to** — its rows are not
+      claimed and nothing unsigned leaves the app; and no applied migration outside
+      `local/` contains a secret literal, checked by a test that greps the migration
+      directory.
 - [ ] Every non-GM role gets 403 from all five routes, checked in the service too.
 - [ ] A successful Handoff C stamps `google_review_requested`; a failed one does
       **not** — so Unit 17's tile counts what actually reached GHL.

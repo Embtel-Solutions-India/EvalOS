@@ -91,17 +91,27 @@ So this unit creates the record. New migration (next free `V`-number),
 
 - **Append-only in spirit, one mutable field in fact.** A row's `outcome` moves
   from `OFFERED` exactly once and never again; everything else is
-  `updatable = false`. This is not the audit table and does not pretend to be —
+  `updatable = false`. **First write wins, and a later write of the same outcome is
+  a no-op rather than an error** — Unit 15 has two acts that both mean accepted (the
+  expert pressing Accept in the portal, then Dropbox Sign's `signed` callback), and
+  on the ordinary happy path both fire. The guard belongs here, in the one place
+  that owns the column, not in each caller. This is not the audit table and does not pretend to be —
   the audit trail already records each transition, and this row exists to be
   *aggregated*, which is the thing a jsonb trail is bad at.
 - **Written by the transitions that already exist**, not by a new endpoint: a row
   at `ASSIGN_CASE_MANAGER` and `REASSIGN_EXPERT` (an offer), stamped `DECLINED`
   at `EXPERT_DECLINED` with the reason, `ACCEPTED` at `EXPERT_SIGNED`.
+  (`ASSIGN_CASE_MANAGER` is where an expert offer comes from because that action
+  assigns **both** — `assignCaseManager(caseId, cmId, expertId)`, publishing
+  `CaseEvents.Type.EXPERT_ASSIGNED`. The name reads as staff-only and is not.)
   `SUPERSEDED` when a case is reassigned while an offer is still open, so a
   rematched case does not leave an `OFFERED` row that never resolves.
-- **`TIMED_OUT` is declared here and written by nobody until Unit 19** — the
-  20h/24h auto-reassign owns it. Same arrangement as Unit 10 declaring
-  `docs.escalation.day3` for Unit 19 to fire.
+- **`TIMED_OUT` is declared here and written by nobody until Unit 15**, by that
+  unit's `EXPERT_TIMED_OUT` transition — a staff act, prompted by Unit 19's 24h
+  timer but never fired by it. Corrected from an earlier draft that said Unit 19
+  writes it: a job cannot, because reaching `TIMED_OUT` also means opening a
+  rematch, and `REASSIGN_EXPERT` is gated on an exception state only a declared
+  transition can set. See Unit 15's sign-SLA section.
 - Unit 15's portal fills `ACCEPTED` from the real Dropbox Sign callback instead of
   the staff-recorded stand-in. The column does not change.
 

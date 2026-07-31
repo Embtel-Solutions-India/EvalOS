@@ -87,11 +87,22 @@ Invariant 5: revenue is recognized on **paid *and* delivered**.
 
 | Figure | Definition |
 | --- | --- |
-| Collected | `SUM(deal_value)` where `paid` |
+| Collected | `SUM(deal_value)` where `paid AND NOT refunded` |
 | Recognized | `SUM(deal_value)` where `paid AND delivery_date IS NOT NULL AND NOT refunded` |
 | **Open liability** | `SUM(deal_value)` where `paid AND delivery_date IS NULL AND NOT refunded` — money taken for work not yet delivered, i.e. refund exposure |
 | Unpaid pipeline | `SUM(deal_value)` where `NOT paid` — **shown separately and never added to the other three.** Since Unit 05a a case can be worked with no money behind it, and a quote is not revenue |
+| Refunded | `SUM(deal_value)` where `paid AND refunded` — **its own figure, and in none of the three above.** Money that came in and went back out |
 | Money out | `SUM(amount)` from `payout_ledger` by status (Unit 16) |
+
+**Collected excludes refunds, and that is a correction to an earlier draft of this
+table.** With `Collected = SUM where paid` and both of the figures under it
+excluding refunds, a refunded case sat in Collected and in neither Recognized nor
+Open liability — so the three did not add up, while the line about unpaid pipeline
+"never added to the other three" implies they do. Worse, it read money that had
+been handed back as still collected, which is the opposite of invariant 5's "a
+GM-approved refund reverses recognition." With the filter added,
+**Collected = Recognized + Open liability** exactly, and Refunded is shown beside
+them rather than hidden inside one of them.
 
 `deal_value` is role-restricted: `CaseController.SEES_DEAL_VALUE` is the package-
 private list Unit 08 made shared so the board and the detail could not disagree.
@@ -198,8 +209,10 @@ scoping path** — the rule Units 08, 10 and 12 all follow.
 1. **`features/dashboards/RoleDashboard`** stops being a placeholder: a tile grid
    driven by the response, so a role with no money tiles renders a shorter grid
    rather than empty boxes.
-2. **Money tiles**: collected / recognized / **open liability** / money out, with
-   unpaid pipeline visually separated so it cannot be read as revenue.
+2. **Money tiles**: collected / recognized / **open liability** / refunded / money
+   out, with unpaid pipeline visually separated so it cannot be read as revenue.
+   Collected, recognized and open liability are shown as a set that balances;
+   refunded sits beside them, not inside them.
 3. **Cycle-time chart** by stage — median with p90, and the exception time shown
    as its own band rather than folded in, the same honesty `slaMix` applies to its
    `unknown` band.
@@ -227,6 +240,10 @@ scoping path** — the rule Units 08, 10 and 12 all follow.
 - [ ] Open liability equals paid-and-not-delivered-and-not-refunded, proved against
       a fixture holding one of each: unpaid, paid-undelivered, paid-delivered,
       refunded. The unpaid case is in **no** money tile except unpaid pipeline.
+- [ ] **The money tiles add up on that same fixture: `Collected` equals
+      `Recognized + Open liability`, and the refunded case is in `Refunded` and in
+      none of the other three.** Asserted arithmetically, because a refunded case
+      counted as collected is the defect this criterion was added for.
 - [ ] The GM's cross-brand total equals the sum of the per-brand figures, and the
       brand switcher narrows it to one brand's.
 - [ ] `brandId` only ever narrows: a Brand Manager naming another brand gets their

@@ -100,9 +100,12 @@ Frontend under `frontend/src`: `components/ui` (generated primitives),
 - **Scope tiers (ABAC).** All (GM) · Brand (Brand Manager) · Team (PM) · Self
   (Coordinator, Case Manager). The ENM is a supply-side axis: expert/roster data
   yes; client identity/case content no. *(Self-tier scoping needs a column that
-  names the caller. `evalos_case` has `assigned_cm` but no `assigned_coordinator`,
-  so a Coordinator's case scope is not yet expressible — open question, Unit 04
-  note (a).)*
+  names the caller, and both now exist: `V17` added `evalos_case.assigned_coordinator`
+  beside `assigned_cm`, and `ScopePredicate.Fields` takes a **set** of assignment
+  attributes — a Self caller matches when any of them names them. One case is one
+  pipeline and the people working it hold different slots. This supersedes the note
+  that a Coordinator's case scope was not yet expressible; it was the gap that left
+  their board empty and answered 403 on cases they owned.)*
 - **Clients** access the draft-review portal via a passwordless link delivered
   through GHL (a separate, scoped filter chain). They see only their own case's
   draft, and can approve or request revisions.

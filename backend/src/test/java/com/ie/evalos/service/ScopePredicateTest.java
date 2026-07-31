@@ -41,10 +41,15 @@ class ScopePredicateTest {
 	@SuppressWarnings("unchecked")
 	private final Root<Object> root = mock(Root.class);
 	private final CriteriaBuilder cb = mock(CriteriaBuilder.class);
-	private final Path<Object> brandPath = mock(Path.class);
-	private final Path<Object> teamPath = mock(Path.class);
-	private final Path<Object> assigneePath = mock(Path.class);
-	private final Path<Object> otherAssigneePath = mock(Path.class);
+	private final Path<Object> brandPath = pathMock();
+	private final Path<Object> teamPath = pathMock();
+	private final Path<Object> assigneePath = pathMock();
+	private final Path<Object> otherAssigneePath = pathMock();
+
+	@SuppressWarnings("unchecked")
+	private static Path<Object> pathMock() {
+		return mock(Path.class);
+	}
 
 	@BeforeEach
 	void stubPaths() {

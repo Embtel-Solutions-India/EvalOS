@@ -1,7 +1,9 @@
 # Unit 13 — Redacted CV generation
 
 **Phase:** 2 — Connect the seams
-**Depends on:** 11
+**Depends on:** 11, and — omitted from an earlier draft of this line — 04 (all
+three routes read the case through `CaseLifecycleService.read`) and 09 (the panel
+mounts into `features/case/CaseDetail.tsx`)
 **Unlocks:** the PM's "get the client to approve the expert" step; feeds Unit 14
 (the client sees the redacted profile alongside the draft)
 **Gating open questions:** **Google Drive API credentials.** A service account,
