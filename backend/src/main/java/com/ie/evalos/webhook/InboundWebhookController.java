@@ -1,10 +1,5 @@
 package com.ie.evalos.webhook;
 
-import com.ie.evalos.common.ApiResponse;
-import com.ie.evalos.domain.WebhookSource;
-
-import jakarta.servlet.http.HttpServletRequest;
-
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -12,6 +7,11 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+
+import com.ie.evalos.common.ApiResponse;
+import com.ie.evalos.domain.WebhookSource;
+
+import jakarta.servlet.http.HttpServletRequest;
 
 /**
  * One public endpoint per source, per brand. Unauthenticated by design — GHL holds
@@ -50,3 +50,4 @@ public class InboundWebhookController {
 				WebhookSource.GHL, endpointToken, request.getHeader(signatureHeader), rawBody));
 	}
 }
+

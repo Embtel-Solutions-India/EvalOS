@@ -22,7 +22,6 @@ import com.ie.evalos.security.TenantContext;
 import com.ie.evalos.service.ExpertLoadService.Load;
 import com.ie.evalos.service.ExpertService.ExpertForm;
 import com.ie.evalos.service.ExpertService.ExpertSnapshot;
-import com.ie.evalos.service.ExpertService.RosterEntry;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
