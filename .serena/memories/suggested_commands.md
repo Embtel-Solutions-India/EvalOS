@@ -13,7 +13,8 @@ PowerShell notes that bite here:
   `localhost:8080`.
 - `npm run build` — `tsc -b && vite build`. Also the only typecheck entrypoint (no separate
   `typecheck` script); `tsc -b` uses project references so it checks app + node configs.
-- `npm run lint` — oxlint. `npm run preview` — serve the build (no proxy; needs `VITE_API_BASE_URL`).
+- `npm run lint` — oxlint. `npm run test` — vitest, one run (rules modules only). `npm run preview` —
+  serve the build (no proxy; needs `VITE_API_BASE_URL`).
 
 ## backend/ (Maven Wrapper)
 
@@ -23,13 +24,17 @@ PowerShell notes that bite here:
 - Database checks (migrations apply, `ddl-auto=validate` agrees with every entity, `payment_detail` is
   ciphertext, scoped finders separate two brands, audit rows cannot be edited) are one opt-in command:
   ```
-  .\mvnw.cmd test -Devalos.db.test=true -Dtest=LocalPostgresIntegrationTest -DDB_URL=jdbc:postgresql://localhost:5432/evalos
+  .\mvnw.cmd test "-Devalos.db.test=true" "-Dtest=LocalPostgresIntegrationTest"
   ```
-  Point `-DDB_URL` at a throwaway database to prove `V1`–`V10` apply from scratch.
+  **Quote each `-D…` in PowerShell** — unquoted, `-Devalos.db.test=true` is split and Maven reports
+  `Unknown lifecycle phase ".db.test=true"`. The suite runs in its own `evalos_test` schema off
+  `DB_TEST_URL` (default localhost/evalos), so it never writes next to dev data; point `DB_TEST_URL`
+  at a throwaway database to prove every migration applies from scratch.
 - `.\mvnw.cmd spring-boot:run` — starts on 8080 under the `local` profile. **Requires a reachable
   Postgres** (Flyway + `ddl-auto: validate` run at startup); with no DB the context fails to refresh.
 - **This machine has PostgreSQL 18**, superuser `postgres`/`1234`, database `evalos` migrated to
-  `V10` — which is exactly what the `local` profile defaults to, so no env vars are needed. `psql` is
+  `V18` + the `V90x` seeds — which is exactly what the `local` profile defaults to, so no env vars
+  are needed. `psql` is
   not on `PATH`; it lives at `C:\Program Files\PostgreSQL\18\bin`. Still no Docker daemon.
   Override with `DB_URL` / `DB_USER` / `DB_PASSWORD`; `SPRING_PROFILES_ACTIVE=prod` requires those
   plus `JWT_SECRET` and `EVALOS_FIELD_KEY`.

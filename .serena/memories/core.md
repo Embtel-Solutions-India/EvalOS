@@ -31,18 +31,25 @@ Technical Design Document v1.1**; where a context file conflicts with it, v1.1 w
 - Update `context/progress-tracker.md` after every meaningful change; update the relevant context
   file (and the TDD) if a decision changes.
 
-**Current state: Phase 1 (Units 01–10 + 05a) is complete and verified.** Scaffold + response
-envelope, the tenancy/auth/RBAC spine, the domain schema, the case state machine + SLA calendar, the
-inbound webhook gateway with Handoff A, the in-app notification centre, and four live frontend
-surfaces (app shell + role routing, production Kanban board, case detail + timeline, document
-checklist board). Migrations run to **`V17`**; ~44 endpoints across 10 controllers. 183 backend tests
-run with **none skipped** (the DB-backed ones included) and 44 frontend tests; CI runs the DB suite
-against a real Postgres on every push.
+**Current state: Phase 1 (Units 01–10 + 05a) is complete and verified, and Phase 2 has started.**
+Scaffold + response envelope, the tenancy/auth/RBAC spine, the domain schema, the case state machine
++ SLA calendar, the inbound webhook gateway with Handoff A, the in-app notification centre, and five
+live frontend surfaces (app shell + role routing, production Kanban board, case detail + timeline,
+document checklist board, expert database). CI runs the DB suite against a real Postgres on every
+push.
 
-**Phase 2 is Units 11–17 and has not started.** Next is Unit 11 (expert database + sheet upload).
+**Phase 2 is Units 11–17 and is under way. Unit 11 (expert database + sheet upload) is complete
+and verified; Unit 12 (match scoring) is next.** Migrations run to **`V18`**; ~53 endpoints; **229
+backend tests, none skipped** (22 DB-backed) and 61 frontend tests. Unit 11 added the closed
+`FieldTag`/`LetterType` vocabularies (enum **and** DB CHECK), `email`/`phone`/`letter_types`/
+`standard_fee` on `expert`, the write-only `payment_detail` path, `ExpertLoadService` (load derived
+from `evalos_case`, never from the dead `V7` counters), the CSV+XLSX roster import, and the
+`/experts` screen — details in `mem:backend/persistence` and the tracker's Unit 11 entry.
+**The `FieldTag` values shipped WITHOUT the ENM's sign-off**, on instruction: still an open
+question, and widening the list now means a new migration widening `V18`'s CHECK plus the enum plus
+`frontend/src/features/experts/expertRules.ts`, moved together.
 Phase boundaries are 01–10 / 11–17 / 18–20 — earlier tracker entries mislabelled 06 onward as Phase 2
-and were corrected. Unit 11 is gated on one thing: the **`FieldTag` value list needs the ENM's
-sign-off** before its migration lands (the mechanism — a closed enum + DB CHECK — is already decided).
+and were corrected.
 Later units carry named external dependencies that do not exist yet (Google Drive service account for
 13, Dropbox Sign account for 15, GHL outbound contract for 18) — all listed in the tracker.
 
@@ -66,7 +73,12 @@ Monorepo, but no root build: each half is built and run from **inside its own di
 
 - **Brand-scoped by default.** Every scoped query filters by `brand_id` (plus team/assignee where
   applicable). A query without brand scoping is a defect, enforced at the repository/service layer —
-  never only in the UI. GM is the only cross-brand role.
+  never only in the UI. GM is the only cross-brand role. **One exception, added in Unit 11 and not
+  a scope:** `POST /api/experts` and the two import endpoints take an optional `brandId` naming
+  *where a new row goes*, because a GM has no brand of their own and this is the first unit where
+  staff create a scoped row. `OwnershipGuard.assertCanAct` decides whether the caller may act there,
+  so a brand-locked role naming another brand gets a 403. Reads never take brand from a request; a
+  `brandId` on a read can only narrow.
 - **Append-only truth.** Audit + assignment history are never updated or deleted; no update/delete
   path may exist on those repositories. This has a consequence worth knowing before you hit it:
   `audit_event` rows **can never be backfilled** — see `mem:backend/persistence`.
@@ -75,7 +87,10 @@ Monorepo, but no root build: each half is built and run from **inside its own di
 - **No object storage, no mail server.** Documents are Google Drive links, signed letters live in
   Dropbox Sign, staff alerts are in-app, client messages go out through GHL. Do not add S3 or SMTP.
   (Phase 2 adds a Drive **API client** for one write path in Unit 13 — links-only stops being the
-  whole story there, but EvalOS still hosts no bytes.)
+  whole story there, but EvalOS still hosts no bytes.) Unit 11 added the one **upload** — the expert
+  roster sheet — and it holds too: parsed in memory, never stored, with
+  `multipart.file-size-threshold` set equal to `max-file-size` so the container cannot spool it to a
+  temp file.
 - **A case is created only by a per-brand GHL webhook endpoint** — no other path, enforced
   structurally by `DomainInvariantsTest` (only the contact handler may depend on `CaseIntakeService`,
   so adding a `POST /api/cases` breaks the build). Marking one **paid** is a separate staff act.

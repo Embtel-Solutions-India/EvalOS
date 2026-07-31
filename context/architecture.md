@@ -21,6 +21,14 @@ referenced by Google Drive link; signed letters live in Dropbox Sign; the
 redacted CV is generated on demand (and, if persisted, written to the case's
 Drive folder — never to a database blob).
 
+Unit 11 added the one **upload** in EvalOS, and it does not change that: the
+expert roster sheet is parsed in memory and thrown away — no row, column or temp
+file keeps it. `spring.servlet.multipart.file-size-threshold` is set equal to
+`max-file-size` for exactly that reason, since above the threshold the container
+spools the part to a temp file. Two parsers sit behind it (`commons-csv` for
+`.csv`, `poi-ooxml` for `.xlsx`); only `service/ExpertImportService` touches
+either.
+
 Repository layout is a monorepo: `backend/` (Spring Boot) and `frontend/`
 (React + Vite). Java lives under the base package `com.ie.evalos`.
 
@@ -39,6 +47,15 @@ Repository layout is a monorepo: `backend/` (Spring Boot) and `frontend/`
   mapping is 1:1.
 - **The GM is the only cross-brand role.** Everyone else is hard-locked to their
   brand (Brand Manager) or narrower (team/self).
+- **One exception to "no request field names a brand", and it is not a scope.**
+  Unit 11 is the first unit where staff *create* a scoped row (every case comes
+  from a webhook), and a GM has no brand of their own to create it in. So
+  `POST /api/experts` and the two import endpoints accept an optional `brandId`,
+  which names where the new row lives — it never widens a read. It is not
+  trusted either: `OwnershipGuard.assertCanAct` decides whether the caller may
+  act in the brand named, so only the cross-brand role can name anything and a
+  Brand Manager naming another brand gets a 403. Reads still take brand from the
+  principal alone, and a `brandId` on a read can only ever narrow.
 
 ## System Boundaries
 
@@ -252,7 +269,11 @@ exist because every transition owes exactly one event. They live in
 3. Role, brand, and ownership are enforced before every mutation. Case Managers,
    clients, and experts never see data outside their assignment.
 4. The optional expert `payment_detail` is encrypted at rest and never appears in
-   logs, webhook payloads, DTOs, chat tools, or any response body.
+   logs, webhook payloads, DTOs, chat tools, or any response body. Unit 11 gave
+   it its only write path (`PUT /api/experts/{id}/payment-detail`) and
+   deliberately **no read path at all** — not for the ENM who typed it. Screens
+   get a server-derived "on file" boolean; the sheet import refuses a mapping
+   that names the field.
 5. **Paid *and* `Delivered`** is revenue recognition. Since Handoff A moved to
    contact intake a case can exist, and be worked, with no money behind it, so
    delivery alone no longer implies earned. Collected-but-undelivered value is

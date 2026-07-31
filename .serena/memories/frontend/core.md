@@ -1,34 +1,68 @@
 # frontend/ — Core
 
-Vite SPA, ~8 source files under `frontend/src`. Structure is `lib/`, `components/`, `pages/`,
-`styles/`. Target structure per `context/code-standards.md`: `components/ui/` (generated headless
-primitives — **protected, do not hand-edit**), `features/` (board, case detail, dashboards, client
-portal, expert portal), `lib/` (API client, hooks). Add those folders when the first real feature
-lands, not before.
+Vite SPA under `frontend/src`. Structure is `lib/`, `components/`, `features/`, `pages/`, `styles/`;
+`features/` is where the real screens live — `auth`, `shell`, `board`, `case`, `checklist`,
+`dashboards`, `experts`. `components/ui/` (generated headless primitives) is **protected — do not
+hand-edit** and does not exist yet.
 
 ## Wiring
 
-- `src/main.tsx` — root: `StrictMode` > `BrowserRouter` > `App`. Router provider lives here, **not**
-  in `App.tsx`, so `App` renders without a second router.
-- `src/App.tsx` — route table only; all routes nest in one pathless `<Route element={<Layout/>}>`,
-  `index` redirects to `/dashboard`, catch-all `*` is inside the layout too.
-- `src/components/Layout.tsx` — header + `<Outlet/>`. Currently no nav links (the real app shell —
-  brand switcher, date filter, notification bell — is a later unit).
-- `src/pages/Dashboard.tsx` — health probe against `GET /api/health`; the reference pattern for
-  fetch + discriminated-union state + RAG dot.
+- `src/main.tsx` — root: `StrictMode` > `BrowserRouter` > `AuthProvider` > `App`. The router provider
+  lives here, **not** in `App.tsx`, so `App` renders without a second router.
+- `src/App.tsx` — the route table, and nothing else. Three states: loading (session restore),
+  anonymous (only `/login`), authenticated (everything inside one pathless
+  `<Route element={<AppShell/>}>`). Every in-shell route is wrapped in `RoleRoute`, which checks the
+  **same `features/shell/navigation.ts` table the nav filters** — a deep link outside the role's
+  allow-list renders the 403 view rather than redirecting, so the user sees which URL was refused.
+- **`SCREENS` in `App.tsx` is the live-screen map.** A `NAV_ITEMS` path with no entry there renders
+  `PlaceholderPage`. Live today: `/board` and `/my-cases` (both `BoardView` — a Case Manager's "my
+  cases" is the board narrowed by the server), `/checklists`, `/experts`. Plus `/dashboard`
+  (`RoleDashboard`) and the parameterized `/cases/:id`.
+- `features/shell/` — `AppShell` (top bar + left nav + `<Outlet/>`), `BrandSwitcher` (GM only),
+  `DateFilter`, `NotificationBell`, and `filtersContext` (`useFilters()` → `activeBrandId`, the date
+  window). `useMe()` from `lib/authContext` is the principal; it throws below the shell rather than
+  returning null.
+
+## navigation.ts is one table, three consumers
+
+Nav rendering, the router's allow-list (`mayReach`), and the placeholder's escape link
+(`boardPathFor`) all read `NAV_ITEMS`. Keeping them separate is how a screen ends up deep-linkable
+but unguarded, or listed and then 403 — four separate defects have been that one bug.
+`navigation.test.ts` asserts the equivalence in both directions and **pins each screen's role list to
+its backend gate** (`/checklists` → `ChecklistController.COORDINATION`, `/experts` →
+`ExpertController.ROSTER_READ`). Grep it before adding any cross-screen link.
+
+**One path per screen.** `/cases` beside `/board`, `/delivery` with no screen behind it, and
+`/experts` beside `/expert-database` were all deleted for the same reason, and the test asserts their
+absence so they are not re-added.
 
 ## HTTP layer
 
 - `src/lib/api.ts` exports a single shared `api` axios instance — always import it; never call
-  `axios` directly or create per-feature instances.
+  `axios` directly or create per-feature instances. `unwrap()` turns the envelope into data or a
+  thrown `Error`, and the response interceptor lifts the server's `error.message` onto the Error so a
+  refused action can state the real reason.
 - `baseURL = import.meta.env.VITE_API_BASE_URL ?? '/api'`. Leave the env var **unset in dev** so
-  requests stay relative and flow through the Vite proxy (`frontend/.env.example`); set it only when
-  the SPA is served from a different origin.
-- `baseURL` already contains `/api`, so call paths omit it: `api.get('/health')`.
-- `ApiResponse<T>` in the same file mirrors the backend envelope as a discriminated union — type
-  every call `api.get<ApiResponse<T>>(...)` and narrow on `success` before touching `data`.
-- A response interceptor console-logs failures under `import.meta.env.DEV` and re-rejects; error
-  handling stays at the call site.
+  requests stay relative and flow through the Vite proxy; `baseURL` already contains `/api`, so call
+  paths omit it (`api.get('/health')`).
+- A 401 clears the token here (the router then shows login); a 403 is left alone — it means "signed
+  in, not allowed", which is a screen.
+- One multipart call exists (`features/experts/expertApi.ts`): the mapping travels as a JSON *part*,
+  and `Content-Type` is passed as `undefined` so the browser can set the multipart boundary instead of
+  the instance's `application/json` default.
+
+## Per-feature shape
+
+Each feature folder is `<Screen>.tsx` + `<feature>Api.ts` + an optional `<feature>Rules.ts` holding
+the pure logic and the types (`boardRules`, `checklistRules`, `expertRules`). The rules module is what
+carries a vitest file; components are not render-tested (no jsdom, no Testing Library — see
+`mem:tech_stack`). Async UI state is a discriminated union, and every fetch effect uses an
+`AbortController` because `StrictMode` double-invokes effects in dev.
+
+Where a rules module mirrors a backend vocabulary (`QUICK_ACTIONS` ↔ the transitions, `FIELD_TAGS` /
+`LETTER_TYPES` ↔ `domain/FieldTag` + `V18`'s CHECKs) the duplication is deliberate — the UI has to
+offer the closed list rather than let it be typed — and **the two move together or the API starts
+rejecting what the screen offered**.
 
 ## Styling — design tokens only
 
@@ -36,9 +70,12 @@ lands, not before.
   `context/ui-context.md`: surface/text/border/accent colors as `:root` custom properties, plus a
   Tailwind v4 `@theme` block for `--font-sans/num/mono` and the `--radius-md/lg/xl` scale.
 - **No hardcoded hex and no Tailwind palette colors** (`slate-*`, `violet-*`) in components —
-  reference `var(--token)`. Light workspace only; the old `dark:` class pairing was removed.
+  reference `var(--token)`. `text-white` on an accent-filled button is the one accepted exception.
+  Light workspace only; the old `dark:` class pairing was removed.
 - `--status-red/amber/green` are **reserved for RAG status** (deadlines, SLA, capacity, overdue) and
-  must never be used decoratively — `--accent-primary` is the brand/interactive color.
+  must never be used decoratively — `--accent-primary` is the brand/interactive color. Expert
+  availability counts as capacity, which is why the roster's badges use them; "on leave" is
+  deliberately muted rather than red, since it is not a problem.
 - Radius by context: `rounded-md` badges/inline, `rounded-lg` cards/panels/Kanban, `rounded-xl`
   modals/drawers. Numeric/currency/date/ID columns use `font-num` + `tabular-nums`.
 - Icons: Lucide React, stroke-based, `h-4 w-4` inline / `h-5 w-5` in buttons+nav (not installed yet).

@@ -9,21 +9,26 @@ Update this file after every meaningful implementation change.
   (notification centre), 07 (app shell), 08 (production board), 09 (case detail) and 10 (doc
   checklist) are all Phase 1 — this tracker had been calling 06 onward "Phase 2" since Unit 06,
   which the build plan does not say. Corrected here rather than left to compound.
-- **Phase 2 — Connect the seams has not started.** It is Units 11–17. The build plan's
-  `## Phase 3` heading used to sit above Unit 17 and contradict its own roadmap line; the heading
-  moved to Unit 18, so Dashboards is Phase 2 wherever you read it.
-- **Phase 1 is now verified, not just written.** All 183 backend tests execute with none skipped —
-  the 18 DB-backed ones included, for the first time since Unit 03 wrote them — and CI runs them
-  against a real Postgres on every push. See the entry at the end of Completed.
+- **Phase 2 — Connect the seams is under way.** It is Units 11–17. **Unit 11 (expert database
+  + sheet upload) is complete and verified**; Unit 12 is next. The build plan's `## Phase 3`
+  heading used to sit above Unit 17 and contradict its own roadmap line; the heading moved to
+  Unit 18, so Dashboards is Phase 2 wherever you read it.
+- **Verified, not just written.** All **229** backend tests execute with none skipped — the
+  22 DB-backed ones included — plus 61 frontend tests, and CI runs the DB suite against a real
+  Postgres on every push. (It was 183 backend / 44 frontend at the end of Phase 1.) See the
+  Unit 11 entry at the end of Completed.
 
 ## Current Goal
 
-- Unit 11 — Expert database (ENM) + bulk sheet upload, the first unit of Phase 2. Nothing in
-  Phase 1 is outstanding. **Its spec is now written** (`context/specs/11-expert-database.md`),
-  along with every other remaining unit's — see the spec-writing entry at the end of Completed.
-  The field-tag taxonomy question is closed by decision (a closed `FieldTag` enum); what is left
-  is confirming the **values** with the ENM, which is the one thing that must happen before the
-  migration lands. Read **Phase 2 readiness** under Next Up before starting.
+- Unit 12 — Match scoring engine. It reads the taxonomy Unit 11 established and reuses
+  `ExpertLoadService` rather than counting cases again; the roster it scores over is now real
+  data with a closed vocabulary behind it. Its spec (`context/specs/12-match-scoring-engine.md`)
+  was written in the Phase 2 batch and is **a draft to re-read and revise at the start of the
+  unit**, not a settled contract.
+- Carried forward from Unit 11, unfinished business rather than a blocker: **the `FieldTag`
+  value list is still unsigned by an ENM.** It shipped on instruction, so Unit 12 will be
+  scoring against a vocabulary that may still change — and a change is a migration widening
+  `V18`'s CHECK plus the enum plus the frontend list, together.
 
 ## Completed
 
@@ -959,15 +964,117 @@ contributor.
     assignment attributes; several of the 11–20 specs reason about Self-tier scoping, so the stale
     line was the one thing here that could mislead a build rather than merely a reader.
 
+### Unit 11 — Expert database (ENM) + sheet upload · complete and verified
+
+The first unit of Phase 2, built against `context/specs/11-expert-database.md`. The ENM's
+Google Sheet is replaced: a brand-scoped roster with search and filters, an availability
+board, a profile they can edit, and a bulk sheet upload that validates before it writes.
+
+**Two build-time confirmations, taken before any code** because the spec asked for both
+rather than defaulting them:
+
+- **The `FieldTag` / `LetterType` values are the spec's starter list, shipped *without* the
+  ENM's sign-off.** Instructed. The mechanism was already decided (closed enum + database
+  CHECK), so only the vocabulary is unconfirmed, and widening it is a new migration that
+  widens the CHECK — never an edit to `V18` (invariant 9). **The gating open question stays
+  open**, and the migration, the enum and `frontend/.../expertRules.ts` say so in their own
+  headers. Expect the list to disagree with what an ENM actually recruits into; that is not
+  a defect, it is the unsigned decision showing.
+- **The import accepts CSV *and* XLSX.** Instructed, against the spec's own recommendation
+  of CSV-only: `poi-ooxml` is ~10 MB with transitives against `commons-csv`'s ~50 KB. Bought
+  so an ENM can upload straight out of Excel with no File → Download → CSV step. The cost
+  stops at the edge — both parsers produce one row shape, so there is one validator and one
+  importer, and `ExpertImportService` is the only class that touches either library.
+
+**Shipped.** `V18` (`email`, `phone`, `letter_types`, `standard_fee`; three vocabulary
+CHECKs; the partial unique index `uq_expert_per_brand_email` on `(brand_id, lower(email))`;
+a GIN index on `primary_fields` **for Unit 12**, not for this unit's filter).
+`domain/FieldTag` + `domain/LetterType`. `service/ExpertService` (roster, board, CRUD,
+availability, the write-only payment detail), `service/ExpertImportService`,
+`service/ExpertLoadService`. `web/ExpertController` — 9 endpoints, all under `/api/experts`
+beside the untouched Unit 08 picker. Frontend `features/experts/*`: roster table,
+availability board, profile/edit panel, and the pick → map → report → confirm upload flow.
+`V903` seeds six experts across the two brands with legal tags.
+
+**Decisions worth knowing before the next unit:**
+
+- **Load is derived, and the two `V7` counters stay dead.** `ExpertLoadService` answers from
+  one batched `count(*) FILTER (WHERE …)` over `evalos_case`, keyed by expert id, one query
+  per roster page. `current_active_count` / `total_cases_completed` are still never written
+  and are never read. The DB-gated test asserts an expert with two open cases reports a load
+  of **2 while the column beside it is still 0** — so "fixing" the derivation by starting to
+  increment the counter fails the build. Unit 12 reuses this service rather than counting
+  again.
+- **The roster filters run in memory over the scoped page, and no new query was added.**
+  `ExpertRepository` gained exactly one finder (`findByBrandIdAndEmailIgnoreCase`, the
+  import's upsert key). Search/tag/letter/availability/tier narrow the list `findScoped`
+  already returned, so scope stays decided in one place. A brand's roster is tens of rows;
+  the GIN index is for Unit 12's per-case containment query, which is a different shape.
+- **A request may name a brand, in one place, and it is not a scope.** This is the first
+  unit where staff create a scoped row, and a GM has no brand of their own. `brandId` on
+  create/import says *where the row goes*; `OwnershipGuard` decides whether the caller may
+  act there. Recorded in `architecture.md` under Multi-Tenancy so it stays an exception
+  rather than becoming a habit.
+- **A rejected import answers 200 with a report whose `imported` is false.** The envelope
+  carries one code and one message on failure, and a rejection has one reason per bad row.
+  The report is the response either way and the screen reads `imported`; there is no
+  "import anyway" button.
+- **`ApiExceptionHandler` gained three handlers**, one of which was a real gap: an unknown
+  enum in a request body used to fall through to the catch-all and answer **500** for what
+  is squarely a bad request. It now answers 400 naming the value it did not recognise —
+  `MECHANICAL ENGG is not a known FieldTag` — without echoing Jackson's message, which
+  quotes the payload and enumerates every legal value. Plus `InvalidRequestException` (400)
+  and an upload-too-large 400.
+- **`/experts` and `/expert-database` were two nav paths for one screen** — one given to the
+  GM/BM/PM, the other to the ENM — so which URL a role bookmarked for the same page depended
+  on their role. Merged into one `/experts` entry whose role list equals
+  `ExpertController.ROSTER_READ`, and `navigation.test.ts` now pins that equality and
+  asserts the old path is gone, exactly as it does for `/delivery`.
+
+**Verified, not just written.**
+
+- `./mvnw verify -Devalos.db.test=true`: **229 backend tests, 0 failures, none skipped**
+  (was 183). The 4 new DB-gated ones prove what only real SQL can: the three CHECKs refuse
+  `'mechanical engg'` from a raw `UPDATE` while accepting legal tags and NULL, the partial
+  unique index refuses a second row for one email in a brand and allows the other brand's,
+  the derived load reads 2 against a stored 0, and the new aggregate is brand-blind by
+  design (the `findByCaseIdIn` convention, asserted).
+- Frontend: **61 vitest tests**, `npm run lint` clean, `npm run build` clean.
+- `ExpertControllerTest` walks **every** route with a service returning an expert whose
+  `payment_detail` is set and greps each serialized body — the spec's acceptance criterion as
+  a test. It asserts on `"paymentDetail"` *quoted*, because `paymentDetailOnFile` is a
+  legitimate member and the bare substring would forbid the boolean the screens need.
+- **Ran against the real app and the real database** (`V18` + `V903` applied to the dev
+  schema out of order, as the local profile intends). Walked as the IE ENM: roster
+  brand-scoped with no payment detail anywhere; the XP expert 403 for the ENM and 200 for
+  the GM; an unknown tag 400 with the value named; create, then payment-detail write, then a
+  profile read containing **zero** occurrences of the secret; PM read 200 / write 403;
+  setting `ON_LEAVE` removes the expert from the Unit 08 picker; a 4-row sheet with three bad
+  rows imports **nothing** and reports all three with row number, column and reason
+  (including *"did you mean MECHANICAL_ENGINEERING?"*); a clean sheet validates writing
+  nothing, imports 2, and **re-uploads as 2 updated with the roster total unchanged**; a
+  mapping naming `paymentDetail` is refused outright.
+- Browser pass over the four screens as the ENM. Two things it caught and fixed:
+  `RFE_RESPONSE` rendered as "Rfe response" (a term of art spelled wrong), and the roster's
+  filtered count sat in the header on the availability and upload tabs, describing a screen
+  it had not counted — the same failure class as the three stale headers Phase 1 recorded.
+
+**One dev-data note, not a defect of this unit.** The dev `public` schema holds ~46 junk
+experts (`Dr Ada Verify`, `IE Roster <uuid>`) from integration-test runs that predate the
+`evalos_test` schema — the same pollution `LocalPostgresIntegrationTest`'s own comment
+describes for ~150 junk cases. They now dominate the roster screen and show as 46
+`INACTIVE` on the availability board. They are historical rows in a dev database, so they
+have been left alone rather than deleted on somebody's behalf; clearing them is one
+`DELETE` whenever that is wanted.
+
 ## In Progress
 
 - Nothing.
 
 ## Next Up
 
-- Unit 11 — Expert database. `ExpertPickerController` already exists as the narrow
-  `{id, fullName}` read Unit 08 needed; Unit 11 supersedes it with the real screen (search,
-  taxonomy matching, quality scores, sheet upload) and can keep the endpoint as the picker's read.
+- Unit 12 — Match scoring engine. Reads the taxonomy and `ExpertLoadService` Unit 11 builds
+  rather than counting or matching again.
 
 ### Phase 2 readiness — which open questions block which unit
 
@@ -976,7 +1083,13 @@ Unit 11's start**, but two items bite inside it, and each later unit has a named
 dependency that is not yet confirmed. Phase 2 is Units 11–17 (see the boundary note in the build
 plan — the `## Phase 3` heading had been contradicting that).
 
-**Unit 11 — Expert database.** ~~The field-tag taxonomy is undefined.~~ **Closed by decision: a
+**Unit 11 — Expert database. BUILT — see the Unit 11 entry at the end of Completed.** What
+follows is the readiness note written before it, kept because the two items it flagged both
+played out: the field-tag list shipped unsigned (still an open question), and the dead `V7`
+counters were derived rather than maintained. `EVALOS_FIELD_KEY` is now genuinely load-bearing
+outside local — this unit writes `payment_detail` from a screen.
+
+~~The field-tag taxonomy is undefined.~~ **Closed by decision: a
 closed `FieldTag` enum, unknown tags rejected**, enforced both as a Java enum and as a database
 `CHECK` on `primary_fields` / `secondary_fields` / `letter_types` (the `team_member` brand-CHECK
 pattern from Unit 02). Unit 12 matches on these tags and "Mechanical Engineering" would never have
@@ -1141,11 +1254,17 @@ whenever a third brand is seeded. Staff SSO stays deferred.
   `case.delivered` and the ability to send client-facing transactional messages
   on EvalOS event triggers (Unit 18); (c) which extra inbound GHL events to
   handle now vs later (`refund.requested`, `contact.updated`).
-- **`FieldTag` value list needs the ENM's sign-off** (Unit 11) — the *mechanism* is settled (a
-  closed enum + database CHECK); the vocabulary is not. `11-expert-database.md` carries a ~28-entry
-  starter list to react to, explicitly not to adopt unreviewed. Whoever fills the roster is choosing
-  the vocabulary, and adding a tag later is a new migration widening the CHECK — never an edit to the
-  applied one. **Confirm before the migration lands**, not after.
+- **`FieldTag` value list still needs the ENM's sign-off** (Unit 11) — the *mechanism* is settled
+  (a closed enum + database CHECK); the vocabulary is not. ~~Confirm before the migration lands.~~
+  **The migration landed first, on instruction**: `V18` ships the spec's 28-entry starter list plus
+  5 letter types, unreviewed, and `domain/FieldTag`, the migration header and the frontend's
+  `expertRules.ts` all say so where somebody will read them. So this is no longer "confirm before
+  building" but **confirm and then widen**: a tag the ENM actually recruits into and this list does
+  not have needs a new migration widening the CHECK, the enum, and the frontend list, moved
+  together — never an edit to `V18` (invariant 9). Unit 12 scores on these tags, so the sooner it
+  is confirmed the less there is to re-check. Note what the closed vocabulary already bought: a
+  sheet row saying "MECHANICAL ENGG" is rejected with the closest legal tag named, instead of
+  quietly becoming an expert Unit 12 could never match.
 - **Google Drive credentials + service account** (Unit 13) — new, and gating. The decision to write
   the redacted CV into the case's Drive folder means a Google Cloud service account, its JSON key
   (env-bound, no non-local default), the Drive API enabled, and **per-brand write access** on each
@@ -1205,7 +1324,26 @@ whenever a third brand is seeded. Staff SSO stays deferred.
 - **No mail server**: staff in-app notification center; client messages via GHL;
   expert notifications via Dropbox Sign (portal-only nudges).
 - **Payouts**: manual ledger form, no payment-platform/disbursement rail. Single
-  optional encrypted `payment_detail` field.
+  optional encrypted `payment_detail` field — **write-only from Unit 11 on**: one
+  `PUT` sets it, no endpoint reads it back, no DTO declares it, and the sheet import
+  refuses a column mapped to it. Screens get a derived "on file" boolean.
+- **Expert taxonomy** (Unit 11): `FieldTag` and `LetterType` are **closed** vocabularies,
+  enforced as Java enums *and* as database CHECKs (`V18`), because neither covers the
+  other's writer. Exact matching for Unit 12 at the cost of a migration per new
+  discipline. The shipped values are the spec's starter list and are **not ENM-signed**.
+- **Expert load and payouts-pending are derived, never counted into a column.**
+  `expert.current_active_count`, `total_cases_completed` and `total_payments_pending`
+  exist from `V7`, have never been written, and stay that way: `ExpertLoadService` answers
+  from one batched grouped count over `evalos_case` per page, and Unit 16 does the same
+  over `payout_ledger`. A counter would need adjusting on assign, close, refund, reassign
+  and decline.
+- **Roster maintenance is a sheet upload** (CSV *and* XLSX), validated in a dry run, then
+  imported all-or-nothing in one transaction, upserting on `(brand_id, lower(email))` —
+  the partial unique index, not the lookup, is what makes a concurrent re-upload lose.
+  Rows are never deleted by an import. The file is parsed in memory and never stored.
+- **A request may name a brand only when creating a row, never to scope a read.** `brandId`
+  on `POST /api/experts` and the imports exists because a GM has no brand of their own;
+  `OwnershipGuard` decides whether the caller may act in it.
 - **Handoff A**: GHL fires the per-brand "contact created" webhook; EvalOS creates
   the case idempotently, **unpaid**. Payment is a separate fact recorded on the
   case by a GM or Brand Manager (`paid` / `paid_at`, `POST /mark-paid`), and no

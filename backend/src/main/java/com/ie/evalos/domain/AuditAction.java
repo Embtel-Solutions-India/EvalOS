@@ -15,5 +15,14 @@ public enum AuditAction {
 	 * lets the fact exist without a second place to keep it, and a query needs something to
 	 * filter on. Nothing about the case itself changes when one is sent.
 	 */
-	CHASED
+	CHASED,
+	/**
+	 * A bulk sheet import ran (Unit 11).
+	 *
+	 * <p>Recorded against the <em>brand</em>, because the object acted on is the brand's
+	 * roster and no single expert row is the subject. The per-expert {@code CREATED} and
+	 * {@code UPDATED} rows are written as well, so the trail answers both "what happened
+	 * to this expert" and "where did fifty experts come from at once".
+	 */
+	IMPORTED
 }

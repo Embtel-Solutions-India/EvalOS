@@ -87,19 +87,23 @@ export const NAV_ITEMS: readonly NavItem[] = [
     group: 'Pipeline',
   },
 
+  // The expert database, live as of Unit 11: roster, availability board, sheet upload.
+  //
+  // **One entry, not two.** There used to be a `/experts` for the GM/BM/PM beside an
+  // `/expert-database` for the Expert Network Manager — two paths, two labels, one screen,
+  // which is exactly what `/cases` next to `/board` was before the visual pass deleted it.
+  // Whichever of the two a role happened to be given decided which URL their bookmarks and
+  // their deep links used, for the same page.
+  //
+  // Roles are `ExpertController.ROSTER_READ`: the ENM maintains the roster, the GM and Brand
+  // Manager oversee it, and the Project Manager reads it because they pick the experts on it
+  // — the assignment picker only ever showed them a name. A Case Manager and a Coordinator
+  // are absent, matching that gate: they work the case the expert was chosen for.
   {
     path: '/experts',
-    label: 'Experts',
-    roles: ['GM', 'BRAND_MANAGER', 'PROJECT_MANAGER'],
-    becomes: 'Expert database (Unit 11)',
-    group: 'Records',
-  },
-  // Expert Network Manager.
-  {
-    path: '/expert-database',
     label: 'Expert database',
-    roles: ['EXPERT_NETWORK_MANAGER'],
-    becomes: 'Expert roster + sheet upload (Unit 11)',
+    roles: ['GM', 'BRAND_MANAGER', 'PROJECT_MANAGER', 'EXPERT_NETWORK_MANAGER'],
+    becomes: 'Expert roster + sheet upload',
     group: 'Records',
   },
   {

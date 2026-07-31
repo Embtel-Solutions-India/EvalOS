@@ -13,6 +13,7 @@ import com.ie.evalos.domain.Case;
 import com.ie.evalos.domain.ChecklistItemStatus;
 import com.ie.evalos.domain.ContactSnapshot;
 import com.ie.evalos.domain.DocumentChecklistItem;
+import com.ie.evalos.domain.ExceptionState;
 import com.ie.evalos.domain.Expert;
 import com.ie.evalos.domain.Notification;
 import com.ie.evalos.domain.NotificationType;
@@ -25,6 +26,7 @@ import com.ie.evalos.domain.WebhookEvent;
 import com.ie.evalos.domain.WebhookSource;
 import com.ie.evalos.security.TenantContext;
 import com.ie.evalos.service.AuditService;
+import com.ie.evalos.service.ExpertLoadService;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
@@ -127,6 +129,9 @@ class LocalPostgresIntegrationTest {
 	@Autowired
 	AuditService auditService;
 
+	@Autowired
+	ExpertLoadService expertLoads;
+
 	@Test
 	void everyMigrationApplied() {
 		List<String> versions = jdbc.queryForList(
@@ -134,7 +139,137 @@ class LocalPostgresIntegrationTest {
 
 		assertThat(versions)
 				.containsSubsequence("1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13",
-						"14", "15", "16");
+						"14", "15", "16", "17", "18");
+	}
+
+	/**
+	 * Unit 11's closed vocabulary, in the half a Java enum cannot cover.
+	 *
+	 * <p>{@code FieldTag} stops a controller accepting an unknown tag; this is the other
+	 * writer — a migration, a seed script, a hand-run UPDATE — and it is why the constraint
+	 * exists as well as the enum. Unit 12 matches on these tags by equality, so a single
+	 * row carrying "mechanical engg" would be an expert the scorer can never find.
+	 */
+	@Test
+	void theDatabaseRefusesATagTheVocabularyDoesNotContain() {
+		UUID id = experts.save(new Expert(BRAND_IE, "Dr Tagged " + UUID.randomUUID())).getId();
+
+		assertThatThrownBy(() -> jdbc.update(
+				"UPDATE expert SET primary_fields = ARRAY['mechanical engg'] WHERE id = ?", id))
+				.hasStackTraceContaining("expert_primary_fields_known");
+		assertThatThrownBy(() -> jdbc.update(
+				"UPDATE expert SET secondary_fields = ARRAY['UNDERWATER_BASKETRY'] WHERE id = ?", id))
+				.hasStackTraceContaining("expert_secondary_fields_known");
+		assertThatThrownBy(() -> jdbc.update(
+				"UPDATE expert SET letter_types = ARRAY['CREDENTIAL_EVAL'] WHERE id = ?", id))
+				.hasStackTraceContaining("expert_letter_types_known");
+
+		// And the legal values go in, so the constraint is not simply refusing everything.
+		assertThat(jdbc.update("UPDATE expert SET primary_fields = ARRAY['LAW', 'FINANCE'], "
+				+ "letter_types = ARRAY['RFE_RESPONSE'] WHERE id = ?", id)).isEqualTo(1);
+		// A tagless expert stays legal: `NULL <@ ARRAY[...]` is unknown, which a CHECK accepts.
+		assertThat(jdbc.update("UPDATE expert SET primary_fields = NULL WHERE id = ?", id)).isEqualTo(1);
+	}
+
+	/**
+	 * The sheet import's upsert key, which is why re-uploading a roster updates instead of
+	 * duplicating.
+	 *
+	 * <p>An index and not the lookup: {@code ExpertImportService} reads by email and then
+	 * inserts, which two concurrent uploads of the same sheet can both pass. Case-insensitive
+	 * because the index keys on {@code lower(email)} and the finder is
+	 * {@code findByBrandIdAndEmailIgnoreCase} — the two have to agree or the index does not
+	 * apply to this write.
+	 */
+	@Test
+	void oneEmailPerBrandCanOnlyBeOnTheRosterOnce() {
+		String email = "roster-" + UUID.randomUUID() + "@example.test";
+
+		Expert first = new Expert(BRAND_IE, "Dr First");
+		first.setEmail(email);
+		experts.saveAndFlush(first);
+
+		Expert sameAddress = new Expert(BRAND_IE, "Dr Duplicate");
+		sameAddress.setEmail(email.toUpperCase());
+		assertThatThrownBy(() -> experts.saveAndFlush(sameAddress))
+				.hasStackTraceContaining("uq_expert_per_brand_email");
+
+		// The other brand recruits the same person independently: an expert is never shared,
+		// so this is a second legitimate row (Expert's own class comment).
+		Expert otherBrand = new Expert(BRAND_XP, "Dr First");
+		otherBrand.setEmail(email);
+		assertThat(experts.saveAndFlush(otherBrand).getId()).isNotNull();
+
+		// Partial, so any number of experts may have no email at all — they simply cannot be
+		// imported, which the report says.
+		assertThat(experts.saveAndFlush(new Expert(BRAND_IE, "Dr No Email A")).getId()).isNotNull();
+		assertThat(experts.saveAndFlush(new Expert(BRAND_IE, "Dr No Email B")).getId()).isNotNull();
+
+		// The finder the import upserts through agrees with the index, capitalisation included.
+		assertThat(experts.findByBrandIdAndEmailIgnoreCase(BRAND_IE, email.toUpperCase()))
+				.get().extracting(Expert::getFullName).isEqualTo("Dr First");
+		assertThat(experts.findByBrandIdAndEmailIgnoreCase(BRAND_XP, email))
+				.get().extracting(Expert::getId).isNotEqualTo(first.getId());
+	}
+
+	/**
+	 * The unit's load criterion, and the reason it is a criterion: an expert carrying two
+	 * open cases reports an active load of 2 while {@code expert.current_active_count} is
+	 * still 0 in the same row.
+	 *
+	 * <p>That column and {@code total_cases_completed} were created in {@code V7} and have
+	 * never been written by anything. Reading them would have shown every expert as free and
+	 * given Unit 12's scorer a constant, so both figures are derived here — and the assertion
+	 * on the dead column is what would fail if somebody "fixed" the derivation by starting to
+	 * increment it instead.
+	 */
+	@Test
+	void anExpertsLoadIsDerivedFromTheirCasesAndNotFromTheDeadCounter() {
+		UUID expertId = experts.save(new Expert(BRAND_IE, "Dr Busy " + UUID.randomUUID())).getId();
+
+		caseFor(expertId, Stage.EXPERT_SIGNING, ExceptionState.NONE);
+		caseFor(expertId, Stage.DRAFT_GENERATION, ExceptionState.NONE);
+		caseFor(expertId, Stage.CLOSED, ExceptionState.NONE);
+		// A closed case still holding REFUND_REQUESTED is a refund the GM approved, which is
+		// not work delivered — the same reading as RefundService.isRefunded.
+		caseFor(expertId, Stage.CLOSED, ExceptionState.REFUND_REQUESTED);
+
+		assertThat(expertLoads.forExpert(expertId)).isEqualTo(new ExpertLoadService.Load(2, 1));
+
+		Integer stored = jdbc.queryForObject(
+				"SELECT current_active_count FROM expert WHERE id = ?", Integer.class, expertId);
+		assertThat(stored).isZero();
+	}
+
+	/**
+	 * The batched aggregate is brand-blind, and that is a decision rather than an oversight
+	 * — the same one {@code DocumentChecklistItemRepository.findByCaseIdIn} carries. Its
+	 * javadoc's "do not call it with ids that came from a request" is load-bearing: the ids
+	 * come from {@code ExpertRepository.findScoped}, and nothing else keeps the two brands
+	 * apart in this query.
+	 */
+	@Test
+	void theExpertLoadAggregateAnswersForWhateverIdsItIsGiven() {
+		UUID ieExpert = experts.save(new Expert(BRAND_IE, "Dr IE " + UUID.randomUUID())).getId();
+		UUID xpExpert = experts.save(new Expert(BRAND_XP, "Dr XP " + UUID.randomUUID())).getId();
+		caseFor(ieExpert, Stage.EXPERT_SIGNING, ExceptionState.NONE);
+		caseFor(xpExpert, Stage.EXPERT_SIGNING, ExceptionState.NONE);
+
+		assertThat(cases.countCasesPerExpert(List.of(ieExpert)))
+				.singleElement()
+				.satisfies(row -> assertThat(row[0]).isEqualTo(ieExpert));
+		// Two brands' experts in one call: no predicate stops it, so the caller's scoped read
+		// is the only thing that does.
+		assertThat(cases.countCasesPerExpert(List.of(ieExpert, xpExpert))).hasSize(2);
+		// An expert with no cases is absent rather than zero; ExpertLoadService adds the zero.
+		assertThat(cases.countCasesPerExpert(List.of(UUID.randomUUID()))).isEmpty();
+	}
+
+	private void caseFor(UUID expertId, Stage stage, ExceptionState exceptionState) {
+		Case subject = new Case(BRAND_IE, "EV-" + UUID.randomUUID(), stage);
+		subject.setExpertId(expertId);
+		subject.setExceptionState(exceptionState);
+		cases.saveAndFlush(subject);
 	}
 
 	/**

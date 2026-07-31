@@ -2,6 +2,7 @@ import { Navigate, Route, Routes } from 'react-router-dom'
 import Forbidden from './components/Forbidden'
 import BoardView from './features/board/BoardView'
 import ChecklistBoard from './features/checklist/ChecklistBoard'
+import ExpertRoster from './features/experts/ExpertRoster'
 import LoginPage from './features/auth/LoginPage'
 import RoleDashboard from './features/dashboards/RoleDashboard'
 import AppShell from './features/shell/AppShell'
@@ -31,6 +32,7 @@ const SCREENS: Record<string, React.ReactNode> = {
   '/board': <BoardView />,
   '/my-cases': <BoardView />,
   '/checklists': <ChecklistBoard />,
+  '/experts': <ExpertRoster />,
 }
 
 export default function App() {

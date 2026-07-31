@@ -2,9 +2,14 @@
 
 Built in Unit 03 (`V4`–`V10`). Entities: `ContactSnapshot`, `Case` (table **`evalos_case`** — `case`
 is reserved SQL), `DocumentChecklistItem`, `Expert`, `PayoutLedger`, `Notification`, `AuditEvent`,
-plus Unit 02's `Brand`/`TeamMember`. Schema now runs to **`V17`**; `V11`–`V17` added the per-brand
+plus Unit 02's `Brand`/`TeamMember`. Schema now runs to **`V18`**; `V11`–`V17` added the per-brand
 webhook secret, the webhook archive + its brand-scoped idempotency key, `case.paid`/`paid_at`, the
-one-open-case-per-contact-service index, contact identity, and `case.assigned_coordinator`.
+one-open-case-per-contact-service index, contact identity, and `case.assigned_coordinator`. **`V18`
+(Unit 11)** added `expert.email`/`phone`/`letter_types`/`standard_fee`, three vocabulary CHECKs
+(`primary_fields`/`secondary_fields` against `FieldTag`, `letter_types` against `LetterType` — the
+`V3` role-CHECK pattern, and the only CHECKs on enum columns besides that one), the partial unique
+index `uq_expert_per_brand_email` on `(brand_id, lower(email))`, and a GIN index on
+`primary_fields` built for Unit 12's tag containment rather than for Unit 11's own filter.
 
 ## Entity patterns
 
@@ -57,6 +62,18 @@ about load and money, at a scale (50–100 cases/brand/month) where a grouped `C
 `evalos_case` / `payout_ledger` is trivial. Batch the query for a whole page; never one per row. The
 columns are deliberately left in place rather than dropped — dropping columns is not a drive-by, and a
 later read-model unit may want them as a materialized cache.
+
+**Unit 11 did this for the two case counters and it is the pattern to copy.**
+`service/ExpertLoadService` answers `{active, completed}` per expert from one
+`CaseRepository.countCasesPerExpert` — native SQL, `count(*) FILTER (WHERE …)`, one grouped pass for
+a whole roster page. Native because `FILTER` makes it one pass and because this entity's JPQL name is
+`Case`, which is also a JPQL keyword. "Completed" excludes a refunded case, matching
+`RefundService.isRefunded`. The finder is **deliberately brand-unscoped** over ids the caller already
+read scoped, so it carries the `findByCaseIdIn` javadoc convention and a DB-gated brand-isolation
+test. A DB-gated test also pins an expert with two open cases reporting a load of **2 while
+`current_active_count` in the same row is still 0** — so "fixing" the derivation by incrementing the
+column breaks the build. Unit 12 reuses the service; Unit 16 owes `total_payments_pending` the same
+treatment.
 
 Same trap, different shape: `Case.retention_30_sent_at` … `retention_365_sent_at` and
 `google_review_requested` exist and are unwritten, reserved for the jobs/outbound units.
@@ -140,3 +157,10 @@ AES-256-GCM, fresh 12-byte IV per write, stored as `base64(iv || ciphertext||tag
 - Field and getter are `@JsonIgnore`, and `Expert` deliberately has no `toString()`. Never map it into
   a DTO, outbound webhook payload, or log line. It is the only encrypted field — payouts are manual,
   so there is no card or bank data anywhere else.
+- **Write-only since Unit 11, which gave it its first screen.** `PUT /api/experts/{id}/payment-detail`
+  sets it and **nothing reads it back** — no endpoint, no service method, not for the ENM who typed
+  it. No DTO declares the field (not blanked, not masked: *not a member*), the audit snapshot records
+  only that it was set, and the sheet import refuses a mapping naming it. Screens get
+  `Expert.hasPaymentDetail()`. `ExpertControllerTest` walks every expert route with the field
+  populated and greps each serialized body; it asserts on `"paymentDetail"` **quoted**, because
+  `paymentDetailOnFile` is a legitimate member.

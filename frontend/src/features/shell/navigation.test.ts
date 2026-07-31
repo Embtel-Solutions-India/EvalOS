@@ -107,6 +107,27 @@ describe('the nav and route table', () => {
     }
   })
 
+  it('pins the expert database to its backend gate, as one entry rather than two', () => {
+    // **This list must equal ExpertController.ROSTER_READ**, the gate on /api/experts/roster
+    // and the routes beneath it. The Project Manager is on it because they pick experts; the
+    // Case Manager and Coordinator are not, because they work the case the expert was chosen
+    // for.
+    expect(ALL_ROLES.filter((role) => mayReach(role, '/experts'))).toEqual([
+      'GM',
+      'BRAND_MANAGER',
+      'PROJECT_MANAGER',
+      'EXPERT_NETWORK_MANAGER',
+    ])
+
+    // `/expert-database` is gone: it was a second path to this same screen, given only to the
+    // ENM, so which URL a role used for one page depended on their role. Asserted rather than
+    // assumed, for the reason `/delivery` is above — re-adding it reinstates the split.
+    expect(itemFor('/expert-database')).toBeUndefined()
+    for (const role of ALL_ROLES) {
+      expect(mayReach(role, '/expert-database'), `${role} can still reach /expert-database`).toBe(false)
+    }
+  })
+
   it('never offers a role a way out it would be refused', () => {
     // The placeholder's escape link. A link that answers 403 is worse than no link.
     for (const role of ALL_ROLES) {

@@ -15,6 +15,16 @@ spring:
   flyway:
     enabled: true
     locations: classpath:db/migration
+  servlet:
+    multipart:
+      # The expert sheet upload (Unit 11), and the only multipart endpoint in EvalOS.
+      # file-size-threshold matches max-file-size on purpose: above the threshold the
+      # container spools the upload to a temp file, and EvalOS hosts no files
+      # (invariant 14) — a roster sheet is parsed in memory and never lands on disk.
+      # A roster is tens of rows, so 5 MB is already generous for a .xlsx.
+      max-file-size: ${UPLOAD_MAX_SIZE:5MB}
+      max-request-size: ${UPLOAD_MAX_SIZE:5MB}
+      file-size-threshold: ${UPLOAD_MAX_SIZE:5MB}
 
 evalos:
   security:
