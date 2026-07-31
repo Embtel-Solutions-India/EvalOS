@@ -9,26 +9,30 @@ Update this file after every meaningful implementation change.
   (notification centre), 07 (app shell), 08 (production board), 09 (case detail) and 10 (doc
   checklist) are all Phase 1 — this tracker had been calling 06 onward "Phase 2" since Unit 06,
   which the build plan does not say. Corrected here rather than left to compound.
-- **Phase 2 — Connect the seams is under way.** It is Units 11–17. **Unit 11 (expert database
-  + sheet upload) is complete and verified**; Unit 12 is next. The build plan's `## Phase 3`
+- **Phase 2 — Connect the seams is under way.** It is Units 11–17. **Units 11 (expert database
+  + sheet upload) and 12 (match scoring engine) are complete and verified**; Unit 13 is next.
+  The build plan's `## Phase 3`
   heading used to sit above Unit 17 and contradict its own roadmap line; the heading moved to
   Unit 18, so Dashboards is Phase 2 wherever you read it.
-- **Verified, not just written.** All **229** backend tests execute with none skipped — the
-  22 DB-backed ones included — plus 61 frontend tests, and CI runs the DB suite against a real
-  Postgres on every push. (It was 183 backend / 44 frontend at the end of Phase 1.) See the
-  Unit 11 entry at the end of Completed.
+- **Verified, not just written.** All **255** backend tests execute with none skipped — the
+  23 DB-backed ones included — plus 73 frontend tests, and CI runs the DB suite against a real
+  Postgres on every push. (It was 183 backend / 44 frontend at the end of Phase 1, and 230/64
+  after Unit 11.) See the Unit 12 entry at the end of Completed.
 
 ## Current Goal
 
-- Unit 12 — Match scoring engine. It reads the taxonomy Unit 11 established and reuses
-  `ExpertLoadService` rather than counting cases again; the roster it scores over is now real
-  data with a closed vocabulary behind it. Its spec (`context/specs/12-match-scoring-engine.md`)
-  was written in the Phase 2 batch and is **a draft to re-read and revise at the start of the
-  unit**, not a settled contract.
-- Carried forward from Unit 11, unfinished business rather than a blocker: **the `FieldTag`
-  value list is still unsigned by an ENM.** It shipped on instruction, so Unit 12 will be
-  scoring against a vocabulary that may still change — and a change is a migration widening
-  `V18`'s CHECK plus the enum plus the frontend list, together.
+- Unit 13 — per `context/specs/00-build-plan.md`. As with every Phase 2 spec, it was written in
+  the Phase 2 batch and is **a draft to re-read and revise at the start of the unit**, not a
+  settled contract.
+- Carried forward from Unit 11 and now actually load-bearing, unfinished business rather than a
+  blocker: **the `FieldTag` value list is still unsigned by an ENM.** It shipped on instruction,
+  and Unit 12 now **scores** against it — a shortlist is only as good as the vocabulary its
+  match factor compares on, so a mismatch with what an ENM really recruits into shows up as
+  "no available expert carries that tag" rather than as an obvious defect. Changing it remains a
+  migration widening `V18`'s CHECK plus the enum plus the frontend list, together.
+- Two things Unit 12 deliberately left for their owning units, so neither reads as an oversight:
+  `OfferOutcome.TIMED_OUT` is declared and written by nobody until Unit 15, and no case column
+  records which discipline a case needs — the PM supplies it per shortlist, on purpose.
 
 ## Completed
 
@@ -1107,14 +1111,157 @@ The lesson worth carrying into Unit 12: the recurring bug in this codebase is a 
 action the server will refuse, and it recurs because each screen re-derives its own gate. Where a
 screen has more than one component that writes, the gate belongs to the screen and is passed down.
 
+### Unit 12 — Match scoring engine (assist mode) · complete and verified
+
+The roster Unit 11 made real is now ranked for the PM at the moment of assignment. **One new
+migration, `V19`; `V7`/`V18` untouched.**
+
+- **`domain/ExpertCaseOffer` + `domain/OfferOutcome` + `V19__expert_case_offer.sql` — the record
+  that makes acceptance rate computable at all.** It did not exist anywhere queryable:
+  `expert.performance_flags` carries a `DECLINED_CASES` marker, which is a flag and not a rate;
+  `evalos_case.expert_id` is overwritten by `reassignExpert`, so the case row does not remember who
+  declined it; and the decline itself is in the audit trail inside a `before_snapshot` jsonb blob —
+  derivable in principle, and a query no scorer should be built on. So the fact got its own row,
+  whose whole purpose is to be *aggregated*. Not a second history: the trail still records each
+  transition.
+  - **Append-only in spirit, one mutable field in fact.** `outcome` moves off `OFFERED` exactly
+    once through `ExpertCaseOffer.resolve`; every other column is `updatable = false`. **First
+    write wins and a second act is a no-op rather than an error** — Unit 15 has two acts that both
+    mean accepted (the expert pressing Accept, then Dropbox Sign's `signed` callback) and on the
+    ordinary happy path both fire, so throwing would turn a normal sequence into a failed
+    transition. A *different* later outcome is swallowed too, not just a repeat: staff recording a
+    timeout and the signature landing afterwards is the same race. The guard is on the entity — the
+    one place that owns the column — not in each of the four callers.
+  - **Written by the transitions that already exist, inside their transactions**, so an offer and
+    the transition that caused it commit together or not at all. `assignCaseManager` and
+    `reassignExpert` open one; `expertDeclined` stamps `DECLINED` with the reason; `expertSigned`
+    stamps `ACCEPTED`. `SUPERSEDED` on a rematch, so a rematched case leaves **no permanently-open
+    row** — an `OFFERED` row no transition can ever reach is the shape of data that eventually gets
+    counted as something.
+  - `TIMED_OUT` is declared and **written by nobody until Unit 15's `EXPERT_TIMED_OUT`** — a staff
+    act, prompted by Unit 19's 24h timer but never fired by it, because reaching `TIMED_OUT` also
+    opens a rematch and `REASSIGN_EXPERT` is gated on an exception state only a declared transition
+    can set.
+  - **`resolveOpenOffer` is tolerant on both edges, deliberately.** A case with no open offer (one
+    assigned before `V19` existed) is left alone rather than failing the transition: this table
+    serves a *ranking*, and refusing a legitimate decline because its offer row is missing would let
+    a reporting concern block the pipeline.
+  - Two CHECKs, for the reason `V18` gives: `outcome IN (...)` because the scorer divides by a count
+    of these values and one unrecognised spelling would drop out of the numerator and the
+    denominator at once; and `(outcome = 'OFFERED') = (outcome_at IS NULL)` because an open offer
+    with a resolution date and a resolved one without are the same fact stated twice, and letting
+    them disagree is how a row reads `OFFERED` forever with an outcome nobody can date. Indexes
+    `(brand_id, expert_id, outcome)` for the aggregate and a partial one on `(case_id) WHERE
+    outcome = 'OFFERED'` for the lookup the three resolving transitions do.
+- **`service/ExpertMatchService` — the four factors as one weighted table**, for the reason
+  `NotificationListeners` and `navigation.ts` give: a weight in a literal table is a data diff when
+  the business changes its mind. Field match 40 (primary full, secondary half), letter-type
+  experience 25, acceptance rate 20, current load 15. Each row returns a fraction and earns
+  `round(weight × fraction)`, and **the score is the sum of those** — so the breakdown the PM is
+  shown adds up to the score they are shown by construction, not by coincidence.
+  - **The required field comes from the PM, not from the case.** A case has `service_type`,
+    `service_subtype` and `visa_category` and **no field tag**; nothing records that a case is a
+    mechanical-engineering matter. `fieldTag` is a required query parameter because the PM has just
+    read the documents and written the strategy notes — they are the only person who knows, and they
+    know it at exactly this moment. A column would have to be filled at intake by a GHL webhook
+    that carries no such thing and would then be a stale guess worked around. **Recorded as a
+    deliberate omission**; if a later unit finds a second consumer, add the column then, with a real
+    source.
+  - `ServiceType → LetterType` is a **declared map**, not a `valueOf`: `TRANSLATION` and
+    `TRANSLATION_CERTIFICATION` are the same matter under two names, so a name-based conversion
+    would throw on exactly the pair that does not line up.
+  - **Eligibility is a filter, not a low score.** Only `AVAILABLE` experts are scored —
+    `availableExpert` refuses anything else, so a shortlist offering one would be offering what the
+    write side rejects (the Unit 08 picker rule).
+  - **Cold start:** below 3 resolved offers an expert scores **the roster's mean**, not zero.
+    A zero would put a new expert permanently last, and being last is what stops them ever getting
+    the case that would give them a record. The mean is taken over the experts who *have* a record —
+    averaging in the newcomers' own placeholder would drag it toward the placeholder and make it
+    drift as the roster grows. With nobody above the threshold it is a neutral 0.5, which is
+    constant across the shortlist and so cannot change any ranking.
+  - **Load is the derived count from `ExpertLoadService`**, never `current_active_count` — that
+    column has never been written and would hand the scorer a constant. `1/(1+n)`, carrying a
+    `ponytail:` note that it has no notion of capacity and becomes `1 - n/cap` if brands ever record
+    one.
+  - **`quality_score` is a tie-break, not a fifth factor** — it is a human judgement already
+    reflected in tier and in whether the ENM keeps the expert available, and weighting it would
+    count the same opinion twice. **The performance flags are shown, not scored**, `DECLINED_CASES`
+    excluded because the acceptance-rate factor two rows up counts the declines rather than noting
+    that some happened.
+  - **Where the spec had two readings, stated rather than silently resolved.** The weight table says
+    a missing field tag scores *zero*, while the empty state must be able to say "no available
+    expert carries the Mechanical Engineering tag" — which only happens if the tag can empty the
+    list. Resolved by scoring everyone available and then **dropping a zero on the 40-point field
+    factor from the shortlist**: proposing a physicist for a nursing matter is noise, not a
+    suggestion. They are not forbidden — the full picker sits directly underneath and assigns
+    anybody available.
+- **`web/ExpertShortlistController` — one route**, `GET /api/cases/{id}/expert-shortlist?fieldTag=`,
+  GM · Brand Manager · PM. Case Managers, Coordinators and **the ENM** are refused: the ENM owns the
+  roster but does not staff cases, and a shortlist necessarily reveals which case needs which
+  discipline — supply-side access does not extend to case content. No new scoped query: the case
+  comes through `CaseLifecycleService.read` and the roster through `ExpertRepository.findScoped`.
+  `payment_detail`, email and fee are **not members** of the card DTO.
+- **Assist mode is enforced structurally, not just intended.** `DomainInvariantsTest.theMatchEngine
+  IsNeverAPreconditionForAnAssignment` fails the build if `CaseLifecycleService` ever takes
+  `ExpertMatchService` — the failure mode is somebody making the shortlist a precondition, which
+  would compile, would look like a safeguard, and would take the decision away from the PM who read
+  the documents. `assign-cm`, `reassign-expert` and `GET /api/experts` are unchanged.
+- **A prediction Unit 11 made that this unit did not keep: `idx_expert_primary_fields` is unused.**
+  `V18` built a GIN index on `primary_fields` explicitly "for Unit 12", on the expectation that the
+  scorer would ask the database *which experts carry this tag* per case. It does not — the roster is
+  read once through `findScoped` and matched in memory, because the spec's rule is **no new scoped
+  query and no second scoping path**, and a brand's roster is tens of rows. The index is harmless
+  and stays: dropping it would be a migration that buys nothing. Recorded because `V18`'s comment
+  and the Unit 11 entry both still describe a query that was never written, and an index justified
+  by a caller that does not exist is exactly the kind of claim that gets copied forward.
+- **A 500 on a bad query parameter, fixed at the root.** `ApiExceptionHandler` had no handler for
+  `MissingServletRequestParameterException` or `MethodArgumentTypeMismatchException`, so
+  `?tier=platinum` and `?page=first` on the **existing** roster route already answered 500 for what
+  is squarely a bad request. The shortlist's required typed `fieldTag` made it impossible to ignore.
+  One handler where every route's parameter binding already routes through, echoing only the
+  parameter's name — Spring's own message for a failed enum conversion enumerates every accepted
+  value.
+- Frontend `features/experts/{ShortlistPanel.tsx, shortlistRules.ts + test}` and the panel wired
+  into `features/board/QuickActionDialog` for `assign-cm` (both call sites now pass `caseId`).
+  - **The shortlist sits above the dropdown and fills it in**, rather than replacing it. Picking a
+    card sets the same `expertId` the `/api/experts` select reads, so the two are one choice with two
+    ways in — and the shortlisted expert is in that list either way, since both endpoints filter to
+    `AVAILABLE`. "Choose someone else" is not a link; it is the field directly below.
+  - **No scoring in the browser.** The ranking is the server's, and a second implementation is a
+    second answer to "why did this expert come first". `breakdownAddsUp` is the exception and is not
+    a re-implementation: it checks the rows against the total and **says so on the card** if they
+    ever disagree, because a ranking whose arithmetic does not add up gets distrusted, which is the
+    same outcome as no ranking.
+  - The field tag is a **select over the closed vocabulary**, starting unset — guessing the
+    discipline is the one thing the panel must not do, and a prefilled wrong answer is worse than a
+    prompt. `factorShare` guards a zero weight, because a `NaN` width is a bar CSS silently drops:
+    it would vanish rather than look wrong, which is the kind of failure nobody reports.
+  - The dialog gained `max-h-[85vh]` + scroll and a wider form for this action only — a modal whose
+    Assign button is below the fold cannot be completed.
+- Verified: **`./mvnw verify` BUILD SUCCESS, 255 backend tests** (new: `ExpertMatchServiceTest` 10,
+  `ExpertShortlistControllerTest` 9, plus 3 in `CaseLifecycleServiceTest`, 1 in
+  `DomainInvariantsTest` and 1 DB-gated), and **all 255 green with zero skipped against local
+  Postgres 18** — `V19` applied on top of 18 existing migrations and `ddl-auto=validate` passed, so
+  the entity matches the table. `npm test` **73 frontend tests**, `npm run build` and
+  `npm run lint` clean.
+- **`theOfferAggregateIsGroupedByOutcomeAndBrandIsolated` is the DB-gated one, and it earned its
+  place twice.** The aggregate returns `[UUID, OfferOutcome, Long]` positionally and the scorer casts
+  each slot, which no stub would ever get wrong; the `brand_id` predicate is a real predicate rather
+  than a calling convention, so an acceptance rate cannot be computed across brands. **It also
+  caught its own bad assertion:** `UPDATE ... outcome = 'MAYBE'` breaks *both* CHECKs at once, and
+  Postgres reports whichever it evaluated first — so the test had been passing on the wrong
+  constraint until each was provoked on its own.
+
 ## In Progress
 
 - Nothing.
 
 ## Next Up
 
-- Unit 12 — Match scoring engine. Reads the taxonomy and `ExpertLoadService` Unit 11 builds
-  rather than counting or matching again.
+- Unit 13 — per `context/specs/00-build-plan.md`. Unit 12 leaves it two things: the
+  `expert_case_offer` row (Unit 15 fills `ACCEPTED` from the real Dropbox Sign callback instead of
+  the staff-recorded stand-in, and owns `TIMED_OUT`) and the rule-based score Unit 20's AI layer
+  ranks **on top of**, not instead of.
 
 ### Phase 2 readiness — which open questions block which unit
 

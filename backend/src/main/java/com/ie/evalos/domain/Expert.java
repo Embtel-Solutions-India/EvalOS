@@ -244,6 +244,20 @@ public class Expert extends ScopedEntity {
 		return avgResponseHours;
 	}
 
+	/**
+	 * The concerns recorded against this expert. Added for Unit 12, which <em>shows</em> them
+	 * on the shortlist card rather than scoring them: folding a {@code CLIENT_COMPLAINT} into
+	 * a number hides the one thing a human should see before assigning. The typed accessor is
+	 * the boundary, as with the taxonomy arrays above.
+	 */
+	public List<PerformanceFlag> getPerformanceFlags() {
+		return values(performanceFlags, PerformanceFlag.class);
+	}
+
+	public void setPerformanceFlags(List<PerformanceFlag> performanceFlags) {
+		this.performanceFlags = names(performanceFlags);
+	}
+
 	public BigDecimal getStandardFee() {
 		return standardFee;
 	}

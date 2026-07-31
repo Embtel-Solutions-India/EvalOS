@@ -12,11 +12,13 @@ import com.ie.evalos.repository.AuditEventRepository;
 import com.ie.evalos.repository.CaseRepository;
 import com.ie.evalos.repository.ContactSnapshotRepository;
 import com.ie.evalos.repository.DocumentChecklistItemRepository;
+import com.ie.evalos.repository.ExpertCaseOfferRepository;
 import com.ie.evalos.repository.ExpertRepository;
 import com.ie.evalos.repository.NotificationRepository;
 import com.ie.evalos.repository.PayoutLedgerRepository;
 import com.ie.evalos.service.CaseIntakeService;
 import com.ie.evalos.service.CaseLifecycleService;
+import com.ie.evalos.service.ExpertMatchService;
 import com.ie.evalos.service.ScopePredicate;
 import com.ie.evalos.webhook.GhlContactHandler;
 
@@ -49,6 +51,7 @@ class DomainInvariantsTest {
 				arguments(CaseRepository.SCOPE, Case.class),
 				arguments(DocumentChecklistItemRepository.SCOPE, DocumentChecklistItem.class),
 				arguments(ExpertRepository.SCOPE, Expert.class),
+				arguments(ExpertCaseOfferRepository.SCOPE, ExpertCaseOffer.class),
 				arguments(PayoutLedgerRepository.SCOPE, PayoutLedger.class),
 				arguments(NotificationRepository.SCOPE, Notification.class));
 	}
@@ -129,6 +132,23 @@ class DomainInvariantsTest {
 		catch (ClassNotFoundException ex) {
 			throw new IllegalStateException(ex);
 		}
+	}
+
+	/**
+	 * Assist mode, held structurally: nothing that moves a case may depend on the match scorer.
+	 *
+	 * <p>Asserted this way because the failure mode is somebody making the shortlist a
+	 * precondition — "assign only an expert the engine proposed" would compile, would look like
+	 * a safeguard, and would quietly take the decision away from the PM who read the documents.
+	 * There is no auto-assign in EvalOS and there is not meant to be one; the dependency arrow
+	 * runs {@code ExpertMatchService → CaseLifecycleService} and never back.
+	 */
+	@Test
+	void theMatchEngineIsNeverAPreconditionForAnAssignment() {
+		assertThat(Stream.of(CaseLifecycleService.class.getDeclaredConstructors())
+				.flatMap(constructor -> Stream.of(constructor.getParameterTypes())))
+				.as("the state machine suggests nothing and consults nothing — see ExpertMatchService")
+				.doesNotContain(ExpertMatchService.class);
 	}
 
 	/**

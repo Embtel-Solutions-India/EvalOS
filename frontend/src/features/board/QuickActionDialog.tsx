@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import ShortlistPanel from '../experts/ShortlistPanel'
 import { fetchAssignable, fetchAvailableExperts } from './boardApi'
 import type { ActionField, PickerOption, QuickAction } from './boardRules'
 
@@ -19,14 +20,20 @@ import type { ActionField, PickerOption, QuickAction } from './boardRules'
  * id is not something a user knows or should be asked to type — and a *generated* id would
  * be worse than useless, since the transition looks the row up and refuses anything that is
  * not an existing member of the right role in the case's brand.
+ *
+ * `assign-cm` additionally gets the Unit 12 shortlist above its fields. It sits *above* the
+ * expert dropdown and fills it in, rather than replacing it: the ranking is assistance, and the
+ * full picker has to stay one click away or the engine has quietly become a precondition.
  */
 export default function QuickActionDialog({
   action,
+  caseId,
   caseCode,
   onCancel,
   onConfirm,
 }: {
   action: QuickAction
+  caseId: string
   caseCode: string
   onCancel: () => void
   onConfirm: (values: Record<string, string>) => void
@@ -34,6 +41,8 @@ export default function QuickActionDialog({
   const [values, setValues] = useState<Record<string, string>>({})
   const fields = action.fields ?? []
   const dialog = useRef<HTMLDialogElement>(null)
+  const setValue = (name: string, value: string) =>
+    setValues((previous) => ({ ...previous, [name]: value }))
 
   useEffect(() => {
     // The component only renders while an action is pending, so this opens once on mount.
@@ -43,7 +52,9 @@ export default function QuickActionDialog({
   return (
     <dialog
       ref={dialog}
-      className="fixed inset-0 z-20 m-auto rounded-xl border p-0 backdrop:bg-black/30"
+      // max-h + scroll because the shortlist makes this dialog tall enough to run off a laptop
+      // screen, and a modal whose Assign button is below the fold cannot be completed.
+      className="scroll-slim fixed inset-0 z-20 m-auto max-h-[85vh] overflow-y-auto rounded-xl border p-0 backdrop:bg-black/30"
       style={{ background: 'var(--bg-surface)', borderColor: 'var(--border-default)' }}
       // Escape reaches this now that the dialog is modal. `preventDefault` first, because
       // the parent unmounts us and letting the platform also close a removed node is how a
@@ -54,7 +65,9 @@ export default function QuickActionDialog({
       }}
     >
       <form
-        className="w-88 p-5"
+        // Wider for the shortlist, whose cards carry four labelled bars each; the other dialogs
+        // collect at most two fields and a wide box for one input reads as an empty room.
+        className={`${action.path === 'assign-cm' ? 'w-112' : 'w-88'} p-5`}
         onSubmit={(event) => {
           event.preventDefault()
           onConfirm(values)
@@ -66,12 +79,22 @@ export default function QuickActionDialog({
         </p>
 
         <div className="mt-4 space-y-3">
+          {action.path === 'assign-cm' && (
+            <ShortlistPanel
+              caseId={caseId}
+              selectedExpertId={values.expertId ?? ''}
+              // Picking a card only sets the field the dropdown below reads, so the two are one
+              // choice with two ways in — and the shortlisted expert is in that list either way,
+              // since both endpoints filter to AVAILABLE.
+              onPick={(expertId) => setValue('expertId', expertId)}
+            />
+          )}
           {fields.map((field) => (
             <Field
               key={field.name}
               field={field}
               value={values[field.name] ?? ''}
-              onChange={(value) => setValues((previous) => ({ ...previous, [field.name]: value }))}
+              onChange={(value) => setValue(field.name, value)}
             />
           ))}
           {fields.length === 0 && (

@@ -162,6 +162,7 @@ export default function CaseDetailPage() {
       {pending && (
         <QuickActionDialog
           action={pending}
+          caseId={detail.summary.id}
           caseCode={detail.summary.caseCode}
           onCancel={() => setPending(null)}
           onConfirm={(values) => void run(pending, values)}
