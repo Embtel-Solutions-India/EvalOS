@@ -227,9 +227,11 @@ public class ExpertService {
 	/**
 	 * Creates an expert in one brand.
 	 *
-	 * <p>{@code brandId} is the one place in EvalOS where a request may name a brand,
-	 * and it is not a scope: a new row's brand has to be chosen by somebody, and a GM
-	 * has no brand of their own to fall back on. It is still not trusted —
+	 * <p>{@code brandId} is one of the three endpoints in EvalOS where a request may name a
+	 * brand — this one and the two sheet imports, which share the reasoning and
+	 * {@link ExpertImportService#brandFor} — and in none of them is it a scope: a new row's
+	 * brand has to be chosen by somebody, and a GM has no brand of their own to fall back on.
+	 * {@code architecture.md} carries the policy and the full list. It is still not trusted —
 	 * {@link OwnershipGuard} decides whether this caller may act in the brand named, so
 	 * a Brand Manager naming another brand gets a 403 and only the cross-brand role can
 	 * name anything. A brand-locked caller who names nothing gets their own.
@@ -330,10 +332,17 @@ public class ExpertService {
 		expert.setSecondaryFields(form.secondaryFields());
 		expert.setLetterTypes(form.letterTypes());
 		expert.setTier(form.tier());
-		// A new expert with nothing said about availability is AVAILABLE — an ENM adding
-		// somebody to the roster is telling us they can be worked with. On an edit the
-		// field is part of the form, so an omitted value clears it, like every other one.
-		expert.setAvailability(form.availability());
+		// An expert with nothing said about availability is AVAILABLE, and this coerces rather
+		// than passing the null through. Not a nicety: only an AVAILABLE expert is offered by
+		// the assignment picker, so a null is an expert nobody can be given work — and the
+		// likeliest source of one is a legacy sheet with no availability column at all, which
+		// would import fifty unstaffable rows and report success. The comment here used to
+		// claim this default while the code passed the null straight down.
+		//
+		// It applies to an edit too, so availability cannot be cleared back to "not set". That
+		// is deliberate: "not set" is not a state an ENM means, it is the state a roster row
+		// goes missing in.
+		expert.setAvailability(form.availability() == null ? Availability.AVAILABLE : form.availability());
 		expert.setQualityScore(form.qualityScore());
 		expert.setStandardFee(form.standardFee());
 		expert.setRecruitmentSource(trimmed(form.recruitmentSource()));

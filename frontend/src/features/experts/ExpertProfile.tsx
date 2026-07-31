@@ -34,11 +34,23 @@ import {
  */
 export default function ExpertProfile({
   expertId,
+  mayWrite,
   onSaved,
   onClose,
 }: {
   /** An id, or `new` for the create form. */
   expertId: string | 'new'
+  /**
+   * Whether this role may maintain the roster (`ExpertController.ROSTER_WRITE`). False for a
+   * Project Manager, who reads the roster to know who they are picking from.
+   *
+   * Passed in rather than re-derived from `useMe()` here, so one place decides it and the
+   * roster's "Add an expert" button and this panel's form cannot disagree. Without it, a PM
+   * got a live Save button on every control below and lost the edit to a 403 — the same
+   * failure Units 09 and 10 were each reviewed for, a client offering what the server will
+   * refuse.
+   */
+  mayWrite: boolean
   onSaved: () => void
   onClose: () => void
 }) {
@@ -187,32 +199,49 @@ export default function ExpertProfile({
 
           <section className="mt-4">
             <h3 className="text-sm font-semibold tracking-tight">Availability</h3>
-            <div className="mt-1.5 flex flex-wrap gap-1.5">
-              {AVAILABILITIES.map((availability) => {
-                const active = profile.expert.availability === availability
-                return (
-                  <button
-                    key={availability}
-                    type="button"
-                    aria-pressed={active}
-                    onClick={() => void changeAvailability(availability)}
-                    className="rounded-md px-2 py-1 text-xs font-semibold"
-                    style={
-                      active
-                        ? AVAILABILITY_TOKEN[availability]
+            {mayWrite ? (
+              <div className="mt-1.5 flex flex-wrap gap-1.5">
+                {AVAILABILITIES.map((availability) => {
+                  const active = profile.expert.availability === availability
+                  return (
+                    <button
+                      key={availability}
+                      type="button"
+                      aria-pressed={active}
+                      onClick={() => void changeAvailability(availability)}
+                      className="rounded-md px-2 py-1 text-xs font-semibold"
+                      style={
+                        active
                           ? {
                               color: AVAILABILITY_TOKEN[availability].fg,
                               background: AVAILABILITY_TOKEN[availability].bg,
                             }
-                          : {}
-                        : { color: 'var(--text-muted)', background: 'var(--bg-raised)' }
-                    }
-                  >
-                    {label(availability)}
-                  </button>
-                )
-              })}
-            </div>
+                          : { color: 'var(--text-muted)', background: 'var(--bg-raised)' }
+                      }
+                    >
+                      {label(availability)}
+                    </button>
+                  )
+                })}
+              </div>
+            ) : (
+              // A reader gets the state, not four buttons that answer 403.
+              <p className="mt-1.5 text-sm">
+                <span
+                  className="rounded-md px-1.5 py-0.5 text-xs font-semibold"
+                  style={
+                    profile.expert.availability
+                      ? {
+                          color: AVAILABILITY_TOKEN[profile.expert.availability].fg,
+                          background: AVAILABILITY_TOKEN[profile.expert.availability].bg,
+                        }
+                      : { color: 'var(--text-muted)', background: 'var(--bg-raised)' }
+                  }
+                >
+                  {label(profile.expert.availability)}
+                </span>
+              </p>
+            )}
             <p className="mt-1 text-xs" style={{ color: 'var(--text-muted)' }}>
               Only an available expert can be put on a case, so anything else takes them out of the
               assignment picker.
@@ -233,34 +262,47 @@ export default function ExpertProfile({
                 {profile.expert.paymentDetailOnFile ? 'On file' : 'Not on file'}
               </span>
             </p>
-            <p className="mt-1.5 text-xs" style={{ color: 'var(--text-muted)' }}>
-              Encrypted, and never shown again — not here and not to anyone. To correct it, type the
-              whole value.
-            </p>
-            <div className="mt-1.5 flex gap-2">
-              <input
-                type="text"
-                value={detail}
-                aria-label="New payment detail"
-                placeholder="how this expert is paid"
-                onChange={(event) => setDetail(event.target.value)}
-                className="flex-1 rounded-md border px-2.5 py-1.5 text-sm"
-                style={INPUT_STYLE}
-              />
-              <button
-                type="button"
-                disabled={!detail.trim()}
-                onClick={() => void savePaymentDetail()}
-                className="rounded-md px-3 py-1.5 text-sm font-medium text-white disabled:opacity-60"
-                style={{ background: 'var(--accent-primary)' }}
-              >
-                Save
-              </button>
-            </div>
+            {mayWrite && (
+              <p className="mt-1.5 text-xs" style={{ color: 'var(--text-muted)' }}>
+                Encrypted, and never shown again — not here and not to anyone. To correct it, type the
+                whole value.
+              </p>
+            )}
+            {mayWrite && (
+              <div className="mt-1.5 flex gap-2">
+                <input
+                  type="text"
+                  value={detail}
+                  aria-label="New payment detail"
+                  placeholder="how this expert is paid"
+                  onChange={(event) => setDetail(event.target.value)}
+                  className="flex-1 rounded-md border px-2.5 py-1.5 text-sm"
+                  style={INPUT_STYLE}
+                />
+                <button
+                  type="button"
+                  disabled={!detail.trim()}
+                  onClick={() => void savePaymentDetail()}
+                  className="rounded-md px-3 py-1.5 text-sm font-medium text-white disabled:opacity-60"
+                  style={{ background: 'var(--accent-primary)' }}
+                >
+                  Save
+                </button>
+              </div>
+            )}
           </section>
         </>
       )}
 
+      {/* No form at all for a reader. Disabling the fields would still invite the work; the
+          facts above are what a Project Manager came here for. */}
+      {!mayWrite && (
+        <p className="mt-5 text-xs" style={{ color: 'var(--text-muted)' }}>
+          Read-only: the Expert Network Manager maintains this roster.
+        </p>
+      )}
+
+      {mayWrite && (
       <form className="mt-5 flex flex-col gap-3" onSubmit={(event) => void save(event)}>
         <h3 className="text-sm font-semibold tracking-tight">
           {creating ? 'Details' : 'Edit the profile'}
@@ -311,10 +353,14 @@ export default function ExpertProfile({
             value={form.tier ?? ''}
             onChange={(v) => setForm((c) => ({ ...c, tier: v === '' ? null : (v as (typeof TIERS)[number]) }))}
           />
+          {/* No "Not set" option: the server coerces a missing availability to AVAILABLE, so
+              offering the blank would be the screen and the server disagreeing about what
+              happens next. Tier keeps its blank — nothing defaults that. */}
           <Choice
             label="Availability"
             options={AVAILABILITIES}
-            value={form.availability ?? ''}
+            required
+            value={form.availability ?? 'AVAILABLE'}
             onChange={(v) =>
               setForm((c) => ({ ...c, availability: v === '' ? null : (v as Availability) }))
             }
@@ -371,6 +417,14 @@ export default function ExpertProfile({
           </button>
         </div>
       </form>
+      )}
+
+      {/* A read failure still has to be visible to a reader, who has no form to show it in. */}
+      {!mayWrite && failure && (
+        <p className="mt-2 text-sm font-medium" style={{ color: 'var(--status-red)' }}>
+          {failure}
+        </p>
+      )}
     </aside>
   )
 }
@@ -487,11 +541,14 @@ function Choice({
   options,
   value,
   onChange,
+  required,
 }: {
   label: string
   options: readonly string[]
   value: string
   onChange: (value: string) => void
+  /** Drops the blank option, for a field the server will fill in if this one does not. */
+  required?: boolean
 }) {
   const id = `expert-${text.toLowerCase().replace(/[^a-z]/g, '-')}`
   return (
@@ -506,7 +563,7 @@ function Choice({
         className="mt-1 w-full rounded-md border px-2.5 py-1.5 text-sm"
         style={INPUT_STYLE}
       >
-        <option value="">Not set</option>
+        {!required && <option value="">Not set</option>}
         {options.map((option) => (
           <option key={option} value={option}>
             {label(option)}

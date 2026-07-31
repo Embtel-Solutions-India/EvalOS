@@ -264,6 +264,27 @@ class ExpertImportServiceTest {
 		assertThat(saved.getValue().getQualityScore()).isEqualByComparingTo("8.8");
 	}
 
+	/**
+	 * The case a legacy roster spreadsheet actually presents: no availability column at all.
+	 *
+	 * <p>Only an {@code AVAILABLE} expert is offered by the assignment picker, so importing
+	 * these as null would land fifty experts nobody can be given work — and the report would
+	 * say it succeeded.
+	 */
+	@Test
+	void aSheetWithNoAvailabilityColumnImportsEverybodyAsAvailable() {
+		MultipartFile sheet = new MockMultipartFile("file", "roster.csv", "text/csv",
+				("Name,Email\nDr No Availability,no.availability@example.test\n").getBytes(StandardCharsets.UTF_8));
+
+		ImportReport report = imports.importSheet(null, sheet,
+				new ImportMapping(Map.of("Name", "fullName", "Email", "email")));
+
+		assertThat(report.imported()).isTrue();
+		ArgumentCaptor<Expert> saved = ArgumentCaptor.forClass(Expert.class);
+		verify(experts).saveAndFlush(saved.capture());
+		assertThat(saved.getValue().getAvailability()).isEqualTo(Availability.AVAILABLE);
+	}
+
 	@Test
 	void anEmptySheetImportsNothing() {
 		ImportReport report = imports.importSheet(null, csv(""), MAPPING);

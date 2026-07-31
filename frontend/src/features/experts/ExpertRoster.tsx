@@ -12,6 +12,7 @@ import {
   LETTER_TYPES,
   NO_FILTERS,
   TIERS,
+  hasFilters,
   label,
   type RosterFilters,
   type RosterPage,
@@ -103,7 +104,7 @@ export default function ExpertRoster() {
           <p className="font-num mt-1 text-sm tabular-nums" style={{ color: 'var(--text-muted)' }}>
             {state.status === 'ready'
               ? `${state.page.total} ${state.page.total === 1 ? 'expert' : 'experts'}${
-                  filters === NO_FILTERS ? '' : ' matching'
+                  hasFilters(filters) ? ' matching' : ''
                 }`
               : 'Loading…'}
           </p>
@@ -211,9 +212,9 @@ export default function ExpertRoster() {
 
           {state.status === 'ready' && state.page.rows.length === 0 && (
             <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
-              {filters === NO_FILTERS
-                ? 'No experts on this roster yet. Upload your sheet, or add one by hand.'
-                : 'No expert matches those filters.'}
+              {hasFilters(filters)
+                ? 'No expert matches those filters.'
+                : 'No experts on this roster yet. Upload your sheet, or add one by hand.'}
             </p>
           )}
 
@@ -275,6 +276,7 @@ export default function ExpertRoster() {
           {open && (
             <ExpertProfile
               expertId={open}
+              mayWrite={mayWrite}
               onSaved={() => void load()}
               onClose={() => setOpen(null)}
             />

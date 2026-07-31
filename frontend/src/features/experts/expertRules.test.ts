@@ -5,8 +5,10 @@ import {
   FIELD_TAGS,
   LETTER_TYPES,
   MAPPABLE_FIELDS,
+  NO_FILTERS,
   csvHeaders,
   guessMapping,
+  hasFilters,
   label,
 } from './expertRules'
 
@@ -59,6 +61,29 @@ describe('label', () => {
   it('says nothing rather than "null" for a field with nothing on file', () => {
     expect(label(null)).toBe('—')
     expect(label('')).toBe('—')
+  })
+})
+
+describe('hasFilters', () => {
+  it('is false for a roster nobody has narrowed', () => {
+    expect(hasFilters(NO_FILTERS)).toBe(false)
+  })
+
+  it('is false again once a filter is cleared', () => {
+    // The regression this replaced: `filters === NO_FILTERS` was identity, and every change
+    // makes a new object — so typing one character and deleting it left the header saying
+    // "matching" and the empty state blaming filters, for good.
+    expect(hasFilters({ ...NO_FILTERS, search: 'osei' })).toBe(true)
+    expect(hasFilters({ ...NO_FILTERS, search: '' })).toBe(false)
+    // Spaces are not a filter: the server trims before it searches.
+    expect(hasFilters({ ...NO_FILTERS, search: '   ' })).toBe(false)
+  })
+
+  it('counts every dropdown, not just the search box', () => {
+    expect(hasFilters({ ...NO_FILTERS, fieldTag: 'LAW' })).toBe(true)
+    expect(hasFilters({ ...NO_FILTERS, letterType: 'RFE_RESPONSE' })).toBe(true)
+    expect(hasFilters({ ...NO_FILTERS, availability: 'AVAILABLE' })).toBe(true)
+    expect(hasFilters({ ...NO_FILTERS, tier: 'TIER_1' })).toBe(true)
   })
 })
 

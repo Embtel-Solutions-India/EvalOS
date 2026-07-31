@@ -220,8 +220,10 @@ public class ExpertController {
 	 * @param brandId which brand's roster this expert joins. Required of a GM, who has no
 	 *                brand of their own; ignored for everybody else, whose own brand is
 	 *                used and who is refused by {@code OwnershipGuard} if they name
-	 *                another. This is the one place a request may name a brand, and it is
-	 *                choosing where a new row lives rather than widening a read.
+	 *                another. One of the **three** endpoints that may name a brand — this
+	 *                one and the two imports below, all creating rows and none widening a
+	 *                read. {@code architecture.md} states the policy under Multi-Tenancy;
+	 *                that is the list to audit, not this javadoc.
 	 */
 	@PostMapping
 	@PreAuthorize(ROSTER_WRITE)

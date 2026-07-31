@@ -1067,6 +1067,46 @@ describes for ~150 junk cases. They now dominate the roster screen and show as 4
 have been left alone rather than deleted on somebody's behalf; clearing them is one
 `DELETE` whenever that is wanted.
 
+### Unit 11 code review — three defects fixed, and the one it keeps catching
+
+Five independent reviewers over `main...development` (CLAUDE.md compliance, a shallow bug scan,
+git history, prior PR feedback, and the guidance written in the code's own comments). Two came back
+clean; three findings were confirmed by reading the source and fixed, plus one comment inaccuracy.
+
+1. **A Project Manager was shown write controls the server refuses — for the third unit running.**
+   `ExpertRoster` computed `mayWrite` and used it to hide "Add an expert" and the upload tab, then
+   never passed it to `ExpertProfile`, where the actual writes live. A PM opening any profile got a
+   live edit form, four availability buttons and a payment-detail Save, all answered 403 —
+   `ExpertControllerTest.aProjectManagerReadsTheRosterAndDoesNotEditIt` was asserting that 403 the
+   whole time. Worse than a cosmetic affordance: the PM fills in the form, saves, and loses the
+   edit. **This is the same defect Unit 09 and Unit 10 were each reviewed for** ("a client offering
+   something the server or the data would not back", and then "applied to one caller and not its
+   siblings"). The gate is now a required prop on the panel rather than something each component
+   re-derives, and a reader gets the availability *state* instead of buttons.
+2. **`ExpertService.apply` claimed a default it did not apply.** The comment said an expert with
+   nothing said about availability is `AVAILABLE`; the code passed the null straight through. The
+   UI never showed it (its empty form defaults to `AVAILABLE`) but the import did: a legacy sheet
+   with no availability column — and only `fullName` is a required mapping — would import fifty
+   experts as null, none of which the assignment picker can offer, and report success. Now coerced
+   in `apply`, so an edit cannot clear it back to "not set" either, and the profile form no longer
+   offers a blank the server would overwrite. A new import test covers the missing-column sheet.
+3. **`filters === NO_FILTERS` was an identity check.** Every filter change makes a new object, so
+   typing one character into the search box and deleting it left the header saying "N experts
+   matching" and an empty roster blaming filters that were not applied — permanently. Replaced with
+   `hasFilters()`, compared by value, treating an all-spaces search as no filter because the server
+   trims before searching. Three tests.
+4. **Two javadocs called the create endpoint "the one place a request may name a brand"** while the
+   same file accepted `brandId` on both import endpoints for the same reason. Reworded to name all
+   three and to point at `architecture.md`, which already had the policy right — the list to audit
+   should be in one place, and it is not a javadoc.
+
+Verified after the fixes: **230 backend tests** (DB-gated included, none skipped) and **64 frontend
+tests**, lint and build clean.
+
+The lesson worth carrying into Unit 12: the recurring bug in this codebase is a client offering an
+action the server will refuse, and it recurs because each screen re-derives its own gate. Where a
+screen has more than one component that writes, the gate belongs to the screen and is passed down.
+
 ## In Progress
 
 - Nothing.

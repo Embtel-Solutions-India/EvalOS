@@ -142,6 +142,21 @@ export const NO_FILTERS: RosterFilters = {
 }
 
 /**
+ * Whether anything is actually narrowing the roster.
+ *
+ * By value, not by identity. `filters === NO_FILTERS` was true only until the first
+ * keystroke: every change makes a new object, so typing a character into the search box and
+ * deleting it again left the screen saying "N experts matching" and, on an empty result,
+ * "No expert matches those filters" — permanently, with no filter applied. A blank search
+ * that is only spaces is no filter either, since the server trims it before searching.
+ */
+export function hasFilters(filters: RosterFilters): boolean {
+  return Boolean(
+    filters.search.trim() || filters.fieldTag || filters.letterType || filters.availability || filters.tier,
+  )
+}
+
+/**
  * Acronyms the sentence-casing below would otherwise mangle. `RFE_RESPONSE` read as
  * "Rfe response", which is a term of art spelled wrong on the screen an ENM works in.
  */
