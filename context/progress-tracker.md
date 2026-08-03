@@ -14,9 +14,9 @@ Update this file after every meaningful implementation change.
   The build plan's `## Phase 3`
   heading used to sit above Unit 17 and contradict its own roadmap line; the heading moved to
   Unit 18, so Dashboards is Phase 2 wherever you read it.
-- **Verified, not just written.** All **255** backend tests execute with none skipped — the
+- **Verified, not just written.** All **260** backend tests execute with none skipped — the
   23 DB-backed ones included — plus 73 frontend tests, and CI runs the DB suite against a real
-  Postgres on every push. (It was 183 backend / 44 frontend at the end of Phase 1, and 230/64
+  Postgres on every push. (It was 183 backend / 44 frontend at the end of Phase 1, and 229/61
   after Unit 11.) See the Unit 12 entry at the end of Completed.
 
 ## Current Goal

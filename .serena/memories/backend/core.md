@@ -1,11 +1,11 @@
 # backend/ — Core
 
 Spring Boot 3.5.16 / Java 21, base package `com.ie.evalos`, Maven Wrapper committed. **Units 01–10 +
-05a (all of Phase 1) and Unit 11 are built**: config + response envelope, the tenancy/auth/RBAC
+05a (all of Phase 1) and Units 11–12 are built**: config + response envelope, the tenancy/auth/RBAC
 spine, the domain schema, the case state machine + SLA, the inbound webhook gateway with Handoff A,
 the staff notification centre, the board/case-detail/checklist reads behind four frontend surfaces,
-and the expert database + sheet upload. Unit 12 (match scoring) is next. See `mem:core` for counts
-and the phase map.
+the expert database + sheet upload, and the assist-mode match scorer. Unit 13 (Google Drive) is next.
+See `mem:core` for counts and the phase map.
 
 ## Package boundaries (all under `com.ie.evalos`)
 
@@ -50,12 +50,14 @@ frontend's typed mirror lives in `frontend/src/lib/api.ts`.
   brand GHL secret · `V12` webhook_event · `V13` brand-scoped webhook idempotency key · `V14`
   `evalos_case.paid`/`paid_at` · `V15` partial unique index for one open case per contact+service ·
   `V16` contact identity · `V17` `evalos_case.assigned_coordinator` · `V18` expert contact columns +
-  the closed-vocabulary CHECKs + the per-brand email index (see `mem:backend/persistence`).
+  the closed-vocabulary CHECKs + the per-brand email index · `V19` `expert_case_offer` (both in
+  `mem:backend/persistence`).
   **Never edit an applied migration** — `V12`'s constraint was once renamed in place, which would
   have made `V13`'s `DROP CONSTRAINT` fail on a fresh database while breaking checksums on existing
   ones.
 - The `local` profile additionally lists `classpath:db/migration/local` (`V900` seed: 2 brands, 5
-  logins, password `DevPassw0rd!`; `V901` per-brand webhook secrets) and sets
+  logins, password `DevPassw0rd!`; `V901` per-brand webhook secrets; `V902` the remaining roles;
+  `V903` seed experts) and sets
   `flyway.out-of-order: true` — the seed deliberately outranks every real migration, so without that
   flag the next unit's `V-N` is refused on an already-seeded dev database. `prod` keeps the strict
   default and never sees the seed.
@@ -64,7 +66,8 @@ frontend's typed mirror lives in `frontend/src/lib/api.ts`.
 ## Running & tests
 
 - **A reachable Postgres is required to start.** This machine has PostgreSQL 18 with the `evalos`
-  database migrated to `V18` (+ the `V90x` local seeds) — see `mem:suggested_commands`. Its `public`
+  database migrated to `V18` (+ the `V90x` local seeds) — **one behind the repo's `V19`, so the next
+  `spring-boot:run` applies it** — see `mem:suggested_commands`. Its `public`
   schema also holds ~46 junk experts and ~150 junk cases from integration-test runs that predate the
   `evalos_test` schema; they are dev noise, not data, and they show up on the roster screen.
 - Map every controller under `/api` (the Vite dev proxy). Endpoints are **secured by default**: a new

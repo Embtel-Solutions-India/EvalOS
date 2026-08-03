@@ -2,7 +2,8 @@
 
 Built in Unit 03 (`V4`–`V10`). Entities: `ContactSnapshot`, `Case` (table **`evalos_case`** — `case`
 is reserved SQL), `DocumentChecklistItem`, `Expert`, `PayoutLedger`, `Notification`, `AuditEvent`,
-plus Unit 02's `Brand`/`TeamMember`. Schema now runs to **`V18`**; `V11`–`V17` added the per-brand
+plus Unit 02's `Brand`/`TeamMember` and Unit 12's `ExpertCaseOffer`. Schema now runs to **`V19`**;
+`V11`–`V17` added the per-brand
 webhook secret, the webhook archive + its brand-scoped idempotency key, `case.paid`/`paid_at`, the
 one-open-case-per-contact-service index, contact identity, and `case.assigned_coordinator`. **`V18`
 (Unit 11)** added `expert.email`/`phone`/`letter_types`/`standard_fee`, three vocabulary CHECKs
@@ -49,6 +50,32 @@ retriable 5xx and the redelivery refreshes the committed row, which is what inta
 and finder must agree or the index does not apply. Note `V15`'s own comment claims the race "cannot
 race" and is **wrong on disk**; it is applied, so it was corrected in `V16`'s header rather than
 edited (invariant 9).
+
+## `expert_case_offer` (`V19`, Unit 12) — append-only with exactly one mutable column
+
+The one queryable record of an accept/decline; its whole purpose is to be **aggregated** into an
+acceptance rate. It is not a second history — the audit trail still records each transition.
+
+- Every column is `updatable = false` **except `outcome`**, which leaves `OFFERED` exactly once
+  through `ExpertCaseOffer.resolve`. **First write wins; a later or repeated outcome is a no-op, not
+  an error** — Unit 15 has two acts that both mean accepted (expert presses Accept, then Dropbox
+  Sign's `signed` callback) and both fire on the happy path, so throwing would fail a normal
+  sequence. The guard is on the entity, the one place owning the column, not in the four callers.
+  `resolve` **refuses `OFFERED` as a resolution** rather than letting the CHECK below blow up at
+  flush.
+- Two CHECKs, for the reason `V18` gives: `outcome IN (...)` because the scorer divides by a count of
+  these values and one misspelling drops out of numerator and denominator at once; and
+  `(outcome = 'OFFERED') = (outcome_at IS NULL)`, because an open offer with a resolution date and a
+  resolved one without are the same fact stated twice.
+- **The partial index on `(case_id) WHERE outcome = 'OFFERED'` is NOT unique**, so this section's
+  check-then-act warning applies: two concurrent assignments can leave two `OFFERED` rows. That
+  already shipped one defect — `resolveOpenOffer` stamped *every* open offer, crediting an expert
+  never shown the case. **Only the case's own expert takes the real outcome; a stray is closed
+  `SUPERSEDED`**, which already means "never had the chance to answer".
+- `resolveOpenOffer` is tolerant on both edges on purpose: a case with **no** open offer (assigned
+  before `V19` existed) is left alone rather than failing the transition — a reporting concern must
+  not block the pipeline.
+- `TIMED_OUT` is declared and **written by nobody until Unit 15's `EXPERT_TIMED_OUT`**.
 
 ## Denormalized columns nothing writes
 

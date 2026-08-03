@@ -64,6 +64,14 @@ Where a rules module mirrors a backend vocabulary (`QUICK_ACTIONS` ↔ the trans
 offer the closed list rather than let it be typed — and **the two move together or the API starts
 rejecting what the screen offered**.
 
+`shortlistRules`/`ShortlistPanel` (Unit 12) is the one place that duplication is **refused**: there is
+deliberately no client-side scoring. The ranking and its factor breakdown come from the server, so
+"why did this expert come first" has one answer — do not add a local scorer. The panel is embedded in
+`board/QuickActionDialog`, not a route of its own. Two guards worth keeping if you touch it:
+`factorShare` clamps to `[0,1]` and returns 0 on a zero weight, because `NaN%` as a CSS width is
+*silently dropped* rather than visibly wrong; and `breakdownAddsUp` makes the panel say so if the
+rows ever contradict the total above them.
+
 ## Styling — design tokens only
 
 - `src/styles/tokens.css` (imported by `src/index.css`) is the single source of truth, mirroring
