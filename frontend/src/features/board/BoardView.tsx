@@ -369,6 +369,7 @@ export default function BoardView() {
       {pending && (
         <QuickActionDialog
           action={pending.action}
+          caseId={pending.card.id}
           caseCode={pending.card.caseCode}
           onCancel={() => setPending(null)}
           onConfirm={(values) => void run(pending.card, pending.action, values)}

@@ -3,11 +3,13 @@ import type {
   Availability,
   ExpertForm,
   ExpertProfile,
+  FieldTag,
   ImportReport,
   RosterFilters,
   RosterPage,
   AvailabilityColumn,
 } from './expertRules'
+import type { ShortlistView } from './shortlistRules'
 
 /**
  * Everything the expert database sends over the wire.
@@ -49,6 +51,25 @@ export async function fetchAvailabilityBoard(
 
 export async function fetchExpert(id: string, signal?: AbortSignal): Promise<ExpertProfile> {
   return unwrap<ExpertProfile>(api.get(`/experts/${id}`, { signal }))
+}
+
+/**
+ * The top-3 ranked experts for one case, with the per-factor breakdown.
+ *
+ * A read that sits *beside* the picker, never in front of it: `/experts` still lists everybody
+ * available, and `assign-cm` does not care whether the expert it is given was on this list.
+ *
+ * `fieldTag` is required and is the PM's answer, not the case's — nothing stores which discipline
+ * a case needs, because the PM who just read the documents is the only one who knows.
+ */
+export async function fetchShortlist(
+  caseId: string,
+  fieldTag: FieldTag,
+  signal?: AbortSignal,
+): Promise<ShortlistView> {
+  return unwrap<ShortlistView>(
+    api.get(`/cases/${caseId}/expert-shortlist`, { params: { fieldTag }, signal }),
+  )
 }
 
 export async function createExpert(brandId: string | null, form: ExpertForm): Promise<ExpertProfile> {

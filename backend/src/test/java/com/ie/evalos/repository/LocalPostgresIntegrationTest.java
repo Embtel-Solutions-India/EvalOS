@@ -2,6 +2,7 @@ package com.ie.evalos.repository;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -15,8 +16,10 @@ import com.ie.evalos.domain.ContactSnapshot;
 import com.ie.evalos.domain.DocumentChecklistItem;
 import com.ie.evalos.domain.ExceptionState;
 import com.ie.evalos.domain.Expert;
+import com.ie.evalos.domain.ExpertCaseOffer;
 import com.ie.evalos.domain.Notification;
 import com.ie.evalos.domain.NotificationType;
+import com.ie.evalos.domain.OfferOutcome;
 import com.ie.evalos.domain.PayoutStatus;
 import com.ie.evalos.domain.Role;
 import com.ie.evalos.domain.ServiceType;
@@ -121,6 +124,9 @@ class LocalPostgresIntegrationTest {
 	DocumentChecklistItemRepository checklistItems;
 
 	@Autowired
+	ExpertCaseOfferRepository offers;
+
+	@Autowired
 	PayoutLedgerRepository payouts;
 
 	@Autowired
@@ -139,7 +145,7 @@ class LocalPostgresIntegrationTest {
 
 		assertThat(versions)
 				.containsSubsequence("1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13",
-						"14", "15", "16", "17", "18");
+						"14", "15", "16", "17", "18", "19");
 	}
 
 	/**
@@ -670,6 +676,81 @@ class LocalPostgresIntegrationTest {
 		// A case nobody chased has no chase, which is the null the board draws as "never chased".
 		assertThat(auditEvents.findByObjectTypeAndActionAndObjectIdIn(
 				"CASE", AuditAction.CHASED, List.of(UUID.randomUUID()))).isEmpty();
+	}
+
+	/**
+	 * Unit 12's offer aggregate, against real SQL, because a mock cannot show any of what matters
+	 * about it.
+	 *
+	 * <p>Three things are only true in a database. The grouped {@code count} over an enum column
+	 * returns {@code [id, OfferOutcome, Long]} positionally, and the scorer casts each slot — a
+	 * wrong order or a {@code String} where the enum was expected is a {@code ClassCastException}
+	 * no stub would produce. The {@code brand_id} predicate is a real predicate rather than a
+	 * calling convention, so the acceptance rate cannot be computed across brands. And V19's two
+	 * CHECKs exist to refuse a row the enum alone would not.
+	 */
+	@Test
+	void theOfferAggregateIsGroupedByOutcomeAndBrandIsolated() {
+		UUID ieCase = cases.save(new Case(BRAND_IE, "EV-" + UUID.randomUUID(), Stage.EXPERT_ASSIGNMENT)).getId();
+		UUID xpCase = cases.save(new Case(BRAND_XP, "XP-" + UUID.randomUUID(), Stage.EXPERT_ASSIGNMENT)).getId();
+		UUID ieExpert = experts.save(new Expert(BRAND_IE, "Dr Offer Verify")).getId();
+		UUID xpExpert = experts.save(new Expert(BRAND_XP, "Dr Other Brand")).getId();
+
+		resolved(BRAND_IE, ieCase, ieExpert, OfferOutcome.ACCEPTED);
+		resolved(BRAND_IE, ieCase, ieExpert, OfferOutcome.ACCEPTED);
+		resolved(BRAND_IE, ieCase, ieExpert, OfferOutcome.DECLINED);
+		// Withdrawn rather than answered: it must not reach the rate at all.
+		resolved(BRAND_IE, ieCase, ieExpert, OfferOutcome.SUPERSEDED);
+		resolved(BRAND_XP, xpCase, xpExpert, OfferOutcome.DECLINED);
+		// Still open, so it belongs to the other finder and to neither half of the rate.
+		UUID openOffer = offers.save(new ExpertCaseOffer(BRAND_IE, ieCase, ieExpert)).getId();
+
+		Map<OfferOutcome, Long> byOutcome = new EnumMap<>(OfferOutcome.class);
+		for (Object[] row : offers.countOutcomesPerExpert(BRAND_IE, List.of(ieExpert, xpExpert))) {
+			assertThat((UUID) row[0]).as("the other brand's expert is not in this brand's aggregate")
+					.isEqualTo(ieExpert);
+			byOutcome.put((OfferOutcome) row[1], ((Number) row[2]).longValue());
+		}
+		assertThat(byOutcome).containsExactlyInAnyOrderEntriesOf(Map.of(
+				OfferOutcome.ACCEPTED, 2L,
+				OfferOutcome.DECLINED, 1L,
+				OfferOutcome.SUPERSEDED, 1L,
+				OfferOutcome.OFFERED, 1L));
+
+		// 2 of the 3 resolved-and-countable rows: SUPERSEDED and OFFERED are both excluded.
+		long countable = byOutcome.entrySet().stream()
+				.filter(entry -> entry.getKey().countsTowardAcceptanceRate())
+				.mapToLong(Map.Entry::getValue).sum();
+		assertThat(countable).isEqualTo(3);
+
+		// Asking as the other brand returns that brand's row and nothing of IE's.
+		assertThat(offers.countOutcomesPerExpert(BRAND_XP, List.of(ieExpert, xpExpert)))
+				.singleElement()
+				.satisfies(row -> assertThat((UUID) row[0]).isEqualTo(xpExpert));
+
+		// The open-offer finder the three resolving transitions use.
+		assertThat(offers.findByCaseIdAndOutcome(ieCase, OfferOutcome.OFFERED))
+				.extracting(ExpertCaseOffer::getId).containsExactly(openOffer);
+
+		// V19's two CHECKs, each provoked on its own: an unknown outcome, and a resolved row with
+		// no outcome_at. The unknown-outcome case has to set the timestamp too, or it breaks both
+		// constraints at once and Postgres reports whichever it evaluated first — which is how this
+		// assertion originally passed for the wrong reason.
+		assertThatThrownBy(() -> jdbc.update(
+				"UPDATE expert_case_offer SET outcome = 'MAYBE', outcome_at = now() WHERE id = ?", openOffer))
+				.hasStackTraceContaining("expert_case_offer_outcome_known");
+		assertThatThrownBy(() -> jdbc.update(
+				"UPDATE expert_case_offer SET outcome = 'DECLINED' WHERE id = ?", openOffer))
+				.hasStackTraceContaining("expert_case_offer_outcome_dated");
+		// And the row is untouched by either refusal, so the open offer is still open.
+		assertThat(offers.findByCaseIdAndOutcome(ieCase, OfferOutcome.OFFERED))
+				.extracting(ExpertCaseOffer::getId).containsExactly(openOffer);
+	}
+
+	private void resolved(UUID brandId, UUID caseId, UUID expertId, OfferOutcome outcome) {
+		ExpertCaseOffer offer = new ExpertCaseOffer(brandId, caseId, expertId);
+		offer.resolve(outcome, outcome == OfferOutcome.DECLINED ? "outside my field" : null);
+		offers.save(offer);
 	}
 
 	@Test

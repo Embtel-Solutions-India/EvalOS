@@ -12,8 +12,10 @@ import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.AuthenticationException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
 
 /**
@@ -51,6 +53,29 @@ public class ApiExceptionHandler {
 				? "%s is not a known %s".formatted(invalid.getValue(), invalid.getTargetType().getSimpleName())
 				: "Request body is not valid";
 		return ResponseEntity.badRequest().body(ApiResponse.error("VALIDATION_FAILED", detail));
+	}
+
+	/**
+	 * The same problem in a query parameter rather than a body: a required one absent, or one
+	 * that would not convert to its declared type.
+	 *
+	 * <p>Unhandled until Unit 12, and a real gap rather than a new one — every typed query
+	 * parameter in the app was affected. {@code GET /api/experts/roster?tier=platinum} and
+	 * {@code ?page=first} both answered <strong>500</strong> for what is squarely a bad request,
+	 * and the shortlist's required {@code fieldTag} made it impossible to ignore. Fixed here, in
+	 * the one place every route's parameter binding already routes through, rather than by
+	 * loosening the parameter types at the routes.
+	 *
+	 * <p>Only the parameter's name is echoed, for the reason above: Spring's own message for a
+	 * failed enum conversion enumerates every accepted value.
+	 */
+	@ExceptionHandler({ MissingServletRequestParameterException.class, MethodArgumentTypeMismatchException.class })
+	public ResponseEntity<ApiResponse<Void>> onBadParameter(Exception ex) {
+		String name = ex instanceof MissingServletRequestParameterException missing
+				? missing.getParameterName()
+				: ((MethodArgumentTypeMismatchException) ex).getName();
+		return ResponseEntity.badRequest()
+				.body(ApiResponse.error("VALIDATION_FAILED", name + " is missing or not a value this route accepts"));
 	}
 
 	/** A request the caller can fix, stating what to fix. See the exception's own note. */

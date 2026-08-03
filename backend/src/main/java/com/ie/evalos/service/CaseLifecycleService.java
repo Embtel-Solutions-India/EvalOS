@@ -14,8 +14,10 @@ import com.ie.evalos.domain.ClientApprovalStatus;
 import com.ie.evalos.domain.DocumentChecklistItem;
 import com.ie.evalos.domain.ExceptionState;
 import com.ie.evalos.domain.Expert;
+import com.ie.evalos.domain.ExpertCaseOffer;
 import com.ie.evalos.domain.ExpertSignStatus;
 import com.ie.evalos.domain.IllegalTransitionException;
+import com.ie.evalos.domain.OfferOutcome;
 import com.ie.evalos.domain.PmApprovalStatus;
 import com.ie.evalos.domain.PoolStatus;
 import com.ie.evalos.domain.Role;
@@ -25,6 +27,7 @@ import com.ie.evalos.domain.TeamMember;
 import com.ie.evalos.event.CaseEvents;
 import com.ie.evalos.repository.CaseRepository;
 import com.ie.evalos.repository.DocumentChecklistItemRepository;
+import com.ie.evalos.repository.ExpertCaseOfferRepository;
 import com.ie.evalos.repository.ExpertRepository;
 import com.ie.evalos.repository.TeamMemberRepository;
 import com.ie.evalos.security.TenantContext;
@@ -88,17 +91,19 @@ public class CaseLifecycleService {
 	private final CaseRepository cases;
 	private final DocumentChecklistItemRepository checklistItems;
 	private final ExpertRepository experts;
+	private final ExpertCaseOfferRepository offers;
 	private final TeamMemberRepository teamMembers;
 	private final AuditService audit;
 	private final SlaCalculator sla;
 	private final ApplicationEventPublisher events;
 
 	CaseLifecycleService(CaseRepository cases, DocumentChecklistItemRepository checklistItems, ExpertRepository experts,
-			TeamMemberRepository teamMembers, AuditService audit, SlaCalculator sla,
+			ExpertCaseOfferRepository offers, TeamMemberRepository teamMembers, AuditService audit, SlaCalculator sla,
 			ApplicationEventPublisher events) {
 		this.cases = cases;
 		this.checklistItems = checklistItems;
 		this.experts = experts;
+		this.offers = offers;
 		this.teamMembers = teamMembers;
 		this.audit = audit;
 		this.sla = sla;
@@ -224,7 +229,17 @@ public class CaseLifecycleService {
 				c -> c.setAssignedCoordinator(coordinator.getId()));
 	}
 
-	/** PM → CM, with the expert the CM will draft for. */
+	/**
+	 * PM → CM, with the expert the CM will draft for.
+	 *
+	 * <p><strong>The name reads as staff-only and is not:</strong> this action assigns both, and
+	 * it is where an expert offer comes from — which is why the offer row is written here rather
+	 * than by some endpoint of its own. It commits inside this transaction, so an offer and the
+	 * transition that caused it land together or not at all.
+	 *
+	 * <p>Nothing here consults the match engine. The expert given is the expert used, whether or
+	 * not they were on any shortlist — the ranking is assistance, never a precondition.
+	 */
 	@Transactional
 	public Case assignCaseManager(UUID caseId, UUID cmId, UUID expertId) {
 		Case subject = load(caseId);
@@ -234,11 +249,13 @@ public class CaseLifecycleService {
 				"case manager is not on this case's team");
 		Expert expert = availableExpert(expertId);
 
-		return apply(subject, to, Action.ASSIGN_CASE_MANAGER, null, c -> {
+		Case saved = apply(subject, to, Action.ASSIGN_CASE_MANAGER, null, c -> {
 			c.setAssignedCm(cm.getId());
 			c.setExpertId(expert.getId());
 			c.setExpertSignStatus(ExpertSignStatus.PENDING);
 		});
+		offers.save(new ExpertCaseOffer(saved.getBrandId(), saved.getId(), expert.getId()));
+		return saved;
 	}
 
 	/** What a strategy-notes edit records. The text is the change, so the text is the snapshot. */
@@ -368,12 +385,20 @@ public class CaseLifecycleService {
 
 	// --- expert signing ------------------------------------------------------
 
-	/** Driven by the Dropbox Sign callback (Unit 15), or recorded by staff. */
+	/**
+	 * Driven by the Dropbox Sign callback (Unit 15), or recorded by staff.
+	 *
+	 * <p>This is where the offer becomes {@code ACCEPTED}. Unit 15 will fill it from the real
+	 * callback instead of the staff-recorded stand-in; the column does not change, and the
+	 * first-write-wins guard in {@link ExpertCaseOffer#resolve} is what makes both acts safe on
+	 * the happy path where both fire.
+	 */
 	@Transactional
 	public Case expertSigned(UUID caseId) {
 		Case subject = load(caseId);
 		Stage to = CaseTransitions.target(subject, Action.EXPERT_SIGNED);
 
+		resolveOpenOffer(subject, OfferOutcome.ACCEPTED, null);
 		return apply(subject, to, Action.EXPERT_SIGNED, null, c -> c.setExpertSignStatus(ExpertSignStatus.SIGNED));
 	}
 
@@ -382,11 +407,23 @@ public class CaseLifecycleService {
 		Case subject = load(caseId);
 		Stage to = CaseTransitions.target(subject, Action.EXPERT_DECLINED);
 
-		// The reason is the point of this transition, so it goes in the audit trail.
+		// The reason goes to two places for two purposes: the audit trail, which is the history,
+		// and the offer row, which is what the acceptance rate is aggregated from.
+		resolveOpenOffer(subject, OfferOutcome.DECLINED, reason);
 		return apply(subject, to, Action.EXPERT_DECLINED, reason,
 				c -> c.setExceptionState(ExceptionState.EXPERT_DECLINED_REMATCHING));
 	}
 
+	/**
+	 * The rematch. Two offer writes, in this order: the outgoing offer is closed
+	 * {@code SUPERSEDED} and a fresh one opened for the replacement.
+	 *
+	 * <p>Superseding matters because an offer nobody will ever answer would otherwise sit
+	 * {@code OFFERED} forever — an open row that no transition can reach, which is the shape of
+	 * data that eventually gets counted as something. It is deliberately not a decline: the
+	 * expert was never given the chance to answer, so it says nothing about them and
+	 * {@code OfferOutcome.countsTowardAcceptanceRate} excludes it.
+	 */
 	@Transactional
 	public Case reassignExpert(UUID caseId, UUID expertId) {
 		Case subject = load(caseId);
@@ -395,10 +432,46 @@ public class CaseLifecycleService {
 		requireState(!replacement.getId().equals(subject.getExpertId()),
 				"that is the expert who declined");
 
-		return apply(subject, to, Action.REASSIGN_EXPERT, null, c -> {
+		resolveOpenOffer(subject, OfferOutcome.SUPERSEDED, null);
+		Case saved = apply(subject, to, Action.REASSIGN_EXPERT, null, c -> {
 			c.setExpertId(replacement.getId());
 			c.setExpertSignStatus(ExpertSignStatus.REASSIGNED);
 			c.setExceptionState(ExceptionState.NONE);
+		});
+		offers.save(new ExpertCaseOffer(saved.getBrandId(), saved.getId(), replacement.getId()));
+		return saved;
+	}
+
+	/**
+	 * Stamps whatever offer on this case is still open, if any.
+	 *
+	 * <p>Tolerant on both edges, deliberately. A case with no open offer — one assigned before
+	 * V19 existed, or one whose offer some earlier act already closed — is left alone rather than
+	 * failing the transition: the offer table serves a ranking, and refusing a legitimate decline
+	 * because its offer row is missing would let a reporting concern block the pipeline. And a
+	 * row already resolved is a no-op, per {@link ExpertCaseOffer#resolve}.
+	 *
+	 * <p><strong>Only the case's own expert gets the real resolution.</strong> V19's partial index
+	 * on the open row is not unique and {@link Case} carries no {@code @Version}, so two
+	 * concurrent assignments can each read a case with no offer and each open one. Stamping every
+	 * open row {@code ACCEPTED} would credit an acceptance to an expert who was never shown the
+	 * case, and the acceptance rate is exactly what these rows feed. A stray is closed
+	 * {@code SUPERSEDED} instead — the outcome that already means "never had the chance to
+	 * answer", and which {@code OfferOutcome.countsTowardAcceptanceRate} excludes — rather than
+	 * left {@code OFFERED} forever, which is the state {@link #reassignExpert} is written to avoid.
+	 *
+	 * <p>Called before the case's own expert is reassigned, so {@code subject.getExpertId()} is
+	 * still the expert the open offer was made to in all four callers.
+	 *
+	 * <p>The case id has come out of {@link #load}, which is scoped, so the unscoped finder
+	 * underneath is being called the only way its javadoc permits.
+	 */
+	private void resolveOpenOffer(Case subject, OfferOutcome resolution, String reason) {
+		offers.findByCaseIdAndOutcome(subject.getId(), OfferOutcome.OFFERED).forEach(offer -> {
+			boolean subjects = offer.getExpertId().equals(subject.getExpertId());
+			if (offer.resolve(subjects ? resolution : OfferOutcome.SUPERSEDED, subjects ? reason : null)) {
+				offers.save(offer);
+			}
 		});
 	}
 

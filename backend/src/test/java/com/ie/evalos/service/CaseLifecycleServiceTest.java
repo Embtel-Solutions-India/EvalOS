@@ -14,8 +14,10 @@ import com.ie.evalos.domain.ChecklistItemStatus;
 import com.ie.evalos.domain.DocumentChecklistItem;
 import com.ie.evalos.domain.ExceptionState;
 import com.ie.evalos.domain.Expert;
+import com.ie.evalos.domain.ExpertCaseOffer;
 import com.ie.evalos.domain.ExpertSignStatus;
 import com.ie.evalos.domain.IllegalTransitionException;
+import com.ie.evalos.domain.OfferOutcome;
 import com.ie.evalos.domain.PayoutLedger;
 import com.ie.evalos.domain.PayoutStatus;
 import com.ie.evalos.domain.PoolStatus;
@@ -26,6 +28,7 @@ import com.ie.evalos.domain.TeamMember;
 import com.ie.evalos.event.CaseEvents;
 import com.ie.evalos.repository.CaseRepository;
 import com.ie.evalos.repository.DocumentChecklistItemRepository;
+import com.ie.evalos.repository.ExpertCaseOfferRepository;
 import com.ie.evalos.repository.ExpertRepository;
 import com.ie.evalos.repository.PayoutLedgerRepository;
 import com.ie.evalos.repository.TeamMemberRepository;
@@ -81,6 +84,7 @@ class CaseLifecycleServiceTest {
 	private final CaseRepository cases = mock(CaseRepository.class);
 	private final DocumentChecklistItemRepository checklistItems = mock(DocumentChecklistItemRepository.class);
 	private final ExpertRepository experts = mock(ExpertRepository.class);
+	private final ExpertCaseOfferRepository offers = mock(ExpertCaseOfferRepository.class);
 	private final TeamMemberRepository teamMembers = mock(TeamMemberRepository.class);
 	private final PayoutLedgerRepository payouts = mock(PayoutLedgerRepository.class);
 	private final AuditService audit = mock(AuditService.class);
@@ -88,7 +92,7 @@ class CaseLifecycleServiceTest {
 
 	private final SlaCalculator sla = new SlaCalculator(new BusinessCalendar());
 	private final CaseLifecycleService lifecycle = new CaseLifecycleService(
-			cases, checklistItems, experts, teamMembers, audit, sla, events);
+			cases, checklistItems, experts, offers, teamMembers, audit, sla, events);
 	private final RefundService refunds = new RefundService(lifecycle, payouts);
 
 	private Case subject;
@@ -425,6 +429,174 @@ class CaseLifecycleServiceTest {
 		assertThrows(IllegalTransitionException.class,
 				() -> lifecycle.assignCaseManager(CASE_ID, CM_ID, EXPERT_ID));
 		assertEquals(Stage.EXPERT_ASSIGNMENT, subject.getCurrentStage());
+	}
+
+	// --- Unit 12: the offer rows the acceptance-rate factor is aggregated from -----
+
+	/**
+	 * Both offer-opening transitions write a row, and the rematch closes the one it replaces —
+	 * so a rematched case leaves no {@code OFFERED} row that no transition can ever reach.
+	 */
+	@Test
+	void anAssignmentOpensAnOfferAndARematchSupersedesItBeforeOpeningTheNext() {
+		walkToDraftGeneration();
+
+		ExpertCaseOffer first = savedOffers().getLast();
+		assertEquals(EXPERT_ID, first.getExpertId());
+		assertEquals(OfferOutcome.OFFERED, first.getOutcome());
+		assertEquals(BRAND, first.getBrandId(), "the offer takes the case's brand, never the caller's");
+		assertNull(first.getOutcomeAt(), "an open offer has no outcome timestamp");
+
+		// The rematch path: decline, then replace. The first offer is the open one throughout.
+		// Matched on the outcome only: `subject` is an unpersisted Case, so its generated id is
+		// still null here, while CASE_ID is only the key the scoped read is stubbed against.
+		given(offers.findByCaseIdAndOutcome(any(), eq(OfferOutcome.OFFERED))).willReturn(List.of(first));
+		subject.setCurrentStage(Stage.EXPERT_SIGNING);
+
+		actAs(Role.PROJECT_MANAGER);
+		lifecycle.expertDeclined(CASE_ID, "outside my field");
+		assertEquals(OfferOutcome.DECLINED, first.getOutcome());
+		assertEquals("outside my field", first.getDeclineReason(),
+				"the reason is the point of the transition, and the rate is aggregated from this row");
+
+		// Now genuinely open again, so the supersede has something to close.
+		ExpertCaseOffer stillOpen = new ExpertCaseOffer(BRAND, CASE_ID, EXPERT_ID);
+		// Matched on the outcome only: `subject` is an unpersisted Case, so its generated id is
+		// still null here, while CASE_ID is only the key the scoped read is stubbed against.
+		given(offers.findByCaseIdAndOutcome(any(), eq(OfferOutcome.OFFERED))).willReturn(List.of(stillOpen));
+
+		lifecycle.reassignExpert(CASE_ID, OTHER_EXPERT_ID);
+		assertEquals(OfferOutcome.SUPERSEDED, stillOpen.getOutcome());
+		assertNull(stillOpen.getDeclineReason(), "nobody declined — the offer was withdrawn");
+		assertFalse(stillOpen.getOutcome().countsTowardAcceptanceRate(),
+				"an expert never given the chance to answer is not penalised for it");
+
+		ExpertCaseOffer replacement = savedOffers().getLast();
+		assertEquals(OTHER_EXPERT_ID, replacement.getExpertId());
+		assertEquals(OfferOutcome.OFFERED, replacement.getOutcome());
+	}
+
+	/**
+	 * First write wins. Unit 15 has two acts that both mean accepted — the expert pressing
+	 * Accept, then Dropbox Sign's {@code signed} callback — and on the happy path both fire, so
+	 * the second has to be a no-op rather than an error.
+	 */
+	@Test
+	void anOfferResolvesOnceAndTheSecondActChangesNothing() {
+		ExpertCaseOffer offer = new ExpertCaseOffer(BRAND, CASE_ID, EXPERT_ID);
+		// Matched on the outcome only: `subject` is an unpersisted Case, so its generated id is
+		// still null here, while CASE_ID is only the key the scoped read is stubbed against.
+		given(offers.findByCaseIdAndOutcome(any(), eq(OfferOutcome.OFFERED))).willReturn(List.of(offer));
+		subject.setCurrentStage(Stage.EXPERT_SIGNING);
+		subject.setExpertId(EXPERT_ID);
+
+		actAs(Role.PROJECT_MANAGER);
+		lifecycle.expertSigned(CASE_ID);
+		Instant resolvedAt = offer.getOutcomeAt();
+		assertEquals(OfferOutcome.ACCEPTED, offer.getOutcome());
+
+		// The same offer offered again to the repository, as an out-of-order callback would.
+		lifecycle.expertSigned(CASE_ID);
+		assertEquals(OfferOutcome.ACCEPTED, offer.getOutcome());
+		assertEquals(resolvedAt, offer.getOutcomeAt(), "the moment it was answered does not move");
+		verify(offers, times(1)).save(offer);
+	}
+
+	/**
+	 * The acceptance an uninvolved expert must not be handed. V19's open-offer index is not
+	 * unique and {@code Case} has no {@code @Version}, so two concurrent assignments can leave two
+	 * {@code OFFERED} rows; only the one belonging to the case's own expert is the offer this
+	 * signature answers. The other is withdrawn, not credited — the acceptance rate is aggregated
+	 * from exactly these rows.
+	 */
+	@Test
+	void anAcceptanceCreditsOnlyTheCasesOwnExpertAndWithdrawsAnyStrayOffer() {
+		ExpertCaseOffer mine = new ExpertCaseOffer(BRAND, CASE_ID, EXPERT_ID);
+		ExpertCaseOffer stray = new ExpertCaseOffer(BRAND, CASE_ID, OTHER_EXPERT_ID);
+		// Matched on the outcome only: `subject` is an unpersisted Case, so its generated id is
+		// still null here, while CASE_ID is only the key the scoped read is stubbed against.
+		given(offers.findByCaseIdAndOutcome(any(), eq(OfferOutcome.OFFERED))).willReturn(List.of(mine, stray));
+		subject.setCurrentStage(Stage.EXPERT_SIGNING);
+		subject.setExpertId(EXPERT_ID);
+
+		actAs(Role.PROJECT_MANAGER);
+		lifecycle.expertSigned(CASE_ID);
+
+		assertEquals(OfferOutcome.ACCEPTED, mine.getOutcome());
+		assertEquals(OfferOutcome.SUPERSEDED, stray.getOutcome(),
+				"an expert who was never shown this case did not accept it");
+		assertFalse(stray.getOutcome().countsTowardAcceptanceRate(),
+				"and the stray must not move their rate in either direction");
+	}
+
+	/**
+	 * A decline is the same rule seen from the other side: the stray is withdrawn rather than
+	 * recorded as a refusal, and it does not inherit the reason the real expert gave.
+	 */
+	@Test
+	void aDeclineIsRecordedAgainstNobodyButTheCasesOwnExpert() {
+		ExpertCaseOffer mine = new ExpertCaseOffer(BRAND, CASE_ID, EXPERT_ID);
+		ExpertCaseOffer stray = new ExpertCaseOffer(BRAND, CASE_ID, OTHER_EXPERT_ID);
+		// Matched on the outcome only: `subject` is an unpersisted Case, so its generated id is
+		// still null here, while CASE_ID is only the key the scoped read is stubbed against.
+		given(offers.findByCaseIdAndOutcome(any(), eq(OfferOutcome.OFFERED))).willReturn(List.of(mine, stray));
+		subject.setCurrentStage(Stage.EXPERT_SIGNING);
+		subject.setExpertId(EXPERT_ID);
+
+		actAs(Role.PROJECT_MANAGER);
+		lifecycle.expertDeclined(CASE_ID, "outside my field");
+
+		assertEquals(OfferOutcome.DECLINED, mine.getOutcome());
+		assertEquals("outside my field", mine.getDeclineReason());
+		assertEquals(OfferOutcome.SUPERSEDED, stray.getOutcome());
+		assertNull(stray.getDeclineReason(), "the reason belongs to the expert who gave it");
+	}
+
+	/**
+	 * {@code OFFERED} is not a resolution: taking it would date an outcome that is still open,
+	 * which V19's {@code expert_case_offer_outcome_dated} forbids — a 500 at flush rolling back an
+	 * otherwise valid transition, rather than a refusal at the call.
+	 */
+	@Test
+	void anOfferCannotBeResolvedToStillOffered() {
+		ExpertCaseOffer offer = new ExpertCaseOffer(BRAND, CASE_ID, EXPERT_ID);
+
+		assertThrows(IllegalStateException.class, () -> offer.resolve(OfferOutcome.OFFERED, null));
+		assertNull(offer.getOutcomeAt(), "and it is still open, with nothing dated");
+	}
+
+	/**
+	 * <strong>The property "assist mode" means.</strong> The scorer would never propose an expert
+	 * carrying no taxonomy at all — they score zero on the 40-point field factor and are dropped
+	 * from the shortlist — and the assignment takes them anyway. The engine cannot become a
+	 * precondition; see also {@code DomainInvariantsTest}, which holds it structurally.
+	 */
+	@Test
+	void anExpertNoShortlistWouldProposeCanStillBeAssigned() {
+		Expert untagged = expert(OTHER_EXPERT_ID, Availability.AVAILABLE);
+		given(untagged.getPrimaryFields()).willReturn(List.of());
+		given(untagged.getSecondaryFields()).willReturn(List.of());
+		given(experts.findScoped(any(TenantContext.class), eq(OTHER_EXPERT_ID))).willReturn(Optional.of(untagged));
+
+		actAs(Role.BRAND_MANAGER);
+		lifecycle.markPaid(CASE_ID, PAID, null);
+		lifecycle.assignPm(CASE_ID, PM_ID);
+		actAs(Role.PROJECT_COORDINATOR);
+		lifecycle.markDocsComplete(CASE_ID);
+
+		actAs(Role.PROJECT_MANAGER);
+		lifecycle.assignCaseManager(CASE_ID, CM_ID, OTHER_EXPERT_ID);
+
+		assertEquals(Stage.DRAFT_GENERATION, subject.getCurrentStage());
+		assertEquals(OTHER_EXPERT_ID, subject.getExpertId());
+		assertEquals(OTHER_EXPERT_ID, savedOffers().getLast().getExpertId(),
+				"and the offer is recorded, so an off-list assignment still feeds the rate");
+	}
+
+	private List<ExpertCaseOffer> savedOffers() {
+		ArgumentCaptor<ExpertCaseOffer> saved = ArgumentCaptor.forClass(ExpertCaseOffer.class);
+		verify(offers, org.mockito.Mockito.atLeastOnce()).save(saved.capture());
+		return saved.getAllValues();
 	}
 
 	@Test
