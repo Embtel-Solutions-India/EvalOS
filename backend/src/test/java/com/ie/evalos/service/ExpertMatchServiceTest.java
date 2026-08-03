@@ -9,6 +9,7 @@ import java.util.stream.Collectors;
 
 import com.ie.evalos.domain.Availability;
 import com.ie.evalos.domain.Case;
+import com.ie.evalos.domain.ExceptionState;
 import com.ie.evalos.domain.Expert;
 import com.ie.evalos.domain.ExpertTier;
 import com.ie.evalos.domain.FieldTag;
@@ -145,6 +146,19 @@ class ExpertMatchServiceTest {
 				.sum();
 	}
 
+	private static String why(ScoredExpert scored, String factor) {
+		return scored.factors().stream()
+				.filter(candidate -> candidate.label().equals(factor))
+				.map(Factor::why)
+				.findFirst().orElseThrow();
+	}
+
+	private static ScoredExpert byName(Shortlist shortlist, String name) {
+		return shortlist.experts().stream()
+				.filter(scored -> scored.expert().getFullName().equals(name))
+				.findFirst().orElseThrow();
+	}
+
 	// --- the criteria --------------------------------------------------------
 
 	@Test
@@ -237,6 +251,26 @@ class ExpertMatchServiceTest {
 				"the roster's mean, not zero — otherwise a new expert is permanently last");
 		assertEquals(seasonedScore.score(), newcomerScore.score(),
 				"all else equal, having no history is neither a reward nor a penalty");
+	}
+
+	/**
+	 * The one row that could state a fact the data does not support. The newcomer is scored at the
+	 * roster's mean, and the explanation has to say so — a PM told "50% of resolved offers
+	 * accepted" about an expert with no resolved offers is being shown somebody else's record as
+	 * theirs, and the breakdown exists precisely so they can disagree with it.
+	 */
+	@Test
+	void theAcceptanceRowSaysWhenItIsTheRosterMeanAndNotTheExpertsOwnRecord() {
+		Expert seasoned = matching("Seasoned");
+		Expert newcomer = matching("Newcomer");
+		offerHistory(seasoned, 2, 2);
+		roster(seasoned, newcomer);
+
+		Shortlist shortlist = matching.shortlist(CASE_ID, NEEDED);
+
+		assertEquals("50% of resolved offers accepted", why(byName(shortlist, "Seasoned"), "Acceptance rate"));
+		assertEquals("Too few resolved offers — scored at the roster average",
+				why(byName(shortlist, "Newcomer"), "Acceptance rate"));
 	}
 
 	@Test
@@ -338,10 +372,34 @@ class ExpertMatchServiceTest {
 		assertEquals("no available expert carries the Mechanical Engineering tag", shortlist.emptyReason());
 	}
 
+	/**
+	 * The rematch shortlist must not lead with the expert who just declined. They are still
+	 * {@code AVAILABLE} and still carry the tag, so nothing else filters them — and
+	 * {@code reassignExpert} refuses "the expert who declined", so ranking them first is proposing
+	 * a 409 as the top suggestion.
+	 */
+	@Test
+	void theRematchShortlistDropsTheExpertWhoDeclined() {
+		Expert declined = matching("Declined");
+		Expert fresh = matching("Fresh");
+		Case rematching = new Case(BRAND, "IE-2026-0002", Stage.EXPERT_SIGNING);
+		rematching.setServiceType(ServiceType.EXPERT_OPINION_LETTER);
+		rematching.setExpertId(declined.getId());
+		rematching.setExceptionState(ExceptionState.EXPERT_DECLINED_REMATCHING);
+		given(cases.read(CASE_ID)).willReturn(rematching);
+		roster(declined, fresh);
+
+		Shortlist shortlist = matching.shortlist(CASE_ID, NEEDED);
+
+		assertThat(shortlist.experts()).extracting(scored -> scored.expert().getFullName())
+				.containsExactly("Fresh")
+				.doesNotContain("Declined");
+	}
+
 	@Test
 	void anEmptyShortlistDistinguishesNobodyAvailableFromNobodyOnTheRoster() {
 		roster(expert("At capacity", BRAND, Availability.AT_CAPACITY, List.of(NEEDED), List.of()));
-		assertEquals("no expert in this brand is available right now",
+		assertEquals("no expert in this brand is available for this case right now",
 				matching.shortlist(CASE_ID, NEEDED).emptyReason());
 
 		roster();

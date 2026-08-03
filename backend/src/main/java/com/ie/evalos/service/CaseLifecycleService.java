@@ -451,12 +451,25 @@ public class CaseLifecycleService {
 	 * because its offer row is missing would let a reporting concern block the pipeline. And a
 	 * row already resolved is a no-op, per {@link ExpertCaseOffer#resolve}.
 	 *
+	 * <p><strong>Only the case's own expert gets the real resolution.</strong> V19's partial index
+	 * on the open row is not unique and {@link Case} carries no {@code @Version}, so two
+	 * concurrent assignments can each read a case with no offer and each open one. Stamping every
+	 * open row {@code ACCEPTED} would credit an acceptance to an expert who was never shown the
+	 * case, and the acceptance rate is exactly what these rows feed. A stray is closed
+	 * {@code SUPERSEDED} instead — the outcome that already means "never had the chance to
+	 * answer", and which {@code OfferOutcome.countsTowardAcceptanceRate} excludes — rather than
+	 * left {@code OFFERED} forever, which is the state {@link #reassignExpert} is written to avoid.
+	 *
+	 * <p>Called before the case's own expert is reassigned, so {@code subject.getExpertId()} is
+	 * still the expert the open offer was made to in all four callers.
+	 *
 	 * <p>The case id has come out of {@link #load}, which is scoped, so the unscoped finder
 	 * underneath is being called the only way its javadoc permits.
 	 */
 	private void resolveOpenOffer(Case subject, OfferOutcome resolution, String reason) {
 		offers.findByCaseIdAndOutcome(subject.getId(), OfferOutcome.OFFERED).forEach(offer -> {
-			if (offer.resolve(resolution, reason)) {
+			boolean subjects = offer.getExpertId().equals(subject.getExpertId());
+			if (offer.resolve(subjects ? resolution : OfferOutcome.SUPERSEDED, subjects ? reason : null)) {
 				offers.save(offer);
 			}
 		});

@@ -1170,9 +1170,10 @@ migration, `V19`; `V7`/`V18` untouched.**
   - `ServiceType → LetterType` is a **declared map**, not a `valueOf`: `TRANSLATION` and
     `TRANSLATION_CERTIFICATION` are the same matter under two names, so a name-based conversion
     would throw on exactly the pair that does not line up.
-  - **Eligibility is a filter, not a low score.** Only `AVAILABLE` experts are scored —
-    `availableExpert` refuses anything else, so a shortlist offering one would be offering what the
-    write side rejects (the Unit 08 picker rule).
+  - **Eligibility is a filter, not a low score.** Only `AVAILABLE` experts are scored, and not the
+    expert already on the case — `availableExpert` refuses the first and `reassignExpert` refuses
+    the second, so a shortlist offering either would be offering what the write side rejects (the
+    Unit 08 picker rule).
   - **Cold start:** below 3 resolved offers an expert scores **the roster's mean**, not zero.
     A zero would put a new expert permanently last, and being last is what stops them ever getting
     the case that would give them a record. The mean is taken over the experts who *have* a record —
@@ -1251,6 +1252,46 @@ migration, `V19`; `V7`/`V18` untouched.**
   caught its own bad assertion:** `UPDATE ... outcome = 'MAYBE'` breaks *both* CHECKs at once, and
   Postgres reports whichever it evaluated first — so the test had been passing on the wrong
   constraint until each was provoked on its own.
+
+#### Five review findings on PR #9, fixed before merge
+
+- **An acceptance could be credited to an expert who was never shown the case.** `resolveOpenOffer`
+  stamped *every* open row on the case, and nothing stops there being two: V19's partial index on
+  `(case_id) WHERE outcome = 'OFFERED'` is **not unique**, and `Case` carries no `@Version`, so two
+  concurrent `assign-cm` calls can each read a case with no offer and each open one. `expertSigned`
+  then wrote `ACCEPTED` to both. The rate this table exists to compute would have been built on an
+  offer its subject never saw. Now only the row whose `expert_id` matches the case's own expert takes
+  the real outcome; a stray is closed **`SUPERSEDED`** — already the outcome meaning "never had the
+  chance to answer", already excluded from the rate — rather than left `OFFERED` forever, which is the
+  state the rematch path is written to avoid. Fixed in the one shared helper all four writers route
+  through, not per caller. The repository javadoc claimed "at most one" open row; it now says what is
+  actually guaranteed and names who resolves the ambiguity.
+- **The acceptance-rate explanation stated the roster mean as the expert's own record.** The `why`
+  string rendered `"%.0f%% of resolved offers accepted"` unconditionally, including for the newcomers
+  the cold-start rule deliberately scores at the mean — so an expert with no resolved offers was shown
+  "50% of resolved offers accepted", and one with two declines was shown the seasoned roster's rate.
+  The breakdown exists so a PM can *disagree* with the ranking, and this was the one row asserting a
+  fact the data does not support. `Evidence` now carries whether the rate is the expert's own, and the
+  cold-start branch says so instead.
+- **The shortlist gate was positional on `FACTORS`, not on the field factor.** `factors().getFirst()
+  .earned() > 0` only dropped no-tag experts because "Field match" happens to sit at index 0 — and the
+  whole argument for holding the weights as data is that its rows can be reordered in a data diff.
+  Put "Current load" first and the gate silently becomes a no-op (load is never 0): physicists start
+  appearing for nursing matters and the tag-naming empty state stops being reachable, with nothing
+  failing to say so. It now asks `fieldMatch` directly.
+- **The rematch shortlist led with the expert who had just declined.** They are still `AVAILABLE` and
+  still carry the tag, so nothing filtered them, while `reassignExpert` refuses "the expert who
+  declined" — the top suggestion on an `EXPERT_DECLINED_REMATCHING` case was a 409. Same principle as
+  the availability filter, one more predicate. The empty reason widened to "available **for this
+  case**", which is true in both branches.
+- **`ExpertCaseOffer.resolve` accepted `OFFERED` as a resolution**, dating an outcome that is still
+  open — exactly the disagreement `expert_case_offer_outcome_dated` forbids, surfacing at flush as a
+  500 rolling back an otherwise valid transition. No caller does it, but the method is positioned as
+  the one place that owns the column, so the entity guard and the CHECK now state the same rule.
+- Verified: `./mvnw test` **260 backend tests, 0 failures** (new: 3 in `CaseLifecycleServiceTest`,
+  2 in `ExpertMatchServiceTest`), with the 23 DB-gated ones skipped on this machine and run by CI
+  against real Postgres. No migration, no frontend change — the reworded empty reason is
+  server-supplied text the panel only renders.
 
 ## In Progress
 

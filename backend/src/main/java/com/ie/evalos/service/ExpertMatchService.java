@@ -93,8 +93,16 @@ public class ExpertMatchService {
 	record Requirement(FieldTag fieldTag, LetterType letterType) {
 	}
 
-	/** Everything a factor needs about one expert that is not on the expert row. */
-	record Evidence(Load load, double acceptanceRate) {
+	/**
+	 * Everything a factor needs about one expert that is not on the expert row.
+	 *
+	 * @param ownAcceptanceRate whether {@code acceptanceRate} is this expert's own record or the
+	 *                          roster mean stood in for it. Carried so the explanation can say
+	 *                          which — the breakdown exists for a PM to disagree with, and
+	 *                          reporting the roster's rate as the newcomer's own is the one row
+	 *                          that would assert something the data does not say
+	 */
+	record Evidence(Load load, double acceptanceRate, boolean ownAcceptanceRate) {
 	}
 
 	/**
@@ -167,8 +175,10 @@ public class ExpertMatchService {
 									: "Does not sign this letter type"),
 			new Weighted("Acceptance rate", 20,
 					(expert, at) -> at.evidence().acceptanceRate(),
-					(expert, at) -> "%.0f%% of resolved offers accepted"
-							.formatted(at.evidence().acceptanceRate() * 100)),
+					(expert, at) -> at.evidence().ownAcceptanceRate()
+							? "%.0f%% of resolved offers accepted"
+									.formatted(at.evidence().acceptanceRate() * 100)
+							: "Too few resolved offers — scored at the roster average"),
 			new Weighted("Current load", 15,
 					(expert, at) -> loadFraction(at.evidence().load().active()),
 					(expert, at) -> at.evidence().load().active() == 0
@@ -226,12 +236,16 @@ public class ExpertMatchService {
 
 		// Eligibility is a filter, not a low score: CaseLifecycleService.availableExpert refuses
 		// anything other than AVAILABLE, so a shortlist offering one would be offering what the
-		// write side rejects. The same rule Unit 08 applied to the picker.
+		// write side rejects. The same rule Unit 08 applied to the picker — and the same reason
+		// the expert already on the case is dropped: reassignExpert refuses "the expert who
+		// declined", so ranking them first for a case in EXPERT_DECLINED_REMATCHING is proposing
+		// a 409. On a case with no expert yet the second filter is a no-op.
 		List<Expert> eligible = roster.stream()
 				.filter(expert -> expert.getAvailability() == Availability.AVAILABLE)
+				.filter(expert -> !expert.getId().equals(subject.getExpertId()))
 				.toList();
 		if (eligible.isEmpty()) {
-			return new Shortlist(List.of(), "no expert in this brand is available right now");
+			return new Shortlist(List.of(), "no expert in this brand is available for this case right now");
 		}
 
 		List<ScoredExpert> ranked = score(eligible, requirement, subject.getBrandId()).stream()
@@ -239,7 +253,12 @@ public class ExpertMatchService {
 				// suggestion — proposing a physicist for a nursing matter is noise, and it is what
 				// makes the empty state below able to name the tag. They are not *forbidden*: the
 				// full picker sits under the shortlist and assigns anybody available.
-				.filter(scored -> scored.factors().getFirst().earned() > 0)
+				//
+				// Asked of the field factor directly, not of factors().getFirst(): FACTORS is data
+				// so its rows can be reordered in a data diff, and a positional read would then
+				// quietly point this filter at whichever factor moved to index 0 — "Current load"
+				// is never 0, so the gate would become a no-op with nothing failing to say so.
+				.filter(scored -> fieldMatch(scored.expert(), requirement.fieldTag()) > 0)
 				.sorted(RANKING)
 				.limit(SHORTLIST_SIZE)
 				.toList();
@@ -332,8 +351,8 @@ public class ExpertMatchService {
 		Map<UUID, Evidence> evidence = new HashMap<>();
 		for (UUID id : ids) {
 			double[] counts = tally.getOrDefault(id, new double[] { 0, 0 });
-			evidence.put(id, new Evidence(load.get(id),
-					counts[1] >= ACCEPTANCE_HISTORY_THRESHOLD ? counts[0] / counts[1] : coldStart));
+			boolean own = counts[1] >= ACCEPTANCE_HISTORY_THRESHOLD;
+			evidence.put(id, new Evidence(load.get(id), own ? counts[0] / counts[1] : coldStart, own));
 		}
 		return evidence;
 	}

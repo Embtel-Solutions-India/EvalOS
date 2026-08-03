@@ -488,6 +488,7 @@ class CaseLifecycleServiceTest {
 		// still null here, while CASE_ID is only the key the scoped read is stubbed against.
 		given(offers.findByCaseIdAndOutcome(any(), eq(OfferOutcome.OFFERED))).willReturn(List.of(offer));
 		subject.setCurrentStage(Stage.EXPERT_SIGNING);
+		subject.setExpertId(EXPERT_ID);
 
 		actAs(Role.PROJECT_MANAGER);
 		lifecycle.expertSigned(CASE_ID);
@@ -499,6 +500,69 @@ class CaseLifecycleServiceTest {
 		assertEquals(OfferOutcome.ACCEPTED, offer.getOutcome());
 		assertEquals(resolvedAt, offer.getOutcomeAt(), "the moment it was answered does not move");
 		verify(offers, times(1)).save(offer);
+	}
+
+	/**
+	 * The acceptance an uninvolved expert must not be handed. V19's open-offer index is not
+	 * unique and {@code Case} has no {@code @Version}, so two concurrent assignments can leave two
+	 * {@code OFFERED} rows; only the one belonging to the case's own expert is the offer this
+	 * signature answers. The other is withdrawn, not credited — the acceptance rate is aggregated
+	 * from exactly these rows.
+	 */
+	@Test
+	void anAcceptanceCreditsOnlyTheCasesOwnExpertAndWithdrawsAnyStrayOffer() {
+		ExpertCaseOffer mine = new ExpertCaseOffer(BRAND, CASE_ID, EXPERT_ID);
+		ExpertCaseOffer stray = new ExpertCaseOffer(BRAND, CASE_ID, OTHER_EXPERT_ID);
+		// Matched on the outcome only: `subject` is an unpersisted Case, so its generated id is
+		// still null here, while CASE_ID is only the key the scoped read is stubbed against.
+		given(offers.findByCaseIdAndOutcome(any(), eq(OfferOutcome.OFFERED))).willReturn(List.of(mine, stray));
+		subject.setCurrentStage(Stage.EXPERT_SIGNING);
+		subject.setExpertId(EXPERT_ID);
+
+		actAs(Role.PROJECT_MANAGER);
+		lifecycle.expertSigned(CASE_ID);
+
+		assertEquals(OfferOutcome.ACCEPTED, mine.getOutcome());
+		assertEquals(OfferOutcome.SUPERSEDED, stray.getOutcome(),
+				"an expert who was never shown this case did not accept it");
+		assertFalse(stray.getOutcome().countsTowardAcceptanceRate(),
+				"and the stray must not move their rate in either direction");
+	}
+
+	/**
+	 * A decline is the same rule seen from the other side: the stray is withdrawn rather than
+	 * recorded as a refusal, and it does not inherit the reason the real expert gave.
+	 */
+	@Test
+	void aDeclineIsRecordedAgainstNobodyButTheCasesOwnExpert() {
+		ExpertCaseOffer mine = new ExpertCaseOffer(BRAND, CASE_ID, EXPERT_ID);
+		ExpertCaseOffer stray = new ExpertCaseOffer(BRAND, CASE_ID, OTHER_EXPERT_ID);
+		// Matched on the outcome only: `subject` is an unpersisted Case, so its generated id is
+		// still null here, while CASE_ID is only the key the scoped read is stubbed against.
+		given(offers.findByCaseIdAndOutcome(any(), eq(OfferOutcome.OFFERED))).willReturn(List.of(mine, stray));
+		subject.setCurrentStage(Stage.EXPERT_SIGNING);
+		subject.setExpertId(EXPERT_ID);
+
+		actAs(Role.PROJECT_MANAGER);
+		lifecycle.expertDeclined(CASE_ID, "outside my field");
+
+		assertEquals(OfferOutcome.DECLINED, mine.getOutcome());
+		assertEquals("outside my field", mine.getDeclineReason());
+		assertEquals(OfferOutcome.SUPERSEDED, stray.getOutcome());
+		assertNull(stray.getDeclineReason(), "the reason belongs to the expert who gave it");
+	}
+
+	/**
+	 * {@code OFFERED} is not a resolution: taking it would date an outcome that is still open,
+	 * which V19's {@code expert_case_offer_outcome_dated} forbids — a 500 at flush rolling back an
+	 * otherwise valid transition, rather than a refusal at the call.
+	 */
+	@Test
+	void anOfferCannotBeResolvedToStillOffered() {
+		ExpertCaseOffer offer = new ExpertCaseOffer(BRAND, CASE_ID, EXPERT_ID);
+
+		assertThrows(IllegalStateException.class, () -> offer.resolve(OfferOutcome.OFFERED, null));
+		assertNull(offer.getOutcomeAt(), "and it is still open, with nothing dated");
 	}
 
 	/**

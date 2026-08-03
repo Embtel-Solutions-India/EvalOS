@@ -75,9 +75,17 @@ public class ExpertCaseOffer extends ScopedEntity {
 	 * and the audit trail records both acts either way. What this row holds is the first
 	 * answer, which is the one the acceptance rate should be built on.
 	 *
+	 * <p>{@code OFFERED} is not a resolution. Accepting it would set {@link #outcomeAt} while
+	 * leaving the outcome open, which is precisely the disagreement V19's
+	 * {@code expert_case_offer_outcome_dated} exists to forbid — and it would surface at flush,
+	 * as a 500 rolling back an otherwise valid transition, rather than here at the call.
+	 *
 	 * @return whether this call was the one that resolved it, so the caller knows whether to save
 	 */
 	public boolean resolve(OfferOutcome resolution, String reason) {
+		if (resolution == OfferOutcome.OFFERED) {
+			throw new IllegalStateException("OFFERED is not a resolution");
+		}
 		if (outcome != OfferOutcome.OFFERED) {
 			return false;
 		}

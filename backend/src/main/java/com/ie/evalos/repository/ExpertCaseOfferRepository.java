@@ -32,10 +32,11 @@ public interface ExpertCaseOfferRepository extends ScopedRepository<ExpertCaseOf
 	/**
 	 * The still-open offer on a case, which the three resolving transitions stamp.
 	 *
-	 * <p>A list rather than an {@code Optional} even though there is at most one: a derived
-	 * {@code Optional} finder throws on a second row, and turning "somehow two open offers"
-	 * into a 500 on a legitimate decline is worse than stamping both. Backed by V19's partial
-	 * index on {@code (case_id) WHERE outcome = 'OFFERED'}.
+	 * <p>A list rather than an {@code Optional} even though there is normally one: V19's partial
+	 * index on {@code (case_id) WHERE outcome = 'OFFERED'} is not unique, so two concurrent
+	 * assignments can leave two open rows, and a derived {@code Optional} finder would turn a
+	 * legitimate decline into a 500. {@code CaseLifecycleService.resolveOpenOffer} is what decides
+	 * which of them the outcome actually belongs to.
 	 *
 	 * <p>No brand predicate, by the same convention as the other batched finders: the case id
 	 * passed in has already come out of a scoped read, and a row can only exist for a case that
