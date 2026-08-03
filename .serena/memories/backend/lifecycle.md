@@ -27,6 +27,12 @@ another.
   information.
 - `assignPm` stamps `team_id` from the PM's row. Nothing else populates it, so PM/Coordinator team
   scoping matches nothing until then. Pool → PM is when a case acquires a team.
+- **Expert transitions also write an `expert_case_offer` row, inside the same transaction** (Unit 12),
+  so an offer and the transition that caused it commit together or not at all: `assignCaseManager` and
+  `reassignExpert` open one, `expertDeclined` stamps `DECLINED` with the reason, `expertSigned` stamps
+  `ACCEPTED`, and a rematch closes the previous row `SUPERSEDED` so no permanently-open row survives.
+  Invariants of that table — including why its partial index being non-unique matters — are in
+  `mem:backend/persistence`.
 
 ## Payment (05a) — the money rules
 

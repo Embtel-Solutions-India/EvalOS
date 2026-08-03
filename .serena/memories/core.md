@@ -38,9 +38,10 @@ live frontend surfaces (app shell + role routing, production Kanban board, case 
 document checklist board, expert database). CI runs the DB suite against a real Postgres on every
 push.
 
-**Phase 2 is Units 11–17 and is under way. Unit 11 (expert database + sheet upload) is complete
-and verified; Unit 12 (match scoring) is next.** Migrations run to **`V18`**; ~53 endpoints; **229
-backend tests, none skipped** (22 DB-backed) and 61 frontend tests. Unit 11 added the closed
+**Phase 2 is Units 11–17 and is under way. Units 11 (expert database + sheet upload) and 12 (match
+scoring engine) are complete and verified; Unit 13 (Google Drive) is next.** Migrations run to
+**`V19`**; 54 endpoints; **260 backend tests, none skipped** (23 DB-backed) and 73 frontend tests.
+Unit 11 added the closed
 `FieldTag`/`LetterType` vocabularies (enum **and** DB CHECK), `email`/`phone`/`letter_types`/
 `standard_fee` on `expert`, the write-only `payment_detail` path, `ExpertLoadService` (load derived
 from `evalos_case`, never from the dead `V7` counters), the CSV+XLSX roster import, and the
@@ -48,6 +49,18 @@ from `evalos_case`, never from the dead `V7` counters), the CSV+XLSX roster impo
 **The `FieldTag` values shipped WITHOUT the ENM's sign-off**, on instruction: still an open
 question, and widening the list now means a new migration widening `V18`'s CHECK plus the enum plus
 `frontend/src/features/experts/expertRules.ts`, moved together.
+Unit 12 ranks that roster for the PM at assignment. It added `V19__expert_case_offer` +
+`ExpertCaseOffer`/`OfferOutcome` — **the only queryable record of an accept/decline**, so acceptance
+rate is computed from it and never from `expert.performance_flags` (a flag, not a rate),
+`evalos_case.expert_id` (overwritten by `reassignExpert`), or an audit `before_snapshot` blob —
+and `ExpertMatchService`, whose four factors are **one weighted table** (field 40 / letter-type 25 /
+acceptance 20 / load 15) so a reweighting is a data diff; the score is the sum of the rounded parts,
+so the breakdown shown to the PM adds up by construction. Two consequences that bite:
+`fieldTag` is a **required query parameter** because no case column records a case's field —
+recorded as a deliberate omission, not an oversight; and an expert below 3 resolved offers scores
+**the roster mean, not zero**, because last place is what stops a newcomer ever getting a record.
+Offer invariants are in `mem:backend/persistence`; which transitions stamp them, in
+`mem:backend/lifecycle`.
 Phase boundaries are 01–10 / 11–17 / 18–20 — earlier tracker entries mislabelled 06 onward as Phase 2
 and were corrected.
 Later units carry named external dependencies that do not exist yet (Google Drive service account for

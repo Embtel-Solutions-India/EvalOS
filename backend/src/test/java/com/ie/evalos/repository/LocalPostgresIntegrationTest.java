@@ -717,7 +717,7 @@ class LocalPostgresIntegrationTest {
 				OfferOutcome.SUPERSEDED, 1L,
 				OfferOutcome.OFFERED, 1L));
 
-		// 2 of the 3 resolved-and-countable rows: SUPERSEDED and OFFERED are both excluded.
+		// 3 of the 5 rows count: 2 ACCEPTED + 1 DECLINED. SUPERSEDED and OFFERED are excluded.
 		long countable = byOutcome.entrySet().stream()
 				.filter(entry -> entry.getKey().countsTowardAcceptanceRate())
 				.mapToLong(Map.Entry::getValue).sum();
