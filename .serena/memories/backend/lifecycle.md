@@ -95,8 +95,11 @@ one `GM_OR` constant prefixed onto every `@PreAuthorize` rather than hand-mainta
 route cannot forget it. `CaseControllerTest`'s route table asserts the GM gets through all of them —
 add new routes there.
 
-**Known runtime gap:** `PROJECT_COORDINATOR` is `Tier.SELF`, but no `evalos_case` column names a
-coordinator, so their scoped read matches nothing and `docs-complete`, `draft/send-to-client`,
-`deliver`, `close` will 403 live despite passing their role gate. Closing it needs an
-`assigned_coordinator` column and a migration — **not** a widened predicate, which would fail open.
-Tracked as an open question in `context/progress-tracker.md`.
+**The Coordinator gap is closed, and how it was closed is the precedent.** `PROJECT_COORDINATOR` is
+`Tier.SELF`, so until a case named one, their scoped read matched nothing and `docs-complete`,
+`draft/send-to-client`, `deliver` and `close` 403'd on their own work despite passing the role gate.
+The fix was `V17`'s `evalos_case.assigned_coordinator` + `assignCoordinator` + the column in
+`CaseRepository.SCOPE`'s assignee set — **not** a widened predicate, which would have failed open.
+`assignCoordinator` is re-assignable, unlike `assignPm` (no pool exists for coordination; the audit
+trail carries each hand-over, so the column only holds who has it now). A `SELF`-tier role added later
+owes the same three pieces, in that order.

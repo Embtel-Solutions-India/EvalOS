@@ -4,9 +4,10 @@ Spring Boot 3.5.16 / Java 21, base package `com.ie.evalos`, Maven Wrapper commit
 05a (all of Phase 1) and Units 11–12 are built**: config + response envelope, the tenancy/auth/RBAC
 spine, the domain schema, the case state machine + SLA, the inbound webhook gateway with Handoff A,
 the staff notification centre, the board/case-detail/checklist reads behind four frontend surfaces,
-the expert database + sheet upload, and the assist-mode match scorer. **Unit 13 (redacted expert
+the expert database + sheet upload, and the assist-mode match scorer. **Unit 14 (the client draft-review
+portal — a second filter chain, the first non-staff caller) is built too.** **Unit 13 (redacted expert
 profile + the first outbound Google Drive client) is code-complete, with its manual live upload
-still owed** — see `mem:core`. Unit 14 is next. See `mem:core` for counts and the phase map.
+still owed** — see `mem:core`. Unit 15 is next. See `mem:core` for counts and the phase map.
 
 ## Package boundaries (all under `com.ie.evalos`)
 

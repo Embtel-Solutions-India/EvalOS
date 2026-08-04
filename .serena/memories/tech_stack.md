@@ -19,7 +19,8 @@ a dependency only in the unit where it first unlocks real behavior.
 - oxlint (not ESLint) — config `frontend/.oxlintrc.json`, plugins react/typescript/oxc.
 - axios for HTTP. No state-management or data-fetching library. **Vitest is installed**
   (`npm run test` → `vitest run`) and is used for pure rules modules — `boardRules`,
-  `checklistRules`, `navigation`, `expertRules`, `shortlistRules`, `redactionRules` — not for
+  `checklistRules`, `navigation`, `expertRules`, `shortlistRules`, `redactionRules`, `portalRules` —
+  not for
   component rendering: there is no
   jsdom/Testing Library, so a component's behaviour is still verified by typecheck + lint + running
   it.
