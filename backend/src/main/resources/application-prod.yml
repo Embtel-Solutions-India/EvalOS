@@ -6,3 +6,14 @@ spring:
     password: ${DB_PASSWORD}
   jpa:
     show-sql: false
+
+evalos:
+  drive:
+    # Restated here rather than inherited silently: this profile's convention is that
+    # every value comes from the environment, so the one setting that makes a missing
+    # Google service-account key a boot failure should be visible in the file a
+    # deployer reads. GOOGLE_DRIVE_KEY_JSON or GOOGLE_APPLICATION_CREDENTIALS must be
+    # set, and the grant behind it must be per brand-folder-tree — a service account
+    # with blanket access to both brands' Drives is a cross-brand hole outside the
+    # database that no brand_id predicate can close.
+    required: true

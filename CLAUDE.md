@@ -35,3 +35,8 @@ Two rules that override convenience everywhere:
 Update `context/progress-tracker.md` after each meaningful implementation
 change. If implementation changes the architecture, scope, or standards, update
 the relevant context file (and the TDD if a decision changes) before continuing.
+
+In the same step, update the affected **Serena memory** in `.serena/memories/`
+so the next session inherits the current picture. When a decision changes, edit
+the memory that states the old one — never leave a contradicting note beside it.
+`context/ai-workflow-rules.md` maps each kind of change to its memory.

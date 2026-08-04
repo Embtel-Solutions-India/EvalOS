@@ -10,7 +10,7 @@
 | Internal auth    | Spring Security + JWT + role authorities (RBAC/ABAC) | Staff login; per-role + brand/team/assignee authorization (optional SSO later)   |
 | Portal auth      | Separate Spring Security filter chains (scoped, link-based) | Expert portal and client draft-review portal — isolated from internal auth |
 | Frontend         | React + TypeScript (Vite SPA) + Tailwind           | Internal role-based dashboards, client portal, expert portal                      |
-| Raw documents    | Google Drive (existing)                            | Client document folders — link stored on the case, not re-hosted                  |
+| Raw documents    | Google Drive (existing) + **Drive API v3 (outbound, Unit 13)** | Client document folders — link stored on the case, not re-hosted. **Since Unit 13 EvalOS also writes one file into the case's folder**: the redacted expert profile, uploaded as a Google Doc |
 | E-signature      | Dropbox Sign API                                   | Expert electronic sign-off + storage of signed letters                            |
 | Notifications    | In-app notification center (staff) + GHL (clients) + Dropbox Sign (experts) | No EvalOS mail server                                            |
 | Background work  | Spring `@Scheduled` + `@Async` (+ app events) + a persisted `scheduled_job` table | SLA timers, reminders, escalations, auto-reassign, retention/countdown timers, Handoff C |
@@ -20,6 +20,28 @@
 referenced by Google Drive link; signed letters live in Dropbox Sign; the
 redacted CV is generated on demand (and, if persisted, written to the case's
 Drive folder — never to a database blob).
+
+**Drive stopped being a link-only external in Unit 13.** Until then
+`Case.driveLink` was a string EvalOS stored and never dereferenced, and this
+table said so. It is now an **outbound integration**: `integration/GoogleDriveClient`
+uploads the generated redacted profile into the folder that link names, with a
+target mime type of `application/vnd.google-apps.document` so Drive converts it
+to a Doc on the way in. This is deliberately the narrowest possible capability —
+**one file into a folder that already exists**, no folder creation, no permissions
+management, no reading documents back out. It is also why EvalOS has no PDF
+library: Drive's own export produces a PDF from the created Doc.
+
+Two consequences worth stating where the stack is described. First, this is the
+**second external dependency in Phase 2** alongside Dropbox Sign (Unit 15), and it
+needs credentials that are provisioned rather than coded — a Google Cloud service
+account, its JSON key (`GOOGLE_DRIVE_KEY_JSON` or `GOOGLE_APPLICATION_CREDENTIALS`,
+bound the same env-backed way as `EVALOS_FIELD_KEY`, with **no default outside
+`local`**, so an environment that forgets it fails to start). Second, the write
+access behind that key **must be granted per brand folder tree**: one service
+account with blanket access to both brands' Drives is a cross-brand hole *outside
+the database*, which no `brand_id` predicate can close. EvalOS holds the half it
+can — it writes only into the folder the case's own `drive_link` names, and an
+unparseable link is a refusal, never a fallback to a default folder.
 
 Unit 11 added the one **upload** in EvalOS, and it does not change that: the
 expert roster sheet is parsed in memory and thrown away — no row, column or temp
@@ -69,7 +91,11 @@ Java packages under `com.ie.evalos`:
 - `domain` — JPA entities (and enums like `Stage`, `PayoutStatus`, `Role`).
   Mapping and invariants only, no business orchestration.
 - `repository` — Spring Data JPA repositories; brand/team/assignee scoping filters.
-- `integration` — outbound clients for the GHL API and Dropbox Sign.
+- `integration` — outbound clients for the GHL API, Dropbox Sign, and **Google
+  Drive** (`GoogleDriveClient`, Unit 13 — the first one built). Each is one narrow
+  capability, not a general SDK wrapper: the Drive client uploads one file into one
+  existing folder and does nothing else. A failure here is a 502 that changes
+  nothing in EvalOS, never a partially-applied state.
 - `webhook` — inbound webhook gateway: signature/secret verification,
   idempotency, raw-payload archival, brand resolution, routing to a domain
   service. Sources: GHL (per-brand endpoints), Dropbox Sign.
@@ -98,10 +124,14 @@ Frontend under `frontend/src`: `components/ui` (generated primitives),
   the append-only audit trail. Relational integrity via foreign keys; JSONB only
   for genuinely schemaless blobs (e.g. raw webhook payload archive).
 - **Google Drive (existing, external)**: raw client document folders and drafts.
-  EvalOS stores the Drive link on the case; it does not re-host documents.
+  EvalOS stores the Drive link on the case; it does not re-host documents. Since
+  Unit 13 it also **writes** one generated document into that folder (see the
+  outbound-integration note under the stack table) — writing into a folder is not
+  re-hosting: the file lives in Drive, and EvalOS keeps only the audit row.
 - **Dropbox Sign (external)**: signed letters + e-signature workflow + storage.
 - **Redacted CV**: generated on demand from the expert profile; not persisted to
-  any EvalOS-hosted store.
+  any EvalOS-hosted store. Held in memory only — streamed to the caller, or handed
+  to Drive — and never written to Postgres or to disk.
 - **Encrypted at rest (field-level)**: the single optional expert
   `payment_detail` field, via a JPA `AttributeConverter`. Never logged, never
   placed in a DTO, webhook payload, or chat tool. (Payouts are manual and no

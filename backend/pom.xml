@@ -19,6 +19,8 @@
 		<jjwt.version>0.13.0</jjwt.version>
 		<commons-csv.version>1.12.0</commons-csv.version>
 		<poi.version>5.4.1</poi.version>
+		<google-api-drive.version>v3-rev20260428-2.0.0</google-api-drive.version>
+		<google-auth.version>1.48.0</google-auth.version>
 	</properties>
 
 	<dependencies>
@@ -88,6 +90,29 @@
 			<groupId>org.apache.poi</groupId>
 			<artifactId>poi-ooxml</artifactId>
 			<version>${poi.version}</version>
+		</dependency>
+		<!--
+			Unit 13's Drive write, and the first outbound Google integration in EvalOS.
+			Installed here rather than earlier because until this unit `Case.driveLink`
+			was a string EvalOS stored and never dereferenced — see architecture.md's
+			stack table. Only integration/GoogleDriveClient and config/GoogleDriveConfig
+			touch either one.
+
+			No PDF library accompanies them, deliberately: the HTML is uploaded with a
+			target mime type of application/vnd.google-apps.document, so Drive converts
+			it to a Doc on the way in and its own export produces a PDF if one is ever
+			wanted. openhtmltopdf/PDFBox would be a dependency duplicating a feature of
+			an integration this unit already has.
+		-->
+		<dependency>
+			<groupId>com.google.apis</groupId>
+			<artifactId>google-api-services-drive</artifactId>
+			<version>${google-api-drive.version}</version>
+		</dependency>
+		<dependency>
+			<groupId>com.google.auth</groupId>
+			<artifactId>google-auth-library-oauth2-http</artifactId>
+			<version>${google-auth.version}</version>
 		</dependency>
 		<dependency>
 			<groupId>org.springframework.boot</groupId>

@@ -32,6 +32,8 @@ Before moving to the next unit:
 3. `context/progress-tracker.md` reflects the completed work (mark in-progress when starting, and
    record deviations/unverified acceptance criteria when finishing).
 4. Both verify commands above are green.
+5. The memories this unit invalidated are updated — see `mem:memory_maintenance` for the
+   add/update threshold and the routing rules.
 
 Full-stack slices: run both suites, then `npm run dev` (5173) + `.\mvnw.cmd spring-boot:run` (8080)
 and exercise the flow through the Vite `/api` proxy.

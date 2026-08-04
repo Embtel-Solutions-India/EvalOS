@@ -25,6 +25,10 @@ index `uq_expert_per_brand_email` on `(brand_id, lower(email))`, and a GIN index
 - Enum columns are `text` + `@Enumerated(EnumType.STRING)`; the 21 vocabulary enums live in `domain/`.
   `NotificationType` and `AuditAction` are **open** — their columns carry no CHECK, so later units add
   values without a migration. No CHECK constraints on the other enum columns either (only `V3.role`).
+  That openness has been spent three times: `CHASED` (Unit 10), `IMPORTED` (Unit 11) and `EXPORTED`
+  (Unit 13 — a generated document left EvalOS; the snapshot carries the Drive file and folder ids, so
+  the trail answers *which* document and *where it went*). Each is its own action rather than
+  `UPDATED` because in all three nothing about the object itself changed.
 - `text[]` → `String[]` with `@JdbcTypeCode(SqlTypes.ARRAY)`; `jsonb` → `String` with
   `SqlTypes.JSON`. Enum arrays are avoided — they buy nothing and risk `validate` mismatches.
 - Contact snapshots: GHL is the only writer (invariant 7). Columns stay physically updatable so the

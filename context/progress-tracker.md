@@ -10,20 +10,31 @@ Update this file after every meaningful implementation change.
   checklist) are all Phase 1 — this tracker had been calling 06 onward "Phase 2" since Unit 06,
   which the build plan does not say. Corrected here rather than left to compound.
 - **Phase 2 — Connect the seams is under way.** It is Units 11–17. **Units 11 (expert database
-  + sheet upload) and 12 (match scoring engine) are complete and verified**; Unit 13 is next.
+  + sheet upload) and 12 (match scoring engine) are complete and verified. Unit 13 (redacted CV
+  generation) is code-complete with one acceptance criterion outstanding** — the manual live
+  Drive upload, blocked on credentials that do not exist yet; see its entry at the end of
+  Completed. Unit 14 is next.
   The build plan's `## Phase 3`
   heading used to sit above Unit 17 and contradict its own roadmap line; the heading moved to
   Unit 18, so Dashboards is Phase 2 wherever you read it.
-- **Verified, not just written.** All **260** backend tests execute with none skipped — the
-  23 DB-backed ones included — plus 73 frontend tests, and CI runs the DB suite against a real
-  Postgres on every push. (It was 183 backend / 44 frontend at the end of Phase 1, and 229/61
-  after Unit 11.) See the Unit 12 entry at the end of Completed.
+- **Verified, not just written.** All **305** backend tests execute with none skipped — the
+  23 DB-backed ones included — plus 81 frontend tests, and CI runs the DB suite against a real
+  Postgres on every push. (It was 183 backend / 44 frontend at the end of Phase 1, 229/61
+  after Unit 11, and 260/73 after Unit 12.) See the Unit 13 entry at the end of Completed.
+- **Google Drive is now an outbound integration, not just a URL column** (Unit 13). That changed
+  `architecture.md`'s stack table and its `integration` package description, and it makes Drive
+  the second external dependency in Phase 2 alongside Dropbox Sign in Unit 15.
 
 ## Current Goal
 
-- Unit 13 — per `context/specs/00-build-plan.md`. As with every Phase 2 spec, it was written in
+- Unit 14 — per `context/specs/00-build-plan.md`. As with every Phase 2 spec, it was written in
   the Phase 2 batch and is **a draft to re-read and revise at the start of the unit**, not a
-  settled contract.
+  settled contract. It shows the client the redacted profile alongside the draft, so it consumes
+  Unit 13's `GET /api/cases/{id}/expert-profile/redacted` — through a **link-based portal chain**,
+  which is its own Spring Security filter chain and not a widening of the staff one.
+- **Unit 13's live Drive upload is still owed** and is tracked under In Progress. It does not
+  block Unit 14: the client portal reads the served-on-demand profile, which is verified. It does
+  block calling Unit 13 finished.
 - Carried forward from Unit 11 and now actually load-bearing, unfinished business rather than a
   blocker: **the `FieldTag` value list is still unsigned by an ENM.** It shipped on instruction,
   and Unit 12 now **scores** against it — a shortlist is only as good as the vocabulary its
@@ -1293,16 +1304,166 @@ migration, `V19`; `V7`/`V18` untouched.**
   against real Postgres. No migration, no frontend change — the reworded empty reason is
   server-supplied text the panel only renders.
 
+### Unit 13 — Redacted CV generation · code complete, **one acceptance criterion cannot be met here**
+
+The document a client approves the expert from, and the **first outbound Google Drive
+integration in EvalOS**. **No migration** — nothing this unit produces is persisted.
+
+**Read this entry's last bullet before calling the unit done.** Everything is built and tested;
+the spec's own gating open question is still open, so the unit is code-complete rather than
+closed.
+
+- **`service/RedactedProfileService` — one renderer, two profiles, two destinations.**
+  - **Redaction is a whitelist, and the test is a search rather than a checklist.** `credentials`
+    names every value that may appear, so a field added to `Expert` in a later unit does not
+    appear by default — a blacklist is how such a field leaks, because the person adding it has
+    to remember a rule in a file they are not editing.
+    `theRedactedProfileCarriesNoIdentifyingFieldAndNoFreeText` seeds every excluded field with a
+    distinctive token (`ZZQNAMEZZQ` and friends) and searches the rendered HTML for each. The
+    weaker test — asserting that the fields we remembered to exclude are excluded — passes
+    forever while the leak happens.
+  - **`notes` and `recruitment_source` are excluded because they are free text**, not because of
+    what they are nominally for: any free-text field can contain the very name being redacted.
+    `title` is the one that survives, because an academic rank *is* the credential — it is
+    escaped, and `aTitleCarryingMarkupIsEscapedRatherThanRendered` holds that.
+  - **`total cases completed` is `ExpertLoadService`'s derived count, never
+    `expert.total_cases_completed`.** That column has never been written (Unit 11's finding), so
+    reading it would print "0 cases completed" on the profile of the brand's busiest expert.
+    This is also why **`domain/Expert.java` was not touched**, as the spec's files-touched list
+    requires: the count it lacks a getter for is the one that would have been wrong.
+  - The **full profile excludes the internal assessments too** — `quality_score`,
+    `performance_flags`, `avg_response_hours` — and both profiles exclude `payment_detail`
+    (invariant 4). "Full" means identity and credentials; this document goes to a client, not to
+    the ENM.
+- **The reference label — `Expert AK`, from a SHA-256 of the case and expert ids.** Stable per
+  case because the PM and client discuss "Expert AK" across days, and a label that changed
+  between two generations would read as two people. Derived from **both** ids so the same expert
+  proposed on two cases is a different label on each — a client with two of their own cases must
+  not be able to match the expert across them. **No digits anywhere**, asserted: a sequential
+  "Expert 1" would tell the client they were the first choice, or the fourth. Carries a
+  `ponytail:` note that two letters is 676 labels.
+  - The two label criteria are tested on **fixed** UUIDs, deliberately. A two-letter digest means
+    two random ids collide about once in 676 runs, and a test that fails one morning in 676 gets
+    deleted rather than investigated.
+- **`integration/GoogleDriveClient` — one file into one folder that already exists.** No folder
+  creation, no permissions management, no reading documents back out, no listing. The HTML is
+  uploaded with a target mime type of `application/vnd.google-apps.document`, so Drive converts
+  it to a Doc on the way in — **which is why no PDF library was added**: Drive's own export
+  produces a PDF from the created Doc, so `openhtmltopdf`/PDFBox would duplicate a feature of an
+  integration this unit already has. `setSupportsAllDrives(true)`, without which a Shared Drive
+  parent answers 404 — and a Shared Drive is one of the two access models the spec names.
+- **The folder-id wrinkle, and the refusal that matters.** `evalos_case.drive_link` is a URL, not
+  a folder id; `folderIdOf` accepts the `/folders/<id>` and `?id=<id>` shapes and **refuses
+  everything else rather than falling back**. No default folder, no Drive root, no service
+  account's own space: the file would silently land somewhere nobody looks, or somewhere another
+  brand can see it — a cross-brand leak *outside* the database, which no `brand_id` predicate can
+  close. `anUnusableDriveLinkIsRefusedAndNothingIsUploaded` asserts the 409 **and** that the
+  Drive client and the audit service are never called.
+- **`web/ExpertProfileController` — three routes, and one asymmetry worth a test.** The Case
+  Manager reads both profiles (they draft the letter and need to know who is signing it) and is
+  **off the Drive write**, because publishing toward the client is the PM's call. That is exactly
+  the shape a client copy flattens by accident, so it is asserted on both sides —
+  `onlyTheCommercialRolesAndThePmMayFileToDrive` and, in the browser,
+  `redactionRules.test.ts`'s assertion on the whole role list.
+- **`config/GoogleDriveConfig` — the app refuses to start without credentials.** Checked in the
+  `@Configuration` constructor, so the context does not come up; `evalos.drive.required` is true
+  in `application.yml`, restated in `application-prod.yml`, and false **only** in
+  `application-local.yml`. Two sources (`GOOGLE_DRIVE_KEY_JSON` inline, or a path in
+  `GOOGLE_APPLICATION_CREDENTIALS`), both defaulting to empty rather than being absent — an
+  unresolvable placeholder could only ever demand one specific variable, which would make setting
+  the other one a boot failure. The key is read **at startup**, so an unreadable path fails there
+  too rather than at the first upload.
+  - `local` is the one profile that runs without a key: the whole app starts, both profiles
+    generate, and only the Drive write answers 502 saying it is not configured.
+  - The scope is a **property** defaulting to `drive.file` (least privilege). If the live upload
+    ever 403s on a correctly-shared folder the answer is `.../auth/drive`, and the person
+    debugging that has an environment and not a build.
+- **A 502 rather than a 500 on a Drive failure**, via `integration/DriveUnavailableException` and
+  one new handler. The fault is upstream and the distinction tells the PM to retry rather than
+  report a bug. **Nothing in EvalOS changes**: the profile is regenerable, so there is nothing to
+  roll back and no retry queue is warranted, and the audit row is written only *after* a
+  successful upload — `aDriveFailureLeavesNoTrailClaimingTheDocumentExists`.
+  - `writeRedactedToDrive` is **deliberately not `@Transactional`**: it makes an outbound HTTP
+    request, and holding a database transaction across it would tie a connection to a remote
+    service's latency. Each step commits on its own, the same reasoning `WebhookGateway` is built
+    on, and the ordering carries the guarantee.
+- **`AuditAction.EXPORTED`** — open vocabulary, so no migration, as with `CHASED`. Its own action
+  rather than `UPDATED` because nothing about the case changed; a document was published. The
+  frontend's `AuditAction` union and `Timeline`'s label map **already carried this value** before
+  anything wrote it.
+- **The template is plain HTML with `{{placeholder}}` substitution and no template engine.** A
+  fixed structure and a dozen fields is not worth Thymeleaf. **One template serves both
+  profiles** — the spec says one, and its files-touched list names only
+  `redacted-profile.html` — via an `{{identity}}` block that is **empty on the redacted path**.
+  That block is the one placeholder not escaped, because it is markup assembled here from
+  already-escaped parts, and it is the only route through which markup may ever pass.
+  Escaping uses Spring's `HtmlUtils` — already on the classpath, so no new dependency.
+- Frontend `features/case/{RedactedProfilePanel.tsx, redactionRules.ts + test}`, mounted under
+  `ExpertCard` in `CaseDetail.tsx` so the internal view and the client's sit side by side.
+  - **The preview is an iframe with an empty `sandbox`, never `dangerouslySetInnerHTML`.** Empty
+    is the strongest value — it withholds every capability — and it is asserted in a test
+    precisely because it looks like an oversight somebody would "fix" by adding `allow-scripts`.
+    `srcDoc` rather than a blob URL, so nothing is written anywhere (invariant 14).
+  - **Unpaid disables the full-profile control and says why** rather than hiding it, the same
+    reasoning as the checklist's unpaid chip: a missing button is indistinguishable from a
+    permission you do not have, and nobody can act on absence.
+  - **No redaction in the browser, and no pre-check of the Drive link.** The document arrives
+    rendered; a second opinion about "is this anonymous" is a second answer, and the one that
+    loses is the one that leaked. The link is left to the server's 409, because restating a
+    server rule in the client is the copy that goes stale (the Unit 10 lesson).
+  - Nothing is generated on mount. The profile is built from the roster row on every request, so
+    fetching it unasked is work for a panel nobody opened.
+- **Two deliberate deviations from the spec, both recorded rather than quietly resolved:**
+  1. **403, not the 404 the acceptance criteria name**, for a case outside the caller's scope.
+     Every case route in EvalOS answers a scoped-read miss with `ForbiddenException` (Unit 04's
+     `CaseLifecycleService.load`), and Unit 09 recorded that as deliberate. It is uniform across
+     "no such case" and "not your case", so it is not an existence oracle either way — making
+     these three routes alone answer 404 would be the inconsistency, and changing all of them is
+     not this unit's scope. Pinned by `aCaseOutsideTheCallersScopeIsRefusedOnAllThreeRoutes`,
+     which states the reasoning at the test.
+  2. **The HTML travels inside the `ApiResponse` envelope**, not as a `text/html` body. The spec
+     calls these routes "HTML"; the envelope is returned by every endpoint in EvalOS without
+     exception, and a raw-HTML route would also have nowhere to carry the `reference` label or to
+     report a refusal in the shape every other route uses. The panel renders it via `srcDoc`,
+     which is printable — what the spec asks the client to do with it.
+- Verified: **`./mvnw verify -Devalos.db.test=true` BUILD SUCCESS, 305 backend tests, 0
+  skipped** against local Postgres 18 (new: `RedactedProfileServiceTest` 23,
+  `ExpertProfileControllerTest` 19, `GoogleDriveConfigTest` 3 — up from 260 with 23 skipped). The
+  DB-gated run matters here for one specific reason beyond the usual: it boots a **real Spring
+  context** with the new `GoogleDriveConfig` bean, which is what proves the four new
+  `evalos.drive.*` keys actually bind — a `@WebMvcTest` slice never loads that class, so a typo
+  in `application.yml` would have been invisible until the first real start. `npm test` **81
+  frontend tests** (8 new), `npm run build` and `npm run lint` clean.
+- **THE UNIT IS NOT CLOSED, and this is the spec's own gating open question, not a surprise.**
+  *"A mocked Drive client proves the mapping, not the credentials."* The acceptance criteria
+  require **one manual live upload against a real folder**, and it has not happened because
+  none of what it needs exists yet:
+  - a **Google Cloud service account** with the Drive API enabled,
+  - its **JSON key**, and
+  - **write access per brand folder tree** — a Shared Drive with the service account as a
+    member, or domain-wide delegation. **Per brand**, because one account with blanket access to
+    both brands' Drives is the cross-brand hole described above.
+  Until that upload is done and recorded here, three things are proven only against a double:
+  that the credentials work, that the `drive.file` scope is sufficient for a create into a
+  shared folder (the `.../auth/drive` fallback is one property away if not), and that Drive's
+  HTML → Google Doc conversion produces a document worth sending to a client. Everything that
+  does not depend on Google — the redaction, the whitelist, the label, the paid gate, the
+  refusals, the audit row, the panel — is verified.
+
 ## In Progress
 
-- Nothing.
+- **Unit 13's one live check.** The manual Drive upload above. It needs credentials that are
+  provisioned, not coded, so it is blocked on somebody with Google Cloud access rather than on
+  any remaining work in the repo.
 
 ## Next Up
 
-- Unit 13 — per `context/specs/00-build-plan.md`. Unit 12 leaves it two things: the
-  `expert_case_offer` row (Unit 15 fills `ACCEPTED` from the real Dropbox Sign callback instead of
-  the staff-recorded stand-in, and owns `TIMED_OUT`) and the rule-based score Unit 20's AI layer
-  ranks **on top of**, not instead of.
+- Unit 14 — per `context/specs/00-build-plan.md`. Unit 13 leaves it the redacted profile route and
+  its `reference` label, which is the name the client's own messages will use for the expert.
+- Unit 12 still leaves two things for their owning units: the `expert_case_offer` row (Unit 15
+  fills `ACCEPTED` from the real Dropbox Sign callback instead of the staff-recorded stand-in, and
+  owns `TIMED_OUT`) and the rule-based score Unit 20's AI layer ranks **on top of**, not instead
+  of.
 
 ### Phase 2 readiness — which open questions block which unit
 

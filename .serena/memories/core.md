@@ -39,8 +39,11 @@ document checklist board, expert database). CI runs the DB suite against a real 
 push.
 
 **Phase 2 is Units 11–17 and is under way. Units 11 (expert database + sheet upload) and 12 (match
-scoring engine) are complete and verified; Unit 13 (Google Drive) is next.** Migrations run to
-**`V19`**; 54 endpoints; **260 backend tests, none skipped** (23 DB-backed) and 73 frontend tests.
+scoring engine) are complete and verified. Unit 13 (redacted CV generation + the Drive write) is
+code-complete with ONE acceptance criterion outstanding — the manual live upload, blocked on a
+Google service account that does not exist. Unit 14 is next.** Migrations still run to
+**`V19`** (Unit 13 added none — nothing it produces is persisted); 57 endpoints; **305 backend
+tests, none skipped** (23 DB-backed) and 81 frontend tests.
 Unit 11 added the closed
 `FieldTag`/`LetterType` vocabularies (enum **and** DB CHECK), `email`/`phone`/`letter_types`/
 `standard_fee` on `expert`, the write-only `payment_detail` path, `ExpertLoadService` (load derived
@@ -63,8 +66,21 @@ Offer invariants are in `mem:backend/persistence`; which transitions stamp them,
 `mem:backend/lifecycle`.
 Phase boundaries are 01–10 / 11–17 / 18–20 — earlier tracker entries mislabelled 06 onward as Phase 2
 and were corrected.
-Later units carry named external dependencies that do not exist yet (Google Drive service account for
-13, Dropbox Sign account for 15, GHL outbound contract for 18) — all listed in the tracker.
+Unit 13 generates the anonymous expert profile a client approves the expert from, and files it into
+the case's Drive folder. Three things to know before touching it: redaction is a **whitelist** in
+`RedactedProfileService.credentials` (a blacklist is how a field added later leaks by default, and
+the test proves it by seeding tokens in every excluded field and searching the output); the
+`Expert AK` reference label is a digest of the **case and expert ids together**, so it is stable per
+case and different for the same expert on another case; and an unparseable `drive_link` is a
+**refusal, never a fallback** to a default folder — a misfiled document is a cross-brand leak
+outside the database. `mem:backend/core` for the config and the 502 path.
+
+Later units carry named external dependencies that do not exist yet (Dropbox Sign account for 15,
+GHL outbound contract for 18) — all listed in the tracker. **Unit 13's Google service account is
+the one that has already bitten**: the code is finished and the live upload is not, so the unit is
+open. Until it runs, three things are proven only against a test double — that the credentials
+work, that the `drive.file` scope suffices for a create into a shared folder, and that Drive's
+HTML → Doc conversion is worth sending to a client.
 
 ## Layout
 
@@ -99,8 +115,11 @@ Monorepo, but no root build: each half is built and run from **inside its own di
   migration is never edited.
 - **No object storage, no mail server.** Documents are Google Drive links, signed letters live in
   Dropbox Sign, staff alerts are in-app, client messages go out through GHL. Do not add S3 or SMTP.
-  (Phase 2 adds a Drive **API client** for one write path in Unit 13 — links-only stops being the
-  whole story there, but EvalOS still hosts no bytes.) Unit 11 added the one **upload** — the expert
+  (Unit 13 **added** that Drive API client, for one write path — links-only stopped being the whole
+  story, and EvalOS still hosts no bytes: the redacted profile is generated in memory, streamed to
+  the caller or handed to Drive, and written to neither Postgres nor disk. The client is
+  deliberately the narrowest capability that works: one file into a folder that already exists,
+  no folder creation, no permissions management, no reads.) Unit 11 added the one **upload** — the expert
   roster sheet — and it holds too: parsed in memory, never stored, with
   `multipart.file-size-threshold` set equal to `max-file-size` so the container cannot spool it to a
   temp file.

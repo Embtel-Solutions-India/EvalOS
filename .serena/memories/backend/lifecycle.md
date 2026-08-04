@@ -46,7 +46,16 @@ another.
   correcting cannot double-count.
 - **The unpaid guard is a single `requireState(subject.isPaid(), ...)` in `markDocsComplete`.** That
   is deliberate and sufficient: no other transition advances a case past `DOC_COLLECTION`, so one
-  check covers every later stage. Do not scatter copies. Doc collection on an unpaid case is
+  check covers every later stage — do not scatter copies of it.
+  **`isPaid()` is read in four places outside the state machine**, and only one of them is a second
+  *gate*: `RedactedProfileService.full` (Unit 13) refuses the expert's identity on an unpaid case.
+  That is not a scattered copy of the transition guard — it gates a *release of information* rather
+  than a stage advance, so `markDocsComplete` could not cover it — and it throws the same
+  `IllegalTransitionException`/409 so both read identically to a caller. The other three are not
+  gates at all: `RefundService.isRevenueRecognized` (the revenue pair, next bullet) and the
+  `CaseController`/`ChecklistController` DTO projections, which merely report the flag to a screen.
+  Nothing outside `markPaid` ever *writes* it.
+  Doc collection on an unpaid case is
   *allowed* — it costs EvalOS nothing.
 - **Revenue recognition is `paid && delivered && !refunded`**, read only through
   `RefundService.isRevenueRecognized`. Never sum on `delivery_date` alone. "Flagged refunded" is
