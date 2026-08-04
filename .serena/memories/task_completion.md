@@ -6,11 +6,11 @@ command and no formatter to run. See `mem:suggested_commands` for the PowerShell
 ## frontend/ changes
 
 1. `npm run lint` (oxlint)
-2. `npm run build` (`tsc -b && vite build` — doubles as the typecheck; no standalone typecheck or
-   test script)
-
-No frontend test suite exists — if behavior matters, verify by running `npm run dev` alongside the
-backend, since nothing else catches a runtime regression.
+2. `npm run build` (`tsc -b && vite build` — doubles as the typecheck; there is no standalone
+   typecheck script)
+3. `npm run test` (vitest, one run) — **rules modules only**. Components are not render-tested
+   (no jsdom, no Testing Library), so a `.tsx` change catches nothing here: if behavior matters,
+   verify by running `npm run dev` alongside the backend.
 
 ## backend/ changes
 
@@ -31,7 +31,7 @@ Before moving to the next unit:
    transition, thin handlers, GHL-webhook-only case creation, no files, no email.
 3. `context/progress-tracker.md` reflects the completed work (mark in-progress when starting, and
    record deviations/unverified acceptance criteria when finishing).
-4. Both verify commands above are green.
+4. Every verify command above, for the halves touched, is green.
 5. The memories this unit invalidated are updated — see `mem:memory_maintenance` for the
    add/update threshold and the routing rules.
 
