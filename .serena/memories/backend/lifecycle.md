@@ -16,9 +16,23 @@ another.
   out. That is how "resume returns to the prior stage" works with no column remembering it — the case
   never left. **One exception state at a time.**
 - Every transition funnels through one private `apply(...)`: set stage → restamp `stage_entered_at`
-  → recompute SLA → save → **exactly one** `AuditService.recordEvent` → **exactly one** `CaseEvent`,
-  inside the caller's transaction. Adding a transition means adding a table row + a method that calls
-  `apply`, never a bespoke write path.
+  → recompute SLA → save → **exactly one** audit row → **exactly one** `CaseEvent`, inside the
+  caller's transaction. Adding a transition means adding a table row + a method that calls `apply`,
+  never a bespoke write path.
+- `apply` takes an optional `PortalAudience` (Unit 14) and that is the **only** thing it branches on:
+  null → `AuditService.recordEvent` with the staff actor from `TenantContext`; non-null →
+  `recordPortalEvent` with the brand off the case and the client named as the actor. Everything else
+  is shared, because a client approving a draft is the same transition however it was triggered.
+- **The two client actions have a second entry point taking an already-authorized `Case`**:
+  `clientApproveDraftFromPortal` / `clientRequestRevisionsFromPortal`, called by
+  `PortalCaseService`. They take the row, not an id, because the token *is* the authorization and
+  there is no `TenantContext` to scope an id with. Both share the id-taking version's guards, so a
+  client approving twice gets the same 409 from the same line — the state machine is never duplicated
+  for the portal surface.
+- `submitDraft(caseId, draftLink)` writes `evalos_case.draft_link` (Unit 14) — the one link the client
+  portal shows. Optional and only overwritten when non-blank: a second version filed in the same place
+  needs no new link, and blanking one by omission would take the draft away from a client mid-review.
+  **Never falls back to `drive_link`** — see `mem:backend/persistence`.
 - `stage_entered_at` means "when the current wait began" and is restamped by **every** transition,
   not only stage-changing ones — otherwise a second PM-review round inherits the first round's spent
   clock. There is no per-sub-loop timestamp column.

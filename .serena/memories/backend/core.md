@@ -72,8 +72,10 @@ frontend's typed mirror lives in `frontend/src/lib/api.ts`.
   brand GHL secret · `V12` webhook_event · `V13` brand-scoped webhook idempotency key · `V14`
   `evalos_case.paid`/`paid_at` · `V15` partial unique index for one open case per contact+service ·
   `V16` contact identity · `V17` `evalos_case.assigned_coordinator` · `V18` expert contact columns +
-  the closed-vocabulary CHECKs + the per-brand email index · `V19` `expert_case_offer` (both in
-  `mem:backend/persistence`).
+  the closed-vocabulary CHECKs + the per-brand email index · `V19` `expert_case_offer` · `V20`
+  `evalos_case.draft_link` · `V21` `portal_access` · `V22` `audit_event.actor_type` · `V23` the
+  one-unrevoked-token index that turned "one live portal token" from a service check into a
+  constraint (all in `mem:backend/persistence`).
   **Never edit an applied migration** — `V12`'s constraint was once renamed in place, which would
   have made `V13`'s `DROP CONSTRAINT` fail on a fresh database while breaking checksums on existing
   ones.
@@ -88,12 +90,14 @@ frontend's typed mirror lives in `frontend/src/lib/api.ts`.
 ## Running & tests
 
 - **A reachable Postgres is required to start.** This machine has PostgreSQL 18 with the `evalos`
-  database migrated to `V18` (+ the `V90x` local seeds) — **one behind the repo's `V19`, so the next
-  `spring-boot:run` applies it** — see `mem:suggested_commands`. Its `public`
+  database: its `public` schema is at **`V22`** (+ the `V90x` local seeds) and its `evalos_test`
+  schema at **`V23`**, because the gated suite runs migrations and a `spring-boot:run` has not
+  happened since `V23` landed — **the next one applies it** — see `mem:suggested_commands`. Its `public`
   schema also holds ~46 junk experts and ~150 junk cases from integration-test runs that predate the
   `evalos_test` schema; they are dev noise, not data, and they show up on the roster screen.
 - Map every controller under `/api` (the Vite dev proxy). Endpoints are **secured by default**: a new
-  one answers 401 until `SecurityConfig` permits it or the caller bears a token.
+  one answers 401 until `SecurityConfig` permits it or the caller bears a token — and a route under
+  `/api/portal/**` lands on the *other* chain (`PortalSecurityConfig`), which accepts no JWT at all.
 - Tests are slice (`@WebMvcTest`) or plain unit tests needing no DB, so `verify` is green anywhere.
   Everything that needs a real schema lives in one gated `@SpringBootTest`
   (`LocalPostgresIntegrationTest`, `-Devalos.db.test=true`). No Testcontainers, no Docker.

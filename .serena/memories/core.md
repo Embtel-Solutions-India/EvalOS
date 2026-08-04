@@ -38,12 +38,12 @@ live frontend surfaces (app shell + role routing, production Kanban board, case 
 document checklist board, expert database). CI runs the DB suite against a real Postgres on every
 push.
 
-**Phase 2 is Units 11–17 and is under way. Units 11 (expert database + sheet upload) and 12 (match
-scoring engine) are complete and verified. Unit 13 (redacted CV generation + the Drive write) is
-code-complete with ONE acceptance criterion outstanding — the manual live upload, blocked on a
-Google service account that does not exist. Unit 14 is next.** Migrations still run to
-**`V19`** (Unit 13 added none — nothing it produces is persisted); 57 endpoints; **305 backend
-tests, none skipped** (23 DB-backed) and 81 frontend tests.
+**Phase 2 is Units 11–17 and is under way. Units 11 (expert database + sheet upload), 12 (match
+scoring engine) and 14 (client draft-review portal) are complete and verified. Unit 13 (redacted CV
+generation + the Drive write) is code-complete with ONE acceptance criterion outstanding — the manual
+live upload, blocked on a Google service account that does not exist. Unit 15 is next.** Migrations
+run to **`V23`** (Unit 13 added none — nothing it produces is persisted; Unit 14 added three, and its
+code review added `V23`); **343 backend tests, none skipped** (26 DB-backed) and 101 frontend tests.
 Unit 11 added the closed
 `FieldTag`/`LetterType` vocabularies (enum **and** DB CHECK), `email`/`phone`/`letter_types`/
 `standard_fee` on `expert`, the write-only `payment_detail` path, `ExpertLoadService` (load derived
@@ -74,6 +74,29 @@ the test proves it by seeding tokens in every excluded field and searching the o
 case and different for the same expert on another case; and an unparseable `drive_link` is a
 **refusal, never a fallback** to a default folder — a misfiled document is a cross-brand leak
 outside the database. `mem:backend/core` for the config and the 502 path.
+
+Unit 14 gave the client their own surface, and it is the first non-staff caller in the system. Four
+things to know before touching it. **Two filter chains, neither accepting the other's credential** —
+`PortalSecurityConfig` matches `/api/portal/**` and holds no JWT filter, and its `PortalTokenFilter` is
+constructed rather than annotated so Boot cannot register it globally (that is the detail that would
+otherwise let a portal token authenticate a staff route). **A portal caller is not a `TenantContext`**:
+`PortalPrincipal` carries the one case the token names, so the token *is* the scope and
+`ScopePredicate` is not involved — see `mem:backend/security`. **A portal link is a credential**: 256
+random bits, returned once, stored only hashed, absolute expiry, and re-minting revokes the previous
+one; unknown/expired/revoked are one indistinguishable 401. And **`audit_event` grew its first new
+column ever** (`actor_type`, on explicit instruction, nullable and unbackfillable) so a client's
+approval is attributed to the client rather than to a null that reads as the system —
+`mem:backend/persistence`. Handoff B is now something a client can perform. The link still has to be
+**copied out by staff**: whether GHL can deliver it on an event is open question (b), and Unit 18 owns
+the dispatch if the answer is yes.
+
+Its **code review found five real things and none of them were in the scoping, the whitelist, the two
+chains or append-only** — three were comments describing code that had changed under them (two of
+them saying the portal mounts from `main.tsx`, which it does not), one was `recordEvent` hardcoding
+`ActorType.STAFF` where its own contract allows a null actor, and one was the mint being a
+check-then-act, fixed with `V23`'s index. The lesson to carry: on this codebase the comments *are* the
+contract, so a design decision reversed mid-unit has to be chased through every place that describes
+it — the tracker, the memory, the context file and the javadoc.
 
 Later units carry named external dependencies that do not exist yet (Dropbox Sign account for 15,
 GHL outbound contract for 18) — all listed in the tracker. **Unit 13's Google service account is
@@ -110,7 +133,10 @@ Monorepo, but no root build: each half is built and run from **inside its own di
   `brandId` on a read can only narrow.
 - **Append-only truth.** Audit + assignment history are never updated or deleted; no update/delete
   path may exist on those repositories. This has a consequence worth knowing before you hit it:
-  `audit_event` rows **can never be backfilled** — see `mem:backend/persistence`.
+  `audit_event` rows **can never be backfilled** — see `mem:backend/persistence`. Unit 14 is the first
+  unit to have felt it, and also the precedent for touching that table at all: the entity and its write
+  path are **protected files**, so its one new column was signed off before it was written, not argued
+  for afterwards.
 - **Flyway owns the schema.** `ddl-auto: validate`. Every change is a new migration; an applied
   migration is never edited.
 - **No object storage, no mail server.** Documents are Google Drive links, signed letters live in

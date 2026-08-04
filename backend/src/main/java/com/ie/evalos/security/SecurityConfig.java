@@ -4,6 +4,7 @@ import com.ie.evalos.common.ApiErrors;
 
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.ProviderManager;
@@ -17,14 +18,21 @@ import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 
 /**
- * The staff API chain: stateless, bearer-token only. Client and expert portals
- * get their own chains in later units — do not widen this one to cover them.
+ * The staff API chain: stateless, bearer-token only.
+ *
+ * <p>The link-based portals are the <strong>second</strong> chain, in
+ * {@link PortalSecurityConfig} — a separate file because they are a separate surface, and because
+ * this one is imported by a dozen {@code @WebMvcTest} slices that have no business needing a portal
+ * service to start. Do not widen this chain to cover them: two chains that accept each other's
+ * credentials are one chain. That chain is ordered first and matches {@code /api/portal/**}; this
+ * one matches everything else.
  */
 @Configuration
 @EnableMethodSecurity
 public class SecurityConfig {
 
 	@Bean
+	@Order(2)
 	SecurityFilterChain staffApi(HttpSecurity http, JwtFilter jwtFilter, ApiErrors apiErrors) throws Exception {
 		return http
 				// No cookies or sessions are used, so there is no CSRF surface.

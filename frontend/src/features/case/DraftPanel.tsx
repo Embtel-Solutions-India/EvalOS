@@ -54,16 +54,30 @@ export default function DraftPanel({ detail }: { detail: CaseDetail }) {
         <Row label="Client review" status={clientApprovalStatus} />
       </dl>
 
-      {detail.driveLink && draftVersionCount > 0 && (
-        <a
-          href={detail.driveLink}
-          target="_blank"
-          rel="noreferrer noopener"
-          className="mt-3 inline-block text-sm font-medium"
-          style={{ color: 'var(--accent-primary)' }}
-        >
-          Open the current draft ↗
-        </a>
+      {/*
+        `draftLink`, not `driveLink`. This link said "Open the current draft" and pointed at the
+        client's own *documents folder* from Unit 09 until Unit 14 gave the draft its own column —
+        internally a mislabel, and a leak the moment the same field reached a client-facing screen.
+        A case with no draft link says so rather than falling back to anything.
+      */}
+      {draftVersionCount > 0 && (
+        <p className="mt-3 text-sm">
+          {detail.draftLink ? (
+            <a
+              href={detail.draftLink}
+              target="_blank"
+              rel="noreferrer noopener"
+              className="font-medium"
+              style={{ color: 'var(--accent-primary)' }}
+            >
+              Open the current draft ↗
+            </a>
+          ) : (
+            <span style={{ color: 'var(--text-muted)' }}>
+              No link on this draft — whoever submitted it did not record where it is.
+            </span>
+          )}
+        </p>
       )}
     </section>
   )

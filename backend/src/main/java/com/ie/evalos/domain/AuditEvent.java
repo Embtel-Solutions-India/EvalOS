@@ -51,9 +51,23 @@ public class AuditEvent {
 	@Column(name = "action", nullable = false, updatable = false)
 	private AuditAction action;
 
-	/** The staff member who acted, or null when the actor is the system. */
+	/** The staff member who acted, or null when the actor is not one. */
 	@Column(name = "actor_id", updatable = false)
 	private UUID actorId;
+
+	/**
+	 * What kind of actor that was (Unit 14). Mapped {@code updatable = false} like every other
+	 * column here, so adding it introduced no way to change a row.
+	 *
+	 * <p><strong>Null on every row written before this column existed</strong>, and they are not
+	 * backfilled — the {@code V10} trigger means no UPDATE can touch them, so a
+	 * {@code DEFAULT 'STAFF'} would have stamped the webhook's genuinely {@code SYSTEM} rows
+	 * permanently and unfixably. For a null, read {@code SYSTEM} when {@link #actorId} is null and
+	 * {@code STAFF} otherwise; see {@code V22}'s header.
+	 */
+	@Enumerated(EnumType.STRING)
+	@Column(name = "actor_type", updatable = false)
+	private ActorType actorType;
 
 	@JdbcTypeCode(SqlTypes.JSON)
 	@Column(name = "before_snapshot", updatable = false)
@@ -77,12 +91,13 @@ public class AuditEvent {
 	}
 
 	public AuditEvent(UUID brandId, String objectType, UUID objectId, AuditAction action, UUID actorId,
-			String beforeSnapshot, String afterSnapshot) {
+			ActorType actorType, String beforeSnapshot, String afterSnapshot) {
 		this.brandId = brandId;
 		this.objectType = objectType;
 		this.objectId = objectId;
 		this.action = action;
 		this.actorId = actorId;
+		this.actorType = actorType;
 		this.beforeSnapshot = beforeSnapshot;
 		this.afterSnapshot = afterSnapshot;
 	}
@@ -112,6 +127,11 @@ public class AuditEvent {
 
 	public UUID getActorId() {
 		return actorId;
+	}
+
+	/** Null on a row written before Unit 14 — see the field comment for how to read that. */
+	public ActorType getActorType() {
+		return actorType;
 	}
 
 	public String getBeforeSnapshot() {

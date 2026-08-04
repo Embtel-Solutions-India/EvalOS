@@ -11,6 +11,7 @@ import com.ie.evalos.common.ForbiddenException;
 import com.ie.evalos.domain.Availability;
 import com.ie.evalos.domain.Case;
 import com.ie.evalos.domain.ChecklistItemStatus;
+import com.ie.evalos.domain.ClientApprovalStatus;
 import com.ie.evalos.domain.DocumentChecklistItem;
 import com.ie.evalos.domain.ExceptionState;
 import com.ie.evalos.domain.Expert;
@@ -21,6 +22,7 @@ import com.ie.evalos.domain.OfferOutcome;
 import com.ie.evalos.domain.PayoutLedger;
 import com.ie.evalos.domain.PayoutStatus;
 import com.ie.evalos.domain.PoolStatus;
+import com.ie.evalos.domain.PortalAudience;
 import com.ie.evalos.domain.Role;
 import com.ie.evalos.domain.SlaStatus;
 import com.ie.evalos.domain.Stage;
@@ -53,6 +55,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -80,6 +83,7 @@ class CaseLifecycleServiceTest {
 	private static final UUID EXPERT_ID = UUID.randomUUID();
 	private static final UUID OTHER_EXPERT_ID = UUID.randomUUID();
 	private static final BigDecimal PAID = new BigDecimal("1450.00");
+	private static final String DRAFT_LINK = "https://docs.google.com/document/d/draft-one/edit";
 
 	private final CaseRepository cases = mock(CaseRepository.class);
 	private final DocumentChecklistItemRepository checklistItems = mock(DocumentChecklistItemRepository.class);
@@ -186,8 +190,10 @@ class CaseLifecycleServiceTest {
 		assertEquals(TEAM, subject.getTeamId(), "the PM's team is what opens the case to that team");
 
 		actAs(Role.CASE_MANAGER);
-		lifecycle.submitDraft(CASE_ID);
+		lifecycle.submitDraft(CASE_ID, DRAFT_LINK);
 		assertEquals(1, subject.getDraftVersionCount());
+		assertEquals(DRAFT_LINK, subject.getDraftLink(), "the draft arrives with the link the client will read");
+		assertNull(subject.getDriveLink(), "and never by way of the client's document folder");
 
 		actAs(Role.PROJECT_MANAGER);
 		lifecycle.pmApproveDraft(CASE_ID);
@@ -381,7 +387,7 @@ class CaseLifecycleServiceTest {
 		assertNull(subject.getSlaStatus(), "a case on hold runs no clock");
 
 		actAs(Role.CASE_MANAGER);
-		assertThrows(IllegalTransitionException.class, () -> lifecycle.submitDraft(CASE_ID));
+		assertThrows(IllegalTransitionException.class, () -> lifecycle.submitDraft(CASE_ID, DRAFT_LINK));
 
 		actAs(Role.PROJECT_COORDINATOR);
 		lifecycle.resumeFromHold(CASE_ID);
@@ -389,11 +395,66 @@ class CaseLifecycleServiceTest {
 		assertEquals(Stage.DRAFT_GENERATION, subject.getCurrentStage(), "resume returns the stage it never left");
 	}
 
+	/**
+	 * Unit 14's portal-safe entry: the client's own approval.
+	 *
+	 * <p>Two things at once. It is the <strong>same transition</strong> — same guard, same stage,
+	 * same event — reached with an already-authorized case instead of an id, because the token names
+	 * the case and there is no {@code TenantContext} to scope one with. And the audit row goes
+	 * through {@code recordPortalEvent}, so the trail names the client instead of leaving the null
+	 * actor that reads as "the system" on the one entry that commits a letter to an expert's
+	 * signature.
+	 *
+	 * <p>The security context is cleared first, deliberately: a client has no staff principal, so
+	 * anything on this path still reaching for one has to fail here rather than in front of a
+	 * client — or worse, quietly attribute the approval to whoever was last in the context.
+	 */
+	@Test
+	void theClientsOwnApprovalIsTheSameTransitionButAuditedAsTheirs() {
+		walkToDraftGeneration();
+		actAs(Role.CASE_MANAGER);
+		lifecycle.submitDraft(CASE_ID, DRAFT_LINK);
+		actAs(Role.PROJECT_MANAGER);
+		lifecycle.pmApproveDraft(CASE_ID);
+		actAs(Role.PROJECT_COORDINATOR);
+		lifecycle.sendDraftToClient(CASE_ID);
+		clearInvocations(audit, events);
+
+		SecurityContextHolder.clearContext();
+		lifecycle.clientApproveDraftFromPortal(subject);
+
+		assertEquals(Stage.EXPERT_SIGNING, subject.getCurrentStage());
+		assertEquals(ClientApprovalStatus.APPROVED, subject.getClientApprovalStatus());
+		assertEquals(ExpertSignStatus.PENDING, subject.getExpertSignStatus());
+		assertEquals(List.of(CaseEvents.Type.DRAFT_CLIENT_APPROVED), publishedEventTypes(1));
+
+		// The brand comes off the case, never a request. One row, and not a staff one.
+		verify(audit).recordPortalEvent(eq(BRAND), eq(PortalAudience.CLIENT), eq("CASE"), any(), any(), any(), any());
+		verify(audit, never()).recordEvent(any(), any(), any(), any(), any(), any());
+	}
+
+	/**
+	 * The 409 a client gets is Unit 04's guard, not a portal-specific copy of it — which is the
+	 * whole reason the portal takes this entry rather than re-implementing the rule. Approving
+	 * twice is the case that would otherwise send a second letter for signature.
+	 */
+	@Test
+	void aClientCannotApproveADraftThatIsNotWithThem() {
+		walkToDraftGeneration();
+		clearInvocations(audit, events);
+		SecurityContextHolder.clearContext();
+
+		assertThrows(IllegalTransitionException.class, () -> lifecycle.clientApproveDraftFromPortal(subject));
+		assertThrows(IllegalTransitionException.class,
+				() -> lifecycle.clientRequestRevisionsFromPortal(subject, "please soften the conclusion"));
+		verifyNoInteractions(events);
+	}
+
 	@Test
 	void aDeclinedExpertSendsTheCaseBackToAssignmentWithANewOne() {
 		walkToDraftGeneration();
 		actAs(Role.CASE_MANAGER);
-		lifecycle.submitDraft(CASE_ID);
+		lifecycle.submitDraft(CASE_ID, DRAFT_LINK);
 		actAs(Role.PROJECT_MANAGER);
 		lifecycle.pmApproveDraft(CASE_ID);
 		actAs(Role.PROJECT_COORDINATOR);
@@ -671,7 +732,7 @@ class CaseLifecycleServiceTest {
 		Instant afterAssignment = subject.getStageEnteredAt();
 
 		actAs(Role.CASE_MANAGER);
-		lifecycle.submitDraft(CASE_ID);
+		lifecycle.submitDraft(CASE_ID, DRAFT_LINK);
 
 		assertTrue(!subject.getStageEnteredAt().isBefore(afterAssignment),
 				"the PM review round starts its own 12 hours");

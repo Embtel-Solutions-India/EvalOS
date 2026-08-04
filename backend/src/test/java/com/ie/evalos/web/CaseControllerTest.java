@@ -76,6 +76,8 @@ class CaseControllerTest {
 			new Route("/assign-coordinator", Role.PROJECT_MANAGER, Role.CASE_MANAGER,
 					"{\"coordinatorId\":\"%s\"}".formatted(SOME_ID)),
 			new Route("/docs-complete", Role.PROJECT_COORDINATOR, Role.CASE_MANAGER, null),
+			// The body is optional (a revision filed in the same place needs no new link), so this
+			// row deliberately sends none — which is also the shape every caller before Unit 14 sent.
 			new Route("/draft/submit", Role.CASE_MANAGER, Role.PROJECT_MANAGER, null),
 			new Route("/draft/pm-approve", Role.PROJECT_MANAGER, Role.CASE_MANAGER, null),
 			new Route("/draft/pm-return", Role.PROJECT_MANAGER, Role.CASE_MANAGER, REASON),
@@ -141,7 +143,7 @@ class CaseControllerTest {
 		given(lifecycle.assignCaseManager(any(), any(), any())).willReturn(result);
 		given(lifecycle.assignCoordinator(any(), any())).willReturn(result);
 		given(lifecycle.markDocsComplete(any())).willReturn(result);
-		given(lifecycle.submitDraft(any())).willReturn(result);
+		given(lifecycle.submitDraft(any(), any())).willReturn(result);
 		given(lifecycle.pmApproveDraft(any())).willReturn(result);
 		given(lifecycle.pmReturnDraft(any(), any())).willReturn(result);
 		given(lifecycle.sendDraftToClient(any())).willReturn(result);

@@ -2,13 +2,24 @@
 
 Vite SPA under `frontend/src`. Structure is `lib/`, `components/`, `features/`, `pages/`, `styles/`;
 `features/` is where the real screens live — `auth`, `shell`, `board`, `case`, `checklist`,
-`dashboards`, `experts`. `components/ui/` (generated headless primitives) is **protected — do not
-hand-edit** and does not exist yet.
+`dashboards`, `experts`, `client-portal`. `components/ui/` (generated headless primitives) is
+**protected — do not hand-edit** and does not exist yet.
 
-## Wiring
+## Wiring — two surfaces, split inside `App.tsx`
 
-- `src/main.tsx` — root: `StrictMode` > `BrowserRouter` > `AuthProvider` > `App`. The router provider
-  lives here, **not** in `App.tsx`, so `App` renders without a second router.
+- `src/main.tsx` — root, and nothing else: `StrictMode` > `BrowserRouter` > `App`. The router provider
+  lives here so `App` renders without a second one. **`AuthProvider` deliberately does not** — see
+  below.
+- `src/App.tsx` — the split. `/portal/*` returns `features/client-portal/PortalRoot` **before any
+  staff-session code runs**; everything else renders `<AuthProvider><StaffApp/></AuthProvider>`, where
+  `StaffApp` is the old `App` body (the three auth states + the in-shell route table).
+  - **Why the provider moved down out of `main.tsx`:** mounting it on a client's page would read the
+    staff token out of `sessionStorage` and call `/api/me` for somebody who has no account. Wrapping
+    only `StaffApp` is what lets the portal route live in this file — which is where the unit spec put
+    it — while still mounting no auth provider, no `AppShell`, no nav and no brand switcher for a
+    client. A client is not a staff user with fewer links.
+  - No router inside the portal either: a token admits one case, so there is one screen and nowhere to
+    navigate.
 - `src/App.tsx` — the route table, and nothing else. Three states: loading (session restore),
   anonymous (only `/login`), authenticated (everything inside one pathless
   `<Route element={<AppShell/>}>`). Every in-shell route is wrapped in `RoleRoute`, which checks the
@@ -42,6 +53,13 @@ absence so they are not re-added.
   `axios` directly or create per-feature instances. `unwrap()` turns the envelope into data or a
   thrown `Error`, and the response interceptor lifts the server's `error.message` onto the Error so a
   refused action can state the real reason.
+- **One deliberate exception: `features/client-portal/portalApi.ts` has its own instance.** The shared
+  one attaches the staff bearer from `lib/session`, and importing it would pull the module that reads
+  and writes the staff token into a page whose whole point is holding no staff session. It sends one
+  credential in an `X-Portal-Token` header, keeps the token in a module variable read out of the URL
+  **fragment**, and persists nothing — deliberately unlike the staff token in `sessionStorage`, because
+  a link forwarded to a shared machine is a different risk. Only a `type` is imported from `lib/api`,
+  which the build erases. Do not create a third instance without a reason of that kind.
 - `baseURL = import.meta.env.VITE_API_BASE_URL ?? '/api'`. Leave the env var **unset in dev** so
   requests stay relative and flow through the Vite proxy; `baseURL` already contains `/api`, so call
   paths omit it (`api.get('/health')`).
@@ -77,6 +95,19 @@ anywhere; `MAY_PUBLISH_TO_DRIVE` must equal `ExpertProfileController.toDrive`'s 
 the Case Manager's absence from it is deliberate — they read both profiles and publish neither; and
 the Drive link is **not pre-checked** client-side, because restating a server rule is the copy that
 goes stale (the Unit 10 lesson) — the 409 names the unusable link.
+
+`client-portal/` (Unit 14) is the whole client surface: `PortalRoot` (token out of the fragment, three
+states, honest failure copy), `ClientDraftView` (one screen — draft link, redacted profile, approve /
+ask-for-changes, both confirming inline first), `portalApi`, `portalRules` (+ its test). Two things
+its test pins because they are copy rather than logic and still load-bearing: the failure message
+**never mentions signing in** on any status (a client has no account, so offering one sends them
+hunting for a password that does not exist), and the post-approval message says what happens *next*
+rather than just "approved". `mayAct` reads the server's own `awaitingAnswer` instead of re-deriving it
+from the status, and additionally refuses when there is no draft link — approving a document you were
+never shown is not a decision. Staff-side, `case/PortalLinkPanel` mints the link and shows it **once**;
+`MAY_MINT_PORTAL_LINK` in `redactionRules` must equal `PortalLinkController.MAY_MINT` and, unlike
+`MAY_PUBLISH_TO_DRIVE`, it **includes the Case Manager** — they wrote the draft and field "my link
+doesn't work".
 
 `shortlistRules`/`ShortlistPanel` (Unit 12) is the one place that duplication is **refused**: there is
 deliberately no client-side scoring. The ranking and its factor breakdown come from the server, so

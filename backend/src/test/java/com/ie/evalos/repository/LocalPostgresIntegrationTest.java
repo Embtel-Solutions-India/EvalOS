@@ -17,6 +17,7 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.TestPropertySource;
 
+import com.ie.evalos.domain.ActorType;
 import com.ie.evalos.domain.AuditAction;
 import com.ie.evalos.domain.AuditEvent;
 import com.ie.evalos.domain.Brand;
@@ -31,6 +32,8 @@ import com.ie.evalos.domain.Notification;
 import com.ie.evalos.domain.NotificationType;
 import com.ie.evalos.domain.OfferOutcome;
 import com.ie.evalos.domain.PayoutStatus;
+import com.ie.evalos.domain.PortalAccess;
+import com.ie.evalos.domain.PortalAudience;
 import com.ie.evalos.domain.Role;
 import com.ie.evalos.domain.ServiceType;
 import com.ie.evalos.domain.SlaStatus;
@@ -129,6 +132,9 @@ class LocalPostgresIntegrationTest {
 	PayoutLedgerRepository payouts;
 
 	@Autowired
+	PortalAccessRepository portalTokens;
+
+	@Autowired
 	AuditEventRepository auditEvents;
 
 	@Autowired
@@ -144,7 +150,7 @@ class LocalPostgresIntegrationTest {
 
 		assertThat(versions)
 				.containsSubsequence("1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13",
-						"14", "15", "16", "17", "18", "19");
+						"14", "15", "16", "17", "18", "19", "20", "21", "22", "23");
 	}
 
 	/**
@@ -750,6 +756,133 @@ class LocalPostgresIntegrationTest {
 		ExpertCaseOffer offer = new ExpertCaseOffer(brandId, caseId, expertId);
 		offer.resolve(outcome, outcome == OfferOutcome.DECLINED ? "outside my field" : null);
 		offers.save(offer);
+	}
+
+	/**
+	 * Unit 14's token table, in the three halves only a database has.
+	 *
+	 * <p>The unique index is what makes "one row per token" a guarantee rather than a convention —
+	 * two mints racing on the same token value is astronomically unlikely, but a token that could
+	 * appear twice is a credential with two lifetimes and only one of them revoked. The audience
+	 * CHECK is the other writer the enum cannot reach (a seed script, a hand-run UPDATE), and an
+	 * unrecognised audience would be a token whose audience check nothing matches. And the
+	 * {@code (case_id, audience)} finder is what the mint retires through, so it has to return the
+	 * previous rows and only this case's.
+	 *
+	 * <p><strong>{@code V23} is the half a mocked repository cannot show at all:</strong> "one live
+	 * token per case per audience" was a check-then-act in the service until it became a partial
+	 * unique index, so this is where the race is actually closed.
+	 */
+	@Test
+	void aPortalTokenIsUniqueAndItsAudienceIsClosed() {
+		UUID caseId = cases.save(new Case(BRAND_IE, "EV-" + UUID.randomUUID(), Stage.DRAFT_GENERATION)).getId();
+		UUID otherCaseId = cases.save(new Case(BRAND_IE, "EV-" + UUID.randomUUID(), Stage.DRAFT_GENERATION)).getId();
+		String hash = "hash-" + UUID.randomUUID();
+		Instant expires = Instant.now().plus(Duration.ofDays(30));
+
+		PortalAccess first = portalTokens.saveAndFlush(
+				new PortalAccess(BRAND_IE, caseId, PortalAudience.CLIENT, hash, expires));
+
+		assertThatThrownBy(() -> portalTokens.saveAndFlush(
+				new PortalAccess(BRAND_IE, otherCaseId, PortalAudience.CLIENT, hash, expires)))
+				.hasStackTraceContaining("uq_portal_access_token_hash");
+
+		// V23: a second UNREVOKED token on the same case and audience is refused by the database.
+		// This is what makes two concurrent mints impossible rather than merely unlikely — the loser
+		// rolls back. Until V23 both inserts succeeded and the case had two live credentials.
+		assertThatThrownBy(() -> portalTokens.saveAndFlush(new PortalAccess(
+				BRAND_IE, caseId, PortalAudience.CLIENT, "hash-" + UUID.randomUUID(), expires)))
+				.hasStackTraceContaining("uq_portal_access_one_unrevoked");
+
+		// Retiring the previous row is what makes the re-mint legal, which is exactly the order
+		// PortalAccessService.mint writes in.
+		first.revoke(Instant.now());
+		portalTokens.saveAndFlush(first);
+		UUID second = portalTokens.saveAndFlush(new PortalAccess(
+				BRAND_IE, caseId, PortalAudience.CLIENT, "hash-" + UUID.randomUUID(), expires)).getId();
+
+		assertThat(portalTokens.findByCaseIdAndAudienceOrderByCreatedAtDesc(caseId, PortalAudience.CLIENT))
+				.extracting(PortalAccess::getId).contains(first.getId(), second);
+		// The index is partial, so any number of retired rows may pile up for one case — which is what
+		// lets a client be re-issued a link as often as they ask.
+		PortalAccess retired = portalTokens.findById(second).orElseThrow();
+		retired.revoke(Instant.now());
+		portalTokens.saveAndFlush(retired);
+		assertThat(portalTokens.saveAndFlush(new PortalAccess(
+				BRAND_IE, caseId, PortalAudience.CLIENT, "hash-" + UUID.randomUUID(), expires)).getId()).isNotNull();
+
+		// And the other audience is a different slot: Unit 15 can hold its own live token per case.
+		assertThat(portalTokens.findByCaseIdAndAudienceOrderByCreatedAtDesc(caseId, PortalAudience.EXPERT))
+				.as("Unit 15's audience shares the table and not the rows").isEmpty();
+		assertThat(portalTokens.saveAndFlush(new PortalAccess(
+				BRAND_IE, caseId, PortalAudience.EXPERT, "hash-" + UUID.randomUUID(), expires)).getId()).isNotNull();
+		assertThat(portalTokens.findByTokenHash(hash)).get()
+				.extracting(PortalAccess::getId).isEqualTo(first.getId());
+
+		assertThatThrownBy(() -> jdbc.update(
+				"UPDATE portal_access SET audience = 'ANYBODY' WHERE id = ?", first.getId()))
+				.hasStackTraceContaining("portal_access_audience_known");
+	}
+
+	/**
+	 * The column added to the audit trail in Unit 14, and the distinction it exists for.
+	 *
+	 * <p>Three rows, all with a null {@code actor_id}: one written before the column existed (raw
+	 * SQL, because no writer produces that shape any more), one by the webhook, and one by a client
+	 * through their portal. Before {@code actor_type} the three were indistinguishable, and the
+	 * third is the approval that sends a letter to an expert to sign.
+	 *
+	 * <p>Append-only is unaffected and asserted here too: the new column is written on insert and
+	 * the trigger still refuses to let anything change it.
+	 */
+	@Test
+	void theAuditTrailDistinguishesAClientFromTheSystemAndFromHistory() {
+		UUID caseId = cases.save(new Case(BRAND_IE, "EV-" + UUID.randomUUID(), Stage.DRAFT_GENERATION)).getId();
+
+		// A row as every row looked before V22. Inserted directly because that shape is now
+		// unreachable through AuditService — which is the point: it exists and cannot be backfilled.
+		jdbc.update("INSERT INTO audit_event (brand_id, object_type, object_id, action, actor_id, actor_type) "
+				+ "VALUES (?, 'CASE', ?, 'CREATED', NULL, NULL)", BRAND_IE, caseId);
+		auditService.recordSystemEvent(BRAND_IE, "CASE", caseId, AuditAction.UPDATED, null, null);
+		AuditEvent byTheClient = auditService.recordPortalEvent(BRAND_IE, PortalAudience.CLIENT, "CASE", caseId,
+				AuditAction.STAGE_CHANGED, null, Map.of("note", "the client approved the draft"));
+		// The general writer with no actor: its contract allows that for a system action, so the type
+		// is derived rather than assumed. A STAFF row with a null actor_id would contradict the reading
+		// rule above and, on an append-only table, could never be corrected.
+		auditService.recordEvent("CASE", caseId, AuditAction.UPDATED, null, null, null);
+
+		assertThat(auditEvents.findByObjectTypeAndObjectIdOrderByCreatedAtAsc("CASE", caseId))
+				.hasSize(4)
+				.allSatisfy(row -> assertThat(row.getActorId()).as("none of the four is a staff member").isNull())
+				.extracting(AuditEvent::getActorType)
+				.containsExactly(null, ActorType.SYSTEM, ActorType.CLIENT, ActorType.SYSTEM);
+
+		// Still append-only, with the new column on the table.
+		assertThatThrownBy(() -> jdbc.update("UPDATE audit_event SET actor_type = 'STAFF' WHERE id = ?",
+				byTheClient.getId()))
+				.hasMessageContaining("append-only");
+	}
+
+	/**
+	 * {@code draft_link} is its own column and reaching it does not reach {@code drive_link}.
+	 *
+	 * <p>Trivial-looking, and it is the defect Unit 14 opened by closing: the frontend pointed the
+	 * client-facing "open the draft" link at the folder holding that client's passport scans. Two
+	 * columns, written independently, is the whole fix — so this asserts they are two.
+	 */
+	@Test
+	void aCaseCarriesTheDraftLinkSeparatelyFromTheDocumentsFolder() {
+		Case subject = new Case(BRAND_IE, "EV-" + UUID.randomUUID(), Stage.DRAFT_GENERATION);
+		subject.setDriveLink("https://drive.google.com/drive/folders/documents");
+		subject.setDraftLink("https://docs.google.com/document/d/the-draft/edit");
+		UUID id = cases.saveAndFlush(subject).getId();
+
+		assertThat(jdbc.queryForObject("SELECT draft_link FROM evalos_case WHERE id = ?", String.class, id))
+				.isEqualTo("https://docs.google.com/document/d/the-draft/edit");
+		assertThat(cases.findById(id)).get().satisfies(found -> {
+			assertThat(found.getDraftLink()).isEqualTo("https://docs.google.com/document/d/the-draft/edit");
+			assertThat(found.getDriveLink()).isEqualTo("https://drive.google.com/drive/folders/documents");
+		});
 	}
 
 	@Test

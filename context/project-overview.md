@@ -121,11 +121,22 @@ The case lifecycle, from EvalOS's point of view (EvalOS owns stages 3–7 of the
 - Template-generated redacted CV (name/institution/contact stripped); full
   profile releases on payment.
 
-### Client Portal (draft review)
+### Client Portal (draft review) — built in Unit 14
 - Passwordless access via a link delivered through GHL. The client sees the
   drafted letter, approves or requests revisions, and a read receipt is recorded.
   Source-document upload is not in the client portal — documents are collected
   in Drive.
+- **The link is minted in EvalOS and, for now, sent by hand.** Whether GHL can
+  deliver it on an EvalOS event is still open, so staff copy it off the case page;
+  Unit 18 dispatches it automatically if the answer is yes. Nothing else changes.
+- **The client sees a whitelist, and their approval is recorded as theirs.** The
+  view is their name, the service, the case reference, the draft, the version, the
+  approval state and the anonymous expert profile — no money, no notes, no expert
+  identity, no assignments, and never the documents folder. Their approval writes an
+  audit entry naming *the client*, which is what makes Handoff B their act rather
+  than a staff member's transcription of it.
+- **Two read facts, not one:** whether the client has ever opened the draft
+  (stamped once) and when they last looked (moved on every visit).
 
 ### Expert Portal
 - Separate external access. Expert sees only assigned cases with draft, stated

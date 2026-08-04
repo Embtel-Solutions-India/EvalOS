@@ -4,8 +4,10 @@ import java.util.UUID;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.ie.evalos.domain.ActorType;
 import com.ie.evalos.domain.AuditAction;
 import com.ie.evalos.domain.AuditEvent;
+import com.ie.evalos.domain.PortalAudience;
 import com.ie.evalos.repository.AuditEventRepository;
 import com.ie.evalos.security.TenantContext;
 
@@ -47,8 +49,13 @@ public class AuditService {
 		// caller, never from an argument a caller could get wrong. A system action
 		// outside a request has no brand, which the nullable column allows.
 		UUID brandId = TenantContext.find().map(TenantContext::brandId).orElse(null);
+		// Derived, never hardcoded STAFF: this method's contract allows a null actorId for a system
+		// action, and a row carrying STAFF with no actor_id would contradict the reading rule V22
+		// states and CaseTimelineService applies (a null actor_id reads as SYSTEM). On an append-only
+		// table that row could never be corrected, so the two fields agree at the point of writing.
+		ActorType actorType = actorId == null ? ActorType.SYSTEM : ActorType.STAFF;
 		return auditEvents.save(new AuditEvent(
-				brandId, objectType, objectId, action, actorId, asJson(before), asJson(after)));
+				brandId, objectType, objectId, action, actorId, actorType, asJson(before), asJson(after)));
 	}
 
 	/**
@@ -65,7 +72,29 @@ public class AuditService {
 	public AuditEvent recordSystemEvent(UUID brandId, String objectType, UUID objectId, AuditAction action,
 			Object before, Object after) {
 		return auditEvents.save(new AuditEvent(
-				brandId, objectType, objectId, action, null, asJson(before), asJson(after)));
+				brandId, objectType, objectId, action, null, ActorType.SYSTEM, asJson(before), asJson(after)));
+	}
+
+	/**
+	 * The same trail, for something a client or an expert did through their own portal link
+	 * (Unit 14; Unit 15 uses the {@code EXPERT} audience).
+	 *
+	 * <p><strong>Why a third writer rather than a widened first one.</strong> A portal caller is
+	 * not staff and is not the system: {@code actor_id} stays null because no
+	 * {@code team_member} row acted, and {@code actor_type} is what stops that null being read as
+	 * "the system" — which matters most for the one action a client performs, since their approval
+	 * is what commits a letter to an expert's signature.
+	 *
+	 * <p>The brand is a parameter for the same reason {@link #recordSystemEvent} takes one, and it
+	 * is trustworthy for the same reason: it comes off the <strong>token's own row</strong>, which
+	 * is the most authoritative brand signal available on that surface, and never from a request
+	 * body. {@code TenantContext} is deliberately not consulted — a portal request has none.
+	 */
+	@Transactional
+	public AuditEvent recordPortalEvent(UUID brandId, PortalAudience audience, String objectType, UUID objectId,
+			AuditAction action, Object before, Object after) {
+		return auditEvents.save(new AuditEvent(brandId, objectType, objectId, action, null,
+				audience.actorType(), asJson(before), asJson(after)));
 	}
 
 	private String asJson(Object snapshot) {

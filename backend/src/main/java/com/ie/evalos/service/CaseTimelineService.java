@@ -9,6 +9,7 @@ import java.util.UUID;
 import java.util.stream.Collectors;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.ie.evalos.domain.ActorType;
 import com.ie.evalos.domain.AuditAction;
 import com.ie.evalos.domain.AuditEvent;
 import com.ie.evalos.domain.Case;
@@ -47,6 +48,18 @@ public class CaseTimelineService {
 
 	/** Shown for a row the system wrote — an inbound webhook, or a scheduled job later. */
 	private static final String SYSTEM_ACTOR = "System";
+
+	/**
+	 * What the trail's non-staff actors are called on screen (Unit 14).
+	 *
+	 * <p>Before {@code actor_type} existed, a null {@code actor_id} could only be drawn as
+	 * "System" — so a client approving their own draft would have appeared on this timeline
+	 * indistinguishable from an inbound webhook, on the one entry that sends a letter to an expert
+	 * to sign. This is where the column earns itself: the trail says who, and so does the screen.
+	 */
+	private static final Map<ActorType, String> PORTAL_ACTOR = Map.of(
+			ActorType.CLIENT, "The client",
+			ActorType.EXPERT, "The expert");
 
 	/**
 	 * One thing that happened to the case.
@@ -102,11 +115,30 @@ public class CaseTimelineService {
 		Optional<CaseSnapshot> after = parse(row.getAfterSnapshot());
 		return new TimelineEntry(
 				row.getCreatedAt(),
-				row.getActorId() == null ? SYSTEM_ACTOR : actors.getOrDefault(row.getActorId(), SYSTEM_ACTOR),
+				actorName(row, actors),
 				row.getAction(),
 				after.map(CaseSnapshot::stage).orElse(null),
 				after.map(CaseSnapshot::exceptionState).orElse(null),
 				after.map(CaseSnapshot::note).orElse(null));
+	}
+
+	/**
+	 * Who the row says acted.
+	 *
+	 * <p>A named staff member if there is one; otherwise whatever {@code actor_type} says, falling
+	 * back to "System". That fallback covers both rows written before {@code actor_type} existed —
+	 * which are not backfilled and cannot be, see {@code V22} — and a genuine {@code SYSTEM} row,
+	 * and for those two the answer is the same anyway.
+	 */
+	private static String actorName(AuditEvent row, Map<UUID, String> actors) {
+		if (row.getActorId() != null) {
+			return actors.getOrDefault(row.getActorId(), SYSTEM_ACTOR);
+		}
+		// The null check is load-bearing, not defensive: actor_type is null on every row written
+		// before Unit 14 and Map.of() throws on a null key rather than answering the default — the
+		// same trap the board hit in Unit 08 with a contactless case.
+		ActorType actorType = row.getActorType();
+		return actorType == null ? SYSTEM_ACTOR : PORTAL_ACTOR.getOrDefault(actorType, SYSTEM_ACTOR);
 	}
 
 	/**

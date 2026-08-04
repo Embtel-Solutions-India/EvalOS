@@ -32,11 +32,30 @@ PowerShell notes that bite here:
   at a throwaway database to prove every migration applies from scratch.
 - `.\mvnw.cmd spring-boot:run` — starts on 8080 under the `local` profile. **Requires a reachable
   Postgres** (Flyway + `ddl-auto: validate` run at startup); with no DB the context fails to refresh.
-- **This machine has PostgreSQL 18**, superuser `postgres`/`1234`, database `evalos` migrated to
-  `V18` + the `V90x` seeds — which is exactly what the `local` profile defaults to, so no env vars
-  are needed. `psql` is
-  not on `PATH`; it lives at `C:\Program Files\PostgreSQL\18\bin`. Still no Docker daemon.
+- **This machine has PostgreSQL 18**, superuser `postgres`/`1234`, database `evalos` — `public` at
+  `V22` + the `V90x` seeds, `evalos_test` at `V23` (the gated suite migrates its own schema, so the
+  two drift apart until the app is next run). That is exactly what the `local` profile defaults to, so
+  no env vars are needed. `psql` is
+  not on `PATH`; it lives at `C:\Program Files\PostgreSQL\18\bin` — and it is **not on `PATH` for the
+  agent either**, so to read rows directly the cheapest route is a single-file JDBC script:
+  `java -cp <~/.m2/.../postgresql-*.jar> Peek.java` (watch for a UTF-8 BOM if PowerShell wrote the
+  file — `javac` rejects it). Still no Docker daemon.
   Override with `DB_URL` / `DB_USER` / `DB_PASSWORD`; `SPRING_PROFILES_ACTIVE=prod` requires those
   plus `JWT_SECRET` and `EVALOS_FIELD_KEY`.
 - Smoke check: `GET /api/health`, `/actuator/health`, then log in as `gm@evalos.local` /
   `DevPassw0rd!` and call `/api/me` and `/api/team-members` with the bearer token.
+- **Driving a real case in from Handoff A** (the only way to get a case with a client name, a
+  checklist and a contact snapshot — everything downstream needs one). POST to
+  `/api/webhooks/ghl/local-ie-webhook-token` with `X-Evalos-Signature: sha256=<hex HMAC-SHA256 of the
+  exact body>` keyed on `local-ie-webhook-secret` (`V901`), body:
+  ```json
+  {"event_type":"contact.created","event_id":"evt-<unique>",
+   "contact":{"ghl_contact_id":"ghl-<unique>","full_name":"Anita Rao","email":"<unique>@example.test",
+              "client_type":"INDIVIDUAL","source":"WEBSITE"},
+   "service_type":"EXPERT_OPINION_LETTER","visa_category":"EB2_NIW","quote_amount":900,
+   "drive_link":"https://drive.google.com/drive/folders/<anything>"}
+  ```
+  `event_type` and `event_id` are the **gateway's** fields and are easy to miss — without the first it
+  is `400 MISSING_EVENT_TYPE`, without both it is `400 MISSING_EXTERNAL_ID`. `service_type` is
+  top-level, not inside `contact`. Use a fresh email/GHL id each time: `V15`/`V16` refuse a second
+  open case for the same contact and service.

@@ -43,10 +43,16 @@ import org.springframework.web.bind.annotation.RestController;
  * the service, and the state gate is the declared transition table — three
  * separate checks, none of which this class implements.
  *
- * <p>The client-portal (Unit 14) and expert-surface (Unit 15) routes will call the
- * same service methods behind their own filter chains. The four staff-recorded
- * equivalents below exist because somebody phones in an approval or a decline, and
- * a case must not be stuck until the portal is built.
+ * <p>The client portal is built (Unit 14) and does <strong>not</strong> live here: it is
+ * {@code web/ClientPortalController} behind its own filter chain, and it reaches the state machine
+ * through {@code CaseLifecycleService.clientApproveDraftFromPortal} /
+ * {@code clientRequestRevisionsFromPortal} — the same transitions and the same guards, entered with
+ * an already-authorized case instead of an id. The expert surface (Unit 15) will join it there.
+ *
+ * <p>The four staff-recorded equivalents below therefore still exist, and not as a stopgap: somebody
+ * phones in an approval or a decline, or a client cannot use the link at all, and the case must not
+ * be stuck. What differs is the trail — a staff-recorded answer names the staff member, while the
+ * portal names the client ({@code actor_type = CLIENT}).
  */
 @RestController
 @RequestMapping("/api/cases")
@@ -150,7 +156,14 @@ public class CaseController {
 	public record CaseDetail(
 			CaseSummary summary,
 			String clientName,
+			/** The client's own document folder. Staff-only, and never sent to the client portal. */
 			String driveLink,
+			/**
+			 * The drafted letter (Unit 14). What {@code DraftPanel} links to, and the only link the
+			 * client portal shows — {@code driveLink} above is a different thing and is not a
+			 * fallback for it.
+			 */
+			String draftLink,
 			String expertName,
 			String expertTier,
 			int checklistTotal,
@@ -176,6 +189,7 @@ public class CaseController {
 					CaseSummary.of(subject, ctx),
 					context.clientName(),
 					subject.getDriveLink(),
+					subject.getDraftLink(),
 					context.expertName(),
 					context.expertTier(),
 					context.checklist().total(),
@@ -194,6 +208,13 @@ public class CaseController {
 
 	/** Return comments, hold reasons, decline reasons, revision notes — all free text. */
 	public record ReasonRequest(@NotBlank String reason) {
+	}
+
+	/**
+	 * Where the drafted letter is (Unit 14). Optional: null or blank leaves whatever link the case
+	 * already carries, so re-submitting a revision filed in the same place needs nothing typed.
+	 */
+	public record SubmitDraftRequest(String draftLink) {
 	}
 
 	/** What was actually taken, and the invoice it sits against. */
@@ -301,10 +322,16 @@ public class CaseController {
 
 	// --- the draft loops -----------------------------------------------------
 
+	/**
+	 * The body is optional and its one field is too: a second version filed in the same place needs
+	 * no new link, and omitting it leaves the existing one alone rather than taking the draft away
+	 * from a client mid-review.
+	 */
 	@PostMapping("/{id}/draft/submit")
 	@PreAuthorize(GM_OR + "hasRole('CASE_MANAGER')")
-	public ApiResponse<CaseSummary> submitDraft(@PathVariable UUID id) {
-		return summary(lifecycle.submitDraft(id));
+	public ApiResponse<CaseSummary> submitDraft(@PathVariable UUID id,
+			@RequestBody(required = false) SubmitDraftRequest request) {
+		return summary(lifecycle.submitDraft(id, request == null ? null : request.draftLink()));
 	}
 
 	@PostMapping("/{id}/draft/pm-approve")

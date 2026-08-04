@@ -37,6 +37,20 @@ evalos:
     # exactly 32 bytes. No default, for the same reason as the signing key: an
     # environment that forgets it must fail to start, not write plaintext.
     field-key: ${EVALOS_FIELD_KEY}
+  portal:
+    # Where a minted portal link points. The SPA serves /portal/client, so this is the client
+    # app's own origin — defaulted to the Vite dev server because that is where it is correct
+    # for every developer, and it must be set to the real origin in any deployed environment or
+    # the link mailed to a client points at somebody's laptop.
+    base-url: ${PORTAL_BASE_URL:http://localhost:5173}
+    # How long a link works. A draft-review link that never expired would be a permanent bearer
+    # credential sitting in somebody's inbox; re-minting is one click, so a short life costs
+    # little. Configurable because "how long does the client have" is a business question.
+    link-ttl: ${PORTAL_LINK_TTL:P30D}
+    # Requests per minute per caller on the portal chain, refused before the token is looked at.
+    # Generous for one client reading one page, and low enough that guessing a 256-bit token is
+    # not made cheaper by trying.
+    rate-limit-per-minute: ${PORTAL_RATE_LIMIT:60}
   webhook:
     # Which request header carries the inbound HMAC. Has a default because it is a
     # name, not a secret, and GHL's actual header is not yet confirmed — point this
@@ -70,6 +84,14 @@ evalos:
 
 server:
   port: ${SERVER_PORT:8080}
+  # Whether to trust X-Forwarded-* and resolve the real client address.
+  #
+  # `none` by default, and that default is the safe one: with nothing in front of the app, honouring
+  # X-Forwarded-For would let any caller present a fresh address per request and walk straight past
+  # the portal chain's per-caller rate limit. Set this to `framework` **only** in an environment
+  # where a trusted proxy or load balancer terminates the connection — there it is required, because
+  # otherwise every portal client resolves to the proxy's address and shares one rate-limit budget.
+  forward-headers-strategy: ${FORWARD_HEADERS_STRATEGY:none}
 
 management:
   endpoints:
