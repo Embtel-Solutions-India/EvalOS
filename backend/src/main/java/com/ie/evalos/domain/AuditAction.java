@@ -37,5 +37,18 @@ public enum AuditAction {
 	 * <p>The frontend's {@code AuditAction} union and {@code Timeline}'s label map already
 	 * carried this value before anything wrote it.
 	 */
-	EXPORTED
+	EXPORTED,
+	/**
+	 * A portal link was minted for a case (Unit 14: the client's draft-review link; Unit 15's
+	 * expert link goes through the same service).
+	 *
+	 * <p>Its own action rather than {@code EXPORTED}: no document left EvalOS, a
+	 * <em>credential</em> was issued toward somebody outside the company, and re-minting one
+	 * revokes the last. That is worth a permanent record of its own — including on the staff
+	 * timeline, where "who sent the client a link, and when" is the question support asks.
+	 *
+	 * <p>The snapshot records the audience and the expiry and <strong>never the token</strong>,
+	 * which exists exactly once, in the response to the mint.
+	 */
+	PORTAL_LINK_ISSUED
 }

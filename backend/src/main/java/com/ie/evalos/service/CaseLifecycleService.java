@@ -20,6 +20,7 @@ import com.ie.evalos.domain.IllegalTransitionException;
 import com.ie.evalos.domain.OfferOutcome;
 import com.ie.evalos.domain.PmApprovalStatus;
 import com.ie.evalos.domain.PoolStatus;
+import com.ie.evalos.domain.PortalAudience;
 import com.ie.evalos.domain.Role;
 import com.ie.evalos.domain.SlaStatus;
 import com.ie.evalos.domain.Stage;
@@ -312,8 +313,17 @@ public class CaseLifecycleService {
 
 	// --- the draft loops, all inside DRAFT_GENERATION -------------------------
 
+	/**
+	 * The Case Manager hands in a draft, and says where it is.
+	 *
+	 * <p>{@code draftLink} is where {@code draft_link} comes from — the column the client portal
+	 * shows (Unit 14). Optional and only overwritten when given: a second version filed in the same
+	 * place needs no new link, and blanking one by omission would take the draft away from a client
+	 * mid-review. There is deliberately no fallback to {@code drive_link}: that is the client's own
+	 * document folder, and a case with no draft link tells the portal "not ready".
+	 */
 	@Transactional
-	public Case submitDraft(UUID caseId) {
+	public Case submitDraft(UUID caseId, String draftLink) {
 		Case subject = load(caseId);
 		Stage to = CaseTransitions.target(subject, Action.SUBMIT_DRAFT);
 
@@ -322,6 +332,9 @@ public class CaseLifecycleService {
 			c.setPmApprovalStatus(PmApprovalStatus.PENDING);
 			// A new draft is not the draft the client already saw.
 			c.setClientApprovalStatus(null);
+			if (draftLink != null && !draftLink.isBlank()) {
+				c.setDraftLink(draftLink.trim());
+			}
 		});
 	}
 
@@ -356,22 +369,55 @@ public class CaseLifecycleService {
 				c -> c.setClientApprovalStatus(ClientApprovalStatus.PENDING));
 	}
 
-	/** Called by the client portal (Unit 14) and by staff recording the answer. */
+	/** Staff recording an answer the client gave some other way — a phone call, an email. */
 	@Transactional
 	public Case clientRequestRevisions(UUID caseId, String notes) {
-		Case subject = load(caseId);
+		return revisions(load(caseId), notes, null);
+	}
+
+	/**
+	 * The same transition, driven by the client themselves through their portal (Unit 14).
+	 *
+	 * <p>Takes the case rather than an id because the portal has <strong>already</strong>
+	 * authorized it: the token names exactly one case, so there is no id to scope and no
+	 * {@code TenantContext} to scope it with. The guards, the state machine, the audit row and the
+	 * event all stay in the one place below — the only difference is who the trail says did it.
+	 */
+	@Transactional
+	public Case clientRequestRevisionsFromPortal(Case authorized, String notes) {
+		return revisions(authorized, notes, PortalAudience.CLIENT);
+	}
+
+	private Case revisions(Case subject, String notes, PortalAudience actor) {
 		Stage to = CaseTransitions.target(subject, Action.CLIENT_REQUEST_REVISIONS);
 		requireState(subject.getClientApprovalStatus() == ClientApprovalStatus.PENDING,
 				"no draft is with the client");
 
 		return apply(subject, to, Action.CLIENT_REQUEST_REVISIONS, notes,
-				c -> c.setClientApprovalStatus(ClientApprovalStatus.REVISION_REQUESTED));
+				c -> c.setClientApprovalStatus(ClientApprovalStatus.REVISION_REQUESTED), actor);
 	}
 
-	/** Handoff B: the client approves and the case goes to the expert to sign. */
+	/** Handoff B, recorded by staff. See {@link #clientApproveDraftFromPortal} for the client's own act. */
 	@Transactional
 	public Case clientApproveDraft(UUID caseId) {
-		Case subject = load(caseId);
+		return approve(load(caseId), null);
+	}
+
+	/**
+	 * Handoff B, performed by the client: they approve and the case goes to the expert to sign.
+	 *
+	 * <p>The portal-safe entry, on an already-authorized case — see
+	 * {@link #clientRequestRevisionsFromPortal}. The guard that refuses a case whose draft is not
+	 * with the client is the existing one below, so a client hitting approve twice gets the same 409
+	 * a staff member would, from the same line: the state machine is not duplicated for this
+	 * surface.
+	 */
+	@Transactional
+	public Case clientApproveDraftFromPortal(Case authorized) {
+		return approve(authorized, PortalAudience.CLIENT);
+	}
+
+	private Case approve(Case subject, PortalAudience actor) {
 		Stage to = CaseTransitions.target(subject, Action.CLIENT_APPROVE_DRAFT);
 		requireState(subject.getClientApprovalStatus() == ClientApprovalStatus.PENDING,
 				"no draft is with the client");
@@ -380,7 +426,7 @@ public class CaseLifecycleService {
 		return apply(subject, to, Action.CLIENT_APPROVE_DRAFT, null, c -> {
 			c.setClientApprovalStatus(ClientApprovalStatus.APPROVED);
 			c.setExpertSignStatus(ExpertSignStatus.PENDING);
-		});
+		}, actor);
 	}
 
 	// --- expert signing ------------------------------------------------------
@@ -550,6 +596,21 @@ public class CaseLifecycleService {
 	 * together or not at all.
 	 */
 	Case apply(Case subject, Stage to, Action action, String note, Consumer<Case> mutation) {
+		return apply(subject, to, action, note, mutation, null);
+	}
+
+	/**
+	 * The same, for a transition performed through a portal link rather than by staff.
+	 *
+	 * <p>{@code portalActor} is the <em>only</em> thing that differs, and it changes one line: the
+	 * audit row is written by {@code recordPortalEvent}, which takes its brand from the case rather
+	 * than from a {@code TenantContext} a client does not have, and names the client as the actor
+	 * instead of leaving a null that reads as "the system". Everything else — the guards above, the
+	 * stage write, the clock, the SLA, the event, the transaction — is shared, because a client
+	 * approving a draft is the same transition however it was triggered.
+	 */
+	private Case apply(Case subject, Stage to, Action action, String note, Consumer<Case> mutation,
+			PortalAudience portalActor) {
 		CaseSnapshot before = CaseSnapshot.of(subject);
 		mutation.accept(subject);
 		subject.setCurrentStage(to);
@@ -557,8 +618,15 @@ public class CaseLifecycleService {
 		subject.setSlaStatus(sla.statusOf(subject));
 
 		Case saved = cases.save(subject);
-		audit.recordEvent(OBJECT_TYPE, saved.getId(), action.auditAction(), TenantContext.current().memberId(),
-				before, CaseSnapshot.of(saved, note));
+		CaseSnapshot after = CaseSnapshot.of(saved, note);
+		if (portalActor == null) {
+			audit.recordEvent(OBJECT_TYPE, saved.getId(), action.auditAction(),
+					TenantContext.current().memberId(), before, after);
+		}
+		else {
+			audit.recordPortalEvent(saved.getBrandId(), portalActor, OBJECT_TYPE, saved.getId(),
+					action.auditAction(), before, after);
+		}
 		events.publishEvent(CaseEvents.CaseEvent.of(action.event(), saved));
 		return saved;
 	}

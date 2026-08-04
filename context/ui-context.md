@@ -112,9 +112,20 @@ then, and that is the point at which `ui/` is created and becomes protected (see
   order does not already answer.
 - **Case detail**: two-column — left is documents (Drive link) + draft + expert,
   right is the timeline/audit trail. Stage actions sit in a sticky header.
-- **Client portal**: single centered column, one case, the drafted letter with
-  big Approve / Request revisions actions and a visible "changes requested" note
-  field.
+- **Client portal** (built in Unit 14): single centered column, one case, the
+  drafted letter with big Approve / Request revisions actions and a visible
+  "changes requested" note field.
+  - **No shell, no nav, no brand switcher, and no auth provider** — mounted from
+    `main.tsx` rather than inside `App`, because a client is not a staff user with
+    fewer links. Same tokens, same typography; the difference is what is absent.
+  - **Both actions confirm inline before firing**, with wording that says what
+    happens next — approving commits the letter to an expert's signature, and a
+    revision request puts a person to work. After either, the actions are gone and
+    the page states the outcome and what follows.
+  - **Failure states are written for the reader, and this is product copy, not
+    plumbing.** Expired, revoked and unknown links all say the same thing and point
+    at whoever sent the link — never a stack trace, and **never a login form**, for
+    somebody who has no account.
 - **Expert portal**: single centered column, one case at a time, big Accept /
   Request-evidence / Decline / Sign actions.
 

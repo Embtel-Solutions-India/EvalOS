@@ -16,6 +16,7 @@ const ACTION_LABEL: Record<string, string> = {
   CHASED: 'chased the client',
   DELETED: 'deleted',
   EXPORTED: 'exported',
+  PORTAL_LINK_ISSUED: 'sent a portal link',
   LOGIN: 'signed in',
 }
 

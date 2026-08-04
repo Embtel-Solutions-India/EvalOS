@@ -219,6 +219,11 @@ export const QUICK_ACTIONS: readonly QuickAction[] = [
     label: 'Submit draft',
     roles: ['CASE_MANAGER'],
     stages: ['DRAFT_GENERATION'],
+    // Where the letter is, which becomes `draft_link` — the one link the client's portal shows
+    // (Unit 14). Optional, and the label has to say so: the dialog makes a field required unless
+    // it does, and a second version filed in the same place needs no new link. Omitting it leaves
+    // whatever link the case already carries rather than taking the draft away mid-review.
+    fields: [{ name: 'draftLink', label: 'Link to the draft (optional)', kind: 'text' }],
   },
   {
     path: 'draft/pm-approve',

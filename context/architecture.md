@@ -124,7 +124,13 @@ Frontend under `frontend/src`: `components/ui` (generated primitives),
   the append-only audit trail. Relational integrity via foreign keys; JSONB only
   for genuinely schemaless blobs (e.g. raw webhook payload archive).
 - **Google Drive (existing, external)**: raw client document folders and drafts.
-  EvalOS stores the Drive link on the case; it does not re-host documents. Since
+  EvalOS stores **two separate links** on the case and they are never
+  interchangeable: `drive_link` is the client's own document folder (passports,
+  transcripts) and `draft_link` (Unit 14) is the drafted letter. Only the second
+  is ever shown to a client — the first is a folder whose contents and sharing
+  EvalOS does not control, so presenting it as "your draft" would be a leak, and a
+  case with no `draft_link` is told "not ready" rather than given a fallback.
+  EvalOS does not re-host documents. Since
   Unit 13 it also **writes** one generated document into that folder (see the
   outbound-integration note under the stack table) — writing into a folder is not
   re-hosting: the file lives in Drive, and EvalOS keeps only the audit row.
@@ -159,6 +165,29 @@ Frontend under `frontend/src`: `components/ui` (generated primitives),
 - **Experts** access assigned cases via the secure link in the Dropbox Sign
   request / shared by the Case Manager (a separate, scoped filter chain), and can
   only ever see cases assigned to them.
+- **The portal token model** (built in Unit 14, one table for both portals). A
+  `portal_access` row names one case and one audience (`CLIENT` / `EXPERT`); the
+  token is 256 bits from `SecureRandom`, returned **once** at mint time and stored
+  only as a SHA-256 hash, so a database read yields no working link. Expiry is
+  absolute (30 days, configurable) and re-minting revokes the previous token
+  inside the same transaction, so a support request cannot widen the number of
+  live credentials. Unknown, expired and revoked are one indistinguishable 401,
+  and the chain is rate-limited. The token travels in an `X-Portal-Token` header —
+  never a query parameter, which would land in access logs and `Referer` headers.
+- **A portal caller is not a narrow staff caller.** `PortalPrincipal`
+  (`portalAccessId`, `brandId`, `caseId`, `audience`) is deliberately *not* a
+  `TenantContext`: the token **is** the scope, so no predicate is built and
+  nothing can fail open, and `ScopePredicate` is not involved. A synthetic tenant
+  context would put a non-staff caller into the staff scoping path, where a later
+  widening of a role tier would silently widen what a client can read. The two
+  chains are fully separate in both directions: no JWT is accepted on
+  `/api/portal/**`, and no portal token is accepted on a staff route.
+- **What the portal returns is a whitelist**, not a narrowed staff DTO
+  (`PortalCaseService`). The client sees their name, the service, the case
+  reference, the draft link, the version, the approval state and the redacted
+  expert profile — and none of `deal_value`, `pm_strategy_notes`, the expert's
+  identity, `invoice_ref`, `campaign_attribution`, any assignment field, the audit
+  timeline, the checklist, or `drive_link`.
 - Role, brand, and ownership checks run before any mutation.
 
 ## The Three Handoffs (the front/back seam)
@@ -328,7 +357,16 @@ exist because every transition owes exactly one event. They live in
     service, or delivers a published domain event.
 13. Every state transition on every object writes an append-only, non-editable
     audit entry (actor, action, timestamp). The audit table has no update or
-    delete path.
+    delete path. **The actor is a kind as well as an id** (Unit 14): `actor_id`
+    names a staff member, and `actor_type` says `STAFF` / `SYSTEM` / `CLIENT` /
+    `EXPERT` — because a client approving their own draft is neither staff nor the
+    system, and it is that approval which sends a letter to an expert to sign. The
+    column is nullable and historical rows are **not** backfilled: the `V10`
+    trigger means no `UPDATE` can ever touch them, so for a null read `SYSTEM`
+    when `actor_id` is null and `STAFF` otherwise. Three writers, one per
+    surface — `recordEvent`, `recordSystemEvent`, `recordPortalEvent` — and each
+    takes its brand from the most authoritative signal it has, never from a
+    request body.
 14. EvalOS hosts no files and sends no email. Documents are Drive links, signed
     letters are in Dropbox Sign, staff alerts are in-app, and client/expert
     messages go through GHL / Dropbox Sign.

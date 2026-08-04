@@ -1,0 +1,27 @@
+-- Unit 14: what kind of actor wrote an audit row.
+--
+-- **Written on explicit instruction.** `ai-workflow-rules.md` protects "the audit-trail entity
+-- and its write path" and asks for instruction rather than an argument; it was asked for and
+-- given before this file existed. The append-only guarantee is **not** weakened: no UPDATE or
+-- DELETE path is introduced, `AuditEventRepository` still extends the bare `Repository` marker,
+-- every column stays `updatable = false` on the entity, and the `V10` trigger is untouched.
+--
+-- Why the column is needed: `actor_id` is nullable and a null currently means *the system*
+-- (`AuditService.recordSystemEvent`, used by the inbound webhook). A client approving a draft is
+-- neither a staff member nor the system — and it is that approval which sends a letter to an
+-- expert to sign, so the trail has to attribute it correctly.
+--
+-- **Nullable, no default, and the existing rows are not backfilled. This is forced, not lazy.**
+-- `V10` installs a BEFORE UPDATE OR DELETE trigger that raises on this table, so no UPDATE can
+-- ever touch a historical row — this is the first unit to feel that the append-only guarantee
+-- has teeth. `ADD COLUMN ... NOT NULL DEFAULT 'STAFF'` would stamp every existing row STAFF,
+-- including the Unit 05 webhook rows that are genuinely SYSTEM, and that mistake would be
+-- **permanently unfixable**. So: null means "written before this column existed", readers infer
+-- SYSTEM from a null `actor_id` and STAFF otherwise, and every row written from this unit
+-- onward states its actor type explicitly.
+--
+-- No CHECK, unlike V18's tags and V21's audience, and for one reason: a constraint on this
+-- table is a way for an audit write to fail, and the audit write is the one write in EvalOS
+-- that must never be the thing that rolls a transition back. `action` carries no CHECK either —
+-- audit vocabularies here are open on purpose. `domain/ActorType` is what closes this one.
+ALTER TABLE audit_event ADD COLUMN actor_type text;

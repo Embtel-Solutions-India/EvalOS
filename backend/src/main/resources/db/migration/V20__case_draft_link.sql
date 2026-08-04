@@ -1,0 +1,13 @@
+-- Unit 14: the link to the drafted letter — the one document the client portal shows.
+--
+-- **Not `drive_link`, and never a fallback for it.** `drive_link` is the client's own document
+-- folder: passport scans, transcripts, whatever the Coordinator collected. `DraftPanel` has
+-- pointed "Open the current draft" at that column since Unit 09, which internally was a
+-- mislabel — and would have become a leak the moment a client-facing surface sat on top of it,
+-- because the portal would hand the client a link to a folder whose contents and sharing
+-- EvalOS does not control, presented as "your draft".
+--
+-- Nullable, and a null is honest rather than substituted: a case whose Case Manager has not
+-- submitted a draft yet shows the portal "the draft is not ready". Written by
+-- `CaseLifecycleService.submitDraft`, so the link arrives with the draft it names.
+ALTER TABLE evalos_case ADD COLUMN draft_link text;

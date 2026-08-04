@@ -142,6 +142,19 @@ public class Case extends ScopedEntity {
 	@Column(name = "drive_link")
 	private String driveLink;
 
+	/**
+	 * The drafted letter the client reviews (Unit 14). Written by
+	 * {@code CaseLifecycleService.submitDraft}, so the link arrives with the draft it names.
+	 *
+	 * <p><strong>Distinct from {@link #driveLink} and never defaulted to it.</strong> That column
+	 * is the client's own document folder — passports, transcripts — and it is the one field the
+	 * client portal must never be shown: EvalOS does not control what is in that folder or who it
+	 * is shared with, so presenting it as "your draft" would be a leak rather than a mislabel. A
+	 * case with no draft link shows the portal an honest "not ready".
+	 */
+	@Column(name = "draft_link")
+	private String draftLink;
+
 	@Column(name = "invoice_ref")
 	private String invoiceRef;
 
@@ -317,6 +330,26 @@ public class Case extends ScopedEntity {
 
 	public String getDriveLink() {
 		return driveLink;
+	}
+
+	public String getDraftLink() {
+		return draftLink;
+	}
+
+	public void setDraftLink(String draftLink) {
+		this.draftLink = draftLink;
+	}
+
+	/**
+	 * When the client first opened their portal link. Stamped once, by {@code PortalCaseService} —
+	 * "when did they last look" is {@code portal_access.last_seen_at}, which moves every time.
+	 */
+	public Instant getClientPortalReadAt() {
+		return clientPortalReadAt;
+	}
+
+	public void setClientPortalReadAt(Instant clientPortalReadAt) {
+		this.clientPortalReadAt = clientPortalReadAt;
 	}
 
 	public String getInvoiceRef() {

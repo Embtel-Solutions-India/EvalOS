@@ -150,7 +150,14 @@ public class CaseController {
 	public record CaseDetail(
 			CaseSummary summary,
 			String clientName,
+			/** The client's own document folder. Staff-only, and never sent to the client portal. */
 			String driveLink,
+			/**
+			 * The drafted letter (Unit 14). What {@code DraftPanel} links to, and the only link the
+			 * client portal shows — {@code driveLink} above is a different thing and is not a
+			 * fallback for it.
+			 */
+			String draftLink,
 			String expertName,
 			String expertTier,
 			int checklistTotal,
@@ -176,6 +183,7 @@ public class CaseController {
 					CaseSummary.of(subject, ctx),
 					context.clientName(),
 					subject.getDriveLink(),
+					subject.getDraftLink(),
 					context.expertName(),
 					context.expertTier(),
 					context.checklist().total(),
@@ -194,6 +202,13 @@ public class CaseController {
 
 	/** Return comments, hold reasons, decline reasons, revision notes — all free text. */
 	public record ReasonRequest(@NotBlank String reason) {
+	}
+
+	/**
+	 * Where the drafted letter is (Unit 14). Optional: null or blank leaves whatever link the case
+	 * already carries, so re-submitting a revision filed in the same place needs nothing typed.
+	 */
+	public record SubmitDraftRequest(String draftLink) {
 	}
 
 	/** What was actually taken, and the invoice it sits against. */
@@ -301,10 +316,16 @@ public class CaseController {
 
 	// --- the draft loops -----------------------------------------------------
 
+	/**
+	 * The body is optional and its one field is too: a second version filed in the same place needs
+	 * no new link, and omitting it leaves the existing one alone rather than taking the draft away
+	 * from a client mid-review.
+	 */
 	@PostMapping("/{id}/draft/submit")
 	@PreAuthorize(GM_OR + "hasRole('CASE_MANAGER')")
-	public ApiResponse<CaseSummary> submitDraft(@PathVariable UUID id) {
-		return summary(lifecycle.submitDraft(id));
+	public ApiResponse<CaseSummary> submitDraft(@PathVariable UUID id,
+			@RequestBody(required = false) SubmitDraftRequest request) {
+		return summary(lifecycle.submitDraft(id, request == null ? null : request.draftLink()));
 	}
 
 	@PostMapping("/{id}/draft/pm-approve")

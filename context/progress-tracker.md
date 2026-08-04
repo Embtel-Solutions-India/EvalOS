@@ -10,31 +10,41 @@ Update this file after every meaningful implementation change.
   checklist) are all Phase 1 — this tracker had been calling 06 onward "Phase 2" since Unit 06,
   which the build plan does not say. Corrected here rather than left to compound.
 - **Phase 2 — Connect the seams is under way.** It is Units 11–17. **Units 11 (expert database
-  + sheet upload) and 12 (match scoring engine) are complete and verified. Unit 13 (redacted CV
-  generation) is code-complete with one acceptance criterion outstanding** — the manual live
-  Drive upload, blocked on credentials that do not exist yet; see its entry at the end of
-  Completed. Unit 14 is next.
+  + sheet upload), 12 (match scoring engine) and 14 (client draft-review portal) are complete and
+  verified. Unit 13 (redacted CV generation) is code-complete with one acceptance criterion
+  outstanding** — the manual live Drive upload, blocked on credentials that do not exist yet; see its
+  entry in Completed. Unit 15 is next.
   The build plan's `## Phase 3`
   heading used to sit above Unit 17 and contradict its own roadmap line; the heading moved to
   Unit 18, so Dashboards is Phase 2 wherever you read it.
-- **Verified, not just written.** All **305** backend tests execute with none skipped — the
-  23 DB-backed ones included — plus 81 frontend tests, and CI runs the DB suite against a real
+- **Verified, not just written.** All **336** backend tests execute with none skipped — the
+  26 DB-backed ones included — plus 101 frontend tests, and CI runs the DB suite against a real
   Postgres on every push. (It was 183 backend / 44 frontend at the end of Phase 1, 229/61
-  after Unit 11, and 260/73 after Unit 12.) See the Unit 13 entry at the end of Completed.
+  after Unit 11, 260/73 after Unit 12, and 305/81 after Unit 13.) See the Unit 14 entry at the end of
+  Completed.
+- **EvalOS now has a second authenticated surface.** Unit 14 added the link-based portal filter chain
+  beside the staff one, so "a caller" is no longer always a `StaffPrincipal` and
+  `TenantContext.find()` is legitimately empty on some requests. Read `architecture.md`'s auth section
+  before touching anything that assumes otherwise.
 - **Google Drive is now an outbound integration, not just a URL column** (Unit 13). That changed
   `architecture.md`'s stack table and its `integration` package description, and it makes Drive
   the second external dependency in Phase 2 alongside Dropbox Sign in Unit 15.
 
 ## Current Goal
 
-- Unit 14 — per `context/specs/00-build-plan.md`. As with every Phase 2 spec, it was written in
+- Unit 15 — per `context/specs/00-build-plan.md`. As with every Phase 2 spec, it was written in
   the Phase 2 batch and is **a draft to re-read and revise at the start of the unit**, not a
-  settled contract. It shows the client the redacted profile alongside the draft, so it consumes
-  Unit 13's `GET /api/cases/{id}/expert-profile/redacted` — through a **link-based portal chain**,
-  which is its own Spring Security filter chain and not a widening of the staff one.
-- **Unit 13's live Drive upload is still owed** and is tracked under In Progress. It does not
-  block Unit 14: the client portal reads the served-on-demand profile, which is verified. It does
-  block calling Unit 13 finished.
+  settled contract. It **builds on Unit 14's foundations**: the `portal_access` token model
+  (`audience = 'EXPERT'`), `PortalPrincipal`, `PortalSecurityConfig`'s chain, and
+  `AuditService.recordPortalEvent` are all in place and were built to be reused — an expert route
+  asks `PortalPrincipal.current(EXPERT)` and inherits the audience check. What Unit 15 adds that
+  Unit 14 did not need is the Dropbox Sign integration, and **its two open questions are still
+  open**: the callback signing secret, and whether the account structure is one API app per brand
+  (see the readiness note below — a shared account forces brand resolution from callback metadata,
+  which is a change to a *protected* step and needs its own instruction).
+- **Unit 13's live Drive upload is still owed** and is tracked under In Progress. It did not
+  block Unit 14 — the portal reads the served-on-demand profile, which is verified, and the live run
+  confirmed the client receives it. It still blocks calling Unit 13 finished.
 - Carried forward from Unit 11 and now actually load-bearing, unfinished business rather than a
   blocker: **the `FieldTag` value list is still unsigned by an ENM.** It shipped on instruction,
   and Unit 12 now **scores** against it — a shortlist is only as good as the vocabulary its
@@ -1450,6 +1460,235 @@ closed.
   does not depend on Google — the redaction, the whitelist, the label, the paid gate, the
   refusals, the audit row, the panel — is verified.
 
+### Unit 14 — Client draft-review portal · complete and verified
+
+The first non-staff caller in EvalOS, and Handoff B is now something the client performs
+themselves. **Three migrations** (`V20`–`V22`) and a **second Spring Security filter chain**.
+
+**Both gating questions were answered before any code was written**, which is what the spec asked
+for:
+- **Sign-off given to add `actor_type` to `audit_event`.** `ai-workflow-rules.md` protects that
+  entity and its write path and asks for instruction rather than an argument; it was asked for and
+  given. Append-only is not weakened — no update or delete path was added,
+  `AuditEventRepository` still extends the bare `Repository` marker, every column stays
+  `updatable = false`, and the `V10` trigger is untouched.
+- **Link delivery stays open question (b).** Whether GHL can send a client-facing transactional
+  message on an EvalOS event trigger is still unknown, so this unit ships the **staff stopgap**:
+  it mints the link and shows it on the case for somebody to send by hand. Unit 18 dispatches it on
+  an event if the answer turns out to be yes, and nothing here changes when it does.
+
+- **The defect it had to close first, and it was a real one.** `DraftPanel` had rendered "Open the
+  current draft ↗" pointing at `detail.driveLink` since Unit 09, and there was no `draft_link`
+  anywhere in the stack. `drive_link` is the client's **own document folder** — passport scans,
+  transcripts — so internally that was a mislabel, and it would have become a leak the moment a
+  client-facing screen used the same field: the portal would have handed the client a link to a
+  folder whose contents and sharing EvalOS does not control, presented as "your draft".
+  `V20__case_draft_link` gives the draft its own column, written by
+  `submitDraft(caseId, draftLink)`, and `DraftPanel` is re-pointed at it. **`drive_link` is not sent
+  to the portal at all** — not renamed, not aliased, not defaulted to — and a case with no
+  `draft_link` shows an honest "not ready". Two tests hold it, one on the projection and one against
+  real SQL.
+  - The link is **optional on submit and only overwritten when non-blank**: a second version filed
+    in the same place needs no new link, and blanking it by omission would take the draft away from
+    a client mid-review. The quick-action field is labelled "(optional)", which is what
+    `QuickActionDialog` reads to decide `required` — the label is the rule there.
+- **`V21__portal_access` — one table for both portals** (`audience` = `CLIENT` · `EXPERT`, and Unit
+  15 uses the second). What matters about it:
+  - **A portal link is a credential, so it is stored like one.** 256 bits from `SecureRandom`,
+    base64url, returned **exactly once** at mint time and stored only as a hex SHA-256 — a backup, a
+    support query or a leaked dump yields no working link. `PortalAccess.matches` compares with
+    `MessageDigest.isEqual`, in the entity so the one secret comparison on this surface has one home
+    and the stored hash needs no getter.
+  - **The token travels in an `X-Portal-Token` header, and in the URL *fragment* on the way to the
+    browser.** A fragment is never sent to a server, so it stays out of access logs, `Referer`
+    headers and redirect chains; a query parameter would be in all three.
+  - **Expiry is absolute** (30 days, configurable) and **re-minting revokes the previous token
+    inside the same transaction**. That is also where "one live token per case per audience" is
+    enforced, because it cannot be an index: a partial unique predicate would need `now()`, which is
+    not immutable. The read tolerates more than one row anyway — it matches on the hash, not the case.
+  - Unknown, expired, revoked **and absent** are one identical 401 `PORTAL_LINK_INVALID`. The
+    service answers empty for the first three and the chain turns every empty into the same body, so
+    "is that link known?" is unanswerable. Proved by comparing response bodies byte for byte.
+- **Two chains, and the test asserts both directions.** `security/PortalSecurityConfig` matches
+  `/api/portal/**` and is ordered first; `SecurityConfig` keeps everything else. **A staff JWT on a
+  portal route is 401 and a portal token on a staff route is 401** — asserted both ways, because two
+  chains that accept each other's credentials are one chain.
+  - **`PortalTokenFilter` is constructed in the config rather than annotated `@Component`.** That is
+    the load-bearing detail: Boot auto-registers a `Filter` bean as a global servlet filter, which
+    would have let a portal token be resolved on a staff route. Recorded in the class comment so it
+    is not "tidied up" later.
+  - **The portal chain lives in its own `@Configuration`, not beside the staff chain.** A dozen
+    `@WebMvcTest` slices import `SecurityConfig` for the real filter chain, and none of them should
+    need a portal service and a portal property to start. `ClientPortalTest` imports **both**,
+    because asserting one chain alone proves nothing about the direction that leaks.
+  - **The chain is rate-limited** (`evalos.portal.rate-limit-per-minute`, default 60): a per-caller
+    fixed window in memory, refused *before* the token is looked at, so a flood of guesses costs no
+    database read. Tested as what it is — a counter and a window roll — rather than through sixty
+    HTTP requests. `ponytail:` per-instance; Redis or a gateway limit if EvalOS is ever run
+    multi-instance.
+- **`security/PortalPrincipal` — the reason none of this reuses `TenantContext`.** It carries
+  `(portalAccessId, brandId, caseId, audience)`. **The token is the scope**: it names one case, so
+  there is no predicate to build and nothing that can fail open, and `ScopePredicate` is neither used
+  nor modified. Manufacturing a synthetic tenant context would have put a non-staff caller into the
+  staff scoping path, where a later widening of a role tier silently widens what a client can read.
+  `TenantContext.find()` matches on `StaffPrincipal`, so it returns **empty** on a portal request —
+  which also means any staff-path code reached from one throws instead of attributing the act to
+  whoever was last in the context. `theClientsOwnApprovalIsTheSameTransitionButAuditedAsTheirs`
+  clears the security context before approving, on purpose.
+  - The audience is checked in **one** place, `PortalPrincipal.current(expected)`, and no authorities
+    are granted — a role name in the filter would be a second statement of the same rule. Unit 15's
+    expert routes inherit the check by asking for `EXPERT`.
+- **`service/PortalCaseService` — a whitelist, not a widened `CaseDetailService`.** That DTO carries
+  the deal value, the strategy notes, the expert's identity, every assignment slot and the audit
+  timeline. The client's view is nine fields, and the criterion is asserted the way it is written:
+  **serialize the response and grep for each excluded field**, with every one of them populated on
+  the case first so an accidental widening has something real to leak rather than a null that would
+  pass by luck.
+- **The transitions are still Unit 04's.** `clientApproveDraft` / `clientRequestRevisions` gained a
+  second entry point taking an **already-authorized `Case`** rather than an id, and both share the
+  id-taking version's guards. `apply(...)` gained one nullable `PortalAudience` and branches on it in
+  exactly one place — the audit writer. So a client approving twice gets the same 409 a staff member
+  would, from the same line, and the stage change, the clock, the SLA, the event and the transaction
+  are all shared. **The state machine is not duplicated for this surface**, which is what acceptance
+  criterion 7 asks.
+- **`V22__audit_actor_type` — the append-only guarantee showing its teeth.** `actor_id` is nullable
+  and a null meant *the system*; a client is neither staff nor the system, and it is their approval
+  that sends a letter to an expert to sign. So: `actor_type` (`STAFF`/`SYSTEM`/`CLIENT`/`EXPERT`),
+  `AuditService.recordPortalEvent` as a third writer taking its brand from the **token's own row**
+  (the same argument `recordSystemEvent` makes for the endpoint token), and `actor_type` on the two
+  existing writers.
+  - **Nullable, no default, no backfill — forced, not lazy.** `V10`'s `BEFORE UPDATE OR DELETE`
+    trigger means no `UPDATE` can ever touch a historical row, so `NOT NULL DEFAULT 'STAFF'` would
+    have stamped the Unit 05 webhook rows `STAFF` when they are genuinely `SYSTEM`, **permanently and
+    unfixably**. Null means "written before this column existed"; readers infer `SYSTEM` from a null
+    `actor_id` and `STAFF` otherwise.
+  - **No CHECK on it**, unlike `V18`/`V19`/`V21`'s closed vocabularies, and that is a decision: a
+    constraint on this table is a way for an *audit write* to fail, and that is the one write that
+    must never be what rolls a transition back. `action` carries no CHECK either.
+  - **The trail is only useful if the screen says it too.** `CaseTimelineService` now draws a
+    `CLIENT` row as "The client" and a `SYSTEM` one as "System" — before this, a client approving
+    their own draft would have appeared on the staff timeline indistinguishable from an inbound
+    webhook. **The null check there is load-bearing**: `Map.of()` throws on a null key rather than
+    answering the default, and `actor_type` is null on every pre-Unit-14 row. Three existing tests
+    caught it immediately — the same trap the board hit in Unit 08 with a contactless case.
+  - New `AuditAction.PORTAL_LINK_ISSUED` (open vocabulary, no migration) rather than reusing
+    `EXPORTED`: no document left EvalOS, a *credential* was issued to somebody outside the company,
+    and re-minting one revokes the last. The snapshot records the audience and the expiry and
+    **never the token**.
+- **Frontend: a second entry point inside `App.tsx`, which is where the spec's file list puts it.**
+  The first pass mounted it in `main.tsx` and recorded that as a deviation; it was then **resolved
+  properly** by moving `AuthProvider` *down* out of `main.tsx` into `App`, wrapping the staff surface
+  only. `App` now answers `/portal/*` before any staff-session code runs and mounts the provider
+  around `StaffApp` below it — so the route table stays in one file, `main.tsx` is a plain root
+  again, and a client still gets **no `AppShell`, no nav, no brand switcher and no `AuthProvider`**.
+  That last one is the point rather than an optimization: mounting the provider on a client's page
+  would read the staff token out of `sessionStorage` and call `/api/me` for somebody who has no
+  account. No router inside the portal either — one case, one screen, nowhere to navigate.
+  - `features/client-portal/*`: `PortalRoot` (token out of the fragment, three states, honest
+    failure copy), `ClientDraftView` (the draft link, the redacted profile in a sandboxed iframe,
+    approve / ask-for-changes, **both confirming inline first**), `portalApi`, `portalRules` + 17
+    tests.
+  - **`portalApi` has its own axios instance**, which is the one exception to "always import the
+    shared `api`". The shared one attaches the staff bearer from `lib/session`, and importing it
+    would pull the module that reads and writes the staff token into a page whose whole point is
+    holding no staff session. Only a `type` crosses the boundary, which the build erases. The token
+    lives in a module variable and is **never persisted** — deliberately unlike Unit 07's
+    `sessionStorage`, because a link forwarded to a shared machine is a different risk.
+  - **The failure copy is tested, because it is the product here.** No message on any status
+    mentions signing in — a client has no account, and offering one sends them hunting for a password
+    that does not exist — and the post-approval message says what happens *next* rather than just
+    "approved". `mayAct` reads the server's own `awaitingAnswer` instead of re-deriving it from the
+    status, and additionally refuses when there is no draft link: approving a document you were never
+    shown is not a decision.
+  - Staff side: `case/PortalLinkPanel` shows whether a link is live, when it expires and when the
+    client last opened it, and re-mints **behind a warning that the old link stops working**. The URL
+    is shown once, in the response to the mint. `MAY_MINT_PORTAL_LINK` must equal
+    `PortalLinkController.MAY_MINT` and — unlike `MAY_PUBLISH_TO_DRIVE` — **includes the Case
+    Manager**, who wrote the draft and is the person a client emails when a link stops working. The
+    Coordinator is deliberately out even though they run `draft/send-to-client`: Unit 18 owns that
+    dispatch, so the manual mint is a stopgap, not their workflow.
+- **Deviations from the spec, in full — three remain, and one was resolved rather than argued for.**
+  1. **Resolved:** the portal entry point is in `App.tsx` as the spec's file list says (see above).
+     The first pass put it in `main.tsx`; moving `AuthProvider` down fixed the cause instead.
+  2. **One route beyond the spec's table:** `GET /api/cases/{id}/portal-link`. The spec lists the
+     mint alone, and frontend deliverable 6 asks the case page to say whether a live link exists, when
+     it expires and whether it has been opened — a panel that could only mint would have to mint to
+     find out. It returns `{live, expiresAt, openedAt}` and **never the token**; that absence is
+     asserted structurally, on the record's components, so no later edit can start returning one
+     without changing the type. The alternative — folding the status into `CaseDetail` — would put a
+     portal concern in the general case DTO and query for it on every case-detail load for every role.
+  3. **The portal chain is its own `@Configuration`** (`PortalSecurityConfig`), where the spec's
+     files-touched list said "Modified: `SecurityConfig.java` — the second chain beside `staffApi`".
+     Same two chains, same order, same behaviour; the file boundary is what keeps a dozen
+     `@WebMvcTest` slices that import `SecurityConfig` from needing a portal service and a portal
+     property to start, and it matches the spec's own words that "the chains are fully separate".
+  4. **A new `AuditAction` value**, `PORTAL_LINK_ISSUED`, where the spec only said the mint is
+     "audited". `AuditAction` is an open vocabulary by design (no CHECK, no migration), and reusing
+     `EXPORTED` would have labelled a credential issuance as a document export on the timeline.
+- **Two read fields, two questions, and they are not interchangeable.**
+  `evalos_case.client_portal_read_at` is stamped **once**, on first read — "has the client seen this
+  at all", which is what a Case Manager needs before chasing. `portal_access.last_seen_at` moves on
+  **every** request — "when did they last look", which is what support needs. One field doing both
+  would answer neither.
+- Verified: **`./mvnw test "-Devalos.db.test=true"` → 336 backend tests, 0 failures, 0 skipped**
+  against local Postgres 18 (up from 305; new: `PortalAccessServiceTest` 7, `PortalCaseServiceTest`
+  8, `ClientPortalTest` 7, `PortalTokenFilterTest` 2, plus 2 in `CaseLifecycleServiceTest`, 1 in
+  `CaseTimelineServiceTest`, 3 DB-gated). `npm test` **101 frontend tests** (20 new),
+  `npm run build` and `npm run lint` clean.
+- **Live end-to-end run against the running stack** (Postgres 18 + `spring-boot:run` on `local`),
+  driven as GM over real HTTP, with the rows then read straight out of Postgres:
+  - A case walked to "draft with the client" carries `draft_link` and `drive_link` **separately**;
+    the minted URL is `…/portal/client#<43-char base64url>`; the portal payload contains the client's
+    name, the draft link and the anonymous profile, and **none** of the deal value, the invoice ref,
+    `drive.google.com`, `assignedPm`, `dealValue`, `pmStrategyNotes`, or the expert's real name.
+  - **Both chains refuse each other**: a GM bearer on `/api/portal/client/case` → 401
+    `PORTAL_LINK_INVALID`; the portal token on `/api/cases/{id}` → 401 `UNAUTHENTICATED`. An unknown
+    token and no token at all produce **the identical body**.
+  - **Re-minting revoked the previous link immediately** — the old token 401s and the new one reads
+    the same case. In raw SQL the superseded row has `revoked_at` set, both rows carry a 64-character
+    hash and nothing token-shaped.
+  - Revisions with a blank reason → 400. **Approving moved the case to `EXPERT_SIGNING` /
+    `APPROVED` / expert `PENDING`, and approving twice → 409** through the existing guard.
+  - The audit row for that approval is `STAGE_CHANGED`, `actor_id IS NULL`, **`actor_type = CLIENT`**,
+    sitting beside `PORTAL_LINK_ISSUED` rows that are `STAFF` — and the staff timeline reads
+    "**The client** moved stage" under "John M sent a portal link".
+  - `client_portal_read_at` stayed at the first read while the token's `last_seen_at` moved on the
+    second, confirmed in the table rather than inferred.
+- **The intake gap in that first run is closed, and it was a harness mistake rather than a defect.**
+  The `contact.created` delivery I hand-wrote was rejected `400 MISSING_EVENT_TYPE`: the gateway
+  routes on a top-level **`event_type`**, which my payload omitted (the body shape was otherwise
+  right — `service_type` is top-level and the contact carries `full_name` / `ghl_contact_id`). With
+  that field added, the whole thing runs from Handoff A:
+  - A signed `contact.created` → `200 accepted`, and the **replay of the same `event_id` → `200
+    duplicate`** with no second case. The case arrives `DOC_COLLECTION`, **unpaid**, with a
+    **6-item checklist opened by intake**, a `drive_link` from the payload and **`draftLink` empty** —
+    which is the two-column distinction visible at the moment of creation.
+  - Walked to draft-with-the-client, minted, and **the client approved a case that had not existed a
+    minute earlier**: `EXPERT_SIGNING` / `APPROVED` / expert `PENDING`, with `The client
+    STAGE_CHANGED` on the timeline. Two fresh cases were driven this way (`IE-2026-C09171` approved
+    by API, `IE-2026-E64323` kept for the browser pass).
+- **Browser pass — the frontend, which nothing had exercised until now.** Chrome against the running
+  stack, on the second freshly-intaken case:
+  - `/portal/client#<token>` renders the client's screen: case reference, "Bela Osei, your draft is
+    here", service + version, the status line, "Read the draft ↗", and the **redacted profile in its
+    sandboxed iframe** — "Expert LT", rank, tier, fields, **and no name**. (The first screenshot
+    caught the sandboxed frame before it painted; it renders.)
+  - **"Ask for changes" → notes → send** works end to end from the browser: the actions disappear and
+    the page says *"Your revision request has been sent. The case manager is working on a new
+    version…"*. Server-side the case is `REVISION_REQUESTED`, and the audit row is **`actor_type =
+    CLIENT`, `actor_id` null, with the client's own words as the note** — em-dash intact as U+2014,
+    checked in the database because the Windows console mangles it on the way out.
+  - **`PortalLinkPanel`**: a green **live** chip, the expiry, "Opened by the client 8/5/2026,
+    2:41:03 AM" (the receipt from that same browser session), and "Replace the link" → *"Create a new
+    link? The one the client already has will stop working immediately."* Confirming it showed the new
+    URL **once** in an amber "shown once and cannot be retrieved" panel, reset "Opened by the client"
+    to **never** (the status reads the newest row), and **the token the browser had been using
+    401'd** immediately afterwards.
+  - **The staff app survives the entry-point restructure**: anonymous `/board` redirects to `/login`,
+    signing in as the GM lands on `/dashboard` with the shell, nav, brand switcher and bell, and the
+    case detail renders with the new panel in place. Console clean on the portal load and on the case
+    detail.
+
 ## In Progress
 
 - **Unit 13's one live check.** The manual Drive upload above. It needs credentials that are
@@ -1458,8 +1697,10 @@ closed.
 
 ## Next Up
 
-- Unit 14 — per `context/specs/00-build-plan.md`. Unit 13 leaves it the redacted profile route and
-  its `reference` label, which is the name the client's own messages will use for the expert.
+- Unit 15 — per `context/specs/00-build-plan.md`. Unit 14 leaves it the whole portal foundation
+  (token model, principal, chain, portal audit writer) built for reuse under `audience = 'EXPERT'`;
+  what it has to add is Dropbox Sign, which is the phase's heaviest external dependency and has two
+  open questions attached.
 - Unit 12 still leaves two things for their owning units: the `expert_case_offer` row (Unit 15
   fills `ACCEPTED` from the real Dropbox Sign callback instead of the staff-recorded stand-in, and
   owns `TIMED_OUT`) and the rule-based score Unit 20's AI layer ranks **on top of**, not instead
@@ -1515,25 +1756,31 @@ gating open question where the serve-on-demand-only reading would have had none.
 No PDF library is needed: the generated HTML is uploaded with a Google-Doc target mime type and
 Drive converts on the way in, and Drive's own export produces a PDF if one is ever wanted.
 
-**Unit 14 — a defect it must close first.** `frontend/src/features/case/DraftPanel.tsx` renders
-"Open the current draft ↗" pointing at `detail.driveLink`, and **there is no `draft_link` anywhere
-in the backend or the frontend**. `drive_link` is the client's *own document folder*. Internally
+**Unit 14 — Client draft-review portal. BUILT — see the Unit 14 entry in Completed.** What follows
+is the readiness note written before it, kept because all three items played out exactly as written:
+the `draft_link` mislabel was real and was closed first, `actor_type` shipped nullable-and-unbackfilled
+on instruction, and the link still has no automatic delivery.
+
+~~A defect it must close first.~~ `frontend/src/features/case/DraftPanel.tsx` rendered
+"Open the current draft ↗" pointing at `detail.driveLink`, and there was no `draft_link` anywhere
+in the backend or the frontend. `drive_link` is the client's *own document folder*. Internally
 that is a mislabel; put a client-facing portal on top of it and it is a leak — the portal would
 hand the client a link to a folder whose contents and sharing EvalOS does not control, labelled as
-"your draft". Unit 14 adds `draft_link` and re-points `DraftPanel` at it; `drive_link` is never
-sent to the portal, not even as a fallback.
+"your draft". **Closed by `V20` + `submitDraft(caseId, draftLink)`**; `drive_link` is never
+sent to the portal, not even as a fallback, and two tests hold that.
 
-**Unit 14 — a consequence of append-only, worth knowing before it surprises somebody.** The portal
-needs the audit trail to say *the client* approved the draft, and `audit_event.actor_id` currently
-means "staff member, or null for the system". Adding `actor_type` is fine, but the column must be
-**nullable with no default and the existing rows are not backfilled** — `V10` installs a
-`BEFORE UPDATE OR DELETE` trigger that raises, so **no `UPDATE` can ever touch them**. A
-`NOT NULL DEFAULT 'STAFF'` would stamp the Unit 05 webhook rows `STAFF` when they are genuinely
-`SYSTEM`, permanently and unfixably. First unit to feel that the append-only guarantee has teeth.
+~~A consequence of append-only, worth knowing before it surprises somebody.~~ The portal
+needs the audit trail to say *the client* approved the draft, and `audit_event.actor_id` previously
+meant "staff member, or null for the system". **`V22` added `actor_type` nullable with no default and
+no backfill** — `V10` installs a `BEFORE UPDATE OR DELETE` trigger that raises, so no `UPDATE` can
+ever touch the existing rows. A `NOT NULL DEFAULT 'STAFF'` would have stamped the Unit 05 webhook rows
+`STAFF` when they are genuinely `SYSTEM`, permanently and unfixably. First unit to feel that the
+append-only guarantee has teeth, and the pattern to copy for any future column on that table.
 
-**Unit 14 — Client draft-review portal.** The portal link reaches the client "via GHL". That is
-open question (b) below — whether GHL can send a client-facing transactional message on an EvalOS
-event trigger. If it cannot, the portal is built and unreachable.
+**The portal link still reaches the client only by hand.** That is open question (b) below — whether
+GHL can send a client-facing transactional message on an EvalOS event trigger. It is **still
+unanswered**, so Unit 14 shipped the stopgap it planned for: staff copy the URL off the case page.
+The portal is built and reachable; it is the *delivery* that is manual.
 
 **Unit 15 — Expert portal + Handoff B.** The heaviest external dependency in the phase, and
 nothing exists yet beyond the `DROPBOX_SIGN` enum value and staff-recorded stand-ins for the
@@ -1643,6 +1890,13 @@ whenever a third brand is seeded. Staff SSO stays deferred.
   `case.delivered` and the ability to send client-facing transactional messages
   on EvalOS event triggers (Unit 18); (c) which extra inbound GHL events to
   handle now vs later (`refund.requested`, `contact.updated`).
+  **(b) is now load-bearing rather than theoretical.** Unit 14 shipped a working portal whose link
+  reaches nobody unless somebody delivers it, so until (b) is answered the client link is **copied
+  out of the case page by staff**. That is a deliberate stopgap, recorded in
+  `PortalLinkController` and on the panel itself, and the answer changes nothing in Unit 14's code —
+  Unit 18 dispatches on the event if the answer is yes. Also note `PORTAL_BASE_URL` must be set in
+  any deployed environment: it defaults to the Vite dev server, so a link minted with the default
+  points at somebody's laptop.
 - **`FieldTag` value list still needs the ENM's sign-off** (Unit 11) — the *mechanism* is settled
   (a closed enum + database CHECK); the vocabulary is not. ~~Confirm before the migration lands.~~
   **The migration landed first, on instruction**: `V18` ships the spec's 28-entry starter list plus
@@ -1665,13 +1919,11 @@ whenever a third brand is seeded. Staff SSO stays deferred.
   gateway's per-brand endpoint resolution then works unchanged) vs. one shared account, which forces
   brand resolution from callback `metadata` and **is a change to a protected step**. Answer before
   writing the handler.
-- **Sign-off to add `actor_type` to the audit trail** (Unit 14) — `ai-workflow-rules.md` protects
-  "the audit-trail entity and its write path" and asks for explicit instruction before any change.
-  Unit 14 needs one nullable column and a third writer so a client's draft approval is attributed to
-  *the client* rather than to a null actor indistinguishable from a webhook's. Append-only is not
-  weakened — no update/delete path, every column still `updatable = false`, the `V10` trigger
-  untouched — but the rule wants instruction, not an argument. If refused, the fallback is a worse
-  trail for the one action a client performs in the system.
+- ~~**Sign-off to add `actor_type` to the audit trail** (Unit 14)~~ — **closed: instruction given,
+  and the column shipped as `V22`.** Nullable, no default, no backfill; three writers now
+  (`recordEvent` / `recordSystemEvent` / `recordPortalEvent`); no update or delete path added and the
+  `V10` trigger untouched. See the Unit 14 entry. The precedent worth keeping: a protected file is
+  changed on instruction, asked for **before** the code exists, not justified afterwards.
 - **Whether GHL reports review captures back** (Unit 17) — EvalOS can only count review *requests
   sent*. Actual captures live on Google and in GHL's campaign; reading them back would be a new
   inbound integration nobody has specified. Until then the tile is labelled for what it measures.

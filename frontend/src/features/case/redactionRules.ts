@@ -34,6 +34,30 @@ export function mayPublishToDrive(role: Role): boolean {
 }
 
 /**
+ * Who may mint the client's portal link (Unit 14).
+ *
+ * **Must equal `PortalLinkController.MAY_MINT`.** Wider than the Drive publish above by one role:
+ * the Case Manager wrote the draft and is the person fielding "my link doesn't work", so they can
+ * issue a new one. The Coordinator is deliberately absent even though they run
+ * `draft/send-to-client` — Unit 18 dispatches the link on that event once GHL can carry it, so the
+ * manual mint is a stopgap and not their workflow.
+ *
+ * Lives beside `mayPublishToDrive` because it is the same kind of rule: who may push something
+ * toward the client. Asserted in the test for the reason that one is — a client offering a control
+ * the server refuses is the failure this project keeps finding.
+ */
+export const MAY_MINT_PORTAL_LINK: readonly Role[] = [
+  'GM',
+  'BRAND_MANAGER',
+  'PROJECT_MANAGER',
+  'CASE_MANAGER',
+]
+
+export function mayMintPortalLink(role: Role): boolean {
+  return MAY_MINT_PORTAL_LINK.includes(role)
+}
+
+/**
  * Whether there is anything to generate.
  *
  * A case with no expert has no profile, and the server answers 409 saying so. The panel asks

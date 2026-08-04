@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.UUID;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.ie.evalos.domain.ActorType;
 import com.ie.evalos.domain.AuditAction;
 import com.ie.evalos.domain.AuditEvent;
 import com.ie.evalos.domain.Case;
@@ -65,10 +66,19 @@ class CaseTimelineServiceTest {
 		}
 	}
 
+	/**
+	 * A row with no {@code actor_type}, which is every row written before Unit 14 — the column is
+	 * nullable and cannot be backfilled (V22), so this is the shape most of the trail has.
+	 */
 	private AuditEvent row(AuditAction action, UUID actorId, String afterJson) {
+		return row(action, actorId, null, afterJson);
+	}
+
+	private AuditEvent row(AuditAction action, UUID actorId, ActorType actorType, String afterJson) {
 		AuditEvent event = mock(AuditEvent.class);
 		given(event.getAction()).willReturn(action);
 		given(event.getActorId()).willReturn(actorId);
+		given(event.getActorType()).willReturn(actorType);
 		given(event.getAfterSnapshot()).willReturn(afterJson);
 		given(event.getCreatedAt()).willReturn(Instant.parse("2026-07-30T09:00:00Z"));
 		return event;
@@ -153,6 +163,30 @@ class CaseTimelineServiceTest {
 		assertThat(timeline.forCase(CASE_ID)).singleElement()
 				.satisfies(entry -> assertThat(entry.actorName()).isEqualTo("System"));
 		// No actor ids means no roster query at all.
+		verifyNoInteractions(teamMembers);
+	}
+
+	/**
+	 * Unit 14's whole reason for adding {@code actor_type}: a client approving their own draft must
+	 * not read as the webhook.
+	 *
+	 * <p>Both rows below have a null {@code actor_id} — there is no {@code team_member} behind
+	 * either — and before the column existed the screen could only draw both as "System", on the one
+	 * entry that commits a letter to an expert's signature. Asserted together, because it is the
+	 * <em>distinction</em> that is the criterion, not the label.
+	 */
+	@Test
+	void aClientsOwnActionIsAttributedToTheClientAndNotToTheSystem() {
+		theCase();
+		givenRows(
+				row(AuditAction.CREATED, null, ActorType.SYSTEM,
+						snapshotJson(Stage.DOC_COLLECTION, ExceptionState.NONE, null)),
+				row(AuditAction.STAGE_CHANGED, null, ActorType.CLIENT,
+						snapshotJson(Stage.EXPERT_SIGNING, ExceptionState.NONE, null)));
+
+		assertThat(timeline.forCase(CASE_ID)).extracting(TimelineEntry::actorName)
+				.containsExactly("System", "The client");
+		// Still no roster query: neither row names a staff member.
 		verifyNoInteractions(teamMembers);
 	}
 

@@ -14,9 +14,21 @@
   layer (Specifications / Hibernate filters), not in the UI.
 - Layer the finer scopes on top of brand: **team** (PM) and **assignee** (Case
   Manager / expert / client). The GM is the only role allowed cross-brand reads.
-- Brand is resolved from the authenticated principal for staff, and from the
-  per-brand endpoint token for inbound webhooks — never from a client-supplied
-  body field.
+- Brand is resolved from the authenticated principal for staff, from the
+  per-brand endpoint token for inbound webhooks, and from the **portal token's own
+  row** for a client or expert on a link-based surface (Unit 14) — never from a
+  client-supplied body field. Three sources, one rule: the most authoritative
+  signal the surface has.
+- **A link-based portal caller is not a staff caller with a narrower scope.** Their
+  token names one case, so it *is* the scope: no `ScopePredicate`, no synthetic
+  `TenantContext`, no predicate that could fail open. Do not manufacture a staff
+  principal for a non-staff caller — a role tier widened later would silently widen
+  what they can read. What they see is a **whitelist projection**, not a staff DTO
+  with fields removed.
+- **A Spring `Filter` belonging to one security chain must not be a `@Component` or
+  a `@Bean`.** Spring Boot auto-registers `Filter` beans as global servlet filters,
+  so an annotated portal filter would run on staff routes too. Construct it inside
+  the chain that owns it (see `security/PortalSecurityConfig`).
 - Never let one brand's identifiers leak into another brand's response, event,
   or notification.
 
@@ -105,6 +117,16 @@
 - Follow the border-radius scale in `ui-context.md`.
 - Use tabular figures (`--font-num`) for all numeric, currency, date, and ID
   columns.
+
+## Frontend HTTP
+
+- **One shared axios instance** (`lib/api.ts`), imported everywhere. Never call
+  `axios` directly and never create a per-feature instance.
+- **One exception, and only for this reason:** a surface that must hold no staff
+  session gets its own instance, because importing the shared one drags in the
+  module that reads and writes the staff token. `features/client-portal/portalApi.ts`
+  is that case (Unit 14) — one credential, one header, nothing persisted. A new
+  instance needs a reason of that kind, not convenience.
 
 ## Response Shapes
 

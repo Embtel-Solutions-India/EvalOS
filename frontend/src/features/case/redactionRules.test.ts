@@ -5,7 +5,9 @@ import {
   failureReassurance,
   fullProfileGate,
   hasExpert,
+  mayMintPortalLink,
   mayPublishToDrive,
+  MAY_MINT_PORTAL_LINK,
   MAY_PUBLISH_TO_DRIVE,
   PREVIEW_SANDBOX,
 } from './redactionRules'
@@ -68,6 +70,29 @@ describe('who may publish toward the client', () => {
   it('admits nobody outside the declared list', () => {
     const admitted = ALL_ROLES.filter(mayPublishToDrive)
     expect(admitted).toHaveLength(MAY_PUBLISH_TO_DRIVE.length)
+  })
+})
+
+describe('who may mint the client portal link', () => {
+  /** Mirrors `PortalLinkController.MAY_MINT`. Edited with it, or the panel offers a 403. */
+  it('is the two commercial roles, the PM, and the case manager who wrote the draft', () => {
+    expect([...MAY_MINT_PORTAL_LINK].sort())
+      .toEqual(['BRAND_MANAGER', 'CASE_MANAGER', 'GM', 'PROJECT_MANAGER'])
+  })
+
+  /**
+   * The asymmetry against the Drive publish above: the Case Manager may issue a link and may not
+   * file the profile. They are the person a client emails when a link stops working, and re-minting
+   * is the fix.
+   */
+  it('admits the case manager, unlike the Drive publish', () => {
+    expect(mayMintPortalLink('CASE_MANAGER')).toBe(true)
+    expect(mayPublishToDrive('CASE_MANAGER')).toBe(false)
+  })
+
+  it('excludes the coordinator and the expert network manager', () => {
+    expect(mayMintPortalLink('PROJECT_COORDINATOR')).toBe(false)
+    expect(mayMintPortalLink('EXPERT_NETWORK_MANAGER')).toBe(false)
   })
 })
 

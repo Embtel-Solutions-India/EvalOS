@@ -23,7 +23,14 @@ export type CaseDetail = {
     revenueRecognized: boolean
   }
   clientName: string | null
+  /** The client's own document folder. Staff-only — it is never sent to the client portal. */
   driveLink: string | null
+  /**
+   * The drafted letter (Unit 14). What `DraftPanel` links to, and the only link the client's own
+   * portal shows. `driveLink` above is a different thing and is deliberately not a fallback: it is
+   * the folder holding this client's passport scans, whose sharing EvalOS does not control.
+   */
+  draftLink: string | null
   expertName: string | null
   expertTier: string | null
   checklistTotal: number
@@ -49,6 +56,8 @@ export type AuditAction =
   | 'CHASED'
   | 'DELETED'
   | 'EXPORTED'
+  /** A client (or, from Unit 15, an expert) portal link was minted for the case. */
+  | 'PORTAL_LINK_ISSUED'
   | 'LOGIN'
 
 export type TimelineEntry = {
@@ -93,4 +102,25 @@ export async function fetchFullProfile(caseId: string, signal?: AbortSignal): Pr
  */
 export async function fileProfileToDrive(caseId: string): Promise<DriveWriteView> {
   return unwrap<DriveWriteView>(api.post(`/cases/${caseId}/expert-profile/redacted/to-drive`))
+}
+
+/**
+ * The client portal link (Unit 14).
+ *
+ * `openedAt` is when the client first opened it, which is the thing worth knowing before chasing
+ * them. There is deliberately no read that returns the URL of an existing link: the token exists
+ * once, in the response to `mintPortalLink`. Losing it means minting a new one, which revokes the
+ * old.
+ */
+export type PortalLinkStatus = { live: boolean; expiresAt: string | null; openedAt: string | null }
+
+export type MintedLink = { url: string; expiresAt: string }
+
+export async function fetchPortalLink(caseId: string, signal?: AbortSignal): Promise<PortalLinkStatus> {
+  return unwrap<PortalLinkStatus>(api.get(`/cases/${caseId}/portal-link`, { signal }))
+}
+
+/** Re-minting revokes the previous link immediately, which the panel warns about first. */
+export async function mintPortalLink(caseId: string): Promise<MintedLink> {
+  return unwrap<MintedLink>(api.post(`/cases/${caseId}/portal-link`))
 }

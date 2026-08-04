@@ -49,6 +49,12 @@ deliveries both win.
 no-ops: `refund.requested`, `contact.updated`. **`contact.updated` must not route to intake** — intake
 is create-or-update so it would technically work, but an edit in GHL is not a reason to open a case.
 
+**Firing one by hand needs three things at the top level of the body, and two of them are the
+gateway's, not the handler's:** `event_type` (routing — its absence is `400 MISSING_EVENT_TYPE`),
+`event_id` (idempotency), and then the `ContactCreated` fields — where `service_type` is **top-level**
+and the person is nested under `contact` as `full_name` / `ghl_contact_id`. Guessing that shape wrong
+costs a whole live run; the working payload is in `mem:suggested_commands`.
+
 - `GhlContactHandler` parses **then** validates in full before calling the service, so a malformed
   delivery is a 400 GHL will not retry rather than a half-created case. The **payload shape is an
   assumption**, confined to `GhlContactHandler.ContactCreated` so a correction is one file. The

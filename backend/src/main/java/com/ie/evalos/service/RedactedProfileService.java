@@ -125,7 +125,23 @@ public class RedactedProfileService {
 
 	/** The redacted profile for a case already loaded through the scoped read. */
 	private Profile redactedFor(Case subject) {
-		Expert expert = expertOn(subject);
+		return redactedFor(subject, expertOn(subject));
+	}
+
+	/**
+	 * The same document, for a caller who has already authorized both rows themselves.
+	 *
+	 * <p>Exists for the client portal (Unit 14), which has no {@code TenantContext} to scope with:
+	 * its token names one case, and the expert id comes off that case. Taking both rows as
+	 * arguments is what lets the portal reuse this <strong>whitelist</strong> rather than growing a
+	 * second one — the reason {@link #credentials} is a whitelist is that a field added to
+	 * {@code Expert} later must not appear on a client-facing document, and two copies of that rule
+	 * is one copy that goes stale.
+	 *
+	 * <p>Authorization is therefore the caller's, and the only two callers are this class (through
+	 * the scoped reads above) and {@code PortalCaseService} (through the token's own case).
+	 */
+	public Profile redactedFor(Case subject, Expert expert) {
 		String reference = referenceFor(subject.getId(), expert.getId());
 
 		return new Profile(render(reference,
