@@ -1,0 +1,88 @@
+<!doctype html>
+<!--
+  The expert profile, redacted or full (Unit 13).
+
+  Plain HTML with {{placeholder}} substitution, and NO template engine dependency: the
+  document has a fixed structure and a dozen fields, so Thymeleaf/Freemarker would be a
+  dependency to interpolate twelve strings. RedactedProfileService is the only renderer.
+
+  Every {{placeholder}} is HTML-escaped by the service before it lands here, EXCEPT
+  {{identity}} — that one is markup the service assembles from already-escaped parts, and
+  it is empty on the redacted profile. Nothing else in this file may be filled with raw
+  markup: the values are roster fields, and a roster field is whatever the Expert Network
+  Manager typed into it.
+
+  Styling is inline in one <style> block because the two destinations are an iframe with
+  `sandbox` (which loads no external stylesheet) and a Drive upload converted to a Google
+  Doc (which keeps inline structure and drops linked CSS). One block serves both.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>{{heading}}</title>
+<style>
+  body {
+    font-family: Georgia, 'Times New Roman', serif;
+    color: #14161a;
+    line-height: 1.55;
+    max-width: 44rem;
+    margin: 2rem auto;
+    padding: 0 1.5rem;
+  }
+  h1 { font-size: 1.5rem; margin: 0 0 0.25rem; letter-spacing: -0.01em; }
+  .lede { margin: 0 0 1.75rem; color: #5b6270; font-size: 0.9rem; }
+  .identity { margin: 0 0 1.75rem; }
+  .identity p { margin: 0.15rem 0; }
+  dl { margin: 0; }
+  dt {
+    font-family: -apple-system, 'Segoe UI', system-ui, sans-serif;
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: #5b6270;
+    margin-top: 1.1rem;
+  }
+  dd { margin: 0.15rem 0 0; }
+  .foot {
+    margin-top: 2.5rem;
+    padding-top: 1rem;
+    border-top: 1px solid #d8dbe0;
+    color: #5b6270;
+    font-size: 0.78rem;
+  }
+</style>
+</head>
+<body>
+
+<h1>{{heading}}</h1>
+<p class="lede">{{lede}}</p>
+
+{{identity}}
+
+<dl>
+  <dt>Academic rank / title</dt>
+  <dd>{{title}}</dd>
+
+  <dt>Tier</dt>
+  <dd>{{tier}}</dd>
+
+  <dt>Primary fields</dt>
+  <dd>{{primaryFields}}</dd>
+
+  <dt>Secondary fields</dt>
+  <dd>{{secondaryFields}}</dd>
+
+  <dt>Letter types signed</dt>
+  <dd>{{letterTypes}}</dd>
+
+  <dt>Cases completed</dt>
+  <dd>{{casesCompleted}}</dd>
+
+  <dt>Experience</dt>
+  <dd>{{years}}</dd>
+</dl>
+
+<p class="foot">{{footer}}</p>
+
+</body>
+</html>

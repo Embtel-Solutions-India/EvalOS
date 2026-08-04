@@ -7,6 +7,16 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.test.context.TestPropertySource;
+
 import com.ie.evalos.domain.AuditAction;
 import com.ie.evalos.domain.AuditEvent;
 import com.ie.evalos.domain.Brand;
@@ -30,17 +40,6 @@ import com.ie.evalos.domain.WebhookSource;
 import com.ie.evalos.security.TenantContext;
 import com.ie.evalos.service.AuditService;
 import com.ie.evalos.service.ExpertLoadService;
-
-import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.data.domain.PageRequest;
-import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.test.context.TestPropertySource;
-
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * The acceptance evidence for Unit 03 that only a real PostgreSQL can produce:
@@ -718,7 +717,7 @@ class LocalPostgresIntegrationTest {
 				OfferOutcome.OFFERED, 1L));
 
 		// 3 of the 5 rows count: 2 ACCEPTED + 1 DECLINED. SUPERSEDED and OFFERED are excluded.
-		long countable = byOutcome.entrySet().stream()
+			long countable = byOutcome.entrySet().stream()
 				.filter(entry -> entry.getKey().countsTowardAcceptanceRate())
 				.mapToLong(Map.Entry::getValue).sum();
 		assertThat(countable).isEqualTo(3);

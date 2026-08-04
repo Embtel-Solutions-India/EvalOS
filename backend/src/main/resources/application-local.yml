@@ -23,3 +23,10 @@ evalos:
     # base64('local-dev-field-key-not-for-prod'). Throwaway: rows encrypted with
     # it are local rows, and a real key never appears in this file.
     field-key: ${EVALOS_FIELD_KEY:bG9jYWwtZGV2LWZpZWxkLWtleS1ub3QtZm9yLXByb2Q=}
+  drive:
+    # The one profile allowed to run without Google Drive credentials, so the whole app
+    # — every other route included — starts on a laptop with no service-account key.
+    # The redacted and full profiles are generated locally and served as normal; only
+    # the Drive write answers 502, saying it is not configured. Set GOOGLE_DRIVE_KEY_JSON
+    # in the environment to exercise the real upload from here.
+    required: ${DRIVE_REQUIRED:false}

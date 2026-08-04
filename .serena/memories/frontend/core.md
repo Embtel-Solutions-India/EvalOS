@@ -54,7 +54,8 @@ absence so they are not re-added.
 ## Per-feature shape
 
 Each feature folder is `<Screen>.tsx` + `<feature>Api.ts` + an optional `<feature>Rules.ts` holding
-the pure logic and the types (`boardRules`, `checklistRules`, `expertRules`). The rules module is what
+the pure logic and the types (`boardRules`, `checklistRules`, `expertRules`, `shortlistRules`,
+`redactionRules`). The rules module is what
 carries a vitest file; components are not render-tested (no jsdom, no Testing Library — see
 `mem:tech_stack`). Async UI state is a discriminated union, and every fetch effect uses an
 `AbortController` because `StrictMode` double-invokes effects in dev.
@@ -63,6 +64,19 @@ Where a rules module mirrors a backend vocabulary (`QUICK_ACTIONS` ↔ the trans
 `LETTER_TYPES` ↔ `domain/FieldTag` + `V18`'s CHECKs) the duplication is deliberate — the UI has to
 offer the closed list rather than let it be typed — and **the two move together or the API starts
 rejecting what the screen offered**.
+
+`redactionRules`/`RedactedProfilePanel` (Unit 13, in `features/case/`, mounted under `ExpertCard` on
+the case detail) refuses it for the same reason and a sharper stake: **no redaction happens in the
+browser.** The profile HTML arrives fully rendered from `service/RedactedProfileService`, whose
+whitelist is the only thing that decides what may appear — a second opinion about "is this anonymous"
+is a second answer, and the one that loses is the one that leaked. Three things to keep if you touch
+it: the preview is an **iframe with an empty `sandbox`** (empty is the *strongest* value — it
+withholds every capability — and a test asserts it precisely because it looks like an oversight
+somebody would "fix" by adding `allow-scripts`), `srcDoc` rather than a blob URL so nothing is written
+anywhere; `MAY_PUBLISH_TO_DRIVE` must equal `ExpertProfileController.toDrive`'s `@PreAuthorize`, and
+the Case Manager's absence from it is deliberate — they read both profiles and publish neither; and
+the Drive link is **not pre-checked** client-side, because restating a server rule is the copy that
+goes stale (the Unit 10 lesson) — the 409 names the unusable link.
 
 `shortlistRules`/`ShortlistPanel` (Unit 12) is the one place that duplication is **refused**: there is
 deliberately no client-side scoring. The ranking and its factor breakdown come from the server, so

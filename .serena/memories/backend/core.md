@@ -4,8 +4,9 @@ Spring Boot 3.5.16 / Java 21, base package `com.ie.evalos`, Maven Wrapper commit
 05a (all of Phase 1) and Units 11–12 are built**: config + response envelope, the tenancy/auth/RBAC
 spine, the domain schema, the case state machine + SLA, the inbound webhook gateway with Handoff A,
 the staff notification centre, the board/case-detail/checklist reads behind four frontend surfaces,
-the expert database + sheet upload, and the assist-mode match scorer. Unit 13 (Google Drive) is next.
-See `mem:core` for counts and the phase map.
+the expert database + sheet upload, and the assist-mode match scorer. **Unit 13 (redacted expert
+profile + the first outbound Google Drive client) is code-complete, with its manual live upload
+still owed** — see `mem:core`. Unit 14 is next. See `mem:core` for counts and the phase map.
 
 ## Package boundaries (all under `com.ie.evalos`)
 
@@ -16,11 +17,18 @@ route) · `event` (domain events + outbound HMAC dispatcher) · `job` (`@Schedul
 `notification` (in-app staff center) · `security` · `common` (envelope, encryption converter, error
 types) · `config`.
 
-`web`/`service`/`domain`/`repository`/`security`/`common`/`webhook`/`event`/`notification` are
-populated; `integration` and `job` are still empty `.gitkeep` placeholders. Put code in the package
-that matches the concern — controllers never hold logic, entities never leave the service layer (map
-to DTOs). `notification/NotificationListeners` is the only subscriber to `event` so far; the outbound
-dispatcher (Unit 18) is the next.
+`web`/`service`/`domain`/`repository`/`security`/`common`/`webhook`/`event`/`notification` and — since
+Unit 13 — `integration` are populated; **`job` is still an empty `.gitkeep` placeholder**. Put code in
+the package that matches the concern — controllers never hold logic, entities never leave the service
+layer (map to DTOs). `notification/NotificationListeners` is the only subscriber to `event` so far;
+the outbound dispatcher (Unit 18) is the next.
+
+`integration` holds `GoogleDriveClient` + `DriveUnavailableException` (Unit 13), the first outbound
+client. The pattern it sets for the GHL and Dropbox Sign clients still to come: **one narrow
+capability, not an SDK wrapper**; a bounded request with an explicit timeout, because these are called
+from controller-triggered paths and invariant 6 forbids long-lived work there; and a failure that is a
+**502 changing nothing in EvalOS** rather than a partially-applied state. If a call stops fitting in
+one bounded request it moves to `job` (Unit 19), which is where that rule points.
 
 ## Response envelope — non-negotiable
 
@@ -33,7 +41,9 @@ used to fall through to the catch-all and answer **500**; the message names the 
 never echoes Jackson's, which quotes the payload and lists every legal value),
 `InvalidRequestException` (400, message returned — same "may not be an existence oracle" rule as
 `IllegalTransitionException`), `MaxUploadSizeExceededException` (400), auth (401), forbidden (403),
-`IllegalTransitionException` (409), webhook rejection (its own status), catch-all (500). The
+`IllegalTransitionException` (409), webhook rejection (its own status),
+`DriveUnavailableException` (**502** — an upstream fault, so the caller retries rather than reports a
+bug; Unit 13), catch-all (500). The
 frontend's typed mirror lives in `frontend/src/lib/api.ts`.
 
 ## Config & schema
@@ -43,6 +53,18 @@ frontend's typed mirror lives in `frontend/src/lib/api.ts`.
   `EVALOS_FIELD_KEY`. **No secret is ever committed.** `prod` has no defaults at all; `local`
   supplies localhost fallbacks (`postgres`/`1234`@5432, db `evalos`) plus dev-only fallbacks for the
   two keys. `spring.profiles.default: local`.
+- **`evalos.drive.*` (Unit 13).** `key-json` (`GOOGLE_DRIVE_KEY_JSON`, inline JSON) and
+  `credentials-path` (`GOOGLE_APPLICATION_CREDENTIALS`) both default to **empty**, and
+  `required` — true in `application.yml`, restated in `prod`, **false only in `local`** — is what
+  makes a missing key fatal. Deliberately not an unresolvable placeholder like `EVALOS_FIELD_KEY`:
+  that could only ever demand one specific variable, so setting the other would fail the boot.
+  `GoogleDriveConfig`'s **constructor** throws, so the context does not come up, and the key is read
+  at startup so an unreadable path also fails there rather than at the first upload. Also
+  `scope` (defaults to `drive.file`; the `.../auth/drive` fallback is a property, not a code change)
+  and `timeout` (20s). **`local` is the only profile that runs without a key** — every route works
+  and only the Drive write answers 502.
+  A `@WebMvcTest` slice never loads `GoogleDriveConfig`, so **only the gated DB run proves these keys
+  bind**; a typo here is invisible to `verify` alone.
 - `ddl-auto: validate`, `open-in-view: false` — do not relax either. Hibernate never touches schema.
 - Flyway `classpath:db/migration`: `V1` pgcrypto · `V2` brand · `V3` team_member · `V4`
   contact_snapshot · `V5` evalos_case · `V6` document_checklist_item · `V7` expert (+ the deferred

@@ -24,5 +24,18 @@ public enum AuditAction {
 	 * {@code UPDATED} rows are written as well, so the trail answers both "what happened
 	 * to this expert" and "where did fifty experts come from at once".
 	 */
-	IMPORTED
+	IMPORTED,
+	/**
+	 * A generated document left EvalOS (Unit 13: the redacted expert profile written into
+	 * the case's Google Drive folder).
+	 *
+	 * <p>Its own action rather than an {@code UPDATED} row, because nothing about the case
+	 * changed — a document was published toward the client, which is the fact worth a
+	 * permanent record. The snapshot carries the Drive file and folder ids, so the trail
+	 * answers "which document, and where did it go" and not merely "something was exported".
+	 *
+	 * <p>The frontend's {@code AuditAction} union and {@code Timeline}'s label map already
+	 * carried this value before anything wrote it.
+	 */
+	EXPORTED
 }

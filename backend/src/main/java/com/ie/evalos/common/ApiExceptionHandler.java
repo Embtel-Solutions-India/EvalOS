@@ -2,6 +2,7 @@ package com.ie.evalos.common;
 
 import com.fasterxml.jackson.databind.exc.InvalidFormatException;
 import com.ie.evalos.domain.IllegalTransitionException;
+import com.ie.evalos.integration.DriveUnavailableException;
 import com.ie.evalos.webhook.WebhookRejected;
 
 import org.slf4j.Logger;
@@ -122,6 +123,26 @@ public class ApiExceptionHandler {
 	@ExceptionHandler(WebhookRejected.class)
 	public ResponseEntity<ApiResponse<Void>> onWebhookRejected(WebhookRejected ex) {
 		return ResponseEntity.status(ex.status()).body(ApiResponse.error(ex.code(), ex.getMessage()));
+	}
+
+	/**
+	 * Google Drive did not take the document (Unit 13).
+	 *
+	 * <p>502 rather than 500, because the fault is upstream and the distinction is what tells
+	 * the PM to try again instead of reporting a bug. The message is the exception's own and
+	 * is deliberately incapable of naming a case or a folder — the client already knows which
+	 * case it asked about, and the folder id is in the log, where the person who has to go and
+	 * fix the sharing can find it.
+	 *
+	 * <p><strong>Nothing in EvalOS changed.</strong> The profile is generated from the roster
+	 * row on every request, so there is nothing to roll back, and the audit row is written
+	 * only after a successful upload.
+	 */
+	@ExceptionHandler(DriveUnavailableException.class)
+	public ResponseEntity<ApiResponse<Void>> onDriveUnavailable(DriveUnavailableException ex) {
+		log.error("Google Drive write failed", ex);
+		return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
+				.body(ApiResponse.error("DRIVE_UNAVAILABLE", ex.getMessage()));
 	}
 
 	@ExceptionHandler({ AccessDeniedException.class, ForbiddenException.class })

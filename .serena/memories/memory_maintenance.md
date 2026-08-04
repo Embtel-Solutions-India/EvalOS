@@ -27,6 +27,24 @@ Keep guidance durable and generalizable, not task-local.
 Add or update memories only with stable, non-obvious project conventions that avoid complex rediscovery in the future.
 Do not add: quick-read facts; generic language/framework knowledge; one-off task notes; volatile line-level details; behavior likely to change soon.
 
+## Update cadence (non-optional)
+
+Every meaningful codebase change updates the memories it invalidated, in the same step as the code —
+not "later". A memory that still describes replaced behavior is worse than no memory, because it is
+trusted. Routing:
+
+- backend domain/services → `mem:backend/core`; case lifecycle + transitions → `mem:backend/lifecycle`
+- entities, migrations, repositories, converters → `mem:backend/persistence`
+- auth, roles, scoping, encryption → `mem:backend/security`; GHL/Dropbox Sign edges → `mem:backend/webhooks`
+- frontend structure/conventions → `mem:frontend/core`
+- stack or dependency change → `mem:tech_stack`; command change → `mem:suggested_commands`
+- convention change → `mem:conventions`; verification-step change → `mem:task_completion`
+- a new domain large enough to stand alone → new memory, linked from `mem:core`
+
+**Changed decisions are edits, not additions.** Rewrite the statement that is now wrong; never append
+a contradicting note beside it. The add/update threshold above still gates what earns a memory at all —
+a change to task-local detail earns nothing.
+
 ## Maintenance Actions
 
 - Renaming memories: References are updated automatically if handled via Serena's memory rename tool.

@@ -19,7 +19,8 @@ a dependency only in the unit where it first unlocks real behavior.
 - oxlint (not ESLint) — config `frontend/.oxlintrc.json`, plugins react/typescript/oxc.
 - axios for HTTP. No state-management or data-fetching library. **Vitest is installed**
   (`npm run test` → `vitest run`) and is used for pure rules modules — `boardRules`,
-  `checklistRules`, `navigation`, `expertRules` — not for component rendering: there is no
+  `checklistRules`, `navigation`, `expertRules`, `shortlistRules`, `redactionRules` — not for
+  component rendering: there is no
   jsdom/Testing Library, so a component's behaviour is still verified by typecheck + lint + running
   it.
 - Planned but not installed: shadcn/ui-style Radix primitives, Lucide icons.
@@ -40,6 +41,15 @@ a dependency only in the unit where it first unlocks real behavior.
   ~50 KB and was bought on instruction so an ENM can upload `.xlsx` straight from Excel; both feed
   one validator, so nothing downstream knows which format arrived. Note commons-csv 1.12 uses
   `CSVFormat.DEFAULT.builder()…build()` — `.get()` is 1.13+.
+- **Google Drive, Unit 13: `google-api-services-drive` `v3-rev20260428-2.0.0` +
+  `google-auth-library-oauth2-http` 1.48.0.** Only `integration/GoogleDriveClient` and
+  `config/GoogleDriveConfig` touch either. **No PDF library accompanies them and none should be
+  added**: the profile HTML is uploaded with a target mime type of
+  `application/vnd.google-apps.document` so Drive converts it to a Doc, and Drive's own export
+  produces a PDF from that — `openhtmltopdf`/PDFBox would duplicate a feature of an integration
+  already present. Credentials are provisioned, not coded: `GOOGLE_DRIVE_KEY_JSON` or
+  `GOOGLE_APPLICATION_CREDENTIALS`, with `evalos.drive.required` making a missing key a **boot
+  failure** outside `local`.
 - **No Lombok and no Testcontainers** — both dropped from the Initializr default in Unit 01 (records +
   constructor injection instead of Lombok). There is no Docker on this machine, so DB-dependent tests
   are gated rather than containerised. Boot 4 was deliberately downgraded to 3.x per the unit spec.

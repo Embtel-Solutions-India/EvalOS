@@ -8,6 +8,7 @@ import type { QuickAction } from '../board/boardRules'
 import DocumentsPanel from './DocumentsPanel'
 import DraftPanel from './DraftPanel'
 import ExpertCard from './ExpertCard'
+import RedactedProfilePanel from './RedactedProfilePanel'
 import StageActions from './StageActions'
 import StrategyNotes from './StrategyNotes'
 import Timeline from './Timeline'
@@ -153,6 +154,12 @@ export default function CaseDetailPage() {
           <DocumentsPanel detail={detail} />
           <DraftPanel detail={detail} />
           <ExpertCard detail={detail} />
+          {/*
+            Directly beneath the ExpertCard, which names the expert to staff. This one is the
+            document for somebody who must not know that name — the two belong side by side so
+            the difference between the internal view and the client's is visible at a glance.
+          */}
+          <RedactedProfilePanel detail={detail} role={me.role} />
           <StrategyNotes detail={detail} onSave={onSaveNotes} />
         </div>
 

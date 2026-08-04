@@ -1,5 +1,6 @@
 import { api, unwrap } from '../../lib/api'
 import type { BoardCard } from '../board/boardRules'
+import type { DriveWriteView, ProfileView } from './redactionRules'
 
 /**
  * The case detail reads and its one write.
@@ -71,4 +72,25 @@ export async function fetchTimeline(caseId: string, signal?: AbortSignal): Promi
 /** PATCH, not POST: this changes a field, not the case's state. */
 export async function saveStrategyNotes(caseId: string, pmStrategyNotes: string): Promise<CaseDetail> {
   return unwrap<CaseDetail>(api.patch(`/cases/${caseId}/strategy-notes`, { pmStrategyNotes }))
+}
+
+/**
+ * The expert profile (Unit 13). Generated on demand and stored nowhere, so these are reads
+ * with no cache: the document reflects the roster row as it is now, which is the point.
+ */
+export async function fetchRedactedProfile(caseId: string, signal?: AbortSignal): Promise<ProfileView> {
+  return unwrap<ProfileView>(api.get(`/cases/${caseId}/expert-profile/redacted`, { signal }))
+}
+
+/** 409 unless the case is paid — the panel shows the server's own reason. */
+export async function fetchFullProfile(caseId: string, signal?: AbortSignal): Promise<ProfileView> {
+  return unwrap<ProfileView>(api.get(`/cases/${caseId}/expert-profile/full`, { signal }))
+}
+
+/**
+ * A POST because it has an outward effect: a document appears in a folder the client can be
+ * pointed at, and the server audits it.
+ */
+export async function fileProfileToDrive(caseId: string): Promise<DriveWriteView> {
+  return unwrap<DriveWriteView>(api.post(`/cases/${caseId}/expert-profile/redacted/to-drive`))
 }

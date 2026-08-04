@@ -42,6 +42,31 @@ evalos:
     # name, not a secret, and GHL's actual header is not yet confirmed — point this
     # at the real one when it is, without a code change.
     signature-header: ${WEBHOOK_SIGNATURE_HEADER:X-Evalos-Signature}
+  drive:
+    # Google service-account credentials for the Drive write (Unit 13). Two sources
+    # because a container secret and a mounted volume take different shapes; inline
+    # wins if both are set. Both default to empty rather than being absent, so that
+    # setting *either* one starts the app — the "an environment that forgets it must
+    # fail to start" rule is enforced by `required` below instead of by an
+    # unresolvable placeholder, which could only ever demand one specific variable.
+    key-json: ${GOOGLE_DRIVE_KEY_JSON:}
+    credentials-path: ${GOOGLE_APPLICATION_CREDENTIALS:}
+    # True here and false only on `local`. GoogleDriveConfig refuses to build the
+    # context when this is true and neither source above is set, which is the same
+    # rule EVALOS_FIELD_KEY and JWT_SECRET set: a deployed environment that forgets
+    # the key must fail to start, not start and then fail at the first upload in
+    # front of a waiting client.
+    required: ${DRIVE_REQUIRED:true}
+    # drive.file is least privilege: create files, and reach nothing the app did not
+    # create or was not explicitly given. If the live upload ever answers 403 on a
+    # correctly-shared folder, the fallback is
+    # https://www.googleapis.com/auth/drive — a property, not a code change, because
+    # the person debugging that has an environment and not a build.
+    scope: ${DRIVE_SCOPE:https://www.googleapis.com/auth/drive.file}
+    # Connect and read timeout on the upload. It runs in a controller-triggered path,
+    # so a bound is what keeps it "one bounded request" rather than long-lived work
+    # (invariant 6). If it stops fitting, the upload moves to `job` (Unit 19).
+    timeout: ${DRIVE_TIMEOUT:20s}
 
 server:
   port: ${SERVER_PORT:8080}

@@ -78,6 +78,19 @@ Update the relevant context file whenever implementation changes:
 - Feature scope → `project-overview.md`
 - A decision that changes the design → the TDD as well
 
+Also update the **Serena memories** (`.serena/memories/`) in the same step, so the
+next session starts from the current picture instead of rediscovering it:
+- Backend domain, lifecycle, persistence, security, webhooks → `backend/*`
+- Frontend structure and conventions → `frontend/core`
+- Stack or tooling change → `tech_stack` / `suggested_commands`
+- Convention change → `conventions`; verification-step change → `task_completion`
+- New domain worth its own memory → add it and link it from `core`
+
+A changed decision means **editing the existing memory**, never appending a
+contradicting note beside it — a memory that disagrees with the code is worse
+than no memory. Respect the add/update threshold in the `memory_maintenance`
+memory: durable, non-obvious conventions only, never task-local notes.
+
 ## Before Moving to the Next Unit
 
 1. The unit works end to end within its defined scope.
@@ -88,3 +101,5 @@ Update the relevant context file whenever implementation changes:
 3. `progress-tracker.md` reflects the completed work.
 4. Backend `./mvnw verify` passes and the app starts cleanly; frontend
    `npm run build` passes with no TypeScript or console errors.
+5. The Serena memories affected by the unit are updated (see *Keeping Docs in
+   Sync*), and none of them still describes the old behavior.
