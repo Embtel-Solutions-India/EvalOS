@@ -96,7 +96,14 @@ public class GoogleDriveClient {
 
 			return new Uploaded(created.getId(), created.getWebViewLink());
 		}
-		catch (IOException | RuntimeException ex) {
+		// IOException only, deliberately narrow. The Google client signals everything that
+		// is genuinely Drive's fault this way — GoogleJsonResponseException for a refused
+		// request, HttpResponseException and SocketTimeoutException for transport and for
+		// the timeout set in GoogleDriveConfig — so this catch covers exactly the cases a
+		// 502 describes. A RuntimeException from here is our bug, not Drive's, and it is
+		// left to propagate: answering 502 would tell the PM to retry something no retry
+		// can fix, and hide a defect behind an upstream-fault status.
+		catch (IOException ex) {
 			// The folder id is logged because it is the thing a human has to go and look
 			// at; the case is logged by the caller, which knows it. Nothing about the
 			// expert is logged — this document is a redaction and a log line is a copy.

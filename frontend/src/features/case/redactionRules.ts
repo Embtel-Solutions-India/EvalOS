@@ -59,6 +59,32 @@ export function fullProfileGate(detail: CaseDetail): { released: boolean; reason
 }
 
 /**
+ * Which of the panel's two operations failed. A read generates a document and changes nothing;
+ * the Drive write puts a file in a folder the client can see.
+ */
+export type FailedOperation = 'read' | 'driveWrite'
+
+/**
+ * What to tell the reader after a failure, beyond the server's own message.
+ *
+ * **"Nothing was changed" is only true of the reads.** That phrase was introduced for read
+ * failures (Unit 08's board panel) precisely because it is unconditionally true there — a failed
+ * generate leaves nothing behind. Reusing it on the Drive write would state something the write
+ * path cannot promise: the upload happens *before* the audit row, so an upload that succeeds and
+ * an audit write that then fails leaves a real document in the client's folder while EvalOS
+ * reports an error. `RedactedProfileService.writeRedactedToDrive` names that window as its
+ * accepted residual risk, so the UI must not deny it.
+ *
+ * Held here rather than inline for the reason `boardRules.allInsideSla` exists: a display branch
+ * that can be wrong is a display branch worth testing.
+ */
+export function failureReassurance(operation: FailedOperation): string {
+  return operation === 'read'
+    ? 'Nothing was changed.'
+    : 'Check the folder before retrying — a failed write can still have left a document there.'
+}
+
+/**
  * The `sandbox` attribute for the preview frame.
  *
  * Empty on purpose, and that is the strongest value: it withholds every capability, so the

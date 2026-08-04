@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { Role } from '../../lib/session'
 import type { CaseDetail } from './caseApi'
 import {
+  failureReassurance,
   fullProfileGate,
   hasExpert,
   mayPublishToDrive,
@@ -92,6 +93,30 @@ describe('whether there is anything to generate', () => {
   it('needs an assigned expert', () => {
     expect(hasExpert(detail({ expertId: 'expert-1' }))).toBe(true)
     expect(hasExpert(detail({ expertId: null }))).toBe(false)
+  })
+})
+
+describe('what a failure may promise', () => {
+  /**
+   * True unconditionally for a read: the profile is generated on demand, so a failed generate
+   * leaves nothing behind.
+   */
+  it('tells a read failure that nothing changed', () => {
+    expect(failureReassurance('read')).toBe('Nothing was changed.')
+  })
+
+  /**
+   * The load-bearing half. The Drive write uploads BEFORE it writes its audit row, so an upload
+   * that succeeds and an audit write that then fails leaves a real document in the client's
+   * folder while EvalOS reports an error. Claiming "nothing was changed" there would deny a side
+   * effect the server itself documents as its accepted residual risk.
+   */
+  it('never claims nothing changed after a failed Drive write', () => {
+    expect(failureReassurance('driveWrite')).not.toMatch(/nothing was changed/i)
+  })
+
+  it('points a failed Drive write at the folder, which is the actionable thing', () => {
+    expect(failureReassurance('driveWrite')).toMatch(/folder/i)
   })
 })
 

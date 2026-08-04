@@ -7,11 +7,13 @@ import {
   type CaseDetail,
 } from './caseApi'
 import {
+  failureReassurance,
   fullProfileGate,
   hasExpert,
   mayPublishToDrive,
   PREVIEW_SANDBOX,
   type DriveWriteView,
+  type FailedOperation,
   type ProfileView,
 } from './redactionRules'
 
@@ -30,6 +32,12 @@ import {
 
 type Loaded = { which: 'redacted' | 'full'; profile: ProfileView }
 
+/**
+ * The failure carries which operation produced it, because what can be promised afterwards
+ * differs between the two — see `failureReassurance`.
+ */
+type Failure = { message: string; operation: FailedOperation }
+
 export default function RedactedProfilePanel({
   detail,
   role,
@@ -40,7 +48,7 @@ export default function RedactedProfilePanel({
   const [loaded, setLoaded] = useState<Loaded | null>(null)
   const [filed, setFiled] = useState<DriveWriteView | null>(null)
   const [busy, setBusy] = useState<'redacted' | 'full' | 'drive' | null>(null)
-  const [error, setError] = useState<string | null>(null)
+  const [failure, setFailure] = useState<Failure | null>(null)
 
   const gate = fullProfileGate(detail)
   const assigned = hasExpert(detail)
@@ -48,14 +56,18 @@ export default function RedactedProfilePanel({
 
   const show = useCallback(async (which: 'redacted' | 'full') => {
     setBusy(which)
-    setError(null)
+    setFailure(null)
     try {
       const profile = which === 'redacted' ? await fetchRedactedProfile(detail.summary.id) : await fetchFullProfile(detail.summary.id)
       setLoaded({ which, profile })
     } catch (caught: unknown) {
       // The server's own reason, lifted onto the Error by the api interceptor — it names
       // which precondition failed (unpaid, no expert), which no client copy has to restate.
-      setError(caught instanceof Error ? caught.message : 'That profile could not be generated')
+      setFailure({
+        message: caught instanceof Error ? caught.message : 'That profile could not be generated',
+        // A read: the document is generated on demand, so a failure leaves nothing behind.
+        operation: 'read',
+      })
     } finally {
       setBusy(null)
     }
@@ -63,14 +75,19 @@ export default function RedactedProfilePanel({
 
   const fileToDrive = useCallback(async () => {
     setBusy('drive')
-    setError(null)
+    setFailure(null)
     try {
       setFiled(await fileProfileToDrive(detail.summary.id))
     } catch (caught: unknown) {
       // A 409 names the unusable Drive link and a 502 says Drive refused. Both are shown as
       // sent: the panel deliberately does not pre-check the link, because restating a server
       // rule in the client is the copy that goes stale (the Unit 10 lesson).
-      setError(caught instanceof Error ? caught.message : 'The profile could not be filed to Drive')
+      setFailure({
+        message: caught instanceof Error ? caught.message : 'The profile could not be filed to Drive',
+        // A write, and one whose upload precedes its audit row — so unlike the reads above,
+        // this cannot promise that nothing landed. See failureReassurance.
+        operation: 'driveWrite',
+      })
     } finally {
       setBusy(null)
     }
@@ -166,9 +183,9 @@ export default function RedactedProfilePanel({
             </p>
           )}
 
-          {error && (
+          {failure && (
             <p className="mt-2 text-xs" style={{ color: 'var(--status-red)' }}>
-              {error} Nothing was changed.
+              {failure.message} {failureReassurance(failure.operation)}
             </p>
           )}
 
