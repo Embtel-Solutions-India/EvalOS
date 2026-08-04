@@ -52,6 +52,15 @@ public class PortalTokenFilter extends OncePerRequestFilter {
 	 * EvalOS runs single-instance at the NFR's stated scale; move this to Redis or to a gateway
 	 * limit if that changes. The map is bounded by the number of distinct callers inside one
 	 * minute and is emptied on the roll, so it cannot grow without limit.
+	 *
+	 * <p><strong>The second ceiling is the key, and it is a deployment setting rather than a code
+	 * one.</strong> {@code getRemoteAddr()} is the immediate peer, so behind a reverse proxy every
+	 * client resolves to the proxy and the whole budget is shared — one busy client would 429 the
+	 * rest. A proxied environment must set {@code server.forward-headers-strategy=framework}
+	 * ({@code FORWARD_HEADERS_STRATEGY} in {@code application.yml}), which makes Spring resolve the
+	 * real client address before this filter sees it. It defaults to {@code none} deliberately: with
+	 * no proxy in front, trusting {@code X-Forwarded-For} would let any caller spoof a fresh address
+	 * per request and bypass this limit entirely.
 	 */
 	private final Map<String, Integer> hits = new ConcurrentHashMap<>();
 

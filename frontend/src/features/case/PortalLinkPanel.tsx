@@ -84,11 +84,15 @@ export default function PortalLinkPanel({ detail, role }: { detail: CaseDetail; 
         <Row label="Expires">
           {status?.expiresAt ? <When at={status.expiresAt} /> : '—'}
         </Row>
-        <Row label="Opened by the client">
+        {/*
+          "Last opened", not "opened": the value is the token's own last-seen and moves on every
+          visit. Labelling it "Opened" would read as first-contact, which is the case's separate
+          `client_portal_read_at` and is not shown here.
+        */}
+        <Row label="Last opened by the client">
           {/*
-            The token's own last-seen, which moves on every visit. "Never" is the answer that
-            actually changes what a case manager does next, so it is drawn as a state rather than a
-            dash.
+            "Never" is the answer that actually changes what a case manager does next, so it is
+            drawn as a state rather than a dash.
           */}
           {status?.openedAt ? <When at={status.openedAt} /> : <span>never</span>}
         </Row>

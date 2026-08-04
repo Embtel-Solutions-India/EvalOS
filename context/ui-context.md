@@ -115,9 +115,10 @@ then, and that is the point at which `ui/` is created and becomes protected (see
 - **Client portal** (built in Unit 14): single centered column, one case, the
   drafted letter with big Approve / Request revisions actions and a visible
   "changes requested" note field.
-  - **No shell, no nav, no brand switcher, and no auth provider** — mounted from
-    `main.tsx` rather than inside `App`, because a client is not a staff user with
-    fewer links. Same tokens, same typography; the difference is what is absent.
+  - **No shell, no nav, no brand switcher, and no auth provider** — `App` answers
+    `/portal/*` before any staff-session code runs, and mounts `AuthProvider`
+    around the staff surface only. A client is not a staff user with fewer links.
+    Same tokens, same typography; the difference is what is absent.
   - **Both actions confirm inline before firing**, with wording that says what
     happens next — approving commits the letter to an expert's signature, and a
     revision request puts a person to work. After either, the actions are gone and

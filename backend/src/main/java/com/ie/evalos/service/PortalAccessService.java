@@ -83,9 +83,16 @@ public class PortalAccessService {
 	 * <p><strong>Re-minting revokes the previous token, inside this transaction.</strong> A client
 	 * who says "the link doesn't work" gets a new one and the old one stops working immediately —
 	 * otherwise every support request permanently widens the number of live credentials pointing
-	 * at one case. This is also where "one live token per case per audience" is enforced, because
-	 * it cannot be an index: a partial unique predicate would need {@code now()}, which is not
-	 * immutable (see V21).
+	 * at one case.
+	 *
+	 * <p><strong>The invariant is the database's, not this method's.</strong> {@code V23} adds a
+	 * partial unique index on {@code (case_id, audience) WHERE revoked_at IS NULL}, so two concurrent
+	 * mints cannot both succeed — the loser's transaction rolls back instead of leaving two live
+	 * credentials for one case. Revoking below is what keeps the winner legal, not what enforces the
+	 * rule; a lookup followed by an insert is a check-then-act, and this codebase fixes those with a
+	 * constraint (the {@code V15}/{@code V16} lesson). V21's header claims this could not be an
+	 * index because the predicate needs {@code now()} — V23's header explains why that did not
+	 * follow.
 	 *
 	 * <p>The case is loaded through the scoped read, so another brand's case — or, for a Case
 	 * Manager, one that is not theirs — cannot have a link minted for it. The brand on the token
@@ -99,7 +106,7 @@ public class PortalAccessService {
 		Case subject = cases.load(caseId);
 		Instant now = Instant.now();
 
-		revokeLive(subject.getId(), audience, now);
+		retirePrevious(subject.getId(), audience, now);
 
 		String token = freshToken();
 		PortalAccess minted = tokens.save(new PortalAccess(
@@ -113,9 +120,19 @@ public class PortalAccessService {
 		return new MintedLink(urlFor(audience, token), minted.getExpiresAt());
 	}
 
-	private void revokeLive(UUID caseId, PortalAudience audience, Instant now) {
+	/**
+	 * Stamps {@code revoked_at} on every row this mint supersedes — <strong>not only the live
+	 * ones</strong>.
+	 *
+	 * <p>An already-expired row is dead either way ({@code isLive} checks both fields), so retiring
+	 * it changes nothing about who may read a token. It matters because it is what makes
+	 * "at most one unrevoked row per case and audience" true, which is the form of the invariant
+	 * V23's index can enforce without a clock. Leaving expired rows unrevoked would collide with that
+	 * index the next time a link was minted after a natural expiry.
+	 */
+	private void retirePrevious(UUID caseId, PortalAudience audience, Instant now) {
 		for (PortalAccess existing : tokens.findByCaseIdAndAudienceOrderByCreatedAtDesc(caseId, audience)) {
-			if (existing.isLive(now)) {
+			if (existing.getRevokedAt() == null) {
 				existing.revoke(now);
 				tokens.save(existing);
 			}

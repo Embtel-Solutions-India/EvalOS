@@ -15,6 +15,7 @@ npm-debug.log*
 # IDE / editor
 .idea/
 .vscode/
+.VSCodeCounter/
 *.iml
 *.iws
 *.ipr

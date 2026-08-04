@@ -17,11 +17,11 @@ Update this file after every meaningful implementation change.
   The build plan's `## Phase 3`
   heading used to sit above Unit 17 and contradict its own roadmap line; the heading moved to
   Unit 18, so Dashboards is Phase 2 wherever you read it.
-- **Verified, not just written.** All **336** backend tests execute with none skipped — the
+- **Verified, not just written.** All **343** backend tests execute with none skipped — the
   26 DB-backed ones included — plus 101 frontend tests, and CI runs the DB suite against a real
   Postgres on every push. (It was 183 backend / 44 frontend at the end of Phase 1, 229/61
-  after Unit 11, 260/73 after Unit 12, and 305/81 after Unit 13.) See the Unit 14 entry at the end of
-  Completed.
+  after Unit 11, 260/73 after Unit 12, 305/81 after Unit 13, and 336/101 when Unit 14 landed —
+  343 after its code review.) See the Unit 14 entry and the review section after it.
 - **EvalOS now has a second authenticated surface.** Unit 14 added the link-based portal filter chain
   beside the staff one, so "a caller" is no longer always a `StaffPrincipal` and
   `TenantContext.find()` is legitimately empty on some requests. Read `architecture.md`'s auth section
@@ -1688,6 +1688,78 @@ for:
     signing in as the GM lands on `/dashboard` with the shell, nav, brand switcher and bell, and the
     case detail renders with the new panel in place. Console clean on the portal load and on the case
     detail.
+
+### Unit 14 code review — five findings fixed, and the one that was a false alarm
+
+A five-lens review of PR #12 (CLAUDE.md adherence, bug scan, git history, prior-PR feedback, comment
+contracts). Two findings scored high enough to be posted on the PR; three more were raised below the
+reporting bar and are fixed here anyway, because all five are real. **No finding touched brand
+scoping, the whitelist, the two chains or append-only** — those held under tracing.
+
+Three were the same defect class this repo keeps finding: **a comment stating something the code does
+not do.**
+
+- **`context/ui-context.md` and `PortalRoot.tsx` both said the portal is "mounted from `main.tsx`".**
+  It is mounted in `App.tsx`; that was fixed while the unit was still open, and two descriptions of
+  the old design survived — including one in a context file, which `CLAUDE.md` requires to "stay
+  consistent". `progress-tracker.md` and `.serena/memories/frontend/core.md` had the right story, so
+  the repo contradicted itself in three places about one line of code. Both corrected.
+- **`caseApi.ts` documented `openedAt` as "when the client **first** opened it".** It is the token's
+  `last_seen_at`, which moves on every visit — `PortalLinkController`'s own `@param` says "last", and
+  `PortalLinkPanel`'s inline comment says "moves on every visit". So one frontend comment contradicted
+  the backend *and* its sibling in the same PR. **The user-facing label was wrong too, which is the
+  half that actually matters**: the panel row said "Opened by the client", which a Case Manager reads
+  as first contact when deciding whether to chase. Now "Last opened by the client", with the reason
+  written above it. First-open is the case's own `client_portal_read_at` and is deliberately not on
+  that panel.
+- **`CaseController`'s class javadoc still said the portal routes "will call the same service
+  methods" and that the staff stand-ins exist "until the portal is built".** Both false as of this
+  unit: the portal is its own controller and calls the portal-safe entry points. Rewritten to say
+  where the portal actually is and why the staff-recorded equivalents are **not** a stopgap — somebody
+  phones in an approval, and the difference is the trail (staff member vs `actor_type = CLIENT`).
+
+Two were behaviour, and one of them was a genuine race:
+
+- **`V23__portal_access_one_unrevoked.sql` — "one live token per case per audience" is now a
+  constraint.** `mint` did SELECT-live → revoke → INSERT with no lock, so two concurrent mints (two
+  staff, or one double-click) could both see the same previous row, both revoke it, and both insert,
+  leaving **two live credentials for one case** — precisely what the service javadoc promised could not
+  happen, and the same shape as the duplicate-case defect `V15`/`V16` fixed. This codebase's rule for
+  that shape is a constraint, not a smarter lookup.
+  - **`V21`'s header reasoned itself into the wrong conclusion and stays wrong on disk** (an applied
+    migration is never edited — invariant 9; `V23`'s header corrects the record, as `V16` did for
+    `V15`). Its premise was right: a predicate on `expires_at > now()` cannot sit in an index. What did
+    not follow is that the invariant needs a clock — stated as **at most one unrevoked row per
+    `(case_id, audience)`** it needs none.
+  - The one behaviour change that buys: `mint` now retires **every** unrevoked row it supersedes, not
+    only the live ones. An expired row was already dead (`isLive` checks both fields), but leaving it
+    unrevoked would have kept it in the partial index, so a client who let their link expire could
+    never have been issued another. Two tests pin that, and a third pins first-revocation-wins.
+  - The migration retires pre-existing duplicates (newest kept) before creating the index, so it
+    applies to a database that already has them. An `UPDATE` is legitimate here: unlike `audit_event`,
+    `portal_access` is not append-only.
+- **`AuditService.recordEvent` hardcoded `ActorType.STAFF`.** Its own contract allows a null
+  `actorId` "for a system action", so it could have written `STAFF` beside a null actor — contradicting
+  the rule `V22` states and `CaseTimelineService` applies, **permanently**, since no `UPDATE` can reach
+  an audit row. Now derived (`actorId == null ? SYSTEM : STAFF`). No caller passes null today, which is
+  exactly why it was worth pinning rather than leaving to chance; new `AuditServiceTest` covers all
+  three writers and both branches.
+
+And one was **not** a code defect, recorded because the reasoning matters:
+
+- **The portal rate limit is keyed on `getRemoteAddr()`**, so behind a reverse proxy every client
+  resolves to the proxy and the whole budget is shared. The fix is a deployment setting, not a code
+  change: `server.forward-headers-strategy` is now env-bound (`FORWARD_HEADERS_STRATEGY`) and
+  **defaults to `none` on purpose** — with nothing in front of the app, trusting `X-Forwarded-For`
+  would let any caller present a fresh address per request and bypass the limit entirely. A proxied
+  environment must set it to `framework`. Named as the filter's second ceiling beside the
+  per-instance one.
+
+- Verified: **`./mvnw verify "-Devalos.db.test=true"` → 343 tests, 0 failures, 0 skipped** against
+  local Postgres 18 (up from 336; new: `AuditServiceTest` 5, plus 2 in `PortalAccessServiceTest`), with
+  `V23` applied on top of `V22` and `uq_portal_access_one_unrevoked` proved to refuse a second
+  unrevoked row while still allowing a retired pile-up and the other audience's own live token.
+  `npm test` 101, `npm run build` and `npm run lint` clean.
 
 ## In Progress
 

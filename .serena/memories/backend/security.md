@@ -22,14 +22,21 @@ second bean beside the staff chain for two reasons: the surfaces are separate, a
   be read on a staff route. That is the load-bearing detail — do not annotate it.
 - It also holds the chain's **rate limit** (`evalos.portal.rate-limit-per-minute`, default 60): a
   per-caller fixed window in memory, cleared on the roll, refused before the token is looked at.
-  Per-instance; move it to Redis or a gateway if EvalOS is ever run multi-instance.
+  Two ceilings, both named in the filter. It is **per-instance** (move to Redis or a gateway if EvalOS
+  is ever run multi-instance), and it keys on `getRemoteAddr()`, so **a proxied deployment must set
+  `server.forward-headers-strategy=framework`** (`FORWARD_HEADERS_STRATEGY`) or every client resolves
+  to the proxy and shares one budget. That property defaults to `none` deliberately: with no proxy in
+  front, trusting `X-Forwarded-For` would let a caller spoof a fresh address per request and bypass the
+  limit outright.
 - No JWT filter is in that chain, so a staff bearer on `/api/portal/**` is `401 PORTAL_LINK_INVALID`
   — the same answer as unknown, expired, revoked and absent, so nothing is learnable from a refusal.
 - `service/PortalAccessService` mints / revokes / resolves. Token = 256 bits `SecureRandom`,
   base64url, returned **once**, stored as a SHA-256 hash; `PortalAccess.matches` does the comparison
-  with `MessageDigest.isEqual`. Re-minting revokes the previous token in the same transaction (that
-  is the "one live token per case per audience" rule — it cannot be an index, `now()` is not
-  immutable). Resolving stamps `last_seen_at`.
+  with `MessageDigest.isEqual`. Re-minting retires **every** unrevoked row for that case and audience
+  in the same transaction, and "one live token per case per audience" is enforced by `V23`'s partial
+  unique index rather than by that loop — the loop is what keeps the winner legal. Do not narrow it
+  back to only the *live* rows: an unrevoked expired row would sit in the index and block the next
+  mint. See `mem:backend/persistence`. Resolving stamps `last_seen_at`.
 
 ## The portal principal — why it is NOT a TenantContext
 

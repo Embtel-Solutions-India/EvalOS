@@ -43,10 +43,16 @@ import org.springframework.web.bind.annotation.RestController;
  * the service, and the state gate is the declared transition table — three
  * separate checks, none of which this class implements.
  *
- * <p>The client-portal (Unit 14) and expert-surface (Unit 15) routes will call the
- * same service methods behind their own filter chains. The four staff-recorded
- * equivalents below exist because somebody phones in an approval or a decline, and
- * a case must not be stuck until the portal is built.
+ * <p>The client portal is built (Unit 14) and does <strong>not</strong> live here: it is
+ * {@code web/ClientPortalController} behind its own filter chain, and it reaches the state machine
+ * through {@code CaseLifecycleService.clientApproveDraftFromPortal} /
+ * {@code clientRequestRevisionsFromPortal} — the same transitions and the same guards, entered with
+ * an already-authorized case instead of an id. The expert surface (Unit 15) will join it there.
+ *
+ * <p>The four staff-recorded equivalents below therefore still exist, and not as a stopgap: somebody
+ * phones in an approval or a decline, or a client cannot use the link at all, and the case must not
+ * be stuck. What differs is the trail — a staff-recorded answer names the staff member, while the
+ * portal names the client ({@code actor_type = CLIENT}).
  */
 @RestController
 @RequestMapping("/api/cases")

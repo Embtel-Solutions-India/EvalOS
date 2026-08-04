@@ -3,7 +3,7 @@
 Built in Unit 03 (`V4`–`V10`). Entities: `ContactSnapshot`, `Case` (table **`evalos_case`** — `case`
 is reserved SQL), `DocumentChecklistItem`, `Expert`, `PayoutLedger`, `Notification`, `AuditEvent`,
 plus Unit 02's `Brand`/`TeamMember`, Unit 12's `ExpertCaseOffer` and Unit 14's `PortalAccess`. Schema
-now runs to **`V22`**;
+now runs to **`V23`**;
 `V11`–`V17` added the per-brand
 webhook secret, the webhook archive + its brand-scoped idempotency key, `case.paid`/`paid_at`, the
 one-open-case-per-contact-service index, contact identity, and `case.assigned_coordinator`. **`V18`
@@ -12,9 +12,10 @@ one-open-case-per-contact-service index, contact identity, and `case.assigned_co
 `V3` role-CHECK pattern, and the only CHECKs on enum columns besides that one), the partial unique
 index `uq_expert_per_brand_email` on `(brand_id, lower(email))`, and a GIN index on
 `primary_fields` built for Unit 12's tag containment rather than for Unit 11's own filter.
-**Unit 14** added three: `V20` `evalos_case.draft_link`, `V21` `portal_access`, `V22`
+**Unit 14** added four: `V20` `evalos_case.draft_link`, `V21` `portal_access`, `V22`
 `audit_event.actor_type` (see the append-only section — that one is the first column ever added to
-the audit table, and it was added on explicit instruction).
+the audit table, and it was added on explicit instruction), and `V23`'s one-unrevoked-token index,
+which its code review added after finding the mint was a check-then-act.
 
 `draft_link` vs `drive_link` is not a detail: `drive_link` is the client's **own document folder**
 (passports, transcripts) and `draft_link` is the drafted letter. Only the second is ever shown to a
@@ -29,10 +30,18 @@ never stored** — only its hex SHA-256, so a backup, a support query or a leake
 link; `PortalAccess.matches` compares with `MessageDigest.isEqual`. `expires_at` is absolute,
 `revoked_at` is set when a re-mint supersedes the row, `last_seen_at` moves on every use (the case's
 own `client_portal_read_at` is stamped **once**, on first read — two fields, two questions).
-`uq_portal_access_token_hash` is unique; `(case_id, audience)` is **not**, because "one live token"
-needs `now()` in the predicate and `now()` is not immutable — the mint enforces it by revoking inside
-its own transaction. `PortalAccessRepository.findByTokenHash` is deliberately **unscoped**: a client has
-no `TenantContext`, and the row that comes back carries the brand. See `mem:backend/security`.
+Two unique indexes. `uq_portal_access_token_hash` on the hash, and **`uq_portal_access_one_unrevoked`
+on `(case_id, audience) WHERE revoked_at IS NULL` (`V23`)** — that second one is the invariant "one
+live token per case per audience", and it is a constraint rather than a service check because `mint`
+was otherwise a check-then-act two concurrent calls could both win (the `V15`/`V16` lesson).
+**`V21`'s header says this could not be an index and is wrong on disk** (applied migrations are never
+edited; `V23`'s header corrects it): its premise was right — `expires_at > now()` cannot sit in an
+index predicate — but stating the invariant as *at most one unrevoked row* needs no clock.
+Consequence to keep: **`mint` retires every unrevoked row it supersedes, not only the live ones**, or
+an expired row would sit in that index forever and block the next mint for that case.
+
+`PortalAccessRepository.findByTokenHash` is deliberately **unscoped**: a client has no
+`TenantContext`, and the row that comes back carries the brand. See `mem:backend/security`.
 
 ## Entity patterns
 
@@ -203,7 +212,11 @@ caller (today only the inbound webhook, which resolved its brand from the endpoi
 separately named, not an overload, so no request-scoped caller can reach it and quietly claim a brand.
 `recordPortalEvent(brandId, audience, …)` is the third writer (Unit 14) for something a client or
 expert did through their own portal link: `actor_id` stays null because no `team_member` acted, and
-`actor_type` is what stops that null reading as "the system". Its brand comes off the **token's own
+`actor_type` is what stops that null reading as "the system".
+**`actor_id` and `actor_type` must never disagree, and no writer may hardcode the type**: `recordEvent`
+derives it (`actorId == null ? SYSTEM : STAFF`) precisely because its contract allows a null actor, and
+a STAFF row beside a null actor could never be corrected on an append-only table. `AuditServiceTest`
+pins all three writers and both branches. Its brand comes off the **token's own
 row** — the most authoritative signal on that surface, the same argument `recordSystemEvent` makes for
 the endpoint token. A null `actor_id` therefore no longer means "the system" on its own; read it with
 `actor_type`. Snapshots are Jackson-serialized to `jsonb`: pass DTOs or maps, not entities.

@@ -6,10 +6,11 @@ import { failureMessage, tokenFromFragment, type ClientDraftView as DraftView } 
 /**
  * The client portal's entire entry point.
  *
- * **No `AppShell`, no `AuthProvider`, no router, no nav, no brand switcher.** Mounted from
- * `main.tsx` beside the staff app rather than inside it, because a client is not a staff user with
- * fewer links — and because `AuthProvider` sits above `App`, so a route inside it could not avoid
- * mounting it. One screen needs no router.
+ * **No `AppShell`, no `AuthProvider`, no router, no nav, no brand switcher.** `App` answers
+ * `/portal/*` before any staff-session code runs and mounts `AuthProvider` around the staff surface
+ * only — mounting it here would read the staff token out of `sessionStorage` and call `/api/me` for
+ * somebody who has no account. A client is not a staff user with fewer links, and one screen needs
+ * no router.
  *
  * The token comes out of the URL fragment and is handed to `portalApi`, which keeps it in memory.
  * Nothing is written to storage.

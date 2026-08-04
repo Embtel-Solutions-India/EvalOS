@@ -27,6 +27,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
 /**
@@ -118,9 +119,9 @@ class PortalAccessServiceTest {
 	 * Re-minting revokes, inside the same transaction.
 	 *
 	 * <p>Not a nicety: without it every "the link doesn't work" support request would permanently
-	 * add another live credential pointing at the same case. This is also where "one live token per
-	 * case per audience" is enforced, because it cannot be an index — the predicate would need
-	 * {@code now()}.
+	 * add another live credential pointing at the same case. The <em>invariant</em> is V23's partial
+	 * unique index — this is what keeps the winner of a concurrent mint legal, not what enforces the
+	 * rule; see {@code aPortalTokenIsUniqueAndItsAudienceIsClosed} for the constraint itself.
 	 */
 	@Test
 	void reMintingRevokesTheLinkItSupersedes() {
@@ -134,6 +135,43 @@ class PortalAccessServiceTest {
 		assertThat(previous.getRevokedAt()).isNotNull();
 		assertThat(previous.isLive(Instant.now())).isFalse();
 		verify(tokens).save(previous);
+	}
+
+	/**
+	 * An <strong>already-expired</strong> row is retired too, and that is what V23's index needs.
+	 *
+	 * <p>Retiring only the live rows would leave an expired one unrevoked, so it would still occupy
+	 * {@code (case_id, audience) WHERE revoked_at IS NULL} and the next mint after a natural expiry
+	 * would collide with the index — a client who waited out their link would be unable to get a new
+	 * one. Nothing about who may read a token changes, because {@code isLive} already refused it.
+	 */
+	@Test
+	void anExpiredLinkIsRetiredSoTheNextMintDoesNotCollideWithTheIndex() {
+		PortalAccess expired = new PortalAccess(BRAND, CASE_ID, PortalAudience.CLIENT, "stale-hash",
+				Instant.now().minus(Duration.ofDays(1)));
+		given(tokens.findByCaseIdAndAudienceOrderByCreatedAtDesc(any(), eq(PortalAudience.CLIENT)))
+				.willReturn(List.of(expired));
+
+		links.mint(CASE_ID, PortalAudience.CLIENT);
+
+		assertThat(expired.getRevokedAt()).as("an expired row must not stay unrevoked").isNotNull();
+		verify(tokens).save(expired);
+	}
+
+	/** A row already retired is left exactly as it was — first revocation wins. */
+	@Test
+	void anAlreadyRetiredLinkIsNotRestamped() {
+		PortalAccess retired = new PortalAccess(BRAND, CASE_ID, PortalAudience.CLIENT, "older-hash",
+				Instant.now().plus(Duration.ofDays(10)));
+		Instant revokedAt = Instant.now().minus(Duration.ofHours(3));
+		retired.revoke(revokedAt);
+		given(tokens.findByCaseIdAndAudienceOrderByCreatedAtDesc(any(), eq(PortalAudience.CLIENT)))
+				.willReturn(List.of(retired));
+
+		links.mint(CASE_ID, PortalAudience.CLIENT);
+
+		assertThat(retired.getRevokedAt()).isEqualTo(revokedAt);
+		verify(tokens, never()).save(retired);
 	}
 
 	/** Minting is audited, and the row must not carry the credential it issued. */

@@ -84,6 +84,14 @@ evalos:
 
 server:
   port: ${SERVER_PORT:8080}
+  # Whether to trust X-Forwarded-* and resolve the real client address.
+  #
+  # `none` by default, and that default is the safe one: with nothing in front of the app, honouring
+  # X-Forwarded-For would let any caller present a fresh address per request and walk straight past
+  # the portal chain's per-caller rate limit. Set this to `framework` **only** in an environment
+  # where a trusted proxy or load balancer terminates the connection — there it is required, because
+  # otherwise every portal client resolves to the proxy's address and shares one rate-limit budget.
+  forward-headers-strategy: ${FORWARD_HEADERS_STRATEGY:none}
 
 management:
   endpoints:

@@ -49,8 +49,13 @@ public class AuditService {
 		// caller, never from an argument a caller could get wrong. A system action
 		// outside a request has no brand, which the nullable column allows.
 		UUID brandId = TenantContext.find().map(TenantContext::brandId).orElse(null);
+		// Derived, never hardcoded STAFF: this method's contract allows a null actorId for a system
+		// action, and a row carrying STAFF with no actor_id would contradict the reading rule V22
+		// states and CaseTimelineService applies (a null actor_id reads as SYSTEM). On an append-only
+		// table that row could never be corrected, so the two fields agree at the point of writing.
+		ActorType actorType = actorId == null ? ActorType.SYSTEM : ActorType.STAFF;
 		return auditEvents.save(new AuditEvent(
-				brandId, objectType, objectId, action, actorId, ActorType.STAFF, asJson(before), asJson(after)));
+				brandId, objectType, objectId, action, actorId, actorType, asJson(before), asJson(after)));
 	}
 
 	/**

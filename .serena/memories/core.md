@@ -42,8 +42,8 @@ push.
 scoring engine) and 14 (client draft-review portal) are complete and verified. Unit 13 (redacted CV
 generation + the Drive write) is code-complete with ONE acceptance criterion outstanding — the manual
 live upload, blocked on a Google service account that does not exist. Unit 15 is next.** Migrations
-run to **`V22`** (Unit 13 added none — nothing it produces is persisted; Unit 14 added three);
-**336 backend tests, none skipped** (26 DB-backed) and 101 frontend tests.
+run to **`V23`** (Unit 13 added none — nothing it produces is persisted; Unit 14 added three, and its
+code review added `V23`); **343 backend tests, none skipped** (26 DB-backed) and 101 frontend tests.
 Unit 11 added the closed
 `FieldTag`/`LetterType` vocabularies (enum **and** DB CHECK), `email`/`phone`/`letter_types`/
 `standard_fee` on `expert`, the write-only `payment_detail` path, `ExpertLoadService` (load derived
@@ -89,6 +89,14 @@ approval is attributed to the client rather than to a null that reads as the sys
 `mem:backend/persistence`. Handoff B is now something a client can perform. The link still has to be
 **copied out by staff**: whether GHL can deliver it on an event is open question (b), and Unit 18 owns
 the dispatch if the answer is yes.
+
+Its **code review found five real things and none of them were in the scoping, the whitelist, the two
+chains or append-only** — three were comments describing code that had changed under them (two of
+them saying the portal mounts from `main.tsx`, which it does not), one was `recordEvent` hardcoding
+`ActorType.STAFF` where its own contract allows a null actor, and one was the mint being a
+check-then-act, fixed with `V23`'s index. The lesson to carry: on this codebase the comments *are* the
+contract, so a design decision reversed mid-unit has to be chased through every place that describes
+it — the tracker, the memory, the context file and the javadoc.
 
 Later units carry named external dependencies that do not exist yet (Dropbox Sign account for 15,
 GHL outbound contract for 18) — all listed in the tracker. **Unit 13's Google service account is

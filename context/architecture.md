@@ -169,9 +169,11 @@ Frontend under `frontend/src`: `components/ui` (generated primitives),
   `portal_access` row names one case and one audience (`CLIENT` / `EXPERT`); the
   token is 256 bits from `SecureRandom`, returned **once** at mint time and stored
   only as a SHA-256 hash, so a database read yields no working link. Expiry is
-  absolute (30 days, configurable) and re-minting revokes the previous token
+  absolute (30 days, configurable) and re-minting retires the previous token
   inside the same transaction, so a support request cannot widen the number of
-  live credentials. Unknown, expired and revoked are one indistinguishable 401,
+  live credentials — with **at most one unrevoked token per case and audience
+  enforced by a partial unique index** (`V23`), because a lookup-then-insert is a
+  check-then-act two concurrent mints could both win. Unknown, expired and revoked are one indistinguishable 401,
   and the chain is rate-limited. The token travels in an `X-Portal-Token` header —
   never a query parameter, which would land in access logs and `Referer` headers.
 - **A portal caller is not a narrow staff caller.** `PortalPrincipal`

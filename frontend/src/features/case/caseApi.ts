@@ -107,10 +107,12 @@ export async function fileProfileToDrive(caseId: string): Promise<DriveWriteView
 /**
  * The client portal link (Unit 14).
  *
- * `openedAt` is when the client first opened it, which is the thing worth knowing before chasing
- * them. There is deliberately no read that returns the URL of an existing link: the token exists
- * once, in the response to `mintPortalLink`. Losing it means minting a new one, which revokes the
- * old.
+ * `openedAt` is the token's own last-seen and **moves on every visit** — it answers "when did they
+ * last look", which is what support needs. The separate `evalos_case.client_portal_read_at` is the
+ * first read and is stamped once; it is not exposed here. Do not read this field as first-open.
+ *
+ * There is deliberately no read that returns the URL of an existing link: the token exists once, in
+ * the response to `mintPortalLink`. Losing it means minting a new one, which revokes the old.
  */
 export type PortalLinkStatus = { live: boolean; expiresAt: string | null; openedAt: string | null }
 

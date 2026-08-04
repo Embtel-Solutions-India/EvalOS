@@ -32,9 +32,10 @@ PowerShell notes that bite here:
   at a throwaway database to prove every migration applies from scratch.
 - `.\mvnw.cmd spring-boot:run` — starts on 8080 under the `local` profile. **Requires a reachable
   Postgres** (Flyway + `ddl-auto: validate` run at startup); with no DB the context fails to refresh.
-- **This machine has PostgreSQL 18**, superuser `postgres`/`1234`, database `evalos` migrated to
-  `V22` + the `V90x` seeds — which is exactly what the `local` profile defaults to, so no env vars
-  are needed. `psql` is
+- **This machine has PostgreSQL 18**, superuser `postgres`/`1234`, database `evalos` — `public` at
+  `V22` + the `V90x` seeds, `evalos_test` at `V23` (the gated suite migrates its own schema, so the
+  two drift apart until the app is next run). That is exactly what the `local` profile defaults to, so
+  no env vars are needed. `psql` is
   not on `PATH`; it lives at `C:\Program Files\PostgreSQL\18\bin` — and it is **not on `PATH` for the
   agent either**, so to read rows directly the cheapest route is a single-file JDBC script:
   `java -cp <~/.m2/.../postgresql-*.jar> Peek.java` (watch for a UTF-8 BOM if PowerShell wrote the
