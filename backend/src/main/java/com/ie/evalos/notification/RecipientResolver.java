@@ -53,6 +53,31 @@ public class RecipientResolver {
 	}
 
 	/**
+	 * That brand's PMs and Coordinators — the pool a paid case lands in. The pair, because
+	 * a PM picks it up and a Coordinator starts chasing documents; whichever looks first is
+	 * doing their own job, not covering for the other. Same no-dedupe reasoning as above.
+	 *
+	 * <p><strong>This is the one recipient set with a fallback, and it needs one.</strong>
+	 * Every other method here returns empty rather than widening, because an alert addressed
+	 * to "whoever" is how a queue nobody reads gets built — but that rule is about
+	 * <em>assignee</em> lookups, where an empty answer means the work already has an owner
+	 * who simply is not this person. The pool arrival is the opposite case: nobody owning it
+	 * is the whole point, and it is the only notice that a <em>paid</em> case now exists. A
+	 * brand staffed before its first PM or Coordinator is active — onboarding, or both
+	 * deactivated at once — would otherwise take the money and tell nobody. So when the pool
+	 * is empty it escalates to the GM and that brand's managers, who can staff it. It is a
+	 * fallback and not an addition on purpose: the GM was moved off this route precisely so
+	 * they do not hear about every case, only about one that would otherwise be unheard.
+	 */
+	public List<UUID> pmsAndCoordinators(UUID brandId) {
+		List<UUID> pool = Stream.concat(
+				ids(teamMembers.findByActiveTrueAndRoleAndBrandId(Role.PROJECT_MANAGER, brandId)).stream(),
+				coordinators(brandId).stream())
+				.toList();
+		return pool.isEmpty() ? gmAndBrandManagers(brandId) : pool;
+	}
+
+	/**
 	 * The case's own PM / CM. Empty when nobody is assigned yet rather than falling back
 	 * to the brand's whole roster: an alert addressed to "whoever" is how a queue nobody
 	 * reads gets built.

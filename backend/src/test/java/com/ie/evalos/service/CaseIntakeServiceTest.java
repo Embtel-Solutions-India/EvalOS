@@ -44,12 +44,12 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
 /**
- * Handoff A below the transport: what one inbound GHL contact leaves behind. The
+ * Handoff A below the transport: what one won GHL opportunity leaves behind. The
  * gateway's half — signatures, dedupe, archival — is asserted in
  * {@code InboundWebhookTest}.
  *
- * <p>The case that arrives here is a lead, not a paid deal. What makes it workable is
- * {@code markPaid}, asserted in {@code CaseLifecycleServiceTest}.
+ * <p>The case that arrives here is already paid, because GHL invoiced and collected
+ * before marking the opportunity Won. There is no staff step that makes it workable.
  */
 class CaseIntakeServiceTest {
 
@@ -95,24 +95,24 @@ class CaseIntakeServiceTest {
 		return value;
 	}
 
-	private static CaseIntakeService.NewCase contact(String ghlContactId, String email) {
-		return contact(ghlContactId, email, ServiceType.EXPERT_OPINION_LETTER, false);
+	private static CaseIntakeService.NewCase wonDeal(String ghlContactId, String email) {
+		return wonDeal(ghlContactId, email, ServiceType.EXPERT_OPINION_LETTER, new BigDecimal("1450.00"));
 	}
 
-	private static CaseIntakeService.NewCase contact(String ghlContactId, String email, ServiceType serviceType,
-			boolean paid) {
+	private static CaseIntakeService.NewCase wonDeal(String ghlContactId, String email, ServiceType serviceType,
+			BigDecimal amount) {
 		return new CaseIntakeService.NewCase(
 				new CaseIntakeService.ContactDetails(ghlContactId, "Anita Rao", email, "+1 555 0100",
 						"Rao Immigration LLP", ClientType.ATTORNEY, SourceChannel.GOOGLE_ADS,
 						"google", "cpc", "eb2-niw-q3"),
-				serviceType, null, VisaCategory.EB2_NIW, OTHER_EXPERT,
-				new BigDecimal("1450.00"), Instant.now().plusSeconds(86_400),
-				"https://drive.google.com/folder/abc", "INV-99123", "eb2-niw-q3", paid);
+				serviceType, null, VisaCategory.EB2_NIW, OTHER_EXPERT, "opp-4711",
+				amount, Instant.now().plusSeconds(86_400),
+				"https://drive.google.com/folder/abc", "INV-99123", "eb2-niw-q3");
 	}
 
 	@Test
-	void anInboundContactCreatesOneUnpaidCase() {
-		Case created = intake.intake(brand, contact("ghl-c-1", "anita@raolaw.example"));
+	void aWonOpportunityCreatesOnePaidCase() {
+		Case created = intake.intake(brand, wonDeal("ghl-c-1", "anita@raolaw.example"));
 
 		assertThat(created.getBrandId()).isEqualTo(BRAND);
 		assertThat(created.getCurrentStage()).isEqualTo(Stage.DOC_COLLECTION);
@@ -120,12 +120,15 @@ class CaseIntakeServiceTest {
 		assertThat(created.getExceptionState()).isEqualTo(ExceptionState.NONE);
 		assertThat(created.getAssignedPm()).isNull();
 		assertThat(created.getAssignedCm()).isNull();
-		// A lead, not a paid deal: the webhook is no longer proof of payment.
-		assertThat(created.isPaid()).isFalse();
-		assertThat(created.getPaidAt()).isNull();
+		// Won is paid: GHL collected before the opportunity was marked Won, so the webhook
+		// is the proof and no staff act records it.
+		assertThat(created.isPaid()).isTrue();
+		assertThat(created.getPaidAt()).isNotNull();
+		// Paid but not delivered is still not earned — invariant 5 needs both.
 		assertThat(RefundService.isRevenueRecognized(created)).isFalse();
-		// The amount on the payload is a quote until markPaid confirms it.
+		// The amount collected, and the opportunity Unit 18 will close with it.
 		assertThat(created.getDealValue()).isEqualByComparingTo("1450.00");
+		assertThat(created.getGhlOpportunityId()).isEqualTo("opp-4711");
 		assertThat(created.getServiceType()).isEqualTo(ServiceType.EXPERT_OPINION_LETTER);
 		// The sale's pre-selected expert is carried, but nothing is assigned yet.
 		assertThat(created.getExpertId()).isEqualTo(OTHER_EXPERT);
@@ -140,7 +143,7 @@ class CaseIntakeServiceTest {
 
 	@Test
 	void theChecklistOpensFromTheServiceTypeTemplateAsRequired() {
-		intake.intake(brand, contact("ghl-c-1", "anita@raolaw.example"));
+		intake.intake(brand, wonDeal("ghl-c-1", "anita@raolaw.example"));
 
 		ArgumentCaptor<DocumentChecklistItem> seeded = ArgumentCaptor.forClass(DocumentChecklistItem.class);
 		verify(checklistItems, org.mockito.Mockito.atLeastOnce()).save(seeded.capture());
@@ -156,14 +159,14 @@ class CaseIntakeServiceTest {
 	}
 
 	/**
-	 * Intake announces; it no longer decides who hears. Unit 06 turned the pool alert
-	 * into a listener, so what this asserts is the *event* — that a lead publishes
-	 * `case.created` and not `case.paid`. Who receives what is
+	 * Intake announces; it does not decide who hears. What this asserts is the *event* —
+	 * one arrival, `case.created`, and no separate paid announcement, because a case can
+	 * no longer exist before the money. Who receives it is
 	 * {@code NotificationListenersTest}'s job.
 	 */
 	@Test
-	void anUnpaidLeadAnnouncesItselfAsCreatedAndNotAsPaid() {
-		intake.intake(brand, contact("ghl-c-1", "anita@raolaw.example"));
+	void aPaidArrivalIsAnnouncedOnceAndNotAsASeparatePayment() {
+		intake.intake(brand, wonDeal("ghl-c-1", "anita@raolaw.example"));
 
 		assertThat(publishedTypes())
 				.containsExactly(CaseEvents.Type.CASE_CREATED, CaseEvents.Type.CHECKLIST_REQUESTED)
@@ -183,7 +186,7 @@ class CaseIntakeServiceTest {
 		given(contacts.findByBrandIdAndEmailIgnoreCase(BRAND, "anita@raolaw.example"))
 				.willReturn(Optional.of(idless));
 
-		intake.intake(brand, contact("ghl-c-1", "anita@raolaw.example"));
+		intake.intake(brand, wonDeal("ghl-c-1", "anita@raolaw.example"));
 
 		// The existing row is reused, and repaired with the id so it stops depending on
 		// the email matching forever.
@@ -199,7 +202,7 @@ class CaseIntakeServiceTest {
 		given(contacts.findByBrandIdAndEmailIgnoreCase(BRAND, "anita@raolaw.example"))
 				.willReturn(Optional.of(owned));
 
-		intake.intake(brand, contact("ghl-impostor", "anita@raolaw.example"));
+		intake.intake(brand, wonDeal("ghl-impostor", "anita@raolaw.example"));
 
 		assertThat(owned.getGhlContactId()).isEqualTo("ghl-original");
 	}
@@ -209,7 +212,7 @@ class CaseIntakeServiceTest {
 		ContactSnapshot existing = new ContactSnapshot(BRAND, "ghl-c-1");
 		given(contacts.findByBrandIdAndGhlContactId(BRAND, "ghl-c-1")).willReturn(Optional.of(existing));
 
-		Case created = intake.intake(brand, contact("ghl-c-1", "anita@raolaw.example"));
+		Case created = intake.intake(brand, wonDeal("ghl-c-1", "anita@raolaw.example"));
 
 		assertThat(existing.getFullName()).isEqualTo("Anita Rao");
 		assertThat(existing.getSyncedAt()).isNotNull();
@@ -221,7 +224,7 @@ class CaseIntakeServiceTest {
 
 	@Test
 	void withNoGhlIdTheContactIsMatchedOnEmail() {
-		intake.intake(brand, contact(null, "anita@raolaw.example"));
+		intake.intake(brand, wonDeal(null, "anita@raolaw.example"));
 
 		verify(contacts).findByBrandIdAndEmailIgnoreCase(BRAND, "anita@raolaw.example");
 		verify(contacts, never()).findByBrandIdAndGhlContactId(any(), any());
@@ -229,7 +232,7 @@ class CaseIntakeServiceTest {
 
 	@Test
 	void creationIsAuditedAgainstTheResolvedBrandAndPublishesBothEvents() {
-		Case created = intake.intake(brand, contact("ghl-c-1", "anita@raolaw.example"));
+		Case created = intake.intake(brand, wonDeal("ghl-c-1", "anita@raolaw.example"));
 
 		// The brand is passed explicitly because a webhook has no authenticated caller —
 		// and it must be the one the endpoint token resolved to, never the payload's.
@@ -261,7 +264,7 @@ class CaseIntakeServiceTest {
 				eq(BRAND), any(), eq(ServiceType.EXPERT_OPINION_LETTER), eq(Stage.CLOSED)))
 				.willReturn(Optional.of(inFlight));
 
-		Case result = intake.intake(brand, contact("ghl-c-1", "anita@raolaw.example"));
+		Case result = intake.intake(brand, wonDeal("ghl-c-1", "anita@raolaw.example"));
 
 		assertThat(result).isSameAs(inFlight);
 		// Progress is untouched: no reset, no un-paying, no lost assignment.
@@ -283,7 +286,7 @@ class CaseIntakeServiceTest {
 				.willReturn(Optional.empty());
 
 		Case created = intake.intake(brand,
-				contact("ghl-c-1", "anita@raolaw.example", ServiceType.TRANSLATION, false));
+				wonDeal("ghl-c-1", "anita@raolaw.example", ServiceType.TRANSLATION, new BigDecimal("300.00")));
 
 		assertThat(created.getServiceType()).isEqualTo(ServiceType.TRANSLATION);
 		verify(cases).save(any(Case.class));
@@ -294,26 +297,106 @@ class CaseIntakeServiceTest {
 	/** The lookup excludes CLOSED, so a client coming back later starts a fresh case. */
 	@Test
 	void theClosedStageIsExcludedFromTheOpenCaseLookup() {
-		intake.intake(brand, contact("ghl-c-1", "anita@raolaw.example"));
+		intake.intake(brand, wonDeal("ghl-c-1", "anita@raolaw.example"));
 
 		verify(cases).findFirstByBrandIdAndContactIdAndServiceTypeAndCurrentStageNotOrderByCreatedAtDesc(
 				eq(BRAND), any(), eq(ServiceType.EXPERT_OPINION_LETTER), eq(Stage.CLOSED));
 	}
 
-	/** GHL sometimes already knows the contact paid; the case then skips the lead state. */
+	/**
+	 * The one deliberate exception to refresh's fill-only rule, and the reason it exists:
+	 * deleting {@code markPaid} removed the only other writer of {@code deal_value}, so
+	 * without this a case whose amount changed in GHL would keep the first figure forever
+	 * with nothing anywhere able to fix it — and that figure feeds revenue recognition.
+	 * GHL owns the amount, so the latest won-opportunity figure wins.
+	 */
 	@Test
-	void aContactGhlAlreadyKnowsIsPaidArrivesPaidAndAnnouncesBoth() {
-		Case created = intake.intake(brand,
-				contact("ghl-c-1", "anita@raolaw.example", ServiceType.EXPERT_OPINION_LETTER, true));
+	void aChangedAmountOverwritesOnRefreshBecauseNothingElseCanCorrectIt() {
+		Case inFlight = openCaseWorthNineHundred();
 
-		assertThat(created.isPaid()).isTrue();
-		assertThat(created.getPaidAt()).isNotNull();
+		Case result = intake.intake(brand, wonDeal("ghl-c-1", "anita@raolaw.example",
+				ServiceType.EXPERT_OPINION_LETTER, new BigDecimal("1725.50")));
 
-		// Both announcements land at once, so Unit 06 raises the lead alert and the pool
-		// alert together. That the second is not a duplicate of a later correction is
-		// NotificationListenersTest's assertion, not this one's.
-		assertThat(publishedTypes()).containsExactly(
-				CaseEvents.Type.CASE_CREATED, CaseEvents.Type.CHECKLIST_REQUESTED, CaseEvents.Type.CASE_PAID);
+		assertThat(result.getDealValue()).isEqualByComparingTo("1725.50");
+		// Only the figure. `paid_at` is write-once — the moment the money landed does not
+		// change, and re-stamping it would lose it. One value, never a running total, so a
+		// correction cannot double-count.
+		assertThat(result.getPaidAt()).isEqualTo(inFlight.getPaidAt());
+	}
+
+	/**
+	 * The amount and the opportunity it came from are two halves of one fact and must move
+	 * together. Writing only the amount let a case carry opp-B's money under opp-A's id — and
+	 * since Unit 18 closes whichever opportunity that column names, the wrong deal gets closed
+	 * in GHL while the paid one stays open. `V24`'s index cannot catch it: no second case is
+	 * created, so the refresh path never reaches the constraint.
+	 */
+	@Test
+	void theAmountAndTheOpportunityItCameFromMoveTogether() {
+		Case inFlight = openCaseWorthNineHundred();
+		inFlight.setGhlOpportunityId("opp-first");
+
+		Case result = intake.intake(brand, wonDeal("ghl-c-1", "anita@raolaw.example",
+				ServiceType.EXPERT_OPINION_LETTER, new BigDecimal("1725.50")));
+
+		assertThat(result.getDealValue()).isEqualByComparingTo("1725.50");
+		assertThat(result.getGhlOpportunityId())
+				.as("the id follows the money it arrived with, never lags a delivery behind")
+				.isEqualTo("opp-4711");
+	}
+
+	/**
+	 * A money change that reads as a no-op edit is worse than a noisy one. The snapshot either
+	 * side of a refresh omits `deal_value` on purpose — it is role-restricted and
+	 * `CaseTimelineService` shows the note to every role that may read the case — so without
+	 * this the trail records an UPDATED row with identical before and after. The note says
+	 * *that* the figure moved and never what to; the figures are in the `webhook_event` archive.
+	 */
+	@Test
+	void aCorrectedAmountIsVisibleInTheTrailWithoutPuttingTheFigureInIt() {
+		openCaseWorthNineHundred();
+
+		intake.intake(brand, wonDeal("ghl-c-1", "anita@raolaw.example",
+				ServiceType.EXPERT_OPINION_LETTER, new BigDecimal("1725.50")));
+
+		ArgumentCaptor<CaseLifecycleService.CaseSnapshot> after =
+				ArgumentCaptor.forClass(CaseLifecycleService.CaseSnapshot.class);
+		verify(audit).recordSystemEvent(eq(BRAND), eq("CASE"), any(), eq(AuditAction.UPDATED),
+				any(), after.capture());
+
+		assertThat(after.getValue().note())
+				.contains("deal value corrected")
+				.doesNotContain("1725.50", "900.00");
+	}
+
+	/** An unchanged amount is not a correction, so the trail does not claim one. */
+	@Test
+	void anUnchangedAmountIsNotReportedAsACorrection() {
+		openCaseWorthNineHundred();
+
+		intake.intake(brand, wonDeal("ghl-c-1", "anita@raolaw.example",
+				ServiceType.EXPERT_OPINION_LETTER, new BigDecimal("900.00")));
+
+		ArgumentCaptor<CaseLifecycleService.CaseSnapshot> after =
+				ArgumentCaptor.forClass(CaseLifecycleService.CaseSnapshot.class);
+		verify(audit).recordSystemEvent(eq(BRAND), eq("CASE"), any(), eq(AuditAction.UPDATED),
+				any(), after.capture());
+
+		assertThat(after.getValue().note()).doesNotContain("corrected");
+	}
+
+	/** An open, paid case for the standard contact and service, sold for 900. */
+	private Case openCaseWorthNineHundred() {
+		Case inFlight = new Case(BRAND, "IE-2026-ABCDEF", Stage.DRAFT_GENERATION);
+		inFlight.setContactId(CONTACT_ID);
+		inFlight.setServiceType(ServiceType.EXPERT_OPINION_LETTER);
+		inFlight.setDealValue(new BigDecimal("900.00"));
+		inFlight.setPaid(true);
+		inFlight.setPaidAt(Instant.now().minusSeconds(259_200));
+		given(cases.findFirstByBrandIdAndContactIdAndServiceTypeAndCurrentStageNotOrderByCreatedAtDesc(
+				eq(BRAND), any(), eq(ServiceType.EXPERT_OPINION_LETTER), eq(Stage.CLOSED)))
+				.willReturn(Optional.of(inFlight));
+		return inFlight;
 	}
 
 	private List<CaseEvents.Type> publishedTypes() {
@@ -329,7 +412,7 @@ class CaseIntakeServiceTest {
 	void aSingleWordBrandSlugStillYieldsAPrefix() {
 		given(brand.getSlug()).willReturn("xpertsportal");
 
-		assertThat(intake.intake(brand, contact("ghl-c-2", "x@example.com")).getCaseCode())
+		assertThat(intake.intake(brand, wonDeal("ghl-c-2", "x@example.com")).getCaseCode())
 				.matches("XP-\\d{4}-[0-9A-F]{6}");
 	}
 }

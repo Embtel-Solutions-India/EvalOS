@@ -24,11 +24,25 @@ public final class CaseEvents {
 	 */
 	public enum Type {
 
-		/** A contact became a case. Since Handoff A moved to contact intake this is a
-		 * lead arriving, not a paid case — {@link #CASE_PAID} is the pool arrival. */
+		/**
+		 * A won GHL opportunity became a case, and <strong>this is the pool arrival</strong> —
+		 * the case is already paid, because GHL invoices and collects before marking an
+		 * opportunity Won (Case Creation v2.0). Published only on intake's create path, never
+		 * on a refresh.
+		 */
 		CASE_CREATED("case.created"),
-		/** Money confirmed against a case. One of the two facts revenue recognition needs;
-		 * {@link #CASE_DELIVERED} is the other. Neither is sufficient alone (invariant 5). */
+		/**
+		 * <strong>Dead: nothing publishes this, and nothing should subscribe to it.</strong> It
+		 * was the pool arrival while a case could exist before its money and a staff member
+		 * recorded payment by hand; Case Creation v2.0 deleted that path, so payment is not a
+		 * separate event any more — {@link #CASE_CREATED} already means paid. Kept as a constant
+		 * only because the wire name is persisted on rows already written. Unit 18 must not wire
+		 * this as the payment signal: it will never fire.
+		 *
+		 * <p>The {@code paid} <em>flag</em> is very much alive and is still one of the two facts
+		 * revenue recognition needs, with {@link #CASE_DELIVERED} the other and neither
+		 * sufficient alone (invariant 5) — see {@code RefundService.isRevenueRecognized}.
+		 */
 		CASE_PAID("case.paid"),
 		/** Tells GHL to send the client their document checklist (Unit 18). */
 		CHECKLIST_REQUESTED("checklist.requested"),

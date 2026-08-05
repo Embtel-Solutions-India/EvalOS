@@ -290,16 +290,10 @@ export const QUICK_ACTIONS: readonly QuickAction[] = [
   },
 
   // Legal wherever the case is still being worked.
-  {
-    path: 'mark-paid',
-    label: 'Record payment',
-    roles: ['BRAND_MANAGER'],
-    stages: null,
-    fields: [
-      { name: 'dealValue', label: 'Amount collected', kind: 'amount' },
-      { name: 'invoiceRef', label: 'Invoice ref (optional)', kind: 'text' },
-    ],
-  },
+  //
+  // No 'Record payment' action, deliberately: Handoff A fires on the GHL opportunity being
+  // marked Won, which GHL only does after collecting, so every case arrives paid and the
+  // route this used to call no longer exists.
   {
     path: 'assign-pm',
     label: 'Assign PM',

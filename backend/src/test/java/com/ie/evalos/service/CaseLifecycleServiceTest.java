@@ -3,6 +3,7 @@ package com.ie.evalos.service;
 import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -106,6 +107,12 @@ class CaseLifecycleServiceTest {
 		subject = new Case(BRAND, "IE-2026-0001", Stage.DOC_COLLECTION);
 		subject.setPoolStatus(PoolStatus.IN_POOL);
 		subject.setStageEnteredAt(Instant.now());
+		// Born paid, as every case is under Case Creation v2.0: Handoff A fires on the won
+		// opportunity, which GHL only marks after collecting. There is no transition here
+		// that could set this, which is the point.
+		subject.setPaid(true);
+		subject.setPaidAt(Instant.now());
+		subject.setDealValue(PAID);
 
 		// Build every collaborator before stubbing anything: a mock created inside a
 		// willReturn(...) argument leaves the outer stubbing unfinished.
@@ -165,7 +172,6 @@ class CaseLifecycleServiceTest {
 	/** Everything the walk needs before the draft loops start. */
 	private void walkToDraftGeneration() {
 		actAs(Role.BRAND_MANAGER);
-		lifecycle.markPaid(CASE_ID, PAID, "INV-0001");
 		lifecycle.assignPm(CASE_ID, PM_ID);
 		actAs(Role.PROJECT_COORDINATOR);
 		lifecycle.markDocsComplete(CASE_ID);
@@ -216,10 +222,10 @@ class CaseLifecycleServiceTest {
 		assertTrue(RefundService.isRevenueRecognized(subject));
 		assertNull(subject.getSlaStatus(), "a closed case runs no clock");
 
-		// Exactly one audit entry and one event per hop, and in the declared order.
-		verify(audit, times(12)).recordEvent(any(), any(), any(), any(), any(), any());
+		// Exactly one audit entry and one event per hop, and in the declared order. Eleven,
+		// not twelve: the walk no longer opens with a payment, because the case is born paid.
+		verify(audit, times(11)).recordEvent(any(), any(), any(), any(), any(), any());
 		assertEquals(List.of(
-				CaseEvents.Type.CASE_PAID,
 				CaseEvents.Type.PM_ASSIGNED,
 				CaseEvents.Type.DOCUMENTS_COMPLETED,
 				CaseEvents.Type.EXPERT_ASSIGNED,
@@ -230,7 +236,7 @@ class CaseLifecycleServiceTest {
 				CaseEvents.Type.EXPERT_SIGNED,
 				CaseEvents.Type.QC_APPROVED,
 				CaseEvents.Type.CASE_DELIVERED,
-				CaseEvents.Type.CASE_CLOSED), publishedEventTypes(12));
+				CaseEvents.Type.CASE_CLOSED), publishedEventTypes(11));
 	}
 
 	/**
@@ -315,12 +321,17 @@ class CaseLifecycleServiceTest {
 	}
 
 	/**
-	 * Handoff A now creates a case from a contact, so an unpaid case is a normal state.
-	 * Documents may be gathered against one — that costs nothing — but the next hop
-	 * engages an expert, and every later stage is only reachable through it.
+	 * The unpaid guard, kept as a backstop rather than a live path. Under Case Creation
+	 * v2.0 every case is born paid and nothing sets {@code paid} false, so this state
+	 * should be unreachable — which is exactly why the guard stays and stays covered. It is
+	 * one line in one place, and the stage it protects is the one that engages an expert:
+	 * every later stage is only reachable through it.
 	 */
 	@Test
 	void anUnpaidCaseGetsNoFurtherThanDocCollection() {
+		subject.setPaid(false);
+		subject.setPaidAt(null);
+
 		actAs(Role.BRAND_MANAGER);
 		lifecycle.assignPm(CASE_ID, PM_ID);
 
@@ -331,50 +342,24 @@ class CaseLifecycleServiceTest {
 		assertEquals(Stage.DOC_COLLECTION, subject.getCurrentStage());
 		assertFalse(RefundService.isRevenueRecognized(subject), "and it is not revenue either");
 
-		actAs(Role.BRAND_MANAGER);
-		lifecycle.markPaid(CASE_ID, PAID, "INV-0001");
-		assertTrue(subject.isPaid());
-		assertEquals(PAID, subject.getDealValue());
-
+		// The case as intake actually creates it clears the guard, and the next precondition
+		// takes over in order.
+		subject.setPaid(true);
 		actAs(Role.PROJECT_COORDINATOR);
 		lifecycle.markDocsComplete(CASE_ID);
 		assertEquals(Stage.EXPERT_ASSIGNMENT, subject.getCurrentStage());
 	}
 
 	/**
-	 * The amount is correctable, the moment it arrived is not. A case GHL reported as
-	 * already paid carries only the quote, because a quote is all the contact webhook
-	 * knows — so if the figure actually collected differs, somebody has to be able to
-	 * replace it. Re-stamping {@code paidAt} would lose when the money landed.
+	 * There is no payment transition to reach, by design: GHL owns the fact and
+	 * {@code CaseIntakeService} is its only writer. Asserted on the action table because
+	 * that is where a re-added transition would have to declare itself.
 	 */
 	@Test
-	void theAmountCanBeCorrectedButThePaymentMomentIsWriteOnce() {
-		subject.setPaid(true);
-		Instant whenTheMoneyLanded = Instant.now().minus(Duration.ofDays(3));
-		subject.setPaidAt(whenTheMoneyLanded);
-		subject.setDealValue(new BigDecimal("1200.00"));
-
-		actAs(Role.BRAND_MANAGER);
-		lifecycle.markPaid(CASE_ID, PAID, "INV-0009");
-
-		assertEquals(PAID, subject.getDealValue(), "the collected figure replaces the quote");
-		assertEquals("INV-0009", subject.getInvoiceRef());
-		assertEquals(whenTheMoneyLanded, subject.getPaidAt(), "and the original moment survives");
-		// That a correction does not raise a second pool alert is now Unit 06's guard, in
-		// NotificationListenersTest — this method no longer knows what a notification is.
-	}
-
-	/** The money path re-checks the role in the service, not only at the endpoint. */
-	@Test
-	void onlyTheGmOrABrandManagerMayRecordAPayment() {
-		for (Role role : List.of(Role.PROJECT_MANAGER, Role.PROJECT_COORDINATOR, Role.CASE_MANAGER,
-				Role.EXPERT_NETWORK_MANAGER)) {
-			actAs(role);
-			assertThrows(ForbiddenException.class, () -> lifecycle.markPaid(CASE_ID, PAID, "INV-0001"),
-					role + " must not be able to record money");
-		}
-		assertFalse(subject.isPaid());
-		verifyNoInteractions(audit, events);
+	void noTransitionRecordsAPayment() {
+		assertFalse(Arrays.stream(CaseTransitions.Action.values())
+				.anyMatch(action -> action.name().contains("PAID")),
+				"a case cannot exist before the money, so nothing records it arriving");
 	}
 
 	@Test
@@ -478,7 +463,6 @@ class CaseLifecycleServiceTest {
 	@Test
 	void anUnavailableExpertCannotBePutOnACase() {
 		actAs(Role.BRAND_MANAGER);
-		lifecycle.markPaid(CASE_ID, PAID, null);
 		lifecycle.assignPm(CASE_ID, PM_ID);
 		actAs(Role.PROJECT_COORDINATOR);
 		lifecycle.markDocsComplete(CASE_ID);
@@ -640,7 +624,6 @@ class CaseLifecycleServiceTest {
 		given(experts.findScoped(any(TenantContext.class), eq(OTHER_EXPERT_ID))).willReturn(Optional.of(untagged));
 
 		actAs(Role.BRAND_MANAGER);
-		lifecycle.markPaid(CASE_ID, PAID, null);
 		lifecycle.assignPm(CASE_ID, PM_ID);
 		actAs(Role.PROJECT_COORDINATOR);
 		lifecycle.markDocsComplete(CASE_ID);
@@ -736,7 +719,7 @@ class CaseLifecycleServiceTest {
 
 		assertTrue(!subject.getStageEnteredAt().isBefore(afterAssignment),
 				"the PM review round starts its own 12 hours");
-		verify(audit, times(5)).recordEvent(anyString(), any(), any(), any(), any(), any());
+		verify(audit, times(4)).recordEvent(anyString(), any(), any(), any(), any(), any());
 	}
 
 	/** Doc collection budgets three business days; thirty calendar days is past it however you count. */

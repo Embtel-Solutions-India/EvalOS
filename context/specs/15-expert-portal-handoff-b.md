@@ -1,41 +1,50 @@
 # Unit 15 — Expert portal + Handoff B + sign-off
 
-**Phase:** 2 — Connect the seams — the heaviest external dependency in it
-**Depends on:** 05 (the inbound gateway the callbacks arrive through), 12 (the
-offer record and the rematch shortlist), 14 (the portal token model and chain)
+> **Rewritten: Dropbox Sign is out.** The expert signs the letter however they
+> already sign things and **uploads it back through their portal**. See "Signing
+> without a signature provider" below for the decision, what it costs, and the three
+> measures that compensate. Everything else in this spec — the portal, the three
+> responses, `EXPERT_TIMED_OUT`, the offer record, the SLA — is unchanged, because
+> none of it ever depended on the provider.
+
+**Phase:** 2 — Connect the seams
+**Depends on:** 12 (the offer record and the rematch shortlist), 14 (the portal token
+model and chain), **21 (the upload path this unit reuses wholesale)**
 **Unlocks:** 16 (a signed, delivered case is what creates a payout), 19 (the
 sign-timer this unit defines)
-**Gating open questions:** two, both external, both blocking.
-1. **The Dropbox Sign account, API key, signature-request template, and callback
-   signing secret** do not exist. Nothing beyond the `WebhookSource.DROPBOX_SIGN`
-   enum value has ever run.
-2. **How the callback resolves its brand** — see "The brand-resolution problem"
-   below. This one may touch a protected step, so it needs answering before any
-   code, not during.
+**Gating open questions:** **none external.** Both of this spec's original blockers
+were Dropbox Sign's — the account/key/template/callback secret, and how a provider
+callback would resolve its brand. Dropping the provider removes both, which is most
+of why it was dropped: this unit went from the heaviest external dependency in the
+phase to one that can be built the day Unit 21 lands.
 
 ## Goal
 
 Close Handoff B. The client has approved the draft and the case is sitting in
 `EXPERT_SIGNING` waiting for a human with credentials to put their name on it.
-This unit gives that human a screen and a signature.
+This unit gives that human a screen, the letter, and a way to send it back signed.
 
-**Verifiable result:** on client approval a Dropbox Sign signature request goes out
-to the assigned expert; the expert opens a link, sees that one case's draft, goal
-and evidence, and can accept, ask for more evidence, or decline with a reason;
-Dropbox Sign's signed / declined / viewed callbacks arrive through the Unit 05
-gateway and drive the case's sign status without polling; and a case still unsigned
-at 24 business hours is flagged for reassignment.
+**Verifiable result:** on client approval the assigned expert gets a link; they open
+it, see that one case's draft, goal and evidence, and can accept, ask for more
+evidence, or decline with a reason; on accepting they **download the letter, sign it
+in whatever tool they already use, and upload the signed file back**, which files it
+into the case's Drive folder, records who uploaded what and when, and moves the case
+to the PM for final QC; and a case still unsigned at 24 business hours is flagged for
+reassignment.
 
 ## In scope
 
 - The `EXPERT`-audience portal chain and view, on Unit 14's token model.
 - The three expert responses: accept, request evidence, decline.
-- **Dropbox Sign**: issuing the signature request, and its inbound callbacks
-  through the Unit 05 gateway.
+- **Download the final letter, and upload the signed one back** — Unit 21's upload
+  path with `audience = 'EXPERT'`.
+- The signed-letter provenance record: hashes, attestation, audit row.
 - The 20h / 24h sign-SLA **alerting and the reassign operation**.
 
 ## Out of scope
 
+- **Any e-signature provider.** No Dropbox Sign, no DocuSign, no in-browser
+  signature pad — see below.
 - **Scheduling** the 20h/24h timers. The build plan names the timer here; the
   invariant puts the scheduler in `job` (invariant 6), and Unit 19 owns that
   package. Split the same way Unit 10 split the chase: **this unit owns the
@@ -43,11 +52,66 @@ at 24 business hours is flagged for reassignment.
   fires on a schedule until Unit 19.
 - Any new stage transition for "send to expert" — see below, the case is already
   in `EXPERT_SIGNING`.
-- Storing the signed letter. It lives in Dropbox Sign (invariant 14). EvalOS keeps
-  the request id and the status.
+- **Hosting the signed letter.** It goes to the case's Drive folder like every other
+  document; EvalOS keeps the Drive file id, the hash and the timestamp. Invariant 14
+  holds for the same reason it does in Unit 21 — the bytes stream through.
 - An expert account, password, or a list of the expert's cases — see the
   one-token-one-case note.
 - The payout the signature eventually earns — Unit 16.
+
+## Signing without a signature provider
+
+**The decision.** The expert downloads the letter, signs it the way they already sign
+things — wet ink and a scan, or their own PDF tool — and uploads the signed file back
+through the portal. EvalOS provides no signing surface at all.
+
+**Why.** Three reasons, in order of weight:
+
+1. **A scanned wet signature is the norm for this document.** An expert opinion
+   letter accompanies an immigration filing, and a scanned signature is accepted
+   there — often more readily than a third-party e-signature. The provider was
+   solving a problem this document does not have.
+2. **It removes the phase's heaviest dependency for almost no new code.** Unit 21
+   already streams an uploaded file into the case's Drive folder, validates it, and
+   writes an audit row naming a portal actor. This unit reuses that with a different
+   audience. Against that, Dropbox Sign wanted an account, an API key, a template, a
+   callback secret, a new inbound source, and an answer to how a provider callback
+   resolves its brand.
+3. **The supply side is the participant we do not control.** Not asking 400 experts
+   to learn a tool removes friction from exactly the group that cannot be trained.
+
+**What it costs — stated plainly, because it is a real loss.** A provider issues a
+tamper-evident certificate: who signed, when, from where, over a document hash. An
+uploaded PDF carries none of that, so **EvalOS cannot cryptographically prove an
+expert signed anything.** If an expert later disputes a signature, there is no
+certificate to produce.
+
+**The three measures that compensate.** None is a certificate authority; together
+they are a defensible chain of custody.
+
+- **Hash both directions.** Record a hash of the letter as *sent* and of the signed
+  file as *received*, both on the case. That does not prove the signature, but it
+  proves exactly what EvalOS handed over and exactly what came back — which is what
+  an actual dispute turns on.
+- **Capture an attestation at upload.** The portal requires an explicit tick: *"I,
+  {expert name}, confirm this is my signature on this letter."* Store the wording,
+  the name as displayed, and the timestamp. A contemporaneous statement recorded
+  against a named person is meaningful evidence even without a provider.
+- **Write the audit row as the expert.** `actor_type = 'EXPERT'` already exists
+  (`V22`), so the trail says the expert acted, through that token, at that time —
+  not "a staff member recorded that the expert signed", which is what the old
+  staff-stand-in path said.
+
+**PM final QC stops being a formality.** It is now the only check that the uploaded
+file is the right letter and is actually signed. That step already exists in the
+pipeline; this decision makes it load-bearing, and the spec should say so where it
+describes QC.
+
+**No in-browser signature pad.** It is the weakest form legally, it would mean
+building signing surface EvalOS has no business building, and it fails the same
+non-repudiation test as an upload while costing far more. If a certificate is ever
+genuinely required — a client demands one, or a dispute makes the risk concrete — the
+answer is to add a provider back behind this same portal step, not to hand-roll one.
 
 ## There is no "send to expert" transition, and none is needed
 
@@ -57,10 +121,11 @@ That transition **already exists and already runs**:
 and Unit 14's portal fires it. By the time this unit is involved the case is in
 `EXPERT_SIGNING` already.
 
-What is missing is not a stage change but an **outbound act**: issuing the
-signature request. So this unit subscribes to `draft.client_approved` and sends
-the Dropbox Sign request. No new column remembers "sent" — the presence of a
-signature-request id is that fact.
+What is missing is not a stage change but **getting the letter in front of the
+expert**: minting their portal link. So this unit subscribes to
+`draft.client_approved` and mints an `EXPERT`-audience `portal_access` row. No new
+column remembers "sent" — the presence of an unrevoked expert token is that fact,
+exactly as the presence of a signature-request id used to be.
 
 Do **not** add a second transition into `EXPERT_SIGNING`. Two paths into one stage
 is how a case gets there without an expert assigned.
@@ -110,69 +175,79 @@ to sign yet — but it means **the sign-SLA clock must not run while the case is
 held**, which `SlaCalculator` already gets right (it returns null in an exception
 state).
 
-## Dropbox Sign
+## Getting the letter signed
 
-`integration/DropboxSignClient` — the only place the API is called from.
+No integration, no SDK, no callbacks. Two portal operations, both reusing Unit 21.
 
-- **Sending.** On `draft.client_approved`: create a signature request for the
-  assigned expert against the configured template, carrying the `draft_link`
-  document and the case id in Dropbox Sign's `metadata`. Store the returned
-  `signature_request_id` on the case.
-- **Config**, all env-backed with **no non-local default**, the rule
-  `EVALOS_FIELD_KEY` set: API key, template id, and the callback signing secret.
-- **Dependency:** the Dropbox Sign Java SDK, added here and nowhere earlier.
-- **The expert's email comes from `Expert.email`** (added in Unit 11). An expert
-  row with no email cannot be sent a signature request — refuse with a message
-  naming that, rather than sending to nobody.
-- **Failure does not corrupt the case.** The send is retried by Unit 19's job on
-  failure; until it succeeds the case sits in `EXPERT_SIGNING` with no request id,
-  which is a visible, recoverable state that the board can show. Nothing is
-  half-transitioned, because the transition already happened in Unit 14.
+### Download
 
-### Callbacks — through the Unit 05 gateway, not beside it
+The expert portal offers the final letter for download from the case's Drive folder.
+Nothing new: the letter is already there as `draft_link`, and the expert's whitelist
+(below) already includes it.
 
-`signature_request.signed` / `..._declined` / `..._viewed` arrive at the existing
-inbound gateway: verify → resolve brand → dedupe → archive → route → ack
-(invariant 10). A new `webhook/DropboxSignHandler` and its router entries; the
-gateway itself is untouched and stays a protected file.
+Record a **hash of the file as offered**, once, the first time it is downloaded, on
+`letter_sent_hash`. This is half of the provenance chain — it is what lets EvalOS
+later say *this* is the document the expert was given.
 
-- `signed` → `EXPERT_SIGNED` (the Unit 04 transition), sign status `SIGNED`, and the
-  offer stamped `ACCEPTED` **only if it is still `OFFERED`**. An expert who pressed
-  Accept in the portal and then signed produces two writes of the same outcome on
-  the ordinary happy path, and Unit 12's rule is that an outcome leaves `OFFERED`
-  exactly once — so the second write is a no-op, not a second stamp and not an
-  error. First write wins, whichever act arrives first.
-- `declined` → `EXPERT_DECLINED` with the reason from the callback.
-- `viewed` → stamps a viewed timestamp only. **No transition** — looking at a
-  document is not an act on the case, and giving it one would put a meaningless
-  row on the timeline every time the expert refreshed.
-- Idempotency is the gateway's, on the source event id scoped by brand. Dropbox
-  Sign retries; a replayed `signed` must not sign twice.
-- **The staff-recorded stand-ins stay.** `POST /api/cases/{id}/expert/signed` and
-  `.../expert/declined` remain, gated as they are. A signing integration that is
-  down cannot be allowed to stop the business, and those endpoints are the manual
-  path. They write the same transition, so the trail does not care which fired it.
+### Upload the signed letter
 
-### The brand-resolution problem
+`POST /api/portal/expert/signed-letter` — Unit 21's path with
+`audience = 'EXPERT'`. Everything in Unit 21's security section applies unchanged:
+`X-Portal-Token` header only, allowlist by sniffed content, size cap, per-token rate
+limit, generated filename, bytes streamed to Drive and never persisted by EvalOS.
 
-The gateway resolves `brand_id` **from the per-brand endpoint token** — step 2, and
-a protected step (`ai-workflow-rules.md`). GHL satisfies this naturally: each brand
-is its own sub-account, so each gets its own endpoint.
+Two additions specific to signing:
 
-**Dropbox Sign may not.** If the business has one Dropbox Sign account, it has one
-callback URL, and the endpoint token cannot distinguish brands.
+- **PDF only.** A signed evaluation letter is a PDF; JPEG and PNG are acceptable for
+  a client's supporting document but not for the deliverable. Narrow the allowlist
+  rather than reusing Unit 21's.
+- **The attestation is required, not optional.** The request must carry the ticked
+  confirmation and its wording; refuse `400` without it. This is the evidence, so it
+  cannot be a UI-only checkbox that the API accepts absent.
 
-- **Preferred: one Dropbox Sign account (or API app) per brand**, each configured
-  with that brand's own EvalOS callback endpoint. The gateway then works unchanged
-  and the protected step is untouched. This is also the safer arrangement
-  operationally — one brand's signing credentials cannot reach another's requests.
-- **If that is impossible**, the brand must come from the `metadata` case id on
-  the callback, which **is a change to the protected brand-resolution step** and
-  requires explicit instruction before it is written. Do not implement it as a
-  quiet fallback inside the handler; a second brand-resolution path that nobody
-  approved is exactly what protecting that step is for.
+On success, in one transaction: store `signed_letter_drive_file_id`,
+`signed_letter_hash`, `signed_at`, the attestation text and the displayed name; fire
+the existing **`EXPERT_SIGNED`** transition; stamp the offer `ACCEPTED` **only if it
+is still `OFFERED`** (an expert who pressed Accept and then uploaded produces two
+writes of one outcome on the happy path, and Unit 12's rule is that an outcome leaves
+`OFFERED` exactly once — so the second is a no-op, not an error); and write the audit
+row with `actor_type = 'EXPERT'`.
 
-**Confirm which, before starting.** This is question 2 in the header.
+**Failure leaves the case where it was.** Drive down → 503, nothing recorded, the
+case stays in `EXPERT_SIGNING` unsigned, which is a visible and recoverable state the
+board already shows. Never record the signature before the file is safely filed —
+that ordering is the same rule Unit 21 states, and for the same reason.
+
+### What replaces the callbacks
+
+| Dropbox Sign gave | Now |
+|---|---|
+| `signature_request.signed` | the upload itself, by the expert, through their own token |
+| `signature_request.declined` | the portal's existing decline action, with a reason |
+| `signature_request.viewed` | the portal's read receipt — Unit 14 already tracks this, so the capability survives |
+| a tamper-evident certificate | **nothing.** The hash pair + attestation + `EXPERT` audit row, as described above |
+
+**The staff-recorded stand-ins stay, and their meaning changes.**
+`POST /api/cases/{id}/expert/signed` and `.../expert/declined` remain, gated as they
+are — an expert who cannot work a portal will email a signed PDF to a Case Manager,
+and that must not stop the business. But note the difference in the trail: a
+staff-recorded signature audits as **staff** recording a claim about the expert,
+where a portal upload audits as the **expert** acting. Both are legitimate; only one
+is first-hand evidence. Prefer the portal, and do not let the stand-in become the
+normal path out of convenience.
+
+### One dependency this removes
+
+The inbound gateway keeps **one source, GHL**. `WebhookSource.DROPBOX_SIGN` becomes an
+enum value nothing writes — leave it (the column is text and costs nothing) but do not
+build a handler for it. Two consequences worth recording elsewhere: spec 05's
+"reused by Dropbox Sign in Unit 15" justification for the gateway no longer applies,
+and **the brand-resolution problem disappears entirely.** That problem — one Dropbox
+Sign account means one callback URL and the per-brand endpoint token cannot
+distinguish brands, so the protected brand-resolution step might have had to change —
+was this spec's second gating question and the only place in the design that
+threatened a protected step. Dropping the provider removes it rather than solving it,
+which is the best available outcome.
 
 ## What the expert may see
 
@@ -187,9 +262,10 @@ deadline. **Excluded:** `deal_value`, `invoice_ref`, `campaign_attribution`,
 timeline, staff assignment fields, other experts, and every other case.
 
 **One token, one case** — the same rule as Unit 14, and it is a good fit here
-rather than a compromise: the Dropbox Sign link *is* per signature request, so an
-expert with three cases legitimately has three links. There is no expert case list
-to build, and therefore no expert account, password, or session to secure.
+rather than a compromise: an expert holding three cases legitimately holds three
+links, each revocable on its own. There is no expert case list to build, and
+therefore no expert account, password, or session to secure. It also bounds the
+blast radius of a leaked link to one case.
 
 ## Backend
 
@@ -201,13 +277,14 @@ Expert portal routes, on the Unit 14 portal chain, `X-Portal-Token` header:
 | POST | /api/portal/expert/accept | portal token (EXPERT) | → `EXPERT_ACCEPTED` |
 | POST | /api/portal/expert/request-evidence | portal token (EXPERT) | → `EXPERT_REQUEST_EVIDENCE`; body carries what is missing |
 | POST | /api/portal/expert/decline | portal token (EXPERT) | → `EXPERT_DECLINED`; reason required |
+| GET | /api/portal/expert/letter | portal token (EXPERT) | download the final letter; stamps `letter_sent_hash` on first fetch |
+| POST | /api/portal/expert/signed-letter | portal token (EXPERT) | **the signature.** Multipart, PDF only, attestation required → `EXPERT_SIGNED`. Unit 21's upload path with `audience = 'EXPERT'` |
 
 Staff-side, on the normal chain:
 
 | Method | Path | Auth | Notes |
 | --- | --- | --- | --- |
-| POST | /api/cases/{id}/expert-portal-link | GM · Brand Manager · PM · CM | mint the expert link (the CM-shared path, for when Dropbox Sign's own link is not the route in) |
-| POST | /api/cases/{id}/expert/resend-signature-request | GM · Brand Manager · PM · CM | re-issue the Dropbox Sign request; audited |
+| POST | /api/cases/{id}/expert-portal-link | GM · Brand Manager · PM · CM | mint or re-mint the expert link. Now the **only** way the expert is reached, so it is the main path rather than a fallback; `V23`'s one-unrevoked-token index still applies |
 | POST | /api/cases/{id}/expert/timed-out | GM · Brand Manager · PM | → `EXPERT_TIMED_OUT`. The human answer to the 24h prompt: stamps the offer `TIMED_OUT` and opens the rematch. **Not on the CM's list** — taking a case off an expert is the same weight of call as staffing it |
 
 Audit rows from the portal use `AuditService.recordPortalEvent` with
@@ -232,6 +309,19 @@ Pacific business calendar.
   **auto-prompt**, which is also the wording `project-overview.md` uses ("the case
   auto-prompts reassignment"). Where the two documents differ, the narrower reading
   wins and is recorded here.
+
+  **The CRM build spec agrees, in its own words.** A18 reads "Auto-reassignment
+  workflow triggered. ENM notified. **CM prompted to confirm next expert.**" A
+  workflow that ends in a human confirming is a prompt, so there is no conflict to
+  resolve — only a wording trap for whoever reads the first sentence alone.
+
+- **Who sees the prompt, and who may fire it — these are different people, and A18
+  reads as though they are the same.** The CM is notified at 20h and 24h and sees the
+  reassign prompt on their dashboard; **firing `EXPERT_TIMED_OUT` stays GM · Brand
+  Manager · PM.** Taking a case off an expert is the same weight of call as staffing
+  it, and it stamps a permanent outcome on that expert's record. So the CM's "confirm
+  next expert" is a request, not an authority: the CM raises it, a PM or above acts.
+  Recorded because the business spec puts the verb next to the CM.
 - **And the prompt needs somewhere to lead, which is why `EXPERT_TIMED_OUT`
   exists.** `REASSIGN_EXPERT` requires `EXPERT_DECLINED_REMATCHING`
   (`CaseTransitions.REQUIRES_EXCEPTION`), and an expert who has not answered has
@@ -258,12 +348,21 @@ Pacific business calendar.
 3. **Three actions**: Accept · Request evidence (with a required description of
    what is missing) · Decline (with a required reason). Decline confirms — it sends
    the case back to rematching.
-4. **Sign** hands off to Dropbox Sign's own hosted flow; EvalOS does not reimplement
-   a signing surface.
-5. **Status after acting**, including the deadline and, when held for evidence,
+4. **Sign** is a two-step panel, and the copy carries the weight: **Download the
+   letter** → sign it in your own tool → **Upload the signed letter**. Say plainly
+   that a scanned wet signature is expected and accepted, so nobody hunts for an
+   e-signature button that does not exist. State the accepted type (PDF) and the size
+   cap on the control, per `ui-context.md`.
+5. **The attestation is part of the upload, not a separate step**: a required tick
+   reading *"I, {name}, confirm this is my signature on this letter"* next to the
+   file input, with upload disabled until it is ticked. It is the evidence, so it must
+   be impossible to submit without it — and the API refuses it absent regardless of
+   what the UI does.
+6. **Status after acting**, including the deadline and, when held for evidence,
    that EvalOS is waiting on the client — not on the expert.
-6. Staff side: the case detail expert card gains the signature-request status, the
-   viewed timestamp, the sign deadline, and **Resend request**; the production
+7. Staff side: the case detail expert card gains the sign status, the viewed
+   timestamp, the sign deadline, the **signed letter link** once uploaded, and
+   **Re-send link**; the production
    board's `EXPERT_SIGNING` column shows the 20h/24h warning state. Past 24h the
    card also offers **Mark timed out & rematch** (`EXPERT_TIMED_OUT`), which is the
    answer to the overdue prompt — confirmed, and worded so it is not mistaken for
@@ -271,8 +370,8 @@ Pacific business calendar.
 
 ## Acceptance criteria
 
-- [ ] Client approval issues exactly one Dropbox Sign request to the assigned
-      expert's email, and the returned request id is stored on the case.
+- [ ] Client approval mints exactly one unrevoked `EXPERT` token for the assigned
+      expert's case, and re-minting revokes the previous one (`V23`).
 - [ ] An `EXPERT` token reads its own case only; the whitelist excludes
       `deal_value`, `invoice_ref`, `campaign_attribution` and
       `pm_strategy_notes`, asserted by grepping the serialized response.
@@ -295,44 +394,64 @@ Pacific business calendar.
       `DECLINED` row against their acceptance rate.
 - [ ] The expert cannot fire `EXPERT_TIMED_OUT` (no portal route reaches it) and a
       CM gets 403 from the staff route.
-- [ ] Accepting in the portal and then signing leaves the offer `ACCEPTED` with
-      **one** outcome write — the callback's stamp is a no-op, not a second one.
-- [ ] A replayed `signature_request.signed` callback signs once — the second is
-      answered `duplicate` and produces no second audit row or event.
-- [ ] A `..._viewed` callback stamps the timestamp and produces **no** transition
-      and **no** timeline row.
-- [ ] An unsigned callback (bad signature) is refused identically to the GHL case
-      and is **not archived** — the Unit 05 behaviour, re-proved for this source.
+- [ ] Accepting in the portal and then uploading leaves the offer `ACCEPTED` with
+      **one** outcome write — the upload's stamp is a no-op, not a second one.
+- [ ] **Uploading the signed letter fires `EXPERT_SIGNED` once**, files the PDF in the
+      case's Drive folder, and records `signed_letter_drive_file_id`,
+      `signed_letter_hash`, `signed_at`, the attestation text and the displayed name.
+      The audit row's `actor_type` is **`EXPERT`**, not `STAFF`.
+- [ ] **An upload without the attestation is refused `400`** even though the UI
+      disables the button — the API is the guard, because the attestation is the
+      evidence.
+- [ ] **Non-PDF is refused** by content sniffing, not by extension: a `.pdf`-named
+      JPEG does not become a signed letter.
+- [ ] **Drive unavailable → 503 and the case is unchanged** — still `EXPERT_SIGNING`,
+      still unsigned, no partial record. Asserted, because the reverse order would
+      mark a case signed with no letter behind it.
+- [ ] **The letter's hash is recorded when it is downloaded**, so a dispute can be
+      answered with what was sent as well as what came back.
+- [ ] An expert who is `ON_HOLD_AWAITING_CLIENT` for evidence **cannot upload** until
+      the case resumes.
+- [ ] No file is written to local disk and no blob column exists — the invariant-14
+      property, asserted as in Unit 21.
 - [ ] The staff-recorded `expert/signed` and `expert/declined` endpoints still work
-      and write the same transition as the callback.
-- [ ] The app fails to start outside `local` with no Dropbox Sign secret
-      configured.
-- [ ] `npm run build` green; `./mvnw verify` green. **A live signature round-trip
-      against a real Dropbox Sign account is required to close the unit** and is
-      recorded in the tracker — the same standard Unit 05 was held to, where a
-      mocked handler was not accepted as evidence for a live path.
+      and write the same transition — but audit as **`STAFF`**, so the trail
+      distinguishes a first-hand signature from a recorded claim about one.
+- [ ] `npm run build` green; `./mvnw verify` green. **A live round-trip is required to
+      close the unit** — a real expert token, a real download, a real signed PDF
+      uploaded into a real Drive folder — recorded in the tracker, the same standard
+      Unit 05 was held to. This now needs the **Google service account** rather than a
+      Dropbox Sign account, i.e. the same credential Units 13 and 21 need.
 
 ## Invariants honored
 
 Brand isolation — the expert token names one case in one brand (1); the expert sees
 only their assignment (3); `payment_detail` is not on this surface, and the expert's
 own payment detail is not shown to them either, there being no read path for it at
-all (4); the outbound send and the timers run in `job`, not in a controller (6);
-**every callback is verified, brand-resolved, deduplicated and archived before any
-side effect** (10); the webhook handler carries no business logic — it routes to
-`CaseLifecycleService` (12); every response writes an append-only audit row naming
-the expert as actor (13); the signed letter lives in Dropbox Sign and EvalOS sends
-no email — Dropbox Sign issues the request (14).
+all (4); the timers run in `job`, not in a controller (6); the portal controller
+carries no business logic — it routes to `CaseLifecycleService` (12); every response
+writes an append-only audit row naming **the expert** as actor (13); **the signed
+letter is filed in Drive and streams through EvalOS without being stored, and EvalOS
+sends no email — the expert is reached by a portal link** (14).
+
+Invariant 10 no longer applies to this unit at all: there are no callbacks, because
+there is no provider. The inbound gateway keeps one source.
 
 ## Files touched
 
-**Created.** Backend: `integration/DropboxSignClient.java`,
-`config/DropboxSignConfig.java`, `webhook/DropboxSignHandler.java`,
-`service/ExpertSignService.java` (issue / resend / the SLA computation),
-`web/ExpertPortalController.java`, `web/ExpertSignController.java` (+ DTOs).
-Migration `V<next>__case_signature_request.sql` — `signature_request_id`,
-`expert_viewed_at`, `sign_deadline_at` on `evalos_case`. Frontend:
-`frontend/src/features/expert-portal/*` (`ExpertCaseView`, `expertPortalApi`).
+**Created.** Backend: `service/ExpertSignService.java` (mint / re-mint / the signed
+upload / the SLA computation), `web/ExpertPortalController.java`,
+`web/ExpertSignController.java` (+ DTOs).
+Migration `V<next>__case_expert_signing.sql` — `expert_viewed_at`,
+`sign_deadline_at`, `letter_sent_hash`, `signed_letter_drive_file_id`,
+`signed_letter_hash`, `signed_at`, `sign_attestation`, `sign_attested_name` on
+`evalos_case`. Frontend: `frontend/src/features/expert-portal/*` (`ExpertCaseView`,
+`SignPanel`, `expertPortalApi`).
+
+**Reused, not created.** Unit 21's upload path — validation, streaming,
+`GoogleDriveClient.uploadFile`, the `folderIdOf` helper and the portal rate limiter.
+This unit adds a narrower allowlist (PDF only) and the attestation requirement; it
+must **not** fork a second upload implementation.
 
 **Modified.** `service/CaseTransitions.java` — the three new actions
 (`EXPERT_ACCEPTED`, `EXPERT_REQUEST_EVIDENCE`, `EXPERT_TIMED_OUT`).
@@ -340,13 +459,17 @@ Migration `V<next>__case_signature_request.sql` — `signature_request_id`,
 `expert.timed_out`, `expert.sign_overdue_warning`, `expert.sign_overdue`.
 `service/CaseLifecycleService.java` — the three new transition methods, and the
 first-write-wins guard on the offer outcome.
-`webhook/WebhookRouter.java` — the three Dropbox Sign event types.
 `service/ChecklistService.java` — the add-item path reused by request-evidence.
 `notification/NotificationListeners.java` — the new events' recipients.
 `frontend/src/features/case/ExpertCard.tsx`, `frontend/src/App.tsx`.
-`pom.xml`, `application.yml`.
+`application.yml` — nothing secret; the upload limits already exist.
 
-**Not touched.** `webhook/WebhookGateway.java`, `webhook/WebhookVerifier.java` and
-the brand-resolution step (protected — and if question 2 forces a change there, it
-needs explicit instruction first). `service/ScopePredicate.java`. Every applied
-migration.
+**Deleted from the plan.** `integration/DropboxSignClient`,
+`config/DropboxSignConfig`, `webhook/DropboxSignHandler`, the SDK dependency, the
+three router event types, and the `signature_request_id` column. None was ever built,
+so this is a spec change and not a migration.
+
+**Not touched.** `webhook/*` entirely — no new inbound source, so the gateway and the
+protected brand-resolution step are out of scope for this unit rather than
+conditionally in it. `service/ScopePredicate.java`. Every applied migration.
+`pom.xml` — this unit now adds **no dependency**.

@@ -46,7 +46,7 @@ public class CaseIntakeService {
 
 	private static final String OBJECT_TYPE = "CASE";
 
-	/** The GHL contact, already mapped off the wire. */
+	/** The GHL contact on the won opportunity, already mapped off the wire. */
 	public record ContactDetails(
 			String ghlContactId,
 			String fullName,
@@ -61,11 +61,12 @@ public class CaseIntakeService {
 	}
 
 	/**
-	 * What an inbound GHL contact says the case is. Transport-agnostic on purpose.
+	 * What a won GHL opportunity says the case is. Transport-agnostic on purpose.
 	 *
-	 * <p>{@code dealValue} is a quote, not a payment — it may be null, and it is
-	 * {@code markPaid} that records the amount actually taken. {@code paid} is only
-	 * true when GHL already knows the contact paid.
+	 * <p>There is no {@code paid} flag: every case created here is paid, because GHL
+	 * invoices and collects before an opportunity is marked Won. {@code dealValue} is
+	 * therefore the amount actually collected, and GHL is its source of truth — which is
+	 * why {@link #refresh} overwrites it rather than only filling it.
 	 */
 	public record NewCase(
 			ContactDetails contact,
@@ -73,12 +74,12 @@ public class CaseIntakeService {
 			ServiceSubtype serviceSubtype,
 			VisaCategory visaCategory,
 			UUID selectedExpertId,
+			String ghlOpportunityId,
 			BigDecimal dealValue,
 			Instant deadline,
 			String driveLink,
 			String invoiceRef,
-			String campaignAttribution,
-			boolean paid) {
+			String campaignAttribution) {
 	}
 
 	private final CaseRepository cases;
@@ -125,9 +126,24 @@ public class CaseIntakeService {
 	 * been re-synced; beyond that this only fills in what is still blank.
 	 *
 	 * <p>It deliberately cannot move the case. A GHL workflow re-firing must not reset a
-	 * stage, drop an assignment, or un-pay a case that somebody has since paid — so
-	 * stage, assignment and {@code paid} are never touched here, and no lifecycle event
-	 * is published because nothing in the lifecycle happened.
+	 * stage, drop an assignment, or un-pay a case — so stage, assignment and {@code paid}
+	 * are never touched here, and no lifecycle event is published because nothing in the
+	 * lifecycle happened.
+	 *
+	 * <p><strong>The won opportunity is the one exception, and it overwrites.</strong> With no
+	 * manual payment path left, this is the only writer that could ever correct an amount
+	 * after creation — fill-only would freeze the first figure forever with nothing able to
+	 * fix it, and {@code deal_value} feeds revenue recognition. GHL is the source of truth
+	 * for the amount, so the latest won-opportunity figure wins. Still one value and never
+	 * a running total, so a correction cannot double-count.
+	 *
+	 * <p><strong>{@code dealValue} and {@code ghlOpportunityId} move together, always.</strong>
+	 * They are two halves of one fact — this deal, for this money — and they arrive in the same
+	 * delivery, so writing one without the other is what lets a case carry opp-B's amount under
+	 * opp-A's id. Unit 18 closes the opportunity named by that column, so a stale id closes the
+	 * wrong deal in GHL and leaves the paid one open. If the incoming id is already on another
+	 * open case in this brand, {@code V24} refuses the write, which is correct: one opportunity
+	 * is one case.
 	 */
 	private Case refresh(Brand brand, Case subject, NewCase request) {
 		CaseLifecycleService.CaseSnapshot before = CaseLifecycleService.CaseSnapshot.of(subject);
@@ -146,12 +162,23 @@ public class CaseIntakeService {
 		if (subject.getCampaignAttribution() == null) {
 			subject.setCampaignAttribution(request.campaignAttribution());
 		}
-		if (subject.getDealValue() == null) {
-			subject.setDealValue(request.dealValue());
-		}
+		// Recorded before the write, because afterwards there is nothing left to compare: the
+		// snapshot either side of this deliberately omits deal_value (it is role-restricted, and
+		// CaseTimelineService surfaces the note to every role that may read the case), so an
+		// amount correction would otherwise produce an UPDATED row whose before and after are
+		// byte-identical — a money change that reads as a no-op edit. The note says *that* the
+		// figure moved and never what it moved to; the figures themselves are in the
+		// append-only webhook_event archive, which holds the raw payload of every delivery.
+		boolean amountCorrected = subject.getDealValue() != null
+				&& request.dealValue().compareTo(subject.getDealValue()) != 0;
+		subject.setDealValue(request.dealValue());
+		subject.setGhlOpportunityId(request.ghlOpportunityId());
+
 		Case saved = cases.save(subject);
 		audit.recordSystemEvent(brand.getId(), OBJECT_TYPE, saved.getId(), AuditAction.UPDATED,
-				before, CaseLifecycleService.CaseSnapshot.of(saved, "refreshed from GHL contact"));
+				before, CaseLifecycleService.CaseSnapshot.of(saved, amountCorrected
+						? "refreshed from GHL won opportunity — deal value corrected"
+						: "refreshed from GHL won opportunity"));
 		return saved;
 	}
 
@@ -161,17 +188,12 @@ public class CaseIntakeService {
 
 		audit.recordSystemEvent(brand.getId(), OBJECT_TYPE, created.getId(), AuditAction.CREATED,
 				null, CaseLifecycleService.CaseSnapshot.of(created));
-		// Unit 06 listens for these and raises the staff alerts: CASE_CREATED is a lead
-		// arriving ("somebody is asking"), CASE_PAID is the pool arrival ("assign a project
-		// manager"). Nothing here decides who hears about it.
+		// Unit 06 listens for these: CASE_CREATED is the pool arrival ("assign a project
+		// manager"), CHECKLIST_REQUESTED is GHL's to deliver. There is no separate paid
+		// announcement any more, because a case can no longer exist before the money.
+		// Nothing here decides who hears about it.
 		events.publishEvent(CaseEvents.CaseEvent.of(CaseEvents.Type.CASE_CREATED, created));
 		events.publishEvent(CaseEvents.CaseEvent.of(CaseEvents.Type.CHECKLIST_REQUESTED, created));
-
-		if (request.paid()) {
-			// GHL already knew this contact had paid, so the case skips the lead state and
-			// both alerts land at once.
-			events.publishEvent(CaseEvents.CaseEvent.of(CaseEvents.Type.CASE_PAID, created));
-		}
 		return created;
 	}
 
@@ -237,12 +259,13 @@ public class CaseIntakeService {
 		created.setDriveLink(request.driveLink());
 		created.setInvoiceRef(request.invoiceRef());
 		created.setCampaignAttribution(request.campaignAttribution());
+		created.setGhlOpportunityId(request.ghlOpportunityId());
 		// Pre-selected during the sale; the PM still confirms availability at assignment.
 		created.setExpertId(request.selectedExpertId());
-		created.setPaid(request.paid());
-		if (request.paid()) {
-			created.setPaidAt(Instant.now());
-		}
+		// Won is paid: GHL invoiced and collected before the opportunity was marked Won, so
+		// the webhook is the proof and there is nothing for a human to record.
+		created.setPaid(true);
+		created.setPaidAt(Instant.now());
 		created.setSlaStatus(sla.statusOf(created));
 		return created;
 	}

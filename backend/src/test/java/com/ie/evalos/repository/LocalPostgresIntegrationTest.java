@@ -401,6 +401,48 @@ class LocalPostgresIntegrationTest {
 	}
 
 	/**
+	 * V24, and it guards a different thing from the gateway's idempotency: {@code event_id}
+	 * stops a redelivered <em>webhook</em>, this stops a second <em>case</em> for one won
+	 * opportunity — two deliveries of the same opportunity with different event ids are
+	 * genuinely different deliveries.
+	 *
+	 * <p>The {@code current_stage <> 'CLOSED'} half is the one worth proving. Without it, a
+	 * client returning on a re-won opportunity id would hit a constraint violation: a 5xx GHL
+	 * retries forever, and no case for a deal that was paid for.
+	 */
+	@Test
+	void oneOpenCasePerWonOpportunityIsEnforcedByTheDatabase() {
+		UUID contactId = contacts.save(new ContactSnapshot(BRAND_IE, "ghl-" + UUID.randomUUID())).getId();
+		String opportunityId = "opp-" + UUID.randomUUID();
+
+		Case first = openCaseFor(contactId, ServiceType.EXPERT_OPINION_LETTER);
+		first.setGhlOpportunityId(opportunityId);
+		cases.saveAndFlush(first);
+
+		// A different contact and service, so only the opportunity id collides.
+		UUID otherContact = contacts.save(new ContactSnapshot(BRAND_IE, "ghl-" + UUID.randomUUID())).getId();
+		Case duplicate = openCaseFor(otherContact, ServiceType.TRANSLATION);
+		duplicate.setGhlOpportunityId(opportunityId);
+		assertThatThrownBy(() -> cases.saveAndFlush(duplicate))
+				.hasStackTraceContaining("uq_case_open_per_opportunity");
+
+		// The other brand numbers its own opportunities.
+		Case otherBrand = new Case(BRAND_XP, "XP-" + UUID.randomUUID(), Stage.DOC_COLLECTION);
+		otherBrand.setGhlOpportunityId(opportunityId);
+		assertThat(cases.saveAndFlush(otherBrand).getId()).isNotNull();
+
+		// Once the first case closes, the same id may come round again — repeat business.
+		first.setCurrentStage(Stage.CLOSED);
+		cases.saveAndFlush(first);
+		Case repeat = openCaseFor(otherContact, ServiceType.CREDENTIAL_EVALUATION);
+		repeat.setGhlOpportunityId(opportunityId);
+		assertThat(cases.saveAndFlush(repeat).getId()).isNotNull();
+
+		// A null id is exempt, which is what every row created before V24 carries.
+		assertThat(cases.saveAndFlush(openCaseFor(contactId, ServiceType.PERM)).getId()).isNotNull();
+	}
+
+	/**
 	 * The gateway's idempotency guarantee is a database constraint, not an
 	 * application check: two concurrent redeliveries would both pass a
 	 * check-then-insert, so only the unique index actually stops the second case.

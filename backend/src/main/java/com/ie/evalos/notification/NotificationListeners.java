@@ -39,19 +39,18 @@ public class NotificationListeners {
 	}
 
 	/**
-	 * The spec's event → recipient table, verbatim except where Unit 05a moved the
-	 * ground under it: the spec maps {@code case.created} to the pool alert, but since
-	 * Handoff A fires on contact creation, {@code case.created} is a *lead* and
-	 * {@code case.paid} is the pool arrival. Both are mapped, with the headings that
-	 * distinguish them.
+	 * The spec's event → recipient table.
+	 *
+	 * <p>{@code case.created} <em>is</em> the pool arrival again, as the spec always had it:
+	 * Case Creation v2.0 fires Handoff A on a won opportunity, so a case is born paid and
+	 * there is no lead state to distinguish. The intermediate mapping — {@code case.created}
+	 * as a {@code NEW_LEAD} and {@code case.paid} as the arrival — went with the manual
+	 * payment path. {@code NotificationType.NEW_LEAD} is kept as a constant because it is
+	 * persisted as text on rows already written; nothing emits it.
 	 */
 	private static final Map<CaseEvents.Type, Route> ROUTES = new EnumMap<>(Map.ofEntries(
-			route(CaseEvents.Type.CASE_CREATED, NotificationType.NEW_LEAD,
-					(c, r) -> r.gmAndBrandManagers(c.getBrandId()),
-					"New lead %s. Not paid yet."),
-
-			route(CaseEvents.Type.CASE_PAID, NotificationType.NEW_CASE_IN_POOL,
-					(c, r) -> r.gmAndBrandManagers(c.getBrandId()),
+			route(CaseEvents.Type.CASE_CREATED, NotificationType.NEW_CASE_IN_POOL,
+					(c, r) -> r.pmsAndCoordinators(c.getBrandId()),
 					"Case %s is paid and needs a project manager."),
 
 			route(CaseEvents.Type.DOCUMENTS_COMPLETED, NotificationType.STAGE_CHANGED,
@@ -85,6 +84,12 @@ public class NotificationListeners {
 			route(CaseEvents.Type.EXPERT_SIGNED, NotificationType.STAGE_CHANGED,
 					(c, r) -> r.assignedPm(c),
 					"The expert signed %s — it is ready for QC."),
+
+			// A20. The event and the transition behind it shipped in Unit 04; this row did
+			// not, so a Coordinator learned a case was deliverable by watching the board.
+			route(CaseEvents.Type.QC_APPROVED, NotificationType.STAGE_CHANGED,
+					(c, r) -> r.coordinators(c.getBrandId()),
+					"%s passed QC and is ready to deliver."),
 
 			route(CaseEvents.Type.CASE_REFUND_REQUESTED, NotificationType.EXCEPTION_RAISED,
 					(c, r) -> r.gm(),
@@ -126,9 +131,9 @@ public class NotificationListeners {
 		}
 		Case subjectCase = subject.get();
 
-		// The pool arrival is announced once. `apply(...)` publishes one event per
-		// transition including a mark-paid that only *corrects the amount*, and "needs a
-		// project manager" is not worth saying twice.
+		// The pool arrival is announced once. Intake publishes `case.created` only on the
+		// create path, so this is belt and braces rather than the only guard — but "needs a
+		// project manager" is not worth saying twice, and it costs one lookup.
 		if (route.type() == NotificationType.NEW_CASE_IN_POOL
 				&& notifications.alreadyRaised(event.caseId(), NotificationType.NEW_CASE_IN_POOL)) {
 			return;

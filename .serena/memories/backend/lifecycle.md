@@ -1,6 +1,8 @@
 # backend/ — Case lifecycle, payment, SLA & refunds
 
-Unit 04 built the state machine; Unit 05a added payment to it. `Stage`:
+Unit 04 built the state machine; 05a added payment to it as a transition, and **Case Creation v2.0
+(spec `05b`) moved payment out of it again** — `paid` is now set once, by intake, from a won GHL
+opportunity. `Stage`:
 `DOC_COLLECTION → EXPERT_ASSIGNMENT → DRAFT_GENERATION → EXPERT_SIGNING → FINAL_DELIVERY → CLOSED`
 (EvalOS owns stages 3–7 of the 8-stage business pipeline; GHL owns 1–2 and 8).
 
@@ -48,19 +50,20 @@ another.
   Invariants of that table — including why its partial index being non-unique matters — are in
   `mem:backend/persistence`.
 
-## Payment (05a) — the money rules
+## Payment (Case Creation v2.0) — the money rules
 
-- A case is created **unpaid**. `paid` / `paid_at` on `evalos_case` (`V14`).
-- `CaseLifecycleService.markPaid` is GM or Brand Manager, re-checked **in the service** as well as at
-  the endpoint — a method-security annotation guards one route, the service guard guards the
-  operation. Same reasoning as `RefundService.requireGm`. Any path that writes money does both.
-- `markPaid` is **callable on an already-paid case**: the amount and invoice ref are correctable
-  (a contact that arrived already paid carries only the *quote*), while `paid`/`paid_at` are
-  write-once and the pool alert fires only on the first payment. One value, never a running total, so
-  correcting cannot double-count.
-- **The unpaid guard is a single `requireState(subject.isPaid(), ...)` in `markDocsComplete`.** That
-  is deliberate and sufficient: no other transition advances a case past `DOC_COLLECTION`, so one
-  check covers every later stage — do not scatter copies of it.
+- A case is created **paid**. `paid` / `paid_at` on `evalos_case` (`V14`), written by
+  `CaseIntakeService.newCase()` from the won GHL opportunity, along with `deal_value` and
+  `ghl_opportunity_id` (`V24`).
+- **There is no `markPaid`, no `MARK_PAID` transition and no `mark-paid` endpoint.** They existed in
+  05a and were deleted in v2.0: GHL invoices and collects before an opportunity is marked Won, so the
+  webhook is the payment record and a second way to set `paid` is a second thing that can disagree with
+  GHL. Nothing outside intake ever *writes* the flag. Anything describing a GM or Brand Manager
+  recording payment by hand is pre-v2.0 and wrong — see `mem:backend/webhooks`.
+- **The unpaid guard is still a single `requireState(subject.isPaid(), ...)` in `markDocsComplete`.**
+  Every case now arrives paid, so it is normally satisfied on arrival — keep it anyway: it is one line,
+  it is the one place no other transition can bypass (nothing advances past `DOC_COLLECTION` without
+  it), and a refund has to be able to make a case not-earned. Do not scatter copies of it.
   **`isPaid()` is read in four places outside the state machine**, and only one of them is a second
   *gate*: `RedactedProfileService.full` (Unit 13) refuses the expert's identity on an unpaid case.
   That is not a scattered copy of the transition guard — it gates a *release of information* rather
@@ -68,11 +71,17 @@ another.
   `IllegalTransitionException`/409 so both read identically to a caller. The other three are not
   gates at all: `RefundService.isRevenueRecognized` (the revenue pair, next bullet) and the
   `CaseController`/`ChecklistController` DTO projections, which merely report the flag to a screen.
-  Nothing outside `markPaid` ever *writes* it.
-  Doc collection on an unpaid case is
-  *allowed* — it costs EvalOS nothing.
+- v2.0 also closed the unpaid window on purpose: since no case exists before the deal is won, EvalOS no
+  longer collects documents ahead of payment. 05a allowed that on the grounds it "costs EvalOS
+  nothing"; leads are now GHL's business.
 - **Revenue recognition is `paid && delivered && !refunded`**, read only through
-  `RefundService.isRevenueRecognized`. Never sum on `delivery_date` alone. "Flagged refunded" is
+  `RefundService.isRevenueRecognized`. Keep all three terms even though `paid` is now true from birth:
+  the term that does the work is **`!refunded`**, and delivery alone must never imply earned. Never sum
+  on `delivery_date` alone.
+  **A refund does not clear `paid`** — `RefundService` never writes that flag. "Refunded" is `CLOSED`
+  **+** `exception_state = REFUND_REQUESTED` (there is no refunded column), read via `isRefunded`. So
+  do not go looking for a writer that un-pays a case, and do not add one: since v2.0 `paid` is
+  intake-write-only, and reversal lives in the third term. "Flagged refunded" is
   `CLOSED` + `exception_state = REFUND_REQUESTED` (there is no refunded column); a merely *requested*
   refund is not a reversal, which is why `isRefunded` checks the pair.
 - Refunds are **GM-only** on both rulings. Approval voids every `PENDING` payout.
@@ -87,6 +96,31 @@ December). Per-stage business-hour budgets; `AT_RISK` at 75% spent; **null when 
 `sla_status` is **recomputed on read**, not trusted from the column — a case left sitting past its
 budget is overdue though nothing wrote to it. The board's SLA filter matches the recomputed value, so
 filtering in SQL on `sla_status` alone is a bug.
+
+**`SlaCalculator` is the only home for these numbers, and the business has now confirmed them** — every
+budget in the CRM build spec matched the constants already in that class exactly, so nothing changed.
+The numbers are deliberately **not repeated here**: `context/process-automation.md` mirrors them once,
+marked as a mirror, for the business to read. If that table and this class disagree, **the class is
+right**. Do not add a third copy.
+
+Do not add a `BREACHED` value to `SlaStatus` either — Unit 19's spec once implied one; the statuses are
+`ON_TRACK`, `AT_RISK`, `OVERDUE`.
+
+**`EXPERT_SIGNED` is fired by the expert's own upload, not by a provider callback.** There is no
+e-signature provider (decision, Production Process v2.0): the expert downloads the letter from their
+portal, signs it however they already do, and uploads the signed PDF, which files it into the case's
+Drive folder and fires the transition. The offer's first-write-wins rule matters here — pressing Accept
+and then uploading are two acts that both mean accepted, on the happy path.
+
+Because nothing issues a certificate, the transition must also record the provenance: hash of the letter
+as sent, hash of the file received, the attestation text and name, and `actor_type = 'EXPERT'`. **PM
+final QC is therefore load-bearing**, not a formality — it is the only check that the uploaded file is
+the right letter, actually signed.
+
+**Timers live in `job` (Unit 19) and only ever prompt.** A sweep publishes an event or raises a
+notification; it never calls a transition and never writes `current_stage`. The one that would matter
+most is the 24h expert timeout: the clock asks a human to fire `EXPERT_TIMED_OUT`, and no sweep may
+fire it.
 
 ## Authorization shape
 

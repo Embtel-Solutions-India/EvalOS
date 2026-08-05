@@ -27,13 +27,15 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
 
 /**
- * Handoff A's handler: GHL says a contact was created, EvalOS takes custody of the
- * work that contact represents.
+ * Handoff A's handler: GHL says an opportunity was marked Won, EvalOS takes custody of
+ * the work it represents.
  *
- * <p>This used to be a payment handler, and the difference matters. The webhook is no
- * longer proof of payment — it is proof that somebody exists and wants something. The
- * case it creates is unpaid until a GM or Brand Manager records the money, and
- * nothing that costs an expert's time can happen before then.
+ * <p>This has been a payment handler and a contact handler before, and the reason it
+ * settled here is that <strong>whoever owns the money decides when a case exists.</strong>
+ * GHL captures the lead, opens the opportunity, invoices and collects — so by the time a
+ * salesperson drags the opportunity to Won, the money is in. The webhook therefore carries
+ * both facts at once: this is real work, and it has been paid for. Nothing is left for a
+ * human to record, which is why there is no manual payment path any more.
  *
  * <p>Parse-then-trust. The payload is deserialized and validated in full before the
  * intake service is called, so a malformed delivery is a 400 that GHL will not retry
@@ -44,26 +46,37 @@ import org.springframework.stereotype.Component;
  * correction to it is one file and never reaches the service.
  */
 @Component
-public class GhlContactHandler {
+public class GhlOpportunityHandler {
 
 	/** GHL sends snake_case; unknown extra fields are ignored, as Boot defaults to. */
 	@JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
-	public record ContactCreated(
+	public record OpportunityWon(
+			@NotNull @Valid Opportunity opportunity,
 			@NotNull @Valid Contact contact,
-			/** Which service this contact asked for. Required: it decides the checklist,
-			 * and it is half of the key that says which case this contact belongs to. */
+			/** Which service was bought. Required: it decides the checklist, and it is half
+			 * of the key that says which case this contact belongs to. */
 			@NotNull ServiceType serviceType,
 			ServiceSubtype serviceSubtype,
 			VisaCategory visaCategory,
 			UUID selectedExpertId,
-			/** A quote, not a payment. {@code markPaid} records what was actually taken. */
-			@Positive BigDecimal quoteAmount,
 			Instant deadline,
 			String driveLink,
 			String invoiceRef,
-			String campaignAttribution,
-			/** True only when GHL already knows this contact paid. Defaults to false. */
-			boolean paid) {
+			String campaignAttribution) {
+
+		/**
+		 * The won deal. There is no {@code paid} field: won <em>is</em> paid, so it is not
+		 * the payload's to assert.
+		 */
+		@JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
+		public record Opportunity(
+				/** Carried onto the case so Unit 18 can close the opportunity back in GHL.
+				 * Never an idempotency key — that is {@code event_id}'s job. */
+				@NotBlank String ghlOpportunityId,
+				/** What was collected, not a quote. Required and positive: a won opportunity
+				 * with no money on it is a data error in GHL, not a free case. */
+				@NotNull @Positive BigDecimal amount) {
+		}
 
 		@JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
 		public record Contact(
@@ -84,7 +97,7 @@ public class GhlContactHandler {
 	private final ObjectMapper objectMapper;
 	private final Validator validator;
 
-	GhlContactHandler(CaseIntakeService intake, ObjectMapper objectMapper, Validator validator) {
+	GhlOpportunityHandler(CaseIntakeService intake, ObjectMapper objectMapper, Validator validator) {
 		this.intake = intake;
 		this.objectMapper = objectMapper;
 		this.validator = validator;
@@ -94,20 +107,20 @@ public class GhlContactHandler {
 		intake.intake(brand, toCommand(validated(parse(rawBody))));
 	}
 
-	private ContactCreated parse(String rawBody) {
+	private OpportunityWon parse(String rawBody) {
 		try {
-			return objectMapper.readValue(rawBody, ContactCreated.class);
+			return objectMapper.readValue(rawBody, OpportunityWon.class);
 		}
 		catch (com.fasterxml.jackson.core.JsonProcessingException ex) {
 			throw new WebhookRejected(HttpStatus.BAD_REQUEST, "MALFORMED_PAYLOAD",
-					"contact payload could not be read");
+					"opportunity payload could not be read");
 		}
 	}
 
-	private ContactCreated validated(ContactCreated payload) {
-		Set<ConstraintViolation<ContactCreated>> violations = validator.validate(payload);
+	private OpportunityWon validated(OpportunityWon payload) {
+		Set<ConstraintViolation<OpportunityWon>> violations = validator.validate(payload);
 		if (!violations.isEmpty()) {
-			ConstraintViolation<ContactCreated> first = violations.iterator().next();
+			ConstraintViolation<OpportunityWon> first = violations.iterator().next();
 			throw new WebhookRejected(HttpStatus.BAD_REQUEST, "VALIDATION_FAILED",
 					first.getPropertyPath() + " " + first.getMessage());
 		}
@@ -118,8 +131,8 @@ public class GhlContactHandler {
 	 * Transport shape → domain command. The brand is not read from the payload at any
 	 * point: it is the one the endpoint token resolved to.
 	 */
-	private static CaseIntakeService.NewCase toCommand(ContactCreated payload) {
-		ContactCreated.Contact contact = payload.contact();
+	private static CaseIntakeService.NewCase toCommand(OpportunityWon payload) {
+		OpportunityWon.Contact contact = payload.contact();
 		return new CaseIntakeService.NewCase(
 				new CaseIntakeService.ContactDetails(contact.ghlContactId(), contact.fullName(), contact.email(),
 						contact.phone(), contact.company(), contact.clientType(), contact.source(),
@@ -128,11 +141,11 @@ public class GhlContactHandler {
 				payload.serviceSubtype(),
 				payload.visaCategory(),
 				payload.selectedExpertId(),
-				payload.quoteAmount(),
+				payload.opportunity().ghlOpportunityId(),
+				payload.opportunity().amount(),
 				payload.deadline(),
 				payload.driveLink(),
 				payload.invoiceRef(),
-				payload.campaignAttribution(),
-				payload.paid());
+				payload.campaignAttribution());
 	}
 }

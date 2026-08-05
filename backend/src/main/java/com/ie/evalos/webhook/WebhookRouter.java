@@ -10,8 +10,9 @@ import org.springframework.stereotype.Component;
 
 /**
  * Which handler an event type belongs to. The vocabulary lives here so the gateway
- * stays about transport and the handlers stay about their own payloads; Unit 15 adds
- * the Dropbox Sign types alongside these.
+ * stays about transport and the handlers stay about their own payloads. One source, GHL:
+ * the second inbound source this was built to accommodate was a signature provider, and
+ * that provider was dropped.
  *
  * <p>Anything not handled is acknowledged rather than failed. A retry cannot make an
  * unimplemented event type implemented, and a source that keeps redelivering
@@ -22,27 +23,32 @@ public class WebhookRouter {
 
 	private static final Logger log = LoggerFactory.getLogger(WebhookRouter.class);
 
-	static final String CONTACT_CREATED = "contact.created";
+	static final String OPPORTUNITY_WON = "opportunity.won";
 
 	/**
-	 * Recognized in the design, payloads not yet confirmed — deliberate no-ops.
+	 * Recognized in the design, and deliberately no-ops.
 	 *
-	 * <p>{@code contact.updated} stays here rather than routing to the contact handler.
-	 * Intake is create-or-update, so it would technically work — but an edit to a
-	 * contact is not a reason to open a case, and routing it there would turn every
-	 * field change in GHL into new work for a brand that never asked for it.
+	 * <p><strong>{@code contact.created} is one of them, as of Case Creation v2.0.</strong>
+	 * It used to be the live type, and a lead is now front-of-house work: EvalOS takes
+	 * custody when the opportunity is Won, because that is the point the money is in.
+	 * Routing a contact to intake would re-open the unpaid window v2.0 closed.
+	 *
+	 * <p>{@code contact.updated} is here for the neighbouring reason. Intake is
+	 * create-or-update, so it would technically work — but an edit to a contact is not a
+	 * reason to open a case, and routing it there would turn every field change in GHL
+	 * into new work for a brand that never asked for it.
 	 */
-	private static final Set<String> DEFERRED = Set.of("refund.requested", "contact.updated");
+	private static final Set<String> DEFERRED = Set.of("refund.requested", "contact.created", "contact.updated");
 
-	private final GhlContactHandler ghlContacts;
+	private final GhlOpportunityHandler ghlOpportunities;
 
-	WebhookRouter(GhlContactHandler ghlContacts) {
-		this.ghlContacts = ghlContacts;
+	WebhookRouter(GhlOpportunityHandler ghlOpportunities) {
+		this.ghlOpportunities = ghlOpportunities;
 	}
 
 	void route(Brand brand, String eventType, String rawBody) {
-		if (CONTACT_CREATED.equals(eventType)) {
-			ghlContacts.handle(brand, rawBody);
+		if (OPPORTUNITY_WON.equals(eventType)) {
+			ghlOpportunities.handle(brand, rawBody);
 		}
 		else if (DEFERRED.contains(eventType)) {
 			log.info("Event type '{}' is recognized but not yet implemented — archived and acked", eventType);

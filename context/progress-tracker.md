@@ -17,20 +17,73 @@ Update this file after every meaningful implementation change.
   The build plan's `## Phase 3`
   heading used to sit above Unit 17 and contradict its own roadmap line; the heading moved to
   Unit 18, so Dashboards is Phase 2 wherever you read it.
-- **Verified, not just written.** All **343** backend tests execute with none skipped — the
-  26 DB-backed ones included — plus 101 frontend tests, and CI runs the DB suite against a real
+- **Verified, not just written.** All **354** backend tests execute with none skipped — the
+  27 DB-backed ones included — plus 102 frontend tests, and CI runs the DB suite against a real
   Postgres on every push. (It was 183 backend / 44 frontend at the end of Phase 1, 229/61
-  after Unit 11, 260/73 after Unit 12, 305/81 after Unit 13, and 336/101 when Unit 14 landed —
-  343 after its code review.) See the Unit 14 entry and the review section after it.
+  after Unit 11, 260/73 after Unit 12, 305/81 after Unit 13, 336/101 when Unit 14 landed,
+  343 after its code review, 346 after Unit 05b, and 354 after 05b's review.)
 - **EvalOS now has a second authenticated surface.** Unit 14 added the link-based portal filter chain
   beside the staff one, so "a caller" is no longer always a `StaffPrincipal` and
   `TenantContext.find()` is legitimately empty on some requests. Read `architecture.md`'s auth section
   before touching anything that assumes otherwise.
 - **Google Drive is now an outbound integration, not just a URL column** (Unit 13). That changed
   `architecture.md`'s stack table and its `integration` package description, and it makes Drive
-  the second external dependency in Phase 2 alongside Dropbox Sign in Unit 15.
+  the **only** external dependency left in Phase 2 — the signature provider that used to be the other
+  one is gone, and Units 13, 15 and 21 all now need this same Google service account.
+- **Handoff A has been re-pointed again, and this time in code: Case Creation v2.0 is built.**
+  The trigger is the GHL **opportunity marked Won**, the case is created **paid**, and the manual
+  "Record payment" path is gone — GHL invoices and collects, so it is the only source of that
+  fact. Specced in **`context/specs/05b-opportunity-won-intake.md`**; see the Unit 05b entry in
+  Completed for what shipped. The docs and repo no longer disagree. Read 05b, not spec 05 and not
+  the 05a entries below, for what Handoff A does.
+
+## Gap Register — Production Process v2.0
+
+The CRM build spec's A08–A21 automations, stage SLAs and role dashboards were
+reconciled against the code. **The SLA budgets already matched `SlaCalculator`
+exactly** and 9 of the 14 automations were already live, so most of this was
+confirmation. What is genuinely outstanding, with its owner:
+
+| # | Gap | Owner | Note |
+|---|---|---|---|
+| G1 | **A07** — client uploads documents against the checklist | **Unit 21** (specced) | New spec. Portal upload streamed to Drive |
+| ~~G2~~ | **A20** — Coordinator is not told when QC passes | **closed** | One `ROUTES` entry: `QC_APPROVED` → `STAGE_CHANGED` → that brand's Coordinators. The event and the transition had shipped in Unit 04; only the route was missing. The delivery *queue screen* is still Unit 17's (G3) — the alert arrives, the list it points at does not exist yet |
+| G3 | Delivery queue screen | Unit 08/17 | `/delivery` reinstated — reverses the Unit 10 deletion, and `navigation.test.ts` flips with it |
+| G4 | CM workload / capacity widget | Unit 17 | Grouped count by `assigned_cm`; RAG bands already fixed at 70/90 in `ui-context.md` |
+| G5 | Deadline view, draft-review queue, priority queue | Unit 17 | Three views over data already loaded |
+| G6 | Coverage-gap alert per field (<5 available) | Unit 17 | Threshold is the business's |
+| G7 | "New experts onboarded vs target" | Unit 17 | One count over `expert.date_onboarded`; the *target* needs a config home |
+| G8 | `performance_flags` has no writer | Unit 11/17 | Column and display exist; nothing sets it. Declines are better read from `expert_case_offer` |
+| G9 | `avg_response_hours` is permanently null | Unit 17 | **Do not revive the column** — derive turnaround from `expert_case_offer` |
+| G10 | Quality-score *trend* | Unit 17 | `quality_score` is human-entered and unversioned, so a month-over-month trend needs history or an accepted limitation. Do not fake it |
+| G11 | Sales notes on the cases-inbox widget | Unit 05b/17 | No field carries GHL's sales notes. Either intake starts carrying one or the column comes out |
+| G12 | Mark case urgent / change deadline; reassign CM mid-draft | Unit 04/17 | Two quick actions with no transition behind them (`assign-cm` is declared on `EXPERT_ASSIGNMENT` only) |
+| G13 | Client communication log | **not scoped** | Architecturally GHL's. A threaded per-case log would be a new *inbound* integration pulling GHL conversations. Recorded, not planned |
+| G14 | Antivirus posture for accepted uploads | **decision** | Drive scans on ingest; that is not the same as EvalOS having an AV stance on files from a public link. Flagged in Unit 21, does not block it. **Now covers two surfaces** — client documents and the signed letter |
+| G15 | Getting the expert's portal link to the expert | **decision (T6)** | Dropping the signature provider removed what used to email it. Hand-sent by the CM until the email channel is decided — and unlike the client link, an expert who never gets theirs cannot sign while the 20h/24h clock runs |
+
+**Explicitly not gaps — decided out:**
+
+- AI review of uploaded documents → the Coordinator reviews. Recorded in Units 10,
+  20 and 21 so it is not re-adopted.
+- Retention (30/90/180/365) and the 7-day review request → **GHL's, end to end.**
+  `RetentionSweep` was deleted from Unit 19 and the four `retention_*_sent_at`
+  columns are now permanently unwritten. `google_review_requested` still *is*
+  written, by Unit 18 — it records that GHL was told.
+- Expert recruitment pipeline and outreach tracking → **GHL's**, by the custody
+  symmetry now recorded in `architecture.md`.
+- Head of Eval → **read as GM**. Intern tier → deferred, see Open Questions.
+- An eight-value `Stage` enum → the business's 8 board columns are a derived view.
 
 ## Current Goal
+
+**A1 and A2 are done — the current goal is A3, Unit 16 (payout ledger).** It is the only
+substantial unit with **zero** external dependency, and it unblocks Unit 17's money-out
+tiles, so it comes before dashboards. `00-build-plan.md`'s execution sequence is the
+schedule; re-read spec 16 first, it is a Phase 2 draft like the rest. The paragraph below
+describes Unit 15, which is **not** next: it waits on Unit 21 and on the Google service
+account. What it says about Unit 15 still holds except the Dropbox Sign integration it
+names — there is no signature provider.
 
 - Unit 15 — per `context/specs/00-build-plan.md`. As with every Phase 2 spec, it was written in
   the Phase 2 batch and is **a draft to re-read and revise at the start of the unit**, not a
@@ -38,10 +91,10 @@ Update this file after every meaningful implementation change.
   (`audience = 'EXPERT'`), `PortalPrincipal`, `PortalSecurityConfig`'s chain, and
   `AuditService.recordPortalEvent` are all in place and were built to be reused — an expert route
   asks `PortalPrincipal.current(EXPERT)` and inherits the audience check. What Unit 15 adds that
-  Unit 14 did not need is the Dropbox Sign integration, and **its two open questions are still
-  open**: the callback signing secret, and whether the account structure is one API app per brand
-  (see the readiness note below — a shared account forces brand resolution from callback metadata,
-  which is a change to a *protected* step and needs its own instruction).
+  Unit 14 did not need is the **sign step: download the letter, upload it back signed**, which is
+  Unit 21's upload path with `audience = 'EXPERT'`. **Its two open questions are both closed** — they
+  were the signature provider's callback secret and account structure, and there is no provider. That
+  also removed the only thing in the design that threatened the protected brand-resolution step.
 - **Unit 13's live Drive upload is still owed** and is tracked under In Progress. It did not
   block Unit 14 — the portal reads the served-on-demand profile, which is verified, and the live run
   confirmed the client receives it. It still blocks calling Unit 13 finished.
@@ -1761,22 +1814,200 @@ And one was **not** a code defect, recorded because the reasoning matters:
   unrevoked row while still allowing a retired pile-up and the other audience's own live token.
   `npm test` 101, `npm run build` and `npm run lint` clean.
 
+### A1 — the missing QC notification (gap G2) · closed
+
+One row in `NotificationListeners.ROUTES`: `QC_APPROVED` → `STAGE_CHANGED` → that brand's
+Coordinators, "%s passed QC and is ready to deliver." The event and the `qc-approve` transition
+had shipped in Unit 04; only the route was missing, so a Coordinator learned a case was
+deliverable by watching the board. `theCoordinatorIsToldWhenQcPasses` holds it, and
+`anUnmappedEventRaisesNothing` gave up `QC_APPROVED` for `CASE_RESUMED` — silence there is still
+a decision, just not this one. A20 is **built** in `process-automation.md`. The delivery *queue
+screen* stays Unit 17's (G3): the alert now arrives, the list it points at does not exist yet.
+
+### Unit 05b — Case Creation v2.0: the won opportunity is the trigger · complete
+
+Handoff A's third and, on the money argument, final trigger. GHL captures the lead, opens the
+opportunity, invoices and **collects** — so by the time a salesperson drags it to Won, the money
+is in, and the webhook carries both facts at once. There is nothing left for a human to record.
+
+- `webhook/GhlOpportunityHandler` replaces `GhlContactHandler`, same three-step shape
+  (`parse` → `validated` → `toCommand`) and the same reason for it. The payload gains an
+  `opportunity` block (`ghl_opportunity_id` `@NotBlank`, `amount` `@NotNull @Positive` — a won
+  deal with no money on it is a data error in GHL, not a free case) and **loses `quote_amount`
+  and `paid`**: won *is* paid, so it is not the payload's to assert.
+- `WebhookRouter` — `opportunity.won` is the live type; **`contact.created` moved into
+  `DEFERRED`** beside `contact.updated` and `refund.requested`. A lead is front-of-house work now.
+  Its javadoc also stopped promising the Dropbox Sign types: one inbound source, GHL.
+- `V24__case_ghl_opportunity.sql` — `ghl_opportunity_id text`, plus
+  `uq_case_open_per_opportunity` on `(brand_id, ghl_opportunity_id)`
+  **`WHERE … IS NOT NULL AND current_stage <> 'CLOSED'`**. That clause is load-bearing, exactly as
+  the spec's review found: the open-case lookup ignores closed cases, so a client returning on a
+  re-used opportunity id takes the *create* path — and an unscoped index would turn legitimate
+  repeat business into a constraint violation, i.e. a 5xx GHL retries forever and no case for a
+  deal that was paid for. It guards a **different** thing from the gateway's `event_id` dedupe
+  (that stops a redelivered webhook; this stops a second case), and the id is still never an
+  idempotency key.
+- `CaseIntakeService` — `NewCase` carries `ghlOpportunityId`, drops `paid`; `newCase()` always
+  sets `paid = true` and `paidAt = now()`.
+- **`refresh()` now *overwrites* `dealValue` — the one deliberate exception to fill-only.**
+  Deleting `markPaid` removed the only other writer of that column, so left alone a case whose
+  amount changed in GHL would keep the first figure forever with nothing able to fix it, and
+  `deal_value` feeds revenue recognition. GHL owns the amount, so the latest won figure wins.
+  `paid` / `paid_at` stay write-once; still one value and never a running total, so a correction
+  cannot double-count. Everything else about `refresh()` is unchanged: never resets a stage,
+  never drops an assignment, never un-pays, publishes no lifecycle event.
+- **The manual payment path is deleted, all five sites**: `POST /{id}/mark-paid` and
+  `MarkPaidRequest`, `CaseLifecycleService.markPaid` and `requirePaymentRole`, the `MARK_PAID`
+  rows *and* the `Action` constant (confirmed safe — the audit trail persists `AuditAction`, not
+  `Action`, so historical rows stay readable), and `boardRules.ts`'s `mark-paid` entry. Each of
+  the three code sites left a comment saying why there is nothing there, so the absence reads as
+  a decision.
+- **The pool alert moved to the PM/Coordinator pool.** `CASE_CREATED` → `NEW_CASE_IN_POOL` via
+  the new `RecipientResolver.pmsAndCoordinators` (union pattern, no new repository method). The
+  `CASE_PAID` route is gone and `NEW_LEAD` is emitted by nothing — but **both enum constants
+  stay**, because they are persisted as text on rows already written. `case.created` is the pool
+  arrival again, which is what the spec always said; the lead/paid split went with the manual
+  path. The `alreadyRaised` guard stays, now belt-and-braces rather than the only protection.
+- `paid` / `paid_at` and the unpaid guard on `markDocsComplete` **stay**, deliberately. Every case
+  is born paid so the guard is normally satisfied on arrival, but it is one line in one place,
+  `RefundService.isRevenueRecognized` and Unit 13's full-profile 409 both read `paid`, and a
+  GM-approved refund still has to be able to make a paid case not-earned.
+  `anUnpaidCaseGetsNoFurtherThanDocCollection` now says in its own name that it covers a state
+  no live path produces, which is why the guard is worth keeping covered.
+- `DomainInvariantsTest.onlyTheGhlOpportunityHandlerCanCreateACase` — invariant 8's structural
+  lock re-pointed. The handler behind that door has changed three times; this test is what has
+  kept there being exactly one of them.
+- **One defect found while asserting criterion 7, and fixed at the root.** `POST /mark-paid`
+  answered **500 INTERNAL_ERROR**, not 404: `ApiExceptionHandler` is a plain
+  `@RestControllerAdvice`, so it does not inherit `ResponseEntityExceptionHandler`'s handling of
+  Spring's own `ErrorResponseException`s, and `NoResourceFoundException` fell to the catch-all.
+  **Every typo'd URL in the app was an alertable server error** — the same class of bug as the
+  unknown-enum-value one the Unit 10 review found. Now a `NoResourceFoundException` handler
+  returning 404 with no detail in the body: whether a path exists is not information a caller is
+  owed. One handler, one place, all routes.
+- Verified: **`./mvnw verify "-Devalos.db.test=true"` → 346 tests, 0 failures, 0 skipped** against
+  local Postgres 18 (up from 343), with **`V24` applied and `ddl-auto=validate` passing** — so
+  `ghl_opportunity_id` matches the entity — and
+  `oneOpenCasePerWonOpportunityIsEnforcedByTheDatabase` proving in real SQL that the index refuses
+  a second open case for one opportunity, while still allowing the other brand's own opportunity of
+  the same id, a repeat purchase once the first case closed, and a null id (which is every row
+  written before `V24`). `npm test` 101, `npm run build` and `npm run lint` clean.
+- **Still owed: the live hand-fired run.** Criteria 1–9 are green in the suite; nothing has yet
+  fired a signed `opportunity.won` over real HTTP, because the payload contract is an assumption
+  (field names, the signature header, the HMAC encoding). It is confined to
+  `GhlOpportunityHandler.OpportunityWon` so a correction is one file. Tracked under In Progress.
+
+### Unit 05b code review — five findings, all fixed. Three were one change's unfinished half
+
+A five-lens review of the working diff (CLAUDE.md adherence, bug scan, git history, prior review
+feedback, comment contracts). Findings (a)–(c) are all consequences of the same thing: `refresh()`
+gained the power to rewrite money, which the spec asked for and then did not follow through on.
+
+- (a) **`refresh()` overwrote `deal_value` and never `ghl_opportunity_id`.** A second won
+  opportunity for the same contact and service takes the refresh path, so `V24`'s index never
+  fires — no second case is created. The amount became opp-B's while the id stayed opp-A, and
+  since **Unit 18 closes whichever opportunity that column names**, the wrong deal would be
+  closed in GHL and the paid one left open against recognised revenue. The two are halves of one
+  fact — *this deal, for this money* — arriving in one delivery, so they now move together. If the
+  incoming id is already on another open case in the brand, `V24` refuses the write, which is
+  correct: one opportunity is one case.
+- (b) **A corrected amount left no before/after in the trail.** `CaseSnapshot` omits `deal_value`
+  by design, so an amount correction produced an `UPDATED` row whose before and after were
+  byte-identical — a money rewrite that reads as a no-op edit — and deleting `markPaid` removed
+  the actor-attributed row that used to accompany one. **The obvious fix was unsafe**: the note is
+  surfaced by `CaseTimelineService` to every role that may read the case, including the Case
+  Manager, who is excluded from `SEES_DEAL_VALUE`. So the note records *that* the figure moved and
+  never what to — "deal value corrected", and only when it actually changed. The figures stay
+  recoverable from the append-only `webhook_event` archive, which holds every delivery's raw body.
+- (c) **A brand with no active PM or Coordinator was told nothing at all.** Moving the arrival
+  alert off `gmAndBrandManagers` removed the only recipient set that can never be empty — the GM is
+  brand-less — and the listener raises nothing when recipients resolve empty. A brand whose webhook
+  is live before its first PM or Coordinator is (onboarding, or both deactivated) would take the
+  money and announce it to nobody. `pmsAndCoordinators` now **escalates to the GM and that brand's
+  managers when the pool is empty**. A fallback, not an addition: the GM was moved off this route
+  precisely so they do not hear about every case, only one that would otherwise be unheard.
+  **This is the one recipient set with a fallback**, and the reason is recorded on the method:
+  `RecipientResolver`'s no-fallback rule is about *assignee* lookups, where empty means the work
+  has an owner who is not this person. The pool arrival is the opposite — nobody owning it is the
+  point. `anAssigneeLookupStillHasNoFallback` pins that the rule did not leak.
+- (d) **`CaseEvents.Type`'s javadoc was left false**, in the file Unit 18 reads to learn the event
+  vocabulary. `CASE_CREATED` still said "this is a lead arriving, not a paid case — `CASE_PAID` is
+  the pool arrival"; every clause was wrong. `CASE_PAID` is now marked **dead — published by
+  nothing, and Unit 18 must not wire it as the payment signal**, with the distinction the old
+  comment blurred spelled out: the *event* is gone, the `paid` *flag* is still half of invariant 5.
+  `NotificationType.NEW_LEAD` likewise now says it is retained only because old rows persist it.
+  Same defect class as the Unit 05a review's (e) and (f) — the routes table and `Case.paid` were
+  updated and the catalog was missed.
+- (e) **The money-path validation had no check behind it.** `amount` is `@NotNull @Positive` and
+  nothing exercised it, while the payload contract is still unconfirmed and expected to change —
+  so a rename or a dropped annotation would create a paid case worth nothing, feeding
+  `isRevenueRecognized` and Unit 16's payout, with a green suite.
+  `aWonOpportunityCarryingNoRealMoneyIsRefused` covers `0` / `-1` / `0.00` / absent `amount`,
+  a missing `ghl_opportunity_id`, and the whole `opportunity` block absent (a refusal, not an NPE
+  in the mapper).
+- Verified: **354 tests, 0 failures, 0 skipped** with the DB gate on (up from 346), plus 102 frontend, and **(a) and
+  (c) are mutation-checked** — reverting `setGhlOpportunityId` fails only
+  `theAmountAndTheOpportunityItCameFromMoveTogether`, and reverting the empty-pool escalation fails
+  only `aPoolWithNobodyInItEscalatesRatherThanGoingQuiet`. Both files were then restored and
+  re-verified.
+- **Acceptance criteria re-checked one by one afterwards, not assumed from a green suite.** Seven
+  of the nine had a named test already; two did not, and both were the *second sentence* of a
+  criterion — the easy half to skip. Criterion 3's "no `NEW_LEAD` is raised by anything" is now
+  `thePoolArrivalIsTheAlertAndNoEventRaisesARetiredLeadAlert`, which fires **every**
+  `CaseEvents.Type` and checks the whole output, because a kept-for-old-rows constant is exactly
+  the kind that gets re-adopted by accident; and criterion 7's "no board action offers to record
+  payment" is now `offers no way to record a payment` in `boardRules.test.ts`, which also refuses
+  any surviving `dealValue` field. Also mutation-checked: **deleting the A20 route fails only
+  `theCoordinatorIsToldWhenQcPasses`**, so A1's test is not vacuous.
+- **Assumption worth confirming, recorded rather than buried:** (a) is fixed by keeping the pair
+  consistent, so a second won opportunity **refreshes** the open case and re-points it. The other
+  reading is that a different opportunity id is a *different deal* and should open a second case —
+  which would mean widening `V15`'s one-open-case-per-contact-per-service index, since it would
+  refuse that second case today. Not done, because it is a business call about what a case *is*.
+
 ## In Progress
 
 - **Unit 13's one live check.** The manual Drive upload above. It needs credentials that are
   provisioned, not coded, so it is blocked on somebody with Google Cloud access rather than on
   any remaining work in the repo.
+- **Unit 05b's live run.** A signed `opportunity.won` over real HTTP + HMAC + Postgres, which is
+  what closed Unit 05/05a's criterion 1 for the previous trigger. Blocked on the same Step 0 item
+  as before — confirmation of what GHL actually sends on Won. Everything below the transport is
+  verified; what is unproven is the field names.
 
 ## Next Up
 
-- Unit 15 — per `context/specs/00-build-plan.md`. Unit 14 leaves it the whole portal foundation
-  (token model, principal, chain, portal audit writer) built for reuse under `audience = 'EXPERT'`;
-  what it has to add is Dropbox Sign, which is the phase's heaviest external dependency and has two
-  open questions attached.
+**The schedule lives in `context/specs/00-build-plan.md` → "Execution sequence for v2.0".**
+Read it there rather than here; this section names only what is immediately next so the
+two cannot drift.
+
+- **Step 0 — request the four external things** (Google service account, the GHL
+  outbound contract, the real `opportunity.won` payload, and the Anthropic key +
+  compliance decision). All have lead time. **The Google account is the one to chase
+  hardest: it now blocks three units** — Unit 13's live upload, Unit 21 and Unit 15 —
+  and Unit 13 has been code-complete and stuck on it. *(Dropbox Sign was the fifth
+  item; there is no signature provider any more.)*
+- ~~**A1 — the missing QC notification**~~ and ~~**A2 — Unit 05b**~~ are **done**; see their
+  entries in Completed. A2's code and tests are green, but its live hand-fired run is
+  still owed and sits under In Progress — it waits on the same payload confirmation.
+- **A3 — Unit 16, the payout ledger. This is next.** The only substantial unit with zero
+  external dependency, and it unblocks Unit 17's money-out tiles, so it comes before
+  dashboards. Re-read spec 16 first — it is a Phase 2 draft, and it already carries one
+  correction found while writing later specs (payout uniqueness).
+- **Then A4 Unit 17a → A5 Unit 17b**, interleaving Unit 21 / 15 / 18 the moment their
+  blockers clear.
+
+**Unit 15 is no longer "next", and it is also no longer blocked.** It was scheduled
+first and gated on Dropbox Sign; dropping the signature provider removed that gate
+entirely. It now **depends on Unit 21** — it reuses that upload path with
+`audience = 'EXPERT'` — and needs only the Google service account that Units 13 and 21
+need, so build 13's criterion → 21 → 15 back to back when the credential lands. Unit 14
+still leaves it the whole portal foundation (token model, principal, chain, portal audit
+writer) built for reuse.
 - Unit 12 still leaves two things for their owning units: the `expert_case_offer` row (Unit 15
-  fills `ACCEPTED` from the real Dropbox Sign callback instead of the staff-recorded stand-in, and
-  owns `TIMED_OUT`) and the rule-based score Unit 20's AI layer ranks **on top of**, not instead
-  of.
+  fills `ACCEPTED` from the expert's own signed-letter upload instead of the staff-recorded
+  stand-in, and owns `TIMED_OUT`) and the rule-based score Unit 20's AI layer ranks **on top of**,
+  not instead of.
 
 ### Phase 2 readiness — which open questions block which unit
 
@@ -1854,20 +2085,20 @@ GHL can send a client-facing transactional message on an EvalOS event trigger. I
 unanswered**, so Unit 14 shipped the stopgap it planned for: staff copy the URL off the case page.
 The portal is built and reachable; it is the *delivery* that is manual.
 
-**Unit 15 — Expert portal + Handoff B.** The heaviest external dependency in the phase, and
-nothing exists yet beyond the `DROPBOX_SIGN` enum value and staff-recorded stand-ins for the
-signed/declined callbacks. Needs: a Dropbox Sign account, an API key, the **callback signing
-secret** (already open below), and a signature-request template. The inbound gateway is ready for
-it — `WebhookSource.DROPBOX_SIGN` and the brand-scoped idempotency key are in place.
+**Unit 15 — Expert portal + Handoff B. ~~The heaviest external dependency in the phase~~ — no
+longer.** Both of its blockers were the signature provider's, and there is no provider: the expert
+downloads the letter, signs it in their own tool, and **uploads the signed PDF back** through their
+portal (see the E-signature decision in Architecture Decisions). What it needs now is the **Google
+service account** — the same credential Units 13 and 21 need — and Unit 21's upload path, which it
+reuses with `audience = 'EXPERT'`. Staff-recorded stand-ins remain as the manual path.
 
-**Unit 15 — one thing to answer before any code.** The inbound gateway resolves `brand_id` from
-the **per-brand endpoint token**, and that step is a protected file. GHL satisfies it naturally
-(one sub-account per brand, so one endpoint per brand). **Dropbox Sign may not**: one account means
-one callback URL, and the endpoint token then cannot tell the brands apart. Preferred answer is one
-Dropbox Sign account or API app **per brand**, each pointed at that brand's own EvalOS endpoint —
-the gateway then works unchanged. If that is impossible, brand has to come from the callback's
-`metadata` case id, which **is a change to the protected brand-resolution step** and needs explicit
-instruction rather than a quiet fallback inside the handler.
+~~**Unit 15 — one thing to answer before any code.**~~ **Closed by the same decision, and this is
+the best outcome available for it.** The question was that the gateway resolves `brand_id` from the
+per-brand endpoint token — a protected step — and one Dropbox Sign account would have meant one
+callback URL that could not tell the brands apart, forcing either an account per brand or a change to
+the protected step. **Dropping the provider removes the question rather than answering it**: there is
+no callback, the gateway keeps one source, and the protected step is untouched. This was the only
+place in the whole design that threatened it.
 
 Also settled while writing the spec: the build plan's "auto-reassign" is read as **auto-prompt**,
 matching `project-overview.md`'s "the case auto-prompts reassignment". `REASSIGN_EXPERT` requires
@@ -1919,6 +2150,36 @@ whenever a third brand is seeded. Staff SSO stays deferred.
 
 ## Open Questions
 
+- **Who delivers client- and expert-facing messages — GHL or EvalOS?** Every
+  touchpoint is listed in `context/process-automation.md` with its channel marked
+  *decision pending*. GHL delivering them off the outbound event is the current
+  architecture; EvalOS sending mail itself would **reverse invariant 14** and bring
+  in an SMTP provider, deliverability, bounce handling, unsubscribe and a suppression
+  list. That is a business call about who owns the client relationship. Nothing is
+  built either way, and the `// email:` marker convention exists so the decision is
+  greppable when it lands. One touchpoint is settled — retention and reviews (GHL).
+  **The expert's signing link reopened** when the signature provider was dropped, and it
+  is the sharper case: an expert who never receives their link cannot sign, and the
+  20h/24h clock runs anyway. Hand-sent by the CM meanwhile.
+- **Intern tier — deferred, and the rules are recorded so they are not lost.** The
+  CRM build spec attaches two restrictions to roles EvalOS does not have. Verbatim:
+  - *Coordinator intern*: "Can message clients and update document status. Cannot
+    mark docs complete or push to production without Coordinator approval."
+  - *Case Manager intern*: "Intern drafts go to Case Manager for review BEFORE going
+    to PM. Intern submits to CM, CM approves, then PM. Intern sees only their
+    assigned cases."
+
+  Both are approval gates on existing transitions rather than a new scope tier, which
+  is worth knowing if it is ever built. The decision stands: **no intern role**, four
+  documents say so, and nothing is designed for it.
+- **Antivirus for accepted uploads** (G14). Drive scans on ingest; EvalOS accepting
+  files from a link is a separate posture question. Does not block Unit 21.
+- **Charting library** for Unit 17's cycle-time p90 chart — none is installed, and
+  the component-library rule says do not install one to render nothing. Small library
+  vs hand-rolled SVG, decided at the start of Unit 17.
+- **A target for "new experts onboarded"** (G7) needs a home. Config, not a table —
+  it is one number per brand per month at most.
+
 - ~~**`/delivery` is labelled "Final delivery queue (Unit 13)" and Unit 13 is not that.**~~ —
   **closed by decision: the nav entry is deleted.** See the PR #7 review entry above.
 - **The dev `evalos` database still holds ~150 junk cases** in `public`, written by
@@ -1931,12 +2192,15 @@ whenever a third brand is seeded. Staff SSO stays deferred.
   `DELETE FROM evalos_case WHERE case_code LIKE 'EV-%'` would do it — on request, not unasked.
 
 - **GHL contract still unconfirmed** (was already open, now load-bearing): the
-  `contact.created` payload shape, the signature header name, and the HMAC
+  **`opportunity.won`** payload shape, the signature header name, and the HMAC
   encoding are all assumptions. Everything else about Handoff A is verified; these
-  three are what a real GHL sub-account has to agree with.
+  three are what a real GHL sub-account has to agree with. **Case Creation v2.0 narrowed
+  one half of this and widened the other:** "which GHL event actually fires" is now answered
+  at the business level — *the opportunity being marked Won* — but what GHL calls that event
+  on the wire, and what it names the opportunity's amount and id, is still unverified.
   **How far a correction reaches, honestly** — the earlier claim that the payload shape is
   "confined to one file" was too optimistic and only ever held for one of three cases:
-  - a **renamed or re-typed** field is one file: `GhlContactHandler.ContactCreated` and its
+  - a **renamed or re-typed** field is one file: `GhlOpportunityHandler.OpportunityWon` and its
     `@JsonProperty`, because the record is transport-only;
   - a **new field that has to reach the case** is at least three: the transport record, the
     mapper to `CaseIntakeService.NewCase`, and `NewCase`/`ContactDetails` themselves — that
@@ -1946,9 +2210,9 @@ whenever a third brand is seeded. Staff SSO stays deferred.
     applied to the entity, and the intake tests.
 
   The signature header is genuinely one knob (`evalos.webhook.signature-header`, config, no
-  code change). **Also unconfirmed: which GHL contact event actually fires.**
-  `contact.created` is the assumption; if the real trigger is a pipeline-stage or
-  form-submission event, that one *is* a single constant in `WebhookRouter`.
+  code change). The event **name** is likewise a single constant in `WebhookRouter`
+  (`OPPORTUNITY_WON`), so if GHL calls it `OpportunityStatusUpdate` with a `status` field rather
+  than a distinct won event, the routing change is one line plus a status check in the handler.
 
 - **Full brand list** — International Evaluations and XpertsPortal confirmed;
   confirm any others before seeding brands / webhook endpoints.
@@ -1957,11 +2221,13 @@ whenever a third brand is seeded. Staff SSO stays deferred.
 - **StatCommand** — internal module or external BI, and the "six operating
   conditions" the dashboards feed. Undefined; do not build a StatCommand
   integration until specified.
-- **GHL webhook/API contract** — (a) per-brand inbound `contact.created`
-  payload + signing secret (Unit 05); (b) outbound subscriber URL + secret for
+- **GHL webhook/API contract** — (a) per-brand inbound `opportunity.won`
+  payload + signing secret (Unit 05 / 05b), including which GHL workflow action fires it and
+  what it names the opportunity's amount and id; (b) outbound subscriber URL + secret for
   `case.delivered` and the ability to send client-facing transactional messages
   on EvalOS event triggers (Unit 18); (c) which extra inbound GHL events to
-  handle now vs later (`refund.requested`, `contact.updated`).
+  handle now vs later (`refund.requested`, `contact.updated`, `contact.created` — all
+  recognized no-ops today).
   **(b) is now load-bearing rather than theoretical.** Unit 14 shipped a working portal whose link
   reaches nobody unless somebody delivers it, so until (b) is answered the client link is **copied
   out of the case page by staff**. That is a deliberate stopgap, recorded in
@@ -1985,12 +2251,15 @@ whenever a third brand is seeded. Staff SSO stays deferred.
   (env-bound, no non-local default), the Drive API enabled, and **per-brand write access** on each
   brand's folder tree. None of it exists. This was not a question before, because the build plan's
   "or written to the case's Drive folder" wording let Unit 13 avoid Drive entirely.
-- **Dropbox Sign callback secret** — signing secret for signed/declined/viewed
-  callbacks (Unit 15).
-- **Which Dropbox Sign account structure** (Unit 15) — one API app per brand (preferred; the
-  gateway's per-brand endpoint resolution then works unchanged) vs. one shared account, which forces
-  brand resolution from callback `metadata` and **is a change to a protected step**. Answer before
-  writing the handler.
+- ~~**Dropbox Sign callback secret**~~ and ~~**which Dropbox Sign account structure**~~ (Unit 15) —
+  **both closed, not answered: there is no signature provider.** The expert signs in their own tool and
+  uploads the signed PDF through their portal, so there is no callback to sign and no account structure
+  to choose. See the E-signature decision in Architecture Decisions. What replaced them is the Google
+  service account, which was already open above and now blocks three units.
+- **How the expert receives their portal link** (Unit 15, touchpoint T6) — *newly open*, and a direct
+  consequence of the above: Dropbox Sign used to email the expert its own signing link. Hand-sent by
+  the Case Manager until the email-channel decision is taken. Sharper than the client-link version of
+  this problem, because an expert who never gets their link cannot sign while the 20h/24h clock runs.
 - ~~**Sign-off to add `actor_type` to the audit trail** (Unit 14)~~ — **closed: instruction given,
   and the column shipped as `V22`.** Nullable, no default, no backfill; three writers now
   (`recordEvent` / `recordSystemEvent` / `recordPortalEvent`); no update or delete path added and the
@@ -2001,8 +2270,8 @@ whenever a third brand is seeded. Staff SSO stays deferred.
   inbound integration nobody has specified. Until then the tile is labelled for what it measures.
 - **Whether EvalOS may send case data to an external AI API at all** (Unit 20) — a product and
   compliance decision, not an implementation one. It would be the first outbound flow of internal
-  case content to a third party (Drive holds documents EvalOS links to; Dropbox Sign holds letters it
-  does not read; GHL is the front office EvalOS serves). The spec's whitelist excludes
+  case content to a third party (Drive holds documents and signed letters EvalOS links to but does not
+  read; GHL is the front office EvalOS serves). The spec's whitelist excludes
   `payment_detail`, all client and expert identity, and every free-text field — which leaves
   anonymous tag-level data, and is also the honest argument that the layer's value is limited. Note
   the **anomaly-detection half of Unit 20 needs no AI at all** (>15% vs a 4-week mean is arithmetic)
@@ -2015,6 +2284,47 @@ whenever a third brand is seeded. Staff SSO stays deferred.
 
 - **Scope**: EvalOS is back-of-house only. GHL owns marketing, sales, invoicing,
   and review/retention delivery.
+- **Custody symmetry** (Production Process v2.0): **GHL owns every pipeline until the
+  thing at the end of it is real; EvalOS takes custody at that moment.** A case at
+  `opportunity.won`; an expert when the ENM adds them to the roster; retention never.
+  This is why there is **no expert-recruitment pipeline** in EvalOS — a prospect
+  moving through Identified → Contacted → Agreement Sent is the same object as a sales
+  opportunity, and GHL already runs pipelines and outreach reporting.
+  `expert.agreement_status` is therefore GHL's fact; if it ever needs to be live here
+  the shape is an inbound `expert.agreement_signed` event mirroring `opportunity.won`.
+- **Head of Eval = GM.** The CRM build spec's Head-of-Eval instructions (day-3
+  escalation, unassigned-after-4h alert, revenue confirmation, "Head of Eval
+  dashboard") all resolve to the GM. No seventh role; `Role` stays six values.
+- **Background jobs**: Spring `@Scheduled` with a **Postgres advisory lock per job
+  type** — not Quartz, not ShedLock. The lock is not for scale-out; it is because
+  every rolling deploy runs two instances for a few seconds and a double-fired sweep
+  double-messages a client silently. `scheduled_job` records **runs, not intentions**;
+  idempotency comes from the data each sweep reads. Sweeps prompt and publish, and
+  **never transition a case**.
+- **Queue**: the `webhook_delivery` outbox, claimed `FOR UPDATE SKIP LOCKED`, with
+  wall-clock backoff and dead-lettering. **No message broker** — the only
+  cross-process work is "deliver one webhook and keep trying", and a broker would move
+  the outbox out of the transaction that guarantees it exists.
+- **Client documents**: the client uploads through the portal and the bytes **stream
+  through to Drive** (Unit 21). EvalOS keeps the Drive file id — no temp file, no
+  upload directory, no blob column, so "hosts no files" survives. Content-sniffed
+  allowlist, size cap, per-token rate limit, generated filenames.
+- **No AI review of uploaded documents** — ruled out, not deferred. The Coordinator
+  reviews, using the `MISSING` / `INCORRECT` statuses that already exist.
+- **Retention and the post-delivery review are GHL's end to end.** `RetentionSweep` is
+  deleted from Unit 19; the four `retention_*_sent_at` columns stay unwritten.
+- **The eight board columns the business asked for are a derived view** over
+  `pm_approval_status` / `client_approval_status` and the signature state — the
+  `Stage` enum stays six values, because splitting `DRAFT_GENERATION` would break the
+  sub-loop design and invalidate the per-stage SLA budgets.
+- **`/delivery` is reinstated** — reverses the Unit 10-era deletion. It was cut as an
+  empty nav entry with no screen, not as a rejected idea, and the business asked for
+  it twice. `navigation.test.ts`'s absence assertion changes with it.
+- **One home per fact.** SLA budgets in `SlaCalculator`, transitions in
+  `CaseTransitions`, recipients in `NotificationListeners.ROUTES`, scope in
+  `ScopePredicate`, RAG in `ui-context.md`. `context/process-automation.md` is the
+  A-register and **cites** those; it is never a second authority. Where a doc and the
+  code disagree, the code wins.
 - **Multi-brand tenancy**: shared PostgreSQL, row-level tenancy by `brand_id`,
   brand + team + assignee scoping enforced at the query layer. GM is the only
   cross-brand role. Brand resolved at Handoff A by per-brand webhook endpoint
@@ -2032,10 +2342,12 @@ whenever a third brand is seeded. Staff SSO stays deferred.
   loops live inside `DRAFT_GENERATION`. Pool → PM → CM assignment.
 - **Refund**: GM-only approval; reverses revenue recognition, voids the pending
   payout, signals GHL.
-- **No object storage**: documents are Google Drive links; signed letters in
-  Dropbox Sign; redacted CV generated on demand.
+- **No object storage**: documents are Google Drive links and file ids; the signed letter
+  is filed into the case's own Drive folder by the expert's upload; redacted CV generated
+  on demand. Uploads stream through and are never stored by EvalOS.
 - **No mail server**: staff in-app notification center; client messages via GHL;
-  expert notifications via Dropbox Sign (portal-only nudges).
+  experts reached by a scoped portal link, hand-sent by the Case Manager until the
+  email-channel decision is taken (portal-only nudges thereafter).
 - **Payouts**: manual ledger form, no payment-platform/disbursement rail. Single
   optional encrypted `payment_detail` field — **write-only from Unit 11 on**: one
   `PUT` sets it, no endpoint reads it back, no DTO declares it, and the sheet import
@@ -2057,12 +2369,39 @@ whenever a third brand is seeded. Staff SSO stays deferred.
 - **A request may name a brand only when creating a row, never to scope a read.** `brandId`
   on `POST /api/experts` and the imports exists because a GM has no brand of their own;
   `OwnershipGuard` decides whether the caller may act in it.
-- **Handoff A**: GHL fires the per-brand "contact created" webhook; EvalOS creates
-  the case idempotently, **unpaid**. Payment is a separate fact recorded on the
-  case by a GM or Brand Manager (`paid` / `paid_at`, `POST /mark-paid`), and no
-  unpaid case may leave `DOC_COLLECTION`. Revenue recognition is paid **and**
-  delivered. No direct payment-processor integration.
-- **E-signature**: Dropbox Sign.
+- **Handoff A — Case Creation v2.0** (spec `05b`, supersedes 05a): GHL fires the per-brand
+  **won-opportunity** webhook; EvalOS creates the case idempotently and already **paid**,
+  carrying the opportunity's amount into `deal_value` and its id into `ghl_opportunity_id`.
+  GHL invoices and collects before an opportunity is marked Won, so that event is the payment
+  record — **there is no `mark-paid` endpoint or transition, and no staff action sets `paid`.**
+  The pool alert goes to the PM/Coordinator pool; `NEW_LEAD` is gone with the unpaid window,
+  and `contact.created` is a recognized no-op. No unpaid case may leave `DOC_COLLECTION`, and
+  revenue recognition is still paid **and** delivered (a refund can take `paid` back). No direct
+  payment-processor integration.
+  *Superseded readings:* Unit 05 created the case on `payment.confirmed`; Unit 05a created it
+  **unpaid** on `contact.created` with payment recorded by a GM or Brand Manager afterwards.
+- **E-signature: none — no provider** (decision, Production Process v2.0; reverses
+  "Dropbox Sign" as the stack's e-signature answer). The expert downloads the letter
+  from their portal, signs it in whatever tool they already use, and **uploads the
+  signed PDF back**, which files it into the case's Drive folder. Reasons, in order of
+  weight: a scanned wet signature is the norm for an expert opinion letter attached to
+  an immigration filing; Unit 21 already built the upload path, so this costs almost no
+  new code where the provider wanted an account, API key, template, callback secret, a
+  second inbound source and an answer to the brand-resolution problem; and the expert
+  roster is the participant the business cannot train, so not asking 400 people to
+  learn a tool removes real friction.
+  **What it costs, recorded honestly:** no tamper-evident certificate, so EvalOS
+  cannot cryptographically prove an expert signed. Compensated by three measures, not
+  ignored — a hash of the letter as sent *and* as received, a required attestation
+  captured at upload ("I, {name}, confirm this is my signature"), and an audit row with
+  `actor_type = 'EXPERT'`. PM final QC becomes load-bearing rather than a formality. If
+  a certificate is ever genuinely required, add a provider back behind the same portal
+  step; do not hand-roll signing.
+  **Knock-on effects:** the inbound gateway stays single-source (GHL), the protected
+  brand-resolution step is no longer threatened, Unit 15 loses both its gating
+  questions and moves to needing only the Google service account, and **touchpoint T6
+  reopened** — Dropbox Sign used to email the expert its own link, so until the email
+  decision is taken the Case Manager sends the portal link by hand.
 - **Contacts**: GHL is the owner; EvalOS keeps a read-only, brand-tagged snapshot.
 - **NFR**: 50–100 cases/brand/month; ~99% availability, single region; nightly
   backups; SLA calendar America/Los_Angeles (9–5 PT, US federal holidays); UTC
@@ -2303,11 +2642,18 @@ whenever a third brand is seeded. Staff SSO stays deferred.
   are mapped — `NEW_LEAD` ("somebody is asking") and `NEW_CASE_IN_POOL` ("assign a
   project manager") — to the same recipients the spec names. This is the spec's intent,
   not its letter.
+  **Re-pointed by Case Creation v2.0, and now in code:** the split has closed again. There
+  is no lead and no unpaid case, so `case.created` *is* the pool arrival, `NEW_LEAD` is
+  emitted by nothing, and the recipients are the **PM/Coordinator** pool rather than GM +
+  Brand Manager. The paragraph above is history — read it only to understand old rows.
   (b) **The pool arrival is announced once per case.** `apply(...)` publishes one event
   per transition *including* a `mark-paid` that only corrects the amount, so the listener
   checks `existsByCaseIdAndType` before raising `NEW_CASE_IN_POOL`. The guard lives here
   rather than in `markPaid` because "announce once" is a property of the notification,
   not of the transition — and it also holds if anything later re-publishes the event.
+  **Keep this guard in v2.0** even though the `mark-paid` amount-correction that motivated
+  it is gone: "announce once" is still a property of the notification, and a redelivered
+  webhook must not produce a second alert.
   (c) **The centre deliberately does not use `findScoped`.** That applies the caller's
   *tier*, and the GM's tier is ALL — a GM's scoped read would return every member's
   notifications in every brand. "My notifications" is an identity question, not a scope

@@ -11,15 +11,23 @@
 | Portal auth      | Separate Spring Security filter chains (scoped, link-based) | Expert portal and client draft-review portal — isolated from internal auth |
 | Frontend         | React + TypeScript (Vite SPA) + Tailwind           | Internal role-based dashboards, client portal, expert portal                      |
 | Raw documents    | Google Drive (existing) + **Drive API v3 (outbound, Unit 13)** | Client document folders — link stored on the case, not re-hosted. **Since Unit 13 EvalOS also writes one file into the case's folder**: the redacted expert profile, uploaded as a Google Doc |
-| E-signature      | Dropbox Sign API                                   | Expert electronic sign-off + storage of signed letters                            |
-| Notifications    | In-app notification center (staff) + GHL (clients) + Dropbox Sign (experts) | No EvalOS mail server                                            |
-| Background work  | Spring `@Scheduled` + `@Async` (+ app events) + a persisted `scheduled_job` table | SLA timers, reminders, escalations, auto-reassign, retention/countdown timers, Handoff C |
-| Integration seam | Inbound webhook gateway + outbound webhook dispatcher (+ GHL & Dropbox Sign clients) | Receive GHL/Dropbox Sign events; emit EvalOS lifecycle events to subscribers |
+| E-signature      | **None — no provider.** The expert signs in their own tool and uploads the signed PDF through their portal | A scanned wet signature is the norm for an expert opinion letter. Provenance is a hash pair + an attestation + an `EXPERT` audit row, not a certificate — see `15-expert-portal-handoff-b.md` |
+| Notifications    | In-app notification center (staff) + GHL (clients) + a portal link (experts) | No EvalOS mail server                                            |
+| Background work  | Spring `@Scheduled` (+ app events) + a `scheduled_job` run ledger + a Postgres advisory lock per sweep | SLA timers, reminders, escalations, expert-sign prompts, the outbound outbox. **No Quartz, no ShedLock, no broker** |
+| Queue            | The `webhook_delivery` outbox table, claimed `FOR UPDATE SKIP LOCKED` | Outbound delivery with backoff + dead-letter. The only cross-process work is "deliver one webhook and keep trying", which a durable row does |
+| Integration seam | Inbound webhook gateway + outbound webhook dispatcher (+ GHL and Google Drive clients) | Receive GHL events; emit EvalOS lifecycle events to subscribers. **One inbound source, GHL** — dropping the signature provider removed the second |
 
 **No object storage.** EvalOS hosts no files. Client documents and drafts are
-referenced by Google Drive link; signed letters live in Dropbox Sign; the
+referenced by Google Drive link; the signed letter is filed into the case's own Drive
+folder by the expert's upload; the
 redacted CV is generated on demand (and, if persisted, written to the case's
 Drive folder — never to a database blob).
+
+**Accepting a file is not hosting one.** Unit 21 takes client uploads on the portal
+and **streams them through** to the case's Drive folder — `InputStreamContent`, not a
+byte array, so a large file never lands on the heap either. EvalOS keeps the Drive
+file id and nothing else. There is no upload directory, no temp file and no blob
+column, and Unit 21 asserts that rather than assuming it.
 
 **Drive stopped being a link-only external in Unit 13.** Until then
 `Case.driveLink` was a string EvalOS stored and never dereferenced, and this
@@ -32,7 +40,9 @@ management, no reading documents back out. It is also why EvalOS has no PDF
 library: Drive's own export produces a PDF from the created Doc.
 
 Two consequences worth stating where the stack is described. First, this is the
-**second external dependency in Phase 2** alongside Dropbox Sign (Unit 15), and it
+**one external dependency in Phase 2** — and, since the signature provider was
+dropped, the **only** one: Units 13, 15 and 21 all need this same service account, and
+nothing else in the phase needs a credential. It
 needs credentials that are provisioned rather than coded — a Google Cloud service
 account, its JSON key (`GOOGLE_DRIVE_KEY_JSON` or `GOOGLE_APPLICATION_CREDENTIALS`,
 bound the same env-backed way as `EVALOS_FIELD_KEY`, with **no default outside
@@ -91,19 +101,28 @@ Java packages under `com.ie.evalos`:
 - `domain` — JPA entities (and enums like `Stage`, `PayoutStatus`, `Role`).
   Mapping and invariants only, no business orchestration.
 - `repository` — Spring Data JPA repositories; brand/team/assignee scoping filters.
-- `integration` — outbound clients for the GHL API, Dropbox Sign, and **Google
+- `integration` — outbound clients for the GHL API and **Google
   Drive** (`GoogleDriveClient`, Unit 13 — the first one built). Each is one narrow
   capability, not a general SDK wrapper: the Drive client uploads one file into one
   existing folder and does nothing else. A failure here is a 502 that changes
   nothing in EvalOS, never a partially-applied state.
 - `webhook` — inbound webhook gateway: signature/secret verification,
   idempotency, raw-payload archival, brand resolution, routing to a domain
-  service. Sources: GHL (per-brand endpoints), Dropbox Sign.
+  service. **One source: GHL** (per-brand endpoints). There was going to be a second
+  when a signature provider posted callbacks; dropping the provider removed it, and
+  with it the only place in the design that threatened the protected
+  brand-resolution step.
 - `event` — internal domain events (Spring `ApplicationEvent`) published on
   lifecycle transitions, plus the outbound webhook dispatcher (subscriber
   registry, HMAC signing, retry/backoff, dead-letter, delivery log, replay).
-- `job` — `@Scheduled` / `@Async` workers backed by the `scheduled_job` table
-  (SLA, reminders, auto-reassign, retention/countdown, Handoff-C dispatch).
+- `job` — `@Scheduled` sweeps backed by the `scheduled_job` **run ledger**
+  (doc chases, day-3 escalation, stage SLA, expert sign 20h/24h prompts, and the
+  outbox sender). Each sweep takes a **Postgres advisory lock on its job type**, so
+  the seconds of overlap in every rolling deploy cannot double-chase a client. The
+  ledger records *runs, not intentions*: idempotency comes from the data the sweep
+  reads, never from a queued timer row. Sweeps **prompt and publish; they never
+  transition a case.** Retention is not here — GHL owns it. See
+  `context/specs/19-background-jobs.md`.
 - `notification` — in-app staff notification center (create/list/mark-read);
   client-facing messages are emitted as domain events for GHL to deliver.
 - `security` — Spring Security config, JWT, RBAC roles + ABAC scoping, ownership
@@ -134,7 +153,10 @@ Frontend under `frontend/src`: `components/ui` (generated primitives),
   Unit 13 it also **writes** one generated document into that folder (see the
   outbound-integration note under the stack table) — writing into a folder is not
   re-hosting: the file lives in Drive, and EvalOS keeps only the audit row.
-- **Dropbox Sign (external)**: signed letters + e-signature workflow + storage.
+- **No e-signature provider.** The expert signs in whatever tool they already use and
+  uploads the signed PDF; it is filed in Drive like every other document. EvalOS keeps
+  the file id, a hash of what it sent and of what came back, and the expert's
+  attestation.
 - **Redacted CV**: generated on demand from the expert profile; not persisted to
   any EvalOS-hosted store. Held in memory only — streamed to the caller, or handed
   to Drive — and never written to Postgres or to disk.
@@ -162,9 +184,9 @@ Frontend under `frontend/src`: `components/ui` (generated primitives),
 - **Clients** access the draft-review portal via a passwordless link delivered
   through GHL (a separate, scoped filter chain). They see only their own case's
   draft, and can approve or request revisions.
-- **Experts** access assigned cases via the secure link in the Dropbox Sign
-  request / shared by the Case Manager (a separate, scoped filter chain), and can
-  only ever see cases assigned to them.
+- **Experts** access an assigned case via a scoped portal link shared by the Case
+  Manager (a separate filter chain), download the letter, and upload it back signed.
+  One token names one case, so an expert can only ever see the case that link is for.
 - **The portal token model** (built in Unit 14, one table for both portals). A
   `portal_access` row names one case and one audience (`CLIENT` / `EXPERT`); the
   token is 256 bits from `SecureRandom`, returned **once** at mint time and stored
@@ -192,31 +214,70 @@ Frontend under `frontend/src`: `components/ui` (generated primitives),
   timeline, the checklist, or `drive_link`.
 - Role, brand, and ownership checks run before any mutation.
 
+## Custody: GHL owns pipelines, EvalOS owns what is real
+
+The front/back seam generalises, and stating it once settles a class of questions:
+
+> **GHL owns every pipeline until the thing at the end of it becomes real. EvalOS
+> takes custody at that moment.**
+
+| Pipeline | GHL owns | EvalOS takes custody at |
+|---|---|---|
+| Client sale | lead → opportunity → invoice → collection | `opportunity.won` → the case exists, paid |
+| Expert recruitment | prospect → outreach → agreement | the ENM adding the expert to the roster |
+| Retention & reviews | the 7-day review request, the 30/90/180/365 sequence | nothing — EvalOS emits `case.delivered` and schedules none of it |
+
+This is why there is **no recruitment pipeline in EvalOS** (decision, Production
+Process v2.0): a prospect moving through Identified → Contacted → Agreement Sent is
+structurally the same object as a sales opportunity, and GHL already runs pipelines,
+sequences and response-rate reporting. Building a second one here would be a second
+implementation of a thing the business already owns.
+
+The residue, recorded so it is not mistaken for an oversight: `expert.agreement_status`
+has no writer, and is now understood as **GHL's fact**. If it ever needs to be live in
+EvalOS, the shape is an inbound `expert.agreement_signed` event through the existing
+gateway — mirroring `opportunity.won` exactly. Not specced, not built.
+
+What stays EvalOS's on the supply side is everything about experts who already exist:
+roster, availability, coverage gaps, match scoring, offers, payouts, performance.
+
 ## The Three Handoffs (the front/back seam)
 
-- **Handoff A — GHL → EvalOS (trigger: contact created).** GHL fires a webhook to
-  that brand's dedicated endpoint when a contact is created; the webhook is proof
-  that somebody wants something, **not** proof of payment. The `webhook` gateway
-  verifies the secret, resolves the brand from the endpoint token, deduplicates
-  on the source event id (idempotency), archives the raw payload, then the case
-  service creates-or-refreshes a brand-tagged case at `DOC_COLLECTION` in the
-  brand pool, syncs the contact snapshot, opens the document checklist, and
-  notifies the GM/Brand-Manager pool. EvalOS does **not** talk to the payment
-  processor.
+- **Handoff A — GHL → EvalOS (trigger: opportunity marked Won).** *Case Creation
+  v2.0 — see `context/specs/05b-opportunity-won-intake.md`.* GHL owns the whole
+  sale: lead, opportunity, invoice, collection. When the opportunity is marked
+  **Won**, a GHL workflow fires a webhook to that brand's dedicated endpoint, and
+  that one event is both the reason the case exists **and** the proof it was paid
+  — the money is in before EvalOS hears anything. The `webhook` gateway verifies
+  the secret, resolves the brand from the endpoint token, deduplicates on the
+  source event id (idempotency), archives the raw payload, then the case service
+  creates-or-refreshes a brand-tagged case at `DOC_COLLECTION` in the brand pool,
+  already **paid**, syncs the contact snapshot from the opportunity's contact,
+  opens the document checklist, and notifies the **PM/Coordinator pool**. EvalOS
+  does **not** talk to the payment processor — it takes GHL's word for it.
 
-  Payment is a separate fact recorded on the case (`paid` / `paid_at`) by a GM or
-  Brand Manager through the `mark-paid` transition — or by intake itself when GHL
-  already knows the contact paid. Two things depend on it: **no case reaches an
-  expert unpaid** (the guard is on the `DOC_COLLECTION → EXPERT_ASSIGNMENT`
-  transition, which every later stage is only reachable through), and **no unpaid
-  case counts as earned revenue**. Document collection against an unpaid case is
-  deliberately allowed — it costs EvalOS nothing.
+  Payment is recorded at creation (`paid` / `paid_at`, with `deal_value` and
+  `ghl_opportunity_id` carried in from the opportunity). **No staff action sets
+  it**: there is no `mark-paid` transition and no endpoint, because a second way
+  to say "paid" is a second thing that can disagree with GHL. Two things still
+  depend on the flag — **no case reaches an expert unpaid** (the guard is on the
+  `DOC_COLLECTION → EXPERT_ASSIGNMENT` transition, which every later stage is
+  only reachable through), and **no unpaid case counts as earned revenue**. Every
+  case is born paid, so that guard is normally satisfied on arrival; what still
+  moves the flag's *meaning* is a GM-approved refund, which makes a paid case
+  not-earned again — by closing it with `REFUND_REQUESTED` standing, **not** by
+  clearing `paid`.
 
-  `mark-paid` stays callable on a paid case: `paid` / `paid_at` are write-once,
-  but the **amount is correctable**, because a contact that arrived already paid
-  carries only the quote and somebody has to be able to record what was actually
-  collected. One value, never a running total, so a correction cannot
-  double-count.
+  **The amount stays correctable, through GHL rather than by hand.** `paid` /
+  `paid_at` are write-once, but `deal_value` is not: a re-delivered
+  `opportunity.won` overwrites it, because GHL is now the source of truth for the
+  figure and deleting `mark-paid` removed the only other writer. One value, never a
+  running total, so a correction cannot double-count.
+
+  A case therefore never exists before the money does. EvalOS no longer sees a
+  lead and no longer collects documents ahead of payment — that window was
+  deliberate in v1 and is deliberately closed in v2.0, because leads are GHL's
+  business.
 
   One open case per contact per service: a repeat delivery refreshes the case
   that contact already has open, never resetting its stage, assignment, or
@@ -225,8 +286,12 @@ Frontend under `frontend/src`: `components/ui` (generated primitives),
   index** (`V15`), not by the lookup — a lookup followed by an insert is a
   check-then-act that two concurrent deliveries can both win.
 - **Handoff B — internal (trigger: client approves draft).** The case moves to
-  `EXPERT_SIGNING` and appears in the expert portal with draft + evidence + goal;
-  Dropbox Sign issues the signing request. Exception paths: request-evidence
+  `EXPERT_SIGNING` and appears in the expert portal with draft + evidence + goal.
+  The expert **downloads the letter, signs it in their own tool, and uploads the
+  signed PDF back**, which files it into the case's Drive folder and moves the case to
+  the PM for final QC. There is no signature provider: provenance is a hash of what
+  was sent and what came back, an attestation captured at upload, and an audit row
+  with `actor_type = 'EXPERT'`. Exception paths: request-evidence
   opens a client task; decline returns the case to `EXPERT_DECLINED_REMATCHING`
   with the reason logged and the match engine proposing the next expert.
 - **Handoff C — EvalOS → GHL (trigger: delivered).** On QC-complete delivery,
@@ -277,14 +342,17 @@ business logic in the transport layer; both are idempotent and observable.
    retriable status so the source re-delivers.
 
 Inbound sources and events:
-- **GHL** — `contact.created` (Handoff A, per-brand endpoint); `refund.requested`
-  → Refund Requested exception state (GM-only approval to finalize);
-  `contact.updated` → refresh the read-only contact snapshot. (Refund/contact-update
-  events are recognized by the gateway; build them when the payloads are confirmed.
-  `contact.updated` deliberately does *not* route to intake: an edit in GHL is not
-  a reason to open a case.)
-- **Dropbox Sign** — `signature_request.signed` / `..._declined` / `..._viewed`
-  callbacks drive expert sign-off status instead of polling.
+- **GHL** — `opportunity.won` (Handoff A, per-brand endpoint) is the **only** event
+  that creates a case; `refund.requested` → Refund Requested exception state
+  (GM-only approval to finalize); `contact.updated` → refresh the read-only contact
+  snapshot. (Refund/contact-update events are recognized by the gateway; build them
+  when the payloads are confirmed.) **`contact.created` is a recognized no-op** —
+  since v2.0 a new contact is a lead, and a lead is GHL's business; neither it nor
+  `contact.updated` may route to intake, because an interest or an edit in GHL is
+  not a reason to open a case.
+There is deliberately **no second inbound source.** A signature provider would have
+been one; the expert now acts through their own portal token, so sign-off status comes
+from an authenticated request rather than a callback.
 
 ### Outbound dispatcher (`event` + `webhook.outbound`)
 EvalOS publishes internal **domain events** on every lifecycle transition. The
@@ -335,19 +403,24 @@ exist because every transition owes exactly one event. They live in
    deliberately **no read path at all** — not for the ENM who typed it. Screens
    get a server-derived "on file" boolean; the sheet import refuses a mapping
    that names the field.
-5. **Paid *and* `Delivered`** is revenue recognition. Since Handoff A moved to
-   contact intake a case can exist, and be worked, with no money behind it, so
-   delivery alone no longer implies earned. Collected-but-undelivered value is
-   tracked as open liability (refund exposure), never as earned. A GM-approved
-   refund reverses recognition and voids the pending payout.
-6. Controllers stay thin and never run long-lived work. SLA timers, reminders,
-   auto-reassignment, retention/countdown, and Handoff C run in `job`.
+5. **Paid *and* `Delivered`** is revenue recognition, read only through
+   `RefundService.isRevenueRecognized`. Since Case Creation v2.0 a case is born
+   paid, so in practice the open half is delivery — but the conjunction stays,
+   because a refund can take `paid` back and delivery alone must never imply
+   earned. Collected-but-undelivered value is tracked as open liability (refund
+   exposure), never as earned. A GM-approved refund reverses recognition and voids
+   the pending payout.
+6. Controllers stay thin and never run long-lived work. SLA timers, reminders, the
+   day-3 escalation, the expert-sign **prompts** (they never reassign), and the
+   outbound outbox run in `job`. Retention/countdown is **not** on that list — GHL
+   owns it. Each sweep holds an advisory lock on its job type, and no sweep
+   transitions a case.
 7. EvalOS is the system of record for cases, experts, and payouts. Contact data
    is a read-only, brand-tagged snapshot synced from GHL and is never mutated.
-8. A case is only ever created through a per-brand GHL webhook endpoint — no other
-   code path may create one. Marking a case **paid** is a separate, deliberate
-   staff act (GM or Brand Manager, or intake when GHL already reports it paid),
-   and no unpaid case may pass `DOC_COLLECTION`.
+8. A case is only ever created through a per-brand GHL webhook endpoint, by a
+   **won opportunity** — no other code path and no other event may create one. The
+   case is created **paid**, from the opportunity's own amount; **no staff action
+   sets `paid`**, and no unpaid case may pass `DOC_COLLECTION`.
 9. Schema changes ship as new Flyway migrations. An applied migration is never
    edited in place.
 10. Every inbound webhook is signature-verified, brand-resolved, deduplicated,
@@ -369,6 +442,21 @@ exist because every transition owes exactly one event. They live in
     surface — `recordEvent`, `recordSystemEvent`, `recordPortalEvent` — and each
     takes its brand from the most authoritative signal it has, never from a
     request body.
-14. EvalOS hosts no files and sends no email. Documents are Drive links, signed
-    letters are in Dropbox Sign, staff alerts are in-app, and client/expert
-    messages go through GHL / Dropbox Sign.
+14. EvalOS hosts no files and sends no email. Documents are Drive links, the signed
+    letter is filed into the case's Drive folder by the expert's own upload, staff
+    alerts are in-app, clients are reached through GHL, and experts through a scoped
+    portal link.
+
+    **"Hosts no files" means stores none, not accepts none.** Unit 21 lets a client
+    upload a document through the portal, and the bytes **stream through to the
+    case's Drive folder** — EvalOS writes no file to disk, holds no blob column, and
+    keeps only the Drive file id. That is a testable property, not a convention, and
+    it is the whole reason an upload endpoint does not break this invariant.
+
+    **"Sends no email" is currently true and is under review.** Every client- and
+    expert-facing touchpoint is listed in `context/process-automation.md` with its
+    channel marked *decision pending*: GHL delivers them off the outbound event
+    (today's answer) or EvalOS sends mail itself, which would **reverse this
+    invariant** and bring in SMTP, deliverability, bounces, unsubscribe and a
+    suppression list. Nothing is built either way. Until that decision is taken, do
+    not add a mail dependency — and if it is taken, this invariant is what changes.

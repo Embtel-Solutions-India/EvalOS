@@ -1,6 +1,5 @@
 package com.ie.evalos.service;
 
-import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
@@ -144,54 +143,11 @@ public class CaseLifecycleService {
 		return subject;
 	}
 
-	// --- payment -------------------------------------------------------------
-
-	/**
-	 * Records what was actually taken. Handoff A no longer proves payment — a case is
-	 * created from a GHL contact, before anyone has paid — so this is the fact that
-	 * turns a lead into workable, recognisable business.
-	 *
-	 * <p>GM and Brand Manager only, re-checked here as well as at the endpoint. A method
-	 * security annotation guards one route; this guards the operation, so a later caller
-	 * — a job, a webhook handler, another service — cannot reach it as anyone else. The
-	 * same reasoning as {@code RefundService}: this writes money.
-	 *
-	 * <p>**Callable on an already-paid case, deliberately.** {@code paid} and
-	 * {@code paid_at} are write-once — the moment the money arrived does not change, and
-	 * re-stamping it would lose it. The *amount* is a different matter: a case GHL
-	 * reported as already paid carries the quote, because a quote is all the contact
-	 * webhook knows, and somebody has to be able to replace it with the figure actually
-	 * collected. Only ever one value, never a running total, so correcting it cannot
-	 * double-count.
-	 *
-	 * <p>The pool alert is not raised here. Unit 06 listens for {@code case.paid} and
-	 * announces the arrival once, however many times a correction re-publishes it.
-	 */
-	@Transactional
-	public Case markPaid(UUID caseId, BigDecimal dealValue, String invoiceRef) {
-		requirePaymentRole();
-		Case subject = load(caseId);
-		Stage to = CaseTransitions.target(subject, Action.MARK_PAID);
-		boolean firstPayment = !subject.isPaid();
-
-		return apply(subject, to, Action.MARK_PAID, invoiceRef, c -> {
-			c.setDealValue(dealValue);
-			if (invoiceRef != null && !invoiceRef.isBlank()) {
-				c.setInvoiceRef(invoiceRef);
-			}
-			if (firstPayment) {
-				c.setPaid(true);
-				c.setPaidAt(Instant.now());
-			}
-		});
-	}
-
-	private static void requirePaymentRole() {
-		Role role = TenantContext.current().role();
-		if (role != Role.GM && role != Role.BRAND_MANAGER) {
-			throw new ForbiddenException("Only the GM or a Brand Manager may record a payment");
-		}
-	}
+	// There is no payment transition. Case Creation v2.0 fires Handoff A on the GHL
+	// opportunity being marked Won, and GHL invoices and collects before that — so the
+	// webhook is the proof of payment and `CaseIntakeService` is the only writer of
+	// `paid`. A staff "record payment" action would be a second way to state a fact GHL
+	// already owns, and a second thing that can disagree with it.
 
 	// --- assignment ----------------------------------------------------------
 

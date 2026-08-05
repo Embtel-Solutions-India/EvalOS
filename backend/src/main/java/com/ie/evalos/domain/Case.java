@@ -73,14 +73,16 @@ public class Case extends ScopedEntity {
 	private BigDecimal dealValue;
 
 	/**
-	 * Whether the money has arrived. Since Handoff A moved to contact intake a case
-	 * exists before it is paid, so this is a fact recorded on the case rather than the
-	 * reason it exists. Written only by {@code CaseLifecycleService.markPaid} — or by
-	 * intake when GHL already knows the contact paid.
+	 * Whether the money has arrived. <strong>Written only by {@code CaseIntakeService}</strong>,
+	 * and always true there: Handoff A fires on the opportunity being marked Won, and GHL
+	 * invoices and collects before that happens. There is no staff path that sets it —
+	 * a second way to say "paid" is a second thing that can disagree with GHL.
 	 *
-	 * <p>Two things depend on it: no case reaches an expert unpaid (the guard is on
+	 * <p>The column stays even though every new row arrives {@code true}, because two things
+	 * read it: no case reaches an expert unpaid (the guard is on
 	 * {@code markDocsComplete}), and no unpaid case counts as earned revenue
-	 * (invariant 5, via {@code RefundService.isRevenueRecognized}).
+	 * (invariant 5, via {@code RefundService.isRevenueRecognized}) — which a GM-approved
+	 * refund still has to be able to make false.
 	 */
 	@Column(name = "paid", nullable = false)
 	private boolean paid;
@@ -157,6 +159,16 @@ public class Case extends ScopedEntity {
 
 	@Column(name = "invoice_ref")
 	private String invoiceRef;
+
+	/**
+	 * The GHL opportunity this case was born from (Handoff A, v2.0). Unit 18 closes that
+	 * opportunity with it. <strong>Never an idempotency key</strong> — it is a resource id,
+	 * and a legitimately re-won opportunity would look like a redelivered webhook. What it
+	 * does guard is a second *case* for one opportunity, via {@code V24}'s partial unique
+	 * index.
+	 */
+	@Column(name = "ghl_opportunity_id")
+	private String ghlOpportunityId;
 
 	@Column(name = "campaign_attribution")
 	private String campaignAttribution;
@@ -362,6 +374,14 @@ public class Case extends ScopedEntity {
 
 	public void setInvoiceRef(String invoiceRef) {
 		this.invoiceRef = invoiceRef;
+	}
+
+	public String getGhlOpportunityId() {
+		return ghlOpportunityId;
+	}
+
+	public void setGhlOpportunityId(String ghlOpportunityId) {
+		this.ghlOpportunityId = ghlOpportunityId;
 	}
 
 	public void setCampaignAttribution(String campaignAttribution) {

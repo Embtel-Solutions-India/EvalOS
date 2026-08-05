@@ -14,8 +14,8 @@ import org.springframework.transaction.annotation.Transactional;
 /**
  * The brands a caller may choose between. One method, and it exists as a service
  * rather than a repository call in the controller because the GM check belongs
- * somewhere a later caller cannot skip — the same reason {@code RefundService} and
- * {@code CaseLifecycleService.markPaid} re-check in the service.
+ * somewhere a later caller cannot skip — the same reason {@code RefundService} re-checks
+ * the GM in the service and not only at its endpoint.
  *
  * <p>This is the only cross-brand read outside the GM's own scoped queries, so the
  * gate is worth stating twice: {@code @PreAuthorize} on the route, and here.

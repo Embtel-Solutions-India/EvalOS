@@ -12,8 +12,10 @@ EvalOS has three surfaces:
   approve or request revisions. Passwordless via a GHL-delivered link. Minimal
   chrome, no navigation.
 - **Expert portal** (external): one assigned case at a time — draft + evidence +
-  goal, with accept / request-evidence / decline / sign actions. Passwordless via
-  the Dropbox Sign / CM-shared link.
+  goal, with accept / request-evidence / decline actions and a **download-then-upload
+  sign step**. Passwordless via a CM-shared link. The sign panel's copy has to say
+  plainly that a scanned wet signature is expected, so nobody hunts for an
+  e-signature button that does not exist.
 
 EvalOS is an internal operations tool: data-dense, fast, and legible over long
 shifts. Light workspace — a calm neutral base with layered surfaces and a single
@@ -98,11 +100,34 @@ then, and that is the point at which `ui/` is created and becomes protected (see
 - **Dashboard**: RAG tile grid at top (KPIs from the spec), tables and charts
   below. The largest tile is always the role's PRIMARY KPI. The GM's dashboard
   aggregates across brands with a brand filter.
+
+  The **capacity thresholds below are the contract for any workload indicator** —
+  the Case Manager workload widget the business asked for uses them as-is rather
+  than inventing its own bands.
+
+  **Charts are an unresolved dependency.** Unit 17 wants a cycle-time chart with a
+  p90 band and **no charting library is installed**. Decide before that unit starts:
+  a small library, or hand-rolled SVG for the two or three shapes actually needed.
+  The component-library rule below applies — do not install one to render nothing.
 - **Production board (Kanban)**: horizontal columns for the EvalOS-owned stages —
   Doc Collection · Expert Assignment · Draft / Report · Expert Signing · Final
   Delivery — with exception lanes (On Hold · Rematching · Refund Requested). The
   Draft / Report column shows draft sub-status chips (Draft in progress · PM
   review · Client review). Cards show client, service type, deadline (RAG), owner.
+
+  The business's eight-column reading (splitting Draft into three and Signing into
+  Signing + QC) is a **derived grouping of these five plus the chips**, not new
+  columns to add to the enum — see `context/specs/08-production-board.md`.
+- **Delivery queue** (`/delivery`): dense rows, cases in Final Delivery, oldest
+  first, one-click **Deliver** per row. This is the data-table pattern's other
+  landing place besides the dashboard — a Coordinator working a batch rather than
+  hunting cards. The entry was previously deleted as an empty nav item; it is back
+  with a screen behind it.
+- **Client document upload** (portal): the client's own checklist as a list of rows,
+  one upload control per required item, showing required / uploaded / flagged with
+  the Coordinator's reason. Portal chrome rules apply — minimal, no nav. Accepted
+  types and the size cap are stated on the control, not discovered by a rejection,
+  and a rejection says which rule it broke.
 - **Data tables**: dense rows, sortable, a dedicated RAG status column, row click
   opens the case. Overdue rows tinted with the `*-bg` status token. No screen uses
   this pattern yet — Unit 10 deleted the `/cases` list as a duplicate of the

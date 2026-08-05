@@ -44,6 +44,33 @@ Full rules live in `context/code-standards.md` — this is the distilled, enforc
   `ScopedRepository.findScoped(...)`, and accessors are written when a consumer appears rather than
   upfront. Details in `mem:backend/persistence`.
 
+## One home per fact
+
+Every fact has exactly one authority, and docs **cite** it rather than restating it: SLA budgets in
+`SlaCalculator`, business hours in `BusinessCalendar`, legal transitions in `CaseTransitions`,
+trigger→recipient in `NotificationListeners.ROUTES`, scope in `ScopePredicate`, money visibility in
+`CaseController.SEES_DEAL_VALUE`, RAG tokens in `context/ui-context.md`.
+
+A second copy of a number is a second thing that can be wrong, and the copy is always the one that
+goes stale. `context/process-automation.md` mirrors the SLA budgets **once**, marked as a mirror and
+naming the class — if it and the code disagree, the code wins and the doc is the bug. Do not add a
+third.
+
+Same rule as data: prefer deriving over storing. `expert.current_active_count`,
+`total_cases_completed`, `total_payments_pending` and `avg_response_hours` are columns nothing has ever
+written — the standing example. `ExpertLoadService` is the pattern.
+
+## The `// email:` marker
+
+Whether EvalOS ever sends mail itself is undecided (`context/process-automation.md`). Wherever code
+will sit for a client- or expert-facing touchpoint, leave a marker naming it, so the decision is
+greppable when it lands:
+
+```java
+// email: T5 draft ready for client — channel undecided (GHL vs EvalOS mail).
+// See context/process-automation.md, outward touchpoints.
+```
+
 ## Protected — do not touch without explicit instruction
 
 `frontend/src/components/ui/*`, the audit entity + its write path (append-only), the

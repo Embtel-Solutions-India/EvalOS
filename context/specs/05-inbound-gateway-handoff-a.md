@@ -1,23 +1,34 @@
 # Unit 05 — Inbound webhook gateway + GHL payment handler (Handoff A)
 
-> **Built, then partly superseded by Unit 05a.** The gateway half of this spec stands
-> as written. The handler half does not: Handoff A now fires on **`contact.created`**,
-> not `payment.confirmed`, and creates an **unpaid** case. Payment is recorded
-> afterwards via `POST /api/cases/{id}/mark-paid`.
+> **Built, superseded by Unit 05a, superseded again by Case Creation v2.0
+> (`05b-opportunity-won-intake.md`).** The gateway half of this spec stands as
+> written — verify, resolve brand, dedupe, archive, route, ack is unchanged in all
+> three versions. **The handler half is dead twice over.** Handoff A now fires on
+> **`opportunity.won`** and creates a case that is already **paid**, because GHL
+> invoices and collects before the opportunity is marked Won.
 >
-> Specifically dead here: `payment.confirmed` and `GhlPaymentHandler` (now
-> `contact.created` / `GhlContactHandler`); "idempotency key = `invoice_ref`" (now
-> `event_id`, then `webhook_id` — never a bare `id`); `UNIQUE (source, external_id)`
-> (now `UNIQUE NULLS NOT DISTINCT (source, brand_id, external_id)`, `V13`); and
-> invariant 8's wording (a webhook creates the case, but marking it paid is a staff
-> act). Case creation is still **only** through this door.
+> Dead here, and dead in 05a too: `payment.confirmed` / `GhlPaymentHandler`, then
+> `contact.created` / `GhlContactHandler` — the live handler is
+> `GhlOpportunityHandler`, and `contact.created` is now a recognized no-op.
+> `POST /api/cases/{id}/mark-paid`, `CaseLifecycleService.markPaid` and the
+> `MARK_PAID` transition are **deleted**: GHL is the only source of the payment fact.
+> The `NEW_LEAD` alert is gone with the unpaid window, and the pool alert now goes to
+> the **PM/Coordinator** pool, not GM/Brand-Manager.
 >
-> Current truth: `context/architecture.md` (Handoff A + invariants 5 and 8) and the
-> Unit 05 / 05a entries in `context/progress-tracker.md`. Migrations now run to `V15`.
+> Still dead from the original draft: "idempotency key = `invoice_ref`" (now
+> `event_id`, then `webhook_id` — never a bare `id`) and
+> `UNIQUE (source, external_id)` (now `UNIQUE NULLS NOT DISTINCT (source, brand_id,
+> external_id)`, `V13`). Case creation is still **only** through this door.
+>
+> Current truth: **`context/specs/05b-opportunity-won-intake.md`**,
+> `context/architecture.md` (Handoff A + invariants 5 and 8), and the Case Creation
+> v2.0 entry in `context/progress-tracker.md`.
 
 **Phase:** 1 — Structure the data (the spine)
 **Depends on:** 03, 04
-**Unlocks:** 15 (Dropbox Sign reuses the gateway), 18/19 (downstream of created cases)
+**Unlocks:** 18/19 (downstream of created cases). *(This line used to say Unit 15 would
+reuse the gateway for Dropbox Sign callbacks. There is no signature provider, so the
+gateway stays single-source — GHL.)*
 **Gating open questions:** confirm the GHL `payment.confirmed` payload shape and
 the per-brand signing secret before building the handler. `refund.requested` and
 `contact.updated` are recognized by the router but deferred until their payloads
@@ -47,7 +58,8 @@ dropped with no side effect.
 
 ## Out of scope
 
-- Dropbox Sign handlers (Unit 15) — but the gateway is built generic here.
+- Dropbox Sign handlers (Unit 15) — and now permanently out: the signature provider was
+  dropped, so no second source ever arrives. The gateway is still built generic here.
 - Building `refund.requested` / `contact.updated` behavior (deferred; router
   recognizes and no-ops).
 - Outbound webhooks (Unit 18).

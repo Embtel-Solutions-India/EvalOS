@@ -243,6 +243,17 @@ describe('actionsFor', () => {
     }
   })
 
+  it('offers no way to record a payment', () => {
+    // Case Creation v2.0: the case arrives paid from a won GHL opportunity, and the route this
+    // used to call is gone — so an action here would be a button that can only ever 404.
+    expect(QUICK_ACTIONS.map((action) => action.path)).not.toContain('mark-paid')
+    for (const action of QUICK_ACTIONS) {
+      for (const field of action.fields ?? []) {
+        expect(field.name, `${action.path} still collects a payment amount`).not.toBe('dealValue')
+      }
+    }
+  })
+
   it('gives every input-taking action a field, and every picker a source', () => {
     for (const action of QUICK_ACTIONS) {
       for (const field of action.fields ?? []) {
