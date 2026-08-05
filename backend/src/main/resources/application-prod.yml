@@ -16,4 +16,32 @@ evalos:
     # set, and the grant behind it must be per brand-folder-tree — a service account
     # with blanket access to both brands' Drives is a cross-brand hole outside the
     # database that no brand_id predicate can close.
+    #
+    # Three units write through this key now, not one: Unit 13's redacted profile, Unit
+    # 21's client document upload and Unit 15's signed letter. Since the e-signature
+    # provider was dropped it is the only external credential the production path needs.
     required: true
+  portal:
+    # No default, on purpose, and this is a change: the base profile defaults this to the
+    # Vite dev server because that is correct on every developer's laptop, which makes it
+    # actively dangerous in production. An unset value there does not fail — it mints
+    # links pointing at localhost:5173 and hands them to clients and experts, who get a
+    # dead page. Since dropping the signature provider, an expert's *only* route to the
+    # letter is one of these links, so a wrong origin now blocks signing too.
+    #
+    # So it follows the JWT_SECRET / EVALOS_FIELD_KEY rule instead: an environment that
+    # forgets it must fail to start rather than run on a guess. This is the client- and
+    # expert-facing origin, not the API's.
+    base-url: ${PORTAL_BASE_URL}
+
+server:
+  # MUST be `framework` if anything terminates the connection in front of the app — a
+  # load balancer, an ingress, a reverse proxy. Left unset, Spring does not resolve
+  # X-Forwarded-For, every portal caller resolves to the proxy's address, and they all
+  # share one rate-limit budget: one client can lock out every other.
+  #
+  # Do NOT set it when the app is directly exposed. Honouring X-Forwarded-* with nothing
+  # in front lets any caller present a fresh address per request and walk straight past
+  # that same limit. There is no safe default, which is why this is a deliberate
+  # deployment decision and not a value shipped here.
+  forward-headers-strategy: ${FORWARD_HEADERS_STRATEGY:none}

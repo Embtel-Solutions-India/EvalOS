@@ -29,4 +29,10 @@ evalos:
     # The redacted and full profiles are generated locally and served as normal; only
     # the Drive write answers 502, saying it is not configured. Set GOOGLE_DRIVE_KEY_JSON
     # in the environment to exercise the real upload from here.
+    #
+    # Worth knowing before Units 21 and 15: those units are *mostly* Drive. Their
+    # validation, auth, checklist and transition logic can all be exercised and tested
+    # here with no key, but the happy path cannot — an upload answers 502 rather than
+    # filing anything, so a green local run does not mean the unit works. Their live
+    # criteria need a real key, which is the same one Unit 13 is still owed.
     required: ${DRIVE_REQUIRED:false}
