@@ -1,13 +1,28 @@
 # EvalOS — Core
 
 Back-of-house production CRM for a **multi-brand** credential-evaluation business (International
-Evaluations, XpertsPortal). Takes custody at **`contact.created`** in GoHighLevel (GHL) and owns the
+Evaluations, XpertsPortal). Takes custody at **`opportunity.won`** in GoHighLevel (GHL) and owns the
 case to signed delivery + expert payout. GHL stays front-of-house (leads, sales, invoicing, review
 campaigns); **EvalOS never does marketing, sales, or invoicing.**
 
-The custody trigger moved off payment in Unit 05a: a case now exists **before** money does, unpaid,
-and payment is a fact recorded on it. Anything written against "the webhook proves payment" is
-pre-05a and wrong.
+The custody trigger has moved twice. **Case Creation v2.0 (spec `05b`) is current: the webhook *does*
+prove payment.** GHL invoices and collects before an opportunity is marked Won, so that one event is
+both the reason the case exists and the record that it was paid — the case is created **paid**, and no
+staff action sets `paid`. Unit 05a's rule (`contact.created`, an unpaid case, payment recorded by hand
+afterwards) is history; so is the note that used to sit here saying "the webhook proves payment" is
+wrong. In v2.0 it is right.
+
+**Custody symmetry — GHL owns pipelines, EvalOS owns what is real.** A case at
+`opportunity.won`; an expert when the ENM adds them to the roster; retention never. This is why there
+is **no expert-recruitment pipeline** here — a prospect moving through Identified → Contacted →
+Agreement Sent is the same object as a sales opportunity, and GHL already runs pipelines. So
+`expert.agreement_status` is GHL's fact and has no writer on purpose; if it ever needs to be live the
+shape is an inbound `expert.agreement_signed` mirroring `opportunity.won`.
+
+**`context/process-automation.md` is the trigger→recipient map.** Every A-numbered automation from the
+CRM build spec, what event it publishes, who hears it, the owning unit, and whether it is built. Read
+it before adding a notification or a timer — and update it in the same step as the code, because
+moving a row from *gap* to *built* is part of the unit that built it.
 
 ## Spec-driven build — read before coding
 
@@ -39,11 +54,17 @@ document checklist board, expert database). CI runs the DB suite against a real 
 push.
 
 **Phase 2 is Units 11–17 and is under way. Units 11 (expert database + sheet upload), 12 (match
-scoring engine) and 14 (client draft-review portal) are complete and verified. Unit 13 (redacted CV
-generation + the Drive write) is code-complete with ONE acceptance criterion outstanding — the manual
-live upload, blocked on a Google service account that does not exist. Unit 15 is next.** Migrations
-run to **`V23`** (Unit 13 added none — nothing it produces is persisted; Unit 14 added three, and its
-code review added `V23`); **343 backend tests, none skipped** (26 DB-backed) and 101 frontend tests.
+scoring engine), 14 (client draft-review portal) and 05b (Case Creation v2.0) are complete and
+verified. Unit 13 (redacted CV generation + the Drive write) is code-complete with ONE acceptance
+criterion outstanding — the manual live upload, blocked on a Google service account that does not
+exist. Unit 16 (payout ledger) is next — not 15, which waits on Unit 21 and on that same Google
+account; the schedule is `00-build-plan.md`'s "Execution sequence for v2.0", and it differs from the
+numbering on purpose.** Migrations run to **`V24`** (Unit 13 added none — nothing it produces is
+persisted; Unit 14 added three, its code review added `V23`, and Unit 05b added `V24`);
+**346 backend tests, none skipped** (27 DB-backed) and 101 frontend tests.
+Unit 05b re-pointed Handoff A to `opportunity.won` and **deleted the manual payment path** — details
+in `mem:backend/webhooks` and `mem:backend/lifecycle`. Its live hand-fired run is still owed, blocked
+on confirmation of what GHL actually sends on Won.
 Unit 11 added the closed
 `FieldTag`/`LetterType` vocabularies (enum **and** DB CHECK), `email`/`phone`/`letter_types`/
 `standard_fee` on `expert`, the write-only `payment_detail` path, `ExpertLoadService` (load derived
@@ -98,9 +119,12 @@ check-then-act, fixed with `V23`'s index. The lesson to carry: on this codebase 
 contract, so a design decision reversed mid-unit has to be chased through every place that describes
 it — the tracker, the memory, the context file and the javadoc.
 
-Later units carry named external dependencies that do not exist yet (Dropbox Sign account for 15,
-GHL outbound contract for 18) — all listed in the tracker. **Unit 13's Google service account is
-the one that has already bitten**: the code is finished and the live upload is not, so the unit is
+Later units carry named external dependencies that do not exist yet (the GHL outbound contract for
+18) — all listed in the tracker. **Unit 13's Google service account is
+the one that has already bitten**, and it now blocks three units rather than one: 13's own live
+upload, Unit 21's client document upload, and Unit 15's signed-letter upload. Unit 15 used to be
+gated on a Dropbox Sign account; there is no signature provider any more. Here, the code is finished
+and the live upload is not, so the unit is
 open. Until it runs, three things are proven only against a test double — that the credentials
 work, that the `drive.file` scope suffices for a create into a shared folder, and that Drive's
 HTML → Doc conversion is worth sending to a client.
@@ -140,7 +164,8 @@ Monorepo, but no root build: each half is built and run from **inside its own di
 - **Flyway owns the schema.** `ddl-auto: validate`. Every change is a new migration; an applied
   migration is never edited.
 - **No object storage, no mail server.** Documents are Google Drive links, signed letters live in
-  Dropbox Sign, staff alerts are in-app, client messages go out through GHL. Do not add S3 or SMTP.
+  the case's own Drive folder (the expert uploads it there), staff alerts are in-app, client messages
+  go out through GHL, and an expert is reached by a scoped portal link. Do not add S3 or SMTP.
   (Unit 13 **added** that Drive API client, for one write path — links-only stopped being the whole
   story, and EvalOS still hosts no bytes: the redacted profile is generated in memory, streamed to
   the caller or handed to Drive, and written to neither Postgres nor disk. The client is
@@ -148,10 +173,17 @@ Monorepo, but no root build: each half is built and run from **inside its own di
   no folder creation, no permissions management, no reads.) Unit 11 added the one **upload** — the expert
   roster sheet — and it holds too: parsed in memory, never stored, with
   `multipart.file-size-threshold` set equal to `max-file-size` so the container cannot spool it to a
-  temp file.
-- **A case is created only by a per-brand GHL webhook endpoint** — no other path, enforced
-  structurally by `DomainInvariantsTest` (only the contact handler may depend on `CaseIntakeService`,
-  so adding a `POST /api/cases` breaks the build). Marking one **paid** is a separate staff act.
+  temp file. **Unit 21 is the third and must use the same two mechanisms**: that threshold setting,
+  plus `InputStreamContent` into Drive rather than a byte array — a client document streams through
+  and EvalOS keeps only the Drive file id. "Hosts no files" means **stores none, not accepts none**;
+  three units now accept bytes and none stores them.
+  Sending email is still forbidden, but that rule is now **under review** — every client/expert
+  touchpoint and the open GHL-vs-EvalOS-mail decision are in `context/process-automation.md`. Until it
+  is decided, adding a mail dependency is still wrong.
+- **A case is created only by a per-brand GHL webhook endpoint, from a won opportunity** — no other
+  path and no other event, enforced structurally by `DomainInvariantsTest` (only
+  `GhlOpportunityHandler` may depend on `CaseIntakeService`, so adding a `POST /api/cases` breaks the
+  build). The case is created **paid**; no staff action sets `paid`.
 - **Unpaid work stops at `DOC_COLLECTION`.** Revenue is recognized only when paid **and** delivered.
   Both live in `mem:backend/lifecycle`.
 - **A client-offered link/action must be checked against the reader's allow-list.** Four separate

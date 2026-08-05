@@ -13,8 +13,8 @@ still owed** — see `mem:core`. Unit 15 is next. See `mem:core` for counts and 
 
 `web` (thin controllers + DTOs) · `service` (all business logic + `@Transactional`) · `domain` (JPA
 entities + enums) · `repository` (Spring Data + brand/team/assignee scoping) · `integration` (GHL,
-Dropbox Sign clients) · `webhook` (inbound gateway: verify → resolve brand → dedupe → archive →
-route) · `event` (domain events + outbound HMAC dispatcher) · `job` (`@Scheduled`/`@Async`) ·
+Google Drive clients) · `webhook` (inbound gateway: verify → resolve brand → dedupe → archive →
+route) · `event` (domain events + outbound HMAC dispatcher) · `job` (`@Scheduled` sweeps) ·
 `notification` (in-app staff center) · `security` · `common` (envelope, encryption converter, error
 types) · `config`.
 
@@ -25,11 +25,39 @@ layer (map to DTOs). `notification/NotificationListeners` is the only subscriber
 the outbound dispatcher (Unit 18) is the next.
 
 `integration` holds `GoogleDriveClient` + `DriveUnavailableException` (Unit 13), the first outbound
-client. The pattern it sets for the GHL and Dropbox Sign clients still to come: **one narrow
+client, and — since the signature provider was dropped — the only third-party client besides the GHL
+one still to come. The pattern it sets: **one narrow
 capability, not an SDK wrapper**; a bounded request with an explicit timeout, because these are called
 from controller-triggered paths and invariant 6 forbids long-lived work there; and a failure that is a
 **502 changing nothing in EvalOS** rather than a partially-applied state. If a call stops fitting in
 one bounded request it moves to `job` (Unit 19), which is where that rule points.
+
+## `job`, when it stops being empty (Unit 19)
+
+Decisions already taken, so the package does not get invented from scratch:
+
+- **Spring `@Scheduled` + `@EnableScheduling`.** No Quartz, no ShedLock — both are a dependency and a
+  table for what is already on the classpath. Intervals bind from `evalos.jobs.*`;
+  `evalos.jobs.enabled=false` in the test profile so the suite cannot race a sweep.
+- **Every sweep claims `pg_try_advisory_lock(hashtext(:jobType))` first** and returns if it loses,
+  releasing it in a `finally`. Not for scale-out — because **every rolling deploy runs two instances
+  for a few seconds**, and two sweeps ticking together double-chase a client and double-alert staff
+  with nothing in the logs to say why.
+  **Session-scoped, not `pg_try_advisory_xact_lock`.** The xact variant releases on commit, and a sweep
+  runs *one transaction per item* — so it would drop the lock after the first item and leave the rest of
+  the run unprotected, which is the exact failure it was added to prevent. Claim it outside the per-item
+  transactions.
+- **`scheduled_job` records runs, not intentions.** No row-per-future-timer: a sweeper asking "what is
+  overdue right now" is correct on the first run after any outage. Idempotency comes from the data the
+  action already writes (`CHASED` audit rows for chases, notification rows for thresholds), never from
+  an "already ran" marker — which is why `POST /api/jobs/{type}/run` is safe to press twice.
+- **One transaction per item**, so one poisoned case cannot stop the sweep; the run is recorded
+  `FAILED` with the error and the next tick retries.
+- **A sweep prompts and publishes; it never transitions.** No sweep may fire `EXPERT_TIMED_OUT`.
+- Unscoped reads are deliberate (no authenticated caller, so `ScopePredicate` does not apply); every
+  side effect goes through `AuditService.recordSystemEvent` with the brand from the row.
+- **Five sweeps, not six** — retention left the unit; GHL owns it.
+- The **queue is the `webhook_delivery` outbox**, `FOR UPDATE SKIP LOCKED`. See `mem:backend/webhooks`.
 
 ## Response envelope — non-negotiable
 
@@ -44,7 +72,11 @@ never echoes Jackson's, which quotes the payload and lists every legal value),
 `IllegalTransitionException`), `MaxUploadSizeExceededException` (400), auth (401), forbidden (403),
 `IllegalTransitionException` (409), webhook rejection (its own status),
 `DriveUnavailableException` (**502** — an upstream fault, so the caller retries rather than reports a
-bug; Unit 13), catch-all (500). The
+bug; Unit 13), `NoResourceFoundException` (**404** — this advice is a plain `@RestControllerAdvice`
+and does not inherit `ResponseEntityExceptionHandler`, so Spring's own `ErrorResponseException`s fall
+to the catch-all: **every unmapped URL used to answer 500 and log at error level**. Same class of bug
+as the enum one above; found in Unit 05b while asserting `/mark-paid` was gone. Body carries no
+detail — whether a path exists is not information a caller is owed), catch-all (500). The
 frontend's typed mirror lives in `frontend/src/lib/api.ts`.
 
 ## Config & schema

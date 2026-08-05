@@ -9,6 +9,20 @@ Flyway + Spring Security/JWT on the backend, React/Vite + Tailwind on the fronte
 a Node backend, another database, an object store, a mail server, or a different auth model. Install
 a dependency only in the unit where it first unlocks real behavior.
 
+**Also decided, so these are not open choices (Production Process v2.0):**
+
+| Need | Answer | Not |
+|---|---|---|
+| Scheduling the Unit 19 sweeps | Spring `@Scheduled` + `@EnableScheduling`, already on the classpath | **Quartz** — no dynamic schedules or per-row timers to justify its tables |
+| Stopping two instances double-firing a sweep | `pg_try_advisory_lock(hashtext(:jobType))` — **session-scoped**, released in a `finally`; the `_xact_` variant is wrong because sweeps use one transaction per item | **ShedLock** — another dependency and another table for a Postgres builtin |
+| Queue / outbound delivery | the `webhook_delivery` outbox, `FOR UPDATE SKIP LOCKED` | **Kafka / Rabbit / SQS** — the only cross-process work is retrying one webhook |
+| Accepting a client's document, or a signed letter | stream through to Drive (`InputStreamContent`) | **S3 or any blob column** |
+| Expert e-signature | **no provider** — the expert signs in their own tool and uploads the PDF back through their portal | **Dropbox Sign** (dropped), DocuSign, or an in-browser signature pad. This removed an account, API key, template, callback secret, an SDK and a second inbound webhook source |
+| Charts (Unit 17 cycle-time p90) | **undecided** — small library vs hand-rolled SVG, chosen at the start of that unit | installing one before a screen renders it |
+
+The mail-server ban is still in force but is **under review** — the open GHL-vs-EvalOS-mail decision is
+in `context/process-automation.md`. Until it is taken, do not add an SMTP dependency.
+
 ## frontend/
 
 - React 19 + react-dom 19, react-router-dom 7 (`Routes`/`Route` element API, not v5 `Switch`).

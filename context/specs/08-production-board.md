@@ -71,6 +71,55 @@ own docket; Coordinator = own brand's cases (read/status view).
    filter narrows by deadline window.
 6. **Empty/loading states** per column; optimistic move with rollback on error.
 
+## The business's eight columns (Production Process v2.0)
+
+The CRM build spec names eight board columns: Doc Collection · Expert Assigned ·
+Draft In Progress · Draft Review · Client Review · Expert Signing · QC · Ready to
+Deliver. **That is a view, not a state machine.** All eight derive from data the
+board already loads, and the `Stage` enum stays six values:
+
+| Business column | Derived from |
+|---|---|
+| Doc Collection | `DOC_COLLECTION` |
+| Expert Assigned | `EXPERT_ASSIGNMENT` |
+| Draft In Progress | `DRAFT_GENERATION`, no approval pending |
+| Draft Review | `DRAFT_GENERATION` + `pm_approval_status = PENDING` |
+| Client Review | `DRAFT_GENERATION` + `client_approval_status = PENDING` |
+| Expert Signing | `EXPERT_SIGNING`, signature not yet returned |
+| QC | `EXPERT_SIGNING`, signature returned, awaiting `qc-approve` |
+| Ready to Deliver | `FINAL_DELIVERY` |
+
+`CaseCard.draftChip()` already computes the three draft sub-states for the chips, so
+the expanded view is a **grouping of existing values, not new logic** — and
+splitting `DRAFT_GENERATION` into three real stages would break the sub-loop
+design, where a returned draft goes round again inside one stage with
+`stage_entered_at` restamped per round.
+
+**Adding a `Stage` value for any of these is the wrong fix.** It would multiply the
+transition table, invalidate the SLA budgets (which are keyed per stage and
+sub-state), and turn every "which stage is this" query into a set membership test.
+
+The QC split is the only one needing anything new, and it needs it from Unit 15: a
+returned signature is what distinguishes Expert Signing from QC, and today nothing
+records the signature coming back. Until Unit 15, render those two as one column.
+
+## Delivery queue — reinstated
+
+`/delivery` is a real screen again: cases in `FINAL_DELIVERY`, oldest first, with a
+one-click **Deliver** per row, for the Coordinator (and GM/Brand Manager).
+
+**This reverses a deletion, and the reversal is deliberate.** The entry was removed
+in Unit 10 because it promised "final delivery queue (Unit 13)" and no unit built a
+screen behind it — an empty nav item, not a rejected idea. `navigation.test.ts`
+currently **asserts the entry is absent**, so that assertion changes with this work;
+a failure there is the expected consequence, not a regression. The business asked for
+the queue twice (A20 "case moved to delivery queue", and the Coordinator's
+"one-click delivery"), which is a stronger signal than the reason it was cut.
+
+The `deliver` and `close` transitions are unchanged — this is a second surface onto
+the actions the Final Delivery column already offers, aimed at a Coordinator working
+through a batch rather than hunting cards on a board.
+
 ## Acceptance criteria
 - [ ] Each role's board is correctly brand/team/docket scoped; no card from
       another brand ever appears.

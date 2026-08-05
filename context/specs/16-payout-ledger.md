@@ -83,11 +83,11 @@ exactly why it must be reported rather than swallowed if it happens.
 
 `PayoutStatus` already exists: `PENDING · PAID · CONFIRMED · VOIDED`.
 
-| From | To | Who | Means |
-| --- | --- | --- | --- |
-| `PENDING` | `PAID` | GM · Brand Manager | we sent it; method/reference/amount/date required |
-| `PAID` | `CONFIRMED` | GM · Brand Manager | the expert acknowledged receipt |
-| `PENDING` | `VOIDED` | `RefundService` only (GM) | the case was refunded |
+| From      | To          | Who                       | Means                                             |
+| --------- | ----------- | ------------------------- | ------------------------------------------------- |
+| `PENDING` | `PAID`      | GM · Brand Manager        | we sent it; method/reference/amount/date required |
+| `PAID`    | `CONFIRMED` | GM · Brand Manager        | the expert acknowledged receipt                   |
+| `PENDING` | `VOIDED`    | `RefundService` only (GM) | the case was refunded                             |
 
 Rules:
 
@@ -95,7 +95,7 @@ Rules:
   `PayoutService`, mirroring `CaseTransitions`' whitelist idea without building a
   second state machine for four states. `CONFIRMED` is terminal. `VOIDED` is
   terminal. `PAID → PENDING` does not exist: unsending money is not a thing, and a
-  mistake is corrected by editing the *fields*, not by rewinding the status.
+  mistake is corrected by editing the _fields_, not by rewinding the status.
 - **The money fields stay correctable while `PAID`**, the same reasoning `markPaid`
   uses for `deal_value`: somebody types a reference wrong and has to fix it. Every
   edit is audited, so the trail carries the correction. Once `CONFIRMED`, the row is
@@ -138,14 +138,14 @@ tracker with the other two.
 
 ## Backend
 
-| Method | Path | Auth | Notes |
-| --- | --- | --- | --- |
-| GET | /api/payouts | GM · Brand Manager · ENM | brand-scoped list; filter by status, expert, date range; the global date filter applies |
-| GET | /api/payouts/{id} | GM · Brand Manager · ENM | one row with its case and expert |
-| PATCH | /api/payouts/{id} | GM · Brand Manager | the manual form: amount, method, reference, paid date. Audited |
-| POST | /api/payouts/{id}/mark-paid | GM · Brand Manager | → `PAID`; requires method, reference, amount, date |
-| POST | /api/payouts/{id}/confirm | GM · Brand Manager | → `CONFIRMED`; terminal |
-| GET | /api/payouts/batch | GM · Brand Manager · ENM | the weekly view: `PENDING` grouped by week of `due_date`, with totals per expert and overall |
+| Method | Path                        | Auth                     | Notes                                                                                        |
+| ------ | --------------------------- | ------------------------ | -------------------------------------------------------------------------------------------- |
+| GET    | /api/payouts                | GM · Brand Manager · ENM | brand-scoped list; filter by status, expert, date range; the global date filter applies      |
+| GET    | /api/payouts/{id}           | GM · Brand Manager · ENM | one row with its case and expert                                                             |
+| PATCH  | /api/payouts/{id}           | GM · Brand Manager       | the manual form: amount, method, reference, paid date. Audited                               |
+| POST   | /api/payouts/{id}/mark-paid | GM · Brand Manager       | → `PAID`; requires method, reference, amount, date                                           |
+| POST   | /api/payouts/{id}/confirm   | GM · Brand Manager       | → `CONFIRMED`; terminal                                                                      |
+| GET    | /api/payouts/batch          | GM · Brand Manager · ENM | the weekly view: `PENDING` grouped by week of `due_date`, with totals per expert and overall |
 
 Reads go through `PayoutLedgerRepository.findScoped` — `payout_ledger` is a
 brand-only scoped entity, so `ScopePredicate` already handles every role's tier and
@@ -155,9 +155,9 @@ they are not on any of these routes, so it does not arise.
 
 Expert portal, on Unit 15's chain:
 
-| Method | Path | Auth | Notes |
-| --- | --- | --- | --- |
-| GET | /api/portal/expert/payout | portal token (EXPERT) | **status, amount, currency and paid date for this case's payout only** |
+| Method | Path                      | Auth                  | Notes                                                                  |
+| ------ | ------------------------- | --------------------- | ---------------------------------------------------------------------- |
+| GET    | /api/portal/expert/payout | portal token (EXPERT) | **status, amount, currency and paid date for this case's payout only** |
 
 Read-only, deliberately. The expert confirming their own receipt would be a nicer
 loop, but `CONFIRMED` is a statement on the brand's books and the expert token is a

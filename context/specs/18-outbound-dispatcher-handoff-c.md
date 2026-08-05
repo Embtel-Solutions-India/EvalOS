@@ -172,6 +172,18 @@ On `case.delivered`:
   mean "GHL was successfully told", not "we tried".
 - **The payout entry is Unit 16's** and already exists by this point.
 
+**This one webhook is the whole of A21.** Everything the business spec schedules
+after delivery — the review request at 7 days and the retention sequence at
+30/90/180/365 — is **GHL's, end to end** (decision, Production Process v2.0). EvalOS
+fires `case.delivered` once and schedules none of it: there is no `RetentionSweep`
+(deleted from Unit 19), no retention queue screen, and the four
+`retention_*_sent_at` columns stay unwritten. The only post-delivery fact EvalOS
+keeps is the stamp above, which records that the handoff succeeded.
+
+The client-facing side of this delivery — actually sending the signed letter to the
+client — is touchpoint **T8** in `context/process-automation.md`, and its channel is
+undecided.
+
 ### Suppression sync
 
 Delivered and active contacts go to GHL's global suppression list so no cold or bulk

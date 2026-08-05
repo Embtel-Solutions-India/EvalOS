@@ -29,11 +29,32 @@ case to the PM (Unit 04's `markDocsComplete`) and publishes `documents.completed
 
 ## Out of scope
 
-- Client-side document *upload UI* — documents are collected in Google Drive,
-  handled separately (only the Drive link + item status live in EvalOS).
+- Client-side document *upload UI* — **now owned by Unit 21**
+  (`21-client-document-upload.md`), which puts an upload control on the client
+  portal and streams the file into the case's Drive folder. This line used to read
+  "documents are collected in Google Drive, handled separately"; that is still where
+  the files land, but the client now gets them there through EvalOS rather than
+  outside it. **Unit 21 feeds this unit** — an upload sets the item to `UPLOADED`
+  and the Coordinator reviews it here, flagging `MISSING` or `INCORRECT`.
 - Scheduling the 24h/48h reminders and the day-3 escalation — Unit 19 (this unit
   defines the events they fire).
-- AI upload review — deferred (Phase 2+ per the design).
+- **AI upload review — ruled out, not deferred.** The Coordinator does the human
+  review. This line previously said "deferred (Phase 2+)", which left an open
+  intention nobody owned; the decision (Production Process v2.0) is that it is not
+  being built, and Unit 20 records the same exclusion.
+
+## `markDocsComplete` and A12, for the record
+
+Two clarifications this unit is the natural home for:
+
+- `ChecklistItemStatus.isComplete()` counts `UPLOADED` as complete, so a client
+  upload alone can satisfy the docs-complete gate. That is correct and intended: the
+  real gate is the **Coordinator choosing** to mark the case complete, and a bad
+  document gets `INCORRECT`, which makes it incomplete again. The enum stays the one
+  definition — do not add a second predicate for "reviewed".
+- A12's "PM comments visible inline on the draft" is **Google Drive's own commenting**
+  on the draft document. EvalOS records the PM's return reason and builds no
+  annotation subsystem; the draft already lives somewhere that does this natively.
 
 ## Backend
 | Method | Path | Auth | Notes |

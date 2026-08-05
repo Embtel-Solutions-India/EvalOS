@@ -23,6 +23,16 @@ Two widgets the design has always described as "later", both **assist-only**:
 2. **AI-enhanced expert suggestion** — a second opinion layered on top of Unit
    12's rule-based top-3.
 
+**Two, and not a third. AI review of client-uploaded documents is out of scope** —
+ruled out by decision (Production Process v2.0), not deferred. The CRM build spec
+asks for "AI reviews uploads, flags missing or incorrect items"; the answer is that
+the **Coordinator** does that review, using the `MISSING` / `INCORRECT` statuses
+Unit 10 already has. Recorded here because a unit named "AI widgets" is exactly
+where somebody would later assume it belongs. Unit 10 and Unit 21 carry the same
+exclusion. If it is ever revisited, note it would be a far heavier data-boundary
+question than either widget below: those send numbers, this would send the client's
+actual identity documents to a third party.
+
 **Verifiable result:** a GM or Brand Manager sees anomaly flags on the dashboard
 with the figures behind each one, and a PM at assignment sees the rule-based
 shortlist with an optional AI note explaining what the rules cannot see — with the
@@ -81,7 +91,7 @@ Rules:
 
 The suggestion layer sends data about a live case and real experts to an external
 API. Nothing in EvalOS has ever done that: Drive holds documents EvalOS links to,
-Dropbox Sign holds letters it does not read, and GHL is the system EvalOS is a
+Drive also holds the signed letters, which EvalOS files but does not read, and GHL is the system EvalOS is a
 back office for. **This is the first outbound flow of internal case content to a
 third party**, and it is a decision for the business, not an implementation detail.
 
@@ -125,7 +135,7 @@ trusts is worse than no widget.
   rather than scraped. A shortlist assembled by regex over free text is a defect
   waiting for a model update.
 - **Key config:** `ANTHROPIC_API_KEY`, env-backed, **no non-local default** — the
-  rule `EVALOS_FIELD_KEY` and the Drive and Dropbox Sign credentials all set.
+  rule `EVALOS_FIELD_KEY`, `JWT_SECRET` and the Drive credentials all set.
 - **Off by default.** `evalos.ai.suggestions.enabled=false`. A feature that costs
   money per call and reaches an external service does not default on.
 - **Failure is invisible to the PM.** Timeout, rate limit, missing key, disabled

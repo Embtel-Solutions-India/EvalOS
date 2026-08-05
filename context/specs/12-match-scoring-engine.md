@@ -93,7 +93,7 @@ So this unit creates the record. New migration (next free `V`-number),
   from `OFFERED` exactly once and never again; everything else is
   `updatable = false`. **First write wins, and a later write of the same outcome is
   a no-op rather than an error** — Unit 15 has two acts that both mean accepted (the
-  expert pressing Accept in the portal, then Dropbox Sign's `signed` callback), and
+  expert pressing Accept in the portal, then uploading the signed letter), and
   on the ordinary happy path both fire. The guard belongs here, in the one place
   that owns the column, not in each caller. This is not the audit table and does not pretend to be —
   the audit trail already records each transition, and this row exists to be
@@ -112,7 +112,7 @@ So this unit creates the record. New migration (next free `V`-number),
   writes it: a job cannot, because reaching `TIMED_OUT` also means opening a
   rematch, and `REASSIGN_EXPERT` is gated on an exception state only a declared
   transition can set. See Unit 15's sign-SLA section.
-- Unit 15's portal fills `ACCEPTED` from the real Dropbox Sign callback instead of
+- Unit 15's portal fills `ACCEPTED` from the expert's own signed-letter upload instead of
   the staff-recorded stand-in. The column does not change.
 
 Index `(brand_id, expert_id, outcome)` — the aggregate this unit runs.

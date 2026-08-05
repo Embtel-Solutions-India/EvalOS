@@ -49,13 +49,27 @@ PowerShell notes that bite here:
   `/api/webhooks/ghl/local-ie-webhook-token` with `X-Evalos-Signature: sha256=<hex HMAC-SHA256 of the
   exact body>` keyed on `local-ie-webhook-secret` (`V901`), body:
   ```json
-  {"event_type":"contact.created","event_id":"evt-<unique>",
+  {"event_type":"opportunity.won","event_id":"evt-<unique>",
+   "opportunity":{"ghl_opportunity_id":"opp-<unique>","amount":900,"status":"won"},
    "contact":{"ghl_contact_id":"ghl-<unique>","full_name":"Anita Rao","email":"<unique>@example.test",
               "client_type":"INDIVIDUAL","source":"WEBSITE"},
-   "service_type":"EXPERT_OPINION_LETTER","visa_category":"EB2_NIW","quote_amount":900,
+   "service_type":"EXPERT_OPINION_LETTER","visa_category":"EB2_NIW","invoice_ref":"INV-0001",
    "drive_link":"https://drive.google.com/drive/folders/<anything>"}
   ```
   `event_type` and `event_id` are the **gateway's** fields and are easy to miss — without the first it
   is `400 MISSING_EVENT_TYPE`, without both it is `400 MISSING_EXTERNAL_ID`. `service_type` is
-  top-level, not inside `contact`. Use a fresh email/GHL id each time: `V15`/`V16` refuse a second
-  open case for the same contact and service.
+  top-level, not inside `contact`; `amount` and `ghl_opportunity_id` are inside `opportunity` and both
+  are required. Use a fresh email/GHL id and a fresh opportunity id each time: `V15`/`V16` refuse a
+  second open case for the same contact and service, and `V24` refuses a second for the same
+  opportunity.
+
+  **Do not fire `contact.created`** — it is a recognized no-op since Case Creation v2.0 (spec `05b`)
+  and creates nothing. It answers `200 accepted`, so it looks like it worked; the case never appears.
+  The case it does create arrives **paid**, and there is no `mark-paid` call to follow up with.
+- **Firing a background sweep by hand** — once Unit 19 exists, and only then; the `job` package is an
+  empty placeholder today. `POST /api/jobs/{jobType}/run` with a **GM** bearer token, and
+  `GET /api/jobs/runs` for the ledger (last run, duration, items seen/acted, failures). **Safe to press
+  twice** by design: each sweep's idempotency comes from the data it reads, not from having-not-run-yet,
+  which is the point of having the button — after an outage somebody can catch up deliberately instead
+  of waiting for the next tick. Note the sweeps are **disabled in the test profile**
+  (`evalos.jobs.enabled=false`), so an integration test that wants one runs it through this route.

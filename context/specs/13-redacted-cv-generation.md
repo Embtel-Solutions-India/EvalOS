@@ -55,7 +55,8 @@ Google Drive API integration in EvalOS**. Until now `Case.driveLink` has been a
 string EvalOS stores and never dereferences, and `architecture.md`'s stack table
 describes Drive as "link stored on the case, not re-hosted". That line needs
 updating with this unit — Drive becomes an outbound integration, not just a URL
-column. It is now a second external dependency in Phase 2 alongside Dropbox Sign
+column. It is now the **only** external dependency in Phase 2 — the signature provider
+that used to be the other one was dropped, and Units 15 and 21 need this same credential
 in Unit 15, and it is the reason this unit has a gating open question where the
 serve-on-demand-only reading would have had none.
 

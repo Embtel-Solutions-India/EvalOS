@@ -71,8 +71,9 @@
   via the event catalog in `architecture.md`, not ad hoc.
 - Do not call an external partner's API inline from a request handler for a
   lifecycle side effect; emit a domain event and let the dispatcher deliver it.
-- Client-facing messages are delivered by GHL off domain events. EvalOS sends no
-  email itself.
+- Client-facing messages are delivered by GHL off domain events — see
+  *Client- and expert-facing messages* below for the marker convention and the
+  open channel decision.
 
 ## Persistence (JPA / PostgreSQL)
 
@@ -98,10 +99,75 @@
 
 ## Files & Storage
 
-- EvalOS hosts no files. Persist a Google Drive **link** on the case, never the
-  document bytes. Signed letters live in Dropbox Sign; reference them, don't copy
-  them. The redacted CV is generated on demand, not stored in a database blob.
+- EvalOS hosts no files. Persist a Google Drive **link or file id** on the case, never
+  the document bytes — including the signed letter, which is filed into the case's own
+  Drive folder by the expert's upload. The redacted CV is generated on demand, not
+  stored in a database blob.
 - There is no S3/object-storage dependency. Do not add one.
+- **An upload streams; it never lands.** Where EvalOS accepts a file (Unit 21),
+  pass the request's `InputStream` straight to the Drive client via
+  `InputStreamContent` — no byte array, no temp file, no upload directory. Buffering
+  the whole file both breaks "hosts no files" and puts an attacker-sized allocation
+  on the heap.
+- **Validate an accepted file by content, not by claim.** Sniff the leading bytes
+  against an **allowlist** (never a denylist of extensions); enforce the size cap
+  before streaming; reject empty files; generate the stored filename yourself and
+  treat the client's as untrusted data — no separators, no traversal, never echoed
+  into HTML. Rate-limit **per portal token** — note the existing `PortalTokenFilter`
+  limiter keys on the client address, not the token, so this is a second key rather
+  than something already handled.
+- **A portal credential travels in the `X-Portal-Token` header only** — never a path
+  segment or query parameter, both of which land in access logs, `Referer` headers and
+  browser history, and would break the reason CSRF is disabled on that chain.
+
+## Background jobs
+
+- Sweeps live in `job`, are `@Scheduled`, and take a **Postgres advisory lock on
+  their job type** before doing anything. Two instances exist for a few seconds in
+  every rolling deploy, and a double-fired sweep double-messages a client silently.
+- **Idempotency comes from the data**, never from a "already ran" row: derive it from
+  the audit trail or the notification rows the action itself writes. A sweep must be
+  safe to run twice, because `POST /api/jobs/{type}/run` exists.
+- **One transaction per item.** One poisoned case must not abort the sweep; record
+  the run `FAILED` with the error and let the next tick retry.
+- **A sweep prompts and publishes; it never transitions a case.** Every state change
+  goes through the owning service's transition, fired by a person.
+- Sweeps have no authenticated caller, so `ScopePredicate` does not apply: read
+  brand-wide deliberately, and write through `AuditService.recordSystemEvent` with
+  the brand taken from the row.
+- Queue work is the `webhook_delivery` outbox claimed `FOR UPDATE SKIP LOCKED`.
+  **Do not add a message broker** — the only cross-process work is retrying one
+  webhook.
+
+## Client- and expert-facing messages
+
+- Client-facing messages are delivered by GHL off domain events; an expert is reached
+  by a scoped portal link. **EvalOS sends no email** (invariant 14).
+- That channel decision is **under review** for the touchpoints listed in
+  `context/process-automation.md`. Wherever code will sit for one of them, leave a
+  marker comment naming the touchpoint so the decision is greppable:
+
+  ```java
+  // email: T5 draft ready for client — channel undecided (GHL vs EvalOS mail).
+  // See context/process-automation.md, outward touchpoints.
+  ```
+
+- Until it is decided, do not add a mail dependency.
+
+## One home per fact
+
+- Every fact has exactly one authority: SLA budgets in `SlaCalculator`, business
+  hours in `BusinessCalendar`, legal transitions in `CaseTransitions`,
+  trigger→recipient in `NotificationListeners.ROUTES`, scope in `ScopePredicate`,
+  money visibility in `CaseController.SEES_DEAL_VALUE`, RAG tokens in
+  `ui-context.md`.
+- Docs and comments **cite** those; they never restate a threshold as though it were
+  the source. A second copy of a number is a second thing that can be wrong, and the
+  copy is always the one that goes stale.
+- Prefer deriving over storing. `expert.current_active_count`,
+  `total_cases_completed` and `total_payments_pending` are columns nothing has ever
+  written — the standing example of why a counter is a liability. `ExpertLoadService`
+  is the pattern to copy.
 
 ## Validation
 
@@ -142,7 +208,7 @@ Backend (`backend/src/main/java/com/ie/evalos/`):
 - `service/` — domain logic (case lifecycle, matching, payouts, QC, scoping).
 - `domain/` — JPA entities + enums.
 - `repository/` — Spring Data JPA repositories + scoping filters.
-- `integration/` — GHL and Dropbox Sign clients.
+- `integration/` — GHL and Google Drive clients.
 - `webhook/` — inbound webhook controllers + secret verification + brand resolve.
 - `event/` — domain events + outbound dispatcher.
 - `job/` — `@Scheduled` / `@Async` workers (backed by `scheduled_job`).

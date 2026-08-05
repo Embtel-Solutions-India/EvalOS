@@ -3,7 +3,7 @@
 Built in Unit 03 (`V4`–`V10`). Entities: `ContactSnapshot`, `Case` (table **`evalos_case`** — `case`
 is reserved SQL), `DocumentChecklistItem`, `Expert`, `PayoutLedger`, `Notification`, `AuditEvent`,
 plus Unit 02's `Brand`/`TeamMember`, Unit 12's `ExpertCaseOffer` and Unit 14's `PortalAccess`. Schema
-now runs to **`V23`**;
+now runs to **`V24`**;
 `V11`–`V17` added the per-brand
 webhook secret, the webhook archive + its brand-scoped idempotency key, `case.paid`/`paid_at`, the
 one-open-case-per-contact-service index, contact identity, and `case.assigned_coordinator`. **`V18`
@@ -16,6 +16,37 @@ index `uq_expert_per_brand_email` on `(brand_id, lower(email))`, and a GIN index
 `audit_event.actor_type` (see the append-only section — that one is the first column ever added to
 the audit table, and it was added on explicit instruction), and `V23`'s one-unrevoked-token index,
 which its code review added after finding the mint was a check-then-act.
+
+**Unit 21** adds `document_checklist_item.drive_file_id` + `uploaded_at` (the file behind an `UPLOADED`
+item, and when it arrived). **No `uploaded_by`** — the audit trail records who, and a second record of
+the same fact is a second thing that can disagree, the same reasoning that refused `paid_by`.
+
+**Retention columns are now dead on purpose.** `evalos_case.retention_30/90/180/365_sent_at` were
+"reserved for the jobs unit"; retention is **GHL's end to end** since Production Process v2.0, so
+`RetentionSweep` is gone and these four are **permanently unwritten and get no accessors**. Left in
+place because an applied migration is never edited — but do not adopt them for something else, and do
+not read their existence as a plan.
+**`google_review_requested` / `_at` are different**: Unit 18 does write them, on a successful Handoff C,
+because "GHL was told" is EvalOS's own fact and Unit 17's review tile counts it.
+
+Still-dead-and-should-stay-dead, for the same derive-don't-store reason as the three `expert` counters:
+`expert.avg_response_hours`. Unit 17 derives turnaround from `expert_case_offer`; reviving the column
+would be a second, staler answer.
+
+**Case Creation v2.0 (Unit 05b)** added `V24` `evalos_case.ghl_opportunity_id` + the per-brand
+`uq_case_open_per_opportunity`, so a re-fired GHL workflow cannot open a second case for one
+opportunity — the `V15`/`V16` index-not-lookup rule again. It is partial on **`WHERE
+ghl_opportunity_id IS NOT NULL AND current_stage <> 'CLOSED'`, and the second clause is
+load-bearing**: the open-case lookup ignores closed cases, so a client returning on a re-used
+opportunity id takes the *create* path, and an unscoped index would turn legitimate repeat business
+into a constraint violation — a 5xx GHL retries forever, and no case for a deal that was paid for.
+It guards a **different** thing from the gateway's `event_id` dedupe (that stops a redelivered
+webhook; this stops a second case), and the id is **never** an idempotency key.
+Same change made `case.paid`/`paid_at` (`V14`) **write-once by intake only**: the `mark-paid`
+transition and endpoint are deleted, so nothing but `CaseIntakeService` ever writes them.
+`deal_value` now holds the won opportunity's amount rather than a quote — and is the one field
+`CaseIntakeService.refresh()` **overwrites** rather than fills, because deleting `markPaid` removed
+its only other writer and the figure feeds revenue recognition.
 
 `draft_link` vs `drive_link` is not a detail: `drive_link` is the client's **own document folder**
 (passports, transcripts) and `draft_link` is the drafted letter. Only the second is ever shown to a
@@ -93,9 +124,10 @@ acceptance rate. It is not a second history — the audit trail still records ea
 
 - Every column is `updatable = false` **except `outcome`**, which leaves `OFFERED` exactly once
   through `ExpertCaseOffer.resolve`. **First write wins; a later or repeated outcome is a no-op, not
-  an error** — Unit 15 has two acts that both mean accepted (expert presses Accept, then Dropbox
-  Sign's `signed` callback) and both fire on the happy path, so throwing would fail a normal
-  sequence. The guard is on the entity, the one place owning the column, not in the four callers.
+  an error** — Unit 15 has two acts that both mean accepted (the expert presses Accept, then uploads
+  the signed letter) and both fire on the happy path, so throwing would fail a normal
+  sequence. That reasoning predates dropping the signature provider and survives it unchanged: the
+  second act used to be a `signed` callback and is now the expert's own upload. The guard is on the entity, the one place owning the column, not in the four callers.
   `resolve` **refuses `OFFERED` as a resolution** rather than letting the CHECK below blow up at
   flush.
 - Two CHECKs, for the reason `V18` gives: `outcome IN (...)` because the scorer divides by a count of

@@ -17,8 +17,20 @@ Security + JWT (staff) + scoped link-based portal chains (client/expert).
   write a finder that can cross brands except for the GM's explicit cross-brand
   reads.
 - **Append-only audit** on every object; no update/delete path.
-- **No files, no email.** Drive links + Dropbox Sign for artifacts; in-app
-  notifications for staff; GHL for client messages.
+- **No files, no email.** Drive links and file ids for every artifact including the
+  signed letter; in-app notifications for staff; GHL for client messages; a scoped
+  portal link for experts.
+  - *No files* means **stores none, not accepts none.** Unit 21 accepts a client
+    upload and streams it through to Drive; EvalOS keeps the file id and nothing
+    else. Do not read this rule as forbidding that unit — read it as forbidding the
+    temp file, the upload directory and the blob column.
+  - *No email* is **true today and under review.** The touchpoints and the open
+    channel decision are in `context/process-automation.md`. Until it is decided,
+    still do not add a mail dependency.
+- **One home per fact.** SLA budgets live in `SlaCalculator`, transitions in
+  `CaseTransitions`, recipients in `NotificationListeners.ROUTES`, scope in
+  `ScopePredicate`. Docs cite them; they never restate a threshold as an authority.
+  If a doc and the code disagree, the code wins and the doc is the bug.
 
 ## Scoping Rules
 
@@ -50,7 +62,9 @@ If a change cannot be verified end to end quickly, the scope is too broad — sp
   EvalOS **builds the sales/marketing dashboards** (default: no, they stay in
   GHL); **StatCommand**; the **GHL webhook/API contract** (per-brand inbound
   secret + payload, outbound subscriber URL + secret, client-message capability);
-  the **Dropbox Sign callback secret**; and **staff SSO** (optional/later).
+  and **staff SSO** (optional/later). *(The Dropbox Sign callback secret used to be on
+  this list; there is no signature provider any more — the expert uploads the signed
+  letter through their portal.)*
 
 Resolved (do not re-open as questions): the payout **rail** — there is none; the
 ledger is filled by a manual form. **Object storage** — there is none. **Email
@@ -76,6 +90,9 @@ Update the relevant context file whenever implementation changes:
 - Code conventions → `code-standards.md`
 - Visual tokens or layout patterns → `ui-context.md`
 - Feature scope → `project-overview.md`
+- **A trigger, its recipients, an SLA, or a client/expert touchpoint →
+  `process-automation.md`** (the A-register). Moving an automation from *gap* to
+  *built* is part of the unit that built it, not a later tidy-up.
 - A decision that changes the design → the TDD as well
 
 Also update the **Serena memories** (`.serena/memories/`) in the same step, so the

@@ -35,7 +35,7 @@ trusted. Routing:
 
 - backend domain/services → `mem:backend/core`; case lifecycle + transitions → `mem:backend/lifecycle`
 - entities, migrations, repositories, converters → `mem:backend/persistence`
-- auth, roles, scoping, encryption → `mem:backend/security`; GHL/Dropbox Sign edges → `mem:backend/webhooks`
+- auth, roles, scoping, encryption → `mem:backend/security`; GHL and Drive edges → `mem:backend/webhooks`
 - frontend structure/conventions → `mem:frontend/core`
 - stack or dependency change → `mem:tech_stack`; command change → `mem:suggested_commands`
 - convention change → `mem:conventions`; verification-step change → `mem:task_completion`

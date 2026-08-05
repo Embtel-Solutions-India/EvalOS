@@ -178,6 +178,147 @@ rather than written from the role hierarchy, because the authority on who sees a
 figure is the list the code already shares. **Read `SEES_DEAL_VALUE` at build time
 and follow it** — do not re-derive it from this table.
 
+## The per-role operational contract (Production Process v2.0)
+
+The table above says what each role *sees* in terms of metric families. The business
+then specified the actual screens, KPIs and buttons, which is a different and more
+demanding list. Both are below; where they differ, this section is the requirement
+and the table above is the summary.
+
+Status tags: **built** · **specced** (elsewhere, unbuilt) · **gap** (nothing yet) ·
+**GHL** (not EvalOS's).
+
+Two things that apply to every role:
+
+- **Capacity colours are already decided.** `ui-context.md` fixes green `<70%`,
+  amber `70–90%`, red `>90%` as the RAG capacity contract. Any workload indicator
+  uses those; do not invent thresholds.
+- **Every figure derives.** No counter columns. `expert.current_active_count`,
+  `total_cases_completed` and `total_payments_pending` exist, have never been
+  written, and are the standing warning — `ExpertLoadService` is the pattern.
+
+### Project Manager — all production cases
+
+| Widget | Status |
+|---|---|
+| **Cases inbox** — newly won cases arriving from sales: client, client type, service type, deadline, documents-received status, sales notes | **gap** — and note two things: "payment confirmed" is now always true (spec `05b` creates the case paid), so it is a column of yeses and should be dropped rather than rendered; and **no field carries GHL's sales notes** today, so either intake starts carrying one or the column comes out |
+| **Production board (Kanban)** — 8 columns | **built** as 5 stage columns + sub-status chips. The 8-column reading is a derived grouping — see `08-production-board.md` |
+| **Case manager workload** — cases per CM, capacity RAG, unassigned flagged | **gap**. One grouped count over `evalos_case` by `assigned_cm`, the `ExpertLoadService` shape |
+| **Expert assignment board** — cases waiting for an expert, expert availability, responses overdue >24h in red with a reassign prompt | **partly** — `AvailabilityBoard` and the Unit 12 shortlist are built; "cases waiting" and the overdue flag are **gap** (the flag needs Unit 15) |
+| **Deadline view** — every case by deadline, overdue/today/this week, filter by CM or service | **gap** |
+| **Draft review queue** — drafts awaiting this PM, oldest first | **gap** |
+
+| KPI | | Status |
+|---|---|---|
+| Cases delivered on time % | PRIMARY | **gap** — the largest tile, per `ui-context.md` |
+| Cases at risk right now — deadline within 24h and not yet ready to deliver | PRIMARY | **gap** |
+| Unassigned cases — must be zero | PRIMARY | **partly** — the pool lane counts it on the board |
+| Avg case completion by service type | SECONDARY | **specced** — cycle-time family |
+| Draft revision rate per CM | SECONDARY | **gap** — derivable from `draft_version_count` + `DRAFT_RETURNED` audit rows |
+| Expert response time avg, flag >36h | TRACKING | **specced** as turnaround. **Derive from `expert_case_offer`, never from `expert.avg_response_hours`** — that column has no writer and is permanently null |
+
+Quick actions — **built**: assign CM + expert, PM approve, PM return with reason, QC
+approve, write strategy notes. **Gap**: mark case urgent / change deadline; reassign
+a case between Case Managers after assignment (`assign-cm` is declared on
+`EXPERT_ASSIGNMENT` only, so mid-draft reassignment has no path).
+
+Not visible: sales pipeline lead detail, marketing data, expert recruitment,
+financial data beyond the case's own deal value.
+
+### Project Coordinator — client-facing: documents, comms, delivery
+
+| Widget | Status |
+|---|---|
+| **Document checklist board** | **built** (Unit 10) |
+| **Pending document chases** — no client response in 24h / 48h, with a chase prompt | **built** — `needsChase()` |
+| **Cases awaiting client review** — how long since sent, opened / not opened, revisions received | **partly** — Unit 14 tracks read receipts; the queue view is **gap** |
+| **Delivery queue** — PM-approved and ready to send, one-click delivery | **gap → being reinstated.** `/delivery` was deleted as an empty nav entry and its absence is asserted in `navigation.test.ts`; the business asked for it twice, so it comes back with a real screen and that assertion flips |
+| **Client communication log** — every message threaded per case, sendable from the view | **gap, and architecturally GHL's.** EvalOS holds no message entity and sends nothing. The nearest truth is the audit timeline (`CHASED`, `PORTAL_LINK_ISSUED`). A real threaded log would be a new **inbound** integration pulling GHL conversations — out of scope, in the Gap Register |
+| **Retention follow-up queue** | **GHL** — end to end, including the 7-day review request |
+
+| KPI | | Status |
+|---|---|---|
+| Cases with incomplete docs >48h | PRIMARY | **partly** — the checklist board's aging bands |
+| Cases delivered today / this week | PRIMARY | **gap** |
+| Avg time to complete doc collection | SECONDARY | **specced** — cycle time for `DOC_COLLECTION` |
+| Client review turnaround, flag >48h no response | SECONDARY | **specced** |
+| Google review requests sent vs received | TRACKING | **sent** is specced; **received lives in GHL** and the tile must say "requests sent" |
+
+Quick actions — **built**: mark docs complete, deliver, close. **Specced**: send the
+checklist (the event exists; delivery is an undecided touchpoint). **GHL**: message
+the client, send retention follow-up.
+
+### Case Manager — their own docket only
+
+| Widget | Status |
+|---|---|
+| **My active cases** | **built** — `/my-cases` |
+| **PM notes panel** | **built** — `StrategyNotes` |
+| **Priority queue by deadline**, RAG by urgency | **gap** |
+| **Draft status board** — submitted / approved / returned, revision history | **partly** — chips + timeline; no dedicated board |
+| **Client feedback log** — what the client asked to change | **partly** — revision reasons are in the audit trail |
+| **Expert signing status**, reassign prompt past 24h | **specced** (Unit 15) |
+
+| KPI | | Status |
+|---|---|---|
+| Cases completed on time % | PRIMARY | **gap** |
+| Draft revision rate, flag consistently >30% | PRIMARY | **gap** |
+| Client revision request rate | SECONDARY | **gap** |
+| Cases due today / tomorrow | SECONDARY | **gap** |
+
+Quick actions — **built**: open case and documents, submit draft, revise. **Specced**:
+send the signed letter to the expert (Unit 15). **Gap**: flag a case issue to the PM.
+**Note**: "reassign expert if no response in 24h" is *not* the CM's to fire — Unit 15
+gates `EXPERT_TIMED_OUT` to PM and above; the CM sees the prompt.
+
+Not visible: other CMs' cases, deal values (the CM is **not** on `SEES_DEAL_VALUE`),
+sales pipeline, expert payment data, other clients.
+
+### Expert Network Manager — supply side only
+
+| Widget | Status |
+|---|---|
+| **Expert database** — the roster with tier, quality score, availability, agreement and payment status | **built** (Unit 11) |
+| **Availability board** — grouped by field, available vs at-capacity vs inactive | **built** |
+| **Coverage gap alert** — any field below threshold | **gap**. The business threshold is **fewer than 5 available experts in a field** |
+| **Payment tracker** — pending payouts, overdue in red, total outstanding | **specced** (Unit 16) |
+| **Performance flags** — response >24h, 2+ declines, low quality, PM-flagged | **partly** — the column and the display exist; **nothing writes it**, and declines are better read from `expert_case_offer` than from a flag |
+| **Recruitment pipeline** — Identified → Contacted → Agreement Sent → Signed → Active | **GHL** |
+| **Outreach activity** — calls, emails, response rate, prospects cold >7 days | **GHL** |
+
+| KPI | | Status |
+|---|---|---|
+| Available vs at-capacity; any field with <5 available flags immediately | PRIMARY | **gap** — the coverage alert above |
+| New experts onboarded vs target | PRIMARY | **gap, but trivial** — one count over `expert.date_onboarded`, which already exists. The *target* needs somewhere to live (config, not a table) |
+| Payments overdue >7 days | PRIMARY | **specced** (Unit 16) |
+| Avg expert response time, fleet-wide and by tier, flag >36h | SECONDARY | **specced** — from `expert_case_offer`, not the dead column |
+| Coverage gaps by field | SECONDARY | **gap** |
+| Quality score trend, this month vs last | TRACKING | **gap** — `quality_score` is human-entered and unversioned, so a trend needs either history or an accepted limitation. Flag it rather than fake it |
+
+Quick actions — **built**: add expert, update availability and tier. **Specced**: log
+a payout (Unit 16). **GHL**: send the agreement, move a prospect along. **Gap**: flag
+an expert underperforming (no writer for `performance_flags`).
+
+Not visible: case content, draft letters, client identity, sales pipeline, revenue,
+other departments.
+
+### GM — and the "Head of Eval dashboard"
+
+**The build spec's "Head of Eval" is the GM.** There is no Head-of-Evaluations role
+in EvalOS and none is being added, so every Head-of-Eval instruction in the business
+spec resolves here: the day-3 document escalation (A09) is flagged on the GM
+dashboard, the unassigned-after-4h escalation alerts the GM, and A21's "revenue
+confirmed" is a GM tile.
+
+The GM sees everything, cross-brand, with a per-brand breakdown and the brand
+switcher narrowing rather than widening it — as the role table already says. The GM
+is the only role that can compare brands.
+
+### Brand Manager
+
+Everything for their own brand: the same tiles as the GM, one brand's worth. The GM's
+cross-brand comparison is the only thing withheld.
+
 ## Backend
 
 | Method | Path | Auth | Notes |

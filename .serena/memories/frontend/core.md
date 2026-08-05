@@ -83,6 +83,34 @@ Where a rules module mirrors a backend vocabulary (`QUICK_ACTIONS` ↔ the trans
 offer the closed list rather than let it be typed — and **the two move together or the API starts
 rejecting what the screen offered**.
 
+`boardRules` has **no `mark-paid` action** since Case Creation v2.0 (spec `05b`): the case arrives paid
+from the won GHL opportunity, and the endpoint behind that button is deleted. Do not re-add a "Record
+payment" quick action — GHL is the only source of that fact, so a screen offering to set it would be
+offering to disagree with GHL.
+
+## Production Process v2.0 — three things about surfaces
+
+- **`/delivery` is coming back**, with a real screen this time: cases in `FINAL_DELIVERY`, oldest
+  first, one-click Deliver. `navigation.test.ts` currently **asserts that entry is absent** (it was
+  deleted in Unit 10 as a nav item pointing at nothing), so that assertion **flips** with the work — a
+  failure there is expected, not a regression. The business asked for the queue twice.
+- **The business's 8 Kanban columns are a derived view, not new stages.** `CaseCard.draftChip()`
+  already computes Draft in progress / PM review / Client review from `pm_approval_status` and
+  `client_approval_status`; QC vs Expert Signing needs Unit 15's returned signature. The `Stage` union
+  stays five values on the frontend. **Do not add a column by adding a stage.**
+- **The expert portal's sign step is download-then-upload** (Unit 15), not a provider hand-off: the
+  expert downloads the letter, signs it in their own tool, and uploads the signed PDF. The copy must say
+  a scanned wet signature is expected and accepted, or people hunt for an e-signature button that does
+  not exist. The **attestation tick sits next to the file input** and gates the upload button.
+- **The client portal gains a document-upload view** (Unit 21): the client's own checklist as rows,
+  one upload control per required item, showing required / uploaded / flagged-with-reason. Portal
+  chrome rules still apply — minimal, no nav. State the accepted types and size cap **on the control**;
+  a rejection must say which rule it broke rather than just failing.
+
+Capacity indicators (the PM's Case Manager workload widget) use the RAG bands already fixed in
+`context/ui-context.md` — green <70%, amber 70–90%, red >90%. Do not invent thresholds. And no tile is
+colour-only: the RAG treatment always carries a label, as `SlaRail` does.
+
 `redactionRules`/`RedactedProfilePanel` (Unit 13, in `features/case/`, mounted under `ExpertCard` on
 the case detail) refuses it for the same reason and a sharper stake: **no redaction happens in the
 browser.** The profile HTML arrives fully rendered from `service/RedactedProfileService`, whose
