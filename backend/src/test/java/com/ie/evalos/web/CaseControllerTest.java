@@ -67,8 +67,6 @@ class CaseControllerTest {
 	}
 
 	private static final List<Route> ROUTES = List.of(
-			new Route("/mark-paid", Role.BRAND_MANAGER, Role.PROJECT_MANAGER,
-					"{\"dealValue\":1450.00,\"invoiceRef\":\"INV-0001\"}"),
 			new Route("/assign-pm", Role.BRAND_MANAGER, Role.PROJECT_MANAGER,
 					"{\"pmId\":\"%s\"}".formatted(SOME_ID)),
 			new Route("/assign-cm", Role.PROJECT_MANAGER, Role.PROJECT_COORDINATOR,
@@ -138,7 +136,6 @@ class CaseControllerTest {
 	@Test
 	void everyTransitionRouteAnswersItsDeclaredRoleAndNobodyElse() throws Exception {
 		Case result = aCase();
-		given(lifecycle.markPaid(any(), any(), any())).willReturn(result);
 		given(lifecycle.assignPm(any(), any())).willReturn(result);
 		given(lifecycle.assignCaseManager(any(), any(), any())).willReturn(result);
 		given(lifecycle.assignCoordinator(any(), any())).willReturn(result);
@@ -171,6 +168,21 @@ class CaseControllerTest {
 				perform(route, route.outsider(), 403);
 			}
 		}
+	}
+
+	/**
+	 * Case Creation v2.0 deleted the manual payment path outright — GHL invoices, collects
+	 * and only then marks the opportunity Won, so a staff "record payment" act would be a
+	 * second way to state a fact GHL already owns. Asserted rather than assumed, because a
+	 * route that quietly came back would put a second writer on the money path.
+	 */
+	@Test
+	void thereIsNoRouteToRecordAPayment() throws Exception {
+		mockMvc.perform(post("/api/cases/{id}/mark-paid", CASE_ID)
+				.header(HttpHeaders.AUTHORIZATION, bearer(Role.GM))
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("{\"dealValue\":1450.00}"))
+				.andExpect(status().isNotFound());
 	}
 
 	/**

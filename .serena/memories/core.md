@@ -61,7 +61,7 @@ exist. Unit 16 (payout ledger) is next — not 15, which waits on Unit 21 and on
 account; the schedule is `00-build-plan.md`'s "Execution sequence for v2.0", and it differs from the
 numbering on purpose.** Migrations run to **`V24`** (Unit 13 added none — nothing it produces is
 persisted; Unit 14 added three, its code review added `V23`, and Unit 05b added `V24`);
-**346 backend tests, none skipped** (27 DB-backed) and 101 frontend tests.
+**354 backend tests, none skipped** (27 DB-backed) and 102 frontend tests.
 Unit 05b re-pointed Handoff A to `opportunity.won` and **deleted the manual payment path** — details
 in `mem:backend/webhooks` and `mem:backend/lifecycle`. Its live hand-fired run is still owed, blocked
 on confirmation of what GHL actually sends on Won.

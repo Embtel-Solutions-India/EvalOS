@@ -18,6 +18,7 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 /**
  * One place that turns exceptions into the standard envelope. Messages stay
@@ -149,6 +150,22 @@ public class ApiExceptionHandler {
 	public ResponseEntity<ApiResponse<Void>> onForbidden(RuntimeException ex) {
 		return ResponseEntity.status(HttpStatus.FORBIDDEN)
 				.body(ApiResponse.error("FORBIDDEN", "Not permitted for this role, brand, or assignment"));
+	}
+
+	/**
+	 * A URL nothing is mapped to. Without this it fell through to the catch-all below and
+	 * answered <strong>500 INTERNAL_ERROR</strong>, logged at error level — this advice is a
+	 * plain {@code @RestControllerAdvice}, so it does not inherit
+	 * {@code ResponseEntityExceptionHandler}'s handling of Spring's own
+	 * {@code ErrorResponseException}s. Every typo'd path was therefore an alertable server
+	 * error. Found while asserting that {@code POST /api/cases/{id}/mark-paid} is gone.
+	 *
+	 * <p>No detail in the body: whether a path exists is not information a caller is owed.
+	 */
+	@ExceptionHandler(NoResourceFoundException.class)
+	public ResponseEntity<ApiResponse<Void>> onNoSuchRoute(NoResourceFoundException ex) {
+		return ResponseEntity.status(HttpStatus.NOT_FOUND)
+				.body(ApiResponse.error("NOT_FOUND", "No such endpoint"));
 	}
 
 	@ExceptionHandler(Exception.class)

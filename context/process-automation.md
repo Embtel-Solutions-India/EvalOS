@@ -25,6 +25,7 @@ the code, and then be trusted. So it does not happen here:
 | Which transitions are legal | `service/CaseTransitions` whitelist | cite |
 | Trigger → recipient | `notification/NotificationListeners.ROUTES` | cite |
 | How a recipient set is resolved | `notification/RecipientResolver` | cite |
+| Whether a recipient set falls back when empty | `notification/RecipientResolver` | cite — **only `pmsAndCoordinators` does.** Empty means "raise nothing" everywhere else, because an assignee lookup returning nobody means the work has an owner who is not this person. The pool arrival is the opposite case: nobody owning it is the point, and it is the only notice that a *paid* case exists — so an unstaffed brand escalates to the GM and its managers rather than taking the money and telling nobody |
 | Brand / team / assignee scope | `security/ScopePredicate` | cite |
 | Who may see money fields | `CaseController.SEES_DEAL_VALUE` | cite |
 | RAG and capacity thresholds | `context/ui-context.md` | cite |
@@ -56,7 +57,7 @@ pipeline generate no EvalOS automation.** Everything below covers stages 3–7.
 
 | | |
 |---|---|
-| **Trigger in** | Case created from a won deal. The service-specific checklist is seeded `REQUIRED` and `checklist.requested` is published for GHL to send the client their upload link. |
+| **Trigger in** | Case created from a won deal, already paid. The service-specific checklist is seeded `REQUIRED`, `checklist.requested` is published for GHL to send the client their upload link, and `NEW_CASE_IN_POOL` goes to that brand's **PMs and Coordinators**. |
 | **What happens** | Client uploads documents against the checklist (Unit 21). The Coordinator reviews each item, chases anything missing or wrong, and loops until the package is complete. |
 | **Trigger out** | Coordinator marks docs complete → `documents.completed` → the case reaches the PM. |
 | **SLA** | Complete package within 3 business days of case creation. |

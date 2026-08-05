@@ -25,7 +25,6 @@ import com.ie.evalos.service.RefundService;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
-import jakarta.validation.constraints.Positive;
 
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -217,10 +216,6 @@ public class CaseController {
 	public record SubmitDraftRequest(String draftLink) {
 	}
 
-	/** What was actually taken, and the invoice it sits against. */
-	public record MarkPaidRequest(@NotNull @Positive BigDecimal dealValue, String invoiceRef) {
-	}
-
 	private final CaseLifecycleService lifecycle;
 	private final RefundService refunds;
 	private final CaseDetailService details;
@@ -266,18 +261,9 @@ public class CaseController {
 		return read(id);
 	}
 
-	// --- payment -------------------------------------------------------------
-
-	/**
-	 * Records the money. Handoff A creates a case from a GHL contact, before payment, so
-	 * this is what makes it workable — nothing reaches an expert until it is called.
-	 * Same gate as assigning a PM, because both are the brand's commercial decisions.
-	 */
-	@PostMapping("/{id}/mark-paid")
-	@PreAuthorize(GM_OR + "hasRole('BRAND_MANAGER')")
-	public ApiResponse<CaseSummary> markPaid(@PathVariable UUID id, @Valid @RequestBody MarkPaidRequest request) {
-		return summary(lifecycle.markPaid(id, request.dealValue(), request.invoiceRef()));
-	}
+	// There is no payment route. Handoff A now fires on the GHL opportunity being marked
+	// Won, which GHL only does after it has invoiced and collected, so the case arrives
+	// paid and GHL is the sole source of that fact (invariant 8).
 
 	// --- assignment ----------------------------------------------------------
 

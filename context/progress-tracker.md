@@ -17,11 +17,11 @@ Update this file after every meaningful implementation change.
   The build plan's `## Phase 3`
   heading used to sit above Unit 17 and contradict its own roadmap line; the heading moved to
   Unit 18, so Dashboards is Phase 2 wherever you read it.
-- **Verified, not just written.** All **346** backend tests execute with none skipped — the
-  27 DB-backed ones included — plus 101 frontend tests, and CI runs the DB suite against a real
+- **Verified, not just written.** All **354** backend tests execute with none skipped — the
+  27 DB-backed ones included — plus 102 frontend tests, and CI runs the DB suite against a real
   Postgres on every push. (It was 183 backend / 44 frontend at the end of Phase 1, 229/61
   after Unit 11, 260/73 after Unit 12, 305/81 after Unit 13, 336/101 when Unit 14 landed,
-  343 after its code review, and 346 after Unit 05b.)
+  343 after its code review, 346 after Unit 05b, and 354 after 05b's review.)
 - **EvalOS now has a second authenticated surface.** Unit 14 added the link-based portal filter chain
   beside the staff one, so "a caller" is no longer always a `StaffPrincipal` and
   `TenantContext.find()` is legitimately empty on some requests. Read `architecture.md`'s auth section
@@ -1896,6 +1896,74 @@ is in, and the webhook carries both facts at once. There is nothing left for a h
   fired a signed `opportunity.won` over real HTTP, because the payload contract is an assumption
   (field names, the signature header, the HMAC encoding). It is confined to
   `GhlOpportunityHandler.OpportunityWon` so a correction is one file. Tracked under In Progress.
+
+### Unit 05b code review — five findings, all fixed. Three were one change's unfinished half
+
+A five-lens review of the working diff (CLAUDE.md adherence, bug scan, git history, prior review
+feedback, comment contracts). Findings (a)–(c) are all consequences of the same thing: `refresh()`
+gained the power to rewrite money, which the spec asked for and then did not follow through on.
+
+- (a) **`refresh()` overwrote `deal_value` and never `ghl_opportunity_id`.** A second won
+  opportunity for the same contact and service takes the refresh path, so `V24`'s index never
+  fires — no second case is created. The amount became opp-B's while the id stayed opp-A, and
+  since **Unit 18 closes whichever opportunity that column names**, the wrong deal would be
+  closed in GHL and the paid one left open against recognised revenue. The two are halves of one
+  fact — *this deal, for this money* — arriving in one delivery, so they now move together. If the
+  incoming id is already on another open case in the brand, `V24` refuses the write, which is
+  correct: one opportunity is one case.
+- (b) **A corrected amount left no before/after in the trail.** `CaseSnapshot` omits `deal_value`
+  by design, so an amount correction produced an `UPDATED` row whose before and after were
+  byte-identical — a money rewrite that reads as a no-op edit — and deleting `markPaid` removed
+  the actor-attributed row that used to accompany one. **The obvious fix was unsafe**: the note is
+  surfaced by `CaseTimelineService` to every role that may read the case, including the Case
+  Manager, who is excluded from `SEES_DEAL_VALUE`. So the note records *that* the figure moved and
+  never what to — "deal value corrected", and only when it actually changed. The figures stay
+  recoverable from the append-only `webhook_event` archive, which holds every delivery's raw body.
+- (c) **A brand with no active PM or Coordinator was told nothing at all.** Moving the arrival
+  alert off `gmAndBrandManagers` removed the only recipient set that can never be empty — the GM is
+  brand-less — and the listener raises nothing when recipients resolve empty. A brand whose webhook
+  is live before its first PM or Coordinator is (onboarding, or both deactivated) would take the
+  money and announce it to nobody. `pmsAndCoordinators` now **escalates to the GM and that brand's
+  managers when the pool is empty**. A fallback, not an addition: the GM was moved off this route
+  precisely so they do not hear about every case, only one that would otherwise be unheard.
+  **This is the one recipient set with a fallback**, and the reason is recorded on the method:
+  `RecipientResolver`'s no-fallback rule is about *assignee* lookups, where empty means the work
+  has an owner who is not this person. The pool arrival is the opposite — nobody owning it is the
+  point. `anAssigneeLookupStillHasNoFallback` pins that the rule did not leak.
+- (d) **`CaseEvents.Type`'s javadoc was left false**, in the file Unit 18 reads to learn the event
+  vocabulary. `CASE_CREATED` still said "this is a lead arriving, not a paid case — `CASE_PAID` is
+  the pool arrival"; every clause was wrong. `CASE_PAID` is now marked **dead — published by
+  nothing, and Unit 18 must not wire it as the payment signal**, with the distinction the old
+  comment blurred spelled out: the *event* is gone, the `paid` *flag* is still half of invariant 5.
+  `NotificationType.NEW_LEAD` likewise now says it is retained only because old rows persist it.
+  Same defect class as the Unit 05a review's (e) and (f) — the routes table and `Case.paid` were
+  updated and the catalog was missed.
+- (e) **The money-path validation had no check behind it.** `amount` is `@NotNull @Positive` and
+  nothing exercised it, while the payload contract is still unconfirmed and expected to change —
+  so a rename or a dropped annotation would create a paid case worth nothing, feeding
+  `isRevenueRecognized` and Unit 16's payout, with a green suite.
+  `aWonOpportunityCarryingNoRealMoneyIsRefused` covers `0` / `-1` / `0.00` / absent `amount`,
+  a missing `ghl_opportunity_id`, and the whole `opportunity` block absent (a refusal, not an NPE
+  in the mapper).
+- Verified: **354 tests, 0 failures, 0 skipped** with the DB gate on (up from 346), plus 102 frontend, and **(a) and
+  (c) are mutation-checked** — reverting `setGhlOpportunityId` fails only
+  `theAmountAndTheOpportunityItCameFromMoveTogether`, and reverting the empty-pool escalation fails
+  only `aPoolWithNobodyInItEscalatesRatherThanGoingQuiet`. Both files were then restored and
+  re-verified.
+- **Acceptance criteria re-checked one by one afterwards, not assumed from a green suite.** Seven
+  of the nine had a named test already; two did not, and both were the *second sentence* of a
+  criterion — the easy half to skip. Criterion 3's "no `NEW_LEAD` is raised by anything" is now
+  `thePoolArrivalIsTheAlertAndNoEventRaisesARetiredLeadAlert`, which fires **every**
+  `CaseEvents.Type` and checks the whole output, because a kept-for-old-rows constant is exactly
+  the kind that gets re-adopted by accident; and criterion 7's "no board action offers to record
+  payment" is now `offers no way to record a payment` in `boardRules.test.ts`, which also refuses
+  any surviving `dealValue` field. Also mutation-checked: **deleting the A20 route fails only
+  `theCoordinatorIsToldWhenQcPasses`**, so A1's test is not vacuous.
+- **Assumption worth confirming, recorded rather than buried:** (a) is fixed by keeping the pair
+  consistent, so a second won opportunity **refreshes** the open case and re-points it. The other
+  reading is that a different opportunity id is a *different deal* and should open a second case —
+  which would mean widening `V15`'s one-open-case-per-contact-per-service index, since it would
+  refuse that second case today. Not done, because it is a business call about what a case *is*.
 
 ## In Progress
 

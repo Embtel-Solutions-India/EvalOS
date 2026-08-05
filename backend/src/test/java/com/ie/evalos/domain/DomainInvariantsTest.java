@@ -21,7 +21,7 @@ import com.ie.evalos.service.CaseIntakeService;
 import com.ie.evalos.service.CaseLifecycleService;
 import com.ie.evalos.service.ExpertMatchService;
 import com.ie.evalos.service.ScopePredicate;
-import com.ie.evalos.webhook.GhlContactHandler;
+import com.ie.evalos.webhook.GhlOpportunityHandler;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -108,11 +108,11 @@ class DomainInvariantsTest {
 	 * {@code POST /api/cases} — which would compile, pass every other test, and let a
 	 * case exist that GHL has never heard of.
 	 *
-	 * <p>Payment no longer gates creation, so this is now the only thing keeping case
-	 * creation to one door. It matters more than it did, not less.
+	 * <p>The handler behind that door has now changed three times (payment → contact →
+	 * won opportunity). This test is what has kept there being exactly one of them.
 	 */
 	@Test
-	void onlyTheGhlContactHandlerCanCreateACase() {
+	void onlyTheGhlOpportunityHandlerCanCreateACase() {
 		var scanner = new ClassPathScanningCandidateComponentProvider(true);
 
 		Set<String> injectors = scanner.findCandidateComponents("com.ie.evalos").stream()
@@ -122,7 +122,7 @@ class DomainInvariantsTest {
 
 		assertThat(injectors)
 				.as("case creation is Handoff A's alone — see CaseIntakeService")
-				.containsExactly(GhlContactHandler.class.getName());
+				.containsExactly(GhlOpportunityHandler.class.getName());
 	}
 
 	private static boolean takesTheIntakeService(String className) {

@@ -75,11 +75,21 @@ the working payload is in `mem:suggested_commands`.
   **can never move the case** — no stage reset, no dropped assignment, no un-paying — and publishes no
   lifecycle event, because nothing in the lifecycle happened. A second service opens a second case; a
   contact returning after close opens a new one.
-  **`deal_value` is the one field a refresh OVERWRITES**, and it has to: deleting `markPaid` removed
-  the only other writer, so fill-only would freeze the first figure forever with nothing able to
-  correct it — and that figure feeds revenue recognition. GHL owns the amount, so the latest won
-  figure wins. `paid` / `paid_at` stay write-once; one value, never a running total, so a correction
-  cannot double-count.
+  **`deal_value` AND `ghl_opportunity_id` are what a refresh OVERWRITES, and they move together.**
+  The overwrite has to exist: deleting `markPaid` removed the only other writer, so fill-only would
+  freeze the first figure forever with nothing able to correct it — and that figure feeds revenue
+  recognition. GHL owns the amount, so the latest won figure wins. They move as a **pair** because
+  they are halves of one fact arriving in one delivery: writing only the amount let a case carry
+  opp-B's money under opp-A's id, and **Unit 18 closes whichever opportunity that column names**, so
+  a stale id closes the wrong deal in GHL and leaves the paid one open. `V24` catches nothing here —
+  no second case is created on the refresh path. `paid` / `paid_at` stay write-once; one value,
+  never a running total, so a correction cannot double-count.
+  **An amount correction is stated in the audit note and never quantified in it** — "deal value
+  corrected", and only when the figure actually changed. `CaseSnapshot` omits `deal_value` (it is
+  role-restricted), so without the note the row's before and after are byte-identical and a money
+  rewrite reads as a no-op edit; putting the figure in would leak it, because `CaseTimelineService`
+  shows the note to every role that may read the case, Case Managers included. The figures live in
+  the `webhook_event` archive, which holds every delivery's raw body.
 - The brand is **never** read from the payload — always the one the endpoint token resolved to.
   `AuditService.recordSystemEvent` takes the brand explicitly (the only place that is allowed) because
   a webhook has no authenticated caller; without it every case creation would audit against a null

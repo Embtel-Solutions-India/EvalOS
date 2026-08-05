@@ -52,7 +52,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * and gated entirely by the path token and the HMAC.
  */
 @WebMvcTest(controllers = InboundWebhookController.class)
-@Import({ WebhookGateway.class, WebhookVerifier.class, WebhookRouter.class, GhlContactHandler.class,
+@Import({ WebhookGateway.class, WebhookVerifier.class, WebhookRouter.class, GhlOpportunityHandler.class,
 		SecurityConfig.class, JwtService.class, ApiErrors.class })
 @TestPropertySource(properties = {
 		"evalos.security.jwt.secret=test-signing-key-that-is-long-enough-for-hs256",
@@ -94,13 +94,17 @@ class InboundWebhookTest {
 		given(webhookEvents.save(any(WebhookEvent.class))).willAnswer(call -> call.getArgument(0));
 	}
 
-	/** A realistic contact.created body, snake_case as GHL sends it. */
-	private static String contactBody(String eventId) {
+	/** A realistic opportunity.won body, snake_case as GHL sends it. */
+	private static String wonBody(String eventId) {
 		return """
 				{
-				  "event_type": "contact.created",
+				  "event_type": "opportunity.won",
 				  "event_id": "%s",
-				  "quote_amount": 1450.00,
+				  "opportunity": {
+				    "ghl_opportunity_id": "opp-4711",
+				    "amount": 1450.00,
+				    "status": "won"
+				  },
 				  "service_type": "EXPERT_OPINION_LETTER",
 				  "visa_category": "EB2_NIW",
 				  "drive_link": "https://drive.google.com/folder/abc",
@@ -142,19 +146,23 @@ class InboundWebhookTest {
 	}
 
 	@Test
-	void aSignedPaymentIsAcceptedArchivedAndRouted() throws Exception {
-		String body = contactBody(EVENT_ID);
+	void aSignedWonOpportunityIsAcceptedArchivedAndRouted() throws Exception {
+		String body = wonBody(EVENT_ID);
 
 		deliverSigned(body)
 				.andExpect(status().isOk())
 				.andExpect(jsonPath("$.success").value(true))
 				.andExpect(jsonPath("$.data.status").value("accepted"));
 
-		verify(intake).intake(any(Brand.class), any(CaseIntakeService.NewCase.class));
+		ArgumentCaptor<CaseIntakeService.NewCase> command = ArgumentCaptor.forClass(CaseIntakeService.NewCase.class);
+		verify(intake).intake(any(Brand.class), command.capture());
+		// The opportunity's own two fields reach the service; nothing else about it does.
+		assertThat(command.getValue().ghlOpportunityId()).isEqualTo("opp-4711");
+		assertThat(command.getValue().dealValue()).isEqualByComparingTo("1450.00");
 
 		ArgumentCaptor<WebhookEvent> archived = ArgumentCaptor.forClass(WebhookEvent.class);
 		verify(webhookEvents, org.mockito.Mockito.atLeastOnce()).save(archived.capture());
-		assertThat(archived.getValue().getEventType()).isEqualTo("contact.created");
+		assertThat(archived.getValue().getEventType()).isEqualTo("opportunity.won");
 		assertThat(archived.getValue().getExternalId()).isEqualTo(EVENT_ID);
 		assertThat(archived.getValue().getBrandId()).isEqualTo(BRAND_IE);
 		assertThat(archived.getValue().isProcessed()).isTrue();
@@ -164,7 +172,7 @@ class InboundWebhookTest {
 	@Test
 	void theBrandComesFromTheEndpointTokenNeverFromTheBody() throws Exception {
 		// The body claims another brand. It is not consulted (invariant 8).
-		String body = contactBody(EVENT_ID).replace("\"contact\": {",
+		String body = wonBody(EVENT_ID).replace("\"contact\": {",
 				"\"brand_id\": \"" + BRAND_XP + "\",\n  \"contact\": {");
 
 		deliverSigned(body).andExpect(status().isOk());
@@ -176,7 +184,7 @@ class InboundWebhookTest {
 
 	@Test
 	void aWrongSignatureIsRejectedWithNoSideEffect() throws Exception {
-		deliver(TOKEN, contactBody(EVENT_ID), sign("a different body"))
+		deliver(TOKEN, wonBody(EVENT_ID), sign("a different body"))
 				.andExpect(status().isUnauthorized())
 				.andExpect(jsonPath("$.error.code").value("SIGNATURE_INVALID"));
 
@@ -186,11 +194,11 @@ class InboundWebhookTest {
 
 	@Test
 	void aMissingOrMalformedSignatureIsRejectedTheSameWay() throws Exception {
-		deliver(TOKEN, contactBody(EVENT_ID), null)
+		deliver(TOKEN, wonBody(EVENT_ID), null)
 				.andExpect(status().isUnauthorized())
 				.andExpect(jsonPath("$.error.code").value("SIGNATURE_INVALID"));
 
-		deliver(TOKEN, contactBody(EVENT_ID), "not-hex-at-all")
+		deliver(TOKEN, wonBody(EVENT_ID), "not-hex-at-all")
 				.andExpect(status().isUnauthorized())
 				.andExpect(jsonPath("$.error.code").value("SIGNATURE_INVALID"));
 
@@ -205,7 +213,7 @@ class InboundWebhookTest {
 		given(brands.findByWebhookEndpointTokenAndActiveTrue("no-secret-yet"))
 				.willReturn(Optional.of(unconfigured));
 
-		deliver("no-secret-yet", contactBody(EVENT_ID), sign(contactBody(EVENT_ID)))
+		deliver("no-secret-yet", wonBody(EVENT_ID), sign(wonBody(EVENT_ID)))
 				.andExpect(status().isUnauthorized())
 				.andExpect(jsonPath("$.error.code").value("SIGNATURE_INVALID"));
 
@@ -214,7 +222,7 @@ class InboundWebhookTest {
 
 	@Test
 	void anUnknownEndpointTokenIsNotFound() throws Exception {
-		String body = contactBody(EVENT_ID);
+		String body = wonBody(EVENT_ID);
 
 		deliver("someone-elses-token", body, sign(body))
 				.andExpect(status().isNotFound())
@@ -235,7 +243,7 @@ class InboundWebhookTest {
 		given(webhookEvents.findBySourceAndBrandIdAndExternalId(WebhookSource.GHL, BRAND_IE, EVENT_ID))
 				.willReturn(Optional.of(alreadySeen));
 
-		deliverSigned(contactBody(EVENT_ID))
+		deliverSigned(wonBody(EVENT_ID))
 				.andExpect(status().isOk())
 				.andExpect(jsonPath("$.data.status").value("duplicate"));
 
@@ -256,7 +264,7 @@ class InboundWebhookTest {
 		given(webhookEvents.findBySourceAndBrandIdAndExternalId(WebhookSource.GHL, BRAND_XP, EVENT_ID))
 				.willReturn(Optional.of(mock(WebhookEvent.class)));
 
-		deliverSigned(contactBody(EVENT_ID))
+		deliverSigned(wonBody(EVENT_ID))
 				.andExpect(status().isOk())
 				.andExpect(jsonPath("$.data.status").value("accepted"));
 
@@ -269,7 +277,9 @@ class InboundWebhookTest {
 				.andExpect(status().isBadRequest())
 				.andExpect(jsonPath("$.error.code").value("MALFORMED_PAYLOAD"));
 
-		String noKey = "{\"event_type\":\"contact.created\"}";
+		// Never keyed on a bare `id` or on `ghl_opportunity_id`: both are resource ids, and
+		// the second would make a legitimately re-won opportunity look like a redelivery.
+		String noKey = "{\"event_type\":\"opportunity.won\",\"opportunity\":{\"ghl_opportunity_id\":\"opp-4711\"}}";
 		deliver(TOKEN, noKey, sign(noKey))
 				.andExpect(status().isBadRequest())
 				.andExpect(jsonPath("$.error.code").value("MISSING_EXTERNAL_ID"));
@@ -284,9 +294,44 @@ class InboundWebhookTest {
 
 	@Test
 	void aPayloadMissingARequiredFieldIsABadRequest() throws Exception {
-		String noServiceType = contactBody(EVENT_ID).replace("\"service_type\": \"EXPERT_OPINION_LETTER\",", "");
+		String noServiceType = wonBody(EVENT_ID).replace("\"service_type\": \"EXPERT_OPINION_LETTER\",", "");
 
 		deliverSigned(noServiceType)
+				.andExpect(status().isBadRequest())
+				.andExpect(jsonPath("$.error.code").value("VALIDATION_FAILED"));
+
+		verify(intake, never()).intake(any(), any());
+	}
+
+	/**
+	 * A won opportunity with no money on it is a data error in GHL, not a free case. The
+	 * annotation is the only thing between GHL and a paid case worth nothing, and the payload
+	 * contract is still unconfirmed — so the rule is asserted rather than left to the field
+	 * surviving a rename. Same for the opportunity id: without it the case has nothing for
+	 * Unit 18 to close.
+	 */
+	@Test
+	void aWonOpportunityCarryingNoRealMoneyIsRefused() throws Exception {
+		for (String badAmount : new String[] { "0", "-1", "0.00" }) {
+			deliverSigned(wonBody(EVENT_ID).replace("\"amount\": 1450.00", "\"amount\": " + badAmount))
+					.andExpect(status().isBadRequest())
+					.andExpect(jsonPath("$.error.code").value("VALIDATION_FAILED"));
+		}
+
+		String noAmount = wonBody(EVENT_ID).replace("\"amount\": 1450.00,", "");
+		deliverSigned(noAmount)
+				.andExpect(status().isBadRequest())
+				.andExpect(jsonPath("$.error.code").value("VALIDATION_FAILED"));
+
+		String noOpportunityId = wonBody(EVENT_ID).replace("\"ghl_opportunity_id\": \"opp-4711\",", "");
+		deliverSigned(noOpportunityId)
+				.andExpect(status().isBadRequest())
+				.andExpect(jsonPath("$.error.code").value("VALIDATION_FAILED"));
+
+		// The whole block missing is the same refusal, not an NPE in the mapper.
+		String noOpportunity = wonBody(EVENT_ID).replaceAll(
+				"\"opportunity\": \\{[^}]*\\},", "");
+		deliverSigned(noOpportunity)
 				.andExpect(status().isBadRequest())
 				.andExpect(jsonPath("$.error.code").value("VALIDATION_FAILED"));
 
@@ -299,7 +344,7 @@ class InboundWebhookTest {
 				.given(intake).intake(any(), any());
 
 		// A 5xx is what makes GHL redeliver; a 4xx would silently drop a paid case.
-		deliverSigned(contactBody(EVENT_ID)).andExpect(status().is5xxServerError());
+		deliverSigned(wonBody(EVENT_ID)).andExpect(status().is5xxServerError());
 
 		ArgumentCaptor<WebhookEvent> archived = ArgumentCaptor.forClass(WebhookEvent.class);
 		verify(webhookEvents, org.mockito.Mockito.atLeastOnce()).save(archived.capture());
@@ -315,7 +360,7 @@ class InboundWebhookTest {
 	 */
 	@Test
 	void aRedeliveryAfterAFailureRetriesInsteadOfLookingLikeADuplicate() throws Exception {
-		String body = contactBody(EVENT_ID);
+		String body = wonBody(EVENT_ID);
 		willThrow(new IllegalStateException("transient database blip")).given(intake).intake(any(), any());
 
 		deliverSigned(body).andExpect(status().is5xxServerError());
@@ -354,5 +399,24 @@ class InboundWebhookTest {
 		verify(webhookEvents, org.mockito.Mockito.atLeastOnce()).save(archived.capture());
 		assertThat(archived.getValue().getEventType()).isEqualTo("contact.updated");
 		assertThat(archived.getValue().isProcessed()).isTrue();
+	}
+
+	/**
+	 * {@code contact.created} used to be the live type. Under Case Creation v2.0 a lead is
+	 * front-of-house work and EvalOS takes custody only when the money is in, so routing
+	 * one to intake would re-open the unpaid window v2.0 closed. It is acked, not failed —
+	 * a retry cannot make a deliberate no-op into work.
+	 */
+	@Test
+	void aCreatedContactNoLongerCreatesACase() throws Exception {
+		String body = """
+				{"event_type": "contact.created", "event_id": "evt-78", "service_type": "EXPERT_OPINION_LETTER",
+				 "contact": {"ghl_contact_id": "ghl-c-1", "full_name": "Anita Rao"}}""";
+
+		deliverSigned(body)
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.data.status").value("accepted"));
+
+		verify(intake, never()).intake(any(), any());
 	}
 }

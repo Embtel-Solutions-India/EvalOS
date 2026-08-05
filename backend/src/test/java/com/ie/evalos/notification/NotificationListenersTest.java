@@ -69,12 +69,17 @@ class NotificationListenersTest {
 		// argument leaves the outer stubbing unfinished.
 		List<TeamMember> gms = List.of(member(GM));
 		List<TeamMember> managers = List.of(member(BRAND_MANAGER));
+		List<TeamMember> projectManagers = List.of(member(PM));
 		List<TeamMember> coordinators = List.of(member(COORDINATOR));
 		List<TeamMember> otherBrandsManagers = List.of(member(OTHER_BRANDS_MANAGER));
 
 		given(cases.findById(CASE_ID)).willReturn(Optional.of(subject));
 		given(teamMembers.findByActiveTrueAndRole(Role.GM)).willReturn(gms);
 		given(teamMembers.findByActiveTrueAndRoleAndBrandId(Role.BRAND_MANAGER, BRAND)).willReturn(managers);
+		// The pool lookup is by role and brand, not by the case's assignment — the same person
+		// happens to be this case's PM, which is what makes the two readings comparable.
+		given(teamMembers.findByActiveTrueAndRoleAndBrandId(Role.PROJECT_MANAGER, BRAND))
+				.willReturn(projectManagers);
 		given(teamMembers.findByActiveTrueAndRoleAndBrandId(Role.PROJECT_COORDINATOR, BRAND))
 				.willReturn(coordinators);
 		// The other brand's manager exists but must never be reachable from this case.
@@ -124,6 +129,16 @@ class NotificationListenersTest {
 		assertThat(recipientsOf(CaseEvents.Type.DRAFT_PM_APPROVED)).containsExactly(COORDINATOR);
 	}
 
+	/**
+	 * A20, and the gap it closes: QC approval is the Coordinator's cue to deliver, and it
+	 * was the one shipped transition with no route — so the alert never reached the person
+	 * whose next action it is.
+	 */
+	@Test
+	void theCoordinatorIsToldWhenQcPasses() {
+		assertThat(recipientsOf(CaseEvents.Type.QC_APPROVED)).containsExactly(COORDINATOR);
+	}
+
 	@Test
 	void onlyTheGmHearsAboutARefundRequest() {
 		assertThat(recipientsOf(CaseEvents.Type.CASE_REFUND_REQUESTED)).containsExactly(GM);
@@ -133,9 +148,9 @@ class NotificationListenersTest {
 	@Test
 	void theWholeMapMatchesTheSpecTable() {
 		assertThat(recipientsOf(CaseEvents.Type.CASE_CREATED))
-				.as("a lead is watched by the GM and that brand's manager")
-				.containsExactlyInAnyOrder(GM, BRAND_MANAGER);
-		assertThat(recipientsOf(CaseEvents.Type.CASE_PAID)).containsExactlyInAnyOrder(GM, BRAND_MANAGER);
+				.as("a paid case lands in the PM/Coordinator pool, and nowhere else")
+				.containsExactlyInAnyOrder(PM, COORDINATOR)
+				.doesNotContain(GM, BRAND_MANAGER);
 		assertThat(recipientsOf(CaseEvents.Type.DRAFT_SUBMITTED)).containsExactly(PM);
 		assertThat(recipientsOf(CaseEvents.Type.EXPERT_SIGNED)).containsExactly(PM);
 		assertThat(recipientsOf(CaseEvents.Type.DRAFT_RETURNED)).containsExactly(CM);
@@ -143,9 +158,63 @@ class NotificationListenersTest {
 		assertThat(recipientsOf(CaseEvents.Type.DRAFT_REVISION_REQUESTED)).containsExactly(CM);
 	}
 
+	/**
+	 * The pool arrival is the only notice that a **paid** case exists, so it is the one
+	 * recipient set that escalates rather than falling silent. A brand staffed before its first
+	 * PM or Coordinator is active would otherwise take the money and tell nobody.
+	 */
+	@Test
+	void aPoolWithNobodyInItEscalatesRatherThanGoingQuiet() {
+		given(teamMembers.findByActiveTrueAndRoleAndBrandId(Role.PROJECT_MANAGER, BRAND))
+				.willReturn(List.of());
+		given(teamMembers.findByActiveTrueAndRoleAndBrandId(Role.PROJECT_COORDINATOR, BRAND))
+				.willReturn(List.of());
+
+		assertThat(recipientsOf(CaseEvents.Type.CASE_CREATED))
+				.as("the GM and that brand's managers can staff it; nobody else is widened to")
+				.containsExactlyInAnyOrder(GM, BRAND_MANAGER)
+				.doesNotContain(OTHER_BRANDS_MANAGER);
+	}
+
+	/**
+	 * A fallback, not an addition. The GM was moved off this route so they do not hear about
+	 * every case — only about one that would otherwise be unheard.
+	 */
+	@Test
+	void aStaffedPoolDoesNotEscalateToTheGm() {
+		assertThat(recipientsOf(CaseEvents.Type.CASE_CREATED)).doesNotContain(GM, BRAND_MANAGER);
+	}
+
+	/** Only the pool escalates. An assignee lookup with nobody in it still raises nothing. */
+	@Test
+	void anAssigneeLookupStillHasNoFallback() {
+		subject.setAssignedPm(null);
+
+		assertThat(resolver.assignedPm(subject)).isEmpty();
+	}
+
+	/**
+	 * The other half of the arrival criterion, and the half a recipient assertion cannot reach:
+	 * the alert must be a {@code NEW_CASE_IN_POOL} and **no event may raise a `NEW_LEAD`**. That
+	 * constant is deliberately kept — notification rows already written persist it as text — and
+	 * a kept constant is the easy one to re-adopt by accident, so the whole vocabulary is fired
+	 * and the whole output checked rather than the table being trusted by eye.
+	 */
+	@Test
+	void thePoolArrivalIsTheAlertAndNoEventRaisesARetiredLeadAlert() {
+		for (CaseEvents.Type type : CaseEvents.Type.values()) {
+			fire(type);
+		}
+
+		assertThat(raised())
+				.extracting(Notification::getType)
+				.contains(NotificationType.NEW_CASE_IN_POOL)
+				.doesNotContain(NotificationType.NEW_LEAD);
+	}
+
 	@Test
 	void everyNotificationCarriesTheCasesBrandAndNoOtherBrandsStaff() {
-		fire(CaseEvents.Type.CASE_PAID);
+		fire(CaseEvents.Type.CASE_CREATED);
 
 		assertThat(raised()).allSatisfy(notification -> {
 			assertThat(notification.getBrandId()).isEqualTo(BRAND);
@@ -157,7 +226,7 @@ class NotificationListenersTest {
 
 	@Test
 	void theBodyNamesTheCaseSoTheBellIsReadableWithoutOpeningIt() {
-		fire(CaseEvents.Type.CASE_PAID);
+		fire(CaseEvents.Type.CASE_CREATED);
 		assertThat(raised()).first()
 				.extracting(Notification::getBody).asString()
 				.contains("IE-2026-0001");
@@ -180,22 +249,22 @@ class NotificationListenersTest {
 	@Test
 	void anUnmappedEventRaisesNothing() {
 		fire(CaseEvents.Type.CASE_ON_HOLD);
-		fire(CaseEvents.Type.QC_APPROVED);
+		fire(CaseEvents.Type.CASE_RESUMED);
 		fire(CaseEvents.Type.CASE_CLOSED);
 
 		verify(notifications, never()).save(any());
 	}
 
 	/**
-	 * `apply(...)` publishes one event per transition, including a mark-paid that only
-	 * corrects the amount. "Needs a project manager" is not worth saying twice, so the
-	 * pool arrival is announced once per case.
+	 * Belt and braces since v2.0 — intake publishes `case.created` only on the create path,
+	 * so a second arrival alert should be unreachable. The guard stays because "needs a
+	 * project manager" is not worth saying twice and it costs one lookup.
 	 */
 	@Test
 	void aRepublishedPoolArrivalIsAnnouncedOnlyOnce() {
 		given(notifications.existsByCaseIdAndType(CASE_ID, NotificationType.NEW_CASE_IN_POOL)).willReturn(true);
 
-		fire(CaseEvents.Type.CASE_PAID);
+		fire(CaseEvents.Type.CASE_CREATED);
 
 		verify(notifications, never()).save(any());
 	}
@@ -215,7 +284,7 @@ class NotificationListenersTest {
 	void aMissingCaseIsSurvivable() {
 		given(cases.findById(CASE_ID)).willReturn(Optional.empty());
 
-		fire(CaseEvents.Type.CASE_PAID);
+		fire(CaseEvents.Type.CASE_CREATED);
 
 		verify(notifications, never()).save(any());
 	}
