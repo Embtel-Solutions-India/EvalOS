@@ -43,8 +43,12 @@ export default function BrandSwitcher() {
   if (!isGm) {
     return (
       <span
-        className="rounded-md px-2.5 py-1.5 text-sm font-medium"
-        style={{ background: 'var(--bg-raised)', color: 'var(--text-muted)' }}
+        className="flex h-9 items-center px-4 text-sm font-medium"
+        style={{
+          background: 'var(--accent-soft)',
+          color: 'var(--accent-primary)',
+          borderRadius: 'var(--radius-xl)',
+        }}
         title="Your brand is fixed by your role"
       >
         {me.brandId ? 'Your brand' : 'No brand'}
@@ -64,11 +68,12 @@ export default function BrandSwitcher() {
     <label className="flex items-center gap-2 text-sm">
       <span className="sr-only">Active brand</span>
       <select
-        className="rounded-md border px-2.5 py-1.5 text-sm"
+        className="h-9 px-4 text-sm font-medium"
         style={{
-          background: 'var(--bg-surface)',
-          borderColor: 'var(--border-default)',
-          color: 'var(--text-primary)',
+          background: 'var(--accent-soft)',
+          border: 'none',
+          borderRadius: 'var(--radius-xl)',
+          color: 'var(--accent-primary)',
         }}
         value={activeBrandId ?? ''}
         onChange={(event) => setActiveBrandId(event.target.value === '' ? null : event.target.value)}

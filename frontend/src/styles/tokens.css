@@ -1,20 +1,43 @@
 /* EvalOS design tokens — the single source of truth (see context/ui-context.md).
-   No hardcoded hex in components; reference these vars. */
+   No hardcoded hex in components; reference these vars.
+
+   Values adopted from the Protend admin template per UI_MIGRATION_GUIDE.md. The variable
+   NAMES are unchanged on purpose: every component already reads them, so the visual
+   language moves without a component edit. What did not move: --status-* keeps its exact
+   values, because RAG is load-bearing semantics here and decorative in the template. */
 
 :root {
-  /* Surfaces & text */
-  --bg-base: #f7f8fa;
+  /* Surfaces & text. The canvas is deliberately tinted rather than white — in this
+     language the only white surfaces are the sidebar and the content cards, which is
+     what makes a card read as raised without a heavy shadow. */
+  --bg-base: #f9fafe;
   --bg-surface: #ffffff;
-  --bg-raised: #f0f2f5;
-  --text-primary: #1a1d23;
-  --text-muted: #6b7280;
-  --border-default: #e3e6eb;
+  --bg-raised: #f1f1f1;
+  --text-primary: #222943;
+  --text-muted: #878787;
+  --border-default: #e9e9e9;
 
   /* Accent — the only decorative/brand color */
-  --accent-primary: #3552e0;
-  --accent-hover: #2a41b8;
+  --accent-primary: #3c21f7;
+  --accent-hover: #2e19c4;
+  /* The accent at low alpha: active nav, selected rows, tinted chips. Never a status. */
+  --accent-soft: rgb(60 33 247 / 0.15);
+  /* Icon chips only. Not a surface, not a status, and never behind text. */
+  --accent-gradient: linear-gradient(180deg, #3c21f7 0%, #9b8dff 100%);
 
-  /* RAG status — reserved for status only, never decoration */
+  /* The SLA rail's fourth band: a case with no clock running (closed, or holding an
+     exception state). Not a status colour — the whole point is that it is *not* green — but
+     it does have to be legible, so it cannot be `--border-default`.
+
+     It was, until the columns went white. On the old tinted column #e9e9e9 was weak; on
+     white it is 1.19:1, i.e. invisible — and on a Doc Collection column where 103 of 107
+     cases sit in that band, the instrument read as an empty bar. Caught in the browser, not
+     in a test, because nothing asserts contrast. */
+  --rail-unknown: #c3c7d4;
+
+  /* RAG status — reserved for status only, never decoration. UNCHANGED by the visual
+     migration: the thresholds and meanings in ui-context.md are the source of truth, and
+     the template's 13 decorative colour pairs must not dilute them. */
   --status-red: #dc2626;
   --status-amber: #d97706;
   --status-green: #16a34a;
@@ -22,20 +45,54 @@
   --status-amber-bg: #fef3e2;
   --status-green-bg: #e8f6ec;
 
-  /* Elevation and focus. Derived from the palette above rather than new colours: the
-     shadow is the primary text colour at low alpha, so a surface never picks up a hue
-     that is not in the system, and the ring is the accent. */
-  --shadow-card: 0 1px 2px rgb(26 29 35 / 0.05);
+  /* Elevation and focus. The shadow is now ambient — large blur, zero offset, a cool
+     blue-grey at low alpha — which is the template's signature and the reason its cards
+     look lifted off the canvas rather than stuck to it. The ring is still the accent. */
+  --shadow-card: 0 0 50px 0 rgb(42 89 152 / 0.05);
+  --shadow-pop: 0 0 50px 0 rgb(42 89 152 / 0.15);
   --ring-focus: 0 0 0 2px var(--bg-surface), 0 0 0 4px var(--accent-primary);
+
+  /* Shell geometry. The sidebar is a floating card inset from the viewport, not a panel
+     flush to the edge, so the gutter is a real token and not a margin somebody guessed.
+
+     240px, not the template's 400px: the production board is five 288px columns and every
+     pixel of chrome costs part of one. 320px was still 28% of a 1366 laptop — the width the
+     staff actually run — and the nav labels fit 240 with room to spare. The header was 136px
+     of empty space above the fold on the same screen; 72px holds a 36px control row with
+     breathing room. Deviation recorded in UI_MIGRATION_GUIDE.md. */
+  --sidebar-width: 15rem;
+  --shell-gutter: 1.25rem;
+  --header-height: 4.5rem;
+
+  /* How tall a stage column's card list may grow before it scrolls itself. This is what
+     makes the board scroll on both axes: the strip scrolls sideways, each column scrolls
+     down, and the page header, filters and pool stay put instead of sliding off the top.
+
+     ponytail: 22rem is the measured chrome above the list (header + page heading + pool +
+     gaps) rather than a computed one. If those grow, this drifts — the real fix is a
+     viewport-height app frame where the strip is `flex-1 min-h-0`, which means AppShell
+     owning the scroll for every screen. Not worth it for one board. */
+  --board-column-max: max(14rem, calc(100svh - 22rem));
+}
+
+/* Below a 15" laptop the nav gives up more width before the board does. */
+@media (max-width: 1200px) {
+  :root {
+    --sidebar-width: 13rem;
+  }
 }
 
 /* Tailwind theme: fonts and the radius scale (rounded-md/lg/xl). */
 @theme {
+  /* Inter stays. It is already loaded and its tabular figures are measured rather than
+     assumed — and the template's own font wiring is broken (it declares Poppins and
+     loads only Roboto, so every page renders in a font its CSS never names). The
+     template's identity is its colour, radius and shadow, not its typeface. */
   --font-sans: Inter, ui-sans-serif, system-ui, 'Segoe UI', Roboto, sans-serif;
   --font-num: Inter, ui-sans-serif, system-ui, sans-serif;
   --font-mono: 'IBM Plex Mono', ui-monospace, Consolas, monospace;
 
-  --radius-md: 0.375rem; /* badges, inline UI */
-  --radius-lg: 0.5rem; /* cards, panels, Kanban */
-  --radius-xl: 0.75rem; /* modals, drawers, overlays */
+  --radius-md: 0.4375rem; /* 7px — badges, buttons, inline UI */
+  --radius-lg: 0.625rem; /* 10px — cards, panels, Kanban */
+  --radius-xl: 1.875rem; /* 30px — sidebar, modals, drawers, pills */
 }

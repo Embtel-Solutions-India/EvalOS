@@ -157,6 +157,141 @@ the review lands on Google and the campaign runs in GHL (invariant 2). So:
   header-contradicting-the-instrument failure again. Open question 3 is whether GHL
   should report captures back; until it does, the tile does not imply it.
 
+### 5. Portal links ledger — client and expert
+
+**Why this exists, and it is not a reporting nicety.** EvalOS sends no mail
+(invariant 14), so a portal link reaches the person it admits because a staff member
+copied it out of `PortalLinkPanel` and sent it by hand. Touchpoints **T1/T5 (client)
+and T6 (expert)** are all *decision pending* in `process-automation.md`, which means
+**the delivery step has no instrumentation at all**: nothing anywhere records that a
+minted link was actually sent, and nothing notices that it was not.
+
+That is survivable for a client, who waits. It is **gap G15** for an expert, because
+dropping the signature provider removed the thing that used to email a signing link,
+and the **20h/24h signing clock runs whether or not the expert ever received theirs**.
+The most likely way EvalOS breaches that SLA today is a link nobody sent, and no
+screen would show it.
+
+So the ledger is the compensating control for an undecided channel. It answers four
+questions per case, per audience: **is there a live link, was it ever opened, when
+does it die, and is the clock running against an unopened one.**
+
+#### What it reads — all of it already stored
+
+`portal_access` (`V21`, `V23`) carries `brand_id`, `case_id`, `audience`,
+`expires_at`, `revoked_at`, `last_seen_at`, `created_at`. **Revoked rows are kept**,
+so the history of links issued for a case is already on disk; `retirePrevious` stamps
+`revoked_at` on every superseded row rather than only live ones.
+
+**No migration. No new column.** In particular:
+
+- **Not `sent_at`.** It is tempting and it would be a lie: EvalOS cannot observe a
+  staff member pasting a URL into someone else's mail client. A column recording a
+  fact the system cannot witness is worse than an absent one, because a dashboard
+  would then report it. `last_seen_at` is the honest proxy — it is evidence the link
+  *arrived*, which is the thing actually worth knowing. If the email decision ever
+  lands on EvalOS sending these, `sent_at` becomes real and belongs in that unit.
+- **Not `minted_by`.** See the decision below.
+
+#### Deliberate limitation: "who issued it" is not a column on this tile
+
+The mint writes `AuditAction.PORTAL_LINK_ISSUED` against the **case**
+(`objectType = "CASE"`), with the audience and expiry in the snapshot's free-text
+note — `"client portal link issued, expires …"`. So the actor is recorded, but not in
+a form joinable to one `portal_access` row: matching would mean parsing that string.
+
+**The tile therefore does not show an issuer, and links to the case timeline instead**,
+which already answers it precisely. This is the `paid_by` / `uploaded_by` decision
+again — the audit trail records who, and a second copy is a second thing that can
+disagree — but note the precondition is weaker here, and say so rather than pretend
+otherwise: the audit row is about the *case*, not the *token*.
+
+Two upgrade paths if an issuer column is ever genuinely wanted, in preference order:
+
+1. Point the mint's audit row at the token (`objectType = "PORTAL_ACCESS"`,
+   `objectId = token.id`). Then the trail records who issued *which* token, with no
+   new column and no duplicated fact. Cost: the mint stops appearing on the case
+   timeline, which is currently useful — so this needs a second, case-level row or a
+   timeline that reads both.
+2. Add `portal_access.minted_by`. Cheapest to query, and the one that duplicates a
+   fact. Take it only if (1) proves worse in practice.
+
+#### The rows
+
+One row per **(case, audience)** pair, not per token — a case with six superseded
+client links is one line, and its re-mint count is a column on that line rather than
+six rows of noise. Newest token decides the row's state.
+
+| Column | Source |
+|---|---|
+| Case | `case_code`, links to `/cases/{id}` |
+| Client | batched contact-name lookup, as `CaseBoardService` already does |
+| Stage | so an unopened expert link at `EXPERT_SIGNING` reads as urgent |
+| Audience | `CLIENT` / `EXPERT` |
+| State | RAG, see below |
+| Opened | `last_seen_at`, or "never" |
+| Expires | `expires_at`, relative ("in 3 days") with the absolute on hover |
+| Re-mints | count of rows for that pair minus one; blank when zero |
+
+#### RAG semantics, per `ui-context.md`'s single source of truth
+
+This tile's bands must be derived, not invented, and the rule is **"is a clock running
+against a link nobody has opened"**:
+
+| Condition | Band |
+|---|---|
+| Stage needs this audience and there is **no live link at all**; or live, **never opened**, and the stage SLA is `OVERDUE` | `--status-red` |
+| Live, never opened, stage SLA `AT_RISK`; or live and opened but **expires inside 48h** while the case is still open | `--status-amber` |
+| Live and opened, comfortably in date; or the audience is not needed at this stage | `--status-green` |
+
+**"Needs this audience" is derived from the stage, not stored.** A client link is
+needed once a draft has gone out for client review (`DRAFT_GENERATION` with
+`client_approval_status` pending); an expert link is needed at `EXPERT_SIGNING`.
+Anywhere else, an absent link is correct and must read green — a tile that shows red
+for every case in `DOC_COLLECTION` is a tile people learn to ignore.
+
+**A case holding an exception state runs no clock** (`SlaCalculator` returns null), so
+it can be neither red nor amber on the *unopened* rule. This is the `slaMix`
+`unknown` band lesson from the board's visual pass: do not colour a paused case as
+healthy, and do not colour it as breaching either. It gets its own muted state and the
+count is stated in the header, never folded into green.
+
+#### Scope — read this before writing the query
+
+**Build it on the case read, not on `PortalAccessRepository.findScoped`.** That
+repository is `brandOnly("brandId")` by deliberate design, because "the person this
+row admits is its subject and not a principal who can read it". Query it directly and
+**a Case Manager sees links for every case in the brand, including cases that are not
+theirs** — which is a scope regression, not a feature, and precisely the failure
+`CaseBoardService` avoids by building on `CaseLifecycleService.list` rather than
+issuing a second scoped query.
+
+So: take the caller's cases first, then load tokens for those case ids. Same reasoning,
+same shape, and the brand filter can still only ever narrow.
+
+Visibility matches minting — GM, Brand Manager, PM, Case Manager (`MAY_MINT` in
+`PortalLinkController`). The Coordinator is deliberately excluded: they do not mint
+links today, and this tile is an instrument for the people who do. If that turns out
+wrong in practice, widen `MAY_MINT` and this together — they are one audience.
+
+#### The one write: revoke
+
+The ledger is where "kill that link now" belongs, and today there is **no way to do
+it**. `PortalLinkController` exposes only `GET` and `POST` (mint); revocation happens
+solely as a side effect of re-minting. That covers "the link doesn't work" and does
+**not** cover "it went to the wrong address" — re-minting there leaves you holding a
+live credential you also do not want.
+
+`DELETE /api/cases/{id}/portal-link?audience=` — stamps `revoked_at`, same `MAY_MINT`
+gate, one audit row (`PORTAL_LINK_REVOKED`, a new value in the open `AuditAction`
+vocabulary, so no migration). After it, `resolve` already answers empty, and
+"unknown, expired and revoked are one answer" still holds, so nothing is learnable
+from the refusal.
+
+**Cut this first if the unit is running long.** It is the only write on an otherwise
+read-only tile, and re-minting is a workable if inelegant substitute. Everything else
+here is a query over data that already exists.
+
 ## Role dashboards
 
 Same components, different selections — one dashboard definition table keyed by
@@ -401,6 +536,35 @@ scoping path** — the rule Units 08, 10 and 12 all follow.
       matters most: every display defect in this project's history has been two
       surfaces disagreeing about one dataset.
 - [ ] The review tile is labelled "requests sent" and claims nothing about captures.
+
+**Portal links ledger (metric 5).**
+
+- [ ] **A Case Manager sees links only for cases they hold.** Asserted with a fixture
+      holding one link on their case and one on a colleague's in the same brand: the
+      second is absent. This is the criterion the tile exists to not fail — querying
+      `PortalAccessRepository.findScoped` directly would pass every other criterion
+      here and still leak, because that repository is brand-only by design.
+- [ ] One row per (case, audience), not per token: a case re-minted five times shows
+      one row with a re-mint count of 4, and the row's state comes from the newest.
+- [ ] A revoked-and-replaced link reads as live, and a revoked-and-not-replaced one
+      reads as no live link. Both proved against `retirePrevious`, which stamps
+      superseded **and** expired rows.
+- [ ] A case at `DOC_COLLECTION` with no links at all is **green**, not red: absent is
+      correct until the stage needs the audience.
+- [ ] An unopened expert link on a case at `EXPERT_SIGNING` whose stage SLA is
+      `OVERDUE` is **red**, and the same link on a case in an exception state is
+      neither red nor amber — it is the muted no-clock state, and the header states
+      that count separately rather than folding it into green (the `slaMix` rule).
+- [ ] `last_seen_at` drives "opened", and a link opened once then not again still
+      reads opened — this is not a freshness metric.
+- [ ] **No token, no hash, and no URL appears in any response.** Asserted on the
+      payload, because the whole point of `V21` storing only a SHA-256 is that a read
+      yields no working link, and a dashboard is a read.
+- [ ] No issuer column, and each row links to the case timeline where the
+      `PORTAL_LINK_ISSUED` row names the actor.
+- [ ] If revoke ships: `DELETE` is refused for a role outside `MAY_MINT`, writes one
+      `PORTAL_LINK_REVOKED` audit row, and a subsequent portal request with that
+      token is answered exactly as an unknown one — no new distinguishable state.
 - [ ] `npm run build` green; `./mvnw verify` green.
 
 ## Invariants honored
@@ -423,8 +587,20 @@ on `BusinessCalendar`), `web/DashboardController.java` (+ DTOs). Frontend:
 `frontend/src/features/dashboards/*` (`MetricTile`, `MoneyPanel`,
 `CycleTimePanel`, `ExpertPanel`, `dashboardApi`, `dashboardRules` + its test).
 
+For the links ledger specifically: `service/PortalLinkLedgerService.java` — its own
+service rather than a method on `DashboardService`, because it is the one tile that
+reads a different table and the one with a scope trap worth isolating. Frontend
+`features/dashboards/PortalLinkLedger.tsx`, and the state derivation in
+`dashboardRules` (a display branch that wrong is a display branch worth testing —
+`boardRules.allInsideSla` is the precedent).
+
 **Modified.** `frontend/src/features/dashboards/RoleDashboard.tsx` (the
-placeholder becomes the real screen). `repository/CaseRepository.java` and
+placeholder becomes the real screen). `repository/PortalAccessRepository.java` — one
+batched finder over a set of case ids, `findByCaseIdInOrderByCreatedAtDesc`, following
+the existing batched-finder convention (the ids arrive from a scoped read, so the
+finder itself carries no brand predicate; **do not call it with ids from a request**).
+`domain/AuditAction.java` + `web/PortalLinkController.java` +
+`service/PortalAccessService.java` only if revoke ships. `repository/CaseRepository.java` and
 `repository/AuditEventRepository.java` — aggregate projections, the audit one a
 **read** added to the whitelist in
 `DomainInvariantsTest.theAuditRepositoryCannotChangeHistory`, which is what that

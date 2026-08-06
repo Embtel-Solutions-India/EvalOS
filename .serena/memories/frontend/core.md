@@ -150,6 +150,9 @@ rows ever contradict the total above them.
 - `src/styles/tokens.css` (imported by `src/index.css`) is the single source of truth, mirroring
   `context/ui-context.md`: surface/text/border/accent colors as `:root` custom properties, plus a
   Tailwind v4 `@theme` block for `--font-sans/num/mono` and the `--radius-md/lg/xl` scale.
+- **Shell geometry is tokens too, not numbers in components**: `--sidebar-width` (15rem, 13rem
+  ≤1200px), `--shell-gutter` (1.25rem), `--header-height` (4.5rem), `--board-column-max`. A height
+  guessed twice is a height that drifts.
 - **No hardcoded hex and no Tailwind palette colors** (`slate-*`, `violet-*`) in components —
   reference `var(--token)`. `text-white` on an accent-filled button is the one accepted exception.
   Light workspace only; the old `dark:` class pairing was removed.
@@ -159,7 +162,25 @@ rows ever contradict the total above them.
   deliberately muted rather than red, since it is not a problem.
 - Radius by context: `rounded-md` badges/inline, `rounded-lg` cards/panels/Kanban, `rounded-xl`
   modals/drawers. Numeric/currency/date/ID columns use `font-num` + `tabular-nums`.
-- Icons: Lucide React, stroke-based, `h-4 w-4` inline / `h-5 w-5` in buttons+nav (not installed yet).
+- **Icons are inline SVG, and Lucide is not being installed.** ~15 glyphs (the nav's seven, the bell,
+  the search) do not earn a dependency in an app with four runtime deps. Stroke-based, `h-5 w-5`,
+  `stroke="currentColor"`. Revisit only past ~30 glyphs. `LeftNav.NAV_ICONS` is keyed by the same
+  `path` the router uses, so a missing entry degrades to a fallback instead of adding a second list.
+- **Density: the reference screen is 1366 × 768, not 1920.** 36px for every control (pill, select,
+  search, icon button, nav item), 72px header, 240px sidebar, 288px board column, `text-2xl` screen
+  `h1`. The adopted template ships 44–48px controls, a 400px sidebar and a 136px header; that scale
+  was rejected on purpose — it spends 28% of a 1366 viewport's width and 18% of its height on chrome.
+  Table in `context/ui-context.md` → "Density"; the reasoning is the deviation table in
+  `UI_MIGRATION_GUIDE.md`. Do not restore the roomier sizes screen by screen.
+- **The board scrolls on both axes, and each axis has exactly one owner.** The column strip owns
+  horizontal (`overflow-x-auto` on the flex row in `BoardView`); each column's card list owns vertical
+  (`overflow-y-auto` capped at `--board-column-max` in `StageColumn`). Nothing else scrolls. That
+  split is what pins the SLA rail and the column headers while cases move under them — the rail is the
+  board's one instrument and it used to leave the screen with the page. `PoolLane` is capped at two
+  rows of pills and "Off the pipeline" starts **closed**; both used to push the columns below the
+  fold. `--board-column-max` subtracts a measured 22rem of chrome from `100svh` and is marked
+  `ponytail:` — the non-magic version is a viewport-height app frame (`AppShell` owning the scroll for
+  every screen, strip as `flex-1 min-h-0`), which is not worth it for one board.
 
 Style rules and the `@/*` alias caveat: `mem:conventions`. Commands and the fixed dev port:
 `mem:suggested_commands`.

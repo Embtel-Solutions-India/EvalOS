@@ -79,16 +79,23 @@ export default function NotificationBell() {
       }}
       className="relative"
     >
+      {/* The count is a badge pinned to the glyph rather than a pill beside it — the
+          template's `.noti-icon .badge` treatment, and it keeps the control square. */}
       <summary
-        className="flex cursor-pointer list-none items-center gap-1.5 rounded-md px-2.5 py-1.5 text-sm font-medium"
-        style={{ background: 'var(--bg-raised)' }}
+        className="relative grid h-9 w-9 cursor-pointer list-none place-items-center"
+        style={{
+          background: 'var(--bg-surface)',
+          borderRadius: 'var(--radius-xl)',
+          boxShadow: 'var(--shadow-card)',
+          color: 'var(--text-muted)',
+        }}
         aria-label={`Notifications, ${unread} unread`}
       >
         <BellIcon />
         {unread > 0 && (
           <span
-            className="font-num rounded-md px-1.5 text-xs font-semibold tabular-nums text-white"
-            style={{ background: 'var(--status-red)' }}
+            className="font-num absolute -top-1 -right-1 grid h-[17px] min-w-[17px] place-items-center px-1 text-[10px] font-semibold tabular-nums text-white"
+            style={{ background: 'var(--status-red)', borderRadius: '999px' }}
           >
             {unread}
           </span>
@@ -96,8 +103,12 @@ export default function NotificationBell() {
       </summary>
 
       <div
-        className="absolute right-0 z-10 mt-2 w-88 rounded-xl border shadow-lg"
-        style={{ background: 'var(--bg-surface)', borderColor: 'var(--border-default)' }}
+        className="absolute right-0 z-10 mt-3 w-88 overflow-hidden"
+        style={{
+          background: 'var(--bg-surface)',
+          borderRadius: 'var(--radius-xl)',
+          boxShadow: 'var(--shadow-pop)',
+        }}
       >
         <div
           className="flex items-center justify-between border-b px-4 py-3"
@@ -165,7 +176,7 @@ export default function NotificationBell() {
 function BellIcon() {
   return (
     <svg
-      className="h-4 w-4"
+      className="h-5 w-5"
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"

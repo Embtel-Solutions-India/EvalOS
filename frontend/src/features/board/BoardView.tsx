@@ -202,8 +202,8 @@ export default function BoardView() {
   const mix = slaMix(inView)
 
   return (
-    <div className="flex min-h-0 flex-col gap-5">
-      <header className="flex flex-wrap items-end justify-between gap-x-6 gap-y-3">
+    <div className="flex min-h-0 flex-col gap-4">
+      <header className="flex flex-wrap items-end justify-between gap-x-6 gap-y-2">
         <div>
           {/*
             The owner half is drawn only when the filter is actually narrowing. It used to read
@@ -221,11 +221,11 @@ export default function BoardView() {
           </p>
           {/* Titled from the nav table, so `/my-cases` is headed "My cases" rather than telling a
               Case Manager they are looking at a screen whose name is in somebody else's nav. */}
-          <h1 className="mt-1 text-xl font-semibold tracking-tight">
+          <h1 className="text-2xl font-semibold tracking-tight">
             {itemFor(pathname)?.label ?? 'Production board'}
           </h1>
           {/* The thesis of the screen: not how many cases exist, but how many are in trouble. */}
-          <p className="font-num mt-1 flex flex-wrap items-baseline gap-x-2 text-sm tabular-nums">
+          <p className="font-num mt-0.5 flex flex-wrap items-baseline gap-x-2 text-sm tabular-nums">
             <span style={{ color: 'var(--text-muted)' }}>
               {inView.length} {inView.length === 1 ? 'case' : 'cases'} in view
             </span>
@@ -293,7 +293,7 @@ export default function BoardView() {
             ]}
           />
           <label
-            className="flex cursor-pointer items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-sm"
+            className="flex h-9 cursor-pointer items-center gap-2 rounded-xl border px-3 text-sm"
             style={{
               borderColor: urgentOnly ? 'var(--status-amber)' : 'var(--border-default)',
               background: urgentOnly ? 'var(--status-amber-bg)' : 'var(--bg-surface)',
@@ -315,7 +315,7 @@ export default function BoardView() {
         />
       )}
 
-      <div className="scroll-slim flex gap-3 overflow-x-auto pb-2">
+      <div className="scroll-slim flex gap-4 overflow-x-auto pb-2">
         {columns.map(({ stage, label, access, step, cards }) => (
           <StageColumn
             key={stage}
@@ -340,14 +340,16 @@ export default function BoardView() {
         ))}
       </div>
 
-      <details open className="border-t pt-4" style={{ borderColor: 'var(--border-default)' }}>
-        <summary className="cursor-pointer text-sm font-semibold tracking-tight">
+      {/* Closed by default now that the board fits one screen: an open lane row pushed the
+          stage columns up out of view on a laptop, which is the opposite of the point. */}
+      <details className="pt-1">
+        <summary className="cursor-pointer text-base font-semibold tracking-tight">
           Off the pipeline
           <span className="font-num ml-2 font-normal tabular-nums" style={{ color: 'var(--text-muted)' }}>
             {lanes.reduce((total, lane) => total + lane.cards.length, 0)} held
           </span>
         </summary>
-        <div className="scroll-slim mt-3 flex gap-3 overflow-x-auto pb-2">
+        <div className="scroll-slim mt-3 flex gap-4 overflow-x-auto pb-2">
           {lanes.map(({ state: lane, label, cards }) => (
             <StageColumn key={lane} label={label} count={cards.length} mix={slaMix(cards)} tone="lane">
               {cards.map((card) => (
@@ -404,8 +406,12 @@ function Select({
       <select
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        className="rounded-md border px-2 py-1 text-sm"
-        style={{ background: 'var(--bg-surface)', borderColor: 'var(--border-default)' }}
+        className="h-9 rounded-xl px-3 text-sm"
+        style={{
+          background: 'var(--bg-surface)',
+          border: '1px solid var(--border-default)',
+          boxShadow: 'var(--shadow-card)',
+        }}
       >
         {options.map((option) => (
           <option key={option.value} value={option.value}>

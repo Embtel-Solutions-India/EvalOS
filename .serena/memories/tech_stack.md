@@ -38,7 +38,10 @@ in `context/process-automation.md`. Until it is taken, do not add an SMTP depend
   component rendering: there is no
   jsdom/Testing Library, so a component's behaviour is still verified by typecheck + lint + running
   it.
-- Planned but not installed: shadcn/ui-style Radix primitives, Lucide icons.
+- Planned but not installed: shadcn/ui-style Radix primitives (the first screen needing focus-trapping
+  or real ARIA behaviour adds them).
+- **Lucide is off the list, not pending.** Icons are inline SVG — ~15 glyphs do not earn a dependency
+  in an app with four runtime deps. See `mem:frontend/core` → Styling.
 
 ## backend/
 

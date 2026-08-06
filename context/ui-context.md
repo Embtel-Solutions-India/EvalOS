@@ -1,5 +1,14 @@
 # EvalOS — UI Context
 
+> **A visual refresh is specced in `UI_MIGRATION_GUIDE.md`** (repo root), which adopts
+> the Protend admin template's design language — tinted canvas, floating rounded
+> sidebar, ambient shadows, indigo accent. **This file stays the source of truth for
+> everything semantic**: RAG meanings and their thresholds, tabular figures, the focus
+> ring. The guide defers to it by name and restates no threshold, and it flags the three
+> places the template is *worse* than what is shipped today (no tabular figures, colour
+> used decoratively, thin accessibility) as explicitly not-to-adopt. Where the guide and
+> this file appear to disagree about a status colour, this file wins.
+
 ## Surfaces
 
 EvalOS has three surfaces:
@@ -74,6 +83,26 @@ case IDs so numbers align.
 | Cards / panels / Kanban     | `rounded-lg`   |
 | Modals / drawers / overlays | `rounded-xl`   |
 
+## Density
+
+**The reference screen is 1366 × 768.** That is the laptop the staff run, not the
+1920 desktop the design language was extracted from, and every size below was set
+against it. A control that fits at 1440 and pushes the board off the fold at 1366 is
+a bug on the only screen that counts.
+
+| Context                                   | Size                    |
+| ----------------------------------------- | ----------------------- |
+| Shell controls — pills, selects, search, icon buttons | **36px** tall (`h-9`) |
+| Nav item                                  | **36px** tall           |
+| Sidebar (`--sidebar-width`)               | **240px**, 208px ≤1200px |
+| Header (`--header-height`)                | **72px**                |
+| Shell gutter (`--shell-gutter`)           | **20px**                |
+| Board column                              | **288px** wide (`w-72`) |
+| Screen `h1`                               | `text-2xl`              |
+
+Geometry that the shell shares lives in `tokens.css`, not in a component — a height
+guessed twice is a height that drifts.
+
 ## Component Library
 
 Tailwind CSS, with components written in the feature folder that owns them.
@@ -118,6 +147,14 @@ then, and that is the point at which `ui/` is created and becomes protected (see
   The business's eight-column reading (splitting Draft into three and Signing into
   Signing + QC) is a **derived grouping of these five plus the chips**, not new
   columns to add to the enum — see `context/specs/08-production-board.md`.
+
+  **The board scrolls on both axes, and each axis has one owner.** The column strip
+  scrolls horizontally; each column's card list scrolls vertically inside a height
+  bounded by `--board-column-max`. Nothing else on the screen scrolls. That is what
+  keeps the SLA rail and the column headers fixed while cases move under them — the
+  rail is the board's one instrument, and an instrument that scrolls off the top is
+  not one. The pool lane is capped at two rows of pills for the same reason, and
+  "Off the pipeline" is closed by default.
 - **Delivery queue** (`/delivery`): dense rows, cases in Final Delivery, oldest
   first, one-click **Deliver** per row. This is the data-table pattern's other
   landing place besides the dashboard — a Coordinator working a batch rather than
