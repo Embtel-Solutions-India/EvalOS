@@ -51,6 +51,12 @@ public interface AuditEventRepository extends Repository<AuditEvent, UUID> {
 	 * with the JPQL {@code CASE} expression; {@code CaseRepository} takes the same way out
 	 * for the same reason. {@code action} is passed as its name, matching the
 	 * {@code EnumType.STRING} mapping.
+	 *
+	 * <p><b>Neither collection may be empty.</b> Being native, the {@code IN} list is
+	 * expanded literally, and Postgres rejects {@code IN ()} as a syntax error rather than
+	 * returning nothing — the graceful behaviour a JPQL query would have given. Both
+	 * callers are safe by construction ({@code ChecklistService.board} returns early on an
+	 * empty page, {@code forCase} passes exactly one of each); a third caller has to check.
 	 */
 	@Query(nativeQuery = true, value = """
 			SELECT a.* FROM audit_event a

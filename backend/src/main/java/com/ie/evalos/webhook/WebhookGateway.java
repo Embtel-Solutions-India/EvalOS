@@ -86,9 +86,12 @@ public class WebhookGateway {
 		verifier.verify(brand, signature, rawBytes);
 
 		// Decoded only now, on the far side of the signature check. JSON is UTF-8 by
-		// specification (RFC 8259), so this is the right charset to name explicitly —
-		// the bug being fixed here was letting the servlet layer guess it, and guess
-		// ISO-8859-1, before the digest ran.
+		// specification (RFC 8259), so this is the right charset to name explicitly.
+		// The bug this replaced was hashing a String the servlet layer had already
+		// decoded: whatever charset it chose then had to be re-encoded to UTF-8 to
+		// hash, and a sender declaring anything but UTF-8 got a digest over bytes it
+		// never sent. Decoding after the check makes the charset a parsing concern,
+		// which is all it should ever have been.
 		String rawBody = new String(rawBytes, StandardCharsets.UTF_8);
 
 		JsonNode body = parse(rawBody);
