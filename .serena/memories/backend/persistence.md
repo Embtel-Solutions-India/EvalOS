@@ -163,8 +163,9 @@ later read-model unit may want them as a materialized cache.
 a whole roster page. Native because `FILTER` makes it one pass and because this entity's JPQL name is
 `Case`, which is also a JPQL keyword. "Completed" excludes a refunded case, matching
 `RefundService.isRefunded`. The finder is **deliberately brand-unscoped** over ids the caller already
-read scoped, so it carries the `findByCaseIdIn` javadoc convention and a DB-gated brand-isolation
-test. A DB-gated test also pins an expert with two open cases reporting a load of **2 while
+read scoped, so it carries a javadoc convention and a DB-gated brand-isolation test. Since
+2026-08-06 it is the *only* finder still resting on that convention — narrowing it needs the counts
+split per brand first, because one expert is reachable from several brands' cases. A DB-gated test also pins an expert with two open cases reporting a load of **2 while
 `current_active_count` in the same row is still 0** — so "fixing" the derivation by incrementing the
 column breaks the build. Unit 12 reuses the service; Unit 16 owes `total_payments_pending` the same
 treatment.
@@ -191,11 +192,20 @@ naming the entity attributes that carry brand / team / assignee. That yields `fi
   brands apart); an entity declaring `teamId` must scope by it; and **every** `ScopedEntity` subclass
   on the classpath must appear in the test's repository table, so adding an entity without declaring
   its scope breaks the build.
-- A few finders are **deliberately brand-unscoped** batch reads over ids the caller already read
-  scoped (`DocumentChecklistItemRepository.findByCaseIdIn`,
-  `AuditEventRepository.findByObjectTypeAndActionAndObjectIdIn`). They carry a javadoc convention —
-  *do not call with ids that came from a request* — plus a DB-gated brand-isolation test. Any new
-  aggregate of this shape owes both.
+- **The two batch reads now narrow themselves** (2026-08-06). They used to take ids alone and rest
+  on a javadoc reading *do not call with ids that came from a request*; a convention is not a scope,
+  and the thing standing between two brands should not be whether the next caller reads a comment.
+  Both take the brands as well, and callers pass the distinct brands of the rows the scoped read
+  returned — never a request parameter, which is null for the GM and would scope nothing.
+  - `DocumentChecklistItemRepository.findByBrandIdInAndCaseIdIn` — derived query, `brand_id` on the
+    item is non-null.
+  - `AuditEventRepository.findCaseActionScoped` — native, joining `evalos_case` and filtering on the
+    **case's** `brand_id`. It cannot filter on `audit_event.brand_id`: that column is nullable by
+    design and is stamped from `TenantContext`, so every action the GM takes carries null and would
+    vanish from the result. Native rather than JPQL because the entity name `Case` collides with the
+    JPQL `CASE` keyword, the same reason `countCasesPerExpert` is native.
+  - Only `CaseRepository.countCasesPerExpert` still has the old shape. Any new aggregate of that
+    shape owes a brand predicate, not a comment.
 
 ## Append-only audit
 

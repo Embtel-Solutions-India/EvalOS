@@ -16,9 +16,20 @@ belongs to the brand, and a lookup is not a side effect.
 
 - `WebhookVerifier`: HMAC-SHA256 over the **exact bytes received**, compared with
   `MessageDigest.isEqual`. Missing secret, missing header, bad hex and a wrong digest all fail
-  identically — nothing is learnable from the response. Header name is configuration
-  (`evalos.webhook.signature-header`, default `X-Evalos-Signature`) because GHL's real header is
-  unconfirmed.
+  identically — nothing is learnable from the response.
+  **"Exact bytes" is literal since 2026-08-06 and was not before.** The controller bound
+  `@RequestBody String` and the verifier re-encoded UTF-8 to hash, so the digest closed over a
+  decode/encode round trip. Boot hands the String converter UTF-8, so plain UTF-8 bodies happened
+  to survive it; a delivery declaring any other charset was decoded as declared, re-encoded as
+  UTF-8, and answered **401**. It is `byte[]` from the controller to the digest now, decoded to
+  `String` only after the check. Never add a `String` overload — it compiles at every call site
+  and fails only on non-ASCII. Both charsets are asserted in `InboundWebhookTest`.
+- **Header name is configuration; the encoding is not, and that is G17.**
+  `evalos.webhook.signature-header` (default `X-Evalos-Signature`) can be re-pointed without a
+  code change. The signature *encoding* cannot: `HexFormat.parseHex`, optional `sha256=` prefix.
+  A base64-signing GHL fails every delivery with a 401 no setting fixes. The signed material is
+  likewise the bare body, where Unit 18 signs `"<timestamp>.<body>"` outbound. Confirm both
+  against a real sub-account before release.
 - **A rejected signature is logged, not archived.** `webhook_event` only ever holds deliveries that
   verified, so `signature_verified` is always true today. Archiving unverified bodies would let anyone
   who can reach the URL fill the table.

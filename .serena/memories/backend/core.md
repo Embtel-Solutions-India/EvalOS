@@ -112,12 +112,19 @@ frontend's typed mirror lives in `frontend/src/lib/api.ts`.
   **Never edit an applied migration** — `V12`'s constraint was once renamed in place, which would
   have made `V13`'s `DROP CONSTRAINT` fail on a fresh database while breaking checksums on existing
   ones.
-- The `local` profile additionally lists `classpath:db/migration/local` (`V900` seed: 2 brands, 5
+- The `local` profile additionally lists `classpath:db/seed-local` (`V900` seed: 2 brands, 5
   logins, password `DevPassw0rd!`; `V901` per-brand webhook secrets; `V902` the remaining roles;
   `V903` seed experts) and sets
   `flyway.out-of-order: true` — the seed deliberately outranks every real migration, so without that
   flag the next unit's `V-N` is refused on an already-seeded dev database. `prod` keeps the strict
   default and never sees the seed.
+- **The seed tree is a sibling of `db/migration`, never a child, and that is load-bearing.** It sat
+  at `db/migration/local` until 2026-08-06 in the belief that only the profile naming that path
+  would apply it. Flyway scans a location *and every sub-directory*, so prod's plain
+  `classpath:db/migration` reached it: a production boot would have inserted the two seed brands and
+  six logins sharing one committed BCrypt hash, GM included, plus the throwaway webhook secrets.
+  Flyway has no exclude filter, so directory separation is the entire mechanism, and
+  `config/MigrationTreeTest` now fails the build if anything reappears below `db/migration`.
 - Actuator exposes `health` only.
 
 ## Running & tests

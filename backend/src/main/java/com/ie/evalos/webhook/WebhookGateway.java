@@ -1,5 +1,6 @@
 package com.ie.evalos.webhook;
 
+import java.nio.charset.StandardCharsets;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -70,7 +71,7 @@ public class WebhookGateway {
 		this.objectMapper = objectMapper;
 	}
 
-	public Ack accept(WebhookSource source, String endpointToken, String signature, String rawBody) {
+	public Ack accept(WebhookSource source, String endpointToken, String signature, byte[] rawBytes) {
 		// Brand resolution comes first, though the spec lists verification first: the
 		// secret belongs to the brand, so there is nothing to verify against until the
 		// token is resolved. The rule it protects — no side effect before verification —
@@ -82,7 +83,13 @@ public class WebhookGateway {
 							"No such webhook endpoint");
 				});
 
-		verifier.verify(brand, signature, rawBody);
+		verifier.verify(brand, signature, rawBytes);
+
+		// Decoded only now, on the far side of the signature check. JSON is UTF-8 by
+		// specification (RFC 8259), so this is the right charset to name explicitly —
+		// the bug being fixed here was letting the servlet layer guess it, and guess
+		// ISO-8859-1, before the digest ran.
+		String rawBody = new String(rawBytes, StandardCharsets.UTF_8);
 
 		JsonNode body = parse(rawBody);
 		String eventType = required(body, EVENT_TYPE_FIELD);

@@ -104,9 +104,13 @@ remaining shape is on paper at once. The rule stays as written because it is the
 right default — a spec written ten units early is written against code that does
 not exist. So specs 11–20 are **drafts to be re-read and revised at the start of
 their own unit**, not settled contracts, and 18–20 say so in their own headers.
-Two of them already carry corrections found while writing later specs (Unit 11's
-derived load, Unit 16's payout uniqueness), which is the failure mode the
-just-in-time rule exists to avoid, caught early rather than at build time.
+**Several already carry corrections** — found while writing later specs, while
+building the units they depend on, and in review — which is the failure mode the
+just-in-time rule exists to avoid, caught early rather than at build time. Deliberately
+not counted here: this sentence said "two" and named Unit 11's derived load and Unit
+16's payout uniqueness, and was out of date by the next unit. A correction is marked in
+the spec that carries it; that is the record, and a tally beside it is just a second
+thing to keep in step.
 
 ---
 

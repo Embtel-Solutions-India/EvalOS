@@ -17,11 +17,12 @@ Update this file after every meaningful implementation change.
   The build plan's `## Phase 3`
   heading used to sit above Unit 17 and contradict its own roadmap line; the heading moved to
   Unit 18, so Dashboards is Phase 2 wherever you read it.
-- **Verified, not just written.** All **354** backend tests execute with none skipped — the
+- **Verified, not just written.** All **358** backend tests execute with none skipped — the
   27 DB-backed ones included — plus 102 frontend tests, and CI runs the DB suite against a real
   Postgres on every push. (It was 183 backend / 44 frontend at the end of Phase 1, 229/61
   after Unit 11, 260/73 after Unit 12, 305/81 after Unit 13, 336/101 when Unit 14 landed,
-  343 after its code review, 346 after Unit 05b, and 354 after 05b's review.)
+  343 after its code review, 346 after Unit 05b, 354 after 05b's review, and 358 after the
+  2026-08-06 security fixes.)
 - **EvalOS now has a second authenticated surface.** Unit 14 added the link-based portal filter chain
   beside the staff one, so "a caller" is no longer always a `StaffPrincipal` and
   `TenantContext.find()` is legitimately empty on some requests. Read `architecture.md`'s auth section
@@ -36,6 +37,65 @@ Update this file after every meaningful implementation change.
   fact. Specced in **`context/specs/05b-opportunity-won-intake.md`**; see the Unit 05b entry in
   Completed for what shipped. The docs and repo no longer disagree. Read 05b, not spec 05 and not
   the 05a entries below, for what Handoff A does.
+
+- **Three security findings from a CodeRabbit pass, fixed 2026-08-06.** Two were live, one was
+  latent-by-convention:
+  1. **The local seed ran in production.** `db/migration/local` was a *child* of the location prod
+     lists (`classpath:db/migration`), and Flyway scans recursively — so a prod boot applied `V900`
+     through `V903`: two seed brands, six logins sharing one committed BCrypt hash (`DevPassw0rd!`,
+     GM included), and the throwaway per-brand webhook secrets. Two code comments asserted the
+     opposite. The tree moved to the sibling `db/seed-local`; Flyway has no exclude filter, so
+     separation is the whole mechanism and `config/MigrationTreeTest` now guards it.
+  2. **The webhook HMAC was taken over re-encoded text.** The controller bound `@RequestBody String`
+     and the verifier re-encoded UTF-8 to hash, while its javadoc claimed "the exact bytes
+     received". Now `byte[]` end to end, decoded only after the signature check. Narrower than it
+     first looked — Boot hands the String converter UTF-8, so plain UTF-8 bodies round-tripped
+     fine — but a delivery declaring any other charset was rejected 401. Both cases are now
+     asserted; the ISO-8859-1 one fails against the old code.
+  3. **The two batch reads rested on a javadoc, not a predicate.** Both now take the brands too.
+     See `mem:backend/persistence` for why the audit one joins `evalos_case` rather than filtering
+     `audit_event.brand_id` (that column is null for every action the GM takes).
+  Two consequences worth knowing before pulling this:
+  - **Existing databases fail Flyway validation until their history is realigned.** They recorded
+    the seeds as `local/V9xx__…sql`, a path that no longer resolves. The four files are
+    byte-identical to what was applied, so a path rename is the whole fix — the SQL is in
+    `backend/src/main/resources/db/seed-local/README.md`. On a stock dev box two schemas need it:
+    `public` in `evalos`, and `evalos_test`.
+  - **`LocalPostgresIntegrationTest` had been riding on the same bug.** Its brand and staff
+    constants *are* the seeded rows, and it never listed the seed location — it inherited it
+    through the recursion. It now declares
+    `spring.flyway.locations=classpath:db/migration,classpath:db/seed-local` explicitly.
+  All 27 DB-gated tests were run for real against a fresh database, not just compiled: the native
+  chase query is new SQL and would not have been proven by the mocked suite.
+- **The rest of that CodeRabbit pass, worked through 2026-08-07.** Roughly thirty
+  findings. Four were about shipped code and **three did not survive checking**:
+  `updateStrategyNotes` is guarded at `CaseController` (`GM_OR PROJECT_MANAGER`) and the
+  `markPaid` it was compared against no longer exists; `CaseDetail`'s "back to the board"
+  link was already routed through the nav table by the Unit 14 browser pass; and
+  `ExpertCard`'s `.replace('_', ' ')` is correct because every `ExpertTier` value
+  (`TIER_1..3`) holds exactly one underscore. The fourth — the unverified GHL signing
+  scheme — was already an Open Question and is now **G17**, promoted because the
+  *encoding* is hardcoded hex while only the header name is configurable.
+  Three documents contradicted themselves and were fixed at source rather than annotated:
+  the Unit 05 entry still named `contact.created` as the current trigger two pivots later,
+  `00-build-plan.md` counted "two" specs carrying corrections when six do, and
+  `17-dashboards.md` told the PM they get no money tiles in a table and the opposite in
+  the paragraph under it.
+  The remaining ~23 were **spec hardening across Units 11–20**, all of it before the code
+  exists, which is the cheapest place for it. The ones that would have become real
+  defects: no HTML escaping in Unit 13's template (the unit having deliberately refused
+  the template engine that would have escaped by default, over roster data that arrives
+  by spreadsheet import); no host check on the Drive link before writing to it; a
+  non-idempotent Drive write behind a button; Unit 12 writing offer rows off
+  `ASSIGN_CASE_MANAGER`, which G12's "reassign CM mid-draft" would turn into phantom
+  offers against experts nobody contacted; a roster mean that is 0/0 on a fresh brand;
+  negative payouts and a silent USD default in Unit 16; plaintext subscriber HMAC secrets
+  and `SKIP LOCKED` described as exactly-once in Unit 18; Unit 19's **Run now** button
+  racing the scheduled tick that the advisory lock exists to prevent; and Unit 20's
+  anomaly detector dividing by a zero baseline, comparing a partial week against four
+  whole ones, and contradicting its own acceptance criteria on a missing API key.
+  Unit 14's spec also still claimed the one-live-token index was impossible; `V23` shipped
+  it, and the spec now says so.
 
 ## Gap Register — Production Process v2.0
 
@@ -62,6 +122,7 @@ confirmation. What is genuinely outstanding, with its owner:
 | G14 | Antivirus posture for accepted uploads | **decision** | Drive scans on ingest; that is not the same as EvalOS having an AV stance on files from a public link. Flagged in Unit 21, does not block it. **Now covers two surfaces** — client documents and the signed letter |
 | G15 | Getting the expert's portal link to the expert | **decision (T6)** | Dropping the signature provider removed what used to email it. Hand-sent by the CM until the email channel is decided — and unlike the client link, an expert who never gets theirs cannot sign while the 20h/24h clock runs |
 | G16 | **No screen shows which portal links exist, or whether anyone opened them** | **Unit 17** (specced) | The compensating control for G15 and T1/T5/T6: because delivery is a human copy-paste, the *only* evidence a link arrived is `portal_access.last_seen_at`, and nothing reads it in aggregate. So the likeliest way to breach the 24h signing SLA — a link nobody sent — is currently invisible. Specced as metric 5 in `17-dashboards.md`; **needs no migration**, all four facts are already stored |
+| G17 | **The GHL signature scheme is unverified, and only its header name is configurable** | **release blocker** | The header is a knob (`evalos.webhook.signature-header`). The *encoding* is not: `WebhookVerifier` parses hex, and a base64-signing GHL would fail every delivery with a 401 that no config change fixes. Nor is the signed material — the bare body here, where Unit 18 signs `"<timestamp>.<body>"` outbound. Promoted from an Open Question to a tracked gap because it is the only thing standing between Handoff A and a real sub-account, and it needs code, not settings |
 
 **Explicitly not gaps — decided out:**
 
@@ -155,9 +216,10 @@ names — there is no signature provider.
     `GET /api/team-members` (`@PreAuthorize` GM/Brand-Manager, scoped in the
     service). `ApiErrors` writes the envelope for filter-chain 401/403s, which
     never reach `@RestControllerAdvice`.
-  - Local-only seed `db/migration/local/V900__seed_local.sql` (2 brands,
-    5 logins, password `DevPassw0rd!`), reachable only because the `local`
-    profile is the only one listing that Flyway location.
+  - Local-only seed `db/seed-local/V900__seed_local.sql` (2 brands,
+    5 logins, password `DevPassw0rd!`). It lived at `db/migration/local` until
+    2026-08-06 on the belief that only the profile naming that path applied it;
+    Flyway recurses, so prod applied it too. See the Current Phase entry.
   - Verified: `./mvnw clean verify` BUILD SUCCESS, 17 tests
     (`SecurityFlowTest` 10, `ScopePredicateTest` 6, `HealthControllerTest` 1),
     **plus a live run against local Postgres** — V1–V3 + V900 seed applied,
@@ -243,9 +305,11 @@ names — there is no signature provider.
     catch).
 
 - **Unit 05 — Inbound webhook gateway + GHL payment handler (Handoff A).** The
-  door the business actually comes through. *(The payment-handler half is
-  superseded by Unit 05a below — the trigger is now `contact.created`. Everything
-  about the gateway itself still stands.)*
+  door the business actually comes through. *(The payment-handler half is superseded
+  **twice**: Unit 05a moved the trigger to `contact.created`, and Unit 05b moved it
+  again to the won opportunity, which is what runs today. This note used to stop at
+  05a and so named a trigger that has not been current since. Everything about the
+  gateway itself still stands.)*
   - `webhook/WebhookGateway` — resolve brand → verify → dedupe → archive → route →
     ack. Deliberately **not** `@Transactional`: each step commits on its own, which
     is what lets the archive row outlive a failed handler and record why. Brand
@@ -812,12 +876,14 @@ would not back.
   reset-on-collapse bug, where reopening a panel after a chase showed "Never chased" again.
 - **The two deliberately-unscoped finders had no real-SQL brand-isolation test.**
   `DocumentChecklistItemRepository.findByCaseIdIn` and
-  `AuditEventRepository.findByObjectTypeAndActionAndObjectIdIn` carry no brand predicate by
+  `AuditEventRepository.findByObjectTypeAndActionAndObjectIdIn` carried no brand predicate by
   design, protected by a javadoc convention ("do not call it with ids that came from a
   request"). Two tests added to `LocalPostgresIntegrationTest`: `findScoped` keeps two brands'
-  checklist items apart while `findByCaseIdIn` answers for whatever ids it is handed, and the
+  checklist items apart while the batched finder answers for whatever ids it is handed, and the
   chase finder returns every chase, only chases, and only for the ids given. **Both are
   DB-gated and did not execute** — see the honesty note below.
+  **Superseded 2026-08-06:** the convention was the wrong answer. Both finders now carry brand
+  predicates and both tests were rewritten to assert that a foreign case id returns nothing.
 
 Minors from the same review, applied: the unused `--shadow-pop` token deleted; `border-radius`
 dropped from the global `:focus-visible` rule, which had been re-cornering every focused card
@@ -1117,7 +1183,8 @@ availability board, profile/edit panel, and the pick → map → report → conf
   `'mechanical engg'` from a raw `UPDATE` while accepting legal tags and NULL, the partial
   unique index refuses a second row for one email in a brand and allows the other brand's,
   the derived load reads 2 against a stored 0, and the new aggregate is brand-blind by
-  design (the `findByCaseIdIn` convention, asserted).
+  design (a javadoc convention, asserted — and since 2026-08-06 `countCasesPerExpert` is the
+  only finder left relying on one).
 - Frontend: **61 vitest tests**, `npm run lint` clean, `npm run build` clean.
 - `ExpertControllerTest` walks **every** route with a service returning an expert whose
   `payment_detail` is set and greps each serialized body — the spec's acceptance criterion as

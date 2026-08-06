@@ -7,9 +7,12 @@ spring:
   jpa:
     show-sql: true
   flyway:
-    # The seed lives in its own location that only this profile lists, so a
-    # prod boot cannot apply it even though the file ships in the jar.
-    locations: classpath:db/migration,classpath:db/migration/local
+    # The seed lives OUTSIDE db/migration, not in a subdirectory of it. Flyway scans a
+    # location and all its sub-directories recursively, so while these files sat in
+    # db/migration/local a prod boot — whose location is plain `classpath:db/migration`
+    # — found and applied them. Keep the two trees siblings: there is no exclude filter
+    # in Flyway, so separation is the only thing that keeps the seed out of production.
+    locations: classpath:db/migration,classpath:db/seed-local
     # The seed is deliberately numbered V900, above every real migration, so on a
     # dev database that has already run it the next unit's V-N looks like an
     # out-of-order migration and Flyway refuses it. Allowed here only: this is the

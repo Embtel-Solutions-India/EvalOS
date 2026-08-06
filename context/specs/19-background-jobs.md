@@ -202,6 +202,12 @@ with `RetentionSweep`.
 
 ## The jobs
 
+Every `Finds` below is **additionally filtered on `paid`**, and the sweeps read it from
+the row rather than assuming it. Case Creation v2.0 means there are no unpaid cases to
+find, so the predicate matches everything today and costs nothing — which is the point:
+the rule is stated once, in the query, instead of resting on a fact about intake that
+could change again. It has already changed twice. See the closing note on payment.
+
 | Job | Tick | Finds | Does | Idempotency from |
 | --- | --- | --- | --- | --- |
 | `DocChaseSweep` | 30 min | `DOC_COLLECTION`, checklist incomplete, ≥24h and ≥48h **wall-clock** since `stage_entered_at` | publishes `checklist.reminder` (Unit 10's event → GHL chases the client) | **per threshold**, from the count of `CHASED` audit rows: the 24h chase fires when there are none, the 48h chase when there is one, and **nothing after that** |
@@ -243,9 +249,12 @@ Notes that matter:
   awaiting client is exactly the case whose documents have not arrived").
 - **Every sweep reads unscoped and acts per brand.** There is no authenticated caller,
   so `ScopePredicate` does not apply — the same situation the inbound gateway is in.
-  The finders are therefore deliberately brand-wide, carry the javadoc convention the
-  Unit 10 review established for `findByCaseIdIn` ("do not call it with ids that came
-  from a request"), and get the same DB-gated brand-isolation test. Notifications and
+  The finders are therefore deliberately brand-wide and get a DB-gated brand-isolation
+  test. They do **not** inherit the old "do not call it with ids that came from a
+  request" javadoc convention: that convention was retired on 2026-08-06 after a review
+  pointed out a comment is not a scope, and the two finders carrying it were given brand
+  predicates. A sweep has no caller to scope against, which is what makes brand-wide
+  legitimate here — say that in the javadoc rather than asking callers to be careful. Notifications and
   events they raise carry the **case's own** brand, via
   `AuditService.recordSystemEvent` — the actor is the system, and the brand comes from
   the row, never from a default.
@@ -266,10 +275,20 @@ Notes that matter:
 GM-only, gated at the route and in the service, for the reason Unit 18's log is:
 this is cross-brand infrastructure.
 
-**The manual trigger is safe to press twice**, because every sweep's idempotency
-comes from the data rather than from having-not-run-yet. That is a design property
-worth having a button for: after an outage somebody can catch up deliberately
-instead of waiting for the next tick.
+**The manual trigger takes the same advisory lock as the tick**, and returns "already
+running" if it cannot get it. This is the part idempotency does not cover: pressing
+**Run now** while the scheduled sweep is mid-run is not a repeat, it is a *concurrent*
+run, and the idempotency above is read-then-write — count the `CHASED` rows, decide,
+publish. Two runs interleaving inside that gap both read zero chases and both send the
+24h chase, so the client gets two emails and the property that was supposed to prevent
+it never engaged. The lock is per `job_type` and already exists for exactly this; the
+button must go through it rather than around it, and "already running elsewhere" is a
+perfectly good answer to give the GM.
+
+**Pressing it twice in sequence is safe**, and that is the property worth having a
+button for: every sweep's idempotency comes from the data rather than from
+having-not-run-yet, so after an outage somebody can catch up deliberately instead of
+waiting for the next tick.
 
 Scheduling is `@Scheduled` with the intervals in `application.yml`, and
 **`evalos.jobs.enabled` defaults to false in the test profile** — a suite that

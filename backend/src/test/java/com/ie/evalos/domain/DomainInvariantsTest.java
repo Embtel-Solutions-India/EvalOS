@@ -171,9 +171,10 @@ class DomainInvariantsTest {
 
 	/**
 	 * The whitelist is the point: a method added here has to be added deliberately, and the
-	 * only ones that may be are {@code save} and reads. Unit 10 added
-	 * {@code findByObjectTypeAndActionAndObjectIdIn} so the Coordinator's board can read "last
-	 * chased" back out of the trail rather than keeping a second copy of it on the case.
+	 * only ones that may be are {@code save} and reads. Unit 10 added the batch "last chased"
+	 * read so the Coordinator's board can take it back out of the trail rather than keeping a
+	 * second copy of it on the case; it is now {@code findCaseActionScoped}, which appears
+	 * twice because the enum-typed overload is a default method beside the query itself.
 	 */
 	@Test
 	void theAuditRepositoryCannotChangeHistory() {
@@ -183,7 +184,8 @@ class DomainInvariantsTest {
 						"save",
 						"findByObjectTypeAndObjectIdOrderByCreatedAtAsc",
 						"findByBrandIdOrderByCreatedAtDesc",
-						"findByObjectTypeAndActionAndObjectIdIn");
+						"findCaseActionScoped",
+						"findCaseActionScoped");
 
 		// Not a CrudRepository, so delete/deleteAll are not inherited either.
 		assertThat(CrudRepository.class.isAssignableFrom(AuditEventRepository.class)).isFalse();

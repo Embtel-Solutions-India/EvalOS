@@ -84,7 +84,21 @@ What has to exist before this unit can be finished:
 `https://drive.google.com/drive/folders/<id>`. The client needs the id.
 
 - Parse the id out of the link, accepting the `/folders/<id>` and `?id=<id>`
-  shapes.
+  shapes — **after** checking the host.
+- **Check the host before the shape.** `drive_link` is typed by staff (and may one
+  day arrive from GHL), so it is untrusted input, and `https://evil.example/drive/
+  folders/<id>` matches the pattern perfectly well. Accept only
+  `drive.google.com` (and `docs.google.com`), scheme `https`, exact host match —
+  not `endsWith`, which `drive.google.com.evil.example` satisfies. Anything else is
+  the same 409 as an unparseable link.
+- **A well-formed id is not an owned id.** Parsing proves the shape, not that the
+  folder belongs to this brand's Drive — a copy-pasted link from another case, or
+  another brand, parses cleanly and the write lands where the wrong people can read
+  it. The service account can only write where it has been granted access, which
+  bounds the damage but does not stop cross-brand leakage inside one Drive. Before
+  the first write, confirm the folder resolves and its parent is the brand's
+  configured root; cache that per folder id. If the brand has no configured root
+  yet, that is a 409 too — an unverifiable destination is not a destination.
 - **A link that does not yield a folder id is a refusal, not a fallback.** Do not
   write to a default folder, the Drive root, or the service account's own space:
   the file would silently land somewhere nobody looks, or worse, somewhere another
@@ -110,6 +124,17 @@ renderer, two destinations.
 The template lives in `src/main/resources/templates/redacted-profile.html`. Plain
 HTML with placeholder substitution — **no template engine dependency**; the
 document has a fixed structure and a dozen fields.
+
+**Every interpolated value is HTML-escaped, without exception.** This is the cost of
+not taking a template engine: Thymeleaf would escape by default and the decision above
+gives that up, so the escape has to be deliberate and it has to be total. The fields
+are roster data — expert name, institution, qualifications — and the roster is
+populated by CSV/XLSX **import**, so the content is whatever was in someone's
+spreadsheet. An unescaped `<` does not need to be an attack to ruin the document, and
+if it is one, the payload runs in a page staff read and in a file published to the
+client's Drive folder. Escape `& < > " '` on substitution, in one helper every
+placeholder goes through, and let the test assert a field containing
+`<script>` renders inert rather than trusting each call site.
 
 ## What is redacted, and what survives
 
@@ -161,6 +186,16 @@ case — and another CM's — is simply absent, and the expert is read with
 The Case Manager is included on the two reads because they draft the letter and
 need to know who is signing it. They are **not** on the Drive write: publishing an
 artefact toward the client is the PM's call.
+
+**The write is idempotent per case, keyed on the file name.** The endpoint is a
+button, and a button gets pressed twice — on an impatient click, on a retry after a
+timeout that actually succeeded, or on a regenerate after the expert changed. Each
+press otherwise adds another `redacted-profile-<case_code>.pdf` to the folder, because
+Drive is happy to hold many files with one name, and the client is then looking at a
+folder with three profiles and no way to tell which is current. Before uploading, list
+the folder for that exact name and **update the existing file's content** if it is
+there, create it only if it is not. That also makes the returned Drive link stable, so
+`case.draft_link` and anything else holding it stays valid across regenerations.
 
 The Drive call is an outbound HTTP request in a controller-triggered path, so it
 runs with a **timeout** and its failure is a 502 that changes nothing in EvalOS —

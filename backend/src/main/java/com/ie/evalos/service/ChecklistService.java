@@ -141,9 +141,16 @@ public class ChecklistService {
 		if (caseIds.isEmpty()) {
 			return List.of();
 		}
-		Map<UUID, List<DocumentChecklistItem>> byCase = checklistItems.findByCaseIdIn(caseIds).stream()
+		// The brands these cases actually belong to, not the brandId argument: that one is
+		// null for the GM, the only cross-brand reader, and a null would scope nothing.
+		// Taking it off the rows keeps the batch reads narrowed to exactly what the scoped
+		// read above already granted.
+		List<UUID> brandIds = waiting.stream().map(row -> row.subject().getBrandId()).distinct().toList();
+
+		Map<UUID, List<DocumentChecklistItem>> byCase = checklistItems
+				.findByBrandIdInAndCaseIdIn(brandIds, caseIds).stream()
 				.collect(Collectors.groupingBy(DocumentChecklistItem::getCaseId));
-		Map<UUID, Instant> chased = lastChased(caseIds);
+		Map<UUID, Instant> chased = lastChased(caseIds, brandIds);
 
 		return waiting.stream()
 				.map(row -> row(row, byCase.getOrDefault(row.subject().getId(), List.of()),
@@ -171,8 +178,8 @@ public class ChecklistService {
 			Comparator.nullsLast(Comparator.naturalOrder()));
 
 	/** The most recent chase per case, in one query rather than one per row. */
-	private Map<UUID, Instant> lastChased(List<UUID> caseIds) {
-		return auditEvents.findByObjectTypeAndActionAndObjectIdIn(OBJECT_TYPE, AuditAction.CHASED, caseIds).stream()
+	private Map<UUID, Instant> lastChased(List<UUID> caseIds, List<UUID> brandIds) {
+		return auditEvents.findCaseActionScoped(OBJECT_TYPE, AuditAction.CHASED, caseIds, brandIds).stream()
 				.collect(Collectors.toMap(AuditEvent::getObjectId, AuditEvent::getCreatedAt,
 						BinaryOperator.maxBy(Comparator.naturalOrder())));
 	}
@@ -183,7 +190,7 @@ public class ChecklistService {
 	public CaseChecklist forCase(UUID caseId) {
 		Case subject = lifecycle.read(caseId);
 		return new CaseChecklist(subject, checklistItems.findByCaseId(subject.getId()),
-				lastChased(List.of(subject.getId())).get(subject.getId()));
+				lastChased(List.of(subject.getId()), List.of(subject.getBrandId())).get(subject.getId()));
 	}
 
 	/**

@@ -91,7 +91,7 @@ New migrations (next free `V`-numbers).
 | `id`, `brand_id`, `created_at` | `brand_id` **nullable** — a subscriber may be brand-specific (each brand's GHL sub-account) or global |
 | `name` | e.g. `GHL_IE` |
 | `target_url` | where to post |
-| `secret` | the HMAC key. **Nullable, and that fails closed** — see below. Never returned by any endpoint, the same rule `BrandOption` follows for the brand's webhook token |
+| `secret` | the HMAC key. **Nullable, and that fails closed** — see below. Never returned by any endpoint, the same rule `BrandOption` follows for the brand's webhook token. **Encrypted at rest** via the `payment_detail` converter (Unit 11), not stored as plaintext: it is a signing key, so anyone holding it can forge any event to that subscriber, and a database dump or an errant `SELECT *` in a log should not hand it over. The same argument already applied to `brand.ghl_webhook_secret` and applies here with the direction reversed |
 | `event_types` | `text[]` of subscribed wire names |
 | `active` | a subscriber is disabled, not deleted |
 
@@ -138,6 +138,17 @@ get edited into the record of what we wish had happened.
 - The timestamp is in the signed material so a captured request cannot be replayed
   against the subscriber indefinitely — the same reasoning the inbound side applies,
   from the other end.
+- **The window is five minutes, and it is part of the published contract.** A signed
+  timestamp nobody checks against a window is decoration twice over: the signature
+  stays valid forever, so a captured request replays forever, which is the exact
+  property the timestamp was added to remove. Document that a subscriber must reject
+  anything whose `X-EvalOS-Timestamp` is more than 300 seconds from its own clock, in
+  **either** direction — a future-dated stamp is as suspicious as a stale one, and
+  allowing it lets an attacker mint a request that stays fresh. Five minutes is chosen
+  to absorb ordinary NTP skew between two hosts without leaving a usefully long replay
+  window; EvalOS sends its own clock and does not compensate for a subscriber's.
+  Retries carry a **fresh** timestamp and therefore a fresh signature, which is why
+  `X-EvalOS-Delivery` and not the signature is the deduplication key.
 - **The scheme is documented in the delivery-log UI and the README**, because a
   signature the subscriber cannot verify is decoration. GHL has to implement the
   check.
@@ -192,8 +203,18 @@ campaign ever emails a current client.
 - An **outbound API call**, not a webhook: `integration/GhlClient`, needing GHL API
   credentials (part of the gating question).
 - Triggered on `case.created` (active) and `case.delivered`, through the same outbox
-  — a suppression call that fails must be retried, and it gets that for free by
-  being a delivery row like any other.
+  — a suppression call that fails must be retried, and retry, backoff and the delivery
+  log are exactly what the outbox already provides.
+- **But it is not "a delivery row like any other", and the table has to say which kind
+  it is.** Every other row means *POST this JSON to `target_url` and sign it with the
+  subscriber's secret*; this one means *call a named GHL API with our API credentials
+  and no HMAC at all*. Sharing one row shape without distinguishing them leaves the
+  sender inferring intent from the subscriber's name, and leaves `secret` null on a row
+  where null is supposed to mean **fail closed** — so the one operation that must not be
+  skipped is the one the fail-closed rule would skip. Give `webhook_delivery` an
+  explicit **`operation`** discriminator (`WEBHOOK` | `GHL_SUPPRESSION`), let the sender
+  branch on it, and scope the "null secret fails closed" rule to `WEBHOOK`. The retry,
+  backoff and log stay shared, which was the point of putting it here.
 - Sends the **GHL contact id** from the contact snapshot, nothing more. EvalOS does
   not push contact data to GHL; GHL owns contacts (invariant 7).
 
@@ -240,9 +261,23 @@ service.
 
 A `@Scheduled` poller claiming due `PENDING`/`FAILED` rows —
 `status IN (...) AND next_attempt_at <= now()`, claimed with
-`FOR UPDATE SKIP LOCKED` so a second instance cannot double-send. Single instance
-today (single region, one app), but `SKIP LOCKED` is one clause and double-sending
-a `case.delivered` starts a review campaign twice.
+`FOR UPDATE SKIP LOCKED` so two pollers cannot claim the same row at the same moment.
+Single instance today (single region, one app), but `SKIP LOCKED` is one clause and
+double-sending a `case.delivered` starts a review campaign twice.
+
+**`SKIP LOCKED` buys mutual exclusion, not exactly-once, and the difference matters
+here.** It stops two workers claiming one row concurrently. It does nothing about the
+gap between *the HTTP call succeeding* and *the row being marked `SENT`*: a worker that
+crashes, is killed mid-deploy, or times out on a request the subscriber actually
+processed leaves a row that looks unsent and will be sent again. Committing the status
+first only moves the hole — then a crash loses the delivery instead of repeating it,
+and for `case.delivered` losing it is worse. **So this is at-least-once, deliberately,
+and it must be written down as at-least-once** rather than described as if the lock
+closed the hole. What makes that safe is the subscriber's side of the contract:
+`X-EvalOS-Delivery` is stable across every attempt of one delivery — it is the row id —
+so a subscriber that deduplicates on it gets effectively-once. That header stops being
+a courtesy and becomes required, and the published contract says so. Retry counts and
+`X-EvalOS-Attempt` exist so a subscriber can tell a genuine repeat from a duplicate.
 
 **Unit 19 consolidates this into the `job` package on the `scheduled_job` table.**
 This unit ships the smallest sender that can be verified end to end, because a
