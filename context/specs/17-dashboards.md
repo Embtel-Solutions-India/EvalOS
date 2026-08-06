@@ -78,8 +78,30 @@ and the UI in this spec are unchanged — only where the numbers come from chang
 ## The metrics
 
 Every figure is computed from the caller's **already-scoped** case read, so a
-dashboard cannot see further than the board does. The date filter bounds figures by
-the timestamp named in each definition.
+dashboard cannot see further than the board does.
+
+**Each metric names its own date column and its own scope, because they do not share
+one.** "The date filter bounds figures by the timestamp named in each definition" was
+the whole instruction and no definition below named one, which leaves the most
+consequential choice on the screen — what "this month's revenue" means — to whoever
+writes the query. Two figures on one tile keyed to different timestamps will not add
+up, and nobody will be able to say why. So, per figure:
+
+| Source | Date column | Scope path |
+| --- | --- | --- |
+| Money in (`evalos_case`) | `paid_at` — when the money arrived, not `created_at`. A case created in March and paid in April is April's revenue | the caller's scoped case read |
+| Delivered / recognized (`evalos_case`) | `delivery_date` — recognition is a delivery event, so Recognized and Collected legitimately fall in different months for one case, and that gap **is** the open liability | same |
+| Cycle time (`audit_event`) | the `STAGE_CHANGED` row's `created_at` | brand-scoped **through the case**, never through `audit_event.brand_id` — that column is null for every action the GM takes |
+| Money out (`payout_ledger`) | `due_date` for what is owed, the `PAID` transition's date for what went out. Never one column for both | the ledger's own `brand_id` |
+
+A figure with no rows renders **0**, not blank and not "—"; an empty month is an
+answer, and a tile that goes blank reads as broken.
+
+**Stale, and to be settled when this unit is actually built:** the `NOT paid` figures
+below predate Case Creation v2.0. Unit 05b creates every case **paid** — spec 19 already
+states "every case is paid" — so "Unpaid pipeline" describes a population that no longer
+exists. Either it is always zero and should come off the tile, or the business wants
+quotes-not-yet-won on this screen, and those live in GHL and are not EvalOS's to report.
 
 ### 1. Money in vs. delivered (open liability)
 
@@ -115,6 +137,25 @@ count-based tiles and no money tiles at all, not zeroes.
 Median and p90 business hours spent in each stage, from the audit trail's
 `STAGE_CHANGED` rows — **not** from `stage_entered_at`, which only remembers the
 current stage.
+
+**How an interval is built.** A `STAGE_CHANGED` row marks a boundary, not a duration,
+so the figures come from *pairs* and the pairing rules have to be stated or every
+implementation will differ:
+
+- One interval runs from the row that **entered** a stage to the next `STAGE_CHANGED`
+  on that case, whatever stage it names.
+- The **current stage is open and excluded.** A case sitting in `DRAFT_GENERATION`
+  right now has no closing row; counting "now" as the end mixes finished work with
+  work in progress and makes the median drift every time the page is refreshed.
+- The **first stage has no entering row** — a case is created at `INTAKE` and the
+  trail's first `STAGE_CHANGED` is the one that *leaves* it. Use the case's
+  `created_at` as that interval's start.
+- **A stage can be entered more than once** (`EXPERT_DECLINED_REMATCHING` sends a case
+  back). Each visit is its own interval and they are **not** summed into one — a case
+  that passed through `EXPERT_ASSIGNMENT` three times contributes three data points,
+  because that is three separate waits and the median should feel all of them.
+- Rows are read **oldest first** and paired in that order;
+  `findByObjectTypeAndObjectIdOrderByCreatedAtAsc` already returns them that way.
 
 - On `BusinessCalendar`, so "48 hours" means two working days and a case that sat
   over a long weekend is not reported as slow.
@@ -302,16 +343,18 @@ role's tile set is a data row, not a branch.
 | --- | --- |
 | GM | everything, **cross-brand**, with per-brand breakdown and the brand switcher narrowing it |
 | Brand Manager | everything for their brand |
-| Project Manager | cycle time, SLA breaches, their team's throughput, expert utilization. **No money tiles** — not on `SEES_DEAL_VALUE`… *(see the note below)* |
+| Project Manager | cycle time, SLA breaches, their team's throughput, expert utilization, **and the money tiles** — the PM *is* on `SEES_DEAL_VALUE` |
 | Project Coordinator | doc-collection queue age, chase counts, delivery confirmations |
 | Case Manager | their own docket: cases by stage, drafts awaiting them, SLA on their cases |
 | ENM | roster health, utilization, acceptance rate, turnaround, payout status counts. **No case content** — the supply-side axis (`architecture.md`) |
 
-The PM **is** on `SEES_DEAL_VALUE` (`CaseController` grants deal value to GM, Brand
-Manager and PM). So the PM does get money tiles; the row above is corrected here
-rather than written from the role hierarchy, because the authority on who sees a
-figure is the list the code already shares. **Read `SEES_DEAL_VALUE` at build time
-and follow it** — do not re-derive it from this table.
+The row above used to say the opposite — "no money tiles, not on `SEES_DEAL_VALUE`" —
+with this paragraph correcting it underneath. Both statements then sat on the page and
+whichever one a reader hit first was the one they believed, so the table has been fixed
+at source and the contradiction removed rather than annotated. `CaseController` grants
+deal value to GM, Brand Manager **and PM**. **Read `SEES_DEAL_VALUE` at build time and
+follow it** — do not re-derive it from this table, and if the two ever disagree again,
+the code is right and this file is stale.
 
 ## The per-role operational contract (Production Process v2.0)
 
@@ -596,9 +639,11 @@ reads a different table and the one with a scope trap worth isolating. Frontend
 
 **Modified.** `frontend/src/features/dashboards/RoleDashboard.tsx` (the
 placeholder becomes the real screen). `repository/PortalAccessRepository.java` — one
-batched finder over a set of case ids, `findByCaseIdInOrderByCreatedAtDesc`, following
-the existing batched-finder convention (the ids arrive from a scoped read, so the
-finder itself carries no brand predicate; **do not call it with ids from a request**).
+batched finder over a set of case ids, `findByBrandIdInAndCaseIdInOrderByCreatedAtDesc`
+— brands as well as ids, matching what the checklist and chase batch reads were changed
+to on 2026-08-06. The caller passes the distinct brands of the rows its scoped read
+returned, never a request parameter (null for the GM scopes nothing). The older
+"do not call it with ids from a request" convention is retired: a comment is not a scope.
 `domain/AuditAction.java` + `web/PortalLinkController.java` +
 `service/PortalAccessService.java` only if revoke ships. `repository/CaseRepository.java` and
 `repository/AuditEventRepository.java` — aggregate projections, the audit one a

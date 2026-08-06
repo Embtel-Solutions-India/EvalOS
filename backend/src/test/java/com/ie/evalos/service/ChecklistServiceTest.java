@@ -74,7 +74,8 @@ class ChecklistServiceTest {
 		subject = aCase(Stage.DOC_COLLECTION, Instant.now().minus(6, ChronoUnit.HOURS));
 		given(lifecycle.read(any())).willReturn(subject);
 		given(checklistItems.save(any())).willAnswer(invocation -> invocation.getArgument(0));
-		given(auditEvents.findByObjectTypeAndActionAndObjectIdIn(any(), any(), anyList())).willReturn(List.of());
+		given(auditEvents.findCaseActionScoped(any(), any(AuditAction.class), anyList(), anyList()))
+				.willReturn(List.of());
 	}
 
 	@AfterEach
@@ -137,7 +138,7 @@ class ChecklistServiceTest {
 		given(board.forCaller(null, null)).willReturn(List.of(
 				new CaseBoardService.BoardRow(waiting, "Anita Rao"),
 				new CaseBoardService.BoardRow(drafting, "Ben Cole")));
-		given(checklistItems.findByCaseIdIn(anyList())).willReturn(items);
+		given(checklistItems.findByBrandIdInAndCaseIdIn(anyList(), anyList())).willReturn(items);
 
 		List<ChecklistService.BoardRow> rows = checklists.board(null);
 
@@ -163,7 +164,7 @@ class ChecklistServiceTest {
 				new CaseBoardService.BoardRow(stale, "Stale"));
 
 		given(board.forCaller(null, null)).willReturn(scoped);
-		given(checklistItems.findByCaseIdIn(anyList())).willReturn(List.of());
+		given(checklistItems.findByBrandIdInAndCaseIdIn(anyList(), anyList())).willReturn(List.of());
 
 		assertThat(checklists.board(null))
 				.extracting(ChecklistService.BoardRow::clientName)
@@ -183,8 +184,8 @@ class ChecklistServiceTest {
 		List<AuditEvent> chases = List.of(chaseRow(waiting.getId(), older), chaseRow(waiting.getId(), newest));
 
 		given(board.forCaller(null, null)).willReturn(scoped);
-		given(checklistItems.findByCaseIdIn(anyList())).willReturn(List.of());
-		given(auditEvents.findByObjectTypeAndActionAndObjectIdIn(eq("CASE"), eq(AuditAction.CHASED), anyList()))
+		given(checklistItems.findByBrandIdInAndCaseIdIn(anyList(), anyList())).willReturn(List.of());
+		given(auditEvents.findCaseActionScoped(eq("CASE"), eq(AuditAction.CHASED), anyList(), anyList()))
 				.willReturn(chases);
 
 		assertThat(checklists.board(null).getFirst().lastChasedAt()).isEqualTo(newest);

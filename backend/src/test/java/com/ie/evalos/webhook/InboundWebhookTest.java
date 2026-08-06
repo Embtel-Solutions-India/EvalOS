@@ -1,5 +1,6 @@
 package com.ie.evalos.webhook;
 
+import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.util.HexFormat;
 import java.util.Optional;
@@ -21,6 +22,8 @@ import com.ie.evalos.service.CaseIntakeService;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.context.annotation.Import;
@@ -143,6 +146,42 @@ class InboundWebhookTest {
 
 	private org.springframework.test.web.servlet.ResultActions deliverSigned(String body) throws Exception {
 		return deliver(TOKEN, body, sign(body));
+	}
+
+	private static byte[] signedBytes(byte[] body) {
+		try {
+			Mac mac = Mac.getInstance("HmacSHA256");
+			mac.init(new SecretKeySpec(SECRET.getBytes(StandardCharsets.UTF_8), "HmacSHA256"));
+			return mac.doFinal(body);
+		}
+		catch (java.security.GeneralSecurityException ex) {
+			throw new IllegalStateException(ex);
+		}
+	}
+
+	/**
+	 * The digest has to close over the bytes on the wire, not over a {@code String} the
+	 * servlet layer decoded on the way in.
+	 *
+	 * <p>Both deliveries carry the same accented name and both are signed over exactly the
+	 * bytes they send. The UTF-8 case passed before the fix too — Boot hands the String
+	 * converter UTF-8, so that round trip happened to be lossless. The ISO-8859-1 case is
+	 * the one that answered 401: decoded as declared, re-encoded as UTF-8, digested over
+	 * bytes nobody signed. Keep both, because the pair is what says the digest closes over
+	 * the wire bytes rather than over whichever charset the two ends happen to share.
+	 */
+	@ParameterizedTest
+	@ValueSource(strings = { "UTF-8", "ISO-8859-1" })
+	void aBodyCarryingNonAsciiVerifiesAgainstTheBytesAsSent(String charsetName) throws Exception {
+		Charset charset = Charset.forName(charsetName);
+		byte[] body = wonBody("evt-" + charsetName).replace("Anita Rao", "Zoë Bäcker-Muñoz").getBytes(charset);
+
+		mockMvc.perform(post("/api/webhooks/ghl/{token}", TOKEN)
+						.contentType(new MediaType(MediaType.APPLICATION_JSON, charset))
+						.header("X-Evalos-Signature", HexFormat.of().formatHex(signedBytes(body)))
+						.content(body))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.data.status").value("accepted"));
 	}
 
 	@Test

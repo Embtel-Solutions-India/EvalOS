@@ -68,7 +68,20 @@ The row is created with:
   with no standard fee gets a row with no amount, which the form makes somebody
   fill in. A prefill of `0` would be a number somebody could mark `PAID` without
   noticing.
-- `currency` from the brand's configured currency, defaulting to `USD`.
+  **`CHECK (amount IS NULL OR amount >= 0)`**, and the same rule on the submit path.
+  Null means "not decided yet" and is the point of the column being nullable; a
+  negative payout is not a smaller payout, it is money flowing the wrong way, and it
+  would sum into every total on the payout dashboard while looking like a discount.
+  A refund is `VOIDED` plus its own row, never a negative amount — the tombstone above
+  is what models the reversal, and two mechanisms for one fact is how they disagree.
+- `currency` from the brand's configured currency. **There is no default.** A brand
+  with no currency configured is a configuration error, not a USD payout: the value is
+  what somebody is actually paid in, and guessing it is the one guess in this unit that
+  spends real money — an expert on a GBP agreement paid a USD number is wrong twice,
+  in amount and in the record of what was owed. Fail the delivery-time row creation
+  with the same notification the no-expert case raises, naming the brand. Make the
+  column `NOT NULL` so the gap cannot reach the ledger at all, and seed each brand's
+  currency alongside the payout term it already needs.
 - `status = PENDING`, `due_date` = delivery + the configured payout term.
 - `recorded_by` **null** — nobody has recorded anything yet. It is set when the
   form is submitted, which is what the column means ("the staff member who

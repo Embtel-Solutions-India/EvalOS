@@ -99,11 +99,18 @@ So this unit creates the record. New migration (next free `V`-number),
   the audit trail already records each transition, and this row exists to be
   *aggregated*, which is the thing a jsonb trail is bad at.
 - **Written by the transitions that already exist**, not by a new endpoint: a row
-  at `ASSIGN_CASE_MANAGER` and `REASSIGN_EXPERT` (an offer), stamped `DECLINED`
-  at `EXPERT_DECLINED` with the reason, `ACCEPTED` at `EXPERT_SIGNED`.
-  (`ASSIGN_CASE_MANAGER` is where an expert offer comes from because that action
-  assigns **both** — `assignCaseManager(caseId, cmId, expertId)`, publishing
-  `CaseEvents.Type.EXPERT_ASSIGNED`. The name reads as staff-only and is not.)
+  when an expert is actually assigned (an offer), stamped `DECLINED` at
+  `EXPERT_DECLINED` with the reason, `ACCEPTED` at `EXPERT_SIGNED`.
+  **Key the write on the expert assignment, not on the action name.** Today
+  `ASSIGN_CASE_MANAGER` happens to carry both — `assignCaseManager(caseId, cmId,
+  expertId)`, publishing `CaseEvents.Type.EXPERT_ASSIGNED` — and the name reads as
+  staff-only but is not. That coincidence is not a contract: Gap Register **G12**
+  wants "reassign CM mid-draft", which is the same action with no expert on it, and
+  writing an offer row from the action name would then invent an `OFFERED` row for an
+  expert nobody offered anything to. It would never resolve, and it would drag that
+  expert's acceptance rate down for a case they were never shown. Write the row when
+  `expertId` is present and changed — i.e. off `EXPERT_ASSIGNED` — and the split, when
+  it comes, costs nothing.
   `SUPERSEDED` when a case is reassigned while an offer is still open, so a
   rematched case does not leave an `OFFERED` row that never resolves.
 - **`TIMED_OUT` is declared here and written by nobody until Unit 15**, by that
@@ -144,6 +151,13 @@ Rules the weights do not express:
   new expert would otherwise be permanently last and never get the case that would
   give them a record — the cold-start trap. Below a threshold of resolved offers
   (3), the factor returns the roster's mean.
+  **Define the mean's own fallback, because on day one it does not exist.** The mean
+  is taken over experts who clear the threshold; on a fresh roster that set is empty
+  and the mean is 0/0. Return a flat **0.5** when it is — neutral, which is exactly
+  what "no evidence" should score — and never `NaN`, which would sort
+  unpredictably and silently poison the weighted total. The same applies to a brand
+  whose roster is new even though another brand's is not: the mean is per-brand,
+  like every other scoped read.
 - **The performance flags are shown, not scored.** `SLOW_RESPONSE`,
   `QUALITY_ISSUE`, `CLIENT_COMPLAINT` appear on the card as warnings for the PM to
   weigh. Folding a `CLIENT_COMPLAINT` into a number hides the one thing a human

@@ -83,6 +83,14 @@ import com.ie.evalos.service.ExpertLoadService;
 		"spring.datasource.url=${DB_TEST_URL:jdbc:postgresql://localhost:5432/evalos?currentSchema=evalos_test}",
 		"spring.flyway.schemas=evalos_test",
 		"spring.flyway.create-schemas=true",
+		// Declared, because the constants below are the seeded brand and staff ids and this
+		// suite does not run without them. It never used to say so: the seed sat in
+		// db/migration/local, Flyway recursed into it from the plain db/migration location,
+		// and the whole suite rode on the same accident that put the seed into production.
+		// Moving it to a sibling directory made the dependency real, which is the point.
+		"spring.flyway.locations=classpath:db/migration,classpath:db/seed-local",
+		// The seed outranks every real migration, so the next unit's V-N arrives behind it.
+		"spring.flyway.out-of-order=true",
 		"spring.jpa.properties.hibernate.default_schema=evalos_test",
 		"spring.jpa.show-sql=false",
 })
@@ -253,11 +261,17 @@ class LocalPostgresIntegrationTest {
 	}
 
 	/**
-	 * The batched aggregate is brand-blind, and that is a decision rather than an oversight
-	 * — the same one {@code DocumentChecklistItemRepository.findByCaseIdIn} carries. Its
-	 * javadoc's "do not call it with ids that came from a request" is load-bearing: the ids
-	 * come from {@code ExpertRepository.findScoped}, and nothing else keeps the two brands
-	 * apart in this query.
+	 * The batched aggregate is brand-blind, and that is a decision rather than an oversight.
+	 * Its javadoc's "do not call it with ids that came from a request" is load-bearing: the
+	 * ids come from {@code ExpertRepository.findScoped}, and nothing else keeps the two
+	 * brands apart in this query.
+	 *
+	 * <p>It used to have company — the checklist and chase batch reads carried the same
+	 * convention until both were given brand predicates. This one is the harder case and is
+	 * now the only holdout: it aggregates <em>by expert</em>, and one expert is reachable
+	 * from several brands' cases, so narrowing it means splitting the counts per brand and
+	 * changing what it returns. Until that happens the convention is all there is, which is
+	 * the reason to keep asserting it here.
 	 */
 	@Test
 	void theExpertLoadAggregateAnswersForWhateverIdsItIsGiven() {
@@ -654,14 +668,14 @@ class LocalPostgresIntegrationTest {
 	 * calling convention does.
 	 *
 	 * <p>{@code findScoped} keeps two brands' items apart, and that is what protects the one
-	 * path taking an item id straight from a request. {@code findByCaseIdIn} has no brand
-	 * predicate at all — it answers for whatever case ids it is handed — so its javadoc's "do
-	 * not call it with ids that came from a request" is load-bearing rather than decorative.
-	 * Both halves are asserted, because a future caller passing an unscoped id would be a brand
-	 * leak that no mocked repository could ever show.
+	 * path taking an item id straight from a request. The batched finder used to have no brand
+	 * predicate at all, resting instead on a javadoc asking callers not to hand it request ids;
+	 * it now takes the brands too and drops anything outside them. Both halves are asserted,
+	 * because a caller passing an unscoped id would be a brand leak no mocked repository could
+	 * ever show.
 	 */
 	@Test
-	void checklistItemsAreScopedByBrandAndTheBatchedFinderIsNot() {
+	void checklistItemsAreScopedByBrandAndSoIsTheBatchedFinder() {
 		UUID ieCase = cases.save(new Case(BRAND_IE, "EV-" + UUID.randomUUID(), Stage.DOC_COLLECTION)).getId();
 		UUID xpCase = cases.save(new Case(BRAND_XP, "XP-" + UUID.randomUUID(), Stage.DOC_COLLECTION)).getId();
 
@@ -676,11 +690,18 @@ class LocalPostgresIntegrationTest {
 		assertThat(checklistItems.findScoped(brandManagerOfIe(), xpItem)).isEmpty();
 		assertThat(checklistItems.findScoped(gm(), xpItem)).isPresent();
 
-		// And the batched finder is brand-blind by design: the caller's already-scoped id list
-		// is the only thing keeping the two brands apart on the board.
-		assertThat(checklistItems.findByCaseIdIn(List.of(ieCase)))
+		// And the batched finder narrows on its own. Handed the other brand's case id — the
+		// shape a request-supplied id would take — it returns nothing for it rather than that
+		// brand's checklist.
+		assertThat(checklistItems.findByBrandIdInAndCaseIdIn(List.of(BRAND_IE), List.of(ieCase)))
 				.extracting(DocumentChecklistItem::getId).containsExactly(ieItem);
-		assertThat(checklistItems.findByCaseIdIn(List.of(ieCase, xpCase)))
+		assertThat(checklistItems.findByBrandIdInAndCaseIdIn(List.of(BRAND_IE), List.of(ieCase, xpCase)))
+				.extracting(DocumentChecklistItem::getId).containsExactly(ieItem);
+		assertThat(checklistItems.findByBrandIdInAndCaseIdIn(List.of(BRAND_IE), List.of(xpCase)))
+				.isEmpty();
+
+		// The GM reads across brands by holding both, not by skipping the predicate.
+		assertThat(checklistItems.findByBrandIdInAndCaseIdIn(List.of(BRAND_IE, BRAND_XP), List.of(ieCase, xpCase)))
 				.extracting(DocumentChecklistItem::getId).contains(ieItem, xpItem);
 	}
 
@@ -688,14 +709,18 @@ class LocalPostgresIntegrationTest {
 	 * "Last chased" read back out of the append-only trail rather than kept in a column
 	 * (Unit 10), against real SQL.
 	 *
-	 * <p>Worth a database because it is a three-key derived query over an enum column and an
-	 * {@code IN} list, and because {@code ChecklistService} reduces the result to one timestamp
-	 * per case by taking the maximum — which only means anything if the query really returns
-	 * every chase and nothing but chases. Brand-blind for the same reason as the finder above,
-	 * and asserted so that stays a decision rather than a surprise.
+	 * <p>Worth a database because it is a native join over an enum column and two {@code IN}
+	 * lists, and because {@code ChecklistService} reduces the result to one timestamp per case
+	 * by taking the maximum — which only means anything if the query really returns every chase
+	 * and nothing but chases.
+	 *
+	 * <p>The brand predicate is on the <em>case</em>, not the audit row, and the rows written
+	 * below are why: {@code AuditService} stamps {@code brand_id} from {@code TenantContext},
+	 * so these events carry null. A filter on the audit row's own brand would return nothing
+	 * here, and in production would silently drop every action taken by the GM.
 	 */
 	@Test
-	void theChaseFinderAnswersOnlyChasesAndOnlyForTheIdsItIsGiven() {
+	void theChaseFinderAnswersOnlyChasesAndOnlyWithinTheBrandsItIsGiven() {
 		UUID ieCase = cases.save(new Case(BRAND_IE, "EV-" + UUID.randomUUID(), Stage.DOC_COLLECTION)).getId();
 		UUID xpCase = cases.save(new Case(BRAND_XP, "XP-" + UUID.randomUUID(), Stage.DOC_COLLECTION)).getId();
 
@@ -708,21 +733,28 @@ class LocalPostgresIntegrationTest {
 		auditService.recordEvent("CASE", ieCase, AuditAction.UPDATED, COORDINATOR_IE, null,
 				Map.of("note", "Passport: REQUIRED → UPLOADED"));
 
-		assertThat(auditEvents.findByObjectTypeAndActionAndObjectIdIn(
-				"CASE", AuditAction.CHASED, List.of(ieCase)))
+		assertThat(auditEvents.findCaseActionScoped(
+				"CASE", AuditAction.CHASED, List.of(ieCase), List.of(BRAND_IE)))
 				.singleElement()
 				.satisfies(event -> {
 					assertThat(event.getObjectId()).isEqualTo(ieCase);
 					assertThat(event.getCreatedAt()).isNotNull();
+					// Null on the row, found anyway: the join is carrying the scope.
+					assertThat(event.getBrandId()).isNull();
 				});
 
-		assertThat(auditEvents.findByObjectTypeAndActionAndObjectIdIn(
-				"CASE", AuditAction.CHASED, List.of(ieCase, xpCase)))
+		// Handed the other brand's case id, it drops it rather than answering for it.
+		assertThat(auditEvents.findCaseActionScoped(
+				"CASE", AuditAction.CHASED, List.of(ieCase, xpCase), List.of(BRAND_IE)))
+				.extracting(AuditEvent::getObjectId).containsExactly(ieCase);
+
+		assertThat(auditEvents.findCaseActionScoped(
+				"CASE", AuditAction.CHASED, List.of(ieCase, xpCase), List.of(BRAND_IE, BRAND_XP)))
 				.extracting(AuditEvent::getObjectId).containsExactlyInAnyOrder(ieCase, xpCase);
 
 		// A case nobody chased has no chase, which is the null the board draws as "never chased".
-		assertThat(auditEvents.findByObjectTypeAndActionAndObjectIdIn(
-				"CASE", AuditAction.CHASED, List.of(UUID.randomUUID()))).isEmpty();
+		assertThat(auditEvents.findCaseActionScoped(
+				"CASE", AuditAction.CHASED, List.of(UUID.randomUUID()), List.of(BRAND_IE))).isEmpty();
 	}
 
 	/**

@@ -45,7 +45,7 @@ cd backend
 - `GET /api/health` → `{"success":true,"data":{"status":"UP","service":"evalos","time":"…"}}`
 - `GET /actuator/health`
 
-The `local` profile also applies `db/migration/local`, which seeds two brands and
+The `local` profile also applies `db/seed-local`, which seeds two brands and
 five staff logins — all with the password `DevPassw0rd!`:
 
 | email               | role            | brand                     |

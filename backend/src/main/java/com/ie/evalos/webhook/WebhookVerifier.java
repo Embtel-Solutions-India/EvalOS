@@ -20,6 +20,13 @@ import org.springframework.stereotype.Component;
  * {@link MessageDigest#isEqual} rather than {@code String.equals} — a
  * short-circuiting comparison on a signature leaks it one byte at a time.
  *
+ * <p>"Exact bytes" is literal, and the reason this takes {@code byte[]}: a body that
+ * has been through {@code String} has been decoded and must be re-encoded to hash,
+ * and a decode/encode round trip is only lossless when both ends agree on the
+ * charset. They do not — see {@code InboundWebhookController}. Never add a
+ * {@code String} overload here; it would compile at every call site and fail only on
+ * payloads carrying non-ASCII.
+ *
  * <p>Fails closed in every direction: no secret on the brand, no signature header,
  * malformed hex and a wrong digest all produce the same rejection with the same
  * message, so a caller learns nothing about which one it was.
@@ -34,7 +41,7 @@ public class WebhookVerifier {
 
 	private static final String MESSAGE = "Signature verification failed";
 
-	public void verify(Brand brand, String signature, String rawBody) {
+	public void verify(Brand brand, String signature, byte[] rawBody) {
 		String secret = brand.getGhlWebhookSecret();
 		if (secret == null || secret.isBlank() || signature == null || signature.isBlank()) {
 			throw rejected();
@@ -44,11 +51,11 @@ public class WebhookVerifier {
 		}
 	}
 
-	private static byte[] hmac(String secret, String rawBody) {
+	private static byte[] hmac(String secret, byte[] rawBody) {
 		try {
 			Mac mac = Mac.getInstance(ALGORITHM);
 			mac.init(new SecretKeySpec(secret.getBytes(StandardCharsets.UTF_8), ALGORITHM));
-			return mac.doFinal(rawBody.getBytes(StandardCharsets.UTF_8));
+			return mac.doFinal(rawBody);
 		}
 		catch (java.security.GeneralSecurityException ex) {
 			// HmacSHA256 is guaranteed present, so this only fires on an unusable key.

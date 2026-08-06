@@ -70,12 +70,18 @@ public interface CaseRepository extends ScopedRepository<Case> {
 	 * a {@code CLOSED} case still holding {@code REFUND_REQUESTED} is one whose refund the
 	 * GM approved, and it is not work delivered.
 	 *
-	 * <p><strong>Deliberately brand-unscoped</strong>, like
-	 * {@code DocumentChecklistItemRepository.findByCaseIdIn}: it aggregates over expert
-	 * ids the caller already read through {@code ExpertRepository.findScoped}. Do not
-	 * call it with ids that came from a request. Asserted in
-	 * {@code LocalPostgresIntegrationTest}, because a future caller passing an unscoped
-	 * id would be a brand leak no mocked repository could show.
+	 * <p><strong>Deliberately brand-unscoped</strong>: it aggregates over expert ids the
+	 * caller already read through {@code ExpertRepository.findScoped}. Do not call it with
+	 * ids that came from a request. Asserted in {@code LocalPostgresIntegrationTest},
+	 * because a future caller passing an unscoped id would be a brand leak no mocked
+	 * repository could show.
+	 *
+	 * <p>This is now the <em>last</em> finder of that shape. The two it used to stand
+	 * beside — the checklist and chase batch reads — were given brand predicates once it
+	 * became clear a javadoc is not a scope. This one is the harder case, because it
+	 * aggregates by expert and an expert is reachable from more than one brand's cases;
+	 * narrowing it needs the counts split per brand first, which changes what it returns.
+	 * Until then the convention is all there is, which is a reason to be wary of it.
 	 *
 	 * @return one row per expert that has at least one case: {@code [expert_id, active,
 	 *         completed]}. An expert with no cases is absent, not zero — the caller

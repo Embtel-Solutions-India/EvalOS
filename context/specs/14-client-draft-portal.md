@@ -97,12 +97,24 @@ Rules, and why:
   credential.
 - **Compared with `MessageDigest.isEqual`**, like `WebhookVerifier` — a portal
   token check is exactly as much a secret comparison as an HMAC check.
-- **Unique index on `token_hash`.** Partial unique index on
-  `(case_id, audience) WHERE revoked_at IS NULL AND expires_at > now()` is *not*
-  used — `now()` is not immutable and cannot sit in an index predicate. One live
-  token per case per audience is enforced in the service by revoking the previous
-  one inside the minting transaction, and the read tolerates more than one anyway
-  (it matches on the hash, not on the case).
+- **Unique index on `token_hash`.**
+  **Corrected during the build — this paragraph shipped wrong and `V23` fixes it.**
+  What it said: a partial unique index on
+  `(case_id, audience) WHERE revoked_at IS NULL AND expires_at > now()` cannot exist
+  because `now()` is not immutable, therefore one live token per case per audience is
+  enforced in the service by revoking the previous one inside the minting transaction.
+  The premise is true and the conclusion does not follow — the invariant can be stated
+  without `now()` at all.
+  Enforcing it in the service alone made `mint` a check-then-act: SELECT-live → revoke
+  → INSERT, with no lock, so under READ COMMITTED two concurrent mints for one case
+  (two staff members, or one double-click) could both see the same previous row, both
+  revoke it, and both insert — two live credentials for a case the javadoc promised
+  one. `V23` adds the partial unique index on `(case_id, audience) WHERE revoked_at IS
+  NULL`, which is immutable and enough, since an expired row is revoked too and so
+  leaves the index. `isLive` is unchanged.
+  **The general rule this is an instance of:** "the service does it inside a
+  transaction" is not a uniqueness guarantee. A transaction gives atomicity, not
+  mutual exclusion; only the database can refuse the second writer.
 - **Expiry is real.** Default 30 days, configurable. A draft-review link that works
   forever is a permanent bearer credential sitting in somebody's inbox.
 - **Re-minting revokes the previous token.** A client who says "the link doesn't
@@ -174,6 +186,16 @@ means "written before this column existed", readers infer `SYSTEM` from a null
 `actor_id` and `STAFF` otherwise, and every row written from this unit onward
 states its actor type explicitly. Recorded in the migration header, which is where
 this file's convention puts a correction to the record.
+
+**Readers key on the column and fall back only when it is null** — do not keep
+inferring from `actor_id`, which was the pre-`V22` rule and is now wrong. `CLIENT` and
+`EXPERT` both carry a null `actor_id` exactly as `SYSTEM` does, so inference cannot
+tell a client's approval apart from a job's write, and the timeline would credit the
+client's decision to the system. `CaseTimelineService.actorName` is the shipped
+shape and the one to copy: a named staff member if `actor_id` resolves, otherwise
+whatever `actor_type` says, and "System" only when it says nothing. The null check
+before the `Map` lookup is load-bearing — `Map.of()` throws on a null key rather than
+returning the default.
 
 ## Backend
 

@@ -152,4 +152,5 @@ TenantContext}.java`, `.../service/{AuthService,ScopePredicate,OwnershipGuard,
 TeamMemberQueryService}.java`, `.../web/{AuthController,MeController,
 TeamMemberController}.java` (+ DTOs),
 `db/migration/V2__brand.sql`, `V3__team_member.sql`,
-`db/migration/local/V900__seed_local.sql` (local-only seed).
+`db/seed-local/V900__seed_local.sql` (local-only seed; moved out of
+`db/migration/local` on 2026-08-06 — Flyway recurses, so prod was applying it).

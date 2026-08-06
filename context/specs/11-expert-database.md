@@ -90,7 +90,10 @@ the applied one (invariant 9).
 
 New migration (next free `V`-number at build time): `email`, `phone`,
 `letter_types text[]`, `standard_fee numeric(12,2)` on `expert`; the three
-`CHECK`s above; a **partial unique
+`CHECK`s above; **`CHECK (standard_fee IS NULL OR standard_fee >= 0)`** — null is
+"not agreed yet", which is legitimate, but a negative fee is not, and this column
+is what Unit 16 reaches for when it proposes a payout, so a sign error here becomes
+money owed the wrong way; a **partial unique
 index on `(brand_id, lower(email)) WHERE email IS NOT NULL`** — the same shape
 `V16` used for contact identity, and the key the import upserts on; and a **GIN
 index on `primary_fields`** so Unit 12's tag containment does not table-scan the
@@ -274,11 +277,14 @@ request, import report). Migration:
 filter finders). `repository/CaseRepository.java` — one batched
 `count … group by expert_id` projection for `ExpertLoadService`. It is a
 deliberately brand-*unscoped* aggregate over ids the caller already read scoped,
-so it carries the same javadoc convention as `findByCaseIdIn` ("do not call it
-with ids that came from a request") and the same DB-gated brand-isolation test
-the Unit 10 review added for those two finders.
+so it carries a javadoc convention ("do not call it with ids that came from a
+request") and the same DB-gated brand-isolation test the Unit 10 review added for
+those two finders. **As of 2026-08-06 it is the only finder left resting on that
+convention** — the other two were given brand predicates. This one is harder: it
+aggregates by expert, and an expert is reachable from more than one brand's cases,
+so narrowing it means splitting the counts per brand first.
 `frontend/src/features/shell/navigation.ts` (the roster entry).
-`db/migration/local/V9xx__seed_local.sql` or a new local seed for a handful of
+`db/seed-local/V9xx__seed_local.sql` or a new local seed for a handful of
 experts carrying legal tags.
 
 **Not touched.** `web/ExpertPickerController.java`, `common/PaymentDetailConverter.java`

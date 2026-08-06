@@ -140,10 +140,24 @@ contract that a transition cannot be logged as one thing and published as anothe
 
 | Action | Lands on | Effect | New event |
 | --- | --- | --- | --- |
-| `EXPERT_ACCEPTED` | `EXPERT_SIGNING` (in place) | stamps the offer `ACCEPTED`; the expert has taken the case | `expert.accepted` |
+| `EXPERT_ACCEPTED` | `EXPERT_SIGNING` (in place) | stamps the offer `ACCEPTED`; the expert has taken the case. **Guard on the offer, not the stage** — see below | `expert.accepted` |
 | `EXPERT_REQUEST_EVIDENCE` | `EXPERT_SIGNING` (in place) | sets `ON_HOLD_AWAITING_CLIENT`, **adds a required checklist item** carrying the expert's description | `expert.evidence_requested` |
 | `EXPERT_DECLINED` | *already exists* | sets `EXPERT_DECLINED_REMATCHING`; `REASSIGN_EXPERT` is the declared way out | `expert.declined` (exists) |
 | `EXPERT_TIMED_OUT` | `EXPERT_SIGNING` (in place) | sets `EXPERT_DECLINED_REMATCHING` and stamps the offer `TIMED_OUT`. **GM · Brand Manager · PM**, never the expert and never a job | `expert.timed_out` |
+
+**A stage-preserving transition cannot be guarded by the stage, so `EXPERT_ACCEPTED`
+guards on the offer row.** The three in-place actions all leave the case in
+`EXPERT_SIGNING`, which means the transition table finds them legal again the moment
+they finish — pressing Accept twice is not an error the state machine can see. For
+`EXPERT_ACCEPTED` that is not harmless: it re-stamps an already-`ACCEPTED` offer,
+publishes a second `expert.accepted`, and so fires every listener again — the
+notification, and whatever Unit 18 later hangs off it. An expert refreshing a slow
+portal page is enough to do it. Refuse when the case's current offer is not `OFFERED`:
+already `ACCEPTED` answers 200 with the state as it stands, because the expert did what
+they meant to and a second click is not a failure to report; `DECLINED`, `TIMED_OUT` or
+`SUPERSEDED` answer 409, because that offer is over and accepting it now would resurrect
+a case the ENM has already rematched. The same guard is what stops an
+`EXPERT_ACCEPTED` racing an `EXPERT_TIMED_OUT`.
 
 `EXPERT_TIMED_OUT` mirrors `EXPERT_DECLINED`'s exact shape — stage-preserving,
 setting the same exception state, so `REASSIGN_EXPERT` (which

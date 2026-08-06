@@ -80,6 +80,21 @@ Rules:
 - **Needs five weeks of history to say anything.** Below that the flag is
   suppressed and the tile says why — an anomaly computed against two weeks of a
   new brand's data is noise, and "no baseline yet" is an honest answer.
+- **A week is ISO Mon–Sun in the brand's business timezone, and only *complete*
+  weeks are compared.** The current week is excluded until it closes. Comparing a
+  partial week against four whole ones makes every Monday look like an 85% collapse
+  and every Sunday like a recovery, and after two of those nobody reads the alert
+  again. The sweep runs daily but the comparison window only moves once a week; the
+  same `BusinessCalendar` timezone the SLA clock uses decides where the boundary
+  falls, so a case created Sunday night lands in the week staff would say it did.
+- **A zero baseline is not an anomaly, it is an absence.** "±15%" is undefined when
+  the previous four weeks' mean is 0 — every 0 → 1 is an infinite swing, so a brand
+  with one week of activity would flag on every metric at once, which is noise
+  wearing the costume of an alert. When the baseline is 0: suppress the percentage
+  and flag only if the current week crosses a per-metric **absolute floor** worth a
+  human's attention; below that, say "no baseline". The same guard covers the
+  reverse — a metric falling *to* 0 from a real baseline is a genuine -100% and must
+  still fire, because "Handoff A broke" is exactly that shape.
 - **A flag is a notification, not just a tile** — `kpi.anomaly` → in-app to the GM
   and that brand's Brand Manager (Unit 06). Fired by Unit 19's daily sweep, which
   is where timed work lives (invariant 6).
@@ -138,10 +153,19 @@ trusts is worse than no widget.
   rule `EVALOS_FIELD_KEY`, `JWT_SECRET` and the Drive credentials all set.
 - **Off by default.** `evalos.ai.suggestions.enabled=false`. A feature that costs
   money per call and reaches an external service does not default on.
-- **Failure is invisible to the PM.** Timeout, rate limit, missing key, disabled
-  flag — all produce the Unit 12 shortlist with no AI note and no error. The
+- **Failure is invisible to the PM.** Timeout, rate limit, a refusal, a malformed
+  response — all produce the Unit 12 shortlist with no AI note and no error. The
   shortlist is the product; the AI note is a garnish. **Asserted by a test that
   runs the endpoint with the client hard-failing.**
+- **A missing key is not one of those, and this list used to say it was.** The
+  acceptance criteria below require the app to *fail to start* with the flag on and no
+  key; this bullet had it degrading silently at request time. Both cannot hold. The
+  startup check wins, on the `evalos.drive.required` precedent: a missing key is a
+  **configuration** error, not a runtime failure, and the two want opposite handling.
+  Degrading silently on config means the feature is quietly off in production and
+  nobody learns until someone asks why no case has ever shown a note. So: flag on and
+  no key → refuse to start, loudly, naming the variable. Flag **off** → no key needed,
+  no check, no outbound call. Runtime failures degrade as above.
 - **Not in the request path if it is slow.** One bounded call with a timeout,
   same standard as Unit 13's Drive upload; if it turns out slow in practice it
   becomes a precomputed note, not a spinner on the assignment dialog.
@@ -201,7 +225,14 @@ notifications that show them their own work.
 - [ ] Anomaly figures **equal** the Unit 17 dashboard's figures for the same
       metric, brand and period — same functions, not a second implementation.
 - [ ] `kpi.anomaly` notifies the GM and that brand's Brand Manager, once per
-      flag per week, not once per sweep.
+      flag per week, not once per sweep — **and the state that guarantees it survives
+      a restart.** The sweep is daily and the window is weekly, so the same flag is
+      recomputed roughly seven times per week and something durable has to remember it
+      already went out. Not an in-memory set: a redeploy mid-week re-notifies everyone,
+      and a rolling deploy does it once per instance. Derive it from the data the way
+      Unit 19's sweeps do — look for an existing `kpi.anomaly` notification for that
+      `(brand, metric, ISO week)` and skip if one is there — so the guard is a query,
+      not a field, and holds across restarts and instances for free.
 - [ ] With the AI flag **off**: the shortlist is byte-identical to Unit 12's, and
       no outbound request is made.
 - [ ] With the AI flag on and the client **hard-failing**: the shortlist still

@@ -30,10 +30,12 @@ public interface DocumentChecklistItemRepository extends ScopedRepository<Docume
 	/**
 	 * Every item on a page of cases, in one query rather than one per row.
 	 *
-	 * <p>Same rule as {@link #findByCaseId} and the same reasoning {@code CaseBoardService}
-	 * gives for its batched name lookup: the ids come from cases a scoped read already
-	 * decided the caller may see, so nothing is disclosed that those rows did not already
-	 * disclose. Do not call it with ids that came from a request.
+	 * <p>Takes the brands as well as the case ids, so the query fails closed on its own.
+	 * The predecessor took ids alone and carried a javadoc asking callers not to pass ids
+	 * that came from a request — but a comment is not a scope, and the one thing standing
+	 * between two brands should not be whether the next caller reads it. Pass the distinct
+	 * brands of the cases the scoped read returned: a foreign case id then matches nothing
+	 * instead of returning that brand's checklist.
 	 */
-	List<DocumentChecklistItem> findByCaseIdIn(Collection<UUID> caseIds);
+	List<DocumentChecklistItem> findByBrandIdInAndCaseIdIn(Collection<UUID> brandIds, Collection<UUID> caseIds);
 }

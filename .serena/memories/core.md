@@ -46,7 +46,8 @@ Technical Design Document v1.1**; where a context file conflicts with it, v1.1 w
 - Update `context/progress-tracker.md` after every meaningful change; update the relevant context
   file (and the TDD) if a decision changes.
 
-**Current state: Phase 1 (Units 01–10 + 05a) is complete and verified, and Phase 2 has started.**
+**Current state: Phase 1 (Units 01–10, with 05a since re-pointed by 05b — see the trigger
+note above) is complete and verified, and Phase 2 has started.**
 Scaffold + response envelope, the tenancy/auth/RBAC spine, the domain schema, the case state machine
 + SLA calendar, the inbound webhook gateway with Handoff A, the in-app notification centre, and five
 live frontend surfaces (app shell + role routing, production Kanban board, case detail + timeline,
@@ -61,7 +62,7 @@ exist. Unit 16 (payout ledger) is next — not 15, which waits on Unit 21 and on
 account; the schedule is `00-build-plan.md`'s "Execution sequence for v2.0", and it differs from the
 numbering on purpose.** Migrations run to **`V24`** (Unit 13 added none — nothing it produces is
 persisted; Unit 14 added three, its code review added `V23`, and Unit 05b added `V24`);
-**354 backend tests, none skipped** (27 DB-backed) and 102 frontend tests.
+**358 backend tests, none skipped** (27 DB-backed) and 102 frontend tests.
 Unit 05b re-pointed Handoff A to `opportunity.won` and **deleted the manual payment path** — details
 in `mem:backend/webhooks` and `mem:backend/lifecycle`. Its live hand-fired run is still owed, blocked
 on confirmation of what GHL actually sends on Won.
