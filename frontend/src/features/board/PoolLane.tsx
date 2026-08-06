@@ -21,17 +21,17 @@ export default function PoolLane({
 }) {
   return (
     <section
-      className="rounded-lg border border-l-[3px] p-3"
+      className="border-l-[3px] p-4"
       style={{
         background: 'var(--bg-surface)',
-        borderColor: 'var(--border-default)',
-        borderLeftColor: cards.length > 0 ? 'var(--accent-primary)' : 'var(--border-default)',
+        borderRadius: 'var(--radius-lg)',
+        borderLeftColor: cards.length > 0 ? 'var(--accent-primary)' : 'transparent',
         boxShadow: 'var(--shadow-card)',
       }}
     >
       <div className="flex items-baseline gap-2">
-        <h2 className="text-sm font-semibold tracking-tight">Pool</h2>
-        <span className="font-num text-xs tabular-nums" style={{ color: 'var(--text-muted)' }}>
+        <h2 className="text-base font-semibold tracking-tight">Pool</h2>
+        <span className="font-num text-sm tabular-nums" style={{ color: 'var(--text-muted)' }}>
           {cards.length} waiting for a project manager
         </span>
       </div>
@@ -41,13 +41,16 @@ export default function PoolLane({
           Every case has an owner.
         </p>
       ) : (
-        <ul className="mt-2.5 flex flex-wrap gap-2">
+        // Two rows of pills, then it scrolls. A forty-case pool used to wrap down the page and
+        // push the stage columns out of view — the queue you are draining should not hide the
+        // board you are draining it into.
+        <ul className="scroll-slim mt-2 flex max-h-[5.5rem] flex-wrap gap-1.5 overflow-y-auto">
           {cards.map((card) => (
             <li key={card.id}>
               <button
                 type="button"
                 onClick={() => onAssign(card)}
-                className="flex items-baseline gap-2 rounded-md border border-(--border-default) bg-(--bg-raised) px-2.5 py-1.5 text-left transition-colors hover:border-(--accent-primary)"
+                className="flex items-baseline gap-2 rounded-lg bg-(--bg-base) px-3 py-2 text-left transition-colors hover:bg-(--accent-soft)"
               >
                 <span className="font-mono text-[11px]" style={{ color: 'var(--text-muted)' }}>
                   {card.caseCode}

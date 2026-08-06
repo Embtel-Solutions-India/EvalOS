@@ -61,12 +61,15 @@ export default function CaseCard({
   const sla = card.slaStatus ? SLA_TOKEN[card.slaStatus] : null
   const chip = draftChip(card)
 
+  // The column is now a white card, so a white card inside it would disappear: the rest state
+  // is the tinted canvas colour, lifting to white on hover. Only OVERDUE tints with a status
+  // colour — at-risk gets a badge, not a whole coloured card.
   return (
     <article
-      className="rounded-lg border border-(--border-default) p-3 transition-shadow hover:shadow-(--shadow-card)"
+      className="p-3 transition-all hover:shadow-(--shadow-card) hover:bg-(--bg-surface)"
       style={{
-        // Only OVERDUE tints. At-risk gets a badge, not a whole coloured card.
-        background: card.slaStatus === 'OVERDUE' ? 'var(--status-red-bg)' : 'var(--bg-surface)',
+        background: card.slaStatus === 'OVERDUE' ? 'var(--status-red-bg)' : 'var(--bg-base)',
+        borderRadius: 'var(--radius-lg)',
         opacity: busy ? 0.55 : 1,
       }}
     >
@@ -82,8 +85,8 @@ export default function CaseCard({
         </Link>
         {sla && (
           <span
-            className="shrink-0 rounded-md px-1.5 py-0.5 text-[11px] font-semibold"
-            style={{ color: sla.fg, background: sla.bg }}
+            className="shrink-0 px-2 py-0.5 text-[11px] font-medium"
+            style={{ color: sla.fg, background: sla.bg, borderRadius: 'var(--radius-md)' }}
           >
             {sla.label}
           </span>
@@ -91,7 +94,7 @@ export default function CaseCard({
       </div>
 
       <Link to={`/cases/${card.id}`} className="mt-1 block">
-        <p className="text-sm leading-snug font-semibold" style={{ color: 'var(--text-primary)' }}>
+        <p className="text-[15px] leading-snug font-semibold" style={{ color: 'var(--text-primary)' }}>
           {card.clientName ?? 'Unnamed contact'}
         </p>
       </Link>
@@ -102,7 +105,7 @@ export default function CaseCard({
         {card.serviceType?.replaceAll('_', ' ') ?? 'service not set'}
       </p>
 
-      <dl className="font-num mt-2.5 flex items-baseline gap-4 text-xs tabular-nums">
+      <dl className="font-num mt-2 flex items-baseline gap-4 text-xs tabular-nums">
         <div>
           <dt className="text-[10px] tracking-wide uppercase" style={{ color: 'var(--text-muted)' }}>
             Due
@@ -150,7 +153,7 @@ export default function CaseCard({
               onClick={() => onAction(action)}
               // Classes, not inline style: an inline `background` would win over the hover
               // rule and the button would never light up.
-              className="rounded-md bg-(--bg-raised) px-2 py-1 text-xs font-medium text-(--accent-primary) transition-colors enabled:hover:bg-(--accent-primary) enabled:hover:text-white disabled:opacity-40"
+              className="rounded-md bg-(--accent-soft) px-3 py-1.5 text-xs font-medium text-(--accent-primary) transition-colors enabled:hover:bg-(--accent-primary) enabled:hover:text-white disabled:opacity-40"
             >
               {action.label}
             </button>
@@ -166,8 +169,8 @@ function Chip({ children, accent = false }: { children: React.ReactNode; accent?
     <span
       className={
         accent
-          ? 'rounded-md bg-(--accent-primary) px-1.5 py-0.5 text-[11px] font-medium text-white'
-          : 'rounded-md bg-(--bg-raised) px-1.5 py-0.5 text-[11px] text-(--text-muted)'
+          ? 'rounded-md bg-(--accent-primary) px-2.5 py-0.5 text-[11px] font-medium text-white'
+          : 'rounded-md bg-(--bg-raised) px-2.5 py-0.5 text-[11px] text-(--text-muted)'
       }
     >
       {children}

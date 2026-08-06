@@ -232,6 +232,16 @@ about client convenience: an expert who never receives their link cannot sign, a
 20h/24h clock runs regardless. Hand-sending works at current volume and will not
 scale.
 
+**Until it is decided, the compensating control is Unit 17's portal links ledger**
+(metric 5 in `17-dashboards.md`, gap **G16**). Because delivery is a human copy-paste,
+EvalOS cannot record that a link was *sent* — and must not pretend to, which is why
+there is no `sent_at` column. What it can record is that one was *opened*
+(`portal_access.last_seen_at`), and that is the honest evidence it arrived. The ledger
+surfaces a live-but-never-opened link against a running stage clock, which is the
+shape the failure actually takes. **If the channel decision ever lands on EvalOS
+sending these, `sent_at` becomes a fact it can witness and belongs in that unit** —
+not before.
+
 **Convention while it is undecided:** wherever code will eventually sit for one of
 these, leave a marker comment naming the touchpoint —
 

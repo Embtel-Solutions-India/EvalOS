@@ -54,8 +54,8 @@ export default function QuickActionDialog({
       ref={dialog}
       // max-h + scroll because the shortlist makes this dialog tall enough to run off a laptop
       // screen, and a modal whose Assign button is below the fold cannot be completed.
-      className="scroll-slim fixed inset-0 z-20 m-auto max-h-[85vh] overflow-y-auto rounded-xl border p-0 backdrop:bg-black/30"
-      style={{ background: 'var(--bg-surface)', borderColor: 'var(--border-default)' }}
+      className="scroll-slim fixed inset-0 z-20 m-auto max-h-[85vh] overflow-y-auto rounded-xl p-0 backdrop:bg-black/30"
+      style={{ background: 'var(--bg-surface)', boxShadow: 'var(--shadow-pop)' }}
       // Escape reaches this now that the dialog is modal. `preventDefault` first, because
       // the parent unmounts us and letting the platform also close a removed node is how a
       // stale dialog ends up stuck open on the next render.
@@ -67,13 +67,13 @@ export default function QuickActionDialog({
       <form
         // Wider for the shortlist, whose cards carry four labelled bars each; the other dialogs
         // collect at most two fields and a wide box for one input reads as an empty room.
-        className={`${action.path === 'assign-cm' ? 'w-112' : 'w-88'} p-5`}
+        className={`${action.path === 'assign-cm' ? 'w-112' : 'w-88'} p-7`}
         onSubmit={(event) => {
           event.preventDefault()
           onConfirm(values)
         }}
       >
-        <h2 className="text-base font-semibold tracking-tight">{action.label}</h2>
+        <h2 className="text-xl font-semibold tracking-tight">{action.label}</h2>
         <p className="font-mono mt-0.5 text-xs" style={{ color: 'var(--text-muted)' }}>
           {caseCode}
         </p>
@@ -104,18 +104,18 @@ export default function QuickActionDialog({
           )}
         </div>
 
-        <div className="mt-5 flex justify-end gap-2">
+        <div className="mt-7 flex justify-end gap-2">
           <button
             type="button"
             onClick={onCancel}
-            className="rounded-md px-3 py-1.5 text-sm font-medium"
+            className="rounded-md px-5 py-2.5 text-sm font-medium"
             style={{ background: 'var(--bg-raised)' }}
           >
             Cancel
           </button>
           <button
             type="submit"
-            className="rounded-md px-3 py-1.5 text-sm font-medium text-white"
+            className="rounded-md px-5 py-2.5 text-sm font-medium text-white"
             style={{ background: 'var(--accent-primary)' }}
           >
             {action.label}
@@ -126,8 +126,8 @@ export default function QuickActionDialog({
   )
 }
 
-const LABEL_CLASS = 'block text-xs font-medium'
-const INPUT_CLASS = 'mt-1 w-full rounded-md border px-2.5 py-1.5 text-sm'
+const LABEL_CLASS = 'block text-xs font-medium tracking-[0.04em] uppercase'
+const INPUT_CLASS = 'mt-1.5 w-full rounded-lg border px-4 py-2.5 text-sm'
 const INPUT_STYLE = { background: 'var(--bg-base)', borderColor: 'var(--border-default)' }
 
 function Field({

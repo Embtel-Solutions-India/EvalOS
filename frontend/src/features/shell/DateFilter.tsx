@@ -16,8 +16,8 @@ export default function DateFilter() {
 
   return (
     <div
-      className="flex items-center gap-0.5 rounded-md p-0.5"
-      style={{ background: 'var(--bg-raised)' }}
+      className="flex h-9 items-center gap-0.5 p-1"
+      style={{ background: 'var(--bg-surface)', borderRadius: 'var(--radius-xl)', boxShadow: 'var(--shadow-card)' }}
       role="group"
       aria-label="Date range"
     >
@@ -29,10 +29,11 @@ export default function DateFilter() {
             type="button"
             onClick={() => setDateRange(range.value)}
             aria-pressed={active}
-            className="rounded-md px-2.5 py-1 text-sm font-medium"
+            className="px-3 py-1 text-sm font-medium transition-colors"
             style={{
-              background: active ? 'var(--bg-surface)' : 'transparent',
-              color: active ? 'var(--text-primary)' : 'var(--text-muted)',
+              borderRadius: 'var(--radius-xl)',
+              background: active ? 'var(--accent-soft)' : 'transparent',
+              color: active ? 'var(--accent-primary)' : 'var(--text-muted)',
             }}
           >
             {range.label}

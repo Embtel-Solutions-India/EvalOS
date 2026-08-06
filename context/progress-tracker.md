@@ -61,6 +61,7 @@ confirmation. What is genuinely outstanding, with its owner:
 | G13 | Client communication log | **not scoped** | Architecturally GHL's. A threaded per-case log would be a new *inbound* integration pulling GHL conversations. Recorded, not planned |
 | G14 | Antivirus posture for accepted uploads | **decision** | Drive scans on ingest; that is not the same as EvalOS having an AV stance on files from a public link. Flagged in Unit 21, does not block it. **Now covers two surfaces** — client documents and the signed letter |
 | G15 | Getting the expert's portal link to the expert | **decision (T6)** | Dropping the signature provider removed what used to email it. Hand-sent by the CM until the email channel is decided — and unlike the client link, an expert who never gets theirs cannot sign while the 20h/24h clock runs |
+| G16 | **No screen shows which portal links exist, or whether anyone opened them** | **Unit 17** (specced) | The compensating control for G15 and T1/T5/T6: because delivery is a human copy-paste, the *only* evidence a link arrived is `portal_access.last_seen_at`, and nothing reads it in aggregate. So the likeliest way to breach the 24h signing SLA — a link nobody sent — is currently invisible. Specced as metric 5 in `17-dashboards.md`; **needs no migration**, all four facts are already stored |
 
 **Explicitly not gaps — decided out:**
 
@@ -1966,6 +1967,40 @@ gained the power to rewrite money, which the spec asked for and then did not fol
   refuse that second case today. Not done, because it is a business call about what a case *is*.
 
 ## In Progress
+
+- **Visual refresh (`UI_MIGRATION_GUIDE.md`) — shell and board migrated, other screens not.**
+  Tokens, `AppShell`, `LeftNav`, `TopBar`, `BrandSwitcher`, `DateFilter`,
+  `NotificationBell` and `features/board/*` are in the adopted language. Everything else
+  still renders the pre-migration one, so the app is mid-flight by design and the two look
+  different side by side.
+
+  **The density is now settled, and it is not the template's.** Protend is built for a
+  1920 desktop: 400px sidebar, 136px header, 44–48px controls. EvalOS staff run
+  **1366 × 768**, where that spends 28% of the width and 18% of the height on chrome. The
+  adopted scale is **240px sidebar / 72px header / 36px controls / 288px board column**,
+  recorded as a new "Density" section in `ui-context.md` and as a deviation table in the
+  guide. The template's identity — radius, tinted canvas, ambient shadow, indigo accent —
+  is untouched; only its density is rejected.
+
+  **The board scrolls on both axes, with one owner each.** The column strip owns
+  horizontal, each column's card list owns vertical, bounded by a new
+  `--board-column-max` token. The page heading, filters, pool and every column header and
+  SLA rail stay fixed — which is the point, since the rail is the board's one instrument
+  and it used to scroll off the top with the page. The pool lane is capped at two rows of
+  pills and "Off the pipeline" now starts closed; both used to push the columns below the
+  fold. `--board-column-max` subtracts a measured 22rem of chrome from `100svh` and is
+  marked `ponytail:` in `tokens.css` — the non-magic version is a viewport-height app
+  frame where the strip is `flex-1 min-h-0`, which means `AppShell` owning the scroll for
+  every screen. Not worth it for one board.
+
+  Verified: `tsc --noEmit` clean, `vite build` clean. **Not yet verified in a browser** —
+  the 1366×768 pass the guide's checklist now asks for is owed.
+
+  **One known inconsistency, left deliberately:** the colour table in `ui-context.md`
+  still lists the pre-migration hexes (`#F7F8FA`, `#3552E0`, …) while `tokens.css` ships
+  the adopted ones. The file's own banner says the guide supersedes it on colour *values*
+  and that it stays authoritative on RAG *semantics*, so it is not wrong, but the table
+  should be restated once the last screen lands.
 
 - **Unit 13's one live check.** The manual Drive upload above. It needs credentials that are
   provisioned, not coded, so it is blocked on somebody with Google Cloud access rather than on

@@ -19,7 +19,7 @@ const BANDS: readonly { key: keyof SlaMix; color: string; label: string }[] = [
   { key: 'overdue', color: 'var(--status-red)', label: 'overdue' },
   { key: 'atRisk', color: 'var(--status-amber)', label: 'at risk' },
   { key: 'onTrack', color: 'var(--status-green)', label: 'on track' },
-  { key: 'unknown', color: 'var(--border-default)', label: 'no clock running' },
+  { key: 'unknown', color: 'var(--rail-unknown)', label: 'no clock running' },
 ]
 
 export default function StageColumn({
@@ -43,34 +43,38 @@ export default function StageColumn({
   tone?: 'stage' | 'lane'
   children: ReactNode
 }) {
+  // A `.box` in the adopted language: white surface, 10px radius, ambient shadow — and no
+  // border, because on a tinted canvas the shadow already separates it. A lane is the same
+  // card with a tinted wash, so "off the pipeline" reads without a second border treatment.
   return (
     <section
-      className="flex w-72 shrink-0 flex-col overflow-hidden rounded-lg border"
+      className="flex w-72 shrink-0 flex-col overflow-hidden"
       style={{
-        background: tone === 'lane' ? 'var(--bg-surface)' : 'var(--bg-raised)',
-        borderColor: 'var(--border-default)',
+        background: tone === 'lane' ? 'var(--bg-raised)' : 'var(--bg-surface)',
+        borderRadius: 'var(--radius-lg)',
         boxShadow: 'var(--shadow-card)',
       }}
     >
       <SlaRail mix={mix} count={count} label={label} />
 
-      <header
-        className="flex items-baseline justify-between gap-2 border-b px-3 py-2.5"
-        style={{ borderColor: 'var(--border-default)' }}
-      >
-        <h2 className="flex min-w-0 items-baseline gap-1.5 text-sm font-semibold tracking-tight">
+      <header className="flex items-baseline justify-between gap-2 px-4 pt-3.5 pb-2.5">
+        <h2 className="flex min-w-0 items-baseline gap-2 text-sm font-semibold tracking-tight">
           {step !== undefined && (
-            <span className="font-mono text-[11px] font-normal" style={{ color: 'var(--text-muted)' }}>
+            <span className="font-mono text-xs font-normal" style={{ color: 'var(--text-muted)' }}>
               {step}
             </span>
           )}
           <span className="truncate">{label}</span>
         </h2>
-        <span className="flex shrink-0 items-baseline gap-1.5">
+        <span className="flex shrink-0 items-baseline gap-2">
           {readOnly && (
             <span
-              className="rounded-md px-1.5 py-0.5 text-[10px] font-medium tracking-[0.06em] uppercase"
-              style={{ background: 'var(--bg-surface)', color: 'var(--text-muted)' }}
+              className="px-2 py-0.5 text-[10px] font-medium tracking-[0.06em] uppercase"
+              style={{
+                background: 'var(--bg-raised)',
+                color: 'var(--text-muted)',
+                borderRadius: 'var(--radius-md)',
+              }}
               title="You watch this stage; another role works it"
             >
               watching
@@ -80,9 +84,15 @@ export default function StageColumn({
         </span>
       </header>
 
-      <div className="scroll-slim flex min-h-24 flex-col gap-2 overflow-y-auto p-2">
+      {/* The column's own scroller. Bounded by `--board-column-max` so the header and the SLA
+          rail stay pinned while the cards move under them — with the strip scrolling sideways,
+          that is the board's second axis. */}
+      <div
+        className="scroll-slim flex min-h-20 flex-col gap-2.5 overflow-y-auto px-3 pb-3"
+        style={{ maxHeight: 'var(--board-column-max)' }}
+      >
         {count === 0 ? (
-          <p className="px-1 py-4 text-xs" style={{ color: 'var(--text-muted)' }}>
+          <p className="px-1 py-5 text-center text-xs" style={{ color: 'var(--text-muted)' }}>
             {tone === 'lane' ? 'Nothing held here.' : 'No cases at this stage.'}
           </p>
         ) : (
@@ -105,7 +115,7 @@ function SlaRail({ mix, count, label }: { mix: SlaMix; count: number; label: str
   return (
     <div
       className="flex h-[3px] w-full"
-      style={{ background: 'var(--border-default)' }}
+      style={{ background: 'var(--rail-unknown)' }}
       role="img"
       aria-label={count === 0 ? `${label}: no cases` : `${label}: ${summary}`}
     >
