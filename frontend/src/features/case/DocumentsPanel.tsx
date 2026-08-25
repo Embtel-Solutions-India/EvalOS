@@ -35,7 +35,9 @@ export default function DocumentsPanel({ detail }: { detail: CaseDetail }) {
         </a>
       ) : (
         <p className="mt-2 text-sm" style={{ color: 'var(--text-muted)' }}>
-          No Drive folder linked yet.
+          {detail.maySeeCaseContent
+            ? 'No Drive folder linked yet.'
+            : 'The client document folder is not available to your role.'}
         </p>
       )}
 

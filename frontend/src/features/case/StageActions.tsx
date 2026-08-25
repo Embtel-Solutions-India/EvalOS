@@ -69,8 +69,15 @@ export default function StageActions({
             )}
           </div>
 
+          {/* Withheld and unnamed are different facts and must not share a label: the supply-side
+              role may not see the client at all, which is not the same as a case with no contact
+              linked to it. `maySeeCaseContent` is the server's own answer to which one this is. */}
           <h1 className="mt-1 text-lg font-semibold tracking-tight">
-            {detail.clientName ?? 'Unnamed contact'}
+            {detail.maySeeCaseContent ? (
+              (detail.clientName ?? 'Unnamed contact')
+            ) : (
+              <span style={{ color: 'var(--text-muted)' }}>Client withheld</span>
+            )}
           </h1>
           <p className="font-num text-sm tabular-nums" style={{ color: 'var(--text-muted)' }}>
             {readable(card.serviceType)} · {readable(card.currentStage)} · due{' '}

@@ -6,6 +6,7 @@ import java.util.UUID;
 import com.ie.evalos.common.ApiErrors;
 import com.ie.evalos.domain.Role;
 import com.ie.evalos.domain.TeamMember;
+import com.ie.evalos.repository.BrandRepository;
 import com.ie.evalos.repository.TeamMemberRepository;
 import com.ie.evalos.security.EvalOsUserDetailsService;
 import com.ie.evalos.security.JwtService;
@@ -79,6 +80,15 @@ class SecurityFlowTest {
 
 	@MockitoBean
 	TeamMemberRepository teamMembers;
+
+	/**
+	 * {@code AuthController} resolves the caller's own brand name for `/api/me`, because
+	 * `GET /api/brands` is GM-only and a Brand Manager could not otherwise turn their `brandId`
+	 * into a name. Mocked rather than imported: this test is about the security chain, and an
+	 * unstubbed lookup answers empty, which is the "no brand on file" path anyway.
+	 */
+	@MockitoBean
+	BrandRepository brands;
 
 	private String bearer(StaffPrincipal principal) {
 		return "Bearer " + jwtService.issue(principal);

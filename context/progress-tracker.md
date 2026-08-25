@@ -4,6 +4,46 @@ Update this file after every meaningful implementation change.
 
 ## Current Phase
 
+- **Unit 23 — Case notes, and routing intake to the PM — is complete and verified.**
+  See `context/specs/23-case-notes-and-pm-routing.md`. Two changes that are one decision:
+  the case's front door is the Project Manager, and the case carries its own conversation.
+  - **The GM stopped working the queue.** The pool lane left their board (`SEES_POOL` is
+    `['BRAND_MANAGER']`), and `/inbox` and `/checklists` left their sidebar. **Nav only —
+    no backend gate was narrowed**, `GM_OR` still prefixes every transition those screens
+    drive, so a GM can still unblock anything from the board or the case page.
+  - **`assign-pm` now admits the Project Manager**, who claims a pooled case from their
+    inbox with a *Take this case* button that posts their own member id. Routing to a
+    *different* PM is still possible from the case page.
+  - **The scope change that made it possible, stated plainly:** `ScopePredicate.Fields`
+    gained `unteamedVisible`, and a `TEAM` caller now matches `team = mine OR team IS NULL`
+    when it is set. It is set on **cases and nowhere else** — `TeamMemberQueryService` keeps
+    the strict predicate, because an unteamed *person* is not unclaimed work. Before this a
+    PM could not read a pooled case at all, so the inbox's *Unassigned* preset had been
+    filtering a permanently empty set for the only role that could reach the screen.
+  - **Notes are audit rows, not a table.** `AuditAction.NOTE_ADDED`, written through the
+    same `AuditService.recordEvent` that `flagToPm` uses. `POST /cases/{id}/notes` carries
+    **no `@PreAuthorize` and that is the design**: the scoped load is the gate, so "everyone
+    on the case" is exactly the set the scope admits rather than a role list that would
+    drift. Consequence accepted: a note can never be edited or deleted.
+  - **23a, the one gate that *was* narrowed: draft review is PM-only, GM included.**
+    `draft/pm-approve` and `draft/pm-return` dropped `GM_OR`, `/drafts` became
+    `['PROJECT_MANAGER']`, and `boardRules` marks both `gm: 'never'` so the buttons do not render
+    for a GM on the case page. Approving a Case Manager's draft is the judgement of the PM who
+    assigned it; a superuser path around the reviewer makes "who approved this" ambiguous on the
+    artefact the client pays for. `QuickAction.gmOnly` became `gm: 'only' | 'never'` and the rule
+    moved into an exported `admits()` that the test now calls instead of re-deriving.
+    `Route.gmMayAct` asserts the 403, so restoring `GM_OR` fails a test.
+  - `Timeline` became **Notes & timeline** with a composer at its foot. One panel, not two
+    tabs — a note is usually about the transition beside it.
+  - The GHL `opportunity.won` payload gained an optional `notes`, carried onto the `CREATED`
+    audit row so the case arrives with what sales wrote on it.
+  - **Deliberately not built, so it is not read as an oversight:** no notification fires on
+    a note (the people on a case open the case); notes are not addressed to a person; no
+    notes on experts or payouts.
+  - Verified: `./mvnw verify` **406 tests, 0 failures, 27 skipped**; `npx vitest run`
+    **112 passed**; `npm run build` clean.
+
+
 - **Phase 1 — Structure the data (the spine) is complete.** Units 01–10, plus 05a. Per
   `context/specs/00-build-plan.md` the phase boundaries are 01–10 / 11–17 / 18–20, so Units 06
   (notification centre), 07 (app shell), 08 (production board), 09 (case detail) and 10 (doc
@@ -97,6 +137,205 @@ Update this file after every meaningful implementation change.
   Unit 14's spec also still claimed the one-live-token index was impossible; `V23` shipped
   it, and the spec now says so.
 
+- **The supply-side tier excluded nothing, fixed 2026-08-25.** Found while specifying Unit 22's
+  ENM slice, not by a review pass. `Role.Tier.SUPPLY`'s javadoc read "own brand's expert/roster
+  supply side — not case content"; `ScopePredicate` handled it under `default -> {}` beside
+  `BRAND`, and **`SUPPLY` was referenced nowhere else in the codebase**. The tier that existed to
+  exclude case content added no predicate and excluded nothing.
+  Two consequences, the second worse than the first:
+  1. **`CaseController.CaseDetail` returned `clientName`, `driveLink` and `draftLink`
+     unconditionally.** `pmStrategyNotes` was the only projected field, under a javadoc stating
+     the principle it did not apply — "a field the caller may not see is absent from the payload".
+  2. **`CaseBoardController` was the wider hole.** It has no `@PreAuthorize` by design, sound only
+     if the scope narrows, and it gated `dealValue` by role while passing `clientName` through on
+     the adjacent line. An authenticated Expert Network Manager could `GET /api/cases/board` and
+     receive **every client name in their brand in one request**.
+  Bounded: authenticated ENM, own brand only, no cross-tenant reach — an internal role-boundary
+  breach, not a public vulnerability.
+  **Fixed by field projection derived from the tier** (`CaseController.seesCaseContent`), not by
+  narrowing the row scope: the ENM's three signing transitions must still load the case. A
+  `Set<Role>` was deliberately not used — the tier already holds this fact and a second copy is
+  what goes stale. `maySeeCaseContent` ships on the payload because `clientName` is *already*
+  legitimately null when no contact is linked, and `StageActions` rendered that as "Unnamed
+  contact" — a withheld client would have been drawn as a claim that was not true.
+  **The suite had been asserting the access.** `CaseControllerTest` looped the ENM through
+  `GET /api/cases/{id}` expecting `isOk()` and never asked what came back; that test is extended
+  rather than replaced. The board test was verified to fail against the unfixed code before the
+  fix was restored, and `withNotes()` now sets a `draftLink` — without it the absence assertion
+  passed vacuously and would have proved nothing.
+
+- **Unit 22 slice 1 (Project Manager) is built, 2026-08-25.** The unit supersedes and re-cuts
+  Unit 17 — same metric definitions, delivered role by role instead of layer by layer. See
+  `context/specs/22-role-operations-ui.md` for the ten decisions and the eleven brief features
+  refused with authority cited.
+  What shipped:
+  - **`DeadlineRisk` beside `SlaStatus`, not replacing it.** The finding that shaped the slice:
+    `SlaCalculator` measures *stage budgets* and never reads `case.deadline`, so the board's rail
+    and "will we miss the promised date" are different questions that disagree routinely. Both are
+    now on every board card and labelled distinctly. Thresholds are `ui-context.md`'s existing
+    24h/48h business-hour bands — none invented.
+  - `PmMetricsService` + `GET /api/metrics/pm`, computed live off `CaseLifecycleService.list` so a
+    dashboard cannot see further than the board. Six figures; expert response time renders
+    `unavailable` naming Unit 15 rather than zero.
+  - Two non-transitions: `PATCH /cases/{id}/case-manager` and `PATCH /cases/{id}/deadline`.
+    **Closes G12.**
+  - `/inbox` and `/drafts`, both reading `/api/cases/board` rather than adding endpoints — no
+    second scope predicate to drift. **Closes G4 and G5**; deadline view is a preset on `/inbox`.
+  - `components/ui/` created and now protected: Radix-backed dialog/sheet/tabs/popover/tooltip/
+    dropdown, plus the card system with its `loading · ok · warning · error · empty · unavailable`
+    union. Three deps added (`radix-ui`, `lucide-react`, `recharts`); dnd-kit, TanStack Table and
+    Motion deferred with triggers.
+  Three corrections to the spec, found while building it and fixed at source:
+  1. **"Widen `assign-cm` to `DRAFT_GENERATION`" was wrong.** That action also picks the expert
+     and writes an `ExpertCaseOffer`, so reassigning a CM through it would mint phantom offers
+     against experts nobody contacted — the exact risk G12's own note warned about. Reassignment
+     is a stage-preserving field update instead, asserted by
+     `reassigningTheCaseManagerDoesNotMintAnExpertOffer`.
+  2. **"Assign a Case Manager from the inbox row" is only reassignment.** A pooled case needs a CM
+     *and* an expert in one call; a popover collecting just a name would be refused 409. Pooled
+     rows link to the case, with the reason on screen.
+  3. **Completion by service type is end-to-end** (`created_at` → `delivery_date`, median business
+     hours), not the paired-`STAGE_CHANGED` per-stage family the spec cited. That family is a
+     different tile; this one is what "average case completion by product" means.
+  `npm audit` was clean afterwards: the install surfaced two **pre-existing** advisories
+  (`nanoid`, `react-router` RSC CSRF — EvalOS is a Vite SPA and uses no RSC mode), both closed by
+  a semver-compatible `npm audit fix`.
+
+- **Second visual pass, 2026-08-25: the Protend language is replaced.** A business-supplied
+  reference image drove a token-level change with **no functional change** — the scope rule in
+  `UI_MIGRATION_GUIDE.md` held exactly (colour, type, spacing, radius, shadow, iconography,
+  presentational markup in; logic, APIs, routing, state, gates out). That guide now carries a
+  SUPERSEDED banner rather than sitting beside `ui-context.md` contradicting it, because it called
+  the floating rounded rail "the defining move" and this pass reverses it.
+  - **Nav rail: dark navy, flush, full height.** New `--sidebar-*` token group; the only dark
+    surface in the app. Contrast measured (13.5:1 / 5.4:1 / 11.1:1), not assumed.
+  - **`--radius-xl` 30px → 12px**, and controls moved from `xl` to `md` across seven files — at
+    30px every 36px control was a pill.
+  - Accent violet → blue; canvas cooled; elevation is border-first rather than a 50px bloom.
+  - KPI figures are large and **semantically coloured**, with delta chips carrying arrow + sign +
+    `sr-only` direction. Thresholds live at the call site, not inside the card.
+  - **Sparklines were deliberately not copied.** The reference shows one per KPI; EvalOS has no
+    trend *series* behind these figures, only a single delta. Add when an endpoint returns a
+    series — never from invented data.
+  - RAG semantics, thresholds and every `--status-*` value are **untouched**; `ui-context.md`
+    remains the authority where the two ever appear to disagree.
+
+- **Unit 22 slices 2–5 are built, 2026-08-25. Every role now reads live figures**; the
+  placeholder tile table in `RoleDashboard` is gone. One `MetricsController` at `/api/metrics`
+  with five routes and a separate service behind each — folding them into one payload would send
+  every reader everybody's numbers and then trust the client to hide what it should never have
+  received.
+  - **Slice 2, Coordinator.** `CoordinatorMetricsService`; documents outstanding and aging against
+    **decision 6's stage SLA** (one clock, so the tile and the board rail cannot disagree); median
+    *current* wait rather than completed-collection time, which would need paired audit rows;
+    client-review counts split by `client_portal_read_at` (unopened is evidence, not a guess).
+    **`/delivery` is back and closes G3** — `deliver`/`close` have been Coordinator-gated since
+    Unit 04, so it is genuinely only a screen. Delivery confirms in a dialog; it reaches a client
+    and cannot be undone.
+  - **Slice 3, Case Manager.** `CaseManagerMetricsService`, keyed on `TenantContext.memberId()`
+    with no `brandId` parameter — a brand filter would be a way to ask "my work" about somebody
+    else. **Flag-to-PM built (decision 7):** `POST /cases/{id}/flag`, new `AuditAction.FLAGGED`
+    and `CaseEvents.Type.CASE_FLAGGED_TO_PM`, routed through `NotificationListeners.ROUTES` to the
+    case's **own** PM rather than every PM on the brand — an alert that is everyone's job is
+    nobody's. No stage change, no column, no migration.
+  - **Slice 4, ENM.** `ExpertNetworkMetricsService`: roster health, coverage per **primary** field
+    with the <5 alert (**closes G6**), onboarding against a configured target (**closes G7**),
+    fleet acceptance rate built from `countOutcomesPerExpert` + `OfferOutcome.countsTowardAcceptanceRate`
+    — **`ExpertMatchService`'s own expressions, imported not re-derived**. **Performance-flag writer
+    built (decision 9, closes G8):** `PATCH /experts/{id}/performance-flags`, ENM-gated, new
+    `AuditAction.PERFORMANCE_FLAGGED`. The list **replaces rather than appends** — the column holds
+    what is true now, the trail holds the history. `ExpertProfileView` now returns
+    `performanceFlags`, which it did not: a flag the ENM could set and never read back was a write
+    into a hole.
+  - **Slice 5, GM/BM.** `RevenueMetricsService`, **importing `RefundService.isRefunded` and
+    `isRevenueRecognized`** rather than re-expressing them. Largest tile is open liability, not
+    collected. `Collected = Recognised + Open liability` is **asserted in a test and on screen** —
+    if the three stop reconciling the page says so instead of showing them. Per-brand breakdown
+    only when more than one brand is in scope. Money out `unavailable` (Unit 16).
+  - Two config values, both taking decision 4's shape: `evalos.workload.cases-per-cm` and
+    `evalos.roster.monthly-onboarding-target`.
+  - `PmMetricsController` became `MetricsController` at `/api/metrics` — the sub-routes were
+    landing at `/api/metrics/pm/coordinator`.
+
+- **Unit 22 reconciled against the CRM build spec's own dashboard pages, 2026-08-25.** The
+  business supplied the spec's Case Manager and Expert Network Manager pages; the slices were
+  checked line by line against them. Five real gaps, all now closed:
+  1. **The revision-rate flag was 30% in the spec and 40% in the code.** Ours would have stayed
+     quiet through a rate the business considers worth a conversation. Now `REVISION_RATE_FLAG_PCT
+     = 30`, and it only fires once the sample supports it — the spec says "consistently >30%", and
+     the minimum case count is what makes "consistently" mean anything.
+  2. **`CLIENT_REQUEST_REVISIONS` had no audit action of its own** — it shared `UPDATED` with
+     strategy-note edits, deadline changes, draft submission and most of the draft loop. The
+     spec's *client revision request rate* and *client feedback log* were therefore not
+     computable, and the slice-3 spec line claiming otherwise was wrong the same way the
+     `DRAFT_RETURNED` claim was. Added `AuditAction.CLIENT_REVISION_REQUESTED` and repointed the
+     transition. **Rows written earlier stay `UPDATED`**, so the rate is forward-looking — the
+     alternative was rewriting history, which the append-only rule forbids.
+  3. **The CM dashboard shipped counts where the spec asks for lists.** It now sends the docket
+     itself — client, product, deadline + RAG, stage, expert, PM strategy notes — deadline-ordered
+     server-side, so *the priority queue is that list* rather than a second one that could
+     disagree. Plus the draft status board, the client feedback log, and expert signing with the
+     spec's overdue prompt.
+  4. **The spec's "reassign prompt" is not the CM's to press.** Reassignment is PM/ENM-gated, so an
+     overdue signing offers the flag-to-PM instead — the escalation they actually hold. A reassign
+     button there would render a control the server refuses.
+  5. **The ENM availability board reported available/total**, where the spec asks for available vs
+     at-capacity vs **inactive** per field. Now all three, with on-leave folded into inactive
+     because for staffing the next case they are the same answer. Added the spec's low-quality-score
+     list; an *unscored* expert is not low quality, so nulls are excluded rather than read as zero.
+  **A bug of mine this surfaced:** `FLAGGED` and `PERFORMANCE_FLAGGED` went into the backend enum
+  in slices 3–4 but never into the frontend `AuditAction` union or the timeline's label map. No
+  crash — the map falls back — but the union was lying about the wire and the timeline would have
+  rendered `performance_flagged` raw. All three new actions are now in both.
+
+- **Navigation rail reconciled against the reference design, 2026-08-25.** Verified first: every
+  `NAV_ITEMS` path resolves. `/payouts` and `/brands` land on `PlaceholderPage`, which reads the
+  label and `becomes` off the nav table — *"Not built yet — Payout ledger (Unit 16)"* plus a way
+  out. **That is correct, not a label over a placeholder**, and the slice-4 spec line asking for a
+  different card there was over-specified; the line is fixed rather than the code.
+  What the rail gained:
+  - **Live badge counts** (`GET /api/metrics/nav`, `NavBadgeService`) — unassigned, drafts awaiting
+    review, ready to deliver, docs aging, own critical cases. One scoped read; a role sees only
+    what it could open. **Zero renders nothing** — the opposite of the dashboard rule, because on
+    a rail a row of noughts trains people to stop reading it, while on a tile the zero *is* the
+    answer. Red only where zero is genuinely the target (unassigned, own overdue); work-in-progress
+    counts stay neutral or the colour stops meaning anything.
+  - **The brand you are actually in**, not the product name. `GET /api/brands` is GM-only, so a
+    Brand Manager holding a `brandId` had no way to resolve it; `/api/me` now carries `brandName`.
+  **Refused, with the reason:** the reference rail also lists Deadlines, Workload, Reports, Strategy
+  Notes, Activity Log and a Quick Actions block. Deadlines and Workload are already decided —
+  a preset on `/inbox` and a section on the PM dashboard — and the rest have no screen. Adding
+  them would rebuild the exact "label over a placeholder" bug `navigation.ts` documents having
+  deleted twice. The Quick Actions block is refused on the spec's own rule that actions attach to
+  a record: a global "Approve Draft" with no draft selected cannot work.
+
+- **Draft review workspace rebuilt to the supplied design, 2026-08-25.** `/drafts` was a flat
+  list; it is now the reference's split view — six KPI tiles, status tabs, a dense table and an
+  inspector panel — backed by `DraftReviewService` and `GET /api/metrics/drafts`.
+  **Everything on it is derived; no column was added.** Two things look like stored fields and are
+  not, which matters before someone adds storage for them:
+  - **`status`** (pending review / revisions requested / ready for QC / approved) comes from
+    `pm_approval_status` **plus the stage**. Approved means *past the QC gate*, not merely
+    PM-approved — a case can be PM-approved and several steps from done, and the test pins that.
+  - **`priority`** (high / medium / low) is the `DeadlineRisk` band relabelled for this one screen.
+    **Decision 5 refused an urgency column** and that still holds; High is red, not a flag.
+  - The **progress checklist** is eight observable milestones — documents collected, expert
+    assigned, draft submitted, PM approved, sent to client, client approved, expert signed, QC
+    approved — each read off the case. The reference's "Academic Assessment" / "Professional
+    Assessment" steps have no equivalent: EvalOS does not model the evaluation's internals, and a
+    tick it cannot observe is a progress bar that means nothing.
+    **The bar is deliberately not monotonic**: `submitDraft` nulls `client_approval_status`, so a
+    resubmitted draft correctly *loses* the client step rather than keeping a tick for a version
+    the client never saw.
+  - **Recent activity is the real audit trail**, fetched per inspected draft rather than for every
+    row.
+  **Refused from the design, with the reason:** the *Export* button — `17-dashboards.md` puts CSV
+  export out of scope — and *Columns* visibility, which is TanStack Table's, deferred with its
+  written trigger. Row checkboxes are absent for the same reason: there is no bulk draft action on
+  the server, so they would select things nothing can act on.
+  Approve and Return render **only while the draft is actually with the PM**; on any other status
+  they would offer an action the server answers 409 to.
+
 ## Gap Register — Production Process v2.0
 
 The CRM build spec's A08–A21 automations, stage SLAs and role dashboards were
@@ -107,17 +346,17 @@ confirmation. What is genuinely outstanding, with its owner:
 | # | Gap | Owner | Note |
 |---|---|---|---|
 | G1 | **A07** — client uploads documents against the checklist | **Unit 21** (specced) | New spec. Portal upload streamed to Drive |
-| ~~G2~~ | **A20** — Coordinator is not told when QC passes | **closed** | One `ROUTES` entry: `QC_APPROVED` → `STAGE_CHANGED` → that brand's Coordinators. The event and the transition had shipped in Unit 04; only the route was missing. The delivery *queue screen* is still Unit 17's (G3) — the alert arrives, the list it points at does not exist yet |
-| G3 | Delivery queue screen | Unit 08/17 | `/delivery` reinstated — reverses the Unit 10 deletion, and `navigation.test.ts` flips with it |
-| G4 | CM workload / capacity widget | Unit 17 | Grouped count by `assigned_cm`; RAG bands already fixed at 70/90 in `ui-context.md` |
-| G5 | Deadline view, draft-review queue, priority queue | Unit 17 | Three views over data already loaded |
-| G6 | Coverage-gap alert per field (<5 available) | Unit 17 | Threshold is the business's |
-| G7 | "New experts onboarded vs target" | Unit 17 | One count over `expert.date_onboarded`; the *target* needs a config home |
-| G8 | `performance_flags` has no writer | Unit 11/17 | Column and display exist; nothing sets it. Declines are better read from `expert_case_offer` |
+| ~~G2~~ | **A20** — Coordinator is not told when QC passes | **closed** | One `ROUTES` entry: `QC_APPROVED` → `STAGE_CHANGED` → that brand's Coordinators. The event and the transition had shipped in Unit 04; only the route was missing. The delivery *queue screen* landed in Unit 22 slice 2, so the alert and the list it points at now both exist |
+| ~~G3~~ | **CLOSED** Unit 22 slice 2 — `/delivery` shipped with the screen behind it — was: Delivery queue screen | Unit 08/17 | `/delivery` reinstated — reverses the Unit 10 deletion, and `navigation.test.ts` flips with it |
+| ~~G4~~ | **CLOSED** Unit 22 slice 1 — CM workload on the PM dashboard, capacity from config — was: CM workload / capacity widget | Unit 17 | Grouped count by `assigned_cm`; RAG bands already fixed at 70/90 in `ui-context.md` |
+| ~~G5~~ | **CLOSED** Unit 22 slice 1 — deadline presets on `/inbox`, `/drafts` for the review queue — was: Deadline view, draft-review queue, priority queue | Unit 17 | Three views over data already loaded |
+| ~~G6~~ | **CLOSED** Unit 22 slice 4 — coverage per primary field, <5 alert — was: Coverage-gap alert per field (<5 available) | Unit 17 | Threshold is the business's |
+| ~~G7~~ | **CLOSED** Unit 22 slice 4 — count over `date_onboarded` vs `evalos.roster.monthly-onboarding-target` — was: "New experts onboarded vs target" | Unit 17 | One count over `expert.date_onboarded`; the *target* needs a config home |
+| ~~G8~~ | **CLOSED** Unit 22 slice 4 — ENM-gated writer + `PERFORMANCE_FLAGGED`; declines still read from the offer ledger — was: `performance_flags` has no writer | Unit 11/17 | Column and display exist; nothing sets it. Declines are better read from `expert_case_offer` |
 | G9 | `avg_response_hours` is permanently null | Unit 17 | **Do not revive the column** — derive turnaround from `expert_case_offer` |
 | G10 | Quality-score *trend* | Unit 17 | `quality_score` is human-entered and unversioned, so a month-over-month trend needs history or an accepted limitation. Do not fake it |
 | G11 | Sales notes on the cases-inbox widget | Unit 05b/17 | No field carries GHL's sales notes. Either intake starts carrying one or the column comes out |
-| G12 | Mark case urgent / change deadline; reassign CM mid-draft | Unit 04/17 | Two quick actions with no transition behind them (`assign-cm` is declared on `EXPERT_ASSIGNMENT` only) |
+| ~~G12~~ | **CLOSED (partly, deliberately)** Unit 22 slice 1 — change deadline and reassign CM shipped, both stage-preserving. **Mark urgent was refused, not missed** (decision 5): the deadline already expresses urgency and drives `DeadlineRisk`, so a second flag is a second truth that can disagree with it. Note the reassign is a *new* field update, **not** `assign-cm` widened — that action also writes an `ExpertCaseOffer` and would have minted phantom offers, exactly as this row's own note warned. Was: Mark case urgent / change deadline; reassign CM mid-draft | Unit 04/17 | Two quick actions with no transition behind them (`assign-cm` is declared on `EXPERT_ASSIGNMENT` only) |
 | G13 | Client communication log | **not scoped** | Architecturally GHL's. A threaded per-case log would be a new *inbound* integration pulling GHL conversations. Recorded, not planned |
 | G14 | Antivirus posture for accepted uploads | **decision** | Drive scans on ingest; that is not the same as EvalOS having an AV stance on files from a public link. Flagged in Unit 21, does not block it. **Now covers two surfaces** — client documents and the signed letter |
 | G15 | Getting the expert's portal link to the expert | **decision (T6)** | Dropping the signature provider removed what used to email it. Hand-sent by the CM until the email channel is decided — and unlike the client link, an expert who never gets theirs cannot sign while the 20h/24h clock runs |

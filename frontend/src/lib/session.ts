@@ -24,6 +24,12 @@ export type StaffIdentity = {
   displayName: string
   role: Role
   brandId: string | null
+  /**
+   * The caller's own brand, resolved server-side because the client cannot look it up:
+   * `GET /api/brands` is GM-only. Null for the GM, who is cross-brand and picks a scope with the
+   * brand switcher instead.
+   */
+  brandName: string | null
   teamId: string | null
 }
 

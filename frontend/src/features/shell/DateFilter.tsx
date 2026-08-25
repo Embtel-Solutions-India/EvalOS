@@ -17,7 +17,7 @@ export default function DateFilter() {
   return (
     <div
       className="flex h-9 items-center gap-0.5 p-1"
-      style={{ background: 'var(--bg-surface)', borderRadius: 'var(--radius-xl)', boxShadow: 'var(--shadow-card)' }}
+      style={{ background: 'var(--bg-surface)', borderRadius: 'var(--radius-md)', boxShadow: 'var(--shadow-card)' }}
       role="group"
       aria-label="Date range"
     >
@@ -31,7 +31,7 @@ export default function DateFilter() {
             aria-pressed={active}
             className="px-3 py-1 text-sm font-medium transition-colors"
             style={{
-              borderRadius: 'var(--radius-xl)',
+              borderRadius: 'var(--radius-md)',
               background: active ? 'var(--accent-soft)' : 'transparent',
               color: active ? 'var(--accent-primary)' : 'var(--text-muted)',
             }}

@@ -80,7 +80,17 @@ public final class CaseEvents {
 		CASE_RESUMED("case.resumed"),
 		CASE_REFUND_REQUESTED("case.refund_requested"),
 		CASE_REFUNDED("case.refunded"),
-		CASE_REFUND_DENIED("case.refund_denied");
+		CASE_REFUND_DENIED("case.refund_denied"),
+		/**
+		 * A Case Manager escalated a blocked case to the Project Managers on its brand (Unit 22,
+		 * slice 3).
+		 *
+		 * <p><strong>Not a lifecycle transition</strong> — the case does not move and its stage
+		 * clock is not restamped. It is here because it needs the same delivery the transitions
+		 * get: {@code NotificationListeners.ROUTES} is what turns it into an in-app alert for the
+		 * right people, and routing it any other way would be a second notification path.
+		 */
+		CASE_FLAGGED_TO_PM("case.flagged_to_pm");
 
 		private final String wireName;
 

@@ -9,6 +9,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 import com.ie.evalos.common.ForbiddenException;
+import com.ie.evalos.domain.AuditAction;
 import com.ie.evalos.domain.Availability;
 import com.ie.evalos.domain.Case;
 import com.ie.evalos.domain.ChecklistItemStatus;
@@ -80,6 +81,7 @@ class CaseLifecycleServiceTest {
 	private static final UUID CASE_ID = UUID.randomUUID();
 	private static final UUID PM_ID = UUID.randomUUID();
 	private static final UUID CM_ID = UUID.randomUUID();
+	private static final UUID OTHER_CM_ID = UUID.randomUUID();
 	private static final UUID COORDINATOR_ID = UUID.randomUUID();
 	private static final UUID EXPERT_ID = UUID.randomUUID();
 	private static final UUID OTHER_EXPERT_ID = UUID.randomUUID();
@@ -118,6 +120,7 @@ class CaseLifecycleServiceTest {
 		// willReturn(...) argument leaves the outer stubbing unfinished.
 		TeamMember pm = member(PM_ID, Role.PROJECT_MANAGER, TEAM);
 		TeamMember cm = member(CM_ID, Role.CASE_MANAGER, TEAM);
+		TeamMember otherCm = member(OTHER_CM_ID, Role.CASE_MANAGER, TEAM);
 		TeamMember coordinator = member(COORDINATOR_ID, Role.PROJECT_COORDINATOR, TEAM);
 		Expert assigned = expert(EXPERT_ID, Availability.AVAILABLE);
 		Expert replacement = expert(OTHER_EXPERT_ID, Availability.AVAILABLE);
@@ -128,6 +131,8 @@ class CaseLifecycleServiceTest {
 		given(cases.save(any(Case.class))).willAnswer(invocation -> invocation.getArgument(0));
 		given(teamMembers.findByIdAndBrandIdAndRoleAndActiveTrue(PM_ID, BRAND, Role.PROJECT_MANAGER)).willReturn(Optional.of(pm));
 		given(teamMembers.findByIdAndBrandIdAndRoleAndActiveTrue(CM_ID, BRAND, Role.CASE_MANAGER)).willReturn(Optional.of(cm));
+		given(teamMembers.findByIdAndBrandIdAndRoleAndActiveTrue(OTHER_CM_ID, BRAND, Role.CASE_MANAGER))
+				.willReturn(Optional.of(otherCm));
 		given(teamMembers.findByIdAndBrandIdAndRoleAndActiveTrue(COORDINATOR_ID, BRAND, Role.PROJECT_COORDINATOR))
 				.willReturn(Optional.of(coordinator));
 		given(experts.findScoped(any(TenantContext.class), eq(EXPERT_ID))).willReturn(Optional.of(assigned));
@@ -766,5 +771,173 @@ class CaseLifecycleServiceTest {
 		assertFalse(forAnotherBrand.contains(anotherBrandsPm.toString()),
 				"nor echo an id the caller does not own");
 		verify(teamMembers, never()).findById(any());
+	}
+
+	// --- reassignment and deadlines (Unit 22, slice 1) -----------------------
+
+	/**
+	 * The whole reason this is its own method rather than {@code assign-cm} widened to
+	 * {@code DRAFT_GENERATION}.
+	 *
+	 * <p>{@code assignCaseManager} also picks the expert and writes an {@link ExpertCaseOffer}.
+	 * Reusing it to move a case between Case Managers would mint an offer against an expert
+	 * nobody contacted, and Unit 12's scorer reads those rows as real approaches — so the
+	 * expert's acceptance rate would decay because a PM moved somebody's workload around.
+	 */
+	@Test
+	void reassigningTheCaseManagerDoesNotMintAnExpertOffer() {
+		walkToDraftGeneration();
+		clearInvocations(offers);
+
+		Case moved = lifecycle.reassignCaseManager(CASE_ID, OTHER_CM_ID);
+
+		assertEquals(OTHER_CM_ID, moved.getAssignedCm());
+		assertEquals(Stage.DRAFT_GENERATION, moved.getCurrentStage(),
+				"reassignment moves the owner, never the case");
+		verify(offers, never()).save(any());
+	}
+
+	@Test
+	void reassigningToTheSameCaseManagerIsRefused() {
+		walkToDraftGeneration();
+
+		assertThrows(IllegalTransitionException.class,
+				() -> lifecycle.reassignCaseManager(CASE_ID, CM_ID));
+	}
+
+	/**
+	 * The deadline drives the risk tiles, and the change has to be answerable later: who moved
+	 * the date, from what, to what.
+	 */
+	@Test
+	void changingTheDeadlineRecordsBothSidesOnTheTrail() {
+		actAs(Role.PROJECT_MANAGER);
+		Instant moved = Instant.parse("2026-09-01T17:00:00Z");
+
+		Case saved = lifecycle.changeDeadline(CASE_ID, moved);
+
+		assertEquals(moved, saved.getDeadline());
+		verify(audit).recordEvent(anyString(), any(), eq(AuditAction.UPDATED), any(),
+				any(CaseLifecycleService.DeadlineSnapshot.class),
+				eq(new CaseLifecycleService.DeadlineSnapshot(moved)));
+	}
+
+	/** Clearing a promise is a different act from changing one, and it hides the case. */
+	@Test
+	void aDeadlineCannotBeClearedThroughTheChangeRoute() {
+		actAs(Role.PROJECT_MANAGER);
+
+		assertThrows(IllegalTransitionException.class, () -> lifecycle.changeDeadline(CASE_ID, null));
+	}
+
+	/**
+	 * The Case Manager's client-revision rate and feedback log are both counted from this action,
+	 * so the mapping is asserted rather than assumed.
+	 *
+	 * <p>It shared {@code UPDATED} with strategy-note edits, deadline changes, draft submissions
+	 * and most of the draft loop, which made "how often did a client ask for changes" unanswerable
+	 * without parsing the snapshot. If it ever reverts, the metric silently reads zero — which
+	 * looks like good news.
+	 */
+	@Test
+	void aClientRevisionRequestGetsItsOwnAuditActionRatherThanUpdated() {
+		walkToDraftGeneration();
+		actAs(Role.CASE_MANAGER);
+		lifecycle.submitDraft(CASE_ID, DRAFT_LINK);
+		actAs(Role.PROJECT_MANAGER);
+		lifecycle.pmApproveDraft(CASE_ID);
+		actAs(Role.PROJECT_COORDINATOR);
+		lifecycle.sendDraftToClient(CASE_ID);
+		clearInvocations(audit);
+
+		lifecycle.clientRequestRevisions(CASE_ID, "please soften the conclusion");
+
+		verify(audit).recordEvent(anyString(), any(), eq(AuditAction.CLIENT_REVISION_REQUESTED), any(),
+				any(), any());
+	}
+
+	// --- notes (Unit 23) -----------------------------------------------------
+
+	/**
+	 * A note is one audit row carrying the text, and nothing else moves.
+	 *
+	 * <p>The snapshot is asserted identical either side because that is what makes it a note
+	 * rather than a transition: if a stage or a pool status ever starts changing here, the
+	 * timeline would begin claiming the case moved every time somebody typed a sentence.
+	 */
+	@Test
+	void aNoteIsOneAuditRowAndChangesNothingAboutTheCase() {
+		actAs(Role.CASE_MANAGER);
+		clearInvocations(audit);
+
+		Case saved = lifecycle.addNote(CASE_ID, "transcript pages 3-4 unreadable, asked for a rescan");
+
+		assertEquals(Stage.DOC_COLLECTION, saved.getCurrentStage());
+		assertEquals(PoolStatus.IN_POOL, saved.getPoolStatus());
+
+		ArgumentCaptor<CaseLifecycleService.CaseSnapshot> after =
+				ArgumentCaptor.forClass(CaseLifecycleService.CaseSnapshot.class);
+		verify(audit).recordEvent(anyString(), any(), eq(AuditAction.NOTE_ADDED), any(),
+				any(CaseLifecycleService.CaseSnapshot.class), after.capture());
+		assertEquals("transcript pages 3-4 unreadable, asked for a rescan", after.getValue().note());
+		assertEquals(Stage.DOC_COLLECTION, after.getValue().stage());
+	}
+
+	/** Surrounding whitespace is not content; a note of only whitespace is not a note. */
+	@Test
+	void aBlankNoteIsRefusedAndWritesNothing() {
+		actAs(Role.CASE_MANAGER);
+		clearInvocations(audit);
+
+		assertThrows(IllegalTransitionException.class, () -> lifecycle.addNote(CASE_ID, "   "));
+		assertThrows(IllegalTransitionException.class, () -> lifecycle.addNote(CASE_ID, null));
+		verifyNoInteractions(audit);
+	}
+
+	/**
+	 * Every role that can read the case can write on it, including the two the transition table
+	 * gives almost nothing to. This is the whole authorization model for notes stated as a test:
+	 * the gate is the scoped load, so there is no role here that is admitted and no role that is
+	 * refused — {@code CaseControllerTest} asserts the same thing at the endpoint.
+	 */
+	@Test
+	void anyRoleThatCanLoadTheCaseCanWriteOnIt() {
+		for (Role role : Role.values()) {
+			actAs(role);
+			clearInvocations(audit);
+
+			lifecycle.addNote(CASE_ID, "note from " + role);
+
+			verify(audit).recordEvent(anyString(), any(), eq(AuditAction.NOTE_ADDED), any(), any(), any());
+		}
+	}
+
+	/** A finished record stops growing. Anything else makes "what was agreed" unanswerable. */
+	@Test
+	void aClosedCaseTakesNoMoreNotes() {
+		subject.setCurrentStage(Stage.CLOSED);
+		actAs(Role.PROJECT_MANAGER);
+		clearInvocations(audit);
+
+		assertThrows(IllegalTransitionException.class, () -> lifecycle.addNote(CASE_ID, "one last thing"));
+		verifyNoInteractions(audit);
+	}
+
+	/**
+	 * A case in an exception state still takes notes, unlike every declared transition.
+	 *
+	 * <p>Deliberate and worth pinning: the moment somebody most needs to say something is the
+	 * moment the case is stuck. {@code addNote} does not consult {@code CaseTransitions} at all,
+	 * and this is the test that fails if somebody later routes it through the table for tidiness.
+	 */
+	@Test
+	void aCaseOnHoldStillTakesNotes() {
+		actAs(Role.PROJECT_MANAGER);
+		lifecycle.putOnHold(CASE_ID, "client is travelling");
+		clearInvocations(audit);
+
+		lifecycle.addNote(CASE_ID, "client said they are back on the 14th");
+
+		verify(audit).recordEvent(anyString(), any(), eq(AuditAction.NOTE_ADDED), any(), any(), any());
 	}
 }

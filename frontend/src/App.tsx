@@ -1,6 +1,9 @@
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import Forbidden from './components/Forbidden'
 import BoardView from './features/board/BoardView'
+import InboxPage from './features/queues/InboxPage'
+import DraftQueuePage from './features/queues/DraftQueuePage'
+import DeliveryQueuePage from './features/queues/DeliveryQueuePage'
 import ChecklistBoard from './features/checklist/ChecklistBoard'
 import PortalRoot from './features/client-portal/PortalRoot'
 import ExpertRoster from './features/experts/ExpertRoster'
@@ -24,6 +27,9 @@ import NotFound from './pages/NotFound'
 const SCREENS: Record<string, React.ReactNode> = {
   '/board': <BoardView />,
   '/my-cases': <BoardView />,
+  '/inbox': <InboxPage />,
+  '/drafts': <DraftQueuePage />,
+  '/delivery': <DeliveryQueuePage />,
   '/checklists': <ChecklistBoard />,
   '/experts': <ExpertRoster />,
 }

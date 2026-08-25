@@ -63,11 +63,26 @@ class CaseControllerTest {
 	 * @param outsider a role that must be refused, or null when the route is open to
 	 *                 any authenticated staff member
 	 */
-	private record Route(String path, Role actor, Role outsider, String body) {
+	/**
+	 * @param gmMayAct whether {@code GM_OR} prefixes this route's gate. True for almost all of
+	 *                 them; false for the two draft-review rulings, where the GM is deliberately
+	 *                 <em>excluded</em> (Unit 23a) rather than added. The two refund rulings are
+	 *                 the other direction — GM-only — and are expressed by naming the GM as the
+	 *                 actor with a non-GM outsider.
+	 */
+	private record Route(String path, Role actor, Role outsider, String body, boolean gmMayAct) {
+
+		Route(String path, Role actor, Role outsider, String body) {
+			this(path, actor, outsider, body, true);
+		}
 	}
 
 	private static final List<Route> ROUTES = List.of(
-			new Route("/assign-pm", Role.BRAND_MANAGER, Role.PROJECT_MANAGER,
+			// The outsider was PROJECT_MANAGER until Unit 23 put them on this gate — a PM now claims
+			// a pooled case out of their own inbox, so the Case Manager is the nearest role that
+			// still may not. `aProjectManagerMayClaimAPooledCase` covers the added actor, because
+			// this table holds one actor per row and assign-pm now has two.
+			new Route("/assign-pm", Role.BRAND_MANAGER, Role.CASE_MANAGER,
 					"{\"pmId\":\"%s\"}".formatted(SOME_ID)),
 			new Route("/assign-cm", Role.PROJECT_MANAGER, Role.PROJECT_COORDINATOR,
 					"{\"cmId\":\"%s\",\"expertId\":\"%s\"}".formatted(SOME_ID, SOME_ID)),
@@ -77,8 +92,11 @@ class CaseControllerTest {
 			// The body is optional (a revision filed in the same place needs no new link), so this
 			// row deliberately sends none — which is also the shape every caller before Unit 14 sent.
 			new Route("/draft/submit", Role.CASE_MANAGER, Role.PROJECT_MANAGER, null),
-			new Route("/draft/pm-approve", Role.PROJECT_MANAGER, Role.CASE_MANAGER, null),
-			new Route("/draft/pm-return", Role.PROJECT_MANAGER, Role.CASE_MANAGER, REASON),
+			// GM-excluded, not GM-also: reviewing a Case Manager's draft belongs to the PM who
+			// assigned it, and a superuser path around the reviewer makes "who approved this"
+			// ambiguous on the artefact the client pays for.
+			new Route("/draft/pm-approve", Role.PROJECT_MANAGER, Role.CASE_MANAGER, null, false),
+			new Route("/draft/pm-return", Role.PROJECT_MANAGER, Role.CASE_MANAGER, REASON, false),
 			new Route("/draft/send-to-client", Role.PROJECT_COORDINATOR, Role.CASE_MANAGER, null),
 			new Route("/draft/client-approve", Role.PROJECT_COORDINATOR, Role.CASE_MANAGER, null),
 			new Route("/draft/client-revisions", Role.PROJECT_COORDINATOR, Role.CASE_MANAGER, REASON),
@@ -162,12 +180,53 @@ class CaseControllerTest {
 			// 200, not 404 or 405: the path and verb are wired, and the gate lets the
 			// declared role through to a service call that came back.
 			perform(route, route.actor(), 200);
-			// The GM is a superuser on every transition, including the two they own.
-			perform(route, Role.GM, 200);
+			// The GM is a superuser on every transition but the two draft-review rulings, which
+			// refuse them outright. Asserting the 403 rather than skipping the row is the point:
+			// if `GM_OR` is ever put back, this fails.
+			perform(route, Role.GM, route.gmMayAct() ? 200 : 403);
 			if (route.outsider() != null) {
 				perform(route, route.outsider(), 403);
 			}
 		}
+	}
+
+	/**
+	 * The second actor on {@code assign-pm} (Unit 23): the PM takes the case themselves.
+	 *
+	 * <p>Its own test rather than a second column on {@link Route}, because one route having two
+	 * declared actors is the exception and widening the record would invite every other row to
+	 * grow one.
+	 */
+	@Test
+	void aProjectManagerMayClaimAPooledCase() throws Exception {
+		given(lifecycle.assignPm(any(), any())).willReturn(aCase());
+
+		perform(new Route("/assign-pm", Role.PROJECT_MANAGER, null, "{\"pmId\":\"%s\"}".formatted(SOME_ID)),
+				Role.PROJECT_MANAGER, 200);
+	}
+
+	/**
+	 * Notes carry no role gate at all, and that is the assertion — not an omission to be tightened
+	 * later.
+	 *
+	 * <p>Every staff role reaches the route; whether they may write on <em>this</em> case is the
+	 * scoped load inside {@code CaseLifecycleService.addNote}, which is mocked out here. The two
+	 * halves are tested where they live: the role surface here, the scope in
+	 * {@code SecurityFlowTest}.
+	 */
+	@Test
+	void everyStaffRoleReachesTheNotesRouteAndTheScopeDecidesTheRest() throws Exception {
+		given(lifecycle.addNote(any(), any())).willReturn(aCase());
+
+		for (Role role : Role.values()) {
+			perform(new Route("/notes", role, null, "{\"note\":\"chased the client again\"}"), role, 200);
+		}
+	}
+
+	/** Blank is refused at the edge, so an empty row never reaches the permanent trail. */
+	@Test
+	void aBlankNoteIsRejectedBeforeItIsWritten() throws Exception {
+		perform(new Route("/notes", Role.CASE_MANAGER, null, "{\"note\":\"   \"}"), Role.CASE_MANAGER, 400);
 	}
 
 	/**
@@ -253,6 +312,9 @@ class CaseControllerTest {
 		Case subject = aCase();
 		subject.setPmStrategyNotes("Lead with the publication record.");
 		subject.setDriveLink("https://drive.example/abc");
+		// Set so the projection test can assert its absence meaningfully: an unset field is
+		// absent for every role and would prove nothing about the gate.
+		subject.setDraftLink("https://drive.example/draft-1");
 		return subject;
 	}
 
@@ -276,6 +338,41 @@ class CaseControllerTest {
 					.andExpect(jsonPath("$.data.summary.caseCode").value("IE-2026-0001"))
 					.andExpect(jsonPath("$.data.pmStrategyNotes").doesNotExist());
 		}
+	}
+
+	/**
+	 * The supply-side role may act on expert signing without learning who the client is or
+	 * reading what was drafted — {@code architecture.md}'s axis, and {@code Tier.SUPPLY}'s own
+	 * javadoc.
+	 *
+	 * <p>This test is the one the suite was missing: the loop above already asserted the Expert
+	 * Network Manager reads case detail successfully and never asked what came back with it.
+	 * Mirrors the board's projection, so the two screens cannot disagree about one case.
+	 */
+	@Test
+	void caseContentIsWithheldFromTheSupplySideRole() throws Exception {
+		givenDetail();
+
+		for (Role sees : List.of(Role.GM, Role.BRAND_MANAGER, Role.PROJECT_MANAGER,
+				Role.PROJECT_COORDINATOR, Role.CASE_MANAGER)) {
+			mockMvc.perform(get("/api/cases/{id}", CASE_ID).header(HttpHeaders.AUTHORIZATION, bearer(sees)))
+					.andExpect(status().isOk())
+					.andExpect(jsonPath("$.data.maySeeCaseContent").value(true))
+					.andExpect(jsonPath("$.data.clientName").value("Anita Rao"))
+					.andExpect(jsonPath("$.data.driveLink").value("https://drive.example/abc"))
+					.andExpect(jsonPath("$.data.draftLink").value("https://drive.example/draft-1"));
+		}
+
+		mockMvc.perform(get("/api/cases/{id}", CASE_ID)
+						.header(HttpHeaders.AUTHORIZATION, bearer(Role.EXPERT_NETWORK_MANAGER)))
+				.andExpect(status().isOk())
+				// The case still reads, and the expert still does: that is their work.
+				.andExpect(jsonPath("$.data.summary.caseCode").value("IE-2026-0001"))
+				.andExpect(jsonPath("$.data.expertName").value("Zara Okonkwo"))
+				.andExpect(jsonPath("$.data.maySeeCaseContent").value(false))
+				.andExpect(jsonPath("$.data.clientName").doesNotExist())
+				.andExpect(jsonPath("$.data.driveLink").doesNotExist())
+				.andExpect(jsonPath("$.data.draftLink").doesNotExist());
 	}
 
 	/**

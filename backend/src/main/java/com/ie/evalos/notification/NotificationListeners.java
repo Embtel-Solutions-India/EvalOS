@@ -93,7 +93,16 @@ public class NotificationListeners {
 
 			route(CaseEvents.Type.CASE_REFUND_REQUESTED, NotificationType.EXCEPTION_RAISED,
 					(c, r) -> r.gm(),
-					"A refund was requested on %s and needs a GM ruling.")));
+					"A refund was requested on %s and needs a GM ruling."),
+
+			// The Case Manager's escalation (Unit 22, slice 3). Goes to the case's own PM rather
+			// than to every PM on the brand: the flag is about work somebody already owns, and
+			// broadcasting it makes an alert that is everyone's job and therefore nobody's.
+			// A case with no PM assigned cannot be flagged in practice — a CM is only named on
+			// one after `assign-cm`, which happens well after `assign-pm`.
+			route(CaseEvents.Type.CASE_FLAGGED_TO_PM, NotificationType.EXCEPTION_RAISED,
+					(c, r) -> r.assignedPm(c),
+					"%s was flagged by its case manager and needs your attention.")));
 
 	private static Map.Entry<CaseEvents.Type, Route> route(CaseEvents.Type event, NotificationType type,
 			BiFunction<Case, RecipientResolver, List<UUID>> recipients, String message) {

@@ -28,8 +28,15 @@ import org.springframework.data.repository.query.Param;
  */
 public interface CaseRepository extends ScopedRepository<Case> {
 
-	ScopePredicate.Fields SCOPE =
-			new ScopePredicate.Fields("brandId", "teamId", List.of("assignedCm", "assignedCoordinator"));
+	/**
+	 * The last argument is {@code unteamedVisible}, and it is the pool (Unit 23): a case with
+	 * no {@code team_id} has not been claimed by anybody, so a {@code TEAM} caller — the
+	 * Project Manager — reads it alongside their own team's. Without it the PM inbox's
+	 * <em>Unassigned</em> preset filtered a set that was empty for the only role that can
+	 * reach the screen. Cases are the one place it is set; see {@code ScopePredicate.Fields}.
+	 */
+	ScopePredicate.Fields SCOPE = new ScopePredicate.Fields("brandId", "teamId",
+			List.of("assignedCm", "assignedCoordinator"), true);
 
 	@Override
 	default ScopePredicate.Fields scopeFields() {

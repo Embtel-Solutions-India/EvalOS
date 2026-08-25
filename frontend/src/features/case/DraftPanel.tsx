@@ -74,7 +74,9 @@ export default function DraftPanel({ detail }: { detail: CaseDetail }) {
             </a>
           ) : (
             <span style={{ color: 'var(--text-muted)' }}>
-              No link on this draft — whoever submitted it did not record where it is.
+              {detail.maySeeCaseContent
+                ? 'No link on this draft — whoever submitted it did not record where it is.'
+                : 'The draft is not available to your role.'}
             </span>
           )}
         </p>

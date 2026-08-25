@@ -83,28 +83,61 @@ describe('the nav and route table', () => {
     }
   })
 
-  it('pins the checklist screen to its backend gate, and keeps delivery out of the nav', () => {
+  it('pins the checklist screen to who works it, and keeps delivery out of the nav', () => {
     // The case detail page's "Manage the checklist" link is gated on exactly this, after the
-    // browser pass found it answering 403 for a Project Manager — and, then, for the GM.
-    // **This list must equal ChecklistController.COORDINATION**, the gate on
-    // /api/checklists/board and the three writes under it.
+    // browser pass found it answering 403 for a Project Manager.
+    //
+    // **This is ChecklistController.COORDINATION minus the GM as of Unit 23**, and the gap is
+    // deliberate rather than drift: the backend gate still carries `GM_OR`, so a GM who needs to
+    // tick an item reaches it from the case. What they no longer get is a stage-level worklist in
+    // their sidebar. If the GM is re-added here, say why — it is not a bug fix.
     expect(ALL_ROLES.filter((role) => mayReach(role, '/checklists'))).toEqual([
-      'GM',
       'BRAND_MANAGER',
       'PROJECT_COORDINATOR',
     ])
     // The Project Manager stays out, even though they may call docs-complete.
     expect(mayReach('PROJECT_MANAGER', '/checklists')).toBe(false)
+    expect(mayReach('GM', '/checklists'), 'nav-only narrowing, the backend gate is unchanged').toBe(
+      false,
+    )
 
-    // `/delivery` is gone, and its absence is asserted rather than assumed. It promised a queue
-    // no unit in the build plan builds, while `deliver` and `close` are Unit 04 transitions the
-    // Coordinator already drives from the board — and for a whole unit its role list claimed a
-    // backend gate it did not have. Re-adding it without a screen behind it reinstates both
-    // problems, so fail here if anybody does.
-    expect(itemFor('/delivery')).toBeUndefined()
-    for (const role of ALL_ROLES) {
-      expect(mayReach(role, '/delivery'), `${role} can still reach /delivery`).toBe(false)
-    }
+    // `/delivery` is back as of Unit 22 slice 2, and this assertion flipped with the screen —
+    // which is exactly the condition the previous version of it set. It used to demand the entry
+    // be absent, because it was a label over a queue no unit built and it listed a role
+    // (Brand Manager) its own backend gate refused.
+    //
+    // **Both problems are what this now guards against.** The roles must equal CaseController's
+    // `deliver`/`close` gate and nothing wider, so re-adding the Brand Manager fails here.
+    expect(ALL_ROLES.filter((role) => mayReach(role, '/delivery'))).toEqual([
+      'GM',
+      'PROJECT_COORDINATOR',
+    ])
+    expect(mayReach('BRAND_MANAGER', '/delivery'), 'the gate that was wrong before').toBe(false)
+  })
+
+  it("pins the PM's two queues to the transitions they drive, and nothing wider", () => {
+    // Both screens act rather than only display: the inbox takes and staffs incoming cases
+    // (`POST /api/cases/{id}/assign-pm`, `PATCH /api/cases/{id}/case-manager`) and the draft
+    // queue approves and returns drafts (`POST .../draft/pm-approve` and `/pm-return`).
+    //
+    // **The inbox is the Project Manager's alone as of Unit 23.** It is the front door for
+    // incoming work, and the PM is the person who opens it: a paid case lands in the pool, the PM
+    // takes it, the PM staffs it. The GM keeps every underlying gate through `GM_OR` and keeps
+    // `/drafts` — what left is a queue of somebody else's work in their sidebar.
+    expect(ALL_ROLES.filter((role) => mayReach(role, '/inbox'))).toEqual(['PROJECT_MANAGER'])
+    // `/drafts` is PM-only for a *stronger* reason than `/inbox`: Unit 23a removed `GM_OR` from
+    // `draft/pm-approve` and `draft/pm-return` on the server, so this entry does match its gate
+    // exactly. `boardRules.test.ts` pins the same exclusion on the buttons.
+    expect(ALL_ROLES.filter((role) => mayReach(role, '/drafts'))).toEqual(['PROJECT_MANAGER'])
+
+    // The Brand Manager is the tempting addition and the wrong one: they oversee the brand but
+    // hold neither gate, so the screens would render buttons that answer 403 — the failure the
+    // checklist entry above was fixed for.
+    expect(mayReach('BRAND_MANAGER', '/inbox')).toBe(false)
+    expect(mayReach('BRAND_MANAGER', '/drafts')).toBe(false)
+
+    // A Case Manager's drafts are on their own board; the review side is not theirs.
+    expect(mayReach('CASE_MANAGER', '/drafts')).toBe(false)
   })
 
   it('pins the expert database to its backend gate, as one entry rather than two', () => {

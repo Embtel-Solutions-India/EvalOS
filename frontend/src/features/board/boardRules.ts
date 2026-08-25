@@ -30,6 +30,19 @@ export type ExceptionState =
 
 export type SlaStatus = 'ON_TRACK' | 'AT_RISK' | 'OVERDUE'
 
+/**
+ * How close the **promised date** is — a different question from {@link SlaStatus}, which
+ * measures time in the current stage against a stage budget.
+ *
+ * The two disagree routinely: a case can sit comfortably inside a 12-hour PM-review budget with
+ * its deadline nine hours away. They are therefore labelled distinctly wherever both appear
+ * ("Stage SLA" and "Deadline"), and neither is ever substituted for the other.
+ *
+ * `OVERDUE` is the **red band** rather than literally past-due — `ui-context.md` puts "overdue"
+ * and "deadline under 24h" in one colour. Null when no clock runs.
+ */
+export type DeadlineRisk = 'ON_TRACK' | 'AT_RISK' | 'OVERDUE'
+
 export type ServiceType =
   | 'CREDENTIAL_EVALUATION'
   | 'EXPERT_OPINION_LETTER'
@@ -44,6 +57,8 @@ export type BoardCard = {
   serviceType: ServiceType | null
   deadline: string | null
   slaStatus: SlaStatus | null
+  /** Null when no clock runs — closed, holding an exception, or never given a date. */
+  deadlineRisk: DeadlineRisk | null
   currentStage: Stage
   exceptionState: ExceptionState
   poolStatus: 'IN_POOL' | 'ASSIGNED' | null
@@ -143,6 +158,10 @@ export const STAGE_ACCESS: Record<Role, Record<Stage, StageAccess>> = {
     // both still reach it.
     FINAL_DELIVERY: 'none',
   },
+  // Unreachable today: the ENM has no `/board` entry in NAV_ITEMS, and `boardPathFor` says so in
+  // as many words. The row stays because STAGE_ACCESS is `Record<Role, ...>` — dropping it would
+  // weaken the type that forces a new role to declare its board access. Delete it only together
+  // with that type change, never as a tidy-up.
   EXPERT_NETWORK_MANAGER: {
     DOC_COLLECTION: 'none',
     // Availability: which experts can take the work.
@@ -181,15 +200,39 @@ export type QuickAction = {
   /** The path suffix under /cases/{id}. */
   path: string
   label: string
-  /** Roles the route's gate admits, excluding the GM, who is added below. */
+  /** Roles the route's gate admits, excluding the GM — see {@link QuickAction.gm}. */
   roles: readonly Role[]
   /** Stages the transition is declared from; null means every active stage. */
   stages: readonly Stage[] | null
   /** Only legal while the case holds this exception state. */
   requiresException?: Exclude<ExceptionState, 'NONE'>
-  /** GM-only, not GM-also: the two refund rulings. */
-  gmOnly?: boolean
+  /**
+   * Where the GM stands on this action, when the default does not apply.
+   *
+   * Absent is **GM-also**: the GM is a superuser on almost every transition, so they are added
+   * to `roles` rather than repeated in twenty lists. The two named exceptions:
+   *
+   * - `'only'` — GM and nobody else. The two refund rulings.
+   * - `'never'` — `roles` is exact and excludes the GM. The two draft-review rulings, where
+   *   approving or returning a Case Manager's work is the Project Manager's judgement and not
+   *   an escalation path (Unit 23a). **This must stay in step with `CaseController`**, which
+   *   drops `GM_OR` from exactly these two gates — a button the server answers 403 to is worse
+   *   than no button.
+   */
+  gm?: 'only' | 'never'
   fields?: readonly ActionField[]
+}
+
+/**
+ * Whether this role may perform this action at all, ignoring stage.
+ *
+ * Exported because `actionsFor` and the test that pins it must not derive the same rule twice —
+ * a second copy is how "GM sees everything" quietly survives a decision to the contrary.
+ */
+export function admits(action: QuickAction, role: Role): boolean {
+  if (action.gm === 'only') return role === 'GM'
+  if (action.gm === 'never') return action.roles.includes(role)
+  return role === 'GM' || action.roles.includes(role)
 }
 
 const REASON: readonly ActionField[] = [{ name: 'reason', label: 'Reason', kind: 'text' }]
@@ -225,16 +268,22 @@ export const QUICK_ACTIONS: readonly QuickAction[] = [
     // whatever link the case already carries rather than taking the draft away mid-review.
     fields: [{ name: 'draftLink', label: 'Link to the draft (optional)', kind: 'text' }],
   },
+  // Draft review is the Project Manager's alone, GM included (Unit 23a). Approving a draft is a
+  // judgement about a Case Manager's work by the person who assigned it and will answer for it;
+  // an escalation path around that reviewer is not oversight, it is a second reviewer. Both gates
+  // drop `GM_OR` in `CaseController` to match, and `/drafts` is PM-only in the nav.
   {
     path: 'draft/pm-approve',
     label: 'PM approve',
     roles: ['PROJECT_MANAGER'],
+    gm: 'never',
     stages: ['DRAFT_GENERATION'],
   },
   {
     path: 'draft/pm-return',
     label: 'PM return',
     roles: ['PROJECT_MANAGER'],
+    gm: 'never',
     stages: ['DRAFT_GENERATION'],
     fields: REASON,
   },
@@ -354,7 +403,7 @@ export const QUICK_ACTIONS: readonly QuickAction[] = [
     roles: [],
     stages: null,
     requiresException: 'REFUND_REQUESTED',
-    gmOnly: true,
+    gm: 'only',
   },
   {
     path: 'refund/deny',
@@ -362,7 +411,7 @@ export const QUICK_ACTIONS: readonly QuickAction[] = [
     roles: [],
     stages: null,
     requiresException: 'REFUND_REQUESTED',
-    gmOnly: true,
+    gm: 'only',
     fields: REASON,
   },
 ]
@@ -379,7 +428,7 @@ export function actionsFor(card: BoardCard, role: Role): readonly QuickAction[] 
   const access = STAGE_ACCESS[role][card.currentStage]
 
   return QUICK_ACTIONS.filter((action) => {
-    if (action.gmOnly ? role !== 'GM' : !(role === 'GM' || action.roles.includes(role))) return false
+    if (!admits(action, role)) return false
     if (inException) return action.requiresException === card.exceptionState
     if (action.requiresException) return false
     if (action.stages === null) return true

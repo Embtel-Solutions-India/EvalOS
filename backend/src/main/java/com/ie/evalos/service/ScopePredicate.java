@@ -23,18 +23,32 @@ public final class ScopePredicate {
 	 * Which attributes on the target entity carry the scope. Team may be null and
 	 * assignees may be empty when the entity has no such axis.
 	 *
-	 * @param brand     attribute holding the owning brand id
-	 * @param team      attribute holding the owning team id, or null
-	 * @param assignees every attribute that can name an assigned member, possibly
-	 *                  empty. A {@code SELF} caller matches when <em>any</em> of them
-	 *                  is them — a case is one pipeline and the people on it hold
-	 *                  different slots, so a single column would only ever show the
-	 *                  work to one of them.
+	 * @param brand           attribute holding the owning brand id
+	 * @param team            attribute holding the owning team id, or null
+	 * @param assignees       every attribute that can name an assigned member, possibly
+	 *                        empty. A {@code SELF} caller matches when <em>any</em> of them
+	 *                        is them — a case is one pipeline and the people on it hold
+	 *                        different slots, so a single column would only ever show the
+	 *                        work to one of them.
+	 * @param unteamedVisible whether a row with no team is visible to a {@code TEAM} caller
+	 *                        of the same brand. Set when an absent team means <em>unclaimed
+	 *                        work</em>, which on a case is exactly {@code PoolStatus.IN_POOL}
+	 *                        — the Project Manager who claims a pooled case has to be able to
+	 *                        read it first (Unit 23). It is <strong>off everywhere else</strong>
+	 *                        and specifically off for {@code TeamMemberQueryService}: an
+	 *                        unteamed <em>person</em> is not unclaimed work, and one flag
+	 *                        meaning both is how a scope starts asserting something the
+	 *                        schema never said.
 	 */
-	public record Fields(String brand, String team, List<String> assignees) {
+	public record Fields(String brand, String team, List<String> assignees, boolean unteamedVisible) {
 
 		public Fields {
 			assignees = List.copyOf(assignees);
+		}
+
+		/** The strict reading: an unteamed row belongs to nobody and is shown to nobody. */
+		public Fields(String brand, String team, List<String> assignees) {
+			this(brand, team, assignees, false);
 		}
 
 		public static Fields brandOnly(String brand) {
@@ -61,7 +75,14 @@ public final class ScopePredicate {
 			switch (ctx.role().tier()) {
 				case TEAM -> {
 					if (fields.team() != null && ctx.teamId() != null) {
-						predicates.add(cb.equal(root.get(fields.team()), ctx.teamId()));
+						Predicate mine = cb.equal(root.get(fields.team()), ctx.teamId());
+						// `IS NULL` is not a hole in the predicate, it is the pool. A paid case
+						// with no team is work nobody has taken, and the PM inbox is where it is
+						// taken from — so the role that claims it must be able to read it. Still
+						// inside the brand: the brand predicate above is unconditional.
+						predicates.add(fields.unteamedVisible()
+								? cb.or(mine, cb.isNull(root.get(fields.team())))
+								: mine);
 					}
 				}
 				case SELF -> {

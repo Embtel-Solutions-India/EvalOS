@@ -39,7 +39,11 @@ public final class CaseTransitions {
 		PM_RETURN_DRAFT(CaseEvents.Type.DRAFT_RETURNED, AuditAction.UPDATED),
 		PM_APPROVE_DRAFT(CaseEvents.Type.DRAFT_PM_APPROVED, AuditAction.UPDATED),
 		SEND_DRAFT_TO_CLIENT(CaseEvents.Type.DRAFT_READY_FOR_CLIENT, AuditAction.UPDATED),
-		CLIENT_REQUEST_REVISIONS(CaseEvents.Type.DRAFT_REVISION_REQUESTED, AuditAction.UPDATED),
+		// Its own audit action rather than UPDATED, so the Case Manager's client-revision rate has
+		// something to count. See AuditAction.CLIENT_REVISION_REQUESTED for why the figure is
+		// forward-looking rather than retrospective.
+		CLIENT_REQUEST_REVISIONS(CaseEvents.Type.DRAFT_REVISION_REQUESTED,
+				AuditAction.CLIENT_REVISION_REQUESTED),
 		CLIENT_APPROVE_DRAFT(CaseEvents.Type.DRAFT_CLIENT_APPROVED, AuditAction.STAGE_CHANGED),
 		EXPERT_SIGNED(CaseEvents.Type.EXPERT_SIGNED, AuditAction.UPDATED),
 		EXPERT_DECLINED(CaseEvents.Type.EXPERT_DECLINED, AuditAction.UPDATED),

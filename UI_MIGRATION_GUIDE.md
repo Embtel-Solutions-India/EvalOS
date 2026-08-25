@@ -1,3 +1,31 @@
+> ## ⚠️ SUPERSEDED (2026-08-25) — read this box before anything below it
+>
+> The Protend language this guide describes **has been replaced**. A second visual pass
+> adopted a different reference, and it reverses this document's central claim.
+>
+> | | Protend (this guide) | Current |
+> |---|---|---|
+> | Nav rail | white **floating rounded card**, inset 20px, radius 30px | **dark navy, flush to the edge, full height** |
+> | `--radius-xl` | 30px, used as a pill on controls | **12px, overlays only**; controls take `md` (6px) |
+> | Accent | `#3c21f7` violet | `#2563eb` blue |
+> | Canvas | `#f9fafe` | `#f4f5f7` |
+> | Elevation | 50px ambient bloom | hairline border + short shadow |
+> | KPI figures | monochrome | **large, semantically coloured, with delta chips** |
+>
+> **What still holds, and is why this file is kept rather than deleted:**
+> - The *method* — extract values into `tokens.css` and express them with Tailwind
+>   utilities; do not port a foreign stylesheet or its jQuery.
+> - The **scope rule** in the next section, which is still the contract for any visual
+>   pass: colour, type, spacing, radius, shadow, iconography and presentational markup
+>   are in scope; business logic, APIs, routing, state, workflows, stage vocabulary and
+>   role gates are **not**. If a visual change requires a logic change, the visual change
+>   is wrong.
+> - The three "do not adopt" warnings (no tabular figures, decorative colour, thin
+>   accessibility).
+>
+> **Current values live in `frontend/src/styles/tokens.css`**, and `context/ui-context.md`
+> mirrors them. Treat every hex and every geometry number below as history.
+
 # UI Migration Guide — adopting the Protend visual language in EvalOS
 
 Reverse-engineered from **Protend – Project Management Admin Dashboard HTML** (package

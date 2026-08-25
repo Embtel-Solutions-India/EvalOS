@@ -86,6 +86,11 @@ the working payload is in `mem:suggested_commands`.
   **can never move the case** — no stage reset, no dropped assignment, no un-paying — and publishes no
   lifecycle event, because nothing in the lifecycle happened. A second service opens a second case; a
   contact returning after close opens a new one.
+  **Optional `notes` (Unit 23)** — whatever sales wrote on the opportunity. Never stored on the case:
+  it becomes the `note` on the `CREATED` audit row, so it is the first entry on the case's Notes &
+  timeline. Blank/whitespace is normalised to null. Optional on purpose — a required field here
+  would fail Handoff A over a nicety.
+
   **`deal_value` AND `ghl_opportunity_id` are what a refresh OVERWRITES, and they move together.**
   The overwrite has to exist: deleting `markPaid` removed the only other writer, so fill-only would
   freeze the first figure forever with nothing able to correct it — and that figure feeds revenue

@@ -129,9 +129,35 @@ become a way for a non-GM to trigger client-facing messages.
 - `domain/Role` carries its own ABAC `Tier`: `GM`=ALL, `BRAND_MANAGER`=BRAND, `PROJECT_MANAGER`=TEAM,
   `PROJECT_COORDINATOR`/`CASE_MANAGER`=SELF, `EXPERT_NETWORK_MANAGER`=SUPPLY. Nothing re-derives
   scope from the role name. GM is the only cross-brand reader.
+- **`SUPPLY` is a field tier, not a row tier, and this is the one that surprises people.** At the
+  row level it is identical to `BRAND` — `ScopePredicate` handles both under `default -> {}` and
+  adds no predicate — because the ENM's three signing transitions must load the case. What makes
+  it supply-side is `CaseController.seesCaseContent(role)`, which withholds `clientName`,
+  `driveLink` and `draftLink` from that tier on **both** case payloads (`CaseController.CaseDetail`
+  and `CaseBoardController.BoardCard`). Added 2026-08-25 after the tier was found to be declared,
+  documented as "not case content", and **referenced nowhere** — so `GET /api/cases/board`, which
+  has no `@PreAuthorize` by design, returned every client name in the brand to an ENM.
+  - Deliberately a **predicate over the tier**, not a `Set<Role>` like `SEES_DEAL_VALUE` /
+    `SEES_STRATEGY_NOTES` beside it: those encode product decisions with no other home, while
+    "who sees case content" is exactly what `Tier.SUPPLY` already means. A role list would be a
+    second copy of that fact.
+  - `CaseDetail.maySeeCaseContent` ships to the client because `clientName` is *also* legitimately
+    null when no contact is linked; absence alone cannot distinguish withheld from unset, and the
+    UI rendered the ambiguous case as "Unnamed contact".
 - **Reads** — `service/ScopePredicate` is the one place brand/team/assignee predicates are built, and
   it **fails closed**: a brand-locked role with no brand matches nothing, not everything. Consumed
   through `repository/ScopedRepository` (`mem:backend/persistence`).
+- **`Fields.unteamedVisible` — the one place a tier is deliberately widened** (Unit 23). When set,
+  a `TEAM` caller matches `team = mine OR team IS NULL` instead of `team = mine`. It is set on
+  **`CaseRepository.SCOPE` and nowhere else**: on a case an absent team means *unclaimed* — the
+  pool — and the Project Manager who claims it out of their inbox has to be able to read it first.
+  Before this a pooled case matched no PM at all, so `/inbox`'s *Unassigned* preset filtered a
+  permanently empty set for the only role that could reach the screen.
+  - **`TeamMemberQueryService` keeps the strict predicate on purpose.** It is the only other holder
+    of a team axis, and an unteamed *person* is not unclaimed work. One flag meaning both is how a
+    scope starts asserting something the schema never said.
+  - The brand predicate is unconditional either way, so this widens a tier **inside one brand** and
+    never across brands. `ScopePredicateTest` pins both the widening and the SELF-tier non-leak.
 - **Writes** — `service/OwnershipGuard.assertCanAct(entityBrandId[, assigneeId])` before every
   mutation on a scoped row: a mutation targets one known row, so it is checked, not filtered.
 - Role gates go on the controller (`@PreAuthorize("hasAnyRole(...)")`); the brand/team/assignee filter

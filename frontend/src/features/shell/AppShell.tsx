@@ -7,11 +7,11 @@ import TopBar from './TopBar'
  * The frame every staff screen mounts inside. Rendered only for an authenticated session,
  * which is what lets `useMe()` throw rather than return null everywhere below it.
  *
- * **The nav is a floating card, not a flush panel** (`UI_MIGRATION_GUIDE.md`): it is fixed
- * and inset from the viewport on every side, so the tinted canvas shows around it and the
- * only white surfaces in the app are the nav and the content cards. That is what makes a
- * card read as raised here without a heavy shadow, and it is why the content column is
- * offset by `sidebar + 2 × gutter` rather than sitting in a flex row with the nav.
+ * **The nav is a flush, full-height dark rail** (`UI_MIGRATION_GUIDE.md`), which reverses the
+ * previous language's floating inset card. It is fixed to the left edge with no gutter around
+ * it, so the content column is offset by the sidebar width alone. The rail being dark is what
+ * lets the content area stay quiet under twenty panels at once; a white rail beside white cards
+ * needs a border to separate them and then competes with every card on screen.
  *
  * The header is `sticky` rather than `fixed`: it stays in flow, so nothing has to be
  * padded down by a hardcoded header height, and the document scrolls normally. The
@@ -24,7 +24,7 @@ export default function AppShell() {
         <LeftNav />
         <div
           className="flex min-h-svh min-w-0 flex-col"
-          style={{ paddingLeft: 'calc(var(--sidebar-width) + var(--shell-gutter) * 2)' }}
+          style={{ paddingLeft: 'var(--sidebar-width)' }}
         >
           <TopBar />
           <main

@@ -55,6 +55,39 @@ export const NAV_ITEMS: readonly NavItem[] = [
     group: 'Pipeline',
   },
 
+  // The PM's two working queues (Unit 22, slice 1). Both read `/api/cases/board` rather than
+  // adding endpoints, so the scope they show is the board's scope and cannot drift from it.
+  //
+  // Roles come from what the screens actually *do*, not from who might like to look. The inbox
+  // takes and staffs incoming cases and the draft queue approves and returns drafts — both
+  // PM-gated on the server (`CaseController`). A Brand Manager is deliberately absent: they hold
+  // neither gate, so the screens would render buttons that answer 403.
+  //
+  // **The GM is absent from the inbox as of Unit 23, and that is a nav change only.** The inbox
+  // is the front door for incoming work and the Project Manager is the person who opens it: a
+  // paid case lands in the pool, the PM takes it, and the PM staffs the coordinator and the case
+  // manager. `GM_OR` still prefixes every gate those buttons drive, so the GM can unblock any
+  // one of them from the board or the case page — what they no longer have is a queue of
+  // somebody else's work in their sidebar.
+  {
+    path: '/inbox',
+    label: 'Cases inbox',
+    roles: ['PROJECT_MANAGER'],
+    becomes: 'Incoming and at-risk cases',
+    group: 'Pipeline',
+  },
+  // PM-only, and unlike `/inbox` above this one matches its backend gate exactly: Unit 23a
+  // removed `GM_OR` from `draft/pm-approve` and `draft/pm-return` outright. Reviewing a Case
+  // Manager's draft is the judgement of the PM who assigned it; a superuser override around the
+  // reviewer is a second reviewer, not oversight.
+  {
+    path: '/drafts',
+    label: 'Draft review',
+    roles: ['PROJECT_MANAGER'],
+    becomes: 'Drafts awaiting your review',
+    group: 'Pipeline',
+  },
+
   // Case Manager. Their docket is the same board narrowed by their own assignment, which
   // the server does — so this is the board, not a second screen.
   {
@@ -65,24 +98,37 @@ export const NAV_ITEMS: readonly NavItem[] = [
     group: 'Pipeline',
   },
 
+  // The delivery queue (Unit 22, slice 2) — the /delivery entry the tracker's G3 asked for, now
+  // with a screen behind it. Roles are CaseController's `deliver` and `close` gates exactly:
+  // GM_OR PROJECT_COORDINATOR. The Brand Manager is absent, which is the correction the previous
+  // /delivery entry needed — it listed a role its own backend gate refused for a whole unit.
+  {
+    path: '/delivery',
+    label: 'Delivery queue',
+    roles: ['GM', 'PROJECT_COORDINATOR'],
+    becomes: 'Cases ready to send',
+    group: 'Pipeline',
+  },
+
   // The Coordinator's document-collection stage. The role list is the backend gate for that
   // stage's routes and nothing wider.
   //
-  // **There is deliberately no `/delivery` entry beside it.** It promised a "final delivery
-  // queue (Unit 13)" that Unit 13 is not — no unit in the build plan builds one — while
-  // `deliver` and `close` are Unit 04 transitions the Coordinator already drives from the board.
-  // So it was a label over a placeholder, which is exactly what `/cases` was before the visual
-  // pass deleted it, and it spent a whole unit listing a role (Brand Manager) that its own gate
-  // refused. Add it back with the screen rather than ahead of it, and set the roles from what
-  // the screen actually does.
+  // This used to carry a long note explaining why there was deliberately no `/delivery` entry
+  // beside it: the old one was a label over a placeholder no unit built, and it listed a role its
+  // own gate refused. That note is gone because the condition it set has been met — `/delivery`
+  // is back above, with a screen behind it and roles taken from the transitions it drives. The
+  // rule it was really stating still holds: **add the entry with the screen, never ahead of it.**
   {
     path: '/checklists',
     label: 'Doc checklists',
-    // ChecklistController.COORDINATION. The GM and Brand Manager are here by decision, not by
-    // drift: the GM is a superuser on every backend transition, so a screen driving one that
-    // they cannot open is an inconsistency rather than a safeguard, and the Brand Manager has
-    // the writes on this screen.
-    roles: ['GM', 'BRAND_MANAGER', 'PROJECT_COORDINATOR'],
+    // ChecklistController.COORDINATION, minus the GM as of Unit 23 — the same nav-only narrowing
+    // the inbox above takes, for the same reason. Chasing a client for a transcript is the
+    // Coordinator's day and the Brand Manager's oversight; it was never the GM's, and the entry
+    // put a stage-level worklist in the sidebar of the one role that reads the business.
+    //
+    // The backend gate keeps `GM_OR`, so this is a listing decision and not a capability one: a
+    // GM who needs to tick an item off can still reach it from the case.
+    roles: ['BRAND_MANAGER', 'PROJECT_COORDINATOR'],
     becomes: 'Document checklist tracking',
     group: 'Pipeline',
   },

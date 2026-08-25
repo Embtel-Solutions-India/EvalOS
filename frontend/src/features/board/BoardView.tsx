@@ -38,13 +38,17 @@ type LoadState =
 /**
  * Who gets the pool lane.
  *
- * The spec names the PM here too, but a PM cannot have a pool: `assign-pm` is what stamps
- * `team_id`, so before it runs the case has no team and a PM's TEAM scope never matches it —
- * and `assign-pm` is gated to GM / Brand Manager anyway. Listing them produced a lane that
- * was always empty and an "Assign PM" button that silently did nothing when clicked. The
- * pool is the commercial roles' queue.
+ * **The GM left it in Unit 23**, when the front door for incoming work became the PM inbox.
+ * The board is the screen the GM *watches*; the pool is a queue somebody *works*, and putting
+ * one on the other is what made an oversight screen also a to-do list.
+ *
+ * **The PM is not here either, and for a different reason — they have a better version of it.**
+ * A pooled case now appears in their inbox under *Unassigned*, where taking it and staffing it
+ * are one flow. A lane duplicating that would be the `/cases`-beside-`/board` split this repo
+ * has deleted twice. (The PM *can* read pooled cases as of Unit 23 — `CaseRepository.SCOPE`
+ * sets `unteamedVisible` — so this is a choice about screens, no longer a scope limit.)
  */
-const SEES_POOL = ['GM', 'BRAND_MANAGER'] as const
+const SEES_POOL = ['BRAND_MANAGER'] as const
 
 export default function BoardView() {
   const me = useMe()

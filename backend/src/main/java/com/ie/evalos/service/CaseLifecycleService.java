@@ -215,8 +215,130 @@ public class CaseLifecycleService {
 		return saved;
 	}
 
+	/**
+	 * Moves a case to a different Case Manager without moving the case.
+	 *
+	 * <p><strong>Deliberately not a widening of {@link Action#ASSIGN_CASE_MANAGER}.</strong> That
+	 * action is declared on {@code EXPERT_ASSIGNMENT}, advances the stage, and also picks the
+	 * expert and writes an {@link ExpertCaseOffer}. Reusing it to move a case between Case
+	 * Managers mid-draft would send the case backwards and mint an offer against an expert
+	 * nobody contacted — a phantom row the match scorer would then read as a real approach.
+	 *
+	 * <p>So this is stage-preserving and touches one column, in the shape of
+	 * {@link #updateStrategyNotes}. The previous assignment is not overwritten anywhere it
+	 * matters: the audit trail is append-only, so who held the case and when stays readable.
+	 */
+	@Transactional
+	public Case reassignCaseManager(UUID caseId, UUID cmId) {
+		Case subject = load(caseId);
+		requireState(subject.getCurrentStage() != Stage.CLOSED, "a closed case cannot be reassigned");
+		TeamMember cm = member(cmId, Role.CASE_MANAGER, subject.getBrandId());
+		requireState(cm.getTeamId() != null && cm.getTeamId().equals(subject.getTeamId()),
+				"case manager is not on this case's team");
+		requireState(!cm.getId().equals(subject.getAssignedCm()),
+				"that case manager already holds this case");
+
+		CaseManagerSnapshot before = new CaseManagerSnapshot(subject.getAssignedCm());
+		subject.setAssignedCm(cm.getId());
+		Case saved = cases.save(subject);
+
+		audit.recordEvent(OBJECT_TYPE, saved.getId(), AuditAction.ASSIGNED, TenantContext.current().memberId(),
+				before, new CaseManagerSnapshot(cm.getId()));
+		return saved;
+	}
+
+	/**
+	 * Changes the date the client was promised.
+	 *
+	 * <p>No stage change and no stored risk to invalidate: {@code DeadlineRiskCalculator} runs on
+	 * read, so the case reclassifies on the next query rather than needing a refresh pass.
+	 *
+	 * <p>A null deadline is refused. Clearing a promise is not the same act as changing one, and
+	 * a case that quietly stops having a date drops off every risk tile that exists to find it.
+	 */
+	@Transactional
+	public Case changeDeadline(UUID caseId, Instant deadline) {
+		Case subject = load(caseId);
+		requireState(deadline != null, "a deadline is required");
+		requireState(subject.getCurrentStage() != Stage.CLOSED,
+				"a closed case's deadline cannot be changed");
+
+		DeadlineSnapshot before = new DeadlineSnapshot(subject.getDeadline());
+		subject.setDeadline(deadline);
+		Case saved = cases.save(subject);
+
+		audit.recordEvent(OBJECT_TYPE, saved.getId(), AuditAction.UPDATED, TenantContext.current().memberId(),
+				before, new DeadlineSnapshot(deadline));
+		return saved;
+	}
+
+	/**
+	 * A Case Manager raising a blocked case to the Project Managers on its brand.
+	 *
+	 * <p>Shaped like {@code ChecklistService.chase()}: an audit row plus a notification, **no
+	 * stage change, no new column, no migration.** Nothing about the case is different afterwards;
+	 * what changed is that somebody who can unblock it has been told.
+	 *
+	 * <p>It exists because the Case Manager's only other gated writes are {@code draft/submit} and
+	 * minting a portal link, neither of which can raise anything to anyone — so a CM sitting on a
+	 * case they cannot move had no route through the product at all.
+	 */
+	@Transactional
+	public Case flagToPm(UUID caseId, String reason) {
+		Case subject = load(caseId);
+		requireState(subject.getCurrentStage() != Stage.CLOSED, "a closed case cannot be flagged");
+
+		// Written through the same audit service every transition uses, but with no stage write
+		// and no clock restamp: `apply` is for moving a case, and this does not move one. The
+		// snapshot is identical on both sides because nothing about the case changed — the note
+		// carries the whole content of the event.
+		CaseSnapshot snapshot = CaseSnapshot.of(subject);
+		audit.recordEvent(OBJECT_TYPE, subject.getId(), AuditAction.FLAGGED,
+				TenantContext.current().memberId(), snapshot, CaseSnapshot.of(subject, reason));
+		events.publishEvent(CaseEvents.CaseEvent.of(CaseEvents.Type.CASE_FLAGGED_TO_PM, subject));
+		return subject;
+	}
+
+	/**
+	 * A note from somebody working the case, for whoever picks it up next (Unit 23).
+	 *
+	 * <p>Written the way {@link #flagToPm} is — no stage write, no clock restamp, an identical
+	 * snapshot either side, and the whole content of the event in the note. It is not a
+	 * transition and is deliberately absent from {@code CaseTransitions}: a case in any stage
+	 * and any exception state accepts a note, because the moment somebody most needs to say
+	 * something is the moment the case is stuck.
+	 *
+	 * <p><strong>No role gate anywhere on this path.</strong> {@link #load} applies the caller's
+	 * scope, and that is the authorization in full: if you can read the case you can write on
+	 * it, and a Case Manager pointed at a case that does not name them gets the same 403 the
+	 * read would have given them.
+	 *
+	 * <p>Closed is the one refusal. A delivered and closed case is a finished record, and
+	 * letting the trail grow after the fact is how "what did we agree" stops having an answer.
+	 */
+	@Transactional
+	public Case addNote(UUID caseId, String note) {
+		Case subject = load(caseId);
+		String text = note == null ? "" : note.strip();
+		requireState(!text.isEmpty(), "a note cannot be blank");
+		requireState(subject.getCurrentStage() != Stage.CLOSED, "a closed case cannot take new notes");
+
+		CaseSnapshot snapshot = CaseSnapshot.of(subject);
+		audit.recordEvent(OBJECT_TYPE, subject.getId(), AuditAction.NOTE_ADDED,
+				TenantContext.current().memberId(), snapshot, CaseSnapshot.of(subject, text));
+		return subject;
+	}
+
 	/** What a strategy-notes edit records. The text is the change, so the text is the snapshot. */
 	public record StrategyNotesSnapshot(String pmStrategyNotes) {
+	}
+
+	/** Who held the case. Both sides are recorded, so the trail answers "moved from whom". */
+	public record CaseManagerSnapshot(UUID assignedCm) {
+	}
+
+	/** The promised date, before and after. */
+	public record DeadlineSnapshot(Instant deadline) {
 	}
 
 	/**

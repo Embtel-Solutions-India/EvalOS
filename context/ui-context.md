@@ -39,15 +39,27 @@ reserved for status only and must never be used as brand or decorative color.
 Define these as CSS custom properties / Tailwind tokens. No hardcoded hex in
 components.
 
+**`frontend/src/styles/tokens.css` is the source of truth for the values; this table
+mirrors it.** If the two disagree, the stylesheet is right and this is the bug.
+
 | Role                | CSS Variable          | Value     |
 | ------------------- | --------------------- | --------- |
-| Page background     | `--bg-base`           | `#F7F8FA` |
+| Page background     | `--bg-base`           | `#F4F5F7` |
 | Surface / card      | `--bg-surface`        | `#FFFFFF` |
-| Raised surface      | `--bg-raised`         | `#F0F2F5` |
-| Primary text        | `--text-primary`      | `#1A1D23` |
+| Raised surface      | `--bg-raised`         | `#F1F3F5` |
+| Primary text        | `--text-primary`      | `#111827` |
 | Muted text          | `--text-muted`        | `#6B7280` |
-| Primary accent      | `--accent-primary`    | `#3552E0` |
-| Accent hover        | `--accent-hover`      | `#2A41B8` |
+| Primary accent      | `--accent-primary`    | `#2563EB` |
+| Accent hover        | `--accent-hover`      | `#1D4ED8` |
+| **Nav rail**        | `--sidebar-bg`        | `#16213C` |
+| Nav rail text       | `--sidebar-text`      | `#E8ECF5` |
+| Nav rail muted      | `--sidebar-muted`     | `#8B97B0` |
+| Nav rail active     | `--sidebar-active-bg` | `#1F3A6D` |
+| Nav rail divider    | `--sidebar-border`    | `#24304D` |
+
+**The nav rail is its own surface and the only dark one.** Contrast was measured, not
+assumed: rail text 13.5:1, rail muted 5.4:1, active-item white 11.1:1 — all above AA.
+A future change to `--sidebar-bg` re-opens those three numbers.
 | Border              | `--border-default`    | `#E3E6EB` |
 | **Status — red**    | `--status-red`        | `#DC2626` |
 | **Status — amber**  | `--status-amber`      | `#D97706` |
@@ -64,6 +76,25 @@ components.
 | At risk / deadline <48h / capacity 70–90% / aging past threshold| `--status-amber` |
 | On track / delivered on time / capacity <70%                    | `--status-green` |
 
+**Two different clocks share those colours, and they must never share a label.** The
+table above reads as one instrument and is not:
+
+| Concept | Code | Question it answers | Where it is drawn |
+| --- | --- | --- | --- |
+| **Stage SLA** | `SlaCalculator` → `SlaStatus` | is this *stage* taking too long, against a per-stage budget from `stage_entered_at`? | the board's SLA rail |
+| **Deadline risk** | `DeadlineRiskCalculator` → `DeadlineRisk` | will we miss the *promised date*, from `case.deadline`? | the at-risk KPI, the inbox, the deadline presets |
+
+They disagree routinely — a case sits comfortably inside a 12-hour PM-review budget
+with its deadline nine hours away — so wherever both appear they are labelled
+"Stage SLA" and "Deadline" and neither is ever substituted for the other. `SlaCalculator`
+does not read `case.deadline` at all.
+
+Both return **null when no clock runs** (closed, or holding an exception state). That
+band is `--rail-unknown`, not green: a paused case is neither healthy nor breaching,
+and painting it green overstates the board's health. `DeadlineRisk.OVERDUE` is the
+*red band* — past the date **or** inside 24 business hours — because the table above
+puts those in one colour; a view needing genuinely-past-due reads the column.
+
 ## Typography
 
 | Role                       | Font                    | Variable      |
@@ -77,11 +108,16 @@ case IDs so numbers align.
 
 ## Border Radius
 
-| Context                     | Class          |
-| --------------------------- | -------------- |
-| Inline / small UI (badges)  | `rounded-md`   |
-| Cards / panels / Kanban     | `rounded-lg`   |
-| Modals / drawers / overlays | `rounded-xl`   |
+| Context                                        | Class          | Value |
+| ---------------------------------------------- | -------------- | ----- |
+| Inline / small UI — badges, chips, **controls** | `rounded-md`   | 6px   |
+| Cards / panels / Kanban                        | `rounded-lg`   | 8px   |
+| Modals / drawers / overlays                    | `rounded-xl`   | 12px  |
+
+**Nothing exceeds 12px, and controls take `md`.** `--radius-xl` was 30px under the
+previous language, which made every 36px control a pill; a row of pills across a dense
+operations header is noise. `xl` is now for overlays only — if a 36px button reaches for
+it, the button is wrong, not the token.
 
 ## Density
 
@@ -107,25 +143,54 @@ guessed twice is a height that drifts.
 
 Tailwind CSS, with components written in the feature folder that owns them.
 
-**There is no `frontend/src/components/ui/` set, and that is current rather than
-pending.** Through Unit 10 no screen has needed a table, dialog, drawer, or tabs,
-so installing shadcn/ui and Radix to generate primitives nothing renders would be
-scaffolding for later. `components/` holds only what more than one feature shares
-(today `Forbidden.tsx`).
+**`frontend/src/components/ui/` exists as of Unit 22, slice 1**, which is the moment
+this file predicted: the first screens needing a focus-trapped modal, a drawer and a
+tab set arrived together. It is now a **protected path** (`ai-workflow-rules.md`).
+
+Vendored **shadcn-style wrappers over the unified `radix-ui` package** — no CLI, no
+`components.json`, no generated-code pipeline. Three files, because the split follows
+behaviour rather than component count:
+
+| File | Holds | Why grouped |
+| --- | --- | --- |
+| `dialog.tsx` | `Dialog`, `Sheet` | a sheet *is* a dialog against an edge — same primitive, same focus trap. Splitting would duplicate the overlay and close button so two files could each own a `className` |
+| `menu.tsx` | `DropdownMenu`, `Popover`, `InfoTip` | one raised-surface treatment; the behaviour that differs comes from Radix |
+| `card.tsx` | `Card`, `KpiCard`, `ChartCard`, `CapacityBar` | the dashboard card system |
+| `tabs.tsx` | `Tabs` | its own file; nothing shares its keyboard contract |
+
+**Use a dialog for a decision, a sheet for inspecting without losing your place.**
+
+**The card state union is the contract:** `loading · ok · warning · error · empty ·
+unavailable`.
+- `unavailable` names the blocking unit ("available once Unit 15 ships…") — the
+  honest alternative to a zero for a metric whose data does not exist yet.
+- `empty` carries operational copy, never "No data": *"All incoming cases are
+  assigned."*
+- **`empty` and zero are different states.** A figure whose rows sum to zero renders
+  `0`; an empty month is an answer and a blank tile reads as broken.
+- **Clickability is structural**: a card takes an optional `to`, and only then gets
+  the link affordance. That is what stops every tile looking interactive.
 
 The rule that mattered still holds: **do not hand-roll a second version of
-something that already exists.** Radix remains the intended source for anything
-with focus-trapping or ARIA behaviour worth not writing twice — a real modal,
-combobox, or tab set. The first screen that needs one adds the vetted primitive
-then, and that is the point at which `ui/` is created and becomes protected (see
-`ai-workflow-rules.md`).
+something that already exists.**
+
+**Motion needs no library.** Radix stamps `data-state` on every overlay, so entry and
+exit are CSS keyframes keyed on it (`index.css`), under the existing
+`prefers-reduced-motion` block. Motion, dnd-kit and TanStack Table are deferred with
+written triggers in `context/specs/22-role-operations-ui.md`.
 
 ## Layout Patterns
 
-- **App shell**: fixed left nav (role + brand-scoped items), top bar with a
-  **brand switcher** (all-brands/filter for GM, single locked brand otherwise),
-  a global date filter (today / week / month / year), search, and a
-  **notification bell** (in-app notification center).
+- **App shell**: a **flush, full-height dark nav rail** on the left (role + brand-scoped
+  items), and a top bar with a **brand switcher** (all-brands/filter for GM, single
+  locked brand otherwise), a global date filter (today / week / month / year), search,
+  and a **notification bell** (in-app notification center).
+
+  The rail is **not** a floating rounded card inset from the viewport — that was the
+  previous language and is reversed. It is fixed to the edge with no gutter, so the
+  content column offsets by `--sidebar-width` alone. A dark rail is what lets the content
+  area stay quiet under a dozen panels at once; a white rail beside white cards needs a
+  border to separate it and then competes with every card on screen.
 - **Dashboard**: RAG tile grid at top (KPIs from the spec), tables and charts
   below. The largest tile is always the role's PRIMARY KPI. The GM's dashboard
   aggregates across brands with a brand filter.
@@ -134,10 +199,12 @@ then, and that is the point at which `ui/` is created and becomes protected (see
   the Case Manager workload widget the business asked for uses them as-is rather
   than inventing its own bands.
 
-  **Charts are an unresolved dependency.** Unit 17 wants a cycle-time chart with a
-  p90 band and **no charting library is installed**. Decide before that unit starts:
-  a small library, or hand-rolled SVG for the two or three shapes actually needed.
-  The component-library rule below applies — do not install one to render nothing.
+  **Charts: settled in Unit 22, slice 1 — Recharts.** The decision this paragraph used
+  to leave open. The brief requires exact values on hover, which means tooltips, axis
+  ticks and responsive resize; hand-rolled SVG would have meant writing and testing
+  hit-testing for three shapes. Series colours come from the `--chart-1..5` ramp and
+  **never** from the RAG tokens — a bar chart of four service types drawn red/amber/green
+  reads as three products on fire.
 - **Production board (Kanban)**: horizontal columns for the EvalOS-owned stages —
   Doc Collection · Expert Assignment · Draft / Report · Expert Signing · Final
   Delivery — with exception lanes (On Hold · Rematching · Refund Requested). The
@@ -155,6 +222,9 @@ then, and that is the point at which `ui/` is created and becomes protected (see
   rail is the board's one instrument, and an instrument that scrolls off the top is
   not one. The pool lane is capped at two rows of pills for the same reason, and
   "Off the pipeline" is closed by default.
+  **The pool lane is the Brand Manager's only, as of Unit 23.** The GM watches the board;
+  the pool is a queue somebody works, and it now lives in the PM inbox where taking a case
+  and staffing it are one flow.
 - **Delivery queue** (`/delivery`): dense rows, cases in Final Delivery, oldest
   first, one-click **Deliver** per row. This is the data-table pattern's other
   landing place besides the dashboard — a Coordinator working a batch rather than
@@ -173,7 +243,18 @@ then, and that is the point at which `ui/` is created and becomes protected (see
   one stage, so there is nothing to sort by that the server's longest-wait-first
   order does not already answer.
 - **Case detail**: two-column — left is documents (Drive link) + draft + expert,
-  right is the timeline/audit trail. Stage actions sit in a sticky header.
+  right is **Notes & timeline**. Stage actions sit in a sticky header.
+  - **Notes and history are one panel, not two tabs** (Unit 23). A note is almost always
+    *about* the transition beside it, so splitting them puts the sentence on one screen
+    and the event it explains on another and leaves the reader merging two orderings.
+    A note is stored as an audit row, which is what lets them interleave at all.
+  - A note is drawn with a `--accent-primary` left rule and its text as the body; a
+    transition keeps its stage line and quotes any reason. That rule is the one visual
+    difference between *the system recorded this* and *a person said this*.
+  - The composer sits at the foot of the panel and is shown to **every** role, with no
+    client-side permission check: the server's gate is the case scope, so anyone who
+    could load the page may write. It says plainly that the note is readable by everyone
+    on the case and cannot be edited — because it cannot, ever, by anyone.
 - **Client portal** (built in Unit 14): single centered column, one case, the
   drafted letter with big Approve / Request revisions actions and a visible
   "changes requested" note field.
@@ -196,9 +277,11 @@ then, and that is the point at which `ui/` is created and becomes protected (see
 
 Stroke-based only, `h-4 w-4` inline and `h-5 w-5` in buttons and nav.
 
-Drawn as inline SVG paths in the component that uses them (see `LeftNav.tsx`), not
-imported from Lucide React — which is **not** a dependency. The shell needs about
-eight glyphs, and a package for that is heavier than the paths. The sizes above
-are Lucide's own convention, so adopting the library later is an import and a
-find-and-replace rather than a re-layout; do that once the glyph count makes the
-inline paths the bigger cost.
+**Lucide is a dependency as of Unit 22, slice 1** (`lucide-react`). The condition this
+paragraph set — "once the glyph count makes the inline paths the bigger cost" — was met
+when the dashboards, the card states and the overlay primitives landed together. The
+sizes above were already Lucide's own convention, so adoption was an import rather than
+a re-layout, exactly as predicted.
+
+Inline SVG paths still in place (e.g. `LeftNav.tsx`) are correct where they stand and
+are not a migration backlog; new work imports from Lucide.

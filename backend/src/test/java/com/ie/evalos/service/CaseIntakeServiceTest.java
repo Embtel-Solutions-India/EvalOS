@@ -107,7 +107,8 @@ class CaseIntakeServiceTest {
 						"google", "cpc", "eb2-niw-q3"),
 				serviceType, null, VisaCategory.EB2_NIW, OTHER_EXPERT, "opp-4711",
 				amount, Instant.now().plusSeconds(86_400),
-				"https://drive.google.com/folder/abc", "INV-99123", "eb2-niw-q3");
+				"https://drive.google.com/folder/abc", "INV-99123", "eb2-niw-q3",
+				"Client needs this by the visa filing date — transcripts already with them.");
 	}
 
 	@Test

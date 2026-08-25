@@ -32,7 +32,21 @@ public enum Role {
 		TEAM,
 		/** Own brand + rows assigned to the caller. */
 		SELF,
-		/** Own brand's expert/roster supply side — not case content. */
+		/**
+		 * Own brand, exactly like {@link #BRAND} — this tier adds no predicate in
+		 * {@code ScopePredicate} and the row scope of the two is identical.
+		 *
+		 * <p>What makes it supply-side is <strong>field</strong> projection, not row scope:
+		 * {@code CaseController.seesCaseContent} withholds {@code clientName},
+		 * {@code driveLink} and {@code draftLink} from this tier on every case payload, the
+		 * board's and the detail's alike. The row stays readable because the Expert Network
+		 * Manager has three case transitions — expert signed, declined, reassign — that must
+		 * load the case to act on it.
+		 *
+		 * <p>This javadoc used to read "own brand's expert/roster supply side — not case
+		 * content" while the tier was referenced nowhere in the codebase and excluded nothing,
+		 * so every case payload carried the client straight through it.
+		 */
 		SUPPLY
 	}
 

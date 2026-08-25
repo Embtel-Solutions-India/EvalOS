@@ -2,8 +2,46 @@
 
 Vite SPA under `frontend/src`. Structure is `lib/`, `components/`, `features/`, `pages/`, `styles/`;
 `features/` is where the real screens live — `auth`, `shell`, `board`, `case`, `checklist`,
-`dashboards`, `experts`, `client-portal`. `components/ui/` (generated headless primitives) is
-**protected — do not hand-edit** and does not exist yet.
+`dashboards`, `experts`, `queues`, `client-portal`.
+
+`components/ui/` **exists as of Unit 22 slice 1 and is protected — do not hand-edit.** It holds
+vendored shadcn-*style* wrappers over the unified `radix-ui` package (`dialog.tsx` = Dialog +
+Sheet, `menu.tsx` = DropdownMenu + Popover + Tooltip, `tabs.tsx`, `card.tsx` = the dashboard card
+system). **The foundation is frozen**: later Unit 22 slices extend the decision tables and add
+screens, and may not redesign a shared component — without that rule a role-by-role cut produces
+one shell per role. A shared component genuinely needing to change is a stop-and-ask.
+
+**The card state union is the contract** — `loading · ok · warning · error · empty · unavailable`.
+`unavailable` names the blocking unit rather than rendering a zero for data that does not exist
+yet; `empty` carries operational copy ("All incoming cases are assigned"), and **`empty` and zero
+are different states** — a figure summing to zero renders `0`. A card is clickable **only** if
+given a `to`, which is what stops every tile looking interactive.
+
+`features/queues/` holds the three queue screens — `/inbox`, `/drafts` (PM) and `/delivery`
+(Coordinator). **All three read `/api/cases/board`** rather than adding endpoints: a second read
+would mean a second scope predicate that could drift from the board's. Selection lives in the pure
+`queueRules.ts` and is the only part with tests.
+
+**`/inbox` is the front door for incoming work and is the PM's alone (Unit 23).** A paid case
+arrives in the pool and surfaces under *Unassigned*; the PM takes it, then staffs the coordinator
+and the case manager. `AssignPopover` is the staffing cell and renders one of **three** states —
+`IN_POOL` → *Take this case* (`assign-pm` with `useMe().id`), taken-but-no-CM → a link to the case
+(`assign-cm` needs a CM *and* an expert in one call), staffed → the reassignment popover with
+each candidate's load. The GM left this screen and the board's pool lane (`SEES_POOL` is
+`['BRAND_MANAGER']`) — **nav only, no backend gate narrowed**.
+
+`features/dashboards/` is one component per role, chosen by the `DASHBOARDS` table in
+`RoleDashboard` — the `NAV_ITEMS` / `STAGE_ACCESS` shape, so a role's landing screen is a data row.
+**Every role reads live figures as of Unit 22; the placeholder tiles are gone.** GM and Brand
+Manager share `RevenueDashboard`, differing by payload rather than layout — but they are *not* the
+same role with a filter: `SEES_STRATEGY_NOTES` excludes the Brand Manager, so nothing on a shared
+screen may assume oversight means full visibility.
+
+`useMetrics` is the shared loader. **Its reset-on-refetch is the load-bearing part**: leaving the
+previous payload in place while a new request is in flight shows last month's figures under this
+month's header, and the tile looks live when it is not. `emptyWhen` exists so no dashboard can
+claim "nothing to do" while still loading — an empty queue is a claim about the operation, so it
+may only be made about data that arrived.
 
 ## Wiring — two surfaces, split inside `App.tsx`
 
@@ -40,12 +78,42 @@ Nav rendering, the router's allow-list (`mayReach`), and the placeholder's escap
 (`boardPathFor`) all read `NAV_ITEMS`. Keeping them separate is how a screen ends up deep-linkable
 but unguarded, or listed and then 403 — four separate defects have been that one bug.
 `navigation.test.ts` asserts the equivalence in both directions and **pins each screen's role list to
-its backend gate** (`/checklists` → `ChecklistController.COORDINATION`, `/experts` →
-`ExpertController.ROSTER_READ`). Grep it before adding any cross-screen link.
+its backend gate** (`/experts` → `ExpertController.ROSTER_READ`). Grep it before adding any
+cross-screen link.
+
+**Two entries are deliberately narrower than their backend gate, and the test says so** (Unit 23):
+`/inbox` is `['PROJECT_MANAGER']` and `/checklists` is `['BRAND_MANAGER', 'PROJECT_COORDINATOR']`.
+Both gates still carry `GM_OR` server-side, so a GM reaches either action from the board or the
+case — what they no longer have is somebody else's worklist in their sidebar. **This is the one
+place the "role list equals backend gate" rule is knowingly broken; do not "fix" it back.**
+
+**`/drafts` is `['PROJECT_MANAGER']` for a different and stronger reason** (Unit 23a): it *does*
+match its gate, because `GM_OR` was removed from `draft/pm-approve` and `draft/pm-return` on the
+server. See `mem:backend/lifecycle` for why. The client half is `boardRules`' **`gm` field**, which
+replaced the old `gmOnly` boolean and has three states — absent = GM-also (the default),
+`'only'` = the two refund rulings, `'never'` = the two draft rulings. `actionsFor` and
+`boardRules.test.ts` both go through the exported **`admits(action, role)`** rather than
+re-deriving it, because a second copy is how "the GM sees everything" survives a decision against
+it.
 
 **One path per screen.** `/cases` beside `/board`, `/delivery` with no screen behind it, and
 `/experts` beside `/expert-database` were all deleted for the same reason, and the test asserts their
 absence so they are not re-added.
+
+## Notes & timeline is one panel (Unit 23)
+
+`features/case/Timeline.tsx` renders the append-only trail **and** owns the note composer at its
+foot. Not two tabs: a note is usually *about* the transition beside it, and a note is stored as an
+audit row (`NOTE_ADDED` via `postNote` → `POST /cases/{id}/notes`), which is what lets them
+interleave at all.
+
+- The composer is rendered for **every** role with **no client-side permission check** — the
+  server's gate is the case scope, so anyone who could load the page may write. A role list here
+  would be a second copy of that scope.
+- `IS_NOTE` (`NOTE_ADDED`, `FLAGGED`) picks the note rendering: accent left rule, text as the body,
+  stage line suppressed. Everything else keeps the stage line and quotes its reason.
+- The textarea clears **only after** the server accepts, and the error renders beside the box
+  rather than in the page's sticky header — the person retyping is looking at the box.
 
 ## HTTP layer
 
@@ -160,12 +228,33 @@ rows ever contradict the total above them.
   must never be used decoratively — `--accent-primary` is the brand/interactive color. Expert
   availability counts as capacity, which is why the roster's badges use them; "on leave" is
   deliberately muted rather than red, since it is not a problem.
-- Radius by context: `rounded-md` badges/inline, `rounded-lg` cards/panels/Kanban, `rounded-xl`
-  modals/drawers. Numeric/currency/date/ID columns use `font-num` + `tabular-nums`.
-- **Icons are inline SVG, and Lucide is not being installed.** ~15 glyphs (the nav's seven, the bell,
-  the search) do not earn a dependency in an app with four runtime deps. Stroke-based, `h-5 w-5`,
-  `stroke="currentColor"`. Revisit only past ~30 glyphs. `LeftNav.NAV_ICONS` is keyed by the same
-  `path` the router uses, so a missing entry degrades to a fallback instead of adding a second list.
+- Radius by context: `rounded-md` badges/inline **and controls**, `rounded-lg` cards/panels/Kanban,
+  `rounded-xl` overlays only. Numeric/currency/date/ID columns use `font-num` + `tabular-nums`.
+- **The visual language changed on 2026-08-25 and the Protend one is gone.** `UI_MIGRATION_GUIDE.md`
+  carries a SUPERSEDED banner; its method and scope rule still hold, its hexes and geometry do not.
+  What reversed:
+  - **The nav rail is dark navy, flush to the viewport edge, full height** — not a white floating
+    rounded card inset by the gutter. `--sidebar-*` is its own token group and the rail is the only
+    dark surface in the app. Content offsets by `--sidebar-width` alone; `--shell-gutter` now means
+    the content area's padding and nothing else.
+    Contrast is **measured, not assumed**: text 13.5:1, muted 5.4:1, active white 11.1:1. Changing
+    `--sidebar-bg` re-opens all three.
+  - **`--radius-xl` went 30px → 12px.** At 30px every 36px control was a pill; a row of pills across
+    a dense header is noise. A control reaching for `xl` is now a bug in the control.
+  - Accent violet `#3c21f7` → blue `#2563eb`; canvas `#f9fafe` → `#f4f5f7`.
+  - Elevation is **border-first**: a hairline plus a short shadow, not the old 50px ambient bloom,
+    which pooled between adjacent panels once screens got dense.
+  - **KPI figures are large and semantically coloured** via `KpiCard`'s `tone` prop, with a delta
+    chip carrying an arrow, a sign *and* an `sr-only` direction. Colouring the number is status use,
+    not decoration, so it is a legitimate call on the RAG tokens — a count with no health reading
+    passes no tone and stays in `--text-primary`.
+  - **Deliberately not copied from the reference: sparklines on KPI tiles.** There is no trend
+    *series* behind these figures, only a single delta. Add them when a metric endpoint actually
+    returns a series; drawing one from invented data is the failure this repo keeps catching.
+- **Icons come from `lucide-react`** as of Unit 22 slice 1. Existing inline SVGs (`LeftNav.NAV_ICONS`,
+  the bell, the search) are fine where they stand and are not a migration backlog; new work imports.
+  `NAV_ICONS` stays keyed by the same `path` the router uses, so a missing entry degrades to a
+  fallback instead of adding a second list.
 - **Density: the reference screen is 1366 × 768, not 1920.** 36px for every control (pill, select,
   search, icon button, nav item), 72px header, 240px sidebar, 288px board column, `text-2xl` screen
   `h1`. The adopted template ships 44–48px controls, a 400px sidebar and a 136px header; that scale

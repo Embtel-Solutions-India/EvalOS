@@ -5,6 +5,7 @@ import {
   STAGE_ACCESS,
   STAGE_COLUMNS,
   actionsFor,
+  admits,
   allInsideSla,
   columnsFor,
   dueBeforeFor,
@@ -39,6 +40,7 @@ function card(overrides: Partial<BoardCard> = {}): BoardCard {
     serviceType: 'CREDENTIAL_EVALUATION',
     deadline: null,
     slaStatus: 'ON_TRACK',
+    deadlineRisk: null,
     currentStage: 'DOC_COLLECTION',
     exceptionState: 'NONE',
     poolStatus: 'ASSIGNED',
@@ -182,11 +184,32 @@ describe('actionsFor', () => {
     for (const role of ALL_ROLES) {
       for (const { stage } of STAGE_COLUMNS) {
         for (const action of actionsFor(card({ currentStage: stage }), role)) {
-          const admitted = action.gmOnly ? role === 'GM' : role === 'GM' || action.roles.includes(role)
-          expect(admitted, `${role} offered ${action.path}`).toBe(true)
+          // `admits` rather than a re-derivation of the same rule: a second copy is how
+          // "the GM sees everything" quietly survives a decision to the contrary.
+          expect(admits(action, role), `${role} offered ${action.path}`).toBe(true)
         }
       }
     }
+  })
+
+  /**
+   * Draft review is the one place the GM is excluded rather than added (Unit 23a), and it is
+   * asserted directly because "the GM can do anything" is the assumption everything else here
+   * encodes. If `GM_OR` ever goes back on `draft/pm-approve` / `draft/pm-return`, this fails and
+   * asks why — which is the point.
+   */
+  it('withholds draft approval and return from the GM, who is a superuser everywhere else', () => {
+    const gmInDrafting = paths('DRAFT_GENERATION', 'GM')
+    expect(gmInDrafting).not.toContain('draft/pm-approve')
+    expect(gmInDrafting).not.toContain('draft/pm-return')
+    // Still the superuser on the rest of the same stage, so this is an exclusion and not a
+    // role that lost the screen.
+    expect(gmInDrafting).toContain('draft/send-to-client')
+    expect(gmInDrafting).toContain('hold')
+
+    const pmInDrafting = paths('DRAFT_GENERATION', 'PROJECT_MANAGER')
+    expect(pmInDrafting).toContain('draft/pm-approve')
+    expect(pmInDrafting).toContain('draft/pm-return')
   })
 
   it('offers a case in an exception state only its way out', () => {

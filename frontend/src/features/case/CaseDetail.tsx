@@ -13,11 +13,18 @@ import RedactedProfilePanel from './RedactedProfilePanel'
 import StageActions from './StageActions'
 import StrategyNotes from './StrategyNotes'
 import Timeline from './Timeline'
-import { fetchCase, fetchTimeline, saveStrategyNotes, type CaseDetail, type TimelineEntry } from './caseApi'
+import {
+  fetchCase,
+  fetchTimeline,
+  postNote,
+  saveStrategyNotes,
+  type CaseDetail,
+  type TimelineEntry,
+} from './caseApi'
 
 /**
- * One case: documents, draft and expert on the left, the append-only timeline on the right,
- * with the stage actions in a sticky header.
+ * One case: documents, draft and expert on the left, the append-only notes-and-timeline panel on
+ * the right, with the stage actions in a sticky header.
  *
  * The dialog and the transition POST are the board's — a transition is the same operation
  * from either screen, so reusing them is what keeps the two surfaces honest with each other.
@@ -90,6 +97,18 @@ export default function CaseDetailPage() {
       else void run(action, {})
     },
     [run],
+  )
+
+  const onPostNote = useCallback(
+    async (note: string) => {
+      if (!id) return
+      // Not caught here: the composer shows the server's reason beside the box it was typed in,
+      // which is where the person who has to retype it is looking. `actionError` sits in the
+      // sticky header at the top of the page and would be off-screen.
+      await postNote(id, note)
+      await load()
+    },
+    [id, load],
   )
 
   const onSaveNotes = useCallback(
@@ -169,7 +188,7 @@ export default function CaseDetailPage() {
           <StrategyNotes detail={detail} onSave={onSaveNotes} />
         </div>
 
-        <Timeline entries={timeline} />
+        <Timeline entries={timeline} onPostNote={onPostNote} />
       </div>
 
       {pending && (

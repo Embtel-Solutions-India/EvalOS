@@ -53,7 +53,7 @@ export default function TopBar() {
             style={{
               background: 'var(--bg-surface)',
               border: '1px solid var(--border-default)',
-              borderRadius: 'var(--radius-xl)',
+              borderRadius: 'var(--radius-md)',
               color: 'var(--text-muted)',
             }}
           />
@@ -68,7 +68,7 @@ export default function TopBar() {
           className="h-9 px-4 text-sm font-medium transition-colors"
           style={{
             background: 'var(--bg-surface)',
-            borderRadius: 'var(--radius-xl)',
+            borderRadius: 'var(--radius-md)',
             color: 'var(--text-muted)',
             boxShadow: 'var(--shadow-card)',
           }}

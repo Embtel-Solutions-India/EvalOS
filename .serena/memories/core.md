@@ -50,7 +50,7 @@ Technical Design Document v1.1**; where a context file conflicts with it, v1.1 w
 note above) is complete and verified, and Phase 2 has started.**
 Scaffold + response envelope, the tenancy/auth/RBAC spine, the domain schema, the case state machine
 + SLA calendar, the inbound webhook gateway with Handoff A, the in-app notification centre, and five
-live frontend surfaces (app shell + role routing, production Kanban board, case detail + timeline,
+live frontend surfaces (app shell + role routing, production Kanban board, case detail + notes/timeline,
 document checklist board, expert database). CI runs the DB suite against a real Postgres on every
 push.
 
@@ -62,7 +62,16 @@ exist. Unit 16 (payout ledger) is next — not 15, which waits on Unit 21 and on
 account; the schedule is `00-build-plan.md`'s "Execution sequence for v2.0", and it differs from the
 numbering on purpose.** Migrations run to **`V24`** (Unit 13 added none — nothing it produces is
 persisted; Unit 14 added three, its code review added `V23`, and Unit 05b added `V24`);
-**358 backend tests, none skipped** (27 DB-backed) and 102 frontend tests.
+**406 backend tests** (27 DB-backed, skipped without a local Postgres) and 111 frontend tests.
+**Unit 23 made the Project Manager the front door and gave the case a conversation.** The GM lost the
+board's pool lane and the `/inbox` + `/checklists` nav entries (**nav only — no backend gate was
+narrowed**); `assign-pm` now admits the PM, who claims a pooled case from their inbox. A PM can read
+a pooled case because `ScopePredicate.Fields.unteamedVisible` is set on cases and nowhere else
+(`mem:backend/security`). **Case notes are audit rows, not a table** — `NOTE_ADDED`, written with no
+`@PreAuthorize` because the scoped load is the gate; see `mem:backend/lifecycle` and
+`mem:backend/persistence`. `Timeline` is now *Notes & timeline* (`mem:frontend/core`). Spec:
+`context/specs/23-case-notes-and-pm-routing.md`.
+
 Unit 05b re-pointed Handoff A to `opportunity.won` and **deleted the manual payment path** — details
 in `mem:backend/webhooks` and `mem:backend/lifecycle`. Its live hand-fired run is still owed, blocked
 on confirmation of what GHL actually sends on Won.

@@ -9,7 +9,7 @@
 | Migrations       | Flyway                                             | Versioned schema — every change is a new migration, never an edited one           |
 | Internal auth    | Spring Security + JWT + role authorities (RBAC/ABAC) | Staff login; per-role + brand/team/assignee authorization (optional SSO later)   |
 | Portal auth      | Separate Spring Security filter chains (scoped, link-based) | Expert portal and client draft-review portal — isolated from internal auth |
-| Frontend         | React + TypeScript (Vite SPA) + Tailwind           | Internal role-based dashboards, client portal, expert portal                      |
+| Frontend         | React + TypeScript (Vite SPA) + Tailwind, with `radix-ui`, `lucide-react`, `recharts` | Internal role-based dashboards, client portal, expert portal. The three UI packages landed in Unit 22 slice 1, each against a screen that needed it; dnd-kit, TanStack Table and Motion stay deferred with written triggers in that spec |
 | Raw documents    | Google Drive (existing) + **Drive API v3 (outbound, Unit 13)** | Client document folders — link stored on the case, not re-hosted. **Since Unit 13 EvalOS also writes one file into the case's folder**: the redacted expert profile, uploaded as a Google Doc |
 | E-signature      | **None — no provider.** The expert signs in their own tool and uploads the signed PDF through their portal | A scanned wet signature is the norm for an expert opinion letter. Provenance is a hash pair + an attestation + an `EXPERT` audit row, not a certificate — see `15-expert-portal-handoff-b.md` |
 | Notifications    | In-app notification center (staff) + GHL (clients) + a portal link (experts) | No EvalOS mail server                                            |
@@ -142,6 +142,16 @@ Frontend under `frontend/src`: `components/ui` (generated primitives),
   entries, read-only contact snapshots synced from GHL, in-app notifications, and
   the append-only audit trail. Relational integrity via foreign keys; JSONB only
   for genuinely schemaless blobs (e.g. raw webhook payload archive).
+- **There is no `case_note` table, and case notes are not a gap** (Unit 23). A note
+  anybody on the case writes is an **audit row** — `NOTE_ADDED`, with the text in the
+  snapshot's `note`, exactly as a hold reason or a decline reason already travels. The
+  trail is already append-only, already brand-scoped, already resolves actor names and
+  already interleaves with the transitions a note is usually about; a second store beside
+  it would have to re-earn all four and then be merged on read. The cost is stated rather
+  than hidden: **a note can never be edited or withdrawn.** That is invariant 13 working,
+  not a limitation to design around. `pm_strategy_notes` stays a column and stays separate
+  — it is the PM's private working note and is role-restricted; a case note is the
+  opposite, readable by everyone the case scope admits.
 - **Google Drive (existing, external)**: raw client document folders and drafts.
   EvalOS stores **two separate links** on the case and they are never
   interchangeable: `drive_link` is the client's own document folder (passports,
@@ -174,7 +184,13 @@ Frontend under `frontend/src`: `components/ui` (generated primitives),
   by `brand + team + assignee` in the service/repository layer.
 - **Scope tiers (ABAC).** All (GM) · Brand (Brand Manager) · Team (PM) · Self
   (Coordinator, Case Manager). The ENM is a supply-side axis: expert/roster data
-  yes; client identity/case content no. *(Self-tier scoping needs a column that
+  yes; client identity/case content no. *(**Enforced in code as of 2026-08-25, not
+  merely stated.** `Tier.SUPPLY` reads its whole brand at the **row** level — the ENM's
+  three signing transitions must load the case — and the axis is a **field**
+  projection: `CaseController.seesCaseContent` withholds `clientName`, `driveLink` and
+  `draftLink` from that tier on both the board and the detail payload. Before this the
+  tier added no predicate, was referenced nowhere, and every case payload carried the
+  client through it.)* *(Self-tier scoping needs a column that
   names the caller, and both now exist: `V17` added `evalos_case.assigned_coordinator`
   beside `assigned_cm`, and `ScopePredicate.Fields` takes a **set** of assignment
   attributes — a Self caller matches when any of them names them. One case is one
@@ -240,6 +256,26 @@ gateway — mirroring `opportunity.won` exactly. Not specced, not built.
 
 What stays EvalOS's on the supply side is everything about experts who already exist:
 roster, availability, coverage gaps, match scoring, offers, payouts, performance.
+
+**And on the production side, the door is opened by the Project Manager** (Unit 23). A case
+arrives from Handoff A paid and in the pool — `PoolStatus.IN_POOL`, no team — and it surfaces in
+the **PM inbox**, where the PM takes it (`assign-pm`, now on their gate) and then staffs the
+coordinator and the case manager. The GM has no pool lane and no inbox: they hold every backend
+gate through `GM_OR` — bar the two named below — and can unblock almost anything from the board or
+the case, but the queue is worked by the person whose job it is.
+
+**Draft review is the one production decision the GM cannot make** (Unit 23a). `draft/pm-approve`
+and `draft/pm-return` drop `GM_OR` outright: approving a Case Manager's draft is the judgement of
+the Project Manager who assigned it and who answers for what reaches the client. A superuser path
+*around* the reviewer is not oversight — it is a second reviewer with none of the context, and it
+makes "who approved this" ambiguous on the one artefact the business is paid for. The GM's lever is
+reassigning the PM, not overriding them. This is the only place the GM is *excluded* rather than
+added; the two refund rulings are the opposite exception, GM-**only**.
+
+This is why `ScopePredicate` lets a `TEAM`-tier caller see rows with a **null team** when the axis
+declares `unteamedVisible` — on a case an absent team means *unclaimed*, and the role expected to
+claim it has to be able to read it. It is set on cases and nowhere else; the brand predicate is
+unconditional either way, so it widens a tier inside one brand and never across brands.
 
 ## The Three Handoffs (the front/back seam)
 

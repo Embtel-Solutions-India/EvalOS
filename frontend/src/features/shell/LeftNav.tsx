@@ -1,7 +1,9 @@
+import { useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
 import { NavLink } from 'react-router-dom'
 import { useMe } from '../../lib/authContext'
 import { navSectionsFor } from './navigation'
+import { BADGE_FOR_PATH, fetchNavBadges, isUrgentBadge, type NavBadges } from './navBadges'
 
 const ROLE_LABELS: Record<string, string> = {
   GM: 'General Manager',
@@ -13,17 +15,15 @@ const ROLE_LABELS: Record<string, string> = {
 }
 
 /**
- * The nav, as a floating rounded card. Filtered by role from the one table the router also
- * guards against (`navigation.ts`), so a listed item is always reachable and a reachable
+ * The nav, as a **flush full-height dark rail**. Filtered by role from the one table the router
+ * also guards against (`navigation.ts`), so a listed item is always reachable and a reachable
  * item is always listed.
  *
- * **Icons are new, and they are a reversal.** This file used to argue against them: a
- * pictogram beside eight text labels is decoration in a tool whose users read the nav by
- * position after a day. That reasoning still holds on its own terms — what changed is that
- * an icon rail is a defining part of the visual language being adopted
- * (`UI_MIGRATION_GUIDE.md`), and the nav is where it is most visible. They are inline SVG
- * rather than an icon package for the reason the bell always was: seven glyphs do not earn
- * a dependency, and this app has four runtime deps in total.
+ * **Icons are inline SVG here, and that is now a local exception rather than a policy.** This
+ * file argued twice: first against icons at all, then for them as part of the adopted visual
+ * language. What changed since is that `lucide-react` is a dependency (Unit 22), so the
+ * "seven glyphs do not earn a package" reasoning no longer applies — these paths stay because
+ * they work and rewriting them buys nothing, and new glyphs come from Lucide.
  *
  * **The grouping stays**, built from consecutive runs in `NAV_ITEMS`. The template ships a
  * flat accordion, and flattening this would undo the fix that stopped three roles having
@@ -35,25 +35,48 @@ const ROLE_LABELS: Record<string, string> = {
  */
 export default function LeftNav() {
   const me = useMe()
+  const [badges, setBadges] = useState<NavBadges | null>(null)
+
+  useEffect(() => {
+    const controller = new AbortController()
+    // Failure is silent on purpose: a rail that renders an error where a count should be is
+    // worse than a rail with no counts. The screens themselves report their own load failures.
+    fetchNavBadges(controller.signal)
+      .then(setBadges)
+      .catch(() => {})
+    return () => controller.abort()
+  }, [])
 
   return (
     <nav
-      className="fixed z-30 flex flex-col overflow-hidden"
+      className="fixed inset-y-0 left-0 z-30 flex flex-col overflow-hidden"
       style={{
-        top: 'var(--shell-gutter)',
-        left: 'var(--shell-gutter)',
-        bottom: 'var(--shell-gutter)',
         width: 'var(--sidebar-width)',
-        background: 'var(--bg-surface)',
-        borderRadius: 'var(--radius-xl)',
-        boxShadow: 'var(--shadow-card)',
+        background: 'var(--sidebar-bg)',
+        color: 'var(--sidebar-text)',
       }}
       aria-label="Main"
     >
-      <div className="px-5 pt-6 pb-4">
-        <span className="block text-lg font-semibold tracking-tight">EvalOS</span>
-        <span className="mt-0.5 block font-mono text-[11px] tracking-tight" style={{ color: 'var(--text-muted)' }}>
-          {me.role === 'GM' ? 'all brands' : 'brand desk'}
+      <div className="flex items-center gap-2.5 px-4 pt-5 pb-4">
+        <span
+          aria-hidden
+          className="grid h-9 w-9 shrink-0 place-items-center text-sm font-bold"
+          style={{
+            background: 'var(--accent-primary)',
+            color: '#fff',
+            borderRadius: 'var(--radius-md)',
+          }}
+        >
+          IE
+        </span>
+        <span className="min-w-0">
+          {/* The brand you are actually in, not the product name. A Brand Manager holds one brand
+              and could not previously see which — `/api/brands` is GM-only, so the name now comes
+              down on `/api/me`. The GM is cross-brand and says so. */}
+          <span className="block truncate text-sm font-semibold">{me.brandName ?? 'EvalOS'}</span>
+          <span className="block truncate text-[11px]" style={{ color: 'var(--sidebar-muted)' }}>
+            {me.role === 'GM' ? 'All brands' : 'EvalOS'}
+          </span>
         </span>
       </div>
 
@@ -62,7 +85,7 @@ export default function LeftNav() {
           <div key={section.group} className="mb-3 last:mb-0">
             <h2
               className="px-3 pb-1.5 text-[10px] font-semibold tracking-[0.1em] uppercase"
-              style={{ color: 'var(--text-muted)' }}
+              style={{ color: 'var(--sidebar-muted)' }}
             >
               {section.group}
             </h2>
@@ -74,9 +97,9 @@ export default function LeftNav() {
                     className="flex items-center gap-2.5 px-3 text-sm transition-colors"
                     style={({ isActive }) => ({
                       height: '2.25rem',
-                      borderRadius: 'var(--radius-lg)',
-                      background: isActive ? 'var(--accent-soft)' : 'transparent',
-                      color: isActive ? 'var(--accent-primary)' : 'var(--text-muted)',
+                      borderRadius: 'var(--radius-md)',
+                      background: isActive ? 'var(--sidebar-active-bg)' : 'transparent',
+                      color: isActive ? '#fff' : 'var(--sidebar-muted)',
                       fontWeight: isActive ? 600 : 500,
                     })}
                   >
@@ -84,6 +107,7 @@ export default function LeftNav() {
                       {NAV_ICONS[item.path] ?? NAV_ICONS.fallback}
                     </span>
                     <span className="truncate">{item.label}</span>
+                    <Badge path={item.path} badges={badges} />
                   </NavLink>
                 </li>
               ))}
@@ -92,26 +116,56 @@ export default function LeftNav() {
         ))}
       </div>
 
-      <div className="flex items-center gap-2.5 px-4 py-3.5" style={{ borderTop: '1px solid var(--border-default)' }}>
+      <div className="flex items-center gap-2.5 px-4 py-3.5" style={{ borderTop: '1px solid var(--sidebar-border)' }}>
         <span
           aria-hidden
           className="grid h-9 w-9 shrink-0 place-items-center text-xs font-semibold"
           style={{
-            background: 'var(--accent-soft)',
-            color: 'var(--accent-primary)',
-            borderRadius: 'var(--radius-lg)',
+            background: 'var(--sidebar-active-bg)',
+            color: '#fff',
+            borderRadius: 'var(--radius-md)',
           }}
         >
           {initials(me.displayName)}
         </span>
         <span className="min-w-0">
           <span className="block truncate text-sm font-semibold">{me.displayName}</span>
-          <span className="block truncate text-xs" style={{ color: 'var(--text-muted)' }}>
+          <span className="block truncate text-xs" style={{ color: 'var(--sidebar-muted)' }}>
             {ROLE_LABELS[me.role] ?? me.role}
           </span>
         </span>
       </div>
     </nav>
+  )
+}
+
+/**
+ * The count beside a screen's name, when there is one and it is not zero.
+ *
+ * **Zero renders nothing.** A rail carrying a row of noughts trains people to stop reading it, and
+ * "nothing is waiting" is already said by the absence. This is the opposite of the dashboard rule,
+ * where a metric of zero renders `0` — there the number is the answer, here it is an interruption.
+ */
+function Badge({ path, badges }: { path: string; badges: NavBadges | null }) {
+  const key = BADGE_FOR_PATH[path]
+  const count = key && badges ? badges[key] : 0
+  if (!key || count === 0) {
+    return null
+  }
+  const urgent = isUrgentBadge(key)
+  return (
+    <span
+      className="font-num ml-auto shrink-0 rounded-md px-1.5 py-0.5 text-[11px] font-semibold tabular-nums"
+      style={{
+        background: urgent ? 'var(--status-red)' : 'rgb(255 255 255 / 0.12)',
+        color: '#fff',
+      }}
+    >
+      {count}
+      {/* The number alone is ambiguous on a rail — say what it counts, for a screen reader and
+          for anyone who has not learned the layout yet. */}
+      <span className="sr-only"> waiting</span>
+    </span>
   )
 }
 

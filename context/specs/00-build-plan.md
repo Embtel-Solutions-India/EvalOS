@@ -316,6 +316,23 @@ infrastructure and no new auth surface. Carries the upload trust boundary
 bytes never persisted by EvalOS).
 Depends on: 10, 13, 14.
 
+### Unit 23 — Case notes, and routing intake to the PM
+Builds: the Project Manager as the front door for incoming work — the pool lane
+leaves the GM's board, `/inbox` and `/checklists` leave their sidebar (nav only,
+no backend gate narrowed), and `assign-pm` admits the PM so they claim a pooled
+case from their own inbox and then staff the coordinator and case manager. Plus
+**notes on a case**: any caller the case scope admits appends free text to the
+append-only trail as `NOTE_ADDED`, and `Timeline` becomes *Notes & timeline*. The
+GHL won-opportunity payload carries an optional `notes` onto the `CREATED` row, so
+a case arrives with what sales wrote on it. Adds one column-equivalent of scope
+(`ScopePredicate.Fields.unteamedVisible`, set on cases only) and **no new table** —
+a note is an audit row for the reasons in `architecture.md`'s storage model.
+**23a** then removed `GM_OR` from `draft/pm-approve` / `draft/pm-return` and made
+`/drafts` PM-only — the one place the GM is *excluded* from a transition rather
+than added to it, because approving a Case Manager's draft is the judgement of the
+PM who assigned it.
+Depends on: 04, 08, 09, 22.
+
 ---
 
 ## Notes

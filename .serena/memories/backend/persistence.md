@@ -209,6 +209,13 @@ naming the entity attributes that carry brand / team / assignee. That yields `fi
 
 ## Append-only audit
 
+**It is also the case-notes store (Unit 23).** `AuditAction.NOTE_ADDED` carries a staff note in the
+snapshot's `note`, and there is deliberately **no `case_note` table** — the trail is already
+append-only, brand-scoped, actor-resolving and interleaved with the transitions a note is usually
+about. Everything below therefore applies to notes as well, and the sharpest consequence is that
+**a note can never be edited or withdrawn by anyone.** That is the property being bought, not a
+limitation to work around.
+
 Enforced three independent ways, because lost audit history is unrecoverable:
 
 1. `AuditEventRepository extends Repository` (the bare marker, **not** `JpaRepository`) — `save` plus

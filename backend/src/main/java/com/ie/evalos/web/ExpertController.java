@@ -14,6 +14,7 @@ import com.ie.evalos.domain.ExpertPaymentStatus;
 import com.ie.evalos.domain.ExpertTier;
 import com.ie.evalos.domain.FieldTag;
 import com.ie.evalos.domain.LetterType;
+import com.ie.evalos.domain.PerformanceFlag;
 import com.ie.evalos.service.ExpertImportService;
 import com.ie.evalos.service.ExpertImportService.ImportMapping;
 import com.ie.evalos.service.ExpertImportService.ImportReport;
@@ -146,13 +147,20 @@ public class ExpertController {
 			AgreementStatus agreementStatus,
 			ExpertPaymentStatus paymentStatus,
 			BigDecimal totalPaymentsPending,
+			/**
+			 * Standing performance concerns, and as of Unit 22 slice 4 they are writable — see
+			 * {@code setPerformanceFlags}. Returned here because a flag the ENM can set and cannot
+			 * read back is a write into a hole.
+			 */
+			List<PerformanceFlag> performanceFlags,
 			Instant createdAt) {
 
 		static ExpertProfileView of(RosterEntry entry) {
 			Expert expert = entry.expert();
 			return new ExpertProfileView(RosterRow.of(entry), expert.getNotes(), expert.getRecruitmentSource(),
 					expert.getDateOnboarded(), expert.getAvgResponseHours(), expert.getAgreementStatus(),
-					expert.getPaymentStatus(), expert.getTotalPaymentsPending(), expert.getCreatedAt());
+					expert.getPaymentStatus(), expert.getTotalPaymentsPending(), expert.getPerformanceFlags(),
+					expert.getCreatedAt());
 		}
 	}
 
@@ -161,6 +169,16 @@ public class ExpertController {
 	}
 
 	public record SetAvailabilityRequest(@NotNull Availability availability) {
+	}
+
+	/**
+	 * @param flags  the complete set of standing concerns. Empty clears them, which is how a
+	 *               resolved concern is retired.
+	 * @param reason why, and required even when clearing — "who lifted this flag and on what
+	 *               grounds" is exactly the question the trail has to answer later.
+	 */
+	public record PerformanceFlagsRequest(@NotNull List<PerformanceFlag> flags,
+			@NotBlank @Size(max = 500) String reason) {
 	}
 
 	/**
@@ -250,6 +268,24 @@ public class ExpertController {
 	public ApiResponse<ExpertProfileView> setAvailability(@PathVariable UUID id,
 			@Valid @RequestBody SetAvailabilityRequest request) {
 		experts.setAvailability(id, request.availability());
+		return ApiResponse.ok(ExpertProfileView.of(experts.profile(id)));
+	}
+
+	/**
+	 * Records the ENM's standing performance concerns about an expert, with the reason.
+	 *
+	 * <p>The first writer {@code performance_flags} has ever had — the column, its enum and its
+	 * display all shipped in Unit 11 with nothing able to set them.
+	 *
+	 * <p><strong>The list replaces, it does not append</strong>, so clearing a resolved concern is
+	 * sending a shorter list. The history is the audit trail, which keeps every previous set with
+	 * its author and reason; the column holds only what is true now.
+	 */
+	@PatchMapping("/{id}/performance-flags")
+	@PreAuthorize(ROSTER_WRITE)
+	public ApiResponse<ExpertProfileView> setPerformanceFlags(@PathVariable UUID id,
+			@Valid @RequestBody PerformanceFlagsRequest request) {
+		experts.setPerformanceFlags(id, request.flags(), request.reason());
 		return ApiResponse.ok(ExpertProfileView.of(experts.profile(id)));
 	}
 

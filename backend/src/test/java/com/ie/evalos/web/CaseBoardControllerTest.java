@@ -14,7 +14,9 @@ import com.ie.evalos.security.EvalOsUserDetailsService;
 import com.ie.evalos.security.JwtService;
 import com.ie.evalos.security.SecurityConfig;
 import com.ie.evalos.security.StaffPrincipal;
+import com.ie.evalos.service.BusinessCalendar;
 import com.ie.evalos.service.CaseBoardService;
+import com.ie.evalos.service.DeadlineRiskCalculator;
 import com.ie.evalos.service.CaseBoardService.BoardRow;
 
 import org.junit.jupiter.api.Test;
@@ -39,7 +41,11 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * the same role gate the case list uses.
  */
 @WebMvcTest(controllers = CaseBoardController.class)
-@Import({ SecurityConfig.class, JwtService.class, ApiErrors.class })
+// DeadlineRiskCalculator and its calendar are imported real, not mocked: they are pure functions
+// over the case row, and a mock would make every card's `deadlineRisk` null — which is a value the
+// projection legitimately produces, so the tests would pass without exercising anything.
+@Import({ SecurityConfig.class, JwtService.class, ApiErrors.class,
+		DeadlineRiskCalculator.class, BusinessCalendar.class })
 @TestPropertySource(properties = "evalos.security.jwt.secret=test-signing-key-that-is-long-enough-for-hs256")
 class CaseBoardControllerTest {
 
@@ -140,6 +146,31 @@ class CaseBoardControllerTest {
 					.andExpect(jsonPath("$.data.stages.DOC_COLLECTION[0].caseCode").value("IE-2026-0001"))
 					.andExpect(jsonPath("$.data.stages.DOC_COLLECTION[0].dealValue").doesNotExist());
 		}
+	}
+
+	/**
+	 * Acceptance criterion: the supply-side role works the board without learning who the
+	 * clients are. This controller has no {@code @PreAuthorize} by design, so an ungated
+	 * {@code clientName} was every client in the brand in a single request.
+	 */
+	@Test
+	void theClientNameIsWithheldFromTheSupplySideRole() throws Exception {
+		given(board.forCaller(any(), any())).willReturn(List.of(
+				row("IE-2026-0001", Stage.DOC_COLLECTION, ExceptionState.NONE, null)));
+
+		for (Role sees : List.of(Role.GM, Role.BRAND_MANAGER, Role.PROJECT_MANAGER,
+				Role.PROJECT_COORDINATOR, Role.CASE_MANAGER)) {
+			mockMvc.perform(get("/api/cases/board").header(HttpHeaders.AUTHORIZATION, bearer(sees)))
+					.andExpect(status().isOk())
+					.andExpect(jsonPath("$.data.stages.DOC_COLLECTION[0].clientName").value("Anita Rao"));
+		}
+
+		mockMvc.perform(get("/api/cases/board")
+						.header(HttpHeaders.AUTHORIZATION, bearer(Role.EXPERT_NETWORK_MANAGER)))
+				.andExpect(status().isOk())
+				// The card still reads: an empty board would hide signing work that is theirs.
+				.andExpect(jsonPath("$.data.stages.DOC_COLLECTION[0].caseCode").value("IE-2026-0001"))
+				.andExpect(jsonPath("$.data.stages.DOC_COLLECTION[0].clientName").doesNotExist());
 	}
 
 	@Test

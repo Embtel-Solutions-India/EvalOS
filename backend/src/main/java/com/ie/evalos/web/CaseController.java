@@ -58,10 +58,16 @@ import org.springframework.web.bind.annotation.RestController;
 public class CaseController {
 
 	/**
-	 * The GM may perform any transition, on top of the role the spec's actor column
-	 * names. Prefixed onto every gate as a constant rather than spelled out in
-	 * eighteen role lists, so "and the GM" cannot be forgotten on a new route. The
-	 * two refund rulings are the exception: they are GM-*only*, not GM-also.
+	 * The GM may perform almost any transition, on top of the role the spec's actor column
+	 * names. Prefixed onto the gates as a constant rather than spelled out in eighteen role
+	 * lists, so "and the GM" cannot be forgotten on a new route.
+	 *
+	 * <p><strong>Four routes do not use it, in two different directions.</strong> The two refund
+	 * rulings are GM-<em>only</em> rather than GM-also. The two draft-review rulings
+	 * ({@code draft/pm-approve}, {@code draft/pm-return}) are GM-<em>excluded</em>: reviewing a
+	 * Case Manager's draft belongs to the PM who assigned it, and a superuser path around the
+	 * reviewer makes "who approved this" ambiguous on the artefact the client pays for. Adding
+	 * {@code GM_OR} back to either pair is a decision, not a tidy-up.
 	 */
 	private static final String GM_OR = "hasRole('GM') or ";
 
@@ -71,6 +77,26 @@ public class CaseController {
 	 * two copies is how a Case Manager ends up seeing the deal value on one screen.
 	 */
 	static final Set<Role> SEES_DEAL_VALUE = Set.of(Role.GM, Role.BRAND_MANAGER, Role.PROJECT_MANAGER);
+
+	/**
+	 * Whether this caller may see who the client is and what the case says.
+	 *
+	 * <p>Gates {@code clientName}, {@code driveLink} and {@code draftLink} on both the board
+	 * projection and the detail one.
+	 *
+	 * <p><strong>Derived from the scope tier rather than written as a role set</strong>, unlike
+	 * {@link #SEES_DEAL_VALUE} above. {@link Role.Tier#SUPPLY} already means precisely this —
+	 * "own brand's expert/roster supply side, not case content" — and {@code Role}'s own javadoc
+	 * states the tier is the single source of truth for scoping. A role list here would be a
+	 * second copy of that fact, and the copy is what goes stale when a seventh role arrives.
+	 *
+	 * <p>This is a <em>field</em> projection and deliberately not a row filter: the Expert
+	 * Network Manager has three case transitions (expert signed / declined / reassign) that must
+	 * load the case to act on it. They need the row; they must not receive the client on it.
+	 */
+	static boolean seesCaseContent(Role role) {
+		return role.tier() != Role.Tier.SUPPLY;
+	}
 
 	/**
 	 * The case as staff read it. No {@code pm_strategy_notes} and no drive link: this
@@ -179,23 +205,38 @@ public class CaseController {
 			 */
 			boolean maySeeStrategyNotes,
 			/** Whether this caller may write the notes, so the client need not re-derive the rule. */
-			boolean mayEditStrategyNotes) {
+			boolean mayEditStrategyNotes,
+			/**
+			 * Whether this caller may see {@code clientName}, {@code driveLink} and
+			 * {@code draftLink}, stated rather than inferred from their absence.
+			 *
+			 * <p>Same reasoning as {@link #maySeeStrategyNotes}, and here it is load-bearing:
+			 * {@code clientName} is <em>already</em> legitimately null when a case has no linked
+			 * contact, and the UI renders that as "Unnamed contact". Without this flag a withheld
+			 * client would be drawn as a claim about the client that is not true.
+			 */
+			boolean maySeeCaseContent) {
 
 		static CaseDetail of(CaseDetailService.CaseWithContext context, TenantContext ctx) {
 			Case subject = context.subject();
 			boolean seesNotes = SEES_STRATEGY_NOTES.contains(ctx.role());
+			boolean seesContent = seesCaseContent(ctx.role());
 			return new CaseDetail(
+					// CaseSummary carries no client identity of its own — checked, not assumed.
 					CaseSummary.of(subject, ctx),
-					context.clientName(),
-					subject.getDriveLink(),
-					subject.getDraftLink(),
+					seesContent ? context.clientName() : null,
+					seesContent ? subject.getDriveLink() : null,
+					seesContent ? subject.getDraftLink() : null,
+					// expertName and expertTier are deliberately NOT projected: the supply-side
+					// role's whole job is the expert, and the roster is already theirs to read.
 					context.expertName(),
 					context.expertTier(),
 					context.checklist().total(),
 					context.checklist().complete(),
 					seesNotes ? subject.getPmStrategyNotes() : null,
 					seesNotes,
-					MAY_EDIT_STRATEGY_NOTES.contains(ctx.role()));
+					MAY_EDIT_STRATEGY_NOTES.contains(ctx.role()),
+					seesContent);
 		}
 	}
 
@@ -206,6 +247,10 @@ public class CaseController {
 	}
 
 	/** Return comments, hold reasons, decline reasons, revision notes — all free text. */
+	/** Free text, and the whole content of the entry — so blank is refused at the edge. */
+	public record NoteRequest(@NotBlank String note) {
+	}
+
 	public record ReasonRequest(@NotBlank String reason) {
 	}
 
@@ -214,6 +259,18 @@ public class CaseController {
 	 * already carries, so re-submitting a revision filed in the same place needs nothing typed.
 	 */
 	public record SubmitDraftRequest(String draftLink) {
+	}
+
+	public record CaseManagerRequest(@NotNull UUID cmId) {
+	}
+
+	/**
+	 * The new promised date.
+	 *
+	 * <p>{@code @NotNull} because clearing a deadline is a different act from changing one, and a
+	 * case with no date silently drops off every risk tile that exists to surface it.
+	 */
+	public record DeadlineRequest(@NotNull Instant deadline) {
 	}
 
 	private final CaseLifecycleService lifecycle;
@@ -261,14 +318,83 @@ public class CaseController {
 		return read(id);
 	}
 
+	/**
+	 * Moves a case to another Case Manager, mid-draft, without moving the case.
+	 *
+	 * <p>{@code PATCH} and not {@code POST} for the same reason as strategy notes: this is not a
+	 * transition. See {@code CaseLifecycleService.reassignCaseManager} for why it is not the
+	 * {@code assign-cm} route widened — that one would mint an expert offer as a side effect.
+	 */
+	@PatchMapping("/{id}/case-manager")
+	@PreAuthorize(GM_OR + "hasRole('PROJECT_MANAGER')")
+	public ApiResponse<CaseSummary> reassignCaseManager(@PathVariable UUID id,
+			@Valid @RequestBody CaseManagerRequest request) {
+		return summary(lifecycle.reassignCaseManager(id, request.cmId()));
+	}
+
+	/**
+	 * Changes the date the client was promised.
+	 *
+	 * <p>Also not a transition. The deadline drives {@code DeadlineRisk}, which is computed on
+	 * read, so the risk tiles reclassify on their next query with nothing to invalidate.
+	 */
+	@PatchMapping("/{id}/deadline")
+	@PreAuthorize(GM_OR + "hasRole('PROJECT_MANAGER')")
+	public ApiResponse<CaseSummary> changeDeadline(@PathVariable UUID id,
+			@Valid @RequestBody DeadlineRequest request) {
+		return summary(lifecycle.changeDeadline(id, request.deadline()));
+	}
+
+	/**
+	 * A Case Manager raising a blocked case to its Project Manager.
+	 *
+	 * <p>{@code POST} because it has an outward effect — somebody is notified — but it is not a
+	 * transition and moves nothing. The reason is required: a flag with no reason asks the PM to
+	 * guess what is wrong, which is the whole thing the flag was supposed to save them.
+	 */
+	@PostMapping("/{id}/flag")
+	@PreAuthorize(GM_OR + "hasRole('CASE_MANAGER')")
+	public ApiResponse<CaseSummary> flag(@PathVariable UUID id, @Valid @RequestBody ReasonRequest request) {
+		return summary(lifecycle.flagToPm(id, request.reason()));
+	}
+
+	/**
+	 * A note on the case, for whoever works it next (Unit 23).
+	 *
+	 * <p><strong>The missing {@code @PreAuthorize} is the design, not an omission.</strong> Every
+	 * other route here names the roles the spec's actor column gives that transition; a note is
+	 * not a transition and has no actor column. "Everybody related to the case" is not a role
+	 * list — it is exactly the set the scoped load in {@code CaseLifecycleService.addNote}
+	 * admits, and spelling it out as six roles here would be a second copy of the scope that
+	 * goes stale the first time the scope changes. A caller who cannot read the case gets 403
+	 * from the load, before anything is written.
+	 *
+	 * <p>{@code POST} because it appends a permanent row. There is no PUT or DELETE beside it
+	 * and there cannot be: the trail is append-only (invariant 13).
+	 */
+	@PostMapping("/{id}/notes")
+	public ApiResponse<CaseSummary> addNote(@PathVariable UUID id, @Valid @RequestBody NoteRequest request) {
+		return summary(lifecycle.addNote(id, request.note()));
+	}
+
 	// There is no payment route. Handoff A now fires on the GHL opportunity being marked
 	// Won, which GHL only does after it has invoiced and collected, so the case arrives
 	// paid and GHL is the sole source of that fact (invariant 8).
 
 	// --- assignment ----------------------------------------------------------
 
+	/**
+	 * Takes the case out of the pool and stamps the PM's team, which is what opens it to that
+	 * team at all.
+	 *
+	 * <p>The Project Manager is on this gate as of Unit 23, and it is the point of that unit:
+	 * a paid case lands in the PM inbox and the PM <em>claims</em> it, rather than waiting for
+	 * a commercial role to hand it over. They can read a pooled case because
+	 * {@code CaseRepository.SCOPE} sets {@code unteamedVisible} — the two changes are one
+	 * decision and neither works alone.
+	 */
 	@PostMapping("/{id}/assign-pm")
-	@PreAuthorize(GM_OR + "hasRole('BRAND_MANAGER')")
+	@PreAuthorize(GM_OR + "hasAnyRole('BRAND_MANAGER', 'PROJECT_MANAGER')")
 	public ApiResponse<CaseSummary> assignPm(@PathVariable UUID id, @Valid @RequestBody AssignPmRequest request) {
 		return summary(lifecycle.assignPm(id, request.pmId()));
 	}
@@ -320,14 +446,29 @@ public class CaseController {
 		return summary(lifecycle.submitDraft(id, request == null ? null : request.draftLink()));
 	}
 
+	/**
+	 * Draft review is the Project Manager's, and the GM is <strong>not</strong> on this gate
+	 * (Unit 23a) — one of only two places `GM_OR` is deliberately absent besides the refund
+	 * rulings, which are GM-<em>only</em> rather than GM-excluded.
+	 *
+	 * <p>Approving a draft is a judgement about a Case Manager's work, made by the person who
+	 * assigned it to them and who answers for what goes to the client. A superuser path around
+	 * that reviewer is not oversight — it is a second reviewer with none of the context, and it
+	 * makes "who approved this" ambiguous on the one artefact the business is paid for. The GM's
+	 * lever here is reassigning the PM, not overriding them.
+	 *
+	 * <p>`boardRules.QUICK_ACTIONS` marks both actions `gm: 'never'` and `/drafts` is PM-only in
+	 * the nav table, so no screen offers a button this refuses.
+	 */
 	@PostMapping("/{id}/draft/pm-approve")
-	@PreAuthorize(GM_OR + "hasRole('PROJECT_MANAGER')")
+	@PreAuthorize("hasRole('PROJECT_MANAGER')")
 	public ApiResponse<CaseSummary> pmApproveDraft(@PathVariable UUID id) {
 		return summary(lifecycle.pmApproveDraft(id));
 	}
 
+	/** The other half of draft review, and GM-excluded for the same reason. */
 	@PostMapping("/{id}/draft/pm-return")
-	@PreAuthorize(GM_OR + "hasRole('PROJECT_MANAGER')")
+	@PreAuthorize("hasRole('PROJECT_MANAGER')")
 	public ApiResponse<CaseSummary> pmReturnDraft(@PathVariable UUID id, @Valid @RequestBody ReasonRequest request) {
 		return summary(lifecycle.pmReturnDraft(id, request.reason()));
 	}

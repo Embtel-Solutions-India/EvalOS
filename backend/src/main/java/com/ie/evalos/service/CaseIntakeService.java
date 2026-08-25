@@ -79,7 +79,15 @@ public class CaseIntakeService {
 			Instant deadline,
 			String driveLink,
 			String invoiceRef,
-			String campaignAttribution) {
+			String campaignAttribution,
+			/**
+			 * Whatever sales wrote on the opportunity (Unit 23). Optional, and it is not stored
+			 * on the case — it becomes the {@code note} on the {@code CREATED} audit row, so it
+			 * is the first thing on the case's Notes &amp; timeline and reads as the handover it
+			 * is. Null or blank simply leaves the row's note empty, which is the normal case; a
+			 * required field here would fail Handoff A over a nicety.
+			 */
+			String notes) {
 	}
 
 	private final CaseRepository cases;
@@ -182,12 +190,24 @@ public class CaseIntakeService {
 		return saved;
 	}
 
+	/** A whitespace-only note is no note; the timeline should not draw empty quotation marks. */
+	private static String blankToNull(String value) {
+		if (value == null) {
+			return null;
+		}
+		String stripped = value.strip();
+		return stripped.isEmpty() ? null : stripped;
+	}
+
 	private Case create(Brand brand, NewCase request, UUID contactId) {
 		Case created = cases.save(newCase(brand, request, contactId));
 		seedChecklist(created, request.serviceType());
 
+		// The intake note rides on the CREATED row rather than into a column, because it is not a
+		// fact about the case — it is the first thing somebody said about it, and the trail is
+		// where things people said live (Unit 23).
 		audit.recordSystemEvent(brand.getId(), OBJECT_TYPE, created.getId(), AuditAction.CREATED,
-				null, CaseLifecycleService.CaseSnapshot.of(created));
+				null, CaseLifecycleService.CaseSnapshot.of(created, blankToNull(request.notes())));
 		// Unit 06 listens for these: CASE_CREATED is the pool arrival ("assign a project
 		// manager"), CHECKLIST_REQUESTED is GHL's to deliver. There is no separate paid
 		// announcement any more, because a case can no longer exist before the money.

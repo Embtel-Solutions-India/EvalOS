@@ -33,15 +33,31 @@ in `context/process-automation.md`. Until it is taken, do not add an SMTP depend
 - oxlint (not ESLint) — config `frontend/.oxlintrc.json`, plugins react/typescript/oxc.
 - axios for HTTP. No state-management or data-fetching library. **Vitest is installed**
   (`npm run test` → `vitest run`) and is used for pure rules modules — `boardRules`,
-  `checklistRules`, `navigation`, `expertRules`, `shortlistRules`, `redactionRules`, `portalRules` —
-  not for
+  `checklistRules`, `queueRules`, `navigation`, `expertRules`, `shortlistRules`, `redactionRules`,
+  `portalRules` — not for
   component rendering: there is no
   jsdom/Testing Library, so a component's behaviour is still verified by typecheck + lint + running
   it.
-- Planned but not installed: shadcn/ui-style Radix primitives (the first screen needing focus-trapping
-  or real ARIA behaviour adds them).
-- **Lucide is off the list, not pending.** Icons are inline SVG — ~15 glyphs do not earn a dependency
-  in an app with four runtime deps. See `mem:frontend/core` → Styling.
+- **Seven runtime deps as of Unit 22 slice 1**, not four. `radix-ui` (the unified package, not
+  per-primitive), `lucide-react` and `recharts` joined axios/react/react-dom/react-router-dom. Each
+  was installed against a screen that renders it, per the "install a dependency only in the unit
+  where it first unlocks real behavior" rule:
+  - **`radix-ui`** — `components/ui/` is now a **protected path**. Vendored shadcn-*style* wrappers,
+    no CLI and no `components.json`. Split by behaviour, not by count: `dialog.tsx` holds Dialog
+    *and* Sheet (a sheet is a dialog against an edge), `menu.tsx` holds DropdownMenu/Popover/Tooltip
+    (one raised-surface treatment), `tabs.tsx` and `card.tsx` stand alone.
+  - **`recharts`** — settles the charting question `ui-context.md` left open. Series colours come
+    from the `--chart-1..5` ramp, **never** the RAG tokens.
+  - **`lucide-react`** — the glyph-count condition the old note set was met. Existing inline SVGs
+    are fine where they stand; new work imports from Lucide.
+- **Still deliberately absent, with triggers written in `context/specs/22-role-operations-ui.md`:**
+  dnd-kit (nine of twenty-one quick actions need a field a drop cannot supply, including the only
+  way out of Expert Assignment), TanStack Table (dashboard tables are single-digit rows), and
+  Motion — **CSS keyframes keyed on Radix's `data-state` cover the whole animation list**, under
+  the `prefers-reduced-motion` block already in `index.css`.
+- `ReflectionTestUtils` is used in exactly one place (`PmMetricsServiceTest`) to pin
+  `ScopedEntity.createdAt`, which is `@PrePersist`-stamped with no setter. Preferred over adding a
+  production setter that exists only for tests.
 
 ## backend/
 

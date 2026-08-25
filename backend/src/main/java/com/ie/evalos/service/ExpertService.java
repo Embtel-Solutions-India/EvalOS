@@ -18,6 +18,7 @@ import com.ie.evalos.domain.Expert;
 import com.ie.evalos.domain.ExpertTier;
 import com.ie.evalos.domain.FieldTag;
 import com.ie.evalos.domain.LetterType;
+import com.ie.evalos.domain.PerformanceFlag;
 import com.ie.evalos.repository.BrandRepository;
 import com.ie.evalos.repository.ExpertRepository;
 import com.ie.evalos.security.TenantContext;
@@ -276,6 +277,36 @@ public class ExpertService {
 
 		audit.recordEvent(OBJECT_TYPE, saved.getId(), AuditAction.UPDATED, actor(), before,
 				ExpertSnapshot.of(saved, "Availability: %s → %s".formatted(was, availability)));
+		return saved;
+	}
+
+	/**
+	 * Records a performance concern against an expert, with the reason it was raised.
+	 *
+	 * <p>The first writer {@code performance_flags} has ever had. The column, its enum and its
+	 * display all shipped in Unit 11 and nothing could set it, which is why the ENM — whose whole
+	 * job is roster quality — had no way to record a judgement they are the person paid to make.
+	 *
+	 * <p><strong>Replaces the whole list rather than appending</strong>, because these are current
+	 * concerns and not a history: the history is the audit trail, which keeps every previous set
+	 * with its author and reason. An append-only column would grow a flag an expert resolved two
+	 * years ago into a permanent mark.
+	 *
+	 * <p>Declines are deliberately <em>not</em> written here. {@code expert_case_offer} already
+	 * records them as events, and a hand-set {@code DECLINED_CASES} flag would be a second,
+	 * disagreeing answer to a question the ledger answers exactly.
+	 */
+	@Transactional
+	public Expert setPerformanceFlags(UUID id, List<PerformanceFlag> flags, String reason) {
+		Expert expert = readForWrite(id);
+		ExpertSnapshot before = ExpertSnapshot.of(expert);
+		List<PerformanceFlag> was = expert.getPerformanceFlags();
+
+		expert.setPerformanceFlags(flags);
+		Expert saved = experts.save(expert);
+
+		audit.recordEvent(OBJECT_TYPE, saved.getId(), AuditAction.PERFORMANCE_FLAGGED, actor(), before,
+				ExpertSnapshot.of(saved, "Performance flags: %s → %s — %s".formatted(was, flags, reason)));
 		return saved;
 	}
 

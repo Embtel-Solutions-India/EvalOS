@@ -47,7 +47,7 @@ export default function BrandSwitcher() {
         style={{
           background: 'var(--accent-soft)',
           color: 'var(--accent-primary)',
-          borderRadius: 'var(--radius-xl)',
+          borderRadius: 'var(--radius-md)',
         }}
         title="Your brand is fixed by your role"
       >
@@ -72,7 +72,7 @@ export default function BrandSwitcher() {
         style={{
           background: 'var(--accent-soft)',
           border: 'none',
-          borderRadius: 'var(--radius-xl)',
+          borderRadius: 'var(--radius-md)',
           color: 'var(--accent-primary)',
         }}
         value={activeBrandId ?? ''}

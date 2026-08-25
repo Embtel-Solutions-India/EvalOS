@@ -62,7 +62,14 @@ public class GhlOpportunityHandler {
 			Instant deadline,
 			String driveLink,
 			String invoiceRef,
-			String campaignAttribution) {
+			String campaignAttribution,
+			/**
+			 * What sales wrote on the opportunity, handed to the people who will do the work
+			 * (Unit 23). Optional: most deliveries carry none, and refusing one that does not
+			 * would fail Handoff A over a nicety. It is never stored on the case — it becomes
+			 * the note on the {@code CREATED} audit row.
+			 */
+			String notes) {
 
 		/**
 		 * The won deal. There is no {@code paid} field: won <em>is</em> paid, so it is not
@@ -146,6 +153,7 @@ public class GhlOpportunityHandler {
 				payload.deadline(),
 				payload.driveLink(),
 				payload.invoiceRef(),
-				payload.campaignAttribution());
+				payload.campaignAttribution(),
+				payload.notes());
 	}
 }

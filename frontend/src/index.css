@@ -29,6 +29,74 @@ body {
   scrollbar-color: var(--border-default) transparent;
 }
 
+/* Motion, without a motion library.
+   Radix stamps `data-state` on every overlay it owns, so entry and exit are CSS keyed on that
+   attribute. Exits work because Radix holds the element mounted until the animation ends.
+   Everything here is short and restrained: this is an operations tool, and an interface people
+   drive for eight hours should never make them wait for a flourish.
+   The `prefers-reduced-motion` block below already reduces all of it to nothing. */
+@theme {
+  --animate-overlay-in: overlay-in 120ms ease-out;
+  --animate-overlay-out: overlay-out 100ms ease-in;
+  --animate-dialog-in: dialog-in 140ms ease-out;
+  --animate-dialog-out: dialog-out 100ms ease-in;
+  --animate-sheet-in: sheet-in 180ms cubic-bezier(0.32, 0.72, 0, 1);
+  --animate-sheet-out: sheet-out 140ms ease-in;
+  --animate-pop-in: pop-in 100ms ease-out;
+  --animate-pop-out: pop-out 80ms ease-in;
+}
+
+@keyframes overlay-in {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes overlay-out {
+  to {
+    opacity: 0;
+  }
+}
+
+/* The centring translate has to be repeated in the keyframe: animating `transform` otherwise
+   replaces the `-translate-x-1/2 -translate-y-1/2` utilities and the dialog jumps to the
+   bottom-right of centre on its way in. */
+@keyframes dialog-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.97);
+  }
+}
+@keyframes dialog-out {
+  to {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.97);
+  }
+}
+
+@keyframes sheet-in {
+  from {
+    transform: translateX(100%);
+  }
+}
+@keyframes sheet-out {
+  to {
+    transform: translateX(100%);
+  }
+}
+
+@keyframes pop-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+}
+@keyframes pop-out {
+  to {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
