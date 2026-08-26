@@ -360,12 +360,65 @@ payloads can never answer for each other; one React component serves both screen
 is a new question" — as *yes for a second reading of a pipeline in the location
 EvalOS already reads, on the same terms*. Invariant 2 is intact: still no write, no
 persistence, no `ghl_opportunity` table. Still GM-only and still not brand-scoped,
-for Unit 24's reason unchanged; **Unit 25a re-scopes both screens together.**
+for Unit 24's reason unchanged; **Unit 25a re-scopes all three screens together** (Unit 27 added the third).
 Also fixes a defect this pipeline exposed: it holds ~11.4k opportunities a year
 against a 5,000-row page cap, so a truncated read now reports `truncated` and the
 screen says every figure is a floor, instead of stating 5,000 as the total.
 See `26-marketing-email-funnel.md`.
 Depends on: 24.
+
+### Unit 27 — Sales: the sales pipeline (GM)
+Builds: the third GHL pipeline read — the sales team's own working funnel
+(*Aditya's pipeline*) — under a **new `Sales` nav group**, GM-only.
+`GET /api/marketing/sales-pipeline`, `evalos.ghl.sales-pipeline-name`, and
+`Funnel.SALES`. **Total cost: a property, an enum constant, a route method, a nav
+entry and a union member — no new class on either side**, which is the return on
+Unit 26's shape and was the explicit prediction left in `application.yml`.
+Under **Sales** rather than Marketing on purpose: the other two are campaign
+funnels, this is a salesperson's pipeline and carries stages they do not
+(`Meeting booked`, `Invoice sent`, `Refund` — all `OPEN`, no special cases). The
+API route stays under `/api/marketing/` — a stated naming debt, smaller than
+splitting one integration across two controllers.
+**The substantive finding is a defect this pipeline exposed**: GHL stores its name
+with **two spaces**, so the single-space spelling a human types into config did
+not match and the screen answered 502 — a failure whose cause is invisible in
+both places anyone would look. `GhlPipelineClient` now collapses whitespace runs
+before matching, in the *shared* client so all three funnels benefit; a name
+differing by a real character still fails loudly, which is the point of matching
+by name at all. Verified live: the single-space name resolved to the real
+pipeline with all nine stages.
+Invariant 2 intact — no write, no persistence, no `ghl_opportunity` table.
+Still GM-only and not brand-scoped, for Unit 24's reason unchanged;
+**Unit 25a now re-scopes three screens, not two.**
+See `27-sales-pipeline.md`.
+Depends on: 24, 26.
+
+### Unit 28 — Dashboard date filters (calendar, completed, custom)
+Builds: the shell's period control becomes four **calendar-to-date** buttons
+(Today / This week / This month / This year), a dropdown for **Last month** and
+**Last year**, and a **date-to-date** range on two native date inputs.
+`range=last-month|last-year|custom` plus `from`/`to` on `/api/metrics/pm` and all
+three `/api/marketing/*-pipeline` routes.
+**The substantive change is a split, not an addition.** This one value was read in
+two opposite directions — backwards by the dashboards and the GHL screens, forwards
+by `BoardView` through `dueBeforeFor` — a collision `ui-context.md` had recorded for
+two units and that had already left the production board unfiltered once. Every new
+option breaks the sharing outright: `last-month` as a "due before" cutoff returns
+every open case, and an interval is two edges where a cutoff needs one. So the board
+now owns `DeadlineWindow` (`week|month|year`, forward) and the shell owns `DateRange`
+(seven periods, backward) — **enforced by the type**, not by a comment.
+`DateRange` also stopped carrying `int days`: a to-date period has no fixed width and
+`last-month` does not end today, so `DateWindow` resolves a name into inclusive days
+and owns that arithmetic alone.
+**V26 re-keys `ghl_funnel_cache` on the resolved window** (`window_key`), because every
+custom period is *named* `custom` and name-keyed rows would serve one period's figures
+for another — undetectable on screen, identical payload shapes. Rows are deleted rather
+than translated: which window a row covered depends on the day it was written, which
+the row never recorded.
+**Behaviour change on live screens:** every dashboard figure moves — `month` was the last
+30 days and is now since the 1st. The labels were the half that was already lying.
+See `28-dashboard-date-filters.md`.
+Depends on: 08, 17, 24, 26, 27.
 
 ### Unit 25 — GHL OAuth connection (per brand)
 Builds: the GM connects a brand to a GHL sub-account from inside EvalOS, replacing
@@ -379,8 +432,8 @@ refreshing concurrently would otherwise retire each other's grant.
 **No dual path** — the PIT is deleted, which is free only because Unit 24 has never
 run live. One permitted path in `SecurityConfig`, no third filter chain.
 Its live connection also closes **Unit 24's** one outstanding acceptance item.
-The follow-on (**25a**) re-scopes the funnel — **both marketing screens, Unit 24's
-and Unit 26's**: `brandId` becomes legal, the Brand Manager is admitted, and invariant 1's stated exception is removed. Deliberately not
+The follow-on (**25a**) re-scopes the funnel — **all three GHL screens: Unit 24's,
+Unit 26's and Unit 27's**: `brandId` becomes legal, the Brand Manager is admitted, and invariant 1's stated exception is removed. Deliberately not
 in 25 — a credential's lifecycle and a screen's role list are different boundaries.
 Depends on: 02, 24.
 
@@ -395,11 +448,13 @@ Depends on: 02, 24.
   marketing) and A21's post-delivery scheduling are GHL's and out of scope.
 - **Multi-tenancy is not a unit — it is a property of every unit.** From Unit 02
   onward, every scoped query filters by `brand_id`; brand resolution at Handoff A
-  is by per-brand endpoint token. **Unit 24 is the one screen that is not scoped, and
-  it is an exception with a stated reason rather than a gap**: it reads a GHL location
-  the brands share, so no `brand_id` predicate exists that could narrow it — which is
-  why it is GM-only and takes no `brandId`. Read the rule as *every query over EvalOS
-  rows*, and treat a new unscoped query over EvalOS rows as the defect it still is.
+  is by per-brand endpoint token. **The three GHL reads (Units 24, 26, 27) are the only
+  screens that are not scoped, and they are an exception with a stated reason rather than a
+  gap**: they read a GHL location EvalOS cannot attribute to a brand, so no `brand_id`
+  predicate exists that could narrow them — which is why all three are GM-only and take no
+  `brandId`. **Unit 27's separate `Sales` nav heading does not change this**: a different
+  heading over the same `location-id` is still unattributable. Read the rule as *every query
+  over EvalOS rows*, and treat a new unscoped query over EvalOS rows as the defect it still is.
 - **No object storage, no mail server.** Documents are Drive links and file ids —
   including the signed letter, which the expert uploads into the case's Drive folder;
   staff alerts are in-app (Unit 06); clients are reached through GHL and experts

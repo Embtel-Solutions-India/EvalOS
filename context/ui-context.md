@@ -19,12 +19,19 @@ EvalOS has three surfaces:
   the GM gets a brand switcher / all-brands view; the Brand Manager and below are
   locked to a single brand.
 
-  **The marketing funnel (Unit 24) is the one screen the brand switcher does not
-  reach**, and it says so in its own header rather than letting the control imply
-  otherwise: it reads a GHL location the brands share, so there is nothing for the
-  switcher to narrow. It is GM-only for that reason. Every other screen in this app is
-  brand-scoped, so a reader would reasonably assume this one is too — stating it on
-  screen is part of the design, not a caption.
+  **The GHL pipeline screens (Units 24, 26, 27) are the ones the brand switcher does not
+  reach**, and they say so in their own header rather than letting the control imply
+  otherwise: they read one GHL location EvalOS cannot attribute to a brand, so there is
+  nothing for the switcher to narrow. They are GM-only for that reason. Every other screen
+  in this app is brand-scoped, so a reader would reasonably assume these are too — stating
+  it on screen is part of the design, not a caption.
+
+  All three are **one component** (`MarketingPipelinePage`) behind three nav entries, and
+  the header always shows **GHL's own pipeline name** rather than the nav label — so the
+  reader can tell which funnel they are looking at even though the layout is identical.
+  Unit 27's sits under a **`Sales`** heading rather than Marketing: the other two are
+  campaign funnels, and presenting a salesperson's pipeline beside them would imply three
+  comparable channel results.
 - **Client portal** (external): a single case's drafted letter for review —
   approve or request revisions. Passwordless via a GHL-delivered link. Minimal
   chrome, no navigation.
@@ -206,8 +213,26 @@ written triggers in `context/specs/22-role-operations-ui.md`.
 
 - **App shell**: a **flush, full-height dark nav rail** on the left (role + brand-scoped
   items), and a top bar with a **brand switcher** (all-brands/filter for GM, single
-  locked brand otherwise), a global date filter (today / week / month / year), search,
-  and a **notification bell** (in-app notification center).
+  locked brand otherwise), a **global date filter**, search, and a **notification bell**
+  (in-app notification center).
+
+  **The date filter is backwards-looking, and only backwards-looking** (Unit 28). Four buttons —
+  Today / This week / This month / This year, all **calendar-to-date** — plus a dropdown for
+  **Last month**, **Last year** and a **date-to-date** range on two native `<input type="date">`.
+  It was four rolling windows (last 7 / 30 / 365 days) until the filter gained completed periods,
+  at which point two meanings of "month" would have shared one control; the labels were the half
+  that was already lying, since "This month" answering for 30 days spanning two of them says
+  something untrue on the 3rd.
+
+  **The production board does NOT read this control, and that is the important part.** The board's
+  date filter asks "what is due between now and X" — a forward cutoff — and lived on this same
+  value for two units, a collision this file used to record as a caution. It is now resolved
+  structurally: the board owns its own `Due within: 1 week / 1 month / 1 year`, sitting first in
+  its filter row because it is the only one of the board's filters that refetches. The split was
+  forced rather than tidied — `Last month` as a deadline horizon returns every open case, and a
+  date-to-date interval is two edges where a cutoff needs one. **Do not re-point the board at the
+  shell filter**: that sharing is what once left the production board effectively unfiltered for
+  every role on first load.
 
   The rail is **not** a floating rounded card inset from the viewport — that was the
   previous language and is reversed. It is fixed to the edge with no gutter, so the
@@ -257,8 +282,9 @@ written triggers in `context/specs/22-role-operations-ui.md`.
 
   **What it deliberately does not draw: step-to-step conversion.** A conversion figure
   between two stages only means something when the second is downstream of the first,
-  and an upstream pipeline's stages are not always a progression — both marketing
-  pipelines put Won, Cold and Lost beside each other as outcomes, so a percentage
+  and an upstream pipeline's stages are not always a progression — all three GHL
+  pipelines put Won, Cold and Lost beside each other as outcomes (the sales one adds
+  `Refund` alongside them), so a percentage
   between Won and Cold is arithmetic over unrelated buckets. **Share of the total** is
   true of every stage whatever order the upstream puts them in. This is the same rule as
   the RAG table's "two clocks must never share a label": a number that looks like a rate

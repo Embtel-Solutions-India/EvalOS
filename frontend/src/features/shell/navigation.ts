@@ -25,7 +25,7 @@ export type NavItem = {
   group: NavGroup
 }
 
-export type NavGroup = 'Overview' | 'Marketing' | 'Pipeline' | 'Records' | 'Admin'
+export type NavGroup = 'Overview' | 'Marketing' | 'Sales' | 'Pipeline' | 'Records' | 'Admin'
 
 const ALL_ROLES: readonly Role[] = [
   'GM',
@@ -76,6 +76,33 @@ export const NAV_ITEMS: readonly NavItem[] = [
     roles: ['GM'],
     becomes: 'GHL email marketing funnel by stage',
     group: 'Marketing',
+  },
+
+  // The sales team's own GHL funnel — the third pipeline in the same location, behind the same
+  // door, rendered by the same component as the two above.
+  //
+  // **Its own heading rather than a third Marketing entry, and that is not cosmetic.** The two
+  // above are campaign funnels: leads a channel produced. This is a salesperson's working
+  // pipeline, and it carries stages the marketing funnels do not — Meeting booked, Invoice sent,
+  // Refund. Filing it under Marketing would tell the GM these three numbers are comparable
+  // channel results, which is the one thing they are not.
+  //
+  // Sits between Marketing and Pipeline because that is the real order of the business: a
+  // campaign produces a lead, sales closes it, and EvalOS takes custody at Handoff A — everything
+  // in the Pipeline group is after that point. Grouping is by consecutive runs, so this entry's
+  // position in this list *is* the heading order.
+  //
+  // GM-only for the identical reason as its two neighbours, and it is worth stating because
+  // "sales is not marketing" invites the assumption that the marketing scoping rule does not
+  // apply: it is the same single global `evalos.ghl.location-id`, so this is still one brand's
+  // funnel and EvalOS still cannot prove whose. Unit 25 maps locations to brands and closes it
+  // for all three at once.
+  {
+    path: '/sales/pipeline',
+    label: 'Sales pipeline',
+    roles: ['GM'],
+    becomes: 'GHL sales funnel by stage',
+    group: 'Sales',
   },
 
   // The production board. Four roles, one screen: the spec's per-role wording ("all

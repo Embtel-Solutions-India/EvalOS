@@ -67,9 +67,12 @@ evalos:
     # rather than an empty funnel that reads as a bad month — and the fix is an environment
     # change, not a deploy.
     ads-pipeline-name: ${GHL_ADS_PIPELINE_NAME:Google ADS Pipeline}
-    # The email marketing funnel, by name for the same reason. Both defaults are the names the
-    # live location actually uses today, so a deployment sets neither unless GHL renames one.
+    # The email marketing funnel, by name for the same reason. All three defaults are the names the
+    # live location actually uses today, so a deployment sets none of them unless GHL renames one.
     email-pipeline-name: ${GHL_EMAIL_PIPELINE_NAME:Shivangi's Email Marketing}
+    # The sales funnel. Written with ONE space where GHL stores two — the client collapses
+    # whitespace before matching, so this is correct as written; see the base profile.
+    sales-pipeline-name: ${GHL_SALES_PIPELINE_NAME:Aditya's pipeline}
     # Per page, not for the whole paginated read. This runs on a request path, so the bound is
     # what keeps it inside invariant 6's "one bounded request".
     timeout: ${GHL_TIMEOUT:10s}

@@ -14,6 +14,7 @@ import {
   type ExceptionState,
   type Stage,
 } from './boardRules'
+import { DEADLINE_WINDOWS } from './deadlineWindow'
 
 /**
  * The board's two decision tables, which until now were only exercised by clicking.
@@ -294,17 +295,23 @@ describe('dueBeforeFor', () => {
   const noon = new Date('2026-07-30T12:00:00Z')
 
   it('includes the whole of the last day in the window', () => {
-    // End-of-day, not now: "today" has to include a case due this afternoon.
-    const today = new Date(dueBeforeFor('today', noon))
-    expect(today.getHours()).toBe(23)
-    expect(today.getMinutes()).toBe(59)
+    // End-of-day, not now: a one-week window has to include a case due at 5pm on the seventh day.
+    //
+    // This used to pass 'today', which is no longer a deadline window — the board's horizon is
+    // now its own three-value type, and 'today' only ever worked here by falling through every
+    // branch to end-of-today. The assertion is unchanged because the behaviour is.
+    const week = new Date(dueBeforeFor('week', noon))
+    expect(week.getHours()).toBe(23)
+    expect(week.getMinutes()).toBe(59)
   })
 
-  it('widens with the range and never narrows', () => {
-    const windows = (['today', 'week', 'month', 'year'] as const).map((range) =>
-      new Date(dueBeforeFor(range, noon)).getTime(),
+  it('widens with the window and never narrows', () => {
+    const windows = DEADLINE_WINDOWS.map((option) =>
+      new Date(dueBeforeFor(option.value, noon)).getTime(),
     )
     const sorted = [...windows].sort((a, b) => a - b)
+    // Driven off DEADLINE_WINDOWS rather than a literal list, so a window added to the control
+    // without a place in this ordering fails here instead of going unchecked.
     expect(windows).toEqual(sorted)
     expect(new Set(windows).size).toBe(windows.length)
   })

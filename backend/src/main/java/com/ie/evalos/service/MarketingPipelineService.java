@@ -17,7 +17,7 @@ import java.util.concurrent.Executors;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
-import com.ie.evalos.common.DateRange;
+import com.ie.evalos.common.DateWindow;
 import com.ie.evalos.domain.GhlFunnelCache;
 import com.ie.evalos.integration.GhlPipelineClient;
 import com.ie.evalos.integration.GhlUnavailableException;
@@ -113,7 +113,25 @@ public class MarketingPipelineService {
 		ADS,
 
 		/** {@code evalos.ghl.email-pipeline-name} — the email marketing funnel. */
-		EMAIL
+		EMAIL,
+
+		/**
+		 * {@code evalos.ghl.sales-pipeline-name} — the sales team's own funnel.
+		 *
+		 * <p><strong>Not marketing, and that is why the screen sits under its own nav heading.</strong>
+		 * The other two constants are campaign funnels: leads a channel produced, grouped by where
+		 * they got to. This one is a salesperson's working pipeline — the same read against a third
+		 * GHL pipeline, and the read is identical, which is exactly why it is a third constant here
+		 * rather than a third code path anywhere.
+		 *
+		 * <p>It carries stages the marketing funnels do not — {@code Meeting booked},
+		 * {@code Invoice sent}, {@code Refund} — and none of them is special-cased. {@link Outcome}
+		 * reads a stage's <em>name</em>, so those three are {@link Outcome#OPEN} for the same reason
+		 * {@code Cold} is: they are not one of GHL's four status words, and inventing an outcome for
+		 * them here would put a vocabulary in EvalOS that the pipeline's owner can rename in GHL
+		 * tomorrow.
+		 */
+		SALES
 	}
 
 	/**
@@ -359,11 +377,13 @@ public class MarketingPipelineService {
 	MarketingPipelineService(GhlPipelineClient ghl, GhlFunnelCacheRepository cache, ObjectMapper json,
 			@Value("${evalos.ghl.ads-pipeline-name}") String adsPipelineName,
 			@Value("${evalos.ghl.email-pipeline-name}") String emailPipelineName,
+			@Value("${evalos.ghl.sales-pipeline-name}") String salesPipelineName,
 			@Value("${evalos.ghl.cache-ttl}") Duration cacheTtl) {
 		this.ghl = ghl;
 		this.cache = cache;
 		this.json = json;
-		this.pipelineNames = new EnumMap<>(Map.of(Funnel.ADS, adsPipelineName, Funnel.EMAIL, emailPipelineName));
+		this.pipelineNames = new EnumMap<>(Map.of(Funnel.ADS, adsPipelineName, Funnel.EMAIL, emailPipelineName,
+				Funnel.SALES, salesPipelineName));
 		this.cacheTtl = cacheTtl;
 	}
 
@@ -377,8 +397,8 @@ public class MarketingPipelineService {
 	 * <p><strong>What is guarded is the write.</strong> The loser of that race must not clobber the
 	 * winner — see {@link #store}.
 	 */
-	public MarketingPipeline forCaller(Funnel funnel, DateRange range) {
-		Optional<GhlFunnelCache> existing = cache.findByFunnelAndRangeName(funnel.name(), range.name());
+	public MarketingPipeline forCaller(Funnel funnel, DateWindow window) {
+		Optional<GhlFunnelCache> existing = cache.findByFunnelAndWindowKey(funnel.name(), window.key());
 		Optional<MarketingPipeline> usable = existing.filter(this::isFresh).flatMap(this::payloadOf);
 		if (usable.isPresent()) {
 			return usable.get();
@@ -387,7 +407,7 @@ public class MarketingPipelineService {
 		// A GhlUnavailableException propagates from here and leaves the previous row alone — but it
 		// is NOT served, because a failed refresh must not be reported as a live figure. The screen
 		// shows the error instead.
-		MarketingPipeline fresh = read(funnel, range, false);
+		MarketingPipeline fresh = read(funnel, window, false);
 
 		// **Winning the row write IS winning the totalling claim**, because the claim is a column in
 		// that same versioned write rather than a separate step. Only one racing caller can win it,
@@ -402,10 +422,10 @@ public class MarketingPipelineService {
 		Instant claim = startTotal ? Instant.now()
 				: existing.map(GhlFunnelCache::getTotallingSince).filter((held) -> claimHeld).orElse(null);
 
-		if (!store(existing.orElse(null), funnel, range, fresh, claim)) {
+		if (!store(existing.orElse(null), funnel, window, fresh, claim)) {
 			// Somebody wrote while we were reading. Theirs is at least as fresh as ours and may be
 			// strictly better (READY over our TOTALLING), so serve it and start nothing.
-			Optional<MarketingPipeline> winner = cache.findByFunnelAndRangeName(funnel.name(), range.name())
+			Optional<MarketingPipeline> winner = cache.findByFunnelAndWindowKey(funnel.name(), window.key())
 					.flatMap(this::payloadOf);
 			if (winner.isPresent()) {
 				return winner.get();
@@ -417,7 +437,7 @@ public class MarketingPipelineService {
 		}
 
 		if (startTotal) {
-			startTotalling(funnel, range);
+			startTotalling(funnel, window);
 		}
 		return fresh;
 	}
@@ -455,7 +475,7 @@ public class MarketingPipelineService {
 		}
 		catch (JsonProcessingException stale) {
 			log.warn("Discarding unreadable {} {} cache payload; re-reading from GHL", row.getFunnel(),
-					row.getRangeName(), stale);
+					row.getWindowKey(), stale);
 			return Optional.empty();
 		}
 	}
@@ -474,7 +494,7 @@ public class MarketingPipelineService {
 	 * insert, and the unique key on {@code (funnel, range_name)} decides it. Losing there is the
 	 * same outcome as losing the update, so both answer {@code false}.
 	 */
-	private boolean store(GhlFunnelCache existing, Funnel funnel, DateRange range, MarketingPipeline payload,
+	private boolean store(GhlFunnelCache existing, Funnel funnel, DateWindow window, MarketingPipeline payload,
 			Instant totallingSince) {
 		String body;
 		try {
@@ -485,13 +505,13 @@ public class MarketingPipelineService {
 			// race, so it must not masquerade as a lost write — and it must not fail the request
 			// either, because the figures in hand are correct and the caller can have them uncached.
 			log.error("Cannot serialise the {} {} payload; serving it without caching", funnel,
-					range.wireName(), cannotSerialise);
+					window.key(), cannotSerialise);
 			return true;
 		}
 
 		try {
 			if (existing == null) {
-				cache.saveAndFlush(new GhlFunnelCache(funnel.name(), range.name(), body,
+				cache.saveAndFlush(new GhlFunnelCache(funnel.name(), window.key(), body,
 						payload.detail().name(), payload.readAt(), totallingSince));
 			}
 			else {
@@ -501,7 +521,7 @@ public class MarketingPipelineService {
 			return true;
 		}
 		catch (OptimisticLockingFailureException | DataIntegrityViolationException lost) {
-			log.debug("Lost the {} {} cache write to a concurrent caller", funnel, range.wireName());
+			log.debug("Lost the {} {} cache write to a concurrent caller", funnel, window.key());
 			return false;
 		}
 	}
@@ -521,27 +541,27 @@ public class MarketingPipelineService {
 	 * {@code TOTALLING}, because a screen polling for something that already failed would wait
 	 * forever. The row still ages out on the normal TTL, so the next reader retries.
 	 */
-	private void startTotalling(Funnel funnel, DateRange range) {
+	private void startTotalling(Funnel funnel, DateWindow window) {
 		totaller.execute(() -> {
 			try {
-				log.info("Totalling {} {} in the background", funnel, range.wireName());
-				MarketingPipeline complete = read(funnel, range, true);
+				log.info("Totalling {} {} in the background", funnel, window.key());
+				MarketingPipeline complete = read(funnel, window, true);
 				// Re-read rather than reusing the row claimed on the request thread: this is a
 				// different thread, seconds to minutes later, and the version to check the write
 				// against is whatever is in the table now.
-				store(cache.findByFunnelAndRangeName(funnel.name(), range.name()).orElse(null), funnel, range,
+				store(cache.findByFunnelAndWindowKey(funnel.name(), window.key()).orElse(null), funnel, window,
 						complete, null);
 			}
 			catch (RuntimeException ex) {
-				log.error("Background total for {} {} failed", funnel, range.wireName(), ex);
+				log.error("Background total for {} {} failed", funnel, window.key(), ex);
 				// Only downgrade the row actually being totalled, and only while it is still
 				// TOTALLING. Blanking a READY row would tell the GM the total is "not coming" over
 				// figures that had already arrived. Releasing the claim is what lets the next
 				// caller past the TTL try again rather than wait on a read that is not coming.
-				cache.findByFunnelAndRangeName(funnel.name(), range.name())
+				cache.findByFunnelAndWindowKey(funnel.name(), window.key())
 						.filter((row) -> Detail.TOTALLING.name().equals(row.getDetail()))
 						.ifPresent((row) -> payloadOf(row).ifPresent(
-								(stale) -> store(row, funnel, range, stale.unavailable(), null)));
+								(stale) -> store(row, funnel, window, stale.unavailable(), null)));
 			}
 		});
 	}
@@ -550,18 +570,17 @@ public class MarketingPipelineService {
 	 * @param totalWhateverTheSize read every row for the money and sources even when there are too
 	 *                             many to do inside a request. True only on the background thread
 	 */
-	private MarketingPipeline read(Funnel funnel, DateRange range, boolean totalWhateverTheSize) {
-		Instant now = Instant.now();
-		// **The window is whole days in the business's own zone, not UTC's.** `BusinessCalendar`
-		// already owns "what day is it here" for every SLA in the app, and GHL's filter is
-		// date-only — so resolving the edges anywhere else would make "today" mean a different day
-		// to this screen than to the rest of EvalOS.
-		LocalDate to = LocalDate.ofInstant(now, BusinessCalendar.ZONE);
-		// `startDateFrom`, NOT `startFrom` converted to a date. GHL's filter is inclusive on both
-		// edges, so counting back a whole `days` made every window one day too wide — and made
-		// `today` cover yesterday too, showing about double GHL's own figure under a "today"
-		// heading. DateRange owns the arithmetic and states why.
-		LocalDate from = range.startDateFrom(to);
+	private MarketingPipeline read(Funnel funnel, DateWindow window, boolean totalWhateverTheSize) {
+		// **The window arrives resolved and is not recomputed here.** It used to be derived in this
+		// method from `Instant.now()` and the range's day count, which was the second place the
+		// question "what does this period mean" got answered — and the two answers had already
+		// disagreed once, giving a window a day too wide. `DateWindow` owns it now, whole days in
+		// the business's own zone, which is also what GHL's date-only filter wants natively.
+		//
+		// It matters more than tidiness for `last-month`: that window does not end today, so a
+		// method that derives `to` from the current instant cannot express it at all.
+		LocalDate from = window.from();
+		LocalDate to = window.to();
 
 		GhlPipelineClient.Pipeline pipeline = ghl.pipelineNamed(pipelineNames.get(funnel));
 
@@ -605,7 +624,7 @@ public class MarketingPipelineService {
 				detail == Detail.READY ? sumOf(opportunities) : null,
 				funnel(stages, deals, opportunities, totalDeals, detail == Detail.READY),
 				sources(opportunities), Instant.now(),
-				range.wireName(), from, to, detail);
+				window.range().wireName(), from, to, detail);
 	}
 
 	/** Total it now, hand it to the background thread, or refuse it outright. */

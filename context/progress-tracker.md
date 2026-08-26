@@ -4,6 +4,154 @@ Update this file after every meaningful implementation change.
 
 ## Current Phase
 
+- **2026-08-27 — Fixed: the top bar was painting over the case detail header.** Reported from a
+  screenshot — the case code and its SLA badge were clipped on `/cases/:id`.
+  - **Root cause: two sticky elements pinned to the same `top: 0`.** `TopBar` is
+    `sticky top-0 z-20`; `StageActions` was `sticky top-0 z-10`. Same offset, and the bar wins on
+    z-index — so on scroll the case header slid underneath and disappeared entirely. It now sticks
+    at `top: var(--header-height)`, taking its offset from the bar's own height so the two cannot
+    drift apart. **Two sticky elements at the same `top` is not a layering problem to fix with
+    z-index: whichever loses is simply hidden.**
+  - **A second cause made it visible even unscrolled: a phantom `-mt-6`.** It existed to cancel the
+    content area's top padding so the band could bleed to the edge — but `AppShell`'s main is
+    `padding: 0 gutter gutter`, with **no top padding**. So it cancelled nothing and pulled the
+    header 24px up into the bar's space. That is the clipping in the screenshot, on a page that had
+    not been scrolled.
+  - Also corrected the horizontal bleed: `-mx-6`/`px-6` is 1.5rem against a `--shell-gutter` of
+    1.25rem, so the band overhung the content column by 4px a side. Now driven off the variable.
+  - **Pre-existing, not caused by Unit 28** — `StageActions.tsx` was last touched in `89ae6cd` and
+    is not in that unit's diff. But Unit 28 *had* introduced a way to make it worse, now closed:
+    `DateFilter`'s root was `flex-wrap`, so opening the custom range on a narrow viewport wrapped
+    to a second row and grew the bar past 72px — which silently invalidates every offset measured
+    from `--header-height`. `styles` states the contract ("The header stays 72px: enough for a 36px
+    control row"), so the wrap is gone; overflowing sideways is recoverable because the top bar's
+    search is `min-w-0 flex-1` and gives up width first.
+  - **Verified in a browser against the running app**, which is the only thing that can verify a
+    layout claim: at rest the case header's top is 72 and the bar's bottom is 72; scrolled 270px it
+    still pins at 72 with `overlapPx: 0`; and with the custom range open both date inputs render
+    while the bar measures exactly 72. 130 frontend tests and `npm run build` green.
+
+- **2026-08-26 — Unit 28: the date filter gains calendar periods, completed periods and a custom
+  range — and the board's filter is split out of it.**
+  - **What was asked:** this week / this month / this year as buttons, with last month, last year
+    and a date-to-date range behind a dropdown.
+  - **What it actually required, and this is the unit:** that one value was read in **two opposite
+    directions** — backwards by the dashboards and the three GHL screens, forwards by `BoardView`
+    through `dueBeforeFor`. `ui-context.md` had recorded the collision for two units and it had
+    already cost a defect (the default set to `year` for a marketing screen left the production
+    board effectively unfiltered). **Every new option breaks the sharing outright**: `last-month`
+    as a "due before" cutoff returns every open case, and a date-to-date interval is two edges
+    where a cutoff needs one. So the board now owns `DeadlineWindow` (`week|month|year`, forward)
+    and the shell owns `DateRange` (seven periods, backward) — **enforced by the type**: passing
+    one where the other belongs does not compile.
+  - **`DateRange` stopped being a day count.** It carried `int days`; a to-date period has no fixed
+    width (this month is 1 day wide on the 1st) and `last-month` does not end today, so no
+    subtraction from now produces it. `DateWindow` resolves a name into inclusive days and is the
+    only place that arithmetic lives. Days are the primitive and instants are derived — the old
+    code had it the other way round and shipped a bug for it.
+  - **A `custom` cache collision, caught before it shipped.** `ghl_funnel_cache` was keyed
+    `(funnel, range_name)`, which was correct only while a name meant one window. Every custom
+    period is *named* `custom`, so two different windows would have shared a row and served each
+    other's figures for a whole TTL — invisible on screen, because the payloads are identical in
+    shape. **V26 keys on the resolved window** (`window_key`, `2026-08-01..2026-08-26`) and also
+    fixes a smaller existing fault free: a `month` row used to keep answering after midnight, when
+    "this month" had become a different window. Existing rows are **deleted, not translated** —
+    which window a row covered depends on the day it was written, which the row never recorded.
+  - **Behaviour change on screens that already worked, stated because it will be noticed:** every
+    dashboard figure moves. `today` was the last 24 hours and is now today in the business's zone;
+    `month` was the last 30 days and is now since the 1st. On the 3rd of a month the PM and revenue
+    dashboards report far smaller numbers than the day before. Correct — the labels were the half
+    that was already lying. `PmMetricsService`'s period-over-period comparison needed no change: it
+    measures a window against the equal-length span before it, which stays like-for-like.
+  - **Two things found on the way.** `InboxPage` was refetching on a filter it deliberately ignores
+    (it passes `dueBefore: null`, but the shell period was still in its effect deps). And
+    `MarketingController`'s `year` default claimed to "match the shell's own initial selection"
+    when the shell's default is `month` — the comment was the only thing keeping them apart. Both
+    fixed.
+  - **A verification lesson worth more than the feature.** `npx tsc --noEmit` in `frontend/`
+    **checks nothing**: the root `tsconfig.json` is `{"files": [], "references": [...]}`, so plain
+    `tsc` has no inputs. Only `tsc -b` — which `npm run build` runs — checks the referenced
+    projects. **Three real errors were hiding behind that no-op**, including a production call site
+    in `AssignPopover.tsx` passing a bare string where the union was now required. Earlier entries
+    in this tracker citing "`tsc --noEmit` clean" as evidence were citing a command that inspected
+    no files; the project's own gate (`npm run build`) was always correct. **Use `npm run build`.**
+  - **Verified:** `DateWindowTest` 27 cases on a fixed clock (boundaries, ISO Monday weeks
+    including the Sunday case that distinguishes the convention, `last-month` from the 31st and in
+    January, leap-year `last-year`, a 22:00-local zone crossing, every custom rejection); the
+    two-custom-windows cache test asserted *through the service*; 400s at the HTTP boundary with
+    nothing reaching the service; V26 applied against real PostgreSQL with four windows coexisting.
+    **494 backend, 130 frontend, `npm run build` green.**
+  - **Not done:** the screens were not driven in a browser. The window arithmetic is covered on a
+    fixed clock and the wire contract at the HTTP boundary, but the picker's own interaction — the
+    draft-until-both-edges behaviour — has unit coverage only.
+
+- **2026-08-26 — Unit 27: the GM can see the sales pipeline, under its own `Sales` heading.**
+  The third GHL pipeline read — *Aditya's pipeline*, the sales team's own working funnel — on the
+  machinery Units 24 and 26 built.
+  - **The whole feature cost a property, an enum constant (`Funnel.SALES`), a controller method, a
+    nav entry, a route-table line and one union member.** No new class on either side, no new
+    component, no new service. That was the explicit prediction left in `application.yml` at the
+    time ("if a third funnel is ever asked for, add a third property and a third constant") and it
+    held; the comment now records that it was tested.
+  - **Under `Sales`, not `Marketing`, and that is the one real decision in the unit.** The other
+    two are campaign funnels — leads a channel produced. This is a salesperson's pipeline, with
+    stages they do not have (`Meeting booked`, `Invoice sent`, `Refund`), and one heading over all
+    three would present them as comparable channel results. It sits between Marketing and Pipeline
+    because that is the order of the business. **The API route deliberately did *not* follow the
+    heading**: it stays `/api/marketing/sales-pipeline` on `MarketingController`, because a
+    `SalesController` holding one delegating method splits one integration across two doors to fix
+    a word. Stated so it reads as a decision, not an oversight.
+  - **The substantive finding: GHL stores the pipeline's name with TWO spaces** —
+    `Aditya's··pipeline`. `pipelineNamed` matched with `equalsIgnoreCase`, so the single-space
+    spelling any human types into config did not match and the screen answered 502. That 502 is the
+    *right* failure direction (Unit 24 chose name-matching precisely so a rename breaks loudly) but
+    its cause is **invisible in both places anybody would look** — the two strings render
+    identically, and no message could say "these differ by a space you cannot see".
+    - Pasting the double space into the three yml profiles was **rejected**: correct only until an
+      editor, linter, shell, deployment template or reviewer normalises whitespace, and then it
+      fails as an unexplained 502.
+    - Fixed instead in the **shared client**: whitespace runs collapsed and edges trimmed before
+      comparing, so all three funnels benefit and the next stray space costs nobody an afternoon.
+    - **Nothing else is normalised** — no punctuation stripping, no fuzzy matching. A name
+      differing by a real character *is* a different pipeline and must still fail loudly, which is
+      the entire reason matching is by name. `Adityas pipeline` (no apostrophe) is asserted to
+      still fail, as the guard on that boundary.
+  - **Three new stage names, zero special cases.** `Meeting booked`, `Invoice sent` and `Refund`
+    are all `OPEN`: `Outcome` reads stage *names* and knows only GHL's status words, exactly as
+    `Cold` already was. **`Refund` was declined as an outcome constant** — it is a money event
+    belonging to the payment record, and a constant for it would put a vocabulary in EvalOS that
+    the pipeline's owner can rename in GHL tomorrow. If refund reporting is wanted, it is a
+    question about payments, not about this screen.
+  - **GM-only, and this was the unit most likely to drop that rule** — "sales is not marketing"
+    invites the assumption that the marketing scoping exception does not reach it. It does: same
+    global `location-id`, same unattributable brand, same door. `navigation.test.ts` now loops all
+    three paths in one assertion with the reasoning inline, so a fourth screen added without its
+    gate fails a test rather than shipping. **Unit 25a now re-scopes three screens, not two.**
+  - **Verified live.** `GhlPipelineClientLiveTest` ran green against the real API: the
+    single-space configured name resolved to `tj2agZ90S1LQgCpDAoKi` with all nine stages. That is
+    the assertion that mattered — the unit test proves the normalisation against a fixture *we*
+    wrote, and only a real call proves the fixture matches what GHL returns. Full suites also
+    green: **468 backend, 118 frontend, `tsc --noEmit` clean.**
+  - **The endpoint was then driven end to end against live GHL from a running app**, after a
+    "no such endpoint" report: `GET /api/marketing/sales-pipeline?range=year` as the GM returned
+    **642 deals · $202,494.94 · `detail: READY`** over `2025-08-27..2026-08-26`, all nine stages in
+    position order (Won 273 / 43% / $108,807.94 · Cold 157 · Lost 117 · Warm 71 · Hot 13 ·
+    Meeting booked 7 · Invoice sent 4 · New Lead 0 · Refund 0) with `Won`→`WON`, `Lost`→`LOST` and
+    the other seven `OPEN` as designed, and 13 sources led by `Unattributed 241` and `ADS 112`.
+    **`pipelineName` came back as `Aditya's··pipeline` — with GHL's two spaces** — which is the
+    live proof that the single-space configured name resolved through the client's whitespace
+    normalisation.
+  - **The "no such endpoint" report was a stale JVM, not a defect.** The running backend had been
+    started *before* the code existed, so Spring had no mapping and `ApiExceptionHandler` answered
+    its `NoResourceFoundException` 404. Diagnosed by comparing siblings on that same process with a
+    GM token — `/email-pipeline` 200, `/sales-pipeline` 404 — which is the check to reach for first
+    when a brand-new route 404s. **Anonymous requests cannot show this**: security intercepts before
+    handler lookup, so both routes answer 401 and look identical.
+  - **Not done:** the screen itself was not re-rendered in a browser. It is the same component the
+    previous entry verified end to end, differing only in which pipeline the server resolves, and
+    the payload above is now confirmed live. If it renders wrong for this pipeline specifically,
+    the nine-stage shape is where to look first.
+
 - **2026-08-26 — the last marketing flag is closed: the screen was driven in a browser against
   live GHL.** This was the one item carried from Unit 24 that no test could close, and it needed a
   running app with a real database — which is why it waited until the DB work above was done.
@@ -36,6 +184,7 @@ Update this file after every meaningful implementation change.
     untouched.
   - **What is still open on the marketing units: only brand scoping (Unit 25a).** Both screens
     remain GM-only and unattributable, for the reason stated there. Nothing else is unverified.
+    *(Unit 27 later added a third screen on the same terms — so 25a re-scopes three, not two.)*
 
 - **2026-08-26 — the funnel cache is in Postgres, and the DB test suite no longer skips itself.**
   Both came out of one report ("I already have a DB, don't use heap memory to store data — I think

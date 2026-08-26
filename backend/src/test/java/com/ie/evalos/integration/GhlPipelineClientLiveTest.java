@@ -89,6 +89,19 @@ class GhlPipelineClientLiveTest {
 			"Shivangi's Email Marketing");
 
 	/**
+	 * The sales funnel, and <strong>the reason this constant is worth a comment</strong>: GHL stores
+	 * this name with TWO spaces in the middle, and the default here has one.
+	 *
+	 * <p>That is not a typo to fix. The single-space spelling is what a human writes into an
+	 * environment variable, and {@code GhlPipelineClient} collapses whitespace before matching so
+	 * that spelling resolves. Which makes the live run below the assertion that actually matters:
+	 * the unit test proves the normalisation works against a fixture <em>we</em> wrote, and only a
+	 * real call proves the fixture matches what GHL really returns.
+	 */
+	private static final String SALES_PIPELINE = setting("GHL_SALES_PIPELINE_NAME", "sales-pipeline-name",
+			"Aditya's pipeline");
+
+	/**
 	 * Environment first, then the gitignored local override, then the default.
 	 *
 	 * <p>That order is Spring Boot's own precedence, deliberately — a test configured differently
@@ -138,18 +151,24 @@ class GhlPipelineClientLiveTest {
 	}
 
 	/**
-	 * Both configured pipelines resolve, by name, to a real pipeline with ordered stages.
+	 * All three configured pipelines resolve, by name, to a real pipeline with ordered stages.
 	 *
 	 * <p>This is the assertion that the {@code Version} header, the token, the
 	 * {@code locationId} <em>camelCase</em> parameter and the name matching all work together. A
 	 * rename in GHL fails here, which is the intended direction — the alternative is an empty funnel
 	 * on screen that reads as a bad month.
+	 *
+	 * <p><strong>{@code SALES_PIPELINE} is the interesting one, and it is why this loop is the first
+	 * thing to run after a config change.</strong> Its configured name differs from GHL's stored
+	 * name by an invisible second space; this is the only test in the suite that proves the
+	 * whitespace normalisation matches <em>GHL's real answer</em> rather than a fixture written from
+	 * the same assumption it is meant to check.
 	 */
 	@Test
-	void resolvesBothConfiguredPipelinesWithTheirStages() {
+	void resolvesEveryConfiguredPipelineWithItsStages() {
 		GhlPipelineClient ghl = client();
 
-		for (String name : List.of(ADS_PIPELINE, EMAIL_PIPELINE)) {
+		for (String name : List.of(ADS_PIPELINE, EMAIL_PIPELINE, SALES_PIPELINE)) {
 			GhlPipelineClient.Pipeline pipeline = ghl.pipelineNamed(name);
 
 			assertThat(pipeline.id()).describedAs("%s must have an id", name).isNotBlank();

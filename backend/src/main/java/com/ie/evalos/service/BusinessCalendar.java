@@ -1,5 +1,6 @@
 package com.ie.evalos.service;
 
+import java.time.Clock;
 import java.time.DayOfWeek;
 import java.time.Duration;
 import java.time.Instant;
@@ -25,6 +26,22 @@ import org.springframework.stereotype.Component;
 public class BusinessCalendar {
 
 	public static final ZoneId ZONE = ZoneId.of("America/Los_Angeles");
+
+	/**
+	 * The system clock, in {@link #ZONE}.
+	 *
+	 * <p>For {@code DateWindow}, which needs both "what day is it" and "in which zone" and must get
+	 * them from one source or "today" can mean two different days inside one request. It lives here
+	 * because this class already owns the answer to "what day is it *here*" for every SLA in the
+	 * app — a second zone constant beside it is the duplication this avoids.
+	 *
+	 * <p>A {@link Clock} rather than a {@code LocalDate}: callers that need the date call
+	 * {@code LocalDate.now(clock)}, and tests substitute {@code Clock.fixed} to pin a month
+	 * boundary without touching the machine's clock.
+	 */
+	public static Clock clock() {
+		return Clock.system(ZONE);
+	}
 
 	static final LocalTime OPEN = LocalTime.of(9, 0);
 	static final LocalTime CLOSE = LocalTime.of(17, 0);

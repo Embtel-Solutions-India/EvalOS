@@ -57,8 +57,15 @@ The GHL token must be a Private Integration Token scoped `opportunities.readonly
 nothing wider — EvalOS never writes to GHL. It must include the `pit-` prefix: a bare
 UUID (36 chars) fails with an HTTP 401 that reads like a scope problem, while a whole
 PIT is 40. The startup log prints `token length=` so that is checkable without pasting
-the value anywhere. Without it, only the GM's marketing screen is affected — it answers
-502 naming what to set, and the rest of the app runs normally.
+the value anywhere. Without it, only the GM's three GHL pipeline screens are affected —
+they answer 502 naming what to set, and the rest of the app runs normally.
+
+The pipelines those screens read are named in configuration, not hard-coded:
+`GHL_ADS_PIPELINE_NAME`, `GHL_EMAIL_PIPELINE_NAME` and `GHL_SALES_PIPELINE_NAME`. All
+three default to the names the live location uses today, so a deployment normally sets
+none of them. They are matched **by name** so that a rename in GHL breaks the screen
+with a stated 502 rather than showing an empty funnel that reads as a bad month —
+whitespace and case are forgiven in that match, anything else is not.
 
 **2. Backend** (port 8080; Flyway applies `db/migration` on startup):
 

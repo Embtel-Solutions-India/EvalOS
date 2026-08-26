@@ -373,8 +373,8 @@ One panel on the GM's existing `/brands` screen — not a new nav entry, because
 - Per brand: connected / not connected, the `location_id`, granted scopes, when and
   by whom, and a **Connect** or **Disconnect** button.
 - Connect opens the authorize URL; the callback lands back on `/brands`.
-- **`MarketingPipelinePage` gets one new state** (both funnels, since Unit 26 made it
-  one component): connection revoked or absent → "Connect
+- **`MarketingPipelinePage` gets one new state** (all three funnels, since Units 26 and 27
+  made it one component): connection revoked or absent → "Connect
   GHL to see this" pointing at `/brands`, rather than the raw 502 it shows today.
   A missing connection is a setup step, not an upstream fault.
 

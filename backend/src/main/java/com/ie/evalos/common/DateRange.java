@@ -1,36 +1,58 @@
 package com.ie.evalos.common;
 
-import java.time.Instant;
-import java.time.LocalDate;
-import java.time.temporal.ChronoUnit;
+import java.util.Locale;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /**
- * The shell's period vocabulary — {@code today}, {@code week}, {@code month}, {@code year} — as one
- * type rather than a {@code switch} per controller.
+ * The shell's period vocabulary, and <strong>nothing but the vocabulary</strong>.
  *
- * <p><strong>One home for the fact.</strong> This lived as a private {@code startOf} inside
- * {@code MetricsController} until the marketing funnel needed the same window, and a second copy of
- * "month means 30 days" is a second thing that can be wrong. It is an enum rather than a string
- * because {@code code-standards.md} says to model a closed vocabulary with a type; the parse below
- * is the one place a request string becomes it.
+ * <p>Seven names: {@code today}, {@code week}, {@code month}, {@code year} — each meaning
+ * <em>this</em> one, to date — plus {@code last-month}, {@code last-year} and {@code custom}. It is
+ * an enum rather than a string because {@code code-standards.md} says to model a closed vocabulary
+ * with a type, and {@link #parse} is the one place a request string becomes it.
  *
- * <p><strong>Every window looks backwards.</strong> That is worth stating because the board's date
- * filter looks <em>forwards</em> to a deadline, using the same four words — {@code ui-context.md}
- * records that collision. Here the question is always "what happened since", so {@code today} is the
- * last 24 hours rather than the calendar day, matching what the metrics dashboards have always done.
+ * <p><strong>This used to carry an {@code int days} and do the arithmetic itself; it no longer
+ * does any.</strong> "Month = 30 days" could not survive the filter gaining calendar periods:
+ * <em>this</em> month is 1 day wide on the 1st and 31 on the 31st, and <em>last</em> month does not
+ * end today. {@link DateWindow} resolves a name into the two dates it means, so there is still
+ * exactly one home for the fact — it just moved, because the fact stopped being a number.
+ *
+ * <p><strong>Every window here looks backwards.</strong> Worth stating because the production
+ * board's filter looks <em>forwards</em> to a deadline and once used these same words. It no
+ * longer does: the board owns its own {@code DeadlineWindow}, because {@code last-month} cannot be
+ * a "due before" cutoff and a shared type that is meaningless for half its callers is worse than
+ * two types. {@code ui-context.md} recorded that collision for two units before it was resolved
+ * this way.
  */
 public enum DateRange {
 
-	TODAY(1),
-	WEEK(7),
-	MONTH(30),
-	YEAR(365);
+	/** The calendar day, in the business's zone — not the last 24 hours. */
+	TODAY,
 
-	private final int days;
+	/** Monday of the current week through today. */
+	WEEK,
 
-	DateRange(int days) {
-		this.days = days;
-	}
+	/** The 1st of the current month through today. */
+	MONTH,
+
+	/** 1 January of the current year through today. */
+	YEAR,
+
+	/** The whole of the previous calendar month. The one named range that does not end today. */
+	LAST_MONTH,
+
+	/** The whole of the previous calendar year. */
+	LAST_YEAR,
+
+	/**
+	 * An explicit {@code from}/{@code to} pair, supplied by the caller.
+	 *
+	 * <p>The only constant that carries no window of its own — see
+	 * {@link DateWindow#of(String, String, String, java.time.Clock)}, which requires both dates for
+	 * this one and refuses them for every other.
+	 */
+	CUSTOM;
 
 	/**
 	 * @throws InvalidRequestException on anything else. Refused rather than defaulted: silently
@@ -39,39 +61,25 @@ public enum DateRange {
 	 */
 	public static DateRange parse(String raw) {
 		for (DateRange range : values()) {
-			if (range.name().equalsIgnoreCase(raw)) {
+			if (range.wireName().equalsIgnoreCase(raw == null ? null : raw.trim())) {
 				return range;
 			}
 		}
-		throw new InvalidRequestException("range must be one of today, week, month, year");
-	}
-
-	/** The start of this window, counting back from {@code to}. */
-	public Instant startFrom(Instant to) {
-		return to.minus(days, ChronoUnit.DAYS);
+		// Built from the enum rather than written out, so a new constant cannot be added without
+		// appearing in the error the caller reads. The previous version hard-coded the list and
+		// would have named four options while accepting seven.
+		throw new InvalidRequestException("range must be one of "
+				+ Stream.of(values()).map(DateRange::wireName).collect(Collectors.joining(", ")));
 	}
 
 	/**
-	 * The first whole day of this window, where {@code to} is the last one and <strong>both edges
-	 * are inclusive</strong>.
+	 * Lower-case and hyphenated, matching the wire vocabulary the frontend sends.
 	 *
-	 * <p><strong>Not {@code startFrom} converted to a date, and the difference is a real bug that
-	 * shipped.</strong> {@code startFrom} describes a half-open instant window — the last 24 hours
-	 * — which is right for the metrics dashboards that subtract from an {@code Instant}. GHL's
-	 * filter is date-only with both edges inclusive, so reusing that subtraction here made
-	 * {@code TODAY} span <em>yesterday and today</em>: a screen headed "today" showing roughly
-	 * double GHL's own figure. Every range was one day wide, but only {@code today} was wrong by
-	 * 100%.
-	 *
-	 * <p>Hence {@code days - 1}: a one-day window is the single day {@code to}, and a seven-day
-	 * window is {@code to} plus the six before it.
+	 * <p>{@code LAST_MONTH} is {@code last-month} on the wire: an underscore in a query parameter
+	 * value is legal but reads as an internal name leaking outward, and the frontend's own union
+	 * type is hyphenated because that is what its labels look like.
 	 */
-	public LocalDate startDateFrom(LocalDate to) {
-		return to.minusDays(days - 1L);
-	}
-
-	/** Lower-case, matching the wire vocabulary the frontend sends. */
 	public String wireName() {
-		return name().toLowerCase();
+		return name().toLowerCase(Locale.ROOT).replace('_', '-');
 	}
 }

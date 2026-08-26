@@ -173,9 +173,15 @@ describe('the nav and route table', () => {
     // fails this test on purpose, and becomes correct only once Unit 25 maps locations to brands
     // (then Unit 25a re-scopes this entry).
     //
-    // Both funnels, because they read the SAME location: a second marketing screen added without
-    // the same door is the way this leaks next, and it is one line to prevent.
-    for (const path of ['/marketing/google-ads', '/marketing/email']) {
+    // All three funnels, because they read the SAME location: a screen added without the same door
+    // is the way this leaks next, and it is one line to prevent.
+    //
+    // **`/sales/pipeline` is in this list even though it is not under the Marketing heading**, and
+    // that is the point of including it here rather than in a case of its own. The nav split is
+    // real — a sales pipeline is not a campaign funnel — but it changes nothing about the scoping
+    // gap: one global `evalos.ghl.location-id`, one unattributable brand, one door. The heading is
+    // the likeliest reason someone would think this rule stops at Marketing.
+    for (const path of ['/marketing/google-ads', '/marketing/email', '/sales/pipeline']) {
       expect(ALL_ROLES.filter((role) => mayReach(role, path)), path).toEqual(['GM'])
     }
   })

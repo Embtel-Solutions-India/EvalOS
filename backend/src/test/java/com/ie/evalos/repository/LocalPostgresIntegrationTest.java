@@ -1069,18 +1069,20 @@ class LocalPostgresIntegrationTest {
 	@Test
 	void theFunnelCacheRoundTripsJsonbAndEnforcesOneRowPerWindow() {
 		// Cleared first, and this is not boilerplate. Every other test here stays re-runnable by
-		// inserting a random id; this key is a closed vocabulary (two funnels, four periods), so
-		// there is no unique value to invent — the second run would collide on the very constraint
-		// the test is asserting. Safe to wipe: it is a cache, in the `evalos_test` schema.
+		// inserting a random id; these keys are fixed strings, so the second run would collide on
+		// the very constraint the test is asserting. Safe to wipe: it is a cache, in the
+		// `evalos_test` schema.
 		funnelCache.deleteAll();
 
 		Instant readAt = Instant.now().truncatedTo(ChronoUnit.MILLIS);
-		GhlFunnelCache stored = funnelCache.saveAndFlush(new GhlFunnelCache("ADS", "YEAR",
+		// **A window key, not a range name — the V26 shape.** `2026-01-01..2026-12-31` rather than
+		// "YEAR", because every custom period is named `custom` and name-keyed rows would collide.
+		GhlFunnelCache stored = funnelCache.saveAndFlush(new GhlFunnelCache("ADS", "2026-01-01..2026-12-31",
 				"{\"pipelineName\":\"Google ADS Pipeline\",\"totalDeals\":93}", "READY", readAt, null));
 
 		assertThat(stored.getId()).isNotNull();
 		// jsonb survives the trip, which is what makes storing the payload as one document viable.
-		assertThat(funnelCache.findByFunnelAndRangeName("ADS", "YEAR")).get().satisfies((row) -> {
+		assertThat(funnelCache.findByFunnelAndWindowKey("ADS", "2026-01-01..2026-12-31")).get().satisfies((row) -> {
 			assertThat(row.getPayload()).contains("Google ADS Pipeline").contains("93");
 			assertThat(row.getDetail()).isEqualTo("READY");
 			assertThat(row.getReadAt()).isEqualTo(readAt);
@@ -1088,13 +1090,21 @@ class LocalPostgresIntegrationTest {
 		});
 
 		// The same funnel and a DIFFERENT window is a different row — the key is both halves.
-		funnelCache.saveAndFlush(new GhlFunnelCache("ADS", "MONTH", "{}", "READY", readAt, null));
-		assertThat(funnelCache.findByFunnelAndRangeName("ADS", "MONTH")).isPresent();
+		funnelCache.saveAndFlush(new GhlFunnelCache("ADS", "2026-08-01..2026-08-26", "{}", "READY", readAt, null));
+		assertThat(funnelCache.findByFunnelAndWindowKey("ADS", "2026-08-01..2026-08-26")).isPresent();
+
+		// **Two custom windows, which is what V26 exists for.** Under the old range-name key both
+		// of these were "CUSTOM" and the second insert would have been refused by the unique
+		// constraint — or worse, an upsert would have served one period's figures for the other.
+		funnelCache.saveAndFlush(new GhlFunnelCache("ADS", "2026-02-01..2026-02-28", "{}", "READY", readAt, null));
+		funnelCache.saveAndFlush(new GhlFunnelCache("ADS", "2026-04-01..2026-04-30", "{}", "READY", readAt, null));
+		assertThat(funnelCache.findByFunnelAndWindowKey("ADS", "2026-02-01..2026-02-28")).isPresent();
+		assertThat(funnelCache.findByFunnelAndWindowKey("ADS", "2026-04-01..2026-04-30")).isPresent();
 
 		// A second row for the SAME window is refused by the database rather than by a check-then-
 		// insert, which two concurrent cold-cache callers would both pass.
 		assertThatThrownBy(() -> funnelCache.saveAndFlush(
-				new GhlFunnelCache("ADS", "YEAR", "{}", "READY", readAt, null)))
+				new GhlFunnelCache("ADS", "2026-01-01..2026-12-31", "{}", "READY", readAt, null)))
 				.hasStackTraceContaining("uq_ghl_funnel_cache_window");
 	}
 

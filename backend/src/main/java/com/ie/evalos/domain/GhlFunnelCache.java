@@ -34,7 +34,9 @@ import org.hibernate.type.SqlTypes;
  * <p><strong>Mutable, and not append-only.</strong> The append-only rule protects audit and
  * assignment history, which record what happened. This records only the most recent answer to a
  * question that will be asked again: every field except the window key is overwritten on each
- * refresh. Losing the whole table costs one slow page load.
+ * refresh. Losing the whole table costs one slow page load — which is what V26 relies on when it
+ * empties the table rather than translating the old range-name keys into window keys it cannot
+ * reconstruct.
  *
  * <p>{@link #version} is why the writes are safe. Two callers can race past a stale row, and the
  * loser must not clobber the winner — see {@code MarketingPipelineService}, where a slow inline
@@ -53,9 +55,19 @@ public class GhlFunnelCache {
 	@Column(name = "funnel", nullable = false, updatable = false)
 	private String funnel;
 
-	/** {@code DateRange}, as its name. Not {@code range}: that shadows the SQL type name. */
-	@Column(name = "range_name", nullable = false, updatable = false)
-	private String rangeName;
+	/**
+	 * The <strong>resolved window</strong> — {@code DateWindow.key()}, e.g.
+	 * {@code 2026-08-01..2026-08-26}. Not the range's name, and not called {@code range} either:
+	 * that reads as the SQL type name and shadows it in hand-written queries.
+	 *
+	 * <p><strong>It held the range name until V26, and that became wrong the moment the filter
+	 * gained {@code custom}.</strong> Every custom window is named {@code custom}, so a
+	 * name-keyed row would be shared by two different date ranges and serve one's figures for
+	 * the other — undetectable on screen, because the payloads are identical in shape. Keying on
+	 * the days makes it impossible instead of merely unlikely.
+	 */
+	@Column(name = "window_key", nullable = false, updatable = false)
+	private String windowKey;
 
 	/** The whole {@code MarketingPipeline} record as JSON — read back whole, never queried into. */
 	@JdbcTypeCode(SqlTypes.JSON)
@@ -88,10 +100,10 @@ public class GhlFunnelCache {
 		// JPA.
 	}
 
-	public GhlFunnelCache(String funnel, String rangeName, String payload, String detail, Instant readAt,
+	public GhlFunnelCache(String funnel, String windowKey, String payload, String detail, Instant readAt,
 			Instant totallingSince) {
 		this.funnel = funnel;
-		this.rangeName = rangeName;
+		this.windowKey = windowKey;
 		this.payload = payload;
 		this.detail = detail;
 		this.readAt = readAt;
@@ -106,8 +118,8 @@ public class GhlFunnelCache {
 		return this.funnel;
 	}
 
-	public String getRangeName() {
-		return this.rangeName;
+	public String getWindowKey() {
+		return this.windowKey;
 	}
 
 	public String getPayload() {

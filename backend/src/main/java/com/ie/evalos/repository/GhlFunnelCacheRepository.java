@@ -26,9 +26,14 @@ public interface GhlFunnelCacheRepository extends JpaRepository<GhlFunnelCache, 
 	/**
 	 * One window's row, or empty on a cold cache.
 	 *
-	 * <p>Both halves of the key, always. The two funnels' payloads are identical in shape, so
+	 * <p>Both halves of the key, always. The three funnels' payloads are identical in shape, so
 	 * looking up by period alone would return the ads figures for an email request and the screen
 	 * would show them under the wrong heading with nothing to contradict it.
+	 *
+	 * <p><strong>{@code windowKey} is the resolved day range, not the range's name</strong> — see
+	 * {@code DateWindow.key()}. Looking up by name was correct until the filter gained
+	 * {@code custom}, at which point every custom period became one key and two different windows
+	 * would have shared a row. Same failure as dropping {@code funnel} from the key, one axis over.
 	 */
-	Optional<GhlFunnelCache> findByFunnelAndRangeName(String funnel, String rangeName);
+	Optional<GhlFunnelCache> findByFunnelAndWindowKey(String funnel, String windowKey);
 }

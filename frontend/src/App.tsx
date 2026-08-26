@@ -33,14 +33,19 @@ const SCREENS: Record<string, React.ReactNode> = {
   '/delivery': <DeliveryQueuePage />,
   '/checklists': <ChecklistBoard />,
   '/experts': <ExpertRoster />,
-  // Two funnels, one component: same stage shape, same question, different GHL pipeline. The
+  // Three funnels, one component: same stage shape, same question, different GHL pipeline. The
   // heading each carries is only a placeholder — GHL's own pipeline name replaces it on load.
+  //
+  // `/sales/pipeline` is under its own nav heading rather than Marketing (see `navigation.ts`),
+  // but it is the same screen and deliberately not a copy of it: three route entries pointing at
+  // one component is the whole cost of the third funnel.
   '/marketing/google-ads': (
     <MarketingPipelinePage funnel="ads" title="Google Ads pipeline" />
   ),
   '/marketing/email': (
     <MarketingPipelinePage funnel="email" title="Email marketing pipeline" />
   ),
+  '/sales/pipeline': <MarketingPipelinePage funnel="sales" title="Sales pipeline" />,
 }
 
 /** The client portal's path prefix. `/portal/expert` joins it in Unit 15. */

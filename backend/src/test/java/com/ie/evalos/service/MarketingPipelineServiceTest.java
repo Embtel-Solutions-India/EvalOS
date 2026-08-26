@@ -11,7 +11,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.json.JsonMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 
-import com.ie.evalos.common.DateRange;
+import com.ie.evalos.common.DateWindow;
 import com.ie.evalos.domain.GhlFunnelCache;
 import com.ie.evalos.integration.GhlPipelineClient;
 import com.ie.evalos.integration.GhlPipelineClient.Opportunity;
@@ -48,6 +48,9 @@ class MarketingPipelineServiceTest {
 	/** The second configured funnel. A different name, so a mix-up shows up as a wrong lookup. */
 	private static final String EMAIL_PIPELINE_NAME = "Shivangi's Email Marketing";
 
+	/** The third: the sales funnel. Same reason for a distinct name as the second. */
+	private static final String SALES_PIPELINE_NAME = "Aditya's pipeline";
+
 	/** Deliberately out of position order, so the service is doing the sorting and not the list. */
 	private static final Pipeline PIPELINE = new Pipeline("pipe-1", PIPELINE_NAME, List.of(
 			new Pipeline.Stage("won", "Won", 2),
@@ -61,7 +64,7 @@ class MarketingPipelineServiceTest {
 		given(ghl.pipelineNamed(PIPELINE_NAME)).willReturn(PIPELINE);
 		stubCounts("pipe-1", PIPELINE, opportunities);
 		given(ghl.opportunitiesIn(eq("pipe-1"), any(), any())).willReturn(opportunities);
-		return service(Duration.ofMinutes(5)).forCaller(Funnel.ADS, DateRange.MONTH);
+		return service(Duration.ofMinutes(5)).forCaller(Funnel.ADS, window("month"));
 	}
 
 	/**
@@ -102,18 +105,18 @@ class MarketingPipelineServiceTest {
 	 */
 	private GhlFunnelCacheRepository cacheTable() {
 		GhlFunnelCacheRepository table = mock(GhlFunnelCacheRepository.class);
-		given(table.findByFunnelAndRangeName(anyString(), anyString())).willAnswer(
+		given(table.findByFunnelAndWindowKey(anyString(), anyString())).willAnswer(
 				(call) -> Optional.ofNullable(rows.get(key(call.getArgument(0), call.getArgument(1)))));
 		given(table.saveAndFlush(any(GhlFunnelCache.class))).willAnswer((call) -> {
 			GhlFunnelCache row = call.getArgument(0);
-			rows.put(key(row.getFunnel(), row.getRangeName()), row);
+			rows.put(key(row.getFunnel(), row.getWindowKey()), row);
 			return row;
 		});
 		return table;
 	}
 
-	private static String key(String funnel, String rangeName) {
-		return funnel + "|" + rangeName;
+	private static String key(String funnel, String windowKey) {
+		return funnel + "|" + windowKey;
 	}
 
 	/**
@@ -126,8 +129,31 @@ class MarketingPipelineServiceTest {
 	}
 
 	private MarketingPipelineService service(Duration ttl) {
-		return new MarketingPipelineService(ghl, cacheTable(), json(), PIPELINE_NAME, EMAIL_PIPELINE_NAME, ttl);
+		return new MarketingPipelineService(ghl, cacheTable(), json(), PIPELINE_NAME, EMAIL_PIPELINE_NAME,
+				SALES_PIPELINE_NAME, ttl);
 	}
+
+	/**
+	 * A resolved window, on a <strong>fixed</strong> clock.
+	 *
+	 * <p>Pinned to a Wednesday mid-month so every named range is a distinct, non-degenerate window:
+	 * on the 1st "this month" is one day wide and equal to "today", which would let a service bug
+	 * that confused two ranges pass. {@code DateWindowTest} owns the boundary cases; this file only
+	 * needs windows that differ from each other.
+	 */
+	private static DateWindow window(String range) {
+		return DateWindow.of(range, null, null, CLOCK);
+	}
+
+	/** An explicit window, for the cache-collision case that only {@code custom} can create. */
+	private static DateWindow custom(String from, String to) {
+		return DateWindow.of("custom", from, to, CLOCK);
+	}
+
+	private static final java.time.Clock CLOCK = java.time.Clock.fixed(
+			java.time.LocalDate.parse("2026-08-26").atTime(12, 0)
+					.atZone(BusinessCalendar.ZONE).toInstant(),
+			BusinessCalendar.ZONE);
 
 	private static Opportunity at(String stageId, String amount, String source) {
 		return new Opportunity(stageId, amount == null ? null : new BigDecimal(amount), source);
@@ -233,7 +259,7 @@ class MarketingPipelineServiceTest {
 		given(ghl.pipelineNamed(PIPELINE_NAME)).willReturn(mixedCase);
 		given(ghl.opportunitiesIn(eq("pipe-3"), any(), any())).willReturn(List.of());
 
-		var funnel = service(Duration.ofMinutes(5)).forCaller(Funnel.ADS, DateRange.MONTH);
+		var funnel = service(Duration.ofMinutes(5)).forCaller(Funnel.ADS, window("month"));
 
 		assertThat(funnel.stages()).extracting(MarketingPipelineService.StageFunnel::outcome)
 				.containsExactly(MarketingPipelineService.Outcome.OPEN,
@@ -263,15 +289,15 @@ class MarketingPipelineServiceTest {
 		// The cache is the rate limiter, not an optimisation: without it, every open dashboard is
 		// its own multi-page GHL read and GHL's rate limit becomes an EvalOS outage.
 		MarketingPipelineService cached = service(Duration.ofMinutes(5));
-		cached.forCaller(Funnel.ADS, DateRange.MONTH);
-		cached.forCaller(Funnel.ADS, DateRange.MONTH);
+		cached.forCaller(Funnel.ADS, window("month"));
+		cached.forCaller(Funnel.ADS, window("month"));
 		then(ghl).should(times(1)).opportunitiesIn(eq("pipe-1"), any(), any());
 
 		// A zero TTL is always stale, so the second caller goes back out. Proves the freshness
 		// check is a comparison and not a "have we ever read this" flag.
 		MarketingPipelineService uncached = service(Duration.ZERO);
-		uncached.forCaller(Funnel.ADS, DateRange.MONTH);
-		uncached.forCaller(Funnel.ADS, DateRange.MONTH);
+		uncached.forCaller(Funnel.ADS, window("month"));
+		uncached.forCaller(Funnel.ADS, window("month"));
 		then(ghl).should(times(3)).opportunitiesIn(eq("pipe-1"), any(), any());
 	}
 
@@ -292,54 +318,115 @@ class MarketingPipelineServiceTest {
 		given(ghl.opportunitiesIn(eq("pipe-1"), any(), any())).willReturn(one);
 
 		MarketingPipelineService service = service(Duration.ofMinutes(5));
-		service.forCaller(Funnel.ADS, DateRange.MONTH);
-		service.forCaller(Funnel.ADS, DateRange.YEAR);
+		service.forCaller(Funnel.ADS, window("month"));
+		service.forCaller(Funnel.ADS, window("year"));
 		// Two distinct windows, so two reads even though both are inside the TTL.
 		then(ghl).should(times(2)).opportunitiesIn(eq("pipe-1"), any(), any());
 
 		// And each is now cached under its own key rather than evicting the other.
-		service.forCaller(Funnel.ADS, DateRange.MONTH);
-		service.forCaller(Funnel.ADS, DateRange.YEAR);
+		service.forCaller(Funnel.ADS, window("month"));
+		service.forCaller(Funnel.ADS, window("year"));
 		then(ghl).should(times(2)).opportunitiesIn(eq("pipe-1"), any(), any());
 
 		// The payload states which window it describes, so the screen can never label it wrongly.
-		assertThat(service.forCaller(Funnel.ADS, DateRange.YEAR).range()).isEqualTo("year");
-		assertThat(service.forCaller(Funnel.ADS, DateRange.MONTH).range()).isEqualTo("month");
+		assertThat(service.forCaller(Funnel.ADS, window("year")).range()).isEqualTo("year");
+		assertThat(service.forCaller(Funnel.ADS, window("month")).range()).isEqualTo("month");
 	}
 
 	/**
 	 * <strong>The cache is keyed by funnel as well, for exactly the reason it is keyed by period.</strong>
 	 *
-	 * <p>Two funnels share this service and every field of the payload except the numbers — same
+	 * <p>Three funnels share this service and every field of the payload except the numbers — same
 	 * stage names, same sources, same shape. So the ads funnel served under the email screen's
 	 * heading would look entirely plausible for a whole TTL: nothing on screen and nothing in a
-	 * log would contradict it. Asserted by reading both and proving each pipeline was looked up by
-	 * its own name.
+	 * log would contradict it. Asserted by reading all three and proving each pipeline was looked
+	 * up by its own name.
+	 *
+	 * <p><strong>The sales funnel is in here rather than in a test of its own</strong> because the
+	 * failure this guards is a <em>collision</em>, and a collision needs every occupant of the key
+	 * space present at once. A separate test asserting SALES works in isolation would pass with the
+	 * enum key dropped from the cache lookup entirely.
 	 */
 	@Test
 	void cachesEachFunnelSeparatelySoOnePipelineNeverAnswersForAnother() {
 		Pipeline email = new Pipeline("pipe-2", EMAIL_PIPELINE_NAME,
 				List.of(new Pipeline.Stage("new", "New Lead", 0)));
+		Pipeline sales = new Pipeline("pipe-3", SALES_PIPELINE_NAME,
+				List.of(new Pipeline.Stage("new", "New Lead", 0)));
 		List<Opportunity> ads = List.of(at("new", "1000", "Google Ads"));
 		List<Opportunity> emails = List.of(at("new", "2000", "Email"), at("new", "3000", "Email"));
+		List<Opportunity> deals = List.of(at("new", "4000", "Referral"), at("new", "5000", "Referral"),
+				at("new", "6000", "Referral"));
 		given(ghl.pipelineNamed(PIPELINE_NAME)).willReturn(PIPELINE);
 		given(ghl.pipelineNamed(EMAIL_PIPELINE_NAME)).willReturn(email);
+		given(ghl.pipelineNamed(SALES_PIPELINE_NAME)).willReturn(sales);
 		stubCounts("pipe-1", PIPELINE, ads);
 		stubCounts("pipe-2", email, emails);
+		stubCounts("pipe-3", sales, deals);
 		given(ghl.opportunitiesIn(eq("pipe-1"), any(), any())).willReturn(ads);
 		given(ghl.opportunitiesIn(eq("pipe-2"), any(), any())).willReturn(emails);
+		given(ghl.opportunitiesIn(eq("pipe-3"), any(), any())).willReturn(deals);
 
 		MarketingPipelineService service = service(Duration.ofMinutes(5));
 
-		assertThat(service.forCaller(Funnel.ADS, DateRange.MONTH).totalDeals()).isEqualTo(1);
-		assertThat(service.forCaller(Funnel.EMAIL, DateRange.MONTH).totalDeals()).isEqualTo(2);
+		assertThat(service.forCaller(Funnel.ADS, window("month")).totalDeals()).isEqualTo(1);
+		assertThat(service.forCaller(Funnel.EMAIL, window("month")).totalDeals()).isEqualTo(2);
+		assertThat(service.forCaller(Funnel.SALES, window("month")).totalDeals()).isEqualTo(3);
 		// The name is the routing, so each funnel must have resolved its own configured one.
-		assertThat(service.forCaller(Funnel.EMAIL, DateRange.MONTH).pipelineName()).isEqualTo(EMAIL_PIPELINE_NAME);
-		assertThat(service.forCaller(Funnel.ADS, DateRange.MONTH).pipelineName()).isEqualTo(PIPELINE_NAME);
+		assertThat(service.forCaller(Funnel.EMAIL, window("month")).pipelineName()).isEqualTo(EMAIL_PIPELINE_NAME);
+		assertThat(service.forCaller(Funnel.ADS, window("month")).pipelineName()).isEqualTo(PIPELINE_NAME);
+		assertThat(service.forCaller(Funnel.SALES, window("month")).pipelineName()).isEqualTo(SALES_PIPELINE_NAME);
 
-		// Both inside one TTL: two reads total, one per funnel, and neither evicted the other.
+		// All inside one TTL: three reads total, one per funnel, and none evicted another.
 		then(ghl).should(times(1)).opportunitiesIn(eq("pipe-1"), any(), any());
 		then(ghl).should(times(1)).opportunitiesIn(eq("pipe-2"), any(), any());
+		then(ghl).should(times(1)).opportunitiesIn(eq("pipe-3"), any(), any());
+	}
+
+	/**
+	 * <strong>Two different custom windows are two different cache rows.</strong>
+	 *
+	 * <p>The failure this prevents is the one the funnel key already prevents on the other axis, and
+	 * {@code custom} is what made it reachable: every custom period is <em>named</em> {@code custom},
+	 * so a cache keyed by range name would give January's figures to a caller asking for March, for
+	 * a whole TTL, with nothing on screen to contradict it — the payloads are identical in shape.
+	 *
+	 * <p>Asserted through the service rather than on {@code DateWindow.key()} alone (which
+	 * {@code DateWindowTest} covers): what matters here is that the service actually threads the
+	 * window into the lookup, and a service that keyed on {@code range().name()} would pass the
+	 * key test and fail this one.
+	 */
+	@Test
+	void twoDifferentCustomWindowsDoNotShareACacheRow() {
+		List<Opportunity> january = List.of(at("new", "1000", "Google Ads"));
+		List<Opportunity> march = List.of(at("new", "2000", "Google Ads"), at("new", "3000", "Google Ads"));
+		given(ghl.pipelineNamed(PIPELINE_NAME)).willReturn(PIPELINE);
+		// Keyed off the window handed to the client, so the stub answers per period rather than
+		// per call order — a call-order stub would pass even if both reads used one window.
+		for (Pipeline.Stage stage : PIPELINE.stages()) {
+			given(ghl.countIn(eq("pipe-1"), eq(stage.id()), eq(java.time.LocalDate.parse("2026-01-01")), any()))
+					.willReturn("new".equals(stage.id()) ? 1 : 0);
+			given(ghl.countIn(eq("pipe-1"), eq(stage.id()), eq(java.time.LocalDate.parse("2026-03-01")), any()))
+					.willReturn("new".equals(stage.id()) ? 2 : 0);
+		}
+		given(ghl.opportunitiesIn(eq("pipe-1"), eq(java.time.LocalDate.parse("2026-01-01")), any()))
+				.willReturn(january);
+		given(ghl.opportunitiesIn(eq("pipe-1"), eq(java.time.LocalDate.parse("2026-03-01")), any()))
+				.willReturn(march);
+
+		MarketingPipelineService service = service(Duration.ofMinutes(5));
+
+		assertThat(service.forCaller(Funnel.ADS, custom("2026-01-01", "2026-01-31")).totalDeals()).isEqualTo(1);
+		assertThat(service.forCaller(Funnel.ADS, custom("2026-03-01", "2026-03-31")).totalDeals()).isEqualTo(2);
+		// Re-read inside the TTL: each window still answers for itself, so neither evicted nor
+		// impersonated the other.
+		assertThat(service.forCaller(Funnel.ADS, custom("2026-01-01", "2026-01-31")).totalDeals()).isEqualTo(1);
+		assertThat(service.forCaller(Funnel.ADS, custom("2026-01-01", "2026-01-31")).from())
+				.isEqualTo(java.time.LocalDate.parse("2026-01-01"));
+
+		// Two windows, two GHL reads — and only two, so the cache is still doing its job.
+		then(ghl).should(times(1)).opportunitiesIn(eq("pipe-1"), eq(java.time.LocalDate.parse("2026-01-01")), any());
+		then(ghl).should(times(1)).opportunitiesIn(eq("pipe-1"), eq(java.time.LocalDate.parse("2026-03-01")), any());
 	}
 
 	/**
@@ -354,23 +441,29 @@ class MarketingPipelineServiceTest {
 		given(ghl.opportunitiesIn(eq("pipe-1"), any(), any())).willReturn(List.of());
 
 		MarketingPipelineService service = service(Duration.ofMinutes(5));
-		var today = service.forCaller(Funnel.ADS, DateRange.TODAY);
-		var week = service.forCaller(Funnel.ADS, DateRange.WEEK);
-		var month = service.forCaller(Funnel.ADS, DateRange.MONTH);
-		var year = service.forCaller(Funnel.ADS, DateRange.YEAR);
+		var today = service.forCaller(Funnel.ADS, window("today"));
+		var week = service.forCaller(Funnel.ADS, window("week"));
+		var month = service.forCaller(Funnel.ADS, window("month"));
+		var year = service.forCaller(Funnel.ADS, window("year"));
 
-		// Same end, earlier start. `to` is "today" in the business's zone for all of them.
+		// Same end, earlier start. All four "this" ranges end today, which is what to-date means.
 		assertThat(year.to()).isEqualTo(month.to());
 		assertThat(year.from()).isBefore(month.from());
 
-		// **Both edges inclusive, so a window of N days spans N days — not N + 1.** These used to
-		// assert `minusDays(30)` and `minusDays(365)`, which is one day too wide, and pinned the
-		// bug rather than the rule. `today` is where it showed: it covered YESTERDAY AND TODAY, so
-		// a screen headed "today" reported roughly double GHL's own figure for it.
+		// **Calendar boundaries, not day counts** — the change these ranges took. `month` used to
+		// be `to.minusDays(29)` and is now the 1st; `week` used to be six days back and is now
+		// Monday. On the pinned Wednesday 26 August 2026 those are different dates, which is the
+		// point: a day-count implementation cannot produce them.
 		assertThat(today.from()).isEqualTo(today.to());
-		assertThat(week.from()).isEqualTo(week.to().minusDays(6));
-		assertThat(month.from()).isEqualTo(month.to().minusDays(29));
-		assertThat(year.from()).isEqualTo(year.to().minusDays(364));
+		assertThat(week.from()).isEqualTo(java.time.LocalDate.parse("2026-08-24"));
+		assertThat(month.from()).isEqualTo(java.time.LocalDate.parse("2026-08-01"));
+		assertThat(year.from()).isEqualTo(java.time.LocalDate.parse("2026-01-01"));
+
+		// And the one range that does not end today at all, which is why the service takes a
+		// resolved window instead of deriving one from `Instant.now()`.
+		var lastMonth = service.forCaller(Funnel.ADS, window("last-month"));
+		assertThat(lastMonth.from()).isEqualTo(java.time.LocalDate.parse("2026-07-01"));
+		assertThat(lastMonth.to()).isEqualTo(java.time.LocalDate.parse("2026-07-31"));
 	}
 
 	/**
@@ -394,7 +487,7 @@ class MarketingPipelineServiceTest {
 		// derived from rows it would come back 0, because there are none to derive it from.
 		given(ghl.opportunitiesIn(eq("pipe-1"), any(), any())).willReturn(List.of());
 
-		var funnel = service(Duration.ofMinutes(5)).forCaller(Funnel.ADS, DateRange.YEAR);
+		var funnel = service(Duration.ofMinutes(5)).forCaller(Funnel.ADS, window("year"));
 
 		// Exact, and adding up: the total is the sum of the stages rather than a separate figure
 		// that could disagree with them on screen.
@@ -431,7 +524,7 @@ class MarketingPipelineServiceTest {
 		given(ghl.countIn(eq("pipe-1"), eq("new"), any(), any())).willReturn(11_364);
 		given(ghl.opportunitiesIn(eq("pipe-1"), any(), any())).willReturn(List.of());
 
-		var funnel = service(Duration.ofMinutes(5)).forCaller(Funnel.ADS, DateRange.YEAR);
+		var funnel = service(Duration.ofMinutes(5)).forCaller(Funnel.ADS, window("year"));
 
 		assertThat(funnel.detail()).isEqualTo(Detail.TOTALLING);
 		assertThat(funnel.totalValue()).isNull();
@@ -454,7 +547,7 @@ class MarketingPipelineServiceTest {
 				.willReturn(List.of(at("new", "1000", "Google Ads"), at("new", "2000", "Referral")));
 
 		var service = service(Duration.ofMinutes(5));
-		assertThat(service.forCaller(Funnel.ADS, DateRange.YEAR).detail()).isEqualTo(Detail.TOTALLING);
+		assertThat(service.forCaller(Funnel.ADS, window("year")).detail()).isEqualTo(Detail.TOTALLING);
 
 		var settled = pollUntilSettled(service);
 
@@ -474,7 +567,7 @@ class MarketingPipelineServiceTest {
 		given(ghl.pipelineNamed(PIPELINE_NAME)).willReturn(PIPELINE);
 		given(ghl.countIn(eq("pipe-1"), eq("new"), any(), any())).willReturn(250_000);
 
-		var funnel = service(Duration.ofMinutes(5)).forCaller(Funnel.ADS, DateRange.YEAR);
+		var funnel = service(Duration.ofMinutes(5)).forCaller(Funnel.ADS, window("year"));
 
 		assertThat(funnel.detail()).isEqualTo(Detail.UNAVAILABLE);
 		assertThat(funnel.totalValue()).isNull();
@@ -495,7 +588,7 @@ class MarketingPipelineServiceTest {
 				.given(ghl).opportunitiesIn(eq("pipe-1"), any(), any());
 
 		var service = service(Duration.ofMinutes(5));
-		service.forCaller(Funnel.ADS, DateRange.YEAR);
+		service.forCaller(Funnel.ADS, window("year"));
 
 		assertThat(pollUntilSettled(service).detail()).isEqualTo(Detail.UNAVAILABLE);
 	}
@@ -510,7 +603,7 @@ class MarketingPipelineServiceTest {
 	private MarketingPipelineService.MarketingPipeline pollUntilSettled(MarketingPipelineService service)
 			throws InterruptedException {
 		for (int attempt = 0; attempt < 100; attempt++) {
-			var funnel = service.forCaller(Funnel.ADS, DateRange.YEAR);
+			var funnel = service.forCaller(Funnel.ADS, window("year"));
 			if (funnel.detail() != Detail.TOTALLING) {
 				return funnel;
 			}
@@ -538,13 +631,13 @@ class MarketingPipelineServiceTest {
 		given(ghl.opportunitiesIn(eq("pipe-1"), any(), any())).willReturn(one);
 
 		MarketingPipelineService service = service(Duration.ZERO);
-		assertThat(service.forCaller(Funnel.ADS, DateRange.MONTH).totalDeals()).isEqualTo(1);
+		assertThat(service.forCaller(Funnel.ADS, window("month")).totalDeals()).isEqualTo(1);
 
 		// GHL then goes down. The screen must say so — a figure kept from the last good read and
 		// presented without a failure is the "looks live and is not" failure the cache would
 		// otherwise introduce.
 		willThrow(new GhlUnavailableException("down")).given(ghl).opportunitiesIn(eq("pipe-1"), any(), any());
-		assertThatThrownBy(() -> service.forCaller(Funnel.ADS, DateRange.MONTH)).isInstanceOf(GhlUnavailableException.class);
+		assertThatThrownBy(() -> service.forCaller(Funnel.ADS, window("month"))).isInstanceOf(GhlUnavailableException.class);
 	}
 
 	@Test
@@ -553,7 +646,7 @@ class MarketingPipelineServiceTest {
 		// spent on an id that does not exist.
 		willThrow(new GhlUnavailableException("no such pipeline")).given(ghl).pipelineNamed(PIPELINE_NAME);
 
-		assertThatThrownBy(() -> service(Duration.ofMinutes(5)).forCaller(Funnel.ADS, DateRange.MONTH))
+		assertThatThrownBy(() -> service(Duration.ofMinutes(5)).forCaller(Funnel.ADS, window("month")))
 				.isInstanceOf(GhlUnavailableException.class);
 		then(ghl).should(never()).opportunitiesIn(anyString(), any(), any());
 	}

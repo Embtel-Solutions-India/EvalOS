@@ -1,5 +1,5 @@
 import { api, unwrap } from '../../lib/api'
-import type { DateRange } from '../shell/filtersContext'
+import { rangeParams, type DateRange, type NamedRange } from '../shell/filtersContext'
 
 /**
  * `MarketingPipelineService.StageFunnel` — one stage of GHL's funnel.
@@ -70,8 +70,12 @@ export type MarketingPipeline = {
    * Rendered rather than assumed: if this ever disagrees with the control the user clicked, the
    * server's value is what the numbers actually mean, and showing it is how that becomes visible
    * instead of silent.
+   *
+   * **A bare wire name, not the shell's `DateRange` union.** For a custom period this is just
+   * `'custom'` — the actual days are `from`/`to` below, which the header renders anyway, so
+   * echoing the dates twice in two shapes would give them two places to disagree.
    */
-  range: DateRange
+  range: NamedRange | 'custom'
   /** First day of the created-at window, inclusive. ISO date, server-computed. */
   from: string
   /** Last day of it, inclusive. Sent so an empty funnel can name the days that found nothing. */
@@ -104,11 +108,16 @@ export type Detail = 'READY' | 'TOTALLING' | 'UNAVAILABLE'
 /**
  * Which funnel to read, matching `MarketingPipelineService.Funnel` on the server.
  *
- * **A closed pair, not a pipeline name.** The GHL location holds several pipelines and most are
+ * **A closed set, not a pipeline name.** The GHL location holds seven pipelines and most are
  * other teams' — the server routes each of these to a *configured* name, so what this app can see
  * is a deployment decision rather than something a caller types.
+ *
+ * `sales` is the sales team's own funnel rather than a marketing campaign, and its screen sits
+ * under the Sales nav heading. It stays in this module because it is the identical read against a
+ * third pipeline — the same endpoint prefix, the same payload, the same GM-only door. Splitting a
+ * `salesApi.ts` off would duplicate every type below to rename one string.
  */
-export type MarketingFunnel = 'ads' | 'email'
+export type MarketingFunnel = 'ads' | 'email' | 'sales'
 
 /**
  * `range` filters on the opportunity's **created-at** date in GHL, so the funnel answers "deals
@@ -127,6 +136,6 @@ export async function fetchMarketingPipeline(
   signal?: AbortSignal,
 ): Promise<MarketingPipeline> {
   return unwrap<MarketingPipeline>(
-    api.get(`/marketing/${funnel}-pipeline`, { params: { range }, signal }),
+    api.get(`/marketing/${funnel}-pipeline`, { params: rangeParams(range), signal }),
   )
 }

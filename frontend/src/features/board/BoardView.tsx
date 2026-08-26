@@ -1,4 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import {
+  DEADLINE_WINDOWS,
+  DEFAULT_DEADLINE_WINDOW,
+  type DeadlineWindow,
+} from './deadlineWindow'
 import { useLocation } from 'react-router-dom'
 import { useMe } from '../../lib/authContext'
 import { useFilters } from '../shell/filtersContext'
@@ -53,7 +58,10 @@ const SEES_POOL = ['BRAND_MANAGER'] as const
 export default function BoardView() {
   const me = useMe()
   const { pathname } = useLocation()
-  const { activeBrandId, dateRange } = useFilters()
+  // **No `dateRange`.** The shell's period is backwards-looking and this screen's filter is
+  // forwards — see `deadlineWindow.ts`. The board owns its own, so a dashboard period can no
+  // longer silently widen the board's deadline horizon.
+  const { activeBrandId } = useFilters()
 
   const [state, setState] = useState<LoadState>({ status: 'loading' })
   const [pending, setPending] = useState<{ card: BoardCard; action: QuickAction } | null>(null)
@@ -65,8 +73,12 @@ export default function BoardView() {
   const [ownerFilter, setOwnerFilter] = useState<'all' | 'mine'>('all')
   const [serviceFilter, setServiceFilter] = useState<ServiceType | 'all'>('all')
   const [urgentOnly, setUrgentOnly] = useState(false)
+  // Local state like its three neighbours above, not a URL parameter: every other filter on this
+  // screen is held here, and one linkable filter beside three that are not is the inconsistency
+  // somebody has to explain later.
+  const [deadlineWindow, setDeadlineWindow] = useState<DeadlineWindow>(DEFAULT_DEADLINE_WINDOW)
 
-  const dueBefore = dueBeforeFor(dateRange)
+  const dueBefore = dueBeforeFor(deadlineWindow)
 
   const load = useCallback(
     async (signal?: AbortSignal) => {
@@ -274,6 +286,14 @@ export default function BoardView() {
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
+          {/* First in the row because it is the only one of these that refetches: the other three
+              filter cards already in hand, this one changes what the server is asked for. */}
+          <Select
+            label="Due within"
+            value={deadlineWindow}
+            onChange={(value) => setDeadlineWindow(value as DeadlineWindow)}
+            options={DEADLINE_WINDOWS.map((option) => ({ value: option.value, label: option.label }))}
+          />
           <Select
             label="Owner"
             value={ownerFilter}

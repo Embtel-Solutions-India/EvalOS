@@ -60,7 +60,11 @@ export default function AssignPopover({ card, onAssigned }: { card: BoardCard; o
         if (!open || workload) return
         // Loaded on open rather than per row: an inbox of forty rows would otherwise fire forty
         // identical requests for the same roster.
-        fetchPmMetrics('month', activeBrandId)
+        // A fixed period, deliberately NOT the shell's: this reads the roster's workload to
+        // populate a picker, so it wants a stable recent window rather than whatever the header
+        // happens to be filtered to. `{ kind: 'month' }` is now the union member rather than the
+        // bare string it was before the filter gained custom ranges.
+        fetchPmMetrics({ kind: 'month' }, activeBrandId)
           .then((metrics) => setWorkload(metrics.workload))
           .catch((cause: Error) => setError(cause.message))
       }}

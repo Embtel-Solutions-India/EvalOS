@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { Card, CapacityBar, ChartCard, KpiCard } from '../../components/ui/card'
 import type { CardState } from '../../components/ui/card'
-import { useFilters } from '../shell/filtersContext'
+import { useFilters, rangeLabel } from '../shell/filtersContext'
 import { fetchPmMetrics, type PmMetrics } from './pmMetricsApi'
 
 /**
@@ -48,7 +48,10 @@ export default function PmDashboard() {
       <header className="flex flex-wrap items-baseline justify-between gap-2">
         <h1 className="text-2xl font-semibold tracking-tight">Production</h1>
         <p className="font-num text-sm tabular-nums" style={{ color: 'var(--text-muted)' }}>
-          {dateRange}
+          {/* `rangeLabel`, not the value: `dateRange` is an object now, and rendering it directly
+              throws "Objects are not valid as a React child" at runtime — which `tsc` did not
+              catch. It also gives a custom period a readable heading instead of "custom". */}
+          {rangeLabel(dateRange)}
         </p>
       </header>
 

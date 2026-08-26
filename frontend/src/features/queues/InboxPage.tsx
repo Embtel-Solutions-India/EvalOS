@@ -22,7 +22,12 @@ import AssignPopover from './AssignPopover'
  * column.
  */
 export default function InboxPage() {
-  const { dateRange, activeBrandId } = useFilters()
+  // **No `dateRange`, and it was already unused.** This screen passes `dueBefore: null` on
+  // purpose (see `load` below) because its own presets answer the date question — but it still
+  // listed the shell filter as an effect dependency, so it refetched whenever a filter it ignores
+  // changed. Harmless while the filter was four names; plainly wrong now that one of them can be
+  // a custom interval this screen would never apply.
+  const { activeBrandId } = useFilters()
   const [params, setParams] = useSearchParams()
   const [data, setData] = useState<BoardData | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -43,7 +48,7 @@ export default function InboxPage() {
     return () => controller.abort()
   }
 
-  useEffect(load, [dateRange, activeBrandId])
+  useEffect(load, [activeBrandId])
 
   const rows = data ? inboxQueue(data, view) : []
 
