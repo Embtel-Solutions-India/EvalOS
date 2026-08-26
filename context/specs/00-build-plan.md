@@ -333,6 +333,57 @@ than added to it, because approving a Case Manager's draft is the judgement of t
 PM who assigned it.
 Depends on: 04, 08, 09, 22.
 
+### Unit 24 — Marketing: the Google Ads funnel (GM)
+Builds: the GM's one view of GHL's front of house — the **Google ADS Pipeline** as
+a chevron funnel (deals and value per stage, share of pipeline) with the sources
+behind it. First **read** integration against GHL's public API: two calls, a
+five-minute cached payload, `opportunities.readonly` and no write method anywhere.
+**Resolves the open question this list has carried since Unit 17** — sales/marketing
+dashboards were defaulted to GHL-native, and the answer is now *one read-only GM
+screen in EvalOS, everything else stays in GHL*.
+Invariant 2 is intact: EvalOS reads the funnel, it does not run marketing. Nothing
+is persisted — there is no `ghl_opportunity` table and there must not be.
+**The one screen in EvalOS that is not brand-scoped, deliberately**: it reads one
+GHL location that the brands share, so no `brand_id` predicate exists that could
+narrow it — hence GM-only, hence no `brandId` parameter, hence the Brand Manager
+is excluded. See `24-marketing-google-ads-funnel.md` for the full argument and for
+the process note that this spec was written **after** the code.
+Depends on: 07, 17, 22.
+
+### Unit 26 — Marketing: the email funnel (GM)
+Builds: a second GM screen over the same GHL location — **Shivangi's Email
+Marketing**, the email acquisition channel — through Unit 24's client, service,
+cache and card system. A `Funnel` enum (`ADS`, `EMAIL`) keys into configured
+pipeline names; the cache key becomes `(funnel, range)` so two identically shaped
+payloads can never answer for each other; one React component serves both screens.
+**Answers the question Unit 24 explicitly left open** — "a second marketing screen
+is a new question" — as *yes for a second reading of a pipeline in the location
+EvalOS already reads, on the same terms*. Invariant 2 is intact: still no write, no
+persistence, no `ghl_opportunity` table. Still GM-only and still not brand-scoped,
+for Unit 24's reason unchanged; **Unit 25a re-scopes both screens together.**
+Also fixes a defect this pipeline exposed: it holds ~11.4k opportunities a year
+against a 5,000-row page cap, so a truncated read now reports `truncated` and the
+screen says every figure is a floor, instead of stating 5,000 as the total.
+See `26-marketing-email-funnel.md`.
+Depends on: 24.
+
+### Unit 25 — GHL OAuth connection (per brand)
+Builds: the GM connects a brand to a GHL sub-account from inside EvalOS, replacing
+Unit 24's hand-pasted Private Integration Token. A brand-scoped `ghl_connection`
+row holds the grant; the refresh token is the **second encrypted column in EvalOS**
+and that needs sign-off, because `code-standards.md` currently states there is only
+one. `state` nonce on the callback (single-use, constant-time compare, brand taken
+from the state row and never from the request), refresh serialized with
+`SELECT … FOR UPDATE` because **GHL rotates the refresh token** and two instances
+refreshing concurrently would otherwise retire each other's grant.
+**No dual path** — the PIT is deleted, which is free only because Unit 24 has never
+run live. One permitted path in `SecurityConfig`, no third filter chain.
+Its live connection also closes **Unit 24's** one outstanding acceptance item.
+The follow-on (**25a**) re-scopes the funnel — **both marketing screens, Unit 24's
+and Unit 26's**: `brandId` becomes legal, the Brand Manager is admitted, and invariant 1's stated exception is removed. Deliberately not
+in 25 — a credential's lifecycle and a screen's role list are different boundaries.
+Depends on: 02, 24.
+
 ---
 
 ## Notes
@@ -344,7 +395,11 @@ Depends on: 04, 08, 09, 22.
   marketing) and A21's post-delivery scheduling are GHL's and out of scope.
 - **Multi-tenancy is not a unit — it is a property of every unit.** From Unit 02
   onward, every scoped query filters by `brand_id`; brand resolution at Handoff A
-  is by per-brand endpoint token.
+  is by per-brand endpoint token. **Unit 24 is the one screen that is not scoped, and
+  it is an exception with a stated reason rather than a gap**: it reads a GHL location
+  the brands share, so no `brand_id` predicate exists that could narrow it — which is
+  why it is GM-only and takes no `brandId`. Read the rule as *every query over EvalOS
+  rows*, and treat a new unscoped query over EvalOS rows as the defect it still is.
 - **No object storage, no mail server.** Documents are Drive links and file ids —
   including the signed letter, which the expert uploads into the case's Drive folder;
   staff alerts are in-app (Unit 06); clients are reached through GHL and experts
@@ -356,8 +411,7 @@ Depends on: 04, 08, 09, 22.
   **stays single-source (GHL)**; outbound dispatcher built once in Unit 18
   and delivers domain events published from Unit 04 onward.
 - Open questions gate specific units (see `progress-tracker.md`): the **full
-  brand list**, whether EvalOS **builds the sales/marketing dashboards** (default
-  no — GHL), **StatCommand**, the **GHL webhook/API contract** (per-brand inbound
+  brand list**, **StatCommand**, the **GHL webhook/API contract** (per-brand inbound
   secret + payload for Unit 05; outbound subscriber URL + secret and client-
   message capability for Unit 18), and **staff SSO** (optional/later). Resolve each
   before starting the gated unit. *(The Dropbox Sign callback secret was on this list

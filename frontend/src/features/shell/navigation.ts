@@ -25,7 +25,7 @@ export type NavItem = {
   group: NavGroup
 }
 
-export type NavGroup = 'Overview' | 'Pipeline' | 'Records' | 'Admin'
+export type NavGroup = 'Overview' | 'Marketing' | 'Pipeline' | 'Records' | 'Admin'
 
 const ALL_ROLES: readonly Role[] = [
   'GM',
@@ -38,6 +38,45 @@ const ALL_ROLES: readonly Role[] = [
 
 export const NAV_ITEMS: readonly NavItem[] = [
   { path: '/dashboard', label: 'Dashboard', roles: ALL_ROLES, becomes: 'Role dashboard (Unit 17)', group: 'Overview' },
+
+  // The one screen in EvalOS that reads GHL's front of house: the Google Ads sales funnel,
+  // stage by stage, with the sources behind it.
+  //
+  // **GM only, and the reason is scoping rather than seniority.** `evalos.ghl.location-id` is a
+  // single global setting with no link to a brand, so the figures behind this entry cannot be
+  // attributed to one — the endpoint accepts no `brandId` because none would narrow anything.
+  //
+  // The first version of this note said the brands *share* one GHL sub-account, making the figure
+  // "cross-brand by construction". That was wrong: each brand has its own sub-account, so this is
+  // one brand's funnel and EvalOS cannot tell whose. **A Brand Manager is absent for the corrected
+  // reason** — not because the number spans brands, but because it is unattributable, and showing
+  // a single-brand role a figure that might be another brand's is the leak the scoping rule
+  // exists to prevent. Unit 25 maps locations to brands; Unit 25a then re-scopes this entry.
+  //
+  // Sits above Pipeline rather than in it: this is the funnel *before* EvalOS takes custody,
+  // and the Pipeline group is everything after. Its own group, because grouping is by
+  // consecutive runs and marketing is not production work.
+  {
+    path: '/marketing/google-ads',
+    label: 'Google Ads pipeline',
+    roles: ['GM'],
+    becomes: 'GHL Google Ads funnel by stage',
+    group: 'Marketing',
+  },
+
+  // The second GHL funnel: the email marketing pipeline, in the same location and behind the
+  // same door. GM-only for the identical reason — one global `location-id`, so the figures
+  // cannot be attributed to a brand, let alone narrowed to one.
+  //
+  // Its own entry rather than a tab inside the Google Ads screen: they are separate funnels run
+  // by separate people, and a nav entry is what makes the second one findable.
+  {
+    path: '/marketing/email',
+    label: 'Email marketing',
+    roles: ['GM'],
+    becomes: 'GHL email marketing funnel by stage',
+    group: 'Marketing',
+  },
 
   // The production board. Four roles, one screen: the spec's per-role wording ("all
   // brands" / "own brand" / "team" / a Coordinator's read view) describes *scope*, which

@@ -196,6 +196,21 @@ const NAV_ICONS: Record<string, ReactNode> = {
       <path d="M9 7V4h6v3" />
     </Glyph>
   ),
+  // A funnel, narrowing. The one screen that reads GHL rather than EvalOS, so it gets a shape
+  // no production screen uses.
+  '/marketing/google-ads': (
+    <Glyph>
+      <path d="M3 5h18l-7 8v6l-4 2v-8z" />
+    </Glyph>
+  ),
+  // An envelope. The second GHL funnel, so it keeps the "reads GHL" corner of the nav visually
+  // distinct from production work without reusing the funnel above.
+  '/marketing/email': (
+    <Glyph>
+      <rect x="3" y="6" width="18" height="12" rx="2" />
+      <path d="m3 8 9 6 9-6" />
+    </Glyph>
+  ),
   '/checklists': (
     <Glyph>
       <path d="M9 5h10M9 12h10M9 19h10" />

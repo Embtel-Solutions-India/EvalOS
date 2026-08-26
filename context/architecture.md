@@ -16,6 +16,7 @@
 | Background work  | Spring `@Scheduled` (+ app events) + a `scheduled_job` run ledger + a Postgres advisory lock per sweep | SLA timers, reminders, escalations, expert-sign prompts, the outbound outbox. **No Quartz, no ShedLock, no broker** |
 | Queue            | The `webhook_delivery` outbox table, claimed `FOR UPDATE SKIP LOCKED` | Outbound delivery with backoff + dead-letter. The only cross-process work is "deliver one webhook and keep trying", which a durable row does |
 | Integration seam | Inbound webhook gateway + outbound webhook dispatcher (+ GHL and Google Drive clients) | Receive GHL events; emit EvalOS lifecycle events to subscribers. **One inbound source, GHL** — dropping the signature provider removed the second |
+| GHL read API | `RestClient` against GHL's public API, `opportunities.readonly` (**inbound *pull*, Unit 24**) | The GM's marketing funnel view, and nothing else. **Read-only and stateless**: two calls, a cached payload, no write method, nothing persisted. This is the third direction across the GHL seam — events in, events out, and now one pull — and it is the only one that is not a handoff |
 
 **No object storage.** EvalOS hosts no files. Client documents and drafts are
 referenced by Google Drive link; the signed letter is filed into the case's own Drive
@@ -242,6 +243,23 @@ The front/back seam generalises, and stating it once settles a class of question
 | Client sale | lead → opportunity → invoice → collection | `opportunity.won` → the case exists, paid |
 | Expert recruitment | prospect → outreach → agreement | the ENM adding the expert to the roster |
 | Retention & reviews | the 7-day review request, the 30/90/180/365 sequence | nothing — EvalOS emits `case.delivered` and schedules none of it |
+| Google Ads funnel | the whole thing — lead → warm → hot → won/cold/lost | **nothing. Unit 24 *reads* it and takes custody of none of it** |
+| Email marketing funnel | the whole thing, campaigns included | **nothing. Unit 26 *reads* it on the same terms** |
+
+That last row is the exception the table needed, and the distinction it draws is the
+one to keep: **custody and visibility are different things.** Unit 24 puts GHL's Google
+Ads funnel on a GM screen — counts, values and sources per stage — while GHL stays the
+system of record for every row in it. Nothing is copied here (no `ghl_opportunity`
+table, by decision: a stage a salesperson dragged five seconds ago is already wrong in
+a copy), nothing is written back, and no case exists until `opportunity.won` fires as
+it always did. Invariant 2 is about *running* marketing, and reading a funnel is not
+running one.
+
+**Each brand has its own GHL sub-account** — confirmed when the first Private
+Integration Token arrived, for International Evaluations. So a funnel read is one
+brand's, and Handoff A's per-brand endpoint token was already built on the same shape.
+Unit 24 predates that knowledge and reads a single globally-configured location; Unit 25
+moves it onto `brand`.
 
 This is why there is **no recruitment pipeline in EvalOS** (decision, Production
 Process v2.0): a prospect moving through Identified → Contacted → Agreement Sent is
@@ -429,8 +447,30 @@ exist because every transition owes exactly one event. They live in
 
 1. **Brand isolation.** Every scoped query filters by `brand_id`; no code path
    returns another brand's data. The GM is the only cross-brand role.
+   **One stated exception, and it is not a query over EvalOS rows**: Unit 24's
+   marketing funnel reads the one GHL sub-account named by `evalos.ghl.location-id`, a
+   *global* setting with no link to a brand — so no `brand_id` predicate exists that
+   could narrow it. **GM-only and no `brandId`** follow from that.
+
+   **The premise was corrected once the first real credential arrived, and the
+   correction matters.** This paragraph used to say the brands *share* one GHL
+   sub-account, making the figure a cross-brand roll-up. They do not: each brand has
+   its own sub-account, so the configured location is *one* brand's funnel and EvalOS
+   cannot tell whose. The exception therefore rests on the figure being
+   **unattributable**, not on it spanning brands — and the Brand Manager is excluded
+   because a single-brand role must not be shown a number that might be another
+   brand's. **Unit 25 puts the location on `brand`, which closes this exception**;
+   Unit 25a then re-scopes the screen.
+   **Read the invariant as: every query over EvalOS rows.** An unscoped query over
+   EvalOS rows is still a defect, and this exception licenses nothing about them.
 2. A case is in exactly one system's custody at any moment. EvalOS never runs
    marketing, sales, nurture/cold email, ad attribution, or invoicing.
+   **"Runs" is the operative word, and Unit 24 tests it.** EvalOS may *read* GHL's
+   sales funnel onto a GM screen; it may not create a lead, move a stage, price a deal,
+   send a campaign, or write anything back. The GHL credential is
+   `opportunities.readonly` and the client has no write method — read-only by grant as
+   well as by code, so a mistake in either place is still not a write. The day something
+   here writes to a GHL pipeline, two systems own it and this invariant is gone.
 3. Role, brand, and ownership are enforced before every mutation. Case Managers,
    clients, and experts never see data outside their assignment.
 4. The optional expert `payment_detail` is encrypted at rest and never appears in
@@ -451,6 +491,18 @@ exist because every transition owes exactly one event. They live in
    outbound outbox run in `job`. Retention/countdown is **not** on that list — GHL
    owns it. Each sweep holds an advisory lock on its job type, and no sweep
    transitions a case.
+
+   **One read-side exception, and it does not weaken the rule.**
+   `MarketingPipelineService` totals a GHL window larger than ~1,000 opportunities on
+   its own single background thread rather than in `job`. The rule points at `job`
+   because a *lifecycle side effect* must not be lost — this loses nothing: it writes
+   no EvalOS row, and a failed total is a cache entry marked `UNAVAILABLE` that ages
+   out on the normal TTL. What forces it off the request thread is arithmetic, not
+   preference: GHL's year is ~11.4k opportunities in 115 cursor pages that cannot be
+   parallelised, and GHL's own limit of 100 requests per 10 seconds per location puts
+   a ~13s floor under it — past the browser's 15s timeout. The controller still
+   returns immediately; the cache is the handover. A `job` row for a read nobody has
+   asked to be durable would be ceremony around a cache miss.
 7. EvalOS is the system of record for cases, experts, and payouts. Contact data
    is a read-only, brand-tagged snapshot synced from GHL and is never mutated.
 8. A case is only ever created through a per-brand GHL webhook endpoint, by a

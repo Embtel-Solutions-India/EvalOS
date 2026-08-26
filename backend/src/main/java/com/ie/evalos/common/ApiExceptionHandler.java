@@ -3,6 +3,7 @@ package com.ie.evalos.common;
 import com.fasterxml.jackson.databind.exc.InvalidFormatException;
 import com.ie.evalos.domain.IllegalTransitionException;
 import com.ie.evalos.integration.DriveUnavailableException;
+import com.ie.evalos.integration.GhlUnavailableException;
 import com.ie.evalos.webhook.WebhookRejected;
 
 import org.slf4j.Logger;
@@ -144,6 +145,26 @@ public class ApiExceptionHandler {
 		log.error("Google Drive write failed", ex);
 		return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
 				.body(ApiResponse.error("DRIVE_UNAVAILABLE", ex.getMessage()));
+	}
+
+	/**
+	 * The same shape as the Drive case above, for the same reason: an upstream that did not
+	 * answer is a 502, and the distinction from a 500 is what tells the reader to try again
+	 * rather than to report a bug.
+	 *
+	 * <p>Kept as its own handler rather than folded in with Drive, so the error code names which
+	 * upstream failed. "DRIVE_UNAVAILABLE" on a marketing screen would send whoever reads the
+	 * log at the wrong integration.
+	 *
+	 * <p><strong>Nothing in EvalOS changed.</strong> Every GHL read this covers feeds a view; the
+	 * message is safe to echo because {@code GhlPipelineClient} composes it and never puts the
+	 * API token or another team's pipeline names in it.
+	 */
+	@ExceptionHandler(GhlUnavailableException.class)
+	public ResponseEntity<ApiResponse<Void>> onGhlUnavailable(GhlUnavailableException ex) {
+		log.error("GHL read failed", ex);
+		return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
+				.body(ApiResponse.error("GHL_UNAVAILABLE", ex.getMessage()));
 	}
 
 	@ExceptionHandler({ AccessDeniedException.class, ForbiddenException.class })

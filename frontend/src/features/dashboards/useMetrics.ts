@@ -25,12 +25,31 @@ export function useMetrics<T>(
    */
   const [reloads, setReloads] = useState(0)
 
+  /**
+   * Clear on a **change of inputs**, and only then.
+   *
+   * <p>This used to sit inside the fetch effect below, which meant `reload()` blanked the screen
+   * too — and once one caller started polling `reload` on a timer, every card dropped to its
+   * loading state on every tick. A refetch of the *same* window is not a stale-data risk: the
+   * figures on screen already answer the question being re-asked, so keeping them until better
+   * ones arrive is the correct rendering. A changed filter is the opposite, which is why the
+   * clear stays for that.
+   */
   useEffect(() => {
-    const controller = new AbortController()
     setData(null)
     setError(null)
+    // Deliberately not including `reloads`: that is the case this effect exists to exclude.
+  }, deps)
+
+  useEffect(() => {
+    const controller = new AbortController()
     load(controller.signal)
-      .then(setData)
+      .then((next) => {
+        setData(next)
+        // A poll that succeeds after one that failed clears the error with it, so a blip does not
+        // leave the card reading as broken once it is not.
+        setError(null)
+      })
       .catch((cause: Error) => {
         if (!controller.signal.aborted) setError(cause.message)
       })
@@ -43,7 +62,10 @@ export function useMetrics<T>(
     // an eslint rule that is not enabled reads as "a linter objects to this" when none does.
   }, [...deps, reloads])
 
-  const state: CardState = error
+  // Error only while there is nothing to show. A poll that fails over figures already on screen
+  // must not replace them with an error card — the figures are still the last true answer, and
+  // `readAt` is what tells the reader how old they are.
+  const state: CardState = error && data === null
     ? { kind: 'error', note: error }
     : data === null
       ? { kind: 'loading' }

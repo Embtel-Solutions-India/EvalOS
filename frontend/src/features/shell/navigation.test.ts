@@ -161,6 +161,25 @@ describe('the nav and route table', () => {
     }
   })
 
+  it('keeps the marketing funnels GM-only, because they cannot be brand-scoped', () => {
+    // **This one is not a taste call about who should see marketing.**
+    // `/api/marketing/ads-pipeline` reads the one GHL sub-account named by `evalos.ghl.location-id`
+    // — a *global* setting with no link to a brand — so the figure cannot be attributed to a brand,
+    // and the endpoint accepts no `brandId` because none would narrow anything.
+    //
+    // The Brand Manager is the tempting addition and is the leak. Each brand has its own GHL
+    // sub-account, so the configured one is *some* brand's funnel and the server cannot prove
+    // whose: a role locked to one brand could be shown another brand's numbers. Adding them here
+    // fails this test on purpose, and becomes correct only once Unit 25 maps locations to brands
+    // (then Unit 25a re-scopes this entry).
+    //
+    // Both funnels, because they read the SAME location: a second marketing screen added without
+    // the same door is the way this leaks next, and it is one line to prevent.
+    for (const path of ['/marketing/google-ads', '/marketing/email']) {
+      expect(ALL_ROLES.filter((role) => mayReach(role, path)), path).toEqual(['GM'])
+    }
+  })
+
   it('never offers a role a way out it would be refused', () => {
     // The placeholder's escape link. A link that answers 403 is worse than no link.
     for (const role of ALL_ROLES) {

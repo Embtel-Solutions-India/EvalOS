@@ -96,6 +96,14 @@
   encryption `AttributeConverter` in `common`. It is excluded from every DTO,
   log line, and webhook payload. It is the only encrypted field (payouts are
   manual; no bank/card processing).
+  - **"Only" is under review, and the decision is open** — see
+    `context/specs/25-ghl-oauth-connection.md`. A GHL OAuth refresh token has to be
+    *recoverable* (it is replayed to GHL), so unlike a portal token it cannot be hashed;
+    encrypting it makes it the second such column. The recommended option extracts the
+    AES-GCM out of `PaymentDetailConverter` into one shared converter so there is still a
+    single crypto implementation — which edits a **protected file**, hence a sign-off and
+    not an implementation detail. Until it is answered, this sentence stands as written and
+    Unit 25 does not start.
 
 ## Files & Storage
 

@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom'
 import type { BoardCard, QuickAction, SlaStatus } from './boardRules'
+import { formatMoney } from '../../lib/money'
 
 /**
  * One case as a card: client, service, deadline with its RAG badge, who holds it, and the
@@ -20,17 +21,6 @@ const SLA_TOKEN: Record<SlaStatus, { fg: string; bg: string; label: string }> = 
   AT_RISK: { fg: 'var(--status-amber)', bg: 'var(--status-amber-bg)', label: 'At risk' },
   OVERDUE: { fg: 'var(--status-red)', bg: 'var(--status-red-bg)', label: 'Overdue' },
 }
-
-/**
- * Assumed USD: the business runs on a US SLA calendar and US federal holidays, and no
- * currency is stored on the case. If a brand ever bills in anything else this needs a
- * column, not a guess here.
- */
-const MONEY = new Intl.NumberFormat('en-US', {
-  style: 'currency',
-  currency: 'USD',
-  maximumFractionDigits: 0,
-})
 
 /** The draft sub-status `ui-context.md` asks the Draft / Report column to show. */
 function draftChip(card: BoardCard): string | null {
@@ -120,7 +110,7 @@ export default function CaseCard({
             <dt className="text-[10px] tracking-wide uppercase" style={{ color: 'var(--text-muted)' }}>
               Value
             </dt>
-            <dd className="mt-0.5 font-medium">{MONEY.format(card.dealValue)}</dd>
+            <dd className="mt-0.5 font-medium">{formatMoney(card.dealValue)}</dd>
           </div>
         )}
       </dl>

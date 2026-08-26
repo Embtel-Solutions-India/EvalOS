@@ -4,6 +4,186 @@ Update this file after every meaningful implementation change.
 
 ## Current Phase
 
+- **Unit 26 — Marketing: the email funnel (GM) — is BUILT.** See
+  `context/specs/26-marketing-email-funnel.md`. The GM now has a second GHL funnel beside
+  the Google Ads one: **Shivangi's Email Marketing**, in the same location, through the same
+  client, service, cache and cards. `GET /api/marketing/email-pipeline` (GM-only) and
+  `/marketing/email` in the nav.
+  - **This answers the question Unit 24 left open below** — "a second marketing screen is a
+    new question". The answer: *yes for a second **reading** of a pipeline in the location
+    EvalOS already reads, on the same terms.* Everything Unit 24 refused is still refused —
+    no write back, no persistence, no campaign/spend/audience/attribution feature, no
+    sending. Invariant 2 is intact.
+  - **What generalised and what deliberately did not.** A `Funnel` enum (`ADS`, `EMAIL`)
+    keys into two configured pipeline names; **there is no pipeline-name parameter**, because
+    the location holds seven pipelines and five are other teams'. The cache key became
+    `(funnel, range)` — load-bearing, since both payloads have the identical shape and an
+    unkeyed slot would serve the ads funnel under the email heading for a whole TTL with
+    nothing to contradict it. One React component serves both screens.
+  - **The volume broke the Unit 24 read, and fixing it is the substantive part of this unit.**
+    The email pipeline holds **~11,432 opportunities a year**. Counting them the Unit 24 way —
+    paging every row — was 115 sequential GHL requests, and the **Year view timed out at the
+    frontend's 15s axios limit** and rendered nothing. **Counts now come from GHL's own
+    `meta.total`**: a `limit=1` search with `pipelineStageId` applied returns an exact stage
+    count in one request, so the funnel costs one request per stage regardless of size and is
+    **exact — nothing capped, truncated or estimated**. (An interim `truncated` flag that
+    reported a capped 5,000-row read is gone; it was the honest version of the wrong approach.)
+  - **What still needs rows, and what happens when there are too many.** A *sum* and a
+    *group-by* — pipeline value, per-stage value, the sources table — cannot come from a count,
+    and GHL aggregates neither. Those are read inline only when the period holds
+    `<= INLINE_ROW_BUDGET` (1,000) deals.
+  - **2026-08-26 — the large window is now totalled, not refused.** It used to answer "too many
+    to total one by one" and stop there. Now the payload carries
+    `detail: READY | TOTALLING | UNAVAILABLE`: above the inline budget it returns `TOTALLING`
+    immediately with **exact counts**, a single daemon thread (`ghl-totaller`) reads the rows,
+    and the screen polls the same URL every 5s until the existing `(funnel, range)` cache entry
+    turns `READY`. **The cache is the handover** — no job id, no second endpoint, survives a
+    refresh. Why it had to leave the request thread is arithmetic, not taste: 11,443
+    opportunities is 115 **cursor** pages (each cursor comes from the previous page, so they
+    cannot be parallelised) and GHL allows **100 requests per 10s per location**, a ~13s floor
+    against the frontend's 15s axios timeout. `GhlPipelineClient` now paces requests 110ms apart
+    against that limit, shared across threads because the limit is per location.
+    `MAX_PAGES` went 50 → 1,500: at 50 it would have silently returned the first 5,000 of 11,443
+    rows. `DETAIL_ROW_CEILING` (100,000) still refuses outright as `UNAVAILABLE`, and a failed
+    background read lands there too so a poller stops rather than spinning forever. Recorded as a
+    read-side exception to invariant 6 in `architecture.md` — it writes no EvalOS row, so there is
+    no side effect to lose. **Never a partial total** in any state — a sum over whichever rows
+    arrived looks exactly like a real one.
+  - **Two matching rules, both case-insensitive, both funnels.** (1) **A stage named for an
+    outcome IS that outcome** — 144 deals sit in the stage named *Won* against **3** carrying
+    `status: "won"`, so GHL's status field is not used and `Outcome.ofStageNamed` matches the
+    stage name against GHL's status words ignoring case and space; the tile now reads "N won ·
+    N lost". `Cold` is not a status word and stays `OPEN`. (2) **Source rows group
+    case-insensitively** (`Locale.ROOT`), keeping the first spelling seen as the label — two
+    rows for one hand-typed source halves a figure for a reason nothing on screen explains.
+  - **Its newest opportunity is dated 2026-05-06**, so Today/Week/Month render the empty state
+    and **Year is the only window with data today**. Expect exact stage counts there (New Lead
+    ~11,364, Hot 20, the rest single digits) with the value and sources cards standing down.
+  - Still **GM-only and not brand-scoped**, for Unit 24's reason unchanged. **Unit 25a now
+    re-scopes both screens together**, not just the ads one.
+  - Carries Unit 24's one open item unchanged: **never exercised against live GHL from the
+    running app.** The pipeline's name, id, stages and volume were verified against the live
+    location directly; what is untested is the app making the call itself.
+
+- **Unit 25 — GHL OAuth connection — is SPECCED and DEFERRED by decision.** Only
+  International Evaluations is being set up for now; IE runs on Unit 24's Private Integration
+  Token and needs none of Unit 25. **The cost of deferring, stated so it is not rediscovered:
+  a second brand cannot be configured at all until this lands** — `GHL_LOCATION_ID` is one
+  global value, so XpertsPortal has nowhere to go. Adding it is this unit, not another variable.
+  The encryption sign-off below is therefore **not blocking anything** while this is parked.
+  *(Noted because it was misread once: that decision is about AES-GCM encryption at rest, not
+  currency conversion — `AttributeConverter` is a JPA type mapper.)*
+
+- **Unit 25 detail — see
+  `context/specs/25-ghl-oauth-connection.md`. Spec before code, deliberately: Unit 24 was
+  written the other way round and recorded that as debt, so this one gates its own
+  implementation.
+  - **It replaces Unit 24's Private Integration Token with a per-brand OAuth grant**, which
+    is what turns the GHL credential from global configuration into a brand-scoped row —
+    the move `architecture.md` already anticipated ("if the brands are ever split across two
+    GHL locations, `location-id` becomes a column on `brand`").
+  - **BLOCKED ON ONE DECISION: the second encrypted column.** A refresh token has to be
+    recoverable (we replay it to GHL), so unlike a portal token it cannot be hashed. That
+    makes it EvalOS's second encrypted field, and `code-standards.md` line 97 plus
+    `mem:backend/persistence` both state that `expert.payment_detail` is the **only** one.
+    The recommended option extracts the AES-GCM from `PaymentDetailConverter` into a shared
+    converter — which **edits a protected file**, so it is the owner's call. Three
+    alternatives are ranked in the spec. **Do not start building until this is answered.**
+  - **The correctness trap the spec exists to prevent:** GHL rotates the refresh token on
+    every refresh. Two instances — which exist during every rolling deploy — both noticing an
+    expired access token and both refreshing means the loser replays a retired token, gets a
+    4xx, and a naive implementation marks a perfectly good connection dead. Refresh must hold
+    `SELECT … FOR UPDATE` on the row and **re-read after acquiring the lock**.
+  - **No dual path: the PIT is deleted rather than kept as a fallback.** That is free only
+    because Unit 24 has never run live (`GHL_API_TOKEN` defaults to empty and the screen
+    502s), so there is no working configuration to migrate. **That window closes the moment
+    somebody sets the variable** — build this before the PIT is used in anger.
+  - Its live connection **also closes Unit 24's one outstanding acceptance item**, the live
+    GHL read, which moves to this unit.
+  - **Unit 25a, deliberately separate:** once credentials are per brand, Unit 24's scoping
+    argument expires — `brandId` becomes legal on the funnel, the Brand Manager can be
+    admitted, and invariant 1's stated exception comes out of `architecture.md`. Kept out of
+    25 because a credential's lifecycle and a screen's role list are different boundaries.
+  - Two things in the spec are **unverified and flagged as such**: the exact `expires_in` and
+    the refresh-token lifetime. The GHL MCP's operation registry does not expose the auth
+    endpoints, so they could not be checked while writing — confirm against GHL's docs before
+    implementing. The four token-exchange field names are high-confidence.
+
+- **Unit 24 — Marketing: the Google Ads funnel (GM) — is built; one acceptance item is
+  outstanding.** See `context/specs/24-marketing-google-ads-funnel.md`. The GM can now see
+  the top of the funnel from inside EvalOS: GHL's **Google ADS Pipeline** as a chevron strip
+  (deals, value and share per stage) with the sources behind it.
+  - **This resolves an open question this tracker has carried since Unit 17** — whether
+    EvalOS builds the sales/marketing dashboards, defaulted to *no, they stay in GHL*. The
+    answer is **one read-only GM screen here, everything else in GHL**. Moved out of Open
+    Questions below rather than left to contradict this entry.
+  - **The first *pull* across the GHL seam.** Until now that seam was events in (Handoff A)
+    and events out (Handoff C). `GhlPipelineClient` adds a third direction: two read calls
+    against GHL's public API on an `opportunities.readonly` token, with **no write method on
+    the client at all** — read-only by grant as well as by code.
+  - **Invariant 2 is intact, and the wording now says why.** EvalOS reads the funnel; it does
+    not run marketing. Nothing is created, moved, priced, sent, or written back. **Nothing is
+    persisted either** — no `ghl_opportunity` table, by decision: a stage a salesperson
+    dragged five seconds ago is already wrong in a copy.
+  - **The one screen in EvalOS that is not brand-scoped, and it is an exception with a stated
+    reason.** It reads one GHL location that the brands share, so no `brand_id` predicate
+    exists that could narrow it — hence GM-only, hence **no `brandId` parameter** (one would
+    narrow nothing while implying it had), hence the Brand Manager is excluded: they are
+    single-brand on every other screen and this is the one figure that could not honour that.
+    `navigation.test.ts` pins the GM-only list. Invariant 1 in `architecture.md` now carries
+    the exception in writing, and says it licenses nothing about queries over EvalOS rows.
+  - **The cache is the rate limiter, not a speed-up.** One payload, one TTL (`GHL_CACHE_TTL`,
+    5m), shared by every caller — without it, N open dashboards are N multi-page GHL reads per
+    refresh and GHL's rate limit becomes an EvalOS outage. Two consequences, both tested: a
+    **failed refresh is never served from the previous value** (it propagates; the screen shows
+    the error), and the payload carries `readAt` which the header prints, so the screen states
+    its own age instead of implying it is live.
+  - **`status` is deliberately not read**, and the live data is why: opportunities sitting in
+    the **Won** stage still report `status: "open"`. Two axes that disagree is two places for
+    one fact to be wrong, so the stage is the only axis.
+  - **No stage name is special-cased anywhere.** Order, labels and membership all come from
+    GHL. This pipeline ends Won / Cold / Lost today; hard-coding that would make a rename in
+    GHL a silent hole in the screen.
+  - **The one place the UI departs from the reference design it was drawn from:** it shows
+    *share of pipeline* under each chevron, not step-to-step conversion. Conversion only means
+    something when the next stage is downstream, and Won / Cold / Lost are parallel outcomes —
+    a percentage between Won and Cold is arithmetic over unrelated buckets. New funnel-strip
+    rules (the `color-mix` ramp, the contrast ceiling, never red→green) are in `ui-context.md`.
+  - **Process note, recorded rather than glossed: the spec was written *after* the code.** This
+    unit resolves a known-open question, which is exactly the kind of change the
+    spec-first rule exists to gate. The spec's own header says so.
+  - **A second pass added three test classes to cover what the first one took on trust**, and
+    one of them closed a gap that was structurally invisible. `GhlPipelineClient`'s
+    `base-url` / `api-version` / `timeout` have **no defaults**, so a typo in any of those
+    keys is a *boot failure* — and no `@WebMvcTest` slice instantiates the bean, while the
+    only full-context test is gated behind `-Devalos.db.test=true`. **The same hole
+    `mem:backend/core` already records for `GoogleDriveConfig`**, which is why repeating it
+    was not acceptable. `GhlPipelineClientTest` now binds the bean against the real
+    `application.yml` via `ApplicationContextRunner` + `ConfigDataApplicationContextInitializer`.
+  - `GhlPipelineClientHttpTest` runs the client against a **real JDK `HttpServer` serving
+    GHL's actual response shapes** — the closest reachable stand-in for the live criterion:
+    header names, the **camelCase** query params taken from GHL's own `nextPageUrl`, the
+    cursor followed to a second page and stopped by a short one, only three fields bound out
+    of GHL's full row, null money/source tolerated, and a 401 becoming a 502 with the token
+    absent from the message. Its fixtures keep GHL's field-for-field shape with **invented
+    contact values** — real ones were on hand and deliberately not committed, because a
+    fixture is source control and marketing PII does not belong there.
+  - `MarketingControllerTest` pins the route: GM 200, **every other role including the Brand
+    Manager 403**, unauthenticated 401, `GhlUnavailableException` → 502 `GHL_UNAVAILABLE`,
+    and a `brandId` on the query string narrowing nothing (asserted through the service call,
+    so adding such a parameter later fails the test).
+  - Verified: `./mvnw -Devalos.db.test=true test` → **430 tests, 0 failures, 0 skipped**.
+    **Zero skipped is the headline** — it means the gated `@SpringBootTest` context ran, so
+    the whole application boots with this bean in it, which was the largest unknown after the
+    first pass. `npm test` **113 passed**, `npm run build` clean.
+  - **Outstanding acceptance item, now the only one:** never exercised against live GHL from
+    the running app. Everything up to the credential is covered; the call itself is not.
+    Set **`GHL_API_TOKEN`** (private integration token, `opportunities.readonly`) and
+    **`GHL_LOCATION_ID=kBumF0uUOmMBB5bneYjx`** and open the screen — the expected first load
+    is **93 deals, New Lead 7 / Warm 26 / Won 14**, so the numbers confirm the path. Until
+    then the route answers 502 with a message naming both variables. Same shape of gap as
+    Unit 13's Drive credential.
+
 - **Unit 23 — Case notes, and routing intake to the PM — is complete and verified.**
   See `context/specs/23-case-notes-and-pm-routing.md`. Two changes that are one decision:
   the case's front door is the Project Manager, and the case carries its own conversation.
@@ -2459,10 +2639,11 @@ re-checked in the service like `RefundService`), **reads** include the ENM. If t
 ENM records payouts in practice that is a one-line widening of two guards — worth taking as a
 decision rather than assuming here.
 
-**Unit 17 — Dashboards.** Two open questions attach directly, both listed below: whether
-sales/marketing dashboards are GHL-native (default: yes, EvalOS does not build them), and
-**StatCommand**, which is still undefined — the standing instruction is not to build an
-integration for it until it is specified.
+**Unit 17 — Dashboards.** Two open questions attached directly. The first — whether
+sales/marketing dashboards are GHL-native — **is now answered by Unit 24**: one read-only GM
+funnel view in EvalOS, everything else in GHL. The second, **StatCommand**, is still
+undefined — the standing instruction is not to build an integration for it until it is
+specified.
 
 A third item is a **deviation from the build plan's wording, recorded rather than taken quietly**.
 The plan and `architecture.md` both say "precomputed read models refreshed on events". At the NFR's
@@ -2557,8 +2738,18 @@ whenever a third brand is seeded. Staff SSO stays deferred.
 
 - **Full brand list** — International Evaluations and XpertsPortal confirmed;
   confirm any others before seeding brands / webhook endpoints.
-- **Sales/Marketing dashboards** — GHL-native (assumed; EvalOS does not build
-  them) vs EvalOS-built. Default is GHL; confirm before Unit 17.
+- ~~**Sales/Marketing dashboards**~~ — **RESOLVED by Unit 24, and extended once by Unit 26.**
+  EvalOS builds **read-only GM screens** over funnels in the one configured GHL location —
+  the Google Ads pipeline (Unit 24) and the email marketing pipeline (Unit 26); every other
+  sales/marketing dashboard stays in GHL. Read the answer as written: a *reading*, not a
+  marketing function — no campaign, spend, audience or attribution feature, no write back
+  into a GHL pipeline, and no stored copy of GHL's data.
+  **What Unit 26 settled and what it did not.** Unit 24 said "a second marketing screen is a
+  new question"; that question was asked and answered *yes* for another **pipeline in the
+  same location, read on identical terms*. It is not licence for a marketing module: a
+  feature that creates, sends, prices or attributes anything is still a different question
+  with the same default (no). See `context/specs/24-marketing-google-ads-funnel.md` and
+  `context/specs/26-marketing-email-funnel.md`.
 - **StatCommand** — internal module or external BI, and the "six operating
   conditions" the dashboards feed. Undefined; do not build a StatCommand
   integration until specified.
@@ -2624,7 +2815,10 @@ whenever a third brand is seeded. Staff SSO stays deferred.
 ## Architecture Decisions
 
 - **Scope**: EvalOS is back-of-house only. GHL owns marketing, sales, invoicing,
-  and review/retention delivery.
+  and review/retention delivery. **Unit 24 refines *ownership* into *visibility* without
+  moving it**: EvalOS now *reads* GHL's Google Ads funnel onto a GM screen and owns none
+  of it — no write back, nothing persisted. "Back-of-house only" is a statement about what
+  EvalOS *runs*, not about what it may look at.
 - **Custody symmetry** (Production Process v2.0): **GHL owns every pipeline until the
   thing at the end of it is real; EvalOS takes custody at that moment.** A case at
   `opportunity.won`; an expert when the ENM adds them to the roster; retention never.

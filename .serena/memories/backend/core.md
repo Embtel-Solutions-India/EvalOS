@@ -25,12 +25,102 @@ layer (map to DTOs). `notification/NotificationListeners` is the only subscriber
 the outbound dispatcher (Unit 18) is the next.
 
 `integration` holds `GoogleDriveClient` + `DriveUnavailableException` (Unit 13), the first outbound
-client, and — since the signature provider was dropped — the only third-party client besides the GHL
-one still to come. The pattern it sets: **one narrow
+client, and `GhlPipelineClient` + `GhlUnavailableException` (Unit 24), the first **read** client.
+The pattern both follow: **one narrow
 capability, not an SDK wrapper**; a bounded request with an explicit timeout, because these are called
 from controller-triggered paths and invariant 6 forbids long-lived work there; and a failure that is a
 **502 changing nothing in EvalOS** rather than a partially-applied state. If a call stops fitting in
 one bounded request it moves to `job` (Unit 19), which is where that rule points.
+
+**The one read-side exception**: `MarketingPipelineService` totals a GHL window over ~1,000
+opportunities on its own single daemon thread (`ghl-totaller`), not in `job`. It writes no EvalOS
+row, so there is no side effect to lose — the rule's actual concern. Forced by arithmetic: a year is
+~11.4k opportunities in 115 *cursor* pages (unparallelisable), and GHL allows 100 requests per 10s
+per location, so ~13s minimum, past the browser's 15s timeout. `GhlPipelineClient` paces every
+request 110ms apart to stay under that limit — shared across all threads, since the limit is per
+location. The payload carries `Detail` = `READY | TOTALLING | UNAVAILABLE`; the screen polls the same
+URL and the existing `(funnel, range)` cache is the handover, so there is no job id and no second
+endpoint. A failed background read lands as `UNAVAILABLE` so a poller stops.
+
+**`GhlPipelineClient` (Unit 24) — the GHL read client. Plain `RestClient`, no new dependency**
+(`spring-boot-starter-web` already ships it; timeouts via `SimpleClientHttpRequestFactory`). It has
+**no write method, by design** — the token is `opportunities.readonly`, so read-only by grant *and*
+by code, and a mistake in either place is still not a write to a GHL pipeline. Four decisions in it
+worth knowing:
+
+- **Only three fields are bound off each opportunity** (`pipelineStageId`, `monetaryValue`,
+  `source`). GHL's search response also carries every contact's name, email, phone and tags; a stage
+  count needs none of it, and the narrow record is what keeps marketing PII out of an EvalOS
+  response — not a projection somebody has to remember.
+- **`status` is deliberately unbound, and the live data settled the argument.** 144 opportunities
+  in this account sit in the stage named *Won* while only **3** carry `status: "won"` — the rest
+  were dragged into the column without anyone pressing GHL's separate win button. So the stage is
+  what actually happened and the status field is not usable. `MarketingPipelineService.Outcome`
+  derives the outcome from the **stage name, matched ignoring case and surrounding space**
+  (`Won`/`won`/`WON`/`" Won "` are one thing), and every `StageFunnel` carries it. `Cold` proves
+  it is a match and not a vibe: not one of GHL's four status words, so it stays `OPEN`. The rule
+  is on the name, so both funnels get it with nothing special-cased.
+- **Cursor pagination** (`startAfter`/`startAfterId`, what GHL's own `nextPageUrl` uses), not page
+  numbers: a salesperson dragging a card mid-read is the normal case, and a cursor cannot skip or
+  double-count the row that moved. Loop capped at 50 pages — now a runaway guard only, because
+  **row paging is no longer how the funnel is counted**.
+- **`countIn(pipelineId, stageId, from, to)` is the counting path, and it is the reason the Year
+  view exists.** GHL returns the match count in `meta.total` on any search, so a `limit=1` request
+  with `pipelineStageId` applied gives an exact stage count in **one** request. Counting by
+  pagination cost one request per hundred rows — 115 of them on the email pipeline's year (11,432
+  opportunities), which blew the frontend's 15s axios timeout and rendered nothing at all.
+  The filter is **`pipeline_stage_id`, snake_case** — like `location_id`/`pipeline_id` beside it,
+  unlike the camelCase `date`/`endDate` on the same route. It shipped camelCase once and GHL
+  answered `422 "property pipelineStageId should not exist"`: the spelling had been checked
+  through a tool that **normalises parameter names before sending**, so the evidence was for a
+  request the app never makes. **Only a call built the way the app builds it is evidence for this
+  API.** Pinned in `GhlPipelineClientHttpTest`. Verified live across all six stages of the email
+  funnel: they sum to 11,432, exactly the unfiltered total. `meta.total` can be a row or two stale
+  against a paginated read; that is the accepted trade, and it is why the *loop bound* in
+  `opportunitiesIn` still does not use it.
+- **The pipeline is resolved by name, not id.** The id is opaque to whoever provisions an
+  environment; the name is what they can read in GHL. A rename there is a stated 502, not an empty
+  funnel that looks like a bad month.
+
+`MarketingPipelineService` aggregates it and **owns the cache, which is the rate limiter rather than
+a speed-up**: one payload, one TTL, shared by every caller — without it N open dashboards are N
+multi-page GHL reads per refresh. A **failed refresh is never served from the previous value**; it
+propagates so the screen shows the error, because a kept figure shown without its failure is the
+"looks live and is not" bug. The payload carries `readAt` so the screen states its own age. Two
+racing callers both call GHL and the last write wins — left unguarded on purpose, since the
+alternative holds a lock across a network call. Nothing is persisted: **no `ghl_opportunity`
+table, and there must not be one.**
+
+**Source rows are grouped case-insensitively**, keyed on `toLowerCase(Locale.ROOT)` — `ROOT`
+because a Turkish-locale JVM lower-cases `I` to `ı` and would split the rows this joins. The row
+keeps the **first spelling seen**: these are hand-typed campaign strings, so one source arrives
+cased several ways, and a canonical casing invented here would show a label that exists nowhere in
+GHL.
+
+**Counts and money come from different reads, and the split is load-bearing (Unit 26).** Every
+`deals` figure — the total and each stage's — is `countIn`, so it is **exact for a period of any
+size** and costs one request per stage. `totalValue`, each stage's `value` and the whole `sources`
+breakdown are a *sum* and a *group-by*, which GHL aggregates neither of, so they need every row:
+those are read only when `totalDeals <= DETAIL_ROW_BUDGET` (1,000 = 10 pages). Above it,
+`detailAvailable` is false, the money fields are **null (never zero)** and `sources` is empty, and
+the screen says which figures it could not compute. **Never a partial total** — a sum over
+whichever rows fitted looks exactly like a real number, which is the failure this replaced.
+
+**Two funnels, one service (Unit 26).** A `Funnel` enum (`ADS`, `EMAIL`) keys into two configured
+names, `evalos.ghl.ads-pipeline-name` and `evalos.ghl.email-pipeline-name`. **There is deliberately
+no pipeline-name parameter** — the location holds seven pipelines and five are other teams', so a
+name on the query string would let any GM read all of them and make the screen's contents a
+caller's argument rather than a deployment decision. The cache key is `(Funnel, DateRange)` and
+**both halves are load-bearing**: the two payloads are identical in shape, so an unkeyed slot
+serves one funnel under the other's heading for a whole TTL with nothing to contradict it.
+
+`MarketingController` (`GET /api/marketing/ads-pipeline` and `/email-pipeline`, both
+`hasRole('GM')`) is **its own controller rather than a sixth route on `MetricsController`** —
+everything there reads EvalOS tables scoped to the caller, while this leaves the building, is
+unattributable to a brand, and 502s instead of 500s. Neither route takes a **`brandId`**: the
+location is one global setting with no mapping to a brand, so a parameter would narrow nothing
+while implying it had. One route per funnel rather than `/pipeline/{name}`, for the same reason
+the enum exists.
 
 ## `job`, when it stops being empty (Unit 19)
 
@@ -72,7 +162,9 @@ never echoes Jackson's, which quotes the payload and lists every legal value),
 `IllegalTransitionException`), `MaxUploadSizeExceededException` (400), auth (401), forbidden (403),
 `IllegalTransitionException` (409), webhook rejection (its own status),
 `DriveUnavailableException` (**502** — an upstream fault, so the caller retries rather than reports a
-bug; Unit 13), `NoResourceFoundException` (**404** — this advice is a plain `@RestControllerAdvice`
+bug; Unit 13), `GhlUnavailableException` (**502**, same reasoning; Unit 24 — kept as its own handler
+with its own `GHL_UNAVAILABLE` code rather than folded in with Drive, so the code names *which*
+upstream failed), `NoResourceFoundException` (**404** — this advice is a plain `@RestControllerAdvice`
 and does not inherit `ResponseEntityExceptionHandler`, so Spring's own `ErrorResponseException`s fall
 to the catch-all: **every unmapped URL used to answer 500 and log at error level**. Same class of bug
 as the enum one above; found in Unit 05b while asserting `/mark-paid` was gone. Body carries no
@@ -97,7 +189,28 @@ frontend's typed mirror lives in `frontend/src/lib/api.ts`.
   and `timeout` (20s). **`local` is the only profile that runs without a key** — every route works
   and only the Drive write answers 502.
   A `@WebMvcTest` slice never loads `GoogleDriveConfig`, so **only the gated DB run proves these keys
-  bind**; a typo here is invisible to `verify` alone.
+  bind**; a typo here is invisible to `verify` alone. **Unit 24 closed that hole for its own config
+  rather than repeating it** — `GhlPipelineClientTest` binds the bean against the real
+  `application.yml` with `ApplicationContextRunner` + `ConfigDataApplicationContextInitializer`,
+  which is the pattern to copy for the next `@Value`-with-no-default bean. Note it needs
+  `ApplicationConversionService.getSharedInstance()` set on the bean factory: `10s` → `Duration` is
+  a lenient conversion that a real boot installs via `SpringApplication` and a bare context runner
+  does not, so without it the harness fails on something production does correctly.
+- **`evalos.ghl.*` (Unit 24).** `token` (`GHL_API_TOKEN`) and `location-id` (`GHL_LOCATION_ID`)
+  default to **empty**, and — unlike `evalos.drive.required` — **there is no `required` flag and a
+  missing token does not fail the boot.** Deliberate difference: `JWT_SECRET` and `EVALOS_FIELD_KEY`
+  must be fatal because signing with a guess or storing plaintext is unrecoverable, while this gates
+  **one read-only GM screen**, so the app serves everything else and answers 502 there.
+  `GhlPipelineClient` logs a warning at boot so it is not discovered as a surprise. Also
+  `base-url`, `api-version` (GHL versions by *header*, `2021-07-28` — a name, not a secret, so it
+  has a default and a bump is an environment change), `ads-pipeline-name` (`Google ADS Pipeline`),
+  `email-pipeline-name` (`Shivangi's Email Marketing`, Unit 26 — two names, **not** a list: a list
+  needs a slug per entry to route and label it, and that slug is what the `Funnel` enum already is),
+  `timeout` (10s, **per page**) and `cache-ttl` (`PT5M`). The token must be a GHL **Private
+  Integration Token scoped `opportunities.readonly` and nothing wider**.
+  **`location-id` is one location shared by every brand** — that is what makes the marketing view
+  cross-brand and GM-only. If the brands are ever split across two GHL locations this becomes a
+  column on `brand`; do **not** add a second global property.
 - `ddl-auto: validate`, `open-in-view: false` — do not relax either. Hibernate never touches schema.
 - Flyway `classpath:db/migration`: `V1` pgcrypto · `V2` brand · `V3` team_member · `V4`
   contact_snapshot · `V5` evalos_case · `V6` document_checklist_item · `V7` expert (+ the deferred

@@ -486,10 +486,12 @@ class LocalPostgresIntegrationTest {
 		assertThat(webhookEvents.findBySourceAndBrandIdAndExternalId(WebhookSource.GHL, BRAND_XP, externalId))
 				.get().extracting(WebhookEvent::getId).isEqualTo(otherBrand.getId());
 
-		// And the same id from a different source is a different event too.
-		assertThat(webhookEvents.save(new WebhookEvent(
-				WebhookSource.DROPBOX_SIGN, "signature_request.signed", externalId, BRAND_IE, true, "{}"))
-				.getId()).isNotNull();
+		// There was a third assertion here: the same id from a *different source* is a different
+		// event. It cannot be written any more — `WebhookSource` has one value since the
+		// e-signature provider was dropped, so there is no second source to contrast with. The
+		// `source` column stays in the unique key deliberately (see WebhookSource), it is simply
+		// unexercised on that axis until a second provider exists. Do not "restore" it by
+		// inventing an enum value nothing sends.
 	}
 
 	/**
@@ -500,11 +502,12 @@ class LocalPostgresIntegrationTest {
 	@Test
 	void twoBrandlessRowsStillDeduplicate() {
 		String externalId = "EVT-" + UUID.randomUUID();
+		// The source is incidental here — this test is about a NULL brand_id, so GHL serves.
 		webhookEvents.save(new WebhookEvent(
-				WebhookSource.DROPBOX_SIGN, "signature_request.viewed", externalId, null, true, "{}"));
+				WebhookSource.GHL, "opportunity.won", externalId, null, true, "{}"));
 
 		assertThatThrownBy(() -> webhookEvents.saveAndFlush(new WebhookEvent(
-				WebhookSource.DROPBOX_SIGN, "signature_request.viewed", externalId, null, true, "{}")))
+				WebhookSource.GHL, "opportunity.won", externalId, null, true, "{}")))
 				.hasStackTraceContaining("uq_webhook_event_source_brand_external");
 	}
 

@@ -31,3 +31,8 @@ desktop.ini
 
 # Local agent config (shared Serena memories are committed; see .serena/.gitignore)
 .claude/settings.local.json
+
+# Local secret overrides. Spring Boot reads ./config/ by default, so a file here
+# overrides the committed profiles without ever being tracked. This is where a real
+# GHL_API_TOKEN belongs on a laptop — never in application-local.yml, which is committed.
+backend/config/

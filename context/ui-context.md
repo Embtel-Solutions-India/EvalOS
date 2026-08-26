@@ -14,9 +14,17 @@
 EvalOS has three surfaces:
 
 - **Internal app** (staff): dashboards, Kanban production board, data tables,
-  case detail, expert database, payout ledger. Information-dense. Multi-brand:
+  case detail, expert database, payout ledger, and the GM's marketing funnel.
+  Information-dense. Multi-brand:
   the GM gets a brand switcher / all-brands view; the Brand Manager and below are
   locked to a single brand.
+
+  **The marketing funnel (Unit 24) is the one screen the brand switcher does not
+  reach**, and it says so in its own header rather than letting the control imply
+  otherwise: it reads a GHL location the brands share, so there is nothing for the
+  switcher to narrow. It is GM-only for that reason. Every other screen in this app is
+  brand-scoped, so a reader would reasonably assume this one is too — stating it on
+  screen is part of the design, not a caption.
 - **Client portal** (external): a single case's drafted letter for review —
   approve or request revisions. Passwordless via a GHL-delivered link. Minimal
   chrome, no navigation.
@@ -105,6 +113,21 @@ puts those in one colour; a view needing genuinely-past-due reads the column.
 
 Use tabular figures for every column of currency, dates, deadlines, counts, and
 case IDs so numbers align.
+
+### Numbers: money vs counts
+
+Every figure is rendered through `lib/money.ts` — `formatMoney` or `formatCount`.
+Both group thousands; only `formatMoney` carries the `$`.
+
+**The `$` is opt-in, per figure, and must stay that way.** A currency symbol is a
+claim about what a number *is*, so only the caller can make it. `KpiCard` takes a
+`money` boolean for this; without it a tile renders a bare grouped count.
+
+The regression that set the rule: `KpiCard` printed `$` in front of every value
+unconditionally, so all 28 tiles in the app carried one — "Deals in pipeline" read
+`$93` on a deal *count*, and a rate read `$94%`. Currency assumed USD (one US SLA
+calendar, no currency column); if a brand ever bills in another, that is a column,
+not a second formatter. Asserted in `lib/money.test.ts`.
 
 ## Border Radius
 
@@ -205,6 +228,41 @@ written triggers in `context/specs/22-role-operations-ui.md`.
   hit-testing for three shapes. Series colours come from the `--chart-1..5` ramp and
   **never** from the RAG tokens — a bar chart of four service types drawn red/amber/green
   reads as three products on fire.
+
+- **The stage strip (Units 24 and 26)**: deals per stage as **horizontal Recharts bars**
+  — stage names down the left, counts along the bottom, the count printed at the end of
+  its own bar.
+
+  **This replaced the `clip-path` chevron strip, and the reason is the honest-form rule.**
+  The chevrons (and the line that briefly followed them) implied a *progression* through
+  the stages, which these pipelines do not have: Won, Cold and Lost sit beside each other
+  as outcomes. Bars carry only length, which is the one thing the data supports. Names go
+  down the left because stage names are words — six along a bottom axis either truncate or
+  tilt.
+
+  Three rules the strip establishes, all of which generalise past these screens:
+
+  - **A progressive ramp is `color-mix`, not a new token.** The bars shade from
+    `--sidebar-bg` toward `--accent-primary` (40% → 90%) via
+    `color-mix(in srgb, var(--accent-primary) N%, var(--sidebar-bg))`. `--chart-1..5`
+    is a *categorical* ramp of five and this is an ordered ramp of however many stages
+    the upstream has, so mixing the two existing tokens beats adding `--chart-6` — which
+    that ramp's own note already refuses. No hex, and it scales to any stage count.
+  - **The ramp stops short of the accent on purpose.** White on `--accent-primary` is
+    4.54:1 — AA by a hair — and the 11px stage label is the text that would pay for it.
+    Keeping ~10% of the rail's navy in the mix puts every bar clear of the line. Any
+    new white-on-accent fill re-opens that number.
+  - **A funnel is never shaded red→green.** RAG is load-bearing here (see the top of
+    this file); a five-stage red-to-green funnel says five stages are in trouble.
+
+  **What it deliberately does not draw: step-to-step conversion.** A conversion figure
+  between two stages only means something when the second is downstream of the first,
+  and an upstream pipeline's stages are not always a progression — both marketing
+  pipelines put Won, Cold and Lost beside each other as outcomes, so a percentage
+  between Won and Cold is arithmetic over unrelated buckets. **Share of the total** is
+  true of every stage whatever order the upstream puts them in. This is the same rule as
+  the RAG table's "two clocks must never share a label": a number that looks like a rate
+  and is not one is worse than no number.
 - **Production board (Kanban)**: horizontal columns for the EvalOS-owned stages —
   Doc Collection · Expert Assignment · Draft / Report · Expert Signing · Final
   Delivery — with exception lanes (On Hold · Rematching · Refund Requested). The

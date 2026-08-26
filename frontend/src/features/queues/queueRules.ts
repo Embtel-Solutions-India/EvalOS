@@ -28,8 +28,12 @@ export function isInboxView(value: string | null): value is InboxView {
   return INBOX_VIEWS.some((entry) => entry.view === value)
 }
 
-/** Every card on the board, exception lanes included — a case on hold is still the PM's problem. */
-export function allCards(data: BoardData): BoardCard[] {
+/**
+ * Every card on the board, exception lanes included — a case on hold is still the PM's problem.
+ *
+ * Not exported: the three queues below are the API of this module, and this is how they all start.
+ */
+function allCards(data: BoardData): BoardCard[] {
   return [...Object.values(data.stages).flat(), ...Object.values(data.exceptions).flat()]
 }
 

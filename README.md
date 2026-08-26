@@ -35,6 +35,31 @@ profile (`SPRING_PROFILES_ACTIVE=prod`) has no defaults at all, including
 bytes, the AES-256 key for the encrypted `expert.payment_detail`) — it will
 refuse to start without either.
 
+**Where a real credential goes on a laptop: `backend/config/application-local.yml`.**
+Spring Boot reads `./config/` *after* the classpath, so that file overrides the
+committed `application-local.yml`, and `backend/config/` is in `.gitignore` so it
+cannot be committed. It survives restarts and needs no shell exports.
+
+```yaml
+# backend/config/application-local.yml  — untracked
+evalos:
+  ghl:
+    token: pit-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx   # full token, `pit-` prefix included
+```
+
+**Never paste a credential into `src/main/resources/*.yml`** — those are tracked, and
+the app runs with or without the value, so nothing would catch it before a commit.
+`ConfigSecretsTest` now fails the build if any `*TOKEN|SECRET|PASSWORD|KEY|CREDENTIAL`
+setting carries a default in a committed profile, with a three-entry allowlist for the
+documented laptop-only throwaways (`JWT_SECRET`, `EVALOS_FIELD_KEY`, `DB_PASSWORD`).
+
+The GHL token must be a Private Integration Token scoped `opportunities.readonly` and
+nothing wider — EvalOS never writes to GHL. It must include the `pit-` prefix: a bare
+UUID (36 chars) fails with an HTTP 401 that reads like a scope problem, while a whole
+PIT is 40. The startup log prints `token length=` so that is checkable without pasting
+the value anywhere. Without it, only the GM's marketing screen is affected — it answers
+502 naming what to set, and the rest of the app runs normally.
+
 **2. Backend** (port 8080; Flyway applies `db/migration` on startup):
 
 ```bash

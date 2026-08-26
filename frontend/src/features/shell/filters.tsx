@@ -14,7 +14,7 @@ import { FiltersContext, type DateRange } from './filtersContext'
 export default function FiltersProvider({ children }: { children: ReactNode }) {
   const me = useMe()
   const [activeBrandId, setActiveBrandId] = useState<string | null>(me.brandId)
-  const [dateRange, setDateRange] = useState<DateRange>('month')
+  const [dateRange, setDateRange] = useState<DateRange>('year')
 
   const value = useMemo(
     () => ({ activeBrandId, setActiveBrandId, dateRange, setDateRange }),
