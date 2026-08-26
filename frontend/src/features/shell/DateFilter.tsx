@@ -1,8 +1,9 @@
 import { useId, useState } from 'react'
+import { PopoverContent, PopoverRoot, PopoverTrigger } from '../../components/ui/menu'
 import {
   useFilters,
+  rangeLabel,
   sameRange,
-  type DateRange,
   type NamedRange,
 } from './filtersContext'
 
@@ -36,6 +37,12 @@ const MENU: readonly { value: NamedRange; label: string }[] = [
  * <p>Two native `<input type="date">` rather than a picker component, and a native `<select>`
  * rather than a menu: both are keyboard-accessible, localised and mobile-friendly for free, and
  * neither is worth a dependency here.
+ *
+ * <p><strong>The date inputs live in a popover, not in the bar.</strong> Inline they were ~250px
+ * of extra row, and the bar cannot wrap (`--header-height` is a contract every sticky offset is
+ * measured from) — so the overflow went sideways instead: measured, the search bottoms out at 54px
+ * and stops shrinking, after which `Sign out` was pushed ~25px past the edge on the 1366px laptop
+ * the staff actually run. A popover costs one chip of width and floats the rest above the page.
  */
 export default function DateFilter() {
   const { dateRange, setDateRange } = useFilters()
@@ -61,20 +68,21 @@ export default function DateFilter() {
     // an error message for a range they have not finished typing is noise.
   }
 
+  // `editing` counts, not just a committed custom period. Choosing "Custom range…" opens the
+  // picker without changing `dateRange` — so keyed on the range alone the select snapped straight
+  // back to "More…" while the picker sat open beside it, which reads as the click not registering.
   const menuValue = MENU.some((option) => option.value === dateRange.kind)
     ? dateRange.kind
-    : dateRange.kind === 'custom'
+    : editing || dateRange.kind === 'custom'
       ? 'custom'
       : ''
 
   return (
-    // **No `flex-wrap`, deliberately.** `--header-height` is a stated contract in
-    // `styles`: "The header stays 72px: enough for a 36px control row, and no more above the
-    // fold." Wrapping would put the custom-range inputs on a second line, grow the bar past
-    // 72px, and silently invalidate every sticky offset measured from it — the case detail
-    // header sticks at exactly `var(--header-height)`. Overflowing sideways is recoverable
-    // (the top bar's search is `min-w-0 flex-1` and gives up width first); growing taller is
-    // not, because nothing below is told about it.
+    // No `flex-wrap`: `--header-height` is a stated contract in `styles` ("The header stays 72px:
+    // enough for a 36px control row"), and every sticky offset in the app is measured from it —
+    // the case detail header pins at exactly `var(--header-height)`. A wrap would grow the bar and
+    // silently invalidate all of them, which is why the custom range is a popover rather than a
+    // second row.
     <div className="flex items-center gap-2">
       <div
         className="flex h-9 items-center gap-0.5 p-1"
@@ -137,42 +145,58 @@ export default function DateFilter() {
         </select>
       </div>
 
-      {editing && (
-        <div
-          className="flex h-9 items-center gap-2 px-2 text-sm"
-          style={{ background: 'var(--bg-surface)', borderRadius: 'var(--radius-md)', boxShadow: 'var(--shadow-card)' }}
-        >
-          <label htmlFor={fromId} style={{ color: 'var(--text-muted)' }}>
-            From
-          </label>
-          <input
-            id={fromId}
-            type="date"
-            value={draft.from}
-            // `max` and `min` let the browser refuse a backwards range before it is committed,
-            // which is the same rule the server enforces — stated in the control rather than only
-            // discovered as a 400.
-            max={draft.to || undefined}
-            onChange={(event) => commit({ ...draft, from: event.target.value })}
-            className="bg-transparent"
-            style={{ color: 'var(--text-body)' }}
-          />
-          <label htmlFor={toId} style={{ color: 'var(--text-muted)' }}>
-            to
-          </label>
-          <input
-            id={toId}
-            type="date"
-            value={draft.to}
-            min={draft.from || undefined}
-            onChange={(event) => commit({ ...draft, to: event.target.value })}
-            className="bg-transparent"
-            style={{ color: 'var(--text-body)' }}
-          />
-        </div>
+      {/* The chip is both the popover's trigger and the readout of what is set, so an active
+          custom period is legible without opening anything. It renders only while custom is in
+          play, so the bar is exactly as wide as before for the six named periods. */}
+      {(editing || dateRange.kind === 'custom') && (
+        <PopoverRoot open={editing} onOpenChange={setEditing}>
+          <PopoverTrigger asChild>
+            <button
+              type="button"
+              className="h-9 px-3 text-sm font-medium"
+              style={{
+                borderRadius: 'var(--radius-md)',
+                background: 'var(--bg-surface)',
+                boxShadow: 'var(--shadow-card)',
+                color: dateRange.kind === 'custom' ? 'var(--accent-primary)' : 'var(--text-muted)',
+              }}
+            >
+              {dateRange.kind === 'custom' ? rangeLabel(dateRange) : 'Pick dates'}
+            </button>
+          </PopoverTrigger>
+          <PopoverContent label="Custom date range">
+            <div className="flex flex-col gap-2 text-sm">
+              <label htmlFor={fromId} style={{ color: 'var(--text-muted)' }}>
+                From
+              </label>
+              <input
+                id={fromId}
+                type="date"
+                value={draft.from}
+                // `max`/`min` let the browser refuse a backwards range before it is committed —
+                // the same rule the server enforces, stated in the control rather than only
+                // discovered as a 400.
+                max={draft.to || undefined}
+                onChange={(event) => commit({ ...draft, from: event.target.value })}
+                className="rounded-md border px-2 py-1"
+                style={{ color: 'var(--text-body)', borderColor: 'var(--border-default)' }}
+              />
+              <label htmlFor={toId} style={{ color: 'var(--text-muted)' }}>
+                To
+              </label>
+              <input
+                id={toId}
+                type="date"
+                value={draft.to}
+                min={draft.from || undefined}
+                onChange={(event) => commit({ ...draft, to: event.target.value })}
+                className="rounded-md border px-2 py-1"
+                style={{ color: 'var(--text-body)', borderColor: 'var(--border-default)' }}
+              />
+            </div>
+          </PopoverContent>
+        </PopoverRoot>
       )}
     </div>
   )
 }
-
-export type { DateRange }

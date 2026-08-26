@@ -4,6 +4,36 @@ Update this file after every meaningful implementation change.
 
 ## Current Phase
 
+- **2026-08-27 — Review of PR #18, resolved.** Self-review of the three units found four things;
+  all four fixed before merge.
+  - **The top bar overflowed on the 1366px laptop with a custom range open.** The date inputs were
+    ~250px of inline row, and the bar cannot wrap — so the overflow went sideways. Measured: the
+    search bottoms out at **54px and stops shrinking**, after which `Sign out` was pushed 25px past
+    the edge at a 1100px bar (225px at 900, 365px at 760). **The claim in the original commit
+    message — that overflow was recoverable because search "gives up width first" — was only half
+    true and is corrected here.** The inputs now live in a Popover (`components/ui/menu.tsx`, no new
+    dependency) behind a chip that doubles as the readout of the active range. Re-measured: spill 0
+    at 1100 and 900, 87px at 760 — a width well below the documented target and with five controls
+    in the row.
+  - **Dead code from designs abandoned mid-implementation, deleted.** `asDeadlineWindow` (written
+    for a URL-param board filter, then dropped for local state to match its three sibling filters);
+    `DateWindow.of(DateRange, Clock)`, which had **no callers and a Javadoc describing one that does
+    not exist** — it claimed the background totaller "re-resolves the window it was handed", when
+    `startTotalling` carries the resolved window across the thread boundary; and a stray
+    `export type { DateRange }` from `DateFilter`. The test over `asDeadlineWindow` was retargeted
+    at a real invariant — that the forward and backward vocabularies stay disjoint where it matters
+    — rather than deleted with it. **A test over dead code makes the dead code look load-bearing.**
+  - **`DateWindow`'s half-open contract was not honoured by its consumer.** `endInstant()` is
+    exclusive and documented as "the only bound that cannot drop a row", but `PmMetricsService`'s
+    `tally` and `completionByService` filtered with `date.isAfter(to)` — inclusive. Harmless while
+    `to` was `Instant.now()` and never a round number; not harmless once `to` is exactly midnight,
+    which put the boundary instant in two adjacent windows and `from` in both the current period and
+    its previous-period comparison. Now `!date.isBefore(to)` in both.
+  - **The "More…" select snapped back while the picker was open** — choosing Custom set `editing`
+    but not `dateRange`, so the select re-rendered as "More…" beside an open picker, reading as a
+    click that did not register. `menuValue` now accounts for `editing`.
+  - 494 backend, 130 frontend, `npm run build` green; the popover re-measured in a browser.
+
 - **2026-08-27 — Fixed: the top bar was painting over the case detail header.** Reported from a
   screenshot — the case code and its SLA badge were clipped on `/cases/:id`.
   - **Root cause: two sticky elements pinned to the same `top: 0`.** `TopBar` is

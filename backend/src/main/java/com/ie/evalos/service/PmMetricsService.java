@@ -143,7 +143,13 @@ public class PmMetricsService {
 		int onTime = 0;
 		for (Case subject : scoped) {
 			Instant date = subject.getDeliveryDate();
-			if (date == null || date.isBefore(from) || date.isAfter(to)) {
+			// **Half-open `[from, to)`, matching what `DateWindow.endInstant()` hands us.** It used
+			// to be `isAfter(to)` — inclusive — which was harmless while `to` was `Instant.now()`
+			// and never a round number. It stopped being harmless when the window became whole
+			// calendar days: `to` is now exactly midnight, so an inclusive end puts the boundary
+			// instant in this window AND in the next, and puts `from` in both this period and the
+			// previous-period comparison below.
+			if (date == null || date.isBefore(from) || !date.isBefore(to)) {
 				continue;
 			}
 			delivered++;
@@ -184,7 +190,8 @@ public class PmMetricsService {
 		for (Case subject : scoped) {
 			Instant date = subject.getDeliveryDate();
 			if (date == null || subject.getServiceType() == null
-					|| date.isBefore(from) || date.isAfter(to) || subject.getCreatedAt() == null) {
+					// Half-open, for the reason `tally` above states at length.
+					|| date.isBefore(from) || !date.isBefore(to) || subject.getCreatedAt() == null) {
 				continue;
 			}
 			hours.computeIfAbsent(subject.getServiceType(), key -> new ArrayList<>())

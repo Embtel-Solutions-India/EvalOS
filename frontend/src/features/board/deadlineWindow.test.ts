@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { asDeadlineWindow, DEADLINE_WINDOWS, DEFAULT_DEADLINE_WINDOW } from './deadlineWindow'
+import { DEADLINE_WINDOWS, DEFAULT_DEADLINE_WINDOW } from './deadlineWindow'
 
 /**
  * The board's forward filter, split from the shell's backward one.
@@ -21,14 +21,15 @@ describe('the board deadline window', () => {
     expect(DEFAULT_DEADLINE_WINDOW).toBe('month')
   })
 
-  it('refuses anything that is not one of its own values', () => {
-    expect(asDeadlineWindow('month')).toBe('month')
-    // The shell's period names must NOT be accepted here even where they happen to spell the same
-    // word — `last-month` and `today` are the ones that would silently mean something else.
-    expect(asDeadlineWindow('last-month')).toBeNull()
-    expect(asDeadlineWindow('today')).toBeNull()
-    expect(asDeadlineWindow('custom')).toBeNull()
-    expect(asDeadlineWindow(null)).toBeNull()
-    expect(asDeadlineWindow('')).toBeNull()
+  it('shares no value with the shell filter that would mean something else', () => {
+    // The two vocabularies overlap on `week`/`month`/`year` and MUST NOT on anything directional.
+    // `today` and `last-month` are the dangerous pair: as a deadline horizon the first is
+    // near-empty and the second returns every open case. The type already prevents passing one
+    // for the other; this asserts the *sets* stay disjoint where it matters, which the type
+    // cannot say.
+    const forward: string[] = DEADLINE_WINDOWS.map((option) => option.value)
+    for (const backwardOnly of ['today', 'last-month', 'last-year', 'custom']) {
+      expect(forward, backwardOnly).not.toContain(backwardOnly)
+    }
   })
 })

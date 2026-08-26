@@ -92,9 +92,13 @@ layering problem to solve with z-index — whichever loses is simply hidden. `St
 detail header) shipped as `sticky top-0 z-10` and was painted over by the bar; fixed 2026-08-27.
 
 **`--header-height` (72px) is a contract, not a current value.** Sticky offsets are measured from
-it, so **nothing may make the top bar taller** — that is why `DateFilter` does not `flex-wrap`
-(its custom-range inputs would take a second row). Overflowing sideways is fine; the bar's search
-is `min-w-0 flex-1` and gives up width first.
+it, so **nothing may make the top bar taller** — that is why `DateFilter` does not `flex-wrap`.
+
+**And sideways is not a free escape either.** The bar's search is `min-w-0 flex-1`, but it bottoms
+out at **54px and stops shrinking**; past that the row spills and `Sign out` goes off the edge —
+25px at a 1100px bar, which is the 1366px laptop `styles` says the staff run. So a control that
+needs real width goes in a **popover** (`components/ui/menu.tsx`), not inline in the bar: that is
+what the custom date range does, behind a chip that doubles as its readout.
 
 **And check the padding you think you are cancelling.** `AppShell`'s main is
 `padding: 0 var(--shell-gutter) var(--shell-gutter)` — **no top padding**. A `-mt-*` on a

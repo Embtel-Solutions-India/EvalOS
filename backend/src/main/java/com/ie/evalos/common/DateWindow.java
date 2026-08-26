@@ -94,20 +94,6 @@ public record DateWindow(DateRange range, LocalDate from, LocalDate to, ZoneId z
 		return new DateWindow(DateRange.CUSTOM, from, to, zone);
 	}
 
-	/**
-	 * The window for a named range, for callers that have no request to parse.
-	 *
-	 * <p>Used by the background totaller, which re-resolves the window it was handed rather than
-	 * carrying dates across a thread boundary.
-	 */
-	public static DateWindow of(DateRange range, Clock clock) {
-		if (range == DateRange.CUSTOM) {
-			throw new IllegalArgumentException("custom needs explicit dates; use the four-argument of()");
-		}
-		LocalDate today = LocalDate.now(clock);
-		return new DateWindow(range, startOf(range, today), endOf(range, today), clock.getZone());
-	}
-
 	private static LocalDate startOf(DateRange range, LocalDate today) {
 		return switch (range) {
 			case TODAY -> today;

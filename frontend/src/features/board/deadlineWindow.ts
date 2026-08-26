@@ -29,8 +29,3 @@ export const DEADLINE_WINDOWS: readonly { value: DeadlineWindow; label: string }
   { value: 'month', label: '1 month' },
   { value: 'year', label: '1 year' },
 ]
-
-/** Narrows an untrusted string — a URL parameter — to a window, or nothing. */
-export function asDeadlineWindow(raw: string | null): DeadlineWindow | null {
-  return DEADLINE_WINDOWS.some((option) => option.value === raw) ? (raw as DeadlineWindow) : null
-}
