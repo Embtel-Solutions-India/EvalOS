@@ -74,8 +74,15 @@ worth knowing:
   answered `422 "property pipelineStageId should not exist"`: the spelling had been checked
   through a tool that **normalises parameter names before sending**, so the evidence was for a
   request the app never makes. **Only a call built the way the app builds it is evidence for this
-  API.** Pinned in `GhlPipelineClientHttpTest`. Verified live across all six stages of the email
-  funnel: they sum to 11,432, exactly the unfiltered total. `meta.total` can be a row or two stale
+  API.** Pinned in `GhlPipelineClientHttpTest`, and now **exercised against the real API by
+  `GhlPipelineClientLiveTest`** (opt-in: `GHL_LIVE_TEST=true`; token read from the gitignored
+  `backend/config/application-local.yml`, never from a command line). That live run is what
+  confirms the client's *mixed* casing is deliberate: `locationId` camelCase on
+  `/opportunities/pipelines`, `location_id` and `pipeline_stage_id` snake_case on
+  `/opportunities/search`. Verified live across all six stages of the email
+  funnel: 2026-08-26 they summed to **11,417** over a 365-day window (11,432 was the earlier
+  hand count over a wider one — the figure moves with the window and the live data, so treat any
+  recorded total as an observation and not an invariant). `meta.total` can be a row or two stale
   against a paginated read; that is the accepted trade, and it is why the *loop bound* in
   `opportunitiesIn` still does not use it.
 - **The pipeline is resolved by name, not id.** The id is opaque to whoever provisions an

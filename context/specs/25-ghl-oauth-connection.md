@@ -10,15 +10,18 @@
 > XpertsPortal has nowhere to go — it is not "add another variable", it is this unit.
 > Pick it up when XpertsPortal needs its funnel.
 >
-> **What deferring saves:** the encryption sign-off below is not needed yet. Nothing
-> is blocked on it while this unit is parked.
+> **What deferring saves:** nothing else, now — the encryption sign-off it used to also
+> defer has been given (see below), so this unit is *unscheduled*, not *blocked*. Picking
+> it up is a scheduling decision, not another approval.
 >
-> **One decision needs sign-off before a line is written**, and it is called out in
-> *The encryption decision* below: this unit needs a second encrypted column, and
-> `code-standards.md` currently states that `expert.payment_detail` is the only one.
-> That sentence is a standard, so changing it is the owner's call, not the
-> implementer's. **It is about AES-GCM encryption at rest, not about currency** — the
-> `AttributeConverter` name has been misread that way once. Everything else is settled.
+> **The encryption sign-off is DONE (2026-08-26) — this unit is no longer blocked, only
+> unscheduled.** Option 1 was approved: one shared `common/EncryptedStringConverter`, with
+> `PaymentDetailConverter` left as a thin subclass. `code-standards.md` and
+> `ai-workflow-rules.md` now carry the decision and the narrow protected-file exception
+> that goes with it. **The extraction is deliberately not written yet** — nothing needs a
+> generic converter until there is a second column to put in it. (It was about AES-GCM
+> encryption at rest, not currency — the `AttributeConverter` name was misread that way
+> once.) Nothing else about this unit is open.
 
 ## Goal
 
@@ -268,11 +271,21 @@ app-level hook fits neither half of that gate, so consuming it means a second
 inbound model for one bit of information a failed refresh already tells us. Revisit
 only if the delay between an uninstall and the next read becomes a real complaint.
 
-## The encryption decision — **needs sign-off**
+## The encryption decision — **SIGNED OFF 2026-08-26: option 1**
 
-`code-standards.md` line 97 and `mem:backend/persistence` both state that
-`expert.payment_detail` **is the only encrypted field**. This unit needs a second.
-Four options, ranked:
+`code-standards.md` and `mem:backend/persistence` both stated that
+`expert.payment_detail` **is the only encrypted field**. This unit needs a second, and
+**option 1 below is approved**: extract the AES-GCM into one
+`common/EncryptedStringConverter` and leave `PaymentDetailConverter` as a thin subclass.
+
+**The protected-file exception is narrow and named**: that one extraction, with the
+expert path's behaviour unchanged — same key, same AES-256-GCM, same fresh 12-byte IV per
+write, same authenticated failure on a tampered column, and `PaymentDetailConverter`
+keeps its type and its call sites. Anything else in that file still needs its own
+sign-off. **Write it when this unit is built, not before** — a shared abstraction with a
+single implementation is the thing this codebase deletes.
+
+The four options as they were ranked, kept because the rejections are the useful part:
 
 1. **Extract the crypto from `PaymentDetailConverter` into one
    `EncryptedStringConverter`, and leave `PaymentDetailConverter` as a thin subclass.**

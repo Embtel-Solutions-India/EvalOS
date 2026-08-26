@@ -186,11 +186,20 @@ would show a string that exists nowhere in GHL.
   451 passing, 0 failures (27 skipped are the `-Devalos.db.test` ones). Frontend
   `npm test` -> 113 passing, `tsc --noEmit` and `npm run build` clean.
 
-### The one item still open
+### The one item still open — **CLOSED 2026-08-26**
 
-The same one Unit 24 carries, unchanged: **never exercised against live GHL from
-the running app.** The pipeline's existence, exact name, id, stage list and
-volume were all verified against the live location, so what remains is the app
-making the call itself with `GHL_API_TOKEN` set.
+The same one Unit 24 carried, and closed with it: `GhlPipelineClientLiveTest` now makes
+the call from EvalOS's own code and passes. This pipeline resolved to id
+`LHoIRjpypwhswqO8Ayn0` with six stages, and the year window
+(`2025-08-27..2026-08-26`) counted **New Lead 11,349 · Hot 20 · Won 48 · total 11,417**
+— every figure from GHL's own `meta.total`, one request per stage, nothing paged.
+
+That is the load-bearing claim of this whole unit verified against production data: the
+counts do not come from rows, so the five-figure funnel renders without the 115
+sequential requests that blew the frontend's 15s timeout.
+
+**Still owed, and a different item:** the screen itself has not been opened in a browser
+against live GHL, so the poll-until-`READY` handover has not been watched end to end with
+real figures.
 
 Depends on: 24 (the client, service, card system and nav entry this extends).

@@ -81,6 +81,11 @@ Do not modify these unless explicitly instructed:
 - The audit-trail entity and its write path — append-only; never add update/delete.
 - The field-level encryption `AttributeConverter` in `common` and any code
   handling the expert `payment_detail`.
+  - **One named exception, signed off 2026-08-26** (see `code-standards.md`): extracting
+    the AES-GCM into a shared `common/EncryptedStringConverter` with
+    `PaymentDetailConverter` left as a thin subclass, behaviour on the expert path
+    unchanged. To be done when Unit 25 is built. Every other change to this file still
+    needs its own sign-off.
 - The inbound webhook secret-verification and **per-brand brand-resolution** step.
 - The brand-scoping filter in the repository/service layer.
 - Any Flyway migration that has already been applied — add a new migration.

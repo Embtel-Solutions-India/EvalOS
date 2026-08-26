@@ -245,11 +245,24 @@ was taking on trust.
 - `npm test` (113) and `npm run build` clean. The chevron geometry was checked in
   a browser against Tailwind's `border-box`.
 
-### The one item still open
+### The one item still open — **CLOSED 2026-08-26**
 
-**Never exercised against live GHL.** Everything up to the credential is now
-covered by `GhlPipelineClientHttpTest`, but no real call has been made from the
-running app. To close it, set both variables and open the screen:
+**The live GHL exercise is done.** `GhlPipelineClientLiveTest` makes real calls and
+passes: `Google ADS Pipeline` resolves to id `g6lo50r9Wn0qZvmp2bMP` with six stages,
+`countIn` reads GHL's own `meta.total`, and an unknown pipeline name raises
+`GhlUnavailableException` live. It confirmed what no stub could — GHL's two endpoints
+genuinely disagree on parameter casing (`locationId` camelCase on `/pipelines`,
+`location_id` and `pipeline_stage_id` snake_case on `/search`), so the mixed casing in
+the client is the live answer rather than a typo.
+
+The test is skipped unless `GHL_LIVE_TEST=true` and reads the token from
+`backend/config/application-local.yml`, so no credential reaches a command line and CI
+never touches the network.
+
+**Still owed, and it is a different item:** nobody has opened the *screen* in a browser
+against live GHL. The client is proven; the controller, cache and cards are covered by
+tests but not by a human looking at real figures. To do that, set both variables and open
+the screen:
 
 ```
 GHL_API_TOKEN=<private integration token, opportunities.readonly>

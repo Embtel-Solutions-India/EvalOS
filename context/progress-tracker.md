@@ -4,6 +4,54 @@ Update this file after every meaningful implementation change.
 
 ## Current Phase
 
+- **2026-08-26 — both standing flags on the marketing branch are resolved.** They were the two
+  things repeatedly called out as not-done: an open sign-off, and an unexercised integration.
+  - **The live GHL exercise is DONE, and it is a real run, not a plan.**
+    `GhlPipelineClientLiveTest` calls the production API from EvalOS's own client code and passes.
+    Observed: `Google ADS Pipeline` -> `g6lo50r9Wn0qZvmp2bMP`, `Shivangi's Email Marketing` ->
+    `LHoIRjpypwhswqO8Ayn0`, both six stages (New Lead, Warm, Hot, Won, Cold, Lost); email funnel
+    over `2025-08-27..2026-08-26` = **New Lead 11,349 · Hot 20 · Won 48 · total 11,417**, every
+    figure from GHL's own `meta.total`; ads pipeline **0 rows in the last 30 days**; an unknown
+    pipeline name raised `GhlUnavailableException` live.
+    - **What it settled that no stub could.** GHL's two endpoints genuinely disagree on casing —
+      `locationId` (camelCase) on `/opportunities/pipelines`, `location_id` and
+      `pipeline_stage_id` (snake_case) on `/opportunities/search`. The client's mixed casing is
+      the live answer, not a typo, and a wrong spelling returns a 422 that reads like a scope
+      problem. It also confirmed the `Version` header, the `MM-dd-yyyy` date format, and
+      `meta.total` on a `limit=1` search — the entire basis of `countIn`.
+    - **It independently confirmed the date-window fix**: the year window resolved to
+      `2025-08-27..2026-08-26`, exactly 365 days with both edges inclusive.
+    - **Opt-in and it must stay so**: skipped unless `GHL_LIVE_TEST=true`, so `mvnw test` and CI
+      never reach the network or need a credential. Gating on `GHL_API_TOKEN` alone would be
+      worse — anyone exporting a token to run the app would silently start hitting a live
+      third-party account from their test runs. The token is read from
+      `backend/config/application-local.yml`, the same gitignored file Spring Boot reads, so
+      **no credential passes through a shell command, process listing or CI variable**.
+    - Safe to point at production because **everything it does is a GET**: no write method on the
+      client, token scoped `opportunities.readonly`, invariant 2 unchanged.
+    - **Stale figure corrected:** the previously recorded "expected first load, 93 deals (New Lead
+      7 / Warm 26 / Won 14)" was a hand check, never a live observation. It does not match live
+      and must not be used as an expected result.
+  - **The Unit 25 encryption sign-off is GIVEN: option 1.** One shared
+    `common/EncryptedStringConverter`, `PaymentDetailConverter` left a thin subclass — one crypto
+    implementation, one key, expert path unchanged. Recorded in `code-standards.md` (whose "only
+    encrypted field" sentence is now a fact about today rather than a rule),
+    `ai-workflow-rules.md` (a **named, narrow** protected-file exception for that extraction and
+    nothing else), the Unit 25 spec, and `mem:core` / `mem:backend/persistence`.
+    - **Unit 25 is now *unscheduled*, not *blocked*** — picking it up is a scheduling call. It
+      still waits on XpertsPortal actually needing its funnel.
+    - **The extraction is deliberately not written yet.** Nothing needs a generic converter until
+      there is a second column to put in it, and a shared abstraction with one implementation is
+      what this codebase deletes. The decision is unblocked; the code is not owed.
+    - The rule that did **not** move: a credential that never has to be replayed is **hashed, not
+      encrypted** (portal tokens). Encryption is only for what must be recovered — which is
+      exactly why a refresh token cannot be hashed.
+  - **What remains genuinely open on the marketing units**, stated so the closures above are not
+    read as more than they are: the *screen* has not been opened in a browser against live GHL,
+    so the poll-until-`READY` handover has not been watched with real figures. The client is
+    proven; the UI path is not. Both screens are also still GM-only and not brand-scoped (Unit
+    25a).
+
 - **2026-08-26 — review fixes on the Unit 24/26 branch, before merge.** Code review of the
   marketing branch found three behavioural bugs and a set of doc/test defects. All fixed on the
   branch; backend 458 tests and frontend 118 pass.
@@ -122,16 +170,38 @@ Update this file after every meaningful implementation change.
     ~11,364, Hot 20, the rest single digits) with the value and sources cards standing down.
   - Still **GM-only and not brand-scoped**, for Unit 24's reason unchanged. **Unit 25a now
     re-scopes both screens together**, not just the ads one.
-  - Carries Unit 24's one open item unchanged: **never exercised against live GHL from the
-    running app.** The pipeline's name, id, stages and volume were verified against the live
-    location directly; what is untested is the app making the call itself.
+  - **CLOSED 2026-08-26 — Unit 24's last open item, the live GHL exercise.** `GhlPipelineClientLiveTest` (opt-in, `GHL_LIVE_TEST=true`) now makes real calls and passes.
+Observed 2026-08-26 against the IE location: **`Google ADS Pipeline` -> id `g6lo50r9Wn0qZvmp2bMP`**
+and **`Shivangi's Email Marketing` -> id `LHoIRjpypwhswqO8Ayn0`**, both with the same six stages
+(New Lead, Warm, Hot, Won, Cold, Lost). Email funnel counts over `2025-08-27..2026-08-26`:
+**New Lead 11,349 · Hot 20 · Won 48 · Warm/Cold/Lost 0 · total 11,417**, all from GHL's own
+`meta.total`. Ads pipeline returned **0 rows over the last 30 days**, which matches the known data
+(its newest opportunity predates the window). A name GHL does not have raised
+`GhlUnavailableException` live, as designed.
+    - **What this settled that no stub could:** GHL's two endpoints really do disagree on
+      casing — `/opportunities/pipelines` wants `locationId` (camelCase) while
+      `/opportunities/search` wants `location_id` and `pipeline_stage_id` (snake_case). The
+      mixed casing in the client is the live answer, not a typo. It also confirmed the
+      `Version` header, the `MM-dd-yyyy` date format, and `meta.total` being present on a
+      `limit=1` search — which is the entire basis of `countIn`.
+    - It also **confirmed the date-window fix live**: the year window resolved to
+      `2025-08-27..2026-08-26`, exactly 365 days inclusive.
+    - The test is **skipped unless `GHL_LIVE_TEST=true`**, so `mvnw test` and CI never touch
+      the network or need a credential. Gating on `GHL_API_TOKEN` alone would have been worse:
+      anyone exporting a token to run the app would silently start hitting a live third-party
+      account from their test runs. It reads the token from `backend/config/application-local.yml`
+      — the same gitignored file Spring Boot reads — so **no credential goes on a command line**.
+    - Still owed, and a different thing: **the screen has not been opened in a browser against
+      live GHL.** The client is proven; the controller, cache, poll-until-READY handover and the
+      cards are covered by 462 tests but not by a human looking at them with real figures.
 
 - **Unit 25 — GHL OAuth connection — is SPECCED and DEFERRED by decision.** Only
   International Evaluations is being set up for now; IE runs on Unit 24's Private Integration
   Token and needs none of Unit 25. **The cost of deferring, stated so it is not rediscovered:
   a second brand cannot be configured at all until this lands** — `GHL_LOCATION_ID` is one
   global value, so XpertsPortal has nowhere to go. Adding it is this unit, not another variable.
-  The encryption sign-off below is therefore **not blocking anything** while this is parked.
+  **The encryption sign-off is now GIVEN (2026-08-26), so this unit is *unscheduled*, not
+  *blocked*** — picking it up is a scheduling decision, not another approval.
   *(Noted because it was misread once: that decision is about AES-GCM encryption at rest, not
   currency conversion — `AttributeConverter` is a JPA type mapper.)*
 
@@ -143,13 +213,25 @@ Update this file after every meaningful implementation change.
     is what turns the GHL credential from global configuration into a brand-scoped row —
     the move `architecture.md` already anticipated ("if the brands are ever split across two
     GHL locations, `location-id` becomes a column on `brand`").
-  - **BLOCKED ON ONE DECISION: the second encrypted column.** A refresh token has to be
-    recoverable (we replay it to GHL), so unlike a portal token it cannot be hashed. That
-    makes it EvalOS's second encrypted field, and `code-standards.md` line 97 plus
-    `mem:backend/persistence` both state that `expert.payment_detail` is the **only** one.
-    The recommended option extracts the AES-GCM from `PaymentDetailConverter` into a shared
-    converter — which **edits a protected file**, so it is the owner's call. Three
-    alternatives are ranked in the spec. **Do not start building until this is answered.**
+  - **The second encrypted column: SIGNED OFF 2026-08-26, option 1.** A refresh token has to
+    be recoverable (we replay it to GHL), so unlike a portal token it cannot be hashed — which
+    makes it EvalOS's second encrypted field, against what `code-standards.md` and
+    `mem:backend/persistence` both used to state as a rule. **Approved:** extract the AES-GCM
+    from `PaymentDetailConverter` into one `common/EncryptedStringConverter`, leaving
+    `PaymentDetailConverter` a thin subclass — one crypto implementation, one key, expert path
+    unchanged. This carries a **named, narrow exception** to the protected-file rule (that
+    extraction only; every other change to that file still needs its own sign-off), now
+    recorded in `ai-workflow-rules.md`.
+    - **The extraction is deliberately NOT written yet.** Nothing needs a generic converter
+      until there is a second column to put in it, and a shared abstraction with one
+      implementation is what this codebase deletes. The decision is unblocked; the code is
+      not owed until Unit 25 is built.
+    - Rejected, and why: a second converter duplicating ~60 lines of AES-GCM means two crypto
+      implementations and the second is the one nobody re-reads; a separate OAuth key buys
+      blast-radius isolation at the cost of one more secret every environment must not forget;
+      not encrypting is refused outright for a live third-party credential.
+    - The rule that did **not** move: a credential that never has to be replayed is **hashed,
+      not encrypted** (portal tokens). Encryption is only for what must be recovered.
   - **The correctness trap the spec exists to prevent:** GHL rotates the refresh token on
     every refresh. Two instances — which exist during every rolling deploy — both noticing an
     expired access token and both refreshing means the loser replays a retired token, gets a
@@ -237,13 +319,19 @@ Update this file after every meaningful implementation change.
     **Zero skipped is the headline** — it means the gated `@SpringBootTest` context ran, so
     the whole application boots with this bean in it, which was the largest unknown after the
     first pass. `npm test` **113 passed**, `npm run build` clean.
-  - **Outstanding acceptance item, now the only one:** never exercised against live GHL from
-    the running app. Everything up to the credential is covered; the call itself is not.
-    Set **`GHL_API_TOKEN`** (private integration token, `opportunities.readonly`) and
-    **`GHL_LOCATION_ID=kBumF0uUOmMBB5bneYjx`** and open the screen — the expected first load
-    is **93 deals, New Lead 7 / Warm 26 / Won 14**, so the numbers confirm the path. Until
-    then the route answers 502 with a message naming both variables. Same shape of gap as
-    Unit 13's Drive credential.
+  - **This acceptance item is CLOSED (2026-08-26).** `GhlPipelineClientLiveTest` exercises the
+    real API and passes — see the Unit 26 entry above for the observed ids, stage lists and
+    counts. It settled the one thing the `HttpServer` fixture above could not: GHL's endpoints
+    really do disagree on parameter casing, so the client's mixed casing is the live answer and
+    not a typo.
+    - **The expected-first-load figures recorded here (93 deals, New Lead 7 / Warm 26 / Won 14)
+      are stale and were never a live observation** — they came from a hand check of the ads
+      pipeline at the time. Live, the ads pipeline returns **0 rows over the last 30 days**
+      (its newest opportunity predates that window), and the email funnel is where the volume
+      is. Do not treat the old numbers as an expected result.
+    - **Still owed, and a different item:** nobody has opened the *screen* in a browser against
+      live GHL. Same shape as Unit 13's Drive credential gap, but now one layer thinner — the
+      client is proven, the UI path is not.
 
 - **Unit 23 — Case notes, and routing intake to the PM — is complete and verified.**
   See `context/specs/23-case-notes-and-pm-routing.md`. Two changes that are one decision:

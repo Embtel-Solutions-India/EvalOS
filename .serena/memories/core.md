@@ -86,17 +86,26 @@ a pooled case because `ScopePredicate.Fields.unteamedVisible` is set on cases an
 `mem:backend/persistence`. `Timeline` is now *Notes & timeline* (`mem:frontend/core`). Spec:
 `context/specs/23-case-notes-and-pm-routing.md`.
 
-**Unit 25 is specced and NOT built, and it is blocked on one decision.** It replaces Unit 24's
-hand-pasted Private Integration Token with a **per-brand OAuth grant**, turning the GHL credential
-from global config into a brand-scoped row — the move `architecture.md` already anticipated. The
-blocker: a refresh token must be *recoverable* (we replay it to GHL) so it cannot be hashed like a
-portal token, which makes it **EvalOS's second encrypted column** against `code-standards.md`'s
-"only encrypted field". The recommended fix extracts the AES-GCM from `PaymentDetailConverter` into
-one shared converter — a **protected file**, so it is the owner's call. **Do not start Unit 25 until
-that is answered.** Two things to know before touching it: **GHL rotates the refresh token on every
+**Unit 25 is specced and NOT built. It is UNSCHEDULED, not blocked — the one decision it waited on
+was signed off 2026-08-26.** It replaces Unit 24's hand-pasted Private Integration Token with a
+**per-brand OAuth grant**, turning the GHL credential from global config into a brand-scoped row —
+the move `architecture.md` already anticipated. A refresh token must be *recoverable* (we replay it
+to GHL) so it cannot be hashed like a portal token, which makes it **EvalOS's second encrypted
+column** against `code-standards.md`'s former "only encrypted field".
+
+**The approved way to add it (option 1 of four): extract the AES-GCM from `PaymentDetailConverter`
+into one `common/EncryptedStringConverter`, leaving `PaymentDetailConverter` a thin subclass.** That
+is a **named, narrow exception** to the protected-file rule — that extraction only, expert-path
+behaviour unchanged (same key, AES-256-GCM, fresh 12-byte IV per write, authenticated failure on a
+tampered column). Every other change to that file still needs its own sign-off. **Do not write the
+extraction until Unit 25 is actually built**: a shared abstraction with one implementation is what
+this codebase deletes. The rule that did not move — a credential that never has to be replayed is
+**hashed, not encrypted** (portal tokens); encryption is only for what must be recovered. Two things to know before touching it: **GHL rotates the refresh token on every
 refresh**, so refresh must hold `SELECT … FOR UPDATE` on the row and re-read after acquiring the
 lock or two rolling-deploy instances will retire each other's grant; and **the PIT is deleted rather
-than kept as a fallback**, which is free only while Unit 24 has never run live. Spec:
+than kept as a fallback**, which was free while no deployment used the PIT — note the live
+*client* test now runs against it (read-only), but no environment serves the screen from it yet, so
+the window is still open. It closes the day a deployment sets `GHL_API_TOKEN` for real. Spec:
 `context/specs/25-ghl-oauth-connection.md`. Its follow-on **25a** re-scopes the funnel (brandId
 legal, Brand Manager admitted, invariant 1's exception removed) and is deliberately a separate unit.
 
@@ -116,9 +125,18 @@ Spec: `context/specs/24-marketing-google-ads-funnel.md` — whose header records
 written after the code**, which is the wrong order for a change that resolves an open question.
 **24 tests over four classes**, including the client driven against a real JDK `HttpServer` serving
 GHL's captured response shapes (`GhlPipelineClientHttpTest`) — so header names, the camelCase query
-params and the pagination cursor are proven, not assumed. Its **live run from inside the app is
-still owed**, for want of `GHL_API_TOKEN` and `GHL_LOCATION_ID`; expected first load is 93 deals
-(New Lead 7 / Warm 26 / Won 14), so the numbers themselves confirm the path when it happens.
+params and the pagination cursor are proven, not assumed.
+
+**The live run from inside the app is DONE (2026-08-26).** `GhlPipelineClientLiveTest` — opt-in on
+`GHL_LIVE_TEST=true`, reading the token from the gitignored `backend/config/application-local.yml`
+so no credential reaches a command line — calls the real API and passes. Observed: `Google ADS
+Pipeline` id `g6lo50r9Wn0qZvmp2bMP`, `Shivangi's Email Marketing` id `LHoIRjpypwhswqO8Ayn0`, both
+six stages; the email funnel counted **11,417** over `2025-08-27..2026-08-26` from `meta.total`
+alone; the ads pipeline returned **0 rows in the last 30 days**. **The old "expected first load of
+93 deals (New Lead 7 / Warm 26 / Won 14)" was a hand check, never a live observation, and is
+stale — do not use it as an expected result.** What is still owed is narrower: nobody has opened
+the *screen* in a browser against live GHL, so the poll-until-`READY` handover has not been watched
+with real figures.
 
 Unit 05b re-pointed Handoff A to `opportunity.won` and **deleted the manual payment path** — details
 in `mem:backend/webhooks` and `mem:backend/lifecycle`. Its live hand-fired run is still owed, blocked
