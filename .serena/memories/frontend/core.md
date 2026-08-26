@@ -2,7 +2,7 @@
 
 Vite SPA under `frontend/src`. Structure is `lib/`, `components/`, `features/`, `pages/`, `styles/`;
 `features/` is where the real screens live — `auth`, `shell`, `board`, `case`, `checklist`,
-`dashboards`, `experts`, `queues`, `client-portal`.
+`dashboards`, `experts`, `queues`, `client-portal`, `marketing`.
 
 `components/ui/` **exists as of Unit 22 slice 1 and is protected — do not hand-edit.** It holds
 vendored shadcn-*style* wrappers over the unified `radix-ui` package (`dialog.tsx` = Dialog +
@@ -12,6 +12,13 @@ screens, and may not redesign a shared component — without that rule a role-by
 one shell per role. A shared component genuinely needing to change is a stop-and-ask.
 
 **The card state union is the contract** — `loading · ok · warning · error · empty · unavailable`.
+
+**Numbers go through `lib/money.ts`**: `formatMoney` (`$86,950`) or `formatCount` (`11,400`).
+Both group thousands, only the first carries a `$`, and the `$` is **opt-in per figure** —
+`KpiCard` takes a `money` boolean. Set by an owner-approved edit to protected `card.tsx`, which
+had been printing `$` in front of *every* KPI value: all 28 tiles carried one, so "Deals in
+pipeline" read `$93` on a count. Only the four Revenue tiles and "Pipeline value" are money.
+`CaseCard`'s private USD formatter was folded into the same file. Asserted in `lib/money.test.ts`.
 `unavailable` names the blocking unit rather than rendering a zero for data that does not exist
 yet; `empty` carries operational copy ("All incoming cases are assigned"), and **`empty` and zero
 are different states** — a figure summing to zero renders `0`. A card is clickable **only** if
@@ -99,6 +106,108 @@ it.
 **One path per screen.** `/cases` beside `/board`, `/delivery` with no screen behind it, and
 `/experts` beside `/expert-database` were all deleted for the same reason, and the test asserts their
 absence so they are not re-added.
+
+**`/marketing/google-ads` and `/marketing/email` are GM-only, and that is a scoping fact rather
+than a taste call** (Units 24, 26). `NavGroup` gained **`Marketing`**, sitting above `Pipeline`
+because these are the funnels *before* EvalOS takes custody and Pipeline is everything after. The
+role list is `['GM']` because both endpoints read the one configured GHL location, which has no
+mapping to a brand: no `brand_id` can narrow the figure, so only the cross-brand role may see it,
+and neither endpoint accepts a `brandId` at all. **The Brand Manager is the tempting addition and
+is the leak** — single-brand on every other screen, and these are the figures that cannot honour
+it. `navigation.test.ts` loops the assertion over **both** paths with the reasoning inline, so a
+third marketing screen added without the same door fails a test rather than shipping.
+
+## lib/money.ts — the one place a figure becomes text
+
+`formatMoney` (`$86,950`) and `formatCount` (`11,400`). **Two functions, and `formatMoney` is
+opt-in at every call site**: a currency symbol is a claim about what a number *is*, so defaulting it
+on would put `$93` on a deal count. That is a failure this *prevents*, not one the repo shipped —
+the card previously rendered a bare value with no currency symbol at all. (`card.tsx` and
+`money.ts` both used to credit the design to an unconditional `$` "this tile used to print",
+which is not in the history.)
+
+Cents are **rounded** away, not truncated (`maximumFractionDigits: 0` rounds half-up) — truncating
+would understate a summed column systematically, always in the same direction.
+
+**All three formatters are folded in as of 2026-08-26.** `CaseCard`'s copy went first; `ExpertProfile`
+was still rendering Standard fee as `1,250.00` (no symbol, two decimals, default locale) against the
+board's `$1,250`. It now delegates, keeping only the `null` → `—` distinction the shared formatter
+cannot know. USD is assumed — if a brand ever bills in anything else that needs a column, not a
+second guess here.
+
+## features/marketing — the screens that read GHL (Units 24, 26)
+
+`marketingApi.ts` + `MarketingPipelinePage.tsx`. **One component serves both funnels**, taking
+`funnel: 'ads' | 'email'` (which endpoint) and `title` (a placeholder heading only — GHL's own
+pipeline name arrives in the payload and replaces it). `funnel` sits in the `useMetrics` deps
+beside `dateRange`, or a route change would leave the other funnel's numbers under this one's
+heading. The file was `AdsPipelinePage.tsx` until Unit 26.
+
+**The shell's `dateRange` default is `month`, and it must stay `month`.** It was briefly flipped to
+`year` to suit this screen (the email funnel's newest deal is months old, so `year` is the only
+window with data in it) — but `dateRange` is **shared by two filters pointing in opposite
+directions**: the dashboards read it backwards ("what happened since") while `BoardView` reads it
+**forwards** through `dueBeforeFor`. `year` therefore moved the board's default deadline window
+from one month out to twelve, leaving the production board effectively unfiltered for every role on
+first load. **Do not add a per-screen default either** — that is a second source of truth for a
+control the user can already see, and this screen's empty state names the window it searched and
+says to widen it. One click beats unfiltering the board for everyone.
+
+**Guard `data?.sources?.` as well as `data?.stages`.** JSX children and the `state` prop are both
+evaluated before `Card` decides whether to render them, so `data?.sources.length` on a payload
+missing the field throws during render and takes the whole page white — the same failure `chartState`
+was written for.
+
+Four panels, all through the existing `Card`/`KpiCard` shells so they inherit
+`loading`/`error`/`empty` rather than inventing states. **The header prints "one GHL location" and
+the `readAt` clock time** — two things a reader would otherwise assume wrongly, since every other
+screen here is brand-scoped and live. It said **"all brands"** until the first real credential
+arrived; that was wrong — each brand has its own sub-account, so this is *some* brand's funnel and
+EvalOS cannot say whose.
+
+**Two of the four cards can go quiet while the other two stay exact, and that is by design.**
+Deal counts come from GHL's own match count and are exact for any period; money and sources are a
+sum and a group-by over every row, which on this pipeline's year is ~11.4k of them. The payload's
+`detail` says which of three you have:
+
+- `READY` — everything present.
+- `TOTALLING` — the server is reading the rows on a background thread. The Pipeline value tile and
+  the Sources table render `empty` with "Totalling N deals…", and **the page polls `reload()` every
+  5s until `detail` changes**. It stops on any non-TOTALLING value, `UNAVAILABLE` included — polling
+  a failure forever is how a spinner becomes permanent.
+- `UNAVAILABLE` — not coming; the copy tells the reader to narrow the period.
+
+**Never a partial total** in any state, which reads exactly like a real one. `value` and
+`totalValue` are `null` unless `READY`, so treat them as nullable everywhere: null is "not counted",
+not "worth nothing".
+
+**`useMetrics` clears `data` only when its `deps` change, never on `reload()`.** A refetch of the
+*same* window is not a stale-data risk, and the clear-on-every-fetch it replaced made this screen's
+poll blank all four cards every 5 seconds. An error while data is already on screen is likewise not
+rendered as an error card — the figures are still the last true answer and `readAt` dates them.
+
+**The stage strip is Recharts horizontal bars** (`layout="vertical"` — Recharts' name for it, and
+the axis components swap roles: `XAxis` is the numeric one, `YAxis` takes the `dataKey`). It was
+`clip-path` chevrons, then briefly a line; both implied a *progression* the data has not, since
+Won/Cold/Lost are parallel outcomes. Bars carry only length, which is all these figures support.
+Three rules it set, now written into `ui-context.md`:
+an ordered ramp is **`color-mix` between `--accent-primary` and `--sidebar-bg` (40→90%)**, not a
+sixth `--chart-*` token; the ramp stops at 90% because white on `--accent-primary` is 4.54:1 and
+the 11px label would pay for it; and **a funnel is never shaded red→green**, because RAG is
+load-bearing here.
+
+**"N won · N lost" under the deal count comes from the STAGE NAME, not GHL's `status` field.**
+The server sends an `outcome` per stage (`WON`/`LOST`/`ABANDONED`/`OPEN`), matched on the name
+ignoring case; the page just sums it, so the rule for which names mean what stays in one place.
+Do not reintroduce a status axis beside it — 144 deals sit in the *Won* stage against 3 with
+`status: "won"`, and two figures for one fact is two places to disagree.
+
+**It shows share of pipeline, not step-to-step conversion**, for the same reason the chevrons
+went: Won / Cold / Lost are parallel outcomes, not a progression, so a percentage between two of
+them is arithmetic over unrelated buckets. Share is
+`null` (em dash), never `0`, on an empty pipeline — the standing rate rule. **Money prints as
+grouped whole units with no `$`**: GHL's `monetaryValue` carries no currency, and `RevenueDashboard`
+already prints money the same way.
 
 ## Notes & timeline is one panel (Unit 23)
 

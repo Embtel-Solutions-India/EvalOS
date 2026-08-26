@@ -5,6 +5,20 @@ Evaluations, XpertsPortal). Takes custody at **`opportunity.won`** in GoHighLeve
 case to signed delivery + expert payout. GHL stays front-of-house (leads, sales, invoicing, review
 campaigns); **EvalOS never does marketing, sales, or invoicing.**
 
+**"Never does" means never *runs* — Units 24 and 26 draw the line and are the only things on the
+other side of it.** EvalOS *reads* two GHL funnels onto GM screens — the **Google ADS Pipeline**
+(Unit 24) and **Shivangi's Email Marketing** (Unit 26), both in the one configured location — and
+owns neither: no lead created, no stage moved, no campaign sent, no write back, and **nothing
+persisted** — there is no `ghl_opportunity` table and there must not be, because a stage a
+salesperson dragged five seconds ago is already wrong in a copy. This resolves a question open
+since Unit 17 (whether EvalOS builds the sales/marketing dashboards) as **read-only GM views over
+pipelines in that location, everything else in GHL**.
+
+Unit 24 said a second marketing screen would be a new question; Unit 26 asked it and the answer is
+**yes for another *reading* of a pipeline in the same location, on identical terms**. Read that
+narrowly too: a marketing *module* — anything that creates, sends, prices or attributes — is still
+a different question, and its default is still no.
+
 The custody trigger has moved twice. **Case Creation v2.0 (spec `05b`) is current: the webhook *does*
 prove payment.** GHL invoices and collects before an opportunity is marked Won, so that one event is
 both the reason the case exists and the record that it was paid — the case is created **paid**, and no
@@ -71,6 +85,58 @@ a pooled case because `ScopePredicate.Fields.unteamedVisible` is set on cases an
 `@PreAuthorize` because the scoped load is the gate; see `mem:backend/lifecycle` and
 `mem:backend/persistence`. `Timeline` is now *Notes & timeline* (`mem:frontend/core`). Spec:
 `context/specs/23-case-notes-and-pm-routing.md`.
+
+**Unit 25 is specced and NOT built. It is UNSCHEDULED, not blocked — the one decision it waited on
+was signed off 2026-08-26.** It replaces Unit 24's hand-pasted Private Integration Token with a
+**per-brand OAuth grant**, turning the GHL credential from global config into a brand-scoped row —
+the move `architecture.md` already anticipated. A refresh token must be *recoverable* (we replay it
+to GHL) so it cannot be hashed like a portal token, which makes it **EvalOS's second encrypted
+column** against `code-standards.md`'s former "only encrypted field".
+
+**The approved way to add it (option 1 of four): extract the AES-GCM from `PaymentDetailConverter`
+into one `common/EncryptedStringConverter`, leaving `PaymentDetailConverter` a thin subclass.** That
+is a **named, narrow exception** to the protected-file rule — that extraction only, expert-path
+behaviour unchanged (same key, AES-256-GCM, fresh 12-byte IV per write, authenticated failure on a
+tampered column). Every other change to that file still needs its own sign-off. **Do not write the
+extraction until Unit 25 is actually built**: a shared abstraction with one implementation is what
+this codebase deletes. The rule that did not move — a credential that never has to be replayed is
+**hashed, not encrypted** (portal tokens); encryption is only for what must be recovered. Two things to know before touching it: **GHL rotates the refresh token on every
+refresh**, so refresh must hold `SELECT … FOR UPDATE` on the row and re-read after acquiring the
+lock or two rolling-deploy instances will retire each other's grant; and **the PIT is deleted rather
+than kept as a fallback**, which was free while no deployment used the PIT — note the live
+*client* test now runs against it (read-only), but no environment serves the screen from it yet, so
+the window is still open. It closes the day a deployment sets `GHL_API_TOKEN` for real. Spec:
+`context/specs/25-ghl-oauth-connection.md`. Its follow-on **25a** re-scopes the funnel (brandId
+legal, Brand Manager admitted, invariant 1's exception removed) and is deliberately a separate unit.
+
+**Unit 24 added the first *pull* across the GHL seam.** Until it, that seam was events in
+(Handoff A) and events out (Handoff C); `GhlPipelineClient` is a third direction and the only one
+that is not a handoff — two read calls on an `opportunities.readonly` token, **no write method on
+the client at all**. Three things to know before touching it: the **cache is the rate limiter, not
+a speed-up** (without it N open dashboards are N multi-page GHL reads per refresh, and a failed
+refresh is deliberately **never** served from the previous value, so the screen shows the error
+rather than a stale figure presented as live); **`status` is deliberately not read**, because
+opportunities sitting in the *Won* stage still report `status: "open"` and two disagreeing axes is
+two places for one fact to be wrong; and **no stage name is special-cased anywhere** — order,
+labels and membership all come from GHL, so a rename there is not a silent hole. Config is
+`evalos.ghl.*`, and `GHL_API_TOKEN` / `GHL_LOCATION_ID` default to empty on purpose: a missing
+token gates one read-only screen (502) rather than failing the boot the way `JWT_SECRET` must.
+Spec: `context/specs/24-marketing-google-ads-funnel.md` — whose header records that **it was
+written after the code**, which is the wrong order for a change that resolves an open question.
+**24 tests over four classes**, including the client driven against a real JDK `HttpServer` serving
+GHL's captured response shapes (`GhlPipelineClientHttpTest`) — so header names, the camelCase query
+params and the pagination cursor are proven, not assumed.
+
+**The live run from inside the app is DONE (2026-08-26).** `GhlPipelineClientLiveTest` — opt-in on
+`GHL_LIVE_TEST=true`, reading the token from the gitignored `backend/config/application-local.yml`
+so no credential reaches a command line — calls the real API and passes. Observed: `Google ADS
+Pipeline` id `g6lo50r9Wn0qZvmp2bMP`, `Shivangi's Email Marketing` id `LHoIRjpypwhswqO8Ayn0`, both
+six stages; the email funnel counted **11,417** over `2025-08-27..2026-08-26` from `meta.total`
+alone; the ads pipeline returned **0 rows in the last 30 days**. **The old "expected first load of
+93 deals (New Lead 7 / Warm 26 / Won 14)" was a hand check, never a live observation, and is
+stale — do not use it as an expected result.** What is still owed is narrower: nobody has opened
+the *screen* in a browser against live GHL, so the poll-until-`READY` handover has not been watched
+with real figures.
 
 Unit 05b re-pointed Handoff A to `opportunity.won` and **deleted the manual payment path** — details
 in `mem:backend/webhooks` and `mem:backend/lifecycle`. Its live hand-fired run is still owed, blocked
@@ -159,8 +225,16 @@ Monorepo, but no root build: each half is built and run from **inside its own di
 
 - **Brand-scoped by default.** Every scoped query filters by `brand_id` (plus team/assignee where
   applicable). A query without brand scoping is a defect, enforced at the repository/service layer —
-  never only in the UI. GM is the only cross-brand role. **One exception, added in Unit 11 and not
-  a scope:** `POST /api/experts` and the two import endpoints take an optional `brandId` naming
+  never only in the UI. GM is the only cross-brand role. **Read the rule as: every query over
+  EvalOS rows.** Unit 24's marketing funnel is the one screen that is not scoped and it queries no
+  EvalOS rows at all — it reads a GHL location the brands share, so no `brand_id` predicate exists
+  that could narrow it. That is why it is **GM-only and accepts no `brandId`**: a parameter there
+  would narrow nothing while implying it had. The **Brand Manager is deliberately excluded** —
+  single-brand everywhere else, and this is the one figure that could not honour it;
+  `navigation.test.ts` pins the GM-only list so adding them fails a test. If the brands are ever
+  split across two GHL locations, `location-id` becomes a column on `brand` and the exception
+  closes. It licenses nothing about unscoped queries over EvalOS rows. **A second exception, added
+  in Unit 11 and not a scope:** `POST /api/experts` and the two import endpoints take an optional `brandId` naming
   *where a new row goes*, because a GM has no brand of their own and this is the first unit where
   staff create a scoped row. `OwnershipGuard.assertCanAct` decides whether the caller may act there,
   so a brand-locked role naming another brand gets a 403. Reads never take brand from a request; a

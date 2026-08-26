@@ -94,8 +94,33 @@
   updates a synced contact field.
 - The expert `payment_detail` is persisted only through the field-level
   encryption `AttributeConverter` in `common`. It is excluded from every DTO,
-  log line, and webhook payload. It is the only encrypted field (payouts are
-  manual; no bank/card processing).
+  log line, and webhook payload. It is **currently** the only encrypted field
+  (payouts are manual; no bank/card processing).
+  - **SIGNED OFF 2026-08-26: a second encrypted column is permitted, and there is
+    exactly one way to add it.** Extract the AES-GCM out of `PaymentDetailConverter`
+    into a single `common/EncryptedStringConverter`, and leave `PaymentDetailConverter`
+    as a thin subclass of it. This was option 1 of four in
+    `context/specs/25-ghl-oauth-connection.md`; the others are rejected below.
+  - **This grants a narrow, named exception to the protected-file rule** in
+    `ai-workflow-rules.md` — *that one extraction only*, and only with the expert
+    path's behaviour unchanged (same key, same AES-256-GCM, same fresh 12-byte IV per
+    write, same authenticated failure on a tampered column, and `PaymentDetailConverter`
+    keeps its type and its call sites). Anything else touching that file still needs its
+    own sign-off.
+  - **Why not the alternatives.** A second converter duplicating ~60 lines of AES-GCM
+    (option 2) means two crypto implementations, and the second is the one nobody
+    re-reads. A separate key for OAuth tokens (option 3) buys blast-radius isolation at
+    the cost of one more secret every environment must not forget — more operational
+    surface than the threat warrants for an internal tool. Not encrypting at all
+    (option 4) is refused outright: a refresh token is a live credential to a
+    third-party system holding customer data.
+  - **Do the extraction when Unit 25 is built, not before.** Nothing needs a generic
+    converter until there is a second column to put in it, and a shared abstraction
+    with one implementation is the thing this codebase deletes. The decision is
+    unblocked; the code is not owed yet.
+  - The rule that does **not** move: a credential that never has to be replayed is
+    **hashed, not encrypted** (portal tokens). Encryption is only for what must be
+    recovered — which is exactly why a refresh token cannot be hashed.
 
 ## Files & Storage
 

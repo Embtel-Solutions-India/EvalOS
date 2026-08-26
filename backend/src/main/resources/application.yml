@@ -96,6 +96,61 @@ evalos:
     # name, not a secret, and GHL's actual header is not yet confirmed — point this
     # at the real one when it is, without a code change.
     signature-header: ${WEBHOOK_SIGNATURE_HEADER:X-Evalos-Signature}
+  ghl:
+    # The GHL public API, read-only. Only the marketing pipeline view uses it: EvalOS reads
+    # GHL's Google Ads funnel and writes nothing back, because GHL owns the front of house.
+    base-url: ${GHL_API_BASE_URL:https://services.leadconnectorhq.com}
+    # GHL versions its public API by request header, not by path. A name, not a secret, so it
+    # has a default — and a version bump is then an environment change and not a build.
+    api-version: ${GHL_API_VERSION:2021-07-28}
+    # A GHL Private Integration Token with the `opportunities.readonly` scope, and nothing
+    # wider. Read-only by grant as well as by code: the client here cannot write, and neither
+    # should the credential, so that a mistake in either place is still not a write to GHL.
+    #
+    # Defaults to empty rather than being absent, and that is a deliberate difference from
+    # JWT_SECRET and EVALOS_FIELD_KEY. Those two must fail the boot, because signing with a
+    # guess or storing plaintext is unrecoverable. This one gates one read-only GM screen: an
+    # environment that forgets it should serve the whole app and answer 502 on that one view,
+    # not refuse to start. GhlPipelineClient logs the warning at boot so it is not a surprise.
+    token: ${GHL_API_TOKEN:}
+    # The GHL sub-account (location) to read. Blank has the same effect as a blank token.
+    #
+    # NOTE THE SCOPE THIS SETS, and note what it does NOT mean. It is ONE location for the whole
+    # deployment. Each brand has its own GHL sub-account, so whatever is set here is ONE brand's
+    # funnel — not a cross-brand total. EvalOS has no mapping from a location to a brand, so it
+    # cannot say which brand, cannot label it, and cannot filter by it.
+    #
+    # That is why the endpoint is GM-only and takes no brandId — see MarketingPipelineService. An
+    # unattributable figure must not be shown to a role locked to one brand, because neither they
+    # nor the server can tell whether it is theirs. Do NOT add a brandId parameter to make it look
+    # scoped, and do not add a second global location here: Unit 25 puts the location on `brand`,
+    # which is the only thing that makes a second brand configurable.
+    location-id: ${GHL_LOCATION_ID:}
+    # Which pipeline the marketing view draws. Looked up by NAME rather than by id, because the
+    # id is opaque and the name is what whoever provisions this can see in GHL. Renaming the
+    # pipeline over there makes this view answer 502 saying so, which is the right direction to
+    # fail in — the alternative is an empty funnel that looks like a bad month.
+    ads-pipeline-name: ${GHL_ADS_PIPELINE_NAME:Google ADS Pipeline}
+    # The second funnel on the same location: the email marketing pipeline. Same rules as the
+    # line above — matched by name, breaks loudly on a rename.
+    #
+    # TWO NAMES, NOT A LIST. A list would need a slug per entry to route and label it, and the
+    # slug is what the enum in MarketingPipelineService already is. If a third funnel is ever
+    # asked for, add a third property and a third constant; do not turn this into a map keyed by
+    # whatever GHL happens to call a pipeline this quarter.
+    email-pipeline-name: ${GHL_EMAIL_PIPELINE_NAME:Shivangi's Email Marketing}
+    # Connect and read timeout on each GHL request. Required for the same reason drive.timeout
+    # is: this runs in a controller-triggered path, and a bound is what keeps it "one bounded
+    # request" rather than long-lived work (invariant 6). The read is paginated, so the bound is
+    # per page and not for the whole funnel.
+    timeout: ${GHL_TIMEOUT:10s}
+    # How long one funnel read is served from memory before GHL is asked again.
+    #
+    # This is not a performance tweak, it is the rate limiter. Without it, N open dashboards are
+    # N multi-page GHL reads per refresh and GHL's own rate limit becomes an EvalOS outage. Five
+    # minutes on a sales funnel is invisible to a GM reading trend, and the payload carries
+    # `readAt` so the screen states how old the figures are rather than implying they are live.
+    cache-ttl: ${GHL_CACHE_TTL:PT5M}
   drive:
     # Google service-account credentials for every Drive write. Two sources
     # because a container secret and a mounted volume take different shapes; inline

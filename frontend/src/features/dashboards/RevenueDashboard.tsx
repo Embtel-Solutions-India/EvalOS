@@ -50,6 +50,7 @@ export default function RevenueDashboard() {
         <KpiCard
           title="Open liability"
           wide
+          money
           state={state}
           value={total ? round(total.openLiability) : null}
           denominator={data ? `${data.openCases} cases paid and not yet delivered` : undefined}
@@ -57,9 +58,10 @@ export default function RevenueDashboard() {
           note="Money taken for work not yet delivered — the refund exposure."
         />
 
-        <KpiCard title="Collected" state={state} value={total ? round(total.collected) : null} />
+        <KpiCard title="Collected" money state={state} value={total ? round(total.collected) : null} />
         <KpiCard
           title="Recognised"
+          money
           state={state}
           value={total ? round(total.recognized) : null}
           tone="good"
@@ -67,6 +69,7 @@ export default function RevenueDashboard() {
         />
         <KpiCard
           title="Refunded"
+          money
           state={state}
           value={total ? round(total.refunded) : null}
           tone={total && total.refunded > 0 ? 'bad' : undefined}

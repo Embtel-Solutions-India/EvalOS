@@ -86,11 +86,19 @@ public class Expert extends ScopedEntity {
 	@Column(name = "avg_response_hours")
 	private BigDecimal avgResponseHours;
 
-	@Column(name = "total_cases_completed", nullable = false)
-	private int totalCasesCompleted;
-
-	@Column(name = "current_active_count", nullable = false)
-	private int currentActiveCount;
+	// `total_cases_completed` and `current_active_count` are NOT mapped, deliberately.
+	//
+	// Both columns exist in `V7` as `NOT NULL DEFAULT 0` and both are still there — the fields
+	// that used to mirror them here are gone because they were dead weight: private, with **no
+	// accessor at all**, so nothing could read or write them even by accident. Hibernate simply
+	// omits them on insert and Postgres applies the default.
+	//
+	// **The columns stay on purpose.** They are this codebase's standing example behind
+	// `code-standards.md`'s "prefer deriving over storing" — `ExpertLoadService` counts
+	// `evalos_case` instead, because a stored counter is wrong the moment a case moves and
+	// nothing increments it. Around forty comments, specs and memories cite them by name as
+	// exactly that; dropping the columns would make every one of those references describe
+	// something that no longer exists, to save two ints per row. Do not add fields back here.
 
 	@Enumerated(EnumType.STRING)
 	@Column(name = "agreement_status")

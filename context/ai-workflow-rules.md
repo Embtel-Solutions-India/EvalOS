@@ -58,9 +58,8 @@ If a change cannot be verified end to end quickly, the scope is too broad — sp
 - If a requirement is missing, add it as an open question in `progress-tracker.md`
   before continuing — do not guess.
 - **Known-open items that must not be built around silently** (see
-  `progress-tracker.md` for the live list): the **full brand list**; whether
-  EvalOS **builds the sales/marketing dashboards** (default: no, they stay in
-  GHL); **StatCommand**; the **GHL webhook/API contract** (per-brand inbound
+  `progress-tracker.md` for the live list): the **full brand list**; **StatCommand**;
+  the **GHL webhook/API contract** (per-brand inbound
   secret + payload, outbound subscriber URL + secret, client-message capability);
   and **staff SSO** (optional/later). *(The Dropbox Sign callback secret used to be on
   this list; there is no signature provider any more — the expert uploads the signed
@@ -68,7 +67,11 @@ If a change cannot be verified end to end quickly, the scope is too broad — sp
 
 Resolved (do not re-open as questions): the payout **rail** — there is none; the
 ledger is filled by a manual form. **Object storage** — there is none. **Email
-provider** — none; no EvalOS mail server.
+provider** — none; no EvalOS mail server. **Sales/marketing dashboards** — answered by
+Unit 24: EvalOS builds **one read-only GM screen** over GHL's Google Ads funnel, and
+everything else stays in GHL. Read it as narrowly as it is written — a *reading*, not a
+marketing function. There is no lead, campaign, nurture or attribution feature here, no
+write back to GHL, and no stored copy of GHL's pipeline; invariant 2 is unchanged.
 
 ## Protected Files
 
@@ -78,6 +81,11 @@ Do not modify these unless explicitly instructed:
 - The audit-trail entity and its write path — append-only; never add update/delete.
 - The field-level encryption `AttributeConverter` in `common` and any code
   handling the expert `payment_detail`.
+  - **One named exception, signed off 2026-08-26** (see `code-standards.md`): extracting
+    the AES-GCM into a shared `common/EncryptedStringConverter` with
+    `PaymentDetailConverter` left as a thin subclass, behaviour on the expert path
+    unchanged. To be done when Unit 25 is built. Every other change to this file still
+    needs its own sign-off.
 - The inbound webhook secret-verification and **per-brand brand-resolution** step.
 - The brand-scoping filter in the repository/service layer.
 - Any Flyway migration that has already been applied — add a new migration.

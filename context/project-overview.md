@@ -207,11 +207,28 @@ The case lifecycle, from EvalOS's point of view (EvalOS owns stages 3–7 of the
 - Production/expert/delivery/finance dashboards (production-side roles).
 - In-app staff notifications.
 - The three handoffs and the suppression sync back to GHL.
+- **Marketing *readings*, GM-only (Units 24 and 26)**: GHL's Google Ads funnel and
+  its email marketing funnel, stage by stage — deals, value and source. Windows onto
+  GHL, not a marketing feature: nothing is created, moved, priced, sent, or written
+  back, and nothing is stored. They are the only screens in EvalOS that are not
+  brand-scoped, because the single GHL location they read has no mapping to a brand.
+  **Two screens, one decision**: a further *reading* of a pipeline in that location is
+  the same question already answered; anything that would make EvalOS *run* marketing
+  is not.
 
 ### Out of Scope (owned by GHL, or deferred)
-- Marketing, social, ads, ad attribution, nurture/cold email, SEO.
+- Marketing, social, ads, ad attribution, nurture/cold email, SEO. **Running any of
+  them.** Units 24 and 26 read two GHL funnels onto GM screens and that is the whole
+  of it — no campaign, audience, spend, creative or attribution feature is in scope,
+  now or later, and there is no write path back into a GHL pipeline. Note what the
+  second screen did and did not settle: reading **another pipeline** in the location
+  EvalOS already reads is decided; *sending* an email from EvalOS is still out, and
+  the email funnel being visible here changes nothing about that.
 - Sales pipeline, lead qualification, proposals, quoting; sales/marketing user
-  roles and (by default) their dashboards — those stay in GHL.
+  roles. Their **dashboards** stay in GHL too, with the exception above: the open
+  question that defaulted to "GHL-native" is now answered as *read-only GM funnel
+  views in EvalOS over pipelines in the one configured location, everything else in
+  GHL*.
 - Invoicing and payment collection; the payment processor integration itself
   (EvalOS listens to GHL's webhook, not to Stripe/Razorpay directly).
 - Any object/file storage of documents — EvalOS stores Drive file ids and links, not

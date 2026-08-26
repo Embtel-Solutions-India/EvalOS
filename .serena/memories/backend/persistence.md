@@ -285,8 +285,16 @@ AES-256-GCM, fresh 12-byte IV per write, stored as `base64(iv || ciphertext||tag
 - GCM is authenticated ⇒ an edited column fails to decrypt rather than returning plausible plaintext.
 - The random IV means the column is **not searchable or equality-comparable**. It is display data.
 - Field and getter are `@JsonIgnore`, and `Expert` deliberately has no `toString()`. Never map it into
-  a DTO, outbound webhook payload, or log line. It is the only encrypted field — payouts are manual,
-  so there is no card or bank data anywhere else.
+  a DTO, outbound webhook payload, or log line. It is **currently** the only encrypted field — payouts
+  are manual, so there is no card or bank data anywhere else.
+- **"Only" is no longer a rule, it is a fact about today (signed off 2026-08-26).** A second encrypted
+  column is permitted, and there is exactly one approved way to add it: extract the AES-GCM into a
+  shared `common/EncryptedStringConverter` and leave `PaymentDetailConverter` a thin subclass — one
+  crypto implementation, one key, expert path unchanged. That is a **named, narrow exception** to the
+  protected-file rule and nothing broader. Unit 25's GHL refresh token is the column that will use it;
+  **the extraction is not written until that unit is built.** The rule that did not move: a credential
+  that never has to be replayed is **hashed, not encrypted** (portal tokens) — encryption is only for
+  what must be recovered, which is precisely why a refresh token cannot be hashed.
 - **Write-only since Unit 11, which gave it its first screen.** `PUT /api/experts/{id}/payment-detail`
   sets it and **nothing reads it back** — no endpoint, no service method, not for the ENM who typed
   it. No DTO declares the field (not blanked, not masked: *not a member*), the audit snapshot records

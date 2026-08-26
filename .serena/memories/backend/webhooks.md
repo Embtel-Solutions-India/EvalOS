@@ -131,9 +131,15 @@ becomes a constraint violation, and GHL retries a 5xx forever. See `mem:backend/
 provider was going to be the second, posting `signature_request.*` callbacks — dropping it (Production
 Process v2.0) removed that, and with it the only place in the design that threatened the **protected
 brand-resolution step**: one provider account means one callback URL, and the per-brand endpoint token
-could not have distinguished brands. `WebhookSource.DROPBOX_SIGN` remains as an enum value nothing
-writes; leave it, and do not build a handler for it. Expert sign-off arrives as an authenticated portal
-request, not a callback.
+could not have distinguished brands. `WebhookSource.DROPBOX_SIGN` has now been **deleted** — the enum is
+`GHL` alone. (It previously said to leave the value in place; that is out of date.) Do not re-add it or
+build a handler for it. Expert sign-off arrives as an authenticated portal request, not a callback.
+
+The enum survives as an enum rather than becoming a constant because `source` is part of
+`webhook_event`'s dedup key, so a second provider can be added without re-keying the table. Existing
+`DROPBOX_SIGN` rows in a dev database are inert: the only query on the column is always called with
+`GHL`, so they are excluded by the `WHERE` clause and never converted back to the enum. No cleanup
+migration, and no DB `CHECK` without one.
 
 ## Outbound: the outbox *is* the queue
 

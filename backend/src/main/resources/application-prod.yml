@@ -33,6 +33,50 @@ evalos:
     # forgets it must fail to start rather than run on a guess. This is the client- and
     # expert-facing origin, not the API's.
     base-url: ${PORTAL_BASE_URL}
+  ghl:
+    # Every `evalos.ghl.*` value, listed for the reason `drive.required` above is restated: this
+    # profile's convention is that a deployer can see what they are expected to set. The
+    # reasoning for each lives in `application.yml`; only what matters to a deployment is here.
+    base-url: ${GHL_API_BASE_URL:https://services.leadconnectorhq.com}
+    api-version: ${GHL_API_VERSION:2021-07-28}
+    # **The one place this profile deliberately does NOT follow "an environment that forgets it
+    # must fail to start."** Stated because it otherwise reads as an oversight.
+    #
+    # `JWT_SECRET`, `EVALOS_FIELD_KEY`, `DRIVE_REQUIRED` and `PORTAL_BASE_URL` are fatal because
+    # getting them wrong is either unrecoverable or reaches an outsider: a guessed signing key,
+    # plaintext at rest, an upload failing in front of a waiting client, a portal link pointing
+    # at somebody's laptop. A missing GHL token is neither — it gates ONE read-only GM screen,
+    # which answers 502 naming exactly what to set. Refusing to boot the whole application over
+    # one internal dashboard is the disproportionate choice.
+    #
+    # Must be a GHL **Private Integration Token scoped `opportunities.readonly` and nothing
+    # wider**: EvalOS never writes to GHL (invariant 2) and the client has no write method, so a
+    # read-only grant means a mistake in either place is still not a write. **Never a literal
+    # here** — `ConfigSecretsTest` fails the build on a defaulted credential.
+    token: ${GHL_API_TOKEN:}
+    # ONE location for the whole deployment, and note the ceiling before planning around it: a
+    # second brand cannot be configured, because there is one value and nowhere to put another.
+    # **Do not add a second property** — that reintroduces the global-credential shape Unit 25
+    # exists to remove; XpertsPortal needs that unit.
+    #
+    # Whatever is set here is one brand's sub-account, so the funnel shows one brand's figures.
+    # The screen says "one GHL location" rather than naming a brand, because EvalOS has no
+    # mapping from a location to a brand yet and must not imply one.
+    location-id: ${GHL_LOCATION_ID:}
+    # Matched by NAME, not by id. A rename in GHL therefore breaks this screen with a stated 502
+    # rather than an empty funnel that reads as a bad month — and the fix is an environment
+    # change, not a deploy.
+    ads-pipeline-name: ${GHL_ADS_PIPELINE_NAME:Google ADS Pipeline}
+    # The email marketing funnel, by name for the same reason. Both defaults are the names the
+    # live location actually uses today, so a deployment sets neither unless GHL renames one.
+    email-pipeline-name: ${GHL_EMAIL_PIPELINE_NAME:Shivangi's Email Marketing}
+    # Per page, not for the whole paginated read. This runs on a request path, so the bound is
+    # what keeps it inside invariant 6's "one bounded request".
+    timeout: ${GHL_TIMEOUT:10s}
+    # The rate limiter, not a speed-up: without it, N open dashboards are N multi-page GHL reads
+    # per refresh and GHL's own limit becomes an EvalOS outage. Do not shorten it in a deployed
+    # environment — the local profile does, and says why.
+    cache-ttl: ${GHL_CACHE_TTL:PT5M}
 
 server:
   # MUST be `framework` if anything terminates the connection in front of the app — a

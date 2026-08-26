@@ -1,11 +1,10 @@
 package com.ie.evalos.web;
 
 import java.time.Instant;
-import java.time.temporal.ChronoUnit;
 import java.util.UUID;
 
 import com.ie.evalos.common.ApiResponse;
-import com.ie.evalos.common.InvalidRequestException;
+import com.ie.evalos.common.DateRange;
 import com.ie.evalos.service.CaseManagerMetricsService;
 import com.ie.evalos.service.CoordinatorMetricsService;
 import com.ie.evalos.service.DraftReviewService;
@@ -68,10 +67,10 @@ public class MetricsController {
 	 */
 	@GetMapping("/pm")
 	@PreAuthorize("hasAnyRole('GM', 'BRAND_MANAGER', 'PROJECT_MANAGER')")
-	public ApiResponse<PmMetrics> pm(@RequestParam(defaultValue = "month") String range,
+	public ApiResponse<PmMetrics> pm(@RequestParam(defaultValue = "year") String range,
 			@RequestParam(required = false) UUID brandId) {
 		Instant to = Instant.now();
-		return ApiResponse.ok(metrics.forCaller(startOf(range, to), to, brandId));
+		return ApiResponse.ok(metrics.forCaller(DateRange.parse(range).startFrom(to), to, brandId));
 	}
 
 	/**
@@ -155,22 +154,4 @@ public class MetricsController {
 		return ApiResponse.ok(navBadges.forCaller());
 	}
 
-	/**
-	 * The window's start, looking backwards.
-	 *
-	 * <p>Note the direction: the board's date filter looks *forward* to a deadline window, while
-	 * every figure here is about work already delivered, so the same words describe the opposite
-	 * span. An unknown value is refused rather than defaulted — silently answering for a month
-	 * when the caller asked for a year is a wrong number that looks right.
-	 */
-	private static Instant startOf(String range, Instant to) {
-		return switch (range) {
-			case "today" -> to.minus(1, ChronoUnit.DAYS);
-			case "week" -> to.minus(7, ChronoUnit.DAYS);
-			case "month" -> to.minus(30, ChronoUnit.DAYS);
-			case "year" -> to.minus(365, ChronoUnit.DAYS);
-			default -> throw new InvalidRequestException(
-					"range must be one of today, week, month, year");
-		};
-	}
 }

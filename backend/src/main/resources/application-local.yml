@@ -39,3 +39,52 @@ evalos:
     # filing anything, so a green local run does not mean the unit works. Their live
     # criteria need a real key, which is the same one Unit 13 is still owed.
     required: ${DRIVE_REQUIRED:false}
+  ghl:
+    # Every `evalos.ghl.*` value, listed so the whole knob set is visible in one place.
+    #
+    # The reasoning for each one lives in `application.yml` and is deliberately not repeated
+    # here — three copies of an argument is three things that drift. Only the two values this
+    # profile actually CHANGES carry a note.
+    base-url: ${GHL_API_BASE_URL:https://services.leadconnectorhq.com}
+    api-version: ${GHL_API_VERSION:2021-07-28}
+    # **Never put a value here — not even locally.** Empty in every profile, on purpose.
+    #
+    # A real Private Integration Token was once pasted into this placeholder's default over in
+    # `application.yml`: a git-tracked file, and the app works with or without it, so nothing
+    # would have caught it before a commit. `ConfigSecretsTest` now fails the build if a
+    # credential-shaped setting carries a default in a shared profile. A GHL token is also not a
+    # throwaway like `JWT_SECRET` above — it reaches a live third-party account holding customer
+    # data, so there is no dev-safe value to put here.
+    #
+    # **Where the real token goes: `backend/config/application-local.yml`.** Spring Boot reads
+    # `./config/` after the classpath, so that file overrides this one — verified, not assumed —
+    # and `backend/config/` is in `.gitignore`, so it cannot be committed. It survives restarts
+    # and needs no `$env:` juggling, which is what kept pulling the value back into this file.
+    #
+    # `$env:GHL_API_TOKEN = "..."` still works and wins over both, if you prefer a one-off shell.
+    #
+    # Whichever you use, the value must be the FULL token including the `pit-` prefix. A bare
+    # UUID (36 chars) produces an HTTP 401 that reads like a scope problem; a whole PIT is 40.
+    # `GhlPipelineClient` logs `token length=` at startup so this is checkable without pasting
+    # the value anywhere.
+    token: ${GHL_API_TOKEN:}
+    # CHANGED from base (empty there): International Evaluations' sub-account.
+    #
+    # A location id is not a secret — it appears in every GHL URL and grants nothing without the
+    # token — so it is defaulted for the same reason the datasource above is: it is the value
+    # that is correct for whoever runs this repo, so a developer holding a token sets ONE
+    # variable rather than two and cannot mistype the other into a confusing 502.
+    #
+    # It does not make an unconfigured laptop look configured: `GhlPipelineClient` needs the
+    # token AND the location non-blank, so with no token the screen still answers 502 naming
+    # both. And one value is the ceiling — XpertsPortal has nowhere to go until Unit 25 moves
+    # the location onto `brand`.
+    location-id: ${GHL_LOCATION_ID:kBumF0uUOmMBB5bneYjx}
+    ads-pipeline-name: ${GHL_ADS_PIPELINE_NAME:Google ADS Pipeline}
+    email-pipeline-name: ${GHL_EMAIL_PIPELINE_NAME:Shivangi's Email Marketing}
+    timeout: ${GHL_TIMEOUT:10s}
+    # CHANGED from base (PT5M). That cache is a rate limiter, and a laptop is not what it
+    # protects GHL from — one developer refreshing one screen is nothing next to a room of open
+    # dashboards. What five minutes costs here is the loop: drag a card in GHL, reload, see the
+    # old number, conclude the screen is broken. **Do not copy this into a deployed profile.**
+    cache-ttl: ${GHL_CACHE_TTL:PT30S}
