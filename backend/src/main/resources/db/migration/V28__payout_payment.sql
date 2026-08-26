@@ -68,7 +68,7 @@ CREATE UNIQUE INDEX uq_payout_per_case
 -- currency were NOT NULL here, the seed inserts would fail on a fresh database.
 -- Instead, currency stays nullable; payout_ledger.currency NOT NULL ensures the gap
 -- does not reach the ledger, and Task 3's openForDelivery refuses a brand with no
--- currency rather than guessing one. Seeded brands are updated by V902.
+-- currency rather than guessing one. Seeded brands are updated by V904.
 -- payout_term_days keeps a default — a wrong due date is a visible annoyance, not a
 -- wrong payment.
 ALTER TABLE brand
