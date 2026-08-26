@@ -37,6 +37,17 @@ public class Brand {
 	@Column(name = "webhook_endpoint_token", nullable = false, unique = true)
 	private String webhookEndpointToken;
 
+	/**
+	 * What experts on this brand are paid in. No column default on purpose — a brand
+	 * added without one is a configuration error, not a USD payout.
+	 */
+	@Column(name = "currency", nullable = false)
+	private String currency;
+
+	/** Days from delivery to a payout's due date. Drives the weekly batch view. */
+	@Column(name = "payout_term_days", nullable = false)
+	private int payoutTermDays = 7;
+
 	@Column(name = "created_at", nullable = false, insertable = false, updatable = false)
 	private Instant createdAt;
 
@@ -62,6 +73,14 @@ public class Brand {
 
 	public String getWebhookEndpointToken() {
 		return webhookEndpointToken;
+	}
+
+	public String getCurrency() {
+		return currency;
+	}
+
+	public int getPayoutTermDays() {
+		return payoutTermDays;
 	}
 
 	public Instant getCreatedAt() {
