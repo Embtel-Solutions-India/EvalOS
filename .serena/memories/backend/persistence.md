@@ -103,7 +103,16 @@ an expired row would sit in that index forever and block the next mint for that 
 therefore a check-then-act that two concurrent callers can both win: both read, both save,
 last-write-wins. This has already produced two real defects (a second open case per contact, a second
 contact snapshot per person) and one latent third (two payout rows for one delivery, since
-`deliverToClient`'s `deliveryDate == null` guard has nothing behind it).
+`deliverToClient`'s `deliveryDate == null` guard has nothing behind it — its fix,
+`uq_payout_per_case`, is specced in `context/specs/16-payout-ledger.md` and not yet built).
+
+**A second house answer, for when the guard covers a *set* of rows: one conditional `UPDATE ...
+WHERE <the precondition>` plus an affected-count assertion.** A partial unique index works when the
+rule is "one row like this"; it has nothing to say about "these twelve rows must all still be
+`PENDING` when I write them". Specced in `16b-weekly-settlement.md` for payout settlement, where two
+people settling overlapping selections is the same check-then-act shape. The database decides once,
+a short count means someone else won a row, and the whole transaction rolls back. Still no
+`@Version`, still no explicit lock.
 
 **The house answer is a partial unique index, not a lock and not a re-read.** `V15` and `V16` are the
 worked examples: `(brand_id, contact_id, service_type) WHERE current_stage <> 'CLOSED'`, and

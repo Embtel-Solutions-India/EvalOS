@@ -57,9 +57,14 @@ input; the live hand-fired run waits on the payload confirmation from Step 0.
 Re-read `05b` first — it gained two corrections after review (the `V24` index must be
 scoped to open cases, and `refresh()` must overwrite `deal_value`).
 
-**A3 · Unit 16 — payout ledger.** The only substantial unit with **zero** external
-dependency: a manual ledger, its own endpoints, no integration. It also unblocks Unit
-17's money-out tiles, so it comes before dashboards rather than after.
+**A3 · Unit 16 + 16b — payout ledger and weekly settlement.** The only substantial unit
+with **zero** external dependency: a manual ledger, its own endpoints, no integration.
+It also unblocks Unit 17's money-out tiles, so it comes before dashboards rather than
+after. **Read `16b-weekly-settlement.md` alongside `16`** — the business charges per
+draft and settles weekly, so a payment is its own table and 16's per-row form is
+superseded. 16b also carries two things 16 assumed but that do not exist: `brand.currency`
+and a payout term. Build them as one unit; splitting them would ship a payment model
+that is already known to be wrong.
 
 **A4 · Unit 17a — dashboards without charts.** The biggest remaining unit, and it
 grew: it now carries the per-role operational contract and gaps **G3–G12** (delivery

@@ -4,6 +4,52 @@ Update this file after every meaningful implementation change.
 
 ## Current Phase
 
+- **2026-08-27 — Unit 16b specced: the expert charges per draft and is paid weekly.** No code
+  yet; this is the spec + aligned docs, ahead of building 16/16b together as A3.
+  - **What the requirement actually is.** The expert is owed a fee per delivered draft, but the
+    money leaves once a week: three drafts, one Zelle transfer, **one reference**. Spec 16 assumed
+    the unit of payment is the unit of work and gave each payout row its own
+    `method`/`reference`/`paid_date` and its own `confirm` — which would record one transfer as
+    three rows carrying the same string typed three times, with no object anywhere corresponding
+    to what left the bank.
+  - **The fix is one idea: a payment is its own record.** New `payout_payment` table; `payout_ledger`
+    gains `payment_id` and loses those three columns. `CONFIRMED` moves to the payment and cascades
+    — one transfer, one acknowledgement.
+  - **The rule that keeps it honest: `sum(row amounts) == payment.amount`, exactly.** A payment whose
+    amount is not what it settled disagrees with the bank *silently* — both numbers look reasonable
+    alone — and would make the finance dashboard's money-out figure ambiguous, since the sum of
+    payments and the sum of settled rows would be two different answers to one question. If the
+    number is wrong the row amounts are corrected first; they are editable while `PENDING`.
+  - **Settlement is one conditional `UPDATE ... WHERE status = 'PENDING'` with an affected-count
+    assertion**, not read-then-save. Two ENMs settling overlapping selections is the same
+    check-then-act shape spec 16 wrote its partial unique index for. No `@Version`, no explicit
+    lock — the database decides and cannot decide twice.
+  - **Decision taken: the ENM records payouts**, with the GM and Brand Manager. Spec 16 restricted
+    writes to GM/Brand Manager and said in as many words that this was the business's call, not an
+    assumption to make in a spec. The ENM sends the transfer, so the ENM records it. The guard stays
+    in `PayoutService` *and* `@PreAuthorize`, because it is a money path.
+  - **Retainers were considered and rejected.** An earlier reading had experts on a standing weekly
+    rate per expert-to-client assignment. The business does not pay one — and it would have forced
+    client identity onto ENM screens and required amending the supply-side-axis rule. **The ENM stays
+    client-blind and `project-overview.md`'s *Roles* section needs no amendment**, which is the main
+    thing the corrected reading bought.
+  - **Two holes in spec 16 found by checking it against the schema.** It reads "the brand's configured
+    currency" and "the configured payout term"; `V2__brand.sql` has neither. Both land in 16b's
+    migration — `currency` `NOT NULL` **with no column default** (guessing USD for a GBP agreement is
+    the one guess here that spends real money), `payout_term_days` defaulted to 7 because a wrong due
+    date is a visible annoyance, not a wrong payment.
+  - **`payout_ledger.method`/`reference`/`paid_date` are dropped, departing from the HMAC precedent**
+    that left dead columns in place. That decision turned on not writing a migration at all; here one
+    is written regardless, and these three sit on a *money* table where they read as load-bearing. A
+    convincing trap on the payout path is worse than two inert columns on a webhook archive. Nothing
+    ever wrote them — Unit 16 was never built — so no data is lost, and `V8` is not edited.
+  - **Deliberately not in 16b:** reports and CSV export (real, wanted, in no unit — its own decision,
+    not smuggled in), a `PAY-000124` payment code (the typed reference is already the handle), and the
+    ENM dashboard tiles (Unit 17's, fed by these queries).
+  - Files: `context/specs/16b-weekly-settlement.md` (new), `16-payout-ledger.md` (supersession
+    banner), `00-build-plan.md` (A3), `project-overview.md`, `architecture.md`,
+    `.serena/memories/backend/persistence.md`.
+
 - **2026-08-27 — `ghl_contact_id` outranks email in contact matching (`V27`).** Confirmed as policy:
   the GHL contact id is the canonical external client identity everywhere, and the three identifiers
   stay separate — `ghl_contact_id` = the client, `ghl_opportunity_id` = one purchase,
