@@ -77,7 +77,13 @@ public class PayoutService {
 					"Brand " + delivered.getBrandId() + " has no configured currency; no payout can be opened");
 		}
 
-		BigDecimal standardFee = experts.findById(expertId).map(Expert::getStandardFee).orElse(null);
+		// Scoped to the case's brand, not the caller's: this runs inside deliverToClient,
+		// which has no TenantContext axis that means "the brand this expert must belong
+		// to" the way a GM's cross-brand context would not. An expert id from another
+		// brand — should be impossible, since no expert is shared across brands — is
+		// simply absent here, the same way an out-of-scope row is absent everywhere else.
+		BigDecimal standardFee = experts.findByIdAndBrandId(expertId, delivered.getBrandId())
+				.map(Expert::getStandardFee).orElse(null);
 		Instant dueDate = delivered.getDeliveryDate().plus(brand.getPayoutTermDays(), ChronoUnit.DAYS);
 
 		PayoutLedger row = payouts.save(new PayoutLedger(delivered.getBrandId(), delivered.getId(), expertId,

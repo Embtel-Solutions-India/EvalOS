@@ -6,6 +6,7 @@ import java.time.temporal.ChronoUnit;
 import java.util.Optional;
 import java.util.UUID;
 
+import com.ie.evalos.domain.AuditAction;
 import com.ie.evalos.domain.Brand;
 import com.ie.evalos.domain.Case;
 import com.ie.evalos.domain.Expert;
@@ -22,6 +23,7 @@ import org.mockito.ArgumentCaptor;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -83,6 +85,12 @@ class PayoutServiceTest {
 		assertThat(saved.getValue().getCaseId()).isEqualTo(CASE_ID);
 		// recorded_by is null: nobody has recorded anything yet.
 		assertThat(saved.getValue().getRecordedBy()).isNull();
+
+		// The audit snapshot is a Map, never the entity — AuditService's contract — and
+		// pins the object type/action a source read would otherwise be the only check on.
+		ArgumentCaptor<Object> snapshot = ArgumentCaptor.forClass(Object.class);
+		verify(audit).recordEvent(eq("PAYOUT"), any(), eq(AuditAction.CREATED), any(), any(), snapshot.capture());
+		assertThat(snapshot.getValue()).isInstanceOf(java.util.Map.class).isNotInstanceOf(PayoutLedger.class);
 	}
 
 	@Test
@@ -132,6 +140,25 @@ class PayoutServiceTest {
 		verify(payouts, never()).save(any());
 	}
 
+	@Test
+	void anExpertBelongingToAnotherBrandIsTreatedAsHavingNoStandardFee() {
+		givenBrand("USD", 7);
+		// Exists, but under a different brand — findByIdAndBrandId(EXPERT_ID, BRAND_IE)
+		// stays unstubbed, so it answers empty exactly as an out-of-scope row does.
+		UUID otherBrand = UUID.fromString("22222222-2222-2222-2222-222222222222");
+		Expert fromAnotherBrand = new Expert(otherBrand, "Wrong Brand's Expert");
+		fromAnotherBrand.setStandardFee(new BigDecimal("999.00"));
+		given(experts.findByIdAndBrandId(EXPERT_ID, otherBrand)).willReturn(Optional.of(fromAnotherBrand));
+
+		service.openForDelivery(deliveredCase(EXPERT_ID));
+
+		ArgumentCaptor<PayoutLedger> saved = ArgumentCaptor.forClass(PayoutLedger.class);
+		verify(payouts).save(saved.capture());
+		assertThat(saved.getValue().getAmount())
+				.as("another brand's fee must never leak onto this brand's payout row")
+				.isNull();
+	}
+
 	private void givenBrand(String currency, int termDays) {
 		// Brand has no public constructor and no setters (only JPA can build one), so a
 		// mock is the only way to hand it a currency and a term — see ruling 3.
@@ -146,7 +173,7 @@ class PayoutServiceTest {
 		// there is no value here a mock could give that this cannot (ruling 3).
 		Expert expert = new Expert(BRAND_IE, "Standing Expert");
 		expert.setStandardFee(standardFee);
-		given(experts.findById(EXPERT_ID)).willReturn(Optional.of(expert));
+		given(experts.findByIdAndBrandId(EXPERT_ID, BRAND_IE)).willReturn(Optional.of(expert));
 	}
 
 	private static Case deliveredCase(UUID expertId) {
