@@ -38,10 +38,12 @@ public class Brand {
 	private String webhookEndpointToken;
 
 	/**
-	 * What experts on this brand are paid in. No column default on purpose — a brand
-	 * added without one is a configuration error, not a USD payout.
+	 * What experts on this brand are paid in. Nullable because db/seed-local/V900
+	 * inserts brands before this column exists; Flyway orders by version globally.
+	 * payout_ledger.currency NOT NULL ensures the gap does not reach the ledger, and
+	 * Task 3's openForDelivery refuses a brand with no currency.
 	 */
-	@Column(name = "currency", nullable = false)
+	@Column(name = "currency")
 	private String currency;
 
 	/** Days from delivery to a payout's due date. Drives the weekly batch view. */

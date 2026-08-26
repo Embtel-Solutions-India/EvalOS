@@ -63,15 +63,14 @@ CREATE UNIQUE INDEX uq_payout_per_case
     ON payout_ledger (case_id) WHERE status <> 'VOIDED';
 
 -- Spec 16 reads "the brand's configured currency" and "the configured payout term".
--- V2__brand.sql has neither. Backfilled once so the NOT NULL can land, then left with
--- NO column default: a brand added later must state its currency, because that is the
--- one guess in this unit that spends real money. payout_term_days keeps a default —
--- a wrong due date is a visible annoyance, not a wrong payment.
+-- V2__brand.sql has neither. Flyway applies all migrations globally by version number
+-- regardless of location, so V28 runs before db/seed-local/V900__seed_local.sql. If
+-- currency were NOT NULL here, the seed inserts would fail on a fresh database.
+-- Instead, currency stays nullable; payout_ledger.currency NOT NULL ensures the gap
+-- does not reach the ledger, and Task 3's openForDelivery refuses a brand with no
+-- currency rather than guessing one. Seeded brands are updated by V902.
+-- payout_term_days keeps a default — a wrong due date is a visible annoyance, not a
+-- wrong payment.
 ALTER TABLE brand
     ADD COLUMN currency text,
     ADD COLUMN payout_term_days int NOT NULL DEFAULT 7;
-
-UPDATE brand SET currency = 'USD' WHERE currency IS NULL;
-
-ALTER TABLE brand
-    ALTER COLUMN currency SET NOT NULL;
