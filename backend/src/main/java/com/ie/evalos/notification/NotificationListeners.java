@@ -102,7 +102,14 @@ public class NotificationListeners {
 			// one after `assign-cm`, which happens well after `assign-pm`.
 			route(CaseEvents.Type.CASE_FLAGGED_TO_PM, NotificationType.EXCEPTION_RAISED,
 					(c, r) -> r.assignedPm(c),
-					"%s was flagged by its case manager and needs your attention.")));
+					"%s was flagged by its case manager and needs your attention."),
+
+			// Unit 16. Should be unreachable — FINAL_DELIVERY only follows EXPERT_SIGNING — so
+			// this goes past the case's own PM to that brand's Brand Managers too: a delivery
+			// nobody billed for is a brand-level problem, not just a caseload one.
+			route(CaseEvents.Type.CASE_DELIVERED_NO_EXPERT, NotificationType.EXCEPTION_RAISED,
+					(c, r) -> r.assignedPmAndBrandManagers(c),
+					"%s was delivered with no expert assigned — no payout was opened.")));
 
 	private static Map.Entry<CaseEvents.Type, Route> route(CaseEvents.Type event, NotificationType type,
 			BiFunction<Case, RecipientResolver, List<UUID>> recipients, String message) {

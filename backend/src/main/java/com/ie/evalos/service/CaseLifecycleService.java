@@ -96,10 +96,11 @@ public class CaseLifecycleService {
 	private final AuditService audit;
 	private final SlaCalculator sla;
 	private final ApplicationEventPublisher events;
+	private final PayoutService payouts;
 
 	CaseLifecycleService(CaseRepository cases, DocumentChecklistItemRepository checklistItems, ExpertRepository experts,
 			ExpertCaseOfferRepository offers, TeamMemberRepository teamMembers, AuditService audit, SlaCalculator sla,
-			ApplicationEventPublisher events) {
+			ApplicationEventPublisher events, PayoutService payouts) {
 		this.cases = cases;
 		this.checklistItems = checklistItems;
 		this.experts = experts;
@@ -108,6 +109,7 @@ public class CaseLifecycleService {
 		this.audit = audit;
 		this.sla = sla;
 		this.events = events;
+		this.payouts = payouts;
 	}
 
 	// --- reads ---------------------------------------------------------------
@@ -624,7 +626,31 @@ public class CaseLifecycleService {
 		Stage to = CaseTransitions.target(subject, Action.DELIVER_TO_CLIENT);
 		requireState(subject.getDeliveryDate() == null, "the case has already been delivered");
 
-		return apply(subject, to, Action.DELIVER_TO_CLIENT, null, c -> c.setDeliveryDate(Instant.now()));
+		Case delivered = apply(subject, to, Action.DELIVER_TO_CLIENT, null, c -> c.setDeliveryDate(Instant.now()));
+
+		// Same transaction on purpose: a delivery that rolls back leaves no payout row,
+		// and a payout-row failure rolls the delivery back. The deliveryDate guard above
+		// is a check-then-act with no @Version behind it, so uq_payout_per_case is what
+		// actually stops two concurrent deliveries opening two rows — the loser's insert
+		// fails and takes its whole delivery with it.
+		if (payouts.openForDelivery(delivered).isEmpty()) {
+			notifyNoExpertOnDelivery(delivered);
+		}
+		return delivered;
+	}
+
+	/**
+	 * A case delivered with no expert assigned gets no payout row, and that is not
+	 * silent. It should be impossible — FINAL_DELIVERY is only reachable through
+	 * EXPERT_SIGNING — which is why it must be reported if it happens.
+	 *
+	 * <p>Shaped like {@link #flagToPm}: no stage change, so this publishes rather than
+	 * routes through {@link #apply}. {@code NotificationListeners.ROUTES} turns the
+	 * event into an in-app alert for the case's own PM and that brand's Brand Managers —
+	 * the same delivery mechanism every other in-app alert in this class uses.
+	 */
+	private void notifyNoExpertOnDelivery(Case delivered) {
+		events.publishEvent(CaseEvents.CaseEvent.of(CaseEvents.Type.CASE_DELIVERED_NO_EXPERT, delivered));
 	}
 
 	@Transactional
