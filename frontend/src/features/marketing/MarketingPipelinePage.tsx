@@ -183,7 +183,7 @@ export default function MarketingPipelinePage({
           note="GHL's own source on each opportunity, passed through as written."
           state={emptyWhen(
             state,
-            (data?.sources.length ?? 0) === 0,
+            (data?.sources?.length ?? 0) === 0,
             missingDetail ?? nothingInWindow,
           )}
         >
@@ -202,7 +202,7 @@ export default function MarketingPipelinePage({
               </tr>
             </thead>
             <tbody>
-              {data?.sources.map((row) => (
+              {data?.sources?.map((row) => (
                 <tr key={row.source}>
                   <td className="py-1">{row.source}</td>
                   <td className="font-num py-1 text-right tabular-nums">

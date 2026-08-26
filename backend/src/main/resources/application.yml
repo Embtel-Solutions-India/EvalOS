@@ -115,11 +115,16 @@ evalos:
     token: ${GHL_API_TOKEN:}
     # The GHL sub-account (location) to read. Blank has the same effect as a blank token.
     #
-    # NOTE THE SCOPE THIS SETS: it is ONE location, shared by every brand, so the figures it
-    # feeds are cross-brand and cannot be narrowed by brand_id. That is why the endpoint is
-    # GM-only and takes no brandId — see MarketingPipelineService. If the brands are ever split
-    # across two GHL locations, this becomes a column on `brand` and the endpoint's scoping
-    # argument has to be rewritten with it; do not add a second global location here.
+    # NOTE THE SCOPE THIS SETS, and note what it does NOT mean. It is ONE location for the whole
+    # deployment. Each brand has its own GHL sub-account, so whatever is set here is ONE brand's
+    # funnel — not a cross-brand total. EvalOS has no mapping from a location to a brand, so it
+    # cannot say which brand, cannot label it, and cannot filter by it.
+    #
+    # That is why the endpoint is GM-only and takes no brandId — see MarketingPipelineService. An
+    # unattributable figure must not be shown to a role locked to one brand, because neither they
+    # nor the server can tell whether it is theirs. Do NOT add a brandId parameter to make it look
+    # scoped, and do not add a second global location here: Unit 25 puts the location on `brand`,
+    # which is the only thing that makes a second brand configurable.
     location-id: ${GHL_LOCATION_ID:}
     # Which pipeline the marketing view draws. Looked up by NAME rather than by id, because the
     # id is opaque and the name is what whoever provisions this can see in GHL. Renaming the

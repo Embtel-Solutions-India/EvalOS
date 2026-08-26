@@ -4,6 +4,67 @@ Update this file after every meaningful implementation change.
 
 ## Current Phase
 
+- **2026-08-26 — review fixes on the Unit 24/26 branch, before merge.** Code review of the
+  marketing branch found three behavioural bugs and a set of doc/test defects. All fixed on the
+  branch; backend 458 tests and frontend 118 pass.
+  - **The window was one day too wide in every range, and `today` was wrong by 100%.**
+    `MarketingPipelineService` took `DateRange.startFrom` — a *half-open instant* window, correct
+    for the metrics dashboards — converted it to a `LocalDate`, and handed it to GHL, whose filter
+    is **date-only with both edges inclusive**. So `today` spanned *yesterday and today*: a screen
+    headed "today" reported roughly double GHL's own figure, and `month` was 31 days, `year` 366.
+    Fixed by `DateRange.startDateFrom(LocalDate)`, which owns the inclusive arithmetic and states
+    why the two methods are not the same subtraction; `DateRangeTest` pins both shapes.
+    **The old test pinned the bug** (`minusDays(30)`/`minusDays(365)`) and moved with the fix.
+  - **The shell's global date default had been flipped `month` → `year`**, which is not a
+    marketing-only value: the board reads the same filter *forwards* through `dueBeforeFor`, so
+    `year` moved the default deadline window from one month out to twelve and left the production
+    board effectively unfiltered for every role on first load. Reverted to `month`. **No per-screen
+    default was added** — that is a second source of truth for a control the user can already see,
+    and the marketing empty state already names the window it searched and says to widen it.
+  - **`pipeline.stages()` was the one unguarded field off the GHL wire** (`pipelines()`,
+    `opportunities()` and `meta()` are all guarded). An NPE there escapes `GhlUnavailableException`
+    and becomes a 500 telling the GM to report a bug, instead of the 502 telling them the upstream
+    is misconfigured — the only one of the two they can act on. Guarded, and an empty stage list
+    now gives the same 502 a renamed pipeline does.
+  - **Two unguarded cache writes could discard or downgrade a `READY` payload.** A blind `put` let
+    a slow inline reader overwrite the background totaller's completed figures with `TOTALLING`
+    (and start a second background read for work just finished), and a failed background read
+    could blank real money figures to `UNAVAILABLE` for the rest of the TTL. Both are now
+    compare-and-set. Two callers racing past a stale entry is still unguarded and still fine.
+  - **`sources` was accessed unguarded in the marketing page** while `stages` had a guard — a
+    payload missing it would white-screen the page during render.
+  - **`ConfigSecretsTest` had a guard that could not fail**: `contains("${NAME:")` matches
+    `${JWT_SECRET:}` as happily as `${JWT_SECRET:dev-secret}`, so removing a local default would
+    have left a dead exemption in place. It now asserts a *non-empty* default using the same
+    pattern the offender scan runs on. Its `URL.getPath()` also broke on any build path containing
+    a space (`My%20Projects`); now `toURI()`.
+  - **`money.test.ts` asserted the opposite of the behaviour** — "drops cents rather than rounding
+    up" over `Intl.NumberFormat` with `maximumFractionDigits: 0`, which rounds half-up. It passed
+    only because `.4` rounds down. Now asserts rounding in both directions, with the reason
+    truncation is *not* wanted (it would understate a summed column systematically).
+  - **A third money formatter survived the consolidation `money.ts` claims to have finished.**
+    `ExpertProfile` rendered Standard fee as `1,250.00` (no symbol, two decimals, default locale)
+    while the board and Revenue dashboard rendered `$1,250`. Folded onto `formatMoney`, keeping
+    only the `null` → `—` distinction the shared formatter cannot know.
+  - **`countsAHugePeriodWithoutReadingASingleRow` was a race it happened to win**: it asserted
+    `never()).opportunitiesIn(...)` on a window that returns `TOTALLING` and therefore *starts a
+    background reader which legitimately reads rows*. Replaced with a stronger deterministic
+    claim — rows stubbed empty, counts still exact — since a row-derived figure would come back 0.
+  - **Docs corrected rather than appended to:** `application.yml` was the last place still
+    asserting the withdrawn "one location shared by every brand, so the figures are cross-brand"
+    claim, which the service, controller and nav all retract (each brand has its own sub-account,
+    so the figure is *one* brand's and merely unattributable). `WebhookSource.DROPBOX_SIGN` was
+    deleted in this branch but `.serena/memories/backend/webhooks.md` still said to leave the enum
+    value in place and spec 05 still documented `GHL | DROPBOX_SIGN`; both updated. **No cleanup
+    migration for existing `DROPBOX_SIGN` rows, and that is now stated as a decision** — the only
+    query on the column is always called with `GHL`, so such rows are excluded by the `WHERE`
+    clause and never converted back to the enum. The review's claim that they would fail a read
+    does not hold.
+  - Also corrected: `card.tsx` and `money.ts` credited the `money` opt-in to an unconditional `$`
+    the card "used to print", which is not in the history — it rendered a bare value with no
+    currency symbol at all. A fix credited to a bug that never happened is one somebody later
+    deletes as dead caution.
+
 - **Unit 26 — Marketing: the email funnel (GM) — is BUILT.** See
   `context/specs/26-marketing-email-funnel.md`. The GM now has a second GHL funnel beside
   the Google Ads one: **Shivangi's Email Marketing**, in the same location, through the same

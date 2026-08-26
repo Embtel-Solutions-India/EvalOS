@@ -82,7 +82,7 @@ dropped with no side effect.
 | column | type | notes |
 | --- | --- | --- |
 | id | uuid PK | |
-| source | text NOT NULL | `GHL` \| `DROPBOX_SIGN` |
+| source | text NOT NULL | `GHL` only. `DROPBOX_SIGN` was removed with the e-signature provider; column stays `text` (no `CHECK`) and part of the dedup key so a future source needs no re-key |
 | event_type | text NOT NULL | e.g. `payment.confirmed` |
 | external_id | text NOT NULL | idempotency key (invoice/payment/provider id) |
 | brand_id | uuid | resolved from endpoint token |

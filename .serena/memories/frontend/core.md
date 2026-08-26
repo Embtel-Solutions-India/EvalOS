@@ -117,6 +117,24 @@ is the leak** — single-brand on every other screen, and these are the figures 
 it. `navigation.test.ts` loops the assertion over **both** paths with the reasoning inline, so a
 third marketing screen added without the same door fails a test rather than shipping.
 
+## lib/money.ts — the one place a figure becomes text
+
+`formatMoney` (`$86,950`) and `formatCount` (`11,400`). **Two functions, and `formatMoney` is
+opt-in at every call site**: a currency symbol is a claim about what a number *is*, so defaulting it
+on would put `$93` on a deal count. That is a failure this *prevents*, not one the repo shipped —
+the card previously rendered a bare value with no currency symbol at all. (`card.tsx` and
+`money.ts` both used to credit the design to an unconditional `$` "this tile used to print",
+which is not in the history.)
+
+Cents are **rounded** away, not truncated (`maximumFractionDigits: 0` rounds half-up) — truncating
+would understate a summed column systematically, always in the same direction.
+
+**All three formatters are folded in as of 2026-08-26.** `CaseCard`'s copy went first; `ExpertProfile`
+was still rendering Standard fee as `1,250.00` (no symbol, two decimals, default locale) against the
+board's `$1,250`. It now delegates, keeping only the `null` → `—` distinction the shared formatter
+cannot know. USD is assumed — if a brand ever bills in anything else that needs a column, not a
+second guess here.
+
 ## features/marketing — the screens that read GHL (Units 24, 26)
 
 `marketingApi.ts` + `MarketingPipelinePage.tsx`. **One component serves both funnels**, taking
@@ -124,6 +142,21 @@ third marketing screen added without the same door fails a test rather than ship
 pipeline name arrives in the payload and replaces it). `funnel` sits in the `useMetrics` deps
 beside `dateRange`, or a route change would leave the other funnel's numbers under this one's
 heading. The file was `AdsPipelinePage.tsx` until Unit 26.
+
+**The shell's `dateRange` default is `month`, and it must stay `month`.** It was briefly flipped to
+`year` to suit this screen (the email funnel's newest deal is months old, so `year` is the only
+window with data in it) — but `dateRange` is **shared by two filters pointing in opposite
+directions**: the dashboards read it backwards ("what happened since") while `BoardView` reads it
+**forwards** through `dueBeforeFor`. `year` therefore moved the board's default deadline window
+from one month out to twelve, leaving the production board effectively unfiltered for every role on
+first load. **Do not add a per-screen default either** — that is a second source of truth for a
+control the user can already see, and this screen's empty state names the window it searched and
+says to widen it. One click beats unfiltering the board for everyone.
+
+**Guard `data?.sources?.` as well as `data?.stages`.** JSX children and the `state` prop are both
+evaluated before `Card` decides whether to render them, so `data?.sources.length` on a payload
+missing the field throws during render and takes the whole page white — the same failure `chartState`
+was written for.
 
 Four panels, all through the existing `Card`/`KpiCard` shells so they inherit
 `loading`/`error`/`empty` rather than inventing states. **The header prints "one GHL location" and

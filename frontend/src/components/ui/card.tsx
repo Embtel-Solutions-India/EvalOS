@@ -208,10 +208,14 @@ export function KpiCard({
   /**
    * Render the figure as an amount — `$86,950` — instead of a bare count.
    *
-   * **Opt-in, and it has to stay that way.** This tile used to print a `$` in front of *every*
-   * value unconditionally, which put `$93` on a deal count and `$94%` on a rate across all 28
-   * tiles in the app. A currency symbol is a claim about what a number *is*, so only the caller
-   * can make it.
+   * **Opt-in, and it has to stay that way.** A currency symbol is a claim about what a number
+   * *is*, so only the caller can make it — defaulting it on would put `$93` on a deal count and
+   * `$94%` on a rate across all 28 tiles.
+   *
+   * That is the failure this prevents, not one this tile shipped: it previously rendered a bare
+   * `{value ?? 0}` with no currency symbol anywhere in this file. Stated because an earlier
+   * version of this note described the unconditional `$` as history, and a fix credited to a bug
+   * that never happened is one somebody later removes as dead caution.
    */
   money?: boolean;
   unit?: string;

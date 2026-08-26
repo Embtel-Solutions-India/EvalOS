@@ -114,6 +114,24 @@ caller's argument rather than a deployment decision. The cache key is `(Funnel, 
 **both halves are load-bearing**: the two payloads are identical in shape, so an unkeyed slot
 serves one funnel under the other's heading for a whole TTL with nothing to contradict it.
 
+**The GHL window is whole days, both edges inclusive — use `DateRange.startDateFrom`, never
+`startFrom`.** `startFrom` is a *half-open instant* window (the last 24 hours), which is right for
+`MetricsController` reading EvalOS rows. GHL's filter is **date-only and inclusive on both ends**,
+so converting `startFrom` to a `LocalDate` made every window a day too wide and made `today` span
+*yesterday and today* — a screen headed "today" showing roughly double GHL's own figure. Fixed
+2026-08-26; `DateRangeTest` pins both shapes so the two methods are not collapsed into one.
+
+**The cache writes are compare-and-set, not `put`.** Two callers racing past a stale entry is
+still deliberately unguarded (a lock across a network call is worse). What is guarded: a slow
+inline reader must not overwrite the background totaller's completed `READY` figures with
+`TOTALLING` (which also restarted a background read for work just finished), and a failed
+background read must not blank a `READY` entry to `UNAVAILABLE` for the rest of the TTL.
+
+**Every field off the GHL wire is null-guarded, `stages()` included.** `pipelines()`,
+`opportunities()`, `meta()` and `stages()` — an unguarded NPE escapes `GhlUnavailableException` and
+becomes a 500 telling the GM to report an EvalOS bug, instead of the 502 telling them the upstream
+pipeline is misconfigured, which is the only one of the two they can act on.
+
 `MarketingController` (`GET /api/marketing/ads-pipeline` and `/email-pipeline`, both
 `hasRole('GM')`) is **its own controller rather than a sixth route on `MetricsController`** —
 everything there reads EvalOS tables scoped to the caller, while this leaves the building, is
@@ -208,9 +226,14 @@ frontend's typed mirror lives in `frontend/src/lib/api.ts`.
   needs a slug per entry to route and label it, and that slug is what the `Funnel` enum already is),
   `timeout` (10s, **per page**) and `cache-ttl` (`PT5M`). The token must be a GHL **Private
   Integration Token scoped `opportunities.readonly` and nothing wider**.
-  **`location-id` is one location shared by every brand** — that is what makes the marketing view
-  cross-brand and GM-only. If the brands are ever split across two GHL locations this becomes a
-  column on `brand`; do **not** add a second global property.
+  **`location-id` is ONE location for the whole deployment — and note what that does NOT mean.**
+  Each brand has its own GHL sub-account, so whatever is set here is **one brand's funnel, not a
+  cross-brand total**. EvalOS has no mapping from a location to a brand, so it cannot say which
+  brand, label it, or filter by it — which is why the view is GM-only: an *unattributable* figure
+  must not be shown to a role locked to one brand. (An earlier note here, and the comment in
+  `application.yml`, said the brands *share* one location and the figure was "cross-brand by
+  construction". That was wrong and is withdrawn.) A second brand is **not** a second property —
+  it is Unit 25 putting the location on `brand`.
 - `ddl-auto: validate`, `open-in-view: false` — do not relax either. Hibernate never touches schema.
 - Flyway `classpath:db/migration`: `V1` pgcrypto · `V2` brand · `V3` team_member · `V4`
   contact_snapshot · `V5` evalos_case · `V6` document_checklist_item · `V7` expert (+ the deferred

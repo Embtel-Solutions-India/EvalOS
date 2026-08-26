@@ -300,15 +300,23 @@ class MarketingPipelineServiceTest {
 		given(ghl.opportunitiesIn(eq("pipe-1"), any(), any())).willReturn(List.of());
 
 		MarketingPipelineService service = service(Duration.ofMinutes(5));
+		var today = service.forCaller(Funnel.ADS, DateRange.TODAY);
+		var week = service.forCaller(Funnel.ADS, DateRange.WEEK);
 		var month = service.forCaller(Funnel.ADS, DateRange.MONTH);
 		var year = service.forCaller(Funnel.ADS, DateRange.YEAR);
 
-		// Same end, earlier start. `to` is "today" in the business's zone for both.
+		// Same end, earlier start. `to` is "today" in the business's zone for all of them.
 		assertThat(year.to()).isEqualTo(month.to());
 		assertThat(year.from()).isBefore(month.from());
-		// 30 and 365 days back, which is the vocabulary DateRange owns.
-		assertThat(month.from()).isEqualTo(month.to().minusDays(30));
-		assertThat(year.from()).isEqualTo(year.to().minusDays(365));
+
+		// **Both edges inclusive, so a window of N days spans N days — not N + 1.** These used to
+		// assert `minusDays(30)` and `minusDays(365)`, which is one day too wide, and pinned the
+		// bug rather than the rule. `today` is where it showed: it covered YESTERDAY AND TODAY, so
+		// a screen headed "today" reported roughly double GHL's own figure for it.
+		assertThat(today.from()).isEqualTo(today.to());
+		assertThat(week.from()).isEqualTo(week.to().minusDays(6));
+		assertThat(month.from()).isEqualTo(month.to().minusDays(29));
+		assertThat(year.from()).isEqualTo(year.to().minusDays(364));
 	}
 
 	/**
@@ -328,6 +336,9 @@ class MarketingPipelineServiceTest {
 		given(ghl.countIn(eq("pipe-1"), eq("new"), any(), any())).willReturn(11_364);
 		given(ghl.countIn(eq("pipe-1"), eq("warm"), any(), any())).willReturn(20);
 		given(ghl.countIn(eq("pipe-1"), eq("won"), any(), any())).willReturn(48);
+		// **Rows are stubbed EMPTY on purpose, and that is the assertion.** If any figure below were
+		// derived from rows it would come back 0, because there are none to derive it from.
+		given(ghl.opportunitiesIn(eq("pipe-1"), any(), any())).willReturn(List.of());
 
 		var funnel = service(Duration.ofMinutes(5)).forCaller(Funnel.ADS, DateRange.YEAR);
 
@@ -339,8 +350,17 @@ class MarketingPipelineServiceTest {
 		assertThat(funnel.stages()).extracting(MarketingPipelineService.StageFunnel::sharePct)
 				.containsExactly(99, 0, 0, 0);
 
-		// **Not one row was read.** This is the whole point — 11,432 rows is 115 requests.
-		then(ghl).should(never()).opportunitiesIn(anyString(), any(), any());
+		// **The counts survive having no rows at all**, which is the whole point: 11,432 rows would
+		// be 115 sequential requests and the browser gave up at 15s, so the funnel above was built
+		// from GHL's own match counts.
+		//
+		// This deliberately does NOT assert `never()).opportunitiesIn(...)`. It used to, and that
+		// was a race it happened to win: a window this size returns TOTALLING and starts a
+		// background reader, which then legitimately reads rows on another thread — so the
+		// assertion was timing, not behaviour. `refusesRatherThanQueuesAWindowPastTheCeiling`
+		// keeps a `never()` because a window past the ceiling starts no reader at all, which makes
+		// it a real claim there.
+		assertThat(funnel.detail()).isEqualTo(Detail.TOTALLING);
 	}
 
 	/**

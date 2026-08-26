@@ -10,12 +10,14 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 import com.ie.evalos.common.DateRange;
 import com.ie.evalos.integration.GhlPipelineClient;
+import com.ie.evalos.integration.GhlUnavailableException;
 
 import jakarta.annotation.PreDestroy;
 
@@ -342,7 +344,26 @@ public class MarketingPipelineService {
 		// Only a successful read replaces the entry. A GhlUnavailableException propagates from
 		// read() and leaves the previous value alone — but it is NOT served, because a failed
 		// refresh must not be reported as a live figure. The screen shows the error instead.
-		cached.put(key, fresh);
+		//
+		// **Compare-and-set against the entry we actually decided on, rather than a blind put.**
+		// Two callers racing past a stale entry is still fine and still unguarded — two identical
+		// reads is cheaper than a lock held across a network call. What is NOT fine is this
+		// caller's ~1s of countIn calls finishing *after* the background totaller wrote READY:
+		// a blind put would replace complete figures with TOTALLING and, since `totalling` has
+		// already been cleared, kick off a second background read for work just completed.
+		// `replace(k, old, new)` rejects a null `old`, so a first-ever read is putIfAbsent instead.
+		// Both return false on exactly the case we care about: somebody else got there first.
+		boolean won = current == null ? cached.putIfAbsent(key, fresh) == null : cached.replace(key, current, fresh);
+		if (!won) {
+			// Somebody wrote a newer entry while we were reading. Theirs is at least as fresh as
+			// ours and may be strictly better (READY over our TOTALLING), so serve it and start
+			// nothing.
+			MarketingPipeline winner = cached.get(key);
+			if (winner != null) {
+				return winner;
+			}
+			cached.put(key, fresh);
+		}
 		if (fresh.detail() == Detail.TOTALLING) {
 			startTotalling(key, funnel, range);
 		}
@@ -374,9 +395,13 @@ public class MarketingPipelineService {
 			}
 			catch (RuntimeException ex) {
 				log.error("Background total for {} {} failed", funnel, range.wireName(), ex);
+				// Only downgrade the entry we were actually totalling for, and only while it is
+				// still TOTALLING. A blind put here would blank real money figures to UNAVAILABLE
+				// for the rest of the TTL if another thread had meanwhile written a READY entry —
+				// telling the GM the total is "not coming" over figures that had already arrived.
 				MarketingPipeline pending = cached.get(key);
-				if (pending != null) {
-					cached.put(key, pending.unavailable());
+				if (pending != null && pending.detail() == Detail.TOTALLING) {
+					cached.replace(key, pending, pending.unavailable());
 				}
 			}
 			finally {
@@ -396,7 +421,11 @@ public class MarketingPipelineService {
 		// date-only — so resolving the edges anywhere else would make "today" mean a different day
 		// to this screen than to the rest of EvalOS.
 		LocalDate to = LocalDate.ofInstant(now, BusinessCalendar.ZONE);
-		LocalDate from = LocalDate.ofInstant(range.startFrom(now), BusinessCalendar.ZONE);
+		// `startDateFrom`, NOT `startFrom` converted to a date. GHL's filter is inclusive on both
+		// edges, so counting back a whole `days` made every window one day too wide — and made
+		// `today` cover yesterday too, showing about double GHL's own figure under a "today"
+		// heading. DateRange owns the arithmetic and states why.
+		LocalDate from = range.startDateFrom(to);
 
 		GhlPipelineClient.Pipeline pipeline = ghl.pipelineNamed(pipelineNames.get(funnel));
 
@@ -404,9 +433,19 @@ public class MarketingPipelineService {
 		// is the whole reason a Year on a five-figure pipeline renders at all: it used to page
 		// every row to count them — 115 requests on the email funnel — and the browser gave up at
 		// 15s. Ordered by GHL's own `position` here so the funnel is built once, in order.
-		List<GhlPipelineClient.Pipeline.Stage> stages = pipeline.stages().stream()
+		// `stages` is guarded for the reason every other field off the wire is (`pipelines()`,
+		// `opportunities()`, `meta()`): GHL omitting it must not become a 500. An unguarded NPE
+		// escapes GhlUnavailableException, so the GM would be told to report a bug in EvalOS
+		// instead of being told the upstream pipeline is misconfigured — which is the one thing
+		// they can act on. Empty falls through to the same 502 a renamed pipeline gives.
+		List<GhlPipelineClient.Pipeline.Stage> stages = Optional.ofNullable(pipeline.stages()).orElse(List.of())
+				.stream()
 				.sorted(Comparator.comparingInt(GhlPipelineClient.Pipeline.Stage::position))
 				.toList();
+		if (stages.isEmpty()) {
+			throw new GhlUnavailableException(
+					"GHL pipeline '" + pipelineNames.get(funnel) + "' has no stages. Check the pipeline in GHL.");
+		}
 		Map<String, Integer> deals = new LinkedHashMap<>();
 		for (GhlPipelineClient.Pipeline.Stage stage : stages) {
 			deals.put(stage.id(), ghl.countIn(pipeline.id(), stage.id(), from, to));

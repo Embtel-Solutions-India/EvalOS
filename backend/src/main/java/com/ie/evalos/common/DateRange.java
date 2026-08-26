@@ -1,6 +1,7 @@
 package com.ie.evalos.common;
 
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
 
 /**
@@ -48,6 +49,25 @@ public enum DateRange {
 	/** The start of this window, counting back from {@code to}. */
 	public Instant startFrom(Instant to) {
 		return to.minus(days, ChronoUnit.DAYS);
+	}
+
+	/**
+	 * The first whole day of this window, where {@code to} is the last one and <strong>both edges
+	 * are inclusive</strong>.
+	 *
+	 * <p><strong>Not {@code startFrom} converted to a date, and the difference is a real bug that
+	 * shipped.</strong> {@code startFrom} describes a half-open instant window — the last 24 hours
+	 * — which is right for the metrics dashboards that subtract from an {@code Instant}. GHL's
+	 * filter is date-only with both edges inclusive, so reusing that subtraction here made
+	 * {@code TODAY} span <em>yesterday and today</em>: a screen headed "today" showing roughly
+	 * double GHL's own figure. Every range was one day wide, but only {@code today} was wrong by
+	 * 100%.
+	 *
+	 * <p>Hence {@code days - 1}: a one-day window is the single day {@code to}, and a seven-day
+	 * window is {@code to} plus the six before it.
+	 */
+	public LocalDate startDateFrom(LocalDate to) {
+		return to.minusDays(days - 1L);
 	}
 
 	/** Lower-case, matching the wire vocabulary the frontend sends. */

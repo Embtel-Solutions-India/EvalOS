@@ -2,10 +2,11 @@
  * The one place a figure becomes text.
  *
  * **Two functions rather than one, because the difference is the whole point.** A count and an
- * amount are not the same kind of number, and rendering them identically is what put `$93` on a
+ * amount are not the same kind of number: rendering them identically is what would put `$93` on a
  * deal *count* — a currency symbol in front of a quantity, which reads as a real figure and is
  * simply false. `formatMoney` is opt-in at every call site for that reason: nothing gets a `$`
- * by being a number, only by being money.
+ * by being a number, only by being money. (A failure this shape is prevented here, not recovered
+ * from — the card rendered a bare value before this, with no currency symbol in it at all.)
  *
  * Both group thousands. `$86950` is not how an amount reads, and an ungrouped five-digit count
  * is no better.

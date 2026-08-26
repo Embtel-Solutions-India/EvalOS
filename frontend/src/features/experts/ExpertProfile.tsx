@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useMe } from '../../lib/authContext'
+import { formatMoney } from '../../lib/money'
 import { useFilters } from '../shell/filtersContext'
 import { createExpert, fetchExpert, putPaymentDetail, setAvailability, updateExpert } from './expertApi'
 import {
@@ -481,8 +482,16 @@ function set(
   setForm((current) => ({ ...current, [field]: field === 'fullName' ? value : value || null }))
 }
 
+/**
+ * Delegates to the shared formatter, and only adds the one thing it cannot know: that a missing
+ * fee is '—' rather than $0. Those are different facts about an expert.
+ *
+ * This used to format independently — `1,250.00`, no symbol, two decimals, default locale —
+ * while the board and Revenue dashboard rendered the same kind of figure as `$1,250`. Same
+ * figure class, two renderings, and `money.ts` claims to be the one place a figure becomes text.
+ */
 function money(value: number | null): string {
-  return value == null ? '—' : value.toLocaleString(undefined, { minimumFractionDigits: 2 })
+  return value == null ? '—' : formatMoney(value)
 }
 
 function Fact({ term, value }: { term: string; value: string }) {

@@ -1,6 +1,7 @@
 package com.ie.evalos.config;
 
 import java.io.IOException;
+import java.net.URISyntaxException;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -117,15 +118,33 @@ class ConfigSecretsTest {
 	@ParameterizedTest
 	@ValueSource(strings = { "JWT_SECRET", "EVALOS_FIELD_KEY", "DB_PASSWORD" })
 	void theAllowlistedThrowawaysReallyAreStillThere(String name) throws IOException {
-		assertThat(Files.readString(resource(LOCAL_PROFILE), StandardCharsets.UTF_8))
-				.describedAs(name + " is allowlisted above; if it no longer has a local default, "
-						+ "shrink the allowlist rather than leaving a dead exemption.")
-				.contains("${" + name + ":");
+		// A NON-EMPTY default, which is the whole assertion. `contains("${NAME:")` matched
+		// `${JWT_SECRET:}` exactly as happily as `${JWT_SECRET:dev-secret}`, so this test could not
+		// fail on the one change it exists to catch: removing a local default would have left the
+		// exemption above sitting there dead, still granting an allowance nothing uses. Reuses the
+		// same pattern the offender scan runs on, so "defaulted" means one thing in this file.
+		assertThat(Files.readString(resource(LOCAL_PROFILE), StandardCharsets.UTF_8).lines()
+				.map(DEFAULTED::matcher)
+				.filter(Matcher::find)
+				.map((match) -> match.group(1))
+				.toList())
+				.describedAs(name + " is allowlisted above; if it no longer has a non-empty local "
+						+ "default, shrink the allowlist rather than leaving a dead exemption.")
+				.contains(name);
 	}
 
 	private static Path resource(String name) {
 		URL found = ConfigSecretsTest.class.getClassLoader().getResource(name);
 		assertThat(found).describedAs(name + " is not on the test classpath").isNotNull();
-		return Path.of(found.getPath().replaceFirst("^/(?=[A-Za-z]:)", ""));
+		try {
+			// `toURI`, not `getPath`. `getPath` returns the URL-encoded form, so any build
+			// directory containing a space arrives as `My%20Projects` and the read fails with
+			// NoSuchFileException — failing the build for a reason that has nothing to do with
+			// secrets. It also handles the Windows leading-slash case the old regex was patching.
+			return Path.of(found.toURI());
+		}
+		catch (URISyntaxException ex) {
+			throw new IllegalStateException("Cannot resolve " + name + " on the test classpath", ex);
+		}
 	}
 }
