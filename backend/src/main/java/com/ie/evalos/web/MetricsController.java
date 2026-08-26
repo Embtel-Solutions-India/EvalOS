@@ -1,10 +1,10 @@
 package com.ie.evalos.web;
 
-import java.time.Instant;
 import java.util.UUID;
 
 import com.ie.evalos.common.ApiResponse;
-import com.ie.evalos.common.DateRange;
+import com.ie.evalos.common.DateWindow;
+import com.ie.evalos.service.BusinessCalendar;
 import com.ie.evalos.service.CaseManagerMetricsService;
 import com.ie.evalos.service.CoordinatorMetricsService;
 import com.ie.evalos.service.DraftReviewService;
@@ -61,16 +61,32 @@ public class MetricsController {
 	}
 
 	/**
-	 * @param range one of {@code today}, {@code week}, {@code month}, {@code year} — the shell's
-	 *              own date filter vocabulary, so the header control and this parameter cannot
-	 *              drift apart.
+	 * @param range one of {@code today}, {@code week}, {@code month}, {@code year},
+	 *              {@code last-month}, {@code last-year} or {@code custom} — the shell's own date
+	 *              filter vocabulary, so the header control and this parameter cannot drift apart.
+	 *              <p>
+	 *              <strong>The four "this" ranges are calendar-to-date and that changed what this
+	 *              endpoint returns.</strong> {@code month} used to mean the last 30 days and now
+	 *              means since the 1st, so on the 3rd of a month this reports a far smaller figure
+	 *              than the same call did before — correctly, but anyone comparing against an old
+	 *              screenshot will think something broke. The labels are what made the old
+	 *              behaviour wrong: a control saying "This month" that answered for 30 days
+	 *              spanning two of them was stating something untrue.
+	 * @param from  ISO date, <strong>only</strong> with {@code range=custom}
+	 * @param to    ISO date, only with {@code range=custom}. Supplying either on a named range is a
+	 *              400 rather than silently ignored — see {@link DateWindow#of}
 	 */
 	@GetMapping("/pm")
 	@PreAuthorize("hasAnyRole('GM', 'BRAND_MANAGER', 'PROJECT_MANAGER')")
-	public ApiResponse<PmMetrics> pm(@RequestParam(defaultValue = "year") String range,
+	public ApiResponse<PmMetrics> pm(@RequestParam(defaultValue = "month") String range,
+			@RequestParam(required = false) String from,
+			@RequestParam(required = false) String to,
 			@RequestParam(required = false) UUID brandId) {
-		Instant to = Instant.now();
-		return ApiResponse.ok(metrics.forCaller(DateRange.parse(range).startFrom(to), to, brandId));
+		// Whole days in the business's zone, not an offset from this instant. `BusinessCalendar`
+		// already owns "what day is it here" for every SLA in the app, so a period boundary
+		// resolved anywhere else would put this screen on a different day from the rest of EvalOS.
+		DateWindow window = DateWindow.of(range, from, to, BusinessCalendar.clock());
+		return ApiResponse.ok(metrics.forCaller(window.startInstant(), window.endInstant(), brandId));
 	}
 
 	/**

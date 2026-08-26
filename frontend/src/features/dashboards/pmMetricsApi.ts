@@ -1,6 +1,6 @@
 import { api, unwrap } from '../../lib/api'
 import type { DeadlineRisk } from '../board/boardRules'
-import type { DateRange } from '../shell/filtersContext'
+import { rangeParams, type DateRange } from '../shell/filtersContext'
 
 /** `PmMetricsService.OnTimeDelivery`. */
 export type OnTimeDelivery = {
@@ -57,7 +57,10 @@ export async function fetchPmMetrics(
   brandId: string | null,
   signal?: AbortSignal,
 ): Promise<PmMetrics> {
-  const params: Record<string, string> = { range }
+  // `rangeParams` rather than `{ range }`: a custom period needs `from`/`to` alongside it, and
+  // the server refuses those on a named range rather than ignoring them — so which parameters go
+  // on the wire is a property of the period, not of this call site.
+  const params: Record<string, string> = rangeParams(range)
   if (brandId) params.brandId = brandId
   return unwrap<PmMetrics>(api.get('/metrics/pm', { params, signal }))
 }

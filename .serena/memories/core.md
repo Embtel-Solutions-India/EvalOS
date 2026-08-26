@@ -1,18 +1,35 @@
 # EvalOS — Core
 
+**The shell's date filter is backwards-looking and the production board's is forwards — two types,
+not one (Unit 28).** They were one shared value for two units, which once left the production board
+effectively unfiltered when the default was widened for a marketing screen. `DateRange` (seven
+periods: today/week/month/year to-date, last-month, last-year, custom) is the shell's; the board
+owns `DeadlineWindow` (week/month/year). **Enforced by the type — do not re-merge them.**
+`DateWindow` resolves a period into inclusive days and is the only place that arithmetic lives.
+
+**Verify the frontend with `npm run build`, never `npx tsc --noEmit`** — the root tsconfig has
+`files: []` with project references, so plain `tsc` checks nothing and exits 0. Three real errors
+hid behind it once.
+
 Back-of-house production CRM for a **multi-brand** credential-evaluation business (International
 Evaluations, XpertsPortal). Takes custody at **`opportunity.won`** in GoHighLevel (GHL) and owns the
 case to signed delivery + expert payout. GHL stays front-of-house (leads, sales, invoicing, review
 campaigns); **EvalOS never does marketing, sales, or invoicing.**
 
-**"Never does" means never *runs* — Units 24 and 26 draw the line and are the only things on the
-other side of it.** EvalOS *reads* two GHL funnels onto GM screens — the **Google ADS Pipeline**
-(Unit 24) and **Shivangi's Email Marketing** (Unit 26), both in the one configured location — and
-owns neither: no lead created, no stage moved, no campaign sent, no write back, and **nothing
-persisted** — there is no `ghl_opportunity` table and there must not be, because a stage a
+**"Never does" means never *runs* — Units 24, 26 and 27 draw the line and are the only things on the
+other side of it.** EvalOS *reads* three GHL pipelines onto GM screens — the **Google ADS Pipeline**
+(Unit 24), **Shivangi's Email Marketing** (Unit 26) and **Aditya's pipeline**, the sales team's own
+funnel (Unit 27) — all in the one configured location, and owns none of them: no lead created, no
+stage moved, no campaign sent, no write back, and **nothing persisted** — there is no `ghl_opportunity` table and there must not be, because a stage a
 salesperson dragged five seconds ago is already wrong in a copy. This resolves a question open
 since Unit 17 (whether EvalOS builds the sales/marketing dashboards) as **read-only GM views over
 pipelines in that location, everything else in GHL**.
+
+**Unit 27 is the sharpest test of "reads, never runs"**: it shows stages named `Invoice sent` and
+`Refund` and acts on neither, because invoicing is GHL's and a refund is a payment fact. Reading a
+*sales* pipeline is no more selling than reading a campaign funnel is marketing — and the screen's
+`Sales` nav heading does **not** buy it any different scoping: same `location-id`, same
+unattributable brand, same GM-only door.
 
 Unit 24 said a second marketing screen would be a new question; Unit 26 asked it and the answer is
 **yes for another *reading* of a pipeline in the same location, on identical terms**. Read that
@@ -74,9 +91,12 @@ verified. Unit 13 (redacted CV generation + the Drive write) is code-complete wi
 criterion outstanding — the manual live upload, blocked on a Google service account that does not
 exist. Unit 16 (payout ledger) is next — not 15, which waits on Unit 21 and on that same Google
 account; the schedule is `00-build-plan.md`'s "Execution sequence for v2.0", and it differs from the
-numbering on purpose.** Migrations run to **`V24`** (Unit 13 added none — nothing it produces is
-persisted; Unit 14 added three, its code review added `V23`, and Unit 05b added `V24`);
-**406 backend tests** (27 DB-backed, skipped without a local Postgres) and 111 frontend tests.
+numbering on purpose.** Migrations run to **`V26`** (Unit 13 added none — nothing it produces is
+persisted; Unit 14 added three, its code review added `V23`, Unit 05b added `V24`, the funnel cache
+added `V25`, and Unit 28 re-keyed it in `V26`);
+**494 backend tests** (29 DB-backed, and the DB suite no longer skips itself when Postgres is
+reachable) and **130 frontend tests**. Counts move every unit — treat them as a rough marker, and
+run the suites rather than quoting these.
 **Unit 23 made the Project Manager the front door and gave the case a conversation.** The GM lost the
 board's pool lane and the `/inbox` + `/checklists` nav entries (**nav only — no backend gate was
 narrowed**); `assign-pm` now admits the PM, who claims a pooled case from their inbox. A PM can read
@@ -132,11 +152,32 @@ params and the pagination cursor are proven, not assumed.
 so no credential reaches a command line — calls the real API and passes. Observed: `Google ADS
 Pipeline` id `g6lo50r9Wn0qZvmp2bMP`, `Shivangi's Email Marketing` id `LHoIRjpypwhswqO8Ayn0`, both
 six stages; the email funnel counted **11,417** over `2025-08-27..2026-08-26` from `meta.total`
-alone; the ads pipeline returned **0 rows in the last 30 days**. **The old "expected first load of
+alone; the ads pipeline returned **0 rows in the last 30 days**.
+
+**Re-run green for Unit 27 (2026-08-26).** `Aditya's  pipeline` id `tj2agZ90S1LQgCpDAoKi`,
+**nine** stages `[Meeting booked, New Lead, Warm, Hot, Invoice sent, Won, Cold, Lost, Refund]`,
+resolved from the **single-space** configured name — which is what proves the client's whitespace
+normalisation against GHL's real answer rather than against a fixture. **GHL stores that name with
+two spaces**; see `backend/core.md`. The location holds seven pipelines, four of them other teams'
+(`Alex Pipeline`, `Ayush's Professors Pipeline`, `Master Pipeline`, `Prince's Pipeline`) — which is
+why the readable set is a closed enum and not a query parameter. **The old "expected first load of
 93 deals (New Lead 7 / Warm 26 / Won 14)" was a hand check, never a live observation, and is
-stale — do not use it as an expected result.** What is still owed is narrower: nobody has opened
-the *screen* in a browser against live GHL, so the poll-until-`READY` handover has not been watched
-with real figures.
+stale — do not use it as an expected result.**
+
+**The screen itself is verified too, 2026-08-26.** Opened in a browser as the GM against live GHL:
+Year renders `Aug 26, 2025 – Aug 25, 2026` (365 days inclusive), **11,432 deals · 48 won · $34,301**,
+all six stages as rows including empties, and the sources table (`Unattributed 11,300 / $23,801`,
+`LCA 35 / $0` — an unpriced source counting as nothing). Month correctly renders the empty state
+naming its window. The poll-until-`READY` handover was watched end to end on the same run:
+`TOTALLING` with exact counts immediately, `READY` with the money ~75s later, same URL throughout.
+**Nothing about the marketing units is unverified now except brand scoping (Unit 25a).**
+
+**The Postgres cache was proven cross-process on the same run**: a *third* JVM with an empty heap,
+started after the figures were computed by another, served them in **0.14s** with a byte-identical
+`readAt` — so it read the other instance's row rather than calling GHL. That is both the
+restart-survival and the multi-instance handover, neither of which the old heap map could do.
+Dev login for this: `gm@evalos.local` / `DevPassw0rd!` (seeded by `V900`, and the seed is **not** in
+the app's default Flyway locations — a dev database only has it if it was seeded deliberately).
 
 Unit 05b re-pointed Handoff A to `opportunity.won` and **deleted the manual payment path** — details
 in `mem:backend/webhooks` and `mem:backend/lifecycle`. Its live hand-fired run is still owed, blocked

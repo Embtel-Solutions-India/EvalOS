@@ -1,6 +1,6 @@
 import { useMemo, useState, type ReactNode } from 'react'
 import { useMe } from '../../lib/authContext'
-import { FiltersContext, type DateRange } from './filtersContext'
+import { FiltersContext, DEFAULT_RANGE, type DateRange } from './filtersContext'
 
 /**
  * The two shell-wide filters the top bar owns: which brand is in view, and over what
@@ -14,15 +14,19 @@ import { FiltersContext, type DateRange } from './filtersContext'
 export default function FiltersProvider({ children }: { children: ReactNode }) {
   const me = useMe()
   const [activeBrandId, setActiveBrandId] = useState<string | null>(me.brandId)
-  // `month`, and NOT `year` — this value is shared by two filters that point in opposite
-  // directions. The dashboards read it backwards ("what happened since"), but the board reads it
-  // FORWARDS through `dueBeforeFor`, so `year` moves the default deadline window from one month
-  // out to twelve and leaves the production board effectively unfiltered for every role on first
-  // load. It was briefly `year` because the email funnel's newest deal is months old, so `year`
-  // is the only window with data in it — but a per-screen default is a whole second source of
-  // truth for a control the user can already see, and that screen's empty state names the window
-  // it searched and says to widen it. One click beats unfiltering the board for everyone.
-  const [dateRange, setDateRange] = useState<DateRange>('month')
+  // `month` — now meaning the 1st of this month through today, not the last 30 days.
+  //
+  // **The reason this default was contentious no longer applies, and the note stays as history.**
+  // This value used to be read in two directions: backwards by the dashboards, and FORWARDS by the
+  // production board through `dueBeforeFor`. That made the default a deadline window too, so
+  // setting it to `year` once left the board effectively unfiltered for every role on first load.
+  // The board now owns its own forward control (`features/board/deadlineWindow.ts`), because this
+  // filter gained periods — `last-month`, a custom interval — that cannot be a "due before" cutoff
+  // at all. So the default is once again only what it says: the period the dashboards open on.
+  //
+  // Still `month` rather than `year`: it is the period somebody actually works in, and a screen
+  // whose window is wider than the question is one you have to narrow before you can read it.
+  const [dateRange, setDateRange] = useState<DateRange>(DEFAULT_RANGE)
 
   const value = useMemo(
     () => ({ activeBrandId, setActiveBrandId, dateRange, setDateRange }),

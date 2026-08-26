@@ -259,10 +259,13 @@ The test is skipped unless `GHL_LIVE_TEST=true` and reads the token from
 `backend/config/application-local.yml`, so no credential reaches a command line and CI
 never touches the network.
 
-**Still owed, and it is a different item:** nobody has opened the *screen* in a browser
-against live GHL. The client is proven; the controller, cache and cards are covered by
-tests but not by a human looking at real figures. To do that, set both variables and open
-the screen:
+**Also closed 2026-08-26: the screen itself.** Opened in a browser as the GM against live GHL —
+see `26-marketing-email-funnel.md` for the figures, since the email funnel is the one with data in
+it today. This unit's own screen renders the same way from the same component; the ads pipeline
+holds no opportunities inside any window the filter offers, so it correctly shows the empty state
+naming the days it searched.
+
+For reference, to open either screen yourself:
 
 ```
 GHL_API_TOKEN=<private integration token, opportunities.readonly>

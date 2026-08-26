@@ -18,7 +18,7 @@ import {
 } from "../../components/ui/card";
 import { emptyWhen, useMetrics } from "../dashboards/useMetrics";
 import { formatCount, formatMoney } from "../../lib/money";
-import { useFilters, type DateRange } from "../shell/filtersContext";
+import { useFilters, rangeLabel } from "../shell/filtersContext";
 import {
   fetchMarketingPipeline,
   type MarketingFunnel,
@@ -163,7 +163,9 @@ export default function MarketingPipelinePage({
         />
 
         <ChartCard
-          title={`Leads by stage — ${PERIOD_LABEL[dateRange]}`}
+          // One label helper for the whole app, so a heading cannot name a different period
+          // from the control that set it — and so `custom` has a label at all.
+          title={`Leads by stage — ${rangeLabel(dateRange).toLowerCase()}`}
           wide
           note="Opportunities created in this period, counted in the stage they are in now. Hover for exact figures."
           state={chartState(state, data)}
@@ -172,7 +174,7 @@ export default function MarketingPipelinePage({
             <StageBars
               stages={data.stages}
               empty={data.totalDeals === 0}
-              period={PERIOD_LABEL[dateRange]}
+              period={rangeLabel(dateRange).toLowerCase()}
             />
           )}
         </ChartCard>
@@ -255,14 +257,6 @@ function chartState(
  * requests on an answer that is not ready; slower would leave a finished total sitting unread.
  */
 const TOTALLING_POLL_MS = 5_000;
-
-/** What the shell's period control means in a heading. */
-const PERIOD_LABEL: Record<DateRange, string> = {
-  today: "today",
-  week: "this week",
-  month: "this month",
-  year: "this year",
-};
 
 /**
  * Lead count per stage, as one horizontal bar per stage.

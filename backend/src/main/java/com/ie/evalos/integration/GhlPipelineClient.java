@@ -37,7 +37,8 @@ import org.springframework.web.util.UriBuilder;
  * inside invariant 6's "one bounded request": the timeout below, and the service's cache, so a
  * room full of open dashboards is not a room full of GHL calls.
  *
- * <p>Nothing is persisted. There is no {@code ghl_opportunity} table and there should not be —
+ * <p>No opportunity rows are persisted <em>by this client</em>. There is no
+ * {@code ghl_opportunity} table and there should not be —
  * a stage a salesperson dragged five seconds ago would already be wrong in it, and the contact
  * snapshots EvalOS <em>does</em> hold are the ones a case needs, arriving by webhook.
  */
@@ -205,8 +206,12 @@ public class GhlPipelineClient {
 		PipelinesResponse response = get(PipelinesResponse.class,
 				(uri) -> uri.path("/opportunities/pipelines").queryParam("locationId", locationId).build());
 
+		String wanted = squashed(name);
 		return Optional.ofNullable(response.pipelines()).orElse(List.of()).stream()
-				.filter((pipeline) -> name.equalsIgnoreCase(pipeline.name()))
+				// Empty `wanted` matches nothing on purpose: a blank or unset name property must
+				// fall through to the 502 below rather than silently bind to a pipeline GHL
+				// happens to have returned without a name.
+				.filter((pipeline) -> !wanted.isEmpty() && wanted.equalsIgnoreCase(squashed(pipeline.name())))
 				.findFirst()
 				// The configured name is echoed because it came from this environment's own
 				// configuration and is the thing to correct. The other pipelines' names are NOT
@@ -332,6 +337,33 @@ public class GhlPipelineClient {
 
 		// A window with no matches returns meta with a null total rather than a zero.
 		return response.meta() == null || response.meta().total() == null ? 0 : response.meta().total();
+	}
+
+	/**
+	 * A pipeline name with its edges trimmed and its internal whitespace runs collapsed to one
+	 * space, for comparison only — never for display.
+	 *
+	 * <p><strong>This exists because a live pipeline is named {@code Aditya's··pipeline}, with two
+	 * spaces.</strong> Nobody typing that name into an environment variable, a deployment script or
+	 * this repo's defaults would reproduce the second one, and nothing on any screen would show
+	 * that they had missed it: the configured value and GHL's value look identical side by side and
+	 * {@code equalsIgnoreCase} says they differ. The failure is the stated 502 rather than silence,
+	 * which is the right direction — but it is a 502 whose cause is invisible in both places you
+	 * would look for it, and the "fix" is to paste a double space into config and hope no editor,
+	 * shell or reviewer ever tidies it. That is not a fix, it is a trap with a comment on it.
+	 *
+	 * <p>So the accidental whitespace is normalised out of the <em>match</em>, and configuration
+	 * gets to hold the name a human would write. What is deliberately NOT normalised: case is
+	 * already handled by the caller's {@code equalsIgnoreCase}, and nothing else — no punctuation
+	 * stripping, no apostrophe folding, no fuzzy distance. A name that differs by a real character
+	 * is a different pipeline and must still fail loudly, because the whole point of matching by
+	 * name is that a rename in GHL is visible over here.
+	 *
+	 * <p>Applies to every funnel, not just this one: the ads and email names go through the same
+	 * comparison, so the next pipeline with a stray space costs nobody an afternoon.
+	 */
+	private static String squashed(String name) {
+		return name == null ? "" : name.strip().replaceAll("\\s+", " ");
 	}
 
 	private <T> T get(Class<T> type, java.util.function.Function<UriBuilder, java.net.URI> uri) {

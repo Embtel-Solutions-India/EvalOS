@@ -11,19 +11,25 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
-import com.ie.evalos.common.DateRange;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+
+import com.ie.evalos.common.DateWindow;
+import com.ie.evalos.domain.GhlFunnelCache;
 import com.ie.evalos.integration.GhlPipelineClient;
 import com.ie.evalos.integration.GhlUnavailableException;
+import com.ie.evalos.repository.GhlFunnelCacheRepository;
 
 import jakarta.annotation.PreDestroy;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
 
 /**
@@ -62,9 +68,28 @@ import org.springframework.stereotype.Service;
  * <p><strong>The whole payload is cached for one TTL and shared by every caller.</strong> Not an
  * optimisation: without it, five open dashboards polling their tiles are five GHL reads a
  * minute, each of them a multi-page pagination, and GHL's rate limit becomes an EvalOS outage.
- * The cache is per instance and deliberately not distributed — a few seconds of skew between two
- * app instances on a funnel count is invisible, and a shared cache is infrastructure this buys
- * nothing from.
+ *
+ * <p><strong>The cache is a table, {@code ghl_funnel_cache}, and it used to be a map on the
+ * heap.</strong> The earlier note here argued a per-instance map was fine because "a few seconds
+ * of skew between two instances on a funnel count is invisible". That reasoning was about the
+ * <em>counts</em>, and it missed what the map had since become: the handover for the background
+ * total. Three consequences followed, all the same defect — the handover state was private to one
+ * process:
+ * <ol>
+ * <li>A completed total was lost on restart, so the next reader paid the whole 11,000-row read
+ * again.</li>
+ * <li>With more than one instance, a screen polling a {@code TOTALLING} window could land on an
+ * instance that had never heard of it and wait forever, or flip between {@code READY} and
+ * {@code TOTALLING} depending on which instance answered.</li>
+ * <li>The rate-limit protection was per instance, so N instances meant N times GHL's budget —
+ * the exact outage the cache exists to prevent.</li>
+ * </ol>
+ *
+ * <p><strong>It is still a cache of a read, not a copy of the funnel.</strong> No opportunity rows
+ * are stored: there is no {@code ghl_opportunity} table and there must not be one, because a stage
+ * somebody dragged five seconds ago would already be wrong in it. What the row holds is the
+ * aggregate the screen draws plus the timestamp it was computed at. The table is safe to truncate;
+ * losing it costs one slow page load.
  */
 @Service
 public class MarketingPipelineService {
@@ -88,7 +113,25 @@ public class MarketingPipelineService {
 		ADS,
 
 		/** {@code evalos.ghl.email-pipeline-name} — the email marketing funnel. */
-		EMAIL
+		EMAIL,
+
+		/**
+		 * {@code evalos.ghl.sales-pipeline-name} — the sales team's own funnel.
+		 *
+		 * <p><strong>Not marketing, and that is why the screen sits under its own nav heading.</strong>
+		 * The other two constants are campaign funnels: leads a channel produced, grouped by where
+		 * they got to. This one is a salesperson's working pipeline — the same read against a third
+		 * GHL pipeline, and the read is identical, which is exactly why it is a third constant here
+		 * rather than a third code path anywhere.
+		 *
+		 * <p>It carries stages the marketing funnels do not — {@code Meeting booked},
+		 * {@code Invoice sent}, {@code Refund} — and none of them is special-cased. {@link Outcome}
+		 * reads a stage's <em>name</em>, so those three are {@link Outcome#OPEN} for the same reason
+		 * {@code Cold} is: they are not one of GHL's four status words, and inventing an outcome for
+		 * them here would put a vocabulary in EvalOS that the pipeline's owner can rename in GHL
+		 * tomorrow.
+		 */
+		SALES
 	}
 
 	/**
@@ -271,29 +314,43 @@ public class MarketingPipelineService {
 	private final Duration cacheTtl;
 
 	/**
-	 * One cached payload <strong>per funnel and period</strong>, and neither half of the key is
-	 * optional.
+	 * One cached payload <strong>per funnel and period</strong>, in the database, and neither half
+	 * of the key is optional.
 	 *
-	 * <p>This was a single {@code AtomicReference} while there was one funnel and no period
-	 * selector. Each time a dimension was added, an unkeyed slot would have served whichever
-	 * combination was fetched first to every other one — Month's figures under a Year label, or
-	 * the ads funnel under the email screen's heading, for a whole TTL, with no error anywhere.
-	 * That is the worst failure this screen has: confidently wrong numbers. Bounded by
-	 * construction, since both halves are small enums.
+	 * <p>This was a single {@code AtomicReference}, then a {@code ConcurrentHashMap}. Each time a
+	 * dimension was added, an unkeyed slot would have served whichever combination was fetched
+	 * first to every other one — Month's figures under a Year label, or the ads funnel under the
+	 * email screen's heading, for a whole TTL, with no error anywhere. That is the worst failure
+	 * this screen has: confidently wrong numbers.
+	 *
+	 * <p><strong>It is a table now, because the map was private to one process.</strong> That cost
+	 * three things, all the same defect: a completed background total was lost on restart, so the
+	 * next reader paid the whole 11,000-row read again; with more than one instance a screen
+	 * polling a {@code TOTALLING} window could land on an instance that had never heard of it and
+	 * wait forever, or flip between {@code READY} and {@code TOTALLING} depending on who answered;
+	 * and the rate-limit protection was per instance, so N instances meant N times GHL's budget.
+	 *
+	 * <p>Still a cache of a <em>read</em>, not a copy of the pipeline — no opportunity rows are
+	 * stored, only the aggregate the screen draws. Safe to truncate; losing it costs one slow page.
 	 */
-	private final Map<CacheKey, MarketingPipeline> cached = new ConcurrentHashMap<>();
+	private final GhlFunnelCacheRepository cache;
 
-	private record CacheKey(Funnel funnel, DateRange range) {
-	}
+	/** Turns the payload record into the row's {@code jsonb} and back. */
+	private final ObjectMapper json;
 
 	/**
-	 * The windows whose background total is already running, so a screen polling every few seconds
-	 * queues one read rather than one per poll.
+	 * How long a background-total claim is honoured before another caller may take it over.
 	 *
-	 * <p>Entries are added before submission and removed in a {@code finally}, so a read that
-	 * throws does not wedge the key permanently — the next caller past the TTL starts a fresh one.
+	 * <p><strong>This exists because a row outlives the process that wrote it.</strong> The
+	 * in-heap {@code totalling} set it replaces was cleaned up by a {@code finally}, and died with
+	 * the JVM either way — so a crash could not wedge anything. A claim in the database can: an
+	 * instance killed mid-total would leave {@code totalling_since} set and every later caller
+	 * politely declining to retry, and the window would sit at {@code TOTALLING} until somebody
+	 * looked. Generous rather than tight, because the thing it bounds legitimately takes ~13s at
+	 * GHL's pacing and taking a claim over while the first read is still running wastes the
+	 * budget it is pacing against.
 	 */
-	private final java.util.Set<CacheKey> totalling = ConcurrentHashMap.newKeySet();
+	private static final Duration TOTALLING_CLAIM_TTL = Duration.ofMinutes(10);
 
 	/**
 	 * Where a window too large to total inline gets totalled.
@@ -317,57 +374,156 @@ public class MarketingPipelineService {
 		totaller.shutdownNow();
 	}
 
-	MarketingPipelineService(GhlPipelineClient ghl,
+	MarketingPipelineService(GhlPipelineClient ghl, GhlFunnelCacheRepository cache, ObjectMapper json,
 			@Value("${evalos.ghl.ads-pipeline-name}") String adsPipelineName,
 			@Value("${evalos.ghl.email-pipeline-name}") String emailPipelineName,
+			@Value("${evalos.ghl.sales-pipeline-name}") String salesPipelineName,
 			@Value("${evalos.ghl.cache-ttl}") Duration cacheTtl) {
 		this.ghl = ghl;
-		this.pipelineNames = new EnumMap<>(Map.of(Funnel.ADS, adsPipelineName, Funnel.EMAIL, emailPipelineName));
+		this.cache = cache;
+		this.json = json;
+		this.pipelineNames = new EnumMap<>(Map.of(Funnel.ADS, adsPipelineName, Funnel.EMAIL, emailPipelineName,
+				Funnel.SALES, salesPipelineName));
 		this.cacheTtl = cacheTtl;
 	}
 
 	/**
 	 * The funnel, from cache when it is fresh and from GHL when it is not.
 	 *
-	 * <p>Two callers racing past a stale entry both call GHL and the second write wins. That is
-	 * left unguarded on purpose: the alternative is holding a lock across a network call, which
-	 * turns one slow upstream request into every dashboard blocking on it. Two identical reads
-	 * is the cheaper failure.
+	 * <p>Two callers racing past a stale row both call GHL, and that is left unguarded on purpose:
+	 * the alternative is holding a lock across a network call, which turns one slow upstream
+	 * request into every dashboard blocking on it. Two identical reads is the cheaper failure.
+	 *
+	 * <p><strong>What is guarded is the write.</strong> The loser of that race must not clobber the
+	 * winner — see {@link #store}.
 	 */
-	public MarketingPipeline forCaller(Funnel funnel, DateRange range) {
-		CacheKey key = new CacheKey(funnel, range);
-		MarketingPipeline current = cached.get(key);
-		if (current != null && Duration.between(current.readAt(), Instant.now()).compareTo(cacheTtl) < 0) {
-			return current;
+	public MarketingPipeline forCaller(Funnel funnel, DateWindow window) {
+		Optional<GhlFunnelCache> existing = cache.findByFunnelAndWindowKey(funnel.name(), window.key());
+		Optional<MarketingPipeline> usable = existing.filter(this::isFresh).flatMap(this::payloadOf);
+		if (usable.isPresent()) {
+			return usable.get();
 		}
-		MarketingPipeline fresh = read(funnel, range, false);
-		// Only a successful read replaces the entry. A GhlUnavailableException propagates from
-		// read() and leaves the previous value alone — but it is NOT served, because a failed
-		// refresh must not be reported as a live figure. The screen shows the error instead.
+
+		// A GhlUnavailableException propagates from here and leaves the previous row alone — but it
+		// is NOT served, because a failed refresh must not be reported as a live figure. The screen
+		// shows the error instead.
+		MarketingPipeline fresh = read(funnel, window, false);
+
+		// **Winning the row write IS winning the totalling claim**, because the claim is a column in
+		// that same versioned write rather than a separate step. Only one racing caller can win it,
+		// so only one starts a background read — which is what the in-heap `totalling` set used to
+		// do, minus the set.
 		//
-		// **Compare-and-set against the entry we actually decided on, rather than a blind put.**
-		// Two callers racing past a stale entry is still fine and still unguarded — two identical
-		// reads is cheaper than a lock held across a network call. What is NOT fine is this
-		// caller's ~1s of countIn calls finishing *after* the background totaller wrote READY:
-		// a blind put would replace complete figures with TOTALLING and, since `totalling` has
-		// already been cleared, kick off a second background read for work just completed.
-		// `replace(k, old, new)` rejects a null `old`, so a first-ever read is putIfAbsent instead.
-		// Both return false on exactly the case we care about: somebody else got there first.
-		boolean won = current == null ? cached.putIfAbsent(key, fresh) == null : cached.replace(key, current, fresh);
-		if (!won) {
-			// Somebody wrote a newer entry while we were reading. Theirs is at least as fresh as
-			// ours and may be strictly better (READY over our TOTALLING), so serve it and start
-			// nothing.
-			MarketingPipeline winner = cached.get(key);
-			if (winner != null) {
-				return winner;
+		// An existing live claim is respected: it means another instance is already reading this
+		// window's rows, so this caller refreshes the counts and leaves the total alone. A claim
+		// left behind by a killed instance is not live (see TOTALLING_CLAIM_TTL) and is taken over.
+		boolean claimHeld = existing.map(MarketingPipelineService::isClaimLive).orElse(false);
+		boolean startTotal = fresh.detail() == Detail.TOTALLING && !claimHeld;
+		Instant claim = startTotal ? Instant.now()
+				: existing.map(GhlFunnelCache::getTotallingSince).filter((held) -> claimHeld).orElse(null);
+
+		if (!store(existing.orElse(null), funnel, window, fresh, claim)) {
+			// Somebody wrote while we were reading. Theirs is at least as fresh as ours and may be
+			// strictly better (READY over our TOTALLING), so serve it and start nothing.
+			Optional<MarketingPipeline> winner = cache.findByFunnelAndWindowKey(funnel.name(), window.key())
+					.flatMap(this::payloadOf);
+			if (winner.isPresent()) {
+				return winner.get();
 			}
-			cached.put(key, fresh);
+			// The row vanished between the failed write and this read, which happens only if the
+			// cache was truncated underneath us. Serve what we read and let the next caller
+			// re-populate; the figures in hand are correct either way.
+			return fresh;
 		}
-		if (fresh.detail() == Detail.TOTALLING) {
-			startTotalling(key, funnel, range);
+
+		if (startTotal) {
+			startTotalling(funnel, window);
 		}
 		return fresh;
+	}
+
+	/** Within the TTL, measured from when GHL was asked rather than when the row was written. */
+	private boolean isFresh(GhlFunnelCache row) {
+		return Duration.between(row.getReadAt(), Instant.now()).compareTo(cacheTtl) < 0;
+	}
+
+	/**
+	 * Whether somebody is currently totalling this window.
+	 *
+	 * <p>Time-bounded rather than a plain null check, because the row outlives the process that
+	 * wrote it: an instance killed mid-read leaves the column set, and without an expiry every
+	 * later caller would politely decline to retry and the window would sit at {@code TOTALLING}
+	 * until a human noticed.
+	 */
+	private static boolean isClaimLive(GhlFunnelCache row) {
+		Instant held = row.getTotallingSince();
+		return held != null && Duration.between(held, Instant.now()).compareTo(TOTALLING_CLAIM_TTL) < 0;
+	}
+
+	/**
+	 * The stored payload, or empty when it cannot be read back.
+	 *
+	 * <p><strong>A payload this version cannot parse is a cache miss, never an error.</strong> The
+	 * record gains fields as the screen does, and a row written by the previous deployment must not
+	 * become a 500 on the first request after a rollout — the right answer is to ask GHL again and
+	 * overwrite it. Logged at warn because a <em>persistent</em> failure here means every request is
+	 * paying for an upstream read, which is a performance bug worth seeing.
+	 */
+	private Optional<MarketingPipeline> payloadOf(GhlFunnelCache row) {
+		try {
+			return Optional.of(json.readValue(row.getPayload(), MarketingPipeline.class));
+		}
+		catch (JsonProcessingException stale) {
+			log.warn("Discarding unreadable {} {} cache payload; re-reading from GHL", row.getFunnel(),
+					row.getWindowKey(), stale);
+			return Optional.empty();
+		}
+	}
+
+	/**
+	 * Write the window's figures, and report whether this caller won the write.
+	 *
+	 * <p><strong>Compare-and-set, not a blind save, and the two failure modes it prevents both
+	 * happened.</strong> A slow inline read whose {@code countIn} calls finish <em>after</em> the
+	 * background totaller wrote {@code READY} would replace complete figures with
+	 * {@code TOTALLING} and start a second background read for work already finished. And a failed
+	 * background read would blank real money figures to {@code UNAVAILABLE} for the rest of the
+	 * TTL. {@code @Version} on the entity is what makes the loser lose instead.
+	 *
+	 * <p>The insert race is the same question one layer down: two callers on a cold cache both
+	 * insert, and the unique key on {@code (funnel, range_name)} decides it. Losing there is the
+	 * same outcome as losing the update, so both answer {@code false}.
+	 */
+	private boolean store(GhlFunnelCache existing, Funnel funnel, DateWindow window, MarketingPipeline payload,
+			Instant totallingSince) {
+		String body;
+		try {
+			body = json.writeValueAsString(payload);
+		}
+		catch (JsonProcessingException cannotSerialise) {
+			// The payload just built cannot be written. That is a bug in the record rather than a
+			// race, so it must not masquerade as a lost write — and it must not fail the request
+			// either, because the figures in hand are correct and the caller can have them uncached.
+			log.error("Cannot serialise the {} {} payload; serving it without caching", funnel,
+					window.key(), cannotSerialise);
+			return true;
+		}
+
+		try {
+			if (existing == null) {
+				cache.saveAndFlush(new GhlFunnelCache(funnel.name(), window.key(), body,
+						payload.detail().name(), payload.readAt(), totallingSince));
+			}
+			else {
+				existing.refresh(body, payload.detail().name(), payload.readAt(), totallingSince);
+				cache.saveAndFlush(existing);
+			}
+			return true;
+		}
+		catch (OptimisticLockingFailureException | DataIntegrityViolationException lost) {
+			log.debug("Lost the {} {} cache write to a concurrent caller", funnel, window.key());
+			return false;
+		}
 	}
 
 	/**
@@ -375,37 +531,37 @@ public class MarketingPipelineService {
 	 * payload with the complete one.
 	 *
 	 * <p><strong>The cache is the delivery mechanism, not a side effect.</strong> There is no
-	 * queue, no job table and nothing for the client to hold onto: the screen polls the same URL
-	 * it already polls, and one of those polls happens to be the one where the entry has become
-	 * {@link Detail#READY}. That is why this needs no new endpoint and survives a browser refresh
-	 * — the state lives with the figures rather than with the caller.
+	 * queue, no job table and nothing for the client to hold onto: the screen polls the same URL it
+	 * already polls, and one of those polls happens to be the one where the row has become
+	 * {@link Detail#READY}. That is why this needs no new endpoint and survives a browser refresh —
+	 * and now that the row is in the database, it also survives a restart and works with more than
+	 * one instance. The state lives with the figures rather than with the process.
 	 *
 	 * <p>A failure is written back as {@link Detail#UNAVAILABLE} rather than left as
 	 * {@code TOTALLING}, because a screen polling for something that already failed would wait
-	 * forever. The entry still ages out on the normal TTL, so the next reader retries.
+	 * forever. The row still ages out on the normal TTL, so the next reader retries.
 	 */
-	private void startTotalling(CacheKey key, Funnel funnel, DateRange range) {
-		if (!totalling.add(key)) {
-			return;
-		}
+	private void startTotalling(Funnel funnel, DateWindow window) {
 		totaller.execute(() -> {
 			try {
-				log.info("Totalling {} {} in the background", funnel, range.wireName());
-				cached.put(key, read(funnel, range, true));
+				log.info("Totalling {} {} in the background", funnel, window.key());
+				MarketingPipeline complete = read(funnel, window, true);
+				// Re-read rather than reusing the row claimed on the request thread: this is a
+				// different thread, seconds to minutes later, and the version to check the write
+				// against is whatever is in the table now.
+				store(cache.findByFunnelAndWindowKey(funnel.name(), window.key()).orElse(null), funnel, window,
+						complete, null);
 			}
 			catch (RuntimeException ex) {
-				log.error("Background total for {} {} failed", funnel, range.wireName(), ex);
-				// Only downgrade the entry we were actually totalling for, and only while it is
-				// still TOTALLING. A blind put here would blank real money figures to UNAVAILABLE
-				// for the rest of the TTL if another thread had meanwhile written a READY entry —
-				// telling the GM the total is "not coming" over figures that had already arrived.
-				MarketingPipeline pending = cached.get(key);
-				if (pending != null && pending.detail() == Detail.TOTALLING) {
-					cached.replace(key, pending, pending.unavailable());
-				}
-			}
-			finally {
-				totalling.remove(key);
+				log.error("Background total for {} {} failed", funnel, window.key(), ex);
+				// Only downgrade the row actually being totalled, and only while it is still
+				// TOTALLING. Blanking a READY row would tell the GM the total is "not coming" over
+				// figures that had already arrived. Releasing the claim is what lets the next
+				// caller past the TTL try again rather than wait on a read that is not coming.
+				cache.findByFunnelAndWindowKey(funnel.name(), window.key())
+						.filter((row) -> Detail.TOTALLING.name().equals(row.getDetail()))
+						.ifPresent((row) -> payloadOf(row).ifPresent(
+								(stale) -> store(row, funnel, window, stale.unavailable(), null)));
 			}
 		});
 	}
@@ -414,18 +570,17 @@ public class MarketingPipelineService {
 	 * @param totalWhateverTheSize read every row for the money and sources even when there are too
 	 *                             many to do inside a request. True only on the background thread
 	 */
-	private MarketingPipeline read(Funnel funnel, DateRange range, boolean totalWhateverTheSize) {
-		Instant now = Instant.now();
-		// **The window is whole days in the business's own zone, not UTC's.** `BusinessCalendar`
-		// already owns "what day is it here" for every SLA in the app, and GHL's filter is
-		// date-only — so resolving the edges anywhere else would make "today" mean a different day
-		// to this screen than to the rest of EvalOS.
-		LocalDate to = LocalDate.ofInstant(now, BusinessCalendar.ZONE);
-		// `startDateFrom`, NOT `startFrom` converted to a date. GHL's filter is inclusive on both
-		// edges, so counting back a whole `days` made every window one day too wide — and made
-		// `today` cover yesterday too, showing about double GHL's own figure under a "today"
-		// heading. DateRange owns the arithmetic and states why.
-		LocalDate from = range.startDateFrom(to);
+	private MarketingPipeline read(Funnel funnel, DateWindow window, boolean totalWhateverTheSize) {
+		// **The window arrives resolved and is not recomputed here.** It used to be derived in this
+		// method from `Instant.now()` and the range's day count, which was the second place the
+		// question "what does this period mean" got answered — and the two answers had already
+		// disagreed once, giving a window a day too wide. `DateWindow` owns it now, whole days in
+		// the business's own zone, which is also what GHL's date-only filter wants natively.
+		//
+		// It matters more than tidiness for `last-month`: that window does not end today, so a
+		// method that derives `to` from the current instant cannot express it at all.
+		LocalDate from = window.from();
+		LocalDate to = window.to();
 
 		GhlPipelineClient.Pipeline pipeline = ghl.pipelineNamed(pipelineNames.get(funnel));
 
@@ -469,7 +624,7 @@ public class MarketingPipelineService {
 				detail == Detail.READY ? sumOf(opportunities) : null,
 				funnel(stages, deals, opportunities, totalDeals, detail == Detail.READY),
 				sources(opportunities), Instant.now(),
-				range.wireName(), from, to, detail);
+				window.range().wireName(), from, to, detail);
 	}
 
 	/** Total it now, hand it to the background thread, or refuse it outright. */

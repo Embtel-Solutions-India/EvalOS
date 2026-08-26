@@ -78,6 +78,44 @@ may only be made about data that arrived.
   `DateFilter`, `NotificationBell`, and `filtersContext` (`useFilters()` → `activeBrandId`, the date
   window). `useMe()` from `lib/authContext` is the principal; it throws below the shell rather than
   returning null.
+  - **`DateFilter` is backwards-looking only** (Unit 28): four calendar-to-date buttons, a native
+    `<select>` for Last month / Last year / Custom, and two native `<input type="date">` for a
+    date-to-date range — no picker dependency. The custom draft is held locally and committed only
+    when **both** edges are set and ordered, because a `from`-only window is a 400 and repainting
+    the app mid-edit is worse than waiting.
+
+## Sticky layering — everything that sticks does so BELOW the top bar
+
+`TopBar` is `sticky top-0 z-20` and owns the viewport top. **Anything else that sticks takes
+`top: var(--header-height)`**, never `top-0`: two sticky elements at the same offset is not a
+layering problem to solve with z-index — whichever loses is simply hidden. `StageActions` (the case
+detail header) shipped as `sticky top-0 z-10` and was painted over by the bar; fixed 2026-08-27.
+
+**`--header-height` (72px) is a contract, not a current value.** Sticky offsets are measured from
+it, so **nothing may make the top bar taller** — that is why `DateFilter` does not `flex-wrap`.
+
+**And sideways is not a free escape either.** The bar's search is `min-w-0 flex-1`, but it bottoms
+out at **54px and stops shrinking**; past that the row spills and `Sign out` goes off the edge —
+25px at a 1100px bar, which is the 1366px laptop `styles` says the staff run. So a control that
+needs real width goes in a **popover** (`components/ui/menu.tsx`), not inline in the bar: that is
+what the custom date range does, behind a chip that doubles as its readout.
+
+**And check the padding you think you are cancelling.** `AppShell`'s main is
+`padding: 0 var(--shell-gutter) var(--shell-gutter)` — **no top padding**. A `-mt-*` on a
+full-bleed band cancels nothing and just pulls it into the bar. The horizontal bleed is
+`--shell-gutter` (1.25rem), not `-mx-6` (1.5rem).
+
+## Verifying the frontend — `npx tsc --noEmit` CHECKS NOTHING
+
+The root `tsconfig.json` is `{"files": [], "references": [...]}`, so plain `tsc` has no inputs and
+exits 0 over an empty set. Only **`tsc -b`** — which `npm run build` runs — checks the referenced
+projects. Unit 28 found **three real errors** behind that no-op, one of them a production call site
+(`AssignPopover.tsx` passing a bare string where the union was required).
+
+**Verify with `npm run build`**, or `tsc --noEmit -p tsconfig.app.json` for a type-only pass. A
+green typecheck that inspected no files is worse than none, because it gets reported as evidence.
+And note what even a real typecheck misses: rendering an object in JSX (`{dateRange}`) type-checked
+fine and throws at runtime.
 
 ## navigation.ts is one table, three consumers
 
@@ -107,15 +145,27 @@ it.
 `/experts` beside `/expert-database` were all deleted for the same reason, and the test asserts their
 absence so they are not re-added.
 
-**`/marketing/google-ads` and `/marketing/email` are GM-only, and that is a scoping fact rather
-than a taste call** (Units 24, 26). `NavGroup` gained **`Marketing`**, sitting above `Pipeline`
-because these are the funnels *before* EvalOS takes custody and Pipeline is everything after. The
-role list is `['GM']` because both endpoints read the one configured GHL location, which has no
-mapping to a brand: no `brand_id` can narrow the figure, so only the cross-brand role may see it,
-and neither endpoint accepts a `brandId` at all. **The Brand Manager is the tempting addition and
-is the leak** — single-brand on every other screen, and these are the figures that cannot honour
-it. `navigation.test.ts` loops the assertion over **both** paths with the reasoning inline, so a
-third marketing screen added without the same door fails a test rather than shipping.
+**`/marketing/google-ads`, `/marketing/email` and `/sales/pipeline` are GM-only, and that is a
+scoping fact rather than a taste call** (Units 24, 26, 27). `NavGroup` gained **`Marketing`** and
+then **`Sales`**, both sitting above `Pipeline` because these are the funnels *before* EvalOS takes
+custody and Pipeline is everything after. The role list is `['GM']` because all three endpoints read
+the one configured GHL location, which has no mapping to a brand: no `brand_id` can narrow the
+figure, so only the cross-brand role may see it, and no endpoint accepts a `brandId` at all.
+**The Brand Manager is the tempting addition and is the leak** — single-brand on every other screen,
+and these are the figures that cannot honour it. `navigation.test.ts` loops the assertion over **all
+three** paths with the reasoning inline, so a fourth screen added without the same door fails a test
+rather than shipping.
+
+**`Sales` is its own group, not a third `Marketing` entry, and the reason is not cosmetic**: the
+first two are campaign funnels (leads a channel produced), while `/sales/pipeline` is a
+salesperson's working pipeline carrying stages they do not have. One heading over all three would
+present them as comparable channel results. It sits **between** Marketing and Pipeline because
+that is the order of the business — campaign, then close, then custody at Handoff A. **Grouping is
+by consecutive runs of `group`, so an entry's position in `NAV_ITEMS` *is* the heading order**; a
+`Sales` item filed anywhere else in the list would render a second `Sales` heading.
+**The nav split does not follow through to the API** — the route stays
+`/api/marketing/sales-pipeline` and the types stay in `marketingApi.ts`. A `salesApi.ts` would
+duplicate every type to rename one string.
 
 ## lib/money.ts — the one place a figure becomes text
 
@@ -135,21 +185,45 @@ board's `$1,250`. It now delegates, keeping only the `null` → `—` distinctio
 cannot know. USD is assumed — if a brand ever bills in anything else that needs a column, not a
 second guess here.
 
-## features/marketing — the screens that read GHL (Units 24, 26)
+## features/marketing — the screens that read GHL (Units 24, 26, 27)
 
-`marketingApi.ts` + `MarketingPipelinePage.tsx`. **One component serves both funnels**, taking
-`funnel: 'ads' | 'email'` (which endpoint) and `title` (a placeholder heading only — GHL's own
-pipeline name arrives in the payload and replaces it). `funnel` sits in the `useMetrics` deps
-beside `dateRange`, or a route change would leave the other funnel's numbers under this one's
-heading. The file was `AdsPipelinePage.tsx` until Unit 26.
+`marketingApi.ts` + `MarketingPipelinePage.tsx`. **One component serves all three funnels**, taking
+`funnel: 'ads' | 'email' | 'sales'` (which endpoint) and `title` (a placeholder heading only — GHL's
+own pipeline name arrives in the payload and replaces it, which is what lets three identical layouts
+stay tellable apart). `funnel` sits in the `useMetrics` deps beside `dateRange`, or a route change
+would leave another funnel's numbers under this one's heading. The file was `AdsPipelinePage.tsx`
+until Unit 26.
 
-**The shell's `dateRange` default is `month`, and it must stay `month`.** It was briefly flipped to
-`year` to suit this screen (the email funnel's newest deal is months old, so `year` is the only
-window with data in it) — but `dateRange` is **shared by two filters pointing in opposite
-directions**: the dashboards read it backwards ("what happened since") while `BoardView` reads it
-**forwards** through `dueBeforeFor`. `year` therefore moved the board's default deadline window
-from one month out to twelve, leaving the production board effectively unfiltered for every role on
-first load. **Do not add a per-screen default either** — that is a second source of truth for a
+**Unit 27 added no file here** — a union member and one route-table line in `App.tsx`. If a fourth
+funnel needs a component of its own, something has actually changed; check that first.
+
+**The two-directions collision is RESOLVED as of Unit 28, and this is the note to read first.**
+`dateRange` used to be shared by two filters pointing opposite ways: the dashboards read it
+backwards ("what happened since") while `BoardView` read it **forwards** through `dueBeforeFor`.
+Setting it to `year` for this screen once moved the board's deadline window from one month out to
+twelve and left the production board effectively unfiltered for every role on first load.
+
+It is split now, **in the type**: `features/board/deadlineWindow.ts` owns `DeadlineWindow`
+(`week|month|year`, forward, rendered as the board's own `Due within` select) and the shell owns
+`DateRange` (backward). Passing one where the other belongs does not compile. The split was forced
+rather than tidied — the filter gained `last-month`, `last-year` and a custom interval, and
+**`last-month` as a "due before" cutoff returns every open case** while an interval is two edges
+where a cutoff needs one. **Do not re-point `BoardView` at the shell filter.**
+
+`DateRange` is a **discriminated union** — `{kind: NamedRange} | {kind: 'custom', from, to}` — so a
+custom period cannot exist without its dates. Go through the three helpers rather than branching on
+`kind`: `rangeParams` (wire params — sends `from`/`to` **only** for custom, because the server 400s
+on dates with a named range rather than ignoring them), `rangeLabel` (screen label, and it renders a
+custom period's actual dates rather than the word "custom"), `sameRange` (which control is lit).
+**`rangeLabel` is not optional for display**: `dateRange` is an object, and rendering it directly
+throws "Objects are not valid as a React child" — a bug `tsc` did not catch and `PmDashboard` had.
+
+The four "this" ranges are **calendar-to-date**, not rolling windows. That moved every dashboard
+figure: `month` was the last 30 days and is now since the 1st.
+
+**The default is still `month`** — no longer for the board's sake, which now has its own filter, but
+because a dashboard opening on a twelve-month window is one the reader has to narrow before it
+answers anything. **Do not add a per-screen default either** — that is a second source of truth for a
 control the user can already see, and this screen's empty state names the window it searched and
 says to widen it. One click beats unfiltering the board for everyone.
 

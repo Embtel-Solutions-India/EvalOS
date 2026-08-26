@@ -39,7 +39,7 @@ row, so there is no side effect to lose — the rule's actual concern. Forced by
 per location, so ~13s minimum, past the browser's 15s timeout. `GhlPipelineClient` paces every
 request 110ms apart to stay under that limit — shared across all threads, since the limit is per
 location. The payload carries `Detail` = `READY | TOTALLING | UNAVAILABLE`; the screen polls the same
-URL and the existing `(funnel, range)` cache is the handover, so there is no job id and no second
+URL and the existing `(funnel, window)` cache is the handover, so there is no job id and no second
 endpoint. A failed background read lands as `UNAVAILABLE` so a poller stops.
 
 **`GhlPipelineClient` (Unit 24) — the GHL read client. Plain `RestClient`, no new dependency**
@@ -59,11 +59,14 @@ worth knowing:
   derives the outcome from the **stage name, matched ignoring case and surrounding space**
   (`Won`/`won`/`WON`/`" Won "` are one thing), and every `StageFunnel` carries it. `Cold` proves
   it is a match and not a vibe: not one of GHL's four status words, so it stays `OPEN`. The rule
-  is on the name, so both funnels get it with nothing special-cased.
+  is on the name, so **all three funnels** get it with nothing special-cased — including Unit 27's
+  `Meeting booked`, `Invoice sent` and `Refund`, which are `OPEN` for exactly `Cold`'s reason.
 - **Cursor pagination** (`startAfter`/`startAfterId`, what GHL's own `nextPageUrl` uses), not page
   numbers: a salesperson dragging a card mid-read is the normal case, and a cursor cannot skip or
-  double-count the row that moved. Loop capped at 50 pages — now a runaway guard only, because
-  **row paging is no longer how the funnel is counted**.
+  double-count the row that moved. Loop capped at **1,500** pages — a runaway guard only, because
+  **row paging is no longer how the funnel is counted**. (It said 50 here and in the code, which was
+  *silently truncating*: 50 pages is 5,000 rows against the email funnel's 11.4k year. A cap below
+  what a caller may legitimately ask for is not a guard, it is a wrong answer with a log line.)
 - **`countIn(pipelineId, stageId, from, to)` is the counting path, and it is the reason the Year
   view exists.** GHL returns the match count in `meta.total` on any search, so a `limit=1` request
   with `pipelineStageId` applied gives an exact stage count in **one** request. Counting by
@@ -94,9 +97,29 @@ a speed-up**: one payload, one TTL, shared by every caller — without it N open
 multi-page GHL reads per refresh. A **failed refresh is never served from the previous value**; it
 propagates so the screen shows the error, because a kept figure shown without its failure is the
 "looks live and is not" bug. The payload carries `readAt` so the screen states its own age. Two
-racing callers both call GHL and the last write wins — left unguarded on purpose, since the
-alternative holds a lock across a network call. Nothing is persisted: **no `ghl_opportunity`
-table, and there must not be one.**
+racing callers both call GHL — left unguarded on purpose, since the alternative holds a lock across
+a network call. **The WRITE is guarded though**: it is compare-and-set (`@Version`), because the
+loser of that race must not overwrite a completed background total with `TOTALLING`, and a failed
+background read must not blank a `READY` row to `UNAVAILABLE`.
+
+**The cache is a TABLE, `ghl_funnel_cache`, since 2026-08-26 — it was a `ConcurrentHashMap`.** The
+old note here said "nothing is persisted", and that is no longer true of the aggregate. It moved
+because a heap map is private to one process, which cost three things: a completed background total
+was lost on restart; a screen polling a `TOTALLING` window could hit an instance that had never
+heard of it and wait forever, or flip between `READY` and `TOTALLING`; and the rate-limit protection
+was per instance, so N instances meant N times GHL's budget. Row per `(funnel, range_name)`, payload
+as one `jsonb` document (nothing queries inside it), `detail` and `read_at` lifted out as columns,
+`totalling_since` as the background claim — **a timestamp so the claim can EXPIRE**, since a row
+outlives the instance that wrote it and a killed totaller would otherwise wedge the window forever.
+
+**What is still NOT persisted: opportunity rows. No `ghl_opportunity` table, and there must not be
+one** — a stage dragged five seconds ago would already be wrong in it. Only the aggregate the screen
+draws is stored. Not brand-scoped, deliberately: the figures come from one global GHL location
+EvalOS cannot attribute to a brand, so a `brand_id` would be a column nobody could fill in
+correctly. Unit 25 adds it with the location move. Safe to truncate; losing it costs one slow page.
+
+A payload this version cannot deserialise is treated as a **cache miss, never an error**, so a
+record that gained a field does not 500 the first request after a rollout.
 
 **Source rows are grouped case-insensitively**, keyed on `toLowerCase(Locale.ROOT)` — `ROOT`
 because a Turkish-locale JVM lower-cases `I` to `ı` and would split the rows this joins. The row
@@ -113,16 +136,74 @@ those are read only when `totalDeals <= DETAIL_ROW_BUDGET` (1,000 = 10 pages). A
 the screen says which figures it could not compute. **Never a partial total** — a sum over
 whichever rows fitted looks exactly like a real number, which is the failure this replaced.
 
-**Two funnels, one service (Unit 26).** A `Funnel` enum (`ADS`, `EMAIL`) keys into two configured
-names, `evalos.ghl.ads-pipeline-name` and `evalos.ghl.email-pipeline-name`. **There is deliberately
-no pipeline-name parameter** — the location holds seven pipelines and five are other teams', so a
+**Three funnels, one service (Units 26, 27).** A `Funnel` enum (`ADS`, `EMAIL`, `SALES`) keys into
+three configured names, `evalos.ghl.{ads,email,sales}-pipeline-name`. **There is deliberately
+no pipeline-name parameter** — the location holds seven pipelines and four are other teams', so a
 name on the query string would let any GM read all of them and make the screen's contents a
 caller's argument rather than a deployment decision. The cache key is `(Funnel, DateRange)` and
-**both halves are load-bearing**: the two payloads are identical in shape, so an unkeyed slot
-serves one funnel under the other's heading for a whole TTL with nothing to contradict it.
+**both halves are load-bearing**: the payloads are identical in shape, so an unkeyed slot
+serves one funnel under another's heading for a whole TTL with nothing to contradict it.
 
-**The GHL window is whole days, both edges inclusive — use `DateRange.startDateFrom`, never
-`startFrom`.** `startFrom` is a *half-open instant* window (the last 24 hours), which is right for
+**Unit 27 was the test of this shape and it held**: the third pipeline cost a property, an enum
+constant, a controller method, a nav entry and a union member — **no new class on either side**.
+Keep doing that. `SALES` is the sales team's own working pipeline (nine stages, including
+`Meeting booked`, `Invoice sent`, `Refund`) rather than a campaign funnel, so **its screen sits
+under a `Sales` nav heading while its route stays `/api/marketing/sales-pipeline`** on
+`MarketingController`. That asymmetry is deliberate: a `SalesController` holding one method that
+called `forCaller` would split one integration across two doors to fix a word. None of its three
+new stage names is special-cased — `Outcome` reads names and knows only GHL's status words, so all
+three are `OPEN`, as `Cold` already was. **`Refund` was declined as an outcome constant**: it is a
+money event belonging to the payment record, not a shape in a funnel.
+
+**`GhlPipelineClient.pipelineNamed` collapses whitespace runs and trims before comparing, and that
+is load-bearing rather than defensive.** The live sales pipeline is named `Aditya's··pipeline`
+with **two spaces** — so the single-space spelling any human types into config did not match, and
+the screen answered 502 whose cause is invisible in both places anyone would look (the two strings
+render identically). Pasting the double space into the yml profiles was rejected: correct only
+until an editor, linter, shell or reviewer normalises whitespace. **Case and whitespace are the
+only things forgiven** — no punctuation stripping, no fuzzy matching, because a name differing by a
+real character *is* a different pipeline and must still fail loudly, which is the entire reason
+matching is by name. Pinned in `GhlPipelineClientHttpTest` (fixture holds the real double space)
+and, decisively, in `GhlPipelineClientLiveTest` — only a real call proves the fixture matches what
+GHL returns.
+
+**Periods are `DateWindow`, not `DateRange`, as of Unit 28 — and `DateRange` no longer does any
+arithmetic.** It carried an `int days` and every window was "now minus N days"; that cannot express
+a calendar-to-date period (no fixed width — "this month" is 1 day wide on the 1st) or `last-month`
+(does not end today at all). So `DateRange` is now **only the vocabulary** — `today`, `week`,
+`month`, `year`, `last-month`, `last-year`, `custom`, hyphenated on the wire — and
+`common/DateWindow` resolves a name into a pair of **inclusive days**. `startFrom` and
+`startDateFrom` are gone; there is one resolver.
+
+Three things about it that are load-bearing:
+- **Days are the primitive, instants are derived** (`startInstant()`/`endInstant()`). GHL's filter
+  is date-only and inclusive; the metrics callers convert. The old code went the other way and
+  shipped a bug — an instant window converted to dates came out a day too wide, so "today" covered
+  yesterday and roughly doubled its figure.
+- **`endInstant()` is EXCLUSIVE** while the days are inclusive. An inclusive end would be the last
+  representable instant, and anything stored with finer precision falls outside it.
+- **It takes a `Clock` (`BusinessCalendar.clock()`), which carries both the zone and "today".** One
+  source, so a window cannot be resolved in one zone and converted in another. Tests pass
+  `Clock.fixed`, which is why every boundary case is testable without waiting for a calendar.
+
+**Validation is at the boundary and refuses rather than ignores**: `custom` needs both ISO edges,
+`from` may not follow `to` (equal is fine), and **explicit dates on a NAMED range are a 400** — a
+caller writing `?range=month&from=…` means that window, and answering for this month is a wrong
+number wearing a right label. No maximum span, deliberately: the GHL screens already degrade to
+`UNAVAILABLE` past their row ceiling, and a second definition of "too big" would disagree with it.
+
+**`ghl_funnel_cache` is keyed on the RESOLVED WINDOW (`window_key`, V26), not the range name.**
+Every custom period is *named* `custom`, so a name-keyed row would be shared by two different
+windows and serve one's figures for the other — undetectable, because the payloads are identical in
+shape. Same failure as dropping `funnel` from the key, one axis over. It also fixed a smaller fault
+free: a `month` row used to keep answering after midnight. V26 **deletes** old rows rather than
+translating them — which window a row covered depended on the day it was written, which the row
+never recorded.
+
+**The old note below is kept because the rule it states still holds, one layer down.**
+
+**The GHL window is whole days, both edges inclusive** — now guaranteed by `DateWindow` rather than
+by picking the right accessor. `startFrom` is a *half-open instant* window (the last 24 hours), which is right for
 `MetricsController` reading EvalOS rows. GHL's filter is **date-only and inclusive on both ends**,
 so converting `startFrom` to a `LocalDate` made every window a day too wide and made `today` span
 *yesterday and today* — a screen headed "today" showing roughly double GHL's own figure. Fixed
@@ -139,13 +220,15 @@ background read must not blank a `READY` entry to `UNAVAILABLE` for the rest of 
 becomes a 500 telling the GM to report an EvalOS bug, instead of the 502 telling them the upstream
 pipeline is misconfigured, which is the only one of the two they can act on.
 
-`MarketingController` (`GET /api/marketing/ads-pipeline` and `/email-pipeline`, both
-`hasRole('GM')`) is **its own controller rather than a sixth route on `MetricsController`** —
+`MarketingController` (`GET /api/marketing/ads-pipeline`, `/email-pipeline` and `/sales-pipeline`,
+all three `hasRole('GM')`, each taking `range` plus `from`/`to` for `range=custom`) is **its own controller rather than a sixth route on `MetricsController`** —
 everything there reads EvalOS tables scoped to the caller, while this leaves the building, is
-unattributable to a brand, and 502s instead of 500s. Neither route takes a **`brandId`**: the
+unattributable to a brand, and 502s instead of 500s. **No route takes a `brandId`**: the
 location is one global setting with no mapping to a brand, so a parameter would narrow nothing
 while implying it had. One route per funnel rather than `/pipeline/{name}`, for the same reason
-the enum exists.
+the enum exists. **The GM-only rule is per-*location*, not per-screen** — `/sales-pipeline` sits
+under a different nav heading and inherits it unchanged, which is the assumption most likely to be
+dropped when a fourth screen is added.
 
 ## `job`, when it stops being empty (Unit 19)
 
@@ -229,8 +312,10 @@ frontend's typed mirror lives in `frontend/src/lib/api.ts`.
   `GhlPipelineClient` logs a warning at boot so it is not discovered as a surprise. Also
   `base-url`, `api-version` (GHL versions by *header*, `2021-07-28` — a name, not a secret, so it
   has a default and a bump is an environment change), `ads-pipeline-name` (`Google ADS Pipeline`),
-  `email-pipeline-name` (`Shivangi's Email Marketing`, Unit 26 — two names, **not** a list: a list
-  needs a slug per entry to route and label it, and that slug is what the `Funnel` enum already is),
+  `email-pipeline-name` (`Shivangi's Email Marketing`, Unit 26), `sales-pipeline-name`
+  (`Aditya's pipeline`, Unit 27 — **written with ONE space where GHL stores TWO; the client
+  normalises whitespace, so do not "fix" it**) — three names, **not** a list: a list
+  needs a slug per entry to route and label it, and that slug is what the `Funnel` enum already is,
   `timeout` (10s, **per page**) and `cache-ttl` (`PT5M`). The token must be a GHL **Private
   Integration Token scoped `opportunities.readonly` and nothing wider**.
   **`location-id` is ONE location for the whole deployment — and note what that does NOT mean.**
@@ -281,9 +366,15 @@ frontend's typed mirror lives in `frontend/src/lib/api.ts`.
 - Map every controller under `/api` (the Vite dev proxy). Endpoints are **secured by default**: a new
   one answers 401 until `SecurityConfig` permits it or the caller bears a token — and a route under
   `/api/portal/**` lands on the *other* chain (`PortalSecurityConfig`), which accepts no JWT at all.
-- Tests are slice (`@WebMvcTest`) or plain unit tests needing no DB, so `verify` is green anywhere.
-  Everything that needs a real schema lives in one gated `@SpringBootTest`
-  (`LocalPostgresIntegrationTest`, `-Devalos.db.test=true`). No Testcontainers, no Docker.
+- Tests are slice (`@WebMvcTest`) or plain unit tests needing no DB. Everything that needs a real
+  schema lives in one `@SpringBootTest`, `LocalPostgresIntegrationTest`. No Testcontainers, no Docker.
+- **That suite now RUNS whenever a Postgres is reachable (changed 2026-08-26).** It used to be gated
+  on `-Devalos.db.test=true` alone, which meant 27 tests silently skipped on every machine that had a
+  database — so a green `mvnw test` said nothing about the schema, the migrations or the encryption.
+  The gate is a connection probe (`postgresIsUsable`); the flag still wins when set, in **both**
+  directions (`true` forces it on so CI fails loudly on a broken provisioned DB, `false` forces it
+  off for a fast offline run). Every connection failure means *skip*, not *fail*, so a fresh checkout
+  without Postgres still builds.
 
 Deeper: `mem:backend/security` for the auth chain, JWT, tenant context and the scoping/ownership
 mechanism; `mem:backend/persistence` for entity, repository, audit and field-encryption patterns;

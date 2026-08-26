@@ -198,8 +198,17 @@ That is the load-bearing claim of this whole unit verified against production da
 counts do not come from rows, so the five-figure funnel renders without the 115
 sequential requests that blew the frontend's 15s timeout.
 
-**Still owed, and a different item:** the screen itself has not been opened in a browser
-against live GHL, so the poll-until-`READY` handover has not been watched end to end with
-real figures.
+**Also closed 2026-08-26: the screen itself.** Verified in a browser 2026-08-26 as the GM against live GHL: **Month** renders the empty state
+naming its window (`Jul 27 – Aug 25`, 30 days inclusive) and saying to widen the period; **Year**
+renders `Aug 26, 2025 – Aug 25, 2026` (365 days inclusive — the fixed arithmetic on screen),
+**11,432 deals · 48 won · 0 lost · $34,301**, all six stages as rows including the empty ones
+(New Lead 11,364 · Hot 20 · Won 48), and the sources table with `Unattributed 11,300 / $23,801`,
+`Application Form 36 / $5,450` and `LCA 35 / $0` — an unpriced source counting as nothing, exactly
+as the card claims. The header carries "one GHL location · year · … · read 09:55 AM".
+
+The **poll-until-`READY` handover** was watched end to end through the API on the same run:
+the first call answered `TOTALLING` with exact counts immediately, and the fifteenth poll
+(~75s later) answered `READY` with `totalValue 34301` and 13 sources — no second endpoint, no job
+id, the same URL throughout.
 
 Depends on: 24 (the client, service, card system and nav entry this extends).

@@ -134,11 +134,21 @@ evalos:
     # The second funnel on the same location: the email marketing pipeline. Same rules as the
     # line above — matched by name, breaks loudly on a rename.
     #
-    # TWO NAMES, NOT A LIST. A list would need a slug per entry to route and label it, and the
-    # slug is what the enum in MarketingPipelineService already is. If a third funnel is ever
-    # asked for, add a third property and a third constant; do not turn this into a map keyed by
-    # whatever GHL happens to call a pipeline this quarter.
+    # THREE NAMES, NOT A LIST. A list would need a slug per entry to route and label it, and the
+    # slug is what the enum in MarketingPipelineService already is. The third funnel below was the
+    # test of that instruction and it held: a property and a constant, no new code path. Keep
+    # doing that; do not turn this into a map keyed by whatever GHL happens to call a pipeline
+    # this quarter.
     email-pipeline-name: ${GHL_EMAIL_PIPELINE_NAME:Shivangi's Email Marketing}
+    # The sales team's own funnel — same location, same rules, and NOT a marketing campaign. It is
+    # here because the property is a GHL pipeline name like the two above; the screen it feeds
+    # sits under the Sales nav heading rather than Marketing.
+    #
+    # THE NAME IN GHL HAS TWO SPACES IN IT ("Aditya's<space><space>pipeline"). This default has
+    # one, deliberately, and it still matches: GhlPipelineClient collapses whitespace runs before
+    # comparing, precisely so nobody has to notice or preserve an invisible character here. Do not
+    # "correct" this line by pasting the double space back in — read that method's comment first.
+    sales-pipeline-name: ${GHL_SALES_PIPELINE_NAME:Aditya's pipeline}
     # Connect and read timeout on each GHL request. Required for the same reason drive.timeout
     # is: this runs in a controller-triggered path, and a bound is what keeps it "one bounded
     # request" rather than long-lived work (invariant 6). The read is paginated, so the bound is

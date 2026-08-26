@@ -1,4 +1,4 @@
-import type { DateRange } from '../shell/filtersContext'
+import type { DeadlineWindow } from './deadlineWindow'
 import type { Role } from '../../lib/session'
 
 /**
@@ -494,17 +494,26 @@ export function allInsideSla(mix: SlaMix): boolean {
 }
 
 /**
- * The shell's date filter, as the deadline window the board asks the server for.
+ * The board's deadline horizon, as the `dueBefore` cutoff it asks the server for.
  *
- * End-of-day on the far edge, so "today" includes a case due this afternoon. Pure and
- * exported for the same reason the tables are: an off-by-one here silently hides work.
+ * End-of-day on the far edge, so a one-week window includes a case due at 5pm on the seventh day.
+ * Pure and exported for the same reason the tables are: an off-by-one here silently hides work.
+ *
+ * **Takes a `DeadlineWindow`, not the shell's `DateRange`, and the arithmetic below is unchanged.**
+ * It used to take the shell filter, which meant a control labelled "This year" for the dashboards
+ * silently became a twelve-month deadline horizon here. The split is in the type; the clamping is
+ * the same code it always was, because that part was never the bug.
+ *
+ * There is no `today` case any more and there never really was one: the shell's `today` fell
+ * through every branch to end-of-today, which was correct by accident. Now the window is a closed
+ * set of three and the compiler enforces that each is handled.
  */
-export function dueBeforeFor(range: DateRange, now: Date = new Date()): string {
+export function dueBeforeFor(window: DeadlineWindow, now: Date = new Date()): string {
   const end = new Date(now)
   end.setHours(23, 59, 59, 999)
-  if (range === 'week') end.setDate(end.getDate() + 7)
-  if (range === 'month') addMonths(end, 1)
-  if (range === 'year') addMonths(end, 12)
+  if (window === 'week') end.setDate(end.getDate() + 7)
+  if (window === 'month') addMonths(end, 1)
+  if (window === 'year') addMonths(end, 12)
   return end.toISOString()
 }
 

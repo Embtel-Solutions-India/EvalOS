@@ -19,4 +19,16 @@ public class InvalidRequestException extends RuntimeException {
 	public InvalidRequestException(String message) {
 		super(message);
 	}
+
+	/**
+	 * With the underlying fault kept as the cause.
+	 *
+	 * <p>For the case where a library exception is what <em>detected</em> the bad input — a
+	 * {@code DateTimeParseException} on a malformed date, say. The message is still the
+	 * caller-facing one; the cause is for the log, so a parse failure is diagnosable without
+	 * putting a stack trace in the response.
+	 */
+	public InvalidRequestException(String message, Throwable cause) {
+		super(message, cause);
+	}
 }

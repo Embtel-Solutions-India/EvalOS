@@ -85,6 +85,12 @@ class GhlPipelineClientHttpTest {
 			      "position":3,"stageWinProbability":57.14},
 			     {"id":"s-cold","name":"Cold","showInFunnel":true,"showInPieChart":true,
 			      "position":4,"stageWinProbability":71.43}],
+			   "locationId":"kBumF0uUOmMBB5bneYjx"},
+			  {"id":"tj2agZ90S1LQgCpDAoKi","name":"Aditya's  pipeline","showInFunnel":true,
+			   "showInPieChart":true,"useOpportunityProbability":false,
+			   "dateAdded":"2025-02-27T21:04:41.498Z","dateUpdated":"2026-08-13T00:14:58.176Z",
+			   "stages":[{"id":"a-new","name":"New Lead","showInFunnel":true,"position":1,
+			              "stageWinProbability":22.22}],
 			   "locationId":"kBumF0uUOmMBB5bneYjx"}]}
 			""";
 
@@ -369,6 +375,45 @@ class GhlPipelineClientHttpTest {
 	 * act on it. The message names the configured pipeline (which came from this environment) and
 	 * <strong>not</strong> the other pipelines in the account — those are other teams' funnels.
 	 */
+	/**
+	 * <strong>The live sales pipeline is named {@code Aditya's··pipeline} — with two spaces.</strong>
+	 *
+	 * <p>Pinned with the fixture holding the real double-space name and the lookup passing the
+	 * single-space name a human would actually type into configuration. Revert the normalisation in
+	 * {@code pipelineNamed} and this fails, which is the point: the bug it prevents is a 502 whose
+	 * cause is one invisible character, identical-looking in the config file and in GHL's UI, and
+	 * the tempting "fix" is to paste the second space into three yml files and trust that no editor,
+	 * shell or reviewer ever strips it.
+	 *
+	 * <p>The trailing-space case is asserted alongside because it is the same class of accident from
+	 * the other direction — a copy-paste out of GHL's UI picks one up, and nothing shows it.
+	 */
+	@Test
+	void matchesAPipelineWhoseGhlNameCarriesWhitespaceNobodyWouldRetype() {
+		responses.add(PIPELINES_JSON);
+		responses.add(PIPELINES_JSON);
+
+		assertThat(client().pipelineNamed("Aditya's pipeline").id()).isEqualTo("tj2agZ90S1LQgCpDAoKi");
+		assertThat(client().pipelineNamed("  Google ADS Pipeline ").id()).isEqualTo(ADS_PIPELINE);
+	}
+
+	/**
+	 * Whitespace is forgiven; <strong>a real character is not.</strong>
+	 *
+	 * <p>The companion to the test above, and the reason it is a separate assertion rather than a
+	 * line inside it: normalisation that drifted into stripping punctuation or fuzzy-matching would
+	 * keep that test green while quietly making a rename in GHL invisible over here — which is the
+	 * one thing matching by name exists to surface.
+	 */
+	@Test
+	void stillRefusesANameThatDiffersByMoreThanWhitespace() {
+		responses.add(PIPELINES_JSON);
+
+		assertThatThrownBy(() -> client().pipelineNamed("Adityas pipeline"))
+				.isInstanceOf(GhlUnavailableException.class)
+				.hasMessageContaining("Adityas pipeline");
+	}
+
 	@Test
 	void aMisconfiguredPipelineNameFailsLoudlyWithoutNamingTheOthers() {
 		responses.add(PIPELINES_JSON);

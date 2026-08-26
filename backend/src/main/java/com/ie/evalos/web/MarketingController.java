@@ -1,7 +1,8 @@
 package com.ie.evalos.web;
 
 import com.ie.evalos.common.ApiResponse;
-import com.ie.evalos.common.DateRange;
+import com.ie.evalos.common.DateWindow;
+import com.ie.evalos.service.BusinessCalendar;
 import com.ie.evalos.service.MarketingPipelineService;
 
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -48,22 +49,33 @@ public class MarketingController {
 	/**
 	 * The paid-search funnel.
 	 *
-	 * @param range one of {@code today}, {@code week}, {@code month}, {@code year} — the shell's own
+	 * @param range one of {@code today}, {@code week}, {@code month}, {@code year},
+	 *              {@code last-month}, {@code last-year} or {@code custom} — the shell's own
 	 *              date-filter vocabulary, shared with {@code MetricsController} through
-	 *              {@link DateRange} so the control and this parameter cannot drift apart.
+	 *              {@link DateWindow} so the control and this parameter cannot drift apart.
 	 *              <p>
 	 *              It filters on the opportunity's <strong>created-at</strong> date in GHL, so the
 	 *              funnel answers "deals created in this window, grouped by the stage they are in
-	 *              now". Defaulted to {@code year} to match the shell's own initial selection —
-	 *              a different default here would put the control and the figures in disagreement
-	 *              on first load. Moved from {@code month} with that control; the two are one
-	 *              decision and have to be changed together.
+	 *              now".
+	 *              <p>
+	 *              <strong>Defaulted to {@code month}, which is a correction.</strong> This said
+	 *              {@code year} and claimed to "match the shell's own initial selection" — the
+	 *              shell's default is {@code month} and has been since it was reverted for
+	 *              unfiltering the board, so the comment asserting they agreed was the only thing
+	 *              keeping them apart. It rarely bit because the frontend always sends an explicit
+	 *              range; a default nothing exercises is exactly where a stale claim survives.
+	 * @param from  ISO date, <strong>only</strong> with {@code range=custom}
+	 * @param to    ISO date, only with {@code range=custom}. Either one on a named range is a 400
+	 *              rather than silently ignored
 	 */
 	@GetMapping("/ads-pipeline")
 	@PreAuthorize("hasRole('GM')")
 	public ApiResponse<MarketingPipelineService.MarketingPipeline> adsPipeline(
-			@RequestParam(defaultValue = "year") String range) {
-		return ApiResponse.ok(pipeline.forCaller(MarketingPipelineService.Funnel.ADS, DateRange.parse(range)));
+			@RequestParam(defaultValue = "month") String range,
+			@RequestParam(required = false) String from,
+			@RequestParam(required = false) String to) {
+		return ApiResponse.ok(pipeline.forCaller(MarketingPipelineService.Funnel.ADS,
+				DateWindow.of(range, from, to, BusinessCalendar.clock())));
 	}
 
 	/**
@@ -75,11 +87,47 @@ public class MarketingController {
 	 *
 	 * @param range as above — the opportunity's created-at window, defaulted to {@code month} to
 	 *              match the shell's initial selection
+	 * @param from  ISO date, only with {@code range=custom}
+	 * @param to    ISO date, only with {@code range=custom}
 	 */
 	@GetMapping("/email-pipeline")
 	@PreAuthorize("hasRole('GM')")
 	public ApiResponse<MarketingPipelineService.MarketingPipeline> emailPipeline(
-			@RequestParam(defaultValue = "year") String range) {
-		return ApiResponse.ok(pipeline.forCaller(MarketingPipelineService.Funnel.EMAIL, DateRange.parse(range)));
+			@RequestParam(defaultValue = "month") String range,
+			@RequestParam(required = false) String from,
+			@RequestParam(required = false) String to) {
+		return ApiResponse.ok(pipeline.forCaller(MarketingPipelineService.Funnel.EMAIL,
+				DateWindow.of(range, from, to, BusinessCalendar.clock())));
+	}
+
+	/**
+	 * The sales team's own funnel, named by {@code evalos.ghl.sales-pipeline-name}.
+	 *
+	 * <p><strong>On this controller despite not being marketing, and that is the smaller
+	 * wrong.</strong> The class comment above explains what these routes have in common: they leave
+	 * the building, carry no brand, and answer 502 when GHL is down. This is the same read against a
+	 * third pipeline in the same location, so it belongs beside them on every count that decided
+	 * where they live — the only thing it does not share is the word in the URL. A
+	 * {@code SalesController} holding one method that called
+	 * {@code MarketingPipelineService.forCaller} would split one integration across two doors to fix
+	 * a name, and put the next reader one class further from the boundary they need to understand.
+	 *
+	 * <p>The nav heading is where the distinction actually matters, and it is drawn there: this
+	 * screen sits under Sales, not under Marketing. The URL keeping {@code /api/marketing} is a
+	 * naming debt worth less than the split it would cost.
+	 *
+	 * @param range as above — the opportunity's created-at window, defaulted to {@code month} to
+	 *              match the shell's initial selection
+	 * @param from  ISO date, only with {@code range=custom}
+	 * @param to    ISO date, only with {@code range=custom}
+	 */
+	@GetMapping("/sales-pipeline")
+	@PreAuthorize("hasRole('GM')")
+	public ApiResponse<MarketingPipelineService.MarketingPipeline> salesPipeline(
+			@RequestParam(defaultValue = "month") String range,
+			@RequestParam(required = false) String from,
+			@RequestParam(required = false) String to) {
+		return ApiResponse.ok(pipeline.forCaller(MarketingPipelineService.Funnel.SALES,
+				DateWindow.of(range, from, to, BusinessCalendar.clock())));
 	}
 }

@@ -1,16 +1,21 @@
 package com.ie.evalos.repository;
 
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.SQLException;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Properties;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
+import org.junit.jupiter.api.condition.EnabledIf;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.data.domain.PageRequest;
@@ -28,6 +33,7 @@ import com.ie.evalos.domain.DocumentChecklistItem;
 import com.ie.evalos.domain.ExceptionState;
 import com.ie.evalos.domain.Expert;
 import com.ie.evalos.domain.ExpertCaseOffer;
+import com.ie.evalos.domain.GhlFunnelCache;
 import com.ie.evalos.domain.Notification;
 import com.ie.evalos.domain.NotificationType;
 import com.ie.evalos.domain.OfferOutcome;
@@ -65,10 +71,25 @@ import com.ie.evalos.service.ExpertLoadService;
  * would otherwise have these inserts follow it straight back into {@code public},
  * which is the problem this class just stopped having.
  *
- * <p>Still gated on {@code -Devalos.db.test=true}, so {@code ./mvnw test} stays green
- * on a machine with no Postgres. That gate is also why these were unproven for ten
- * units — a flag nobody sets is the same as a test nobody wrote — so CI now passes it
- * on every push; see {@code .github/workflows/ci.yml}.
+ * <p><strong>It now runs whenever a usable Postgres is actually there.</strong> This was
+ * gated on {@code -Devalos.db.test=true} alone, and that flag was the whole problem: it
+ * left these 27 tests silently skipping on every developer machine that <em>did</em> have
+ * a database, so a green {@code ./mvnw test} said nothing at all about the schema, the
+ * migrations or the encryption. "A flag nobody sets is the same as a test nobody wrote"
+ * was already written here as a warning; it was still true.
+ *
+ * <p>So the gate is now {@link #postgresIsUsable()}: it probes the connection and runs if
+ * it works. The flag still wins when it is set, in <em>both</em> directions —
+ * {@code -Devalos.db.test=true} forces the suite on so CI fails loudly if the database it
+ * provisioned is broken (rather than quietly skipping and reporting success), and
+ * {@code -Devalos.db.test=false} forces it off for anyone who wants a fast offline run.
+ * See {@code .github/workflows/ci.yml}, which sets it to true and is unaffected by this
+ * change.
+ *
+ * <p>The probe deliberately treats <em>every</em> connection failure as "skip", not
+ * "fail": no Postgres installed, wrong credentials, and no {@code evalos} database are all
+ * "this machine is not set up for these tests", and failing a fresh checkout's build for
+ * that would push people straight back to disabling the suite.
  *
  * <p>No Testcontainers: it needs a running Docker daemon, and the point of this suite
  * is to run against whatever Postgres is already there.
@@ -78,7 +99,7 @@ import com.ie.evalos.service.ExpertLoadService;
  * </pre>
  */
 @SpringBootTest
-@EnabledIfSystemProperty(named = "evalos.db.test", matches = "true")
+@EnabledIf("postgresIsUsable")
 @TestPropertySource(properties = {
 		"spring.datasource.url=${DB_TEST_URL:jdbc:postgresql://localhost:5432/evalos?currentSchema=evalos_test}",
 		"spring.flyway.schemas=evalos_test",
@@ -95,6 +116,51 @@ import com.ie.evalos.service.ExpertLoadService;
 		"spring.jpa.show-sql=false",
 })
 class LocalPostgresIntegrationTest {
+
+	/** The suite's own URL, matching {@code @TestPropertySource} above. */
+	private static final String TEST_URL = "jdbc:postgresql://localhost:5432/evalos?currentSchema=evalos_test";
+
+	/**
+	 * Whether these tests can reach a database, which is what decides if they run.
+	 *
+	 * <p>{@code -Devalos.db.test} overrides the probe in both directions when it is set:
+	 * {@code true} to force the suite on (CI, so a broken provisioned database fails rather than
+	 * skips), {@code false} to force it off.
+	 *
+	 * <p>The credentials mirror {@code application-local.yml}'s defaults because this probe runs
+	 * <em>before</em> Spring exists, so it cannot ask Spring for them. That duplication is the cost
+	 * of auto-detection; if those defaults change, change them here too.
+	 */
+	static boolean postgresIsUsable() {
+		String forced = System.getProperty("evalos.db.test");
+		if (forced != null && !forced.isBlank()) {
+			return Boolean.parseBoolean(forced);
+		}
+
+		Properties credentials = new Properties();
+		credentials.setProperty("user", envOr("DB_USER", "postgres"));
+		credentials.setProperty("password", envOr("DB_PASSWORD", "1234"));
+		// Seconds. Short on purpose: this runs on every build, so an unreachable host must cost
+		// a moment and not a stalled pipeline.
+		credentials.setProperty("connectTimeout", "2");
+		credentials.setProperty("loginTimeout", "2");
+
+		try (Connection probe = DriverManager.getConnection(envOr("DB_TEST_URL", TEST_URL), credentials)) {
+			return probe.isValid(2);
+		}
+		catch (SQLException unusable) {
+			// Deliberately not rethrown, and deliberately logged rather than swallowed silently:
+			// the run is about to report 27 skips and the reason should be findable.
+			System.out.println("[db] LocalPostgresIntegrationTest skipped — no usable Postgres: "
+					+ unusable.getMessage());
+			return false;
+		}
+	}
+
+	private static String envOr(String name, String fallback) {
+		String value = System.getenv(name);
+		return value == null || value.isBlank() ? fallback : value;
+	}
 
 	/** Seeded by {@code V900__seed_local.sql}. */
 	private static final UUID BRAND_IE = UUID.fromString("11111111-1111-1111-1111-111111111111");
@@ -141,6 +207,9 @@ class LocalPostgresIntegrationTest {
 
 	@Autowired
 	PortalAccessRepository portalTokens;
+
+	@Autowired
+	GhlFunnelCacheRepository funnelCache;
 
 	@Autowired
 	AuditEventRepository auditEvents;
@@ -987,6 +1056,93 @@ class LocalPostgresIntegrationTest {
 				.hasMessageContaining("append-only");
 		assertThatThrownBy(() -> jdbc.update("DELETE FROM audit_event WHERE id = ?", recorded.getId()))
 				.hasMessageContaining("append-only");
+	}
+
+	/**
+	 * The marketing funnel cache is a real table, and the three things only Postgres can prove.
+	 *
+	 * <p>These are exactly the guarantees {@code MarketingPipelineServiceTest} cannot make: its
+	 * in-memory fake is last-write-wins by construction, so asserting a unique key or an optimistic
+	 * lock there would only assert the fake. This is where the cache stopped being heap memory, so
+	 * this is where those claims have to be checked.
+	 */
+	@Test
+	void theFunnelCacheRoundTripsJsonbAndEnforcesOneRowPerWindow() {
+		// Cleared first, and this is not boilerplate. Every other test here stays re-runnable by
+		// inserting a random id; these keys are fixed strings, so the second run would collide on
+		// the very constraint the test is asserting. Safe to wipe: it is a cache, in the
+		// `evalos_test` schema.
+		funnelCache.deleteAll();
+
+		Instant readAt = Instant.now().truncatedTo(ChronoUnit.MILLIS);
+		// **A window key, not a range name — the V26 shape.** `2026-01-01..2026-12-31` rather than
+		// "YEAR", because every custom period is named `custom` and name-keyed rows would collide.
+		GhlFunnelCache stored = funnelCache.saveAndFlush(new GhlFunnelCache("ADS", "2026-01-01..2026-12-31",
+				"{\"pipelineName\":\"Google ADS Pipeline\",\"totalDeals\":93}", "READY", readAt, null));
+
+		assertThat(stored.getId()).isNotNull();
+		// jsonb survives the trip, which is what makes storing the payload as one document viable.
+		assertThat(funnelCache.findByFunnelAndWindowKey("ADS", "2026-01-01..2026-12-31")).get().satisfies((row) -> {
+			assertThat(row.getPayload()).contains("Google ADS Pipeline").contains("93");
+			assertThat(row.getDetail()).isEqualTo("READY");
+			assertThat(row.getReadAt()).isEqualTo(readAt);
+			assertThat(row.getTotallingSince()).isNull();
+		});
+
+		// The same funnel and a DIFFERENT window is a different row — the key is both halves.
+		funnelCache.saveAndFlush(new GhlFunnelCache("ADS", "2026-08-01..2026-08-26", "{}", "READY", readAt, null));
+		assertThat(funnelCache.findByFunnelAndWindowKey("ADS", "2026-08-01..2026-08-26")).isPresent();
+
+		// **Two custom windows, which is what V26 exists for.** Under the old range-name key both
+		// of these were "CUSTOM" and the second insert would have been refused by the unique
+		// constraint — or worse, an upsert would have served one period's figures for the other.
+		funnelCache.saveAndFlush(new GhlFunnelCache("ADS", "2026-02-01..2026-02-28", "{}", "READY", readAt, null));
+		funnelCache.saveAndFlush(new GhlFunnelCache("ADS", "2026-04-01..2026-04-30", "{}", "READY", readAt, null));
+		assertThat(funnelCache.findByFunnelAndWindowKey("ADS", "2026-02-01..2026-02-28")).isPresent();
+		assertThat(funnelCache.findByFunnelAndWindowKey("ADS", "2026-04-01..2026-04-30")).isPresent();
+
+		// A second row for the SAME window is refused by the database rather than by a check-then-
+		// insert, which two concurrent cold-cache callers would both pass.
+		assertThatThrownBy(() -> funnelCache.saveAndFlush(
+				new GhlFunnelCache("ADS", "2026-01-01..2026-12-31", "{}", "READY", readAt, null)))
+				.hasStackTraceContaining("uq_ghl_funnel_cache_window");
+	}
+
+	/**
+	 * The optimistic lock that stops a slow reader clobbering a completed background total.
+	 *
+	 * <p>The failure this prevents is specific: a caller whose inline count read finishes *after*
+	 * the totaller wrote {@code READY} must not overwrite those figures with {@code TOTALLING}.
+	 * Simulated the only way that race can be simulated deterministically — two entity instances
+	 * loaded at the same version, written one after the other.
+	 */
+	@Test
+	void aStaleWriterLosesToTheOneThatGotThereFirst() {
+		// Same reason as above: a fixed window key needs a clean slate to stay re-runnable.
+		funnelCache.deleteAll();
+
+		Instant readAt = Instant.now().truncatedTo(ChronoUnit.MILLIS);
+		UUID id = funnelCache.saveAndFlush(
+				new GhlFunnelCache("EMAIL", "YEAR", "{}", "TOTALLING", readAt, readAt)).getId();
+
+		// Two readers of the same version. `getReferenceById` would share the persistence context,
+		// so both are fetched detached via a fresh find after a clear.
+		GhlFunnelCache first = funnelCache.findById(id).orElseThrow();
+		long versionBothSaw = first.getVersion();
+		GhlFunnelCache second = new GhlFunnelCache("EMAIL", "YEAR", "{}", "TOTALLING", readAt, readAt);
+
+		first.refresh("{\"totalValue\":3000}", "READY", Instant.now(), null);
+		funnelCache.saveAndFlush(first);
+
+		// The winner's figures stand, and the version moved.
+		assertThat(funnelCache.findById(id)).get().satisfies((row) -> {
+			assertThat(row.getDetail()).isEqualTo("READY");
+			assertThat(row.getVersion()).isGreaterThan(versionBothSaw);
+		});
+		// And the loser cannot insert over the top of it: same window, so the unique key holds even
+		// though it never saw the winner's version.
+		assertThatThrownBy(() -> funnelCache.saveAndFlush(second))
+				.hasStackTraceContaining("uq_ghl_funnel_cache_window");
 	}
 
 	private static List<UUID> ids(List<Case> found) {
