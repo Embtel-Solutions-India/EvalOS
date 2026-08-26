@@ -4,6 +4,39 @@ Update this file after every meaningful implementation change.
 
 ## Current Phase
 
+- **2026-08-26 — the last marketing flag is closed: the screen was driven in a browser against
+  live GHL.** This was the one item carried from Unit 24 that no test could close, and it needed a
+  running app with a real database — which is why it waited until the DB work above was done.
+  - **What was verified on screen**, as the GM at `/marketing/email`: **Month** renders the empty
+    state naming its own window (`Jul 27 – Aug 25`, 30 days inclusive) and telling the reader to
+    widen the period. **Year** renders `Aug 26, 2025 – Aug 25, 2026` — 365 days inclusive, the
+    fixed arithmetic visible on screen — with **11,432 deals · 48 won · 0 lost · $34,301**, all six
+    stages as rows including the empty ones (New Lead 11,364 · Hot 20 · Won 48), and the sources
+    table showing `Unattributed 11,300 / $23,801`, `Application Form 36 / $5,450` and
+    `LCA 35 / $0` — an unpriced source counting as nothing, exactly as the card claims.
+  - **The poll-until-`READY` handover was watched end to end**: the first call answered
+    `TOTALLING` with exact counts immediately, and the fifteenth poll (~75s) answered `READY` with
+    `totalValue 34301` and 13 sources. One URL, no job id, no second endpoint.
+  - **The Postgres cache was proven cross-process, which is the claim the move was made for.** A
+    *third* JVM was started with an empty heap after the figures had been computed by another
+    instance; it answered in **0.14s** with `READY`, `$34,301`, 13 sources and a **byte-identical
+    `readAt`** — so it served the other instance's row out of the table rather than calling GHL.
+    That single test covers both defects the heap map had: a total lost on restart, and one
+    instance unable to hand its result to another. The row also showed `version 5` with
+    `totalling_since` released to NULL, so the claim was taken and given back as designed.
+  - **Also confirmed incidentally:** the shell's date filter defaults to **Month** in the running
+    app, which is the `filters.tsx` revert working — it had been flipped to `year` and was leaving
+    the production board effectively unfiltered.
+  - **How it was run, because it is not obvious.** The dev login is `gm@evalos.local` /
+    `DevPassw0rd!`, seeded by `V900` — and **the seed is not in the app's default Flyway
+    locations**, so a dev database only has it if it was seeded deliberately. A backend and Vite
+    dev server were already running on 8080/5173 from an older commit, so rather than restarting
+    somebody else's process this ran on **8081/8082** with a throwaway Vite config on **5175**
+    pointing at them; all three were stopped and the config deleted afterwards, leaving 8080/5173
+    untouched.
+  - **What is still open on the marketing units: only brand scoping (Unit 25a).** Both screens
+    remain GM-only and unattributable, for the reason stated there. Nothing else is unverified.
+
 - **2026-08-26 — the funnel cache is in Postgres, and the DB test suite no longer skips itself.**
   Both came out of one report ("I already have a DB, don't use heap memory to store data — I think
   something went wrong with the DB configuration"). **The DB configuration was not broken**, and
@@ -109,10 +142,9 @@ Update this file after every meaningful implementation change.
       encrypted** (portal tokens). Encryption is only for what must be recovered — which is
       exactly why a refresh token cannot be hashed.
   - **What remains genuinely open on the marketing units**, stated so the closures above are not
-    read as more than they are: the *screen* has not been opened in a browser against live GHL,
-    so the poll-until-`READY` handover has not been watched with real figures. The client is
-    proven; the UI path is not. Both screens are also still GM-only and not brand-scoped (Unit
-    25a).
+    read as more than they are: **the screen is now verified too (see the entry above for
+    2026-08-26)** — what remains open on the marketing units is only that both screens are still
+    GM-only and not brand-scoped, which is Unit 25a.
 
 - **2026-08-26 — review fixes on the Unit 24/26 branch, before merge.** Code review of the
   marketing branch found three behavioural bugs and a set of doc/test defects. All fixed on the
@@ -253,9 +285,14 @@ and **`Shivangi's Email Marketing` -> id `LHoIRjpypwhswqO8Ayn0`**, both with the
       anyone exporting a token to run the app would silently start hitting a live third-party
       account from their test runs. It reads the token from `backend/config/application-local.yml`
       — the same gitignored file Spring Boot reads — so **no credential goes on a command line**.
-    - Still owed, and a different thing: **the screen has not been opened in a browser against
-      live GHL.** The client is proven; the controller, cache, poll-until-READY handover and the
-      cards are covered by 462 tests but not by a human looking at them with real figures.
+    - **The screen was verified in a browser on 2026-08-26**, closing the last part of this
+      item. Verified in a browser 2026-08-26 as the GM against live GHL: **Month** renders the empty state
+naming its window (`Jul 27 – Aug 25`, 30 days inclusive) and saying to widen the period; **Year**
+renders `Aug 26, 2025 – Aug 25, 2026` (365 days inclusive — the fixed arithmetic on screen),
+**11,432 deals · 48 won · 0 lost · $34,301**, all six stages as rows including the empty ones
+(New Lead 11,364 · Hot 20 · Won 48), and the sources table with `Unattributed 11,300 / $23,801`,
+`Application Form 36 / $5,450` and `LCA 35 / $0` — an unpriced source counting as nothing, exactly
+as the card claims. The header carries "one GHL location · year · … · read 09:55 AM".
 
 - **Unit 25 — GHL OAuth connection — is SPECCED and DEFERRED by decision.** Only
   International Evaluations is being set up for now; IE runs on Unit 24's Private Integration
@@ -391,9 +428,13 @@ and **`Shivangi's Email Marketing` -> id `LHoIRjpypwhswqO8Ayn0`**, both with the
       pipeline at the time. Live, the ads pipeline returns **0 rows over the last 30 days**
       (its newest opportunity predates that window), and the email funnel is where the volume
       is. Do not treat the old numbers as an expected result.
-    - **Still owed, and a different item:** nobody has opened the *screen* in a browser against
-      live GHL. Same shape as Unit 13's Drive credential gap, but now one layer thinner — the
-      client is proven, the UI path is not.
+    - **Closed 2026-08-26: the screen was opened in a browser against live GHL.** Verified in a browser 2026-08-26 as the GM against live GHL: **Month** renders the empty state
+naming its window (`Jul 27 – Aug 25`, 30 days inclusive) and saying to widen the period; **Year**
+renders `Aug 26, 2025 – Aug 25, 2026` (365 days inclusive — the fixed arithmetic on screen),
+**11,432 deals · 48 won · 0 lost · $34,301**, all six stages as rows including the empty ones
+(New Lead 11,364 · Hot 20 · Won 48), and the sources table with `Unattributed 11,300 / $23,801`,
+`Application Form 36 / $5,450` and `LCA 35 / $0` — an unpriced source counting as nothing, exactly
+as the card claims. The header carries "one GHL location · year · … · read 09:55 AM".
 
 - **Unit 23 — Case notes, and routing intake to the PM — is complete and verified.**
   See `context/specs/23-case-notes-and-pm-routing.md`. Two changes that are one decision:

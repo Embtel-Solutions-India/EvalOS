@@ -134,9 +134,22 @@ Pipeline` id `g6lo50r9Wn0qZvmp2bMP`, `Shivangi's Email Marketing` id `LHoIRjpypw
 six stages; the email funnel counted **11,417** over `2025-08-27..2026-08-26` from `meta.total`
 alone; the ads pipeline returned **0 rows in the last 30 days**. **The old "expected first load of
 93 deals (New Lead 7 / Warm 26 / Won 14)" was a hand check, never a live observation, and is
-stale — do not use it as an expected result.** What is still owed is narrower: nobody has opened
-the *screen* in a browser against live GHL, so the poll-until-`READY` handover has not been watched
-with real figures.
+stale — do not use it as an expected result.**
+
+**The screen itself is verified too, 2026-08-26.** Opened in a browser as the GM against live GHL:
+Year renders `Aug 26, 2025 – Aug 25, 2026` (365 days inclusive), **11,432 deals · 48 won · $34,301**,
+all six stages as rows including empties, and the sources table (`Unattributed 11,300 / $23,801`,
+`LCA 35 / $0` — an unpriced source counting as nothing). Month correctly renders the empty state
+naming its window. The poll-until-`READY` handover was watched end to end on the same run:
+`TOTALLING` with exact counts immediately, `READY` with the money ~75s later, same URL throughout.
+**Nothing about the marketing units is unverified now except brand scoping (Unit 25a).**
+
+**The Postgres cache was proven cross-process on the same run**: a *third* JVM with an empty heap,
+started after the figures were computed by another, served them in **0.14s** with a byte-identical
+`readAt` — so it read the other instance's row rather than calling GHL. That is both the
+restart-survival and the multi-instance handover, neither of which the old heap map could do.
+Dev login for this: `gm@evalos.local` / `DevPassw0rd!` (seeded by `V900`, and the seed is **not** in
+the app's default Flyway locations — a dev database only has it if it was seeded deliberately).
 
 Unit 05b re-pointed Handoff A to `opportunity.won` and **deleted the manual payment path** — details
 in `mem:backend/webhooks` and `mem:backend/lifecycle`. Its live hand-fired run is still owed, blocked
