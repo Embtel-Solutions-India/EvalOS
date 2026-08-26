@@ -37,7 +37,7 @@ public class PortalSecurityConfig {
 	 *
 	 * <p>Unknown, expired, revoked and absent tokens all arrive here unauthenticated and get the one
 	 * identical 401, so nothing about which it was is learnable from the response — the discipline
-	 * {@code WebhookVerifier} applies to a signature. {@code ApiErrors} writes it, so a portal
+	 * a signature comparison demands. {@code ApiErrors} writes it, so a portal
 	 * failure carries the same envelope as every other refusal in EvalOS.
 	 */
 	@Bean

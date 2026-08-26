@@ -371,11 +371,10 @@ class LocalPostgresIntegrationTest {
 	 * only unique once a snapshot exists — so for a contact EvalOS had never seen, two
 	 * concurrent deliveries each inserted their own snapshot and both passed V15.
 	 *
-	 * <p>Both keys are asserted because the payload does not guarantee a GHL id: intake
-	 * falls back to email, so that path needs constraining too.
+	 * <p>The GHL id is the identity, so it is the key that always applies.
 	 */
 	@Test
-	void aContactIsUniquePerBrandByGhlIdAndByEmail() {
+	void aContactIsUniquePerBrandByGhlId() {
 		String ghlId = "ghl-" + UUID.randomUUID();
 		String email = "dup-" + UUID.randomUUID() + "@example.test";
 
@@ -387,17 +386,48 @@ class LocalPostgresIntegrationTest {
 		assertThatThrownBy(() -> contacts.saveAndFlush(sameGhlId))
 				.hasStackTraceContaining("uq_contact_per_brand_ghl_id");
 
-		// Case-insensitive: a capitalised address is the same person, matching the finder
-		// intake uses (findByBrandIdAndEmailIgnoreCase).
-		ContactSnapshot sameEmail = new ContactSnapshot(BRAND_IE, "ghl-" + UUID.randomUUID());
-		sameEmail.syncFromGhl("Same Email", email.toUpperCase(), null, null, null, null, null, null, null);
-		assertThatThrownBy(() -> contacts.saveAndFlush(sameEmail))
-				.hasStackTraceContaining("uq_contact_per_brand_email");
-
-		// The other brand keeps its own contacts: both keys are brand-scoped (invariant 1).
+		// The other brand keeps its own contacts: the key is brand-scoped (invariant 1).
 		ContactSnapshot otherBrand = new ContactSnapshot(BRAND_XP, ghlId);
 		otherBrand.syncFromGhl("Other Brand", email, null, null, null, null, null, null, null);
 		assertThat(contacts.saveAndFlush(otherBrand).getId()).isNotNull();
+	}
+
+	/**
+	 * <strong>V27: email is a fallback key, not an identity.</strong> V16 made it unique
+	 * for every row carrying one, which said "one email, one person" — true only while
+	 * EvalOS has nothing better to go on. Two GHL contacts sharing a firm's office inbox
+	 * are two clients, and the old index refused to let the second one exist, which is what
+	 * pushed intake into merging the new client onto the old one's row.
+	 *
+	 * <p>So the index now applies only to rows with no GHL id. Both halves are asserted
+	 * here, because the second is the one V16 was right about and V27 must not lose.
+	 */
+	@Test
+	void emailIsUniqueOnlyAmongContactsWithNoGhlId() {
+		String email = "office-" + UUID.randomUUID() + "@example.test";
+
+		// Two distinct GHL contacts, one shared inbox. Two clients, and both may exist.
+		ContactSnapshot firm = new ContactSnapshot(BRAND_IE, "ghl-" + UUID.randomUUID());
+		firm.syncFromGhl("Marcus Vale", email, null, null, null, null, null, null, null);
+		contacts.saveAndFlush(firm);
+
+		ContactSnapshot colleague = new ContactSnapshot(BRAND_IE, "ghl-" + UUID.randomUUID());
+		colleague.syncFromGhl("Anita Rao", email, null, null, null, null, null, null, null);
+		assertThat(contacts.saveAndFlush(colleague).getId()).isNotEqualTo(firm.getId());
+
+		// The race V16 closed stays closed: with no GHL id, email is all there is, and two
+		// concurrent id-less deliveries for one address must still collide. Case-insensitive,
+		// matching the finder intake uses (findByBrandIdAndEmailIgnoreCase).
+		String idlessEmail = "idless-" + UUID.randomUUID() + "@example.test";
+		ContactSnapshot idless = new ContactSnapshot(BRAND_IE, null);
+		idless.syncFromGhl("No Id Yet", idlessEmail, null, null, null, null, null, null, null);
+		contacts.saveAndFlush(idless);
+
+		ContactSnapshot sameAddressNoId = new ContactSnapshot(BRAND_IE, null);
+		sameAddressNoId.syncFromGhl("Also No Id", idlessEmail.toUpperCase(),
+				null, null, null, null, null, null, null);
+		assertThatThrownBy(() -> contacts.saveAndFlush(sameAddressNoId))
+				.hasStackTraceContaining("uq_contact_per_brand_email");
 	}
 
 	/**
@@ -538,19 +568,19 @@ class LocalPostgresIntegrationTest {
 	void oneExternalIdPerBrandPerSourceCanOnlyBeArchivedOnce() {
 		String externalId = "INV-" + UUID.randomUUID();
 		WebhookEvent first = webhookEvents.save(new WebhookEvent(
-				WebhookSource.GHL, "payment.confirmed", externalId, BRAND_IE, true, "{\"invoice_ref\":\"x\"}"));
+				WebhookSource.GHL, "payment.confirmed", externalId, BRAND_IE, "{\"invoice_ref\":\"x\"}"));
 
 		assertThat(webhookEvents.findBySourceAndBrandIdAndExternalId(WebhookSource.GHL, BRAND_IE, externalId))
 				.get().extracting(WebhookEvent::getId).isEqualTo(first.getId());
 
 		assertThatThrownBy(() -> webhookEvents.saveAndFlush(new WebhookEvent(
-				WebhookSource.GHL, "payment.confirmed", externalId, BRAND_IE, true, "{}")))
+				WebhookSource.GHL, "payment.confirmed", externalId, BRAND_IE, "{}")))
 				.hasStackTraceContaining("uq_webhook_event_source_brand_external");
 
 		// The same invoice ref from the other brand is a different event, and is allowed —
 		// this is the case V12's constraint silently dropped.
 		WebhookEvent otherBrand = webhookEvents.save(new WebhookEvent(
-				WebhookSource.GHL, "payment.confirmed", externalId, BRAND_XP, true, "{}"));
+				WebhookSource.GHL, "payment.confirmed", externalId, BRAND_XP, "{}"));
 		assertThat(otherBrand.getId()).isNotEqualTo(first.getId());
 		assertThat(webhookEvents.findBySourceAndBrandIdAndExternalId(WebhookSource.GHL, BRAND_XP, externalId))
 				.get().extracting(WebhookEvent::getId).isEqualTo(otherBrand.getId());
@@ -573,20 +603,24 @@ class LocalPostgresIntegrationTest {
 		String externalId = "EVT-" + UUID.randomUUID();
 		// The source is incidental here — this test is about a NULL brand_id, so GHL serves.
 		webhookEvents.save(new WebhookEvent(
-				WebhookSource.GHL, "opportunity.won", externalId, null, true, "{}"));
+				WebhookSource.GHL, "opportunity.won", externalId, null, "{}"));
 
 		assertThatThrownBy(() -> webhookEvents.saveAndFlush(new WebhookEvent(
-				WebhookSource.GHL, "opportunity.won", externalId, null, true, "{}")))
+				WebhookSource.GHL, "opportunity.won", externalId, null, "{}")))
 				.hasStackTraceContaining("uq_webhook_event_source_brand_external");
 	}
 
-	/** The per-brand secret column V11 added, mapped and readable through the entity. */
+	/**
+	 * The endpoint token is the whole webhook credential now that the HMAC is gone, so
+	 * what it resolves to is worth asserting against the real seed: its own brand, and
+	 * nothing at all for a token nobody issued.
+	 */
 	@Test
-	void eachSeededBrandCarriesItsOwnWebhookSecret() {
+	void eachSeededBrandIsResolvedByItsOwnEndpointToken() {
 		assertThat(brands.findByWebhookEndpointTokenAndActiveTrue("local-ie-webhook-token"))
-				.get().extracting(Brand::getGhlWebhookSecret).isEqualTo("local-ie-webhook-secret");
+				.get().extracting(Brand::getId).isEqualTo(BRAND_IE);
 		assertThat(brands.findByWebhookEndpointTokenAndActiveTrue("local-xp-webhook-token"))
-				.get().extracting(Brand::getGhlWebhookSecret).isEqualTo("local-xp-webhook-secret");
+				.get().extracting(Brand::getId).isEqualTo(BRAND_XP);
 		// A token nobody issued resolves to nothing, so its deliveries are 404s.
 		assertThat(brands.findByWebhookEndpointTokenAndActiveTrue("not-a-token")).isEmpty();
 	}

@@ -29,17 +29,13 @@ public class Brand {
 	@Column(nullable = false)
 	private boolean active = true;
 
-	/** Resolves the brand for that brand's inbound GHL endpoint at Handoff A. */
+	/**
+	 * Resolves the brand for that brand's inbound GHL endpoint at Handoff A, and is the
+	 * only credential that endpoint has. Treat it as a secret: never log it, never put it
+	 * in a DTO, and rotate it to revoke the endpoint.
+	 */
 	@Column(name = "webhook_endpoint_token", nullable = false, unique = true)
 	private String webhookEndpointToken;
-
-	/**
-	 * The HMAC secret this brand's inbound GHL webhooks are verified against. Null
-	 * until it is set, which fails closed: nothing can be verified, so nothing is
-	 * accepted. Never log it and never put it in a DTO.
-	 */
-	@Column(name = "ghl_webhook_secret")
-	private String ghlWebhookSecret;
 
 	@Column(name = "created_at", nullable = false, insertable = false, updatable = false)
 	private Instant createdAt;
@@ -66,10 +62,6 @@ public class Brand {
 
 	public String getWebhookEndpointToken() {
 		return webhookEndpointToken;
-	}
-
-	public String getGhlWebhookSecret() {
-		return ghlWebhookSecret;
 	}
 
 	public Instant getCreatedAt() {

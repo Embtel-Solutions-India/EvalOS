@@ -247,10 +247,35 @@ public class CaseIntakeService {
 	 * <p>Falling through to email fixes the reading. {@code syncContact} then backfills
 	 * the id onto the row it found, so the same delivery cannot keep re-matching by email
 	 * forever.
+	 *
+	 * <p><strong>But email never outranks a GHL id</strong> (invariant 7), which is what
+	 * {@link #contradicts} enforces. Two distinct GHL contacts can share an inbox — a firm's
+	 * office address is the obvious case — and without the guard the second one's delivery
+	 * matched the first one's row by email, could not backfill its own id over the id
+	 * already there, and quietly attached a paid case to <em>the wrong client</em> while
+	 * overwriting that client's name and phone. A wrong merge is worse than a duplicate:
+	 * the duplicate is visible and fixable, the merge looks like a normal case.
 	 */
 	private Optional<ContactSnapshot> existingContact(UUID brandId, ContactDetails details) {
 		return byGhlContactId(brandId, details.ghlContactId())
-				.or(() -> byEmail(brandId, details.email()));
+				.or(() -> byEmail(brandId, details.email())
+						.filter(match -> !contradicts(match, details.ghlContactId())));
+	}
+
+	/**
+	 * An email match that names a different client. Only a genuine conflict counts — both
+	 * ids present and different — so the two cases the fall-through exists for still match:
+	 * a row with no id yet (it gets backfilled), and a delivery with no id to assert.
+	 *
+	 * <p>Rejecting sends intake down the create path, and {@code V27} is what lets that
+	 * insert land: the email uniqueness index now applies only to rows without a GHL id,
+	 * because a row that has one does not need email to tell it apart.
+	 */
+	private static boolean contradicts(ContactSnapshot match, String incomingGhlContactId) {
+		String held = match.getGhlContactId();
+		return held != null && !held.isBlank()
+				&& incomingGhlContactId != null && !incomingGhlContactId.isBlank()
+				&& !held.equals(incomingGhlContactId);
 	}
 
 	private Optional<ContactSnapshot> byGhlContactId(UUID brandId, String ghlContactId) {

@@ -107,10 +107,25 @@ contact snapshot per person) and one latent third (two payout rows for one deliv
 
 **The house answer is a partial unique index, not a lock and not a re-read.** `V15` and `V16` are the
 worked examples: `(brand_id, contact_id, service_type) WHERE current_stage <> 'CLOSED'`, and
-`(brand_id, ghl_contact_id)` / `(brand_id, lower(email))` where not null. Partial because the
+`(brand_id, ghl_contact_id)` / `(brand_id, lower(email))` where not null — **the email half narrowed
+again by `V27`, see below**. Partial because the
 exclusion is what makes the rule correct — a contact returning after their case closed is new
 business, not a duplicate. The loser's transaction rolls back; for webhook paths that surfaces as a
 retriable 5xx and the redelivery refreshes the committed row, which is what intake wanted anyway.
+
+**`V27` demoted the email key to a fallback: `WHERE email IS NOT NULL AND ghl_contact_id IS NULL`.**
+V16's version constrained every row with an email, which asserts "one email, one person" — true only
+while EvalOS has no better identifier, and `ghl_contact_id` is a better identifier (invariant 7). Two
+GHL contacts sharing a firm's office inbox are two clients; the old index refused the second, and what
+happened instead was worse than a refusal — intake fell back to email, matched the *first* client's
+row, could not backfill its own id over the one already there (`linkGhlContact` is write-once), and
+attached a paid case to the wrong client while overwriting their name and phone. **A wrong merge is
+worse than a duplicate: the duplicate is visible, the merge looks like an ordinary case.**
+`CaseIntakeService.contradicts` is the code half — an email match is refused when both ids are present
+and differ. Neither half works alone: the guard forces an insert the old index would have rejected.
+The race V16 actually closed survives, because two concurrent id-less rows are both still in scope. It
+also cleared a latent 5xx — a contact changing their GHL email to one an id-less row already held used
+to fail the sync on this constraint.
 
 `lower(email)` in the index because the lookup is `findByBrandIdAndEmailIgnoreCase` — index expression
 and finder must agree or the index does not apply. Note `V15`'s own comment claims the race "cannot

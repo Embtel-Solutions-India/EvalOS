@@ -51,8 +51,9 @@ PowerShell notes that bite here:
   `DevPassw0rd!` and call `/api/me` and `/api/team-members` with the bearer token.
 - **Driving a real case in from Handoff A** (the only way to get a case with a client name, a
   checklist and a contact snapshot — everything downstream needs one). POST to
-  `/api/webhooks/ghl/local-ie-webhook-token` with `X-Evalos-Signature: sha256=<hex HMAC-SHA256 of the
-  exact body>` keyed on `local-ie-webhook-secret` (`V901`), body:
+  `/api/webhooks/ghl/local-ie-webhook-token` — **no signature header and no bearer token**, just
+  `Content-Type: application/json` and the body (the inbound HMAC was removed 2026-08-27 because GHL's
+  Custom Webhook action cannot compute one):
   ```json
   {"event_type":"opportunity.won","event_id":"evt-<unique>",
    "opportunity":{"ghl_opportunity_id":"opp-<unique>","amount":900,"status":"won"},

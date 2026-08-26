@@ -33,7 +33,7 @@ import org.springframework.transaction.annotation.Transactional;
  * from {@link SecureRandom}, base64url, returned exactly once at mint time and stored only as a
  * SHA-256 hash: a database read yields no working link. The comparison is
  * {@link MessageDigest#isEqual}, because a short-circuiting comparison on a secret leaks it a byte
- * at a time — the same reasoning {@code WebhookVerifier} applies to an HMAC.
+ * at a time — the same reasoning a signature comparison demands.
  *
  * <p><strong>Unknown, expired and revoked are one answer.</strong> {@link #resolve} returns empty
  * for all three, so nothing about which it was is learnable from the response.

@@ -4,6 +4,73 @@ Update this file after every meaningful implementation change.
 
 ## Current Phase
 
+- **2026-08-27 — `ghl_contact_id` outranks email in contact matching (`V27`).** Confirmed as policy:
+  the GHL contact id is the canonical external client identity everywhere, and the three identifiers
+  stay separate — `ghl_contact_id` = the client, `ghl_opportunity_id` = one purchase,
+  `evalos_case.id`/`case_code` = one internal engagement. Written into **invariant 7**.
+  - **Most of it was already true and is now asserted rather than assumed.** One contact, many cases
+    (`V15` keys on *service*, not client); `linkGhlContact` is write-once so EvalOS never mints or
+    changes an id; the two GHL ids live on different tables and nothing reads one for the other.
+  - **One real defect found and fixed.** `existingContact` fell back to email even when the payload
+    supplied a `ghl_contact_id` that had not matched. If that email hit a row bearing a *different*
+    id — two GHL contacts sharing a firm's office inbox, which `V16`'s own comment flagged as
+    plausible — intake adopted the other client's row, could not backfill its own id over the one
+    already there, and **attached a paid case to the wrong client** while overwriting their name and
+    phone with this client's. A wrong merge is worse than a duplicate: the duplicate is visible and
+    fixable, the merge reads as an ordinary case.
+  - **The fix is two halves and neither works alone.** `CaseIntakeService.contradicts` refuses an
+    email match only on a genuine conflict — both ids present and different — and `V27` narrows
+    `uq_contact_per_brand_email` to `WHERE email IS NOT NULL AND ghl_contact_id IS NULL` so the insert
+    that refusal forces can actually land. **Refusing without the migration would have turned the
+    wrong-client merge into a 5xx retry storm**, which is worse again: a paid case that never opens.
+  - **What deliberately did not change.** The fall-through itself stays: it fixes a real bug (a first
+    delivery with no GHL id leaves an id-less row that a later, id-carrying delivery must find by
+    email and backfill). Only a *conflict* is refused, so both of the cases it exists for still match.
+    The race `V16` closed also survives — two concurrent id-less rows are still both in scope.
+  - `V27` is strictly weaker than the index it replaces, so it cannot fail on existing data. It also
+    cleared a latent 5xx: a contact changing their GHL email to one an id-less row already held used
+    to fail the sync on this constraint.
+  - Four tests added (`anIdlessRowFoundByEmailIsAdoptedAndBackfilled`,
+    `anEmailMatchNamingADifferentGhlContactIsRefused`, `aDeliveryWithNoGhlIdStillMatchesARowThatHasOne`,
+    `emailIsUniqueOnlyAmongContactsWithNoGhlId`); `aContactIsUniquePerBrandByGhlIdAndByEmail` split,
+    since its email half asserted exactly the behaviour that was wrong. 504 backend green, `V27`
+    applied against live Postgres.
+
+- **2026-08-27 — The inbound GHL webhook no longer requires an HMAC signature.** Handoff A is now
+  reachable from GHL's own Custom Webhook action with nothing but a URL and a JSON body.
+  - **Why, and it is not a relaxation of a working control.** GHL's Custom Webhook action cannot
+    compute an HMAC over the body it posts. So the signature step was not a guard that had yet to be
+    confirmed against a real sub-account (that was **G17**) — it was a guard nothing on the far end
+    could ever satisfy, which made Handoff A impossible to wire up from GHL at all. Removing it
+    closes G17 by answering the question rather than by deferring it.
+  - **What authenticates a delivery now:** `brand.webhook_endpoint_token` in the path, resolved by
+    `findByWebhookEndpointTokenAndActiveTrue`. **That token is a credential** — unguessable, never in
+    a DTO, never logged, and rotating it revokes the endpoint. The `AndActiveTrue` is load-bearing:
+    it is what makes deactivating a brand stop its webhook. An unknown token and an inactive brand's
+    real token are the same `404 UNKNOWN_ENDPOINT` with the same message.
+  - **Removed:** `WebhookVerifier` (deleted), the `signature` parameter through
+    `InboundWebhookController` → `WebhookGateway.accept`, `evalos.webhook.signature-header` /
+    `WEBHOOK_SIGNATURE_HEADER` from `application.yml`, `Brand.ghlWebhookSecret` (field and getter),
+    and the now-dead `signatureVerified` constructor argument on `WebhookEvent` — the gateway only
+    ever passed a literal `true`, and after this change no row can honestly claim a signature was
+    checked, so new rows are `false` and the `true` rows are exactly the pre-change ones.
+  - **Deliberately not removed: no migration was written.** `brand.ghl_webhook_secret` (`V11`) and
+    `webhook_event.signature_verified` (`V12`) stay in the schema, unread. An applied migration is
+    never edited (invariant 9), and a new one to drop two columns nothing queries would be schema
+    churn for no behaviour. The local seed `V901` still sets the secret and is likewise harmless.
+  - **Nothing else about Handoff A moved.** The payload contract is unchanged and still required in
+    full (`event_type` = `opportunity.won`, `event_id`/`webhook_id`, `service_type`,
+    `opportunity.ghl_opportunity_id`, `opportunity.amount > 0`, `contact.full_name`); `event_id` is
+    still the brand-scoped idempotency key; case creation, open-case refresh, stage, assignment,
+    paid, checklist, contact matching, audit rows and the response envelope are untouched.
+  - **The body stays `byte[]` to the gateway**, decoded as UTF-8 there. That began as an HMAC
+    requirement and outlives it as the right way to read a JSON body: the archive holds exactly the
+    text that was parsed and routed, whatever charset the sender declared.
+  - `InboundWebhookTest` rewritten around the token: 23 tests, including the inactive-brand `404`,
+    an explicit no-signature-header acceptance, a "a signature header, if sent, is ignored" case, and
+    a parameterized malformed enum/date/UUID → `400 MALFORMED_PAYLOAD`. 500 backend tests green,
+    including the live-Postgres suite, so the migration tree is unchanged and still checksum-clean.
+
 - **2026-08-27 — Review of PR #18, resolved.** Self-review of the three units found four things;
   all four fixed before merge.
   - **The top bar overflowed on the 1366px laptop with a custom range open.** The date inputs were
@@ -972,7 +1039,7 @@ confirmation. What is genuinely outstanding, with its owner:
 | G14 | Antivirus posture for accepted uploads | **decision** | Drive scans on ingest; that is not the same as EvalOS having an AV stance on files from a public link. Flagged in Unit 21, does not block it. **Now covers two surfaces** — client documents and the signed letter |
 | G15 | Getting the expert's portal link to the expert | **decision (T6)** | Dropping the signature provider removed what used to email it. Hand-sent by the CM until the email channel is decided — and unlike the client link, an expert who never gets theirs cannot sign while the 20h/24h clock runs |
 | G16 | **No screen shows which portal links exist, or whether anyone opened them** | **Unit 17** (specced) | The compensating control for G15 and T1/T5/T6: because delivery is a human copy-paste, the *only* evidence a link arrived is `portal_access.last_seen_at`, and nothing reads it in aggregate. So the likeliest way to breach the 24h signing SLA — a link nobody sent — is currently invisible. Specced as metric 5 in `17-dashboards.md`; **needs no migration**, all four facts are already stored |
-| G17 | **The GHL signature scheme is unverified, and only its header name is configurable** | **release blocker** | The header is a knob (`evalos.webhook.signature-header`). The *encoding* is not: `WebhookVerifier` parses hex, and a base64-signing GHL would fail every delivery with a 401 that no config change fixes. Nor is the signed material — the bare body here, where Unit 18 signs `"<timestamp>.<body>"` outbound. Promoted from an Open Question to a tracked gap because it is the only thing standing between Handoff A and a real sub-account, and it needs code, not settings |
+| ~~G17~~ | **CLOSED 2026-08-27 — by removing the inbound signature, not by confirming it.** The answer to "which encoding does GHL sign with" turned out to be *none*: GHL's Custom Webhook action posts a URL, a content type and a JSON body and cannot compute an HMAC at all, so the check was not merely unverified, it was unsatisfiable. `WebhookVerifier`, `X-Evalos-Signature`, `evalos.webhook.signature-header` and `Brand.ghlWebhookSecret` are deleted; the per-brand endpoint token against an **active** brand is the whole credential. Was: The GHL signature scheme is unverified, and only its header name is configurable | ~~release blocker~~ | The outbound half (Unit 18) is untouched and still HMAC-signs — EvalOS *can* sign what it sends |
 
 **Explicitly not gaps — decided out:**
 
@@ -1166,9 +1233,9 @@ names — there is no signature provider.
     resolution runs before verification (the spec lists it second) because the HMAC
     secret belongs to the brand — a lookup is not a side effect, so the rule it
     protects still holds.
-  - `webhook/WebhookVerifier` — HMAC-SHA256 over the exact bytes received, compared
-    with `MessageDigest.isEqual`. No secret, no header, bad hex and a wrong digest
-    all fail identically, so nothing is learnable from the response.
+  - ~~`webhook/WebhookVerifier`~~ — **deleted 2026-08-27 (G17)**; was HMAC-SHA256 over the exact
+    bytes received. GHL's Custom Webhook action cannot sign, so the endpoint token against an
+    active brand is the whole credential now. The gateway line above loses its verify step with it.
   - `webhook/{InboundWebhookController, WebhookRouter, GhlPaymentHandler,
     WebhookRejected}` — one public endpoint per brand, the event-type vocabulary
     (`payment.confirmed` live *as of this unit*; `refund.requested`/`contact.updated`
@@ -3096,9 +3163,10 @@ the campaign runs in GHL. So the tile is labelled **"review requests sent"** and
 captures — a tile naming a metric it cannot compute is the same failure as a header contradicting its
 instrument. Whether GHL should report captures back is now an open question below.
 
-**Cross-cutting, not unit-specific.** The GHL contract (payload shape, signature header, HMAC
-encoding, and which contact event actually fires) is the largest risk to code already shipped
-rather than to Phase 2, since Handoff A runs on assumptions today. The full brand list matters
+**Cross-cutting, not unit-specific.** The GHL contract (payload shape, and which event actually
+fires on Won) is the largest risk to code already shipped rather than to Phase 2, since Handoff A
+runs on assumptions today. *The signature-header and HMAC-encoding half of that risk was removed
+on 2026-08-27 with the inbound signature itself — see G17.* The full brand list matters
 whenever a third brand is seeded. Staff SSO stays deferred.
 
 ## Open Questions
@@ -3162,8 +3230,9 @@ whenever a third brand is seeded. Staff SSO stays deferred.
   - a **field that turns out not to exist** may also touch `CaseIntakeService` where it is
     applied to the entity, and the intake tests.
 
-  The signature header is genuinely one knob (`evalos.webhook.signature-header`, config, no
-  code change). The event **name** is likewise a single constant in `WebhookRouter`
+  ~~The signature header is genuinely one knob (`evalos.webhook.signature-header`, config, no
+  code change).~~ **Overtaken 2026-08-27: there is no inbound signature, so there is no header to
+  re-point and no knob left to be right about.** The event **name** is likewise a single constant in `WebhookRouter`
   (`OPPORTUNITY_WON`), so if GHL calls it `OpportunityStatusUpdate` with a `status` field rather
   than a distinct won event, the routing change is one line plus a status check in the handler.
 
@@ -3533,11 +3602,12 @@ whenever a third brand is seeded. Staff SSO stays deferred.
   checks live in the same `-Devalos.db.test=true` gated class.
 
 - **Unit 05 deviations / decisions to confirm.**
-  (a) **A rejected signature is logged, not archived.** `webhook_event` only ever
-  holds deliveries that verified, so `signature_verified` is always true today. An
-  unverified body is not evidence of anything, and archiving it would let anyone who
-  can reach the URL fill the table — and the unique `(source, external_id)` would
-  collide on the second attempt anyway. The spec's step 1 says "log", which this is.
+  (a) ~~**A rejected signature is logged, not archived.**~~ **Moot since 2026-08-27:
+  there is no signature to reject.** What the rule protected — nothing archived until
+  the caller is established — still holds, one step earlier: a delivery whose endpoint
+  token resolves to no active brand is logged and 404'd, and writes nothing. The
+  `signature_verified` column survives as a `V12` artifact nothing sets; new rows are
+  `false`, and the `true` rows are exactly the pre-change ones.
   (b) **Audit records `CASE` + `AuditAction.CREATED`**, not a literal `CASE_CREATED`
   action, matching Unit 04's object-type + action convention. The pair reads the
   same and needs no new enum value.
@@ -3550,10 +3620,12 @@ whenever a third brand is seeded. Staff SSO stays deferred.
   (d) **`case_code` is `<initials>-<year>-<6 hex>`** (`IE-2026-375863`). Random
   rather than a per-brand sequence, which would need a counter table and a lock; a
   collision hits the unique constraint and returns a retriable 5xx.
-  (e) **The signature header name is configuration**
+  (e) ~~**The signature header name is configuration**
   (`evalos.webhook.signature-header`, default `X-Evalos-Signature`) because GHL's
   real header is unconfirmed. The one knob this unit needs to be re-pointed without
-  a code change — and it is the only claim in this note that survived. The **payload shape is
+  a code change — and it is the only claim in this note that survived.~~ **Now stale too, as of
+  2026-08-27: the property and the whole inbound signature step are deleted (G17). Nothing in
+  this note survives.** The **payload shape is
   also assumed**, and was isolated in `GhlPaymentHandler.PaymentConfirmed`. **Both halves of
   that are now stale**: `GhlPaymentHandler` was deleted in Unit 05a (the shape moved to
   `GhlContactHandler.ContactCreated`), and "a correction is one file" was never true for a
