@@ -4,6 +4,68 @@ Update this file after every meaningful implementation change.
 
 ## Current Phase
 
+- **2026-08-26 — the funnel cache is in Postgres, and the DB test suite no longer skips itself.**
+  Both came out of one report ("I already have a DB, don't use heap memory to store data — I think
+  something went wrong with the DB configuration"). **The DB configuration was not broken**, and
+  that was worth establishing before changing anything: 27/27 integration tests pass against real
+  PostgreSQL 18.1, 29 migrations validated, `ddl-auto=validate` agreeing with every entity, and
+  there is no H2/HSQLDB/Derby anywhere in the project — the datasource is Postgres in all three
+  profiles. What looked like a misconfiguration was two real but different things.
+  - **`LocalPostgresIntegrationTest` was skipping 27 tests on a machine that had a database.** It
+    was gated on `-Devalos.db.test=true`, which nothing set locally, so a green `mvnw test` said
+    nothing whatsoever about the schema, the migrations or the encryption. The file's own Javadoc
+    already warned "a flag nobody sets is the same as a test nobody wrote" — it was still true.
+    - The gate is now a **connection probe** (`postgresIsUsable`): run if a Postgres answers.
+      `-Devalos.db.test` still wins when set, in **both** directions — `true` forces it on so CI
+      fails loudly on a broken provisioned database instead of skipping and reporting success,
+      `false` forces it off for a fast offline run. **CI is unaffected**: it already passes `true`.
+    - Every connection failure is a *skip*, not a *fail* — no Postgres, wrong credentials and no
+      `evalos` database all mean "this machine is not set up", and failing a fresh checkout for
+      that is what pushes people back to disabling the suite. The reason is printed as `[db] …`.
+    - **Result: skipped went 31 → 4** (only the opt-in live-GHL tests). `Skipped: 4` is now the
+      healthy number, and anything higher means the DB tests silently did not run —
+      `mem:task_completion` says so, because that is the failure mode this change re-introduces if
+      nobody looks.
+  - **The marketing funnel cache moved from a `ConcurrentHashMap` to `ghl_funnel_cache` (V25).**
+    The old note defended a per-instance map on the grounds that "a few seconds of skew between two
+    instances on a funnel count is invisible". That reasoning was about the **counts**, and it
+    missed what the map had since become: **the handover for the background total.** Three
+    consequences, all one defect — the handover state was private to a process:
+    1. A completed total was **lost on restart**, so the next reader paid the whole 11,000-row read
+       again.
+    2. With more than one instance, a screen polling a `TOTALLING` window could land on an instance
+       that had never heard of it and **wait forever**, or flip between `READY` and `TOTALLING`
+       depending on who answered.
+    3. The rate-limit protection was per instance, so **N instances meant N times GHL's budget** —
+       precisely the outage the cache exists to prevent.
+    - **Shape:** one row per `(funnel, range_name)` (both halves — the two payloads are identical
+      in shape, so a key missing `funnel` serves the ads figures under the email heading for a
+      whole TTL with nothing to contradict it). Payload as one `jsonb` document because nothing
+      queries inside it; `detail` and `read_at` lifted out as columns so a claim needs no JSON
+      parse; `version` for optimistic locking.
+    - **`totalling_since` replaces the in-heap `totalling` set, and it is a timestamp rather than a
+      flag so the claim can EXPIRE.** The heap set died with the process that held it; a row does
+      not, so an instance killed mid-total would otherwise wedge the window at `TOTALLING` with
+      every later caller politely declining to retry. `TOTALLING_CLAIM_TTL` is 10 minutes.
+    - **Winning the row write IS winning the claim**, atomically, because the claim is a column in
+      that same versioned write — so the compare-and-set added earlier this branch survives the
+      move, one layer down. A first draft had a separate `claimTotalling` step that would always
+      have declined its own claim; it was cut.
+    - **A payload this version cannot deserialise is a cache miss, never an error**, so a record
+      that gained a field does not 500 the first request after a rollout.
+    - **Still NOT stored: opportunity rows.** There is no `ghl_opportunity` table and there must not
+      be one — a stage dragged five seconds ago would already be wrong in it. Only the aggregate the
+      screen draws is cached. `architecture.md`'s "nothing persisted" claim was corrected rather
+      than left standing.
+    - **Not brand-scoped, and stated as a decision** rather than left to look like an oversight: the
+      figures come from one global GHL location EvalOS cannot attribute to a brand, so a `brand_id`
+      would be a column nobody could fill in correctly. Unit 25 adds it with the location move.
+      Not append-only either — it is a cache, safe to truncate.
+    - The unit tests keep an **in-memory fake** of the table, which is the right level for TTL and
+      handover logic; the unique key and the optimistic lock are **database** guarantees, so they
+      are asserted in `LocalPostgresIntegrationTest` (2 new tests) where they are real rather than
+      simulated. Those now actually run, which is how the entity/schema agreement got verified.
+
 - **2026-08-26 — both standing flags on the marketing branch are resolved.** They were the two
   things repeatedly called out as not-done: an open sign-off, and an unexercised integration.
   - **The live GHL exercise is DONE, and it is a real run, not a plan.**

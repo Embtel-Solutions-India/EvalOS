@@ -37,7 +37,8 @@ import org.springframework.web.util.UriBuilder;
  * inside invariant 6's "one bounded request": the timeout below, and the service's cache, so a
  * room full of open dashboards is not a room full of GHL calls.
  *
- * <p>Nothing is persisted. There is no {@code ghl_opportunity} table and there should not be —
+ * <p>No opportunity rows are persisted <em>by this client</em>. There is no
+ * {@code ghl_opportunity} table and there should not be —
  * a stage a salesperson dragged five seconds ago would already be wrong in it, and the contact
  * snapshots EvalOS <em>does</em> hold are the ones a case needs, arriving by webhook.
  */

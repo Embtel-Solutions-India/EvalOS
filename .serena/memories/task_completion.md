@@ -16,10 +16,13 @@ command and no formatter to run. See `mem:suggested_commands` for the PowerShell
 
 1. `.\mvnw.cmd verify` — compile + slice/unit tests, no Docker or database required. Use
    `clean verify` if surefire fails to discover tests (stale `target/`).
-2. Touched an entity, migration, repository, converter or anything else persistence-shaped? Also run
-   the gated DB test (`-Devalos.db.test=true`, see `mem:suggested_commands`) — `verify` alone never
-   loads a `ddl-auto=validate` context, so a mapping/schema mismatch passes it silently. Prove a new
-   migration on a throwaway database as well as the dev one.
+2. Touched an entity, migration, repository, converter or anything else persistence-shaped? **Check
+   the DB suite actually RAN rather than skipped.** Since 2026-08-26 `LocalPostgresIntegrationTest`
+   runs automatically whenever Postgres is reachable, so `verify` does load a `ddl-auto=validate`
+   context — but if the probe cannot connect it skips, and a mapping/schema mismatch then passes
+   silently exactly as before. `Skipped: 4` is the healthy number (the opt-in live-GHL tests);
+   anything higher means the DB tests did not run. Force them with `-Devalos.db.test=true` to be
+   certain, and prove a new migration on a throwaway database as well as the dev one.
 3. If a check could not be run, **say so explicitly** rather than reporting it as passing.
 
 ## Every unit (from `context/ai-workflow-rules.md`)

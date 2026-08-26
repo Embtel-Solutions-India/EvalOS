@@ -21,13 +21,18 @@ PowerShell notes that bite here:
 - `.\mvnw.cmd verify` — compile + slice/unit tests. **No Docker and no database needed**; the
   DB-dependent tests skip themselves. If surefire reports "TestEngine ... failed to discover tests",
   it is stale output from the old scaffold: run `.\mvnw.cmd clean verify` once.
-- Database checks (migrations apply, `ddl-auto=validate` agrees with every entity, `payment_detail` is
-  ciphertext, scoped finders separate two brands, audit rows cannot be edited) are one opt-in command:
+- **Database checks now run in the plain `test`/`verify` run** whenever a Postgres is reachable
+  (changed 2026-08-26) — migrations apply, `ddl-auto=validate` agrees with every entity,
+  `payment_detail` is ciphertext, scoped finders separate two brands, audit rows cannot be edited, and
+  the funnel cache's unique key and optimistic lock hold. If they report as skipped, the probe could
+  not connect and prints the reason as `[db] ... skipped`.
+- To force the suite on (CI does) or off, and to run it alone:
   ```
   .\mvnw.cmd test "-Devalos.db.test=true" "-Dtest=LocalPostgresIntegrationTest"
   ```
   **Quote each `-D…` in PowerShell** — unquoted, `-Devalos.db.test=true` is split and Maven reports
-  `Unknown lifecycle phase ".db.test=true"`. The suite runs in its own `evalos_test` schema off
+  `Unknown lifecycle phase ".db.test=true"`. `-Devalos.db.test=false` forces it off.
+  The suite runs in its own `evalos_test` schema off
   `DB_TEST_URL` (default localhost/evalos), so it never writes next to dev data; point `DB_TEST_URL`
   at a throwaway database to prove every migration applies from scratch.
 - `.\mvnw.cmd spring-boot:run` — starts on 8080 under the `local` profile. **Requires a reachable

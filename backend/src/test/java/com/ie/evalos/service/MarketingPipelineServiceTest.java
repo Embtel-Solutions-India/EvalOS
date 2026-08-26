@@ -3,12 +3,21 @@ package com.ie.evalos.service;
 import java.math.BigDecimal;
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.json.JsonMapper;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 
 import com.ie.evalos.common.DateRange;
+import com.ie.evalos.domain.GhlFunnelCache;
 import com.ie.evalos.integration.GhlPipelineClient;
 import com.ie.evalos.integration.GhlPipelineClient.Opportunity;
 import com.ie.evalos.integration.GhlPipelineClient.Pipeline;
 import com.ie.evalos.integration.GhlUnavailableException;
+import com.ie.evalos.repository.GhlFunnelCacheRepository;
 import com.ie.evalos.service.MarketingPipelineService.Detail;
 import com.ie.evalos.service.MarketingPipelineService.Funnel;
 
@@ -71,8 +80,53 @@ class MarketingPipelineServiceTest {
 		}
 	}
 
+	/**
+	 * The cache table, faked in memory <strong>for the test only</strong>.
+	 *
+	 * <p>Worth being explicit about, since the point of the change these tests cover is that the
+	 * cache is no longer in memory: production reads and writes {@code ghl_funnel_cache} in
+	 * Postgres. This stands in for the table so the service's caching *logic* — TTL, the
+	 * compare-and-set, the totalling claim, the poll-until-READY handover — can be tested without a
+	 * database. The real table is exercised by {@code LocalPostgresIntegrationTest}, which is now
+	 * unskipped whenever a Postgres is reachable.
+	 */
+	private final Map<String, GhlFunnelCache> rows = new ConcurrentHashMap<>();
+
+	/**
+	 * A repository over {@link #rows}, honouring the two behaviours the service depends on: lookup
+	 * by the whole window key, and last-write-wins on save.
+	 *
+	 * <p>It does <strong>not</strong> simulate optimistic-lock failures. Those are a database
+	 * guarantee, so asserting them here would be asserting the fake; what belongs at this level is
+	 * that the service asks for the row it is about to overwrite.
+	 */
+	private GhlFunnelCacheRepository cacheTable() {
+		GhlFunnelCacheRepository table = mock(GhlFunnelCacheRepository.class);
+		given(table.findByFunnelAndRangeName(anyString(), anyString())).willAnswer(
+				(call) -> Optional.ofNullable(rows.get(key(call.getArgument(0), call.getArgument(1)))));
+		given(table.saveAndFlush(any(GhlFunnelCache.class))).willAnswer((call) -> {
+			GhlFunnelCache row = call.getArgument(0);
+			rows.put(key(row.getFunnel(), row.getRangeName()), row);
+			return row;
+		});
+		return table;
+	}
+
+	private static String key(String funnel, String rangeName) {
+		return funnel + "|" + rangeName;
+	}
+
+	/**
+	 * An {@code ObjectMapper} shaped like Spring Boot's: the payload carries {@code Instant} and
+	 * {@code LocalDate}, so without {@code JavaTimeModule} every cache write would fail and every
+	 * read would silently become a miss — the tests would pass while caching nothing.
+	 */
+	private static ObjectMapper json() {
+		return JsonMapper.builder().addModule(new JavaTimeModule()).build();
+	}
+
 	private MarketingPipelineService service(Duration ttl) {
-		return new MarketingPipelineService(ghl, PIPELINE_NAME, EMAIL_PIPELINE_NAME, ttl);
+		return new MarketingPipelineService(ghl, cacheTable(), json(), PIPELINE_NAME, EMAIL_PIPELINE_NAME, ttl);
 	}
 
 	private static Opportunity at(String stageId, String amount, String source) {

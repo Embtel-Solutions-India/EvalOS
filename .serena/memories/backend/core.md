@@ -94,9 +94,29 @@ a speed-up**: one payload, one TTL, shared by every caller — without it N open
 multi-page GHL reads per refresh. A **failed refresh is never served from the previous value**; it
 propagates so the screen shows the error, because a kept figure shown without its failure is the
 "looks live and is not" bug. The payload carries `readAt` so the screen states its own age. Two
-racing callers both call GHL and the last write wins — left unguarded on purpose, since the
-alternative holds a lock across a network call. Nothing is persisted: **no `ghl_opportunity`
-table, and there must not be one.**
+racing callers both call GHL — left unguarded on purpose, since the alternative holds a lock across
+a network call. **The WRITE is guarded though**: it is compare-and-set (`@Version`), because the
+loser of that race must not overwrite a completed background total with `TOTALLING`, and a failed
+background read must not blank a `READY` row to `UNAVAILABLE`.
+
+**The cache is a TABLE, `ghl_funnel_cache`, since 2026-08-26 — it was a `ConcurrentHashMap`.** The
+old note here said "nothing is persisted", and that is no longer true of the aggregate. It moved
+because a heap map is private to one process, which cost three things: a completed background total
+was lost on restart; a screen polling a `TOTALLING` window could hit an instance that had never
+heard of it and wait forever, or flip between `READY` and `TOTALLING`; and the rate-limit protection
+was per instance, so N instances meant N times GHL's budget. Row per `(funnel, range_name)`, payload
+as one `jsonb` document (nothing queries inside it), `detail` and `read_at` lifted out as columns,
+`totalling_since` as the background claim — **a timestamp so the claim can EXPIRE**, since a row
+outlives the instance that wrote it and a killed totaller would otherwise wedge the window forever.
+
+**What is still NOT persisted: opportunity rows. No `ghl_opportunity` table, and there must not be
+one** — a stage dragged five seconds ago would already be wrong in it. Only the aggregate the screen
+draws is stored. Not brand-scoped, deliberately: the figures come from one global GHL location
+EvalOS cannot attribute to a brand, so a `brand_id` would be a column nobody could fill in
+correctly. Unit 25 adds it with the location move. Safe to truncate; losing it costs one slow page.
+
+A payload this version cannot deserialise is treated as a **cache miss, never an error**, so a
+record that gained a field does not 500 the first request after a rollout.
 
 **Source rows are grouped case-insensitively**, keyed on `toLowerCase(Locale.ROOT)` — `ROOT`
 because a Turkish-locale JVM lower-cases `I` to `ı` and would split the rows this joins. The row
@@ -281,9 +301,15 @@ frontend's typed mirror lives in `frontend/src/lib/api.ts`.
 - Map every controller under `/api` (the Vite dev proxy). Endpoints are **secured by default**: a new
   one answers 401 until `SecurityConfig` permits it or the caller bears a token — and a route under
   `/api/portal/**` lands on the *other* chain (`PortalSecurityConfig`), which accepts no JWT at all.
-- Tests are slice (`@WebMvcTest`) or plain unit tests needing no DB, so `verify` is green anywhere.
-  Everything that needs a real schema lives in one gated `@SpringBootTest`
-  (`LocalPostgresIntegrationTest`, `-Devalos.db.test=true`). No Testcontainers, no Docker.
+- Tests are slice (`@WebMvcTest`) or plain unit tests needing no DB. Everything that needs a real
+  schema lives in one `@SpringBootTest`, `LocalPostgresIntegrationTest`. No Testcontainers, no Docker.
+- **That suite now RUNS whenever a Postgres is reachable (changed 2026-08-26).** It used to be gated
+  on `-Devalos.db.test=true` alone, which meant 27 tests silently skipped on every machine that had a
+  database — so a green `mvnw test` said nothing about the schema, the migrations or the encryption.
+  The gate is a connection probe (`postgresIsUsable`); the flag still wins when set, in **both**
+  directions (`true` forces it on so CI fails loudly on a broken provisioned DB, `false` forces it
+  off for a fast offline run). Every connection failure means *skip*, not *fail*, so a fresh checkout
+  without Postgres still builds.
 
 Deeper: `mem:backend/security` for the auth chain, JWT, tenant context and the scoping/ownership
 mechanism; `mem:backend/persistence` for entity, repository, audit and field-encryption patterns;
