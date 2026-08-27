@@ -197,7 +197,7 @@ public class ExpertService {
 				.toList();
 
 		List<Expert> pageOf = matching.stream().skip((long) page * size).limit(size).toList();
-		return new RosterPage(withLoad(pageOf), page, size, matching.size());
+		return new RosterPage(withLoad(pageOf, pendingTotals(pageOf)), page, size, matching.size());
 	}
 
 	@Transactional(readOnly = true)
@@ -215,8 +215,9 @@ public class ExpertService {
 	 */
 	@Transactional(readOnly = true)
 	public List<AvailabilityGroup> availabilityBoard(UUID brandId) {
+		List<Expert> all = readable(brandId);
 		Map<Availability, List<Expert>> byAvailability = new EnumMap<>(Availability.class);
-		for (Expert expert : readable(brandId)) {
+		for (Expert expert : all) {
 			// An expert whose availability was never set is grouped as INACTIVE rather than
 			// dropped: a roster row missing from every column of this board is a row nobody
 			// will ever think to fix.
@@ -225,10 +226,14 @@ public class ExpertService {
 					key -> new ArrayList<>()).add(expert);
 		}
 
+		// Fetched once for the whole board, not once per column: pendingTotals runs the
+		// brand-wide GROUP BY, and Availability has six values — six identical queries for
+		// one board otherwise.
+		Map<UUID, BigDecimal> pending = pendingTotals(all);
 		return Arrays.stream(Availability.values())
 				.map(availability -> new AvailabilityGroup(availability,
 						withLoad(byAvailability.getOrDefault(availability, List.of()).stream()
-								.sorted(BY_NAME).toList())))
+								.sorted(BY_NAME).toList(), pending)))
 				.toList();
 	}
 
@@ -417,9 +422,8 @@ public class ExpertService {
 				.toList();
 	}
 
-	private List<RosterEntry> withLoad(List<Expert> page) {
+	private List<RosterEntry> withLoad(List<Expert> page, Map<UUID, BigDecimal> pending) {
 		Map<UUID, Load> byExpert = loads.forExperts(page.stream().map(Expert::getId).toList());
-		Map<UUID, BigDecimal> pending = pendingTotals(page);
 		return page.stream()
 				.map(expert -> new RosterEntry(expert, byExpert.get(expert.getId()),
 						pending.getOrDefault(expert.getId(), BigDecimal.ZERO)))

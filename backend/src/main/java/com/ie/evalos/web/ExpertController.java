@@ -134,14 +134,17 @@ public class ExpertController {
 	/**
 	 * One profile.
 	 *
-	 * @param avgResponseHours     and the two statuses below are shown, not edited here:
-	 *                             Unit 12 computes response behaviour, Unit 15 owns the
-	 *                             signing agreement and Unit 16 the payment status. A
-	 *                             roster edit that could flip "agreement signed" would be
-	 *                             a way to claim a signature nobody gave
-	 * @param totalPaymentsPending Unit 16's figure, derived from the payout ledger —
-	 *                             never {@code expert.total_payments_pending}, which
-	 *                             nothing has ever written and is a permanent zero
+	 * <p>{@code expert.pendingTotal} carries Unit 16's derived figure — this record does
+	 * not repeat it under a second name. It used to nest a {@code totalPaymentsPending}
+	 * member alongside {@code expert}'s own {@code pendingTotal}, both sourced from the
+	 * same {@code RosterEntry.pendingTotal()}; one figure under two names is one more
+	 * place for a client to read the stale one after only one gets updated.
+	 *
+	 * @param avgResponseHours and the two statuses below are shown, not edited here:
+	 *                         Unit 12 computes response behaviour, Unit 15 owns the
+	 *                         signing agreement and Unit 16 the payment status. A roster
+	 *                         edit that could flip "agreement signed" would be a way to
+	 *                         claim a signature nobody gave
 	 */
 	public record ExpertProfileView(
 			RosterRow expert,
@@ -151,7 +154,6 @@ public class ExpertController {
 			BigDecimal avgResponseHours,
 			AgreementStatus agreementStatus,
 			ExpertPaymentStatus paymentStatus,
-			BigDecimal totalPaymentsPending,
 			/**
 			 * Standing performance concerns, and as of Unit 22 slice 4 they are writable — see
 			 * {@code setPerformanceFlags}. Returned here because a flag the ENM can set and cannot
@@ -164,8 +166,7 @@ public class ExpertController {
 			Expert expert = entry.expert();
 			return new ExpertProfileView(RosterRow.of(entry), expert.getNotes(), expert.getRecruitmentSource(),
 					expert.getDateOnboarded(), expert.getAvgResponseHours(), expert.getAgreementStatus(),
-					expert.getPaymentStatus(), entry.pendingTotal(), expert.getPerformanceFlags(),
-					expert.getCreatedAt());
+					expert.getPaymentStatus(), expert.getPerformanceFlags(), expert.getCreatedAt());
 		}
 	}
 

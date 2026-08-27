@@ -7,6 +7,7 @@ import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
 import java.time.temporal.TemporalAdjusters;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -244,9 +245,13 @@ public class PayoutService {
 			String currency) {
 	}
 
-	/** A week on the batch screen. */
+	/**
+	 * A week on the batch screen. {@code currency} is null only when the week has no rows
+	 * — every non-empty window is guaranteed single-currency, {@link #batch} refuses a
+	 * mixed one rather than add across currencies.
+	 */
 	public record BatchView(LocalDate weekStart, LocalDate weekEnd, List<ExpertGroup> groups, BigDecimal due,
-			BigDecimal paid, BigDecimal overdue) {
+			BigDecimal paid, BigDecimal overdue, String currency) {
 	}
 
 	/** One transfer in a history list. */
@@ -284,28 +289,37 @@ public class PayoutService {
 	 * The batch screen: one week's {@code PENDING} drafts, grouped by expert.
 	 *
 	 * <p>A row's week is the week of its {@code due_date}, not its delivery date — the
-	 * batch screen answers "what is owed by when". {@code weekOf} need not itself be a
-	 * Monday; it is normalized the same way {@link #weekStart} normalizes an instant. A
-	 * null {@code weekOf} defaults to the current week in {@link BusinessCalendar#ZONE}.
+	 * batch screen answers "what is owed by when". A row belongs to this week exactly
+	 * when {@link #weekStart} of its {@code due_date} equals {@link #weekStart} of
+	 * {@code weekOf} (or of now, when {@code weekOf} is null) — the same function the
+	 * pinned boundary tests exercise, not a second, parallel window computation. That is
+	 * deliberate: {@code PmMetricsService} once filtered a window with an inclusive bound
+	 * that put a boundary instant in two adjacent windows, which here would mean a draft
+	 * payable twice.
 	 *
 	 * <p>{@code due} and {@code overdue} total the {@code PENDING} rows in the window (the
-	 * groups below are exactly those rows). {@code paid} totals what the window's rows
-	 * already settled to — money already sent against drafts due this week — so the header
-	 * can show progress without a second call.
+	 * groups below are exactly those rows). {@code paid} totals the window's rows that
+	 * actually went out ({@code PAID} or {@code CONFIRMED}) — a {@code VOIDED} row is
+	 * neither owed nor sent and counts toward nothing. A window spanning more than one
+	 * currency (only reachable by a cross-brand GM) is refused rather than summed wrong,
+	 * the same way {@link #settle} refuses a mixed-currency payment.
 	 */
 	@Transactional(readOnly = true)
 	public BatchView batch(LocalDate weekOf) {
 		TenantContext ctx = TenantContext.current();
-		LocalDate start = (weekOf != null ? weekOf : LocalDate.now(BusinessCalendar.ZONE))
-				.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
+		LocalDate anchor = weekOf != null ? weekOf : LocalDate.now(BusinessCalendar.ZONE);
+		LocalDate start = weekStart(anchor.atStartOfDay(BusinessCalendar.ZONE).toInstant());
 		LocalDate end = start.plusDays(6);
-		Instant windowStart = start.atStartOfDay(BusinessCalendar.ZONE).toInstant();
-		Instant windowEnd = start.plusWeeks(1).atStartOfDay(BusinessCalendar.ZONE).toInstant();
 
 		List<PayoutLedger> inWeek = payouts.findScoped(ctx).stream()
-				.filter(row -> row.getDueDate() != null && !row.getDueDate().isBefore(windowStart)
-						&& row.getDueDate().isBefore(windowEnd))
+				.filter(row -> row.getDueDate() != null && weekStart(row.getDueDate()).equals(start))
 				.toList();
+
+		String currency = inWeek.isEmpty() ? null : inWeek.get(0).getCurrency();
+		boolean mixed = inWeek.stream().anyMatch(row -> !Objects.equals(currency, row.getCurrency()));
+		if (mixed) {
+			throw new InvalidRequestException("This week spans more than one currency; view one brand at a time");
+		}
 
 		// One query each for every name on the page, never one per row — CaseBoardService's shape.
 		Map<UUID, String> expertNames = expertNames(inWeek.stream().map(PayoutLedger::getExpertId).toList());
@@ -314,12 +328,17 @@ public class PayoutService {
 		List<PayoutLedger> pending =
 				inWeek.stream().filter(row -> row.getStatus() == PayoutStatus.PENDING).toList();
 
+		// One clock for the whole call: toLedgerRow's per-row `overdue` and this method's
+		// `overdue` total must agree on what "now" is, or a row can read not-overdue while
+		// its amount is already counted in the overdue sum.
+		Instant now = Instant.now();
+
 		List<ExpertGroup> groups = pending.stream()
 				.collect(Collectors.groupingBy(PayoutLedger::getExpertId))
 				.entrySet().stream()
 				.map(entry -> {
 					List<LedgerRow> drafts = entry.getValue().stream()
-							.map(row -> toLedgerRow(row, caseCodes, expertNames)).toList();
+							.map(row -> toLedgerRow(row, caseCodes, expertNames, now)).toList();
 					BigDecimal subtotal = sum(drafts.stream().map(LedgerRow::amount));
 					return new ExpertGroup(entry.getKey(), expertNames.get(entry.getKey()), drafts, subtotal,
 							entry.getValue().get(0).getCurrency());
@@ -328,15 +347,14 @@ public class PayoutService {
 				.toList();
 
 		BigDecimal due = sum(pending.stream().map(PayoutLedger::getAmount));
-		Instant now = Instant.now();
 		BigDecimal overdue = sum(pending.stream()
 				.filter(row -> row.getDueDate() != null && row.getDueDate().isBefore(now))
 				.map(PayoutLedger::getAmount));
 		BigDecimal paid = sum(inWeek.stream()
-				.filter(row -> row.getStatus() != PayoutStatus.PENDING)
+				.filter(row -> row.getStatus() == PayoutStatus.PAID || row.getStatus() == PayoutStatus.CONFIRMED)
 				.map(PayoutLedger::getAmount));
 
-		return new BatchView(start, end, groups, due, paid, overdue);
+		return new BatchView(start, end, groups, due, paid, overdue, currency);
 	}
 
 	/** One expert's payment history, newest first, with how many drafts each transfer settled. */
@@ -378,8 +396,9 @@ public class PayoutService {
 		Map<UUID, String> caseCodes = caseCodes(settled.stream().map(PayoutLedger::getCaseId).toList());
 		Map<UUID, String> recordedByNames = teamMemberNames(List.of(found.getRecordedBy()));
 
+		Instant now = Instant.now();
 		List<LedgerRow> drafts =
-				settled.stream().map(row -> toLedgerRow(row, caseCodes, expertNames)).toList();
+				settled.stream().map(row -> toLedgerRow(row, caseCodes, expertNames, now)).toList();
 		PaymentRow row = new PaymentRow(found.getId(), found.getExpertId(), expertNames.get(found.getExpertId()),
 				found.getAmount(), found.getCurrency(), found.getMethod(), found.getReference(),
 				found.getPaidDate(), drafts.size(), found.getConfirmedAt() != null);
@@ -413,8 +432,15 @@ public class PayoutService {
 		row.setAmount(amount);
 		row.setRecordedBy(ctx.memberId());
 		payouts.save(row);
+		// HashMap, not Map.of: `before` is a BigDecimal that can legitimately be null (an
+		// expert with no standard fee opens with no amount), and Map.of rejects a null
+		// value outright. Both sides carry the same BigDecimal type — a String on one side
+		// and a BigDecimal on the other would make "350.00" and 350.00 look like a
+		// disagreement to anything diffing the append-only record.
+		Map<String, Object> beforeSnapshot = new HashMap<>();
+		beforeSnapshot.put("amount", before);
 		audit.recordEvent("PAYOUT", payoutId, AuditAction.UPDATED, ctx.memberId(),
-				Map.of("amount", String.valueOf(before)), Map.of("amount", amount));
+				beforeSnapshot, Map.of("amount", amount));
 	}
 
 	/** Correct how a transfer was described. Frozen once the expert has confirmed it. */
@@ -452,7 +478,15 @@ public class PayoutService {
 				Map.of("confirmed", false), Map.of("confirmed", true, "draftCount", confirmed));
 	}
 
-	/** What each expert on a brand is owed. Derived — {@code total_payments_pending} stays dead. */
+	/**
+	 * What each expert on a brand is owed. Derived — {@code total_payments_pending} stays dead.
+	 *
+	 * <p>Trusts {@code brandId} outright: no {@code TenantContext} consultation, the same
+	 * convention {@link PayoutLedgerRepository#findByPaymentId} carries. Call only with a
+	 * brand id that came from a scoped read — both current callers ({@code batch}'s own
+	 * scoping aside, {@code ExpertService}) derive it from an already-scoped {@code Expert}
+	 * or the caller's own {@code TenantContext}, never from a request parameter.
+	 */
 	public Map<UUID, BigDecimal> pendingByExpert(UUID brandId) {
 		return payouts.pendingTotalsByExpert(brandId).stream()
 				.collect(Collectors.toMap(PayoutLedgerRepository.ExpertPendingTotal::getExpertId,
@@ -468,9 +502,10 @@ public class PayoutService {
 		return payment;
 	}
 
-	private LedgerRow toLedgerRow(PayoutLedger row, Map<UUID, String> caseCodes, Map<UUID, String> expertNames) {
+	private LedgerRow toLedgerRow(PayoutLedger row, Map<UUID, String> caseCodes, Map<UUID, String> expertNames,
+			Instant now) {
 		boolean overdue = row.getStatus() == PayoutStatus.PENDING && row.getDueDate() != null
-				&& row.getDueDate().isBefore(Instant.now());
+				&& row.getDueDate().isBefore(now);
 		return new LedgerRow(row.getId(), row.getCaseId(), caseCodes.get(row.getCaseId()), row.getExpertId(),
 				expertNames.get(row.getExpertId()), row.getAmount(), row.getCurrency(), row.getStatus(),
 				row.getDueDate(), overdue, row.getPaymentId());

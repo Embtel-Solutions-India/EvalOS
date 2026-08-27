@@ -19,6 +19,7 @@ import com.ie.evalos.domain.PayoutLedger;
 import com.ie.evalos.domain.PayoutPayment;
 import com.ie.evalos.domain.PayoutStatus;
 import com.ie.evalos.domain.Role;
+import com.ie.evalos.domain.TeamMember;
 import com.ie.evalos.repository.BrandRepository;
 import com.ie.evalos.repository.CaseRepository;
 import com.ie.evalos.repository.ExpertRepository;
@@ -415,6 +416,14 @@ class PayoutServiceTest {
 		return row;
 	}
 
+	/** A pending USD row due at an exact instant, for the batch window's boundary tests. */
+	private PayoutLedger pendingDue(String amount, Instant dueDate) {
+		PayoutLedger row = new PayoutLedger(BRAND_IE, UUID.randomUUID(), EXPERT_ID, new BigDecimal(amount), "USD",
+				dueDate);
+		ReflectionTestUtils.setField(row, "id", UUID.randomUUID());
+		return row;
+	}
+
 	private void givenScoped(PayoutLedger... rows) {
 		for (PayoutLedger row : rows) {
 			given(payouts.findScoped(any(), eq(row.getId()))).willReturn(Optional.of(row));
@@ -541,5 +550,114 @@ class PayoutServiceTest {
 				"Zelle", "ZELLE-08262026-001", Instant.parse("2026-08-26T18:00:00Z"), null, ACTOR_ID);
 		ReflectionTestUtils.setField(payment, "id", UUID.randomUUID());
 		return payment;
+	}
+
+	/**
+	 * The boundary logic under test in {@link #aWeekRunsMondayToSundayInTheBusinessZone}
+	 * has to be the boundary logic {@code batch} actually runs on, not a second,
+	 * hand-rolled window — this is the regression guard for that. It also covers the
+	 * VOIDED-counted-as-paid defect in the same call: a settled row and a voided row both
+	 * land in the window, and only the settled one may count toward {@code paid}.
+	 */
+	@Test
+	void batchGroupsTheHalfOpenWeekAndExcludesVoidedFromPaid() {
+		givenEnmCaller();
+		// The week of 2026-08-24 is [2026-08-24T07:00:00Z, 2026-08-31T07:00:00Z) in Pacific
+		// Daylight Time — the same boundary weekStart's own pinned test proves.
+		PayoutLedger lastInstantOfTheWeek = pendingDue("350.00", Instant.parse("2026-08-31T06:59:59Z"));
+		PayoutLedger firstInstantOfNextWeek = pendingDue("400.00", Instant.parse("2026-08-31T07:00:00Z"));
+		PayoutLedger settledThisWeek = pendingDue("200.00", Instant.parse("2026-08-25T00:00:00Z"));
+		settledThisWeek.setStatus(PayoutStatus.PAID);
+		PayoutLedger voidedThisWeek = pendingDue("999.00", Instant.parse("2026-08-26T00:00:00Z"));
+		voidedThisWeek.setStatus(PayoutStatus.VOIDED);
+		given(payouts.findScoped(any()))
+				.willReturn(List.of(lastInstantOfTheWeek, firstInstantOfNextWeek, settledThisWeek, voidedThisWeek));
+
+		PayoutService.BatchView view = service.batch(LocalDate.of(2026, 8, 24));
+
+		assertThat(view.weekStart()).isEqualTo(LocalDate.of(2026, 8, 24));
+		assertThat(view.groups()).hasSize(1);
+		assertThat(view.groups().get(0).drafts()).extracting(PayoutService.LedgerRow::id)
+				.containsExactly(lastInstantOfTheWeek.getId());
+		assertThat(view.due()).isEqualByComparingTo("350.00");
+		// The voided row must not inflate "already sent"; only the PAID row may.
+		assertThat(view.paid()).isEqualByComparingTo("200.00");
+	}
+
+	@Test
+	void batchRefusesAMixedCurrencyWindow() {
+		givenEnmCaller();
+		PayoutLedger usd = pendingDue("350.00", Instant.parse("2026-08-25T00:00:00Z"));
+		PayoutLedger eur = pendingDue("300.00", Instant.parse("2026-08-26T00:00:00Z"));
+		ReflectionTestUtils.setField(eur, "currency", "EUR");
+		given(payouts.findScoped(any())).willReturn(List.of(usd, eur));
+
+		assertThatThrownBy(() -> service.batch(LocalDate.of(2026, 8, 24)))
+				.isInstanceOf(InvalidRequestException.class);
+	}
+
+	@Test
+	void historyReportsTheRightDraftCountPerPayment() {
+		givenEnmCaller();
+		PayoutPayment older = new PayoutPayment(BRAND_IE, EXPERT_ID, new BigDecimal("700.00"), "USD", "Zelle",
+				"REF-1", Instant.parse("2026-08-19T18:00:00Z"), null, ACTOR_ID);
+		ReflectionTestUtils.setField(older, "id", UUID.randomUUID());
+		PayoutPayment newer = new PayoutPayment(BRAND_IE, EXPERT_ID, new BigDecimal("350.00"), "USD", "Zelle",
+				"REF-2", Instant.parse("2026-08-26T18:00:00Z"), null, ACTOR_ID);
+		ReflectionTestUtils.setField(newer, "id", UUID.randomUUID());
+		given(payments.findScoped(any())).willReturn(List.of(older, newer));
+
+		PayoutLedger a = pending("350.00");
+		PayoutLedger b = pending("350.00");
+		PayoutLedger c = pending("350.00");
+		ReflectionTestUtils.setField(a, "paymentId", older.getId());
+		ReflectionTestUtils.setField(b, "paymentId", older.getId());
+		ReflectionTestUtils.setField(c, "paymentId", newer.getId());
+		given(payouts.findScoped(any())).willReturn(List.of(a, b, c));
+
+		List<PayoutService.PaymentRow> rows = service.history(EXPERT_ID);
+
+		assertThat(rows).hasSize(2);
+		// Newest first.
+		assertThat(rows.get(0).id()).isEqualTo(newer.getId());
+		assertThat(rows.get(0).draftCount()).isEqualTo(1);
+		assertThat(rows.get(1).id()).isEqualTo(older.getId());
+		assertThat(rows.get(1).draftCount()).isEqualTo(2);
+	}
+
+	@Test
+	void paymentJoinsTheSettledDraftsWithNames() {
+		givenEnmCaller();
+		PayoutPayment payment = paidPayment();
+		given(payments.findScoped(any(), eq(payment.getId()))).willReturn(Optional.of(payment));
+
+		Expert expert = new Expert(BRAND_IE, "Dr. Miriam Osei");
+		ReflectionTestUtils.setField(expert, "id", EXPERT_ID);
+		given(experts.findAllById(any())).willReturn(List.of(expert));
+
+		Case theCase = mock(Case.class);
+		UUID caseId = UUID.randomUUID();
+		given(theCase.getId()).willReturn(caseId);
+		given(theCase.getCaseCode()).willReturn("IE-2026-0042");
+		given(cases.findAllById(any())).willReturn(List.of(theCase));
+
+		TeamMember recorder = mock(TeamMember.class);
+		given(recorder.getId()).willReturn(ACTOR_ID);
+		given(recorder.getDisplayName()).willReturn("Pat Recorder");
+		given(teamMembers.findAllById(any())).willReturn(List.of(recorder));
+
+		PayoutLedger draft = new PayoutLedger(BRAND_IE, caseId, EXPERT_ID, new BigDecimal("1100.00"), "USD",
+				Instant.parse("2026-09-02T00:00:00Z"));
+		ReflectionTestUtils.setField(draft, "id", UUID.randomUUID());
+		draft.setStatus(PayoutStatus.PAID);
+		ReflectionTestUtils.setField(draft, "paymentId", payment.getId());
+		given(payouts.findByPaymentId(payment.getId())).willReturn(List.of(draft));
+
+		PayoutService.PaymentDetailView view = service.payment(payment.getId());
+
+		assertThat(view.payment().expertName()).isEqualTo("Dr. Miriam Osei");
+		assertThat(view.recordedByName()).isEqualTo("Pat Recorder");
+		assertThat(view.drafts()).hasSize(1);
+		assertThat(view.drafts().get(0).caseCode()).isEqualTo("IE-2026-0042");
 	}
 }
