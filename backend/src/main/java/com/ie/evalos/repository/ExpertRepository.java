@@ -41,4 +41,11 @@ public interface ExpertRepository extends ScopedRepository<Expert> {
 	 * check-then-act that two concurrent uploads can both win.
 	 */
 	Optional<Expert> findByBrandIdAndEmailIgnoreCase(UUID brandId, String email);
+
+	/**
+	 * One expert, in one brand. For callers with no {@code TenantContext} to scope
+	 * against — a case's own expert lookup, not a caller's — where the brand that
+	 * matters is the case's, not whoever is asking.
+	 */
+	Optional<Expert> findByIdAndBrandId(UUID id, UUID brandId);
 }

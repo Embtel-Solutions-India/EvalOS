@@ -141,9 +141,17 @@ Frontend under `frontend/src`: `components/ui` (generated primitives),
 
 - **PostgreSQL (system of record)**: brands, brand-scoped case records, stage +
   per-stage timestamps, document-checklist state, expert profiles, payout ledger
-  entries, read-only contact snapshots synced from GHL, in-app notifications, and
+  entries **and the payments that settle them**, read-only contact snapshots synced
+  from GHL, in-app notifications, and
   the append-only audit trail. Relational integrity via foreign keys; JSONB only
   for genuinely schemaless blobs (e.g. raw webhook payload archive).
+- **Money owed and money sent are two tables, because they are two facts** (Unit 16b).
+  A `payout_ledger` row is one delivered draft an expert is owed for; a
+  `payout_payment` row is one transfer that actually left, covering however many
+  drafts it covered, and the rows point at it. The expert charges per draft and is
+  paid weekly, so the two counts do not match and a single table would have to lie
+  about one of them. A payment's `amount` is exactly the sum of the rows it settles,
+  enforced on write — anything else is a ledger that disagrees with the bank silently.
 - **There is no `case_note` table, and case notes are not a gap** (Unit 23). A note
   anybody on the case writes is an **audit row** — `NOTE_ADDED`, with the text in the
   snapshot's `note`, exactly as a hold reason or a decline reason already travels. The

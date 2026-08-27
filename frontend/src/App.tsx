@@ -8,12 +8,21 @@ import ChecklistBoard from './features/checklist/ChecklistBoard'
 import PortalRoot from './features/client-portal/PortalRoot'
 import ExpertRoster from './features/experts/ExpertRoster'
 import MarketingPipelinePage from './features/marketing/MarketingPipelinePage'
+import PayoutBatch from './features/payouts/PayoutBatch'
+import ExpertPayouts from './features/payouts/ExpertPayouts'
+import PaymentDetail from './features/payouts/PaymentDetail'
 import LoginPage from './features/auth/LoginPage'
 import RoleDashboard from './features/dashboards/RoleDashboard'
 import AppShell from './features/shell/AppShell'
 import PlaceholderPage from './features/shell/PlaceholderPage'
 import CaseDetailPage from './features/case/CaseDetail'
-import { CASE_DETAIL_PATH, NAV_ITEMS, mayReach } from './features/shell/navigation'
+import {
+  CASE_DETAIL_PATH,
+  EXPERT_PAYOUTS_PATH,
+  NAV_ITEMS,
+  PAYMENT_DETAIL_PATH,
+  mayReach,
+} from './features/shell/navigation'
 import AuthProvider from './lib/auth'
 import { useAuth, useMe } from './lib/authContext'
 import NotFound from './pages/NotFound'
@@ -33,6 +42,7 @@ const SCREENS: Record<string, React.ReactNode> = {
   '/delivery': <DeliveryQueuePage />,
   '/checklists': <ChecklistBoard />,
   '/experts': <ExpertRoster />,
+  '/payouts': <PayoutBatch />,
   // Three funnels, one component: same stage shape, same question, different GHL pipeline. The
   // heading each carries is only a placeholder — GHL's own pipeline name replaces it on load.
   //
@@ -122,6 +132,25 @@ function StaffApp() {
           element={
             <RoleRoute path={CASE_DETAIL_PATH}>
               <CaseDetailPage />
+            </RoleRoute>
+          }
+        />
+
+        {/* Both reached from the payout batch screen, so neither is listed — and both are
+            gated by the same table, for the reason the case detail route is. */}
+        <Route
+          path={EXPERT_PAYOUTS_PATH}
+          element={
+            <RoleRoute path={EXPERT_PAYOUTS_PATH}>
+              <ExpertPayouts />
+            </RoleRoute>
+          }
+        />
+        <Route
+          path={PAYMENT_DETAIL_PATH}
+          element={
+            <RoleRoute path={PAYMENT_DETAIL_PATH}>
+              <PaymentDetail />
             </RoleRoute>
           }
         />

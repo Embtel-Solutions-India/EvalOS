@@ -37,6 +37,19 @@ public class Brand {
 	@Column(name = "webhook_endpoint_token", nullable = false, unique = true)
 	private String webhookEndpointToken;
 
+	/**
+	 * What experts on this brand are paid in. Nullable because db/seed-local/V900
+	 * inserts brands before this column exists; Flyway orders by version globally.
+	 * payout_ledger.currency NOT NULL ensures the gap does not reach the ledger, and
+	 * Task 3's openForDelivery refuses a brand with no currency.
+	 */
+	@Column(name = "currency")
+	private String currency;
+
+	/** Days from delivery to a payout's due date. Drives the weekly batch view. */
+	@Column(name = "payout_term_days", nullable = false)
+	private int payoutTermDays = 7;
+
 	@Column(name = "created_at", nullable = false, insertable = false, updatable = false)
 	private Instant createdAt;
 
@@ -62,6 +75,14 @@ public class Brand {
 
 	public String getWebhookEndpointToken() {
 		return webhookEndpointToken;
+	}
+
+	public String getCurrency() {
+		return currency;
+	}
+
+	public int getPayoutTermDays() {
+		return payoutTermDays;
 	}
 
 	public Instant getCreatedAt() {

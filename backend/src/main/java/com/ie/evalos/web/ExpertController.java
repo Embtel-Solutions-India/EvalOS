@@ -92,6 +92,10 @@ public class ExpertController {
 	 * @param completedCases closed, un-refunded cases, derived the same way
 	 * @param standardFee    what the expert usually charges, which Unit 16 prefills a
 	 *                       payout with. Not a price EvalOS charges anyone
+	 * @param pendingTotal   what this expert is currently owed — <strong>derived</strong>
+	 *                       from the payout ledger (Unit 16), never read from
+	 *                       {@code total_payments_pending}, which nothing has ever written
+	 *                       and which is therefore a permanent zero
 	 */
 	public record RosterRow(
 			UUID id,
@@ -110,7 +114,8 @@ public class ExpertController {
 			BigDecimal standardFee,
 			int activeLoad,
 			int completedCases,
-			boolean paymentDetailOnFile) {
+			boolean paymentDetailOnFile,
+			BigDecimal pendingTotal) {
 
 		static RosterRow of(RosterEntry entry) {
 			Expert expert = entry.expert();
@@ -118,7 +123,8 @@ public class ExpertController {
 					expert.getInstitution(), expert.getEmail(), expert.getPhone(), expert.getPrimaryFields(),
 					expert.getSecondaryFields(), expert.getLetterTypes(), expert.getTier(),
 					expert.getAvailability(), expert.getQualityScore(), expert.getStandardFee(),
-					entry.load().active(), entry.load().completed(), expert.hasPaymentDetail());
+					entry.load().active(), entry.load().completed(), expert.hasPaymentDetail(),
+					entry.pendingTotal());
 		}
 	}
 
@@ -128,15 +134,17 @@ public class ExpertController {
 	/**
 	 * One profile.
 	 *
-	 * @param avgResponseHours     and the two statuses below are shown, not edited here:
-	 *                             Unit 12 computes response behaviour, Unit 15 owns the
-	 *                             signing agreement and Unit 16 the payment status. A
-	 *                             roster edit that could flip "agreement signed" would be
-	 *                             a way to claim a signature nobody gave
-	 * @param totalPaymentsPending Unit 16's figure. Like the case counters it has never
-	 *                             been written, so it reads zero today — sent because the
-	 *                             profile is where it will appear, and labelled in the UI
-	 *                             as Unit 16's
+	 * <p>{@code expert.pendingTotal} carries Unit 16's derived figure — this record does
+	 * not repeat it under a second name. It used to nest a {@code totalPaymentsPending}
+	 * member alongside {@code expert}'s own {@code pendingTotal}, both sourced from the
+	 * same {@code RosterEntry.pendingTotal()}; one figure under two names is one more
+	 * place for a client to read the stale one after only one gets updated.
+	 *
+	 * @param avgResponseHours and the two statuses below are shown, not edited here:
+	 *                         Unit 12 computes response behaviour, Unit 15 owns the
+	 *                         signing agreement and Unit 16 the payment status. A roster
+	 *                         edit that could flip "agreement signed" would be a way to
+	 *                         claim a signature nobody gave
 	 */
 	public record ExpertProfileView(
 			RosterRow expert,
@@ -146,7 +154,6 @@ public class ExpertController {
 			BigDecimal avgResponseHours,
 			AgreementStatus agreementStatus,
 			ExpertPaymentStatus paymentStatus,
-			BigDecimal totalPaymentsPending,
 			/**
 			 * Standing performance concerns, and as of Unit 22 slice 4 they are writable — see
 			 * {@code setPerformanceFlags}. Returned here because a flag the ENM can set and cannot
@@ -159,8 +166,7 @@ public class ExpertController {
 			Expert expert = entry.expert();
 			return new ExpertProfileView(RosterRow.of(entry), expert.getNotes(), expert.getRecruitmentSource(),
 					expert.getDateOnboarded(), expert.getAvgResponseHours(), expert.getAgreementStatus(),
-					expert.getPaymentStatus(), expert.getTotalPaymentsPending(), expert.getPerformanceFlags(),
-					expert.getCreatedAt());
+					expert.getPaymentStatus(), expert.getPerformanceFlags(), expert.getCreatedAt());
 		}
 	}
 

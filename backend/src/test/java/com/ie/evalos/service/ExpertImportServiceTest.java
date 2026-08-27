@@ -72,12 +72,13 @@ class ExpertImportServiceTest {
 	private final ExpertRepository experts = mock(ExpertRepository.class);
 	private final BrandRepository brands = mock(BrandRepository.class);
 	private final ExpertLoadService loads = mock(ExpertLoadService.class);
+	private final PayoutService payouts = mock(PayoutService.class);
 	private final OwnershipGuard ownership = mock(OwnershipGuard.class);
 	private final AuditService audit = mock(AuditService.class);
 	private final Validator validator = Validation.buildDefaultValidatorFactory().getValidator();
 
 	private final ExpertService expertService =
-			new ExpertService(experts, brands, loads, ownership, audit);
+			new ExpertService(experts, brands, loads, payouts, ownership, audit);
 
 	private final ExpertImportService imports =
 			new ExpertImportService(experts, expertService, ownership, audit, validator);

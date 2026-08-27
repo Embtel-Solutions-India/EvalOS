@@ -90,7 +90,17 @@ public final class CaseEvents {
 		 * get: {@code NotificationListeners.ROUTES} is what turns it into an in-app alert for the
 		 * right people, and routing it any other way would be a second notification path.
 		 */
-		CASE_FLAGGED_TO_PM("case.flagged_to_pm");
+		CASE_FLAGGED_TO_PM("case.flagged_to_pm"),
+		/**
+		 * A case reached delivery with no expert assigned, so {@code PayoutService} opened
+		 * no payout row (Unit 16).
+		 *
+		 * <p><strong>Should be impossible.</strong> {@code FINAL_DELIVERY} is only reachable
+		 * through {@code EXPERT_SIGNING}, which requires an expert — so this is an alarm, not
+		 * a routine notice, which is why {@code NotificationListeners.ROUTES} raises it past
+		 * the case's own PM to that brand's Brand Managers as well.
+		 */
+		CASE_DELIVERED_NO_EXPERT("case.delivered_no_expert");
 
 		private final String wireName;
 

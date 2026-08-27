@@ -104,5 +104,18 @@ public enum AuditAction {
 	 * {@code @PreAuthorize}; the scoped load is the whole gate, so "everyone on the case" means
 	 * precisely the set the scope already admits.
 	 */
-	NOTE_ADDED
+	NOTE_ADDED,
+	/**
+	 * A transfer was recorded as sent, settling one or more payout rows (Unit 16b),
+	 * written against the <strong>payment</strong>.
+	 *
+	 * <p>Its own action rather than {@code CREATED}, for the reason {@link #CHASED} and
+	 * {@link #FLAGGED} have theirs: this is the row every "money out" question filters
+	 * on, and a metric needs something to filter on. Confirming a payment and correcting
+	 * a reference stay {@code UPDATED} — those are ordinary field changes on a record
+	 * that already exists.
+	 *
+	 * <p>Never reaches the case timeline: the object acted on is a payment, not a case.
+	 */
+	PAYOUT_SETTLED
 }

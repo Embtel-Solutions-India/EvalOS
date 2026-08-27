@@ -4,6 +4,88 @@ Update this file after every meaningful implementation change.
 
 ## Current Phase
 
+- **2026-08-27 — Unit 16b built: the expert charges per draft and is paid weekly.** Units 16 and 16b
+  shipped together on `unit-16-payout-ledger`. 551 backend tests, 146 frontend, `npm run build` and
+  `npm run lint` green, and the DB-gated suite **ran** rather than skipping.
+  - **What the requirement actually is.** The expert is owed a fee per delivered draft, but the
+    money leaves once a week: three drafts, one Zelle transfer, **one reference**. Spec 16 assumed
+    the unit of payment is the unit of work and gave each payout row its own
+    `method`/`reference`/`paid_date` and its own `confirm` — which would record one transfer as
+    three rows carrying the same string typed three times, with no object anywhere corresponding
+    to what left the bank.
+  - **The fix is one idea: a payment is its own record.** New `payout_payment` table; `payout_ledger`
+    gains `payment_id` and loses those three columns. `CONFIRMED` moves to the payment and cascades
+    — one transfer, one acknowledgement.
+  - **The rule that keeps it honest: `sum(row amounts) == payment.amount`, exactly.** A payment whose
+    amount is not what it settled disagrees with the bank *silently* — both numbers look reasonable
+    alone — and would make the finance dashboard's money-out figure ambiguous, since the sum of
+    payments and the sum of settled rows would be two different answers to one question. If the
+    number is wrong the row amounts are corrected first; they are editable while `PENDING`.
+  - **Settlement is one conditional `UPDATE ... WHERE status = 'PENDING'` with an affected-count
+    assertion**, not read-then-save. Two ENMs settling overlapping selections is the same
+    check-then-act shape spec 16 wrote its partial unique index for. No `@Version`, no explicit
+    lock — the database decides and cannot decide twice.
+  - **Decision taken: the ENM records payouts**, with the GM and Brand Manager. Spec 16 restricted
+    writes to GM/Brand Manager and said in as many words that this was the business's call, not an
+    assumption to make in a spec. The ENM sends the transfer, so the ENM records it. The guard stays
+    in `PayoutService` *and* `@PreAuthorize`, because it is a money path.
+  - **Retainers were considered and rejected.** An earlier reading had experts on a standing weekly
+    rate per expert-to-client assignment. The business does not pay one — and it would have forced
+    client identity onto ENM screens and required amending the supply-side-axis rule. **The ENM stays
+    client-blind and `project-overview.md`'s *Roles* section needs no amendment**, which is the main
+    thing the corrected reading bought.
+  - **Two holes in spec 16 found by checking it against the schema.** It reads "the brand's configured
+    currency" and "the configured payout term"; `V2__brand.sql` has neither. Both land in 16b's
+    migration — `currency` `NOT NULL` **with no column default** (guessing USD for a GBP agreement is
+    the one guess here that spends real money), `payout_term_days` defaulted to 7 because a wrong due
+    date is a visible annoyance, not a wrong payment.
+  - **`payout_ledger.method`/`reference`/`paid_date` are dropped, departing from the HMAC precedent**
+    that left dead columns in place. That decision turned on not writing a migration at all; here one
+    is written regardless, and these three sit on a *money* table where they read as load-bearing. A
+    convincing trap on the payout path is worse than two inert columns on a webhook archive. Nothing
+    ever wrote them — Unit 16 was never built — so no data is lost, and `V8` is not edited.
+  - **Deliberately not in 16b:** reports and CSV export (real, wanted, in no unit — its own decision,
+    not smuggled in), a `PAY-000124` payment code (the typed reference is already the handle), and the
+    ENM dashboard tiles (Unit 17's, fed by these queries).
+  - Files: `context/specs/16b-weekly-settlement.md` (new), `16-payout-ledger.md` (supersession
+    banner), `00-build-plan.md` (A3), `project-overview.md`, `architecture.md`,
+    `.serena/memories/backend/persistence.md`.
+
+  - **Four things the build changed about the spec, all recorded in it:**
+    1. **`brand.currency` could not be `NOT NULL`.** Flyway orders by version across every
+       configured location, so `V28` runs before `db/seed-local/V900`, which inserts brands with no
+       currency — the constraint fails on any fresh database, which is what CI builds every run.
+       `V900` cannot be edited (invariant 9) and `MigrationTreeTest` forbids a ≥900 script under
+       `db/migration`, so no `SET NOT NULL` can be ordered after it. **`payout_ledger.currency
+       NOT NULL` is what actually keeps a null out of the ledger** — which is what spec 16 asked
+       for — and `openForDelivery` refuses a brand with no currency, rolling the delivery back.
+    2. **A delivery for a currency-less brand rolls back rather than notifying.** Spec 16's wording
+       was ambiguous. A delivered case with no payout row is an expert who never gets paid, and it
+       is silent; a blocked delivery is loud and is fixed by setting one column.
+    3. **`GET /api/payouts` is a real filterable list**, not the batch view. It is what the expert
+       payouts screen reads to answer "this expert's pending drafts" — `batch` is week-scoped and
+       `history` returns payments, so nothing else does.
+    4. **`PayoutService.MAY_RECORD` is public**, so `PayoutControllerTest` can assert by reflection
+       that the controllers' `@PreAuthorize` names exactly those three roles. Spec 16b asked for
+       that test by name; it could not be written across packages otherwise.
+
+  - **What review caught that a green suite did not.** Every defect below passed its own build:
+    a migration that would have failed CI on the first fresh database; a brand-scoping fix whose
+    proof test passed identically against the unfixed code; `weekStart` tested against three
+    deliberately-pinned timezone boundaries while **having no production caller**, the real week
+    logic sitting untested inline; `BatchView.paid` counting `VOIDED` drafts as money sent; a
+    role-agreement test that asserted nothing when a method was un-annotated; and two of four list
+    filters deletable without turning the suite red. The pattern is one thing — the code was
+    usually right and the proof was hollow — and it is why the two concurrency properties are
+    proved against real Postgres with genuinely interleaved transactions rather than asserted.
+
+  - **Deferred, deliberately.** `list`/`batch`/`history` each load a brand's ledger and filter in
+    memory with no pagination — the existing house shape, and the flat list is where growth bites
+    first. The lost-race rollback is proved end-to-end in `LocalPostgresIntegrationTest`, not in the
+    unit suite, where `PayoutService` is built with `new` and `@Transactional` is unproxied. The
+    DB test's SQL is a hand-kept mirror of `attachToPayment`'s JPQL: it pins the semantics
+    production relies on, not that production still writes them, and its javadoc says so.
+
 - **2026-08-27 — `ghl_contact_id` outranks email in contact matching (`V27`).** Confirmed as policy:
   the GHL contact id is the canonical external client identity everywhere, and the three identifiers
   stay separate — `ghl_contact_id` = the client, `ghl_opportunity_id` = one purchase,
