@@ -4,6 +4,7 @@ import java.lang.reflect.Method;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -78,9 +79,6 @@ class PayoutControllerTest {
 	private static final UUID PAYOUT_ID = UUID.fromString("dddddddd-0000-0000-0000-000000000001");
 
 	private static final UUID PAYMENT_ID = UUID.fromString("eeeeeeee-0000-0000-0000-000000000001");
-
-	/** What must never appear in a response body, on any route, for any role. */
-	private static final String SECRET = "Wire to Bank of Nowhere, acct 12345678";
 
 	private static final String SETTLE_BODY = """
 			{"expertId":"cccccccc-0000-0000-0000-000000000001",
@@ -183,8 +181,9 @@ class PayoutControllerTest {
 		// member, or a mapper that starts copying one, fails here — which a per-field
 		// assertion on one endpoint would not.
 		for (MockHttpServletRequestBuilder request : everyRoute(Role.EXPERT_NETWORK_MANAGER)) {
-			String body = mockMvc.perform(request).andReturn().getResponse().getContentAsString();
-			assertThat(body).doesNotContain("paymentDetail").doesNotContain(SECRET);
+			String body = mockMvc.perform(request).andExpect(status().isOk())
+					.andReturn().getResponse().getContentAsString();
+			assertThat(body).doesNotContain("paymentDetail");
 		}
 	}
 
@@ -215,17 +214,24 @@ class PayoutControllerTest {
 				PayoutService.MAY_RECORD.stream().map(Role::name).collect(java.util.stream.Collectors.toSet());
 		assertThat(expected).containsExactlyInAnyOrder("GM", "BRAND_MANAGER", "EXPERT_NETWORK_MANAGER");
 
+		List<String> gated = new ArrayList<>();
 		for (Class<?> controller : List.of(PayoutController.class, PaymentController.class)) {
 			for (Method method : controller.getDeclaredMethods()) {
 				PreAuthorize preAuthorize = method.getAnnotation(PreAuthorize.class);
 				if (preAuthorize == null) {
 					continue;
 				}
+				gated.add(controller.getSimpleName() + "#" + method.getName());
 				assertThat(rolesIn(preAuthorize.value()))
 						.as(controller.getSimpleName() + "#" + method.getName())
 						.isEqualTo(expected);
 			}
 		}
+
+		// Without this, deleting @PreAuthorize from a method — or all of them — just
+		// shrinks the loop to nothing and the test passes on the pinned three-name
+		// assertion above alone, having checked zero methods. Nine routes, nine gates.
+		assertThat(gated).as("every one of the nine routes must be @PreAuthorize-gated").hasSize(9);
 	}
 
 	private static Set<String> rolesIn(String preAuthorizeExpression) {

@@ -75,7 +75,7 @@ public class PayoutController {
 			@RequestParam(required = false) PayoutStatus status,
 			@RequestParam(required = false) UUID expertId,
 			@RequestParam(required = false) @DateTimeFormat(iso = ISO.DATE) LocalDate weekOf,
-			@RequestParam(required = false, defaultValue = "false") boolean overdue) {
+			@RequestParam(defaultValue = "false") boolean overdue) {
 		return ApiResponse.ok(payouts.list(status, expertId, weekOf, overdue));
 	}
 

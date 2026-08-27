@@ -418,7 +418,11 @@ class PayoutServiceTest {
 
 	/** A pending USD row due at an exact instant, for the batch window's boundary tests. */
 	private PayoutLedger pendingDue(String amount, Instant dueDate) {
-		PayoutLedger row = new PayoutLedger(BRAND_IE, UUID.randomUUID(), EXPERT_ID, new BigDecimal(amount), "USD",
+		return pendingDue(amount, dueDate, EXPERT_ID);
+	}
+
+	private PayoutLedger pendingDue(String amount, Instant dueDate, UUID expertId) {
+		PayoutLedger row = new PayoutLedger(BRAND_IE, UUID.randomUUID(), expertId, new BigDecimal(amount), "USD",
 				dueDate);
 		ReflectionTestUtils.setField(row, "id", UUID.randomUUID());
 		return row;
@@ -674,7 +678,17 @@ class PayoutServiceTest {
 		PayoutLedger minePaid = pending("400.00");
 		minePaid.setStatus(PayoutStatus.PAID);
 		PayoutLedger theirsPending = pending("500.00", otherExpert);
-		given(payouts.findScoped(any())).willReturn(List.of(minePending, minePaid, theirsPending));
+		// A row three weeks out from the others, for the weekOf filter, and a PAID row
+		// whose due date is genuinely in the past (Instant.now(), not a fixed literal, so
+		// this stays true whenever the suite runs) — overdueOnly must exclude it on
+		// status alone, the same rule batch() applies. Both belong to otherExpert, not
+		// EXPERT_ID, so they cannot also change what the expertId assertions above see.
+		PayoutLedger differentWeek =
+				pendingDue("999.00", minePending.getDueDate().plus(21, ChronoUnit.DAYS), otherExpert);
+		PayoutLedger paidPastDue = pendingDue("111.00", Instant.now().minus(5, ChronoUnit.DAYS), otherExpert);
+		paidPastDue.setStatus(PayoutStatus.PAID);
+		given(payouts.findScoped(any()))
+				.willReturn(List.of(minePending, minePaid, theirsPending, differentWeek, paidPastDue));
 
 		assertThat(service.list(null, EXPERT_ID, null, false)).extracting(PayoutService.LedgerRow::id)
 				.as("expertId must exclude the other expert's row")
@@ -685,6 +699,15 @@ class PayoutServiceTest {
 				.as("status=PENDING must exclude the PAID row")
 				.containsExactly(minePending.getId());
 
-		assertThat(service.list(null, null, null, false)).hasSize(3);
+		LocalDate theWeek = PayoutService.weekStart(minePending.getDueDate());
+		assertThat(service.list(null, null, theWeek, false)).extracting(PayoutService.LedgerRow::id)
+				.as("weekOf must exclude a row due three weeks out")
+				.doesNotContain(differentWeek.getId());
+
+		assertThat(service.list(null, null, null, true)).extracting(PayoutService.LedgerRow::id)
+				.as("overdueOnly must exclude a PAID row even though its due date has passed")
+				.doesNotContain(paidPastDue.getId());
+
+		assertThat(service.list(null, null, null, false)).hasSize(5);
 	}
 }
