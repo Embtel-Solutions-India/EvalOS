@@ -2,6 +2,7 @@ package com.ie.evalos.service;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Optional;
@@ -19,9 +20,11 @@ import com.ie.evalos.domain.PayoutPayment;
 import com.ie.evalos.domain.PayoutStatus;
 import com.ie.evalos.domain.Role;
 import com.ie.evalos.repository.BrandRepository;
+import com.ie.evalos.repository.CaseRepository;
 import com.ie.evalos.repository.ExpertRepository;
 import com.ie.evalos.repository.PayoutLedgerRepository;
 import com.ie.evalos.repository.PayoutPaymentRepository;
+import com.ie.evalos.repository.TeamMemberRepository;
 import com.ie.evalos.security.StaffPrincipal;
 import com.ie.evalos.security.TenantContext;
 
@@ -72,6 +75,10 @@ class PayoutServiceTest {
 
 	private BrandRepository brands;
 
+	private CaseRepository cases;
+
+	private TeamMemberRepository teamMembers;
+
 	private AuditService audit;
 
 	private PayoutService service;
@@ -82,8 +89,10 @@ class PayoutServiceTest {
 		payments = mock(PayoutPaymentRepository.class);
 		experts = mock(ExpertRepository.class);
 		brands = mock(BrandRepository.class);
+		cases = mock(CaseRepository.class);
+		teamMembers = mock(TeamMemberRepository.class);
 		audit = mock(AuditService.class);
-		service = new PayoutService(payouts, payments, experts, brands, audit);
+		service = new PayoutService(payouts, payments, experts, brands, cases, teamMembers, audit);
 
 		given(payouts.save(any(PayoutLedger.class))).willAnswer(call -> call.getArgument(0));
 	}
@@ -428,5 +437,109 @@ class PayoutServiceTest {
 		SecurityContextHolder.getContext().setAuthentication(
 				new UsernamePasswordAuthenticationToken(principal, null, principal.getAuthorities()));
 		assertThat(TenantContext.current()).isEqualTo(ctx);
+	}
+
+	@Test
+	void aWeekRunsMondayToSundayInTheBusinessZone() {
+		// 2026-08-24 is a Monday. 07:00Z on that day is 00:00 Pacific — the first instant
+		// of the week, and it must land in this week rather than the one before.
+		assertThat(PayoutService.weekStart(Instant.parse("2026-08-24T07:00:00Z")))
+				.isEqualTo(LocalDate.of(2026, 8, 24));
+		// One second earlier is still Sunday in California.
+		assertThat(PayoutService.weekStart(Instant.parse("2026-08-24T06:59:59Z")))
+				.isEqualTo(LocalDate.of(2026, 8, 17));
+		// Sunday evening Pacific is late Monday UTC, and belongs to the week that is ending.
+		assertThat(PayoutService.weekStart(Instant.parse("2026-08-31T03:00:00Z")))
+				.isEqualTo(LocalDate.of(2026, 8, 24));
+	}
+
+	@Test
+	void anAmountMayBeCorrectedWhilePending() {
+		givenEnmCaller();
+		PayoutLedger row = pending("350.00");
+		givenScoped(row);
+
+		service.correctAmount(row.getId(), new BigDecimal("400.00"));
+
+		assertThat(row.getAmount()).isEqualByComparingTo("400.00");
+		assertThat(row.getRecordedBy()).isEqualTo(ACTOR_ID);
+	}
+
+	@Test
+	void aSettledAmountIsFrozen() {
+		givenEnmCaller();
+		PayoutLedger row = pending("350.00");
+		row.setStatus(PayoutStatus.PAID);
+		givenScoped(row);
+
+		assertThatThrownBy(() -> service.correctAmount(row.getId(), new BigDecimal("400.00")))
+				.isInstanceOf(IllegalTransitionException.class);
+		// Its amount is part of a payment's sum; changing it would break that sum after the fact.
+		assertThat(row.getAmount()).isEqualByComparingTo("350.00");
+	}
+
+	@Test
+	void aNegativeAmountIsRefused() {
+		givenEnmCaller();
+		PayoutLedger row = pending("350.00");
+		givenScoped(row);
+
+		assertThatThrownBy(() -> service.correctAmount(row.getId(), new BigDecimal("-1.00")))
+				.isInstanceOf(InvalidRequestException.class);
+	}
+
+	@Test
+	void confirmingAPaymentConfirmsEveryDraftItSettled() {
+		givenEnmCaller();
+		PayoutPayment payment = paidPayment();
+		given(payments.findScoped(any(), eq(payment.getId()))).willReturn(Optional.of(payment));
+		given(payouts.confirmForPayment(payment.getId())).willReturn(3);
+
+		service.confirm(payment.getId());
+
+		assertThat(payment.getConfirmedAt()).isNotNull();
+		verify(payouts).confirmForPayment(payment.getId());
+	}
+
+	@Test
+	void aConfirmedPaymentIsTerminal() {
+		givenEnmCaller();
+		PayoutPayment payment = paidPayment();
+		payment.setConfirmedAt(Instant.parse("2026-08-27T10:00:00Z"));
+		given(payments.findScoped(any(), eq(payment.getId()))).willReturn(Optional.of(payment));
+
+		assertThatThrownBy(() -> service.confirm(payment.getId()))
+				.isInstanceOf(IllegalTransitionException.class);
+	}
+
+	@Test
+	void aReferenceIsCorrectableUntilTheExpertConfirms() {
+		givenEnmCaller();
+		PayoutPayment payment = paidPayment();
+		given(payments.findScoped(any(), eq(payment.getId()))).willReturn(Optional.of(payment));
+
+		service.editPayment(payment.getId(),
+				new PayoutService.PaymentEditForm("Zelle", "ZELLE-08262026-002", "corrected"));
+
+		assertThat(payment.getReference()).isEqualTo("ZELLE-08262026-002");
+	}
+
+	@Test
+	void aConfirmedPaymentIsFrozen() {
+		givenEnmCaller();
+		PayoutPayment payment = paidPayment();
+		payment.setConfirmedAt(Instant.parse("2026-08-27T10:00:00Z"));
+		given(payments.findScoped(any(), eq(payment.getId()))).willReturn(Optional.of(payment));
+
+		assertThatThrownBy(() -> service.editPayment(payment.getId(),
+				new PayoutService.PaymentEditForm("Zelle", "ZELLE-X", null)))
+				.isInstanceOf(IllegalTransitionException.class);
+	}
+
+	private PayoutPayment paidPayment() {
+		PayoutPayment payment = new PayoutPayment(BRAND_IE, EXPERT_ID, new BigDecimal("1100.00"), "USD",
+				"Zelle", "ZELLE-08262026-001", Instant.parse("2026-08-26T18:00:00Z"), null, ACTOR_ID);
+		ReflectionTestUtils.setField(payment, "id", UUID.randomUUID());
+		return payment;
 	}
 }

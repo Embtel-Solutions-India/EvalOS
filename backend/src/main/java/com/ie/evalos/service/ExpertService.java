@@ -6,6 +6,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
 import java.util.EnumMap;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -91,8 +92,12 @@ public class ExpertService {
 			@Size(max = 4000) String notes) {
 	}
 
-	/** One roster row: the expert, and the load the counters cannot tell us. */
-	public record RosterEntry(Expert expert, Load load) {
+	/**
+	 * One roster row: the expert, the load the counters cannot tell us, and what they are
+	 * owed — derived from the payout ledger, never {@code expert.total_payments_pending},
+	 * which nothing has ever written (Unit 16).
+	 */
+	public record RosterEntry(Expert expert, Load load, BigDecimal pendingTotal) {
 	}
 
 	/** One page of the roster. {@code total} is the filtered count, not the brand's. */
@@ -149,14 +154,16 @@ public class ExpertService {
 	private final ExpertRepository experts;
 	private final BrandRepository brands;
 	private final ExpertLoadService loads;
+	private final PayoutService payouts;
 	private final OwnershipGuard ownership;
 	private final AuditService audit;
 
-	ExpertService(ExpertRepository experts, BrandRepository brands, ExpertLoadService loads,
+	ExpertService(ExpertRepository experts, BrandRepository brands, ExpertLoadService loads, PayoutService payouts,
 			OwnershipGuard ownership, AuditService audit) {
 		this.experts = experts;
 		this.brands = brands;
 		this.loads = loads;
+		this.payouts = payouts;
 		this.ownership = ownership;
 		this.audit = audit;
 	}
@@ -196,7 +203,9 @@ public class ExpertService {
 	@Transactional(readOnly = true)
 	public RosterEntry profile(UUID id) {
 		Expert expert = read(id);
-		return new RosterEntry(expert, loads.forExpert(expert.getId()));
+		BigDecimal pendingTotal = payouts.pendingByExpert(expert.getBrandId())
+				.getOrDefault(expert.getId(), BigDecimal.ZERO);
+		return new RosterEntry(expert, loads.forExpert(expert.getId()), pendingTotal);
 	}
 
 	/**
@@ -410,7 +419,23 @@ public class ExpertService {
 
 	private List<RosterEntry> withLoad(List<Expert> page) {
 		Map<UUID, Load> byExpert = loads.forExperts(page.stream().map(Expert::getId).toList());
-		return page.stream().map(expert -> new RosterEntry(expert, byExpert.get(expert.getId()))).toList();
+		Map<UUID, BigDecimal> pending = pendingTotals(page);
+		return page.stream()
+				.map(expert -> new RosterEntry(expert, byExpert.get(expert.getId()),
+						pending.getOrDefault(expert.getId(), BigDecimal.ZERO)))
+				.toList();
+	}
+
+	/**
+	 * What every expert on this page is owed, fetched once per page rather than once per
+	 * row. One query per distinct brand on the page — a single query for every caller but
+	 * the cross-brand GM, who still never pays for a row that never ran.
+	 */
+	private Map<UUID, BigDecimal> pendingTotals(List<Expert> page) {
+		Map<UUID, BigDecimal> combined = new HashMap<>();
+		page.stream().map(Expert::getBrandId).distinct()
+				.forEach(brandId -> combined.putAll(payouts.pendingByExpert(brandId)));
+		return combined;
 	}
 
 	private static boolean matchesSearch(Expert expert, String search) {

@@ -1,13 +1,20 @@
 package com.ie.evalos.service;
 
 import java.math.BigDecimal;
+import java.time.DayOfWeek;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
+import java.time.temporal.TemporalAdjusters;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.Digits;
@@ -27,10 +34,13 @@ import com.ie.evalos.domain.PayoutLedger;
 import com.ie.evalos.domain.PayoutPayment;
 import com.ie.evalos.domain.PayoutStatus;
 import com.ie.evalos.domain.Role;
+import com.ie.evalos.domain.TeamMember;
 import com.ie.evalos.repository.BrandRepository;
+import com.ie.evalos.repository.CaseRepository;
 import com.ie.evalos.repository.ExpertRepository;
 import com.ie.evalos.repository.PayoutLedgerRepository;
 import com.ie.evalos.repository.PayoutPaymentRepository;
+import com.ie.evalos.repository.TeamMemberRepository;
 import com.ie.evalos.security.TenantContext;
 
 import org.springframework.stereotype.Service;
@@ -54,14 +64,20 @@ public class PayoutService {
 
 	private final BrandRepository brands;
 
+	private final CaseRepository cases;
+
+	private final TeamMemberRepository teamMembers;
+
 	private final AuditService audit;
 
 	PayoutService(PayoutLedgerRepository payouts, PayoutPaymentRepository payments, ExpertRepository experts,
-			BrandRepository brands, AuditService audit) {
+			BrandRepository brands, CaseRepository cases, TeamMemberRepository teamMembers, AuditService audit) {
 		this.payouts = payouts;
 		this.payments = payments;
 		this.experts = experts;
 		this.brands = brands;
+		this.cases = cases;
+		this.teamMembers = teamMembers;
 		this.audit = audit;
 	}
 
@@ -215,6 +231,289 @@ public class PayoutService {
 						"method", payment.getMethod(), "reference", payment.getReference(),
 						"draftCount", rows.size(), "payoutIds", ids));
 		return payment.getId();
+	}
+
+	/** One draft an expert is owed for, as a screen sees it. */
+	public record LedgerRow(UUID id, UUID caseId, String caseCode, UUID expertId, String expertName,
+			BigDecimal amount, String currency, PayoutStatus status, Instant dueDate, boolean overdue,
+			UUID paymentId) {
+	}
+
+	/** One expert's drafts in one week, with what they add up to. */
+	public record ExpertGroup(UUID expertId, String expertName, List<LedgerRow> drafts, BigDecimal subtotal,
+			String currency) {
+	}
+
+	/** A week on the batch screen. */
+	public record BatchView(LocalDate weekStart, LocalDate weekEnd, List<ExpertGroup> groups, BigDecimal due,
+			BigDecimal paid, BigDecimal overdue) {
+	}
+
+	/** One transfer in a history list. */
+	public record PaymentRow(UUID id, UUID expertId, String expertName, BigDecimal amount, String currency,
+			String method, String reference, Instant paidDate, int draftCount, boolean confirmed) {
+	}
+
+	/** One transfer and everything it settled. */
+	public record PaymentDetailView(PaymentRow payment, String notes, String recordedByName,
+			List<LedgerRow> drafts) {
+	}
+
+	/** What stays correctable on a payment until the expert confirms it. */
+	public record PaymentEditForm(
+			@NotBlank @Size(max = 100) String method,
+			@NotBlank @Size(max = 200) String reference,
+			@Size(max = 2000) String notes) {
+	}
+
+	/**
+	 * The Monday of the week an instant falls in, in the business's own zone.
+	 *
+	 * <p>Both halves matter. {@link BusinessCalendar#ZONE} because payout day is the
+	 * business's day, and a UTC boundary puts a Sunday-afternoon delivery in next week for
+	 * a California ENM. Monday-start because that is the week the batch screen is worked
+	 * down. The window this anchors is <b>half-open</b> — {@code [monday, next monday)} —
+	 * so an instant exactly on a boundary belongs to one week and cannot be paid twice.
+	 */
+	public static LocalDate weekStart(Instant instant) {
+		return instant.atZone(BusinessCalendar.ZONE).toLocalDate()
+				.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
+	}
+
+	/**
+	 * The batch screen: one week's {@code PENDING} drafts, grouped by expert.
+	 *
+	 * <p>A row's week is the week of its {@code due_date}, not its delivery date — the
+	 * batch screen answers "what is owed by when". {@code weekOf} need not itself be a
+	 * Monday; it is normalized the same way {@link #weekStart} normalizes an instant. A
+	 * null {@code weekOf} defaults to the current week in {@link BusinessCalendar#ZONE}.
+	 *
+	 * <p>{@code due} and {@code overdue} total the {@code PENDING} rows in the window (the
+	 * groups below are exactly those rows). {@code paid} totals what the window's rows
+	 * already settled to — money already sent against drafts due this week — so the header
+	 * can show progress without a second call.
+	 */
+	@Transactional(readOnly = true)
+	public BatchView batch(LocalDate weekOf) {
+		TenantContext ctx = TenantContext.current();
+		LocalDate start = (weekOf != null ? weekOf : LocalDate.now(BusinessCalendar.ZONE))
+				.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
+		LocalDate end = start.plusDays(6);
+		Instant windowStart = start.atStartOfDay(BusinessCalendar.ZONE).toInstant();
+		Instant windowEnd = start.plusWeeks(1).atStartOfDay(BusinessCalendar.ZONE).toInstant();
+
+		List<PayoutLedger> inWeek = payouts.findScoped(ctx).stream()
+				.filter(row -> row.getDueDate() != null && !row.getDueDate().isBefore(windowStart)
+						&& row.getDueDate().isBefore(windowEnd))
+				.toList();
+
+		// One query each for every name on the page, never one per row — CaseBoardService's shape.
+		Map<UUID, String> expertNames = expertNames(inWeek.stream().map(PayoutLedger::getExpertId).toList());
+		Map<UUID, String> caseCodes = caseCodes(inWeek.stream().map(PayoutLedger::getCaseId).toList());
+
+		List<PayoutLedger> pending =
+				inWeek.stream().filter(row -> row.getStatus() == PayoutStatus.PENDING).toList();
+
+		List<ExpertGroup> groups = pending.stream()
+				.collect(Collectors.groupingBy(PayoutLedger::getExpertId))
+				.entrySet().stream()
+				.map(entry -> {
+					List<LedgerRow> drafts = entry.getValue().stream()
+							.map(row -> toLedgerRow(row, caseCodes, expertNames)).toList();
+					BigDecimal subtotal = sum(drafts.stream().map(LedgerRow::amount));
+					return new ExpertGroup(entry.getKey(), expertNames.get(entry.getKey()), drafts, subtotal,
+							entry.getValue().get(0).getCurrency());
+				})
+				.sorted(Comparator.comparing(ExpertGroup::expertName, Comparator.nullsLast(String::compareToIgnoreCase)))
+				.toList();
+
+		BigDecimal due = sum(pending.stream().map(PayoutLedger::getAmount));
+		Instant now = Instant.now();
+		BigDecimal overdue = sum(pending.stream()
+				.filter(row -> row.getDueDate() != null && row.getDueDate().isBefore(now))
+				.map(PayoutLedger::getAmount));
+		BigDecimal paid = sum(inWeek.stream()
+				.filter(row -> row.getStatus() != PayoutStatus.PENDING)
+				.map(PayoutLedger::getAmount));
+
+		return new BatchView(start, end, groups, due, paid, overdue);
+	}
+
+	/** One expert's payment history, newest first, with how many drafts each transfer settled. */
+	@Transactional(readOnly = true)
+	public List<PaymentRow> history(UUID expertId) {
+		TenantContext ctx = TenantContext.current();
+		List<PayoutPayment> mine = payments.findScoped(ctx).stream()
+				.filter(payment -> expertId.equals(payment.getExpertId()))
+				.sorted(Comparator.comparing(PayoutPayment::getPaidDate).reversed())
+				.toList();
+
+		// One query for the whole page's draft counts, not one findByPaymentId per payment.
+		Map<UUID, Long> draftCounts = payouts.findScoped(ctx).stream()
+				.filter(row -> expertId.equals(row.getExpertId()) && row.getPaymentId() != null)
+				.collect(Collectors.groupingBy(PayoutLedger::getPaymentId, Collectors.counting()));
+
+		Map<UUID, String> expertNames = expertNames(List.of(expertId));
+
+		return mine.stream()
+				.map(payment -> new PaymentRow(payment.getId(), payment.getExpertId(),
+						expertNames.get(payment.getExpertId()), payment.getAmount(), payment.getCurrency(),
+						payment.getMethod(), payment.getReference(), payment.getPaidDate(),
+						draftCounts.getOrDefault(payment.getId(), 0L).intValue(), payment.getConfirmedAt() != null))
+				.toList();
+	}
+
+	/** One transfer and every draft it settled. */
+	@Transactional(readOnly = true)
+	public PaymentDetailView payment(UUID paymentId) {
+		TenantContext ctx = TenantContext.current();
+		PayoutPayment found = payments.findScoped(ctx, paymentId)
+				.orElseThrow(() -> new InvalidRequestException("No such payment: " + paymentId));
+
+		// findByPaymentId is a single call for the one payment this screen shows, not a
+		// per-row read — safe with a paymentId that just came back from a scoped read.
+		List<PayoutLedger> settled = payouts.findByPaymentId(paymentId);
+
+		Map<UUID, String> expertNames = expertNames(List.of(found.getExpertId()));
+		Map<UUID, String> caseCodes = caseCodes(settled.stream().map(PayoutLedger::getCaseId).toList());
+		Map<UUID, String> recordedByNames = teamMemberNames(List.of(found.getRecordedBy()));
+
+		List<LedgerRow> drafts =
+				settled.stream().map(row -> toLedgerRow(row, caseCodes, expertNames)).toList();
+		PaymentRow row = new PaymentRow(found.getId(), found.getExpertId(), expertNames.get(found.getExpertId()),
+				found.getAmount(), found.getCurrency(), found.getMethod(), found.getReference(),
+				found.getPaidDate(), drafts.size(), found.getConfirmedAt() != null);
+
+		return new PaymentDetailView(row, found.getNotes(), recordedByNames.get(found.getRecordedBy()), drafts);
+	}
+
+	/**
+	 * Correct what a draft is worth, before anything settles it.
+	 *
+	 * <p>Frozen once settled: the amount is part of a payment's sum, and changing it would
+	 * break that sum after the fact. The fix for a wrong settled amount is a
+	 * void-and-re-record, not an edit.
+	 */
+	@Transactional
+	public void correctAmount(UUID payoutId, BigDecimal amount) {
+		TenantContext ctx = TenantContext.current();
+		requireMayRecord(ctx);
+		if (amount == null || amount.signum() < 0) {
+			throw new InvalidRequestException("A payout amount cannot be negative");
+		}
+
+		PayoutLedger row = payouts.findScoped(ctx, payoutId)
+				.orElseThrow(() -> new InvalidRequestException("No such draft: " + payoutId));
+		if (row.getStatus() != PayoutStatus.PENDING) {
+			throw new IllegalTransitionException("Draft " + payoutId + " is " + row.getStatus()
+					+ " and its amount is part of a payment");
+		}
+
+		BigDecimal before = row.getAmount();
+		row.setAmount(amount);
+		row.setRecordedBy(ctx.memberId());
+		payouts.save(row);
+		audit.recordEvent("PAYOUT", payoutId, AuditAction.UPDATED, ctx.memberId(),
+				Map.of("amount", String.valueOf(before)), Map.of("amount", amount));
+	}
+
+	/** Correct how a transfer was described. Frozen once the expert has confirmed it. */
+	@Transactional
+	public void editPayment(UUID paymentId, PaymentEditForm form) {
+		TenantContext ctx = TenantContext.current();
+		requireMayRecord(ctx);
+
+		PayoutPayment payment = loadUnconfirmed(ctx, paymentId, "edited");
+		Map<String, Object> before = Map.of("method", payment.getMethod(), "reference", payment.getReference());
+		payment.setMethod(form.method().trim());
+		payment.setReference(form.reference().trim());
+		payment.setNotes(blankToNull(form.notes()));
+		payments.save(payment);
+		audit.recordEvent("PAYOUT_PAYMENT", paymentId, AuditAction.UPDATED, ctx.memberId(), before,
+				Map.of("method", payment.getMethod(), "reference", payment.getReference()));
+	}
+
+	/**
+	 * The expert acknowledged the transfer.
+	 *
+	 * <p>Set on the payment and cascaded, because one transfer gets one acknowledgement.
+	 * There is no route that confirms a single draft.
+	 */
+	@Transactional
+	public void confirm(UUID paymentId) {
+		TenantContext ctx = TenantContext.current();
+		requireMayRecord(ctx);
+
+		PayoutPayment payment = loadUnconfirmed(ctx, paymentId, "confirmed twice");
+		payment.setConfirmedAt(Instant.now());
+		payments.save(payment);
+		int confirmed = payouts.confirmForPayment(paymentId);
+		audit.recordEvent("PAYOUT_PAYMENT", paymentId, AuditAction.UPDATED, ctx.memberId(),
+				Map.of("confirmed", false), Map.of("confirmed", true, "draftCount", confirmed));
+	}
+
+	/** What each expert on a brand is owed. Derived — {@code total_payments_pending} stays dead. */
+	public Map<UUID, BigDecimal> pendingByExpert(UUID brandId) {
+		return payouts.pendingTotalsByExpert(brandId).stream()
+				.collect(Collectors.toMap(PayoutLedgerRepository.ExpertPendingTotal::getExpertId,
+						PayoutLedgerRepository.ExpertPendingTotal::getTotal));
+	}
+
+	private PayoutPayment loadUnconfirmed(TenantContext ctx, UUID paymentId, String what) {
+		PayoutPayment payment = payments.findScoped(ctx, paymentId)
+				.orElseThrow(() -> new InvalidRequestException("No such payment: " + paymentId));
+		if (payment.getConfirmedAt() != null) {
+			throw new IllegalTransitionException("A confirmed payment cannot be " + what);
+		}
+		return payment;
+	}
+
+	private LedgerRow toLedgerRow(PayoutLedger row, Map<UUID, String> caseCodes, Map<UUID, String> expertNames) {
+		boolean overdue = row.getStatus() == PayoutStatus.PENDING && row.getDueDate() != null
+				&& row.getDueDate().isBefore(Instant.now());
+		return new LedgerRow(row.getId(), row.getCaseId(), caseCodes.get(row.getCaseId()), row.getExpertId(),
+				expertNames.get(row.getExpertId()), row.getAmount(), row.getCurrency(), row.getStatus(),
+				row.getDueDate(), overdue, row.getPaymentId());
+	}
+
+	private static BigDecimal sum(Stream<BigDecimal> amounts) {
+		return amounts.filter(Objects::nonNull).reduce(BigDecimal.ZERO, BigDecimal::add);
+	}
+
+	/** One query for every expert name a page needs, not one per row (mem:backend/persistence). */
+	private Map<UUID, String> expertNames(List<UUID> expertIds) {
+		List<UUID> ids = expertIds.stream().filter(Objects::nonNull).distinct().toList();
+		if (ids.isEmpty()) {
+			return Map.of();
+		}
+		// The null-name filter is load-bearing, not defensive (CaseBoardService's own
+		// pattern): full_name carries no NOT NULL at the schema level, and Collectors.toMap
+		// throws on a null value rather than answering null.
+		return experts.findAllById(ids).stream()
+				.filter(expert -> expert.getFullName() != null)
+				.collect(Collectors.toMap(Expert::getId, Expert::getFullName, (first, second) -> first));
+	}
+
+	/** One query for every case code a page needs, not one per row (mem:backend/persistence). */
+	private Map<UUID, String> caseCodes(List<UUID> caseIds) {
+		List<UUID> ids = caseIds.stream().filter(Objects::nonNull).distinct().toList();
+		if (ids.isEmpty()) {
+			return Map.of();
+		}
+		// case_code carries no NOT NULL either; same null-filter reasoning as expertNames.
+		return cases.findAllById(ids).stream()
+				.filter(subject -> subject.getCaseCode() != null)
+				.collect(Collectors.toMap(Case::getId, Case::getCaseCode, (first, second) -> first));
+	}
+
+	/** One query for every recorder name a page needs, not one per row (mem:backend/persistence). */
+	private Map<UUID, String> teamMemberNames(List<UUID> memberIds) {
+		List<UUID> ids = memberIds.stream().filter(Objects::nonNull).distinct().toList();
+		if (ids.isEmpty()) {
+			return Map.of();
+		}
+		return teamMembers.findAllById(ids).stream()
+				.collect(Collectors.toMap(TeamMember::getId, TeamMember::getDisplayName, (first, second) -> first));
 	}
 
 	private static void requireMayRecord(TenantContext ctx) {
