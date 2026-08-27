@@ -40,6 +40,8 @@ class PayoutServiceTest {
 
 	private static final UUID BRAND_IE = UUID.fromString("11111111-1111-1111-1111-111111111111");
 
+	private static final UUID BRAND_XP = UUID.fromString("22222222-2222-2222-2222-222222222222");
+
 	private static final UUID EXPERT_ID = UUID.fromString("cccccccc-0000-0000-0000-000000000001");
 
 	private static final UUID CASE_ID = UUID.fromString("dddddddd-0000-0000-0000-000000000001");
@@ -140,15 +142,20 @@ class PayoutServiceTest {
 		verify(payouts, never()).save(any());
 	}
 
+	/**
+	 * Proves the scoping actually bites, not merely that the mock was configured: stubs
+	 * the key the pre-fix, unscoped {@code findById(expertId)} would have used, with an
+	 * expert whose fee would leak if that call ever came back. Reverting the production
+	 * fix to {@code experts.findById(expertId)} must fail this on all three assertions.
+	 */
 	@Test
 	void anExpertBelongingToAnotherBrandIsTreatedAsHavingNoStandardFee() {
 		givenBrand("USD", 7);
-		// Exists, but under a different brand — findByIdAndBrandId(EXPERT_ID, BRAND_IE)
-		// stays unstubbed, so it answers empty exactly as an out-of-scope row does.
-		UUID otherBrand = UUID.fromString("22222222-2222-2222-2222-222222222222");
-		Expert fromAnotherBrand = new Expert(otherBrand, "Wrong Brand's Expert");
+		Expert fromAnotherBrand = new Expert(BRAND_XP, "Dr. Wrong-Brand");
 		fromAnotherBrand.setStandardFee(new BigDecimal("999.00"));
-		given(experts.findByIdAndBrandId(EXPERT_ID, otherBrand)).willReturn(Optional.of(fromAnotherBrand));
+		// The unscoped lookup the old code used would find this expert and prefill 999.00.
+		// The scoped lookup finds nothing, because this expert is not in the case's brand.
+		given(experts.findById(EXPERT_ID)).willReturn(Optional.of(fromAnotherBrand));
 
 		service.openForDelivery(deliveredCase(EXPERT_ID));
 
@@ -157,6 +164,8 @@ class PayoutServiceTest {
 		assertThat(saved.getValue().getAmount())
 				.as("another brand's fee must never leak onto this brand's payout row")
 				.isNull();
+		verify(experts).findByIdAndBrandId(EXPERT_ID, BRAND_IE);
+		verify(experts, never()).findById(any());
 	}
 
 	private void givenBrand(String currency, int termDays) {
