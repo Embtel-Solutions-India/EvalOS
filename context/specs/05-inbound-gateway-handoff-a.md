@@ -20,6 +20,14 @@
 > `UNIQUE (source, external_id)` (now `UNIQUE NULLS NOT DISTINCT (source, brand_id,
 > external_id)`, `V13`). Case creation is still **only** through this door.
 >
+> **Also dead as of 2026-08-27: step 1, "verify the source signature/HMAC".** There
+> is no inbound signature check. `WebhookVerifier`, the `signature-verified` reasoning,
+> `X-Evalos-Signature`, `evalos.webhook.signature-header` and `Brand.ghlWebhookSecret`
+> are removed, because GHL's Custom Webhook action cannot compute an HMAC. The
+> `brand.ghl_webhook_secret` column (`V11`) and the `signature_verified` column (`V12`)
+> stay in the schema — an applied migration is never edited — but nothing reads them.
+> The endpoint token, resolved against an **active** brand, is the whole credential.
+>
 > Current truth: **`context/specs/05b-opportunity-won-intake.md`**,
 > `context/architecture.md` (Handoff A + invariants 5 and 8), and the Case Creation
 > v2.0 entry in `context/progress-tracker.md`.

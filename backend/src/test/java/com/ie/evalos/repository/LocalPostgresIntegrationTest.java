@@ -2,6 +2,7 @@ package com.ie.evalos.repository;
 
 import java.sql.Connection;
 import java.sql.DriverManager;
+import java.sql.PreparedStatement;
 import java.sql.SQLException;
 import java.time.Duration;
 import java.time.Instant;
@@ -11,6 +12,11 @@ import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 import java.util.UUID;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -371,11 +377,10 @@ class LocalPostgresIntegrationTest {
 	 * only unique once a snapshot exists — so for a contact EvalOS had never seen, two
 	 * concurrent deliveries each inserted their own snapshot and both passed V15.
 	 *
-	 * <p>Both keys are asserted because the payload does not guarantee a GHL id: intake
-	 * falls back to email, so that path needs constraining too.
+	 * <p>The GHL id is the identity, so it is the key that always applies.
 	 */
 	@Test
-	void aContactIsUniquePerBrandByGhlIdAndByEmail() {
+	void aContactIsUniquePerBrandByGhlId() {
 		String ghlId = "ghl-" + UUID.randomUUID();
 		String email = "dup-" + UUID.randomUUID() + "@example.test";
 
@@ -387,17 +392,48 @@ class LocalPostgresIntegrationTest {
 		assertThatThrownBy(() -> contacts.saveAndFlush(sameGhlId))
 				.hasStackTraceContaining("uq_contact_per_brand_ghl_id");
 
-		// Case-insensitive: a capitalised address is the same person, matching the finder
-		// intake uses (findByBrandIdAndEmailIgnoreCase).
-		ContactSnapshot sameEmail = new ContactSnapshot(BRAND_IE, "ghl-" + UUID.randomUUID());
-		sameEmail.syncFromGhl("Same Email", email.toUpperCase(), null, null, null, null, null, null, null);
-		assertThatThrownBy(() -> contacts.saveAndFlush(sameEmail))
-				.hasStackTraceContaining("uq_contact_per_brand_email");
-
-		// The other brand keeps its own contacts: both keys are brand-scoped (invariant 1).
+		// The other brand keeps its own contacts: the key is brand-scoped (invariant 1).
 		ContactSnapshot otherBrand = new ContactSnapshot(BRAND_XP, ghlId);
 		otherBrand.syncFromGhl("Other Brand", email, null, null, null, null, null, null, null);
 		assertThat(contacts.saveAndFlush(otherBrand).getId()).isNotNull();
+	}
+
+	/**
+	 * <strong>V27: email is a fallback key, not an identity.</strong> V16 made it unique
+	 * for every row carrying one, which said "one email, one person" — true only while
+	 * EvalOS has nothing better to go on. Two GHL contacts sharing a firm's office inbox
+	 * are two clients, and the old index refused to let the second one exist, which is what
+	 * pushed intake into merging the new client onto the old one's row.
+	 *
+	 * <p>So the index now applies only to rows with no GHL id. Both halves are asserted
+	 * here, because the second is the one V16 was right about and V27 must not lose.
+	 */
+	@Test
+	void emailIsUniqueOnlyAmongContactsWithNoGhlId() {
+		String email = "office-" + UUID.randomUUID() + "@example.test";
+
+		// Two distinct GHL contacts, one shared inbox. Two clients, and both may exist.
+		ContactSnapshot firm = new ContactSnapshot(BRAND_IE, "ghl-" + UUID.randomUUID());
+		firm.syncFromGhl("Marcus Vale", email, null, null, null, null, null, null, null);
+		contacts.saveAndFlush(firm);
+
+		ContactSnapshot colleague = new ContactSnapshot(BRAND_IE, "ghl-" + UUID.randomUUID());
+		colleague.syncFromGhl("Anita Rao", email, null, null, null, null, null, null, null);
+		assertThat(contacts.saveAndFlush(colleague).getId()).isNotEqualTo(firm.getId());
+
+		// The race V16 closed stays closed: with no GHL id, email is all there is, and two
+		// concurrent id-less deliveries for one address must still collide. Case-insensitive,
+		// matching the finder intake uses (findByBrandIdAndEmailIgnoreCase).
+		String idlessEmail = "idless-" + UUID.randomUUID() + "@example.test";
+		ContactSnapshot idless = new ContactSnapshot(BRAND_IE, null);
+		idless.syncFromGhl("No Id Yet", idlessEmail, null, null, null, null, null, null, null);
+		contacts.saveAndFlush(idless);
+
+		ContactSnapshot sameAddressNoId = new ContactSnapshot(BRAND_IE, null);
+		sameAddressNoId.syncFromGhl("Also No Id", idlessEmail.toUpperCase(),
+				null, null, null, null, null, null, null);
+		assertThatThrownBy(() -> contacts.saveAndFlush(sameAddressNoId))
+				.hasStackTraceContaining("uq_contact_per_brand_email");
 	}
 
 	/**
@@ -538,19 +574,19 @@ class LocalPostgresIntegrationTest {
 	void oneExternalIdPerBrandPerSourceCanOnlyBeArchivedOnce() {
 		String externalId = "INV-" + UUID.randomUUID();
 		WebhookEvent first = webhookEvents.save(new WebhookEvent(
-				WebhookSource.GHL, "payment.confirmed", externalId, BRAND_IE, true, "{\"invoice_ref\":\"x\"}"));
+				WebhookSource.GHL, "payment.confirmed", externalId, BRAND_IE, "{\"invoice_ref\":\"x\"}"));
 
 		assertThat(webhookEvents.findBySourceAndBrandIdAndExternalId(WebhookSource.GHL, BRAND_IE, externalId))
 				.get().extracting(WebhookEvent::getId).isEqualTo(first.getId());
 
 		assertThatThrownBy(() -> webhookEvents.saveAndFlush(new WebhookEvent(
-				WebhookSource.GHL, "payment.confirmed", externalId, BRAND_IE, true, "{}")))
+				WebhookSource.GHL, "payment.confirmed", externalId, BRAND_IE, "{}")))
 				.hasStackTraceContaining("uq_webhook_event_source_brand_external");
 
 		// The same invoice ref from the other brand is a different event, and is allowed —
 		// this is the case V12's constraint silently dropped.
 		WebhookEvent otherBrand = webhookEvents.save(new WebhookEvent(
-				WebhookSource.GHL, "payment.confirmed", externalId, BRAND_XP, true, "{}"));
+				WebhookSource.GHL, "payment.confirmed", externalId, BRAND_XP, "{}"));
 		assertThat(otherBrand.getId()).isNotEqualTo(first.getId());
 		assertThat(webhookEvents.findBySourceAndBrandIdAndExternalId(WebhookSource.GHL, BRAND_XP, externalId))
 				.get().extracting(WebhookEvent::getId).isEqualTo(otherBrand.getId());
@@ -573,20 +609,24 @@ class LocalPostgresIntegrationTest {
 		String externalId = "EVT-" + UUID.randomUUID();
 		// The source is incidental here — this test is about a NULL brand_id, so GHL serves.
 		webhookEvents.save(new WebhookEvent(
-				WebhookSource.GHL, "opportunity.won", externalId, null, true, "{}"));
+				WebhookSource.GHL, "opportunity.won", externalId, null, "{}"));
 
 		assertThatThrownBy(() -> webhookEvents.saveAndFlush(new WebhookEvent(
-				WebhookSource.GHL, "opportunity.won", externalId, null, true, "{}")))
+				WebhookSource.GHL, "opportunity.won", externalId, null, "{}")))
 				.hasStackTraceContaining("uq_webhook_event_source_brand_external");
 	}
 
-	/** The per-brand secret column V11 added, mapped and readable through the entity. */
+	/**
+	 * The endpoint token is the whole webhook credential now that the HMAC is gone, so
+	 * what it resolves to is worth asserting against the real seed: its own brand, and
+	 * nothing at all for a token nobody issued.
+	 */
 	@Test
-	void eachSeededBrandCarriesItsOwnWebhookSecret() {
+	void eachSeededBrandIsResolvedByItsOwnEndpointToken() {
 		assertThat(brands.findByWebhookEndpointTokenAndActiveTrue("local-ie-webhook-token"))
-				.get().extracting(Brand::getGhlWebhookSecret).isEqualTo("local-ie-webhook-secret");
+				.get().extracting(Brand::getId).isEqualTo(BRAND_IE);
 		assertThat(brands.findByWebhookEndpointTokenAndActiveTrue("local-xp-webhook-token"))
-				.get().extracting(Brand::getGhlWebhookSecret).isEqualTo("local-xp-webhook-secret");
+				.get().extracting(Brand::getId).isEqualTo(BRAND_XP);
 		// A token nobody issued resolves to nothing, so its deliveries are 404s.
 		assertThat(brands.findByWebhookEndpointTokenAndActiveTrue("not-a-token")).isEmpty();
 	}
@@ -1163,5 +1203,220 @@ class LocalPostgresIntegrationTest {
 
 	private static TenantContext caseManagerOfIe() {
 		return new TenantContext(CM_IE, Role.CASE_MANAGER, BRAND_IE, TEAM_IE);
+	}
+
+	// --- Unit 16b: the two races only a real database can settle ---------------
+	//
+	// Both of these exist because a mocked repository cannot lose a race. They are the
+	// acceptance evidence for `uq_payout_per_case` and for the conditional UPDATE behind
+	// `PayoutLedgerRepository.attachToPayment`, and neither property is observable from
+	// the unit suite: `PayoutServiceTest` builds its service with `new`, so `@Transactional`
+	// is unproxied and no two transactions ever exist at once.
+	//
+	// They interleave deliberately. A sequential version of either would pass against code
+	// that has no guard at all, because the second statement would simply see the first
+	// one's committed result — the whole question is what happens while the first is still
+	// open, which is the window `deliverToClient`'s `deliveryDate == null` check cannot see.
+
+	/**
+	 * Two concurrent deliveries of one case open <strong>one</strong> payout row.
+	 *
+	 * <p>{@code deliverToClient} guards on {@code getDeliveryDate() == null}, and {@code Case}
+	 * carries no {@code @Version}, so two callers can both read null and both proceed. The
+	 * guard cannot stop it; {@code uq_payout_per_case} can, and this is the proof.
+	 *
+	 * <p>The second insert is issued while the first transaction is still open, so it blocks
+	 * on the index rather than failing immediately. That block is asserted — it is what
+	 * distinguishes a real race from two statements run in sequence.
+	 */
+	@Test
+	void twoConcurrentDeliveriesOfOneCaseOpenOnePayoutRow() throws Exception {
+		UUID expertId = experts.save(new Expert(BRAND_IE, "Dr Raced " + UUID.randomUUID())).getId();
+		UUID caseId = caseWithId(expertId);
+
+		ExecutorService pool = Executors.newSingleThreadExecutor();
+		try (Connection first = testConnection(); Connection second = testConnection()) {
+			insertPendingPayout(first, caseId, expertId, "350.00");
+
+			// Issued on another thread because it is expected to block: the unique index
+			// holds it until the first transaction resolves. It returns the refusal's
+			// message rather than the exception itself — AssertJ cannot disambiguate an
+			// `assertThat(SQLException)` overload, and the message is what we assert on.
+			Future<String> loser = pool.submit(() -> {
+				try {
+					insertPendingPayout(second, caseId, expertId, "350.00");
+					second.commit();
+					return "accepted";
+				}
+				catch (SQLException refused) {
+					return refused.getMessage();
+				}
+			});
+
+			assertThatThrownBy(() -> loser.get(1, TimeUnit.SECONDS))
+					.describedAs("the second insert must block on the index while the first is open; "
+							+ "if it returned immediately the two never actually raced")
+					.isInstanceOf(TimeoutException.class);
+
+			first.commit();
+
+			assertThat(loser.get(10, TimeUnit.SECONDS))
+					.describedAs("the loser must be refused by uq_payout_per_case, not silently accepted")
+					.contains("uq_payout_per_case");
+			second.rollback();
+		}
+		finally {
+			pool.shutdownNow();
+		}
+
+		Integer rows = jdbc.queryForObject(
+				"SELECT count(*) FROM payout_ledger WHERE case_id = ?", Integer.class, caseId);
+		assertThat(rows).isOne();
+	}
+
+	/**
+	 * Two settlements overlapping by one draft: one wins the shared row, the other comes up
+	 * short and its whole settlement rolls back.
+	 *
+	 * <p>This is the property {@code attachToPayment}'s return value exists for. The
+	 * precondition rides in the {@code WHERE} clause, so the loser's statement does not fail —
+	 * it succeeds and simply affects fewer rows than it asked for, which is the signal
+	 * {@code PayoutService.settle} turns into a rollback. A read-then-save would instead have
+	 * both callers overwrite the shared row and both believe they settled it.
+	 *
+	 * <p>Also the end-to-end half of the rollback that {@code PayoutServiceTest} can only
+	 * assert as a thrown exception.
+	 */
+	@Test
+	void twoSettlementsOverlappingByOneDraftLeaveTheLoserWithNothing() throws Exception {
+		UUID expertId = experts.save(new Expert(BRAND_IE, "Dr Overlap " + UUID.randomUUID())).getId();
+		UUID onlyMine = openPendingPayout(expertId, "100.00");
+		UUID shared = openPendingPayout(expertId, "200.00");
+		UUID onlyTheirs = openPendingPayout(expertId, "300.00");
+
+		UUID winningPayment = insertPayment(expertId, "300.00");
+		UUID losingPayment = insertPayment(expertId, "500.00");
+
+		ExecutorService pool = Executors.newSingleThreadExecutor();
+		try (Connection winner = testConnection(); Connection loser = testConnection()) {
+			int taken = attach(winner, winningPayment, onlyMine, shared);
+			assertThat(taken).isEqualTo(2);
+
+			Future<Integer> lost = pool.submit(() -> attach(loser, losingPayment, shared, onlyTheirs));
+
+			assertThatThrownBy(() -> lost.get(1, TimeUnit.SECONDS))
+					.describedAs("the loser must block on the row the winner holds; "
+							+ "without a real overlap this test proves nothing")
+					.isInstanceOf(TimeoutException.class);
+
+			winner.commit();
+
+			// It does not fail — it affects one row instead of the two it named, because the
+			// shared row no longer satisfies `status = 'PENDING'`. That shortfall is the signal.
+			assertThat(lost.get(10, TimeUnit.SECONDS))
+					.describedAs("the loser must come up short rather than overwrite the winner's row")
+					.isEqualTo(1);
+			loser.rollback();
+		}
+		finally {
+			pool.shutdownNow();
+		}
+
+		assertThat(paymentOf(onlyMine)).isEqualTo(winningPayment);
+		assertThat(paymentOf(shared))
+				.describedAs("the contested row belongs to the winner alone")
+				.isEqualTo(winningPayment);
+		assertThat(paymentOf(onlyTheirs))
+				.describedAs("the loser rolled back, so its untouched row keeps no payment")
+				.isNull();
+		assertThat(statusOf(onlyTheirs)).isEqualTo("PENDING");
+
+		Integer orphaned = jdbc.queryForObject(
+				"SELECT count(*) FROM payout_ledger WHERE payment_id = ?", Integer.class, losingPayment);
+		assertThat(orphaned).isZero();
+	}
+
+	/** A connection on the suite's own schema, in an explicit transaction. */
+	private static Connection testConnection() throws SQLException {
+		Properties credentials = new Properties();
+		credentials.setProperty("user", envOr("DB_USER", "postgres"));
+		credentials.setProperty("password", envOr("DB_PASSWORD", "1234"));
+		Connection connection = DriverManager.getConnection(envOr("DB_TEST_URL", TEST_URL), credentials);
+		connection.setAutoCommit(false);
+		return connection;
+	}
+
+	/** The insert `deliverToClient` makes, issued raw so two of them can overlap. */
+	private static void insertPendingPayout(Connection connection, UUID caseId, UUID expertId, String amount)
+			throws SQLException {
+		try (PreparedStatement statement = connection.prepareStatement("""
+				INSERT INTO payout_ledger (brand_id, case_id, expert_id, amount, currency, status, due_date)
+				VALUES (?, ?, ?, CAST(? AS numeric), 'USD', 'PENDING', now())
+				""")) {
+			statement.setObject(1, BRAND_IE);
+			statement.setObject(2, caseId);
+			statement.setObject(3, expertId);
+			statement.setString(4, amount);
+			statement.executeUpdate();
+		}
+	}
+
+	/**
+	 * {@code attachToPayment}'s statement, in SQL, so two transactions can contend for one row.
+	 *
+	 * <p><strong>This is a hand-kept mirror of the JPQL, and that is the one weakness of these
+	 * two tests.</strong> Spring's repository shares the pooled connection and its transaction,
+	 * so there is no way to have two of its calls genuinely overlap; raw connections are what
+	 * make a real race possible at all. The consequence is that these tests prove the
+	 * <em>database</em> honours the precondition-in-the-WHERE pattern, not that
+	 * {@link PayoutLedgerRepository#attachToPayment} still writes it. If somebody drops the
+	 * {@code status = 'PENDING'} predicate from the JPQL, this test keeps passing. The unit
+	 * suite is what pins the production statement; this pins the semantics it relies on.
+	 */
+	private static int attach(Connection connection, UUID paymentId, UUID... payoutIds) throws SQLException {
+		try (PreparedStatement statement = connection.prepareStatement("""
+				UPDATE payout_ledger
+				   SET payment_id = ?, status = 'PAID'
+				 WHERE id = ANY (?) AND brand_id = ? AND status = 'PENDING'
+				""")) {
+			statement.setObject(1, paymentId);
+			statement.setArray(2, connection.createArrayOf("uuid", payoutIds));
+			statement.setObject(3, BRAND_IE);
+			return statement.executeUpdate();
+		}
+	}
+
+	private UUID openPendingPayout(UUID expertId, String amount) {
+		UUID id = UUID.randomUUID();
+		jdbc.update("""
+				INSERT INTO payout_ledger (id, brand_id, case_id, expert_id, amount, currency, status, due_date)
+				VALUES (?, ?, ?, ?, CAST(? AS numeric), 'USD', 'PENDING', now())
+				""", id, BRAND_IE, caseWithId(expertId), expertId, amount);
+		return id;
+	}
+
+	private UUID insertPayment(UUID expertId, String amount) {
+		UUID id = UUID.randomUUID();
+		jdbc.update("""
+				INSERT INTO payout_payment
+				    (id, brand_id, expert_id, amount, currency, method, reference, paid_date, recorded_by)
+				VALUES (?, ?, ?, CAST(? AS numeric), 'USD', 'Zelle', ?, now(), ?)
+				""", id, BRAND_IE, expertId, amount, "ZELLE-" + id, BM_IE);
+		return id;
+	}
+
+	private UUID caseWithId(UUID expertId) {
+		Case subject = new Case(BRAND_IE, "EV-" + UUID.randomUUID(), Stage.FINAL_DELIVERY);
+		subject.setExpertId(expertId);
+		return cases.saveAndFlush(subject).getId();
+	}
+
+	private UUID paymentOf(UUID payoutId) {
+		return jdbc.queryForObject(
+				"SELECT payment_id FROM payout_ledger WHERE id = ?", UUID.class, payoutId);
+	}
+
+	private String statusOf(UUID payoutId) {
+		return jdbc.queryForObject("SELECT status FROM payout_ledger WHERE id = ?", String.class, payoutId);
 	}
 }

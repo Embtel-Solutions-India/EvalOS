@@ -107,9 +107,10 @@ Java packages under `com.ie.evalos`:
   capability, not a general SDK wrapper: the Drive client uploads one file into one
   existing folder and does nothing else. A failure here is a 502 that changes
   nothing in EvalOS, never a partially-applied state.
-- `webhook` — inbound webhook gateway: signature/secret verification,
-  idempotency, raw-payload archival, brand resolution, routing to a domain
-  service. **One source: GHL** (per-brand endpoints). There was going to be a second
+- `webhook` — inbound webhook gateway: brand resolution from the per-brand
+  endpoint token, idempotency, raw-payload archival, routing to a domain
+  service. **No signature verification** — see the inbound gateway below.
+  **One source: GHL** (per-brand endpoints). There was going to be a second
   when a signature provider posted callbacks; dropping the provider removed it, and
   with it the only place in the design that threatened the protected
   brand-resolution step.
@@ -140,9 +141,17 @@ Frontend under `frontend/src`: `components/ui` (generated primitives),
 
 - **PostgreSQL (system of record)**: brands, brand-scoped case records, stage +
   per-stage timestamps, document-checklist state, expert profiles, payout ledger
-  entries, read-only contact snapshots synced from GHL, in-app notifications, and
+  entries **and the payments that settle them**, read-only contact snapshots synced
+  from GHL, in-app notifications, and
   the append-only audit trail. Relational integrity via foreign keys; JSONB only
   for genuinely schemaless blobs (e.g. raw webhook payload archive).
+- **Money owed and money sent are two tables, because they are two facts** (Unit 16b).
+  A `payout_ledger` row is one delivered draft an expert is owed for; a
+  `payout_payment` row is one transfer that actually left, covering however many
+  drafts it covered, and the rows point at it. The expert charges per draft and is
+  paid weekly, so the two counts do not match and a single table would have to lie
+  about one of them. A payment's `amount` is exactly the sum of the rows it settles,
+  enforced on write — anything else is a ledger that disagrees with the bank silently.
 - **There is no `case_note` table, and case notes are not a gap** (Unit 23). A note
   anybody on the case writes is an **audit row** — `NOTE_ADDED`, with the text in the
   snapshot's `note`, exactly as a hold reason or a decline reason already travels. The
@@ -389,9 +398,17 @@ EvalOS has a webhook subsystem with two independent halves. Neither carries
 business logic in the transport layer; both are idempotent and observable.
 
 ### Inbound gateway (`webhook` package)
-1. **Verify** the source signature / shared secret before the body is
-   deserialized. Unverified requests are dropped and logged — never processed.
-2. **Resolve brand** from the per-brand endpoint token (Handoff A).
+1. **Resolve brand** from the per-brand endpoint token in the path (Handoff A).
+   That token *is* the authentication: unguessable, per-brand, and only valid
+   while the brand is active. An unknown token and an inactive brand's real token
+   are the same `404`, so a caller learns nothing from either.
+
+   **There is no inbound signature check, and that is deliberate.** GHL's Custom
+   Webhook action posts a URL and a JSON body and cannot compute an HMAC, so
+   requiring one meant Handoff A could not be configured from GHL at all. The
+   endpoint token carries the whole burden; rotating it revokes the endpoint.
+   The *outbound* half below is unaffected and stays HMAC-signed — EvalOS can
+   sign what it sends.
 3. **Deduplicate** on the source event id (idempotency), scoped by brand; a
    replayed event never produces a second side effect. "Already seen" is not
    "already done" — only a *processed* row is a duplicate, so a redelivery after
@@ -522,18 +539,28 @@ exist because every transition owes exactly one event. They live in
    asked to be durable would be ceremony around a cache miss.
 7. EvalOS is the system of record for cases, experts, and payouts. Contact data
    is a read-only, brand-tagged snapshot synced from GHL and is never mutated.
+   **`ghl_contact_id` is the canonical external client identity** — everywhere,
+   including any future connected app. EvalOS never mints one, never changes one
+   when a case is created, and never substitutes another identifier for it. Three
+   identifiers, never conflated: `ghl_contact_id` = the client;
+   `ghl_opportunity_id` = one purchase; `evalos_case.id` / `case_code` = one
+   service engagement, **internal only**. One contact has many cases, so a case
+   identifier is never a client identifier. Contact matching goes by
+   `ghl_contact_id` first; `email` is a fallback only, used when no GHL id is
+   given.
 8. A case is only ever created through a per-brand GHL webhook endpoint, by a
    **won opportunity** — no other code path and no other event may create one. The
    case is created **paid**, from the opportunity's own amount; **no staff action
    sets `paid`**, and no unpaid case may pass `DOC_COLLECTION`.
 9. Schema changes ship as new Flyway migrations. An applied migration is never
    edited in place.
-10. Every inbound webhook is signature-verified, brand-resolved, deduplicated,
-    and archived before it produces any side effect.
+10. Every inbound webhook is brand-resolved from its endpoint token (the brand
+    must be active), deduplicated, and archived before it produces any side
+    effect. Inbound deliveries are not signature-verified: GHL cannot sign them.
 11. Every outbound webhook is HMAC-signed, retried with backoff, dead-lettered on
     exhaustion, and recorded in the delivery log. Outbound payloads never contain
     the `payment_detail` field or role-restricted internal notes.
-12. Webhook transport carries no business logic — it verifies, routes to a
+12. Webhook transport carries no business logic — it resolves, routes to a
     service, or delivers a published domain event.
 13. Every state transition on every object writes an append-only, non-editable
     audit entry (actor, action, timestamp). The audit table has no update or

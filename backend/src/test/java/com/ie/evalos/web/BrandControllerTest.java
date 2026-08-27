@@ -77,10 +77,11 @@ class BrandControllerTest {
 				.andExpect(jsonPath("$.data.length()").value(2))
 				.andExpect(jsonPath("$.data[0].name").value("International Evaluations"))
 				.andExpect(jsonPath("$.data[0].slug").value("international-evaluations"))
-				// The switcher needs three fields. The webhook token and signing secret are
-				// on the same entity and must never leave it (invariants 4 and 11).
-				.andExpect(jsonPath("$.data[0].webhookEndpointToken").doesNotExist())
-				.andExpect(jsonPath("$.data[0].ghlWebhookSecret").doesNotExist());
+				// The switcher needs three fields. The webhook endpoint token is on the same
+				// entity and must never leave it (invariants 4 and 11) — and it matters more
+				// since the inbound HMAC was dropped: that token is now the webhook's whole
+				// credential, so leaking it here would hand anyone the ability to open cases.
+				.andExpect(jsonPath("$.data[0].webhookEndpointToken").doesNotExist());
 	}
 
 	/** Knowing the shape of the business is itself cross-brand information. */

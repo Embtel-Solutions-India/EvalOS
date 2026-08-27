@@ -42,8 +42,8 @@ public class SecurityConfig {
 						.requestMatchers("/api/auth/login", "/api/health", "/actuator/health").permitAll()
 						// Inbound webhooks carry no EvalOS token: the source is a machine in
 						// another company. They are authenticated by the per-brand endpoint
-						// token plus an HMAC over the body, in the gateway — see
-						// WebhookVerifier. Nothing here reads the security context.
+						// token in the path, resolved in WebhookGateway. Nothing here reads
+						// the security context.
 						.requestMatchers("/api/webhooks/**").permitAll()
 						.anyRequest().authenticated())
 				.exceptionHandling(handling -> handling

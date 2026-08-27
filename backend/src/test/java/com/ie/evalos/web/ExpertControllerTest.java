@@ -91,7 +91,7 @@ class ExpertControllerTest {
 
 	@BeforeEach
 	void aRosterOfOneExpertWhoIsPaidSomehow() {
-		RosterEntry entry = new RosterEntry(anExpert(), new ExpertLoadService.Load(2, 7));
+		RosterEntry entry = new RosterEntry(anExpert(), new ExpertLoadService.Load(2, 7), BigDecimal.ZERO);
 
 		given(experts.roster(any(), any(), any(), any(), any(), any(), anyInt(), anyInt()))
 				.willReturn(new RosterPage(List.of(entry), 0, 50, 1));

@@ -2,8 +2,19 @@
 
 > **Current truth for Handoff A.** Supersedes the handler half of
 > `05-inbound-gateway-handoff-a.md` and all of Unit 05a. The gateway half of spec 05
-> — verify, resolve brand, dedupe, archive, route, ack — is unchanged and stays as
+> — resolve brand, dedupe, archive, route, ack — is otherwise unchanged and stays as
 > written there.
+>
+> **Amended 2026-08-27: the inbound HMAC step is removed.** Spec 05's step 1
+> ("verify the source signature/HMAC before anything else") and everything built for
+> it — `WebhookVerifier`, `X-Evalos-Signature`, `evalos.webhook.signature-header`,
+> `Brand.ghlWebhookSecret` — are gone. **GHL's Custom Webhook action cannot compute
+> an HMAC**: it posts a URL, a content type and a JSON body, so the check that was
+> meant to secure Handoff A instead made it impossible to configure from GHL at all.
+> Authentication is now the per-brand endpoint token in the path, which must resolve
+> to an **active** brand; anything else is `404 UNKNOWN_ENDPOINT`. Payload validation
+> and idempotency are untouched. This closes **G17** — there is no signature scheme
+> left to confirm against a real sub-account.
 
 **Phase:** 2 — re-pointing a Phase 1 unit
 **Depends on:** 03, 04, 05, 05a (this replaces 05a's handler)
@@ -57,10 +68,9 @@ flowchart TD
     subgraph EV["EvalOS — back of house: production custody"]
         G[["Inbound webhook gateway (unchanged from Unit 05)"]]
         G --> B1["1 · Resolve brand from endpoint token"]
-        B1 --> B2["2 · Verify HMAC-SHA256 over raw bytes"]
-        B2 --> B3["3 · Dedupe on event_id / webhook_id, brand-scoped"]
-        B3 --> B4["4 · Archive raw payload"]
-        B4 --> R{"5 · Route on event_type"}
+        B1 --> B3["2 · Dedupe on event_id / webhook_id, brand-scoped"]
+        B3 --> B4["3 · Archive raw payload"]
+        B4 --> R{"4 · Route on event_type"}
 
         R -->|"opportunity.won"| H["GhlOpportunityHandler"]
         R -->|"contact.created · contact.updated · refund.requested"| NOOP["Recognized no-op —<br/>logged, acked, no case"]
@@ -155,8 +165,8 @@ actually collected, not a quote.
 - **The field names above are still an assumption**, exactly as they were in 05a.
   Confine them to `GhlOpportunityHandler.OpportunityWon` so a correction is one
   file. The open question in `progress-tracker.md` now reads: which GHL workflow
-  event actually fires on Won, what it calls the opportunity's amount and id, the
-  signature header name, and the HMAC encoding.
+  event actually fires on Won, and what it calls the opportunity's amount and id.
+  The signature half of that question is closed — there is no inbound signature.
 
 ---
 
@@ -288,8 +298,9 @@ case not-earned. Dropping the column would be a larger diff that buys nothing.
    `markPaid` is gone.
 7. `POST /api/cases/{id}/mark-paid` returns 404 — the route is gone — and no board
    action offers to record payment.
-8. A wrong signature is `401`; an unknown endpoint token is `404`; a body with no
-   `event_id`/`webhook_id` is `400`.
+8. An unknown endpoint token is `404 UNKNOWN_ENDPOINT`, and so is an inactive
+   brand's real token; a body with no `event_id`/`webhook_id` is `400`. **A delivery
+   carrying no `X-Evalos-Signature` is accepted** — no signature is read or required.
 9. `./mvnw verify` green, including the DB-gated checks against local Postgres with
    `V24` applied and `ddl-auto=validate` passing.
 

@@ -231,6 +231,81 @@ class CaseIntakeServiceTest {
 		verify(contacts, never()).findByBrandIdAndGhlContactId(any(), any());
 	}
 
+	/**
+	 * The repair path the email fall-through exists for, and the reason the guard below
+	 * checks for a *conflict* rather than simply refusing every email match: a first
+	 * delivery with no GHL id leaves a snapshot with none, and the next delivery — which
+	 * does carry one — has to find that row by email and backfill the id onto it. Without
+	 * this the id never lands and every later delivery re-matches by email, which works
+	 * right up until the email changes and then it is a second contact again.
+	 */
+	@Test
+	void anIdlessRowFoundByEmailIsAdoptedAndBackfilled() {
+		ContactSnapshot idless = new ContactSnapshot(BRAND, null);
+		given(contacts.findByBrandIdAndGhlContactId(BRAND, "ghl-c-1")).willReturn(Optional.empty());
+		given(contacts.findByBrandIdAndEmailIgnoreCase(BRAND, "anita@raolaw.example"))
+				.willReturn(Optional.of(idless));
+
+		Case created = intake.intake(brand, wonDeal("ghl-c-1", "anita@raolaw.example"));
+
+		assertThat(idless.getGhlContactId()).isEqualTo("ghl-c-1");
+		assertThat(created.getContactId()).isEqualTo(idless.getId());
+		verify(contacts).save(idless);
+	}
+
+	/**
+	 * <strong>Email never outranks a GHL id.</strong> Two distinct GHL contacts can share
+	 * an inbox — a firm's office address is the obvious case — and the row found by email
+	 * already names a different client. Adopting it would attach this paid case to
+	 * <em>them</em>, and overwrite their name and phone with this client's on the way past;
+	 * `linkGhlContact` is write-once, so the row would keep the wrong id and every later
+	 * delivery would land on it again. A wrong merge is worse than a duplicate: the
+	 * duplicate is visible, the merge looks like an ordinary case.
+	 *
+	 * <p>`V27` is the other half — it narrows the email uniqueness index to rows without a
+	 * GHL id, so the insert this refusal forces is actually allowed to land.
+	 */
+	@Test
+	void anEmailMatchNamingADifferentGhlContactIsRefused() {
+		ContactSnapshot sharedInbox = new ContactSnapshot(BRAND, "ghl-c-OTHER");
+		sharedInbox.syncFromGhl("Marcus Vale", "office@raolaw.example", "+1 555 0199", "Rao Immigration LLP",
+				ClientType.ATTORNEY, SourceChannel.REFERRAL, null, null, null);
+		given(contacts.findByBrandIdAndGhlContactId(BRAND, "ghl-c-1")).willReturn(Optional.empty());
+		given(contacts.findByBrandIdAndEmailIgnoreCase(BRAND, "office@raolaw.example"))
+				.willReturn(Optional.of(sharedInbox));
+
+		Case created = intake.intake(brand, wonDeal("ghl-c-1", "office@raolaw.example"));
+
+		// The other client's row is untouched — not adopted, not overwritten, not re-linked.
+		assertThat(sharedInbox.getGhlContactId()).isEqualTo("ghl-c-OTHER");
+		assertThat(sharedInbox.getFullName()).isEqualTo("Marcus Vale");
+
+		ArgumentCaptor<ContactSnapshot> saved = ArgumentCaptor.forClass(ContactSnapshot.class);
+		verify(contacts).save(saved.capture());
+		assertThat(saved.getValue()).isNotSameAs(sharedInbox);
+		assertThat(saved.getValue().getGhlContactId()).isEqualTo("ghl-c-1");
+		assertThat(saved.getValue().getFullName()).isEqualTo("Anita Rao");
+		assertThat(created.getContactId()).isEqualTo(saved.getValue().getId());
+	}
+
+	/**
+	 * The mirror of the refusal: a delivery carrying no GHL id has no identity to assert,
+	 * so it must still match on email even when the row it finds holds one. Refusing here
+	 * would insert a second snapshot for a client EvalOS can already name.
+	 */
+	@Test
+	void aDeliveryWithNoGhlIdStillMatchesARowThatHasOne() {
+		ContactSnapshot known = new ContactSnapshot(BRAND, "ghl-c-1");
+		given(contacts.findByBrandIdAndEmailIgnoreCase(BRAND, "anita@raolaw.example"))
+				.willReturn(Optional.of(known));
+
+		Case created = intake.intake(brand, wonDeal(null, "anita@raolaw.example"));
+
+		assertThat(created.getContactId()).isEqualTo(known.getId());
+		assertThat(known.getGhlContactId()).isEqualTo("ghl-c-1");
+		verify(contacts).save(known);
+	}
+
 	@Test
 	void creationIsAuditedAgainstTheResolvedBrandAndPublishesBothEvents() {
 		Case created = intake.intake(brand, wonDeal("ghl-c-1", "anita@raolaw.example"));

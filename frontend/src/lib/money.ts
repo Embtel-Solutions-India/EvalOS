@@ -36,3 +36,33 @@ export function formatMoney(value: number): string {
 export function formatCount(value: number): string {
   return COUNT.format(value)
 }
+
+/**
+ * An exact payout amount in its own currency: `$350.00`, `£1,100.50`.
+ *
+ * **A third function, and both differences from {@link formatMoney} are the reason.** That one
+ * assumes USD and drops the cents on purpose — its own note says a brand billing in anything
+ * else "needs a column, not a guess here". Unit 16b added that column: every payout row and
+ * every payment carries the currency it was owed and sent in, so there is nothing left to guess.
+ *
+ * And the cents are not noise here. A payout is one transfer that has to reconcile against a
+ * bank statement to the cent, and the server refuses a payment whose amount is not exactly the
+ * sum of the drafts it settles — rounding $350.50 to `$351` on the screen the ENM works from is
+ * how somebody types the wrong number into Zelle.
+ *
+ * Falls back to the raw code when a currency is unknown to `Intl`, rather than throwing on a
+ * screen about money.
+ */
+export function formatPayout(value: number, currency: string): string {
+  try {
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency,
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(value)
+  }
+  catch {
+    return `${currency} ${COUNT.format(value)}`
+  }
+}

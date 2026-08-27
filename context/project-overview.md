@@ -163,9 +163,20 @@ The case lifecycle, from EvalOS's point of view (EvalOS owns stages 3–7 of the
 
 ### Payout Ledger (manual)
 - Payout entry auto-created (status Pending) when a case reaches Delivered, tied
-  to case + invoice. The responsible team member fills a manual form to mark it
-  Paid/Confirmed (amount, method, reference, date). No payment-platform
+  to case + expert, prefilled from the expert's standard fee. No payment-platform
   integration. An optional expert `payment_detail` field is encrypted at rest.
+- **The expert charges per draft and is paid weekly** (Unit 16b). One transfer covers
+  every draft settled that week and carries one reference, so a **payment is its own
+  record** and the payout rows point at it: the ENM ticks the week's drafts, sends the
+  money outside EvalOS, and records amount, method, reference, date and notes once.
+  The payment's amount must equal the sum of the rows it settles.
+- **The ENM records payouts**, alongside the GM and Brand Manager. The ENM sends the
+  transfer, so the ENM records it; every record names who did it and writes an audit
+  entry. This is a decision taken, not an assumption — Unit 16 had restricted it to
+  GM/Brand Manager and flagged the widening as the business's call.
+- **No retainers.** Experts are not paid a standing weekly rate and are not stationed
+  on client accounts. Considered and rejected in 16b; it would also have put client
+  identity on the ENM's screens, which the role does not get (see *Roles*).
 
 ### Notifications (no mail server)
 - Staff: in-app notification center. Clients: messages delegated to GHL

@@ -3,14 +3,14 @@ package com.ie.evalos.webhook;
 import org.springframework.http.HttpStatus;
 
 /**
- * An inbound delivery that never got as far as a side effect: bad signature,
- * unknown endpoint, unusable payload. Carries the status the source should see,
+ * An inbound delivery that never got as far as a side effect: unknown or inactive
+ * endpoint, unusable payload. Carries the status the source should see,
  * because the source is a machine deciding whether to retry — a 4xx here means
  * "do not bother", and only an unhandled failure downstream becomes a retriable
  * 5xx.
  *
- * <p>Messages are safe to return: they never say whether a secret was missing or
- * merely wrong, and never echo the payload back.
+ * <p>Messages are safe to return: an unknown token and an inactive brand are the same
+ * 404 with the same message, and the payload is never echoed back.
  */
 public class WebhookRejected extends RuntimeException {
 

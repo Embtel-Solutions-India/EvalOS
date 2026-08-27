@@ -54,14 +54,16 @@
   domain exceptions; the advice maps them to consistent HTTP responses.
 - Guard endpoints with method security (`@PreAuthorize`) for roles, and verify
   brand + ownership in the service for row-level access.
-- Webhook controllers verify the shared secret / signature before deserializing
-  the body. An unverified payload is dropped, never processed.
+- Webhook controllers authenticate the caller before deserializing the body. For
+  the inbound GHL gateway that is the per-brand endpoint token in the path, not a
+  signature — GHL's Custom Webhook action cannot compute an HMAC. A delivery to an
+  unknown or inactive endpoint is a `404` and is never processed.
 
 ## Webhooks
 
-- **Inbound**: verify signature → resolve brand (per-brand endpoint) →
-  deduplicate on source event / invoice id → archive raw payload → route to a
-  service → fast ack. No business logic in the receiver; slow work goes to a
+- **Inbound**: resolve brand from the per-brand endpoint token (which is the
+  credential — no signature) → deduplicate on the source event id → archive raw
+  payload → route to a service → fast ack. No business logic in the receiver; slow work goes to a
   `job`. A duplicate event must produce no second side effect.
 - **Outbound**: publish a domain event from the service layer; the dispatcher
   delivers it. Sign every payload (HMAC over body + timestamp), retry with

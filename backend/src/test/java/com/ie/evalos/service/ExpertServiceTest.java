@@ -60,16 +60,21 @@ class ExpertServiceTest {
 	private final ExpertRepository experts = mock(ExpertRepository.class);
 	private final BrandRepository brands = mock(BrandRepository.class);
 	private final ExpertLoadService loads = mock(ExpertLoadService.class);
+	private final PayoutService payouts = mock(PayoutService.class);
 	private final AuditService audit = mock(AuditService.class);
 
 	private final ExpertService service =
-			new ExpertService(experts, brands, loads, new OwnershipGuard(), audit);
+			new ExpertService(experts, brands, loads, payouts, new OwnershipGuard(), audit);
 
 	@BeforeEach
 	void anEnmWithARoster() {
 		actAs(Role.EXPERT_NETWORK_MANAGER, BRAND_IE);
 		given(experts.save(any())).willAnswer(invocation -> invocation.getArgument(0));
 		given(brands.findById(any())).willReturn(Optional.of(mock(Brand.class)));
+		// Unit 16's derived pending total; this suite is about the roster's filters and
+		// audit trail, not payouts, so every expert is owed nothing unless a test says
+		// otherwise.
+		given(payouts.pendingByExpert(any())).willReturn(Map.of());
 		given(loads.forExperts(anyCollection())).willAnswer(invocation -> {
 			Map<UUID, Load> byExpert = new java.util.HashMap<>();
 			((java.util.Collection<?>) invocation.getArgument(0))

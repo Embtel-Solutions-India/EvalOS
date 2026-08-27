@@ -91,11 +91,6 @@ evalos:
     # and 15 need a second, per-token budget, which is new work and not something this setting
     # already covers. Give it its own property then; do not stretch this one to mean both.
     rate-limit-per-minute: ${PORTAL_RATE_LIMIT:60}
-  webhook:
-    # Which request header carries the inbound HMAC. Has a default because it is a
-    # name, not a secret, and GHL's actual header is not yet confirmed — point this
-    # at the real one when it is, without a code change.
-    signature-header: ${WEBHOOK_SIGNATURE_HEADER:X-Evalos-Signature}
   ghl:
     # The GHL public API, read-only. Only the marketing pipeline view uses it: EvalOS reads
     # GHL's Google Ads funnel and writes nothing back, because GHL owns the front of house.
