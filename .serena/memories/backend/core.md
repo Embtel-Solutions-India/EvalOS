@@ -230,6 +230,49 @@ the enum exists. **The GM-only rule is per-*location*, not per-screen** — `/sa
 under a different nav heading and inherits it unchanged, which is the assumption most likely to be
 dropped when a fourth screen is added.
 
+## Payouts (Units 16 + 16b) — `PayoutService`, and why it is two tables
+
+**EvalOS records that money moved; it never moves money.** No rail, no bank API, no stored
+credential. `method` and `reference` are whatever the person who sent the transfer wrote down.
+
+**The expert charges per draft and is paid weekly**, so money owed and money sent are two different
+counts and therefore two tables. A `payout_ledger` row is one delivered draft, opened inside
+`CaseLifecycleService.deliverToClient`'s own transaction (delivered and owed are one fact) and
+prefilled from `Expert.standard_fee` — **null when there is none, never zero**, because a prefilled 0
+is a number somebody could settle without noticing. A `payout_payment` row is one transfer covering
+however many drafts it covered; the ledger rows point at it.
+
+`PayoutService` carries both axes — the transitions (`openForDelivery`, `settle`, `correctAmount`,
+`editPayment`, `confirm`) and the screen projections (`list`, `batch`, `history`, `payment`). The tell
+that it is near its limit: `CaseRepository` and `TeamMemberRepository` are injected purely so reads
+can resolve display names, which the write path never needs. If a fourth projection arrives, split
+`PayoutQueryService` off and leave the transitions here.
+
+**Two rules do the load-bearing work, and both exist to stop the ledger disagreeing with the bank:**
+
+1. A payment's amount must equal the sum of the drafts it settles, compared with **`compareTo`, never
+   `equals`** — `BigDecimal.equals` is scale-sensitive, so `700.0` and `700.00` would be "different"
+   and refuse a settlement nobody could fix from the screen. Without the check at all, a payment
+   could claim drafts it never covered and nothing downstream could detect it.
+2. The attach is one conditional `UPDATE` whose affected-row count is asserted — see
+   `mem:backend/persistence`. Short count means someone else took a row, and the whole settlement
+   including the payment insert rolls back.
+
+`PENDING → PAID → CONFIRMED`, forward only. **`PAID` is only ever reached through `settle`** (money
+leaves in transfers, not in drafts) and **`CONFIRMED` is set on the payment and cascades** (one
+transfer, one acknowledgement — there is no route that confirms a single draft). `VOIDED` is set only
+by `RefundService`, only on `PENDING` rows: a row already attached to a payment is money that left,
+and a database write cannot un-send it. "Overdue" is **derived** (`PENDING` past `due_date`), never a
+fifth status — a status flipped by a clock is wrong between ticks.
+
+**Writes are GM, Brand Manager and ENM.** `PayoutService.MAY_RECORD` is the single authority and is
+`public` so `PayoutControllerTest` can assert by reflection that the controllers' `@PreAuthorize`
+names exactly those three — the nav gate and the server gate are provably one list. The guard is
+re-checked in the service as well as at the route, the `RefundService` precedent: a money path must
+not be reachable as anyone else by a later job, webhook handler or service.
+
+`expert.total_payments_pending` stays dead and derived, beside `current_active_count`.
+
 ## `job`, when it stops being empty (Unit 19)
 
 Decisions already taken, so the package does not get invented from scratch:

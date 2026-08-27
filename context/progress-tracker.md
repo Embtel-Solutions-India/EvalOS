@@ -4,8 +4,9 @@ Update this file after every meaningful implementation change.
 
 ## Current Phase
 
-- **2026-08-27 — Unit 16b specced: the expert charges per draft and is paid weekly.** No code
-  yet; this is the spec + aligned docs, ahead of building 16/16b together as A3.
+- **2026-08-27 — Unit 16b built: the expert charges per draft and is paid weekly.** Units 16 and 16b
+  shipped together on `unit-16-payout-ledger`. 551 backend tests, 146 frontend, `npm run build` and
+  `npm run lint` green, and the DB-gated suite **ran** rather than skipping.
   - **What the requirement actually is.** The expert is owed a fee per delivered draft, but the
     money leaves once a week: three drafts, one Zelle transfer, **one reference**. Spec 16 assumed
     the unit of payment is the unit of work and gave each payout row its own
@@ -49,6 +50,41 @@ Update this file after every meaningful implementation change.
   - Files: `context/specs/16b-weekly-settlement.md` (new), `16-payout-ledger.md` (supersession
     banner), `00-build-plan.md` (A3), `project-overview.md`, `architecture.md`,
     `.serena/memories/backend/persistence.md`.
+
+  - **Four things the build changed about the spec, all recorded in it:**
+    1. **`brand.currency` could not be `NOT NULL`.** Flyway orders by version across every
+       configured location, so `V28` runs before `db/seed-local/V900`, which inserts brands with no
+       currency — the constraint fails on any fresh database, which is what CI builds every run.
+       `V900` cannot be edited (invariant 9) and `MigrationTreeTest` forbids a ≥900 script under
+       `db/migration`, so no `SET NOT NULL` can be ordered after it. **`payout_ledger.currency
+       NOT NULL` is what actually keeps a null out of the ledger** — which is what spec 16 asked
+       for — and `openForDelivery` refuses a brand with no currency, rolling the delivery back.
+    2. **A delivery for a currency-less brand rolls back rather than notifying.** Spec 16's wording
+       was ambiguous. A delivered case with no payout row is an expert who never gets paid, and it
+       is silent; a blocked delivery is loud and is fixed by setting one column.
+    3. **`GET /api/payouts` is a real filterable list**, not the batch view. It is what the expert
+       payouts screen reads to answer "this expert's pending drafts" — `batch` is week-scoped and
+       `history` returns payments, so nothing else does.
+    4. **`PayoutService.MAY_RECORD` is public**, so `PayoutControllerTest` can assert by reflection
+       that the controllers' `@PreAuthorize` names exactly those three roles. Spec 16b asked for
+       that test by name; it could not be written across packages otherwise.
+
+  - **What review caught that a green suite did not.** Every defect below passed its own build:
+    a migration that would have failed CI on the first fresh database; a brand-scoping fix whose
+    proof test passed identically against the unfixed code; `weekStart` tested against three
+    deliberately-pinned timezone boundaries while **having no production caller**, the real week
+    logic sitting untested inline; `BatchView.paid` counting `VOIDED` drafts as money sent; a
+    role-agreement test that asserted nothing when a method was un-annotated; and two of four list
+    filters deletable without turning the suite red. The pattern is one thing — the code was
+    usually right and the proof was hollow — and it is why the two concurrency properties are
+    proved against real Postgres with genuinely interleaved transactions rather than asserted.
+
+  - **Deferred, deliberately.** `list`/`batch`/`history` each load a brand's ledger and filter in
+    memory with no pagination — the existing house shape, and the flat list is where growth bites
+    first. The lost-race rollback is proved end-to-end in `LocalPostgresIntegrationTest`, not in the
+    unit suite, where `PayoutService` is built with `new` and `@Transactional` is unproxied. The
+    DB test's SQL is a hand-kept mirror of `attachToPayment`'s JPQL: it pins the semantics
+    production relies on, not that production still writes them, and its javadoc says so.
 
 - **2026-08-27 — `ghl_contact_id` outranks email in contact matching (`V27`).** Confirmed as policy:
   the GHL contact id is the canonical external client identity everywhere, and the three identifiers

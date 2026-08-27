@@ -1,9 +1,9 @@
 # backend/ — Persistence, audit & field encryption
 
 Built in Unit 03 (`V4`–`V10`). Entities: `ContactSnapshot`, `Case` (table **`evalos_case`** — `case`
-is reserved SQL), `DocumentChecklistItem`, `Expert`, `PayoutLedger`, `Notification`, `AuditEvent`,
+is reserved SQL), `DocumentChecklistItem`, `Expert`, `PayoutLedger`, `PayoutPayment`, `Notification`, `AuditEvent`,
 plus Unit 02's `Brand`/`TeamMember`, Unit 12's `ExpertCaseOffer` and Unit 14's `PortalAccess`. Schema
-now runs to **`V24`**;
+now runs to **`V28`**;
 `V11`–`V17` added the per-brand
 webhook secret, the webhook archive + its brand-scoped idempotency key, `case.paid`/`paid_at`, the
 one-open-case-per-contact-service index, contact identity, and `case.assigned_coordinator`. **`V18`
@@ -16,6 +16,25 @@ index `uq_expert_per_brand_email` on `(brand_id, lower(email))`, and a GIN index
 `audit_event.actor_type` (see the append-only section — that one is the first column ever added to
 the audit table, and it was added on explicit instruction), and `V23`'s one-unrevoked-token index,
 which its code review added after finding the mint was a check-then-act.
+
+**Units 16 + 16b** added **`V28`**, one migration carrying the whole payout change: the new
+`payout_payment` table (one real-world transfer — `amount > 0`, not `>= 0`, because a payment of
+nothing would sum into money-out totals while looking like a settled week), `payout_ledger.payment_id`
+pointing at it, and the **drop** of `payout_ledger.method`/`reference`/`paid_date`. That drop departs
+from the precedent that left the dead HMAC columns in place, and the reason is that those three sat
+on a *money* table and read as load-bearing — a future reader finding `payout_ledger.reference` would
+reasonably assume a row carries its own reference and write code that half-works. Nothing had ever
+written them (Unit 16 was never built), so no data was at risk. Also in `V28`: `uq_payout_per_case`,
+`payout_ledger.currency SET NOT NULL`, a `CHECK (amount IS NULL OR amount >= 0)` where **NULL stays
+legal** because it means "not decided yet", and `brand.payout_term_days`.
+
+**`brand.currency` is nullable and that is not an oversight — it is the one constraint this schema
+could not have.** Flyway orders by version across *all* configured locations, so `V28` applies before
+`db/seed-local/V900`, which inserts brands with no currency: a `NOT NULL` there fails on every fresh
+database, which is what CI builds each run. `V900` cannot be edited (invariant 9) and
+`MigrationTreeTest` forbids a ≥900 script under `db/migration`, so no later `SET NOT NULL` can exist.
+`payout_ledger.currency NOT NULL` is what actually keeps a null out of the ledger, and
+`PayoutService.openForDelivery` refuses a brand with no currency rather than guessing one.
 
 **Unit 21** adds `document_checklist_item.drive_file_id` + `uploaded_at` (the file behind an `UPLOADED`
 item, and when it arrived). **No `uploaded_by`** — the audit trail records who, and a second record of
@@ -102,17 +121,27 @@ an expired row would sit in that index forever and block the next mint for that 
 **No entity carries `@Version`.** Every "check the row, then act" guard in the service layer is
 therefore a check-then-act that two concurrent callers can both win: both read, both save,
 last-write-wins. This has already produced two real defects (a second open case per contact, a second
-contact snapshot per person) and one latent third (two payout rows for one delivery, since
-`deliverToClient`'s `deliveryDate == null` guard has nothing behind it — its fix,
-`uq_payout_per_case`, is specced in `context/specs/16-payout-ledger.md` and not yet built).
+contact snapshot per person) and a third that `V28`'s `uq_payout_per_case` now closes (two payout
+rows for one delivery, since `deliverToClient`'s `deliveryDate == null` guard has nothing behind it).
 
 **A second house answer, for when the guard covers a *set* of rows: one conditional `UPDATE ...
 WHERE <the precondition>` plus an affected-count assertion.** A partial unique index works when the
 rule is "one row like this"; it has nothing to say about "these twelve rows must all still be
-`PENDING` when I write them". Specced in `16b-weekly-settlement.md` for payout settlement, where two
-people settling overlapping selections is the same check-then-act shape. The database decides once,
-a short count means someone else won a row, and the whole transaction rolls back. Still no
-`@Version`, still no explicit lock.
+`PENDING` when I write them". `PayoutLedgerRepository.attachToPayment` is the worked example — its
+`WHERE` carries `id in :ids AND brand_id = :brandId AND status = 'PENDING'`, it returns `int`, and
+`PayoutService.settle` throws when that count is short, rolling back the payment insert with it. The
+database decides once, and a short count means someone else won a row. Still no `@Version`, still no
+explicit lock.
+
+**Both races are proved in `LocalPostgresIntegrationTest`, and both tests interleave on purpose.**
+Each asserts that the second statement *blocks* while the first transaction is open — a sequential
+version would pass against code with no guard at all, because the second statement would simply see
+the first one's committed result. The two failures look different and the difference is the point:
+the delivery race ends in a unique-constraint violation, while the settlement race ends with the
+loser's `UPDATE` **succeeding** and affecting one row instead of the two it named. Note the tests use
+raw connections with hand-kept SQL — Spring's repository shares the pooled connection and its
+transaction, so two of its calls cannot genuinely overlap — which means they pin the semantics
+production relies on, not that production still writes them.
 
 **The house answer is a partial unique index, not a lock and not a re-read.** `V15` and `V16` are the
 worked examples: `(brand_id, contact_id, service_type) WHERE current_stage <> 'CLOSED'`, and

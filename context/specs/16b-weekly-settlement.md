@@ -174,19 +174,33 @@ spec 16 that only surfaced when the schema was checked against it.
 ALTER TABLE brand
     ADD COLUMN currency text,
     ADD COLUMN payout_term_days int NOT NULL DEFAULT 7;
-
-UPDATE brand SET currency = 'USD' WHERE currency IS NULL;
-
-ALTER TABLE brand
-    ALTER COLUMN currency SET NOT NULL;
 ```
 
-`currency` ends `NOT NULL` **with no default** on the column, backfilled once so the
-constraint can land on existing rows. Spec 16's reasoning is upheld and is worth
-restating because it is the one guess in this unit that spends real money: an expert
-on a GBP agreement paid a USD number is wrong twice, in the amount and in the record
-of what was owed. A brand added later must state its currency; there is no column
-default to fall back on.
+> **Amended at build time: `brand.currency` stays nullable, and the enforcement moved up a
+> layer.** This section originally added `NOT NULL` after a one-off backfill. That cannot be
+> done. Flyway orders migrations globally by version across *all* configured locations, so
+> `V28` applies before `db/seed-local/V900__seed_local.sql`, which inserts two brands with no
+> currency column — the constraint fails on any fresh database, which is exactly what CI
+> builds every run. All three ways out are closed: `V900` cannot be edited (invariant 9),
+> `MigrationTreeTest` forbids any script numbered ≥ 900 under `db/migration` so no
+> `SET NOT NULL` can be ordered after the seed, and a column default is the one thing this
+> unit must not do.
+>
+> **What actually guarantees the property is `payout_ledger.currency NOT NULL`**, which has no
+> seed conflict and is what spec 16 asked for in the first place — its words are "make the
+> column `NOT NULL` so the gap cannot reach *the ledger* at all". No payout row can carry a
+> null currency. `PayoutService.openForDelivery` additionally refuses to open a row for a
+> brand with no configured currency, naming the brand, and that refusal rolls the delivery
+> back rather than delivering a case nobody can be paid for.
+>
+> The cost, stated plainly: a brand row can be inserted with a null currency and the failure
+> surfaces at that brand's first delivery instead of at insert. `db/seed-local/V904` gives the
+> seeded brands theirs.
+
+The reasoning behind refusing to guess is unchanged and is worth restating, because it is the
+one guess in this unit that spends real money: an expert on a GBP agreement paid a USD number
+is wrong twice, in the amount and in the record of what was owed. Nothing defaults it — the
+delivery fails loudly instead.
 
 `payout_term_days` takes a default because a wrong *due date* is a scheduling
 annoyance, not a wrong payment — it is visible on every screen and correctable.
