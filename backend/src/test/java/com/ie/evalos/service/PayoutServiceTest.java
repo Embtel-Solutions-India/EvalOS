@@ -28,6 +28,8 @@ import com.ie.evalos.security.TenantContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.mockito.ArgumentCaptor;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -37,6 +39,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -206,6 +209,42 @@ class PayoutServiceTest {
 		assertThat(saved.getValue().getExpertId()).isEqualTo(EXPERT_ID);
 		assertThat(saved.getValue().getCurrency()).isEqualTo("USD");
 		assertThat(saved.getValue().getReference()).isEqualTo("ZELLE-08262026-001");
+
+		// The attach is the statement that actually moves rows to PAID — its arguments are
+		// the task. Wrong brand, wrong actor or the raw (non-deduped) id list must fail this.
+		verify(payouts).attachToPayment(saved.getValue().getId(), List.of(a.getId(), b.getId(), c.getId()),
+				BRAND_IE, ACTOR_ID);
+
+		// And the trail: delete the audit call and this is the only thing that notices.
+		ArgumentCaptor<Object> snapshot = ArgumentCaptor.forClass(Object.class);
+		verify(audit).recordEvent(eq("PAYOUT_PAYMENT"), eq(saved.getValue().getId()), eq(AuditAction.PAYOUT_SETTLED),
+				eq(ACTOR_ID), isNull(), snapshot.capture());
+		assertThat(snapshot.getValue()).isInstanceOf(java.util.Map.class).isNotInstanceOf(PayoutPayment.class);
+		assertThat(snapshot.getValue().toString()).contains("1100.00")
+				.contains(a.getId().toString()).contains(b.getId().toString()).contains(c.getId().toString());
+	}
+
+	@Test
+	void anEmptyDraftListIsRefused() {
+		// @NotEmpty only fires under @Valid on a route that does not exist until Task 6;
+		// called directly, an unchecked empty list dies at rows.get(0) with a 500 instead
+		// of the 400 this refuses with.
+		givenEnmCaller();
+
+		assertThatThrownBy(() -> service.settle(form(List.of(), "350.00")))
+				.isInstanceOf(InvalidRequestException.class);
+		verify(payments, never()).save(any());
+	}
+
+	@Test
+	void aDraftNamedTwiceInOnePaymentIsRefused() {
+		givenEnmCaller();
+		PayoutLedger a = pending("350.00");
+		givenScoped(a);
+
+		assertThatThrownBy(() -> service.settle(form(List.of(a.getId(), a.getId()), "700.00")))
+				.isInstanceOf(InvalidRequestException.class);
+		verify(payments, never()).save(any());
 	}
 
 	@Test
@@ -263,6 +302,7 @@ class PayoutServiceTest {
 		assertThatThrownBy(() -> service.settle(form(List.of(undecided.getId()), "350.00")))
 				.isInstanceOf(InvalidRequestException.class)
 				.hasMessageContaining("no amount");
+		verify(payments, never()).save(any());
 	}
 
 	@Test
@@ -275,6 +315,7 @@ class PayoutServiceTest {
 		assertThatThrownBy(() -> service.settle(form(List.of(already.getId()), "350.00")))
 				.isInstanceOf(InvalidRequestException.class)
 				.hasMessageContaining("PAID");
+		verify(payments, never()).save(any());
 	}
 
 	@Test
@@ -285,6 +326,7 @@ class PayoutServiceTest {
 
 		assertThatThrownBy(() -> service.settle(form(List.of(stranger), "350.00")))
 				.isInstanceOf(InvalidRequestException.class);
+		verify(payments, never()).save(any());
 	}
 
 	@Test
@@ -309,6 +351,20 @@ class PayoutServiceTest {
 		assertThatThrownBy(() -> service.settle(form(List.of(UUID.randomUUID()), "350.00")))
 				.isInstanceOf(ForbiddenException.class);
 		verify(payments, never()).save(any());
+	}
+
+	@ParameterizedTest
+	@EnumSource(value = Role.class, names = { "GM", "BRAND_MANAGER", "EXPERT_NETWORK_MANAGER" })
+	void everyPermittedRoleMaySettle(Role role) {
+		givenCaller(role);
+		PayoutLedger a = pending("350.00");
+		givenScoped(a);
+		given(payments.save(any(PayoutPayment.class))).willAnswer(call -> call.getArgument(0));
+		given(payouts.attachToPayment(any(), any(), any(), any())).willReturn(1);
+
+		service.settle(form(List.of(a.getId()), "350.00"));
+
+		verify(payments).save(any());
 	}
 
 	private void givenBrand(String currency, int termDays) {

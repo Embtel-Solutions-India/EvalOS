@@ -3,7 +3,6 @@ package com.ie.evalos.service;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
-import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -122,7 +121,7 @@ public class PayoutService {
 	 * this guards the operation, so a later caller — a job, a webhook handler, another
 	 * service — cannot reach it as anyone else. Same precedent as {@code RefundService}.
 	 */
-	static final Set<Role> MAY_RECORD = EnumSet.of(Role.GM, Role.BRAND_MANAGER, Role.EXPERT_NETWORK_MANAGER);
+	static final Set<Role> MAY_RECORD = Set.of(Role.GM, Role.BRAND_MANAGER, Role.EXPERT_NETWORK_MANAGER);
 
 	/** One transfer, as the person who sent it describes it. */
 	public record SettleForm(
@@ -144,6 +143,13 @@ public class PayoutService {
 	public UUID settle(SettleForm form) {
 		TenantContext ctx = TenantContext.current();
 		requireMayRecord(ctx);
+
+		if (form.payoutIds().isEmpty()) {
+			// @NotEmpty only fires under @Valid on an HTTP route (Task 6). This is called
+			// directly by more than routes, so it is re-checked here — same reasoning as
+			// requireMayRecord above.
+			throw new InvalidRequestException("A payment must settle at least one draft");
+		}
 
 		List<UUID> ids = form.payoutIds().stream().distinct().toList();
 		if (ids.size() != form.payoutIds().size()) {
