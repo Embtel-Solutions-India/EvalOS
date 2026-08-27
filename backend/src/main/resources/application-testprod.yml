@@ -1,0 +1,37 @@
+# Test production. Activate ALONGSIDE prod, never instead of it:
+#
+#     SPRING_PROFILES_ACTIVE=prod,testprod
+#
+# `prod` supplies the whole configuration — every value from the environment, no
+# defaults, no secrets in a file. This profile adds exactly one thing on top: the seed
+# location that puts the two brands and the staff logins into an empty database. Listing
+# it here and nowhere else is what keeps V950 out of real production, because Flyway has
+# no exclude filter and directory separation is the entire mechanism (see
+# db/seed-local/README.md).
+#
+# Activating this profile ALONE would boot with the base profile's local-ish defaults and
+# the prod rules would not apply. There is no guard against that in code — this comment
+# is it — so the deploy sets both or neither.
+spring:
+  flyway:
+    locations: classpath:db/migration,classpath:db/seed-testprod
+    # The seed is numbered V950, above every real migration, so once it has run the next
+    # unit's V-N looks out of order and Flyway would refuse it. Allowed here for the same
+    # reason it is allowed in `local`, and for the same narrow scope: real production
+    # keeps the strict default.
+    out-of-order: true
+    placeholders:
+      # The three credentials V950 needs, resolved from the environment at migrate time
+      # so no committed file carries one. Keys are lowercase-hyphen — the canonical form
+      # Spring Boot produces for a map key — and are referenced in the SQL exactly as
+      # written here. NO DEFAULTS: an environment that forgets one must fail to migrate
+      # rather than seed a brand whose webhook token is the literal string `${...}`.
+      #
+      # The webhook token is the whole credential on an unauthenticated public endpoint,
+      # so treat it like the GHL token: rotate it with an UPDATE, never by editing V950,
+      # which has already been applied (invariant 9).
+      ie-webhook-token: ${IE_WEBHOOK_TOKEN}
+      xp-webhook-token: ${XP_WEBHOOK_TOKEN}
+      # One BCrypt hash shared by every seeded login. Throwaway test accounts — but the
+      # hash still stays out of git, which is the difference from the local seed.
+      seed-password-hash: ${SEED_PASSWORD_HASH}

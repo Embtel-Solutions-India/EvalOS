@@ -7,6 +7,8 @@ import java.util.List;
 import java.util.stream.Stream;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -56,10 +58,16 @@ class MigrationTreeTest {
 		}
 	}
 
-	/** The seed still has to be somewhere, or the local profile silently boots an empty database. */
-	@Test
-	void seedsLiveInTheirOwnTreeBesideTheMigrations() throws Exception {
-		try (Stream<Path> seeds = Files.list(resource("db/seed-local"))) {
+	/**
+	 * The seed still has to be somewhere, or the profile that lists it silently boots an
+	 * empty database. Both trees are checked: {@code db/seed-testprod} seeds a real
+	 * environment, so the numbering rule that marks a file as a seed matters more there,
+	 * not less.
+	 */
+	@ParameterizedTest
+	@ValueSource(strings = { "db/seed-local", "db/seed-testprod" })
+	void seedsLiveInTheirOwnTreeBesideTheMigrations(String location) throws Exception {
+		try (Stream<Path> seeds = Files.list(resource(location))) {
 			assertThat(seeds.map(path -> path.getFileName().toString()).filter(name -> name.endsWith(".sql")))
 					.isNotEmpty()
 					.allSatisfy(name -> assertThat(version(name)).isGreaterThanOrEqualTo(SEED_FLOOR));

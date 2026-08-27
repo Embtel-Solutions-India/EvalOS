@@ -385,10 +385,27 @@ frontend's typed mirror lives in `frontend/src/lib/api.ts`.
   ones.
 - The `local` profile additionally lists `classpath:db/seed-local` (`V900` seed: 2 brands, 5
   logins, password `DevPassw0rd!`; `V901` per-brand webhook secrets; `V902` the remaining roles;
-  `V903` seed experts) and sets
+  `V903` seed experts; `V904` brand currency) and sets
   `flyway.out-of-order: true` — the seed deliberately outranks every real migration, so without that
   flag the next unit's `V-N` is refused on an already-seeded dev database. `prod` keeps the strict
   default and never sees the seed.
+- **`application-testprod.yml` + `db/seed-testprod/V950` (test-production deploy, 2026-08-27).**
+  Activated as `SPRING_PROFILES_ACTIVE=prod,testprod` — **both, never `testprod` alone**, which
+  would boot on the base profile's local-ish defaults with none of prod's rules. `prod` supplies the
+  entire configuration; this profile adds only the seed location, `out-of-order: true` (V950
+  outranks every migration, same reason as `local`), and three `flyway.placeholders`.
+  **`V950` seeds a REAL environment, so no credential is written in it.** `ie-webhook-token`,
+  `xp-webhook-token` and `seed-password-hash` arrive as Flyway placeholders resolved from
+  `IE_WEBHOOK_TOKEN` / `XP_WEBHOOK_TOKEN` / `SEED_PASSWORD_HASH`, **with no defaults** — a missing
+  one fails the migrate rather than seeding a brand whose token is the literal `${...}`. It inserts
+  the 2 brands (ids `3333…`/`4444…`, `currency` inline — no V904-style follow-up needed) and 11
+  logins (ids `eeee…`, `@testprod.evalos.local`, one per role on **both** brands plus the single
+  brand-less GM), and **nothing else**: no experts, no cases: those arrive through Handoff A and
+  Unit 11's sheet upload, which is what the environment exists to test.
+  It deliberately reuses **none** of `seed-local`'s ids, logins or hash — those are committed to
+  this repository. `brand.ghl_webhook_secret` is left NULL: no Java reads it, and NULL fails closed.
+  Rotate a webhook token with an `UPDATE`, never by editing `V950` (invariant 9).
+  `ConfigSecretsTest` scans this profile like any other; `MigrationTreeTest` checks both seed trees.
 - **The seed tree is a sibling of `db/migration`, never a child, and that is load-bearing.** It sat
   at `db/migration/local` until 2026-08-06 in the belief that only the profile naming that path
   would apply it. Flyway scans a location *and every sub-directory*, so prod's plain
@@ -396,6 +413,7 @@ frontend's typed mirror lives in `frontend/src/lib/api.ts`.
   six logins sharing one committed BCrypt hash, GM included, plus the throwaway webhook secrets.
   Flyway has no exclude filter, so directory separation is the entire mechanism, and
   `config/MigrationTreeTest` now fails the build if anything reappears below `db/migration`.
+  `db/seed-testprod` is a sibling for the same reason and is covered by the same test.
 - Actuator exposes `health` only.
 
 ## Running & tests
