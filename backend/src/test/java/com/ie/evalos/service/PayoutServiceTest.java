@@ -660,4 +660,31 @@ class PayoutServiceTest {
 		assertThat(view.drafts()).hasSize(1);
 		assertThat(view.drafts().get(0).caseCode()).isEqualTo("IE-2026-0042");
 	}
+
+	/**
+	 * A test that would actually fail if a filter were dropped: two experts, two
+	 * statuses, and both {@code expertId} and {@code status} narrow the result rather
+	 * than "200 and a list came back" tolerating either being ignored.
+	 */
+	@Test
+	void listNarrowsByExpertAndByStatus() {
+		givenEnmCaller();
+		UUID otherExpert = UUID.randomUUID();
+		PayoutLedger minePending = pending("350.00");
+		PayoutLedger minePaid = pending("400.00");
+		minePaid.setStatus(PayoutStatus.PAID);
+		PayoutLedger theirsPending = pending("500.00", otherExpert);
+		given(payouts.findScoped(any())).willReturn(List.of(minePending, minePaid, theirsPending));
+
+		assertThat(service.list(null, EXPERT_ID, null, false)).extracting(PayoutService.LedgerRow::id)
+				.as("expertId must exclude the other expert's row")
+				.containsExactlyInAnyOrder(minePending.getId(), minePaid.getId());
+
+		assertThat(service.list(PayoutStatus.PENDING, EXPERT_ID, null, false))
+				.extracting(PayoutService.LedgerRow::id)
+				.as("status=PENDING must exclude the PAID row")
+				.containsExactly(minePending.getId());
+
+		assertThat(service.list(null, null, null, false)).hasSize(3);
+	}
 }

@@ -415,6 +415,43 @@ public class PayoutService {
 	}
 
 	/**
+	 * The flat, filterable ledger — spec 16b's {@code GET /api/payouts}: every row in the
+	 * caller's scope, narrowed by whichever filters are non-null/true. Unlike {@link #batch}
+	 * this is not grouped and not week-bound by default, so it is what answers "this
+	 * expert's pending drafts across weeks" — the read Task 11's expert-detail screen
+	 * needs and that no other method on this service provides.
+	 *
+	 * @param status      only rows in this status, or every status when null
+	 * @param expertId    only this expert's rows, or every expert when null
+	 * @param weekOf      only rows whose {@code due_date} falls in the week containing this
+	 *                    date (same half-open window {@link #weekStart} defines), or every
+	 *                    week when null
+	 * @param overdueOnly when true, keep only {@code PENDING} rows whose due date has
+	 *                    passed — the same test {@link #batch} totals under {@code overdue}
+	 */
+	@Transactional(readOnly = true)
+	public List<LedgerRow> list(PayoutStatus status, UUID expertId, LocalDate weekOf, boolean overdueOnly) {
+		TenantContext ctx = TenantContext.current();
+		Instant now = Instant.now();
+		LocalDate targetWeek = weekOf != null ? weekStart(weekOf.atStartOfDay(BusinessCalendar.ZONE).toInstant()) : null;
+
+		List<PayoutLedger> rows = payouts.findScoped(ctx).stream()
+				.filter(row -> status == null || row.getStatus() == status)
+				.filter(row -> expertId == null || expertId.equals(row.getExpertId()))
+				.filter(row -> targetWeek == null
+						|| (row.getDueDate() != null && weekStart(row.getDueDate()).equals(targetWeek)))
+				.filter(row -> !overdueOnly || (row.getStatus() == PayoutStatus.PENDING && row.getDueDate() != null
+						&& row.getDueDate().isBefore(now)))
+				.toList();
+
+		// One query each for the filtered set's names, not one per row.
+		Map<UUID, String> expertNames = expertNames(rows.stream().map(PayoutLedger::getExpertId).toList());
+		Map<UUID, String> caseCodes = caseCodes(rows.stream().map(PayoutLedger::getCaseId).toList());
+
+		return rows.stream().map(row -> toLedgerRow(row, caseCodes, expertNames, now)).toList();
+	}
+
+	/**
 	 * One payout row, on its own — the same projection {@link #batch} builds for a whole
 	 * week, for the single-draft read (Task 6's {@code GET /api/payouts/{id}}) and for
 	 * handing the refreshed row back after {@link #correctAmount}.

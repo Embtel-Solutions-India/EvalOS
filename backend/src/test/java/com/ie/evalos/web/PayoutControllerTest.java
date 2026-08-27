@@ -43,7 +43,9 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.verify;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -116,6 +118,7 @@ class PayoutControllerTest {
 		PaymentDetailView detail = new PaymentDetailView(paymentRow, "Paid in full", "Alex ENM", List.of(draft));
 
 		given(payoutService.batch(any())).willReturn(batch);
+		given(payoutService.list(any(), any(), any(), anyBoolean())).willReturn(List.of(draft));
 		given(payoutService.payout(any())).willReturn(draft);
 		given(payoutService.settle(any())).willReturn(PAYMENT_ID);
 		given(payoutService.history(any())).willReturn(List.of(paymentRow));
@@ -155,6 +158,22 @@ class PayoutControllerTest {
 						"""))
 				.andExpect(status().isBadRequest())
 				.andExpect(jsonPath("$.success").value(false));
+	}
+
+	/**
+	 * Proves the controller actually binds and forwards every query parameter rather
+	 * than silently dropping one — a wiring bug the filtering test in
+	 * {@code PayoutServiceTest} cannot see, since that test never goes through HTTP
+	 * parameter binding.
+	 */
+	@Test
+	void theListRouteForwardsEveryFilterToTheService() throws Exception {
+		mockMvc.perform(get("/api/payouts?status=PENDING&expertId=" + EXPERT_ID
+				+ "&weekOf=2026-08-24&overdue=true")
+				.header(HttpHeaders.AUTHORIZATION, bearer(Role.EXPERT_NETWORK_MANAGER)))
+				.andExpect(status().isOk());
+
+		verify(payoutService).list(PayoutStatus.PENDING, EXPERT_ID, LocalDate.parse("2026-08-24"), true);
 	}
 
 	@Test

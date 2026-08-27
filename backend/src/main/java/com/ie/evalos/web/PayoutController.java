@@ -2,10 +2,12 @@ package com.ie.evalos.web;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
 import com.ie.evalos.common.ApiResponse;
+import com.ie.evalos.domain.PayoutStatus;
 import com.ie.evalos.service.PayoutService;
 
 import jakarta.validation.Valid;
@@ -62,14 +64,19 @@ public class PayoutController {
 	}
 
 	/**
-	 * The base route — the current week's {@code PENDING} drafts, grouped by expert.
-	 * Exactly {@link #batch} with no {@code weekOf}, kept as its own route because the
-	 * collection's own path is the one a client reaches for first.
+	 * The flat, filterable ledger (spec 16b) — every row in scope, narrowed by whichever
+	 * filters are given. Distinct from {@link #batch}, which groups one week's
+	 * {@code PENDING} rows by expert: this is the read behind, for instance, one expert's
+	 * pending drafts across every week.
 	 */
 	@GetMapping
 	@PreAuthorize(PAYOUTS)
-	public ApiResponse<PayoutService.BatchView> list() {
-		return ApiResponse.ok(payouts.batch(null));
+	public ApiResponse<List<PayoutService.LedgerRow>> list(
+			@RequestParam(required = false) PayoutStatus status,
+			@RequestParam(required = false) UUID expertId,
+			@RequestParam(required = false) @DateTimeFormat(iso = ISO.DATE) LocalDate weekOf,
+			@RequestParam(required = false, defaultValue = "false") boolean overdue) {
+		return ApiResponse.ok(payouts.list(status, expertId, weekOf, overdue));
 	}
 
 	@GetMapping("/{id}")
