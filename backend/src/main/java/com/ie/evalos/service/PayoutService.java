@@ -137,8 +137,16 @@ public class PayoutService {
 	 * <p>Checked here as well as at the endpoint. {@code @PreAuthorize} guards one route;
 	 * this guards the operation, so a later caller — a job, a webhook handler, another
 	 * service — cannot reach it as anyone else. Same precedent as {@code RefundService}.
+	 *
+	 * <p><b>The single authority for who may record a payout.</b> Public so
+	 * {@code PayoutControllerTest} — which lives in {@code com.ie.evalos.web} and cannot
+	 * see a package-private member here — can read it directly and assert the
+	 * {@code @PreAuthorize} role lists on {@code PayoutController} and
+	 * {@code PaymentController} name exactly this set, rather than a second, hand-typed
+	 * copy of it drifting out of step. {@code static final} over an immutable
+	 * {@link Set#of}, so widening visibility exposes no mutation.
 	 */
-	static final Set<Role> MAY_RECORD = Set.of(Role.GM, Role.BRAND_MANAGER, Role.EXPERT_NETWORK_MANAGER);
+	public static final Set<Role> MAY_RECORD = Set.of(Role.GM, Role.BRAND_MANAGER, Role.EXPERT_NETWORK_MANAGER);
 
 	/** One transfer, as the person who sent it describes it. */
 	public record SettleForm(
@@ -404,6 +412,21 @@ public class PayoutService {
 				found.getPaidDate(), drafts.size(), found.getConfirmedAt() != null);
 
 		return new PaymentDetailView(row, found.getNotes(), recordedByNames.get(found.getRecordedBy()), drafts);
+	}
+
+	/**
+	 * One payout row, on its own — the same projection {@link #batch} builds for a whole
+	 * week, for the single-draft read (Task 6's {@code GET /api/payouts/{id}}) and for
+	 * handing the refreshed row back after {@link #correctAmount}.
+	 */
+	@Transactional(readOnly = true)
+	public LedgerRow payout(UUID payoutId) {
+		TenantContext ctx = TenantContext.current();
+		PayoutLedger row = payouts.findScoped(ctx, payoutId)
+				.orElseThrow(() -> new InvalidRequestException("No such draft: " + payoutId));
+		Map<UUID, String> expertNames = expertNames(List.of(row.getExpertId()));
+		Map<UUID, String> caseCodes = caseCodes(List.of(row.getCaseId()));
+		return toLedgerRow(row, caseCodes, expertNames, Instant.now());
 	}
 
 	/**
