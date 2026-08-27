@@ -79,6 +79,30 @@ class ExpertNetworkMetricsServiceTest {
 				});
 	}
 
+	/**
+	 * The row shape the dev database actually holds: 69 of 79 experts were written straight through
+	 * {@code ExpertRepository.save} by {@code LocalPostgresIntegrationTest}, which bypasses
+	 * {@code ExpertService.apply} and so sets no availability, no fields, no score, no onboarding
+	 * date. Availability was the only one of those the endpoint failed to guard, and asserting the
+	 * bare row keeps the other three honest — a name and nothing else has to produce figures rather
+	 * than a 500.
+	 */
+	@Test
+	void anExpertWithNothingButANameProducesFiguresRatherThanA500() {
+		Expert bare = new Expert(BRAND_IE, "Nothing But A Name");
+		given(experts.findScoped(any(TenantContext.class))).willReturn(List.of(bare));
+
+		ExpertNetworkMetrics result = metrics.forCaller();
+
+		assertThat(result.roster()).isEqualTo(
+				new ExpertNetworkMetricsService.RosterHealth(0, 0, 0, 1, 1));
+		// No primary field claimed, so no field is reported as covered — not a null row in the list.
+		assertThat(result.coverage()).isEmpty();
+		// Unscored is unassessed, not low quality; undated is not onboarded this month.
+		assertThat(result.lowQuality()).isEmpty();
+		assertThat(result.onboarding().thisMonth()).isZero();
+	}
+
 	private static Expert expert(String name, Availability availability) {
 		Expert expert = new Expert(BRAND_IE, name);
 		expert.setPrimaryFields(List.of(FieldTag.LAW));

@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
+import { ArrowLeft, Check, SquarePen } from 'lucide-react'
+import { SheetContent, SheetRoot } from '../../components/ui/dialog'
 import { useMe } from '../../lib/authContext'
 import { formatMoney } from '../../lib/money'
 import { useFilters } from '../shell/filtersContext'
@@ -9,6 +11,7 @@ import {
   FIELD_TAGS,
   LETTER_TYPES,
   TIERS,
+  initials,
   label,
   type Availability,
   type ExpertForm,
@@ -19,6 +22,25 @@ import {
 
 /**
  * One expert: what is on file, and the form that changes it.
+ *
+ * **A sheet, not a panel under the table** (redesigned 2026-08-28). It was an `<aside>`
+ * appended below the roster, which meant opening an expert pushed the list around under you
+ * and the way back was a Close button somewhere off the bottom of the screen. A sheet is what
+ * `ui-context.md` already prescribes for *inspecting a record without losing your place*, and
+ * it arrives with the focus trap, the escape key and the entry animation already written — so
+ * the list keeps its search, filters, page and scroll position for free, because it is never
+ * unmounted.
+ *
+ * The one thing that costs: this component only mounts while an expert is open, so the sheet
+ * animates in and then *disappears* on close rather than sliding out — the exit keyframe needs
+ * the element to survive its own removal. The fix is Radix's `forceMount` plus keeping the last
+ * id in state, which is real state carried for an animation; worth it only if the missing slide
+ * out is ever noticed.
+ *
+ * **Read first, edit on request.** The facts and the fifteen-field form used to be stacked on
+ * one screen, so every reader paid for the form. `mode` now starts at `view` and the form sits
+ * behind *Edit profile*; a save returns to `view` with a confirmation rather than closing, so
+ * the answer to "did that take?" is the screen already in front of you.
  *
  * **Field tags and letter types are multi-selects over the closed vocabulary, never text
  * inputs.** That is the whole reason the vocabulary is closed: Unit 12 matches on these tags
@@ -57,15 +79,31 @@ export default function ExpertProfile({
 }) {
   const me = useMe()
   const { activeBrandId } = useFilters()
-  const creating = expertId === 'new'
+
+  /**
+   * The id writes go to. `expertId` is a prop and stays `'new'` after a create, so the id the
+   * server assigned has to be kept here — otherwise a second Save on an expert who was just
+   * added would POST a duplicate instead of updating the one on screen. This is what lets the
+   * create flow finish on the new expert's profile rather than closing the sheet.
+   */
+  const [createdId, setCreatedId] = useState<string | null>(null)
+  const targetId = createdId ?? expertId
+  const creating = targetId === 'new'
+
   const [profile, setProfile] = useState<Profile | null>(null)
   const [form, setForm] = useState<ExpertForm>(EMPTY_FORM)
-  const [state, setState] = useState<'loading' | 'ready' | 'saving'>(creating ? 'ready' : 'loading')
+  const [state, setState] = useState<'loading' | 'ready' | 'saving'>(
+    expertId === 'new' ? 'ready' : 'loading',
+  )
+  const [mode, setMode] = useState<'view' | 'edit'>(expertId === 'new' ? 'edit' : 'view')
   const [failure, setFailure] = useState<string | null>(null)
+  const [flash, setFlash] = useState<string | null>(null)
   const [detail, setDetail] = useState('')
 
+  // Keyed on the prop, never on `creating` — that flips to false the moment a create returns,
+  // and an effect watching it would re-run and fetch the expert `new`.
   useEffect(() => {
-    if (creating) return
+    if (expertId === 'new') return
     const controller = new AbortController()
     fetchExpert(expertId, controller.signal)
       .then((loaded) => {
@@ -79,358 +117,434 @@ export default function ExpertProfile({
         setState('ready')
       })
     return () => controller.abort()
-  }, [creating, expertId])
+  }, [expertId])
 
   const save = useCallback(
     async (event: React.FormEvent) => {
       event.preventDefault()
       setState('saving')
       setFailure(null)
+      setFlash(null)
       try {
         const saved = creating
           ? await createExpert(activeBrandId, form)
-          : await updateExpert(expertId, form)
+          : await updateExpert(targetId, form)
         setProfile(saved)
         setForm(formOf(saved))
+        if (creating) setCreatedId(saved.expert.id)
+        // Back to the profile, not out to the list: whoever just typed fifteen fields wants to
+        // see them on the record, and a sheet that vanishes on save leaves them hunting the row
+        // to check it landed.
+        setMode('view')
+        setFlash(creating ? 'Expert added.' : 'Changes saved.')
         onSaved()
-        if (creating) onClose()
       } catch (error: unknown) {
         setFailure(error instanceof Error ? error.message : 'Could not save this expert')
       } finally {
         setState('ready')
       }
     },
-    [activeBrandId, creating, expertId, form, onClose, onSaved],
+    [activeBrandId, creating, form, onSaved, targetId],
   )
 
   const changeAvailability = useCallback(
     async (availability: Availability) => {
       if (creating) return setForm((current) => ({ ...current, availability }))
+      setFailure(null)
       try {
-        const saved = await setAvailability(expertId, availability)
+        const saved = await setAvailability(targetId, availability)
         setProfile(saved)
         setForm(formOf(saved))
+        setFlash(`Availability set to ${label(availability).toLowerCase()}.`)
         onSaved()
       } catch (error: unknown) {
         setFailure(error instanceof Error ? error.message : 'Could not set availability')
       }
     },
-    [creating, expertId, onSaved],
+    [creating, onSaved, targetId],
   )
 
   const savePaymentDetail = useCallback(async () => {
     if (creating || !detail.trim()) return
+    setFailure(null)
     try {
-      setProfile(await putPaymentDetail(expertId, detail.trim()))
+      setProfile(await putPaymentDetail(targetId, detail.trim()))
       setDetail('')
+      setFlash('Payment detail stored.')
       onSaved()
     } catch (error: unknown) {
       setFailure(error instanceof Error ? error.message : 'Could not set the payment detail')
     }
-  }, [creating, detail, expertId, onSaved])
+  }, [creating, detail, onSaved, targetId])
 
-  if (state === 'loading') {
-    return (
-      <aside className="rounded-lg border p-4" style={PANEL}>
-        <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
-          Loading the expert…
-        </p>
-      </aside>
-    )
-  }
-
+  const editing = mode === 'edit' && mayWrite
   const brandMissing = creating && me.role === 'GM' && !activeBrandId
+  const expert = profile?.expert
 
   return (
-    <aside className="rounded-lg border p-4" style={PANEL}>
-      <header className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h2 className="text-base font-semibold tracking-tight">
-            {creating ? 'Add an expert' : (profile?.expert.fullName ?? 'Expert')}
-          </h2>
-          {!creating && profile && (
-            <p className="mt-0.5 text-sm" style={{ color: 'var(--text-muted)' }}>
-              {[profile.expert.title, profile.expert.institution].filter(Boolean).join(' · ') ||
-                'No title or institution on file'}
+    <SheetRoot
+      open
+      onOpenChange={(next) => {
+        if (!next) onClose()
+      }}
+    >
+      <SheetContent
+        title={creating ? 'Add an expert' : (expert?.fullName ?? 'Expert')}
+        description={
+          creating
+            ? 'A new expert on this brand’s roster.'
+            : [expert?.title, expert?.institution].filter(Boolean).join(' · ') ||
+              'No title or institution on file'
+        }
+        footer={
+          state === 'loading' ? undefined : editing ? (
+            <>
+              <button
+                type="button"
+                onClick={() => {
+                  if (creating) return onClose()
+                  if (profile) setForm(formOf(profile))
+                  setFailure(null)
+                  setMode('view')
+                }}
+                className="rounded-md bg-(--bg-raised) px-3 py-1.5 text-sm font-medium transition-colors hover:bg-(--border-default)"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                form={FORM_ID}
+                disabled={state === 'saving' || brandMissing}
+                className="rounded-md bg-(--accent-primary) px-3 py-1.5 text-sm font-medium text-white transition-colors enabled:hover:bg-(--accent-hover) disabled:opacity-60"
+              >
+                {state === 'saving' ? 'Saving…' : creating ? 'Add the expert' : 'Save changes'}
+              </button>
+            </>
+          ) : mayWrite && expert ? (
+            <button
+              type="button"
+              onClick={() => {
+                setFlash(null)
+                setMode('edit')
+              }}
+              className="inline-flex items-center gap-1.5 rounded-md bg-(--accent-primary) px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-(--accent-hover)"
+            >
+              <SquarePen className="h-4 w-4" aria-hidden />
+              Edit profile
+            </button>
+          ) : undefined
+        }
+      >
+        <div className="flex flex-col gap-4">
+          {/* The labelled way back. The sheet's own X does the same thing, but a drawer whose
+              only exit is a 16px glyph in the corner is the friction this redesign is about —
+              and on a phone the sheet is the whole screen, where a back arrow is what a reader
+              looks for. */}
+          <button
+            type="button"
+            onClick={onClose}
+            className="-mt-1 inline-flex w-fit items-center gap-1.5 rounded-md text-xs font-medium text-(--text-muted) transition-colors hover:text-(--accent-primary)"
+          >
+            <ArrowLeft className="h-4 w-4" aria-hidden />
+            Back to experts
+          </button>
+
+          {flash && (
+            <p
+              role="status"
+              className="inline-flex items-center gap-1.5 rounded-md bg-(--status-green-bg) px-2.5 py-1.5 text-sm font-medium text-(--status-green)"
+            >
+              <Check className="h-4 w-4" aria-hidden />
+              {flash}
             </p>
           )}
-        </div>
-        <button
-          type="button"
-          onClick={onClose}
-          className="rounded-md px-2.5 py-1 text-sm font-medium"
-          style={{ background: 'var(--bg-raised)' }}
-        >
-          Close
-        </button>
-      </header>
 
-      {brandMissing && (
-        <p className="mt-3 text-sm" style={{ color: 'var(--status-amber)' }}>
-          Pick a brand in the header first — an expert belongs to one roster, and you read both.
-        </p>
-      )}
+          {/* One place for a failure, whatever produced it. There used to be two blocks — one
+              inside the form and a second for readers, who have no form to show it in. */}
+          {failure && (
+            <p role="alert" className="text-sm font-medium text-(--status-red)">
+              {failure}
+            </p>
+          )}
 
-      {!creating && profile && (
-        <>
-          <dl className="font-num mt-4 grid grid-cols-2 gap-x-4 gap-y-2 text-sm tabular-nums sm:grid-cols-3">
-            <Fact term="Open cases" value={String(profile.expert.activeLoad)} />
-            <Fact term="Completed" value={String(profile.expert.completedCases)} />
-            <Fact
-              term="Quality"
-              value={profile.expert.qualityScore == null ? '—' : `${profile.expert.qualityScore} / 10`}
-            />
-            <Fact term="Standard fee" value={money(profile.expert.standardFee)} />
-            <Fact term="Email" value={profile.expert.email ?? '—'} />
-            <Fact term="Phone" value={profile.expert.phone ?? '—'} />
-            <Fact term="Agreement" value={label(profile.agreementStatus)} />
-            <Fact term="Payment status" value={label(profile.paymentStatus)} />
-            <Fact
-              term="Avg response"
-              value={profile.avgResponseHours == null ? '—' : `${profile.avgResponseHours} h`}
-            />
-          </dl>
-          {/* Open cases are counted from the cases themselves; the columns V7 created for
-              this have never been written. Said out loud because a number that looks stale
-              is the first thing somebody distrusts. */}
-          <p className="mt-1 text-xs" style={{ color: 'var(--text-muted)' }}>
-            Case counts are live from the cases. Payments pending and response time are Unit 16's and
-            Unit 12's figures and read zero until those land.
-          </p>
+          {brandMissing && (
+            <p className="text-sm text-(--status-amber)">
+              Pick a brand in the header first — an expert belongs to one roster, and you read both.
+            </p>
+          )}
 
-          <section className="mt-4">
-            <h3 className="text-sm font-semibold tracking-tight">Availability</h3>
-            {mayWrite ? (
-              <div className="mt-1.5 flex flex-wrap gap-1.5">
-                {AVAILABILITIES.map((availability) => {
-                  const active = profile.expert.availability === availability
-                  return (
-                    <button
-                      key={availability}
-                      type="button"
-                      aria-pressed={active}
-                      onClick={() => void changeAvailability(availability)}
-                      className="rounded-md px-2 py-1 text-xs font-semibold"
-                      style={
-                        active
-                          ? {
-                              color: AVAILABILITY_TOKEN[availability].fg,
-                              background: AVAILABILITY_TOKEN[availability].bg,
-                            }
-                          : { color: 'var(--text-muted)', background: 'var(--bg-raised)' }
-                      }
-                    >
-                      {label(availability)}
-                    </button>
-                  )
-                })}
+          {state === 'loading' && <p className="text-sm text-(--text-muted)">Loading the expert…</p>}
+
+          {expert && (
+            <div className="flex items-center gap-3 rounded-lg border border-(--border-default) bg-(--bg-base) p-3">
+              {/* Identity, once. The name and the role line are the sheet's own title and
+                  description directly above this, so they are not repeated here — what is left
+                  is the mark standing where a photo would, the capacity badge, the tier and the
+                  id. */}
+              <Avatar name={expert.fullName} size="lg" />
+              <div className="min-w-0">
+                <AvailabilityBadge availability={expert.availability} />
+                <p className="font-mono mt-1.5 truncate text-[11px] text-(--text-muted)" title={expert.id}>
+                  {expert.id.slice(0, 8)}
+                </p>
               </div>
-            ) : (
-              // A reader gets the state, not four buttons that answer 403.
-              <p className="mt-1.5 text-sm">
+              {expert.tier && (
+                <span className="ml-auto rounded-md bg-(--bg-raised) px-2 py-1 text-[11px] font-semibold">
+                  {label(expert.tier)}
+                </span>
+              )}
+            </div>
+          )}
+
+          {expert && !editing && (
+            <>
+              <Section title="Contact">
+                <Facts>
+                  <Fact term="Email" value={expert.email ?? '—'} />
+                  <Fact term="Phone" value={expert.phone ?? '—'} />
+                </Facts>
+              </Section>
+
+              <Section title="Professional">
+                <Facts>
+                  <Fact term="Tier" value={label(expert.tier)} />
+                  <Fact
+                    term="Quality"
+                    value={expert.qualityScore == null ? '—' : `${expert.qualityScore} / 10`}
+                    numeric
+                  />
+                  <Fact term="Standard fee" value={money(expert.standardFee)} numeric />
+                  <Fact term="Onboarded" value={profile?.dateOnboarded ?? '—'} numeric />
+                  <Fact term="Recruited via" value={profile?.recruitmentSource ?? '—'} />
+                </Facts>
+                <div className="mt-3 flex flex-col gap-2.5">
+                  <TagRow term="Primary fields" values={expert.primaryFields} />
+                  <TagRow term="Secondary fields" values={expert.secondaryFields} muted />
+                  <TagRow term="Letter types" values={expert.letterTypes} />
+                </div>
+              </Section>
+
+              {/* Open cases are counted from the cases themselves; the columns V7 created for
+                  this have never been written. Said out loud because a number that looks stale
+                  is the first thing somebody distrusts. */}
+              <Section
+                title="Assignment and workload"
+                note="Case counts are live from the cases. Payments pending and response time are Unit 16’s and Unit 12’s figures and read zero until those land."
+              >
+                <Facts>
+                  <Fact term="Open cases" value={String(expert.activeLoad)} numeric />
+                  <Fact term="Completed" value={String(expert.completedCases)} numeric />
+                  <Fact term="Payout pending" value={money(expert.pendingTotal)} numeric />
+                  <Fact
+                    term="Avg response"
+                    value={profile?.avgResponseHours == null ? '—' : `${profile.avgResponseHours} h`}
+                    numeric
+                  />
+                  <Fact term="Agreement" value={label(profile?.agreementStatus ?? null)} />
+                  <Fact term="Payment status" value={label(profile?.paymentStatus ?? null)} />
+                </Facts>
+              </Section>
+
+              <Section
+                title="Availability"
+                note="Only an available expert can be put on a case, so anything else takes them out of the assignment picker."
+              >
+                {mayWrite ? (
+                  <div className="flex flex-wrap gap-1.5">
+                    {AVAILABILITIES.map((availability) => {
+                      const active = expert.availability === availability
+                      return (
+                        <button
+                          key={availability}
+                          type="button"
+                          aria-pressed={active}
+                          onClick={() => void changeAvailability(availability)}
+                          className="rounded-md px-2 py-1 text-xs font-semibold transition-colors"
+                          style={
+                            active
+                              ? {
+                                  color: AVAILABILITY_TOKEN[availability].fg,
+                                  background: AVAILABILITY_TOKEN[availability].bg,
+                                }
+                              : { color: 'var(--text-muted)', background: 'var(--bg-raised)' }
+                          }
+                        >
+                          {label(availability)}
+                        </button>
+                      )
+                    })}
+                  </div>
+                ) : (
+                  // A reader gets the state, not four buttons that answer 403.
+                  <AvailabilityBadge availability={expert.availability} />
+                )}
+              </Section>
+
+              <Section
+                title="Payment detail"
+                note={
+                  mayWrite
+                    ? 'Encrypted, and never shown again — not here and not to anyone. To correct it, type the whole value.'
+                    : undefined
+                }
+              >
                 <span
                   className="rounded-md px-1.5 py-0.5 text-xs font-semibold"
                   style={
-                    profile.expert.availability
-                      ? {
-                          color: AVAILABILITY_TOKEN[profile.expert.availability].fg,
-                          background: AVAILABILITY_TOKEN[profile.expert.availability].bg,
-                        }
+                    expert.paymentDetailOnFile
+                      ? { color: 'var(--status-green)', background: 'var(--status-green-bg)' }
                       : { color: 'var(--text-muted)', background: 'var(--bg-raised)' }
                   }
                 >
-                  {label(profile.expert.availability)}
+                  {expert.paymentDetailOnFile ? 'On file' : 'Not on file'}
                 </span>
-              </p>
-            )}
-            <p className="mt-1 text-xs" style={{ color: 'var(--text-muted)' }}>
-              Only an available expert can be put on a case, so anything else takes them out of the
-              assignment picker.
-            </p>
-          </section>
+                {mayWrite && (
+                  <div className="mt-2.5 flex gap-2">
+                    <input
+                      type="text"
+                      value={detail}
+                      aria-label="New payment detail"
+                      placeholder="how this expert is paid"
+                      onChange={(event) => setDetail(event.target.value)}
+                      className="flex-1 rounded-md border border-(--border-default) bg-(--bg-surface) px-2.5 py-1.5 text-sm"
+                    />
+                    <button
+                      type="button"
+                      disabled={!detail.trim()}
+                      onClick={() => void savePaymentDetail()}
+                      className="rounded-md bg-(--accent-primary) px-3 py-1.5 text-sm font-medium text-white transition-colors enabled:hover:bg-(--accent-hover) disabled:opacity-60"
+                    >
+                      Save
+                    </button>
+                  </div>
+                )}
+              </Section>
 
-          <section className="mt-4">
-            <h3 className="text-sm font-semibold tracking-tight">Payment detail</h3>
-            <p className="mt-1 text-sm">
-              <span
-                className="rounded-md px-1.5 py-0.5 text-xs font-semibold"
-                style={
-                  profile.expert.paymentDetailOnFile
-                    ? { color: 'var(--status-green)', background: 'var(--status-green-bg)' }
-                    : { color: 'var(--text-muted)', background: 'var(--bg-raised)' }
-                }
-              >
-                {profile.expert.paymentDetailOnFile ? 'On file' : 'Not on file'}
-              </span>
-            </p>
-            {mayWrite && (
-              <p className="mt-1.5 text-xs" style={{ color: 'var(--text-muted)' }}>
-                Encrypted, and never shown again — not here and not to anyone. To correct it, type the
-                whole value.
-              </p>
-            )}
-            {mayWrite && (
-              <div className="mt-1.5 flex gap-2">
-                <input
-                  type="text"
-                  value={detail}
-                  aria-label="New payment detail"
-                  placeholder="how this expert is paid"
-                  onChange={(event) => setDetail(event.target.value)}
-                  className="flex-1 rounded-md border px-2.5 py-1.5 text-sm"
+              {profile?.notes && (
+                <Section title="Notes">
+                  <p className="text-sm whitespace-pre-wrap">{profile.notes}</p>
+                </Section>
+              )}
+
+              {/* No form at all for a reader. Disabling the fields would still invite the work;
+                  the facts above are what a Project Manager came here for. */}
+              {!mayWrite && (
+                <p className="text-xs text-(--text-muted)">
+                  Read-only: the Expert Network Manager maintains this roster.
+                </p>
+              )}
+            </>
+          )}
+
+          {editing && (
+            <form id={FORM_ID} className="flex flex-col gap-3" onSubmit={(event) => void save(event)}>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Text label="Full name" required value={form.fullName} onChange={(v) => set(setForm, 'fullName', v)} />
+                <Text label="Email" type="email" value={form.email ?? ''} onChange={(v) => set(setForm, 'email', v)} />
+                <Text label="Phone" value={form.phone ?? ''} onChange={(v) => set(setForm, 'phone', v)} />
+                <Text label="Title" value={form.title ?? ''} onChange={(v) => set(setForm, 'title', v)} />
+                <Text
+                  label="Institution"
+                  value={form.institution ?? ''}
+                  onChange={(v) => set(setForm, 'institution', v)}
+                />
+                <Text
+                  label="Recruitment source"
+                  value={form.recruitmentSource ?? ''}
+                  onChange={(v) => set(setForm, 'recruitmentSource', v)}
+                />
+                {/* A native date input rather than a picker library: the platform has one. */}
+                <Text
+                  label="Date onboarded"
+                  type="date"
+                  value={form.dateOnboarded ?? ''}
+                  onChange={(v) => set(setForm, 'dateOnboarded', v)}
+                />
+                <Text
+                  label="Quality score (1–10)"
+                  type="number"
+                  step="0.1"
+                  min="1"
+                  max="10"
+                  value={form.qualityScore == null ? '' : String(form.qualityScore)}
+                  onChange={(v) => setForm((c) => ({ ...c, qualityScore: v === '' ? null : Number(v) }))}
+                />
+                <Text
+                  label="Standard fee"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={form.standardFee == null ? '' : String(form.standardFee)}
+                  onChange={(v) => setForm((c) => ({ ...c, standardFee: v === '' ? null : Number(v) }))}
+                />
+                <Choice
+                  label="Tier"
+                  options={TIERS}
+                  value={form.tier ?? ''}
+                  onChange={(v) => setForm((c) => ({ ...c, tier: v === '' ? null : (v as (typeof TIERS)[number]) }))}
+                />
+                {/* No "Not set" option: the server coerces a missing availability to AVAILABLE,
+                    so offering the blank would be the screen and the server disagreeing about
+                    what happens next. Tier keeps its blank — nothing defaults that. */}
+                <Choice
+                  label="Availability"
+                  options={AVAILABILITIES}
+                  required
+                  value={form.availability ?? 'AVAILABLE'}
+                  onChange={(v) =>
+                    setForm((c) => ({ ...c, availability: v === '' ? null : (v as Availability) }))
+                  }
+                />
+              </div>
+
+              <Tags
+                label="Primary field tags"
+                options={FIELD_TAGS}
+                value={form.primaryFields}
+                onChange={(v) => setForm((c) => ({ ...c, primaryFields: v as FieldTag[] }))}
+              />
+              <Tags
+                label="Secondary field tags"
+                options={FIELD_TAGS}
+                value={form.secondaryFields}
+                onChange={(v) => setForm((c) => ({ ...c, secondaryFields: v as FieldTag[] }))}
+              />
+              <Tags
+                label="Letter types"
+                options={LETTER_TYPES}
+                value={form.letterTypes}
+                onChange={(v) => setForm((c) => ({ ...c, letterTypes: v as LetterType[] }))}
+              />
+
+              <div>
+                <label className="block text-xs font-medium" htmlFor="expert-notes">
+                  Notes
+                </label>
+                <textarea
+                  id="expert-notes"
+                  rows={3}
+                  value={form.notes ?? ''}
+                  onChange={(event) => set(setForm, 'notes', event.target.value)}
+                  className="mt-1 w-full rounded-md border px-2.5 py-1.5 text-sm"
                   style={INPUT_STYLE}
                 />
-                <button
-                  type="button"
-                  disabled={!detail.trim()}
-                  onClick={() => void savePaymentDetail()}
-                  className="rounded-md px-3 py-1.5 text-sm font-medium text-white disabled:opacity-60"
-                  style={{ background: 'var(--accent-primary)' }}
-                >
-                  Save
-                </button>
               </div>
-            )}
-          </section>
-        </>
-      )}
-
-      {/* No form at all for a reader. Disabling the fields would still invite the work; the
-          facts above are what a Project Manager came here for. */}
-      {!mayWrite && (
-        <p className="mt-5 text-xs" style={{ color: 'var(--text-muted)' }}>
-          Read-only: the Expert Network Manager maintains this roster.
-        </p>
-      )}
-
-      {mayWrite && (
-      <form className="mt-5 flex flex-col gap-3" onSubmit={(event) => void save(event)}>
-        <h3 className="text-sm font-semibold tracking-tight">
-          {creating ? 'Details' : 'Edit the profile'}
-        </h3>
-
-        <div className="grid gap-3 sm:grid-cols-2">
-          <Text label="Full name" required value={form.fullName} onChange={(v) => set(setForm, 'fullName', v)} />
-          <Text label="Email" type="email" value={form.email ?? ''} onChange={(v) => set(setForm, 'email', v)} />
-          <Text label="Phone" value={form.phone ?? ''} onChange={(v) => set(setForm, 'phone', v)} />
-          <Text label="Title" value={form.title ?? ''} onChange={(v) => set(setForm, 'title', v)} />
-          <Text
-            label="Institution"
-            value={form.institution ?? ''}
-            onChange={(v) => set(setForm, 'institution', v)}
-          />
-          <Text
-            label="Recruitment source"
-            value={form.recruitmentSource ?? ''}
-            onChange={(v) => set(setForm, 'recruitmentSource', v)}
-          />
-          {/* A native date input rather than a picker library: the platform has one. */}
-          <Text
-            label="Date onboarded"
-            type="date"
-            value={form.dateOnboarded ?? ''}
-            onChange={(v) => set(setForm, 'dateOnboarded', v)}
-          />
-          <Text
-            label="Quality score (1–10)"
-            type="number"
-            step="0.1"
-            min="1"
-            max="10"
-            value={form.qualityScore == null ? '' : String(form.qualityScore)}
-            onChange={(v) => setForm((c) => ({ ...c, qualityScore: v === '' ? null : Number(v) }))}
-          />
-          <Text
-            label="Standard fee"
-            type="number"
-            step="0.01"
-            min="0"
-            value={form.standardFee == null ? '' : String(form.standardFee)}
-            onChange={(v) => setForm((c) => ({ ...c, standardFee: v === '' ? null : Number(v) }))}
-          />
-          <Choice
-            label="Tier"
-            options={TIERS}
-            value={form.tier ?? ''}
-            onChange={(v) => setForm((c) => ({ ...c, tier: v === '' ? null : (v as (typeof TIERS)[number]) }))}
-          />
-          {/* No "Not set" option: the server coerces a missing availability to AVAILABLE, so
-              offering the blank would be the screen and the server disagreeing about what
-              happens next. Tier keeps its blank — nothing defaults that. */}
-          <Choice
-            label="Availability"
-            options={AVAILABILITIES}
-            required
-            value={form.availability ?? 'AVAILABLE'}
-            onChange={(v) =>
-              setForm((c) => ({ ...c, availability: v === '' ? null : (v as Availability) }))
-            }
-          />
+            </form>
+          )}
         </div>
-
-        <Tags
-          label="Primary field tags"
-          options={FIELD_TAGS}
-          value={form.primaryFields}
-          onChange={(v) => setForm((c) => ({ ...c, primaryFields: v as FieldTag[] }))}
-        />
-        <Tags
-          label="Secondary field tags"
-          options={FIELD_TAGS}
-          value={form.secondaryFields}
-          onChange={(v) => setForm((c) => ({ ...c, secondaryFields: v as FieldTag[] }))}
-        />
-        <Tags
-          label="Letter types"
-          options={LETTER_TYPES}
-          value={form.letterTypes}
-          onChange={(v) => setForm((c) => ({ ...c, letterTypes: v as LetterType[] }))}
-        />
-
-        <div>
-          <label className="block text-xs font-medium" htmlFor="expert-notes">
-            Notes
-          </label>
-          <textarea
-            id="expert-notes"
-            rows={3}
-            value={form.notes ?? ''}
-            onChange={(event) => set(setForm, 'notes', event.target.value)}
-            className="mt-1 w-full rounded-md border px-2.5 py-1.5 text-sm"
-            style={INPUT_STYLE}
-          />
-        </div>
-
-        {failure && (
-          <p className="text-sm font-medium" style={{ color: 'var(--status-red)' }}>
-            {failure}
-          </p>
-        )}
-
-        <div>
-          <button
-            type="submit"
-            disabled={state === 'saving' || brandMissing}
-            className="rounded-md px-3 py-1.5 text-sm font-medium text-white disabled:opacity-60"
-            style={{ background: 'var(--accent-primary)' }}
-          >
-            {state === 'saving' ? 'Saving…' : creating ? 'Add the expert' : 'Save changes'}
-          </button>
-        </div>
-      </form>
-      )}
-
-      {/* A read failure still has to be visible to a reader, who has no form to show it in. */}
-      {!mayWrite && failure && (
-        <p className="mt-2 text-sm font-medium" style={{ color: 'var(--status-red)' }}>
-          {failure}
-        </p>
-      )}
-    </aside>
+      </SheetContent>
+    </SheetRoot>
   )
 }
 
-const PANEL = { background: 'var(--bg-surface)', borderColor: 'var(--border-default)' }
+/**
+ * The form lives in the sheet's body and its Save button in the sheet's footer, which are
+ * siblings rather than nested — so the button reaches the form by `form=` rather than by being
+ * inside it. Native HTML, and it keeps the primary action in one place in both modes without
+ * touching `components/ui/dialog.tsx`, which is a protected path.
+ */
+const FORM_ID = 'expert-profile-form'
+
 const INPUT_STYLE = { background: 'var(--bg-base)', borderColor: 'var(--border-default)' }
 
 const EMPTY_FORM: ExpertForm = {
@@ -494,15 +608,104 @@ function money(value: number | null): string {
   return value == null ? '—' : formatMoney(value)
 }
 
-function Fact({ term, value }: { term: string; value: string }) {
+/**
+ * The initials that stand where a photo would. The roster stores no image and is not getting
+ * one, so this is the mark — exported because the roster row shows the same one, and two
+ * derivations of a person's two letters can disagree.
+ *
+ * `aria-hidden`: the name it abbreviates is always beside it, and a screen reader announcing
+ * "J S, Dr. John Smith" reads the same person twice.
+ */
+export function Avatar({ name, size = 'sm' }: { name: string | null; size?: 'sm' | 'lg' }) {
+  const large = size === 'lg'
   return (
-    <div>
-      <dt className="text-[10px] font-medium tracking-[0.06em] uppercase" style={{ color: 'var(--text-muted)' }}>
-        {term}
-      </dt>
-      <dd className="truncate text-sm" title={value}>
+    <span
+      aria-hidden
+      className={`inline-flex shrink-0 items-center justify-center rounded-full bg-(--accent-soft) font-semibold text-(--accent-primary) ${
+        large ? 'h-11 w-11 text-sm' : 'h-7 w-7 text-[11px]'
+      }`}
+    >
+      {initials(name)}
+    </span>
+  )
+}
+
+/**
+ * Availability as a capacity badge. Exported for the roster row, which drew the same fact from
+ * its own copy of the token lookup and its own wording for the empty case.
+ *
+ * The dot takes the badge's own foreground, so it cannot drift from the label beside it.
+ */
+export function AvailabilityBadge({ availability }: { availability: Availability | null }) {
+  const token = availability ? AVAILABILITY_TOKEN[availability] : null
+  return (
+    <span
+      className="inline-flex items-center gap-1.5 rounded-md px-1.5 py-0.5 text-[11px] font-semibold"
+      style={
+        token
+          ? { color: token.fg, background: token.bg }
+          : { color: 'var(--text-muted)', background: 'var(--bg-raised)' }
+      }
+    >
+      <span className="h-1.5 w-1.5 rounded-full" style={{ background: 'currentColor' }} aria-hidden />
+      {availability ? label(availability) : 'Not set'}
+    </span>
+  )
+}
+
+/**
+ * One group of facts in the profile.
+ *
+ * Grouped rather than the flat `<dl>` of nine terms this was: somebody after a phone number
+ * should not have to read past a quality score to find it. The heading is the small uppercase
+ * eyebrow the shell already uses for a section label.
+ */
+function Section({ title, note, children }: { title: string; note?: string; children: React.ReactNode }) {
+  return (
+    <section className="rounded-lg border border-(--border-default) bg-(--bg-base) p-3.5">
+      <h3 className="text-[11px] font-semibold tracking-[0.08em] text-(--text-muted) uppercase">{title}</h3>
+      <div className="mt-2.5">{children}</div>
+      {note && <p className="mt-2.5 text-xs text-(--text-muted)">{note}</p>}
+    </section>
+  )
+}
+
+function Facts({ children }: { children: React.ReactNode }) {
+  return <dl className="grid grid-cols-2 gap-x-4 gap-y-3">{children}</dl>
+}
+
+function Fact({ term, value, numeric }: { term: string; value: string; numeric?: boolean }) {
+  return (
+    <div className="min-w-0">
+      <dt className="text-[10px] font-medium tracking-[0.06em] text-(--text-muted) uppercase">{term}</dt>
+      <dd className={`truncate text-sm ${numeric ? 'font-num tabular-nums' : ''}`} title={value}>
         {value}
       </dd>
+    </div>
+  )
+}
+
+/** A closed vocabulary read back: the tags themselves, not a count of them. */
+function TagRow({ term, values, muted }: { term: string; values: readonly string[]; muted?: boolean }) {
+  return (
+    <div>
+      <p className="text-[10px] font-medium tracking-[0.06em] text-(--text-muted) uppercase">{term}</p>
+      {values.length === 0 ? (
+        <p className="text-sm text-(--text-muted)">None</p>
+      ) : (
+        <p className="mt-1 flex flex-wrap gap-1">
+          {values.map((value) => (
+            <span
+              key={value}
+              className={`rounded-md px-1.5 py-0.5 text-[11px] ${
+                muted ? 'bg-(--bg-surface) text-(--text-muted)' : 'bg-(--bg-raised) font-medium'
+              }`}
+            >
+              {label(value)}
+            </span>
+          ))}
+        </p>
+      )}
     </div>
   )
 }
@@ -606,7 +809,7 @@ function Tags({
     <div>
       <label className="block text-xs font-medium" htmlFor={id}>
         {text}
-        <span className="ml-1 font-normal" style={{ color: 'var(--text-muted)' }}>
+        <span className="ml-1 font-normal text-(--text-muted)">
           (pick from the list — hold ctrl or cmd for several)
         </span>
       </label>

@@ -191,7 +191,7 @@ public class ExpertService {
 						|| expert.getPrimaryFields().contains(fieldTag)
 						|| expert.getSecondaryFields().contains(fieldTag))
 				.filter(expert -> letterType == null || expert.getLetterTypes().contains(letterType))
-				.filter(expert -> availability == null || expert.getAvailability() == availability)
+				.filter(expert -> availability == null || expert.availabilityOrInactive() == availability)
 				.filter(expert -> tier == null || expert.getTier() == tier)
 				.sorted(BY_NAME)
 				.toList();
@@ -218,16 +218,11 @@ public class ExpertService {
 		List<Expert> all = readable(brandId);
 		Map<Availability, List<Expert>> byAvailability = new EnumMap<>(Availability.class);
 		for (Expert expert : all) {
-			// An expert whose availability was never set is grouped as INACTIVE rather than
-			// dropped: a roster row missing from every column of this board is a row nobody
-			// will ever think to fix.
-			byAvailability.computeIfAbsent(
-					expert.getAvailability() == null ? Availability.INACTIVE : expert.getAvailability(),
-					key -> new ArrayList<>()).add(expert);
+			byAvailability.computeIfAbsent(expert.availabilityOrInactive(), key -> new ArrayList<>()).add(expert);
 		}
 
 		// Fetched once for the whole board, not once per column: pendingTotals runs the
-		// brand-wide GROUP BY, and Availability has six values — six identical queries for
+		// brand-wide GROUP BY, and Availability has four values — four identical queries for
 		// one board otherwise.
 		Map<UUID, BigDecimal> pending = pendingTotals(all);
 		return Arrays.stream(Availability.values())

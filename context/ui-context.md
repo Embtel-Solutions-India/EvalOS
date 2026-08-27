@@ -320,12 +320,49 @@ written triggers in `context/specs/22-role-operations-ui.md`.
   types and the size cap are stated on the control, not discovered by a rejection,
   and a rejection says which rule it broke.
 - **Data tables**: dense rows, sortable, a dedicated RAG status column, row click
-  opens the case. Overdue rows tinted with the `*-bg` status token. No screen uses
-  this pattern yet — Unit 10 deleted the `/cases` list as a duplicate of the
-  production board, and the dashboards below the RAG tiles are where it lands
-  first. The checklist board is deliberately a list of rows rather than a table:
+  opens the record. Overdue rows tinted with the `*-bg` status token. **The expert
+  roster is the first screen to actually do the row click** (2026-08-28) — see
+  *Expert database* below for what row-click-opens costs in markup. Unit 10 deleted
+  the `/cases` list as a duplicate of the production board, and the dashboards below
+  the RAG tiles are the other landing place.
+  The checklist board is deliberately a list of rows rather than a table:
   one stage, so there is nothing to sort by that the server's longest-wait-first
   order does not already answer.
+- **Expert database** (`/experts`, redesigned 2026-08-28): the roster table,
+  and clicking **anywhere on a row** opens that expert in a right-side **sheet**. It
+  was a text link on the name opening an `<aside>` appended below the table — a
+  few-characters-wide target for "look at this expert", and a panel that pushed the
+  list around under the reader.
+
+  Three rules this establishes for any record opened from a table:
+
+  - **The row is the click target; a real control inside it keeps the semantics.**
+    `<tr onClick>` plus `cursor-pointer` and `hover:bg-(--bg-raised)` is the pointer
+    affordance; the name stays a `<button>` so it holds the accessible name and the
+    focus, and `focus-within:bg-(--bg-raised)` gives the keyboard the same highlight
+    the mouse gets. **Do not** put `role="button"` and a `tabIndex` on the `<tr>` —
+    that stops it being a row to the table semantics and is not where a keyboard user
+    looks for it.
+  - **A record opens in a sheet, not in a panel under the list.** The list component
+    is never unmounted, so search, filters, page and scroll position survive the trip
+    with no state saved for them, and the way back is Escape, the overlay, the sheet's
+    X, or a labelled `← Back to experts` at the top of the body.
+  - **Read first, edit on request.** The profile opens in a `view` mode of grouped
+    fact cards — Contact · Professional · Assignment and workload · Availability ·
+    Payment detail · Notes — with an *Edit profile* button in the sheet footer. Saving
+    returns to `view` with a confirmation instead of closing: the answer to "did that
+    take?" should be the screen already in front of you. Availability and the payment
+    detail stay live in `view`, because each is a single-field call of its own rather
+    than part of the form.
+
+  The identity block is **initials, never a photo** — `initials()` in `expertRules.ts`,
+  honorifics dropped, one quiet `--accent-soft` treatment for everybody. There is no
+  image column on the roster and there is not going to be one, and a per-expert avatar
+  colour would have to draw from the RAG palette, which means capacity here.
+
+  Because `components/ui/dialog.tsx` is a protected path, the footer's Save reaches the
+  body's form through a plain HTML `form="expert-profile-form"` rather than a new prop
+  on `SheetContent`.
 - **Case detail**: two-column — left is documents (Drive link) + draft + expert,
   right is **Notes & timeline**. Stage actions sit in a sticky header.
   - **Notes and history are one panel, not two tabs** (Unit 23). A note is almost always

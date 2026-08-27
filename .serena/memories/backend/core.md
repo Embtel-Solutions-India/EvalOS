@@ -385,7 +385,7 @@ frontend's typed mirror lives in `frontend/src/lib/api.ts`.
   ones.
 - The `local` profile additionally lists `classpath:db/seed-local` (`V900` seed: 2 brands, 5
   logins, password `DevPassw0rd!`; `V901` per-brand webhook secrets; `V902` the remaining roles;
-  `V903` seed experts; `V904` brand currency) and sets
+  `V903` seed experts; `V904` brand currency; **`V905` the demo dataset — 13 experts, 29 cases across every stage, nine months of closed history, and a full clear of every transactional table first, which makes it idempotent**) and sets
   `flyway.out-of-order: true` — the seed deliberately outranks every real migration, so without that
   flag the next unit's `V-N` is refused on an already-seeded dev database. `prod` keeps the strict
   default and never sees the seed.

@@ -139,6 +139,23 @@ class ExpertServiceTest {
 	}
 
 	@Test
+	void theRostersAvailabilityFilterAgreesWithTheBoardAboutAnUnsetExpert() {
+		given(experts.findScoped(any(TenantContext.class))).willReturn(List.of(
+				expert("Free Person", FieldTag.LAW, ExpertTier.TIER_1, Availability.AVAILABLE),
+				expert("No Availability", FieldTag.LAW, ExpertTier.TIER_1, null)));
+
+		// The board files an unset expert under INACTIVE, so filtering the list by INACTIVE has to
+		// return the same row. Comparing the raw column instead returned nothing, and an ENM saw
+		// the row in one tab and not the other.
+		assertThat(service.roster(null, null, null, null, Availability.INACTIVE, null, 0, 50).entries())
+				.extracting(entry -> entry.expert().getFullName())
+				.containsExactly("No Availability");
+		assertThat(service.roster(null, null, null, null, Availability.AVAILABLE, null, 0, 50).entries())
+				.extracting(entry -> entry.expert().getFullName())
+				.containsExactly("Free Person");
+	}
+
+	@Test
 	void theAvailabilityBoardKeepsEveryColumnAndFilesAnUnsetExpertAsInactive() {
 		Expert unset = expert("No Availability", FieldTag.LAW, ExpertTier.TIER_1, null);
 		given(experts.findScoped(any(TenantContext.class))).willReturn(List.of(

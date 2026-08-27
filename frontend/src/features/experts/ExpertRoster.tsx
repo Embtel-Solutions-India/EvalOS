@@ -2,12 +2,11 @@ import { useCallback, useEffect, useState } from 'react'
 import { useMe } from '../../lib/authContext'
 import { useFilters } from '../shell/filtersContext'
 import AvailabilityBoard from './AvailabilityBoard'
-import ExpertProfile from './ExpertProfile'
+import ExpertProfile, { Avatar, AvailabilityBadge } from './ExpertProfile'
 import SheetUpload from './SheetUpload'
 import { fetchRoster } from './expertApi'
 import {
   AVAILABILITIES,
-  AVAILABILITY_TOKEN,
   FIELD_TAGS,
   LETTER_TYPES,
   NO_FILTERS,
@@ -328,19 +327,37 @@ function Filter({
   )
 }
 
+/**
+ * One expert, and the whole row opens them.
+ *
+ * It used to be the name alone — a text link inside the first cell, which meant the target for
+ * "look at this expert" was a few characters wide while the row it belonged to was the width of
+ * the screen. `ui-context.md` already says a data table's row click opens the record; this is
+ * the first screen to actually do it.
+ *
+ * **The name stays a real `<button>`, and that is deliberate.** A `<tr>` with `role="button"`
+ * and a tabindex is not a row any more as far as the table semantics go, and it is not reachable
+ * in a way a keyboard user would expect either. So the button keeps the accessible name and the
+ * focus, the `<tr>` click is the mouse convenience on top of it, and `focus-within` gives the
+ * keyboard the same highlight the pointer gets. Nothing else in the row is interactive, so there
+ * is no click to swallow.
+ */
 function Row({ expert, onOpen }: { expert: RosterRow; onOpen: () => void }) {
-  const availability = expert.availability
   return (
-    <tr className="border-t" style={{ borderColor: 'var(--border-default)' }}>
+    <tr
+      onClick={onOpen}
+      className="cursor-pointer border-t border-(--border-default) transition-colors hover:bg-(--bg-raised) focus-within:bg-(--bg-raised)"
+    >
       <td className="px-3 py-2">
-        <button type="button" onClick={onOpen} className="text-left">
-          <span className="block font-semibold underline-offset-2 hover:underline">
-            {expert.fullName ?? 'Unnamed expert'}
-          </span>
-          <span className="block text-xs" style={{ color: 'var(--text-muted)' }}>
-            {[expert.title, expert.institution].filter(Boolean).join(' · ') || 'No institution on file'}
-          </span>
-        </button>
+        <span className="flex items-center gap-2.5">
+          <Avatar name={expert.fullName} />
+          <button type="button" onClick={onOpen} className="min-w-0 text-left">
+            <span className="block truncate font-semibold">{expert.fullName ?? 'Unnamed expert'}</span>
+            <span className="block truncate text-xs text-(--text-muted)">
+              {[expert.title, expert.institution].filter(Boolean).join(' · ') || 'No institution on file'}
+            </span>
+          </button>
+        </span>
       </td>
       <td className="px-3 py-2">
         <Tags values={expert.primaryFields} muted={expert.secondaryFields} />
@@ -350,21 +367,7 @@ function Row({ expert, onOpen }: { expert: RosterRow; onOpen: () => void }) {
       </td>
       <td className="px-3 py-2 text-xs">{label(expert.tier)}</td>
       <td className="px-3 py-2">
-        {availability ? (
-          <span
-            className="rounded-md px-1.5 py-0.5 text-[11px] font-semibold"
-            style={{
-              color: AVAILABILITY_TOKEN[availability].fg,
-              background: AVAILABILITY_TOKEN[availability].bg,
-            }}
-          >
-            {label(availability)}
-          </span>
-        ) : (
-          <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
-            Not set
-          </span>
-        )}
+        <AvailabilityBadge availability={expert.availability} />
       </td>
       <td className="font-num px-3 py-2 text-right tabular-nums">{expert.qualityScore ?? '—'}</td>
       {/* The derived count. `expert.current_active_count` is always 0 and is never read. */}

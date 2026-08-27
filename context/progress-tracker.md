@@ -4,6 +4,48 @@ Update this file after every meaningful implementation change.
 
 ## Current Phase
 
+- **2026-08-28 — Expert profile redesigned: row click, sheet, view/edit split.** A visual and
+  interaction pass over `features/experts`, inside the UI scope rule — no API, route, rules
+  module or role gate changed, and `ExpertController` is untouched.
+  - **The whole row opens the expert.** It was a text link on the name inside the first cell:
+    the target for the roster's primary action was a few characters wide in a row the width of
+    the screen. `ui-context.md` has said "row click opens the record" for data tables since
+    Unit 10 and no screen had done it; this is the first.
+  - **`<tr onClick>` with the name left as a real `<button>`, deliberately.** The row carries
+    `cursor-pointer` + `hover:bg-(--bg-raised)` for the mouse and `focus-within:` the same
+    highlight for the keyboard; the button keeps the accessible name and the focus. `role`
+    plus `tabIndex` on the `<tr>` would have been fewer lines and would have stopped it being
+    a row to the table semantics. Nothing else in a roster row is interactive, so there is no
+    click to swallow — the name button's own click bubbling to the row is one idempotent
+    `setOpen(id)` twice.
+  - **The profile is a `Sheet` now, not an `<aside>` under the table.** The existing
+    `components/ui/dialog.tsx` sheet, which brings the focus trap, Escape, the overlay and the
+    entry animation. The list is never unmounted, so **search, filters, page and scroll
+    position survive open-and-back with no state added for them** — the requirement was free
+    once the panel stopped being part of the list's own layout.
+  - **View mode first, form behind *Edit profile*.** The nine facts and the fifteen-field form
+    used to be stacked on one screen, so every reader scrolled past the form. `view` renders
+    grouped fact cards (Contact · Professional · Assignment and workload · Availability ·
+    Payment detail · Notes); a save returns to `view` with a green confirmation rather than
+    closing. **Adding an expert no longer closes the sheet either** — it lands on the new
+    expert's profile, which needs the created id kept in state so the next Save updates rather
+    than POSTing a second copy.
+  - **Two marks extracted rather than copied**: `Avatar` (initials, honorifics dropped, one
+    `--accent-soft` treatment — the roster stores no photo and is not getting one) and
+    `AvailabilityBadge`, both exported from `ExpertProfile` and used by the roster row, which
+    had its own token lookup and its own wording for the empty case. `initials()` is pure, in
+    `expertRules.ts`, with tests.
+  - **`components/ui/dialog.tsx` was not touched** — protected path. The footer's Save reaches
+    the body's form through a native `form="expert-profile-form"` attribute, which is also
+    what keeps the primary action in one place in both modes.
+  - Known ceiling: the sheet has no exit animation, because the component only mounts while an
+    expert is open. Radix `forceMount` plus retaining the last id would fix it — state carried
+    for an animation, worth it only if the missing slide-out is noticed.
+  - Verified: `npm run build` (`tsc -b` + vite) clean, `npx vitest run` 150 tests green
+    including 4 new for `initials`. **Not rendered in a browser** — no backend up on this
+    machine (no Docker daemon, no Postgres credentials in the repo), so the sheet, the hover
+    state and the save flow are unexercised against a live roster.
+
 - **2026-08-27 — Test-production seed added (`db/seed-testprod/V950`, `application-testprod.yml`).**
   Deployment plumbing, not a unit. There is no user-creation API (`TeamMemberController` is
   read-only) and no `team` table, so a real environment has to be seeded or nobody can log in.
@@ -4176,6 +4218,40 @@ whenever a third brand is seeded. Staff SSO stays deferred.
   - Decision: **accept and revisit when a v8 bump is scheduled.** Re-assess immediately if
     EvalOS ever adopts data mode, framework mode, or RSC — at that point the finding
     becomes live rather than theoretical.
+
+- **Local database reset and reseeded for demo (`V905__seed_local_demo_data.sql`).**
+  The dev database held 69 experts, 165 cases and 33 contacts written into `public` by
+  `LocalPostgresIntegrationTest` before it was moved to the `evalos_test` schema, plus a handful
+  of hand-made probe rows. That residue is what produced the NULL availability above: those rows
+  go through `ExpertRepository.save` directly and so never reach the null-to-AVAILABLE coercion in
+  `ExpertService.apply`. **No production write path can create one** — which is also why the
+  backfill migration is now worth doing rather than deferring.
+  `V905` clears every transactional table (keeping `brand` and `team_member`) and seeds a coherent
+  world: 13 experts covering all four availability states with two onboarded in the current month
+  and one deliberately unscored, 29 cases with every stage occupied and a mix of on-track /
+  at-risk / overdue, nine months of closed work with revenue, an offer ledger giving a 73%
+  acceptance rate, and a payout ledger with both settled and outstanding money. Dates are relative
+  to `now()` so it does not age. Verified by applying it twice: still 29 cases, so Flyway
+  re-applying it on boot is safe.
+  A full `pg_dump` was taken first. `evalos_test` was left alone — it is where test writes are
+  supposed to land and the app never reads it.
+
+- **Expert-network metrics 500 on an unset availability, fixed — and the convention behind it
+  made one method.**
+  The endpoint threw `NullPointerException` from `ExpertNetworkMetricsService.health` for any brand
+  whose roster held an expert with `availability` NULL — legal, since V7 declares the column plain
+  `text` with no default and the sheet import need not set it. `EnumMap.merge` rejects a null key,
+  and `coverage`'s arrow `switch` on the same field was the identical bug one reader over.
+  Code review then found the rule was only half applied: `ExpertService.availabilityBoard` filed an
+  unset expert under INACTIVE while the roster list's availability filter compared the raw column
+  and returned nothing, so an ENM saw the row in one tab and not the other. The coalesce now lives
+  once, on `Expert.availabilityOrInactive()`, with the boundary stated on it: aggregations,
+  groupings and filters normalise; a single expert's own record, the `AVAILABLE`-only guards and
+  the audit's before-value read the raw getter and are right to. Guarded by
+  `ExpertNetworkMetricsServiceTest` and `ExpertServiceTest`, both verified to fail without the fix.
+  Left alone deliberately: no migration to backfill and `SET NOT NULL`. That is the stronger fix
+  and worth doing when a schema change is already in flight, but it is a data change to a live
+  column and the app-side convention now has one home.
 
 - **Unit 02 latent test bug, surfaced and fixed.**
   `SecurityFlowTest.tamperedTokenIsUnauthenticated` flipped the **last** character

@@ -9,6 +9,7 @@ import {
   csvHeaders,
   guessMapping,
   hasFilters,
+  initials,
   label,
 } from './expertRules'
 
@@ -129,5 +130,30 @@ describe('csvHeaders', () => {
 
   it('returns nothing for an empty line, so the mapper asks for the columns by hand', () => {
     expect(csvHeaders('')).toEqual([])
+  })
+})
+
+describe('initials', () => {
+  it('drops the honorific, which most of this roster carries', () => {
+    // Initialling the title is what makes every academic on the roster a D.
+    expect(initials('Dr. John Smith')).toBe('JS')
+    expect(initials('Prof Sarah Wilson')).toBe('SW')
+    expect(initials('professor amara okafor')).toBe('AO')
+  })
+
+  it('takes the first and last word, so a middle name does not become the second letter', () => {
+    expect(initials('John Ronald Reuel Tolkien')).toBe('JT')
+    expect(initials('  spaced   out  ')).toBe('SO')
+  })
+
+  it('uses two letters of a single name rather than one lonely letter', () => {
+    expect(initials('Cher')).toBe('CH')
+  })
+
+  it('has something to render for an expert with no name on file', () => {
+    // fullName is nullable on the roster row, and a blank circle reads as a broken image.
+    expect(initials(null)).toBe('—')
+    expect(initials('')).toBe('—')
+    expect(initials('Dr.')).toBe('—')
   })
 })

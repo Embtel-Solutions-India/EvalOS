@@ -240,6 +240,25 @@ public class Expert extends ScopedEntity {
 		return availability;
 	}
 
+	/**
+	 * Availability for anything that has to bucket <em>every</em> row: unset reads as INACTIVE.
+	 *
+	 * <p>The column is nullable (V7) with no default and the sheet import need not set it, so an
+	 * expert nobody has assessed is a real row. Null is not a fifth state — for staffing the next
+	 * case "nobody has said" and INACTIVE are the same answer — but it is a value that throws
+	 * rather than counts as zero when used as an {@link java.util.EnumMap} key or a {@code switch}
+	 * subject, which is how one unset row 500'd the expert-network metrics endpoint.
+	 *
+	 * <p><strong>Aggregations, groupings and filters call this; a single expert's own record does
+	 * not.</strong> A count or a filter that drops the row is wrong — a roster row missing from
+	 * every column is a row nobody will think to fix. But the profile and the roster row show
+	 * {@code getAvailability()} raw, so the UI can say "not set" rather than assert INACTIVE about
+	 * someone nobody has asked.
+	 */
+	public Availability availabilityOrInactive() {
+		return availability == null ? Availability.INACTIVE : availability;
+	}
+
 	public BigDecimal getQualityScore() {
 		return qualityScore;
 	}

@@ -339,6 +339,39 @@ from the won GHL opportunity, and the endpoint behind that button is deleted. Do
 payment" quick action — GHL is the only source of that fact, so a screen offering to set it would be
 offering to disagree with GHL.
 
+## Opening a record from a table — settled on the expert roster (2026-08-28)
+
+`features/experts` is the pattern for any list whose rows open a record. Three rules, all
+learned by the roster having done each one the other way first:
+
+- **The `<tr>` takes the `onClick`; a real `<button>` inside it keeps the semantics.** The
+  roster's clickable thing used to be a text link on the name — a few characters wide inside a
+  full-width row. Now the row is the target (`cursor-pointer`, `hover:bg-(--bg-raised)`,
+  `focus-within:bg-(--bg-raised)`) and the name stays a `<button>` holding the accessible name
+  and the focus. **Do not** reach for `role="button"` + `tabIndex` on the `<tr>`: shorter, and
+  it stops being a row to the table semantics. Bubbling means one idempotent open call twice,
+  which is fine — check that before adding `stopPropagation` to a row with real controls in it.
+- **The record opens in a `Sheet`, never in a panel appended under the list.** `ExpertProfile`
+  was an `<aside>` below the table. As a sheet the list component is never unmounted, so
+  search, filters, page and scroll position survive open-and-back **with no state saved for
+  them**. This is the concrete case behind `ui-context.md`'s "dialog for a decision, sheet for
+  inspecting without losing your place".
+- **View mode first, the form behind an Edit button.** Facts and a fifteen-field form stacked
+  on one screen made every reader pay for the form. `mode: 'view' | 'edit'`; a save returns to
+  `view` with a confirmation rather than closing, and a *create* lands on the new record's
+  profile — which requires keeping the server's id in state, or the next Save POSTs a
+  duplicate instead of updating what is on screen.
+
+Two consequences worth not re-deriving:
+
+- `Avatar` and `AvailabilityBadge` are exported from `ExpertProfile.tsx` and used by the roster
+  row. Initials, never a photo: no image column exists and a per-expert avatar colour would
+  have to come from the RAG palette, which means capacity on this screen. `initials()` is pure
+  and lives in `expertRules.ts` with tests.
+- **`components/ui/dialog.tsx` stayed untouched** (protected). A footer button reaches a form
+  in the sheet body through the native `form="<id>"` attribute — the answer whenever a shared
+  overlay's slot layout is nearly right, instead of adding a prop to it.
+
 ## Production Process v2.0 — three things about surfaces
 
 - **`/delivery` is coming back**, with a real screen this time: cases in `FINAL_DELIVERY`, oldest
