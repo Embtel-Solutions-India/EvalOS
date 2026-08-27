@@ -8,6 +8,7 @@ import ChecklistBoard from './features/checklist/ChecklistBoard'
 import PortalRoot from './features/client-portal/PortalRoot'
 import ExpertRoster from './features/experts/ExpertRoster'
 import MarketingPipelinePage from './features/marketing/MarketingPipelinePage'
+import PayoutBatch from './features/payouts/PayoutBatch'
 import LoginPage from './features/auth/LoginPage'
 import RoleDashboard from './features/dashboards/RoleDashboard'
 import AppShell from './features/shell/AppShell'
@@ -33,6 +34,7 @@ const SCREENS: Record<string, React.ReactNode> = {
   '/delivery': <DeliveryQueuePage />,
   '/checklists': <ChecklistBoard />,
   '/experts': <ExpertRoster />,
+  '/payouts': <PayoutBatch />,
   // Three funnels, one component: same stage shape, same question, different GHL pipeline. The
   // heading each carries is only a placeholder — GHL's own pipeline name replaces it on load.
   //

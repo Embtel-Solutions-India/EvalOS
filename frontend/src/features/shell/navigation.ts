@@ -222,7 +222,7 @@ export const NAV_ITEMS: readonly NavItem[] = [
     path: '/payouts',
     label: 'Payouts',
     roles: ['GM', 'BRAND_MANAGER', 'EXPERT_NETWORK_MANAGER'],
-    becomes: 'Payout ledger (Unit 16)',
+    becomes: 'Weekly payout batch + payment history',
     group: 'Records',
   },
 
