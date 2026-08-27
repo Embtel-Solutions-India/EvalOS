@@ -400,8 +400,22 @@ frontend's typed mirror lives in `frontend/src/lib/api.ts`.
   one fails the migrate rather than seeding a brand whose token is the literal `${...}`. It inserts
   the 2 brands (ids `3333…`/`4444…`, `currency` inline — no V904-style follow-up needed) and 11
   logins (ids `eeee…`, `@testprod.evalos.local`, one per role on **both** brands plus the single
-  brand-less GM), and **nothing else**: no experts, no cases: those arrive through Handoff A and
-  Unit 11's sheet upload, which is what the environment exists to test.
+  brand-less GM), and **nothing else**.
+  **`V951__seed_testprod_demo_data.sql` (2026-08-28) adds the demo slice** beside it — a separate
+  file because V950 is applied and Flyway checksums it, so editing it (comments included) would
+  fail the next migrate; the profile lists the directory, so no config change was needed. It
+  seeds 5 experts, 7 contacts and 8 cases — one per lifecycle position, pool through closed,
+  across both brands — plus 6 expert offers (one still `OFFERED`, one `DECLINED` and rematched),
+  2 payouts (one `PENDING`, one `PAID` by a single `payout_payment` left unconfirmed), 6
+  notifications, and a generated checklist and audit timeline per case (`INSERT … SELECT` over
+  `evalos_case`, scoped `WHERE id::text LIKE '66666666-%'` so it cannot touch a real case). Ids
+  are range-partitioned (`ffffffff…` experts, `55555555…` contacts, `66666666…` cases,
+  `77777777…` payouts, `88888888…` payments, `99999999…` offers) and times are relative
+  `now() - INTERVAL …`. It carries no credential: no `portal_access` row (a usable token would
+  have to be committed), `payment_detail` NULL (only PaymentDetailConverter writes that
+  ciphertext), `ghl_funnel_cache` empty (seeding a cache of a live API is fiction). It does not
+  replace the real paths — Handoff A still creates cases, and Unit 11's upload still upserts the
+  roster over these experts on `lower(email)`.
   It deliberately reuses **none** of `seed-local`'s ids, logins or hash — those are committed to
   this repository. `brand.ghl_webhook_secret` is left NULL: no Java reads it, and NULL fails closed.
   Rotate a webhook token with an `UPDATE`, never by editing `V950` (invariant 9).

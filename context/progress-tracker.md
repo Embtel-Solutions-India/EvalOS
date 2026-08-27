@@ -4,6 +4,41 @@ Update this file after every meaningful implementation change.
 
 ## Current Phase
 
+- **2026-08-28 — Demo data for test-production (`db/seed-testprod/V951__seed_testprod_demo_data.sql`).**
+  V950 gets you a login and an empty product: an empty board, an empty roster and an empty
+  payouts week cannot be told apart from a broken query. V951 adds a small, internally
+  consistent slice so the portal can be walked end to end.
+  - **A new file, not an edit to V950.** V950 has been applied, and Flyway checksums an applied
+    migration (invariant 9), so editing it — even its comments — would fail the next migrate
+    everywhere it has already run. `application-testprod.yml` lists the *directory*, so V951 is
+    picked up with no config change. On a fresh database the two run back to back.
+  - **What it seeds.** 5 experts (3 IE / 2 XP), 7 contacts, 8 cases — one per interesting
+    position in the lifecycle: in the pool, on hold awaiting the client, draft v2 pending PM
+    approval, delivered, closed-and-settled, awaiting an expert signature (XP), freshly assigned
+    (XP), and one at EXPERT_ASSIGNMENT with an offer still unanswered. Plus 6 expert offers (one
+    OFFERED, one DECLINED-then-rematched, so acceptance rate is not uniformly 100%), 2 payouts
+    (one PENDING, one PAID by a single `payout_payment` with `confirmed_at` left NULL so the
+    confirm step is still clickable), 6 notifications, and a checklist and audit timeline on
+    every case.
+  - **The derived rows are generated, not typed.** Checklists come from an `INSERT … SELECT`
+    over a VALUES table of `ChecklistTemplates` labels joined on `service_type`, with status
+    driven by the case's own stage; the timeline is four `INSERT … SELECT`s over `evalos_case`.
+    Both are scoped `WHERE id::text LIKE '66666666-%'` so they cannot reach a real case that
+    arrived through Handoff A.
+  - **Still no credential, and still not a substitute for the real paths.** No `portal_access`
+    row is minted (the token behind the hash would have to be committed to be useful, which is a
+    live bearer credential); `expert.payment_detail` stays NULL because only
+    PaymentDetailConverter can write that ciphertext; `ghl_funnel_cache` is left empty because
+    seeding a cache of an API we can call is fiction. Handoff A still creates real cases and
+    Unit 11's upload still upserts the roster over these experts on `lower(email)`.
+  - Ids are range-partitioned (`ffffffff…` experts, `55555555…` contacts, `66666666…` cases,
+    `77777777…` payouts, `88888888…` payments, `99999999…` offers) so the demo can be deleted
+    without touching real data. Times are `now() - INTERVAL …`, so the slice reads as current
+    whenever the environment is built.
+  - Verified structurally (statement arity, every referenced id declared, array values inside
+    V18's CHECK vocabularies, V19's `outcome_at` rule) — **not** yet applied to a Postgres:
+    this machine has a server but no credentials in the repo. Apply it before trusting it.
+
 - **2026-08-27 — Test-production seed added (`db/seed-testprod/V950`, `application-testprod.yml`).**
   Deployment plumbing, not a unit. There is no user-creation API (`TeamMemberController` is
   read-only) and no `team` table, so a real environment has to be seeded or nobody can log in.
@@ -21,10 +56,9 @@ Update this file after every meaningful implementation change.
     one BCrypt hash behind them are in this repository. New brand ids (`3333…`/`4444…`), new member
     ids (`eeee…`), new `@testprod.evalos.local` logins, one per role on **both** brands plus the
     single brand-less GM — 11 rows, so brand scoping has something to be wrong about.
-  - **Nothing else is seeded.** No experts, no cases, no payouts: those arrive through Handoff A
-    and Unit 11's sheet upload, which is what this environment exists to exercise.
-    `currency` is set inline (V904 exists only because the local seed predates the column);
-    `ghl_webhook_secret` is left NULL — no Java reads it, and NULL fails closed.
+  - **V950 seeds nothing else** — brands and logins only. `currency` is set inline (V904 exists
+    only because the local seed predates the column); `ghl_webhook_secret` is left NULL — no Java
+    reads it, and NULL fails closed. Demo rows arrived later, in `V951` (below).
   - `ConfigSecretsTest` now scans `application-testprod.yml` like every other profile, and
     `MigrationTreeTest`'s seed-tree check is parameterized over both seed directories — the
     sibling-not-child layout is the only thing keeping a seed out of production.
