@@ -26,6 +26,27 @@ Today that is `application-local.yml` and `LocalPostgresIntegrationTest` — the
 because its brand and staff constants *are* these rows, a dependency that used to be
 satisfied by the same accident.
 
+## `V905` — the demo dataset, and why it deletes
+
+`V900`–`V904` seed the minimum a developer needs to log in. `V905` seeds what a
+*client demo* needs: 13 experts across all four availability states, 29 cases with
+every stage occupied and a deliberate mix of SLA colours, and nine months of closed
+work behind them so the dashboard's figures have a past to be measured against. Dates
+are relative to `now()`, so it does not age.
+
+**It deletes every transactional row before it inserts**, keeping only `brand` and
+`team_member`. That is not tidiness. Integration tests wrote into `public` until they
+were moved to `evalos_test`, and the residue — 69 experts, 165 cases, 33 contacts —
+was still on screen months later, alongside hand-made probe rows. A seed that only
+inserted would have left the demo showing both. Because it clears first, re-running it
+is idempotent: it is safe for Flyway to apply after the rows are already there.
+
+It also disables `audit_event`'s append-only trigger for exactly one `DELETE` and
+turns it straight back on. That is the only place in the codebase that touches that
+trigger and it is **not** a precedent — application code must never delete an audit
+row. It is here because the audit rows being cleared describe cases that no longer
+exist.
+
 ## Existing databases
 
 A database that applied these under the old layout recorded them as

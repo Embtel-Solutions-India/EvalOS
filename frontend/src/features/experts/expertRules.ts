@@ -180,6 +180,33 @@ export function label(value: string | null): string {
 }
 
 /**
+ * Honorifics, dropped before initials are taken. A roster of academics is mostly
+ * `Dr.` and `Prof.`, and initialling the honorific gives half the network the same
+ * two letters — `DS` for Dr. Smith and `DJ` for Dr. Jones is a column of D's.
+ */
+const HONORIFICS = new Set(['dr', 'prof', 'professor', 'mr', 'mrs', 'ms', 'mx', 'sir'])
+
+/**
+ * Two letters for the avatar placeholder: first and last word of the name, honorifics
+ * dropped. `Dr. John Smith` -> `JS`, `Cher` -> `CH`, nothing on file -> an em dash.
+ *
+ * A placeholder and only ever a placeholder — the roster has no image column and is not
+ * getting one, so this is what stands where a photo would. Deliberately *not* coloured per
+ * expert: a hashed avatar colour is decoration, and the only palette it could draw from is
+ * the RAG one, which means capacity here.
+ */
+export function initials(fullName: string | null): string {
+  const words = (fullName ?? '')
+    .trim()
+    .split(/\s+/)
+    .filter((word) => word && !HONORIFICS.has(word.toLowerCase().replace(/\./g, '')))
+  if (words.length === 0) return '—'
+  const first = words[0]
+  const last = words[words.length - 1]
+  return (words.length === 1 ? first.slice(0, 2) : first[0] + last[0]).toUpperCase()
+}
+
+/**
  * Availability drawn as capacity, which `ui-context.md` lists as a legitimate RAG use —
  * this is not decoration. `ON_LEAVE` and `INACTIVE` are deliberately *not* red: an expert
  * on sabbatical is not a problem, they are simply not available, and spending the red band

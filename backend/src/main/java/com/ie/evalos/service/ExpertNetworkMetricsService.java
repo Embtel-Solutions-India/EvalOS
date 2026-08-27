@@ -143,7 +143,7 @@ public class ExpertNetworkMetricsService {
 	private static RosterHealth health(List<Expert> roster) {
 		Map<Availability, Integer> counts = new EnumMap<>(Availability.class);
 		for (Expert expert : roster) {
-			counts.merge(expert.getAvailability(), 1, Integer::sum);
+			counts.merge(expert.availabilityOrInactive(), 1, Integer::sum);
 		}
 		return new RosterHealth(
 				counts.getOrDefault(Availability.AVAILABLE, 0),
@@ -170,7 +170,7 @@ public class ExpertNetworkMetricsService {
 			for (FieldTag field : expert.getPrimaryFields()) {
 				int[] counts = byField.computeIfAbsent(field, key -> new int[4]);
 				counts[3]++;
-				switch (expert.getAvailability()) {
+				switch (expert.availabilityOrInactive()) {
 					case AVAILABLE -> counts[0]++;
 					case AT_CAPACITY -> counts[1]++;
 					// ON_LEAVE sits with INACTIVE here on purpose: for staffing the next case they

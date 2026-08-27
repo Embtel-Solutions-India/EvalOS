@@ -36,6 +36,19 @@ Full rules live in `context/code-standards.md` — this is the distilled, enforc
   `ExpertService.ExpertForm` is bound with `@Valid` by the controller and validated programmatically
   through a `Validator` by the sheet import, so "a quality score is 1–10" cannot come to mean two
   things.
+- **A nullable enum column needs one normalising reader, not a coalesce per caller.**
+  `expert.availability` is plain `text` with no default (V7) and the sheet import need not set it,
+  so unset rows are real. `Expert.availabilityOrInactive()` is the single authority: unset reads as
+  `INACTIVE`. **Anything that buckets every row calls it** — `ExpertService.availabilityBoard`, its
+  roster availability filter, `ExpertNetworkMetricsService`'s health and coverage counts. **A single
+  expert's own record does not** — `ExpertSnapshot` and `ExpertController` pass the raw getter
+  through so `ExpertRoster.tsx` can render "not set" rather than assert INACTIVE about someone
+  nobody has assessed; `AVAILABLE`-only guards (`CaseLifecycleService`, `ExpertMatchService`,
+  `ExpertPickerController`) and the audit's before-value stay raw too, and are correct that way.
+  Null is dangerous specifically as an `EnumMap` key or a `switch` subject: both throw rather than
+  counting zero, which is how one unset row 500'd the expert-network metrics endpoint. It also
+  silently drops rows from a filter — the roster list and the availability board disagreed about
+  the same expert until this was made one method.
 - Test classes are package-private (`class HealthControllerTest`), slice-scoped (`@WebMvcTest`) or
   plain unit tests. A test that needs a real database is gated, not silently skipped —
   `mem:suggested_commands`.
