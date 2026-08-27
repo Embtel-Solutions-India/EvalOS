@@ -77,6 +77,13 @@ export type RosterRow = {
   completedCases: number
   /** Whether a payment detail exists. The value itself is never sent to any client. */
   paymentDetailOnFile: boolean
+  /**
+   * What this expert is owed on pending payouts (Unit 16b).
+   *
+   * Derived from the ledger, never read from `expert.total_payments_pending` — that column
+   * is `NOT NULL DEFAULT 0` and nothing has ever written it.
+   */
+  pendingTotal: number | null
 }
 
 export type RosterPage = { rows: RosterRow[]; page: number; size: number; total: number }
@@ -89,7 +96,6 @@ export type ExpertProfile = {
   avgResponseHours: number | null
   agreementStatus: string | null
   paymentStatus: string | null
-  totalPaymentsPending: number | null
   createdAt: string | null
 }
 
