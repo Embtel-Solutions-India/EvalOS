@@ -77,7 +77,11 @@ class ConfigSecretsTest {
 	private static final String LOCAL_PROFILE = "application-local.yml";
 
 	@ParameterizedTest
-	@ValueSource(strings = { "application.yml", LOCAL_PROFILE, "application-prod.yml" })
+	@ValueSource(strings = { "application.yml", LOCAL_PROFILE, "application-prod.yml",
+			// Seeds a real environment from Flyway placeholders, so it names three credentials
+			// and must be scanned like any other profile. Adding a profile without adding it
+			// here is how the second paste this test exists to catch would happen again.
+			"application-testprod.yml" })
 	void noCredentialCarriesADefault(String profile) throws IOException {
 		List<String> offenders = new ArrayList<>();
 

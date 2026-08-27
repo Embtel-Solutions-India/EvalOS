@@ -4,6 +4,34 @@ Update this file after every meaningful implementation change.
 
 ## Current Phase
 
+- **2026-08-27 — Test-production seed added (`db/seed-testprod/V950`, `application-testprod.yml`).**
+  Deployment plumbing, not a unit. There is no user-creation API (`TeamMemberController` is
+  read-only) and no `team` table, so a real environment has to be seeded or nobody can log in.
+  - **Activate as `SPRING_PROFILES_ACTIVE=prod,testprod`, both, never `testprod` alone.** `prod`
+    supplies the whole configuration; `testprod` adds only `classpath:db/seed-testprod`,
+    `out-of-order: true` (V950 outranks every migration, same reason `local` needs it), and three
+    Flyway placeholders. Real production lists neither, so it never sees the seed.
+  - **No credential is committed, because this seeds a real database.** `ie-webhook-token`,
+    `xp-webhook-token` and `seed-password-hash` resolve from `IE_WEBHOOK_TOKEN`,
+    `XP_WEBHOOK_TOKEN`, `SEED_PASSWORD_HASH` — no defaults, so a forgotten one fails the migrate
+    rather than seeding a brand whose token is the literal `${...}`. `brand.webhook_endpoint_token`
+    is the *entire* webhook credential (no signature step — GHL's Custom Webhook cannot compute
+    one), on an unauthenticated public endpoint, so it is treated like the GHL token.
+  - **None of `seed-local`'s rows are reused**, and that is the point: those ids, logins and the
+    one BCrypt hash behind them are in this repository. New brand ids (`3333…`/`4444…`), new member
+    ids (`eeee…`), new `@testprod.evalos.local` logins, one per role on **both** brands plus the
+    single brand-less GM — 11 rows, so brand scoping has something to be wrong about.
+  - **Nothing else is seeded.** No experts, no cases, no payouts: those arrive through Handoff A
+    and Unit 11's sheet upload, which is what this environment exists to exercise.
+    `currency` is set inline (V904 exists only because the local seed predates the column);
+    `ghl_webhook_secret` is left NULL — no Java reads it, and NULL fails closed.
+  - `ConfigSecretsTest` now scans `application-testprod.yml` like every other profile, and
+    `MigrationTreeTest`'s seed-tree check is parameterized over both seed directories — the
+    sibling-not-child layout is the only thing keeping a seed out of production.
+  - Verified: all 28 migrations + V950 applied to a scratch Postgres 18 database (2 brands,
+    11 logins, roles and brand scoping as intended); `ConfigSecretsTest` + `MigrationTreeTest`
+    10 tests green.
+
 - **2026-08-27 — Unit 16b built: the expert charges per draft and is paid weekly.** Units 16 and 16b
   shipped together on `unit-16-payout-ledger`. 551 backend tests, 146 frontend, `npm run build` and
   `npm run lint` green, and the DB-gated suite **ran** rather than skipping.
