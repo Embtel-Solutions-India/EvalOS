@@ -90,6 +90,18 @@ public class RecipientResolver {
 		return single(subject.getAssignedCm());
 	}
 
+	/**
+	 * The case's own PM plus that brand's Brand Managers — for an alert about something
+	 * that should not have been possible, where whoever runs the case and whoever runs
+	 * the brand both need to know. No dedupe, same reasoning as {@link #gmAndBrandManagers}:
+	 * a PM and a Brand Manager are different roles, so the two lookups cannot collide.
+	 */
+	public List<UUID> assignedPmAndBrandManagers(Case subject) {
+		return Stream.concat(assignedPm(subject).stream(),
+				ids(teamMembers.findByActiveTrueAndRoleAndBrandId(Role.BRAND_MANAGER, subject.getBrandId())).stream())
+				.toList();
+	}
+
 	private static List<UUID> single(UUID memberId) {
 		return memberId == null ? List.of() : List.of(memberId);
 	}

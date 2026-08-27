@@ -4,6 +4,155 @@ Update this file after every meaningful implementation change.
 
 ## Current Phase
 
+- **2026-08-27 — Unit 16b built: the expert charges per draft and is paid weekly.** Units 16 and 16b
+  shipped together on `unit-16-payout-ledger`. 551 backend tests, 146 frontend, `npm run build` and
+  `npm run lint` green, and the DB-gated suite **ran** rather than skipping.
+  - **What the requirement actually is.** The expert is owed a fee per delivered draft, but the
+    money leaves once a week: three drafts, one Zelle transfer, **one reference**. Spec 16 assumed
+    the unit of payment is the unit of work and gave each payout row its own
+    `method`/`reference`/`paid_date` and its own `confirm` — which would record one transfer as
+    three rows carrying the same string typed three times, with no object anywhere corresponding
+    to what left the bank.
+  - **The fix is one idea: a payment is its own record.** New `payout_payment` table; `payout_ledger`
+    gains `payment_id` and loses those three columns. `CONFIRMED` moves to the payment and cascades
+    — one transfer, one acknowledgement.
+  - **The rule that keeps it honest: `sum(row amounts) == payment.amount`, exactly.** A payment whose
+    amount is not what it settled disagrees with the bank *silently* — both numbers look reasonable
+    alone — and would make the finance dashboard's money-out figure ambiguous, since the sum of
+    payments and the sum of settled rows would be two different answers to one question. If the
+    number is wrong the row amounts are corrected first; they are editable while `PENDING`.
+  - **Settlement is one conditional `UPDATE ... WHERE status = 'PENDING'` with an affected-count
+    assertion**, not read-then-save. Two ENMs settling overlapping selections is the same
+    check-then-act shape spec 16 wrote its partial unique index for. No `@Version`, no explicit
+    lock — the database decides and cannot decide twice.
+  - **Decision taken: the ENM records payouts**, with the GM and Brand Manager. Spec 16 restricted
+    writes to GM/Brand Manager and said in as many words that this was the business's call, not an
+    assumption to make in a spec. The ENM sends the transfer, so the ENM records it. The guard stays
+    in `PayoutService` *and* `@PreAuthorize`, because it is a money path.
+  - **Retainers were considered and rejected.** An earlier reading had experts on a standing weekly
+    rate per expert-to-client assignment. The business does not pay one — and it would have forced
+    client identity onto ENM screens and required amending the supply-side-axis rule. **The ENM stays
+    client-blind and `project-overview.md`'s *Roles* section needs no amendment**, which is the main
+    thing the corrected reading bought.
+  - **Two holes in spec 16 found by checking it against the schema.** It reads "the brand's configured
+    currency" and "the configured payout term"; `V2__brand.sql` has neither. Both land in 16b's
+    migration — `currency` `NOT NULL` **with no column default** (guessing USD for a GBP agreement is
+    the one guess here that spends real money), `payout_term_days` defaulted to 7 because a wrong due
+    date is a visible annoyance, not a wrong payment.
+  - **`payout_ledger.method`/`reference`/`paid_date` are dropped, departing from the HMAC precedent**
+    that left dead columns in place. That decision turned on not writing a migration at all; here one
+    is written regardless, and these three sit on a *money* table where they read as load-bearing. A
+    convincing trap on the payout path is worse than two inert columns on a webhook archive. Nothing
+    ever wrote them — Unit 16 was never built — so no data is lost, and `V8` is not edited.
+  - **Deliberately not in 16b:** reports and CSV export (real, wanted, in no unit — its own decision,
+    not smuggled in), a `PAY-000124` payment code (the typed reference is already the handle), and the
+    ENM dashboard tiles (Unit 17's, fed by these queries).
+  - Files: `context/specs/16b-weekly-settlement.md` (new), `16-payout-ledger.md` (supersession
+    banner), `00-build-plan.md` (A3), `project-overview.md`, `architecture.md`,
+    `.serena/memories/backend/persistence.md`.
+
+  - **Four things the build changed about the spec, all recorded in it:**
+    1. **`brand.currency` could not be `NOT NULL`.** Flyway orders by version across every
+       configured location, so `V28` runs before `db/seed-local/V900`, which inserts brands with no
+       currency — the constraint fails on any fresh database, which is what CI builds every run.
+       `V900` cannot be edited (invariant 9) and `MigrationTreeTest` forbids a ≥900 script under
+       `db/migration`, so no `SET NOT NULL` can be ordered after it. **`payout_ledger.currency
+       NOT NULL` is what actually keeps a null out of the ledger** — which is what spec 16 asked
+       for — and `openForDelivery` refuses a brand with no currency, rolling the delivery back.
+    2. **A delivery for a currency-less brand rolls back rather than notifying.** Spec 16's wording
+       was ambiguous. A delivered case with no payout row is an expert who never gets paid, and it
+       is silent; a blocked delivery is loud and is fixed by setting one column.
+    3. **`GET /api/payouts` is a real filterable list**, not the batch view. It is what the expert
+       payouts screen reads to answer "this expert's pending drafts" — `batch` is week-scoped and
+       `history` returns payments, so nothing else does.
+    4. **`PayoutService.MAY_RECORD` is public**, so `PayoutControllerTest` can assert by reflection
+       that the controllers' `@PreAuthorize` names exactly those three roles. Spec 16b asked for
+       that test by name; it could not be written across packages otherwise.
+
+  - **What review caught that a green suite did not.** Every defect below passed its own build:
+    a migration that would have failed CI on the first fresh database; a brand-scoping fix whose
+    proof test passed identically against the unfixed code; `weekStart` tested against three
+    deliberately-pinned timezone boundaries while **having no production caller**, the real week
+    logic sitting untested inline; `BatchView.paid` counting `VOIDED` drafts as money sent; a
+    role-agreement test that asserted nothing when a method was un-annotated; and two of four list
+    filters deletable without turning the suite red. The pattern is one thing — the code was
+    usually right and the proof was hollow — and it is why the two concurrency properties are
+    proved against real Postgres with genuinely interleaved transactions rather than asserted.
+
+  - **Deferred, deliberately.** `list`/`batch`/`history` each load a brand's ledger and filter in
+    memory with no pagination — the existing house shape, and the flat list is where growth bites
+    first. The lost-race rollback is proved end-to-end in `LocalPostgresIntegrationTest`, not in the
+    unit suite, where `PayoutService` is built with `new` and `@Transactional` is unproxied. The
+    DB test's SQL is a hand-kept mirror of `attachToPayment`'s JPQL: it pins the semantics
+    production relies on, not that production still writes them, and its javadoc says so.
+
+- **2026-08-27 — `ghl_contact_id` outranks email in contact matching (`V27`).** Confirmed as policy:
+  the GHL contact id is the canonical external client identity everywhere, and the three identifiers
+  stay separate — `ghl_contact_id` = the client, `ghl_opportunity_id` = one purchase,
+  `evalos_case.id`/`case_code` = one internal engagement. Written into **invariant 7**.
+  - **Most of it was already true and is now asserted rather than assumed.** One contact, many cases
+    (`V15` keys on *service*, not client); `linkGhlContact` is write-once so EvalOS never mints or
+    changes an id; the two GHL ids live on different tables and nothing reads one for the other.
+  - **One real defect found and fixed.** `existingContact` fell back to email even when the payload
+    supplied a `ghl_contact_id` that had not matched. If that email hit a row bearing a *different*
+    id — two GHL contacts sharing a firm's office inbox, which `V16`'s own comment flagged as
+    plausible — intake adopted the other client's row, could not backfill its own id over the one
+    already there, and **attached a paid case to the wrong client** while overwriting their name and
+    phone with this client's. A wrong merge is worse than a duplicate: the duplicate is visible and
+    fixable, the merge reads as an ordinary case.
+  - **The fix is two halves and neither works alone.** `CaseIntakeService.contradicts` refuses an
+    email match only on a genuine conflict — both ids present and different — and `V27` narrows
+    `uq_contact_per_brand_email` to `WHERE email IS NOT NULL AND ghl_contact_id IS NULL` so the insert
+    that refusal forces can actually land. **Refusing without the migration would have turned the
+    wrong-client merge into a 5xx retry storm**, which is worse again: a paid case that never opens.
+  - **What deliberately did not change.** The fall-through itself stays: it fixes a real bug (a first
+    delivery with no GHL id leaves an id-less row that a later, id-carrying delivery must find by
+    email and backfill). Only a *conflict* is refused, so both of the cases it exists for still match.
+    The race `V16` closed also survives — two concurrent id-less rows are still both in scope.
+  - `V27` is strictly weaker than the index it replaces, so it cannot fail on existing data. It also
+    cleared a latent 5xx: a contact changing their GHL email to one an id-less row already held used
+    to fail the sync on this constraint.
+  - Four tests added (`anIdlessRowFoundByEmailIsAdoptedAndBackfilled`,
+    `anEmailMatchNamingADifferentGhlContactIsRefused`, `aDeliveryWithNoGhlIdStillMatchesARowThatHasOne`,
+    `emailIsUniqueOnlyAmongContactsWithNoGhlId`); `aContactIsUniquePerBrandByGhlIdAndByEmail` split,
+    since its email half asserted exactly the behaviour that was wrong. 504 backend green, `V27`
+    applied against live Postgres.
+
+- **2026-08-27 — The inbound GHL webhook no longer requires an HMAC signature.** Handoff A is now
+  reachable from GHL's own Custom Webhook action with nothing but a URL and a JSON body.
+  - **Why, and it is not a relaxation of a working control.** GHL's Custom Webhook action cannot
+    compute an HMAC over the body it posts. So the signature step was not a guard that had yet to be
+    confirmed against a real sub-account (that was **G17**) — it was a guard nothing on the far end
+    could ever satisfy, which made Handoff A impossible to wire up from GHL at all. Removing it
+    closes G17 by answering the question rather than by deferring it.
+  - **What authenticates a delivery now:** `brand.webhook_endpoint_token` in the path, resolved by
+    `findByWebhookEndpointTokenAndActiveTrue`. **That token is a credential** — unguessable, never in
+    a DTO, never logged, and rotating it revokes the endpoint. The `AndActiveTrue` is load-bearing:
+    it is what makes deactivating a brand stop its webhook. An unknown token and an inactive brand's
+    real token are the same `404 UNKNOWN_ENDPOINT` with the same message.
+  - **Removed:** `WebhookVerifier` (deleted), the `signature` parameter through
+    `InboundWebhookController` → `WebhookGateway.accept`, `evalos.webhook.signature-header` /
+    `WEBHOOK_SIGNATURE_HEADER` from `application.yml`, `Brand.ghlWebhookSecret` (field and getter),
+    and the now-dead `signatureVerified` constructor argument on `WebhookEvent` — the gateway only
+    ever passed a literal `true`, and after this change no row can honestly claim a signature was
+    checked, so new rows are `false` and the `true` rows are exactly the pre-change ones.
+  - **Deliberately not removed: no migration was written.** `brand.ghl_webhook_secret` (`V11`) and
+    `webhook_event.signature_verified` (`V12`) stay in the schema, unread. An applied migration is
+    never edited (invariant 9), and a new one to drop two columns nothing queries would be schema
+    churn for no behaviour. The local seed `V901` still sets the secret and is likewise harmless.
+  - **Nothing else about Handoff A moved.** The payload contract is unchanged and still required in
+    full (`event_type` = `opportunity.won`, `event_id`/`webhook_id`, `service_type`,
+    `opportunity.ghl_opportunity_id`, `opportunity.amount > 0`, `contact.full_name`); `event_id` is
+    still the brand-scoped idempotency key; case creation, open-case refresh, stage, assignment,
+    paid, checklist, contact matching, audit rows and the response envelope are untouched.
+  - **The body stays `byte[]` to the gateway**, decoded as UTF-8 there. That began as an HMAC
+    requirement and outlives it as the right way to read a JSON body: the archive holds exactly the
+    text that was parsed and routed, whatever charset the sender declared.
+  - `InboundWebhookTest` rewritten around the token: 23 tests, including the inactive-brand `404`,
+    an explicit no-signature-header acceptance, a "a signature header, if sent, is ignored" case, and
+    a parameterized malformed enum/date/UUID → `400 MALFORMED_PAYLOAD`. 500 backend tests green,
+    including the live-Postgres suite, so the migration tree is unchanged and still checksum-clean.
+
 - **2026-08-27 — Review of PR #18, resolved.** Self-review of the three units found four things;
   all four fixed before merge.
   - **The top bar overflowed on the 1366px laptop with a custom range open.** The date inputs were
@@ -972,7 +1121,7 @@ confirmation. What is genuinely outstanding, with its owner:
 | G14 | Antivirus posture for accepted uploads | **decision** | Drive scans on ingest; that is not the same as EvalOS having an AV stance on files from a public link. Flagged in Unit 21, does not block it. **Now covers two surfaces** — client documents and the signed letter |
 | G15 | Getting the expert's portal link to the expert | **decision (T6)** | Dropping the signature provider removed what used to email it. Hand-sent by the CM until the email channel is decided — and unlike the client link, an expert who never gets theirs cannot sign while the 20h/24h clock runs |
 | G16 | **No screen shows which portal links exist, or whether anyone opened them** | **Unit 17** (specced) | The compensating control for G15 and T1/T5/T6: because delivery is a human copy-paste, the *only* evidence a link arrived is `portal_access.last_seen_at`, and nothing reads it in aggregate. So the likeliest way to breach the 24h signing SLA — a link nobody sent — is currently invisible. Specced as metric 5 in `17-dashboards.md`; **needs no migration**, all four facts are already stored |
-| G17 | **The GHL signature scheme is unverified, and only its header name is configurable** | **release blocker** | The header is a knob (`evalos.webhook.signature-header`). The *encoding* is not: `WebhookVerifier` parses hex, and a base64-signing GHL would fail every delivery with a 401 that no config change fixes. Nor is the signed material — the bare body here, where Unit 18 signs `"<timestamp>.<body>"` outbound. Promoted from an Open Question to a tracked gap because it is the only thing standing between Handoff A and a real sub-account, and it needs code, not settings |
+| ~~G17~~ | **CLOSED 2026-08-27 — by removing the inbound signature, not by confirming it.** The answer to "which encoding does GHL sign with" turned out to be *none*: GHL's Custom Webhook action posts a URL, a content type and a JSON body and cannot compute an HMAC at all, so the check was not merely unverified, it was unsatisfiable. `WebhookVerifier`, `X-Evalos-Signature`, `evalos.webhook.signature-header` and `Brand.ghlWebhookSecret` are deleted; the per-brand endpoint token against an **active** brand is the whole credential. Was: The GHL signature scheme is unverified, and only its header name is configurable | ~~release blocker~~ | The outbound half (Unit 18) is untouched and still HMAC-signs — EvalOS *can* sign what it sends |
 
 **Explicitly not gaps — decided out:**
 
@@ -1166,9 +1315,9 @@ names — there is no signature provider.
     resolution runs before verification (the spec lists it second) because the HMAC
     secret belongs to the brand — a lookup is not a side effect, so the rule it
     protects still holds.
-  - `webhook/WebhookVerifier` — HMAC-SHA256 over the exact bytes received, compared
-    with `MessageDigest.isEqual`. No secret, no header, bad hex and a wrong digest
-    all fail identically, so nothing is learnable from the response.
+  - ~~`webhook/WebhookVerifier`~~ — **deleted 2026-08-27 (G17)**; was HMAC-SHA256 over the exact
+    bytes received. GHL's Custom Webhook action cannot sign, so the endpoint token against an
+    active brand is the whole credential now. The gateway line above loses its verify step with it.
   - `webhook/{InboundWebhookController, WebhookRouter, GhlPaymentHandler,
     WebhookRejected}` — one public endpoint per brand, the event-type vocabulary
     (`payment.confirmed` live *as of this unit*; `refund.requested`/`contact.updated`
@@ -3096,9 +3245,10 @@ the campaign runs in GHL. So the tile is labelled **"review requests sent"** and
 captures — a tile naming a metric it cannot compute is the same failure as a header contradicting its
 instrument. Whether GHL should report captures back is now an open question below.
 
-**Cross-cutting, not unit-specific.** The GHL contract (payload shape, signature header, HMAC
-encoding, and which contact event actually fires) is the largest risk to code already shipped
-rather than to Phase 2, since Handoff A runs on assumptions today. The full brand list matters
+**Cross-cutting, not unit-specific.** The GHL contract (payload shape, and which event actually
+fires on Won) is the largest risk to code already shipped rather than to Phase 2, since Handoff A
+runs on assumptions today. *The signature-header and HMAC-encoding half of that risk was removed
+on 2026-08-27 with the inbound signature itself — see G17.* The full brand list matters
 whenever a third brand is seeded. Staff SSO stays deferred.
 
 ## Open Questions
@@ -3162,8 +3312,9 @@ whenever a third brand is seeded. Staff SSO stays deferred.
   - a **field that turns out not to exist** may also touch `CaseIntakeService` where it is
     applied to the entity, and the intake tests.
 
-  The signature header is genuinely one knob (`evalos.webhook.signature-header`, config, no
-  code change). The event **name** is likewise a single constant in `WebhookRouter`
+  ~~The signature header is genuinely one knob (`evalos.webhook.signature-header`, config, no
+  code change).~~ **Overtaken 2026-08-27: there is no inbound signature, so there is no header to
+  re-point and no knob left to be right about.** The event **name** is likewise a single constant in `WebhookRouter`
   (`OPPORTUNITY_WON`), so if GHL calls it `OpportunityStatusUpdate` with a `status` field rather
   than a distinct won event, the routing change is one line plus a status check in the handler.
 
@@ -3533,11 +3684,12 @@ whenever a third brand is seeded. Staff SSO stays deferred.
   checks live in the same `-Devalos.db.test=true` gated class.
 
 - **Unit 05 deviations / decisions to confirm.**
-  (a) **A rejected signature is logged, not archived.** `webhook_event` only ever
-  holds deliveries that verified, so `signature_verified` is always true today. An
-  unverified body is not evidence of anything, and archiving it would let anyone who
-  can reach the URL fill the table — and the unique `(source, external_id)` would
-  collide on the second attempt anyway. The spec's step 1 says "log", which this is.
+  (a) ~~**A rejected signature is logged, not archived.**~~ **Moot since 2026-08-27:
+  there is no signature to reject.** What the rule protected — nothing archived until
+  the caller is established — still holds, one step earlier: a delivery whose endpoint
+  token resolves to no active brand is logged and 404'd, and writes nothing. The
+  `signature_verified` column survives as a `V12` artifact nothing sets; new rows are
+  `false`, and the `true` rows are exactly the pre-change ones.
   (b) **Audit records `CASE` + `AuditAction.CREATED`**, not a literal `CASE_CREATED`
   action, matching Unit 04's object-type + action convention. The pair reads the
   same and needs no new enum value.
@@ -3550,10 +3702,12 @@ whenever a third brand is seeded. Staff SSO stays deferred.
   (d) **`case_code` is `<initials>-<year>-<6 hex>`** (`IE-2026-375863`). Random
   rather than a per-brand sequence, which would need a counter table and a lock; a
   collision hits the unique constraint and returns a retriable 5xx.
-  (e) **The signature header name is configuration**
+  (e) ~~**The signature header name is configuration**
   (`evalos.webhook.signature-header`, default `X-Evalos-Signature`) because GHL's
   real header is unconfirmed. The one knob this unit needs to be re-pointed without
-  a code change — and it is the only claim in this note that survived. The **payload shape is
+  a code change — and it is the only claim in this note that survived.~~ **Now stale too, as of
+  2026-08-27: the property and the whole inbound signature step are deleted (G17). Nothing in
+  this note survives.** The **payload shape is
   also assumed**, and was isolated in `GhlPaymentHandler.PaymentConfirmed`. **Both halves of
   that are now stale**: `GhlPaymentHandler` was deleted in Unit 05a (the shape moved to
   `GhlContactHandler.ContactCreated`), and "a correction is one file" was never true for a

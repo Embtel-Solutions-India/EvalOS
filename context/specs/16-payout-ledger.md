@@ -1,5 +1,25 @@
 # Unit 16 — Payout ledger (manual)
 
+> **The payment half of this spec is superseded by
+> `16b-weekly-settlement.md`.** The business charges **per draft** and settles
+> **weekly**: one Zelle transfer covers several delivered drafts and carries one
+> reference. So a payment is its own record and payout rows point at it, rather than
+> each row carrying its own `method`/`reference`/`paid_date` and its own `confirm`.
+> Two further changes there: the **ENM may record payments** (the widening this
+> document flagged as a decision to be taken, now taken), and `brand` gains the
+> `currency` and payout-term settings this document reads but that were never added.
+>
+> **Everything else below stands and is still the contract**: the row opened inside
+> `deliverToClient`'s transaction, the prefill from `standard_fee`, the nullable
+> amount, the partial unique index, `VOIDED` set only by `RefundService`, the derived
+> `total_payments_pending`, and the read-only expert-portal status. Read this
+> document first; 16b is the delta.
+>
+> Rejected on the way to 16b, so it is not re-proposed: expert **retainers** — a
+> weekly rate per expert-to-client assignment. The business does not pay one. It would
+> also have put client identity on the ENM's screens and required amending the
+> supply-side-axis rule; per-draft-charged-weekly-settled requires neither.
+
 **Phase:** 2 — Connect the seams
 **Depends on:** 03 (the `payout_ledger` table), 11 (`standard_fee`, and the expert
 the payout names)

@@ -222,7 +222,7 @@ export const NAV_ITEMS: readonly NavItem[] = [
     path: '/payouts',
     label: 'Payouts',
     roles: ['GM', 'BRAND_MANAGER', 'EXPERT_NETWORK_MANAGER'],
-    becomes: 'Payout ledger (Unit 16)',
+    becomes: 'Weekly payout batch + payment history',
     group: 'Records',
   },
 
@@ -240,6 +240,22 @@ export const NAV_ITEMS: readonly NavItem[] = [
  */
 export const CASE_DETAIL_PATH = '/cases/:id'
 
+/** One expert's pending drafts and their payment history. Reached from the batch screen. */
+export const EXPERT_PAYOUTS_PATH = '/payouts/experts/:expertId'
+
+/** One transfer and every draft it settled. Reached from a payment history row. */
+export const PAYMENT_DETAIL_PATH = '/payouts/payments/:paymentId'
+
+/**
+ * The three payout roles, named once.
+ *
+ * The same list the `/payouts` nav entry carries and the same list
+ * `PayoutService.MAY_RECORD` holds on the server — a test in `PayoutControllerTest` pins the
+ * controller's `@PreAuthorize` to that constant, so the server side cannot drift; this is the
+ * client half of the same fact.
+ */
+const PAYOUT_ROLES: readonly Role[] = ['GM', 'BRAND_MANAGER', 'EXPERT_NETWORK_MANAGER']
+
 const PARAMETERIZED: readonly NavItem[] = [
   {
     path: CASE_DETAIL_PATH,
@@ -247,6 +263,20 @@ const PARAMETERIZED: readonly NavItem[] = [
     roles: ALL_ROLES,
     becomes: 'Case detail',
     group: 'Pipeline',
+  },
+  {
+    path: EXPERT_PAYOUTS_PATH,
+    label: 'Expert payouts',
+    roles: PAYOUT_ROLES,
+    becomes: 'One expert: pending drafts and payment history',
+    group: 'Records',
+  },
+  {
+    path: PAYMENT_DETAIL_PATH,
+    label: 'Payment',
+    roles: PAYOUT_ROLES,
+    becomes: 'One transfer and the drafts it settled',
+    group: 'Records',
   },
 ]
 

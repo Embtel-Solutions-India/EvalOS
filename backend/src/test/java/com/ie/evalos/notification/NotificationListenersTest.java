@@ -144,6 +144,16 @@ class NotificationListenersTest {
 		assertThat(recipientsOf(CaseEvents.Type.CASE_REFUND_REQUESTED)).containsExactly(GM);
 	}
 
+	/**
+	 * Unit 16. Should be unreachable, so it goes past the case's own PM to that brand's
+	 * Brand Managers too rather than staying an ordinary assignee-only alert.
+	 */
+	@Test
+	void aDeliveryWithNoExpertAlertsTheCasesPmAndThatBrandsManagers() {
+		assertThat(recipientsOf(CaseEvents.Type.CASE_DELIVERED_NO_EXPERT))
+				.containsExactlyInAnyOrder(PM, BRAND_MANAGER);
+	}
+
 	/** The spec's whole table in one pass, so a mis-wired row cannot hide. */
 	@Test
 	void theWholeMapMatchesTheSpecTable() {

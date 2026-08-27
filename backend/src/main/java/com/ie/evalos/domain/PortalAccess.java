@@ -67,7 +67,7 @@ public class PortalAccess extends ScopedEntity {
 	 * <p>{@link MessageDigest#isEqual} rather than {@code String.equals}, and here rather than in
 	 * the service, so the one secret comparison on this surface has one home and the stored hash
 	 * needs no getter. A short-circuiting comparison on a credential leaks it a byte at a time —
-	 * the discipline {@code WebhookVerifier} applies to an HMAC.
+	 * the discipline a signature comparison demands.
 	 */
 	public boolean matches(String candidateHash) {
 		return candidateHash != null && MessageDigest.isEqual(
@@ -80,7 +80,7 @@ public class PortalAccess extends ScopedEntity {
 	 * <p>Unknown, expired and revoked are three different states here and <strong>one</strong>
 	 * answer to the caller: {@code PortalTokenFilter} refuses all three identically, so nothing
 	 * about which it was is learnable from the response — the discipline
-	 * {@code WebhookVerifier} applies to a signature.
+	 * a signature comparison demands.
 	 */
 	public boolean isLive(Instant now) {
 		return revokedAt == null && expiresAt.isAfter(now);

@@ -51,6 +51,13 @@ public class WebhookEvent {
 	@Column(name = "brand_id", updatable = false)
 	private UUID brandId;
 
+	/**
+	 * A `V12` artifact, kept because an applied migration is never edited (invariant 9)
+	 * and the column is `NOT NULL`. Nothing sets it any more: the inbound HMAC was removed
+	 * on 2026-08-27, so no signature is checked and no row can honestly claim one was.
+	 * It stays `false` from here on, which also makes it the marker for which rows predate
+	 * the change — the `true` rows are the ones that were actually verified.
+	 */
 	@Column(name = "signature_verified", nullable = false, updatable = false)
 	private boolean signatureVerified;
 
@@ -75,12 +82,11 @@ public class WebhookEvent {
 	}
 
 	public WebhookEvent(WebhookSource source, String eventType, String externalId, UUID brandId,
-			boolean signatureVerified, String rawPayload) {
+			String rawPayload) {
 		this.source = source;
 		this.eventType = eventType;
 		this.externalId = externalId;
 		this.brandId = brandId;
-		this.signatureVerified = signatureVerified;
 		this.rawPayload = rawPayload;
 	}
 

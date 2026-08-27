@@ -16,6 +16,7 @@ import com.ie.evalos.repository.ExpertCaseOfferRepository;
 import com.ie.evalos.repository.ExpertRepository;
 import com.ie.evalos.repository.NotificationRepository;
 import com.ie.evalos.repository.PayoutLedgerRepository;
+import com.ie.evalos.repository.PayoutPaymentRepository;
 import com.ie.evalos.repository.PortalAccessRepository;
 import com.ie.evalos.service.CaseIntakeService;
 import com.ie.evalos.service.CaseLifecycleService;
@@ -54,6 +55,7 @@ class DomainInvariantsTest {
 				arguments(ExpertRepository.SCOPE, Expert.class),
 				arguments(ExpertCaseOfferRepository.SCOPE, ExpertCaseOffer.class),
 				arguments(PayoutLedgerRepository.SCOPE, PayoutLedger.class),
+				arguments(PayoutPaymentRepository.SCOPE, PayoutPayment.class),
 				arguments(PortalAccessRepository.SCOPE, PortalAccess.class),
 				arguments(NotificationRepository.SCOPE, Notification.class));
 	}

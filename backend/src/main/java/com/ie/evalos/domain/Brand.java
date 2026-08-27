@@ -29,17 +29,26 @@ public class Brand {
 	@Column(nullable = false)
 	private boolean active = true;
 
-	/** Resolves the brand for that brand's inbound GHL endpoint at Handoff A. */
+	/**
+	 * Resolves the brand for that brand's inbound GHL endpoint at Handoff A, and is the
+	 * only credential that endpoint has. Treat it as a secret: never log it, never put it
+	 * in a DTO, and rotate it to revoke the endpoint.
+	 */
 	@Column(name = "webhook_endpoint_token", nullable = false, unique = true)
 	private String webhookEndpointToken;
 
 	/**
-	 * The HMAC secret this brand's inbound GHL webhooks are verified against. Null
-	 * until it is set, which fails closed: nothing can be verified, so nothing is
-	 * accepted. Never log it and never put it in a DTO.
+	 * What experts on this brand are paid in. Nullable because db/seed-local/V900
+	 * inserts brands before this column exists; Flyway orders by version globally.
+	 * payout_ledger.currency NOT NULL ensures the gap does not reach the ledger, and
+	 * Task 3's openForDelivery refuses a brand with no currency.
 	 */
-	@Column(name = "ghl_webhook_secret")
-	private String ghlWebhookSecret;
+	@Column(name = "currency")
+	private String currency;
+
+	/** Days from delivery to a payout's due date. Drives the weekly batch view. */
+	@Column(name = "payout_term_days", nullable = false)
+	private int payoutTermDays = 7;
 
 	@Column(name = "created_at", nullable = false, insertable = false, updatable = false)
 	private Instant createdAt;
@@ -68,8 +77,12 @@ public class Brand {
 		return webhookEndpointToken;
 	}
 
-	public String getGhlWebhookSecret() {
-		return ghlWebhookSecret;
+	public String getCurrency() {
+		return currency;
+	}
+
+	public int getPayoutTermDays() {
+		return payoutTermDays;
 	}
 
 	public Instant getCreatedAt() {

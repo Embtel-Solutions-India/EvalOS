@@ -96,10 +96,11 @@ class CaseLifecycleServiceTest {
 	private final PayoutLedgerRepository payouts = mock(PayoutLedgerRepository.class);
 	private final AuditService audit = mock(AuditService.class);
 	private final ApplicationEventPublisher events = mock(ApplicationEventPublisher.class);
+	private final PayoutService payoutService = mock(PayoutService.class);
 
 	private final SlaCalculator sla = new SlaCalculator(new BusinessCalendar());
 	private final CaseLifecycleService lifecycle = new CaseLifecycleService(
-			cases, checklistItems, experts, offers, teamMembers, audit, sla, events);
+			cases, checklistItems, experts, offers, teamMembers, audit, sla, events, payoutService);
 	private final RefundService refunds = new RefundService(lifecycle, payouts);
 
 	private Case subject;
@@ -129,6 +130,10 @@ class CaseLifecycleServiceTest {
 
 		given(cases.findScoped(any(TenantContext.class), any(UUID.class))).willReturn(Optional.of(subject));
 		given(cases.save(any(Case.class))).willAnswer(invocation -> invocation.getArgument(0));
+		// The delivery walk has an expert on the case throughout, so by default a payout row
+		// opens and notifyNoExpertOnDelivery never fires — see aDeliveryWithNoExpertReportsIt
+		// below for the one test that overrides this to prove the opposite path.
+		given(payoutService.openForDelivery(any(Case.class))).willReturn(Optional.of(mock(PayoutLedger.class)));
 		given(teamMembers.findByIdAndBrandIdAndRoleAndActiveTrue(PM_ID, BRAND, Role.PROJECT_MANAGER)).willReturn(Optional.of(pm));
 		given(teamMembers.findByIdAndBrandIdAndRoleAndActiveTrue(CM_ID, BRAND, Role.CASE_MANAGER)).willReturn(Optional.of(cm));
 		given(teamMembers.findByIdAndBrandIdAndRoleAndActiveTrue(OTHER_CM_ID, BRAND, Role.CASE_MANAGER))
@@ -242,6 +247,25 @@ class CaseLifecycleServiceTest {
 				CaseEvents.Type.QC_APPROVED,
 				CaseEvents.Type.CASE_DELIVERED,
 				CaseEvents.Type.CASE_CLOSED), publishedEventTypes(11));
+	}
+
+	/**
+	 * The one path {@code PayoutService} reports rather than swallows: a case that
+	 * somehow reached delivery with no expert assigned. Should be unreachable —
+	 * {@code FINAL_DELIVERY} only follows {@code EXPERT_SIGNING} — which is exactly why
+	 * {@code notifyNoExpertOnDelivery} has to be a real alert rather than a stub.
+	 */
+	@Test
+	void aDeliveryWithNoExpertReportsItRatherThanStayingSilent() {
+		subject.setCurrentStage(Stage.FINAL_DELIVERY);
+		subject.setPaid(true);
+		given(payoutService.openForDelivery(any(Case.class))).willReturn(Optional.empty());
+
+		actAs(Role.PROJECT_COORDINATOR);
+		lifecycle.deliverToClient(CASE_ID);
+
+		assertEquals(List.of(CaseEvents.Type.CASE_DELIVERED, CaseEvents.Type.CASE_DELIVERED_NO_EXPERT),
+				publishedEventTypes(2));
 	}
 
 	/**

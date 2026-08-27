@@ -1,13 +1,8 @@
 package com.ie.evalos.webhook;
 
 import java.nio.charset.Charset;
-import java.nio.charset.StandardCharsets;
-import java.util.HexFormat;
 import java.util.Optional;
 import java.util.UUID;
-
-import javax.crypto.Mac;
-import javax.crypto.spec.SecretKeySpec;
 
 import com.ie.evalos.common.ApiErrors;
 import com.ie.evalos.domain.Brand;
@@ -31,6 +26,7 @@ import org.springframework.http.MediaType;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.ResultActions;
 
 import org.mockito.ArgumentCaptor;
 
@@ -46,24 +42,22 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
- * The gateway's acceptance criteria over the real filter chain and the real
- * pipeline: only a correctly signed delivery to a known endpoint does anything, a
- * redelivery does nothing twice, and a failure downstream is retriable. What the
- * accepted delivery then creates is asserted in {@code CaseIntakeServiceTest}.
+ * The gateway's acceptance criteria over the real filter chain and the real pipeline:
+ * only a delivery to a known, active endpoint does anything, a redelivery does nothing
+ * twice, and a failure downstream is retriable. What the accepted delivery then creates
+ * is asserted in {@code CaseIntakeServiceTest}.
  *
- * <p>No request here sends a bearer token, which is the point: the endpoint is public
- * and gated entirely by the path token and the HMAC.
+ * <p>No request here sends a bearer token or a signature header, and that is the point:
+ * the endpoint is public and gated entirely by the path token, so GHL's Custom Webhook
+ * action can post to it with nothing but a URL and a JSON body.
  */
 @WebMvcTest(controllers = InboundWebhookController.class)
-@Import({ WebhookGateway.class, WebhookVerifier.class, WebhookRouter.class, GhlOpportunityHandler.class,
+@Import({ WebhookGateway.class, WebhookRouter.class, GhlOpportunityHandler.class,
 		SecurityConfig.class, JwtService.class, ApiErrors.class })
-@TestPropertySource(properties = {
-		"evalos.security.jwt.secret=test-signing-key-that-is-long-enough-for-hs256",
-		"evalos.webhook.signature-header=X-Evalos-Signature" })
+@TestPropertySource(properties = "evalos.security.jwt.secret=test-signing-key-that-is-long-enough-for-hs256")
 class InboundWebhookTest {
 
 	private static final String TOKEN = "local-ie-webhook-token";
-	private static final String SECRET = "local-ie-webhook-secret";
 	private static final UUID BRAND_IE = UUID.fromString("11111111-1111-1111-1111-111111111111");
 	private static final UUID BRAND_XP = UUID.fromString("22222222-2222-2222-2222-222222222222");
 
@@ -86,12 +80,11 @@ class InboundWebhookTest {
 	EvalOsUserDetailsService userDetailsService;
 
 	@BeforeEach
-	void oneBrandWithASecret() {
+	void oneActiveBrand() {
 		Brand brand = mock(Brand.class);
 		given(brand.getId()).willReturn(BRAND_IE);
 		given(brand.getName()).willReturn("International Evaluations");
 		given(brand.getSlug()).willReturn("international-evaluations");
-		given(brand.getGhlWebhookSecret()).willReturn(SECRET);
 
 		given(brands.findByWebhookEndpointTokenAndActiveTrue(TOKEN)).willReturn(Optional.of(brand));
 		given(webhookEvents.save(any(WebhookEvent.class))).willAnswer(call -> call.getArgument(0));
@@ -122,73 +115,70 @@ class InboundWebhookTest {
 				}""".formatted(eventId);
 	}
 
-	private static String sign(String body) {
-		try {
-			Mac mac = Mac.getInstance("HmacSHA256");
-			mac.init(new SecretKeySpec(SECRET.getBytes(StandardCharsets.UTF_8), "HmacSHA256"));
-			return HexFormat.of().formatHex(mac.doFinal(body.getBytes(StandardCharsets.UTF_8)));
-		}
-		catch (java.security.GeneralSecurityException ex) {
-			throw new IllegalStateException(ex);
-		}
-	}
-
-	private org.springframework.test.web.servlet.ResultActions deliver(String token, String body, String signature)
-			throws Exception {
-		var request = post("/api/webhooks/ghl/{token}", token)
+	/** Exactly what GHL sends: a URL, a content type, a body. No other header. */
+	private ResultActions deliver(String token, String body) throws Exception {
+		return mockMvc.perform(post("/api/webhooks/ghl/{token}", token)
 				.contentType(MediaType.APPLICATION_JSON)
-				.content(body);
-		if (signature != null) {
-			request = request.header("X-Evalos-Signature", signature);
-		}
-		return mockMvc.perform(request);
+				.content(body));
 	}
 
-	private org.springframework.test.web.servlet.ResultActions deliverSigned(String body) throws Exception {
-		return deliver(TOKEN, body, sign(body));
-	}
-
-	private static byte[] signedBytes(byte[] body) {
-		try {
-			Mac mac = Mac.getInstance("HmacSHA256");
-			mac.init(new SecretKeySpec(SECRET.getBytes(StandardCharsets.UTF_8), "HmacSHA256"));
-			return mac.doFinal(body);
-		}
-		catch (java.security.GeneralSecurityException ex) {
-			throw new IllegalStateException(ex);
-		}
+	private ResultActions deliver(String body) throws Exception {
+		return deliver(TOKEN, body);
 	}
 
 	/**
-	 * The digest has to close over the bytes on the wire, not over a {@code String} the
-	 * servlet layer decoded on the way in.
-	 *
-	 * <p>Both deliveries carry the same accented name and both are signed over exactly the
-	 * bytes they send. The UTF-8 case passed before the fix too — Boot hands the String
-	 * converter UTF-8, so that round trip happened to be lossless. The ISO-8859-1 case is
-	 * the one that answered 401: decoded as declared, re-encoded as UTF-8, digested over
-	 * bytes nobody signed. Keep both, because the pair is what says the digest closes over
-	 * the wire bytes rather than over whichever charset the two ends happen to share.
+	 * The stated contract, asserted as its own case rather than left implied by every
+	 * other test: a delivery carrying no {@code X-Evalos-Signature} — because GHL's
+	 * Custom Webhook action cannot produce one — is accepted on the token and the
+	 * payload alone.
+	 */
+	@Test
+	void aDeliveryWithNoSignatureHeaderIsAccepted() throws Exception {
+		mockMvc.perform(post("/api/webhooks/ghl/{token}", TOKEN)
+						.contentType(MediaType.APPLICATION_JSON)
+						.content(wonBody(EVENT_ID)))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.data.status").value("accepted"));
+
+		verify(intake).intake(any(Brand.class), any(CaseIntakeService.NewCase.class));
+	}
+
+	/**
+	 * A signature header is not merely optional, it is ignored: a sender that still sends
+	 * one, or sends a wrong one, is treated no differently from one that sends none.
+	 * Nothing reads that header any more, and this is what fails if something starts to.
+	 */
+	@Test
+	void aSignatureHeaderIfSentIsIgnored() throws Exception {
+		mockMvc.perform(post("/api/webhooks/ghl/{token}", TOKEN)
+						.contentType(MediaType.APPLICATION_JSON)
+						.header("X-Evalos-Signature", "sha256=deadbeef")
+						.content(wonBody(EVENT_ID)))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.data.status").value("accepted"));
+	}
+
+	/**
+	 * The body is decoded as UTF-8 — JSON's charset by specification — whatever the
+	 * sender declares, so the delivery is read and routed rather than failing on the
+	 * charset it announced.
 	 */
 	@ParameterizedTest
 	@ValueSource(strings = { "UTF-8", "ISO-8859-1" })
-	void aBodyCarryingNonAsciiVerifiesAgainstTheBytesAsSent(String charsetName) throws Exception {
+	void aBodyCarryingNonAsciiIsStillAccepted(String charsetName) throws Exception {
 		Charset charset = Charset.forName(charsetName);
 		byte[] body = wonBody("evt-" + charsetName).replace("Anita Rao", "Zoë Bäcker-Muñoz").getBytes(charset);
 
 		mockMvc.perform(post("/api/webhooks/ghl/{token}", TOKEN)
 						.contentType(new MediaType(MediaType.APPLICATION_JSON, charset))
-						.header("X-Evalos-Signature", HexFormat.of().formatHex(signedBytes(body)))
 						.content(body))
 				.andExpect(status().isOk())
 				.andExpect(jsonPath("$.data.status").value("accepted"));
 	}
 
 	@Test
-	void aSignedWonOpportunityIsAcceptedArchivedAndRouted() throws Exception {
-		String body = wonBody(EVENT_ID);
-
-		deliverSigned(body)
+	void aWonOpportunityIsAcceptedArchivedAndRouted() throws Exception {
+		deliver(wonBody(EVENT_ID))
 				.andExpect(status().isOk())
 				.andExpect(jsonPath("$.success").value(true))
 				.andExpect(jsonPath("$.data.status").value("accepted"));
@@ -214,56 +204,40 @@ class InboundWebhookTest {
 		String body = wonBody(EVENT_ID).replace("\"contact\": {",
 				"\"brand_id\": \"" + BRAND_XP + "\",\n  \"contact\": {");
 
-		deliverSigned(body).andExpect(status().isOk());
+		deliver(body).andExpect(status().isOk());
 
 		ArgumentCaptor<Brand> used = ArgumentCaptor.forClass(Brand.class);
 		verify(intake).intake(used.capture(), any());
 		assertThat(used.getValue().getId()).isEqualTo(BRAND_IE);
 	}
 
-	@Test
-	void aWrongSignatureIsRejectedWithNoSideEffect() throws Exception {
-		deliver(TOKEN, wonBody(EVENT_ID), sign("a different body"))
-				.andExpect(status().isUnauthorized())
-				.andExpect(jsonPath("$.error.code").value("SIGNATURE_INVALID"));
-
-		verify(intake, never()).intake(any(), any());
-		verify(webhookEvents, never()).save(any());
-	}
-
-	@Test
-	void aMissingOrMalformedSignatureIsRejectedTheSameWay() throws Exception {
-		deliver(TOKEN, wonBody(EVENT_ID), null)
-				.andExpect(status().isUnauthorized())
-				.andExpect(jsonPath("$.error.code").value("SIGNATURE_INVALID"));
-
-		deliver(TOKEN, wonBody(EVENT_ID), "not-hex-at-all")
-				.andExpect(status().isUnauthorized())
-				.andExpect(jsonPath("$.error.code").value("SIGNATURE_INVALID"));
-
-		verify(intake, never()).intake(any(), any());
-		verify(webhookEvents, never()).save(any());
-	}
-
-	@Test
-	void aBrandWithNoSecretVerifiesNothing() throws Exception {
-		Brand unconfigured = mock(Brand.class);
-		given(unconfigured.getGhlWebhookSecret()).willReturn(null);
-		given(brands.findByWebhookEndpointTokenAndActiveTrue("no-secret-yet"))
-				.willReturn(Optional.of(unconfigured));
-
-		deliver("no-secret-yet", wonBody(EVENT_ID), sign(wonBody(EVENT_ID)))
-				.andExpect(status().isUnauthorized())
-				.andExpect(jsonPath("$.error.code").value("SIGNATURE_INVALID"));
-
-		verify(webhookEvents, never()).save(any());
-	}
-
+	/**
+	 * The token is the whole credential now, so this is the test that says it is actually
+	 * checked. A token nobody issued gets a 404 and no side effect — not a 401, because
+	 * the caller is a machine with no other credential to go and try.
+	 */
 	@Test
 	void anUnknownEndpointTokenIsNotFound() throws Exception {
-		String body = wonBody(EVENT_ID);
+		deliver("someone-elses-token", wonBody(EVENT_ID))
+				.andExpect(status().isNotFound())
+				.andExpect(jsonPath("$.error.code").value("UNKNOWN_ENDPOINT"));
 
-		deliver("someone-elses-token", body, sign(body))
+		verify(intake, never()).intake(any(), any());
+		verify(webhookEvents, never()).save(any());
+	}
+
+	/**
+	 * Deactivating a brand has to stop its webhook, and the {@code AndActiveTrue} in the
+	 * lookup is the only thing enforcing it: a real, correctly spelled token whose brand
+	 * is inactive resolves to nothing, and the caller cannot tell that apart from a token
+	 * that never existed.
+	 */
+	@Test
+	void anInactiveBrandsTokenIsTheSameNotFound() throws Exception {
+		given(brands.findByWebhookEndpointTokenAndActiveTrue("retired-brand-token"))
+				.willReturn(Optional.empty());
+
+		deliver("retired-brand-token", wonBody(EVENT_ID))
 				.andExpect(status().isNotFound())
 				.andExpect(jsonPath("$.error.code").value("UNKNOWN_ENDPOINT"));
 
@@ -272,7 +246,7 @@ class InboundWebhookTest {
 	}
 
 	@Test
-	void aRedeliveryOfTheSameInvoiceCreatesNothingNew() throws Exception {
+	void aRedeliveryOfTheSameEventCreatesNothingNew() throws Exception {
 		WebhookEvent alreadySeen = mock(WebhookEvent.class);
 		given(alreadySeen.getId()).willReturn(UUID.randomUUID());
 		given(alreadySeen.getBrandId()).willReturn(BRAND_IE);
@@ -282,7 +256,7 @@ class InboundWebhookTest {
 		given(webhookEvents.findBySourceAndBrandIdAndExternalId(WebhookSource.GHL, BRAND_IE, EVENT_ID))
 				.willReturn(Optional.of(alreadySeen));
 
-		deliverSigned(wonBody(EVENT_ID))
+		deliver(wonBody(EVENT_ID))
 				.andExpect(status().isOk())
 				.andExpect(jsonPath("$.data.status").value("duplicate"));
 
@@ -290,20 +264,32 @@ class InboundWebhookTest {
 		verify(webhookEvents, never()).save(any());
 	}
 
+	/** {@code webhook_id} is the accepted second name for the same idempotency key. */
+	@Test
+	void anEventCarryingWebhookIdInsteadOfEventIdIsKeyedOnIt() throws Exception {
+		deliver(wonBody(EVENT_ID).replace("\"event_id\"", "\"webhook_id\""))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.data.status").value("accepted"));
+
+		ArgumentCaptor<WebhookEvent> archived = ArgumentCaptor.forClass(WebhookEvent.class);
+		verify(webhookEvents, org.mockito.Mockito.atLeastOnce()).save(archived.capture());
+		assertThat(archived.getValue().getExternalId()).isEqualTo(EVENT_ID);
+	}
+
 	/**
-	 * Two brands are two GHL sub-accounts numbering their own invoices, so the same
-	 * invoice ref arriving for a different brand is a different event and gets its own
+	 * Two brands are two GHL sub-accounts numbering their own events, so the same
+	 * external id arriving for a different brand is a different event and gets its own
 	 * case. The lookup is brand-scoped, matching the unique key, so the other brand's
 	 * row is not even a candidate.
 	 */
 	@Test
-	void thesameInvoiceRefFromAnotherBrandIsItsOwnEvent() throws Exception {
-		// Only XpertsPortal has archived this invoice ref. International Evaluations
-		// asking about the same ref must not find it.
+	void theSameExternalIdFromAnotherBrandIsItsOwnEvent() throws Exception {
+		// Only XpertsPortal has archived this external id. International Evaluations
+		// asking about the same id must not find it.
 		given(webhookEvents.findBySourceAndBrandIdAndExternalId(WebhookSource.GHL, BRAND_XP, EVENT_ID))
 				.willReturn(Optional.of(mock(WebhookEvent.class)));
 
-		deliverSigned(wonBody(EVENT_ID))
+		deliver(wonBody(EVENT_ID))
 				.andExpect(status().isOk())
 				.andExpect(jsonPath("$.data.status").value("accepted"));
 
@@ -312,19 +298,17 @@ class InboundWebhookTest {
 
 	@Test
 	void anUnreadableOrKeylessPayloadIsABadRequest() throws Exception {
-		deliver(TOKEN, "not json at all", sign("not json at all"))
+		deliver("not json at all")
 				.andExpect(status().isBadRequest())
 				.andExpect(jsonPath("$.error.code").value("MALFORMED_PAYLOAD"));
 
 		// Never keyed on a bare `id` or on `ghl_opportunity_id`: both are resource ids, and
 		// the second would make a legitimately re-won opportunity look like a redelivery.
-		String noKey = "{\"event_type\":\"opportunity.won\",\"opportunity\":{\"ghl_opportunity_id\":\"opp-4711\"}}";
-		deliver(TOKEN, noKey, sign(noKey))
+		deliver("{\"event_type\":\"opportunity.won\",\"opportunity\":{\"ghl_opportunity_id\":\"opp-4711\"}}")
 				.andExpect(status().isBadRequest())
 				.andExpect(jsonPath("$.error.code").value("MISSING_EXTERNAL_ID"));
 
-		String noType = "{\"event_id\":\"evt-1\"}";
-		deliver(TOKEN, noType, sign(noType))
+		deliver("{\"event_id\":\"evt-1\"}")
 				.andExpect(status().isBadRequest())
 				.andExpect(jsonPath("$.error.code").value("MISSING_EVENT_TYPE"));
 
@@ -334,10 +318,49 @@ class InboundWebhookTest {
 	@Test
 	void aPayloadMissingARequiredFieldIsABadRequest() throws Exception {
 		String noServiceType = wonBody(EVENT_ID).replace("\"service_type\": \"EXPERT_OPINION_LETTER\",", "");
-
-		deliverSigned(noServiceType)
+		deliver(noServiceType)
 				.andExpect(status().isBadRequest())
 				.andExpect(jsonPath("$.error.code").value("VALIDATION_FAILED"));
+
+		// The contact's name is what every downstream surface identifies the case by.
+		String noName = wonBody(EVENT_ID).replace("\"full_name\": \"Anita Rao\",", "");
+		deliver(noName)
+				.andExpect(status().isBadRequest())
+				.andExpect(jsonPath("$.error.code").value("VALIDATION_FAILED"));
+
+		String blankName = wonBody(EVENT_ID).replace("\"Anita Rao\"", "\"   \"");
+		deliver(blankName)
+				.andExpect(status().isBadRequest())
+				.andExpect(jsonPath("$.error.code").value("VALIDATION_FAILED"));
+
+		// The whole contact block missing is the same refusal, not an NPE in the mapper.
+		String noContact = wonBody(EVENT_ID).replaceAll("(?s),\\s*\"contact\": \\{.*?\\}\\s*\\}$", "}");
+		deliver(noContact)
+				.andExpect(status().isBadRequest())
+				.andExpect(jsonPath("$.error.code").value("VALIDATION_FAILED"));
+
+		verify(intake, never()).intake(any(), any());
+	}
+
+	/**
+	 * The payload's typed fields are parsed before anything is created, so a value GHL
+	 * cannot have meant — an enum constant that does not exist, a date that is not a
+	 * date, an id that is not a UUID — is refused as unreadable rather than quietly
+	 * dropped to null on a paid case.
+	 */
+	@ParameterizedTest
+	@ValueSource(strings = {
+			"\"service_type\": \"EXPERT_OPINION_LETTER\"|\"service_type\": \"NOT_A_SERVICE\"",
+			"\"visa_category\": \"EB2_NIW\"|\"visa_category\": \"EB9_IMAGINARY\"",
+			"\"client_type\": \"ATTORNEY\"|\"client_type\": \"WIZARD\"",
+			"\"campaign_attribution\": \"eb2-niw-q3\"|\"deadline\": \"next Tuesday\"",
+			"\"campaign_attribution\": \"eb2-niw-q3\"|\"selected_expert_id\": \"not-a-uuid\"" })
+	void anUnreadableEnumDateOrUuidIsAMalformedPayload(String fromPipeTo) throws Exception {
+		String[] fromTo = fromPipeTo.split("\\|");
+
+		deliver(wonBody(EVENT_ID).replace(fromTo[0], fromTo[1]))
+				.andExpect(status().isBadRequest())
+				.andExpect(jsonPath("$.error.code").value("MALFORMED_PAYLOAD"));
 
 		verify(intake, never()).intake(any(), any());
 	}
@@ -352,25 +375,21 @@ class InboundWebhookTest {
 	@Test
 	void aWonOpportunityCarryingNoRealMoneyIsRefused() throws Exception {
 		for (String badAmount : new String[] { "0", "-1", "0.00" }) {
-			deliverSigned(wonBody(EVENT_ID).replace("\"amount\": 1450.00", "\"amount\": " + badAmount))
+			deliver(wonBody(EVENT_ID).replace("\"amount\": 1450.00", "\"amount\": " + badAmount))
 					.andExpect(status().isBadRequest())
 					.andExpect(jsonPath("$.error.code").value("VALIDATION_FAILED"));
 		}
 
-		String noAmount = wonBody(EVENT_ID).replace("\"amount\": 1450.00,", "");
-		deliverSigned(noAmount)
+		deliver(wonBody(EVENT_ID).replace("\"amount\": 1450.00,", ""))
 				.andExpect(status().isBadRequest())
 				.andExpect(jsonPath("$.error.code").value("VALIDATION_FAILED"));
 
-		String noOpportunityId = wonBody(EVENT_ID).replace("\"ghl_opportunity_id\": \"opp-4711\",", "");
-		deliverSigned(noOpportunityId)
+		deliver(wonBody(EVENT_ID).replace("\"ghl_opportunity_id\": \"opp-4711\",", ""))
 				.andExpect(status().isBadRequest())
 				.andExpect(jsonPath("$.error.code").value("VALIDATION_FAILED"));
 
 		// The whole block missing is the same refusal, not an NPE in the mapper.
-		String noOpportunity = wonBody(EVENT_ID).replaceAll(
-				"\"opportunity\": \\{[^}]*\\},", "");
-		deliverSigned(noOpportunity)
+		deliver(wonBody(EVENT_ID).replaceAll("\"opportunity\": \\{[^}]*\\},", ""))
 				.andExpect(status().isBadRequest())
 				.andExpect(jsonPath("$.error.code").value("VALIDATION_FAILED"));
 
@@ -383,7 +402,7 @@ class InboundWebhookTest {
 				.given(intake).intake(any(), any());
 
 		// A 5xx is what makes GHL redeliver; a 4xx would silently drop a paid case.
-		deliverSigned(wonBody(EVENT_ID)).andExpect(status().is5xxServerError());
+		deliver(wonBody(EVENT_ID)).andExpect(status().is5xxServerError());
 
 		ArgumentCaptor<WebhookEvent> archived = ArgumentCaptor.forClass(WebhookEvent.class);
 		verify(webhookEvents, org.mockito.Mockito.atLeastOnce()).save(archived.capture());
@@ -402,7 +421,7 @@ class InboundWebhookTest {
 		String body = wonBody(EVENT_ID);
 		willThrow(new IllegalStateException("transient database blip")).given(intake).intake(any(), any());
 
-		deliverSigned(body).andExpect(status().is5xxServerError());
+		deliver(body).andExpect(status().is5xxServerError());
 
 		// What the archive now looks like to the next delivery: present, but unprocessed.
 		ArgumentCaptor<WebhookEvent> failed = ArgumentCaptor.forClass(WebhookEvent.class);
@@ -413,7 +432,7 @@ class InboundWebhookTest {
 				.willReturn(Optional.of(unprocessed));
 
 		org.mockito.Mockito.reset(intake);
-		deliverSigned(body)
+		deliver(body)
 				.andExpect(status().isOk())
 				.andExpect(jsonPath("$.data.status").value("accepted"));
 
@@ -428,7 +447,7 @@ class InboundWebhookTest {
 		String body = """
 				{"event_type": "contact.updated", "event_id": "evt-77", "contact": {"ghl_contact_id": "ghl-c-1"}}""";
 
-		deliverSigned(body)
+		deliver(body)
 				.andExpect(status().isOk())
 				.andExpect(jsonPath("$.data.status").value("accepted"));
 
@@ -452,7 +471,7 @@ class InboundWebhookTest {
 				{"event_type": "contact.created", "event_id": "evt-78", "service_type": "EXPERT_OPINION_LETTER",
 				 "contact": {"ghl_contact_id": "ghl-c-1", "full_name": "Anita Rao"}}""";
 
-		deliverSigned(body)
+		deliver(body)
 				.andExpect(status().isOk())
 				.andExpect(jsonPath("$.data.status").value("accepted"));
 

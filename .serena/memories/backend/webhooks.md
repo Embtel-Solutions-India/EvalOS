@@ -2,37 +2,69 @@
 
 Unit 05, re-pointed in 05a, re-pointed again by **Case Creation v2.0** (spec `05b`) — the live trigger
 is now `opportunity.won`. One public endpoint per brand:
-`POST /api/webhooks/ghl/{token}`. `webhook` package holds transport only — verify, route, no business
+`POST /api/webhooks/ghl/{token}`. `webhook` package holds transport only — resolve, route, no business
 logic (invariant 12).
+
+## Authentication is the endpoint token, and nothing else
+
+**There is no inbound HMAC as of 2026-08-27.** `WebhookVerifier` is deleted, `X-Evalos-Signature` is
+neither read nor required, and `evalos.webhook.signature-header` is gone from `application.yml`. The
+reason is the only one that matters here: **GHL's Custom Webhook action cannot compute an HMAC.** It
+posts a URL, a content type and a JSON body, so requiring a signature meant Handoff A could not be
+wired up from GHL's own UI at all — the guard made the integration unusable rather than safe.
+
+What authenticates a delivery now:
+
+- `brand.webhook_endpoint_token`, in the path, resolved by
+  `findByWebhookEndpointTokenAndActiveTrue`. **That token is the credential** — treat it like a
+  secret: never log it, never put it in a DTO (`BrandControllerTest` asserts the DTO omission), and
+  rotate it to revoke an endpoint. Anyone holding it can post to that brand's endpoint.
+- **Active is part of the check, not a separate one.** The `AndActiveTrue` in the query is what makes
+  deactivating a brand stop its webhook. An unknown token and an inactive brand's real token are the
+  same `404 UNKNOWN_ENDPOINT` with the same message — the caller learns nothing about which.
+- The payload contract (below) is the rest of the gate: an unusable body is a `400` that never
+  reaches a handler and never archives.
+
+`brand.ghl_webhook_secret` still exists as a column (`V11`) and in the local seed (`V901`); the
+**entity field and getter are gone**, so nothing reads it. Left in the schema on purpose — an applied
+migration is never edited (invariant 9), and dropping a column nothing queries buys nothing.
 
 ## Gateway order, and why it is not one transaction
 
-`WebhookGateway`: resolve brand → verify → dedupe → archive → route → ack. Deliberately **not**
+`WebhookGateway`: resolve brand → dedupe → archive → route → ack. Deliberately **not**
 `@Transactional`: each step commits on its own, which is what lets the archive row outlive a failed
 handler and record why. Do not wrap it.
 
-Brand resolution runs before verification even though the spec lists it second — the HMAC secret
-belongs to the brand, and a lookup is not a side effect.
+The body is still `byte[]` from the controller, decoded to `String` as UTF-8 in the gateway — JSON's
+charset by specification (RFC 8259). That began as an HMAC requirement ("hash the exact bytes
+received") and outlived it as the plain right way to read a body: the archive then holds exactly the
+text that was parsed and routed, whatever charset the sender declared. Both charsets are asserted in
+`InboundWebhookTest`.
 
-- `WebhookVerifier`: HMAC-SHA256 over the **exact bytes received**, compared with
-  `MessageDigest.isEqual`. Missing secret, missing header, bad hex and a wrong digest all fail
-  identically — nothing is learnable from the response.
-  **"Exact bytes" is literal since 2026-08-06 and was not before.** The controller bound
-  `@RequestBody String` and the verifier re-encoded UTF-8 to hash, so the digest closed over a
-  decode/encode round trip. Boot hands the String converter UTF-8, so plain UTF-8 bodies happened
-  to survive it; a delivery declaring any other charset was decoded as declared, re-encoded as
-  UTF-8, and answered **401**. It is `byte[]` from the controller to the digest now, decoded to
-  `String` only after the check. Never add a `String` overload — it compiles at every call site
-  and fails only on non-ASCII. Both charsets are asserted in `InboundWebhookTest`.
-- **Header name is configuration; the encoding is not, and that is G17.**
-  `evalos.webhook.signature-header` (default `X-Evalos-Signature`) can be re-pointed without a
-  code change. The signature *encoding* cannot: `HexFormat.parseHex`, optional `sha256=` prefix.
-  A base64-signing GHL fails every delivery with a 401 no setting fixes. The signed material is
-  likewise the bare body, where Unit 18 signs `"<timestamp>.<body>"` outbound. Confirm both
-  against a real sub-account before release.
-- **A rejected signature is logged, not archived.** `webhook_event` only ever holds deliveries that
-  verified, so `signature_verified` is always true today. Archiving unverified bodies would let anyone
-  who can reach the URL fill the table.
+## Three identifiers, and what each one is allowed to mean
+
+Confirmed as policy 2026-08-27 and already how the code works — do not let a future integration
+blur it:
+
+| Identifier | Lives on | Means | Never |
+|---|---|---|---|
+| `ghl_contact_id` | `contact_snapshot` | **the client**, canonically, across GHL, EvalOS and any future connected app | minted by EvalOS; changed when a case is created; replaced by a case id |
+| `ghl_opportunity_id` | `evalos_case` | one purchase / deal | a client identity — a client has many |
+| `evalos_case.id` / `case_code` | `evalos_case` | one service engagement, **internal** | exposed as the client's external identity |
+
+**One contact, many cases.** `uq_case_open_per_contact_service` (`V15`) is keyed on
+`(brand_id, contact_id, service_type) WHERE current_stage <> 'CLOSED'` — per *service*, so the same
+client buying a second service opens a second case. There is deliberately no one-case-per-client rule.
+
+**Matching precedence** (`CaseIntakeService.existingContact`): `ghl_contact_id` first, `email` only as
+a fallback, and `syncContact` then backfills the id onto a row matched by email so it stops
+re-matching that way. Never match a client on case id, name or phone.
+
+**The fallback never overrides the id** (`contradicts`, + `V27`): an email match on a row that already
+holds a *different* `ghl_contact_id` is refused, and intake creates a new snapshot instead. Two GHL
+contacts sharing an inbox are two clients. Only a genuine conflict is refused — both ids present and
+different — so the two cases the fall-through exists for still match: a row with no id yet, and a
+delivery with no id to assert. See `backend/persistence.md` for why the index had to move with it.
 
 ## Idempotency — the two mistakes already made here
 
