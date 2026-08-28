@@ -391,6 +391,18 @@ INSERT INTO expert_case_offer (id, brand_id, case_id, expert_id, offered_at, out
      '66666666-0000-0000-0000-000000000008', 'ffffffff-0000-0000-0000-000000000002',
      now() - INTERVAL '1 day', 'OFFERED', NULL, NULL);
 
+-- The transfer that settled it. `amount` equals the one draft it covers, which
+-- is the invariant settle() enforces and the reason a hand-written payment has
+-- to be kept in step with the ledger rows above.
+--
+-- `confirmed_at` is left NULL so the confirmation step is still available to
+-- click: a payment that arrives already confirmed hides half the screen.
+INSERT INTO payout_payment (id, brand_id, expert_id, amount, currency, method, reference, paid_date, no>
+    ('88888888-0000-0000-0000-000000000001', '33333333-3333-3333-3333-333333333333',
+     'ffffffff-0000-0000-0000-000000000002', 300.00, 'USD', 'Wise transfer', 'WISE-TP-40118',
+     now() - INTERVAL '9 days', 'Single draft; weekly batch was one row that week.', NULL,
+     'eeeeeeee-0000-0000-0000-000000000006');
+
 -- Two payouts, which is one per delivered case and no more: `uq_payout_per_case`
 -- allows exactly one non-VOIDED row per case, and delivery is the only thing
 -- that opens one. Amounts are each expert's standard fee, which is what
@@ -409,18 +421,6 @@ INSERT INTO payout_ledger (id, brand_id, case_id, expert_id, amount, currency, s
      '66666666-0000-0000-0000-000000000005', 'ffffffff-0000-0000-0000-000000000002',
      300.00, 'USD', 'PAID', now() - INTERVAL '5 days',
      'eeeeeeee-0000-0000-0000-000000000006', '88888888-0000-0000-0000-000000000001');
-
--- The transfer that settled it. `amount` equals the one draft it covers, which
--- is the invariant settle() enforces and the reason a hand-written payment has
--- to be kept in step with the ledger rows above.
---
--- `confirmed_at` is left NULL so the confirmation step is still available to
--- click: a payment that arrives already confirmed hides half the screen.
-INSERT INTO payout_payment (id, brand_id, expert_id, amount, currency, method, reference, paid_date, notes, confirmed_at, recorded_by) VALUES
-    ('88888888-0000-0000-0000-000000000001', '33333333-3333-3333-3333-333333333333',
-     'ffffffff-0000-0000-0000-000000000002', 300.00, 'USD', 'Wise transfer', 'WISE-TP-40118',
-     now() - INTERVAL '9 days', 'Single draft; weekly batch was one row that week.', NULL,
-     'eeeeeeee-0000-0000-0000-000000000006');
 
 -- A few notifications, mostly unread, so the nav badge has a number and the
 -- list has something under it. Recipients are the people who would actually
