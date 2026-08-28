@@ -9,14 +9,14 @@ PM / Brand Manager / GM
 ## Goal
 
 The production board: cases as cards in stage columns, RAG deadline badges,
-brand- and role-scoped, with a pool/unassigned queue and quick actions that call
-the Unit 04 transitions. It is the day-to-day operating surface for the GM, Brand
+brand- and role-scoped, with a pool/unassigned queue whose Assign PM calls the
+Unit 04 transitions. It is the day-to-day operating surface for the GM, Brand
 Manager, and PM (and a read view of the wider pipeline for the Coordinator).
 
 **Verifiable result:** each role sees the correct, brand-scoped board; cards sit
 in the right stage column with a correct RAG deadline badge; the pool shows
-unassigned cases; a quick action performs a legal transition (and an illegal one
-is refused with the 409 surfaced), and the card moves.
+unassigned cases; Assign PM performs a legal transition (and an illegal one is
+refused with the 409 surfaced), and the card moves.
 
 ## In scope
 
@@ -24,7 +24,8 @@ is refused with the 409 surfaced), and the card moves.
   API.
 - RAG deadline/SLA badges from `sla_status` + `deadline`.
 - Brand + role filtering, and the pool/unassigned queue.
-- Card quick actions mapped to legal next transitions.
+- Quick actions mapped to legal next transitions (on the case, and the pool's
+  Assign PM on the board — see item 4; not on the card).
 - A board query endpoint (or a documented reuse of `GET /api/cases`).
 
 ## Out of scope
@@ -62,10 +63,20 @@ own docket; Coordinator = own brand's cases (read/status view).
 3. **Pool / unassigned queue**: a pinned lane or filter showing
    `pool_status = IN_POOL` (visible to GM/BM/PM) with an **Assign PM** / **Assign
    CM** quick action.
-4. **Quick actions** on a card = the *legal* next transition(s) for its
-   stage/role (from Unit 04). Actions needing input (assign PM/CM + expert, QC,
-   deliver) open a small dialog; the action posts to the matching endpoint. A
-   rejected transition (409) shows an inline reason and the card does not move.
+4. **Quick actions** = the *legal* next transition(s) for a case's stage/role
+   (from Unit 04). Actions needing input (assign PM/CM + expert, QC, deliver)
+   open a small dialog; the action posts to the matching endpoint. A rejected
+   transition (409) shows a reason and nothing moves.
+
+   **Superseded 2026-08-28: they are not on the card.** A board card is read-only
+   — six pieces of data and a link to the case. The transitions live on the case
+   itself (`StageActions`, off the same `boardRules.actionsFor` table) and in the
+   draft and delivery queues, which is where somebody working a batch of them
+   already is. On the card they were tried twice, in flow and then as a hover
+   overlay, and both spent the board's two scarcest resources — vertical room and
+   a layout that holds still under the pointer — on controls one click away. The
+   board's remaining action is the pool's **Assign PM**, which is the one thing
+   this screen asks you to decide; its refusal renders above the pool lane.
 5. **Filters/controls**: brand switcher (GM) already in the shell; board-local
    filters for owner, service type, and "at risk / overdue only". The shell date
    filter narrows by deadline window.
@@ -128,8 +139,9 @@ through a batch rather than hunting cards on a board.
 - [ ] The RAG badge matches `sla_status`; overdue cards are visually distinct.
 - [ ] The pool shows only `IN_POOL` cases; **Assign PM** moves a card out of the
       pool and re-renders it under the owner.
-- [ ] A legal quick action transitions the case and moves the card; an illegal
-      action is refused (409) with a visible reason and no move.
+- [ ] A legal quick action transitions the case and re-renders the board; an
+      illegal action is refused (409) with a visible reason and no move.
+- [ ] A card carries no controls: clicking anywhere on it opens the case.
 - [ ] A Case Manager never sees `deal_value` on any card.
 - [ ] `npm run build` green (no TS/console errors); `./mvnw verify` green (board
       endpoint).

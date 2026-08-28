@@ -163,7 +163,7 @@ a bug on the only screen that counts.
 | Sidebar (`--sidebar-width`)               | **240px**, 208px ≤1200px |
 | Header (`--header-height`)                | **72px**                |
 | Shell gutter (`--shell-gutter`)           | **20px**                |
-| Board column                              | **288px** wide (`w-72`) |
+| Board column                              | **240px** wide (`w-60`) |
 | Screen `h1`                               | `text-2xl`              |
 
 Geometry that the shell shares lives in `tokens.css`, not in a component — a height

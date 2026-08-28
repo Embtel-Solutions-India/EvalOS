@@ -472,7 +472,7 @@ rows ever contradict the total above them.
   `NAV_ICONS` stays keyed by the same `path` the router uses, so a missing entry degrades to a
   fallback instead of adding a second list.
 - **Density: the reference screen is 1366 × 768, not 1920.** 36px for every control (pill, select,
-  search, icon button, nav item), 72px header, 240px sidebar, 288px board column, `text-2xl` screen
+  search, icon button, nav item), 72px header, 240px sidebar, 240px board column, `text-2xl` screen
   `h1`. The adopted template ships 44–48px controls, a 400px sidebar and a 136px header; that scale
   was rejected on purpose — it spends 28% of a 1366 viewport's width and 18% of its height on chrome.
   Table in `context/ui-context.md` → "Density"; the reasoning is the deviation table in
@@ -483,9 +483,28 @@ rows ever contradict the total above them.
   split is what pins the SLA rail and the column headers while cases move under them — the rail is the
   board's one instrument and it used to leave the screen with the page. `PoolLane` is capped at two
   rows of pills and "Off the pipeline" starts **closed**; both used to push the columns below the
-  fold. `--board-column-max` subtracts a measured 22rem of chrome from `100svh` and is marked
+  fold. `--board-column-max` subtracts a measured 20rem of chrome from `100svh` and is marked
   `ponytail:` — the non-magic version is a viewport-height app frame (`AppShell` owning the scroll for
   every screen, strip as `flex-1 min-h-0`), which is not worth it for one board.
+- **`CaseCard` is one stretched link, and the density is the point.** The card was widened out of
+  `w-72` into `w-60` and its stacked `Due` / `Value` definition list collapsed onto a single inline
+  line, so a laptop shows both more cases per column and more stages across. The whole card is a
+  `<Link>` positioned `absolute inset-0`; the text over it is `pointer-events-none` and only the quick
+  action buttons keep their own events. Do not put a second anchor or an `onClick` inside the card —
+  it would either be swallowed by the overlay or nest inside it. The chip row renders **only when it
+  has chips**; it used to cost every card a blank line.
+- **A board card carries no controls at all, as of 2026-08-28.** `CaseCard` takes `card` and `mine`
+  and nothing else — no `actions`, no `busy`, no `error`, no `onAction`. Quick actions were on the
+  card in flow, then as a hover overlay, and both spent the board's scarcest resources (vertical
+  room, a layout that holds still under the pointer) on controls one click away; they live on the
+  case (`StageActions`, off the same `boardRules.actionsFor` table) and in the draft/delivery
+  queues. **Do not put them back** — spec 08 §4 is amended to say so. The board's one remaining
+  action is `PoolLane`'s Assign PM, and `BoardView` holds a single `actionError` string for it
+  rather than a map keyed by case, because the pool can only be assigning one case at a time.
+- **A card's background lives in classes, never inline.** An inline `background` outranks every class
+  rule, which had left `hover:bg-(--bg-surface)` silently dead on `CaseCard` since it was written.
+  Overdue keeps its `--status-red-bg` tint through the hover; everything else lifts `--bg-base` →
+  `--bg-surface`, and the action overlay paints whichever of those the hovered card is showing.
 
 Style rules and the `@/*` alias caveat: `mem:conventions`. Commands and the fixed dev port:
 `mem:suggested_commands`.

@@ -4253,6 +4253,28 @@ whenever a third brand is seeded. Staff SSO stays deferred.
   and worth doing when a schema change is already in flight, but it is a data change to a live
   column and the app-side convention now has one home.
 
+- **Board density pass: the card is one link and the column is 240px.**
+  `CaseCard` lost its stacked `Due` / `Value` definition list for a single inline line and the chip
+  row now renders only when it has chips, which took roughly a third off the card height; the column
+  went `w-72` → `w-60` and `--board-column-max` reclaimed the 2rem of chrome the shorter column
+  header gave back. Same data on the card, more cases and more stages on a 1366-wide screen.
+  The whole card is now the click target — a `<Link>` at `absolute inset-0` with the text over it
+  `pointer-events-none`, so the quick action buttons are the only things that keep their own events.
+  Density table in `context/ui-context.md` and `mem:frontend/core` updated to match.
+  The quick actions then came off the card entirely — first to a hover overlay, then removed. The
+  card is now `card` + `mine` and nothing else: no actions, no busy state, no per-card error. Both
+  card-mounted versions spent the board's two scarcest resources, vertical room and a layout that
+  holds still under the pointer, on controls that are one click away — the transitions already live
+  on the case (`StageActions`, off the same `boardRules.actionsFor` table, so there is still only
+  one rule table) and in the draft and delivery queues, which is where somebody working a batch of
+  them is anyway. **Spec 08 §4 amended** to record that the card is read-only; its acceptance list
+  gains "a card carries no controls: clicking anywhere on it opens the case". The board keeps one
+  action, the pool's Assign PM, which is the decision this screen actually asks for; `BoardView`'s
+  `cardErrors` map collapsed to a single `actionError` rendered above the pool, since the pool can
+  only be assigning one case at a time. Fixed alongside: `CaseCard`'s inline `background` had been
+  outranking its own `hover:bg-*` class since the card was written, so the hover lift never fired;
+  the background moved into classes.
+
 - **Unit 02 latent test bug, surfaced and fixed.**
   `SecurityFlowTest.tamperedTokenIsUnauthenticated` flipped the **last** character
   of the JWT signature. base64url of a 32-byte HMAC is 43 characters, so the final

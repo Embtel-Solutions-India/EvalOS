@@ -48,7 +48,9 @@ export default function StageColumn({
   // card with a tinted wash, so "off the pipeline" reads without a second border treatment.
   return (
     <section
-      className="flex w-72 shrink-0 flex-col overflow-hidden"
+      // 15rem, not 18: narrower columns are how a fifth and sixth stage get on screen at
+      // once, and the card inside was shortened to match.
+      className="flex w-60 shrink-0 flex-col overflow-hidden"
       style={{
         background: tone === 'lane' ? 'var(--bg-raised)' : 'var(--bg-surface)',
         borderRadius: 'var(--radius-lg)',
@@ -57,7 +59,7 @@ export default function StageColumn({
     >
       <SlaRail mix={mix} count={count} label={label} />
 
-      <header className="flex items-baseline justify-between gap-2 px-4 pt-3.5 pb-2.5">
+      <header className="flex items-baseline justify-between gap-2 px-3 pt-2.5 pb-2">
         <h2 className="flex min-w-0 items-baseline gap-2 text-sm font-semibold tracking-tight">
           {step !== undefined && (
             <span className="font-mono text-xs font-normal" style={{ color: 'var(--text-muted)' }}>
@@ -88,7 +90,7 @@ export default function StageColumn({
           rail stay pinned while the cards move under them — with the strip scrolling sideways,
           that is the board's second axis. */}
       <div
-        className="scroll-slim flex min-h-20 flex-col gap-2.5 overflow-y-auto px-3 pb-3"
+        className="scroll-slim flex min-h-16 flex-col gap-2 overflow-y-auto px-2 pb-2"
         style={{ maxHeight: 'var(--board-column-max)' }}
       >
         {count === 0 ? (

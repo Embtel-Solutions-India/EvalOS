@@ -96,11 +96,11 @@
      makes the board scroll on both axes: the strip scrolls sideways, each column scrolls
      down, and the page header, filters and pool stay put instead of sliding off the top.
 
-     ponytail: 22rem is the measured chrome above the list (header + page heading + pool +
+     ponytail: 20rem is the measured chrome above the list (header + page heading + pool +
      gaps) rather than a computed one. If those grow, this drifts — the real fix is a
      viewport-height app frame where the strip is `flex-1 min-h-0`, which means AppShell
      owning the scroll for every screen. Not worth it for one board. */
-   --board-column-max: max(14rem, calc(100svh - 22rem));
+   --board-column-max: max(14rem, calc(100svh - 20rem));
 }
 
 /* Below a 15" laptop the nav gives up more width before the board does. */
