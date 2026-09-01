@@ -1,5 +1,22 @@
 # Unit 18 — Outbound webhook dispatcher + Handoff C (delivered)
 
+> # ⚠ **REMOVED (2026-09-02). Never built. This spec is history, not a plan.**
+>
+> **Two handoffs now, not three.** EvalOS emits nothing outbound at all: its integration
+> surface is inbound GHL webhooks and read-only pulls of GHL's funnels. Domain events still
+> publish in-process; the notification centre is their only consumer.
+>
+> **What survives:** the payout ledger entry on delivery, inside `deliverToClient`'s
+> transaction. That was always Unit 16's, not this one's.
+>
+> **What is genuinely lost, and is a manual step now rather than a gap to rediscover:**
+> nothing tells GHL a case was delivered, so the review sequence, the referral track and
+> the suppression-list sync are started **by hand**. The document chase and "your draft is
+> ready" likewise have no automated route to the client.
+>
+> **Invariant 14's "sends no email" stops being a pending decision** and becomes the
+> architecture — there is no outbound channel left to argue about.
+
 **Phase:** 3 — Close the loop
 **Depends on:** 04 (the domain events, published since Unit 04 to nobody), 16 (the
 payout entry that shares delivery's transaction)

@@ -4,9 +4,18 @@
 > decision that is already in the codebase, so it is written and agreed before any code
 > moves. It supersedes the Google Drive document architecture wherever the two disagree.
 >
-> **It amends two invariants** (13's storage clause and 14) and rewrites the *Raw
-> documents* row of the stack table. Those edits are made in `architecture.md` as part of
-> this unit, not left to be discovered later.
+> **⚠ CORRECTED 2026-09-02, same day.** The first draft of this spec said the Client Portal
+> was a **separate application that writes to S3**, with EvalOS read-only on `client/`. That
+> is wrong. The Client Portal is a **separate frontend whose backend is EvalOS**: the client
+> SPA calls EvalOS endpoints, and **EvalOS writes to S3**. §3's IAM split and §4's
+> "listing somebody else's tree" are corrected below. The **shared client identity** (§2) is
+> unaffected and still holds.
+>
+> **It amends invariant 14**, deletes the "No object storage" paragraph, and rewrites the
+> *Raw documents* row of the stack table. Those edits are made in `architecture.md` as
+> part of this unit, not left to be discovered later. (Invariant 13 is the audit-trail
+> invariant and is untouched — every presigned-URL issue writes a row *under* it, which is
+> §4's requirement, not an amendment to it.)
 
 **Phase:** 2 — Connect the seams
 **Depends on:** 02 (portal auth surface), 04 (case lifecycle), 10 (checklist), 14 (portal
@@ -21,11 +30,16 @@ that never arrived
 
 Two things changed at once, and they are one change.
 
-**Documents move to an S3 bucket, and the Client Portal — not EvalOS — puts them
-there.** Clients upload through a **separate Client Portal application**. That portal
-writes the objects; EvalOS **fetches and reads** them. Google Drive leaves the
+**Documents move to an S3 bucket, and EvalOS is the only thing that writes to it.**
+Clients upload through a **separate Client Portal frontend** — a different SPA, a different
+deployment — but that frontend has **no storage credential and no AWS access**. It calls
+**EvalOS's portal API**, and EvalOS streams the bytes to S3. Google Drive leaves the
 architecture completely: the API client, the service account, the dependency and the
 `drive_link` column.
+
+**S3 holds the client's uploaded documents (scans and images) and the draft PDFs**, plus
+the redacted expert profile and the expert's signed letter. It is the document store for
+everything that used to be a Drive link.
 
 **And the client is one client everywhere.** The Client Portal, EvalOS and GHL identify
 the same person by the same **Client ID and email address**. This is not a new identity
@@ -44,8 +58,47 @@ the business already controls.
 
 - **Not a re-hosting of documents inside EvalOS.** The bytes live in S3. EvalOS holds
   object keys, exactly as it held Drive links — see §7 on what invariant 14 becomes.
-- **Not a new auth surface.** The Client Portal's own sign-in is that application's
-  concern. EvalOS's portal chain (Unit 14) is untouched.
+- **Not a new auth surface.** The Client Portal frontend authenticates against EvalOS's
+  **existing** portal chain (Unit 14's `portal_access` token model, `audience = 'CLIENT'`).
+  A separate frontend is a deployment fact, not an authentication one.
+
+### The same frontend hosts the Expert Portal (confirmed 2026-09-02)
+
+**One external frontend deployment, two portals, one backend — this one.** Beside the client's
+surface it carries the **expert portal**: the expert downloads the client-approved draft, signs it
+in their own tool, and uploads the signed document back. Further expert functionality is to be
+specified later; what is settled is the deployment shape and that sign step.
+
+**This changes nothing about the auth model, which is the point of checking.** `portal_access`
+already carries an `audience` column constrained to `CLIENT` and `EXPERT` (V21), `PortalAudience`
+already maps each to its `ActorType`, and the portal filter chain already matches
+`/api/portal/**`. Two audiences on one chain was Unit 14's design and Unit 15's plan; a second
+frontend consuming it is not a new surface.
+
+**The signed upload is EvalOS's own**, under `case/{caseId}/signed/` — an expert's letter is not a
+client document and must not land under `client/`. It is the one upload EvalOS accepts, it
+streams, and Unit 15's provenance model (hash pair, attestation, `EXPERT` audit row) is untouched.
+**Unit 31 already gave it a home**: `case_document` with `kind = 'SIGNED_LETTER'`.
+
+### ⚠ CORS — a real gap, and it belongs to this unit
+
+**There is no CORS configuration anywhere in the codebase.** That was correct while every caller
+was same-origin. Two portals on a separate frontend origin are not: the browser will preflight
+every non-simple request, and with no `Access-Control-Allow-Origin` **every portal call fails
+before it reaches a filter** — including the ones that work perfectly in a curl test, which is how
+this kind of gap survives a backend-only check.
+
+It is filed here rather than in Unit 15 because it is one configuration for both portals, and
+discovering it twice is worse than deciding it once.
+
+- **Allow the portal origin explicitly, per environment.** Never `*` — the portal chain carries a
+  bearer token in a header, and a wildcard origin on a credentialed API is the mistake this note
+  exists to prevent.
+- **Scope it to `/api/portal/**`.** The staff API is same-origin and has no reason to answer a
+  cross-origin preflight.
+- **`X-Portal-Token` must be in the allowed request headers**, or the preflight passes and the
+  real request arrives unauthenticated — a 401 that looks like a token problem and is not.
+
 - **Not AI review of uploads.** Ruled out in Unit 21 and Unit 20 and still ruled out.
 
 ---
@@ -105,21 +158,28 @@ s3://<evalos-documents-bucket>/
 ├── client/{clientId}/{caseCode|inbox}/{documentId}-{filename}   ← Client Portal writes · EvalOS READS ONLY
 └── case/{caseId}/
     ├── draft/{version}-{filename}                               ← EvalOS writes
-    ├── redacted-profile/{expertId}-{generatedAt}.pdf            ← EvalOS writes (Unit 13)
     └── signed/{filename}                                        ← EvalOS writes (Unit 15, expert's upload)
 ```
 
-**Prefix ownership is the whole access-control model, and it is enforced by IAM rather
-than by convention.** EvalOS's credential is `s3:GetObject` + `s3:ListBucket` on
-`client/*` and full read/write on `case/*`. It is not a matter of EvalOS choosing not to
-write under `client/` — it must be unable to. A client's own uploaded document is
-evidence, and a system that can overwrite evidence it did not author will eventually be
-asked whether it did.
+**EvalOS is the only writer, and the prefixes are for humans rather than for IAM.**
+The correction above removes the read-only-on-`client/` split: there is no second system
+with a credential, so there is nothing for IAM to separate. The prefixes stay because they
+make a bucket listing legible and make a lifecycle rule expressible — `client/` is what a
+client sent us, `case/` is what we produced — but **the access control that matters is
+EvalOS's own scope check**, which is the same one that guards the case.
 
-**`client/` keys are the Client Portal's format and EvalOS parses only what it needs**:
-the `{clientId}` segment. EvalOS must not depend on the filename, the ordering, or any
-structure below that segment — those belong to a system on the other side of a boundary,
-and a parser that reaches further is a parser that breaks when that system is deployed.
+**That is a real reduction in defence and it should be named rather than glossed.** The
+first draft could say a client's uploaded evidence was safe from EvalOS overwriting it
+because the credential forbade it. That guarantee is gone. What replaces it: **bucket
+versioning is now non-optional** (an overwrite is recoverable), and **EvalOS never
+overwrites a `client/` key** — every upload writes a new key, and that is a code rule
+backed by a test rather than by IAM.
+
+**The Client Portal frontend holds no AWS credential.** It uploads by calling EvalOS,
+which streams to S3. A presigned **PUT** handed to the browser was considered and rejected:
+it would let the client write a key directly, which puts the key format — the thing that
+makes a document findable — in the hands of the least controlled party in the system, and
+it skips the content-type and size checks that must happen somewhere.
 
 ### Why one bucket rather than two
 
@@ -173,23 +233,21 @@ capability held in a column and mailed around; a presigned URL is a bounded one.
 improves this rather than merely relocating it, and that is worth stating because it is
 the one place the new architecture is strictly safer than the old.
 
-### Discovering what a client uploaded
+### Knowing what a client uploaded
 
-EvalOS lists `client/{clientId}/` to learn what has arrived. **Listing is a read of
-somebody else's tree**, so two rules hold:
+**EvalOS wrote it, so EvalOS knows.** The correction removes the polling problem entirely:
+an upload is an EvalOS request, so it writes the `document_checklist_item` row and the
+audit row **in the same transaction** as the object write. There is no reconciliation
+sweep, no listing of somebody else's tree, and no "arrived but unnoticed" window.
 
-1. **Poll on demand, not on a timer, in the first cut.** The Coordinator opening the
-   checklist is what triggers a list. A sweep across every open case's prefix is a
-   standing cost against a bucket EvalOS does not own, and it is not needed until somebody
-   asks why an upload took ten minutes to appear.
-2. **Reconciliation is an association, never a mutation.** EvalOS records "this object key
-   satisfies this checklist item". It does not move, rename, copy or delete the object.
+**Ordering matters and has one correct answer:** stream to S3 **first**, then commit the
+row. The other order leaves a row pointing at an object that does not exist — a broken
+link on the Coordinator's screen. This order can leave an object with no row, which is
+invisible, costs storage and is cleaned up by a lifecycle rule. **Prefer the orphan to the
+dangling pointer.**
 
-**Open question (c): notification.** On-demand listing means a document that arrives while
-nobody is looking is not noticed until somebody looks. If the Client Portal can emit an
-event on upload — a webhook into the existing inbound gateway is the natural shape, since
-that gateway already exists and is already the one door for inbound events — the
-Coordinator can be told. Until that is agreed, the checklist screen is the notification.
+**Notification is immediate and is Unit 06's existing mechanism**: the upload publishes an
+event, the Coordinator is notified. Open question (c) is closed by this correction.
 
 ---
 
@@ -223,12 +281,12 @@ scheme.
 | # | Requirement |
 |---|---|
 | **F1** | EvalOS resolves a client's documents by **Client ID**, which is GHL's contact id, shared verbatim with the Client Portal |
-| **F2** | EvalOS lists and reads objects under `client/{clientId}/` and **cannot write there** |
+| **F2** | EvalOS accepts client uploads through the portal API, **streams** them to `client/{clientId}/` under a newly generated key, and **never overwrites an existing one** |
 | **F3** | EvalOS writes its own artefacts — draft, redacted expert profile, signed letter — under `case/{caseId}/` |
 | **F4** | A staff or portal user opens any document through a **presigned GET URL valid for 5 minutes**, issued only after the case's own scope check passes |
 | **F5** | Every presigned URL issued writes an append-only audit row naming the actor and the object |
 | **F6** | The Coordinator associates an arrived object with a checklist item; the item moves to `UPLOADED`, and their review sets `APPROVED`, `MISSING` or `INCORRECT` |
-| **F7** | An object key for a Client ID EvalOS does not yet know is retained and ignored, never rejected or deleted |
+| **F7** | An upload for a client EvalOS has no case for is refused at the API, not written and orphaned — the portal token is scoped to a case, so this cannot arise silently |
 | **F8** | Where a Client ID and an email disagree about which client an object belongs to, **the Client ID decides** and the disagreement is recorded |
 | **F9** | Google Drive is absent from the codebase: no client, no config, no credential, no dependency, no column |
 
@@ -275,9 +333,12 @@ but the reversal is written down at the moment it happens, in the document that 
 with the reason. A codebase whose stated invariants and actual behaviour disagree has
 neither.
 
-### Invariant 13 — storage clause only
+### Invariant 13 — untouched, and used
 
-The clause naming Drive as the document location changes to S3. Nothing else in 13 moves.
+13 is the append-only audit invariant. Nothing in it changes. **It is what §4's
+presigned-URL audit row is written under** — "who opened which document" is a state fact
+about access, recorded through the same append-only trail as every other act, with no new
+mechanism.
 
 ### Invariant 7 — reinforced, not changed
 
@@ -377,13 +438,33 @@ third system and to the S3 key format. **V27 stands**: email is a fallback key o
 |---|---|---|---|
 | **(a)** | Retention/lifecycle policy for client documents. Drive held this and now nobody does | Nothing yet; needed before go-live | Keep indefinitely, versioned. Deleting client evidence on a guess is the worse error |
 | **(b)** | **Per-brand isolation**: `brand/{brandId}/` segment, or a bucket per brand? | **The key format — decide before building** | A `brand/` segment. Brand-scoping at the row is the standing rule and a key is the S3 equivalent of a row |
-| **(c)** | Can the Client Portal emit an upload event into the inbound webhook gateway? | Only the notification path | On-demand listing; the checklist screen is the notification |
-| **(d)** | **PDF generation.** Drive's export gave EvalOS a PDF with no library. S3 stores bytes and converts nothing | Unit 13's output format | Store the redacted profile as generated and defer PDF until somebody needs it. Adding a PDF library is a dependency decision with its own sign-off |
+| ~~**(c)**~~ | ~~Can the Client Portal emit an upload event?~~ **CLOSED by the correction** | — | EvalOS writes the object, so it publishes the event itself. No webhook, no polling |
+| **(h)** | **CORS: which origin(s), per environment?** The external frontend hosts both the client and expert portals; nothing is configured today | Every portal call from the browser | Allow the one portal origin per environment, on `/api/portal/**` only, with `X-Portal-Token` in the allowed headers. **Never `*`** |
+| ~~**(d)**~~ | ~~PDF generation~~ **CLOSED 2026-09-02 by removing Unit 13.** The redacted profile was the only thing needing conversion; with it gone, nothing in EvalOS generates a document. **The problem was removed, not solved** — no PDF library, no dependency decision | — |
 | **(e)** | Bucket name, region, and account per environment | Implementation | — |
+| **(g)** | **A12's inline draft comments.** `process-automation.md` records "comments visible inline on the draft" as satisfied by **Drive's own commenting**. **S3 has no commenting** | A12's *inline* half. The notification and the return reason are unaffected | Return comments live in EvalOS (the PM return reason already exists and is already shown); "inline on the document" has no home and must stop being recorded as covered |
 | **(f)** | Does the Client Portal already exist and write these keys, or is it also being built? | The integration contract in §3 is a **contract**, so it must be agreed by both sides before either builds to it | — |
 
-**(b), (d) and (f) should be answered before code starts.** The other three can be
-settled while it is written.
+**(b) and (f) should be answered before code starts.** (d) is closed. The others can be settled while
+it is written.
+
+### Two capabilities Drive was quietly providing
+
+Neither is a reason not to do this. Both are costs that must be paid deliberately rather
+than discovered after the credential is revoked.
+
+1. ~~**PDF conversion (d).**~~ **No longer owed.** Drive's export turned the generated
+   redacted profile into a PDF for free. Unit 13 is removed (2026-09-02) and it was the
+   only generator, so this debt was cancelled rather than repaid — a reminder that the
+   cheapest way to pay for a capability is sometimes to stop needing it.
+2. **Document commenting (g).** Drive's commenting was the *entire* mechanism behind A12's
+   "comments visible inline on the draft". S3 has no equivalent, and building one is a
+   feature, not a migration.
+
+The pattern is worth naming: **an integration is not only its API surface.** Drive was
+carrying two product behaviours nobody had written down as requirements, and both surfaced
+only by auditing what depended on it. Anything else discovered later belongs in this
+section, not in a commit message.
 
 ---
 

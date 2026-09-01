@@ -100,11 +100,23 @@ class CaseControllerTest {
 			new Route("/draft/send-to-client", Role.PROJECT_COORDINATOR, Role.CASE_MANAGER, null),
 			new Route("/draft/client-approve", Role.PROJECT_COORDINATOR, Role.CASE_MANAGER, null),
 			new Route("/draft/client-revisions", Role.PROJECT_COORDINATOR, Role.CASE_MANAGER, REASON),
-			new Route("/expert/signed", Role.PROJECT_MANAGER, Role.CASE_MANAGER, null),
-			new Route("/expert/declined", Role.EXPERT_NETWORK_MANAGER, Role.CASE_MANAGER, REASON),
-			new Route("/reassign-expert", Role.EXPERT_NETWORK_MANAGER, Role.CASE_MANAGER,
+			// **The Case Manager is the refused role on none of these as of Unit 31.** They own the
+			// signing stage — they send the letter, they get the overdue alert, and they reassign
+			// — so the three expert transitions admit them and the Coordinator is the exclusion
+			// that proves the gate is still a gate. A widening: nobody lost a capability.
+			new Route("/expert/signed", Role.PROJECT_MANAGER, Role.PROJECT_COORDINATOR, null),
+			new Route("/expert/declined", Role.EXPERT_NETWORK_MANAGER, Role.PROJECT_COORDINATOR, REASON),
+			new Route("/expert/timed-out", Role.CASE_MANAGER, Role.PROJECT_COORDINATOR, null),
+			new Route("/reassign-expert", Role.CASE_MANAGER, Role.PROJECT_COORDINATOR,
 					"{\"expertId\":\"%s\"}".formatted(SOME_ID)),
+			// The CM sends the client-approved letter to the expert, which is what starts the
+			// signing clock (Unit 31).
+			new Route("/send-to-expert", Role.CASE_MANAGER, Role.PROJECT_COORDINATOR, null),
 			new Route("/qc-approve", Role.PROJECT_MANAGER, Role.PROJECT_COORDINATOR, null),
+			// Both rulings on the signed letter belong to the same role: a PM who may pass it must
+			// be the one who can fail it, or the failure is arranged by asking somebody else and
+			// the trail loses who judged it.
+			new Route("/qc-fail", Role.PROJECT_MANAGER, Role.CASE_MANAGER, REASON),
 			new Route("/deliver", Role.PROJECT_COORDINATOR, Role.PROJECT_MANAGER, null),
 			new Route("/close", Role.PROJECT_COORDINATOR, Role.PROJECT_MANAGER, null),
 			new Route("/hold", Role.PROJECT_MANAGER, Role.CASE_MANAGER, REASON),
@@ -155,19 +167,22 @@ class CaseControllerTest {
 	void everyTransitionRouteAnswersItsDeclaredRoleAndNobodyElse() throws Exception {
 		Case result = aCase();
 		given(lifecycle.assignPm(any(), any())).willReturn(result);
-		given(lifecycle.assignCaseManager(any(), any(), any())).willReturn(result);
+		given(lifecycle.assignCaseManager(any(), any(), any(), any())).willReturn(result);
 		given(lifecycle.assignCoordinator(any(), any())).willReturn(result);
 		given(lifecycle.markDocsComplete(any())).willReturn(result);
 		given(lifecycle.submitDraft(any(), any())).willReturn(result);
-		given(lifecycle.pmApproveDraft(any())).willReturn(result);
+		given(lifecycle.pmApproveDraft(any(), any())).willReturn(result);
 		given(lifecycle.pmReturnDraft(any(), any())).willReturn(result);
 		given(lifecycle.sendDraftToClient(any())).willReturn(result);
 		given(lifecycle.clientApproveDraft(any())).willReturn(result);
 		given(lifecycle.clientRequestRevisions(any(), any())).willReturn(result);
 		given(lifecycle.expertSigned(any())).willReturn(result);
 		given(lifecycle.expertDeclined(any(), any())).willReturn(result);
-		given(lifecycle.reassignExpert(any(), any())).willReturn(result);
+		given(lifecycle.reassignExpert(any(), any(), any())).willReturn(result);
 		given(lifecycle.pmQcApprove(any())).willReturn(result);
+		given(lifecycle.pmQcFail(any(), any())).willReturn(result);
+		given(lifecycle.sendToExpert(any())).willReturn(result);
+		given(lifecycle.expertTimedOut(any())).willReturn(result);
 		given(lifecycle.deliverToClient(any())).willReturn(result);
 		given(lifecycle.confirmReceiptAndClose(any())).willReturn(result);
 		given(lifecycle.putOnHold(any(), any())).willReturn(result);

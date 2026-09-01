@@ -24,6 +24,7 @@ import {
   type BoardData,
   type QuickAction,
   type ServiceType,
+  cardsInColumn,
 } from './boardRules'
 
 /**
@@ -198,7 +199,8 @@ export default function BoardView() {
   const board = state.data
   const columns = columnsFor(me.role).map((column) => ({
     ...column,
-    cards: visible(board.stages[column.stage] ?? []),
+    // A column can hold two stages (Unit 31), so its cards are the union.
+    cards: visible(cardsInColumn(board, column.stages)),
   }))
   const lanes = EXCEPTION_LANES.map((lane) => ({
     ...lane,
@@ -343,9 +345,9 @@ export default function BoardView() {
       )}
 
       <div className="scroll-slim flex gap-3 overflow-x-auto pb-2">
-        {columns.map(({ stage, label, access, step, cards }) => (
+        {columns.map(({ stages, label, access, step, cards }) => (
           <StageColumn
-            key={stage}
+            key={stages.join('+')}
             label={label}
             step={step}
             count={cards.length}

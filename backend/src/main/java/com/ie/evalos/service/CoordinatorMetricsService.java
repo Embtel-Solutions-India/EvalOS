@@ -79,7 +79,7 @@ public class CoordinatorMetricsService {
 				documents(scoped, now),
 				clientReview(scoped, now),
 				delivered(scoped, now),
-				(int) scoped.stream().filter(c -> c.getCurrentStage() == Stage.FINAL_DELIVERY).count());
+				(int) scoped.stream().filter(c -> c.getCurrentStage() == Stage.READY_TO_DELIVER).count());
 	}
 
 	private DocumentCollection documents(List<Case> scoped, Instant now) {
@@ -106,8 +106,10 @@ public class CoordinatorMetricsService {
 		int unopened = 0;
 		int stale = 0;
 		for (Case subject : scoped) {
-			if (subject.getCurrentStage() != Stage.DRAFT_GENERATION
-					|| subject.getClientApprovalStatus() != ClientApprovalStatus.PENDING) {
+			// Unit 31: the stage IS the question now. This used to be
+			// `DRAFT_GENERATION && clientApprovalStatus == PENDING` — a stage plus a nullable
+			// column, which is exactly the two-part reading the twelve stages exist to remove.
+			if (subject.getCurrentStage() != Stage.CLIENT_REVIEW) {
 				continue;
 			}
 			awaiting++;

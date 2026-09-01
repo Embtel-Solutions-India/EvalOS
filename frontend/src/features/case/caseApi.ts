@@ -1,6 +1,5 @@
 import { api, unwrap } from '../../lib/api'
 import type { BoardCard } from '../board/boardRules'
-import type { DriveWriteView, ProfileView } from './redactionRules'
 
 /**
  * The case detail reads and its one write.
@@ -45,6 +44,15 @@ export type CaseDetail = {
   maySeeStrategyNotes: boolean
   /** The server's own answer, so the client does not re-derive the write rule. */
   mayEditStrategyNotes: boolean
+  /**
+   * Why this expert was chosen (Unit 32).
+   *
+   * **A different field from `pmStrategyNotes` and a different audience**: the ENM and the Brand
+   * Manager read this and not the notes, the Case Manager reads the notes and not this. Null when
+   * withheld and null when unwritten, which is why the flag below is stated rather than inferred.
+   */
+  expertSelectionRationale: string | null
+  maySeeExpertRationale: boolean
   /**
    * Whether the server sent `clientName`, `driveLink` and `draftLink` at all.
    *
@@ -123,27 +131,6 @@ export async function saveStrategyNotes(caseId: string, pmStrategyNotes: string)
 }
 
 /**
- * The expert profile (Unit 13). Generated on demand and stored nowhere, so these are reads
- * with no cache: the document reflects the roster row as it is now, which is the point.
- */
-export async function fetchRedactedProfile(caseId: string, signal?: AbortSignal): Promise<ProfileView> {
-  return unwrap<ProfileView>(api.get(`/cases/${caseId}/expert-profile/redacted`, { signal }))
-}
-
-/** 409 unless the case is paid — the panel shows the server's own reason. */
-export async function fetchFullProfile(caseId: string, signal?: AbortSignal): Promise<ProfileView> {
-  return unwrap<ProfileView>(api.get(`/cases/${caseId}/expert-profile/full`, { signal }))
-}
-
-/**
- * A POST because it has an outward effect: a document appears in a folder the client can be
- * pointed at, and the server audits it.
- */
-export async function fileProfileToDrive(caseId: string): Promise<DriveWriteView> {
-  return unwrap<DriveWriteView>(api.post(`/cases/${caseId}/expert-profile/redacted/to-drive`))
-}
-
-/**
  * The client portal link (Unit 14).
  *
  * `openedAt` is the token's own last-seen and **moves on every visit** — it answers "when did they
@@ -164,4 +151,21 @@ export async function fetchPortalLink(caseId: string, signal?: AbortSignal): Pro
 /** Re-minting revokes the previous link immediately, which the panel warns about first. */
 export async function mintPortalLink(caseId: string): Promise<MintedLink> {
   return unwrap<MintedLink>(api.post(`/cases/${caseId}/portal-link`))
+}
+
+/** One version on the draft history (Unit 32). */
+export type DraftVersion = {
+  id: string
+  version: number
+  status: string
+  /** Null for a client or expert upload, which have no staff row — not an error. */
+  uploadedByName: string | null
+  uploadedAt: string
+  notes: string | null
+  /** The reviewer's comment on THIS version, stamped by the transition that ruled on it. */
+  reviewComment: string | null
+}
+
+export async function fetchDraftVersions(caseId: string, signal?: AbortSignal): Promise<DraftVersion[]> {
+  return unwrap<DraftVersion[]>(api.get(`/cases/${caseId}/documents`, { params: { kind: 'DRAFT' }, signal }))
 }

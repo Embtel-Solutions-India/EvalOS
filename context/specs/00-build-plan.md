@@ -37,7 +37,7 @@ attention:
 
 | Needed | Blocks | Note |
 |---|---|---|
-| Google service account for Drive | **Unit 13's last criterion, Unit 21, and now Unit 15 too** | One credential, three units — which makes it the single most valuable thing to chase. Unit 13 has been code-complete and stuck on it |
+| ~~Google service account for Drive~~ **AWS credential + bucket for the S3 document store** | **Unit 13's last criterion, Unit 21, Unit 15** | **Unit 30 replaced the blocker rather than working around it.** One credential, three units — still the most valuable thing to chase, but it is now an AWS one the business already controls rather than a Google service account that never arrived. See `30-s3-document-store.md`; its open questions (b) key format, (d) PDF, (f) the portal contract should be answered before code starts |
 | GHL outbound contract — subscriber URL, signing secret, and *whether GHL can send a client-facing transactional message on an EvalOS event* | **Unit 18**, and the whole email decision | That last clause is the one that decides invariant 14 |
 | The real `opportunity.won` payload, signature header name, HMAC encoding | **Unit 05b's live run** — not its code | Build and unit-test 05b without it; only the end-to-end firing needs it |
 | Anthropic key **plus a decision to send case data to a third party at all** | Unit 20's AI half | A compliance call, not a technical one. The anomaly half needs neither |
@@ -83,7 +83,7 @@ interleave Track B as blockers clear**, rather than idling on a credential.
 
 | When this arrives | Build |
 |---|---|
-| Google service account | **Unit 13's last criterion**, then **Unit 21** (client document upload), then **Unit 15** (expert portal + signed-letter upload) — 15 reuses 21's upload path wholesale, so build them back to back. This chain can interrupt Track A at any point |
+| AWS credential + bucket | **Unit 30 first** (the S3 client, the key format, the presigned read), then **Unit 13's last criterion**, then **Unit 15** (expert portal + signed-letter upload). **Unit 21 changed shape**: the client upload now happens in the separate Client Portal, so what remains for EvalOS is *reading* a prefix and reconciling it against the checklist. This chain can interrupt Track A at any point |
 | GHL outbound contract | **Unit 18** (outbound dispatcher, Handoff C) — and the email-channel decision resolves here |
 | 10, 15 and 18 all done | **Unit 19** (background jobs) — genuinely last, because it is the clock behind hooks those units install. Re-read it: the advisory lock must be **session-scoped**, and the client chases are **wall-clock** while the escalation is business hours |
 | 17 done | **Unit 20's anomaly half** (no AI needed). The AI half only if the compliance decision says yes |
@@ -95,9 +95,13 @@ plan. Two things changed. First, 05b, 16 and 17 are not blocked at all, so follo
 the numbering strictly would leave them idling. Second — and this is new — **Unit 15
 stopped being blocked on its own dependency**: dropping the signature provider removed
 the account, key, template and callback secret it was waiting on, and left it needing
-only the Google service account that Units 13 and 21 already need. It is now a
-one-credential unit that shares that credential with two others, and it shares most of
-its code with Unit 21.
+only the storage credential that Units 13 and 21 already need. It is now a
+one-credential unit that shares that credential with two others.
+
+**Unit 30 changed which credential that is** — an AWS one instead of a Google service
+account — and changed what Unit 21 still owes: the upload moved to the separate Client
+Portal, so 15 no longer "reuses 21's upload path wholesale". It streams to
+`case/{caseId}/signed/` through the S3 client that Unit 30 builds.
 
 Dependencies still constrain: 16 before 17, 21 before 15, 18 before 19. Nothing here
 reorders a real dependency; it only stops the schedule being decided by whichever unit
@@ -209,14 +213,16 @@ unassigned queue for GM/BM/PM; own docket for CM).
 Depends on: 04, 07.
 
 ### Unit 09 — Case detail page
-Builds: the two-column case view — documents (Drive link) / draft / expert on
+Builds: the two-column case view — documents (S3, opened via a presigned link — Unit 30;
+was a Drive link) / draft / expert on
 the left, the timeline/audit trail on the right — with stage-action controls,
 PM strategy notes, and the draft sub-status chips (PM review / client review).
 Depends on: 04, 08.
 
 ### Unit 10 — Document checklist board + Coordinator flow
-Builds: the Coordinator's checklist board (required/uploaded/missing status
-against the Drive link), mark-docs-complete → push to PM, and the doc-collection
+Builds: the Coordinator's checklist board (required/uploaded/missing status against the
+objects under the client's own S3 prefix — Unit 30; was the Drive link),
+mark-docs-complete → push to PM, and the doc-collection
 SLA/reminder hooks. Client chase messages are emitted as domain events for GHL
 to send (no EvalOS email).
 Depends on: 04, 09.
@@ -240,11 +246,24 @@ at assignment. Suggests only; a human confirms. (AI-enhanced ranking/anomaly
 detection is Phase 3.)
 Depends on: 11, 04.
 
-### Unit 13 — Redacted CV generation
-Builds: template-based redacted profile generation (name/institution/contact
-stripped), generated on demand, with full-profile release on payment. No object
-storage — output is served on demand (or written to the case's Drive folder).
-Depends on: 11.
+### Unit 13 — Redacted CV generation — **REMOVED (2026-09-02)**
+Deleted: `RedactedProfileService`, `ExpertProfileController`, `RedactedProfilePanel`,
+`redactionRules`, the `REDACTED_PROFILE` document kind and the client portal's
+`expertProfile` / `expertReference` fields. `V33` narrows `case_document`'s kind CHECK.
+**`AuditAction.EXPORTED` is deliberately kept** — the audit trail is append-only, its rows
+can never be rewritten, and an enum that cannot read a value some historical row carries
+would fail on read. A retired audit action stays readable forever.
+
+**The client is now told nothing about the expert at all**, which is the stronger position:
+there is no redaction to get wrong and no generated document to keep anonymous. The portal
+test asserts it by putting a very identifiable name on the case and grepping the wire.
+
+**It kills Unit 30's open question (d).** Drive's export produced the PDF for free and S3
+converts nothing — but the redacted profile was the only thing that needed converting, so
+removing this unit removes the PDF problem rather than solving it.
+
+`mayMintPortalLink` moved to `client-portal/portalRules.ts` with its test. It was Unit 14's
+rule and only shared a file with this one.
 
 ### Unit 14 — Client draft-review portal
 Builds: the separate, scoped filter chain for passwordless client access (link
@@ -284,15 +303,25 @@ Depends on: 04, 11, 16.
 
 ## Phase 3 — Close the loop
 
-### Unit 18 — Outbound webhook dispatcher + Handoff C (delivered)
-Builds: the reusable outbound dispatcher (subscribes to the domain events
-published since Unit 04; subscriber registry; HMAC-signed payloads; retry with
-backoff; dead-letter; delivery log + replay) and its first live events —
-`case.delivered` → GHL's inbound automation URL to start the review + referral
-track and stamp closed value; client-notification triggers → GHL. Creates the
-payout ledger entry in the same transaction and syncs delivered/active contacts
-to GHL's suppression list.
-Depends on: 04 (domain events), 16. (Confirm GHL subscriber URL + secret first.)
+### Unit 18 — Outbound dispatcher + Handoff C — **REMOVED (2026-09-02)**
+Never built: no `webhook_delivery` table, no dispatcher, nothing to delete.
+
+**There are two handoffs now, not three.** A (GHL → EvalOS, inbound) and B (internal,
+client approval → expert). **EvalOS emits nothing outbound at all** — its integration
+surface is inbound GHL webhooks and read-only pulls of GHL's funnels. Domain events still
+publish, but in-process only, and the notification centre is their sole consumer.
+
+**What survives:** the payout ledger entry is still created on delivery, inside
+`deliverToClient`'s transaction. That was always Unit 16's.
+
+**What is genuinely lost, and must not be discovered later:** nothing tells GHL a case was
+delivered, so the review sequence, the referral track and the suppression-list sync are
+started **by hand in GHL**. And the document chase and "your draft is ready" have no
+automated route to the client — either done by hand, or they become states the client sees
+in the portal, which is a product decision still open.
+
+**Invariant 14's "sends no email" stops being a pending decision** and becomes the
+architecture: there is no outbound channel to argue about.
 
 ### Unit 19 — Background jobs consolidation
 Builds: the full `job` package backed by the `scheduled_job` **run ledger** —
@@ -304,22 +333,32 @@ Depends on: 05, 10, 15, 18.
 **Five sweeps, not six**: retention/countdown timers left this unit — GHL owns
 retention and the post-delivery review end to end.
 
-### Unit 20 — AI widgets (later)
-Builds: KPI anomaly detection (>15% vs 4-week rolling avg) and AI-enhanced expert
-suggestion layered on top of the Unit 12 rule-based shortlist. Assist-only.
-Depends on: 12, 17.
-AI review of uploaded documents is **not** here and is not deferred — it is ruled
-out; the Coordinator reviews uploads.
+### Unit 20 — AI widgets — **REMOVED (2026-09-02)**
+Never built. Removed rather than deferred, and the difference matters: a deferred unit
+invites "we were going to do this anyway", and this one will be proposed again.
+
+**Now invariant 15** in `architecture.md`: no AI makes a production decision, and there is
+no AI in the system. Verification, expert selection, drafting, review, client approval,
+reassignment and QC are human judgements. Notifications, transitions, timestamps,
+versioning, audit and dashboard arithmetic are unaffected.
+
+**Unit 12's match engine is not an exception** — four declared factors, inspectable
+arithmetic, never auto-assigns, no model. Making it "smarter" by asking something to reason
+about a case is a reversal of invariant 15 and needs writing down first.
 
 ### Unit 21 — Client document upload (A07)
-Builds: an upload control on the client portal, one file per checklist item,
-streamed straight into the case's Drive folder — so the client puts their own
-documents in and the Coordinator reviews what arrives. Reuses Unit 14's portal
-token model, Unit 13's Drive client and Unit 10's checklist statuses; adds no
-infrastructure and no new auth surface. Carries the upload trust boundary
-(content-sniffed allowlist, size cap, per-token rate limit, generated filenames,
-bytes never persisted by EvalOS).
-Depends on: 10, 13, 14.
+**⚠ Reshaped by Unit 30 and never built in its original form.** The upload no longer
+happens in EvalOS: clients upload in the **separate Client Portal**, which writes to the
+S3 document store under the client's own id. What remains for EvalOS is the *reading*
+half — list `client/{clientId}/`, let the Coordinator associate an arrived object with a
+checklist item, and review what came in. Unit 10's checklist statuses and Unit 14's
+portal token model are unchanged and still do the work.
+
+**The upload trust boundary moves with the upload** — content-sniffed allowlist, size cap,
+rate limit, generated filenames — and is now the Client Portal's to enforce. That is a
+real transfer of responsibility and must be confirmed with whoever builds that portal
+(open question (f)), not assumed because the requirement moved it off our side.
+Depends on: 10, 14, 30.
 
 ### Unit 23 — Case notes, and routing intake to the PM
 Builds: the Project Manager as the front door for incoming work — the pool lane
@@ -454,6 +493,55 @@ that endpoint tree no longer exists.
 `29-sales-desk.md` is kept as the record of a decision that was made, shipped and undone.
 Unit 27's `/sales/pipeline` — the GM's *read* of the same funnel — is untouched.
 
+### Unit 30 — S3 document store + shared client identity
+**SPECCED 2026-09-02, not built.** Replaces Google Drive with an S3 bucket for every
+document: client uploads (scans/images), draft PDFs, the redacted expert profile and the
+expert's signed letter. The **Client Portal is a separate frontend whose backend is
+EvalOS** — it holds no AWS credential and uploads by calling EvalOS's portal API, which
+streams to S3. Reads are 5-minute presigned URLs issued after the case's scope check.
+**One client across GHL, the Client Portal and EvalOS**, keyed on GHL's contact id, with
+email consistent alongside but still a fallback key only (V27). **Amends invariant 14 and
+deletes "No object storage".** Unblocks Units 13, 15 and 21, all stuck on a Google service
+account that never arrived. Two capabilities Drive was quietly providing must be repaid:
+PDF conversion, and A12's inline draft comments.
+See `30-s3-document-store.md`. Open before code: (b) per-brand key format, (d) PDF, (f) the
+portal contract.
+Depends on: 02, 04, 10, 14.
+
+### Unit 31 — Production lifecycle v2 (twelve stages, one owner each; eight board columns)
+**SPECCED 2026-09-02, not built. All six of its open questions are answered.** The
+five-stage pipeline with sub-status chips becomes **twelve explicit stages**, each with one
+owner, one primary action, one event and one next owner — drawn as **eight board columns**,
+since two stages share one only where they share an owner. Adds the two transitions the workflow needs and the state machine lacks: **`qc-fail`**
+(a failed final QC currently has nowhere to go) and **`send-to-expert`** (which is what
+should start the 24-hour signing SLA — today it runs from stage entry, so an expert sent
+the letter late is charged for the delay). Adds a `case_document` version history; a draft
+may not be submitted without a file and no version is ever overwritten. **Manual by
+decision — no AI in any production decision.**
+**Reverses spec 08's derived-grouping decision**, and says why: a chip states what state
+work is in, not whose turn it is.
+See `31-production-lifecycle-v2.md`. **Amends 04, 08, 09, 10, 14, 15, 17, 22** — it is a
+state-machine change and the blast radius is wide.
+Depends on: 04, 30.
+
+### Unit 32 — PM notes panel + draft status board
+**SPECCED 2026-09-02, not built.** Small — both surfaces exist in part and neither needs a new
+subsystem. Two gaps: the PM's **expert selection rationale** becomes its own column (different
+lifetime from case strategy — it is rewritten per expert and Unit 31 made reassignment a normal
+path; different audience — the ENM reads it and the CM does not; and it is the evidence for "why
+this expert" that gets asked for after something goes wrong), and the PM's return comment is
+**stamped on the draft version** (`case_document.review_comment`) instead of living only in the
+audit trail. Angle and key points stay one field: they are one act of writing.
+
+**Closes A12 in the sense EvalOS can.** Comments *per version* — yes. Comments *positioned inside
+the document* — no; that was Drive's feature and needs a viewer, not a migration. The register now
+says "partly" with the distinction written out.
+
+**Do not join a comment to a version by timestamp.** Two rapid review rounds would attach the wrong
+comment to the wrong version, silently and plausibly. The transition writes the column.
+See `32-pm-notes-and-draft-status.md`.
+Depends on: 09, 22, 23, 31.
+
 ### Unit 25 — GHL OAuth connection (per brand)
 Builds: the GM connects a brand to a GHL sub-account from inside EvalOS, replacing
 Unit 24's hand-pasted Private Integration Token. A brand-scoped `ghl_connection`
@@ -491,13 +579,16 @@ Depends on: 02, 24.
   over EvalOS rows*, and treat a new unscoped query over EvalOS rows as the defect it still is.
   **25a's re-scoping sweep covers these three.** It briefly covered a fourth, Unit 29's sales
   board, which has been removed along with the `SALES_EXECUTIVE` role that worked it.
-- **No object storage, no mail server.** Documents are Drive links and file ids —
-  including the signed letter, which the expert uploads into the case's Drive folder;
-  staff alerts are in-app (Unit 06); clients are reached through GHL and experts
-  through a scoped portal link. Two refinements: EvalOS **accepts** files (Units 21
-  and 15) and streams them to Drive without storing any, and whether it ever sends
-  mail itself is an **open decision** — see `context/process-automation.md`. Until it
-  is taken, no mail dependency.
+- **Object storage as of Unit 30, and EvalOS still hosts nothing in it.** Documents are
+  **S3 object keys**, read through 5-minute presigned URLs. Client documents are written by
+  the **separate Client Portal** under `client/{clientId}/` — EvalOS's credential is
+  read-only there — and EvalOS's own artefacts live under `case/{caseId}/`. The line here
+  used to say "no object storage": that half is now false and the half that matters,
+  **EvalOS stores no bytes**, is unchanged and still a test. The one upload EvalOS still
+  accepts is the expert's signed letter (Unit 15), which **streams**. Staff alerts are
+  in-app (Unit 06); clients are reached through GHL and experts through a scoped portal
+  link. **No mail server** — whether EvalOS ever sends mail is still an **open decision**
+  (`context/process-automation.md`); until it is taken, no mail dependency.
 - **Webhook subsystem spans units**: inbound gateway built once in Unit 05 and
   **stays single-source (GHL)**; outbound dispatcher built once in Unit 18
   and delivers domain events published from Unit 04 onward.

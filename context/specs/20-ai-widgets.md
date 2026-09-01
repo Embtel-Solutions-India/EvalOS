@@ -1,5 +1,19 @@
 # Unit 20 — AI widgets (later)
 
+> # ⚠ **REMOVED (2026-09-02). Never built. Now invariant 15.**
+>
+> Removed rather than deferred, and the difference is the point: a deferred unit invites
+> "we were going to do this anyway", and this is the proposal most likely to come back
+> wearing a helpful hat.
+>
+> **`architecture.md` invariant 15:** no AI makes a production decision, and there is no AI
+> in the system. Document verification, expert selection, drafting, draft review, client
+> approval, expert reassignment and quality control are human judgements. Notifications,
+> transitions, timestamps, versioning, audit and dashboard arithmetic are unaffected.
+>
+> **Unit 12's match engine is not an exception**: four declared factors, inspectable
+> arithmetic, never auto-assigns, no model.
+
 **Phase:** 3 — Close the loop — final unit
 **Depends on:** 12 (the rule-based shortlist this layers over), 17 (the metrics the
 anomaly check reads)

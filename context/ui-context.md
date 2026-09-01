@@ -295,9 +295,21 @@ written triggers in `context/specs/22-role-operations-ui.md`.
   Draft / Report column shows draft sub-status chips (Draft in progress · PM
   review · Client review). Cards show client, service type, deadline (RAG), owner.
 
-  The business's eight-column reading (splitting Draft into three and Signing into
-  Signing + QC) is a **derived grouping of these five plus the chips**, not new
-  columns to add to the enum — see `context/specs/08-production-board.md`.
+  **⚠ Unit 31 reverses this (SPECCED 2026-09-02, not built).** The derived-grouping
+  decision — that splitting Draft into three and Signing into Signing + QC is a *reading*
+  of five stages plus chips, not new stages — was right for a board and wrong for a
+  workflow. A chip says what state work is in; it does not say **whose turn it is**, and
+  `DRAFT_GENERATION` is currently the CM's stage *and* the PM's review *and* the client's
+  review, told apart only by two nullable columns a reader must combine correctly.
+
+  Unit 31 makes them **twelve stages, one owner each**, and every card states its
+  **current owner and next action** as fact rather than derivation. **The board draws
+  EIGHT columns, not twelve** — at 50–100 cases/brand/month, twelve is twelve narrow strips
+  at 1366px. Two stages share a column **only where they share an owner** (Ready to
+  Send + Client Review are the Coordinator's; Client Approval + Expert Signing are the CM's),
+  so a column still answers "whose turn is it" and the chip says only what is next — the
+  opposite of the old arrangement, where one column held three owners. Delivered and Closed
+  are a filter. See `context/specs/31-production-lifecycle-v2.md` §10.
 
   **The board scrolls on both axes, and each axis has one owner.** The column strip
   scrolls horizontally; each column's card list scrolls vertically inside a height
@@ -363,7 +375,8 @@ written triggers in `context/specs/22-role-operations-ui.md`.
   Because `components/ui/dialog.tsx` is a protected path, the footer's Save reaches the
   body's form through a plain HTML `form="expert-profile-form"` rather than a new prop
   on `SheetContent`.
-- **Case detail**: two-column — left is documents (Drive link) + draft + expert,
+- **Case detail**: two-column — left is documents (S3, opened via a short-lived
+  presigned link) + draft + expert,
   right is **Notes & timeline**. Stage actions sit in a sticky header.
   - **Notes and history are one panel, not two tabs** (Unit 23). A note is almost always
     *about* the transition beside it, so splitting them puts the sentence on one screen

@@ -69,7 +69,7 @@ class ExpertMatchServiceTest {
 
 	@BeforeEach
 	void aCaseAwaitingAnExpert() {
-		Case subject = new Case(BRAND, "IE-2026-0001", Stage.EXPERT_ASSIGNMENT);
+		Case subject = new Case(BRAND, "IE-2026-0001", Stage.PM_REVIEW);
 		subject.setServiceType(ServiceType.EXPERT_OPINION_LETTER);
 		given(cases.read(CASE_ID)).willReturn(subject);
 		// No offer history and no load unless a test says otherwise.

@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom'
-import type { BoardCard, SlaStatus } from './boardRules'
+import { STAGE_NEXT_ACTION, STAGE_OWNER, type BoardCard, type SlaStatus } from './boardRules'
+import { ROLE_LABELS } from '../../lib/session'
 import { formatMoney } from '../../lib/money'
 
 /**
@@ -35,7 +36,7 @@ const SLA_TOKEN: Record<SlaStatus, { fg: string; bg: string; label: string }> = 
 
 /** The draft sub-status `ui-context.md` asks the Draft / Report column to show. */
 function draftChip(card: BoardCard): string | null {
-  if (card.currentStage !== 'DRAFT_GENERATION') return null
+  if (card.currentStage !== 'DRAFT_IN_PROGRESS') return null
   if (card.clientApprovalStatus === 'PENDING') return 'Client review'
   if (card.clientApprovalStatus === 'REVISION_REQUESTED') return 'Revisions asked'
   if (card.pmApprovalStatus === 'PENDING') return 'PM review'
@@ -65,6 +66,8 @@ export default function CaseCard({
   // The column is now a white card, so a white card inside it would disappear: the rest state
   // is the tinted canvas colour, lifting to white on hover. Only OVERDUE tints with a status
   // colour — at-risk gets a badge, not a whole coloured card.
+  const owner = STAGE_OWNER[card.currentStage]
+
   return (
     <article
       // Background in classes, not inline: an inline `background` outranks every class rule,
@@ -121,6 +124,26 @@ export default function CaseCard({
         </span>
         {/* Null for every role the server does not project it to, so absent means not allowed. */}
         {card.dealValue !== null && <span className="font-medium">{formatMoney(card.dealValue)}</span>}
+      </p>
+
+      {/*
+        **Who has it, and what they must do.** This is the point of Unit 31: before it, the owner
+        had to be inferred from a stage plus two nullable sub-status columns, and the inference was
+        wrong whenever they disagreed. It is a fact of the stage now, read from one table.
+
+        Two lines, not four. The workflow also asked for "last event" and "last updated" on the
+        card; both are on the case page, and the board's scarcest resource at 1366px is vertical
+        room — the density pass shortened this card deliberately.
+      */}
+      <p
+        className="pointer-events-none relative mt-1 truncate text-[11px]"
+        style={{ color: 'var(--text-muted)' }}
+      >
+        <span className="font-medium" style={{ color: 'var(--text-primary)' }}>
+          {owner ? ROLE_LABELS[owner] : 'Nobody'}
+        </span>
+        {' · '}
+        {STAGE_NEXT_ACTION[card.currentStage]}
       </p>
 
       {/* Only drawn when there is something to draw — an always-present row cost every card

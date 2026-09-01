@@ -52,8 +52,11 @@ public class PortalCaseService {
 	 * @param awaitingAnswer  whether the two actions are live. Stated by the server rather than
 	 *                        derived from {@code approvalStatus} in the client, because the
 	 *                        transition's own guard is the authority on it
-	 * @param expertProfile   the redacted profile (Unit 13), anonymous by construction. Null when
-	 *                        no expert is assigned yet
+	 * <p><strong>The client is told nothing about the expert (Unit 13 removed, 2026-09-02).</strong>
+	 * This payload used to carry a redacted profile — credentials with the name, institution and
+	 * contact details stripped. Withholding the expert's identity entirely is the stronger position
+	 * and it is now the only one: there is no redaction to get wrong, and no generated document to
+	 * keep anonymous.
 	 */
 	public record ClientDraftView(
 			String clientName,
@@ -62,23 +65,19 @@ public class PortalCaseService {
 			String draftLink,
 			int draftVersion,
 			ClientApprovalStatus approvalStatus,
-			boolean awaitingAnswer,
-			String expertProfile,
-			String expertReference) {
+			boolean awaitingAnswer) {
 	}
 
 	private final CaseRepository cases;
 	private final ContactSnapshotRepository contacts;
 	private final ExpertRepository experts;
-	private final RedactedProfileService profiles;
 	private final CaseLifecycleService lifecycle;
 
 	PortalCaseService(CaseRepository cases, ContactSnapshotRepository contacts, ExpertRepository experts,
-			RedactedProfileService profiles, CaseLifecycleService lifecycle) {
+			CaseLifecycleService lifecycle) {
 		this.cases = cases;
 		this.contacts = contacts;
 		this.experts = experts;
-		this.profiles = profiles;
 		this.lifecycle = lifecycle;
 	}
 
@@ -114,10 +113,6 @@ public class PortalCaseService {
 				.map(ContactSnapshot::getFullName)
 				.orElse(null);
 
-		Optional<RedactedProfileService.Profile> profile = Optional.ofNullable(subject.getExpertId())
-				.flatMap(experts::findById)
-				.map(expert -> profiles.redactedFor(subject, expert));
-
 		return new ClientDraftView(
 				clientName,
 				subject.getServiceType(),
@@ -125,9 +120,7 @@ public class PortalCaseService {
 				subject.getDraftLink(),
 				subject.getDraftVersionCount(),
 				subject.getClientApprovalStatus(),
-				subject.getClientApprovalStatus() == ClientApprovalStatus.PENDING,
-				profile.map(RedactedProfileService.Profile::html).orElse(null),
-				profile.map(RedactedProfileService.Profile::reference).orElse(null));
+				subject.getClientApprovalStatus() == ClientApprovalStatus.PENDING);
 	}
 
 	/**

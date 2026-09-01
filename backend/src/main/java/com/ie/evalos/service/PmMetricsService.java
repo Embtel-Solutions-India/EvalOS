@@ -170,7 +170,11 @@ public class PmMetricsService {
 	 */
 	private int atRiskNow(List<Case> scoped, Instant now) {
 		return (int) scoped.stream()
-				.filter(subject -> subject.getCurrentStage() != Stage.FINAL_DELIVERY
+				// Past QC the letter is finished and only needs sending, so it is not "at risk"
+				// in the sense this figure means. Unit 31 split that one stage into three, and all
+				// three are past the point where a deadline can still be missed by production.
+				.filter(subject -> subject.getCurrentStage() != Stage.READY_TO_DELIVER
+						&& subject.getCurrentStage() != Stage.DELIVERED
 						&& subject.getCurrentStage() != Stage.CLOSED)
 				.map(subject -> deadlines.riskOf(subject, now))
 				.filter(risk -> risk == DeadlineRisk.OVERDUE || risk == DeadlineRisk.AT_RISK)

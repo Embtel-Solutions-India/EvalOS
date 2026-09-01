@@ -13,6 +13,8 @@ import com.ie.evalos.domain.ExceptionState;
 import com.ie.evalos.domain.ExpertSignStatus;
 import com.ie.evalos.domain.PmApprovalStatus;
 import com.ie.evalos.domain.PoolStatus;
+import com.ie.evalos.domain.CaseDocument;
+import com.ie.evalos.domain.DocumentKind;
 import com.ie.evalos.domain.Role;
 import com.ie.evalos.domain.ServiceType;
 import com.ie.evalos.domain.SlaStatus;
@@ -144,7 +146,8 @@ public class CaseController {
 	public record AssignPmRequest(@NotNull UUID pmId) {
 	}
 
-	public record AssignCmRequest(@NotNull UUID cmId, @NotNull UUID expertId) {
+	/** @param expertRationale why this expert (Unit 32). Optional — see the service for why. */
+	public record AssignCmRequest(@NotNull UUID cmId, @NotNull UUID expertId, String expertRationale) {
 	}
 
 	public record AssignCoordinatorRequest(@NotNull UUID coordinatorId) {
@@ -169,6 +172,23 @@ public class CaseController {
 	 * argued, while a Case Manager sees the reverse.
 	 */
 	private static final Set<Role> SEES_STRATEGY_NOTES = Set.of(Role.GM, Role.PROJECT_MANAGER, Role.CASE_MANAGER);
+
+	/**
+	 * Who reads why an expert was chosen (Unit 32).
+	 *
+	 * <p><strong>A different set from {@link #SEES_STRATEGY_NOTES}, and deliberately so — this is
+	 * the reason the rationale is its own column.</strong> The two swap a role each way. The
+	 * **Case Manager is out**: strategy notes are their instructions, while why one expert was
+	 * preferred over another is not guidance for writing a draft. The **ENM is in**: the roster is
+	 * theirs and they are the ones asked to explain a choice. And the **Brand Manager is in** where
+	 * they are absent from strategy notes, because this is an oversight fact about a decision
+	 * rather than production guidance about a letter.
+	 *
+	 * <p>Neither the client nor the expert, on any surface. An expert reading why they were
+	 * preferred over a named colleague is a conversation nobody wants to have.
+	 */
+	private static final Set<Role> SEES_EXPERT_RATIONALE = Set.of(
+			Role.GM, Role.BRAND_MANAGER, Role.PROJECT_MANAGER, Role.EXPERT_NETWORK_MANAGER);
 
 	/**
 	 * The case as the detail page reads it: everything in the summary, plus the joined context
@@ -215,12 +235,17 @@ public class CaseController {
 			 * contact, and the UI renders that as "Unnamed contact". Without this flag a withheld
 			 * client would be drawn as a claim about the client that is not true.
 			 */
-			boolean maySeeCaseContent) {
+			boolean maySeeCaseContent,
+			/** Why this expert was chosen (Unit 32). Null for every role outside SEES_EXPERT_RATIONALE. */
+			String expertSelectionRationale,
+			/** Stated rather than inferred, for the reason {@link #maySeeStrategyNotes} gives. */
+			boolean maySeeExpertRationale) {
 
 		static CaseDetail of(CaseDetailService.CaseWithContext context, TenantContext ctx) {
 			Case subject = context.subject();
 			boolean seesNotes = SEES_STRATEGY_NOTES.contains(ctx.role());
 			boolean seesContent = seesCaseContent(ctx.role());
+			boolean seesRationale = SEES_EXPERT_RATIONALE.contains(ctx.role());
 			return new CaseDetail(
 					// CaseSummary carries no client identity of its own — checked, not assumed.
 					CaseSummary.of(subject, ctx),
@@ -236,14 +261,17 @@ public class CaseController {
 					seesNotes ? subject.getPmStrategyNotes() : null,
 					seesNotes,
 					MAY_EDIT_STRATEGY_NOTES.contains(ctx.role()),
-					seesContent);
+					seesContent,
+					seesRationale ? subject.getExpertSelectionRationale() : null,
+					seesRationale);
 		}
 	}
 
 	/** The PM owns the notes; the GM is a superuser here as on every other write. */
 	private static final Set<Role> MAY_EDIT_STRATEGY_NOTES = Set.of(Role.GM, Role.PROJECT_MANAGER);
 
-	public record ExpertRequest(@NotNull UUID expertId) {
+	/** @param expertRationale why the replacement (Unit 32). Optional; null leaves the previous text. */
+	public record ExpertRequest(@NotNull UUID expertId, String expertRationale) {
 	}
 
 	/** Return comments, hold reasons, decline reasons, revision notes — all free text. */
@@ -393,6 +421,39 @@ public class CaseController {
 	 * {@code CaseRepository.SCOPE} sets {@code unteamedVisible} — the two changes are one
 	 * decision and neither works alone.
 	 */
+	/**
+	 * One kind's version history for a case, newest first (Unit 32).
+	 *
+	 * <p><strong>No {@code @PreAuthorize}, like every other read here</strong> — the gate is the
+	 * scoped load inside the service, so a caller who cannot read the case gets nothing rather
+	 * than a 403 that confirms it exists.
+	 *
+	 * <p>The review comment rides on the version rather than being looked up beside it: it is
+	 * written by the transition that ruled on that version, so there is no matching to get wrong.
+	 */
+	@GetMapping("/{id}/documents")
+	public ApiResponse<List<DocumentVersion>> documents(@PathVariable UUID id,
+			@RequestParam(defaultValue = "DRAFT") DocumentKind kind) {
+		return ApiResponse.ok(lifecycle.versionsOf(id, kind).stream().map(DocumentVersion::of).toList());
+	}
+
+	/**
+	 * One version on the case's history.
+	 *
+	 * @param uploadedByName resolved server-side. The id alone would make the client join against a
+	 *                       roster endpoint it may not be allowed to read.
+	 */
+	public record DocumentVersion(UUID id, int version, String status, String uploadedByName,
+			Instant uploadedAt, String notes, String reviewComment) {
+
+		static DocumentVersion of(CaseLifecycleService.Version version) {
+			CaseDocument document = version.document();
+			return new DocumentVersion(document.getId(), document.getVersion(), document.getStatus().name(),
+					version.uploadedByName(), document.getUploadedAt(), document.getNotes(),
+					document.getReviewComment());
+		}
+	}
+
 	@PostMapping("/{id}/assign-pm")
 	@PreAuthorize(GM_OR + "hasAnyRole('BRAND_MANAGER', 'PROJECT_MANAGER')")
 	public ApiResponse<CaseSummary> assignPm(@PathVariable UUID id, @Valid @RequestBody AssignPmRequest request) {
@@ -402,7 +463,7 @@ public class CaseController {
 	@PostMapping("/{id}/assign-cm")
 	@PreAuthorize(GM_OR + "hasRole('PROJECT_MANAGER')")
 	public ApiResponse<CaseSummary> assignCm(@PathVariable UUID id, @Valid @RequestBody AssignCmRequest request) {
-		return summary(lifecycle.assignCaseManager(id, request.cmId(), request.expertId()));
+		return summary(lifecycle.assignCaseManager(id, request.cmId(), request.expertId(), request.expertRationale()));
 	}
 
 	/**
@@ -462,8 +523,16 @@ public class CaseController {
 	 */
 	@PostMapping("/{id}/draft/pm-approve")
 	@PreAuthorize("hasRole('PROJECT_MANAGER')")
-	public ApiResponse<CaseSummary> pmApproveDraft(@PathVariable UUID id) {
-		return summary(lifecycle.pmApproveDraft(id));
+	/**
+	 * @param request optional, and optional is the decision. A rejection a Case Manager cannot act
+	 *                on is one they will have to ask about, so `pm-return` requires its reason; an
+	 *                approval is actionable on its own, and a required comment there would collect
+	 *                a column full of "ok". An absent body is legal and is how every caller before
+	 *                Unit 32 sent this.
+	 */
+	public ApiResponse<CaseSummary> pmApproveDraft(@PathVariable UUID id,
+			@RequestBody(required = false) ReasonRequest request) {
+		return summary(lifecycle.pmApproveDraft(id, request == null ? null : request.reason()));
 	}
 
 	/** The other half of draft review, and GM-excluded for the same reason. */
@@ -498,14 +567,16 @@ public class CaseController {
 
 	/** Staff-recorded stand-in for the Dropbox Sign callback (Unit 15). */
 	@PostMapping("/{id}/expert/signed")
-	@PreAuthorize(GM_OR + "hasAnyRole('PROJECT_MANAGER', 'EXPERT_NETWORK_MANAGER')")
+	// CASE_MANAGER added in Unit 31: the CM owns the signing stage, so recording its outcome is
+	// theirs. A widening — nobody who could record this before has lost it.
+	@PreAuthorize(GM_OR + "hasAnyRole('PROJECT_MANAGER', 'EXPERT_NETWORK_MANAGER', 'CASE_MANAGER')")
 	public ApiResponse<CaseSummary> expertSigned(@PathVariable UUID id) {
 		return summary(lifecycle.expertSigned(id));
 	}
 
 	/** Staff-recorded stand-in for the Dropbox Sign decline callback (Unit 15). */
 	@PostMapping("/{id}/expert/declined")
-	@PreAuthorize(GM_OR + "hasAnyRole('PROJECT_MANAGER', 'EXPERT_NETWORK_MANAGER')")
+	@PreAuthorize(GM_OR + "hasAnyRole('PROJECT_MANAGER', 'EXPERT_NETWORK_MANAGER', 'CASE_MANAGER')")
 	public ApiResponse<CaseSummary> expertDeclined(@PathVariable UUID id,
 			@Valid @RequestBody ReasonRequest request) {
 		return summary(lifecycle.expertDeclined(id, request.reason()));
@@ -523,15 +594,44 @@ public class CaseController {
 	 * guess at what the expert was thinking into the audit trail.
 	 */
 	@PostMapping("/{id}/expert/timed-out")
-	@PreAuthorize(GM_OR + "hasAnyRole('BRAND_MANAGER', 'PROJECT_MANAGER')")
+	// CASE_MANAGER added in Unit 31, and this one is the correction that matters: the CM is who
+	// the 20h/24h alerts go to, and the role that receives an alert must be able to act on it.
+	@PreAuthorize(GM_OR + "hasAnyRole('BRAND_MANAGER', 'PROJECT_MANAGER', 'CASE_MANAGER')")
 	public ApiResponse<CaseSummary> expertTimedOut(@PathVariable UUID id) {
 		return summary(lifecycle.expertTimedOut(id));
 	}
 
 	@PostMapping("/{id}/reassign-expert")
-	@PreAuthorize(GM_OR + "hasAnyRole('PROJECT_MANAGER', 'EXPERT_NETWORK_MANAGER')")
+	// CASE_MANAGER added in Unit 31: the CM acts on a timeout and the ENM is notified and supports.
+	@PreAuthorize(GM_OR + "hasAnyRole('PROJECT_MANAGER', 'EXPERT_NETWORK_MANAGER', 'CASE_MANAGER')")
 	public ApiResponse<CaseSummary> reassignExpert(@PathVariable UUID id, @Valid @RequestBody ExpertRequest request) {
-		return summary(lifecycle.reassignExpert(id, request.expertId()));
+		return summary(lifecycle.reassignExpert(id, request.expertId(), request.expertRationale()));
+	}
+
+	/**
+	 * The failed half of final QC (Unit 31), gated exactly like its approving twin.
+	 *
+	 * <p>Both rulings on the same artefact belong to the same role: a PM who may pass a signed
+	 * letter must be the one who can fail it, or the failure has to be arranged by asking somebody
+	 * else and the trail loses who actually judged it.
+	 */
+	@PostMapping("/{id}/qc-fail")
+	@PreAuthorize(GM_OR + "hasRole('PROJECT_MANAGER')")
+	public ApiResponse<CaseSummary> qcFail(@PathVariable UUID id, @Valid @RequestBody ReasonRequest request) {
+		return summary(lifecycle.pmQcFail(id, request.reason()));
+	}
+
+	/**
+	 * The Case Manager sends the client-approved letter to the expert (Unit 31).
+	 *
+	 * <p><strong>The CM, because they own the signing stage</strong> — they send it, they get the
+	 * overdue alert, and they reassign. A role that receives an alert it cannot act on is the
+	 * shape of gate this unit exists to correct.
+	 */
+	@PostMapping("/{id}/send-to-expert")
+	@PreAuthorize(GM_OR + "hasAnyRole('PROJECT_MANAGER', 'CASE_MANAGER')")
+	public ApiResponse<CaseSummary> sendToExpert(@PathVariable UUID id) {
+		return summary(lifecycle.sendToExpert(id));
 	}
 
 	@PostMapping("/{id}/qc-approve")

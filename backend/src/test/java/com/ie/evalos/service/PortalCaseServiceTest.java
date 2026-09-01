@@ -47,12 +47,11 @@ class PortalCaseServiceTest {
 	private final CaseRepository cases = mock(CaseRepository.class);
 	private final ContactSnapshotRepository contacts = mock(ContactSnapshotRepository.class);
 	private final ExpertRepository experts = mock(ExpertRepository.class);
-	private final RedactedProfileService profiles = mock(RedactedProfileService.class);
 	private final CaseLifecycleService lifecycle = mock(CaseLifecycleService.class);
 	private final ObjectMapper objectMapper = new ObjectMapper();
 
 	private final PortalCaseService portal = new PortalCaseService(
-			cases, contacts, experts, profiles, lifecycle);
+			cases, contacts, experts, lifecycle);
 
 	private Case subject;
 
@@ -62,7 +61,7 @@ class PortalCaseServiceTest {
 
 	@BeforeEach
 	void aCaseWithADraftWithTheClient() {
-		subject = new Case(BRAND, "IE-2026-0001", Stage.DRAFT_GENERATION);
+		subject = new Case(BRAND, "IE-2026-0001", Stage.DRAFT_IN_PROGRESS);
 		subject.setServiceType(ServiceType.EXPERT_OPINION_LETTER);
 		subject.setDraftLink("https://docs.google.com/document/d/draft/edit");
 		subject.setDraftVersionCount(2);
@@ -93,8 +92,6 @@ class PortalCaseServiceTest {
 		subject.setExpertId(expertId);
 		Expert expert = new Expert(BRAND, "Dr Ada Lovelace");
 		given(experts.findById(expertId)).willReturn(Optional.of(expert));
-		given(profiles.redactedFor(subject, expert)).willReturn(
-				new RedactedProfileService.Profile("<html>credentials only</html>", "Expert AK"));
 	}
 
 	private String serialized(PortalCaseService.ClientDraftView view) {
@@ -107,7 +104,7 @@ class PortalCaseServiceTest {
 	}
 
 	@Test
-	void theClientSeesTheirOwnDraftAndTheAnonymousProfile() {
+	void theClientSeesTheirOwnDraftAndNothingAboutTheExpert() {
 		withAnAssignedExpert();
 
 		PortalCaseService.ClientDraftView view = portal.clientView(tokenFor(BRAND, CASE_ID));
@@ -119,8 +116,6 @@ class PortalCaseServiceTest {
 		assertThat(view.draftVersion()).isEqualTo(2);
 		assertThat(view.approvalStatus()).isEqualTo(ClientApprovalStatus.PENDING);
 		assertThat(view.awaitingAnswer()).isTrue();
-		assertThat(view.expertReference()).isEqualTo("Expert AK");
-		assertThat(view.expertProfile()).doesNotContain("Ada Lovelace");
 	}
 
 	/** The criterion, as a grep over the wire format. */
@@ -141,7 +136,7 @@ class PortalCaseServiceTest {
 		assertThat(PortalCaseService.ClientDraftView.class.getRecordComponents())
 				.extracting(java.lang.reflect.RecordComponent::getName)
 				.containsExactly("clientName", "serviceType", "caseReference", "draftLink", "draftVersion",
-						"approvalStatus", "awaitingAnswer", "expertProfile", "expertReference");
+						"approvalStatus", "awaitingAnswer");
 	}
 
 	/**
@@ -160,13 +155,23 @@ class PortalCaseServiceTest {
 		assertThat(serialized(view)).doesNotContain("client-documents");
 	}
 
-	/** No expert yet is a missing profile, not a failed read. */
+	/**
+	 * <strong>The client is told nothing about the expert at all (Unit 13 removed).</strong>
+	 *
+	 * <p>This payload used to carry a redacted profile, and the test above asserted the redaction
+	 * held. Withholding identity entirely is the stronger position, and this is the assertion that
+	 * keeps it: an expert with a very identifiable name is on the case, and no part of them reaches
+	 * the wire.
+	 */
 	@Test
-	void aCaseWithNoExpertHasNoProfile() {
+	void nothingAboutTheExpertReachesTheClient() {
+		withAnAssignedExpert();
+
 		PortalCaseService.ClientDraftView view = portal.clientView(tokenFor(BRAND, CASE_ID));
 
-		assertThat(view.expertProfile()).isNull();
-		assertThat(view.expertReference()).isNull();
+		assertThat(serialized(view))
+				.doesNotContain("Ada Lovelace")
+				.doesNotContain("expert");
 	}
 
 	/**

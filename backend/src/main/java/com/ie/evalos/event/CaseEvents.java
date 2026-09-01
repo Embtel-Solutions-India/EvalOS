@@ -86,6 +86,10 @@ public final class CaseEvents {
 		 */
 		EXPERT_TIMED_OUT("expert.timed_out"),
 		QC_APPROVED("qc.approved"),
+		/** The PM rejected the signed letter (Unit 31). Sends the case back to the CM. */
+		QC_FAILED("qc.failed"),
+		/** The CM sent the client-approved letter to the expert (Unit 31). Starts the signing SLA. */
+		EXPERT_SENT_FOR_SIGNING("expert.sent_for_signing"),
 		CASE_DELIVERED("case.delivered"),
 		CASE_CLOSED("case.closed"),
 		CASE_ON_HOLD("case.on_hold"),

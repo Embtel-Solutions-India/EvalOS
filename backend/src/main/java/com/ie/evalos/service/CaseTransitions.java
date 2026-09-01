@@ -50,6 +50,25 @@ public final class CaseTransitions {
 		EXPERT_TIMED_OUT(CaseEvents.Type.EXPERT_TIMED_OUT, AuditAction.UPDATED),
 		REASSIGN_EXPERT(CaseEvents.Type.EXPERT_ASSIGNED, AuditAction.ASSIGNED),
 		PM_QC_APPROVE(CaseEvents.Type.QC_APPROVED, AuditAction.STAGE_CHANGED),
+		/**
+		 * The counterpart {@code PM_QC_APPROVE} never had (Unit 31).
+		 *
+		 * <p>Before this, a failed final QC had nowhere to go: the table declared approval and
+		 * nothing else, so a signed letter the PM judged unacceptable was handled by conversation
+		 * and the case sat in QC. This is the transition that catches a bad letter before a client
+		 * sees it, which makes it the most valuable one in the table.
+		 */
+		PM_QC_FAIL(CaseEvents.Type.QC_FAILED, AuditAction.STAGE_CHANGED),
+		/**
+		 * The Case Manager sends the client-approved letter to the expert (Unit 31).
+		 *
+		 * <p><strong>This is what starts the signing SLA</strong>, and before it existed nobody
+		 * sent anything: the case entered {@code EXPERT_SIGNING} automatically on client approval,
+		 * so the 24-hour clock ran from the approval and an expert sent the letter two hours later
+		 * was charged for those two hours. Making the send the transition fixes it with no column:
+		 * {@code stage_entered_at} is the send time.
+		 */
+		SEND_TO_EXPERT(CaseEvents.Type.EXPERT_SENT_FOR_SIGNING, AuditAction.UPDATED),
 		DELIVER_TO_CLIENT(CaseEvents.Type.CASE_DELIVERED, AuditAction.UPDATED),
 		CONFIRM_RECEIPT_AND_CLOSE(CaseEvents.Type.CASE_CLOSED, AuditAction.STAGE_CHANGED),
 		PUT_ON_HOLD(CaseEvents.Type.CASE_ON_HOLD, AuditAction.UPDATED),
@@ -89,26 +108,38 @@ public final class CaseTransitions {
 	private static final Map<Stage, Map<Action, Stage>> TABLE = new EnumMap<>(Stage.class);
 
 	static {
-		declare(Stage.DOC_COLLECTION, Action.MARK_DOCS_COMPLETE, Stage.EXPERT_ASSIGNMENT);
-		declare(Stage.EXPERT_ASSIGNMENT, Action.ASSIGN_CASE_MANAGER, Stage.DRAFT_GENERATION);
+		declare(Stage.DOC_COLLECTION, Action.MARK_DOCS_COMPLETE, Stage.PM_REVIEW);
+		declare(Stage.PM_REVIEW, Action.ASSIGN_CASE_MANAGER, Stage.DRAFT_IN_PROGRESS);
 
-		// The draft/PM/client loops turn inside DRAFT_GENERATION and do not move the case.
-		for (Action loop : List.of(Action.SUBMIT_DRAFT, Action.PM_RETURN_DRAFT, Action.PM_APPROVE_DRAFT,
-				Action.SEND_DRAFT_TO_CLIENT, Action.CLIENT_REQUEST_REVISIONS)) {
-			declare(Stage.DRAFT_GENERATION, loop, Stage.DRAFT_GENERATION);
-		}
-		declare(Stage.DRAFT_GENERATION, Action.CLIENT_APPROVE_DRAFT, Stage.EXPERT_SIGNING);
+		// The draft loop. Every revision lands back on DRAFT_IN_PROGRESS because that is the Case
+		// Manager's stage and a revision is always CM work — from a PM return, from a client's
+		// revision request, and from a failed QC.
+		declare(Stage.DRAFT_IN_PROGRESS, Action.SUBMIT_DRAFT, Stage.DRAFT_REVIEW);
+		declare(Stage.DRAFT_REVIEW, Action.PM_RETURN_DRAFT, Stage.DRAFT_IN_PROGRESS);
+		declare(Stage.DRAFT_REVIEW, Action.PM_APPROVE_DRAFT, Stage.READY_TO_SEND);
 
-		declare(Stage.EXPERT_SIGNING, Action.EXPERT_SIGNED, Stage.EXPERT_SIGNING);
+		// **The send is the boundary.** READY_TO_SEND is the Coordinator holding an approved draft;
+		// CLIENT_REVIEW begins when they send it, so the client's 48-hour budget cannot start
+		// while the draft is still sitting with us.
+		declare(Stage.READY_TO_SEND, Action.SEND_DRAFT_TO_CLIENT, Stage.CLIENT_REVIEW);
+		declare(Stage.CLIENT_REVIEW, Action.CLIENT_REQUEST_REVISIONS, Stage.DRAFT_IN_PROGRESS);
+		declare(Stage.CLIENT_REVIEW, Action.CLIENT_APPROVE_DRAFT, Stage.CLIENT_APPROVAL);
+
+		// Same shape one stage later: CLIENT_APPROVAL is the CM holding a locked, client-approved
+		// letter, and EXPERT_SIGNING begins when they send it to the expert.
+		declare(Stage.CLIENT_APPROVAL, Action.SEND_TO_EXPERT, Stage.EXPERT_SIGNING);
+
+		// Signed moves the case on; declined and timed out hold the stage and raise the exception
+		// that opens a rematch.
+		declare(Stage.EXPERT_SIGNING, Action.EXPERT_SIGNED, Stage.FINAL_QC);
 		declare(Stage.EXPERT_SIGNING, Action.EXPERT_DECLINED, Stage.EXPERT_SIGNING);
-		// Stage-preserving, and mirroring EXPERT_DECLINED exactly: both end in
-		// EXPERT_DECLINED_REMATCHING, which is the only state REASSIGN_EXPERT is legal from. A
-		// timeout that moved the case would leave the rematch with nowhere to put it back.
 		declare(Stage.EXPERT_SIGNING, Action.EXPERT_TIMED_OUT, Stage.EXPERT_SIGNING);
-		declare(Stage.EXPERT_SIGNING, Action.PM_QC_APPROVE, Stage.FINAL_DELIVERY);
 
-		declare(Stage.FINAL_DELIVERY, Action.DELIVER_TO_CLIENT, Stage.FINAL_DELIVERY);
-		declare(Stage.FINAL_DELIVERY, Action.CONFIRM_RECEIPT_AND_CLOSE, Stage.CLOSED);
+		declare(Stage.FINAL_QC, Action.PM_QC_APPROVE, Stage.READY_TO_DELIVER);
+		declare(Stage.FINAL_QC, Action.PM_QC_FAIL, Stage.DRAFT_IN_PROGRESS);
+
+		declare(Stage.READY_TO_DELIVER, Action.DELIVER_TO_CLIENT, Stage.DELIVERED);
+		declare(Stage.DELIVERED, Action.CONFIRM_RECEIPT_AND_CLOSE, Stage.CLOSED);
 
 		// Legal wherever the case is still being worked, and stage-preserving. MARK_PAID
 		// used to be declared here, on the grounds that payment clearing late is a
@@ -149,8 +180,13 @@ public final class CaseTransitions {
 				throw illegal(from, exception, action);
 			}
 			return switch (action) {
-				// Rematching starts over at assignment; an approved refund ends the case.
-				case REASSIGN_EXPERT -> Stage.EXPERT_ASSIGNMENT;
+				// **A rematch returns to CLIENT_APPROVAL, not to assignment.** The letter is
+				// already written, already approved by the client and already locked — nothing
+				// about the draft changes because an expert walked away. What has to happen next
+				// is the CM sending it to the replacement, and that send is the transition into
+				// EXPERT_SIGNING, which restarts the signing clock for free. Sending it back to
+				// PM_REVIEW would ask a PM to re-approve work nobody touched.
+				case REASSIGN_EXPERT -> Stage.CLIENT_APPROVAL;
 				case APPROVE_REFUND -> Stage.CLOSED;
 				// Resume and deny put the case back where it never stopped being.
 				default -> from;

@@ -8,7 +8,7 @@
 | Database         | PostgreSQL + Spring Data JPA (Hibernate)           | System of record: brands, cases, experts, payout ledger, contact snapshots, audit |
 | Migrations       | Flyway                                             | Versioned schema — every change is a new migration, never an edited one           |
 | Internal auth    | Spring Security + JWT + role authorities (RBAC/ABAC) | Staff login; per-role + brand/team/assignee authorization (optional SSO later)   |
-| Portal auth      | Separate Spring Security filter chains (scoped, link-based) | Expert portal and client draft-review portal — isolated from internal auth |
+| Portal auth      | Separate Spring Security filter chain (scoped, link-based), one chain, two audiences | **Both portals live in one external frontend** calling this backend: the client's document-upload and draft-review surface, and the expert's download-sign-reupload surface. `portal_access.audience` (`CLIENT` / `EXPERT`, V21) is what separates them — isolated from internal auth. **CORS is required and not yet configured** — see `30-s3-document-store.md` |
 | Frontend         | React + TypeScript (Vite SPA) + Tailwind, with `radix-ui`, `lucide-react`, `recharts` | Internal role-based dashboards, client portal, expert portal. The three UI packages landed in Unit 22 slice 1, each against a screen that needed it; dnd-kit, TanStack Table and Motion stay deferred with written triggers in that spec |
 | Raw documents    | **S3 document store (Unit 30)** — AWS SDK v2 | Client documents written by the **separate Client Portal** under `client/{clientId}/` and read by EvalOS; EvalOS's own artefacts (draft, redacted profile, signed letter) under `case/{caseId}/`. **EvalOS holds object keys, never bytes**, and serves them as 5-minute presigned URLs. Replaced Google Drive in Unit 30 |
 | E-signature      | **None — no provider.** The expert signs in their own tool and uploads the signed PDF through their portal | A scanned wet signature is the norm for an expert opinion letter. Provenance is a hash pair + an attestation + an `EXPERT` audit row, not a certificate — see `15-expert-portal-handoff-b.md` |
@@ -375,20 +375,56 @@ unconditional either way, so it widens a tier inside one brand and never across 
   with `actor_type = 'EXPERT'`. Exception paths: request-evidence
   opens a client task; decline returns the case to `EXPERT_DECLINED_REMATCHING`
   with the reason logged and the match engine proposing the next expert.
-- **Handoff C — EvalOS → GHL (trigger: delivered).** On QC-complete delivery,
-  EvalOS emits a signed outbound `case.delivered` webhook to its subscribers
-  (GHL first; its inbound automation URL starts the review + referral track and
-  stamps the closed value). The payout ledger entry (Pending) is created in the
-  same transaction. Delivered/active contacts are synced to GHL's global
-  suppression list so no cold/bulk campaign ever emails a current client.
+- **~~Handoff C — EvalOS → GHL~~ — REMOVED with Unit 18 (2026-09-02). There are two
+  handoffs, not three.** EvalOS was to emit a signed outbound `case.delivered` webhook
+  on delivery, starting GHL's review and referral track. That dispatcher was never
+  built and is now out of scope.
+
+  **What survives, and it is the half that matters operationally:** the payout ledger
+  entry is still created on delivery, in the same transaction as the transition
+  (`CaseLifecycleService.deliverToClient` → `PayoutService.openForDelivery`). That was
+  always Unit 16's, not Unit 18's, and it is built.
+
+  **What is genuinely lost — say it plainly.** Nothing tells GHL a case was delivered,
+  so the review sequence, the referral track and the suppression-list sync do not fire
+  from EvalOS. **Somebody has to start them by hand in GHL**, and that is the cost of
+  this decision rather than an oversight to be discovered later.
+
+  **The larger consequence: EvalOS now emits nothing outbound at all.** Its integration
+  surface is inbound webhooks from GHL and read-only pulls of GHL's funnels. Domain
+  events still publish, but only in-process, and their only consumer is the in-app
+  notification centre. See invariant 14 — "sends no email" is no longer a pending
+  decision, it is the architecture.
 
 ## Case State Machine (EvalOS-owned stages 3–7)
+
+> **⚠ Being replaced by Unit 31 — Production lifecycle v2.** Read
+> `context/specs/31-production-lifecycle-v2.md` before changing any transition. Two
+> transitions are added — **`qc-fail`**, which does not exist today and is the one that
+> catches a bad letter before a client sees it, and **`send-to-expert`**, which is the act
+> that should start the 24-hour signing SLA. Several gates move; the Case Manager takes
+> ownership of expert signing and reassignment.
 
 Canonical 8-stage business pipeline; GHL owns stages 1 (Marketing), 2 (Sales),
 and 8 (Retention). EvalOS's internal `Stage` enum covers stages 3–7:
 
 ```
 DOC_COLLECTION → EXPERT_ASSIGNMENT → DRAFT_GENERATION → EXPERT_SIGNING → FINAL_DELIVERY → CLOSED
+```
+
+**⚠ Unit 31 replaces this with twelve stages (SPECCED 2026-09-02, not built).** Each has
+**one owner, one primary action, one event and one next owner**; facts held today as
+sub-statuses on a stage become stages of their own.
+
+```
+01 Document Collection (Coordinator) → 02 PM Review & Assignment (PM)
+→ 03 Draft In Progress (CM) → 04 Draft Review (PM) → 05 Ready to Send (Coordinator)
+→ 06 Client Review (client acts) → 07 Client Approval (CM) → 08 Expert Signing (expert acts)
+→ 09 Final QC (PM) → 10 Ready to Deliver (Coordinator) → 11 Delivered → 12 Closed
+
+A stage is entered by the ACT that starts its clock: Client Review by the Coordinator's
+Send, Expert Signing by the CM's Send to Expert. So `stage_entered_at` is the send time and
+no `sent_at` column exists. The board draws EIGHT columns, not twelve.
 ```
 
 Exception states reachable from any active stage: `ON_HOLD_AWAITING_CLIENT`,
@@ -625,10 +661,45 @@ exist because every transition owes exactly one event. They live in
     by a separate Client Portal**, not by EvalOS — EvalOS's credential is read-only on
     that prefix, so "hosts no files" is now backed by IAM on the half that matters most.
 
-    **"Sends no email" is currently true and is under review.** Every client- and
-    expert-facing touchpoint is listed in `context/process-automation.md` with its
-    channel marked *decision pending*: GHL delivers them off the outbound event
-    (today's answer) or EvalOS sends mail itself, which would **reverse this
-    invariant** and bring in SMTP, deliverability, bounces, unsubscribe and a
-    suppression list. Nothing is built either way. Until that decision is taken, do
-    not add a mail dependency — and if it is taken, this invariant is what changes.
+    **"Sends no email" is settled as of 2026-09-02, and is no longer a pending decision.**
+    Unit 18 — the outbound dispatcher that would have carried client-facing messages to
+    GHL for delivery — is removed. With it goes the mechanism, so the question of whether
+    EvalOS sends mail *itself* is not merely unanswered: **EvalOS has no outbound channel
+    of any kind.** Domain events publish in-process and the notification centre is their
+    only consumer.
+
+    **What this costs, named rather than buried:** a document chase, a "your draft is
+    ready", and the post-delivery review request have no automated route to the client.
+    They are either done by hand in GHL, or they become **states the client sees in the
+    client portal** — which is the natural home now that the portal is a real frontend
+    with this backend. That is a product decision still to be taken; what is settled is
+    that EvalOS does not send.
+
+    The original note, kept because the reasoning still applies to any future proposal:
+    every client- and expert-facing touchpoint is listed in
+    `context/process-automation.md`. EvalOS sending mail itself would **reverse this
+    invariant** and bring in SMTP, deliverability, bounces, unsubscribe and a suppression
+    list. **Do not add a mail dependency**; if that decision is ever taken, this invariant
+    is what changes, and it changes in writing first.
+
+15. **No AI makes a production decision, and there is no AI in the system at all.**
+
+    Unit 20 (AI widgets — suggestion and anomaly detection) is **removed from scope**
+    (2026-09-02). What was a deferred unit is now a property of the system: **document
+    verification, expert selection, drafting, draft review, client approval, expert
+    reassignment and quality control are human judgements**, every one of them.
+
+    **What is still allowed is everything that is not a judgement:** notifications, stage
+    transitions a human triggers, timestamps, versioning, audit logging, and the
+    arithmetic behind a dashboard.
+
+    **The one thing that looks like an exception and is not:** Unit 12's match engine
+    ranks experts on four declared, inspectable factors. It is arithmetic over a roster,
+    it never auto-assigns, and the full picker sits underneath so a PM can ignore it
+    entirely. **It contains no model.** A proposal to make that ranking "smarter" by
+    asking something to reason about a case is this invariant, and it must be reversed in
+    writing before any such code exists.
+
+    This is the constraint most likely to be eroded by a plausible-sounding convenience:
+    a "suggested strategy" or a "draft summary" is a production decision wearing a
+    helpful hat.

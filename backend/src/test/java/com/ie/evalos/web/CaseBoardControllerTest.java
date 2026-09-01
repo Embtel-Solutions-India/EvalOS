@@ -87,12 +87,21 @@ class CaseBoardControllerTest {
 		mockMvc.perform(get("/api/cases/board").header(HttpHeaders.AUTHORIZATION, bearer(Role.PROJECT_MANAGER)))
 				.andExpect(status().isOk())
 				.andExpect(jsonPath("$.success").value(true))
-				// An absent column would make the client drop it; an empty one draws.
+				// An absent stage would make the client drop it; an empty one draws. Ten of the
+				// twelve, and the two that are missing are missing on purpose: DELIVERED and
+				// CLOSED are outcomes, and a lane of finished work only grows.
 				.andExpect(jsonPath("$.data.stages.DOC_COLLECTION").isArray())
-				.andExpect(jsonPath("$.data.stages.EXPERT_ASSIGNMENT").isArray())
-				.andExpect(jsonPath("$.data.stages.DRAFT_GENERATION").isArray())
+				.andExpect(jsonPath("$.data.stages.PM_REVIEW").isArray())
+				.andExpect(jsonPath("$.data.stages.DRAFT_IN_PROGRESS").isArray())
+				.andExpect(jsonPath("$.data.stages.DRAFT_REVIEW").isArray())
+				.andExpect(jsonPath("$.data.stages.READY_TO_SEND").isArray())
+				.andExpect(jsonPath("$.data.stages.CLIENT_REVIEW").isArray())
+				.andExpect(jsonPath("$.data.stages.CLIENT_APPROVAL").isArray())
 				.andExpect(jsonPath("$.data.stages.EXPERT_SIGNING").isArray())
-				.andExpect(jsonPath("$.data.stages.FINAL_DELIVERY").isArray())
+				.andExpect(jsonPath("$.data.stages.FINAL_QC").isArray())
+				.andExpect(jsonPath("$.data.stages.READY_TO_DELIVER").isArray())
+				.andExpect(jsonPath("$.data.stages.DELIVERED").doesNotExist())
+				.andExpect(jsonPath("$.data.stages.CLOSED").doesNotExist())
 				.andExpect(jsonPath("$.data.stages.CLOSED").doesNotExist())
 				.andExpect(jsonPath("$.data.exceptions.ON_HOLD_AWAITING_CLIENT").isArray())
 				.andExpect(jsonPath("$.data.exceptions.EXPERT_DECLINED_REMATCHING").isArray())
@@ -118,15 +127,15 @@ class CaseBoardControllerTest {
 	@Test
 	void cardsAreOrderedByDeadlineWithUndatedOnesLast() throws Exception {
 		given(board.forCaller(any(), any())).willReturn(List.of(
-				row("IE-2026-LATE", Stage.DRAFT_GENERATION, ExceptionState.NONE, "2026-09-01T17:00:00Z"),
-				row("IE-2026-NONE", Stage.DRAFT_GENERATION, ExceptionState.NONE, null),
-				row("IE-2026-SOON", Stage.DRAFT_GENERATION, ExceptionState.NONE, "2026-08-01T17:00:00Z")));
+				row("IE-2026-LATE", Stage.DRAFT_IN_PROGRESS, ExceptionState.NONE, "2026-09-01T17:00:00Z"),
+				row("IE-2026-NONE", Stage.DRAFT_IN_PROGRESS, ExceptionState.NONE, null),
+				row("IE-2026-SOON", Stage.DRAFT_IN_PROGRESS, ExceptionState.NONE, "2026-08-01T17:00:00Z")));
 
 		mockMvc.perform(get("/api/cases/board").header(HttpHeaders.AUTHORIZATION, bearer(Role.PROJECT_MANAGER)))
 				.andExpect(status().isOk())
-				.andExpect(jsonPath("$.data.stages.DRAFT_GENERATION[0].caseCode").value("IE-2026-SOON"))
-				.andExpect(jsonPath("$.data.stages.DRAFT_GENERATION[1].caseCode").value("IE-2026-LATE"))
-				.andExpect(jsonPath("$.data.stages.DRAFT_GENERATION[2].caseCode").value("IE-2026-NONE"));
+				.andExpect(jsonPath("$.data.stages.DRAFT_IN_PROGRESS[0].caseCode").value("IE-2026-SOON"))
+				.andExpect(jsonPath("$.data.stages.DRAFT_IN_PROGRESS[1].caseCode").value("IE-2026-LATE"))
+				.andExpect(jsonPath("$.data.stages.DRAFT_IN_PROGRESS[2].caseCode").value("IE-2026-NONE"));
 	}
 
 	/** Acceptance criterion: a Case Manager never sees {@code deal_value} on any card. */

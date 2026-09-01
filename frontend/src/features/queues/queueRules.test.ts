@@ -13,7 +13,7 @@ function card(overrides: Partial<BoardCard>): BoardCard {
     deadline: null,
     slaStatus: 'ON_TRACK',
     deadlineRisk: 'ON_TRACK',
-    currentStage: 'DRAFT_GENERATION',
+    currentStage: 'DRAFT_IN_PROGRESS',
     exceptionState: 'NONE',
     poolStatus: 'ASSIGNED',
     assignedPm: null,
@@ -27,13 +27,20 @@ function card(overrides: Partial<BoardCard>): BoardCard {
   }
 }
 
-function board(cards: BoardCard[], stage: Stage = 'DRAFT_GENERATION'): BoardData {
+function board(cards: BoardCard[], stage: Stage = 'DRAFT_IN_PROGRESS'): BoardData {
   const stages = {
     DOC_COLLECTION: [],
-    EXPERT_ASSIGNMENT: [],
-    DRAFT_GENERATION: [],
+    PM_REVIEW: [],
+    DRAFT_IN_PROGRESS: [],
+    DRAFT_REVIEW: [],
+    READY_TO_SEND: [],
+    CLIENT_REVIEW: [],
+    CLIENT_APPROVAL: [],
     EXPERT_SIGNING: [],
-    FINAL_DELIVERY: [],
+    FINAL_QC: [],
+    READY_TO_DELIVER: [],
+    DELIVERED: [],
+    CLOSED: [],
   } as BoardData['stages']
   stages[stage] = cards
   return {
@@ -130,7 +137,7 @@ describe('draftReviewQueue', () => {
 
 describe('awaitingExpert', () => {
   it('includes the rematch lane, which has left the stage buckets', () => {
-    const data = board([card({ caseCode: 'unstaffed', currentStage: 'EXPERT_ASSIGNMENT' })], 'EXPERT_ASSIGNMENT')
+    const data = board([card({ caseCode: 'unstaffed', currentStage: 'PM_REVIEW' })], 'PM_REVIEW')
     data.exceptions.EXPERT_DECLINED_REMATCHING = [
       card({
         caseCode: 'declined',

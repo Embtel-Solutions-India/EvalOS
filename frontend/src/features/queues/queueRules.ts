@@ -91,7 +91,7 @@ function withinDays(deadline: string | null, now: Date, days: number): boolean {
  * deadline sit forever.
  */
 export function draftReviewQueue(data: BoardData): BoardCard[] {
-  return data.stages.DRAFT_GENERATION.filter((card) => card.pmApprovalStatus === 'PENDING')
+  return data.stages.DRAFT_IN_PROGRESS.filter((card) => card.pmApprovalStatus === 'PENDING')
 }
 
 /**
@@ -100,12 +100,12 @@ export function draftReviewQueue(data: BoardData): BoardCard[] {
  *
  * **The exception lane is the half that is easy to miss.** `CaseBoardController` puts a case in a
  * stage bucket only while `exceptionState` is `NONE`, so a case in `EXPERT_DECLINED_REMATCHING`
- * has left the stage buckets entirely — reading `stages.EXPERT_ASSIGNMENT` alone would show the
+ * has left the stage buckets entirely — reading `stages.PM_REVIEW` alone would show the
  * cases nobody has picked an expert for yet and silently drop the ones whose expert walked away,
  * which are the more urgent of the two.
  */
 export function awaitingExpert(data: BoardData): BoardCard[] {
-  return byDeadline([...data.stages.EXPERT_ASSIGNMENT, ...data.exceptions.EXPERT_DECLINED_REMATCHING])
+  return byDeadline([...data.stages.PM_REVIEW, ...data.exceptions.EXPERT_DECLINED_REMATCHING])
 }
 
 /**
@@ -163,5 +163,5 @@ export function riskLabel(risk: DeadlineRisk | null): string {
  * question left is which client was promised theirs soonest.
  */
 export function deliveryQueue(data: BoardData): BoardCard[] {
-  return data.stages.FINAL_DELIVERY
+  return data.stages.READY_TO_DELIVER
 }

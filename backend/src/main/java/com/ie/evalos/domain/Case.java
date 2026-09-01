@@ -141,6 +141,20 @@ public class Case extends ScopedEntity {
 	private Instant clientPortalReadAt;
 
 	/** Google Drive folder. EvalOS stores the link, never the document bytes. */
+	/**
+	 * Why <em>this</em> expert (Unit 32).
+	 *
+	 * <p><strong>Its own field rather than more prose in {@code pmStrategyNotes}</strong>, because
+	 * it is a different fact rather than a longer one: it is rewritten per expert (and a
+	 * reassignment is a normal path), it is read by the Expert Network Manager and not by the Case
+	 * Manager, and it is the answer to the question asked after something goes wrong.
+	 *
+	 * <p>Not versioned. The current rationale is what matters; who was assigned when is already
+	 * recorded twice, in the audit trail and in {@code expert_case_offer}.
+	 */
+	@Column(name = "expert_selection_rationale")
+	private String expertSelectionRationale;
+
 	@Column(name = "drive_link")
 	private String driveLink;
 
@@ -338,6 +352,15 @@ public class Case extends ScopedEntity {
 
 	public void setPmStrategyNotes(String pmStrategyNotes) {
 		this.pmStrategyNotes = pmStrategyNotes;
+	}
+
+	public String getExpertSelectionRationale() {
+		return expertSelectionRationale;
+	}
+
+	/** @param rationale blank is stored as null, so "not written" has one representation. */
+	public void setExpertSelectionRationale(String rationale) {
+		this.expertSelectionRationale = rationale == null || rationale.isBlank() ? null : rationale.strip();
 	}
 
 	public String getDriveLink() {

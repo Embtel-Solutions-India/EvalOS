@@ -54,7 +54,7 @@ class PortalAccessServiceTest {
 
 	@BeforeEach
 	void aCaseWithADraftWithTheClient() {
-		subject = new Case(BRAND, "IE-2026-0001", Stage.DRAFT_GENERATION);
+		subject = new Case(BRAND, "IE-2026-0001", Stage.DRAFT_IN_PROGRESS);
 		given(lifecycle.load(CASE_ID)).willReturn(subject);
 		given(tokens.save(any(PortalAccess.class))).willAnswer(call -> call.getArgument(0));
 		given(tokens.findByCaseIdAndAudienceOrderByCreatedAtDesc(any(), any())).willReturn(List.of());

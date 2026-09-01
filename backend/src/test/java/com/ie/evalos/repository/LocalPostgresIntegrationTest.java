@@ -328,7 +328,7 @@ class LocalPostgresIntegrationTest {
 		UUID expertId = experts.save(new Expert(BRAND_IE, "Dr Busy " + UUID.randomUUID())).getId();
 
 		caseFor(expertId, Stage.EXPERT_SIGNING, ExceptionState.NONE);
-		caseFor(expertId, Stage.DRAFT_GENERATION, ExceptionState.NONE);
+		caseFor(expertId, Stage.DRAFT_IN_PROGRESS, ExceptionState.NONE);
 		caseFor(expertId, Stage.CLOSED, ExceptionState.NONE);
 		// A closed case still holding REFUND_REQUESTED is a refund the GM approved, which is
 		// not work delivered — the same reading as RefundService.isRefunded.
@@ -747,7 +747,7 @@ class LocalPostgresIntegrationTest {
 		coordinated.setAssignedCoordinator(COORDINATOR_IE);
 		UUID coordinatedId = cases.save(coordinated).getId();
 
-		Case managed = new Case(BRAND_IE, "EV-" + UUID.randomUUID(), Stage.DRAFT_GENERATION);
+		Case managed = new Case(BRAND_IE, "EV-" + UUID.randomUUID(), Stage.DRAFT_IN_PROGRESS);
 		managed.setAssignedCm(CM_IE);
 		UUID managedId = cases.save(managed).getId();
 
@@ -888,8 +888,8 @@ class LocalPostgresIntegrationTest {
 	 */
 	@Test
 	void theOfferAggregateIsGroupedByOutcomeAndBrandIsolated() {
-		UUID ieCase = cases.save(new Case(BRAND_IE, "EV-" + UUID.randomUUID(), Stage.EXPERT_ASSIGNMENT)).getId();
-		UUID xpCase = cases.save(new Case(BRAND_XP, "XP-" + UUID.randomUUID(), Stage.EXPERT_ASSIGNMENT)).getId();
+		UUID ieCase = cases.save(new Case(BRAND_IE, "EV-" + UUID.randomUUID(), Stage.PM_REVIEW)).getId();
+		UUID xpCase = cases.save(new Case(BRAND_XP, "XP-" + UUID.randomUUID(), Stage.PM_REVIEW)).getId();
 		UUID ieExpert = experts.save(new Expert(BRAND_IE, "Dr Offer Verify")).getId();
 		UUID xpExpert = experts.save(new Expert(BRAND_XP, "Dr Other Brand")).getId();
 
@@ -967,8 +967,8 @@ class LocalPostgresIntegrationTest {
 	 */
 	@Test
 	void aPortalTokenIsUniqueAndItsAudienceIsClosed() {
-		UUID caseId = cases.save(new Case(BRAND_IE, "EV-" + UUID.randomUUID(), Stage.DRAFT_GENERATION)).getId();
-		UUID otherCaseId = cases.save(new Case(BRAND_IE, "EV-" + UUID.randomUUID(), Stage.DRAFT_GENERATION)).getId();
+		UUID caseId = cases.save(new Case(BRAND_IE, "EV-" + UUID.randomUUID(), Stage.DRAFT_IN_PROGRESS)).getId();
+		UUID otherCaseId = cases.save(new Case(BRAND_IE, "EV-" + UUID.randomUUID(), Stage.DRAFT_IN_PROGRESS)).getId();
 		String hash = "hash-" + UUID.randomUUID();
 		Instant expires = Instant.now().plus(Duration.ofDays(30));
 
@@ -1029,7 +1029,7 @@ class LocalPostgresIntegrationTest {
 	 */
 	@Test
 	void theAuditTrailDistinguishesAClientFromTheSystemAndFromHistory() {
-		UUID caseId = cases.save(new Case(BRAND_IE, "EV-" + UUID.randomUUID(), Stage.DRAFT_GENERATION)).getId();
+		UUID caseId = cases.save(new Case(BRAND_IE, "EV-" + UUID.randomUUID(), Stage.DRAFT_IN_PROGRESS)).getId();
 
 		// A row as every row looked before V22. Inserted directly because that shape is now
 		// unreachable through AuditService — which is the point: it exists and cannot be backfilled.
@@ -1064,7 +1064,7 @@ class LocalPostgresIntegrationTest {
 	 */
 	@Test
 	void aCaseCarriesTheDraftLinkSeparatelyFromTheDocumentsFolder() {
-		Case subject = new Case(BRAND_IE, "EV-" + UUID.randomUUID(), Stage.DRAFT_GENERATION);
+		Case subject = new Case(BRAND_IE, "EV-" + UUID.randomUUID(), Stage.DRAFT_IN_PROGRESS);
 		subject.setDriveLink("https://drive.google.com/drive/folders/documents");
 		subject.setDraftLink("https://docs.google.com/document/d/the-draft/edit");
 		UUID id = cases.saveAndFlush(subject).getId();
@@ -1412,7 +1412,7 @@ class LocalPostgresIntegrationTest {
 	}
 
 	private UUID caseWithId(UUID expertId) {
-		Case subject = new Case(BRAND_IE, "EV-" + UUID.randomUUID(), Stage.FINAL_DELIVERY);
+		Case subject = new Case(BRAND_IE, "EV-" + UUID.randomUUID(), Stage.READY_TO_DELIVER);
 		subject.setExpertId(expertId);
 		return cases.saveAndFlush(subject).getId();
 	}

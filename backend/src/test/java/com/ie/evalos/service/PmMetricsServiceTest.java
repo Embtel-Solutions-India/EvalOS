@@ -111,7 +111,7 @@ class PmMetricsServiceTest {
 	 */
 	@Test
 	void anEmptyPeriodHasNoRateRatherThanAZeroRate() {
-		var onTime = compute(List.of(aCase(BRAND_IE, "IE-1", Stage.DRAFT_GENERATION)), null).onTime();
+		var onTime = compute(List.of(aCase(BRAND_IE, "IE-1", Stage.DRAFT_IN_PROGRESS)), null).onTime();
 
 		assertThat(onTime.delivered()).isZero();
 		assertThat(onTime.ratePct()).isNull();
@@ -136,10 +136,10 @@ class PmMetricsServiceTest {
 	 */
 	@Test
 	void aCaseAtTheDeliveryStepIsNotCountedAsAtRisk() {
-		Case delivering = aCase(BRAND_IE, "IE-1", Stage.FINAL_DELIVERY);
+		Case delivering = aCase(BRAND_IE, "IE-1", Stage.READY_TO_DELIVER);
 		delivering.setDeadline(NOW.plus(2, ChronoUnit.HOURS));
 
-		Case drafting = aCase(BRAND_IE, "IE-2", Stage.DRAFT_GENERATION);
+		Case drafting = aCase(BRAND_IE, "IE-2", Stage.DRAFT_IN_PROGRESS);
 		drafting.setDeadline(NOW.plus(2, ChronoUnit.HOURS));
 
 		assertThat(compute(List.of(delivering, drafting), null).atRiskNow()).isEqualTo(1);
@@ -149,9 +149,9 @@ class PmMetricsServiceTest {
 
 	@Test
 	void unassignedCountsWhatIsStillInThePool() {
-		Case pooled = aCase(BRAND_IE, "IE-1", Stage.EXPERT_ASSIGNMENT);
+		Case pooled = aCase(BRAND_IE, "IE-1", Stage.PM_REVIEW);
 		pooled.setPoolStatus(PoolStatus.IN_POOL);
-		Case taken = aCase(BRAND_IE, "IE-2", Stage.EXPERT_ASSIGNMENT);
+		Case taken = aCase(BRAND_IE, "IE-2", Stage.PM_REVIEW);
 		taken.setPoolStatus(PoolStatus.ASSIGNED);
 
 		assertThat(compute(List.of(pooled, taken), null).unassigned()).isEqualTo(1);
@@ -163,11 +163,11 @@ class PmMetricsServiceTest {
 	void theRevisionRateIsTheShareOfCasesThatNeededMoreThanOneDraft() {
 		givenCaseManagers(SARAH);
 
-		Case clean = aCase(BRAND_IE, "IE-1", Stage.DRAFT_GENERATION);
+		Case clean = aCase(BRAND_IE, "IE-1", Stage.DRAFT_IN_PROGRESS);
 		clean.setAssignedCm(SARAH);
 		clean.setDraftVersionCount(1);
 
-		Case revised = aCase(BRAND_IE, "IE-2", Stage.DRAFT_GENERATION);
+		Case revised = aCase(BRAND_IE, "IE-2", Stage.DRAFT_IN_PROGRESS);
 		revised.setAssignedCm(SARAH);
 		revised.setDraftVersionCount(3);
 
@@ -191,7 +191,7 @@ class PmMetricsServiceTest {
 	void aCaseManagerHoldingNothingStillAppearsOnTheWorkloadList() {
 		givenCaseManagers(SARAH, DEV);
 
-		Case held = aCase(BRAND_IE, "IE-1", Stage.DRAFT_GENERATION);
+		Case held = aCase(BRAND_IE, "IE-1", Stage.DRAFT_IN_PROGRESS);
 		held.setAssignedCm(SARAH);
 
 		var workload = compute(List.of(held), null).workload();
@@ -257,9 +257,9 @@ class PmMetricsServiceTest {
 	 */
 	@Test
 	void theBrandFilterNarrowsAndNeverWidens() {
-		Case ie = aCase(BRAND_IE, "IE-1", Stage.EXPERT_ASSIGNMENT);
+		Case ie = aCase(BRAND_IE, "IE-1", Stage.PM_REVIEW);
 		ie.setPoolStatus(PoolStatus.IN_POOL);
-		Case xp = aCase(BRAND_XP, "XP-1", Stage.EXPERT_ASSIGNMENT);
+		Case xp = aCase(BRAND_XP, "XP-1", Stage.PM_REVIEW);
 		xp.setPoolStatus(PoolStatus.IN_POOL);
 
 		assertThat(compute(List.of(ie, xp), null).unassigned()).isEqualTo(2);

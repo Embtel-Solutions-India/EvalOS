@@ -2,17 +2,9 @@ import { useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
 import { NavLink } from 'react-router-dom'
 import { useMe } from '../../lib/authContext'
+import { ROLE_LABELS } from '../../lib/session'
 import { navSectionsFor } from './navigation'
 import { BADGE_FOR_PATH, fetchNavBadges, isUrgentBadge, type NavBadges } from './navBadges'
-
-const ROLE_LABELS: Record<string, string> = {
-  GM: 'General Manager',
-  BRAND_MANAGER: 'Brand Manager',
-  PROJECT_MANAGER: 'Project Manager',
-  PROJECT_COORDINATOR: 'Project Coordinator',
-  CASE_MANAGER: 'Case Manager',
-  EXPERT_NETWORK_MANAGER: 'Expert Network Manager',
-}
 
 /**
  * The nav, as a **flush full-height dark rail**. Filtered by role from the one table the router

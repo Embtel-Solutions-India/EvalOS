@@ -463,7 +463,7 @@ class CaseIntakeServiceTest {
 
 	/** An open, paid case for the standard contact and service, sold for 900. */
 	private Case openCaseWorthNineHundred() {
-		Case inFlight = new Case(BRAND, "IE-2026-ABCDEF", Stage.DRAFT_GENERATION);
+		Case inFlight = new Case(BRAND, "IE-2026-ABCDEF", Stage.DRAFT_IN_PROGRESS);
 		inFlight.setContactId(CONTACT_ID);
 		inFlight.setServiceType(ServiceType.EXPERT_OPINION_LETTER);
 		inFlight.setDealValue(new BigDecimal("900.00"));

@@ -1,5 +1,22 @@
 # Unit 21 — Client document upload (A07)
 
+> **⚠ RESHAPED by Unit 30 (2026-09-02). Never built in the form below.** The upload no
+> longer happens in EvalOS. Clients upload in a **separate Client Portal application**,
+> which writes to **S3** under `client/{clientId}/`; EvalOS's credential is **read-only**
+> on that prefix. What remains for EvalOS is the reading half — list the prefix, let the
+> Coordinator associate an arrived object with a checklist item, review what came in.
+>
+> **The "Why this unit is small" table below is still right about the parts it names** —
+> the portal token model, the checklist vocabulary and the `CLIENT` audit actor all still
+> do the work. Two of its rows are now wrong: "a place to put files" is S3, not Drive, and
+> "a Drive API client" is deleted.
+>
+> **Read the upload trust boundary paragraph as a transfer, not a deletion.** The
+> content-sniffed allowlist, the size cap, the rate limit and the generated filenames are
+> still required — they are now the Client Portal's to enforce, and that must be confirmed
+> with whoever builds it (Unit 30, open question (f)) rather than assumed because the
+> requirement moved it off our side. See `30-s3-document-store.md`.
+
 Closes the A07 gap: the client puts their own documents in, against their own
 checklist, and the Coordinator reviews what arrives.
 

@@ -9,9 +9,10 @@ import DocumentsPanel from './DocumentsPanel'
 import DraftPanel from './DraftPanel'
 import ExpertCard from './ExpertCard'
 import PortalLinkPanel from './PortalLinkPanel'
-import RedactedProfilePanel from './RedactedProfilePanel'
 import StageActions from './StageActions'
 import StrategyNotes from './StrategyNotes'
+import DraftHistory from './DraftHistory'
+import ExpertRationale from './ExpertRationale'
 import Timeline from './Timeline'
 import {
   fetchCase,
@@ -173,19 +174,22 @@ export default function CaseDetailPage() {
         <div className="flex flex-col gap-4">
           <DocumentsPanel detail={detail} />
           <DraftPanel detail={detail} />
+          {/* Immediately under the draft's status: the same subject at more depth. */}
+          <DraftHistory caseId={detail.summary.id} />
           <ExpertCard detail={detail} />
-          {/*
-            Directly beneath the ExpertCard, which names the expert to staff. This one is the
-            document for somebody who must not know that name — the two belong side by side so
-            the difference between the internal view and the client's is visible at a glance.
-          */}
-          <RedactedProfilePanel detail={detail} role={me.role} />
           {/*
             Under the draft and the profile, which are the two things the link shows a client — the
             panel is about getting those in front of them. Draws nothing for a role that may not mint.
           */}
           <PortalLinkPanel detail={detail} role={me.role} />
           <StrategyNotes detail={detail} onSave={onSaveNotes} />
+          {/*
+            Below the notes and separate from them, which is the visible half of the decision to
+            give the rationale its own column: a Case Manager sees the notes and not this, an ENM
+            sees this and not the notes. Read-only — it is written where the expert is chosen
+            (`assign-cm` / `reassign-expert`), not in a ceremony of its own.
+          */}
+          <ExpertRationale detail={detail} />
         </div>
 
         <Timeline entries={timeline} onPostNote={onPostNote} />

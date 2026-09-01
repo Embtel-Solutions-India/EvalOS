@@ -61,7 +61,7 @@ class NotificationListenersTest {
 
 	@BeforeEach
 	void aCaseWithAPmAndACm() {
-		subject = new Case(BRAND, "IE-2026-0001", Stage.DRAFT_GENERATION);
+		subject = new Case(BRAND, "IE-2026-0001", Stage.DRAFT_IN_PROGRESS);
 		subject.setAssignedPm(PM);
 		subject.setAssignedCm(CM);
 

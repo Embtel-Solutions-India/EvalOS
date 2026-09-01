@@ -1,3 +1,4 @@
+import type { Role } from '../../lib/session'
 /**
  * The client portal's wire shape and the four judgements its one screen makes.
  *
@@ -115,3 +116,25 @@ export function failureMessage(status: number | undefined): string {
  * preview — the server escapes every interpolated roster field, and this is the second layer.
  */
 export const PROFILE_SANDBOX = ''
+
+/**
+ * Who may mint a client portal link.
+ *
+ * **Moved here from `case/redactionRules.ts` when Unit 13 was removed (2026-09-02).** It never
+ * belonged to the redacted profile — it only shared a file with it, because both answered "who may
+ * push something toward the client". That grouping outlived its usefulness the moment one half was
+ * deleted, and the rule now sits with the portal it is about.
+ *
+ * Asserted in the test for the reason the old one was: a client offering a control the server
+ * refuses is the failure this project keeps finding.
+ */
+export const MAY_MINT_PORTAL_LINK: readonly Role[] = [
+  'GM',
+  'BRAND_MANAGER',
+  'PROJECT_MANAGER',
+  'CASE_MANAGER',
+]
+
+export function mayMintPortalLink(role: Role): boolean {
+  return MAY_MINT_PORTAL_LINK.includes(role)
+}

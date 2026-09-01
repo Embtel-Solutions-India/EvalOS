@@ -1,5 +1,40 @@
 # backend/ — Security, auth & tenancy scoping
 
+> ## ⚠ The portals are an EXTERNAL FRONTEND (confirmed 2026-09-02) — and CORS is missing
+>
+> One external frontend deployment hosts **both** the client portal (document upload, draft
+> review) and the **expert portal** (download the approved letter, sign it, upload it back). Both
+> call this backend. Expert functionality beyond the sign step is not yet specified.
+>
+> **The auth model already covers it and must not be rebuilt**: `portal_access.audience` is
+> `CLIENT` / `EXPERT` with a CHECK (V21), `PortalAudience` maps each to its `ActorType`, and one
+> filter chain matches `/api/portal/**`. A second frontend on that chain is a deployment fact.
+>
+> **There is NO CORS configuration in this codebase.** Correct while every caller was same-origin;
+> wrong now. Without it every portal call fails at **preflight** — and passes a curl test, which
+> is how it would otherwise be found late. Allow the one portal origin **per environment**, scoped
+> to `/api/portal/**`, with **`X-Portal-Token` in the allowed headers**; **never `*`**, because
+> the chain is credentialed. Filed in `context/specs/30-s3-document-store.md`, open question (h).
+
+> ## ⚠ PIVOT: Google Drive → S3 document store (Unit 30, SPECCED 2026-09-02, NOT BUILT)
+>
+> **Read `context/specs/30-s3-document-store.md` before touching any document path.**
+> Everything below about Drive still describes the **code as it stands today** — the client,
+> the config, the columns are all still there. It no longer describes the **decision**.
+>
+> - Documents move to an **S3 bucket**. Google Drive leaves entirely: client, config,
+>   service account, dependency, `drive_link` column.
+> - **A separate Client Portal application writes client uploads**; EvalOS's credential is
+>   **read-only** on `client/{clientId}/`. EvalOS writes only under `case/{caseId}/`.
+> - `{clientId}` is **GHL's contact id** — one client across GHL, the Client Portal and
+>   EvalOS, no mapping table. **Email stays a fallback key (V27), never the identity.**
+> - Reads are **5-minute presigned URLs**, minted after the scope check, never stored.
+> - **Invariant 14 is amended and "No object storage" is deleted** from `architecture.md`.
+> - This **unblocks Units 13, 15 and 21**, which were all waiting on the Google service
+>   account. Unit 21 is reshaped: the upload leaves EvalOS.
+>
+> **Do not build new Drive work, and do not cite the Drive notes below as settled.**
+
 Built in Unit 02; the link-based portal chain added in Unit 14. Two chains, stateless and
 token-only in both cases; nothing here is session- or cookie-based.
 
@@ -87,7 +122,10 @@ highest-risk surface in the system. The rules are requirements, not preferences:
   for missing, unknown, expired and revoked tokens, so a caller learns nothing. **403 is only** the
   audience mismatch from `PortalPrincipal.current`.
 - **Nothing is stored**: `multipart.file-size-threshold` = `max-file-size` so the container cannot spool
-  to a temp file, and `InputStreamContent` into Drive so it never lands on the heap. See `mem:core`.
+  to a temp file, and a streamed body so it never lands on the heap. **Unit 30 changes the target
+  (S3, not Drive) and not the property** — "EvalOS stores no bytes" stays a test, and it is now the
+  only upload EvalOS accepts at all, since client uploads moved to the separate Client Portal.
+  See `mem:core`.
 - **One audit row per upload**, `actor_type = CLIENT`.
 - Open, and deliberately not hand-waved: **antivirus.** Drive scans on ingest; that is not the same as
   EvalOS having a posture on files accepted from a public link.

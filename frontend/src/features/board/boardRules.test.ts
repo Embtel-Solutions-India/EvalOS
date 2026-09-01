@@ -73,8 +73,10 @@ describe('STAGE_ACCESS', () => {
     // Still ALL_ROLES: the point of this one is that the table is *total*, which is what turns
     // adding a role into a compile error instead of an undefined lookup at runtime.
     for (const role of ALL_ROLES) {
-      for (const { stage } of STAGE_COLUMNS) {
-        expect(STAGE_ACCESS[role]?.[stage], `${role} / ${stage}`).toBeDefined()
+      for (const { stages } of STAGE_COLUMNS) {
+        for (const stage of stages) {
+          expect(STAGE_ACCESS[role]?.[stage], `${role} / ${stage}`).toBeDefined()
+        }
       }
     }
   })
@@ -83,7 +85,9 @@ describe('STAGE_ACCESS', () => {
     // A role whose every cell was `status` or `none` would have a board they can only stare
     // at, which is a table typo rather than a design.
     for (const role of CASE_ROLES) {
-      const worked = STAGE_COLUMNS.filter(({ stage }) => STAGE_ACCESS[role][stage] === 'full')
+      const worked = STAGE_COLUMNS.filter(({ stages }) =>
+        stages.some((stage) => STAGE_ACCESS[role][stage] === 'full'),
+      )
       expect(worked.length, `${role} works no stage`).toBeGreaterThan(0)
     }
   })
@@ -92,10 +96,13 @@ describe('STAGE_ACCESS', () => {
   it('hides the two stages a Case Manager is never responsible for', () => {
     // A case naming them as CM has already left doc collection, and delivery is the
     // Coordinator's stage. Both are empty by scope anyway; this stops them being drawn.
-    expect(columnsFor('CASE_MANAGER').map((column) => column.stage)).toEqual([
-      'EXPERT_ASSIGNMENT',
-      'DRAFT_GENERATION',
-      'EXPERT_SIGNING',
+    expect(columnsFor('CASE_MANAGER').map((column) => column.label)).toEqual([
+      'PM Review',
+      'Drafting',
+      'Draft Review',
+      'Client Review',
+      'Expert Signing',
+      'Final QC',
     ])
   })
 
@@ -107,22 +114,28 @@ describe('STAGE_ACCESS', () => {
   })
 
   it('numbers a column by its place in the whole pipeline, not in the role subset', () => {
-    // A Case Manager's first column is stage 2 of 5. Numbering it 1 would say the work starts
+    // A Case Manager's first column is stage 2 of 8. Numbering it 1 would say the work starts
     // with them — which is what happens if the `none` cells are filtered before the index.
-    expect(columnsFor('CASE_MANAGER').map((column) => column.step)).toEqual([2, 3, 4])
-    expect(columnsFor('GM').map((column) => column.step)).toEqual([1, 2, 3, 4, 5])
+    expect(columnsFor('CASE_MANAGER').map((column) => column.step)).toEqual([2, 3, 4, 5, 6, 7])
+    expect(columnsFor('GM').map((column) => column.step)).toEqual([1, 2, 3, 4, 5, 6, 7, 8])
   })
 
   it('marks the Coordinator watching the middle of the pipeline and working both ends', () => {
     const access = Object.fromEntries(
-      columnsFor('PROJECT_COORDINATOR').map((column) => [column.stage, column.access]),
+      columnsFor('PROJECT_COORDINATOR').map((column) => [column.label, column.access]),
     )
+    // Keyed by column label, because a column can hold two stages (Unit 31). The Coordinator
+    // works the three client-facing ones and watches the rest.
     expect(access).toEqual({
-      DOC_COLLECTION: 'full',
-      EXPERT_ASSIGNMENT: 'status',
-      DRAFT_GENERATION: 'status',
-      EXPERT_SIGNING: 'status',
-      FINAL_DELIVERY: 'full',
+      'Doc Collection': 'full',
+      'PM Review': 'status',
+      Drafting: 'status',
+      'Draft Review': 'status',
+      // READY_TO_SEND is theirs and CLIENT_REVIEW is theirs; the folded column is `full`.
+      'Client Review': 'full',
+      'Expert Signing': 'status',
+      'Final QC': 'status',
+      'Ready to Deliver': 'full',
     })
   })
 })
@@ -169,25 +182,29 @@ describe('slaMix', () => {
 describe('actionsFor', () => {
   it('offers the stage action to the role that drives the stage', () => {
     expect(paths('DOC_COLLECTION', 'PROJECT_COORDINATOR')).toContain('docs-complete')
-    expect(paths('EXPERT_ASSIGNMENT', 'PROJECT_MANAGER')).toContain('assign-cm')
-    expect(paths('DRAFT_GENERATION', 'CASE_MANAGER')).toContain('draft/submit')
-    expect(paths('EXPERT_SIGNING', 'PROJECT_MANAGER')).toContain('qc-approve')
-    expect(paths('FINAL_DELIVERY', 'PROJECT_COORDINATOR')).toContain('deliver')
+    expect(paths('PM_REVIEW', 'PROJECT_MANAGER')).toContain('assign-cm')
+    expect(paths('DRAFT_IN_PROGRESS', 'CASE_MANAGER')).toContain('draft/submit')
+    // QC is its own stage now, not a step inside signing.
+    expect(paths('FINAL_QC', 'PROJECT_MANAGER')).toContain('qc-approve')
+    expect(paths('FINAL_QC', 'PROJECT_MANAGER')).toContain('qc-fail')
+    // And the CM's send is what moves a client-approved letter to the expert.
+    expect(paths('CLIENT_APPROVAL', 'CASE_MANAGER')).toContain('send-to-expert')
+    expect(paths('READY_TO_DELIVER', 'PROJECT_COORDINATOR')).toContain('deliver')
   })
 
   it('withholds a stage action from a role that only watches that stage', () => {
     // The Coordinator can see the draft column but does not submit or approve drafts.
-    expect(STAGE_ACCESS.PROJECT_COORDINATOR.DRAFT_GENERATION).toBe('status')
-    expect(paths('DRAFT_GENERATION', 'PROJECT_COORDINATOR')).not.toContain('draft/send-to-client')
+    expect(STAGE_ACCESS.PROJECT_COORDINATOR.DRAFT_IN_PROGRESS).toBe('status')
+    expect(paths('READY_TO_SEND', 'PROJECT_COORDINATOR')).toContain('draft/send-to-client')
     // The PM watches delivery rather than running it.
-    expect(paths('FINAL_DELIVERY', 'PROJECT_MANAGER')).not.toContain('deliver')
-    expect(paths('FINAL_DELIVERY', 'PROJECT_MANAGER')).not.toContain('close')
+    expect(paths('READY_TO_DELIVER', 'PROJECT_MANAGER')).not.toContain('deliver')
+    expect(paths('DELIVERED', 'PROJECT_MANAGER')).not.toContain('close')
   })
 
   it('keeps the stage-preserving actions for a watching role', () => {
     // "Status" means you do not advance the stage, not that you are powerless: a Coordinator
     // watching a stalled draft can still put the case on hold.
-    const watching = paths('DRAFT_GENERATION', 'PROJECT_COORDINATOR')
+    const watching = paths('DRAFT_IN_PROGRESS', 'PROJECT_COORDINATOR')
     expect(watching).toContain('hold')
     expect(watching).toContain('refund/request')
   })
@@ -195,11 +212,13 @@ describe('actionsFor', () => {
   it('never offers a role an action its route would refuse', () => {
     // The client half of the table is only useful if it agrees with the server's gate.
     for (const role of CASE_ROLES) {
-      for (const { stage } of STAGE_COLUMNS) {
-        for (const action of actionsFor(card({ currentStage: stage }), role)) {
-          // `admits` rather than a re-derivation of the same rule: a second copy is how
-          // "the GM sees everything" quietly survives a decision to the contrary.
-          expect(admits(action, role), `${role} offered ${action.path}`).toBe(true)
+      for (const { stages } of STAGE_COLUMNS) {
+        for (const stage of stages) {
+          for (const action of actionsFor(card({ currentStage: stage }), role)) {
+            // `admits` rather than a re-derivation of the same rule: a second copy is how
+            // "the GM sees everything" quietly survives a decision to the contrary.
+            expect(admits(action, role), `${role} offered ${action.path}`).toBe(true)
+          }
         }
       }
     }
@@ -212,21 +231,24 @@ describe('actionsFor', () => {
    * asks why — which is the point.
    */
   it('withholds draft approval and return from the GM, who is a superuser everywhere else', () => {
-    const gmInDrafting = paths('DRAFT_GENERATION', 'GM')
+    const gmInDrafting = paths('DRAFT_IN_PROGRESS', 'GM')
     expect(gmInDrafting).not.toContain('draft/pm-approve')
     expect(gmInDrafting).not.toContain('draft/pm-return')
     // Still the superuser on the rest of the same stage, so this is an exclusion and not a
     // role that lost the screen.
-    expect(gmInDrafting).toContain('draft/send-to-client')
     expect(gmInDrafting).toContain('hold')
+    expect(paths('READY_TO_SEND', 'GM')).toContain('draft/send-to-client')
 
-    const pmInDrafting = paths('DRAFT_GENERATION', 'PROJECT_MANAGER')
-    expect(pmInDrafting).toContain('draft/pm-approve')
-    expect(pmInDrafting).toContain('draft/pm-return')
+    // Draft review is its own stage now, so the two rulings live there rather than inside the
+    // CM's drafting stage. The exclusion above is unchanged and is the point of this test.
+    expect(paths('DRAFT_REVIEW', 'GM')).not.toContain('draft/pm-approve')
+    const pmInReview = paths('DRAFT_REVIEW', 'PROJECT_MANAGER')
+    expect(pmInReview).toContain('draft/pm-approve')
+    expect(pmInReview).toContain('draft/pm-return')
   })
 
   it('offers a case in an exception state only its way out', () => {
-    const onHold = paths('DRAFT_GENERATION', 'PROJECT_COORDINATOR', 'ON_HOLD_AWAITING_CLIENT')
+    const onHold = paths('DRAFT_IN_PROGRESS', 'PROJECT_COORDINATOR', 'ON_HOLD_AWAITING_CLIENT')
     expect(onHold).toEqual(['resume'])
 
     const rematching = paths('EXPERT_SIGNING', 'PROJECT_MANAGER', 'EXPERT_DECLINED_REMATCHING')
@@ -238,11 +260,11 @@ describe('actionsFor', () => {
   })
 
   it('keeps the two refund rulings GM-only, not GM-also', () => {
-    const gm = paths('DRAFT_GENERATION', 'GM', 'REFUND_REQUESTED')
+    const gm = paths('DRAFT_IN_PROGRESS', 'GM', 'REFUND_REQUESTED')
     expect(gm).toEqual(['refund/approve', 'refund/deny'])
 
     for (const role of CASE_ROLES.filter((candidate) => candidate !== 'GM')) {
-      expect(paths('DRAFT_GENERATION', role, 'REFUND_REQUESTED')).toEqual([])
+      expect(paths('DRAFT_IN_PROGRESS', role, 'REFUND_REQUESTED')).toEqual([])
     }
   })
 
@@ -266,12 +288,15 @@ describe('actionsFor', () => {
   it('gives the GM every action their stage allows', () => {
     // GM is a superuser on every transition, so the board must not be where that stops.
     expect(paths('DOC_COLLECTION', 'GM')).toContain('docs-complete')
-    expect(paths('FINAL_DELIVERY', 'GM')).toContain('close')
+    expect(paths('READY_TO_DELIVER', 'GM')).toContain('deliver')
+    expect(paths('DELIVERED', 'GM')).toContain('close')
   })
 
   it('declares every action against a stage it can actually be reached from', () => {
     // A typo'd stage list would silently make an action unreachable forever.
-    const known = new Set(STAGE_COLUMNS.map(({ stage }) => stage))
+    // Every stage a column draws, plus DELIVERED — `close` runs from there and it is
+    // deliberately not a column (an outcome lane only grows).
+    const known = new Set<Stage>([...STAGE_COLUMNS.flatMap(({ stages }) => stages), 'DELIVERED'])
     for (const action of QUICK_ACTIONS) {
       for (const stage of action.stages ?? []) {
         expect(known.has(stage), `${action.path} names unknown stage ${stage}`).toBe(true)

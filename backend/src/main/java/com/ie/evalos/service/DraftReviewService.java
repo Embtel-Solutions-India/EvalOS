@@ -193,7 +193,7 @@ public class DraftReviewService {
 			return DraftStatus.PENDING_REVIEW;
 		}
 		// Past the QC gate: the stage itself is the evidence, not a flag.
-		if (subject.getCurrentStage() == Stage.FINAL_DELIVERY || subject.getCurrentStage() == Stage.CLOSED) {
+		if (pastQc(subject.getCurrentStage())) {
 			return DraftStatus.APPROVED;
 		}
 		return DraftStatus.READY_FOR_QC;
@@ -218,8 +218,7 @@ public class DraftReviewService {
 				new Milestone("Client approved",
 						subject.getClientApprovalStatus() == ClientApprovalStatus.APPROVED),
 				new Milestone("Expert signed", subject.getExpertSignStatus() == ExpertSignStatus.SIGNED),
-				new Milestone("QC approved",
-						stage == Stage.FINAL_DELIVERY || stage == Stage.CLOSED));
+				new Milestone("QC approved", pastQc(stage)));
 	}
 
 	private DraftSummary summary(List<Case> scoped, List<DraftRow> rows, Instant now) {
@@ -276,4 +275,15 @@ public class DraftReviewService {
 		return names;
 	}
 
+
+	/**
+	 * Whether the case is past the QC gate — the stage is the evidence, not a flag.
+	 *
+	 * <p>Unit 31 split the old {@code FINAL_DELIVERY} into three, so this is a set rather than a
+	 * pair. Named once because two call sites asked the same question and a copied condition is
+	 * how the two come to disagree about what "approved" means.
+	 */
+	private static boolean pastQc(Stage stage) {
+		return stage == Stage.READY_TO_DELIVER || stage == Stage.DELIVERED || stage == Stage.CLOSED;
+	}
 }

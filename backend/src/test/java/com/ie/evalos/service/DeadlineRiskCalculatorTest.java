@@ -34,7 +34,7 @@ class DeadlineRiskCalculatorTest {
 	}
 
 	private static Case dueAt(Instant deadline) {
-		Case subject = new Case(UUID.randomUUID(), "IE-2026-0001", Stage.DRAFT_GENERATION);
+		Case subject = new Case(UUID.randomUUID(), "IE-2026-0001", Stage.DRAFT_IN_PROGRESS);
 		subject.setDeadline(deadline);
 		return subject;
 	}
