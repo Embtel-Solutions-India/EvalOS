@@ -76,6 +76,10 @@ evalos:
     # Per page, not for the whole paginated read. This runs on a request path, so the bound is
     # what keeps it inside invariant 6's "one bounded request".
     timeout: ${GHL_TIMEOUT:10s}
+    # A WRITE's bound, and deliberately more generous than the read's. A read that times out costs
+    # a stale screen; a write that times out leaves the outcome UNKNOWN - GHL may have applied it -
+    # and there is no safe automatic retry. Waiting longer for the truth beats telling a sales
+    # executive their stage move failed when it did not. Unit 29.
     # The rate limiter, not a speed-up: without it, N open dashboards are N multi-page GHL reads
     # per refresh and GHL's own limit becomes an EvalOS outage. Do not shorten it in a deployed
     # environment — the local profile does, and says why.

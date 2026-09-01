@@ -1,7 +1,7 @@
 package com.ie.evalos.domain;
 
 /**
- * The six EvalOS staff roles. Each carries the ABAC scope tier that decides how
+ * The seven EvalOS staff roles. Each carries the ABAC scope tier that decides how
  * far a caller can read (see {@link Tier}); the tier is the single source of
  * truth for scoping, so no query re-derives it from the role.
  */

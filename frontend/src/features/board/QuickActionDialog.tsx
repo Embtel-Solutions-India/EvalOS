@@ -93,6 +93,7 @@ export default function QuickActionDialog({
             <Field
               key={field.name}
               field={field}
+              caseId={caseId}
               value={values[field.name] ?? ''}
               onChange={(value) => setValue(field.name, value)}
             />
@@ -132,10 +133,13 @@ const INPUT_STYLE = { background: 'var(--bg-base)', borderColor: 'var(--border-d
 
 function Field({
   field,
+  caseId,
   value,
   onChange,
 }: {
   field: ActionField
+  /** Passed down for the expert picker, which the server narrows to what this case can take. */
+  caseId: string
   value: string
   onChange: (value: string) => void
 }) {
@@ -150,7 +154,7 @@ function Field({
         {field.label}
       </span>
       {isPicker ? (
-        <Picker field={field} value={value} onChange={onChange} required={required} />
+        <Picker field={field} caseId={caseId} value={value} onChange={onChange} required={required} />
       ) : (
         <input
           required={required}
@@ -177,11 +181,13 @@ type Options = { status: 'loading' } | { status: 'ready'; items: PickerOption[] 
  */
 function Picker({
   field,
+  caseId,
   value,
   onChange,
   required,
 }: {
   field: ActionField
+  caseId: string
   value: string
   onChange: (value: string) => void
   required: boolean
@@ -192,7 +198,7 @@ function Picker({
   useEffect(() => {
     const controller = new AbortController()
     const load = field.kind === 'expert' || !memberRole
-      ? fetchAvailableExperts(controller.signal)
+      ? fetchAvailableExperts(caseId, controller.signal)
       : fetchAssignable(memberRole, controller.signal)
 
     load
@@ -201,7 +207,7 @@ function Picker({
         if (!controller.signal.aborted) setOptions({ status: 'failed' })
       })
     return () => controller.abort()
-  }, [field.kind, memberRole])
+  }, [field.kind, memberRole, caseId])
 
   if (options.status === 'loading') {
     return (

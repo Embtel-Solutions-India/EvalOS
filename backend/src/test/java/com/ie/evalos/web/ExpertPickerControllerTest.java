@@ -7,6 +7,9 @@ import com.ie.evalos.common.ApiErrors;
 import com.ie.evalos.domain.Availability;
 import com.ie.evalos.domain.Expert;
 import com.ie.evalos.domain.Role;
+import com.ie.evalos.domain.Case;
+import com.ie.evalos.domain.Stage;
+import com.ie.evalos.repository.CaseRepository;
 import com.ie.evalos.repository.ExpertRepository;
 import com.ie.evalos.security.EvalOsUserDetailsService;
 import com.ie.evalos.security.JwtService;
@@ -21,9 +24,13 @@ import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpHeaders;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
 
+import java.util.Optional;
+
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -51,6 +58,9 @@ class ExpertPickerControllerTest {
 
 	@MockitoBean
 	ExpertRepository experts;
+
+	@MockitoBean
+	CaseRepository cases;
 
 	@MockitoBean
 	EvalOsUserDetailsService userDetailsService;
@@ -85,6 +95,51 @@ class ExpertPickerControllerTest {
 				// Id and name only — nothing else on this entity may travel.
 				.andExpect(jsonPath("$.data[0].paymentDetail").doesNotExist())
 				.andExpect(jsonPath("$.data[0].qualityScore").doesNotExist());
+	}
+
+	/**
+	 * The rematch case, and the reason {@code forCase} exists.
+	 *
+	 * <p>{@code reassignExpert} refuses "that is the expert who declined", so a picker that offered
+	 * them would be offering a guaranteed 409 — the failure this controller's javadoc says it exists
+	 * to prevent, previously caught one filter short.
+	 */
+	@Test
+	void theExpertAlreadyOnTheCaseIsNotOfferedAsTheirOwnReplacement() throws Exception {
+		Expert declined = expert("Alan Turing", Availability.AVAILABLE);
+		given(experts.findScoped(any(TenantContext.class))).willReturn(List.of(
+				declined,
+				expert("Zara Okonkwo", Availability.AVAILABLE)));
+
+		UUID caseId = UUID.randomUUID();
+		Case subject = new Case(BRAND_IE, "IE-2026-0001", Stage.EXPERT_SIGNING);
+		// An unsaved Expert has no id and there is no setter for one — the same
+		// ReflectionTestUtils shape PayoutServiceTest uses to give a row an identity.
+		UUID declinedId = UUID.randomUUID();
+		ReflectionTestUtils.setField(declined, "id", declinedId);
+		subject.setExpertId(declinedId);
+		given(cases.findScoped(any(TenantContext.class), eq(caseId))).willReturn(Optional.of(subject));
+
+		mockMvc.perform(get("/api/experts").param("forCase", caseId.toString())
+				.header(HttpHeaders.AUTHORIZATION, bearer(Role.PROJECT_MANAGER)))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.data.length()").value(1))
+				.andExpect(jsonPath("$.data[0].fullName").value("Zara Okonkwo"));
+	}
+
+	@Test
+	void aCaseOutsideTheCallersScopeNarrowsNothingAndLeaksNothing() throws Exception {
+		given(experts.findScoped(any(TenantContext.class))).willReturn(List.of(
+				expert("Zara Okonkwo", Availability.AVAILABLE)));
+		// findScoped answers empty for a case the caller may not read. The parameter is a
+		// convenience, so an unreadable id is treated as no case rather than refused — the caller
+		// learns nothing about whether it exists.
+		given(cases.findScoped(any(TenantContext.class), any(UUID.class))).willReturn(Optional.empty());
+
+		mockMvc.perform(get("/api/experts").param("forCase", UUID.randomUUID().toString())
+				.header(HttpHeaders.AUTHORIZATION, bearer(Role.PROJECT_MANAGER)))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.data.length()").value(1));
 	}
 
 	@Test

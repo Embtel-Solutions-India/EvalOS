@@ -73,6 +73,18 @@ public final class CaseEvents {
 		DRAFT_CLIENT_APPROVED("draft.client_approved"),
 		EXPERT_SIGNED("expert.signed"),
 		EXPERT_DECLINED("expert.declined"),
+		/**
+		 * The 24h sign budget ran out and a human said so (Unit 15).
+		 *
+		 * <p>Its own wire name rather than reusing {@code expert.declined}, because the two are
+		 * different facts about the expert: a decline is an answer, a timeout is the absence of
+		 * one. {@code ExpertMatchService} counts them into the same acceptance-rate denominator,
+		 * which is a scoring decision and not a reason to record them as the same event.
+		 *
+		 * <p>Unrouted in {@code NotificationListeners}, exactly like its sibling above: the staff
+		 * who could act on it are the ones who fired it.
+		 */
+		EXPERT_TIMED_OUT("expert.timed_out"),
 		QC_APPROVED("qc.approved"),
 		CASE_DELIVERED("case.delivered"),
 		CASE_CLOSED("case.closed"),

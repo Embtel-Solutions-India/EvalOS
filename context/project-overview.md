@@ -51,9 +51,14 @@ own brand. The GM sees across all brands.
 
 Production hierarchy: **GM** (all brands) → **Brand Manager** (one brand) →
 **Project Manager** (a team's cases) → { **Project Coordinator**, **Case
-Manager**, **Expert Network Manager** }. Sales & Marketing roles live in GHL and
-report to the Brand Manager; EvalOS does not build sales/marketing user roles.
+Manager**, **Expert Network Manager** }. Marketing roles live in GHL and
+report to the Brand Manager; EvalOS builds no marketing user role.
 There is no "Head of Evaluations" role and no intern tier in v1.
+
+**There is no sales role, and there was one for a while.** Unit 29 added a
+`SALES_EXECUTIVE` outside this hierarchy, whose working surface was GHL's own sales
+pipeline operated from an EvalOS screen. It and its screen were removed, so the original
+line stands again: **EvalOS builds no sales user role.** The six above are all of them.
 
 **Reading the CRM build spec against this:** where that document says "Head of Eval"
 — the day-3 document escalation, the unassigned-after-4h alert, the revenue
@@ -235,11 +240,19 @@ The case lifecycle, from EvalOS's point of view (EvalOS owns stages 3–7 of the
   second screen did and did not settle: reading **another pipeline** in the location
   EvalOS already reads is decided; *sending* an email from EvalOS is still out, and
   the email funnel being visible here changes nothing about that.
-- Sales pipeline, lead qualification, proposals, quoting; sales/marketing user
-  roles. Their **dashboards** stay in GHL too, with the exception above: the open
-  question that defaulted to "GHL-native" is now answered as *read-only GM funnel
-  views in EvalOS over pipelines in the one configured location, everything else in
-  GHL*.
+- Lead qualification, proposals, quoting; marketing user roles. Their **dashboards**
+  stay in GHL too, with the exception above: the open question that defaulted to
+  "GHL-native" is answered as *read-only GM funnel views in EvalOS over pipelines in
+  the one configured location, everything else in GHL*.
+
+  **The sales pipeline left this list in Unit 29 and came back.** A `SALES_EXECUTIVE`
+  briefly worked it from an EvalOS screen with every action written straight to GHL. The
+  desk and the role were removed; selling is wholly GHL's again, and the funnel reads
+  above are the only sales-shaped thing EvalOS has. What never left this list is
+  everything that would need EvalOS-side state — targets, quotas, commission, sales
+  reporting — because those are stored facts, and storage is where invariant 2 draws its
+  line whichever direction the traffic runs.
+
 - Invoicing and payment collection; the payment processor integration itself
   (EvalOS listens to GHL's webhook, not to Stripe/Razorpay directly).
 - Any object/file storage of documents — EvalOS stores Drive file ids and links, not

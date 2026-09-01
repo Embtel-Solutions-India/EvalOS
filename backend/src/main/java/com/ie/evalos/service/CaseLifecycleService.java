@@ -541,6 +541,36 @@ public class CaseLifecycleService {
 	}
 
 	/**
+	 * The 24-hour sign budget ran out and nobody answered.
+	 *
+	 * <p><strong>A human fires this, never a timer.</strong> Unit 19's sweep raises the prompt on
+	 * the PM's assignment board; it does not move the case. The distinction is the whole point: a
+	 * job that timed a case out on its own would be taking work off an expert who is mid-signature
+	 * on a schedule nobody watched, and reaching {@code EXPERT_DECLINED_REMATCHING} is what opens
+	 * {@code REASSIGN_EXPERT}.
+	 *
+	 * <p>Mirrors {@link #expertDeclined} exactly, minus the reason — the absence of an answer is
+	 * the reason, and asking staff to type one invites a guess at what the expert was thinking
+	 * into the audit trail. {@link OfferOutcome#TIMED_OUT} is a distinct outcome for the same
+	 * argument; the acceptance rate counts it in the denominator, which is a scoring decision
+	 * made in {@code ExpertMatchService} and not a claim that the expert declined.
+	 *
+	 * <p>{@code ExpertSignStatus.OVERDUE} is deliberately NOT set here. The board derives overdue
+	 * from the 24h {@code EXPERT_SIGN} budget in {@code SlaCalculator} — the same clock this
+	 * transition answers — and a column stating the same fact is a second place for it to be
+	 * wrong. The exception state is what the card shows once this fires.
+	 */
+	@Transactional
+	public Case expertTimedOut(UUID caseId) {
+		Case subject = load(caseId);
+		Stage to = CaseTransitions.target(subject, Action.EXPERT_TIMED_OUT);
+
+		resolveOpenOffer(subject, OfferOutcome.TIMED_OUT, null);
+		return apply(subject, to, Action.EXPERT_TIMED_OUT, null,
+				c -> c.setExceptionState(ExceptionState.EXPERT_DECLINED_REMATCHING));
+	}
+
+	/**
 	 * The rematch. Two offer writes, in this order: the outgoing offer is closed
 	 * {@code SUPERSEDED} and a fresh one opened for the replacement.
 	 *

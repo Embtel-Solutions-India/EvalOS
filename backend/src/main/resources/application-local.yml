@@ -18,6 +18,19 @@ spring:
     # out-of-order migration and Flyway refuses it. Allowed here only: this is the
     # one profile that applies the seed, and prod keeps the strict default.
     out-of-order: true
+    # **Because V906 was deleted, not because missing migrations are acceptable.**
+    #
+    # The sales-executive seed was removed when the role was. Any database that already applied it
+    # carries version 906 in `flyway_schema_history` with no file to match, and Flyway's default
+    # `validate-on-migrate` refuses to run at all in that state — which would break every laptop
+    # that had ever booted this profile, over a seed row that V30 deletes anyway.
+    #
+    # Scoped to `missing` alone: a CHECKSUM mismatch (an *edited* applied migration) still fails
+    # the boot, which is the check that actually protects the schema. And scoped to this profile
+    # and the local integration test — the two that list the disposable seed tree. **Never add
+    # this to `application.yml` or a deployed profile**: nothing under `db/migration` is ever
+    # deleted, so a missing one there is a real defect and must stop the boot.
+    ignore-migration-patterns: "*:missing"
 
 evalos:
   security:

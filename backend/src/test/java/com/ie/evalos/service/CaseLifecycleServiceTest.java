@@ -489,6 +489,40 @@ class CaseLifecycleServiceTest {
 		assertEquals(ExpertSignStatus.REASSIGNED, subject.getExpertSignStatus());
 	}
 
+	/**
+	 * The 24h prompt's answer, and the property that matters is which door it opens.
+	 *
+	 * <p>A timeout that left the case in {@code NONE} would leave the PM's board flagging a red
+	 * row with no legal action on it — {@code REASSIGN_EXPERT} is declared only from
+	 * {@code EXPERT_DECLINED_REMATCHING}, which is asserted here rather than assumed.
+	 */
+	@Test
+	void aTimedOutExpertOpensTheSameRematchADeclineDoes() {
+		walkToDraftGeneration();
+		actAs(Role.CASE_MANAGER);
+		lifecycle.submitDraft(CASE_ID, DRAFT_LINK);
+		actAs(Role.PROJECT_MANAGER);
+		lifecycle.pmApproveDraft(CASE_ID);
+		actAs(Role.PROJECT_COORDINATOR);
+		lifecycle.sendDraftToClient(CASE_ID);
+		lifecycle.clientApproveDraft(CASE_ID);
+
+		ExpertCaseOffer open = new ExpertCaseOffer(BRAND, CASE_ID, EXPERT_ID);
+		given(offers.findByCaseIdAndOutcome(any(), eq(OfferOutcome.OFFERED))).willReturn(List.of(open));
+
+		actAs(Role.PROJECT_MANAGER);
+		lifecycle.expertTimedOut(CASE_ID);
+
+		assertEquals(Stage.EXPERT_SIGNING, subject.getCurrentStage(), "a timeout does not move the case");
+		assertEquals(ExceptionState.EXPERT_DECLINED_REMATCHING, subject.getExceptionState());
+		assertEquals(OfferOutcome.TIMED_OUT, open.getOutcome(), "not DECLINED — the expert never answered");
+		assertNull(open.getDeclineReason(), "the absence of an answer is the reason");
+
+		lifecycle.reassignExpert(CASE_ID, OTHER_EXPERT_ID);
+		assertEquals(Stage.EXPERT_ASSIGNMENT, subject.getCurrentStage());
+		assertEquals(OTHER_EXPERT_ID, subject.getExpertId());
+	}
+
 	@Test
 	void anUnavailableExpertCannotBePutOnACase() {
 		actAs(Role.BRAND_MANAGER);

@@ -40,8 +40,8 @@ class GhlPipelineClientTest {
 	}
 
 	private static GhlPipelineClient client(String token, String locationId) {
-		return new GhlPipelineClient("https://services.leadconnectorhq.com", "2021-07-28", token, locationId,
-				Duration.ofSeconds(10));
+		return new GhlPipelineClient(new GhlHttp("https://services.leadconnectorhq.com", "2021-07-28", token,
+				locationId, Duration.ofSeconds(10)));
 	}
 
 	/**
@@ -106,13 +106,16 @@ class GhlPipelineClientTest {
 				// Jackson is needed because RestClient's message converters are built from the
 				// context's ObjectMapper. Nothing else from the app is loaded.
 				.withConfiguration(AutoConfigurations.of(JacksonAutoConfiguration.class))
-				.withUserConfiguration(GhlPipelineClient.class)
+				.withUserConfiguration(GhlHttp.class, GhlPipelineClient.class)
 				.run((context) -> {
 					// No unresolvable placeholder, no missing key, no wrong type. `timeout` is the
 					// one most likely to break quietly: it binds to a Duration, so `10s` in the
 					// yaml has to stay a value Spring can convert.
 					assertThat(context).hasNotFailed();
 					assertThat(context).hasSingleBean(GhlPipelineClient.class);
+					// GhlHttp is where every `evalos.ghl.*` placeholder now binds, so it is the bean
+					// this test is really about.
+					assertThat(context).hasSingleBean(GhlHttp.class);
 					unconfiguredByDefault(context);
 				});
 	}
@@ -163,7 +166,7 @@ class GhlPipelineClientTest {
 						// Same reason as the local runner above: never inherit a real token.
 						"evalos.ghl.token=")
 				.withConfiguration(AutoConfigurations.of(JacksonAutoConfiguration.class))
-				.withUserConfiguration(GhlPipelineClient.class)
+				.withUserConfiguration(GhlHttp.class, GhlPipelineClient.class)
 				.run((context) -> {
 					assertThat(context).hasNotFailed();
 					assertThat(context).hasSingleBean(GhlPipelineClient.class);

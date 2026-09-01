@@ -425,6 +425,35 @@ the row never recorded.
 See `28-dashboard-date-filters.md`.
 Depends on: 08, 17, 24, 26, 27.
 
+### Unit 29 — Sales desk — **BUILT (2026-08-29), REMOVED (2026-09-02)**
+The sales desk and the `SALES_EXECUTIVE` role are gone from the codebase. Deleted:
+`SalesController`, `SalesBoardService`, `GhlSalesClient`, `features/sales/`, the
+`/sales/board` nav entry, `Role.SALES_EXECUTIVE`, `team_member.ghl_user_id` and its
+mapping endpoint, and the V906 seed login. `V30__drop_sales_executive.sql` reverses V29's
+two constraint rewrites and drops the column; V29 itself stays, because an applied
+migration is never edited or deleted.
+
+**What the removal cost, and what it did not.** It cost one migration and no data
+reconciliation at all — the unit's central decision was that **nothing is stored here**,
+no `ghl_opportunity` table and no sales column anywhere, so there was nothing to unwind.
+The decision that made a write safe is the same one that made the write cheap to remove.
+
+**Invariant 2 reverts.** Unit 29 was the only unit that has ever cost an invariant:
+"EvalOS never runs sales" died and the boundary moved from read-vs-write to custody. Both
+come back. `GhlHttp` now exposes no `post`, `put` or `delete` — EvalOS reads GHL and
+writes nothing to it, asserted by `GhlHttpTest` rather than claimed by a comment.
+
+**What survives the unit.** `GhlHttp` itself stays extracted: it was pulled out to hold
+one shared rate-limit pacer, and that limit is a property of the GHL *location*, not of
+whoever is reading it this month. Folding it back into `GhlPipelineClient` is how the next
+client silently gets a pacer of its own, so the shared-pacer test now runs across two
+instances of the one remaining client. The PII widening reverts with the board that needed
+it: `SalesOpportunity` carried a contact's name, email and phone under `/api/sales/**`, and
+that endpoint tree no longer exists.
+
+`29-sales-desk.md` is kept as the record of a decision that was made, shipped and undone.
+Unit 27's `/sales/pipeline` — the GM's *read* of the same funnel — is untouched.
+
 ### Unit 25 — GHL OAuth connection (per brand)
 Builds: the GM connects a brand to a GHL sub-account from inside EvalOS, replacing
 Unit 24's hand-pasted Private Integration Token. A brand-scoped `ghl_connection`
@@ -438,7 +467,7 @@ refreshing concurrently would otherwise retire each other's grant.
 run live. One permitted path in `SecurityConfig`, no third filter chain.
 Its live connection also closes **Unit 24's** one outstanding acceptance item.
 The follow-on (**25a**) re-scopes the funnel — **all three GHL screens: Unit 24's,
-Unit 26's and Unit 27's**: `brandId` becomes legal, the Brand Manager is admitted, and invariant 1's stated exception is removed. Deliberately not
+Unit 26's and Unit 27's**: `brandId` becomes legal, the Brand Manager is admitted, and invariant 1's stated exception is removed. (It was four while the sales desk existed, and that screen's re-scoping was the one that changed shape rather than just gaining a parameter. The desk is gone; three again.) Deliberately not
 in 25 — a credential's lifecycle and a screen's role list are different boundaries.
 Depends on: 02, 24.
 
@@ -460,6 +489,8 @@ Depends on: 02, 24.
   `brandId`. **Unit 27's separate `Sales` nav heading does not change this**: a different
   heading over the same `location-id` is still unattributable. Read the rule as *every query
   over EvalOS rows*, and treat a new unscoped query over EvalOS rows as the defect it still is.
+  **25a's re-scoping sweep covers these three.** It briefly covered a fourth, Unit 29's sales
+  board, which has been removed along with the `SALES_EXECUTIVE` role that worked it.
 - **No object storage, no mail server.** Documents are Drive links and file ids —
   including the signed letter, which the expert uploads into the case's Drive folder;
   staff alerts are in-app (Unit 06); clients are reached through GHL and experts

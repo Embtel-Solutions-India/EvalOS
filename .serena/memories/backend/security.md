@@ -129,6 +129,16 @@ become a way for a non-GM to trigger client-facing messages.
 - `domain/Role` carries its own ABAC `Tier`: `GM`=ALL, `BRAND_MANAGER`=BRAND, `PROJECT_MANAGER`=TEAM,
   `PROJECT_COORDINATOR`/`CASE_MANAGER`=SELF, `EXPERT_NETWORK_MANAGER`=SUPPLY. Nothing re-derives
   scope from the role name. GM is the only cross-brand reader.
+  - **Six roles, and there was briefly a seventh.** Unit 29's `SALES_EXECUTIVE` (SELF, `brand_id`
+    NULL) was built and then removed with the sales desk. What it left behind is worth keeping:
+    the fail-closed branch it relied on — **a brand-locked role with no brand matches nothing, not
+    everything** — is a property of `ScopePredicate`, not of that role, and is still asserted in
+    `ScopePredicateTest` on both the assignee and brand-only shapes (now via `CASE_MANAGER`).
+    **`team_member_brand_required` is back to V3's `role = 'GM' OR brand_id IS NOT NULL`** and
+    `team_member_role_valid` back to the six names (`V30__drop_sales_executive.sql`);
+    `LocalPostgresIntegrationTest` pins both against the real database, which is the only place
+    that failure can surface. **The GM is once again the only role that may have no brand**, and
+    its NULL means "every brand" — the opposite of what the sales executive's meant.
 - **`SUPPLY` is a field tier, not a row tier, and this is the one that surprises people.** At the
   row level it is identical to `BRAND` — `ScopePredicate` handles both under `default -> {}` and
   adds no predicate — because the ENM's three signing transitions must load the case. What makes

@@ -122,6 +122,14 @@ payments, not about this screen.
 
 ## The line this does not cross - unchanged from Units 24 and 26
 
+> **Superseded in part by Unit 29** (`29-sales-desk.md`, specced not built). This section
+> remains an accurate record of what *this* unit does and does not do, and Unit 29 does not
+> change one line of Unit 27's code. But it is no longer the standing architectural rule:
+> Unit 29 amends invariant 2 so that EvalOS may **operate** this pipeline. The half of this
+> section that survives is the last one — **nothing is persisted, and there must not be a
+> `ghl_opportunity` table** — which Unit 29 promotes from an incidental decision to the
+> load-bearing one, because a remote control with no copy has nothing to fall out of date.
+
 Reading is not running, and reading a *sales* pipeline is still not selling.
 Nothing creates a lead, moves a stage, prices a deal or sends anything; the
 credential is `opportunities.readonly` and the client has no write method.

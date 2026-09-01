@@ -3,6 +3,7 @@ import Forbidden from './components/Forbidden'
 import BoardView from './features/board/BoardView'
 import InboxPage from './features/queues/InboxPage'
 import DraftQueuePage from './features/queues/DraftQueuePage'
+import ExpertAssignmentPage from './features/queues/ExpertAssignmentPage'
 import DeliveryQueuePage from './features/queues/DeliveryQueuePage'
 import ChecklistBoard from './features/checklist/ChecklistBoard'
 import PortalRoot from './features/client-portal/PortalRoot'
@@ -21,6 +22,7 @@ import {
   EXPERT_PAYOUTS_PATH,
   NAV_ITEMS,
   PAYMENT_DETAIL_PATH,
+  homePathFor,
   mayReach,
 } from './features/shell/navigation'
 import AuthProvider from './lib/auth'
@@ -39,6 +41,7 @@ const SCREENS: Record<string, React.ReactNode> = {
   '/my-cases': <BoardView />,
   '/inbox': <InboxPage />,
   '/drafts': <DraftQueuePage />,
+  '/expert-assignment': <ExpertAssignmentPage />,
   '/delivery': <DeliveryQueuePage />,
   '/checklists': <ChecklistBoard />,
   '/experts': <ExpertRoster />,
@@ -56,6 +59,9 @@ const SCREENS: Record<string, React.ReactNode> = {
     <MarketingPipelinePage funnel="email" title="Email marketing pipeline" />
   ),
   '/sales/pipeline': <MarketingPipelinePage funnel="sales" title="Sales pipeline" />,
+  // The sales *desk* is not a fourth funnel and shares nothing with the three above: that
+  // component draws an aggregate from a cached read, this one draws individual deals with the
+  // contact on them, live, with actions that write to GHL. Same pipeline, different question.
 }
 
 /** The client portal's path prefix. `/portal/expert` joins it in Unit 15. */
@@ -120,10 +126,11 @@ function StaffApp() {
   return (
     <Routes>
       {/* Already signed in: login is not a place to go back to. */}
-      <Route path="/login" element={<Navigate to="/dashboard" replace />} />
+      {/* `homePathFor`, not a hardcoded `/dashboard`: since Unit 29 not every role has one. */}
+      <Route path="/login" element={<Navigate to={homePathFor(state.me.role)} replace />} />
 
       <Route element={<AppShell />}>
-        <Route index element={<Navigate to="/dashboard" replace />} />
+        <Route index element={<Navigate to={homePathFor(state.me.role)} replace />} />
         <Route path="/dashboard" element={<RoleDashboard />} />
 
         {/* Reached from a board card, so it has no nav entry — but the same table gates it. */}

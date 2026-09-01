@@ -146,8 +146,8 @@ class GhlPipelineClientLiveTest {
 				+ "A bare 36-char UUID produces a 401 that reads like a scope problem.").startsWith("pit-");
 		assertThat(LOCATION).describedAs("GHL_LOCATION_ID must be set to run the live test").isNotBlank();
 
-		return new GhlPipelineClient("https://services.leadconnectorhq.com", "2021-07-28", TOKEN, LOCATION,
-				Duration.ofSeconds(10));
+		return new GhlPipelineClient(new GhlHttp("https://services.leadconnectorhq.com", "2021-07-28", TOKEN,
+				LOCATION, Duration.ofSeconds(10)));
 	}
 
 	/**

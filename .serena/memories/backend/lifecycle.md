@@ -48,8 +48,18 @@ another.
   the scope are one decision and neither works alone.
 - **Expert transitions also write an `expert_case_offer` row, inside the same transaction** (Unit 12),
   so an offer and the transition that caused it commit together or not at all: `assignCaseManager` and
-  `reassignExpert` open one, `expertDeclined` stamps `DECLINED` with the reason, `expertSigned` stamps
-  `ACCEPTED`, and a rematch closes the previous row `SUPERSEDED` so no permanently-open row survives.
+  `reassignExpert` open one, `expertDeclined` stamps `DECLINED` with the reason, `expertTimedOut`
+  stamps `TIMED_OUT` with none, `expertSigned` stamps `ACCEPTED`, and a rematch closes the previous
+  row `SUPERSEDED` so no permanently-open row survives.
+- **`EXPERT_TIMED_OUT` is the human answer to the 24h sign prompt, and a human fires it — never a
+  job.** Stage-preserving from `EXPERT_SIGNING` and a mirror of `EXPERT_DECLINED`: both land in
+  `EXPERT_DECLINED_REMATCHING`, which is the *only* state `REASSIGN_EXPERT` is declared from, so a
+  timeout that left the case in `NONE` would flag a red row with no legal action on it. No reason
+  body — the absence of an answer is the reason. Gate is **`GM · BRAND_MANAGER · PROJECT_MANAGER`**
+  (`POST /cases/{id}/expert/timed-out`), the reverse of the two sign callbacks beside it: the ENM
+  records what an expert did but does not take a case off one. `ExpertSignStatus.OVERDUE` is
+  deliberately still unwritten — the PM's board derives overdue from `SlaCalculator`'s 24h
+  `EXPERT_SIGN` budget, and a column restating it is a second place for it to be wrong.
   Invariants of that table — including why its partial index being non-unique matters — are in
   `mem:backend/persistence`.
 

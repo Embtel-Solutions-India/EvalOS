@@ -511,6 +511,23 @@ public class CaseController {
 		return summary(lifecycle.expertDeclined(id, request.reason()));
 	}
 
+	/**
+	 * The human answer to the 24h prompt on the PM's expert assignment board.
+	 *
+	 * <p><strong>Gate is GM · Brand Manager · PM, and the ENM is deliberately absent</strong> —
+	 * unlike the two callbacks above, which they hold. Recording what an expert did is supply-side
+	 * work; taking a case off one is the same weight of call as staffing it, and that has never
+	 * been theirs. Spec 15 states the same split.
+	 *
+	 * <p>No body: the absence of an answer is the reason, and a required text field would put a
+	 * guess at what the expert was thinking into the audit trail.
+	 */
+	@PostMapping("/{id}/expert/timed-out")
+	@PreAuthorize(GM_OR + "hasAnyRole('BRAND_MANAGER', 'PROJECT_MANAGER')")
+	public ApiResponse<CaseSummary> expertTimedOut(@PathVariable UUID id) {
+		return summary(lifecycle.expertTimedOut(id));
+	}
+
 	@PostMapping("/{id}/reassign-expert")
 	@PreAuthorize(GM_OR + "hasAnyRole('PROJECT_MANAGER', 'EXPERT_NETWORK_MANAGER')")
 	public ApiResponse<CaseSummary> reassignExpert(@PathVariable UUID id, @Valid @RequestBody ExpertRequest request) {

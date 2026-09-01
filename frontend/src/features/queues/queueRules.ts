@@ -94,6 +94,43 @@ export function draftReviewQueue(data: BoardData): BoardCard[] {
   return data.stages.DRAFT_GENERATION.filter((card) => card.pmApprovalStatus === 'PENDING')
 }
 
+/**
+ * Cases with nobody signed up to write them: the Expert Assignment column, plus every case a
+ * decline or a timeout has thrown back into the rematch lane.
+ *
+ * **The exception lane is the half that is easy to miss.** `CaseBoardController` puts a case in a
+ * stage bucket only while `exceptionState` is `NONE`, so a case in `EXPERT_DECLINED_REMATCHING`
+ * has left the stage buckets entirely — reading `stages.EXPERT_ASSIGNMENT` alone would show the
+ * cases nobody has picked an expert for yet and silently drop the ones whose expert walked away,
+ * which are the more urgent of the two.
+ */
+export function awaitingExpert(data: BoardData): BoardCard[] {
+  return byDeadline([...data.stages.EXPERT_ASSIGNMENT, ...data.exceptions.EXPERT_DECLINED_REMATCHING])
+}
+
+/**
+ * Signing cases past the 24-hour expert-sign budget, longest-overdue first.
+ *
+ * **The 24h threshold is `SlaCalculator`'s `EXPERT_SIGN` budget, not a number restated here.**
+ * The brief's "responses overdue >24h" *is* that budget, so `slaStatus === 'OVERDUE'` on this
+ * stage answers it exactly — measured on the same `BusinessCalendar` every other SLA runs on.
+ * Re-deriving it client-side from a timestamp would give the board and the SLA rail two clocks
+ * that disagree over a weekend.
+ *
+ * `expertSignStatus` is checked as well so a case whose expert has already signed cannot appear
+ * here on the strength of a stale stage clock — QC has not run yet, but the response is in.
+ *
+ * Ordered by deadline rather than by how long overdue: everything in this list is late, and the
+ * question left is which client was promised theirs soonest.
+ */
+export function expertSignOverdue(data: BoardData): BoardCard[] {
+  return byDeadline(
+    data.stages.EXPERT_SIGNING.filter(
+      (card) => card.slaStatus === 'OVERDUE' && card.expertSignStatus === 'PENDING',
+    ),
+  )
+}
+
 function byDeadline(cards: BoardCard[]): BoardCard[] {
   return [...cards].sort((left, right) => {
     if (left.deadline === right.deadline) return 0

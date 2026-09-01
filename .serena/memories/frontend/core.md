@@ -24,10 +24,20 @@ yet; `empty` carries operational copy ("All incoming cases are assigned"), and *
 are different states** — a figure summing to zero renders `0`. A card is clickable **only** if
 given a `to`, which is what stops every tile looking interactive.
 
-`features/queues/` holds the three queue screens — `/inbox`, `/drafts` (PM) and `/delivery`
-(Coordinator). **All three read `/api/cases/board`** rather than adding endpoints: a second read
-would mean a second scope predicate that could drift from the board's. Selection lives in the pure
-`queueRules.ts` and is the only part with tests.
+`features/queues/` holds the four queue screens — `/inbox`, `/drafts`, `/expert-assignment` (PM)
+and `/delivery` (Coordinator). **All four read `/api/cases/board`** rather than adding endpoints: a
+second read would mean a second scope predicate that could drift from the board's. Selection lives
+in the pure `queueRules.ts` and is the only part with tests.
+
+**`/expert-assignment` is Unit 17's PM widget, built as a composition and not a service.** Three
+questions on one screen because they are one decision: `awaitingExpert` (the `EXPERT_ASSIGNMENT`
+bucket **plus** the `EXPERT_DECLINED_REMATCHING` lane — `CaseBoardController` puts a case in a
+stage bucket only while its exception is `NONE`, so reading the stage alone drops the cases whose
+expert walked away), `expertSignOverdue` (`slaStatus === 'OVERDUE'` on `EXPERT_SIGNING` with
+`expertSignStatus === 'PENDING'` — that *is* the 24h `EXPERT_SIGN` budget on business hours, never
+a client-side hour count), and Unit 11's shipped `AvailabilityBoard` underneath. The red row's
+prompt runs `expert/timed-out` then `reassign-expert`, both through the board's existing
+`QuickActionDialog`, so the Unit 12 shortlist comes along free.
 
 **`/inbox` is the front door for incoming work and is the PM's alone (Unit 23).** A paid case
 arrives in the pool and surfaces under *Unassigned*; the PM takes it, then staffs the coordinator
@@ -193,6 +203,21 @@ own pipeline name arrives in the payload and replaces it, which is what lets thr
 stay tellable apart). `funnel` sits in the `useMetrics` deps beside `dateRange`, or a route change
 would leave another funnel's numbers under this one's heading. The file was `AdsPipelinePage.tsx`
 until Unit 26.
+
+**⚠ Unit 29's sales board was BUILT and then REMOVED (2026-09-02).** `features/sales/`, the
+`/sales/board` nav entry and `Role.SALES_EXECUTIVE` are all deleted. `/sales/pipeline` — the GM's
+*read* of that same funnel through this component — is untouched, and it keeps its own `Sales` nav
+heading for the reason above: it is a salesperson's pipeline, not a campaign funnel, and filing it
+under Marketing would imply three comparable channel results.
+
+**Two role-table notes the removal leaves in place.** `navigation.ts` keeps the name
+**`PRODUCTION_ROLES`** rather than reverting to `ALL_ROLES`, and `boardRules.test.ts` /
+`navigation.test.ts` keep their `CASE_ROLES` split, even though both lists are equal to every role
+again. The name states the *reason* a role is on the list, and that survives the next role that is
+not — a constant named "all" is the one that goes quietly wrong. And `STAGE_ACCESS` / `DASHBOARDS`
+stay `Record<Role, ...>`: adding a role is a build failure until it declares board access and a
+dashboard node. That totality is what made removing one a compile error rather than a runtime
+`undefined`; do not relax it to `Partial`.
 
 **Unit 27 added no file here** — a union member and one route-table line in `App.tsx`. If a fourth
 funnel needs a component of its own, something has actually changed; check that first.
@@ -428,6 +453,13 @@ deliberately no client-side scoring. The ranking and its factor breakdown come f
 `factorShare` clamps to `[0,1]` and returns 0 on a zero weight, because `NaN%` as a CSS width is
 *silently dropped* rather than visibly wrong; and `breakdownAddsUp` makes the panel say so if the
 rows ever contradict the total above them.
+
+**The expert `<select>` under the shortlist is server-narrowed, not client-filtered.**
+`fetchAvailableExperts(caseId)` passes `forCase` and `GET /api/experts` drops both what
+`availableExpert` refuses (anything not `AVAILABLE`) *and* the expert already on the case, which
+`reassignExpert` answers 409 to. Passed unconditionally — on `assign-cm` the case has no expert
+yet, so it is a no-op. **Do not try to filter this client-side:** `BoardCard` deliberately carries
+no `expertId`, and the fix for a picker offering a refused choice belongs in the picker.
 
 ## Styling — design tokens only
 

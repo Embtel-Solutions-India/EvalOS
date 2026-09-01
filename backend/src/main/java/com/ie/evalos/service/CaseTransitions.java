@@ -47,6 +47,7 @@ public final class CaseTransitions {
 		CLIENT_APPROVE_DRAFT(CaseEvents.Type.DRAFT_CLIENT_APPROVED, AuditAction.STAGE_CHANGED),
 		EXPERT_SIGNED(CaseEvents.Type.EXPERT_SIGNED, AuditAction.UPDATED),
 		EXPERT_DECLINED(CaseEvents.Type.EXPERT_DECLINED, AuditAction.UPDATED),
+		EXPERT_TIMED_OUT(CaseEvents.Type.EXPERT_TIMED_OUT, AuditAction.UPDATED),
 		REASSIGN_EXPERT(CaseEvents.Type.EXPERT_ASSIGNED, AuditAction.ASSIGNED),
 		PM_QC_APPROVE(CaseEvents.Type.QC_APPROVED, AuditAction.STAGE_CHANGED),
 		DELIVER_TO_CLIENT(CaseEvents.Type.CASE_DELIVERED, AuditAction.UPDATED),
@@ -100,6 +101,10 @@ public final class CaseTransitions {
 
 		declare(Stage.EXPERT_SIGNING, Action.EXPERT_SIGNED, Stage.EXPERT_SIGNING);
 		declare(Stage.EXPERT_SIGNING, Action.EXPERT_DECLINED, Stage.EXPERT_SIGNING);
+		// Stage-preserving, and mirroring EXPERT_DECLINED exactly: both end in
+		// EXPERT_DECLINED_REMATCHING, which is the only state REASSIGN_EXPERT is legal from. A
+		// timeout that moved the case would leave the rematch with nowhere to put it back.
+		declare(Stage.EXPERT_SIGNING, Action.EXPERT_TIMED_OUT, Stage.EXPERT_SIGNING);
 		declare(Stage.EXPERT_SIGNING, Action.PM_QC_APPROVE, Stage.FINAL_DELIVERY);
 
 		declare(Stage.FINAL_DELIVERY, Action.DELIVER_TO_CLIENT, Stage.FINAL_DELIVERY);

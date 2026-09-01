@@ -133,8 +133,8 @@ class GhlPipelineClientHttpTest {
 	}
 
 	private GhlPipelineClient client() {
-		return new GhlPipelineClient("http://127.0.0.1:" + server.getAddress().getPort(), "2021-07-28", TOKEN,
-				LOCATION, Duration.ofSeconds(5));
+		return new GhlPipelineClient(new GhlHttp("http://127.0.0.1:" + server.getAddress().getPort(), "2021-07-28",
+				TOKEN, LOCATION, Duration.ofSeconds(5)));
 	}
 
 	/** One opportunity with GHL's full row shape — the contact block included, values invented. */

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { BoardCard, BoardData, Stage } from '../board/boardRules'
-import { draftReviewQueue, inboxQueue } from './queueRules'
+import { awaitingExpert, draftReviewQueue, expertSignOverdue, inboxQueue } from './queueRules'
 
 const NOW = new Date('2026-07-08T12:00:00Z')
 
@@ -125,5 +125,50 @@ describe('draftReviewQueue', () => {
     ])
 
     expect(draftReviewQueue(data).map((row) => row.caseCode)).toEqual(['waiting'])
+  })
+})
+
+describe('awaitingExpert', () => {
+  it('includes the rematch lane, which has left the stage buckets', () => {
+    const data = board([card({ caseCode: 'unstaffed', currentStage: 'EXPERT_ASSIGNMENT' })], 'EXPERT_ASSIGNMENT')
+    data.exceptions.EXPERT_DECLINED_REMATCHING = [
+      card({
+        caseCode: 'declined',
+        currentStage: 'EXPERT_SIGNING',
+        exceptionState: 'EXPERT_DECLINED_REMATCHING',
+        deadline: '2026-07-09T12:00:00Z',
+      }),
+    ]
+
+    // Deadline order, so the dated rematch leads the undated new case.
+    expect(awaitingExpert(data).map((row) => row.caseCode)).toEqual(['declined', 'unstaffed'])
+  })
+})
+
+describe('expertSignOverdue', () => {
+  it('takes the 24h budget from the stage SLA and not the deadline band', () => {
+    const data = board(
+      [
+        card({ caseCode: 'late', slaStatus: 'OVERDUE', expertSignStatus: 'PENDING', currentStage: 'EXPERT_SIGNING' }),
+        // Inside the budget, but its promised date is red: a different clock, and not this list's.
+        card({
+          caseCode: 'deadline-red',
+          slaStatus: 'ON_TRACK',
+          deadlineRisk: 'OVERDUE',
+          expertSignStatus: 'PENDING',
+          currentStage: 'EXPERT_SIGNING',
+        }),
+        // Answered. The stage clock still runs until QC, and that must not read as no response.
+        card({
+          caseCode: 'signed',
+          slaStatus: 'OVERDUE',
+          expertSignStatus: 'SIGNED',
+          currentStage: 'EXPERT_SIGNING',
+        }),
+      ],
+      'EXPERT_SIGNING',
+    )
+
+    expect(expertSignOverdue(data).map((row) => row.caseCode)).toEqual(['late'])
   })
 })

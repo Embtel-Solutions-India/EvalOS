@@ -118,6 +118,12 @@ import com.ie.evalos.service.ExpertLoadService;
 		"spring.flyway.locations=classpath:db/migration,classpath:db/seed-local",
 		// The seed outranks every real migration, so the next unit's V-N arrives behind it.
 		"spring.flyway.out-of-order=true",
+		// V906 (the sales-executive seed) was deleted with the role. `evalos_test` persists between
+		// runs on a developer machine, so its history still names 906 with no file behind it, and
+		// Flyway would otherwise refuse to migrate at all. `missing` only — a checksum mismatch on
+		// an edited migration still fails, which is the check worth keeping. See
+		// `application-local.yml`, which carries this for the same reason and nothing wider.
+		"spring.flyway.ignore-migration-patterns=*:missing",
 		"spring.jpa.properties.hibernate.default_schema=evalos_test",
 		"spring.jpa.show-sql=false",
 })
@@ -1418,5 +1424,52 @@ class LocalPostgresIntegrationTest {
 
 	private String statusOf(UUID payoutId) {
 		return jdbc.queryForObject("SELECT status FROM payout_ledger WHERE id = ?", String.class, payoutId);
+	}
+
+	/**
+	 * <strong>V30's reversal of V29, against the real database.</strong>
+	 *
+	 * <p>The sales desk and the {@code SALES_EXECUTIVE} role are gone, and this is the only place
+	 * that can prove the database agrees. A migration that dropped the column but left the CHECK
+	 * listing the role would pass every unit test — the enum no longer has the value, so nothing in
+	 * Java can produce one — and leave a seed script or a hand-run UPDATE able to write a row that
+	 * {@code Role.valueOf} then throws on. Constraints are the writer the enum cannot reach, which
+	 * is exactly why they are asserted here and not inferred.
+	 */
+	@Test
+	void theSalesExecutiveIsGoneFromTheSchemaAndNotJustFromTheEnum() {
+		// The role is refused by the restored V3 list, so no writer outside Java can revive it.
+		//
+		// **A real brand, deliberately.** With a NULL one both restored constraints reject the row
+		// and Postgres names whichever it evaluates first — which is `team_member_brand_required`,
+		// so the assertion would pass on the strength of the wrong constraint and keep passing if
+		// the role list were never narrowed at all. Giving the row a valid brand leaves exactly one
+		// reason to refuse it.
+		assertThatThrownBy(() -> jdbc.update(
+				"INSERT INTO team_member (id, brand_id, role, email, password_hash, display_name) "
+						+ "VALUES (?, ?, 'SALES_EXECUTIVE', ?, 'x', 'Sales Exec')",
+				UUID.randomUUID(), BRAND_IE, "sales-" + UUID.randomUUID() + "@evalos.local"))
+				.hasMessageContaining("team_member_role_valid");
+
+		// The mapping column left with the board that read it.
+		assertThatThrownBy(() -> jdbc.queryForObject("SELECT ghl_user_id FROM team_member LIMIT 1", String.class))
+				.hasMessageContaining("ghl_user_id");
+
+		// **And the half of V3 that V29 had widened is narrow again.** Every role but the GM needs a
+		// brand: leaving "any role may have no brand" in place would let a mis-seeded Brand Manager
+		// be silently brand-less, which ScopePredicate reads as "matches nothing" — a user who can
+		// log in and sees an empty app, with no error anywhere.
+		assertThatThrownBy(() -> jdbc.update(
+				"INSERT INTO team_member (id, brand_id, role, email, password_hash, display_name) "
+						+ "VALUES (?, NULL, 'BRAND_MANAGER', ?, 'x', 'No Brand')",
+				UUID.randomUUID(), "nobrand-" + UUID.randomUUID() + "@evalos.local"))
+				.hasMessageContaining("team_member_brand_required");
+
+		// The GM still may, which is the one exception V3 declared and V30 restores unchanged.
+		UUID gm = UUID.randomUUID();
+		assertThat(jdbc.update("INSERT INTO team_member (id, brand_id, role, email, password_hash, display_name) "
+				+ "VALUES (?, NULL, 'GM', ?, 'x', 'Second GM')",
+				gm, "gm-" + gm + "@evalos.local")).isEqualTo(1);
+		jdbc.update("DELETE FROM team_member WHERE id = ?", gm);
 	}
 }

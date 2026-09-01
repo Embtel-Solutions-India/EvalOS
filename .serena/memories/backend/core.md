@@ -48,6 +48,20 @@ endpoint. A failed background read lands as `UNAVAILABLE` so a poller stops.
 by code, and a mistake in either place is still not a write to a GHL pipeline. Four decisions in it
 worth knowing:
 
+> **⚠ One thing here outlived Unit 29, which was built and then removed.** The pacer lives in a
+> shared **`GhlHttp`** bean and this class **no longer owns a `RestClient` at all`**. `pace()`
+> synchronizes on `this` and GHL's 100-req/10s is per **location**, so a second client bean would
+> mean two pacers on one location — each under the limit, the pair over it. That is the same defect
+> this class's own comment warns about one scope out. `GhlHttp` stays extracted now that this is
+> the only client again: the limit belongs to the location, not to whoever is reading it, and
+> re-merging it is how the next client silently gets its own pacer. `GhlHttpTest` pins the shared
+> pacer across two instances of this class.
+>
+> **`GhlHttp` exposes `get` and nothing else.** Unit 29 gave it `post` and `put` for the sales
+> desk; both left with it, so the write capability is absent from the codebase rather than
+> present-and-unused. It is held by code alone — the credential still permits writes — so it is a
+> build-failing test. Do not add `post`, `put` or `delete` "for symmetry".
+
 - **Only three fields are bound off each opportunity** (`pipelineStageId`, `monetaryValue`,
   `source`). GHL's search response also carries every contact's name, email, phone and tags; a stage
   count needs none of it, and the narrow record is what keeps marketing PII out of an EvalOS
@@ -360,7 +374,10 @@ frontend's typed mirror lives in `frontend/src/lib/api.ts`.
   normalises whitespace, so do not "fix" it**) — three names, **not** a list: a list
   needs a slug per entry to route and label it, and that slug is what the `Funnel` enum already is,
   `timeout` (10s, **per page**) and `cache-ttl` (`PT5M`). The token must be a GHL **Private
-  Integration Token scoped `opportunities.readonly` and nothing wider**.
+  Integration Token scoped `opportunities.readonly` and nothing wider**. (Unit 29a briefly widened
+  it to `opportunities.write` + `users.readonly` and added a `write-timeout`; the sales desk was
+  removed and both are gone. The *deployed* token may still carry the wider grant — which is why
+  read-only is asserted in `GhlHttpTest` against the code, not assumed from the credential.)
   **`location-id` is ONE location for the whole deployment — and note what that does NOT mean.**
   Each brand has its own GHL sub-account, so whatever is set here is **one brand's funnel, not a
   cross-brand total**. EvalOS has no mapping from a location to a brand, so it cannot say which

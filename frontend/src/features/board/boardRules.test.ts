@@ -33,6 +33,15 @@ const ALL_ROLES: readonly Role[] = [
   'EXPERT_NETWORK_MANAGER',
 ]
 
+/**
+ * The roles that actually work the board — every role, now that the sales desk is gone.
+ *
+ * Kept as its own name for the reason Unit 29 introduced it: the loops below say "every role that
+ * works the board", and the next role that does not is a one-line change here rather than a
+ * rewrite of the assertions.
+ */
+const CASE_ROLES: readonly Role[] = ALL_ROLES
+
 function card(overrides: Partial<BoardCard> = {}): BoardCard {
   return {
     id: 'c1',
@@ -61,6 +70,8 @@ const paths = (stage: Stage, role: Role, exceptionState: ExceptionState = 'NONE'
 
 describe('STAGE_ACCESS', () => {
   it('covers every role and every column, so no lookup is undefined', () => {
+    // Still ALL_ROLES: the point of this one is that the table is *total*, which is what turns
+    // adding a role into a compile error instead of an undefined lookup at runtime.
     for (const role of ALL_ROLES) {
       for (const { stage } of STAGE_COLUMNS) {
         expect(STAGE_ACCESS[role]?.[stage], `${role} / ${stage}`).toBeDefined()
@@ -71,11 +82,12 @@ describe('STAGE_ACCESS', () => {
   it('leaves every role at least one column they can work', () => {
     // A role whose every cell was `status` or `none` would have a board they can only stare
     // at, which is a table typo rather than a design.
-    for (const role of ALL_ROLES) {
+    for (const role of CASE_ROLES) {
       const worked = STAGE_COLUMNS.filter(({ stage }) => STAGE_ACCESS[role][stage] === 'full')
       expect(worked.length, `${role} works no stage`).toBeGreaterThan(0)
     }
   })
+
 
   it('hides the two stages a Case Manager is never responsible for', () => {
     // A case naming them as CM has already left doc collection, and delivery is the
@@ -182,7 +194,7 @@ describe('actionsFor', () => {
 
   it('never offers a role an action its route would refuse', () => {
     // The client half of the table is only useful if it agrees with the server's gate.
-    for (const role of ALL_ROLES) {
+    for (const role of CASE_ROLES) {
       for (const { stage } of STAGE_COLUMNS) {
         for (const action of actionsFor(card({ currentStage: stage }), role)) {
           // `admits` rather than a re-derivation of the same rule: a second copy is how
@@ -229,7 +241,7 @@ describe('actionsFor', () => {
     const gm = paths('DRAFT_GENERATION', 'GM', 'REFUND_REQUESTED')
     expect(gm).toEqual(['refund/approve', 'refund/deny'])
 
-    for (const role of ALL_ROLES.filter((candidate) => candidate !== 'GM')) {
+    for (const role of CASE_ROLES.filter((candidate) => candidate !== 'GM')) {
       expect(paths('DRAFT_GENERATION', role, 'REFUND_REQUESTED')).toEqual([])
     }
   })

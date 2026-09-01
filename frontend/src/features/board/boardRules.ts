@@ -381,6 +381,19 @@ export const QUICK_ACTIONS: readonly QuickAction[] = [
     fields: REASON,
   },
 
+  // The human answer to the 24h sign prompt. **Not `requiresException` — this is what *sets*
+  // one**, and it is the only door to `reassign-expert` below: `CaseTransitions` declares
+  // REASSIGN_EXPERT legal only from EXPERT_DECLINED_REMATCHING, which a decline or this reach.
+  //
+  // The Brand Manager is here and the ENM is not, matching `CaseController.expertTimedOut` — the
+  // reverse of the two sign callbacks beside it, and stated in the gate rather than inferred.
+  {
+    path: 'expert/timed-out',
+    label: 'Mark expert overdue',
+    roles: ['BRAND_MANAGER', 'PROJECT_MANAGER'],
+    stages: ['EXPERT_SIGNING'],
+  },
+
   // The ways out of an exception state, and nothing else is legal while one is held.
   {
     path: 'resume',

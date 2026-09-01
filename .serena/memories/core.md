@@ -31,6 +31,26 @@ pipelines in that location, everything else in GHL**.
 `Sales` nav heading does **not** buy it any different scoping: same `location-id`, same
 unattributable brand, same GM-only door.
 
+**⚠ Unit 29's sales desk was BUILT (2026-08-29) and REMOVED (2026-09-02).** It amended
+invariant 2 — a `SALES_EXECUTIVE` operated *Aditya's pipeline* from EvalOS, writing straight to
+GHL — and **the amendment is reverted with it**. Everything above about the three funnel screens
+was true throughout and is untouched.
+
+**The live rule is again: EvalOS reads GHL and writes nothing to it.** `GhlHttp` has no `post`,
+`put` or `delete` — the write capability is *absent from the codebase*, not unused — and that is
+held by **code alone**, since the credential still permits writes. Hence a build-failing test in
+`GhlHttpTest`, not a convention. `/api/sales/**`, `SalesController`, `SalesBoardService`,
+`GhlSalesClient`, `Role.SALES_EXECUTIVE` and `team_member.ghl_user_id` are all deleted;
+`V30__drop_sales_executive.sql` reverses V29 in the database.
+
+**The reason the removal was cheap is the decision that never changed:** nothing was ever stored
+here — no `ghl_opportunity` table, no sales row anywhere. So it cost one migration and no data
+reconciliation. That test survives the unit: *"does this make EvalOS store a pipeline fact?"* is
+still the question to put to any GHL proposal, whichever direction the traffic runs.
+
+**Do not cite the desk as precedent for writing to GHL.** It was tried, shipped and undone; a
+future write adds the verb to `GhlHttp` and answers for it in invariant 2.
+
 Unit 24 said a second marketing screen would be a new question; Unit 26 asked it and the answer is
 **yes for another *reading* of a pipeline in the same location, on identical terms**. Read that
 narrowly too: a marketing *module* — anything that creates, sends, prices or attributes — is still

@@ -4,6 +4,124 @@ Update this file after every meaningful implementation change.
 
 ## Current Phase
 
+- **2026-08-29 — Unit 29a BUILT: the sales desk writes to GHL.** Backend, frontend, migration,
+  tests and docs landed together. Gates green: **589 backend** (`./mvnw verify`), **152 frontend**,
+  `tsc -b` and `npm run build` clean, and `LocalPostgresIntegrationTest` ran against real Postgres
+  (33 tests) so **V29 actually applied**.
+  - **Shipped:** `GhlHttp` (shared pacer + one HTTP door), `GhlSalesClient`, `SalesBoardService`,
+    `SalesController` (`GET /api/sales/board`, `PUT …/stage`, `PUT …/status`),
+    `Role.SALES_EXECUTIVE`, `team_member.ghl_user_id` + `PUT /api/team-members/{id}/ghl-user`,
+    V29, `features/sales/` (board + api), nav entry, `boardPathFor` fallback.
+  - **Four things the build found that the spec did not.** Recorded because each is the kind that
+    only surfaces against real code:
+    1. **`team_member_brand_required` had to be rewritten.** V3 read `role = 'GM' OR brand_id IS
+       NOT NULL`, so a `SALES_EXECUTIVE` with the NULL brand the design requires was **unstorable
+       by the database** while the enum, entity, service and every unit test stayed happy. No
+       unit test could catch it; `LocalPostgresIntegrationTest` now does, and also asserts the
+       other half of V3 was *not* weakened (a brand-less BRAND_MANAGER is still refused).
+    2. **`GhlHttp`'s empty-response guard is wrong for a write.** `body == null` is a failed read
+       and a perfectly good write — GHL answers most writes empty. Left as-is it would have
+       reported every successful stage move as an error, the worst direction: the write *did*
+       happen and the user is told to retry. Now conditioned on `type != Void.class`.
+    3. **`ALL_ROLES` in the frontend became `PRODUCTION_ROLES`.** A constant named "all" that
+       excludes a role is how a nav entry ends up 403-ing somebody. `STAGE_ACCESS` and
+       `DASHBOARDS` are `Record<Role, …>`, so the new role was a **compile error** until it
+       declared board access (all `none`) and a dashboard node — that totality did its job.
+    4. **`npx tsc --noEmit` checks nothing here** — the root tsconfig is `files: []` with project
+       references, so it exits 0 on a broken tree. Four real errors hid behind it. `mem:core`
+       already warned about this and it was run anyway; the gate is `npm run build` / `tsc -b`.
+  - **The pacer test was verified to discriminate**, not just to pass: with a pacer per client the
+    same six calls finish in **309ms against the 550ms floor**, so
+    `GhlHttpTest.pacerIsSharedAcrossClients` genuinely fails if the pacer is ever un-shared.
+  - **Deliberately not built in 29a:** notes (29b), opportunity CRUD (29c), tasks and appointments
+    (29d). Spec §7's recommendation stands — **ship 29a and see whether the exec actually works in
+    EvalOS** before building a second sales UI nobody opens.
+  - **Post-build fix: the landing screen was hardcoded.** `App.tsx` sent every role to
+    `/dashboard` in two places (the post-login redirect and `/`), which was correct while every
+    route was reachable by every role and stopped being correct the moment 29a added one that
+    reads no EvalOS rows. A sales executive signed in and landed on a screen whose every figure
+    they are refused, showing the signpost that tells them to go elsewhere — a redirect wearing a
+    page's clothes. `navigation.homePathFor(role)` now decides: dashboard-first for everyone who
+    has one (so no other role's landing screen moved), `boardPathFor` otherwise. Guarded by two
+    assertions in `navigation.test.ts`, one of which pins that the other six still land on
+    `/dashboard`.
+    **Found from a console error that was not the bug** — a Chrome extension's "listener indicated
+    an asynchronous response… message channel closed", which is unrelated to this app; the URL in
+    it was the real signal.
+  - **Seed: `V906__seed_local_sales_executive.sql`** — `sales@evalos.local` / `DevPassw0rd!`,
+    NULL brand, `ghl_user_id` deliberately NULL so the first login shows the fail-closed
+    *unmapped* state rather than a working board. `db/seed-local/README.md` now carries a table of
+    all seven logins, which did not exist before.
+  - **Still outstanding: the supervised first write.** Spec §9 rules out a live write test, so the
+    request *bodies* are unproven until one real deal is moved in daylight with the audit row and
+    GHL's record checked. 29a is not "done" until that happens.
+
+- **2026-08-29 — Unit 29 specced: the sales desk, and the first amendment to an
+  invariant.** Spec only — **no code written.** `context/specs/29-sales-desk.md`.
+  - **What was asked for:** a sales executive dashboard operating *Aditya's pipeline*
+    from EvalOS, syncing with GHL. What that turned out to be: **"sync" is zero code**,
+    because the chosen model stores nothing. Unit 27 already reads that pipeline; the
+    new part is writing to it.
+  - **Invariant 2 was amended, not worked around.** "EvalOS never runs sales" is gone;
+    "a case is in exactly one system's custody" is untouched, because GHL stays the sole
+    record. **The boundary moved from read-vs-write to custody** — the question to ask a
+    future proposal is *"does this make EvalOS store a pipeline fact?"*, not *"does this
+    write?"*. The `opportunities.readonly` grant made the old rule free and total; that
+    is spent, and bought back in code as **one door** (`GhlSalesClient`, build-failing
+    test) plus **an audit row per write** (Unit 23's precedent: the trail is the store).
+  - **The design's proof:** marking a deal Won from EvalOS still creates the case
+    through **Handoff A**, because GHL fires `opportunity.won` either way. Remote
+    control adds no second door into custody.
+  - **A rate-limit defect was found before it was written.** `GhlPipelineClient.pace()`
+    synchronizes per bean; GHL's 100-req/10s is per **location**. A second client bean
+    would put two pacers on one location — each under the limit, the pair over it. So
+    `GhlHttp` is extracted first to hold one shared pacer. Same class of bug the
+    existing comment warns about ("a per-thread limiter would let two concurrent reads
+    each stay under the limit while together being over it"), one scope out.
+  - **A cache-eviction design was proposed and then dropped, which is the better
+    answer.** A stage moved through EvalOS must behave like one moved in GHL's own UI,
+    and that evicts nothing. So no eviction, no `deleteByFunnel`, and no race against
+    the background totaller; the GM's funnel lags by its 5-minute TTL and already states
+    its own `readAt` on screen.
+  - **Two schema conflicts resolved without migrations.** `audit_event.object_id` is
+    `uuid NOT NULL` and a GHL opportunity id is a 20-char string → deterministic
+    `UUID.nameUUIDFromBytes` with the real id in the snapshot. `AuditAction` needed no
+    new constants for 29a–29c: it is open vocabulary and `STAGE_CHANGED` / `CREATED` /
+    `UPDATED` / `NOTE_ADDED` already fit.
+  - **`SALES_EXECUTIVE` is `Tier.SELF`, and that is not a compromise** — a sales
+    executive is never assigned a case, expert or payout, so SELF returns zero EvalOS
+    rows with no new tier and no new predicate. `brand_id` NULL; Unit 25a's re-scoping
+    sweep now covers four screens.
+  - **Deliberately reversed:** the three-field projection keeping marketing PII out of
+    EvalOS payloads. A sales board needs contact name/email/phone; confined to
+    `/api/sales/**`, funnel screens unchanged.
+  - **Phased 29a–29d, and the recommendation is to ship 29a and stop** until the exec
+    actually works in EvalOS — otherwise 29c/29d are a second sales UI nobody opens and
+    the invariant was spent for nothing.
+  - **Decided the same day — read and write only, no delete anywhere (§10).** `GhlHttp`
+    gets **no `delete` method**: the capability is absent from the codebase, not unused.
+    Unlike the old read-only guarantee this one is **not** backed by the credential —
+    `opportunities.write` and `contacts.write` both permit deletes — so it is a
+    build-failing test rather than a convention. Marking a deal lost, completing a task
+    and closing a status are all writes; a deal created in error is cleaned up in GHL,
+    which is the stated cost of a zero destructive surface.
+  - **That decision closed §9 too, in the opposite direction from the recommendation.**
+    The proposed live test was create → move → delete; with no delete, anything it creates
+    is permanent litter in the sales team's real pipeline. And the conservative-looking
+    substitute is the most dangerous option available: **a stage change fires that
+    pipeline's GHL automations**, and a move into `Won` fires `opportunity.won`, which
+    manufactures a real case through Handoff A. So **there is no `GhlSalesClientLiveTest`**
+    — fixtures pin the wire format, `GhlPipelineClientLiveTest` is untouched because reads
+    are safe, and 29a's acceptance gains a **supervised first write**: one real deal, moved
+    once, in daylight, audit row and GHL record checked. Residual risk recorded in §9: the
+    request *bodies* are the one surface no read exercises, so a wrong spelling surfaces
+    there rather than in CI.
+  - **No open questions remain on this unit.**
+  - Amended in the same step: `architecture.md` (invariants 1 and 2, the custody table
+    and the paragraph under it, the roles list, the scope tiers),
+    `project-overview.md` (roles, out-of-scope), `ui-context.md` (the new surface),
+    `00-build-plan.md` (Unit 29 entry, the tenancy note, 25a's scope).
+
 - **2026-08-28 — Expert profile redesigned: row click, sheet, view/edit split.** A visual and
   interaction pass over `features/experts`, inside the UI scope rule — no API, route, rules
   module or role gate changed, and `ExpertController` is untouched.
@@ -4274,6 +4392,113 @@ whenever a third brand is seeded. Staff SSO stays deferred.
   only be assigning one case at a time. Fixed alongside: `CaseCard`'s inline `background` had been
   outranking its own `hover:bg-*` class since the card was written, so the hover lift never fired;
   the background moved into classes.
+
+- **The PM's expert assignment board (`/expert-assignment`), and the Unit 15 transition it needed.**
+  `17-dashboards.md` had asked for one screen carrying three things — cases waiting for an expert,
+  expert availability, and responses overdue past 24h flagged red with a reassign prompt — and
+  listed it **partly** built: the availability half and the Unit 12 shortlist existed, the two case
+  lists and the flag did not. Built now as a composition over what already ships: both lists are
+  pure selections in `queueRules.ts` over `/api/cases/board` (no fourth scope predicate), the
+  availability half is Unit 11's `AvailabilityBoard` unchanged, and the two actions go through the
+  board's `QuickActionDialog`, which brings the shortlist with them.
+
+  Two selection rules are worth keeping in view. **Waiting** is the `EXPERT_ASSIGNMENT` stage
+  bucket *plus* the `EXPERT_DECLINED_REMATCHING` lane, because `CaseBoardController` files a case
+  in a stage bucket only while its exception state is `NONE` — reading the stage alone would show
+  the cases nobody has picked an expert for and silently drop the ones whose expert walked away,
+  which are the more urgent half. **Overdue** is `slaStatus === 'OVERDUE'` on `EXPERT_SIGNING`,
+  which *is* `SlaCalculator`'s 24h `EXPERT_SIGN` budget measured on `BusinessCalendar` — the
+  brief's ">24h" restated as a client-side hour count would give the board and the SLA rail two
+  clocks that disagree over a weekend.
+
+  **The prompt needed somewhere to lead, so Unit 15's `EXPERT_TIMED_OUT` was built with it.**
+  `REASSIGN_EXPERT` is declared only from `EXPERT_DECLINED_REMATCHING`, and the only door to that
+  state was `EXPERT_DECLINED` — so without this transition the red row's only "fix" was recording
+  a decline that never happened, in an append-only trail. It mirrors `expertDeclined` exactly:
+  stage-preserving, sets the rematch exception, stamps the open offer `TIMED_OUT` (not `DECLINED`
+  — the expert never answered) and takes no reason. `POST /cases/{id}/expert/timed-out` is gated
+  **GM · Brand Manager · PM**, per spec 15: the ENM holds the two sign callbacks beside it but does
+  not take a case off an expert. Still no job fires it — Unit 19's sweep raises the prompt, a human
+  answers it. `ExpertSignStatus.OVERDUE` is left without a writer on purpose; the SLA already
+  answers that question and a column beside it is a second place for it to be wrong.
+
+  Nav entry is `['PROJECT_MANAGER']` — the `/inbox` reasoning, not the `/drafts` one: the GM does
+  hold both gates behind it and is left out because staffing an expert is the PM's day. The ENM is
+  out for the opposite reason, that the server would refuse them. Spec 17's status line, the two
+  `boardRules` / `navigation` tables and `mem:backend/lifecycle` + `mem:frontend/core` updated.
+
+- **Unit 29's sales desk and the `SALES_EXECUTIVE` role: removed.**
+  Built 2026-08-29, removed 2026-09-02. Deleted: `SalesController`, `SalesBoardService`,
+  `GhlSalesClient`, `features/sales/`, the `/sales/board` nav entry, `Role.SALES_EXECUTIVE`,
+  `team_member.ghl_user_id` with its GM-only mapping endpoint, and the V906 seed login.
+  `V30__drop_sales_executive.sql` deletes any surviving row, drops the column and its partial
+  unique index, and restores both constraints V29 rewrote — `team_member_role_valid` to the six
+  names and `team_member_brand_required` to `role = 'GM' OR brand_id IS NOT NULL`. V29 itself
+  stays: an applied migration is never edited or deleted, so a reversal is a migration of its own.
+
+  **Order matters inside V30 and is the reason it is one file rather than four statements in any
+  order:** the rows go before the CHECK returns, or restoring it fails on every database that ever
+  ran the seed. `LocalPostgresIntegrationTest` now pins the reversal against the real Postgres —
+  and the first version of that test asserted the *wrong constraint*, because a `SALES_EXECUTIVE`
+  row with a NULL brand violates both restored checks and Postgres names whichever it evaluates
+  first. Giving the row a valid brand leaves exactly one reason to refuse it.
+
+  **`GhlHttp` is read-only again.** `post` and `put` existed only for this desk and went with it,
+  so the write capability is absent from the codebase rather than present-and-unused, and
+  `write-timeout` left all three profiles. `GhlHttpTest`'s "no delete" assertion widens to "no
+  write verb". **`GhlHttp` itself stays extracted** with one client again: it holds the shared
+  rate-limit pacer, that limit is a property of the GHL location rather than of whoever is
+  reading, and re-merging it into `GhlPipelineClient` is how the next client silently gets a pacer
+  of its own — so the shared-pacer test now runs two instances of the one remaining client.
+
+  **Invariant 2 reverts.** Unit 29 is the only unit that has ever cost an invariant: "EvalOS never
+  runs sales" died and the boundary moved from read-vs-write to custody. Both come back. What made
+  the reversal cost one migration and no data reconciliation is the decision that was never
+  amended — **nothing was ever stored here**, no `ghl_opportunity` table and no sales column
+  anywhere. That test outlives the unit: *"does this make EvalOS store a pipeline fact?"* is still
+  the question for any GHL proposal, whichever way the traffic runs.
+
+  **`/sales/pipeline` (Unit 27) is untouched** — the GM's *read* of the same funnel is a different
+  screen from the desk, and only the desk was asked for.
+
+  **The V906 seed was deleted, which needed a Flyway decision.** A database that applied it carries
+  version 906 with no file behind it, and default validation then refuses to migrate at all. So
+  `application-local.yml` and `LocalPostgresIntegrationTest` — the only two configs that list the
+  disposable seed tree — set `ignore-migration-patterns: "*:missing"`. Scoped to `missing` alone, so
+  a **checksum** mismatch still fails the boot; and never in `application.yml` or a deployed
+  profile, where nothing is ever deleted and a missing migration is a real defect.
+
+  Three frontend names deliberately kept rather than reverted: `PRODUCTION_ROLES` in
+  `navigation.ts`, and `CASE_ROLES` in both role tests. All three now equal every role again, but
+  the name states *why* a role is on the list, which survives the next role that is not — a
+  constant named "all" is the one that goes quietly wrong. `architecture.md` (invariants 1 and 2,
+  the GHL boundary table, the role and tier lists), `project-overview.md`, `ui-context.md`,
+  `00-build-plan.md`, the seed README, and all four memories updated; `29-sales-desk.md` is kept
+  with a REMOVED banner as the record of a decision made, shipped and undone.
+
+- **The assignment picker offered the one expert the transition refuses.**
+  Found in a browser pass on the new board: reassigning after a decline returned
+  `409 "that is the expert who declined"`, because `ExpertPickerController` filtered on
+  `AVAILABLE` and nothing else — while its own javadoc says the class exists so that "offering one
+  the transition would then reject is a worse experience than not offering it". `reassignExpert`
+  refuses two things; the picker knew about one. `ExpertMatchService.shortlist` had already
+  applied the missing filter, with a comment naming the same 409, so the assist above the dropdown
+  was correct and the full picker beneath it was not.
+
+  Fixed at the picker, not at the client: `GET /api/experts` takes an optional `forCase` and drops
+  that case's current expert. The client cannot do this — `CaseBoardController.BoardCard` carries
+  no `expertId` on purpose, and widening every card in the app so one dialog can drop one row is
+  the wrong end. The case is read through `findScoped`, so an id outside the caller's scope narrows
+  nothing and reveals nothing (treated as no case, not refused — the parameter is a convenience and
+  its absence is already legal). `QuickActionDialog` passes it unconditionally: on `assign-cm` the
+  case has no expert yet, so the filter is a no-op, and there is nothing to branch on.
+
+  Two tests pin it, plus the null-safety the first attempt got wrong: the comparison puts the
+  nullable `onCase` on the left, because an unsaved `Expert` has a null id and the other order
+  NPEs. Also on that screen: a refused action now names what failed and on which case — the
+  server's messages are sentence fragments, and "that is the expert who declined" alone above three
+  tables says neither — and it is dismissible in its own slot, so a stale refusal no longer sits
+  through every later success.
 
 - **Unit 02 latent test bug, surfaced and fixed.**
   `SecurityFlowTest.tamperedTokenIsUnauthenticated` flipped the **last** character
