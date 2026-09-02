@@ -49,8 +49,21 @@ Update this file after every meaningful implementation change.
     when the workflow author added them in GHL. Re-added as optional — which is the shape that
     survives someone editing that workflow again.
   - **`refresh()` gained a guard that matters more than it looks.** `deal_value` and
-    `ghl_opportunity_id` still move together, but only when the delivery carries at least one.
-    Without it every redelivery would blank both from a delivery that claimed nothing about either.
+    `ghl_opportunity_id` still move together, and only a delivery carrying **both** writes them.
+    Without a guard every redelivery would blank both from a delivery that claimed nothing about
+    either. The guard shipped first as "at least one", which was the same bug one level down: the
+    two `customData` fields are independently optional, so an `opportunity_id` with no `amount`
+    entered the block and wrote `deal_value = null` (dropping the case out of `RevenueMetricsService`,
+    which filters on non-null), and an `amount` with no id blanked the id Unit 18 closes on. A
+    half-carried delivery is now ignored rather than merged — `ponytail:` noted, merge it if a
+    workflow really does split the two across deliveries.
+  - **Two smaller fixes from the same review pass.** The audit note now says "deal value recorded"
+    the first time a figure lands on a case that had none — `deal_value` starts null now that
+    `amount` is optional, and `CaseSnapshot` omits `deal_value`, so that first figure used to arrive
+    as an UPDATED row identical on both sides. And `ContactSnapshot.syncFromGhl` is **fill-only for
+    the five attribution columns** (`client_type`, `source_channel`, `utm_*`): `toCommand` passes
+    nulls for them because GHL's Custom Webhook carries no attribution, and a wholesale write was
+    blanking them on every won opportunity with the sync being their only writer.
   - **`contact_id` is the client id**, `@NotBlank`, and is what `syncContact` upserts the snapshot
     on — so the same client's second delivery **updates their contact** and opens a case rather than
     duplicating either. That behaviour already existed; it was simply unreachable while nothing

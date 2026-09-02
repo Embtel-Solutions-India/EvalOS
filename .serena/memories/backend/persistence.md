@@ -158,6 +158,13 @@ an expired row would sit in that index forever and block the next mint for that 
 - Contact snapshots: GHL is the only writer (invariant 7). Columns stay physically updatable so the
   `contact.updated` sync can refresh them; the rule is enforced by "only the sync writes", not by
   `updatable = false`.
+  **`syncFromGhl` is wholesale for the contact's own details and fill-only for attribution.**
+  `full_name` / `email` / `phone` / `company` are current state, so an omitted one means GHL says it
+  is gone. `client_type`, `source_channel` and the three `utm_*` are capture-time facts that cannot
+  change, only be missing from a payload that never carried them — and GHL's Custom Webhook is
+  exactly that payload (contact + deal, nothing about attribution), so a wholesale write blanked all
+  five on every `opportunity.won` with this being their only writer and nothing able to restore
+  them. Null therefore means "not carried" for those five, and only those five.
 
 ## No optimistic locking — guard uniqueness in the database
 

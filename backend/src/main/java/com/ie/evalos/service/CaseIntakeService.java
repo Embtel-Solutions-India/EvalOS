@@ -174,23 +174,33 @@ public class CaseIntakeService {
 		// figure moved and never what it moved to; the figures themselves are in the
 		// append-only webhook_event archive, which holds the raw payload of every delivery.
 		//
-		// Only when the delivery actually carries the deal, which GHL's Custom Webhook does
-		// not unless the workflow author added it to customData. A delivery that says nothing
-		// about the money must not erase what an earlier one said — that would blank the
-		// amount *and* the opportunity id Unit 18 needs to close the deal.
-		boolean amountCorrected = false;
-		if (request.dealValue() != null || request.ghlOpportunityId() != null) {
-			amountCorrected = request.dealValue() != null && subject.getDealValue() != null
-					&& request.dealValue().compareTo(subject.getDealValue()) != 0;
+		// Both halves or neither, per the pair rule above. GHL's Custom Webhook carries the
+		// deal only when the workflow author added it to customData, and each half is optional
+		// on its own — so a delivery naming one of the two names no deal this can write:
+		// writing the pair from a single non-null half blanks the other, which costs revenue
+		// recognition the amount or costs Unit 18 the id it closes the opportunity on.
+		//
+		// ponytail: a half-carried deal is ignored rather than merged into what the case
+		// already holds. Merge it if a workflow turns up that really does send the amount and
+		// the opportunity id in separate deliveries.
+		String moneyNote = "";
+		if (request.dealValue() != null && request.ghlOpportunityId() != null) {
+			if (subject.getDealValue() == null) {
+				// deal_value starts null now that the amount is optional, so the first figure
+				// to arrive is itself news — unnoted, money would appear here from nowhere.
+				moneyNote = " — deal value recorded";
+			}
+			else if (request.dealValue().compareTo(subject.getDealValue()) != 0) {
+				moneyNote = " — deal value corrected";
+			}
 			subject.setDealValue(request.dealValue());
 			subject.setGhlOpportunityId(request.ghlOpportunityId());
 		}
 
 		Case saved = cases.save(subject);
 		audit.recordSystemEvent(brand.getId(), OBJECT_TYPE, saved.getId(), AuditAction.UPDATED,
-				before, CaseLifecycleService.CaseSnapshot.of(saved, amountCorrected
-						? "refreshed from GHL won opportunity — deal value corrected"
-						: "refreshed from GHL won opportunity"));
+				before, CaseLifecycleService.CaseSnapshot.of(saved,
+						"refreshed from GHL won opportunity" + moneyNote));
 		return saved;
 	}
 

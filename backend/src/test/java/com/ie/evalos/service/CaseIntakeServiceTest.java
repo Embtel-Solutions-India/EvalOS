@@ -446,6 +446,85 @@ class CaseIntakeServiceTest {
 	}
 
 	/**
+	 * The half-carried delivery, which is the one the pair rule is easiest to get wrong on:
+	 * the two customData fields are independently optional, so a workflow can name the
+	 * opportunity without the amount or the reverse. Writing the pair off either half alone
+	 * blanks the other — the amount that feeds revenue recognition, or the id Unit 18 closes
+	 * the opportunity on — from a delivery that never claimed anything about that half.
+	 */
+	@Test
+	void aDeliveryCarryingHalfTheDealLeavesBothHalvesAlone() {
+		Case inFlight = openCaseWorthNineHundred();
+		inFlight.setGhlOpportunityId("opp-first");
+
+		Case idOnly = intake.intake(brand, wonDeal("ghl-c-1", "anita@raolaw.example",
+				ServiceType.EXPERT_OPINION_LETTER, null, "opp-4711"));
+
+		assertThat(idOnly.getDealValue())
+				.as("an id with no amount must not blank the amount")
+				.isEqualByComparingTo("900.00");
+		assertThat(idOnly.getGhlOpportunityId()).isEqualTo("opp-first");
+
+		Case amountOnly = intake.intake(brand, wonDeal("ghl-c-1", "anita@raolaw.example",
+				ServiceType.EXPERT_OPINION_LETTER, new BigDecimal("1725.50"), null));
+
+		assertThat(amountOnly.getGhlOpportunityId())
+				.as("an amount with no id must not blank the id")
+				.isEqualTo("opp-first");
+		assertThat(amountOnly.getDealValue()).isEqualByComparingTo("900.00");
+	}
+
+	/**
+	 * `deal_value` starts null now that the amount is optional, so a later delivery supplying
+	 * the first figure is a money change like any other — and the same reasoning applies: the
+	 * snapshot omits `deal_value`, so unnoted the UPDATED row is identical on both sides and
+	 * money appears on the case from nowhere.
+	 */
+	@Test
+	void theFirstAmountToArriveIsNotedRatherThanAppearingFromNowhere() {
+		openCaseWorthNineHundred().setDealValue(null);
+
+		intake.intake(brand, wonDeal("ghl-c-1", "anita@raolaw.example",
+				ServiceType.EXPERT_OPINION_LETTER, new BigDecimal("1450.00")));
+
+		ArgumentCaptor<CaseLifecycleService.CaseSnapshot> after =
+				ArgumentCaptor.forClass(CaseLifecycleService.CaseSnapshot.class);
+		verify(audit).recordSystemEvent(eq(BRAND), eq("CASE"), any(), eq(AuditAction.UPDATED),
+				any(), after.capture());
+
+		assertThat(after.getValue().note())
+				.contains("deal value recorded")
+				.doesNotContain("1450.00");
+	}
+
+	/**
+	 * Attribution is capture-time and fill-only. GHL's Custom Webhook sends the contact and
+	 * the deal and nothing about how the person first arrived, and the contact sync is the
+	 * only writer of those columns — so a wholesale write blanked all five on every won
+	 * opportunity with nothing able to put them back.
+	 */
+	@Test
+	void aDeliveryWithoutAttributionKeepsTheAttributionAlreadyOnTheContact() {
+		ContactSnapshot known = new ContactSnapshot(BRAND, "ghl-c-1");
+		known.syncFromGhl("Anita Rao", "anita@raolaw.example", "+1 555 0100", "Rao Immigration LLP",
+				ClientType.ATTORNEY, SourceChannel.GOOGLE_ADS, "google", "cpc", "eb2-niw-q3");
+		given(contacts.findByBrandIdAndGhlContactId(BRAND, "ghl-c-1")).willReturn(Optional.of(known));
+
+		intake.intake(brand, new CaseIntakeService.NewCase(
+				new CaseIntakeService.ContactDetails("ghl-c-1", "Anita Rao", "anita@raolaw.example",
+						"+1 555 0100", "Rao Immigration LLP", null, null, null, null, null),
+				ServiceType.EXPERT_OPINION_LETTER, null, null, null, "opp-4711",
+				new BigDecimal("1450.00"), null, null, null, null));
+
+		assertThat(known)
+				.hasFieldOrPropertyWithValue("clientType", ClientType.ATTORNEY)
+				.hasFieldOrPropertyWithValue("sourceChannel", SourceChannel.GOOGLE_ADS)
+				.hasFieldOrPropertyWithValue("utmSource", "google")
+				.hasFieldOrPropertyWithValue("utmMedium", "cpc")
+				.hasFieldOrPropertyWithValue("utmCampaign", "eb2-niw-q3");
+	}
+
+	/**
 	 * A money change that reads as a no-op edit is worse than a noisy one. The snapshot either
 	 * side of a refresh omits `deal_value` on purpose — it is role-restricted and
 	 * `CaseTimelineService` shows the note to every role that may read the case — so without
