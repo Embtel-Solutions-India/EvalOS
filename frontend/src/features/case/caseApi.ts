@@ -191,3 +191,26 @@ export async function fetchDocumentUrl(caseId: string, documentId: string): Prom
   const { url } = await unwrap<{ url: string }>(api.get(`/cases/${caseId}/documents/${documentId}/url`))
   return url
 }
+
+/** One case and the PM's guidance on it (Unit 32b). */
+export type CaseNotes = {
+  id: string
+  caseCode: string
+  clientName: string | null
+  serviceType: string | null
+  deadline: string | null
+  stage: string
+  /** Null when withheld AND null when unwritten, which is why the flag below is stated. */
+  pmStrategyNotes: string | null
+  maySeeNotes: boolean
+}
+
+/**
+ * Every case in the caller's scope with its strategy notes, in one request.
+ *
+ * Reuses the board's scoped read server-side, so this list and the board cannot disagree about
+ * which cases are the caller's.
+ */
+export async function fetchPmNotes(brandId: string | null, signal?: AbortSignal): Promise<CaseNotes[]> {
+  return unwrap<CaseNotes[]>(api.get('/cases/pm-notes', { params: brandId ? { brandId } : {}, signal }))
+}

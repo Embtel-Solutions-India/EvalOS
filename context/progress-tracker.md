@@ -4427,6 +4427,53 @@ whenever a third brand is seeded. Staff SSO stays deferred.
   out for the opposite reason, that the server would refuse them. Spec 17's status line, the two
   `boardRules` / `navigation` tables and `mem:backend/lifecycle` + `mem:frontend/core` updated.
 
+- **32b: `/pm-notes` as its own CM sidebar entry.** 524 backend, 144 frontend, builds clean.
+  32a folded the PM notes into `/my-drafts` on the grounds that two entries over the same cases is
+  the `/cases`-beside-`/board` mistake this nav file warns about. **That was the wrong call and the
+  symptom proved it**: asked where the option was, the honest answer was "expand a row inside
+  another screen" — which is the invisibility the request was about.
+
+  **The warning is about two entries for one *screen*; these are two screens.** "What did the PM ask
+  for" is read once before drafting starts; "where did my work get to" is read repeatedly after.
+  Same cases, opposite questions, no shared component — and `/pm-notes` has **nothing to expand**,
+  because a notes screen that hides the notes repeats the problem it fixes.
+
+  **One request, and deliberately not a board field.** The obvious move was `pmStrategyNotes`
+  beside `dealValue`, which is already role-gated on the board card — rejected because the board is
+  the most-loaded screen in EvalOS and notes are a paragraph each: a hundred cases would put tens of
+  kilobytes of prose on every board load for three roles, to serve one screen that is not the board.
+  `GET /api/cases/pm-notes` instead, **reusing `CaseBoardService.forCaller`** so it is a second
+  projection and not a second scope rule — what a CM sees here cannot diverge from their board.
+
+  Notes withheld outside `SEES_STRATEGY_NOTES` with the flag stated, so "not yours to read" and
+  "nobody has written it" never look alike — one is a permission, the other is a prompt to go and
+  ask the PM.
+
+  **Cost of the new controller dependency:** two `@WebMvcTest` slices had to mock `CaseBoardService`,
+  which is the slice tax on giving a controller another collaborator. Worth it here; worth noticing
+  before doing it again.
+
+- **32a: `/my-drafts` in the Case Manager's sidebar.** 144 frontend tests, build clean.
+  Unit 32 put the PM notes and the draft history on the **case page**, which is right for somebody
+  already looking at one case and wrong for the person the comments are addressed to — a CM chasing
+  a returned draft had to open cases one at a time hunting for the reason.
+
+  One CM-only screen, two sections per row: the PM's strategy notes, and the version history with
+  the PM's comment on each. **Returned drafts sort first**, ahead of deadline order — the grouping
+  is the point, and the test pins it by giving the returned row the *latest* deadline.
+
+  **Three stages feed it, not one.** `DRAFT_IN_PROGRESS` is obvious; `DRAFT_REVIEW` is the version
+  the CM just submitted and is waiting on, and `EXPERT_DECLINED_REMATCHING` is still their case.
+  Listing only the first would empty the screen at exactly the moment the CM wants to know where
+  their work went — asserted, because it is the failure a narrower filter produces silently.
+
+  **Detail loads on expand.** Notes live on the case payload and history on its documents route, so
+  eager rendering is two requests per row for rows nobody opened. The list is one `/api/cases/board`
+  call, the same read every other queue makes, so scope cannot drift from the board's.
+
+  **Not merged with `/drafts`**: that is the PM's queue of other people's drafts awaiting review,
+  this is a status board of your own. Same subject, opposite question — pinned in `navigation.test`.
+
 - **Unit 30 code review: nine findings, all fixed. 524 backend tests, 142 frontend, clean builds.**
   Two were serious and both were mine.
 

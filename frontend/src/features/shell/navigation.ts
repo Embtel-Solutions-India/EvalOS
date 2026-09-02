@@ -182,6 +182,44 @@ export const NAV_ITEMS: readonly NavItem[] = [
     group: 'Pipeline',
   },
 
+  // What the PM asked for, on every case that is the CM's (Unit 32b).
+  //
+  // **A second CM entry over the same cases, which this file otherwise warns against** — see the
+  // `/cases`-beside-`/board` note above. It earns the exception because it is a different question
+  // rather than a different view: *what did the PM ask for* is read once, before drafting starts,
+  // while `/my-drafts` is *where did my work get to*, read repeatedly after. The notes were
+  // reachable only by opening a case, then expanding a row, which is what made them invisible.
+  //
+  // The two screens draw the same cases and share no component: this one lists notes with nothing
+  // to expand, because a "PM notes" screen that hides the notes repeats the problem it fixes.
+  {
+    path: '/pm-notes',
+    label: 'PM notes',
+    roles: ['CASE_MANAGER'],
+    becomes: "The PM's strategy notes for your cases",
+    group: 'Pipeline',
+  },
+
+  // The Case Manager's own drafting queue (Unit 32a): what the PM told them, and what became of
+  // each draft they submitted.
+  //
+  // **Why this is a second CM screen when `/my-cases` was deliberately not one.** That entry is
+  // the board narrowed by assignment — it answers *which cases are mine*. This answers a different
+  // question the board cannot: *what did the PM say, and which version are we on*. Both facts live
+  // per case today, so a CM chasing a returned draft opens cases one at a time looking for the
+  // comment. A queue is the shape of that job.
+  //
+  // CM-only. The PM has `/drafts`, which is the same subject from the reviewing side and is
+  // deliberately a different screen: theirs is a work queue of other people's drafts, this is a
+  // status board of your own.
+  {
+    path: '/my-drafts',
+    label: 'My drafts',
+    roles: ['CASE_MANAGER'],
+    becomes: 'PM strategy notes and your draft history',
+    group: 'Pipeline',
+  },
+
   // Case Manager. Their docket is the same board narrowed by their own assignment, which
   // the server does — so this is the board, not a second screen.
   {

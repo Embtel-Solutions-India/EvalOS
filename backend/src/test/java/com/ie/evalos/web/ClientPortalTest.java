@@ -15,6 +15,7 @@ import com.ie.evalos.security.PortalSecurityConfig;
 import com.ie.evalos.security.PortalTokenFilter;
 import com.ie.evalos.security.SecurityConfig;
 import com.ie.evalos.security.StaffPrincipal;
+import com.ie.evalos.service.CaseBoardService;
 import com.ie.evalos.service.CaseDetailService;
 import com.ie.evalos.service.CaseLifecycleService;
 import com.ie.evalos.service.PortalAccessService;
@@ -84,6 +85,9 @@ class ClientPortalTest {
 
 	@MockitoBean
 	CaseDetailService details;
+
+	@MockitoBean
+	CaseBoardService board;
 
 	@MockitoBean
 	EvalOsUserDetailsService userDetailsService;

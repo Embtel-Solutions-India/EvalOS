@@ -3,6 +3,8 @@ import Forbidden from './components/Forbidden'
 import BoardView from './features/board/BoardView'
 import InboxPage from './features/queues/InboxPage'
 import DraftQueuePage from './features/queues/DraftQueuePage'
+import MyDraftsPage from './features/queues/MyDraftsPage'
+import PmNotesPage from './features/queues/PmNotesPage'
 import ExpertAssignmentPage from './features/queues/ExpertAssignmentPage'
 import DeliveryQueuePage from './features/queues/DeliveryQueuePage'
 import ChecklistBoard from './features/checklist/ChecklistBoard'
@@ -39,6 +41,8 @@ import NotFound from './pages/NotFound'
 const SCREENS: Record<string, React.ReactNode> = {
   '/board': <BoardView />,
   '/my-cases': <BoardView />,
+  '/my-drafts': <MyDraftsPage />,
+  '/pm-notes': <PmNotesPage />,
   '/inbox': <InboxPage />,
   '/drafts': <DraftQueuePage />,
   '/expert-assignment': <ExpertAssignmentPage />,

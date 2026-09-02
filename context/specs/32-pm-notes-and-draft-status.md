@@ -143,6 +143,37 @@ rather than **open** — which is what it says today and which understates what 
 
 ---
 
+## 4a. The Case Manager's sidebar (32a, built 2026-09-02)
+
+Both surfaces above are panels on the case page, which is right for somebody already looking at one
+case. **It is the wrong shape for the person the comments are addressed to.** A Case Manager
+chasing a returned draft had to open cases one at a time hunting for the PM's reason.
+
+**`/my-drafts`, CM-only.** One screen, two sections per row: the PM's strategy notes, and the draft
+history with the PM's comment on each version. **Returned drafts sort first** — that is the work for
+today, and it outranks deadline order, which is the point of grouping at all.
+
+**Three stages, not one.** `DRAFT_IN_PROGRESS` is obvious, but a draft sitting in `DRAFT_REVIEW` is
+the version the CM just submitted and is waiting on, and one in `EXPERT_DECLINED_REMATCHING` is
+still their case. Listing only the first would empty the screen at exactly the moment the CM wants
+to know where their work went.
+
+**Detail loads on expand, not on load.** The notes are on the case payload and the history on its
+documents route, so eager rendering would be two requests per row for rows nobody opened. The list
+itself is one call to `/api/cases/board` — the same read every other queue uses, so this screen's
+scope cannot drift from the board's.
+
+**Two CM entries, not one (32b).** 32a put the notes inside `/my-drafts`; asked where the option
+was, the answer was "expand a row inside another screen", which is exactly the invisibility this
+was meant to fix. `/pm-notes` is its own entry, with nothing to expand. The nav file's
+`/cases`-beside-`/board` warning is about two entries for one *screen* — these are two screens
+asking opposite questions of the same cases.
+
+**Deliberately not `/drafts`.** That is the PM's queue of *other people's* drafts awaiting review.
+This is a status board of *your own*. Same subject, opposite question, two screens.
+
+---
+
 ## 5. What is NOT in this unit
 
 - **No AI on either surface.** Unit 31 §9 governs: no drafting, no review, no summarising a PM's

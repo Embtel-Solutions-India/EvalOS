@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { BoardCard, BoardData, Stage } from '../board/boardRules'
-import { awaitingExpert, draftReviewQueue, expertSignOverdue, inboxQueue } from './queueRules'
+import { awaitingExpert, draftReviewQueue, expertSignOverdue, inboxQueue, myDrafts } from './queueRules'
 
 const NOW = new Date('2026-07-08T12:00:00Z')
 
@@ -177,5 +177,30 @@ describe('expertSignOverdue', () => {
     )
 
     expect(expertSignOverdue(data).map((row) => row.caseCode)).toEqual(['late'])
+  })
+})
+
+describe('myDrafts', () => {
+  it('puts a returned draft first, because that is the work for today', () => {
+    const data = board([card({ caseCode: 'in-flight', deadline: '2026-07-09T12:00:00Z' })], 'DRAFT_IN_PROGRESS')
+    data.stages.DRAFT_REVIEW = [
+      card({ caseCode: 'awaiting-pm', deadline: '2026-07-08T12:00:00Z' }),
+    ]
+    data.exceptions.EXPERT_DECLINED_REMATCHING = [
+      card({ caseCode: 'returned', pmApprovalStatus: 'RETURNED', deadline: '2026-07-20T12:00:00Z' }),
+    ]
+
+    // `returned` has the LATEST deadline and still leads: the grouping outranks the ordering,
+    // which is the whole point of the screen.
+    expect(myDrafts(data).map((row) => row.caseCode)).toEqual(['returned', 'awaiting-pm', 'in-flight'])
+  })
+
+  it('keeps a draft that is with the PM, which is where the CM looks for it', () => {
+    // Showing only DRAFT_IN_PROGRESS would empty the screen at exactly the moment a CM wants to
+    // know where the version they just submitted went.
+    const data = board([], 'DRAFT_IN_PROGRESS')
+    data.stages.DRAFT_REVIEW = [card({ caseCode: 'submitted' })]
+
+    expect(myDrafts(data).map((row) => row.caseCode)).toEqual(['submitted'])
   })
 })

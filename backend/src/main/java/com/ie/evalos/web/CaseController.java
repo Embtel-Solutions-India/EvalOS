@@ -15,6 +15,7 @@ import com.ie.evalos.domain.PmApprovalStatus;
 import com.ie.evalos.domain.PoolStatus;
 import com.ie.evalos.domain.CaseDocument;
 import com.ie.evalos.domain.DocumentKind;
+import com.ie.evalos.service.CaseBoardService;
 import com.ie.evalos.domain.Role;
 import com.ie.evalos.domain.ServiceType;
 import com.ie.evalos.domain.SlaStatus;
@@ -304,11 +305,14 @@ public class CaseController {
 	private final CaseLifecycleService lifecycle;
 	private final RefundService refunds;
 	private final CaseDetailService details;
+	private final CaseBoardService board;
 
-	CaseController(CaseLifecycleService lifecycle, RefundService refunds, CaseDetailService details) {
+	CaseController(CaseLifecycleService lifecycle, RefundService refunds, CaseDetailService details,
+			CaseBoardService board) {
 		this.lifecycle = lifecycle;
 		this.refunds = refunds;
 		this.details = details;
+		this.board = board;
 	}
 
 	private static ApiResponse<CaseSummary> summary(Case subject) {
@@ -469,6 +473,44 @@ public class CaseController {
 
 	/** @param url expires in five minutes. Never stored — a stored one is a stored credential. */
 	public record ReadUrl(String url) {
+	}
+
+	/**
+	 * Every case in the caller's scope, with the PM's strategy notes on it (Unit 32b).
+	 *
+	 * <p><strong>Its own read rather than a field on the board card, and the reason is payload
+	 * size.</strong> The obvious move was to add {@code pmStrategyNotes} beside {@code dealValue},
+	 * which is already role-gated on the board — but the board is the most-loaded screen in EvalOS
+	 * and notes are a paragraph each. A hundred cases would put tens of kilobytes of prose on every
+	 * board load for three roles, to serve one screen that is not the board.
+	 *
+	 * <p><strong>It is not a second scope rule.</strong> It reuses {@code CaseBoardService.forCaller},
+	 * the same scoped read the board makes, so what a caller sees here and there cannot diverge —
+	 * which is the drift a hand-rolled query would have introduced.
+	 *
+	 * <p>Notes are withheld from any role outside {@code SEES_STRATEGY_NOTES}, exactly as on the
+	 * detail payload, so a role that reaches this route gets rows with a null note rather than
+	 * somebody else's guidance.
+	 */
+	@GetMapping("/pm-notes")
+	public ApiResponse<List<CaseNotes>> pmNotes(@RequestParam(required = false) UUID brandId) {
+		TenantContext ctx = TenantContext.current();
+		boolean seesNotes = SEES_STRATEGY_NOTES.contains(ctx.role());
+		boolean seesContent = seesCaseContent(ctx.role());
+
+		return ApiResponse.ok(board.forCaller(null, brandId).stream()
+				.map(row -> new CaseNotes(row.subject().getId(), row.subject().getCaseCode(),
+						seesContent ? row.clientName() : null,
+						row.subject().getServiceType(), row.subject().getDeadline(),
+						row.subject().getCurrentStage(),
+						seesNotes ? row.subject().getPmStrategyNotes() : null,
+						seesNotes))
+				.toList());
+	}
+
+	/** @param maySeeNotes stated rather than inferred: a null note is "withheld" or "not written". */
+	public record CaseNotes(UUID id, String caseCode, String clientName, ServiceType serviceType,
+			Instant deadline, Stage stage, String pmStrategyNotes, boolean maySeeNotes) {
 	}
 
 	@PostMapping("/{id}/assign-pm")

@@ -159,6 +159,18 @@ describe('the nav and route table', () => {
     expect(mayReach('BRAND_MANAGER', '/inbox')).toBe(false)
     expect(mayReach('BRAND_MANAGER', '/drafts')).toBe(false)
 
+    // Both CM screens are CM-only. They draw the same cases and are deliberately two entries:
+    // "what did the PM ask for" is read once before drafting, "where did my work get to" is read
+    // repeatedly after. The file's own `/cases`-beside-`/board` warning is about two entries for
+    // one *screen*; these are two screens.
+    expect(ALL_ROLES.filter((role) => mayReach(role, '/pm-notes'))).toEqual(['CASE_MANAGER'])
+
+    // The CM's own drafting queue (Unit 32a). CM-only, and deliberately not the same screen as
+    // `/drafts`: that one is the PM's work queue of other people's drafts, this is a status board
+    // of your own. Both roles care about drafts; they are asking opposite questions.
+    expect(ALL_ROLES.filter((role) => mayReach(role, '/my-drafts'))).toEqual(['CASE_MANAGER'])
+    expect(mayReach('PROJECT_MANAGER', '/my-drafts')).toBe(false)
+
     // A Case Manager's drafts are on their own board; the review side is not theirs.
     expect(mayReach('CASE_MANAGER', '/drafts')).toBe(false)
 

@@ -75,8 +75,8 @@ yet; `empty` carries operational copy ("All incoming cases are assigned"), and *
 are different states** — a figure summing to zero renders `0`. A card is clickable **only** if
 given a `to`, which is what stops every tile looking interactive.
 
-`features/queues/` holds the four queue screens — `/inbox`, `/drafts`, `/expert-assignment` (PM)
-and `/delivery` (Coordinator). **All four read `/api/cases/board`** rather than adding endpoints: a
+`features/queues/` holds the five queue screens — `/inbox`, `/drafts`, `/expert-assignment` (PM)
+`/my-drafts` (CM) and `/delivery` (Coordinator). **All five read `/api/cases/board`** rather than adding endpoints: a
 second read would mean a second scope predicate that could drift from the board's. Selection lives
 in the pure `queueRules.ts` and is the only part with tests.
 

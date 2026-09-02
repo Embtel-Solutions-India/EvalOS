@@ -13,6 +13,7 @@ import com.ie.evalos.security.EvalOsUserDetailsService;
 import com.ie.evalos.security.JwtService;
 import com.ie.evalos.security.SecurityConfig;
 import com.ie.evalos.security.StaffPrincipal;
+import com.ie.evalos.service.CaseBoardService;
 import com.ie.evalos.service.CaseDetailService;
 import com.ie.evalos.service.CaseLifecycleService;
 import com.ie.evalos.service.RefundService;
@@ -139,6 +140,9 @@ class CaseControllerTest {
 
 	@MockitoBean
 	CaseDetailService details;
+
+	@MockitoBean
+	CaseBoardService board;
 
 	@MockitoBean
 	EvalOsUserDetailsService userDetailsService;

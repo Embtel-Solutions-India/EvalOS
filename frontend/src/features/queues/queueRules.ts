@@ -131,6 +131,29 @@ export function expertSignOverdue(data: BoardData): BoardCard[] {
   )
 }
 
+/**
+ * The Case Manager's own drafting work: every stage where the draft is theirs to move.
+ *
+ * **Three stages, not one.** `DRAFT_IN_PROGRESS` is the obvious one, but a CM whose draft is
+ * sitting in `DRAFT_REVIEW` still needs to see it — that is the version they submitted and are
+ * waiting on — and one thrown back into `EXPERT_DECLINED_REMATCHING` is still their case. Showing
+ * only the first would make the screen empty at exactly the moment the CM wants to know where
+ * their work went.
+ *
+ * **Returned first.** A draft the PM sent back is the thing to do today; everything else is
+ * in flight. Within each group, deadline order, so the ordering never becomes arbitrary.
+ */
+export function myDrafts(data: BoardData): BoardCard[] {
+  const mine = [
+    ...data.stages.DRAFT_IN_PROGRESS,
+    ...data.stages.DRAFT_REVIEW,
+    ...data.exceptions.EXPERT_DECLINED_REMATCHING,
+  ]
+  const returned = (card: BoardCard) =>
+    card.pmApprovalStatus === 'RETURNED' || card.clientApprovalStatus === 'REVISION_REQUESTED'
+  return [...byDeadline(mine.filter(returned)), ...byDeadline(mine.filter((card) => !returned(card)))]
+}
+
 function byDeadline(cards: BoardCard[]): BoardCard[] {
   return [...cards].sort((left, right) => {
     if (left.deadline === right.deadline) return 0
