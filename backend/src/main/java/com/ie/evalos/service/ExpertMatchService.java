@@ -82,12 +82,20 @@ public class ExpertMatchService {
 	 * narrower than {@code ServiceType} on purpose — it is the expert's signing appetite, not
 	 * the catalogue EvalOS sells — and this map is where the two meet.
 	 */
+	/**
+	 * <strong>Every {@link ServiceType} has to appear here.</strong> An unmapped one resolves to
+	 * a null letter type, which makes every expert on the roster ineligible — a silent empty
+	 * shortlist rather than an error, so a service type added without its entry looks like a
+	 * roster with nobody on it. Unit 33's two additions are mapped for that reason.
+	 */
 	private static final Map<ServiceType, LetterType> LETTER_FOR_SERVICE = new EnumMap<>(Map.of(
 			ServiceType.CREDENTIAL_EVALUATION, LetterType.CREDENTIAL_EVALUATION,
 			ServiceType.EXPERT_OPINION_LETTER, LetterType.EXPERT_OPINION_LETTER,
 			ServiceType.PERM, LetterType.PERM_LETTER,
 			ServiceType.RFE_RESPONSE, LetterType.RFE_RESPONSE,
-			ServiceType.TRANSLATION, LetterType.TRANSLATION_CERTIFICATION));
+			ServiceType.TRANSLATION, LetterType.TRANSLATION_CERTIFICATION,
+			ServiceType.RECOMMENDATION_LETTER, LetterType.RECOMMENDATION_LETTER,
+			ServiceType.WAGE_LEVEL_LETTER, LetterType.WAGE_LEVEL_LETTER));
 
 	/** What the case needs, resolved once and handed to every factor. */
 	record Requirement(FieldTag fieldTag, LetterType letterType) {

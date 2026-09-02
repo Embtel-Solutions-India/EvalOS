@@ -2,6 +2,7 @@ package com.ie.evalos.domain;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.UUID;
 
 import jakarta.persistence.Column;
@@ -67,6 +68,41 @@ public class Case extends ScopedEntity {
 	@Enumerated(EnumType.STRING)
 	@Column(name = "client_type")
 	private ClientType clientType;
+
+	/**
+	 * The beneficiary the deliverable is about, which is only the contact when the client
+	 * type is {@link ClientType#INDIVIDUAL}. For an attorney, an employer, an agent or a
+	 * NACES agency the contact is who we deal with and this is who the letter is for.
+	 *
+	 * <p>Deliberately here and not on {@link ContactSnapshot}: that is a read-only copy of a
+	 * GHL record (invariant 7), and Handoff A's confirmed payload is a contact and carries
+	 * no beneficiary. Typed by the Case Manager. Unit 33.
+	 */
+	@Column(name = "applicant_name")
+	private String applicantName;
+
+	/**
+	 * The discipline this case needs, written by the match action and by nothing else.
+	 *
+	 * <p>Unit 12 refused this column because the only source then would have been an intake
+	 * webhook that carries no discipline, and closed the note with "if a later unit finds a
+	 * second consumer, the column can be added then, with a real source". The consumer is
+	 * this record; the source is the tag the PM already types at match time, which used to
+	 * be discarded. A null means <strong>no match has been run</strong>, never "no
+	 * discipline". Unit 33.
+	 */
+	@Enumerated(EnumType.STRING)
+	@Column(name = "field_of_expertise")
+	private FieldTag fieldOfExpertise;
+
+	/**
+	 * The filing deadline USCIS imposed, which is not {@link #deadline} — that is what
+	 * EvalOS promised. They coincide on most cases and diverge on the ones that matter.
+	 * Feeds nothing automatically: the Case Manager sets {@code deadline} from it, and a
+	 * rule that did so silently would be a rule nobody could see was wrong. Unit 33.
+	 */
+	@Column(name = "rfe_date")
+	private LocalDate rfeDate;
 
 	/** Role-restricted: only PM, Brand Manager and GM see this in a DTO. */
 	@Column(name = "deal_value")
@@ -494,5 +530,29 @@ public class Case extends ScopedEntity {
 
 	public void setCaseClosedDate(Instant caseClosedDate) {
 		this.caseClosedDate = caseClosedDate;
+	}
+
+	public String getApplicantName() {
+		return applicantName;
+	}
+
+	public void setApplicantName(String applicantName) {
+		this.applicantName = applicantName;
+	}
+
+	public FieldTag getFieldOfExpertise() {
+		return fieldOfExpertise;
+	}
+
+	public void setFieldOfExpertise(FieldTag fieldOfExpertise) {
+		this.fieldOfExpertise = fieldOfExpertise;
+	}
+
+	public LocalDate getRfeDate() {
+		return rfeDate;
+	}
+
+	public void setRfeDate(LocalDate rfeDate) {
+		this.rfeDate = rfeDate;
 	}
 }

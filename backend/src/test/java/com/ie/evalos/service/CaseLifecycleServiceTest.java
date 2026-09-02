@@ -3,6 +3,7 @@ package com.ie.evalos.service;
 import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
@@ -20,6 +21,7 @@ import com.ie.evalos.domain.ChecklistItemStatus;
 import com.ie.evalos.domain.ClientApprovalStatus;
 import com.ie.evalos.domain.DocumentChecklistItem;
 import com.ie.evalos.domain.ExceptionState;
+import com.ie.evalos.domain.FieldTag;
 import com.ie.evalos.domain.Expert;
 import com.ie.evalos.domain.ExpertCaseOffer;
 import com.ie.evalos.domain.ExpertSignStatus;
@@ -194,7 +196,7 @@ class CaseLifecycleServiceTest {
 		actAs(Role.PROJECT_COORDINATOR);
 		lifecycle.markDocsComplete(CASE_ID);
 		actAs(Role.PROJECT_MANAGER);
-		lifecycle.assignCaseManager(CASE_ID, CM_ID, EXPERT_ID, "strongest ophthalmology record on the roster");
+		lifecycle.assignCaseManager(CASE_ID, CM_ID, EXPERT_ID, "strongest ophthalmology record on the roster", null);
 	}
 
 	private List<CaseEvents.Type> publishedEventTypes(int expected) {
@@ -204,6 +206,40 @@ class CaseLifecycleServiceTest {
 				.map(CaseEvents.CaseEvent.class::cast)
 				.map(CaseEvents.CaseEvent::type)
 				.toList();
+	}
+
+	// --- Unit 33: the discipline and the intake facts -------------------------
+
+	@Test
+	void theAssignmentRecordsTheDisciplineTheCaseWasMatchedOn() {
+		actAs(Role.BRAND_MANAGER);
+		lifecycle.assignPm(CASE_ID, PM_ID);
+		actAs(Role.PROJECT_COORDINATOR);
+		lifecycle.markDocsComplete(CASE_ID);
+		actAs(Role.PROJECT_MANAGER);
+
+		// Unit 12 takes the tag as an argument and throws it away; the assignment is where it
+		// becomes a fact about the case, so a delivered case can still say what it was about.
+		lifecycle.assignCaseManager(CASE_ID, CM_ID, EXPERT_ID, null, FieldTag.MEDICINE);
+		assertEquals(FieldTag.MEDICINE, subject.getFieldOfExpertise());
+
+	}
+
+	@Test
+	void theIntakeFactsAreWritableAndClearableByTheCaseManager() {
+		actAs(Role.CASE_MANAGER);
+
+		lifecycle.updateIntakeFacts(CASE_ID, "  Priya Raghunathan  ", LocalDate.of(2026, 10, 14));
+		assertEquals("Priya Raghunathan", subject.getApplicantName(), "trimmed, as every other free text is");
+		assertEquals(LocalDate.of(2026, 10, 14), subject.getRfeDate());
+		// The applicant is not the contact, and nothing about the promised date moved.
+		assertNull(subject.getDeadline());
+
+		// Unlike changeDeadline, a blank is accepted: a name typed against the wrong case has
+		// to be removable, and rfe_date drives nothing on its own.
+		lifecycle.updateIntakeFacts(CASE_ID, "   ", null);
+		assertNull(subject.getApplicantName());
+		assertNull(subject.getRfeDate());
 	}
 
 	@Test
@@ -501,10 +537,10 @@ class CaseLifecycleServiceTest {
 		lifecycle.expertDeclined(CASE_ID, "outside my field");
 		assertEquals(ExceptionState.EXPERT_DECLINED_REMATCHING, subject.getExceptionState());
 
-		assertThrows(IllegalTransitionException.class, () -> lifecycle.reassignExpert(CASE_ID, EXPERT_ID, null),
+		assertThrows(IllegalTransitionException.class, () -> lifecycle.reassignExpert(CASE_ID, EXPERT_ID, null, null),
 				"the expert who declined is not a rematch");
 
-		lifecycle.reassignExpert(CASE_ID, OTHER_EXPERT_ID, null);
+		lifecycle.reassignExpert(CASE_ID, OTHER_EXPERT_ID, null, null);
 		// **Unit 31: a rematch returns to CLIENT_APPROVAL, not to assignment.** The letter is
 		// written, client-approved and locked — nothing about it changed because an expert walked
 		// away, so re-running PM review would ask somebody to re-approve untouched work. What has
@@ -513,6 +549,10 @@ class CaseLifecycleServiceTest {
 		assertEquals(ExceptionState.NONE, subject.getExceptionState());
 		assertEquals(OTHER_EXPERT_ID, subject.getExpertId());
 		assertEquals(ExpertSignStatus.REASSIGNED, subject.getExpertSignStatus());
+		// Unit 33: a rematch naming no discipline leaves the one the assignment recorded alone.
+		// walkToDraftGeneration assigns with a null tag, so this stays null rather than being
+		// overwritten with one — the point is that reassignExpert did not write anything here.
+		assertNull(subject.getFieldOfExpertise());
 	}
 
 	/**
@@ -546,7 +586,7 @@ class CaseLifecycleServiceTest {
 		assertEquals(OfferOutcome.TIMED_OUT, open.getOutcome(), "not DECLINED — the expert never answered");
 		assertNull(open.getDeclineReason(), "the absence of an answer is the reason");
 
-		lifecycle.reassignExpert(CASE_ID, OTHER_EXPERT_ID, null);
+		lifecycle.reassignExpert(CASE_ID, OTHER_EXPERT_ID, null, null);
 		assertEquals(Stage.CLIENT_APPROVAL, subject.getCurrentStage());
 		assertEquals(OTHER_EXPERT_ID, subject.getExpertId());
 	}
@@ -596,12 +636,12 @@ class CaseLifecycleServiceTest {
 		subject.setExceptionState(ExceptionState.EXPERT_DECLINED_REMATCHING);
 		actAs(Role.PROJECT_MANAGER);
 
-		lifecycle.reassignExpert(CASE_ID, OTHER_EXPERT_ID, null);
+		lifecycle.reassignExpert(CASE_ID, OTHER_EXPERT_ID, null, null);
 		assertEquals("strongest ophthalmology record on the roster",
 				subject.getExpertSelectionRationale(), "a null does not erase what was there");
 
 		subject.setExceptionState(ExceptionState.EXPERT_DECLINED_REMATCHING);
-		lifecycle.reassignExpert(CASE_ID, EXPERT_ID, "first choice went silent; this one has signed for us twice");
+		lifecycle.reassignExpert(CASE_ID, EXPERT_ID, "first choice went silent; this one has signed for us twice", null);
 		assertEquals("first choice went silent; this one has signed for us twice",
 				subject.getExpertSelectionRationale(), "and a new reason replaces the old one");
 	}
@@ -645,7 +685,7 @@ class CaseLifecycleServiceTest {
 
 		actAs(Role.PROJECT_MANAGER);
 		assertThrows(IllegalTransitionException.class,
-				() -> lifecycle.assignCaseManager(CASE_ID, CM_ID, EXPERT_ID, null));
+				() -> lifecycle.assignCaseManager(CASE_ID, CM_ID, EXPERT_ID, null, null));
 		assertEquals(Stage.PM_REVIEW, subject.getCurrentStage());
 	}
 
@@ -683,7 +723,7 @@ class CaseLifecycleServiceTest {
 		// still null here, while CASE_ID is only the key the scoped read is stubbed against.
 		given(offers.findByCaseIdAndOutcome(any(), eq(OfferOutcome.OFFERED))).willReturn(List.of(stillOpen));
 
-		lifecycle.reassignExpert(CASE_ID, OTHER_EXPERT_ID, null);
+		lifecycle.reassignExpert(CASE_ID, OTHER_EXPERT_ID, null, null);
 		assertEquals(OfferOutcome.SUPERSEDED, stillOpen.getOutcome());
 		assertNull(stillOpen.getDeclineReason(), "nobody declined — the offer was withdrawn");
 		assertFalse(stillOpen.getOutcome().countsTowardAcceptanceRate(),
@@ -808,7 +848,7 @@ class CaseLifecycleServiceTest {
 		lifecycle.markDocsComplete(CASE_ID);
 
 		actAs(Role.PROJECT_MANAGER);
-		lifecycle.assignCaseManager(CASE_ID, CM_ID, OTHER_EXPERT_ID, null);
+		lifecycle.assignCaseManager(CASE_ID, CM_ID, OTHER_EXPERT_ID, null, null);
 
 		assertEquals(Stage.DRAFT_IN_PROGRESS, subject.getCurrentStage());
 		assertEquals(OTHER_EXPERT_ID, subject.getExpertId());

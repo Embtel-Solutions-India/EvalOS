@@ -406,9 +406,31 @@ carries a vitest file; components are not render-tested (no jsdom, no Testing Li
 `AbortController` because `StrictMode` double-invokes effects in dev.
 
 Where a rules module mirrors a backend vocabulary (`QUICK_ACTIONS` ↔ the transitions, `FIELD_TAGS` /
-`LETTER_TYPES` ↔ `domain/FieldTag` + `V18`'s CHECKs) the duplication is deliberate — the UI has to
-offer the closed list rather than let it be typed — and **the two move together or the API starts
-rejecting what the screen offered**.
+`LETTER_TYPES` / `AFFILIATION_TYPES` / `VISA_CATEGORIES` ↔ their enums + `V18`/`V35`'s CHECKs) the
+duplication is deliberate — the UI has to offer the closed list rather than let it be typed — and
+**the two move together or the API starts rejecting what the screen offered**. Unit 33 widened five
+of these at once and the rule held; there is now a worked example of what "moved together" means.
+
+## The list is lean, the detail shows everything (Unit 33, 2026-09-03)
+
+The rule for both record screens, and the answer to "where does a new field go":
+
+- **Nothing new is ever added to a roster row or a board card.** Unit 33 added 22 expert fields and
+  the roster table gained no column. They live in two new `<Section>`s on `ExpertProfile` —
+  **Credentials** and **Standing** — with location and languages folded into Contact and rush work
+  into Availability.
+- **In edit mode the dossier is behind a native `<details>`**, not twenty more rows always open: the
+  fifteen fields above it are edited weekly, a CV is transcribed once. No accordion component.
+- **`formOf` spreads `profile.dossier` whole and `EMPTY_FORM` spreads `EMPTY_DOSSIER`.** The form is
+  sent whole and the server applies every field, so a dossier field missing from either literal would
+  not be "left alone" — it would arrive undefined and blank a transcribed CV. Add a field to
+  `ExpertForm` and you must add it to both, which is why they share one constant.
+- **`features/case/CaseFacts.tsx`** is the case-side counterpart: applicant, contact, discipline and
+  RFE deadline in one panel, above `ExpertCard`. The applicant and the contact are drawn one above
+  the other **and labelled**, because confusing them is the failure the field exists to prevent, and
+  both follow the header's rule that *withheld* and *unset* never share a label. Discipline is
+  read-only here — it is written at assignment, and a second place to type it would be a second
+  answer to the same question.
 
 `boardRules` has **no `mark-paid` action** since Case Creation v2.0 (spec `05b`): the case arrives paid
 from the won GHL opportunity, and the endpoint behind that button is deleted. Do not re-add a "Record

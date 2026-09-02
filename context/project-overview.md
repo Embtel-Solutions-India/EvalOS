@@ -142,7 +142,12 @@ The case lifecycle, from EvalOS's point of view (EvalOS owns stages 3–7 of the
 ### Expert Database & Matching Engine
 - Brand-scoped expert profiles maintained by the brand's ENM via **bulk sheet
   upload (CSV/XLSX) + full CRUD**: field tags, letter types, institution,
-  tier, availability, quality score, turnaround/decline history.
+  tier, availability, quality score, turnaround/decline history, and — from
+  **Unit 33** — the standing dossier a letter actually rests on: terminal degree
+  and where it came from, current position and affiliation type, location,
+  supported visa categories, publications, citations, h-index, patents, awards,
+  memberships, editorial roles, languages, rush capability. **The roster list
+  stays lean; the profile shows everything.** Never a payment detail from a sheet.
 - Rule-based match scoring → ranked shortlist (field match, letter-type
   experience, acceptance rate, current load). Assist mode: humans confirm.
   **No AI — Unit 20 is removed (2026-09-02), so this is no longer "a later phase" but a

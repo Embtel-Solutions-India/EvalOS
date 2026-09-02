@@ -559,6 +559,28 @@ Unit 26's and Unit 27's**: `brandId` becomes legal, the Brand Manager is admitte
 in 25 — a credential's lifecycle and a screen's role list are different boundaries.
 Depends on: 02, 24.
 
+### Unit 33 — The full record: applicant, case discipline, expert dossier — BUILT
+Builds: the record EvalOS holds becomes the record the business holds. An audit of
+`IE_Case_Sample_Data.xlsx` and `IE_Expert_Sample_Data.xlsx` against V1–V34 found
+**19 of 36 expert facts absent** — degree, position, affiliation type, location,
+LinkedIn, supported visa categories, publications, citations, h-index, patents,
+awards, memberships, editorial roles, languages, rush capability, `IE-EXP-###`,
+turnaround — and **no applicant name on any case**, which is a correctness gap the
+moment a client is a law firm rather than an individual. Nineteen columns widen
+`expert` (**no child table** — 1:1, no history, no second implementation);
+`evalos_case` gains `applicant_name`, `field_of_expertise` and `rfe_date`.
+**It reverses Unit 12's documented omission** of a case field tag: the objection was
+to an *intake source*, not to persistence, and the tag the PM types at match time is
+now stored by the assignment. `FieldTag` gains 11 values — its 28 were drawn for
+credential-evaluation degree fields and **10 of the 22 disciplines in the expert
+sheet cannot be spelled**, so those experts score zero on a 40-point factor.
+`ServiceType`, `LetterType`, `ClientType`, `VisaCategory` gain the values the sheets
+use; **the V18 CHECKs move with the enums** or the app writes rows the database
+rejects. `last_active_date` is **derived** from `expert_case_offer`, never stored.
+List stays lean, detail shows everything. Still no payment column, ever.
+See `33-case-and-expert-dossier.md`.
+Depends on: 11, 12, 31.
+
 ---
 
 ## Notes

@@ -90,6 +90,30 @@ Still-dead-and-should-stay-dead, for the same derive-don't-store reason as the t
 `expert.avg_response_hours`. Unit 17 derives turnaround from `expert_case_offer`; reviving the column
 would be a second, staler answer.
 
+**`V35` (Unit 33) adds `expert.avg_turnaround_days` beside it, and that is not a reversal — read the
+two names.** `avg_response_hours` is how fast an expert *answers an offer*, which the offer table
+already knows; `avg_turnaround_days` is how long they take to *write the letter*, which EvalOS cannot
+derive today (no path attributes draft time to an expert, and Unit 15 has not accumulated signed
+letters to measure). It is the ENM's own figure, transcribed from the roster. **If a later unit does
+derive letter turnaround, this column is the one to kill** — the derive-don't-store rule applies to it
+the moment the data exists. A fast replier can be a slow writer, which is why one is not the other.
+
+**`V35` also widened `V18`'s taxonomy, which is the first time that has happened.** `V18` shipped an
+unsigned-off starter list drawn for *credential-evaluation degree fields*; the roster is an
+*expert-opinion-letter* roster, and **10 of the 22 disciplines on a real sheet had no tag at all** —
+which `ExpertMatchService` reports as a zero on a 40-point factor rather than as an error, so it was
+a silent wrong answer. `FieldTag` gained 11 values, `LetterType` 2, `ServiceType` 2, `ClientType` 1,
+`VisaCategory` 4, and a new `AffiliationType`. The CHECKs were dropped and re-added in the same
+migration, per `V18`'s own header: **widening is a new migration, never an edit to the applied one**,
+and the enum and the constraint move together or the app writes rows the database rejects.
+
+Also in `V35`: nineteen dossier columns on `expert` (**one wide table, no `expert_credentials` child —
+1:1, no history, no second implementation**), `evalos_case.applicant_name` / `field_of_expertise` /
+`rfe_date`, `uq_expert_per_brand_code` shaped like `V18`'s email key, and two roster indexes. The
+sheet's `last_active_date` **is deliberately not a column**: it is `max(offered_at)` over
+`expert_case_offer` (`ExpertCaseOfferRepository.lastOfferedAt`), the same fact with no writer to
+forget. Null there means *never approached*, which is not dormancy.
+
 **Case Creation v2.0 (Unit 05b)** added `V24` `evalos_case.ghl_opportunity_id` + the per-brand
 `uq_case_open_per_opportunity`, so a re-fired GHL workflow cannot open a second case for one
 opportunity — the `V15`/`V16` index-not-lookup rule again. It is partial on **`WHERE

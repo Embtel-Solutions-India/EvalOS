@@ -4,6 +4,85 @@ Update this file after every meaningful implementation change.
 
 ## Current Phase
 
+- **2026-09-03 — Unit 33 BUILT: `V35`, the dossier, the applicant, the discipline.** Migration,
+  entities, form, importer, both record screens and the two sample workbooks. **532 backend tests
+  and 141 frontend tests green**, `ddl-auto=validate` passing against a real Postgres — which is
+  what proves the 22 new columns match the entities, since a mismatch fails the context boot.
+  - **The importer's number parser had to be NARROWED, not widened.** The first cut stripped every
+    non-digit (`[^0-9\-]`), which turns `"4.9"` into `49` — so mapping the quality-score column
+    onto `h_index` would have imported a plausible number nobody would go back and check. It now
+    strips only the separators a spreadsheet adds (`,` and whitespace) and lets a decimal throw, so
+    the row is reported. The test that caught it is `aDecimalInAWholeNumberColumnIsReportedRatherThanTruncated`.
+  - **The edit form would have blanked the whole dossier on the first save.** `ExpertForm` is sent
+    whole and `ExpertService.apply` writes every field, so the 22 fields missing from `formOf` would
+    have arrived as undefined and erased a transcribed CV on any unrelated edit. `formOf` now
+    spreads `profile.dossier` and `EMPTY_FORM` spreads a shared `EMPTY_DOSSIER`. **`tsc --noEmit`
+    did not catch this and cannot**: `frontend/tsconfig.json` is `files: []` with project
+    references, so a bare `--noEmit` typechecks *nothing* and exits 0. **Use `tsc -b`.**
+  - **`avg_turnaround_days` is stored, beside a memory that says turnaround is derived — and both
+    are right.** `avg_response_hours` is how fast an expert answers an offer; this is how long they
+    take to write the letter, which EvalOS cannot derive today. Recorded in `mem:backend/persistence`
+    with the condition for killing it: the day a unit really does derive letter turnaround.
+  - **Acceptance run against the real workbooks, not a fixture.** All 25 case rows resolve —
+    every `customer_type`, `service_type` (including the `"AE & Translations"` and `"EOL (2)"`
+    spellings) and `purpose_visa`; all 36 expert columns have a home, all 22 disciplines a
+    `FieldTag`, every affiliation type and visa category a constant.
+  - **The workbooks were edited, and only where a decision says not to store**: `drive_link`,
+    `priority` and `urgency` are out of `IE_Case_Sample_Data.xlsx` (25 columns now), with the reason
+    written into its Field guide tab. `IE_Expert_Sample_Data.xlsx` is unchanged at 36 columns —
+    every one of them now has somewhere to go.
+  - Serena memories amended in the same step: `backend/persistence` (V35, the two turnaround facts,
+    the first taxonomy widening), `core` (Unit 12's omission is closed **on its own stated terms** —
+    edited in place, not contradicted beside), `frontend/core` (the list-lean / detail-complete rule).
+
+- **2026-09-03 — Unit 33 specced: the record EvalOS holds is not the record the business
+  holds.** Both sample workbooks (`IE_Case_Sample_Data.xlsx`, 28 columns;
+  `IE_Expert_Sample_Data.xlsx`, 36) were checked column by column against V1–V34, the
+  entities, `ExpertForm`, `ExpertImportService` and `ExpertMatchService`. Specced, **not
+  built** — a pivot spec, because it widens two tables every other unit reads.
+  - **`drive_link` is the one sheet column correctly ignored.** V34 dropped it and Unit 30
+    put documents in S3, so it comes out of the *sheet*, not into the schema. It was the
+    only Drive-shaped thing left to check, and there was nothing to do.
+  - **19 of 36 expert facts have no column, no entity field and no import target** — degree,
+    degree field, degree institution, current position, affiliation type, country,
+    state/region, years of experience, LinkedIn, supported visa categories, publications,
+    citations, h-index, patents, awards, memberships, editorial roles, languages, rush
+    capability, `IE-EXP-###`, turnaround. That is the evidence an expert opinion letter
+    rests on and the whole basis on which the ENM prefers one expert to another; `ExpertForm`
+    has 14 fields against the sheet's 36.
+  - **No case stores the applicant's name.** `contact_snapshot` holds the person GHL sent —
+    the attorney, the agent, the HR contact. For every `client_type` except `INDIVIDUAL` that
+    is not the beneficiary the letter is *about*. `applicant_name` goes on `evalos_case`, not
+    on the snapshot: invariant 7 makes the snapshot read-only GHL truth and Handoff A's
+    confirmed payload carries no beneficiary.
+  - **Unit 12's field-tag omission is reversed, on its own stated terms.** `ExpertMatchService`
+    refused a case field tag because the only *source* would be an intake webhook that carries
+    no such thing — and closed with "if a later unit finds a second consumer, the column can be
+    added then, with a real source". The consumer is the case record; the source is the tag the
+    PM already types at match time and which is discarded today, so a delivered case cannot say
+    what discipline it was. The assignment writes it; the engine still takes it as an argument.
+  - **`priority` and `urgency` stay out**, holding Unit 32's decision 5 — both sheet columns are
+    readings of a deadline, and the sheets lose them rather than the schema gaining them.
+    `rfe_date` **does** get a column: the SLA deadline EvalOS promised and the filing deadline
+    USCIS imposed are two dates that diverge on exactly the cases that matter.
+  - **`FieldTag`'s 28 values were drawn for credential-evaluation degree fields, and the roster
+    is an expert-opinion-letter roster.** 10 of the 22 disciplines in the expert sheet cannot be
+    spelled at all (Aerospace, AI, Biomedical, Biotechnology, Cybersecurity, Environmental,
+    Materials Science, Neuroscience, Renewable Energy, Software Engineering) — an expert whose
+    field has no tag scores zero on a 40-point factor. `ServiceType` is missing
+    `RECOMMENDATION_LETTER` and `WAGE_LEVEL_LETTER`, `ClientType` is missing `NACES`,
+    `VisaCategory` is missing `L1A` and the three NACES purposes. **The V18 CHECKs move in the
+    same migration as the enums**, or the application writes rows the database rejects.
+  - **Two sheet facts are refused as columns**: `last_active_date` is `max(offered_at)` over
+    `expert_case_offer` — the same fact with no writer to forget — and there is still no payment
+    column, which `ExpertImportService` already refuses as a mapping target. Milestone dates
+    (docs complete, sent for review, sent for signature) stay derived from `audit_event`
+    `STAGE_CHANGED` rows; the work there is confirming `Timeline` renders them.
+  - **Sheets change too, and only where a decision says not to store**: `drive_link`, `priority`,
+    `urgency` come out, with the reason written into the Field guide tab.
+  - Serena memories are **not** amended yet — nothing has changed in the code. `backend/core`,
+    `backend/persistence` and `frontend/core` are updated in the build step.
+
 - **2026-09-02 — Handoff A's payload contract is CONFIRMED, and it was wrong. The open question
   the design has carried since Unit 05 is now closed.** A live GHL delivery was captured. The
   nested `opportunity` / `contact` envelope every spec assumed does not exist, and every real
@@ -2848,6 +2927,13 @@ closed.
   refusals, the audit row, the panel — is verified.
 
 ### Unit 14 — Client draft-review portal · complete and verified
+
+> **2026-09-03 — the staff-side link panel is gone.** `PortalLinkPanel` and the
+> `mint`/`fetch` client calls were deleted from the frontend: the client will sign in to a
+> client portal rather than be handed a one-shot URL, so there is nothing for a case manager
+> to copy and send. **The backend is untouched** — `/api/cases/{id}/portal-link`,
+> `portal_access`, and the portal filter chain all still exist and still work; replacing
+> magic links with client login is a pivot that gets its own spec before any of that moves.
 
 The first non-staff caller in EvalOS, and Handoff B is now something the client performs
 themselves. **Three migrations** (`V20`–`V22`) and a **second Spring Security filter chain**.

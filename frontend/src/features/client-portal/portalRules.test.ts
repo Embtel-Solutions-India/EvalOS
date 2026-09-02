@@ -1,7 +1,5 @@
 import { describe, expect, it } from 'vitest'
 import {
-  MAY_MINT_PORTAL_LINK,
-  mayMintPortalLink,
   draftReady,
   failureMessage,
   mayAct,
@@ -151,28 +149,5 @@ describe('the profile frame', () => {
    */
   it('withholds every capability', () => {
     expect(PROFILE_SANDBOX).toBe('')
-  })
-})
-
-/**
- * Rehomed from `case/redactionRules.test.ts` when Unit 13 was removed (2026-09-02).
- *
- * **The rule was never Unit 13's** — it only shared a file with it. Carrying the assertion across
- * rather than letting it go with the deleted file is the point: a client offering a control the
- * server refuses is the failure this project keeps finding, and the coverage should not evaporate
- * because a neighbour was deleted.
- */
-describe('mayMintPortalLink', () => {
-  it('admits the four roles that put a link in front of a client', () => {
-    expect(MAY_MINT_PORTAL_LINK).toEqual(['GM', 'BRAND_MANAGER', 'PROJECT_MANAGER', 'CASE_MANAGER'])
-  })
-
-  it('includes the case manager, who is who a client emails when a link stops working', () => {
-    expect(mayMintPortalLink('CASE_MANAGER')).toBe(true)
-  })
-
-  it('excludes the two roles that never hand a client anything', () => {
-    expect(mayMintPortalLink('PROJECT_COORDINATOR')).toBe(false)
-    expect(mayMintPortalLink('EXPERT_NETWORK_MANAGER')).toBe(false)
   })
 })

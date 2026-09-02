@@ -16,6 +16,7 @@ import com.ie.evalos.domain.FieldTag;
 import com.ie.evalos.domain.LetterType;
 import com.ie.evalos.domain.Role;
 import com.ie.evalos.repository.BrandRepository;
+import com.ie.evalos.repository.ExpertCaseOfferRepository;
 import com.ie.evalos.repository.ExpertRepository;
 import com.ie.evalos.security.StaffPrincipal;
 import com.ie.evalos.security.TenantContext;
@@ -62,9 +63,10 @@ class ExpertServiceTest {
 	private final ExpertLoadService loads = mock(ExpertLoadService.class);
 	private final PayoutService payouts = mock(PayoutService.class);
 	private final AuditService audit = mock(AuditService.class);
+	private final ExpertCaseOfferRepository offers = mock(ExpertCaseOfferRepository.class);
 
 	private final ExpertService service =
-			new ExpertService(experts, brands, loads, payouts, new OwnershipGuard(), audit);
+			new ExpertService(experts, brands, loads, payouts, new OwnershipGuard(), audit, offers);
 
 	@BeforeEach
 	void anEnmWithARoster() {
@@ -286,7 +288,11 @@ class ExpertServiceTest {
 	private static ExpertForm form(String name) {
 		return new ExpertForm(name, "new.person@example.test", null, "Professor", "Rowan State University",
 				List.of(FieldTag.MECHANICAL_ENGINEERING), List.of(), List.of(LetterType.EXPERT_OPINION_LETTER),
-				ExpertTier.TIER_1, Availability.AVAILABLE, null, null, null, null, null);
+				ExpertTier.TIER_1, Availability.AVAILABLE, null, null, null, null, null,
+				// Unit 33's dossier: a form with an empty one is legal, and this fixture keeps
+				// asserting the pre-33 behaviour is unchanged by its arrival.
+				null, null, null, null, null, null, null, null, null, null, null, null,
+				null, null, null, null, null, null, null, null, false, null);
 	}
 
 	private static Expert expert(String name, FieldTag tag, ExpertTier tier, Availability availability) {

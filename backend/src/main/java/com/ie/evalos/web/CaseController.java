@@ -2,6 +2,7 @@ package com.ie.evalos.web;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
@@ -11,6 +12,7 @@ import com.ie.evalos.domain.Case;
 import com.ie.evalos.domain.ClientApprovalStatus;
 import com.ie.evalos.domain.ExceptionState;
 import com.ie.evalos.domain.ExpertSignStatus;
+import com.ie.evalos.domain.FieldTag;
 import com.ie.evalos.domain.PmApprovalStatus;
 import com.ie.evalos.domain.PoolStatus;
 import com.ie.evalos.domain.CaseDocument;
@@ -28,6 +30,7 @@ import com.ie.evalos.service.RefundService;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Size;
 
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -150,8 +153,15 @@ public class CaseController {
 	public record AssignPmRequest(@NotNull UUID pmId) {
 	}
 
-	/** @param expertRationale why this expert (Unit 32). Optional — see the service for why. */
-	public record AssignCmRequest(@NotNull UUID cmId, @NotNull UUID expertId, String expertRationale) {
+	/**
+	 * @param expertRationale why this expert (Unit 32). Optional — see the service for why.
+	 * @param fieldOfExpertise the discipline the PM matched on (Unit 33). Optional and
+	 *                        recorded, not enforced: the PM is the only person who knows it
+	 *                        and they know it here, but a case must still be staffable by
+	 *                        someone who skipped the shortlist.
+	 */
+	public record AssignCmRequest(@NotNull UUID cmId, @NotNull UUID expertId, String expertRationale,
+			FieldTag fieldOfExpertise) {
 	}
 
 	public record AssignCoordinatorRequest(@NotNull UUID coordinatorId) {
@@ -241,7 +251,17 @@ public class CaseController {
 			/** Why this expert was chosen (Unit 32). Null for every role outside SEES_EXPERT_RATIONALE. */
 			String expertSelectionRationale,
 			/** Stated rather than inferred, for the reason {@link #maySeeStrategyNotes} gives. */
-			boolean maySeeExpertRationale) {
+			boolean maySeeExpertRationale,
+			/**
+			 * The beneficiary (Unit 33). Gated with {@code clientName} behind
+			 * {@link #maySeeCaseContent}: it is client identity, and a supply-side role that may
+			 * not see who the client is must not see who the letter is for either.
+			 */
+			String applicantName,
+			/** The discipline the case was matched on (Unit 33). Not client identity, so ungated. */
+			FieldTag fieldOfExpertise,
+			/** The USCIS filing deadline (Unit 33). A production fact, so ungated. */
+			LocalDate rfeDate) {
 
 		static CaseDetail of(CaseDetailService.CaseWithContext context, TenantContext ctx) {
 			Case subject = context.subject();
@@ -264,7 +284,10 @@ public class CaseController {
 					MAY_EDIT_STRATEGY_NOTES.contains(ctx.role()),
 					seesContent,
 					seesRationale ? subject.getExpertSelectionRationale() : null,
-					seesRationale);
+					seesRationale,
+					seesContent ? subject.getApplicantName() : null,
+					subject.getFieldOfExpertise(),
+					subject.getRfeDate());
 		}
 	}
 
@@ -272,7 +295,7 @@ public class CaseController {
 	private static final Set<Role> MAY_EDIT_STRATEGY_NOTES = Set.of(Role.GM, Role.PROJECT_MANAGER);
 
 	/** @param expertRationale why the replacement (Unit 32). Optional; null leaves the previous text. */
-	public record ExpertRequest(@NotNull UUID expertId, String expertRationale) {
+	public record ExpertRequest(@NotNull UUID expertId, String expertRationale, FieldTag fieldOfExpertise) {
 	}
 
 	/** Return comments, hold reasons, decline reasons, revision notes — all free text. */
@@ -291,6 +314,14 @@ public class CaseController {
 	}
 
 	public record CaseManagerRequest(@NotNull UUID cmId) {
+	}
+
+	/**
+	 * @param applicantName who the deliverable is about. Nullable and clearable — a name typed
+	 *                      against the wrong case has to be removable.
+	 * @param rfeDate the USCIS filing deadline, which is not the promised {@code deadline}.
+	 */
+	public record IntakeFactsRequest(@Size(max = 200) String applicantName, LocalDate rfeDate) {
 	}
 
 	/**
@@ -375,6 +406,21 @@ public class CaseController {
 	public ApiResponse<CaseSummary> changeDeadline(@PathVariable UUID id,
 			@Valid @RequestBody DeadlineRequest request) {
 		return summary(lifecycle.changeDeadline(id, request.deadline()));
+	}
+
+	/**
+	 * The applicant the deliverable is about, and the filing deadline USCIS imposed (Unit 33).
+	 *
+	 * <p><strong>The Case Manager is admitted here, unlike {@code /deadline} next door.</strong>
+	 * These are facts read off the intake documents, and the CM is the role that reads them —
+	 * gating them to the PM would mean the person holding the paperwork has to ask someone
+	 * else to type it. Neither field moves a stage or a date the client was promised.
+	 */
+	@PatchMapping("/{id}/intake-facts")
+	@PreAuthorize(GM_OR + "hasAnyRole('PROJECT_MANAGER', 'CASE_MANAGER')")
+	public ApiResponse<CaseSummary> updateIntakeFacts(@PathVariable UUID id,
+			@Valid @RequestBody IntakeFactsRequest request) {
+		return summary(lifecycle.updateIntakeFacts(id, request.applicantName(), request.rfeDate()));
 	}
 
 	/**
@@ -522,7 +568,8 @@ public class CaseController {
 	@PostMapping("/{id}/assign-cm")
 	@PreAuthorize(GM_OR + "hasRole('PROJECT_MANAGER')")
 	public ApiResponse<CaseSummary> assignCm(@PathVariable UUID id, @Valid @RequestBody AssignCmRequest request) {
-		return summary(lifecycle.assignCaseManager(id, request.cmId(), request.expertId(), request.expertRationale()));
+		return summary(lifecycle.assignCaseManager(id, request.cmId(), request.expertId(), request.expertRationale(),
+				request.fieldOfExpertise()));
 	}
 
 	/**
@@ -664,7 +711,7 @@ public class CaseController {
 	// CASE_MANAGER added in Unit 31: the CM acts on a timeout and the ENM is notified and supports.
 	@PreAuthorize(GM_OR + "hasAnyRole('PROJECT_MANAGER', 'EXPERT_NETWORK_MANAGER', 'CASE_MANAGER')")
 	public ApiResponse<CaseSummary> reassignExpert(@PathVariable UUID id, @Valid @RequestBody ExpertRequest request) {
-		return summary(lifecycle.reassignExpert(id, request.expertId(), request.expertRationale()));
+		return summary(lifecycle.reassignExpert(id, request.expertId(), request.expertRationale(), request.fieldOfExpertise()));
 	}
 
 	/**

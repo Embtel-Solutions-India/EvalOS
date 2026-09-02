@@ -24,12 +24,14 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import com.ie.evalos.common.InvalidRequestException;
+import com.ie.evalos.domain.AffiliationType;
 import com.ie.evalos.domain.AuditAction;
 import com.ie.evalos.domain.Availability;
 import com.ie.evalos.domain.Expert;
 import com.ie.evalos.domain.ExpertTier;
 import com.ie.evalos.domain.FieldTag;
 import com.ie.evalos.domain.LetterType;
+import com.ie.evalos.domain.VisaCategory;
 import com.ie.evalos.repository.ExpertRepository;
 import com.ie.evalos.security.TenantContext;
 import com.ie.evalos.service.ExpertService.ExpertForm;
@@ -335,7 +337,31 @@ public class ExpertImportService {
 				number(row, columns, "standardFee", problems),
 				text(row, columns, "recruitmentSource"),
 				date(row, columns, "dateOnboarded", problems),
-				text(row, columns, "notes"));
+				text(row, columns, "notes"),
+				// Unit 33. TARGET_FIELDS is derived from ExpertForm's components, so each of
+				// these became mappable the moment it was added there; only the parsing is here.
+				text(row, columns, "expertCode"),
+				text(row, columns, "subSpecialization"),
+				text(row, columns, "highestDegree"),
+				text(row, columns, "degreeField"),
+				text(row, columns, "degreeInstitution"),
+				text(row, columns, "currentPosition"),
+				single(row, columns, "affiliationType", AffiliationType.class, problems),
+				text(row, columns, "country"),
+				text(row, columns, "stateRegion"),
+				integer(row, columns, "yearsExperience", problems),
+				text(row, columns, "linkedinUrl"),
+				tags(row, columns, "visaCategories", VisaCategory.class, problems),
+				integer(row, columns, "publications", problems),
+				integer(row, columns, "citations", problems),
+				integer(row, columns, "hIndex", problems),
+				integer(row, columns, "patents", problems),
+				text(row, columns, "notableAwards"),
+				text(row, columns, "professionalMemberships"),
+				text(row, columns, "editorialRoles"),
+				text(row, columns, "languages"),
+				flag(row, columns, "rushAvailable", problems),
+				integer(row, columns, "avgTurnaroundDays", problems));
 
 		for (ConstraintViolation<ExpertForm> violation : validator.validate(form)) {
 			String field = violation.getPropertyPath().toString();
@@ -387,6 +413,51 @@ public class ExpertImportService {
 			problems.add(unknownValue(row, columns, field, type, value));
 			return null;
 		});
+	}
+
+	/**
+	 * A whole number. Separate from {@link #number} rather than a cast of it: a citation
+	 * count written "6,100" is a spreadsheet's formatting and must survive, but "4.9" in a
+	 * publications column is the wrong column mapped and has to be reported, not truncated.
+	 */
+	private static Integer integer(SheetRow row, Map<String, String> columns, String field,
+			List<RowProblem> problems) {
+		String value = text(row, columns, field);
+		if (value == null) {
+			return null;
+		}
+		try {
+			// Only the separators a spreadsheet adds are stripped — NOT every non-digit, which
+			// would turn "4.9" into 49 and import the quality-score column as an h-index.
+			return Integer.valueOf(value.replaceAll("[,\\s]", ""));
+		}
+		catch (NumberFormatException ex) {
+			problems.add(new RowProblem(row.number(), columns.get(field), "'" + value + "' is not a whole number"));
+			return null;
+		}
+	}
+
+	/**
+	 * Yes/No as a roster sheet writes it. An unmapped column is {@code false} rather than a
+	 * problem — "we did not ask" and "no" are the same answer for a capability flag — but a
+	 * cell that is neither is reported, because a typo silently meaning "no rush work" would
+	 * quietly shrink the pool the ENM can offer an urgent case to.
+	 */
+	private static boolean flag(SheetRow row, Map<String, String> columns, String field,
+			List<RowProblem> problems) {
+		String value = text(row, columns, field);
+		if (value == null) {
+			return false;
+		}
+		return switch (value.trim().toLowerCase(Locale.ROOT)) {
+			case "yes", "y", "true", "1" -> true;
+			case "no", "n", "false", "0" -> false;
+			default -> {
+				problems.add(new RowProblem(row.number(), columns.get(field),
+						"'" + value + "' is not yes or no"));
+				yield false;
+			}
+		};
 	}
 
 	private static BigDecimal number(SheetRow row, Map<String, String> columns, String field,

@@ -1,6 +1,7 @@
 package com.ie.evalos.service;
 
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -17,6 +18,7 @@ import com.ie.evalos.domain.DocumentChecklistItem;
 import com.ie.evalos.domain.ExceptionState;
 import com.ie.evalos.domain.Expert;
 import com.ie.evalos.domain.ExpertCaseOffer;
+import com.ie.evalos.domain.FieldTag;
 import com.ie.evalos.domain.ExpertSignStatus;
 import com.ie.evalos.domain.IllegalTransitionException;
 import com.ie.evalos.domain.OfferOutcome;
@@ -212,9 +214,16 @@ public class CaseLifecycleService {
 	 *
 	 * <p>Nothing here consults the match engine. The expert given is the expert used, whether or
 	 * not they were on any shortlist — the ranking is assistance, never a precondition.
+	 *
+	 * <p><strong>This is where a case's discipline is recorded</strong> (Unit 33). Unit 12
+	 * refused a {@code field_of_expertise} column because the only source would have been an
+	 * intake webhook that carries no discipline; the source is here, where the PM has just
+	 * read the documents. Optional, like the rationale beside it — a null leaves the previous
+	 * value alone rather than erasing a discipline someone recorded on an earlier match.
 	 */
 	@Transactional
-	public Case assignCaseManager(UUID caseId, UUID cmId, UUID expertId, String expertRationale) {
+	public Case assignCaseManager(UUID caseId, UUID cmId, UUID expertId, String expertRationale,
+			FieldTag fieldOfExpertise) {
 		Case subject = load(caseId);
 		Stage to = CaseTransitions.target(subject, Action.ASSIGN_CASE_MANAGER);
 		TeamMember cm = member(cmId, Role.CASE_MANAGER, subject.getBrandId());
@@ -231,6 +240,9 @@ public class CaseLifecycleService {
 			// most common value.
 			if (expertRationale != null && !expertRationale.isBlank()) {
 				c.setExpertSelectionRationale(expertRationale);
+			}
+			if (fieldOfExpertise != null) {
+				c.setFieldOfExpertise(fieldOfExpertise);
 			}
 		});
 		offers.save(new ExpertCaseOffer(saved.getBrandId(), saved.getId(), expert.getId()));
@@ -361,6 +373,40 @@ public class CaseLifecycleService {
 
 	/** The promised date, before and after. */
 	public record DeadlineSnapshot(Instant deadline) {
+	}
+
+	public record IntakeFactsSnapshot(String applicantName, LocalDate rfeDate) {
+	}
+
+	/**
+	 * The two facts a Case Manager reads off the intake documents: who the deliverable is
+	 * about, and the filing deadline USCIS imposed. Unit 33.
+	 *
+	 * <p><strong>One write for two fields, not two endpoints.</strong> They come off the same
+	 * documents in the same sitting, and splitting them would mean two audit rows for one act.
+	 *
+	 * <p><strong>Neither is coerced and both may be cleared.</strong> Unlike
+	 * {@link #changeDeadline}, which refuses a null because a case with no promise falls off
+	 * every risk tile, these two are records of what the paperwork said — an applicant name
+	 * entered against the wrong case has to be removable, and an {@code rfe_date} drives
+	 * nothing on its own, so clearing one loses no signal. Shaped like
+	 * {@link #updateStrategyNotes}: no stage change, no transition, one audit row.
+	 */
+	@Transactional
+	public Case updateIntakeFacts(UUID caseId, String applicantName, LocalDate rfeDate) {
+		Case subject = load(caseId);
+		requireState(subject.getCurrentStage() != Stage.CLOSED,
+				"a closed case's intake facts cannot be changed");
+
+		IntakeFactsSnapshot before = new IntakeFactsSnapshot(subject.getApplicantName(), subject.getRfeDate());
+		String applicant = applicantName == null || applicantName.isBlank() ? null : applicantName.trim();
+		subject.setApplicantName(applicant);
+		subject.setRfeDate(rfeDate);
+		Case saved = cases.save(subject);
+
+		audit.recordEvent(OBJECT_TYPE, saved.getId(), AuditAction.UPDATED, TenantContext.current().memberId(),
+				before, new IntakeFactsSnapshot(applicant, rfeDate));
+		return saved;
 	}
 
 	/**
@@ -755,7 +801,8 @@ public class CaseLifecycleService {
 	 * {@code OfferOutcome.countsTowardAcceptanceRate} excludes it.
 	 */
 	@Transactional
-	public Case reassignExpert(UUID caseId, UUID expertId, String expertRationale) {
+	public Case reassignExpert(UUID caseId, UUID expertId, String expertRationale,
+			FieldTag fieldOfExpertise) {
 		Case subject = load(caseId);
 		Stage to = CaseTransitions.target(subject, Action.REASSIGN_EXPERT);
 		Expert replacement = availableExpert(expertId);
@@ -773,6 +820,11 @@ public class CaseLifecycleService {
 			// reassignment made in a hurry does not silently erase what was recorded before.
 			if (expertRationale != null && !expertRationale.isBlank()) {
 				c.setExpertSelectionRationale(expertRationale);
+			}
+			// A rematch is usually a rematch in the same discipline, so a null here leaves the
+			// recorded one alone; it is overwritten only when the PM says it changed.
+			if (fieldOfExpertise != null) {
+				c.setFieldOfExpertise(fieldOfExpertise);
 			}
 		});
 		offers.save(new ExpertCaseOffer(saved.getBrandId(), saved.getId(), replacement.getId()));

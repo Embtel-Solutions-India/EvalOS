@@ -13,6 +13,9 @@ PowerShell notes that bite here:
   `localhost:8080`.
 - `npm run build` — `tsc -b && vite build`. Also the only typecheck entrypoint (no separate
   `typecheck` script); `tsc -b` uses project references so it checks app + node configs.
+  **Never reach for `npx tsc --noEmit`.** `tsconfig.json` is `files: []` plus references, so a bare
+  `--noEmit` checks **nothing**, prints nothing and exits 0 — it looks exactly like a pass. Cost a
+  real bug in Unit 33 (a form literal missing 22 required fields sailed through). `tsc -b` only.
 - `npm run lint` — oxlint. `npm run test` — vitest, one run (rules modules only). `npm run preview` —
   serve the build (no proxy; needs `VITE_API_BASE_URL`).
 

@@ -1,5 +1,6 @@
 package com.ie.evalos.repository;
 
+import java.time.Instant;
 import java.util.Collection;
 import java.util.List;
 import java.util.UUID;
@@ -65,4 +66,20 @@ public interface ExpertCaseOfferRepository extends ScopedRepository<ExpertCaseOf
 			""")
 	List<Object[]> countOutcomesPerExpert(@Param("brandId") UUID brandId,
 			@Param("expertIds") Collection<UUID> expertIds);
+
+	/**
+	 * When this expert was last approached — the roster sheet's {@code last_active_date}.
+	 *
+	 * <p><strong>Derived rather than stored</strong> (Unit 33). A column would need every path
+	 * that touches an expert to remember to stamp it, and would be silently wrong the first
+	 * time one did not; this is the same fact with no writer to forget. Null for an expert who
+	 * has never been offered a case, which is not the same as dormant and must not be rendered
+	 * as a date.
+	 *
+	 * <p>Brand is a real predicate for the reason {@link #countOutcomesPerExpert} gives, and it
+	 * is what makes V19's {@code (brand_id, expert_id, outcome)} index apply here too.
+	 */
+	@Query("select max(o.offeredAt) from ExpertCaseOffer o "
+			+ "where o.brandId = :brandId and o.expertId = :expertId")
+	Instant lastOfferedAt(@Param("brandId") UUID brandId, @Param("expertId") UUID expertId);
 }

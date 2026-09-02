@@ -8,16 +8,17 @@ import type { QuickAction } from '../board/boardRules'
 import DocumentsPanel from './DocumentsPanel'
 import DraftPanel from './DraftPanel'
 import ExpertCard from './ExpertCard'
-import PortalLinkPanel from './PortalLinkPanel'
 import StageActions from './StageActions'
 import StrategyNotes from './StrategyNotes'
 import DraftHistory from './DraftHistory'
 import ExpertRationale from './ExpertRationale'
+import CaseFacts from './CaseFacts'
 import Timeline from './Timeline'
 import {
   fetchCase,
   fetchTimeline,
   postNote,
+  saveIntakeFacts,
   saveStrategyNotes,
   type CaseDetail,
   type TimelineEntry,
@@ -112,6 +113,17 @@ export default function CaseDetailPage() {
     [id, load],
   )
 
+  const onSaveFacts = useCallback(
+    async (applicantName: string | null, rfeDate: string | null) => {
+      if (!id) return
+      // Reloaded rather than patched in place, like the notes beside it: the write appends a
+      // timeline row too, and a half-refreshed page would show the new fact above an old trail.
+      await saveIntakeFacts(id, applicantName, rfeDate)
+      await load()
+    },
+    [id, load],
+  )
+
   const onSaveNotes = useCallback(
     async (notes: string) => {
       if (!id) return
@@ -176,12 +188,10 @@ export default function CaseDetailPage() {
           <DraftPanel detail={detail} />
           {/* Immediately under the draft's status: the same subject at more depth. */}
           <DraftHistory caseId={detail.summary.id} />
+          {/* Above the expert and the notes: who the letter is about is what the rest of the
+              column is in service of, and it is the one fact the header cannot carry. */}
+          <CaseFacts detail={detail} role={me.role} onSave={onSaveFacts} />
           <ExpertCard detail={detail} />
-          {/*
-            Under the draft and the profile, which are the two things the link shows a client — the
-            panel is about getting those in front of them. Draws nothing for a role that may not mint.
-          */}
-          <PortalLinkPanel detail={detail} role={me.role} />
           <StrategyNotes detail={detail} onSave={onSaveNotes} />
           {/*
             Below the notes and separate from them, which is the visible half of the decision to

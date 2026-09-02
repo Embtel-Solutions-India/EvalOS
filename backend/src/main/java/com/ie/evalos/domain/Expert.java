@@ -147,6 +147,111 @@ public class Expert extends ScopedEntity {
 	@JsonIgnore
 	private String paymentDetail;
 
+	// --- Unit 33: the standing dossier -------------------------------------------------
+	//
+	// One wide table, not an `expert_credentials` child: the relationship is 1:1, there is
+	// no history to keep and no second implementation, so a join here would be added for
+	// symmetry and paid for on every profile read.
+	//
+	// `last_active_date` from the roster sheet is deliberately absent — it is
+	// max(offered_at) over `expert_case_offer`, the same fact with no writer to forget.
+
+	/**
+	 * The roster's human id ({@code IE-EXP-###}), unique per brand (V35). This is what a
+	 * case sheet's {@code evaluator_id} points at, so an import cannot link a case to an
+	 * expert without it.
+	 */
+	@Column(name = "expert_code")
+	private String expertCode;
+
+	/**
+	 * The niche inside the field — "Power Systems &amp; Smart Grids". Free text on purpose:
+	 * {@link #secondaryFields} is the closed vocabulary, and a niche is exactly where a
+	 * closed vocabulary is wrong on its first unseen value.
+	 */
+	@Column(name = "sub_specialization")
+	private String subSpecialization;
+
+	@Column(name = "highest_degree")
+	private String highestDegree;
+
+	@Column(name = "degree_field")
+	private String degreeField;
+
+	/** Where the degree came from, which is not {@link #institution} — that is where they work now. */
+	@Column(name = "degree_institution")
+	private String degreeInstitution;
+
+	@Column(name = "current_position")
+	private String currentPosition;
+
+	@Enumerated(EnumType.STRING)
+	@Column(name = "affiliation_type")
+	private AffiliationType affiliationType;
+
+	/** US-based is preferred for USCIS letters, so location is a filter, not a footnote. */
+	@Column(name = "country")
+	private String country;
+
+	@Column(name = "state_region")
+	private String stateRegion;
+
+	@Column(name = "years_experience")
+	private Integer yearsExperience;
+
+	@Column(name = "linkedin_url")
+	private String linkedinUrl;
+
+	/**
+	 * {@link VisaCategory} names — the petitions this expert will write for. <strong>Not the
+	 * same fact as {@link #letterTypes}</strong>: that is the deliverable they will sign,
+	 * this is what the deliverable supports.
+	 */
+	@JdbcTypeCode(SqlTypes.ARRAY)
+	@Column(name = "visa_categories")
+	private String[] visaCategories;
+
+	// The standing metrics an expert opinion letter rests on.
+
+	@Column(name = "publications")
+	private Integer publications;
+
+	@Column(name = "citations")
+	private Integer citations;
+
+	@Column(name = "h_index")
+	private Integer hIndex;
+
+	@Column(name = "patents")
+	private Integer patents;
+
+	// Narrative and comma-separated, as a roster sheet has them. Free text rather than
+	// arrays: nothing queries inside these, and four GIN indexes to render a detail view
+	// would be cost with no reader.
+
+	@Column(name = "notable_awards")
+	private String notableAwards;
+
+	@Column(name = "professional_memberships")
+	private String professionalMemberships;
+
+	@Column(name = "editorial_roles")
+	private String editorialRoles;
+
+	@Column(name = "languages")
+	private String languages;
+
+	/** Can take a 48-hour rush. */
+	@Column(name = "rush_available", nullable = false)
+	private boolean rushAvailable;
+
+	/**
+	 * Typical days to complete a letter, which is not {@link #avgResponseHours} — that is
+	 * how fast they answer an offer, and a fast replier can be a slow writer.
+	 */
+	@Column(name = "avg_turnaround_days")
+	private Integer avgTurnaroundDays;
+
 	protected Expert() {
 		// for JPA
 	}
@@ -367,5 +472,181 @@ public class Expert extends ScopedEntity {
 	/** Null and empty are both stored as NULL: an empty array is not a distinct state here. */
 	private static String[] names(List<? extends Enum<?>> values) {
 		return values == null || values.isEmpty() ? null : values.stream().map(Enum::name).toArray(String[]::new);
+	}
+
+	public String getExpertCode() {
+		return expertCode;
+	}
+
+	public void setExpertCode(String expertCode) {
+		this.expertCode = expertCode;
+	}
+
+	public String getSubSpecialization() {
+		return subSpecialization;
+	}
+
+	public void setSubSpecialization(String subSpecialization) {
+		this.subSpecialization = subSpecialization;
+	}
+
+	public String getHighestDegree() {
+		return highestDegree;
+	}
+
+	public void setHighestDegree(String highestDegree) {
+		this.highestDegree = highestDegree;
+	}
+
+	public String getDegreeField() {
+		return degreeField;
+	}
+
+	public void setDegreeField(String degreeField) {
+		this.degreeField = degreeField;
+	}
+
+	public String getDegreeInstitution() {
+		return degreeInstitution;
+	}
+
+	public void setDegreeInstitution(String degreeInstitution) {
+		this.degreeInstitution = degreeInstitution;
+	}
+
+	public String getCurrentPosition() {
+		return currentPosition;
+	}
+
+	public void setCurrentPosition(String currentPosition) {
+		this.currentPosition = currentPosition;
+	}
+
+	public AffiliationType getAffiliationType() {
+		return affiliationType;
+	}
+
+	public void setAffiliationType(AffiliationType affiliationType) {
+		this.affiliationType = affiliationType;
+	}
+
+	public String getCountry() {
+		return country;
+	}
+
+	public void setCountry(String country) {
+		this.country = country;
+	}
+
+	public String getStateRegion() {
+		return stateRegion;
+	}
+
+	public void setStateRegion(String stateRegion) {
+		this.stateRegion = stateRegion;
+	}
+
+	public Integer getYearsExperience() {
+		return yearsExperience;
+	}
+
+	public void setYearsExperience(Integer yearsExperience) {
+		this.yearsExperience = yearsExperience;
+	}
+
+	public String getLinkedinUrl() {
+		return linkedinUrl;
+	}
+
+	public void setLinkedinUrl(String linkedinUrl) {
+		this.linkedinUrl = linkedinUrl;
+	}
+
+	public Integer getPublications() {
+		return publications;
+	}
+
+	public void setPublications(Integer publications) {
+		this.publications = publications;
+	}
+
+	public Integer getCitations() {
+		return citations;
+	}
+
+	public void setCitations(Integer citations) {
+		this.citations = citations;
+	}
+
+	public Integer getHIndex() {
+		return hIndex;
+	}
+
+	public void setHIndex(Integer hIndex) {
+		this.hIndex = hIndex;
+	}
+
+	public Integer getPatents() {
+		return patents;
+	}
+
+	public void setPatents(Integer patents) {
+		this.patents = patents;
+	}
+
+	public String getNotableAwards() {
+		return notableAwards;
+	}
+
+	public void setNotableAwards(String notableAwards) {
+		this.notableAwards = notableAwards;
+	}
+
+	public String getProfessionalMemberships() {
+		return professionalMemberships;
+	}
+
+	public void setProfessionalMemberships(String professionalMemberships) {
+		this.professionalMemberships = professionalMemberships;
+	}
+
+	public String getEditorialRoles() {
+		return editorialRoles;
+	}
+
+	public void setEditorialRoles(String editorialRoles) {
+		this.editorialRoles = editorialRoles;
+	}
+
+	public String getLanguages() {
+		return languages;
+	}
+
+	public void setLanguages(String languages) {
+		this.languages = languages;
+	}
+
+	public Integer getAvgTurnaroundDays() {
+		return avgTurnaroundDays;
+	}
+
+	public void setAvgTurnaroundDays(Integer avgTurnaroundDays) {
+		this.avgTurnaroundDays = avgTurnaroundDays;
+	}
+
+	public List<VisaCategory> getVisaCategories() {
+		return values(visaCategories, VisaCategory.class);
+	}
+
+	public void setVisaCategories(List<VisaCategory> visaCategories) {
+		this.visaCategories = names(visaCategories);
+	}
+
+	public boolean isRushAvailable() {
+		return rushAvailable;
+	}
+
+	public void setRushAvailable(boolean rushAvailable) {
+		this.rushAvailable = rushAvailable;
 	}
 }

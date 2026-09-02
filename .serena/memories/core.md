@@ -277,9 +277,14 @@ Unit 11 added the closed
 `standard_fee` on `expert`, the write-only `payment_detail` path, `ExpertLoadService` (load derived
 from `evalos_case`, never from the dead `V7` counters), the CSV+XLSX roster import, and the
 `/experts` screen — details in `mem:backend/persistence` and the tracker's Unit 11 entry.
-**The `FieldTag` values shipped WITHOUT the ENM's sign-off**, on instruction: still an open
-question, and widening the list now means a new migration widening `V18`'s CHECK plus the enum plus
-`frontend/src/features/experts/expertRules.ts`, moved together.
+**The first 28 `FieldTag` values shipped WITHOUT the ENM's sign-off**, on instruction. **Unit 33
+widened the list for the first time** and the three-places rule held exactly as written — a new
+migration (`V35`) widening `V18`'s CHECK, plus the enum, plus
+`frontend/src/features/experts/expertRules.ts`, moved together. What the widening found is the part
+worth keeping: the original list was drawn for *credential-evaluation degree fields*, and **10 of the
+22 disciplines on a real EOL roster could not be spelled at all** — which `ExpertMatchService` scores
+as a zero on a 40-point factor rather than raising anything. A vocabulary that is closed and wrong
+fails silently.
 Unit 12 ranks that roster for the PM at assignment. It added `V19__expert_case_offer` +
 `ExpertCaseOffer`/`OfferOutcome` — **the only queryable record of an accept/decline**, so acceptance
 rate is computed from it and never from `expert.performance_flags` (a flag, not a rate),
@@ -287,11 +292,29 @@ rate is computed from it and never from `expert.performance_flags` (a flag, not 
 and `ExpertMatchService`, whose four factors are **one weighted table** (field 40 / letter-type 25 /
 acceptance 20 / load 15) so a reweighting is a data diff; the score is the sum of the rounded parts,
 so the breakdown shown to the PM adds up by construction. Two consequences that bite:
-`fieldTag` is a **required query parameter** because no case column records a case's field —
-recorded as a deliberate omission, not an oversight; and an expert below 3 resolved offers scores
+`fieldTag` is a **required query parameter**, and it stayed one — but **Unit 33 ended the
+matching half of that omission**: `assignCaseManager` / `reassignExpert` now write
+`evalos_case.field_of_expertise` from the tag the PM supplies, so a delivered case can say what
+discipline it was. Unit 12's argument was against an *intake source* (a webhook carrying no
+discipline, then a stale guess), not against persistence, and it named its own closing condition —
+"a second consumer, with a real source". The engine still takes the tag as an argument; the
+assignment is what stores it, and a null means no match has been run. And an expert below 3 resolved
+offers scores
 **the roster mean, not zero**, because last place is what stops a newcomer ever getting a record.
 Offer invariants are in `mem:backend/persistence`; which transitions stamp them, in
 `mem:backend/lifecycle`.
+Unit 33 (2026-09-03) closed the gap between what the business records and what EvalOS stored.
+An audit of the two sample workbooks against `V1`–`V34` found **19 of 36 expert facts had no column,
+no `ExpertForm` component and no import target** — degree, position, affiliation type, location,
+LinkedIn, supported visa categories, publications, citations, h-index, patents, awards, memberships,
+editorial roles, languages, rush capability, `IE-EXP-###`, turnaround — and **no case stored the
+applicant's name**, which is a correctness gap the moment a client is a law firm rather than an
+individual (`contact_snapshot` holds who we *deal with*; the letter is about someone else).
+`applicant_name` is on `evalos_case` and not the snapshot, because invariant 7 makes the snapshot
+read-only GHL truth and Handoff A's confirmed payload carries no beneficiary. Schema detail is in
+`mem:backend/persistence`; the UI rule — **list stays lean, detail shows everything** — in
+`mem:frontend/core`. Two sheet facts were refused as columns: `last_active_date` (derived from
+`expert_case_offer`) and, still and always, any payment detail from a sheet.
 Phase boundaries are 01–10 / 11–17 / 18–20 — earlier tracker entries mislabelled 06 onward as Phase 2
 and were corrected.
 Unit 13 generates the anonymous expert profile a client approves the expert from, and files it into
