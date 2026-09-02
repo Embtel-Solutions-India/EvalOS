@@ -1,6 +1,9 @@
 package com.ie.evalos.webhook;
 
 import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.HexFormat;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -51,12 +54,20 @@ public class WebhookGateway {
 	 * If GHL turns out to send only a resource id, the answer is a delivery-id header,
 	 * not this list.
 	 *
-	 * <p>A payload carrying none of these is rejected rather than processed — see
+	 * <p>A payload carrying neither falls back to a digest of the body — see
 	 * {@link #externalId}.
 	 */
 	private static final String[] EXTERNAL_ID_FIELDS = { "event_id", "webhook_id" };
 
 	private static final String EVENT_TYPE_FIELD = "event_type";
+
+	/**
+	 * Where GHL's Custom Webhook action puts everything the workflow author added. GHL's own
+	 * fields are flat at the top level and camelCase this one key, so a field is looked for in
+	 * both places: {@code event_type} and {@code event_id} are the author's, not GHL's, and in
+	 * practice arrive nested.
+	 */
+	private static final String CUSTOM_DATA_FIELD = "customData";
 
 	/** What the source is told. A duplicate is a success: it already happened. */
 	public record Ack(String status, UUID eventId) {
@@ -93,7 +104,7 @@ public class WebhookGateway {
 
 		JsonNode body = parse(rawBody);
 		String eventType = required(body, EVENT_TYPE_FIELD);
-		String externalId = externalId(body);
+		String externalId = externalId(body, rawBody);
 
 		// Scoped to the brand, matching the unique key: two brands numbering their own
 		// invoices may send the same external id, and each is its own event.
@@ -151,22 +162,49 @@ public class WebhookGateway {
 	}
 
 	/**
-	 * Without an idempotency key a redelivery would create a second case, so a
-	 * payload that carries none is refused rather than processed once and hoped about.
+	 * Without an idempotency key a redelivery creates a second case, and this used to be a
+	 * 400 that said so. It cannot be: GHL's Custom Webhook action mints no delivery id of
+	 * its own, and the {@code event_id} the workflow author adds arrives as {@code ""} unless
+	 * they wire a value into it — so the refusal rejected every real delivery and the paid
+	 * case with it.
+	 *
+	 * <p>ponytail: a digest of the body stands in. A webhook retry replays the same bytes, so
+	 * identical body means identical delivery and the dedupe still holds; a genuinely new
+	 * event differs somewhere (contact, tags, timestamps) and gets its own row. The ceiling is
+	 * two distinct deliveries that are byte-identical — put a real value in the workflow's
+	 * {@code event_id} customData field and this fallback is never reached.
 	 */
-	private static String externalId(JsonNode body) {
+	private static String externalId(JsonNode body, String rawBody) {
 		for (String field : EXTERNAL_ID_FIELDS) {
 			String value = text(body, field);
 			if (value != null) {
 				return value;
 			}
 		}
-		throw new WebhookRejected(HttpStatus.BAD_REQUEST, "MISSING_EXTERNAL_ID",
-				"Payload carries no idempotency key");
+		return "sha256:" + sha256(rawBody);
 	}
 
+	private static String sha256(String rawBody) {
+		try {
+			return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
+					.digest(rawBody.getBytes(StandardCharsets.UTF_8)));
+		}
+		catch (NoSuchAlgorithmException ex) {
+			throw new IllegalStateException("SHA-256 is required of every JVM", ex);
+		}
+	}
+
+	/**
+	 * Top level first, then {@code customData}. Both are read because the two fields this
+	 * looks for belong to the workflow author rather than to GHL: a hand-rolled sender puts
+	 * them at the top level, GHL's own Custom Webhook action nests them.
+	 */
 	private static String text(JsonNode body, String field) {
 		JsonNode value = body.get(field);
+		if (value == null || value.isNull() || value.asText().isBlank()) {
+			JsonNode custom = body.get(CUSTOM_DATA_FIELD);
+			value = custom == null ? null : custom.get(field);
+		}
 		if (value == null || value.isNull() || value.asText().isBlank()) {
 			return null;
 		}

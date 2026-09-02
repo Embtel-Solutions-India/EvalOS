@@ -55,18 +55,24 @@ PowerShell notes that bite here:
   `Content-Type: application/json` and the body (the inbound HMAC was removed 2026-08-27 because GHL's
   Custom Webhook action cannot compute one):
   ```json
-  {"event_type":"opportunity.won","event_id":"evt-<unique>",
-   "opportunity":{"ghl_opportunity_id":"opp-<unique>","amount":900,"status":"won"},
-   "contact":{"ghl_contact_id":"ghl-<unique>","full_name":"Anita Rao","email":"<unique>@example.test",
-              "client_type":"INDIVIDUAL","source":"WEBSITE"},
-   "service_type":"EXPERT_OPINION_LETTER","visa_category":"EB2_NIW","invoice_ref":"INV-0001",
-   "drive_link":"https://drive.google.com/drive/folders/<anything>"}
+  {"contact_id":"ghl-<unique>","first_name":"Anita","last_name":"Rao","full_name":"Anita Rao",
+   "email":"<unique>@example.test","phone":"+1 555 0100",
+   "customData":{"event_type":"opportunity.won","service_type":"EXPERT_OPINION_LETTER",
+                 "opportunity_id":"opp-<unique>","amount":900}}
   ```
-  `event_type` and `event_id` are the **gateway's** fields and are easy to miss — without the first it
-  is `400 MISSING_EVENT_TYPE`, without both it is `400 MISSING_EXTERNAL_ID`. `service_type` is
-  top-level, not inside `contact`; `amount` and `ghl_opportunity_id` are inside `opportunity` and both
-  are required. Use a fresh email/GHL id and a fresh opportunity id each time: `V15`/`V16` refuse a
-  second open case for the same contact and service, and `V24` refuses a second for the same
+  **This is the shape GHL really sends** (confirmed 2026-09-02), not the nested
+  `opportunity`/`contact` envelope the design assumed. The Custom Webhook is wired to GHL's
+  **Contact lookup**, so GHL writes a contact record: the person **flat at the top level**. A
+  top-level `contact` key in a real GHL body holds *attribution data*, not the contact; nothing
+  reads it. **GHL writes no deal at all** — the `customData` block is the workflow author's, set in
+  the GHL UI, and is the only place `event_type`, the service and the money can come from.
+  `contact_id` is the client id and the only field that cannot be missing. Omitting `event_type`
+  from both places is `400 MISSING_EVENT_TYPE`; omitting `event_id` is fine — the key falls back to
+  a digest of the body, so **reuse the same body and you get `duplicate`**, change one character and
+  you get a new event. `service_type` defaults to `CREDENTIAL_EVALUATION` but **send it** — it is
+  half of `V15`'s key, so on the default a contact can only hold one open case at a time. `amount`
+  must be positive where present. Use a fresh email/contact id and opportunity id each time:
+  `V15`/`V16` refuse a second open case for the same contact and service, `V24` for the same
   opportunity.
 
   **Do not fire `contact.created`** — it is a recognized no-op since Case Creation v2.0 (spec `05b`)

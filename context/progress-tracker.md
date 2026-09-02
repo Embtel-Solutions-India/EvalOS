@@ -4,6 +4,72 @@ Update this file after every meaningful implementation change.
 
 ## Current Phase
 
+- **2026-09-02 — Handoff A's payload contract is CONFIRMED, and it was wrong. The open question
+  the design has carried since Unit 05 is now closed.** A live GHL delivery was captured. The
+  nested `opportunity` / `contact` envelope every spec assumed does not exist, and every real
+  delivery had been dying at the gateway with `400 MISSING_EVENT_TYPE` before reaching the handler.
+  **The Custom Webhook action is wired to GHL's Contact lookup, so the body is a contact record —
+  the person, and nothing else.**
+  - **The contact is flat at the top level** — `contact_id`, `first_name`, `last_name`, `full_name`,
+    `email`, `phone`. There *is* a `contact` key and it is **not the contact**: it holds attribution
+    data (`attributionSource.sessionSource` / `.medium`). Nothing reads it.
+  - **`customData` is the only part GHL does not write** — camelCase, unlike every other key — and
+    that is where `event_type` and `event_id` live. Missing that is what killed every delivery.
+  - GHL's own envelope keys ride alongside and are all ignored: `location`, `workflow`, `tags`,
+    `date_created`, `full_address`, `contact_type`, `triggerData`, `attributionSource`.
+  - **GHL writes no deal.** No amount, no opportunity id, no service, no delivery id — a contact
+    record carries none of it, and `event_id` arrives as `""`. **The deal now arrives via
+    `customData`**, wired up in the GHL workflow UI the same day, which is the only place it can
+    come from.
+  - **Three refusals had to go, because each rejected a paid case over a field GHL was never asked
+    to send.** A won opportunity is already paid for, so the only unacceptable outcome is losing it:
+    1. **`400 MISSING_EXTERNAL_ID` is deleted.** GHL mints no delivery id, so the refusal rejected
+       100% of real traffic. The key falls back to `sha256:<hex of the raw body>` — a retry replays
+       the same bytes and still dedupes; a different contact differs and gets its own row. Ceiling
+       (marked `ponytail:`): two byte-identical distinct deliveries. Fix is a real `event_id` in the
+       workflow, not a wider fallback list.
+    2. **`service_type` is optional, defaulting to `CREDENTIAL_EVALUATION`.** It must stay non-null
+       or `V15`'s `(brand_id, contact_id, service_type)` partial index stops constraining. An
+       unreadable value is still `400 MALFORMED_PAYLOAD` — silently defaulting a typo would make a
+       wrong case look deliberate.
+    3. **`amount` and `opportunity_id` are optional**, not required. They are the workflow
+       author's, so either can be deleted in the GHL UI without EvalOS hearing about it, and a
+       missing one must leave `deal_value = null` rather than lose a paid case. `amount` keeps
+       `@Positive` wherever present — a zero or a negative is a data error, not a free case.
+  - **`CustomData` models exactly three fields, and each earns its place.** `service_type` is half
+    of `V15`'s key, so on the default alone **a client can only ever hold one open case at a time**
+    and a second purchase refreshes the first; `amount` is `deal_value`, which feeds revenue
+    recognition; `opportunity_id` is what **Unit 18 closes back in GHL**. Everything else a case
+    wants — visa category, subtype, deadline, invoice ref, expert, intake note — is **not sent and
+    not modelled as if it were**; `toCommand` passes a visible run of nulls to state the gap rather
+    than hide it, and a PM fills them in. Add a field when the workflow starts sending it.
+  - **The intermediate state is worth recording**, because it was briefly the shipped one: after
+    confirming the contact-only payload the deal fields were **deleted** from the transport record
+    entirely. That was right for a payload with no deal in it, and stopped being right the same day
+    when the workflow author added them in GHL. Re-added as optional — which is the shape that
+    survives someone editing that workflow again.
+  - **`refresh()` gained a guard that matters more than it looks.** `deal_value` and
+    `ghl_opportunity_id` still move together, but only when the delivery carries at least one.
+    Without it every redelivery would blank both from a delivery that claimed nothing about either.
+  - **`contact_id` is the client id**, `@NotBlank`, and is what `syncContact` upserts the snapshot
+    on — so the same client's second delivery **updates their contact** and opens a case rather than
+    duplicating either. That behaviour already existed; it was simply unreachable while nothing
+    parsed. `full_name` is rebuilt from `first_name` + `last_name` when GHL sends it blank (it sends
+    `""` rather than omitting, as `full_address` shows), so `@NotBlank` now refuses only a delivery
+    that genuinely names nobody.
+  - **Changed:** `GhlOpportunityHandler.OpportunityWon` (rewritten around the contact record, with a
+    single-field `CustomData`), `WebhookGateway` (`customData` fallback on field lookup, digest
+    fallback on the idempotency key, `MISSING_EXTERNAL_ID` removed), `CaseIntakeService.refresh`.
+    Nothing else in `service` — the transport-record / `NewCase` split is what kept a wrong payload
+    shape from reaching the domain, and it earned itself here. Do not collapse it.
+  - **Docs and memories realigned in the same step:** `specs/05b` payload contract rewritten as
+    confirmed rather than assumed, `architecture.md` gateway step 3, `mem:backend/webhooks` (the old
+    `MISSING_EXTERNAL_ID` and nested-shape paragraphs **edited, not appended to**), and
+    `mem:suggested_commands`' hand-fire payload replaced with the real one.
+  - **Gates:** `./mvnw verify` green — 523 backend tests. `InboundWebhookTest` rewritten around the
+    captured body (21 tests); `CaseIntakeServiceTest` gained
+    `aDeliveryCarryingNoDealLeavesTheOneAlreadyOnTheCase`.
+
 - **2026-08-29 — Unit 29a BUILT: the sales desk writes to GHL.** Backend, frontend, migration,
   tests and docs landed together. Gates green: **589 backend** (`./mvnw verify`), **152 frontend**,
   `tsc -b` and `npm run build` clean, and `LocalPostgresIntegrationTest` ran against real Postgres

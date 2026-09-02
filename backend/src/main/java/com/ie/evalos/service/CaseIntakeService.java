@@ -173,10 +173,18 @@ public class CaseIntakeService {
 		// byte-identical — a money change that reads as a no-op edit. The note says *that* the
 		// figure moved and never what it moved to; the figures themselves are in the
 		// append-only webhook_event archive, which holds the raw payload of every delivery.
-		boolean amountCorrected = subject.getDealValue() != null
-				&& request.dealValue().compareTo(subject.getDealValue()) != 0;
-		subject.setDealValue(request.dealValue());
-		subject.setGhlOpportunityId(request.ghlOpportunityId());
+		//
+		// Only when the delivery actually carries the deal, which GHL's Custom Webhook does
+		// not unless the workflow author added it to customData. A delivery that says nothing
+		// about the money must not erase what an earlier one said — that would blank the
+		// amount *and* the opportunity id Unit 18 needs to close the deal.
+		boolean amountCorrected = false;
+		if (request.dealValue() != null || request.ghlOpportunityId() != null) {
+			amountCorrected = request.dealValue() != null && subject.getDealValue() != null
+					&& request.dealValue().compareTo(subject.getDealValue()) != 0;
+			subject.setDealValue(request.dealValue());
+			subject.setGhlOpportunityId(request.ghlOpportunityId());
+		}
 
 		Case saved = cases.save(subject);
 		audit.recordSystemEvent(brand.getId(), OBJECT_TYPE, saved.getId(), AuditAction.UPDATED,

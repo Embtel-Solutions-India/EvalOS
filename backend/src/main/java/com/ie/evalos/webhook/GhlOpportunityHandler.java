@@ -1,26 +1,20 @@
 package com.ie.evalos.webhook;
 
 import java.math.BigDecimal;
-import java.time.Instant;
 import java.util.Set;
-import java.util.UUID;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.PropertyNamingStrategies;
 import com.fasterxml.jackson.databind.annotation.JsonNaming;
 import com.ie.evalos.domain.Brand;
-import com.ie.evalos.domain.ClientType;
-import com.ie.evalos.domain.ServiceSubtype;
 import com.ie.evalos.domain.ServiceType;
-import com.ie.evalos.domain.SourceChannel;
-import com.ie.evalos.domain.VisaCategory;
 import com.ie.evalos.service.CaseIntakeService;
 
 import jakarta.validation.ConstraintViolation;
 import jakarta.validation.Valid;
 import jakarta.validation.Validator;
 import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Positive;
 
 import org.springframework.http.HttpStatus;
@@ -41,61 +35,111 @@ import org.springframework.stereotype.Component;
  * intake service is called, so a malformed delivery is a 400 that GHL will not retry
  * rather than a half-created case.
  *
- * <p>The payload shape is the design's assumption, not a confirmed contract (see the
- * open question in the progress tracker). It is deliberately kept in this class so a
- * correction to it is one file and never reaches the service.
+ * <p><strong>The payload shape is the observed one, no longer an assumption.</strong> It was
+ * designed as a nested {@code opportunity} / {@code contact} envelope and GHL's Custom Webhook
+ * action sends nothing of the sort. What GHL itself posts is the <em>contact record</em> — its
+ * Contact lookup tokens, flat at the top level. There is no opportunity block, no amount and no
+ * delivery id in it, because none of that is part of a contact.
+ *
+ * <p>So the deal arrives the only way it can: the workflow author puts it in
+ * {@code customData}, which is the one part of the body GHL does not write. Everything not in
+ * either half is a human's to fill in afterwards. The mapping stays in this class so a further
+ * correction is one file and never reaches the service.
  */
 @Component
 public class GhlOpportunityHandler {
 
-	/** GHL sends snake_case; unknown extra fields are ignored, as Boot defaults to. */
+	/**
+	 * What a delivery that names no service is taken to be.
+	 *
+	 * <p>ponytail: GHL sends no service of its own, and a won opportunity has already been
+	 * paid for — so refusing the delivery would lose a paid case over a field GHL was never
+	 * asked to send. Credential evaluation is the flagship service and its checklist is the
+	 * identity-and-credential set every service starts from, so a PM correcting the odd case
+	 * is cheaper than a dropped one. Add {@code service_type} to the workflow's customData and
+	 * nothing here guesses.
+	 */
+	private static final ServiceType DEFAULT_SERVICE = ServiceType.CREDENTIAL_EVALUATION;
+
+	/** Stands in for a workflow that added no fields at all, so the mapper needs no null checks. */
+	private static final OpportunityWon.CustomData NO_CUSTOM_DATA =
+			new OpportunityWon.CustomData(null, null, null);
+
+	/**
+	 * GHL's Custom Webhook body: the contact record, plus whatever the workflow author added
+	 * under {@code customData}. {@code contact_id}, {@code full_name}, {@code email},
+	 * {@code phone} — flat at the top level.
+	 *
+	 * <p>Note {@code contact} is a key in this payload and is <em>not</em> the contact: GHL puts
+	 * attribution data there. Nothing is read from it. The rest of GHL's envelope —
+	 * {@code location}, {@code workflow}, {@code tags}, {@code contact_type},
+	 * {@code date_created}, {@code triggerData} — is ignored, as Boot defaults to.
+	 *
+	 * <p>{@code contact_id} is the client's identity in EvalOS (invariant 7) and is the one field
+	 * that cannot be missing.
+	 */
 	@JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
 	public record OpportunityWon(
-			@NotNull @Valid Opportunity opportunity,
-			@NotNull @Valid Contact contact,
-			/** Which service was bought. Required: it decides the checklist, and it is half
-			 * of the key that says which case this contact belongs to. */
-			@NotNull ServiceType serviceType,
-			ServiceSubtype serviceSubtype,
-			VisaCategory visaCategory,
-			UUID selectedExpertId,
-			Instant deadline,
-			String invoiceRef,
-			String campaignAttribution,
-			/**
-			 * What sales wrote on the opportunity, handed to the people who will do the work
-			 * (Unit 23). Optional: most deliveries carry none, and refusing one that does not
-			 * would fail Handoff A over a nicety. It is never stored on the case — it becomes
-			 * the note on the {@code CREATED} audit row.
-			 */
-			String notes) {
+			/** The GHL contact id, which is the client id: one contact is one client. */
+			@NotBlank String contactId,
+			String firstName,
+			String lastName,
+			/** Filled from first + last when GHL sends it blank; see the constructor. */
+			@NotBlank String fullName,
+			String email,
+			String phone,
+			String companyName,
+			/** camelCase in the payload, unlike everything around it — hence the explicit name. */
+			@JsonProperty("customData") @Valid CustomData customData) {
 
 		/**
-		 * The won deal. There is no {@code paid} field: won <em>is</em> paid, so it is not
-		 * the payload's to assert.
+		 * GHL sends {@code full_name} pre-computed, but sends {@code ""} rather than omitting a
+		 * field it has no value for — so a contact captured with only a first name can arrive
+		 * nameless. Rebuilding it here means {@code @NotBlank} refuses only a delivery that
+		 * genuinely names nobody, rather than one GHL merely formatted differently.
 		 */
-		@JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
-		public record Opportunity(
-				/** Carried onto the case so Unit 18 can close the opportunity back in GHL.
-				 * Never an idempotency key — that is {@code event_id}'s job. */
-				@NotBlank String ghlOpportunityId,
-				/** What was collected, not a quote. Required and positive: a won opportunity
-				 * with no money on it is a data error in GHL, not a free case. */
-				@NotNull @Positive BigDecimal amount) {
+		public OpportunityWon {
+			fullName = fullName == null || fullName.isBlank()
+					? (orEmpty(firstName) + " " + orEmpty(lastName)).strip()
+					: fullName.strip();
 		}
 
+		private static String orEmpty(String value) {
+			return value == null ? "" : value;
+		}
+
+		/**
+		 * The workflow author's own key/value pairs — the only part of the body GHL does not
+		 * write, and the only place a <em>deal</em> can come from, since the contact record has
+		 * none. {@code event_type} lives here too and is the gateway's, not this record's.
+		 *
+		 * <p><strong>Three fields, each here because something breaks without it</strong>, and
+		 * nothing here on speculation. The rest of what a case wants — visa category, subtype,
+		 * deadline, invoice ref, expert, intake note — is still a PM's to fill in; add a field
+		 * here when the workflow starts sending it, not before.
+		 *
+		 * <p>All three stay optional. A won opportunity has already been paid for, so a workflow
+		 * that loses a field must still hand the case over rather than have it refused.
+		 */
 		@JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
-		public record Contact(
-				String ghlContactId,
-				@NotBlank String fullName,
-				String email,
-				String phone,
-				String company,
-				ClientType clientType,
-				SourceChannel source,
-				String utmSource,
-				String utmMedium,
-				String utmCampaign) {
+		public record CustomData(
+				/**
+				 * Decides the checklist, and it is half the key of {@code V15}'s
+				 * one-open-case-per-contact-per-service index — so on a constant service a client
+				 * can only ever hold one open case, and a second purchase refreshes the first
+				 * instead of opening its own.
+				 */
+				ServiceType serviceType,
+				/** Carried onto the case so Unit 18 can close the opportunity back in GHL.
+				 * Never an idempotency key — that is {@code event_id}'s job. */
+				String opportunityId,
+				/**
+				 * What was collected, not a quote — a won opportunity was invoiced and paid
+				 * before it was won. {@code @Positive} wherever present: a zero or a negative is
+				 * a data error in GHL, not a free case. Absent is accepted, and leaves
+				 * {@code deal_value} null rather than losing the delivery.
+				 */
+				@Positive BigDecimal amount) {
 		}
 	}
 
@@ -136,22 +180,22 @@ public class GhlOpportunityHandler {
 	/**
 	 * Transport shape → domain command. The brand is not read from the payload at any
 	 * point: it is the one the endpoint token resolved to.
+	 *
+	 * <p>The remaining nulls are the honest picture and are left visible rather than tidied
+	 * away: GHL sends the person and the deal, and that is all. Visa category, subtype,
+	 * deadline, invoice ref, expert and the intake note are a PM's to fill in.
 	 */
 	private static CaseIntakeService.NewCase toCommand(OpportunityWon payload) {
-		OpportunityWon.Contact contact = payload.contact();
+		OpportunityWon.CustomData extra = payload.customData() != null ? payload.customData() : NO_CUSTOM_DATA;
 		return new CaseIntakeService.NewCase(
-				new CaseIntakeService.ContactDetails(contact.ghlContactId(), contact.fullName(), contact.email(),
-						contact.phone(), contact.company(), contact.clientType(), contact.source(),
-						contact.utmSource(), contact.utmMedium(), contact.utmCampaign()),
-				payload.serviceType(),
-				payload.serviceSubtype(),
-				payload.visaCategory(),
-				payload.selectedExpertId(),
-				payload.opportunity().ghlOpportunityId(),
-				payload.opportunity().amount(),
-				payload.deadline(),
-				payload.invoiceRef(),
-				payload.campaignAttribution(),
-				payload.notes());
+				new CaseIntakeService.ContactDetails(payload.contactId(), payload.fullName(), payload.email(),
+						payload.phone(), payload.companyName(), null, null, null, null, null),
+				extra.serviceType() != null ? extra.serviceType() : DEFAULT_SERVICE,
+				null,
+				null,
+				null,
+				extra.opportunityId(),
+				extra.amount(),
+				null, null, null, null);
 	}
 }

@@ -78,12 +78,19 @@ delivery with no id to assert. See `backend/persistence.md` for why the index ha
    nullable and Postgres would otherwise treat two brand-less rows as distinct, losing exactly the
    deduplication the constraint exists for.
 
-`EXTERNAL_ID_FIELDS = { "event_id", "webhook_id" }`, in order. **Both are delivery-scoped on purpose;
-never add a bare `"id"` — and since v2.0, never `ghl_opportunity_id` either.** In most envelopes that
-is the *resource's* id, so a returning client's second order carries the first one's key and is answered
-`duplicate`; an opportunity id would do the same to an opportunity legitimately re-won. A payload with neither field is
-**refused** (`MISSING_EXTERNAL_ID`) rather than processed once and hoped about — if GHL turns out to
-send only a resource id, the answer is a delivery-id header, not a wider fallback list.
+`EXTERNAL_ID_FIELDS = { "event_id", "webhook_id" }`, in order, and each looked for **top level first,
+then inside `customData`** — those two fields belong to the workflow author, not to GHL, and GHL's own
+action nests them. **Both are delivery-scoped on purpose; never add a bare `"id"` — and since v2.0,
+never `ghl_opportunity_id` either.** In most envelopes that is the *resource's* id, so a returning
+client's second order carries the first one's key and is answered `duplicate`; an opportunity id would
+do the same to an opportunity legitimately re-won.
+
+**A payload with neither falls back to `sha256:<hex of the raw body>` (2026-09-02).** It used to be
+`400 MISSING_EXTERNAL_ID`; that refusal rejected *every* real delivery, because GHL's Custom Webhook
+mints no delivery id and sends the workflow's `event_id` as `""` until somebody wires a value in. A
+retry replays the same bytes, so the digest still dedupes it; a different event differs somewhere and
+gets its own row. Ceiling: two distinct deliveries that are byte-identical — the fix for that is a real
+value in the workflow's `event_id` customData field, not a wider fallback list.
 
 Enforcement is the unique index, not the lookup: a check-then-insert is a race two concurrent
 deliveries both win.
@@ -97,19 +104,55 @@ Recognized no-ops: `refund.requested`, `contact.updated`, **`contact.created`**.
 create-or-update) but an edit in GHL is not a reason to open a case; `contact.created` was the v1
 trigger and is now just a lead, which is GHL's business. A case exists only once the money is in.
 
-**Firing one by hand needs three things at the top level of the body, and two of them are the
-gateway's, not the handler's:** `event_type` (routing — its absence is `400 MISSING_EVENT_TYPE`),
-`event_id` (idempotency), and then the `OpportunityWon` fields — where `service_type` is **top-level**,
-the person is nested under `contact` as `full_name` / `ghl_contact_id`, and the money is nested under
-`opportunity` as `amount` / `ghl_opportunity_id`. There is no `quote_amount` any more: the won
-opportunity's amount is what was actually collected. Guessing that shape wrong costs a whole live run;
-the working payload is in `mem:suggested_commands`.
+### The payload is a CONTACT RECORD. That is the whole of it. (confirmed live, 2026-09-02)
+
+**The nested `opportunity` / `contact` envelope this was built against never existed.** The Custom
+Webhook action is wired to GHL's **Contact lookup**, so the body is the person, flat at the top
+level, and nothing else. Three traps, each of which broke something:
+
+- There *is* a `contact` key and it is **not the contact** — it holds attribution data. Nothing reads
+  it. The person is `contact_id` / `first_name` / `last_name` / `full_name` / `email` / `phone` at
+  the top level.
+- `event_type` and `event_id` are the workflow author's fields, so they arrive **inside
+  `customData`** (camelCase, unlike every other key). The gateway reads both places. Missing this is
+  why *every* real delivery died at `400 MISSING_EVENT_TYPE` before reaching the handler.
+- **GHL writes no deal.** No amount, no opportunity id, no delivery id, no service — a contact
+  record carries none of that, and `event_id` arrives as `""`. **The deal comes from the workflow
+  author's `customData`** (wired up in the GHL UI 2026-09-02), which is also why all of it is
+  optional: any of those keys can be deleted in that UI without EvalOS hearing about it.
+
+`contact_id` is **the client id** (invariant 7) and the one field a delivery cannot be without →
+`400 VALIDATION_FAILED`. Everything else is optional, because a won opportunity has already been
+paid for and a 400 loses the paid case:
+
+| Field | Where | Missing → |
+|---|---|---|
+| `contact_id` | top level | `400 VALIDATION_FAILED` |
+| `full_name` | top level | rebuilt from `first_name` + `last_name`; `400` only if all three are empty |
+| `event_type` | either | `400 MISSING_EVENT_TYPE` |
+| `event_id` | either | digest fallback (above) |
+| `service_type` | `customData` | defaults to **`CREDENTIAL_EVALUATION`**; unreadable value → `400 MALFORMED_PAYLOAD` |
+| `opportunity_id` | `customData` | null on create, **left alone on refresh** |
+| `amount` | `customData` | same; `@Positive` wherever present |
+
+**`CustomData` models exactly those three, and each earns its place.** `service_type` is half the
+key of `V15`'s one-open-case-per-contact-per-service index, so on the default alone **a client can
+only ever hold one open case at a time** and a second purchase refreshes the first. `amount` is
+`deal_value`, which feeds revenue recognition; `opportunity_id` is what **Unit 18 closes back in
+GHL**. Everything else a case wants — visa category, subtype, deadline, invoice ref, expert, intake
+note — is deliberately **not modelled**: it is not sent, and a field pretending otherwise misleads.
+`toCommand` passes a visible run of nulls for exactly that reason; do not "clean it up". A PM fills
+them in. Add a field here when the workflow starts sending it, not before.
+
+Unknown keys (`location`, `workflow`, `tags`, `contact_type`, `date_created`, `full_address`,
+`attributionSource`, `triggerData`) are ignored. The working payload is in `mem:suggested_commands`.
 
 - `GhlOpportunityHandler` parses **then** validates in full before calling the service, so a malformed
-  delivery is a 400 GHL will not retry rather than a half-created case. The **payload shape is an
-  assumption**, confined to `GhlOpportunityHandler.OpportunityWon` so a correction is one file. The
-  transport record and `CaseIntakeService.NewCase` deliberately duplicate ~21 fields with a mapper
-  between them — that split is what keeps an unconfirmed shape out of `service`. Do not "simplify" it.
+  delivery is a 400 GHL will not retry rather than a half-created case. The shape is confined to
+  `GhlOpportunityHandler.OpportunityWon` so a correction stays one file — which is the only reason the
+  first wrong guess cost one class instead of a refactor. The transport record and
+  `CaseIntakeService.NewCase` deliberately duplicate ~21 fields with a mapper between them; that split
+  is what kept the wrong shape out of `service`. Do not "simplify" it.
 - `service/CaseIntakeService` is **the only thing that creates a case** (invariant 8), enforced
   structurally: `DomainInvariantsTest` allows only `GhlOpportunityHandler` to depend on it, so adding a
   `POST /api/cases` breaks the build.
@@ -123,7 +166,10 @@ the working payload is in `mem:suggested_commands`.
   timeline. Blank/whitespace is normalised to null. Optional on purpose — a required field here
   would fail Handoff A over a nicety.
 
-  **`deal_value` AND `ghl_opportunity_id` are what a refresh OVERWRITES, and they move together.**
+  **`deal_value` AND `ghl_opportunity_id` are what a refresh OVERWRITES, and they move together —
+  but only when the delivery carries at least one of them.** GHL sends neither unless the workflow
+  author added it, and overwriting with nulls would blank a figure that feeds revenue recognition
+  plus the id Unit 18 closes on, from a delivery that never claimed anything about either.
   The overwrite has to exist: deleting `markPaid` removed the only other writer, so fill-only would
   freeze the first figure forever with nothing able to correct it — and that figure feeds revenue
   recognition. GHL owns the amount, so the latest won figure wins. They move as a **pair** because

@@ -461,6 +461,11 @@ business logic in the transport layer; both are idempotent and observable.
    replayed event never produces a second side effect. "Already seen" is not
    "already done" — only a *processed* row is a duplicate, so a redelivery after
    a handler failure retries instead of being swallowed.
+
+   **The event id is looked for at the top level and inside `customData`, and
+   falls back to a SHA-256 of the body.** GHL's Custom Webhook mints no delivery
+   id of its own, so demanding one refused every real delivery — and a webhook
+   retry replays the same bytes, which is exactly what the digest keys on.
 4. **Archive** the raw payload (JSONB) for audit and replay.
 5. **Route** to the matching handler, which calls a domain service.
 6. **Acknowledge** fast; slow work is handed to a `job`. Failures return a
