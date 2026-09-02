@@ -29,6 +29,7 @@ import com.ie.evalos.domain.Stage;
 import com.ie.evalos.domain.TeamMember;
 import com.ie.evalos.event.CaseEvents;
 import com.ie.evalos.domain.ActorType;
+import com.ie.evalos.integration.DocumentStore;
 import com.ie.evalos.domain.CaseDocument;
 import com.ie.evalos.domain.DocumentKind;
 import com.ie.evalos.domain.DocumentStatus;
@@ -102,6 +103,7 @@ public class CaseLifecycleService {
 	private final ExpertCaseOfferRepository offers;
 	private final TeamMemberRepository teamMembers;
 	private final CaseDocumentRepository documents;
+	private final DocumentStore store;
 	private final AuditService audit;
 	private final SlaCalculator sla;
 	private final ApplicationEventPublisher events;
@@ -109,13 +111,15 @@ public class CaseLifecycleService {
 
 	CaseLifecycleService(CaseRepository cases, DocumentChecklistItemRepository checklistItems, ExpertRepository experts,
 			ExpertCaseOfferRepository offers, TeamMemberRepository teamMembers, CaseDocumentRepository documents,
-			AuditService audit, SlaCalculator sla, ApplicationEventPublisher events, PayoutService payouts) {
+			DocumentStore store, AuditService audit, SlaCalculator sla, ApplicationEventPublisher events,
+			PayoutService payouts) {
 		this.cases = cases;
 		this.checklistItems = checklistItems;
 		this.experts = experts;
 		this.offers = offers;
 		this.teamMembers = teamMembers;
 		this.documents = documents;
+		this.store = store;
 		this.audit = audit;
 		this.sla = sla;
 		this.events = events;
@@ -415,7 +419,7 @@ public class CaseLifecycleService {
 	 * <p>{@code draftLink} is where {@code draft_link} comes from — the column the client portal
 	 * shows (Unit 14). Optional and only overwritten when given: a second version filed in the same
 	 * place needs no new link, and blanking one by omission would take the draft away from a client
-	 * mid-review. There is deliberately no fallback to {@code drive_link}: that is the client's own
+	 * mid-review. There is deliberately no fallback to the client's own uploads: those are their own
 	 * document folder, and a case with no draft link tells the portal "not ready".
 	 */
 	@Transactional
@@ -505,6 +509,66 @@ public class CaseLifecycleService {
 	}
 
 	/**
+	 * Refuses a caller who may reach the case but may not read what is in it.
+	 *
+	 * <p><strong>This is not the same check as {@link #load}, and conflating them was a real hole.</strong>
+	 * {@code load} answers "may this caller reach this case" — and {@code Tier.SUPPLY} reads its
+	 * whole brand, so an Expert Network Manager passes it on every case in their brand. What they
+	 * must not have is the case's <em>content</em>: {@code CaseController} already withholds
+	 * {@code clientName} and {@code draftLink} from that tier on the detail payload, and a document
+	 * is the same content in a file.
+	 *
+	 * <p>The rule itself lives on {@link com.ie.evalos.domain.Role}, so this and the detail
+	 * payload's field projection cannot drift apart.
+	 *
+	 * <p>Without this, the presigned-URL route would have handed a SUPPLY-tier caller the client's
+	 * passport scan — the exact bytes behind the fields the detail projection nulls out. **A
+	 * filename alone is enough to leak identity** (`Ravi_Kumar_Passport.pdf`), which is why the
+	 * listing is gated too and not only the download.
+	 */
+	private static void requireCaseContent() {
+		if (!TenantContext.current().role().seesCaseContent()) {
+			throw new ForbiddenException("this role does not read case documents");
+		}
+	}
+
+	/**
+	 * A short-lived URL for reading one of this case's documents (Unit 30).
+	 *
+	 * <p><strong>The scope check runs first and it is not optional.</strong> {@link #load} decides
+	 * whether this caller may read the case at all, and it runs <em>before</em> the URL is minted —
+	 * a presigned URL created ahead of the check is a URL that leaked ahead of the check, and no
+	 * later refusal takes it back.
+	 *
+	 * <p>The document is then matched against that case. Without it a caller who may read case A
+	 * could name a document belonging to case B and be handed a URL for it: <strong>the object key
+	 * is not the authorisation, the case is.</strong>
+	 *
+	 * <p>Every issue writes an audit row — who opened which document, and when. That is the
+	 * EvalOS-side record that a document was accessed, through the same append-only trail as every
+	 * other act (invariant 13). It also gives {@code AuditAction.EXPORTED} a writer again: it was
+	 * retired with Unit 13 and kept only for historical rows, and "a document left EvalOS" turns
+	 * out to describe a presigned read exactly.
+	 */
+	@Transactional
+	public String readUrl(UUID caseId, UUID documentId) {
+		Case subject = load(caseId);
+		requireCaseContent();
+		CaseDocument document = documents.findById(documentId)
+				.filter(row -> row.getCaseId().equals(subject.getId()))
+				.orElseThrow(() -> new java.util.NoSuchElementException("No document " + documentId));
+		requireState(document.getObjectKey() != null,
+				"that document predates the document store and has no file behind it");
+
+		// The brand is deliberately not passed: `recordEvent` takes it from the authenticated
+		// caller, never from an argument a caller could get wrong.
+		audit.recordEvent("CASE_DOCUMENT", document.getId(), AuditAction.EXPORTED,
+				TenantContext.current().memberId(), null,
+				Map.of("opened", String.valueOf(document.getFilename())));
+		return store.presignedUrl(document.getObjectKey());
+	}
+
+	/**
 	 * Every version of one kind on this case, newest first.
 	 *
 	 * <p>Reached through {@link #load}, so a caller who may not read the case gets nothing — the
@@ -514,6 +578,7 @@ public class CaseLifecycleService {
 	@Transactional(readOnly = true)
 	public List<Version> versionsOf(UUID caseId, DocumentKind kind) {
 		Case subject = load(caseId);
+		requireCaseContent();
 		List<CaseDocument> rows = documents.findByCaseIdAndKindOrderByVersionDesc(subject.getId(), kind);
 
 		// One lookup for the whole list rather than one per row: a history is a handful of versions

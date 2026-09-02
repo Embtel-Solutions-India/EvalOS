@@ -77,7 +77,6 @@ public class CaseIntakeService {
 			String ghlOpportunityId,
 			BigDecimal dealValue,
 			Instant deadline,
-			String driveLink,
 			String invoiceRef,
 			String campaignAttribution,
 			/**
@@ -157,9 +156,6 @@ public class CaseIntakeService {
 		CaseLifecycleService.CaseSnapshot before = CaseLifecycleService.CaseSnapshot.of(subject);
 		if (subject.getDeadline() == null) {
 			subject.setDeadline(request.deadline());
-		}
-		if (subject.getDriveLink() == null) {
-			subject.setDriveLink(request.driveLink());
 		}
 		if (subject.getVisaCategory() == null) {
 			subject.setVisaCategory(request.visaCategory());
@@ -301,7 +297,6 @@ public class CaseIntakeService {
 		created.setClientType(request.contact().clientType());
 		created.setDealValue(request.dealValue());
 		created.setDeadline(request.deadline());
-		created.setDriveLink(request.driveLink());
 		created.setInvoiceRef(request.invoiceRef());
 		created.setCampaignAttribution(request.campaignAttribution());
 		created.setGhlOpportunityId(request.ghlOpportunityId());

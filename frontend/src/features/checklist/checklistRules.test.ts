@@ -47,7 +47,6 @@ function card(overrides: Partial<ChecklistCard> = {}): ChecklistCard {
 function view(overrides: Partial<ChecklistView> = {}): ChecklistView {
   return {
     caseId: 'c1',
-    driveLink: 'https://drive.example/abc',
     items: [],
     total: 4,
     complete: 2,

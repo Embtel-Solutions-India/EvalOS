@@ -1,0 +1,18 @@
+-- Unit 30: Google Drive is gone, and `evalos_case.drive_link` goes with it.
+--
+-- **Dropped rather than repurposed as an S3 key.** A client's documents are now *derivable* --
+-- `client/{brandId}/{ghlContactId}/` -- from the contact the case already points at, so storing a
+-- pointer to them would be a second copy of a fact the schema holds, which is the duplication this
+-- codebase deletes on sight. `draft_link` survives for the opposite reason: a draft is one file
+-- among several versions and is not derivable from anything.
+--
+-- **`draft_link`'s MEANING changes here even though its type does not.** It held a Google Docs URL
+-- and now holds an S3 object key. Same column, different kind of value -- nothing may guess which
+-- one a row contains, which is why this is written down rather than left to be inferred from a
+-- string that happens to start with "https".
+--
+-- Existing rows are NOT converted: a Drive URL cannot be turned into an S3 key, because the bytes
+-- were never in the bucket. On a database with real drafts the column is stale until each case
+-- submits a new version -- and `case_document` (V31) is what makes that visible, since a version
+-- row records what was actually uploaded and when.
+ALTER TABLE evalos_case DROP COLUMN drive_link;

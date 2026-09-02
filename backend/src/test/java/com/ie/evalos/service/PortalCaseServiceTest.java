@@ -14,6 +14,9 @@ import com.ie.evalos.domain.Expert;
 import com.ie.evalos.domain.PortalAudience;
 import com.ie.evalos.domain.ServiceType;
 import com.ie.evalos.domain.Stage;
+import com.ie.evalos.integration.DocumentStore;
+import com.ie.evalos.repository.CaseDocumentRepository;
+import com.ie.evalos.repository.DocumentChecklistItemRepository;
 import com.ie.evalos.repository.CaseRepository;
 import com.ie.evalos.repository.ContactSnapshotRepository;
 import com.ie.evalos.repository.ExpertRepository;
@@ -46,12 +49,14 @@ class PortalCaseServiceTest {
 
 	private final CaseRepository cases = mock(CaseRepository.class);
 	private final ContactSnapshotRepository contacts = mock(ContactSnapshotRepository.class);
-	private final ExpertRepository experts = mock(ExpertRepository.class);
+	private final DocumentChecklistItemRepository checklistItems = mock(DocumentChecklistItemRepository.class);
+	private final CaseDocumentRepository documents = mock(CaseDocumentRepository.class);
+	private final DocumentStore store = mock(DocumentStore.class);
+	private final AuditService audit = mock(AuditService.class);
 	private final CaseLifecycleService lifecycle = mock(CaseLifecycleService.class);
 	private final ObjectMapper objectMapper = new ObjectMapper();
 
-	private final PortalCaseService portal = new PortalCaseService(
-			cases, contacts, experts, lifecycle);
+	private final PortalCaseService portal = new PortalCaseService(cases, contacts, lifecycle, checklistItems, documents, store, audit);
 
 	private Case subject;
 
@@ -74,7 +79,6 @@ class PortalCaseServiceTest {
 		subject.setPmStrategyNotes("lead with the publications");
 		subject.setInvoiceRef("INV-0001");
 		subject.setCampaignAttribution("google-ads/spring");
-		subject.setDriveLink("https://drive.google.com/drive/folders/client-documents");
 		subject.setAssignedPm(UUID.randomUUID());
 		subject.setAssignedCm(UUID.randomUUID());
 		subject.setAssignedCoordinator(UUID.randomUUID());
@@ -87,11 +91,13 @@ class PortalCaseServiceTest {
 		given(contacts.findById(CONTACT_ID)).willReturn(Optional.of(contact));
 	}
 
+	/**
+	 * An expert with an unmistakable name, so the assertion that nothing about them reaches the
+	 * client is a real grep rather than a formality. The portal no longer reads the roster at all
+	 * (Unit 13 removed), which is exactly what the test below proves.
+	 */
 	private void withAnAssignedExpert() {
-		UUID expertId = UUID.randomUUID();
-		subject.setExpertId(expertId);
-		Expert expert = new Expert(BRAND, "Dr Ada Lovelace");
-		given(experts.findById(expertId)).willReturn(Optional.of(expert));
+		subject.setExpertId(UUID.randomUUID());
 	}
 
 	private String serialized(PortalCaseService.ClientDraftView view) {

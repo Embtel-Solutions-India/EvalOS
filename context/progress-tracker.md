@@ -4427,6 +4427,101 @@ whenever a third brand is seeded. Staff SSO stays deferred.
   out for the opposite reason, that the server would refuse them. Spec 17's status line, the two
   `boardRules` / `navigation` tables and `mem:backend/lifecycle` + `mem:frontend/core` updated.
 
+- **Unit 30 code review: nine findings, all fixed. 524 backend tests, 142 frontend, clean builds.**
+  Two were serious and both were mine.
+
+  **1. The yaml-stripping script ate `server:` from `application.yml`.** Removing the `evalos.drive`
+  block, my loop deleted lines until it found the next **2-space** key — and the next top-level key
+  (`server:`, at column 0) did not match, so it kept going and consumed the header. `port:` and
+  `forward-headers-strategy:` were left dangling under `evalos:`, binding as `evalos.port` and
+  binding nowhere. **Silent**: `@Value` lookups, so no boot error — `SERVER_PORT` was simply ignored
+  everywhere and `forward-headers-strategy` was unset outside prod, which is the setting the portal
+  rate limiter depends on. *A regex that deletes by indentation has to know what ends the block.*
+
+  **2. An authorization regression on the document routes.** `readUrl` and the version listing ran
+  only the scoped load — and `Tier.SUPPLY` reads its **whole brand**, so an Expert Network Manager
+  passed it on every case. They could have downloaded the client's passport scan: the exact bytes
+  behind the fields the detail payload nulls out for that tier. **Row access and content access are
+  different questions**, and this conflated them.
+
+  Fixed by moving `seesCaseContent` off `CaseController` and onto **`Role`**, where it now has one
+  home for the field projection and the document routes alike — a service reaching into a controller
+  for an authorisation rule is the direction that produces two copies. **The listing is gated as
+  well as the download**, because a filename alone leaks identity (`Ravi_Kumar_Passport.pdf`). Test
+  added.
+
+  **3. The document list never worked.** `window.open('', '_blank', 'noopener,noreferrer')` returns
+  **null** whenever `noopener` is present, per spec — so the handle needed to navigate the tab never
+  existed and clicking a document opened a blank tab and did nothing, silently, with no error path
+  either. Now opened without `noopener` and the opener reference severed on the next line, which is
+  the same protection by a different route; a blocked popup reports itself.
+
+  **4. Prod would have booted into a broken portal.** `allowed-origins` carried an empty default
+  under a comment claiming "no default: a missing value fails loudly". It booted, then rejected
+  every cross-origin portal call — surfacing in the browser as something that looks like an auth
+  problem, which is precisely what the CORS javadoc says it exists to prevent. Now genuinely no
+  default: `${EVALOS_PORTAL_ORIGINS}` fails the boot.
+
+  **5. The multipart trade came due and was settled.** That block's own comment deferred it to
+  "Unit 21, not before" — Unit 30 is that upload. `max-file-size` 5 MB → 15 MB (a scanned transcript
+  is not a roster sheet), `threshold` still equal to it so nothing spools to disk, and
+  **`max-request-size` now larger than `max-file-size`**: they were equal, so a file at exactly the
+  cap plus its form field was rejected by a limit the user was never told about.
+
+  **6–9.** `nextVersion`'s javadoc promised a retry that does not exist — the claim is corrected and
+  the real behaviour (500, orphaned object, client retries) is stated with the condition under which
+  to add one. A `{@link}` to the deleted `DriveUnavailableException`, and orphaned Drive
+  documentation across six files that had come to assert the opposite of the code, all corrected.
+
+  **Also corrected: my own "bytes stream and are never held" claim on the upload.** With
+  `threshold == max-file-size` the container buffers the part in heap, so `getInputStream()` reads a
+  byte array. No file on disk and no blob column remain true; "never held" did not.
+
+- **Unit 30 BUILT (core): Google Drive out, S3 in.** 523 backend tests, 142 frontend, clean builds.
+
+  **Drive is gone entirely** — `GoogleDriveConfig`, `GoogleDriveClient`, `DriveUnavailableException`,
+  their test, the 502 handler, both Google dependencies with their version properties, 77 lines of
+  yaml across three profiles, and `evalos_case.drive_link` (`V34`). The audit flagged it as dead
+  the moment Unit 13 went, and it was: nothing injected the client any more.
+
+  **`DocumentStore` has two capabilities and no more: put an object, presign a read.** No delete,
+  no list, no copy — absent from the codebase rather than present-and-unused, the position
+  `GhlHttp` holds about writing to GHL. It is worth more here: these objects are a client's
+  identity documents and an expert's signed letter, and a system that can quietly delete evidence
+  will be asked whether it did.
+
+  **Key format answers open question (b): brand first.**
+  `{brandId}/client/{ghlContactId}/{documentId}`. Every other store enforces brand at the row and a
+  prefix is S3's equivalent — and deciding it later would migrate *objects*, not code. **The object
+  name is the document's id, not its filename**, which closes path traversal, collisions and
+  PII-in-a-key in one move; the filename lives in the column, where it is data rather than a path.
+  **No email appears in any key.**
+
+  **Object first, row second — and the ordering is the design.** The reverse leaves a row pointing
+  at an object that does not exist: a broken link the Coordinator cannot fix. This order can leave
+  an orphan, which is invisible and swept by a lifecycle rule. **Prefer the orphan to the dangling
+  pointer.**
+
+  **The scope check runs before the URL is minted**, never after — a presigned URL created ahead of
+  the check is one that leaked ahead of it, and no later refusal takes it back. The document is
+  then matched to the case: the object key is not the authorisation, the case is. Five minutes,
+  never stored, and **every issue writes an audit row** — which gave `AuditAction.EXPORTED` a
+  writer again. It was retired with Unit 13 and kept only so historical rows stayed readable, and
+  "a document left EvalOS" turns out to describe a presigned read exactly.
+
+  **CORS exists now**, scoped to `/api/portal/**` and nowhere else, with named origins per
+  environment, **never `*`** (the chain is credentialed), and `X-Portal-Token` in the allowed
+  headers — omit it and the preflight passes while the real request arrives stripped, a 401 that
+  looks exactly like a bad token. Empty by default: a forgotten origin fails loudly rather than
+  opening quietly.
+
+  **One SDK artifact, not two.** `s3-presigner` does not exist in SDK v2 — `S3Presigner` ships
+  inside `s3`, and asking for the separate artifact fails at pom parse.
+
+  **Not built:** the expert's signed-letter upload (Unit 15's endpoint, the same `put` path), and
+  content sniffing on upload — the declared type is recorded, not trusted, and that gap is named in
+  the spec rather than implied.
+
 - **SCOPE CUT: Units 13, 18 and 20 removed (2026-09-02).** 526 backend tests, 142 frontend,
   builds clean.
 

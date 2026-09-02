@@ -86,7 +86,6 @@ public class ChecklistController {
 	 */
 	public record ChecklistView(
 			UUID caseId,
-			String driveLink,
 			List<ChecklistItemView> items,
 			int total,
 			int complete,
@@ -207,7 +206,6 @@ public class ChecklistController {
 		ChecklistService.CaseChecklist checklist = checklists.forCase(caseId);
 		return new ChecklistView(
 				checklist.subject().getId(),
-				checklist.subject().getDriveLink(),
 				checklist.items().stream().map(ChecklistItemView::of).toList(),
 				checklist.items().size(),
 				checklist.complete(),

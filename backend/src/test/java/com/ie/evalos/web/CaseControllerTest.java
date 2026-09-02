@@ -326,7 +326,6 @@ class CaseControllerTest {
 	private static Case withNotes() {
 		Case subject = aCase();
 		subject.setPmStrategyNotes("Lead with the publication record.");
-		subject.setDriveLink("https://drive.example/abc");
 		// Set so the projection test can assert its absence meaningfully: an unset field is
 		// absent for every role and would prove nothing about the gate.
 		subject.setDraftLink("https://drive.example/draft-1");
@@ -374,7 +373,6 @@ class CaseControllerTest {
 					.andExpect(status().isOk())
 					.andExpect(jsonPath("$.data.maySeeCaseContent").value(true))
 					.andExpect(jsonPath("$.data.clientName").value("Anita Rao"))
-					.andExpect(jsonPath("$.data.driveLink").value("https://drive.example/abc"))
 					.andExpect(jsonPath("$.data.draftLink").value("https://drive.example/draft-1"));
 		}
 
@@ -386,7 +384,6 @@ class CaseControllerTest {
 				.andExpect(jsonPath("$.data.expertName").value("Zara Okonkwo"))
 				.andExpect(jsonPath("$.data.maySeeCaseContent").value(false))
 				.andExpect(jsonPath("$.data.clientName").doesNotExist())
-				.andExpect(jsonPath("$.data.driveLink").doesNotExist())
 				.andExpect(jsonPath("$.data.draftLink").doesNotExist());
 	}
 
@@ -476,7 +473,6 @@ class CaseControllerTest {
 				.andExpect(jsonPath("$.data.clientName").value("Anita Rao"))
 				.andExpect(jsonPath("$.data.expertName").value("Zara Okonkwo"))
 				.andExpect(jsonPath("$.data.expertTier").value("TIER_1"))
-				.andExpect(jsonPath("$.data.driveLink").value("https://drive.example/abc"))
 				.andExpect(jsonPath("$.data.checklistTotal").value(6))
 				.andExpect(jsonPath("$.data.checklistComplete").value(4));
 	}

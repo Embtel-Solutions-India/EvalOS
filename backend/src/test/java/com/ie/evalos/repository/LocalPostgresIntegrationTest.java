@@ -1065,7 +1065,6 @@ class LocalPostgresIntegrationTest {
 	@Test
 	void aCaseCarriesTheDraftLinkSeparatelyFromTheDocumentsFolder() {
 		Case subject = new Case(BRAND_IE, "EV-" + UUID.randomUUID(), Stage.DRAFT_IN_PROGRESS);
-		subject.setDriveLink("https://drive.google.com/drive/folders/documents");
 		subject.setDraftLink("https://docs.google.com/document/d/the-draft/edit");
 		UUID id = cases.saveAndFlush(subject).getId();
 
@@ -1073,7 +1072,6 @@ class LocalPostgresIntegrationTest {
 				.isEqualTo("https://docs.google.com/document/d/the-draft/edit");
 		assertThat(cases.findById(id)).get().satisfies(found -> {
 			assertThat(found.getDraftLink()).isEqualTo("https://docs.google.com/document/d/the-draft/edit");
-			assertThat(found.getDriveLink()).isEqualTo("https://drive.google.com/drive/folders/documents");
 		});
 	}
 

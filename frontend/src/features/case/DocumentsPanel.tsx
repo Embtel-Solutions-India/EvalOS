@@ -2,13 +2,14 @@ import { Link } from 'react-router-dom'
 import { useMe } from '../../lib/authContext'
 import { mayReach } from '../shell/navigation'
 import type { CaseDetail } from './caseApi'
+import DocumentList from './DocumentList'
 
 /**
- * Documents live in Google Drive; EvalOS holds the link and never the bytes (invariant 14).
- * So this panel is a link and a count — there is deliberately no upload control, because
- * there is nowhere for a file to go.
+ * The client's own documents (Unit 30).
  *
- * The checklist itself is Unit 10; this is the summary chip and the way in.
+ * Objects in the S3 document store, listed here and opened one at a time through a URL minted at
+ * the click and good for five minutes. Until Unit 30 this was a link to a Google Drive folder whose
+ * contents and sharing EvalOS did not control.
  */
 export default function DocumentsPanel({ detail }: { detail: CaseDetail }) {
   const me = useMe()
@@ -23,23 +24,12 @@ export default function DocumentsPanel({ detail }: { detail: CaseDetail }) {
     >
       <h2 className="text-sm font-semibold tracking-tight">Documents</h2>
 
-      {detail.driveLink ? (
-        <a
-          href={detail.driveLink}
-          target="_blank"
-          rel="noreferrer noopener"
-          className="mt-2 inline-block text-sm font-medium"
-          style={{ color: 'var(--accent-primary)' }}
-        >
-          Open the Drive folder ↗
-        </a>
-      ) : (
-        <p className="mt-2 text-sm" style={{ color: 'var(--text-muted)' }}>
-          {detail.maySeeCaseContent
-            ? 'No Drive folder linked yet.'
-            : 'The client document folder is not available to your role.'}
-        </p>
-      )}
+      {/*
+        **The client's documents, not a folder link.** Until Unit 30 this pointed at a Google Drive
+        folder whose contents and sharing EvalOS did not control. Documents are S3 objects now, and
+        each one opens through a URL minted at the click and good for five minutes.
+      */}
+      <DocumentList caseId={detail.summary.id} maySee={detail.maySeeCaseContent} />
 
       <div className="mt-3 flex items-center gap-2">
         <span

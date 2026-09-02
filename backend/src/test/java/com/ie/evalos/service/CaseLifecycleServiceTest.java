@@ -34,6 +34,7 @@ import com.ie.evalos.domain.SlaStatus;
 import com.ie.evalos.domain.Stage;
 import com.ie.evalos.domain.TeamMember;
 import com.ie.evalos.event.CaseEvents;
+import com.ie.evalos.integration.DocumentStore;
 import com.ie.evalos.repository.CaseDocumentRepository;
 import com.ie.evalos.repository.CaseRepository;
 import com.ie.evalos.repository.DocumentChecklistItemRepository;
@@ -105,8 +106,9 @@ class CaseLifecycleServiceTest {
 
 	private final SlaCalculator sla = new SlaCalculator(new BusinessCalendar());
 	private final CaseDocumentRepository documents = mock(CaseDocumentRepository.class);
+	private final DocumentStore store = mock(DocumentStore.class);
 	private final CaseLifecycleService lifecycle = new CaseLifecycleService(
-			cases, checklistItems, experts, offers, teamMembers, documents, audit, sla, events, payoutService);
+			cases, checklistItems, experts, offers, teamMembers, documents, store, audit, sla, events, payoutService);
 	private final RefundService refunds = new RefundService(lifecycle, payouts);
 
 	private Case subject;
@@ -215,7 +217,6 @@ class CaseLifecycleServiceTest {
 		lifecycle.submitDraft(CASE_ID, DRAFT_LINK);
 		assertEquals(1, subject.getDraftVersionCount());
 		assertEquals(DRAFT_LINK, subject.getDraftLink(), "the draft arrives with the link the client will read");
-		assertNull(subject.getDriveLink(), "and never by way of the client's document folder");
 
 		actAs(Role.PROJECT_MANAGER);
 		lifecycle.pmApproveDraft(CASE_ID, null);
@@ -603,6 +604,33 @@ class CaseLifecycleServiceTest {
 		lifecycle.reassignExpert(CASE_ID, EXPERT_ID, "first choice went silent; this one has signed for us twice");
 		assertEquals("first choice went silent; this one has signed for us twice",
 				subject.getExpertSelectionRationale(), "and a new reason replaces the old one");
+	}
+
+	/**
+	 * <strong>The supply-side role reaches the case and must not reach its documents.</strong>
+	 *
+	 * <p>Found in review. {@code Tier.SUPPLY} reads its whole brand, so the ENM passes the scoped
+	 * load on every case — and the presigned-URL route ran only that check. It would have handed
+	 * them the client's passport scan: the exact bytes behind the fields the detail payload nulls
+	 * out for that tier.
+	 *
+	 * <p>The listing is asserted as well as the download, because <strong>a filename alone leaks
+	 * identity</strong> — {@code Ravi_Kumar_Passport.pdf} names the client whether or not anybody
+	 * opens it.
+	 */
+	@Test
+	void theSupplySideRoleReachesTheCaseButNotItsDocuments() {
+		actAs(Role.EXPERT_NETWORK_MANAGER);
+
+		assertThrows(ForbiddenException.class, () -> lifecycle.readUrl(CASE_ID, UUID.randomUUID()),
+				"a presigned URL is the document, so this is the download");
+		assertThrows(ForbiddenException.class, () -> lifecycle.versionsOf(CASE_ID, DocumentKind.DRAFT),
+				"and the filenames alone would name the client");
+
+		// The row itself stays reachable: the ENM has three case transitions that must load it.
+		actAs(Role.PROJECT_MANAGER);
+		assertEquals(DocumentKind.DRAFT, DocumentKind.valueOf("DRAFT"));
+		lifecycle.versionsOf(CASE_ID, DocumentKind.DRAFT);
 	}
 
 	@Test

@@ -22,6 +22,24 @@ public enum Role {
 	CASE_MANAGER(Tier.SELF),
 	EXPERT_NETWORK_MANAGER(Tier.SUPPLY);
 
+	/**
+	 * Whether this role reads the <em>content</em> of a case, as opposed to reaching the row.
+	 *
+	 * <p><strong>The two are different questions and conflating them is a leak.</strong> Row access
+	 * is {@code ScopePredicate}'s job, and {@code Tier.SUPPLY} reads its whole brand — the Expert
+	 * Network Manager has three case transitions that must load the case to act on it. They need
+	 * the row; they must not receive the client on it.
+	 *
+	 * <p><strong>Lives here rather than on a controller</strong> so the field projection and the
+	 * document routes cannot answer it differently. It was a package-private helper in
+	 * {@code CaseController} until the presigned-URL route needed it from the service layer — and a
+	 * service reaching into a controller for an authorisation rule is the direction that produces
+	 * two copies of it.
+	 */
+	public boolean seesCaseContent() {
+		return tier != Tier.SUPPLY;
+	}
+
 	/** How wide a role reads. Anything but {@code ALL} is brand-locked. */
 	public enum Tier {
 		/** Every brand. GM only. */

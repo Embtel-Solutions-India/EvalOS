@@ -60,7 +60,6 @@ public class GhlOpportunityHandler {
 			VisaCategory visaCategory,
 			UUID selectedExpertId,
 			Instant deadline,
-			String driveLink,
 			String invoiceRef,
 			String campaignAttribution,
 			/**
@@ -151,7 +150,6 @@ public class GhlOpportunityHandler {
 				payload.opportunity().ghlOpportunityId(),
 				payload.opportunity().amount(),
 				payload.deadline(),
-				payload.driveLink(),
 				payload.invoiceRef(),
 				payload.campaignAttribution(),
 				payload.notes());

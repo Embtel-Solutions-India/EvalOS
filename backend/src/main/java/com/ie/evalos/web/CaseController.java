@@ -83,7 +83,8 @@ public class CaseController {
 	/**
 	 * Whether this caller may see who the client is and what the case says.
 	 *
-	 * <p>Gates {@code clientName}, {@code driveLink} and {@code draftLink} on both the board
+	 * <p>Gates {@code clientName} and {@code draftLink} — and, since Unit 30, the document routes
+	 * through {@code Role.seesCaseContent} — on both the board
 	 * projection and the detail one.
 	 *
 	 * <p><strong>Derived from the scope tier rather than written as a role set</strong>, unlike
@@ -97,11 +98,13 @@ public class CaseController {
 	 * load the case to act on it. They need the row; they must not receive the client on it.
 	 */
 	static boolean seesCaseContent(Role role) {
-		return role.tier() != Role.Tier.SUPPLY;
+		// One home for the rule (Role), one caller-friendly name here. The document routes ask
+		// Role directly, from the service layer where the check has to live.
+		return role.seesCaseContent();
 	}
 
 	/**
-	 * The case as staff read it. No {@code pm_strategy_notes} and no drive link: this
+	 * The case as staff read it. No {@code pm_strategy_notes} and no documents: this
 	 * is the board/list projection, and the detail view is Unit 09.
 	 */
 	public record CaseSummary(
@@ -201,11 +204,9 @@ public class CaseController {
 	public record CaseDetail(
 			CaseSummary summary,
 			String clientName,
-			/** The client's own document folder. Staff-only, and never sent to the client portal. */
-			String driveLink,
 			/**
 			 * The drafted letter (Unit 14). What {@code DraftPanel} links to, and the only link the
-			 * client portal shows — {@code driveLink} above is a different thing and is not a
+			 * client portal shows — the client's own documents are a different thing and not a
 			 * fallback for it.
 			 */
 			String draftLink,
@@ -227,7 +228,7 @@ public class CaseController {
 			/** Whether this caller may write the notes, so the client need not re-derive the rule. */
 			boolean mayEditStrategyNotes,
 			/**
-			 * Whether this caller may see {@code clientName}, {@code driveLink} and
+			 * Whether this caller may see {@code clientName} and
 			 * {@code draftLink}, stated rather than inferred from their absence.
 			 *
 			 * <p>Same reasoning as {@link #maySeeStrategyNotes}, and here it is load-bearing:
@@ -250,7 +251,6 @@ public class CaseController {
 					// CaseSummary carries no client identity of its own — checked, not assumed.
 					CaseSummary.of(subject, ctx),
 					seesContent ? context.clientName() : null,
-					seesContent ? subject.getDriveLink() : null,
 					seesContent ? subject.getDraftLink() : null,
 					// expertName and expertTier are deliberately NOT projected: the supply-side
 					// role's whole job is the expert, and the roster is already theirs to read.
@@ -444,14 +444,31 @@ public class CaseController {
 	 *                       roster endpoint it may not be allowed to read.
 	 */
 	public record DocumentVersion(UUID id, int version, String status, String uploadedByName,
-			Instant uploadedAt, String notes, String reviewComment) {
+			Instant uploadedAt, String notes, String reviewComment, String filename) {
 
 		static DocumentVersion of(CaseLifecycleService.Version version) {
 			CaseDocument document = version.document();
+			// **No object key.** It is an internal address; a client-side copy of it is a pointer
+			// somebody will eventually try to turn into a URL. The filename is what a human reads.
 			return new DocumentVersion(document.getId(), document.getVersion(), document.getStatus().name(),
 					version.uploadedByName(), document.getUploadedAt(), document.getNotes(),
-					document.getReviewComment());
+					document.getReviewComment(), document.getFilename());
 		}
+	}
+
+	/**
+	 * A 5-minute URL for one of this case's documents (Unit 30).
+	 *
+	 * <p>No {@code @PreAuthorize}, like every other read here: the gate is the scoped load inside
+	 * the service, which runs before the URL exists. See {@code CaseLifecycleService.readUrl}.
+	 */
+	@GetMapping("/{id}/documents/{documentId}/url")
+	public ApiResponse<ReadUrl> documentUrl(@PathVariable UUID id, @PathVariable UUID documentId) {
+		return ApiResponse.ok(new ReadUrl(lifecycle.readUrl(id, documentId)));
+	}
+
+	/** @param url expires in five minutes. Never stored — a stored one is a stored credential. */
+	public record ReadUrl(String url) {
 	}
 
 	@PostMapping("/{id}/assign-pm")

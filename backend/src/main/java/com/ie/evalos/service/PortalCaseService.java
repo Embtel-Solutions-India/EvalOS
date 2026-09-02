@@ -5,6 +5,17 @@ import java.util.Optional;
 import java.util.UUID;
 
 import com.ie.evalos.common.ForbiddenException;
+import com.ie.evalos.domain.ActorType;
+import com.ie.evalos.domain.PortalAudience;
+import com.ie.evalos.domain.AuditAction;
+import com.ie.evalos.domain.CaseDocument;
+import com.ie.evalos.domain.ChecklistItemStatus;
+import com.ie.evalos.domain.DocumentChecklistItem;
+import com.ie.evalos.domain.DocumentKind;
+import com.ie.evalos.domain.IllegalTransitionException;
+import com.ie.evalos.integration.DocumentStore;
+import com.ie.evalos.repository.CaseDocumentRepository;
+import com.ie.evalos.repository.DocumentChecklistItemRepository;
 import com.ie.evalos.domain.Case;
 import com.ie.evalos.domain.ClientApprovalStatus;
 import com.ie.evalos.domain.ContactSnapshot;
@@ -42,7 +53,7 @@ public class PortalCaseService {
 	 * <p>Deliberately absent, each because it belongs to somebody else: {@code deal_value},
 	 * {@code pm_strategy_notes}, the expert's name and institution, {@code invoice_ref},
 	 * {@code campaign_attribution}, every assignment field, the audit timeline, the document
-	 * checklist, and <strong>{@code drive_link}</strong> — which is the client's own document
+	 * checklist, and <strong>the client's own documents</strong> — which are their own document
 	 * folder and is never sent here, not renamed, not aliased and not defaulted to when
 	 * {@code draftLink} is missing.
 	 *
@@ -70,15 +81,28 @@ public class PortalCaseService {
 
 	private final CaseRepository cases;
 	private final ContactSnapshotRepository contacts;
-	private final ExpertRepository experts;
 	private final CaseLifecycleService lifecycle;
+	private final DocumentChecklistItemRepository checklistItems;
+	private final CaseDocumentRepository documents;
+	private final DocumentStore store;
+	private final AuditService audit;
 
-	PortalCaseService(CaseRepository cases, ContactSnapshotRepository contacts, ExpertRepository experts,
-			CaseLifecycleService lifecycle) {
+	PortalCaseService(CaseRepository cases, ContactSnapshotRepository contacts,
+			CaseLifecycleService lifecycle, DocumentChecklistItemRepository checklistItems,
+			CaseDocumentRepository documents, DocumentStore store, AuditService audit) {
 		this.cases = cases;
 		this.contacts = contacts;
-		this.experts = experts;
 		this.lifecycle = lifecycle;
+		this.checklistItems = checklistItems;
+		this.documents = documents;
+		this.store = store;
+		this.audit = audit;
+	}
+
+	private static void requireState(boolean condition, String why) {
+		if (!condition) {
+			throw new IllegalTransitionException(why);
+		}
 	}
 
 	/**
@@ -121,6 +145,95 @@ public class PortalCaseService {
 				subject.getDraftVersionCount(),
 				subject.getClientApprovalStatus(),
 				subject.getClientApprovalStatus() == ClientApprovalStatus.PENDING);
+	}
+
+	/**
+	 * The client uploads one document against one checklist item (Unit 30).
+	 *
+	 * <p><strong>No file on disk and no blob column — but the part IS buffered in heap, and the
+	 * distinction matters.</strong> {@code spring.servlet.multipart.file-size-threshold} equals
+	 * {@code max-file-size}, so the container holds the whole part in memory rather than spooling
+	 * it to a temp file; {@code getInputStream()} therefore reads from a byte array, not a socket.
+	 * That is a deliberate trade for invariant 14's "hosts no files" — see the comment on that
+	 * block — and it bounds heap exposure at the upload cap. What this method adds is that EvalOS
+	 * makes <em>no further copy</em>: the stream goes straight to S3 and nothing is retained after.
+	 *
+	 * <p><strong>Object first, row second, and the order is the whole design.</strong> The reverse
+	 * leaves a row pointing at an object that does not exist — a broken link on the Coordinator's
+	 * screen, and one they cannot fix. This order can leave an orphaned object if the transaction
+	 * then fails: invisible, cheap, and swept by a bucket lifecycle rule. <strong>Prefer the orphan
+	 * to the dangling pointer.</strong>
+	 *
+	 * <p><strong>Never overwrites.</strong> Every upload mints a new document id and therefore a
+	 * new key. A client replacing a rejected transcript adds a version; it does not destroy the one
+	 * the Coordinator rejected, which is the evidence of why they rejected it.
+	 *
+	 * <p>The checklist item moves to {@code UPLOADED} — the vocabulary Unit 10 already has, which
+	 * is why this unit adds no status value.
+	 */
+	@Transactional
+	public CaseDocument upload(PortalPrincipal principal, UUID checklistItemId, String filename,
+			String contentType, long size, java.io.InputStream body) {
+
+		Case subject = cases.findById(principal.caseId())
+				.orElseThrow(() -> new java.util.NoSuchElementException("No case " + principal.caseId()));
+
+		DocumentChecklistItem item = checklistItems.findById(checklistItemId)
+				.filter(row -> row.getCaseId() != null && row.getCaseId().equals(subject.getId()))
+				.orElseThrow(() -> new IllegalTransitionException(
+						"that checklist item is not on this case"));
+
+		// **The client id comes off the case's contact, never off the request.** A key built from
+		// anything the caller sent would let one client write into another's prefix.
+		String ghlContactId = Optional.ofNullable(subject.getContactId())
+				.flatMap(contacts::findById)
+				.map(ContactSnapshot::getGhlContactId)
+				.orElse(null);
+		requireState(ghlContactId != null,
+				"this case has no linked GHL contact, so there is nowhere to file the document");
+
+		UUID documentId = UUID.randomUUID();
+		String key = DocumentStore.clientKey(subject.getBrandId(), ghlContactId, documentId);
+		store.put(key, body, size, contentType);
+
+		CaseDocument document = new CaseDocument(subject.getBrandId(), subject.getId(),
+				DocumentKind.CLIENT_UPLOAD, nextVersion(subject.getId()), null, ActorType.CLIENT,
+				item.getLabel());
+		document.setObjectKey(key);
+		document.setFilename(filename);
+		documents.save(document);
+
+		item.markStatus(ChecklistItemStatus.UPLOADED);
+		checklistItems.save(item);
+
+		// The `after` snapshot names the item and the file, not the object key: a key is an
+		// internal address and the trail is read by people asking what the client sent.
+		audit.recordPortalEvent(subject.getBrandId(), PortalAudience.CLIENT, "CASE", subject.getId(),
+				AuditAction.UPDATED, null,
+				java.util.Map.of("uploaded", filename, "checklistItem", String.valueOf(item.getLabel())));
+		return document;
+	}
+
+	/**
+	 * The next version number for this case's client uploads.
+	 *
+	 * <p>A client upload has no counter on the case the way a draft does, so this reads the highest
+	 * and adds one. <strong>The race is closed by {@code uq_case_document_version}</strong>: two
+	 * simultaneous uploads on one case both read N, both try N+1, and the database refuses the
+	 * second.
+	 *
+	 * <p><strong>There is no retry, and this comment used to claim there was.</strong> The loser
+	 * gets a 500 and its object is left orphaned in S3 — which is the cheap failure by design (see
+	 * {@link #upload}: prefer the orphan to the dangling pointer), but the client has to upload
+	 * again. Acceptable because one client uploading two documents at the same instant to the same
+	 * case is rare; <strong>if it stops being rare, catch the constraint violation and retry rather
+	 * than taking a lock</strong>, which would serialise every upload to buy nothing the index does
+	 * not already guarantee.
+	 */
+	private int nextVersion(UUID caseId) {
+		return documents.findFirstByCaseIdAndKindOrderByVersionDesc(caseId, DocumentKind.CLIENT_UPLOAD)
+				.map(latest -> latest.getVersion() + 1)
+				.orElse(1);
 	}
 
 	/**

@@ -1,6 +1,17 @@
 # Unit 30 — S3 document store, and the shared client identity
 
-> **Status: SPECCED (2026-09-02), not built.** This is a **pivot spec**: it replaces a
+> **Status: BUILT 2026-09-02 (core).** Drive is gone; S3 is in. Built: `DocumentStore` (put +
+> presign, no delete/list), the portal upload, the presigned read with the scope check ahead of
+> it, brand-first keys, scoped CORS, `V34` dropping `drive_link`, and the frontend document list.
+> **Not built:** the expert's signed-letter upload (Unit 15's endpoint), and a content-sniffing
+> allowlist on upload — the declared content type is recorded, not trusted.
+>
+> **Open question (b) answered in the key format:** `{brandId}/client/{ghlContactId}/{documentId}`
+> and `{brandId}/case/{caseId}/{folder}/{documentId}`. Brand first, because every other store
+> enforces brand at the row and a prefix is S3's equivalent; the object name is the document's own
+> id, which closes path traversal, collisions and PII-in-the-key at once.
+>
+> **Originally: SPECCED (2026-09-02), not built.** This is a **pivot spec**: it replaces a
 > decision that is already in the codebase, so it is written and agreed before any code
 > moves. It supersedes the Google Drive document architecture wherever the two disagree.
 >

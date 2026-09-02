@@ -23,10 +23,9 @@ export type CaseDetail = {
   }
   clientName: string | null
   /** The client's own document folder. Staff-only — it is never sent to the client portal. */
-  driveLink: string | null
   /**
    * The drafted letter (Unit 14). What `DraftPanel` links to, and the only link the client's own
-   * portal shows. `driveLink` above is a different thing and is deliberately not a fallback: it is
+   * portal shows. It is deliberately not a fallback for the client's own documents, which are
    * the folder holding this client's passport scans, whose sharing EvalOS does not control.
    */
   draftLink: string | null
@@ -54,7 +53,7 @@ export type CaseDetail = {
   expertSelectionRationale: string | null
   maySeeExpertRationale: boolean
   /**
-   * Whether the server sent `clientName`, `driveLink` and `draftLink` at all.
+   * Whether the server sent `clientName` and `draftLink` at all.
    *
    * Stated for the same reason `maySeeStrategyNotes` is, and here it is load-bearing rather
    * than tidy: `clientName` is null both when withheld and when no contact is linked to the
@@ -164,8 +163,31 @@ export type DraftVersion = {
   notes: string | null
   /** The reviewer's comment on THIS version, stamped by the transition that ruled on it. */
   reviewComment: string | null
+  /** As uploaded. Null for a draft submitted before Unit 30, which carried a link and no file. */
+  filename: string | null
 }
 
 export async function fetchDraftVersions(caseId: string, signal?: AbortSignal): Promise<DraftVersion[]> {
-  return unwrap<DraftVersion[]>(api.get(`/cases/${caseId}/documents`, { params: { kind: 'DRAFT' }, signal }))
+  return fetchCaseDocuments(caseId, 'DRAFT', signal)
+}
+
+/** One kind's versions, newest first. `DraftVersion` is the row shape for every kind. */
+export async function fetchCaseDocuments(
+  caseId: string,
+  kind: 'DRAFT' | 'CLIENT_UPLOAD' | 'SIGNED_LETTER',
+  signal?: AbortSignal,
+): Promise<DraftVersion[]> {
+  return unwrap<DraftVersion[]>(api.get(`/cases/${caseId}/documents`, { params: { kind }, signal }))
+}
+
+/**
+ * A 5-minute URL for one document (Unit 30).
+ *
+ * **Fetched at the moment of the click, never stored.** A presigned URL held in component state
+ * would expire while the page sits open, and a user clicking a dead link cannot tell that from a
+ * missing document. Ask, then open.
+ */
+export async function fetchDocumentUrl(caseId: string, documentId: string): Promise<string> {
+  const { url } = await unwrap<{ url: string }>(api.get(`/cases/${caseId}/documents/${documentId}/url`))
+  return url
 }

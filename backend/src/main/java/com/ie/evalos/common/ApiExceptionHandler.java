@@ -2,7 +2,7 @@ package com.ie.evalos.common;
 
 import com.fasterxml.jackson.databind.exc.InvalidFormatException;
 import com.ie.evalos.domain.IllegalTransitionException;
-import com.ie.evalos.integration.DriveUnavailableException;
+import com.ie.evalos.integration.DocumentStoreUnavailableException;
 import com.ie.evalos.integration.GhlUnavailableException;
 import com.ie.evalos.webhook.WebhookRejected;
 
@@ -127,33 +127,28 @@ public class ApiExceptionHandler {
 		return ResponseEntity.status(ex.status()).body(ApiResponse.error(ex.code(), ex.getMessage()));
 	}
 
+
 	/**
-	 * Google Drive did not take the document (Unit 13).
+	 * The document store did not answer.
 	 *
-	 * <p>502 rather than 500, because the fault is upstream and the distinction is what tells
-	 * the PM to try again instead of reporting a bug. The message is the exception's own and
-	 * is deliberately incapable of naming a case or a folder — the client already knows which
-	 * case it asked about, and the folder id is in the log, where the person who has to go and
-	 * fix the sharing can find it.
-	 *
-	 * <p><strong>Nothing in EvalOS changed.</strong> The profile is generated from the roster
-	 * row on every request, so there is nothing to roll back, and the audit row is written
-	 * only after a successful upload.
+	 * <p><strong>Nothing in EvalOS changed.</strong> A failed put saves nothing and a failed
+	 * presign hands out nothing, so a 502 tells the caller to retry rather than to report a bug.
+	 * Took over the slot {@code DriveUnavailableException} held until Unit 30.
 	 */
-	@ExceptionHandler(DriveUnavailableException.class)
-	public ResponseEntity<ApiResponse<Void>> onDriveUnavailable(DriveUnavailableException ex) {
-		log.error("Google Drive write failed", ex);
+	@ExceptionHandler(DocumentStoreUnavailableException.class)
+	public ResponseEntity<ApiResponse<Void>> onDocumentStoreUnavailable(DocumentStoreUnavailableException ex) {
+		log.error("Document store call failed", ex);
 		return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
-				.body(ApiResponse.error("DRIVE_UNAVAILABLE", ex.getMessage()));
+				.body(ApiResponse.error("DOCUMENT_STORE_UNAVAILABLE", ex.getMessage()));
 	}
 
 	/**
-	 * The same shape as the Drive case above, for the same reason: an upstream that did not
+	 * An upstream that did not
 	 * answer is a 502, and the distinction from a 500 is what tells the reader to try again
 	 * rather than to report a bug.
 	 *
-	 * <p>Kept as its own handler rather than folded in with Drive, so the error code names which
-	 * upstream failed. "DRIVE_UNAVAILABLE" on a marketing screen would send whoever reads the
+	 * <p>Kept as its own handler rather than folded in with the document store, so the error code
+	 * names which upstream failed. A storage error on a marketing screen would send whoever reads the
 	 * log at the wrong integration.
 	 *
 	 * <p><strong>Nothing in EvalOS changed.</strong> Every GHL read this covers feeds a view; the

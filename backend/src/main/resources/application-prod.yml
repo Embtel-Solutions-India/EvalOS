@@ -8,20 +8,12 @@ spring:
     show-sql: false
 
 evalos:
-  drive:
-    # Restated here rather than inherited silently: this profile's convention is that
-    # every value comes from the environment, so the one setting that makes a missing
-    # Google service-account key a boot failure should be visible in the file a
-    # deployer reads. GOOGLE_DRIVE_KEY_JSON or GOOGLE_APPLICATION_CREDENTIALS must be
-    # set, and the grant behind it must be per brand-folder-tree — a service account
-    # with blanket access to both brands' Drives is a cross-brand hole outside the
-    # database that no brand_id predicate can close.
-    #
-    # Three units write through this key now, not one: Unit 13's redacted profile, Unit
-    # 21's client document upload and Unit 15's signed letter. Since the e-signature
-    # provider was dropped it is the only external credential the production path needs.
-    required: true
   portal:
+    # Must name the deployed portal origin. **No default, so a missing value fails the boot** —
+    # which is what the comment used to claim while the value carried an empty default and booted
+    # happily into a portal where every cross-origin call was rejected. A CORS refusal surfaces in
+    # the browser as something that looks like an auth problem, so "loud" has to mean at startup.
+    allowed-origins: ${EVALOS_PORTAL_ORIGINS}
     # No default, on purpose, and this is a change: the base profile defaults this to the
     # Vite dev server because that is correct on every developer's laptop, which makes it
     # actively dangerous in production. An unset value there does not fail — it mints
@@ -33,8 +25,13 @@ evalos:
     # forgets it must fail to start rather than run on a guess. This is the client- and
     # expert-facing origin, not the API's.
     base-url: ${PORTAL_BASE_URL}
+  s3:
+    # Required in a deployed environment. Absent, every document route answers 502 and the boot log
+    # says which variable is missing.
+    bucket: ${EVALOS_S3_BUCKET:}
+    region: ${EVALOS_S3_REGION:}
   ghl:
-    # Every `evalos.ghl.*` value, listed for the reason `drive.required` above is restated: this
+    # Every `evalos.ghl.*` value, listed in one place: this
     # profile's convention is that a deployer can see what they are expected to set. The
     # reasoning for each lives in `application.yml`; only what matters to a deployment is here.
     base-url: ${GHL_API_BASE_URL:https://services.leadconnectorhq.com}
