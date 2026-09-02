@@ -74,11 +74,11 @@ public class NavBadgeService {
 			if (subject.getPoolStatus() == PoolStatus.IN_POOL) {
 				unassigned++;
 			}
-			if (subject.getCurrentStage() == Stage.DRAFT_GENERATION
-					&& subject.getPmApprovalStatus() == PmApprovalStatus.PENDING) {
+			// Unit 31: one stage, no sub-status join.
+			if (subject.getCurrentStage() == Stage.DRAFT_REVIEW) {
 				drafts++;
 			}
-			if (subject.getCurrentStage() == Stage.FINAL_DELIVERY) {
+			if (subject.getCurrentStage() == Stage.READY_TO_DELIVER) {
 				ready++;
 			}
 			if (subject.getCurrentStage() == Stage.DOC_COLLECTION) {

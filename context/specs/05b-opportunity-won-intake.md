@@ -127,46 +127,94 @@ flowchart LR
 
 ## Payload contract
 
-Modelled on the shape that already works for `contact.created` — `event_type` and
-`event_id` are the **gateway's** fields at the top level, `service_type` is
-top-level, and the person is nested under `contact`. v2.0 adds an `opportunity`
-block and drops `quote_amount`, because the won opportunity's `amount` is what was
-actually collected, not a quote.
+**Confirmed against a live delivery, 2026-09-02.** The nested `opportunity` /
+`contact` envelope this spec originally assumed does not exist and never did. The
+Custom Webhook action is wired to GHL's **Contact lookup**, so what it posts is a
+contact record — the person, flat at the top level, and nothing else:
 
 ```json
 {
-  "event_type": "opportunity.won",
-  "event_id": "evt-<unique>",
-  "opportunity": {
-    "ghl_opportunity_id": "opp-<unique>",
-    "amount": 900,
-    "status": "won"
-  },
-  "contact": {
-    "ghl_contact_id": "ghl-<unique>",
-    "full_name": "Anita Rao",
-    "email": "<unique>@example.test",
-    "client_type": "INDIVIDUAL",
-    "source": "WEBSITE"
-  },
-  "service_type": "EXPERT_OPINION_LETTER",
-  "visa_category": "EB2_NIW",
-  "invoice_ref": "INV-0001",
-  "drive_link": "https://drive.google.com/drive/folders/<anything>"
+  "contact_id": "NbJ72PwZKN26IMzEYntf",
+  "first_name": "Tomy",
+  "last_name": "Varghese",
+  "full_name": "Tomy Varghese",
+  "email": "tvarghese@wisc.edu",
+  "tags": "2_sep_2026_6_32_am",
+  "date_created": "2026-09-02T01:03:25.791Z",
+  "full_address": "",
+  "contact_type": "lead",
+  "location": { "name": "International Evaluations", "id": "kBumF0uUOmMBB5bneYjx" },
+  "workflow": { "id": "3089c141-…", "name": "Webhook for Case creation in EvalOS" },
+  "contact": { "attributionSource": { "sessionSource": "CRM UI", "medium": "csv_import" } },
+  "attributionSource": {},
+  "customData": {
+    "event_type": "opportunity.won",
+    "event_id": "",
+    "service_type": "EXPERT_OPINION_LETTER",
+    "opportunity_id": "opp-<unique>",
+    "amount": 900
+  }
 }
 ```
 
-- Without `event_type` → `400 MISSING_EVENT_TYPE`. Without `event_id` *and*
-  `webhook_id` → `400 MISSING_EXTERNAL_ID`. Never key idempotency on a bare `id` or
-  on `ghl_opportunity_id` — both are resource ids, and the second would make a
-  legitimately re-won opportunity look like a duplicate delivery.
-- `invoice_ref` is optional. `amount` is required and must be positive: a won
-  opportunity with no money on it is a data error in GHL, not a free case.
-- **The field names above are still an assumption**, exactly as they were in 05a.
-  Confine them to `GhlOpportunityHandler.OpportunityWon` so a correction is one
-  file. The open question in `progress-tracker.md` now reads: which GHL workflow
-  event actually fires on Won, and what it calls the opportunity's amount and id.
-  The signature half of that question is closed — there is no inbound signature.
+Three structural facts, and each one broke something:
+
+1. **The contact is flat.** `contact_id`, `first_name`, `last_name`, `full_name`,
+   `email`, `phone`. There *is* a `contact` key and it is **not** the contact — it
+   holds attribution data. Nothing reads it.
+2. **`customData` is the only part GHL does not write**, and it is camelCase unlike
+   every other key. `event_type` lives there, which is why *every* delivery used to
+   die at `400 MISSING_EVENT_TYPE` before reaching the handler.
+3. **GHL writes no deal.** No amount, no opportunity id, no delivery id, no service —
+   a contact record carries none of those, and `event_id` arrives as `""`. The deal
+   in the block above is the **workflow author's**, added in the GHL UI (done
+   2026-09-02). Every one of those keys can be deleted there without EvalOS hearing
+   about it, which is why all three are optional below.
+
+**`contact_id` is the client id** (invariant 7) and is the one field a delivery
+cannot be without → `400 VALIDATION_FAILED`. It is what `CaseIntakeService` upserts
+the `contact_snapshot` on, so a returning client **updates their snapshot** and opens
+a case rather than duplicating either.
+
+What the pipeline does with the rest:
+
+- `event_type` — top level **or** `customData`, both read. Absent from both →
+  `400 MISSING_EVENT_TYPE`.
+- `event_id` / `webhook_id` — same two places, and **absent or blank is no longer a
+  refusal.** GHL mints no delivery id, so the old `400 MISSING_EXTERNAL_ID` rejected
+  every real delivery and the paid case with it. The key falls back to
+  `sha256:<hex of the raw body>`: a retry replays the same bytes and still dedupes, a
+  different contact differs and gets its own row. Never key on a bare `id` or on an
+  opportunity id — both are resource ids, and the second would make a legitimately
+  re-won opportunity look like a duplicate.
+- `full_name` — used as sent; rebuilt from `first_name` + `last_name` when GHL sends
+  it blank (it sends `""` rather than omitting, as `full_address` shows). Still
+  `400 VALIDATION_FAILED` when all three are empty.
+- `service_type` — optional in `customData`, defaulting to `CREDENTIAL_EVALUATION`.
+  It is half the key of `V15`'s one-open-case-per-contact-per-service index, so **on
+  the default alone a client can only ever hold one open case at a time** — a second
+  purchase refreshes the first. An unreadable value is `400 MALFORMED_PAYLOAD`;
+  silently defaulting a typo would make a wrong case look deliberate.
+- `opportunity_id` / `amount` — optional in `customData`, and `amount` is
+  `@Positive` wherever present: a zero or a negative is a data error in the workflow,
+  not a free case. Absent, the case is created with `deal_value = null` rather than
+  refused — a won opportunity is already paid for, and losing it is the one
+  unacceptable outcome. **A delivery carrying neither leaves both alone on refresh**,
+  so a workflow that loses the fields cannot blank a figure that feeds revenue
+  recognition or the id Unit 18 closes on.
+- **Only these three are modelled.** Visa category, subtype, deadline, invoice ref,
+  expert and the intake note are not sent and are deliberately *not* declared as if
+  they were — a PM fills them in. Add a field when the workflow starts sending it,
+  not before.
+- Unknown keys — `location`, `workflow`, `tags`, `contact_type`, `date_created`,
+  `full_address`, `attributionSource`, `triggerData` — are ignored.
+
+`paid` / `paid_at` are still set by intake: the event type is the assertion that the
+money is in, and it is the only assertion available.
+
+The mapping stays confined to `GhlOpportunityHandler.OpportunityWon` so a further
+correction is one file. The open question about the payload shape in
+`progress-tracker.md` is now **closed**, as is the signature half of it.
 
 ---
 
@@ -299,8 +347,9 @@ case not-earned. Dropping the column would be a larger diff that buys nothing.
 7. `POST /api/cases/{id}/mark-paid` returns 404 — the route is gone — and no board
    action offers to record payment.
 8. An unknown endpoint token is `404 UNKNOWN_ENDPOINT`, and so is an inactive
-   brand's real token; a body with no `event_id`/`webhook_id` is `400`. **A delivery
-   carrying no `X-Evalos-Signature` is accepted** — no signature is read or required.
+   brand's real token; a body with no `event_id`/`webhook_id` is **accepted** and
+   keyed on a digest of its own bytes. **A delivery carrying no
+   `X-Evalos-Signature` is accepted** — no signature is read or required.
 9. `./mvnw verify` green, including the DB-gated checks against local Postgres with
    `V24` applied and `ddl-auto=validate` passing.
 

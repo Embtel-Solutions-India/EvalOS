@@ -1,6 +1,5 @@
 import { api, unwrap } from '../../lib/api'
 import type { BoardCard } from '../board/boardRules'
-import type { DriveWriteView, ProfileView } from './redactionRules'
 
 /**
  * The case detail reads and its one write.
@@ -24,10 +23,9 @@ export type CaseDetail = {
   }
   clientName: string | null
   /** The client's own document folder. Staff-only — it is never sent to the client portal. */
-  driveLink: string | null
   /**
    * The drafted letter (Unit 14). What `DraftPanel` links to, and the only link the client's own
-   * portal shows. `driveLink` above is a different thing and is deliberately not a fallback: it is
+   * portal shows. It is deliberately not a fallback for the client's own documents, which are
    * the folder holding this client's passport scans, whose sharing EvalOS does not control.
    */
   draftLink: string | null
@@ -46,7 +44,16 @@ export type CaseDetail = {
   /** The server's own answer, so the client does not re-derive the write rule. */
   mayEditStrategyNotes: boolean
   /**
-   * Whether the server sent `clientName`, `driveLink` and `draftLink` at all.
+   * Why this expert was chosen (Unit 32).
+   *
+   * **A different field from `pmStrategyNotes` and a different audience**: the ENM and the Brand
+   * Manager read this and not the notes, the Case Manager reads the notes and not this. Null when
+   * withheld and null when unwritten, which is why the flag below is stated rather than inferred.
+   */
+  expertSelectionRationale: string | null
+  maySeeExpertRationale: boolean
+  /**
+   * Whether the server sent `clientName` and `draftLink` at all.
    *
    * Stated for the same reason `maySeeStrategyNotes` is, and here it is load-bearing rather
    * than tidy: `clientName` is null both when withheld and when no contact is linked to the
@@ -123,27 +130,6 @@ export async function saveStrategyNotes(caseId: string, pmStrategyNotes: string)
 }
 
 /**
- * The expert profile (Unit 13). Generated on demand and stored nowhere, so these are reads
- * with no cache: the document reflects the roster row as it is now, which is the point.
- */
-export async function fetchRedactedProfile(caseId: string, signal?: AbortSignal): Promise<ProfileView> {
-  return unwrap<ProfileView>(api.get(`/cases/${caseId}/expert-profile/redacted`, { signal }))
-}
-
-/** 409 unless the case is paid — the panel shows the server's own reason. */
-export async function fetchFullProfile(caseId: string, signal?: AbortSignal): Promise<ProfileView> {
-  return unwrap<ProfileView>(api.get(`/cases/${caseId}/expert-profile/full`, { signal }))
-}
-
-/**
- * A POST because it has an outward effect: a document appears in a folder the client can be
- * pointed at, and the server audits it.
- */
-export async function fileProfileToDrive(caseId: string): Promise<DriveWriteView> {
-  return unwrap<DriveWriteView>(api.post(`/cases/${caseId}/expert-profile/redacted/to-drive`))
-}
-
-/**
  * The client portal link (Unit 14).
  *
  * `openedAt` is the token's own last-seen and **moves on every visit** — it answers "when did they
@@ -164,4 +150,67 @@ export async function fetchPortalLink(caseId: string, signal?: AbortSignal): Pro
 /** Re-minting revokes the previous link immediately, which the panel warns about first. */
 export async function mintPortalLink(caseId: string): Promise<MintedLink> {
   return unwrap<MintedLink>(api.post(`/cases/${caseId}/portal-link`))
+}
+
+/** One version on the draft history (Unit 32). */
+export type DraftVersion = {
+  id: string
+  version: number
+  status: string
+  /** Null for a client or expert upload, which have no staff row — not an error. */
+  uploadedByName: string | null
+  uploadedAt: string
+  notes: string | null
+  /** The reviewer's comment on THIS version, stamped by the transition that ruled on it. */
+  reviewComment: string | null
+  /** As uploaded. Null for a draft submitted before Unit 30, which carried a link and no file. */
+  filename: string | null
+}
+
+export async function fetchDraftVersions(caseId: string, signal?: AbortSignal): Promise<DraftVersion[]> {
+  return fetchCaseDocuments(caseId, 'DRAFT', signal)
+}
+
+/** One kind's versions, newest first. `DraftVersion` is the row shape for every kind. */
+export async function fetchCaseDocuments(
+  caseId: string,
+  kind: 'DRAFT' | 'CLIENT_UPLOAD' | 'SIGNED_LETTER',
+  signal?: AbortSignal,
+): Promise<DraftVersion[]> {
+  return unwrap<DraftVersion[]>(api.get(`/cases/${caseId}/documents`, { params: { kind }, signal }))
+}
+
+/**
+ * A 5-minute URL for one document (Unit 30).
+ *
+ * **Fetched at the moment of the click, never stored.** A presigned URL held in component state
+ * would expire while the page sits open, and a user clicking a dead link cannot tell that from a
+ * missing document. Ask, then open.
+ */
+export async function fetchDocumentUrl(caseId: string, documentId: string): Promise<string> {
+  const { url } = await unwrap<{ url: string }>(api.get(`/cases/${caseId}/documents/${documentId}/url`))
+  return url
+}
+
+/** One case and the PM's guidance on it (Unit 32b). */
+export type CaseNotes = {
+  id: string
+  caseCode: string
+  clientName: string | null
+  serviceType: string | null
+  deadline: string | null
+  stage: string
+  /** Null when withheld AND null when unwritten, which is why the flag below is stated. */
+  pmStrategyNotes: string | null
+  maySeeNotes: boolean
+}
+
+/**
+ * Every case in the caller's scope with its strategy notes, in one request.
+ *
+ * Reuses the board's scoped read server-side, so this list and the board cannot disagree about
+ * which cases are the caller's.
+ */
+export async function fetchPmNotes(brandId: string | null, signal?: AbortSignal): Promise<CaseNotes[]> {
+  return unwrap<CaseNotes[]>(api.get('/cases/pm-notes', { params: brandId ? { brandId } : {}, signal }))
 }

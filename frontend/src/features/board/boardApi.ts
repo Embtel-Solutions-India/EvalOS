@@ -29,8 +29,18 @@ export async function fetchAssignable(role: Role, signal?: AbortSignal): Promise
   return members.map((member) => ({ id: member.id, label: member.displayName }))
 }
 
-export async function fetchAvailableExperts(signal?: AbortSignal): Promise<PickerOption[]> {
-  const experts = await unwrap<{ id: string; fullName: string }[]>(api.get('/experts', { signal }))
+/**
+ * The experts this case can be put to.
+ *
+ * **`forCase` is passed unconditionally, including for `assign-cm`.** The server drops the expert
+ * already on the case, which is the one `reassignExpert` answers 409 to; a case with no expert yet
+ * is a no-op, so there is nothing here to branch on. The client cannot apply this filter itself —
+ * `BoardCard` carries no `expertId`, deliberately.
+ */
+export async function fetchAvailableExperts(caseId: string, signal?: AbortSignal): Promise<PickerOption[]> {
+  const experts = await unwrap<{ id: string; fullName: string }[]>(
+    api.get('/experts', { params: { forCase: caseId }, signal }),
+  )
   return experts.map((expert) => ({ id: expert.id, label: expert.fullName ?? expert.id }))
 }
 

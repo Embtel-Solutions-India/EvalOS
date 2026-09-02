@@ -24,6 +24,7 @@ import {
   type BoardData,
   type QuickAction,
   type ServiceType,
+  cardsInColumn,
 } from './boardRules'
 
 /**
@@ -65,8 +66,7 @@ export default function BoardView() {
 
   const [state, setState] = useState<LoadState>({ status: 'loading' })
   const [pending, setPending] = useState<{ card: BoardCard; action: QuickAction } | null>(null)
-  const [busyCaseId, setBusyCaseId] = useState<string | null>(null)
-  const [cardErrors, setCardErrors] = useState<Record<string, string>>({})
+  const [actionError, setActionError] = useState<string | null>(null)
 
   // Board-local filters, held here rather than in the shell: they are this screen's, and
   // no other screen would read them.
@@ -107,26 +107,20 @@ export default function BoardView() {
    * Deliberately not an optimistic move: the server decides the target stage from its own
    * transition table, so guessing it here means guessing where the card lands and being
    * wrong on every guard (unpaid, checklist incomplete, wrong exception state). A refused
-   * action shows its reason on the card and nothing moves.
+   * action shows its reason above the pool and nothing moves.
+   *
+   * One error, not a map keyed by case: the pool is the only thing on this screen that acts
+   * now that the cards are read-only, and it can only be doing one assignment at a time.
    */
   const run = useCallback(
     async (card: BoardCard, action: QuickAction, values: Record<string, string>) => {
       setPending(null)
-      setBusyCaseId(card.id)
-      setCardErrors((previous) => {
-        const { [card.id]: _removed, ...rest } = previous
-        return rest
-      })
+      setActionError(null)
       try {
         await performAction(card.id, action, values)
         await load()
       } catch (error: unknown) {
-        setCardErrors((previous) => ({
-          ...previous,
-          [card.id]: error instanceof Error ? error.message : 'That action was refused',
-        }))
-      } finally {
-        setBusyCaseId(null)
+        setActionError(error instanceof Error ? error.message : 'That action was refused')
       }
     },
     [load],
@@ -205,7 +199,8 @@ export default function BoardView() {
   const board = state.data
   const columns = columnsFor(me.role).map((column) => ({
     ...column,
-    cards: visible(board.stages[column.stage] ?? []),
+    // A column can hold two stages (Unit 31), so its cards are the union.
+    cards: visible(cardsInColumn(board, column.stages)),
   }))
   const lanes = EXCEPTION_LANES.map((lane) => ({
     ...lane,
@@ -329,6 +324,16 @@ export default function BoardView() {
         </div>
       </header>
 
+      {actionError && (
+        <p
+          className="px-1 text-sm font-medium"
+          role="alert"
+          style={{ color: 'var(--status-red)' }}
+        >
+          {actionError} — nothing was changed.
+        </p>
+      )}
+
       {(SEES_POOL as readonly string[]).includes(me.role) && (
         <PoolLane
           cards={visible(pool)}
@@ -339,10 +344,10 @@ export default function BoardView() {
         />
       )}
 
-      <div className="scroll-slim flex gap-4 overflow-x-auto pb-2">
-        {columns.map(({ stage, label, access, step, cards }) => (
+      <div className="scroll-slim flex gap-3 overflow-x-auto pb-2">
+        {columns.map(({ stages, label, access, step, cards }) => (
           <StageColumn
-            key={stage}
+            key={stages.join('+')}
             label={label}
             step={step}
             count={cards.length}
@@ -350,15 +355,7 @@ export default function BoardView() {
             readOnly={access === 'status'}
           >
             {cards.map((card) => (
-              <CaseCard
-                key={card.id}
-                card={card}
-                actions={actionsFor(card, me.role)}
-                busy={busyCaseId === card.id}
-                mine={isMine(card)}
-                error={cardErrors[card.id] ?? null}
-                onAction={(action) => onAction(card, action)}
-              />
+              <CaseCard key={card.id} card={card} mine={isMine(card)} />
             ))}
           </StageColumn>
         ))}
@@ -373,19 +370,11 @@ export default function BoardView() {
             {lanes.reduce((total, lane) => total + lane.cards.length, 0)} held
           </span>
         </summary>
-        <div className="scroll-slim mt-3 flex gap-4 overflow-x-auto pb-2">
+        <div className="scroll-slim mt-3 flex gap-3 overflow-x-auto pb-2">
           {lanes.map(({ state: lane, label, cards }) => (
             <StageColumn key={lane} label={label} count={cards.length} mix={slaMix(cards)} tone="lane">
               {cards.map((card) => (
-                <CaseCard
-                  key={card.id}
-                  card={card}
-                  actions={actionsFor(card, me.role)}
-                  busy={busyCaseId === card.id}
-                  mine={isMine(card)}
-                  error={cardErrors[card.id] ?? null}
-                  onAction={(action) => onAction(card, action)}
-                />
+                <CaseCard key={card.id} card={card} mine={isMine(card)} />
               ))}
             </StageColumn>
           ))}

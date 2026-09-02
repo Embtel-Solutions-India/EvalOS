@@ -1,5 +1,17 @@
 # Unit 14 — Client draft-review portal
 
+> **⚠ AMENDED by Unit 30 (2026-09-02) — the token model is untouched.** This unit's
+> substance — the `portal_access` token, the separate filter chain, the portal principal,
+> the `CLIENT` audit actor — is unchanged and is still what Unit 15 reuses. Two things
+> around it changed: `draft_link` now holds an **S3 object key** rather than a Drive URL
+> (a different kind of value in the same column, so nothing may guess which it holds), and
+> the draft is opened through a **5-minute presigned URL** instead of a permanent link.
+>
+> **Do not confuse this portal with the "Client Portal" in Unit 30.** This one is EvalOS's
+> passwordless draft-review link. That one is a **separate application** where clients sign
+> in with their Client ID and upload documents. They are two different surfaces for the
+> same person, and Unit 30's shared-identity contract is what ties them together.
+
 **Phase:** 2 — Connect the seams
 **Depends on:** 02 (a separate auth surface beside the staff chain), 04
 **Unlocks:** 15 (the expert portal reuses this unit's token model and portal

@@ -91,7 +91,6 @@ class ChecklistControllerTest {
 	@BeforeEach
 	void aCaseWithFourDocumentsThreeOfThemIn() {
 		Case subject = new Case(BRAND_IE, "IE-2026-0001", Stage.DOC_COLLECTION);
-		subject.setDriveLink("https://drive.example/abc");
 		subject.setStageEnteredAt(Instant.now().minus(30, ChronoUnit.HOURS));
 
 		List<DocumentChecklistItem> items = List.of(
@@ -151,12 +150,11 @@ class ChecklistControllerTest {
 	}
 
 	@Test
-	void theChecklistPayloadCarriesTheItemsTheCountsAndTheDriveLink() throws Exception {
+	void theChecklistPayloadCarriesTheItemsAndTheCounts() throws Exception {
 		mockMvc.perform(get("/api/cases/{id}/checklist", CASE_ID)
 				.header(HttpHeaders.AUTHORIZATION, bearer(Role.PROJECT_COORDINATOR)))
 				.andExpect(status().isOk())
 				.andExpect(jsonPath("$.success").value(true))
-				.andExpect(jsonPath("$.data.driveLink").value("https://drive.example/abc"))
 				.andExpect(jsonPath("$.data.items.length()").value(4))
 				.andExpect(jsonPath("$.data.items[0].label").value("Passport"))
 				.andExpect(jsonPath("$.data.items[0].status").value("APPROVED"))

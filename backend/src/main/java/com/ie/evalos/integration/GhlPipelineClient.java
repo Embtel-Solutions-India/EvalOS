@@ -1,8 +1,6 @@
 package com.ie.evalos.integration;
 
 import java.math.BigDecimal;
-import java.time.Duration;
-import java.time.Instant;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
@@ -11,36 +9,40 @@ import java.util.Optional;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.http.client.ClientHttpRequestFactory;
-import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
-import org.springframework.web.client.RestClient;
-import org.springframework.web.client.RestClientException;
-import org.springframework.web.client.RestClientResponseException;
-import org.springframework.web.util.UriBuilder;
 
 /**
  * The one thing EvalOS reads out of GHL's public API: a sales pipeline and the opportunities
  * standing in it.
  *
- * <p><strong>This is a read and nothing else</strong> — no writes, no stage moves, no
- * opportunity creation. GHL stays the front of house (leads, sales, invoicing) and EvalOS
- * takes custody at Handoff A; the marketing view this client feeds is a <em>window</em> onto
- * GHL's own funnel, not a second copy of it. That is deliberate and is the boundary to keep:
+ * <p><strong>This class is a read and nothing else</strong> — no writes, no stage moves, no
+ * opportunity creation. It feeds the three funnel <em>windows</em> (Units 24, 26, 27), and
+ * keeping it read-only is what makes those screens provably incapable of changing what they
+ * display.
+ *
+ * <p><strong>And it is a fact about EvalOS again.</strong> Unit 29 briefly amended the invariant
+ * this was quoting — a sales desk wrote to GHL through a client of its own — and that desk was
+ * removed. {@link GhlHttp} now exposes no write verb at all, so the old sentence holds once more:
  * the moment something here writes back, two systems own one pipeline.
+ *
+ * <p>The {@code RestClient}, the rate limiter and the error mapping live in {@link GhlHttp}, and
+ * stay there now that this is the only client again — the 100-req/10s limit belongs to the GHL
+ * <em>location</em>, not to whichever bean is reading it, so a pacer folded back in here is one
+ * the next client would silently duplicate.
  *
  * <p><strong>Called inline from a request path, which the standards normally forbid.</strong>
  * The rule in {@code code-standards.md} is about a <em>lifecycle side effect</em> — those go
  * through a domain event so they cannot be lost. A dashboard read has nothing to lose: if this
  * call fails the screen says so and nothing in EvalOS is left half-done. Two things keep it
- * inside invariant 6's "one bounded request": the timeout below, and the service's cache, so a
+ * inside invariant 6's "one bounded request": {@link GhlHttp}'s timeout, and the service's cache, so a
  * room full of open dashboards is not a room full of GHL calls.
  *
- * <p>No opportunity rows are persisted <em>by this client</em>. There is no
- * {@code ghl_opportunity} table and there should not be —
+ * <p>No opportunity rows are persisted <em>by this client, or by any other</em>. There is no
+ * {@code ghl_opportunity} table and there must not be —
  * a stage a salesperson dragged five seconds ago would already be wrong in it, and the contact
- * snapshots EvalOS <em>does</em> hold are the ones a case needs, arriving by webhook.
+ * snapshots EvalOS <em>does</em> hold are the ones a case needs, arriving by webhook. Unit 29
+ * promoted that decision from incidental to load-bearing: a remote control with no copy has
+ * nothing to fall out of date.
  */
 @Component
 public class GhlPipelineClient {
@@ -79,25 +81,6 @@ public class GhlPipelineClient {
 	 */
 	private static final int MAX_PAGES = 1_500;
 
-	/**
-	 * The gap this client leaves between two GHL requests, so a long read cannot trip the rate
-	 * limit.
-	 *
-	 * <p><strong>GHL allows 100 requests per 10 seconds per location</strong> (its own OAuth FAQ),
-	 * which is one every 100ms. 110ms leaves a little headroom for clock granularity and for the
-	 * fact that the limit is shared with anything else pointed at this location.
-	 *
-	 * <p><strong>This is what makes the Year window possible at all, and also what makes it
-	 * slow.</strong> A year of the email funnel is 11,443 opportunities — 115 cursor pages, which
-	 * cannot be parallelised because each page's cursor comes out of the one before it. So the
-	 * floor is ~13s of pacing whatever else is true, which is past the browser's own timeout and
-	 * why {@code MarketingPipelineService} does that read on a background thread instead.
-	 *
-	 * <p>Spaced rather than a token bucket on purpose: a bucket lets 100 requests go at once and
-	 * then stalls for ten seconds, which is the same average and a much worse neighbour.
-	 */
-	private static final Duration MIN_REQUEST_INTERVAL = Duration.ofMillis(110);
-
 	/** A pipeline and its stages. GHL carries the display order in {@code position}. */
 	public record Pipeline(String id, String name, List<Stage> stages) {
 
@@ -124,58 +107,10 @@ public class GhlPipelineClient {
 	public record Opportunity(String pipelineStageId, BigDecimal monetaryValue, String source) {
 	}
 
-	private final RestClient client;
-	private final String locationId;
-	private final boolean configured;
+	private final GhlHttp http;
 
-	/**
-	 * When the next request may go out. Guarded by {@code this} because the limit is per
-	 * <em>location</em>, so it is shared by every caller and every thread — a per-thread or
-	 * per-call limiter would let two concurrent reads each stay under the limit while together
-	 * being over it.
-	 */
-	private Instant nextRequestAt = Instant.EPOCH;
-
-	GhlPipelineClient(@Value("${evalos.ghl.base-url}") String baseUrl,
-			@Value("${evalos.ghl.api-version}") String apiVersion,
-			@Value("${evalos.ghl.token:}") String token,
-			@Value("${evalos.ghl.location-id:}") String locationId,
-			@Value("${evalos.ghl.timeout}") Duration timeout) {
-		this.locationId = locationId;
-		this.configured = !token.isBlank() && !locationId.isBlank();
-
-		if (!configured) {
-			log.warn("No GHL API token or location configured — the marketing pipeline view will "
-					+ "answer 502. Set GHL_API_TOKEN and GHL_LOCATION_ID to enable it.");
-		}
-		else {
-			// **What this line exists for.** A 401 from GHL has two causes that look identical
-			// from the outside: a token that is wrong or truncated, and a perfectly good token
-			// pointed at a location it is not authorised for. Working that out cost two restarts,
-			// because nothing said which location the JVM had actually resolved — an environment
-			// variable silently overrides the profile default, and a stale one in the shell is
-			// invisible.
-			//
-			// The location id is logged in full: it is an identifier that appears in every GHL
-			// URL and grants nothing on its own. The token is logged as a LENGTH ONLY — enough to
-			// catch a truncated or empty-quoted paste, and never the value. A prefix would leak a
-			// little for no extra diagnostic value, since length already separates the failures
-			// that actually happen.
-			log.info("GHL read configured: locationId={}, token length={}", locationId, token.length());
-		}
-
-		this.client = RestClient.builder()
-				.baseUrl(baseUrl)
-				// Bounded for the reason the class comment gives: an outbound call on a request
-				// path with the library's own defaults is how "one bounded request" quietly
-				// becomes long-lived work.
-				.requestFactory(bounded(timeout))
-				.defaultHeader("Authorization", "Bearer " + token)
-				// GHL's public API is versioned by header, not by path. Pinned in configuration
-				// so a version bump is an environment change and not a build.
-				.defaultHeader("Version", apiVersion)
-				.defaultHeader("Accept", "application/json")
-				.build();
+	GhlPipelineClient(GhlHttp http) {
+		this.http = http;
 	}
 
 	/**
@@ -203,8 +138,8 @@ public class GhlPipelineClient {
 		// Both spellings are pinned in `GhlPipelineClientHttpTest`, so aligning either one to the
 		// other fails the build. GHL's own `nextPageUrl` spells the search params camelCase, which
 		// is what made the wrong guess look well-evidenced — only a live call settled it.
-		PipelinesResponse response = get(PipelinesResponse.class,
-				(uri) -> uri.path("/opportunities/pipelines").queryParam("locationId", locationId).build());
+		PipelinesResponse response = http.get(PipelinesResponse.class,
+				(uri) -> uri.path("/opportunities/pipelines").queryParam("locationId", http.locationId()).build());
 
 		String wanted = squashed(name);
 		return Optional.ofNullable(response.pipelines()).orElse(List.of()).stream()
@@ -247,14 +182,14 @@ public class GhlPipelineClient {
 		for (int page = 0; page < MAX_PAGES; page++) {
 			Long cursor = startAfter;
 			String cursorId = startAfterId;
-			SearchResponse response = get(SearchResponse.class, (uri) -> {
+			SearchResponse response = http.get(SearchResponse.class, (uri) -> {
 				// **Three conventions on one endpoint, all verified against the live API.**
 				// `location_id`/`pipeline_id` are snake_case (camelCase -> 422 "property
 				// locationId should not exist"), while `date`/`endDate` and the cursor params are
 				// camelCase (snake_case -> 422 "property start_date should not exist"). GHL is
 				// simply inconsistent here; none of this is a typo to align.
 				uri.path("/opportunities/search")
-						.queryParam("location_id", locationId)
+						.queryParam("location_id", http.locationId())
 						.queryParam("pipeline_id", pipelineId)
 						.queryParam("limit", PAGE_SIZE)
 						// **`date`/`endDate` filter on the opportunity's `createdAt`** — confirmed
@@ -317,8 +252,8 @@ public class GhlPipelineClient {
 	 *                which is also what keeps the parts adding up to the whole on screen
 	 */
 	public int countIn(String pipelineId, String stageId, LocalDate from, LocalDate to) {
-		SearchResponse response = get(SearchResponse.class, (uri) -> uri.path("/opportunities/search")
-				.queryParam("location_id", locationId)
+		SearchResponse response = http.get(SearchResponse.class, (uri) -> uri.path("/opportunities/search")
+				.queryParam("location_id", http.locationId())
 				.queryParam("pipeline_id", pipelineId)
 				// **`pipeline_stage_id`, snake_case — with the same two snake_case names and the
 				// same camelCase dates as the read above.** Verified against the live API, after
@@ -364,91 +299,6 @@ public class GhlPipelineClient {
 	 */
 	private static String squashed(String name) {
 		return name == null ? "" : name.strip().replaceAll("\\s+", " ");
-	}
-
-	private <T> T get(Class<T> type, java.util.function.Function<UriBuilder, java.net.URI> uri) {
-		if (!configured) {
-			// Both variable names are echoed, for the reason GoogleDriveConfig's boot message
-			// echoes its two: whoever sees this is provisioning an environment and needs to know
-			// which one to set. Neither name is a secret, and the token's *value* never appears
-			// here — it is a default header on the client and is in no message this class writes.
-			throw new GhlUnavailableException(
-					"GHL is not configured in this environment, so no pipeline could be read. "
-							+ "Set GHL_API_TOKEN and GHL_LOCATION_ID.");
-		}
-		pace();
-		try {
-			T body = client.get().uri(uri).retrieve().body(type);
-			if (body == null) {
-				throw new GhlUnavailableException("GHL returned an empty response");
-			}
-			return body;
-		}
-		// RestClientException covers the refused request, the transport failure and the timeout
-		// set above — exactly the cases a 502 describes. A RuntimeException from anywhere else is
-		// our bug and is left to propagate: answering 502 would tell the reader to retry
-		// something no retry can fix, and hide a defect behind an upstream-fault status.
-		catch (RestClientException ex) {
-			// **The upstream status goes in the message, and that is a deliberate change.**
-			// This used to say only "GHL did not answer the pipeline read", which collapsed a 401
-			// (token missing the opportunities.readonly scope), a 404 (wrong location) and a
-			// timeout into one indistinguishable string — and the first live attempt was spent
-			// guessing between them. A status code is not a secret and it is the one fact that
-			// separates "fix the grant" from "fix the id" from "try again".
-			String upstream = ex instanceof RestClientResponseException refused
-					? "GHL refused the pipeline read with HTTP " + refused.getStatusCode().value()
-					: "GHL did not answer the pipeline read";
-
-			// The token is never logged — it is a default header on the client and appears in no
-			// message this class writes. GHL's response *body* is logged, because that is where
-			// the actual reason lives ("scope not authorized" and the like) and it is server-side
-			// only: it never reaches the API response.
-			if (ex instanceof RestClientResponseException refused) {
-				log.error("GHL refused the pipeline read: HTTP {} body={}", refused.getStatusCode().value(),
-						refused.getResponseBodyAsString(), ex);
-			}
-			else {
-				log.error("GHL pipeline read failed with no response", ex);
-			}
-			throw new GhlUnavailableException(upstream, ex);
-		}
-	}
-
-	/**
-	 * Waits, if it has to, until this request's turn under {@link #MIN_REQUEST_INTERVAL}.
-	 *
-	 * <p>The slot is claimed inside the lock and the sleep happens outside it, so N waiting
-	 * threads take N distinct slots and go out spaced rather than all waking together and firing
-	 * at once. Sleeping while holding the lock would serialise the <em>waiting</em> too and make
-	 * the last caller wait for the sum of everyone else's sleeps.
-	 */
-	private void pace() {
-		Instant slot;
-		synchronized (this) {
-			Instant now = Instant.now();
-			slot = nextRequestAt.isAfter(now) ? nextRequestAt : now;
-			nextRequestAt = slot.plus(MIN_REQUEST_INTERVAL);
-		}
-		Duration wait = Duration.between(Instant.now(), slot);
-		if (wait.isNegative() || wait.isZero()) {
-			return;
-		}
-		try {
-			Thread.sleep(wait);
-		}
-		catch (InterruptedException ex) {
-			// Restore the flag and stop: the only thing that interrupts this is shutdown, and a
-			// swallowed interrupt there means the JVM waits on a read nobody is going to read.
-			Thread.currentThread().interrupt();
-			throw new GhlUnavailableException("Interrupted while pacing GHL reads", ex);
-		}
-	}
-
-	private static ClientHttpRequestFactory bounded(Duration timeout) {
-		SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
-		factory.setConnectTimeout(timeout);
-		factory.setReadTimeout(timeout);
-		return factory;
 	}
 
 	// --- wire shapes -----------------------------------------------------------------

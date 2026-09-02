@@ -14,6 +14,9 @@ import com.ie.evalos.domain.Expert;
 import com.ie.evalos.domain.PortalAudience;
 import com.ie.evalos.domain.ServiceType;
 import com.ie.evalos.domain.Stage;
+import com.ie.evalos.integration.DocumentStore;
+import com.ie.evalos.repository.CaseDocumentRepository;
+import com.ie.evalos.repository.DocumentChecklistItemRepository;
 import com.ie.evalos.repository.CaseRepository;
 import com.ie.evalos.repository.ContactSnapshotRepository;
 import com.ie.evalos.repository.ExpertRepository;
@@ -46,13 +49,14 @@ class PortalCaseServiceTest {
 
 	private final CaseRepository cases = mock(CaseRepository.class);
 	private final ContactSnapshotRepository contacts = mock(ContactSnapshotRepository.class);
-	private final ExpertRepository experts = mock(ExpertRepository.class);
-	private final RedactedProfileService profiles = mock(RedactedProfileService.class);
+	private final DocumentChecklistItemRepository checklistItems = mock(DocumentChecklistItemRepository.class);
+	private final CaseDocumentRepository documents = mock(CaseDocumentRepository.class);
+	private final DocumentStore store = mock(DocumentStore.class);
+	private final AuditService audit = mock(AuditService.class);
 	private final CaseLifecycleService lifecycle = mock(CaseLifecycleService.class);
 	private final ObjectMapper objectMapper = new ObjectMapper();
 
-	private final PortalCaseService portal = new PortalCaseService(
-			cases, contacts, experts, profiles, lifecycle);
+	private final PortalCaseService portal = new PortalCaseService(cases, contacts, lifecycle, checklistItems, documents, store, audit);
 
 	private Case subject;
 
@@ -62,7 +66,7 @@ class PortalCaseServiceTest {
 
 	@BeforeEach
 	void aCaseWithADraftWithTheClient() {
-		subject = new Case(BRAND, "IE-2026-0001", Stage.DRAFT_GENERATION);
+		subject = new Case(BRAND, "IE-2026-0001", Stage.DRAFT_IN_PROGRESS);
 		subject.setServiceType(ServiceType.EXPERT_OPINION_LETTER);
 		subject.setDraftLink("https://docs.google.com/document/d/draft/edit");
 		subject.setDraftVersionCount(2);
@@ -75,7 +79,6 @@ class PortalCaseServiceTest {
 		subject.setPmStrategyNotes("lead with the publications");
 		subject.setInvoiceRef("INV-0001");
 		subject.setCampaignAttribution("google-ads/spring");
-		subject.setDriveLink("https://drive.google.com/drive/folders/client-documents");
 		subject.setAssignedPm(UUID.randomUUID());
 		subject.setAssignedCm(UUID.randomUUID());
 		subject.setAssignedCoordinator(UUID.randomUUID());
@@ -88,13 +91,13 @@ class PortalCaseServiceTest {
 		given(contacts.findById(CONTACT_ID)).willReturn(Optional.of(contact));
 	}
 
+	/**
+	 * An expert with an unmistakable name, so the assertion that nothing about them reaches the
+	 * client is a real grep rather than a formality. The portal no longer reads the roster at all
+	 * (Unit 13 removed), which is exactly what the test below proves.
+	 */
 	private void withAnAssignedExpert() {
-		UUID expertId = UUID.randomUUID();
-		subject.setExpertId(expertId);
-		Expert expert = new Expert(BRAND, "Dr Ada Lovelace");
-		given(experts.findById(expertId)).willReturn(Optional.of(expert));
-		given(profiles.redactedFor(subject, expert)).willReturn(
-				new RedactedProfileService.Profile("<html>credentials only</html>", "Expert AK"));
+		subject.setExpertId(UUID.randomUUID());
 	}
 
 	private String serialized(PortalCaseService.ClientDraftView view) {
@@ -107,7 +110,7 @@ class PortalCaseServiceTest {
 	}
 
 	@Test
-	void theClientSeesTheirOwnDraftAndTheAnonymousProfile() {
+	void theClientSeesTheirOwnDraftAndNothingAboutTheExpert() {
 		withAnAssignedExpert();
 
 		PortalCaseService.ClientDraftView view = portal.clientView(tokenFor(BRAND, CASE_ID));
@@ -119,8 +122,6 @@ class PortalCaseServiceTest {
 		assertThat(view.draftVersion()).isEqualTo(2);
 		assertThat(view.approvalStatus()).isEqualTo(ClientApprovalStatus.PENDING);
 		assertThat(view.awaitingAnswer()).isTrue();
-		assertThat(view.expertReference()).isEqualTo("Expert AK");
-		assertThat(view.expertProfile()).doesNotContain("Ada Lovelace");
 	}
 
 	/** The criterion, as a grep over the wire format. */
@@ -141,7 +142,7 @@ class PortalCaseServiceTest {
 		assertThat(PortalCaseService.ClientDraftView.class.getRecordComponents())
 				.extracting(java.lang.reflect.RecordComponent::getName)
 				.containsExactly("clientName", "serviceType", "caseReference", "draftLink", "draftVersion",
-						"approvalStatus", "awaitingAnswer", "expertProfile", "expertReference");
+						"approvalStatus", "awaitingAnswer");
 	}
 
 	/**
@@ -160,13 +161,23 @@ class PortalCaseServiceTest {
 		assertThat(serialized(view)).doesNotContain("client-documents");
 	}
 
-	/** No expert yet is a missing profile, not a failed read. */
+	/**
+	 * <strong>The client is told nothing about the expert at all (Unit 13 removed).</strong>
+	 *
+	 * <p>This payload used to carry a redacted profile, and the test above asserted the redaction
+	 * held. Withholding identity entirely is the stronger position, and this is the assertion that
+	 * keeps it: an expert with a very identifiable name is on the case, and no part of them reaches
+	 * the wire.
+	 */
 	@Test
-	void aCaseWithNoExpertHasNoProfile() {
+	void nothingAboutTheExpertReachesTheClient() {
+		withAnAssignedExpert();
+
 		PortalCaseService.ClientDraftView view = portal.clientView(tokenFor(BRAND, CASE_ID));
 
-		assertThat(view.expertProfile()).isNull();
-		assertThat(view.expertReference()).isNull();
+		assertThat(serialized(view))
+				.doesNotContain("Ada Lovelace")
+				.doesNotContain("expert");
 	}
 
 	/**

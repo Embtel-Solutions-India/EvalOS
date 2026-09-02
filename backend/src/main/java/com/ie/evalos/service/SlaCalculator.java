@@ -24,12 +24,42 @@ public class SlaCalculator {
 
 	/** Doc collection: three business days, and a business day is eight hours. */
 	private static final Duration DOC_COLLECTION = Duration.ofHours(24);
-	private static final Duration EXPERT_ASSIGNMENT = Duration.ofHours(4);
+	private static final Duration PM_REVIEW = Duration.ofHours(4);
 	private static final Duration FIRST_DRAFT = Duration.ofHours(48);
-	private static final Duration PM_REVIEW = Duration.ofHours(12);
+	private static final Duration DRAFT_REVIEW = Duration.ofHours(12);
+	/** Holding an approved draft is a forwarding step, not work — the same budget as delivery. */
+	private static final Duration READY_TO_SEND = Duration.ofHours(2);
 	private static final Duration CLIENT_REVIEW = Duration.ofHours(48);
-	private static final Duration EXPERT_SIGN = Duration.ofHours(24);
-	private static final Duration QC_DELIVERY = Duration.ofHours(2);
+	/** The CM forwarding a locked letter to the expert. Half a business day is generous for a send. */
+	private static final Duration CLIENT_APPROVAL = Duration.ofHours(4);
+
+	/**
+	 * <strong>One business day, and it used to be three.</strong>
+	 *
+	 * <p>This was {@code ofHours(24)}, which on the {@link BusinessCalendar} is 24 <em>business</em>
+	 * hours — three working days, as {@code DOC_COLLECTION} above says in as many words. The
+	 * business means one day when it says "24 hours" to an expert, and the 20-hour warning it
+	 * asked for was landing two and a half working days in.
+	 *
+	 * <p><strong>Business hours rather than wall clock, and the reason is not comfort.</strong> A
+	 * letter sent Friday 16:00 would be overdue Saturday 16:00 on a wall clock, and
+	 * {@code expert_case_offer} counts {@code TIMED_OUT} into the acceptance rate
+	 * {@code ExpertMatchService} ranks on — so a wall clock would systematically demote good
+	 * experts for EvalOS's own sending time. Eight business hours gives Tuesday 10:00 → Wednesday
+	 * 10:00, exactly what wall-clock "24 hours" gives on a working day, while Friday 16:00 falls
+	 * due Monday afternoon.
+	 *
+	 * <p>The separate 20-hour warning is deliberately not a constant: {@link #AT_RISK_FRACTION} is
+	 * already 0.75, and 0.75 × 8 = 6 business hours leaves two hours' notice. Two thresholds for
+	 * one idea is two things that drift.
+	 *
+	 * <p><strong>Say "one business day", never "24 hours".</strong> A label beside a clock that
+	 * means something else is how the old value survived unnoticed.
+	 */
+	private static final Duration EXPERT_SIGN = Duration.ofHours(8);
+
+	private static final Duration FINAL_QC = Duration.ofHours(2);
+	private static final Duration READY_TO_DELIVER = Duration.ofHours(2);
 
 	/** At risk once three quarters of the budget is spent. */
 	private static final double AT_RISK_FRACTION = 0.75;
@@ -67,26 +97,18 @@ public class SlaCalculator {
 		}
 		return switch (subject.getCurrentStage()) {
 			case DOC_COLLECTION -> DOC_COLLECTION;
-			case EXPERT_ASSIGNMENT -> EXPERT_ASSIGNMENT;
-			case DRAFT_GENERATION -> draftBudget(subject);
+			case PM_REVIEW -> PM_REVIEW;
+			case DRAFT_IN_PROGRESS -> FIRST_DRAFT;
+			case DRAFT_REVIEW -> DRAFT_REVIEW;
+			case READY_TO_SEND -> READY_TO_SEND;
+			case CLIENT_REVIEW -> CLIENT_REVIEW;
+			case CLIENT_APPROVAL -> CLIENT_APPROVAL;
 			case EXPERT_SIGNING -> EXPERT_SIGN;
-			case FINAL_DELIVERY -> QC_DELIVERY;
-			case CLOSED -> null;
+			case FINAL_QC -> FINAL_QC;
+			case READY_TO_DELIVER -> READY_TO_DELIVER;
+			// Nothing is owed to anybody once the client has their letter. Closing is bookkeeping,
+			// and a red case whose work is finished is noise on a board that uses red for risk.
+			case DELIVERED, CLOSED -> null;
 		};
-	}
-
-	/**
-	 * Inside DRAFT_GENERATION the clock belongs to whichever loop is waiting, and
-	 * it restarts each round — {@code stage_entered_at} is restamped by every
-	 * transition, so a second PM review gets its own twelve hours.
-	 */
-	private static Duration draftBudget(Case subject) {
-		if (subject.getClientApprovalStatus() == ClientApprovalStatus.PENDING) {
-			return CLIENT_REVIEW;
-		}
-		if (subject.getPmApprovalStatus() == PmApprovalStatus.PENDING) {
-			return PM_REVIEW;
-		}
-		return FIRST_DRAFT;
 	}
 }

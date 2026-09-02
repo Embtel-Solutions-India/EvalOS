@@ -1,5 +1,14 @@
 # Unit 17 — Dashboards (read models)
 
+> **⚠ AMENDED by Unit 31 — Production lifecycle v2 (SPECCED 2026-09-02, not built).**
+> The pipeline becomes **twelve explicit stages, each with one owner, one primary action and
+> one next owner**, drawn as **eight board columns**. Three facts this codebase currently carries as *sub-statuses on a stage*
+> — PM approval, client approval, and the QC/delivered split — become **stages**, and the
+> draft becomes a **versioned file** rather than a link. Two transitions are added
+> (`qc-fail`, `send-to-expert`) and several gates move, notably the Case Manager taking
+> ownership of expert signing and reassignment.
+> **Read `context/specs/31-production-lifecycle-v2.md` before changing anything below.**
+
 **Phase:** 2 — Connect the seams — final unit
 **Depends on:** 04 (the lifecycle and its timestamps), 11 (the roster), 16 (money
 out)
@@ -382,7 +391,7 @@ Two things that apply to every role:
 | **Cases inbox** — newly won cases arriving from sales: client, client type, service type, deadline, documents-received status, sales notes | **gap** — and note two things: "payment confirmed" is now always true (spec `05b` creates the case paid), so it is a column of yeses and should be dropped rather than rendered; and **no field carries GHL's sales notes** today, so either intake starts carrying one or the column comes out |
 | **Production board (Kanban)** — 8 columns | **built** as 5 stage columns + sub-status chips. The 8-column reading is a derived grouping — see `08-production-board.md` |
 | **Case manager workload** — cases per CM, capacity RAG, unassigned flagged | **gap**. One grouped count over `evalos_case` by `assigned_cm`, the `ExpertLoadService` shape |
-| **Expert assignment board** — cases waiting for an expert, expert availability, responses overdue >24h in red with a reassign prompt | **partly** — `AvailabilityBoard` and the Unit 12 shortlist are built; "cases waiting" and the overdue flag are **gap** (the flag needs Unit 15) |
+| **Expert assignment board** — cases waiting for an expert, expert availability, responses overdue >24h in red with a reassign prompt | **built** as `/expert-assignment` (PM-only). Waiting = the `EXPERT_ASSIGNMENT` bucket + the `EXPERT_DECLINED_REMATCHING` lane; overdue = `slaStatus OVERDUE` on `EXPERT_SIGNING`, which *is* `SlaCalculator`'s 24h `EXPERT_SIGN` budget; availability reuses Unit 11's `AvailabilityBoard`. The prompt needed Unit 15's `EXPERT_TIMED_OUT`, which was built with it — the one transition that opens `REASSIGN_EXPERT` without falsifying a decline |
 | **Deadline view** — every case by deadline, overdue/today/this week, filter by CM or service | **gap** |
 | **Draft review queue** — drafts awaiting this PM, oldest first | **gap** |
 

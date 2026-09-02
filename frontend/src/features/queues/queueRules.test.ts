@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { BoardCard, BoardData, Stage } from '../board/boardRules'
-import { draftReviewQueue, inboxQueue } from './queueRules'
+import { awaitingExpert, draftReviewQueue, expertSignOverdue, inboxQueue, myDrafts } from './queueRules'
 
 const NOW = new Date('2026-07-08T12:00:00Z')
 
@@ -13,7 +13,7 @@ function card(overrides: Partial<BoardCard>): BoardCard {
     deadline: null,
     slaStatus: 'ON_TRACK',
     deadlineRisk: 'ON_TRACK',
-    currentStage: 'DRAFT_GENERATION',
+    currentStage: 'DRAFT_IN_PROGRESS',
     exceptionState: 'NONE',
     poolStatus: 'ASSIGNED',
     assignedPm: null,
@@ -27,13 +27,20 @@ function card(overrides: Partial<BoardCard>): BoardCard {
   }
 }
 
-function board(cards: BoardCard[], stage: Stage = 'DRAFT_GENERATION'): BoardData {
+function board(cards: BoardCard[], stage: Stage = 'DRAFT_IN_PROGRESS'): BoardData {
   const stages = {
     DOC_COLLECTION: [],
-    EXPERT_ASSIGNMENT: [],
-    DRAFT_GENERATION: [],
+    PM_REVIEW: [],
+    DRAFT_IN_PROGRESS: [],
+    DRAFT_REVIEW: [],
+    READY_TO_SEND: [],
+    CLIENT_REVIEW: [],
+    CLIENT_APPROVAL: [],
     EXPERT_SIGNING: [],
-    FINAL_DELIVERY: [],
+    FINAL_QC: [],
+    READY_TO_DELIVER: [],
+    DELIVERED: [],
+    CLOSED: [],
   } as BoardData['stages']
   stages[stage] = cards
   return {
@@ -125,5 +132,75 @@ describe('draftReviewQueue', () => {
     ])
 
     expect(draftReviewQueue(data).map((row) => row.caseCode)).toEqual(['waiting'])
+  })
+})
+
+describe('awaitingExpert', () => {
+  it('includes the rematch lane, which has left the stage buckets', () => {
+    const data = board([card({ caseCode: 'unstaffed', currentStage: 'PM_REVIEW' })], 'PM_REVIEW')
+    data.exceptions.EXPERT_DECLINED_REMATCHING = [
+      card({
+        caseCode: 'declined',
+        currentStage: 'EXPERT_SIGNING',
+        exceptionState: 'EXPERT_DECLINED_REMATCHING',
+        deadline: '2026-07-09T12:00:00Z',
+      }),
+    ]
+
+    // Deadline order, so the dated rematch leads the undated new case.
+    expect(awaitingExpert(data).map((row) => row.caseCode)).toEqual(['declined', 'unstaffed'])
+  })
+})
+
+describe('expertSignOverdue', () => {
+  it('takes the 24h budget from the stage SLA and not the deadline band', () => {
+    const data = board(
+      [
+        card({ caseCode: 'late', slaStatus: 'OVERDUE', expertSignStatus: 'PENDING', currentStage: 'EXPERT_SIGNING' }),
+        // Inside the budget, but its promised date is red: a different clock, and not this list's.
+        card({
+          caseCode: 'deadline-red',
+          slaStatus: 'ON_TRACK',
+          deadlineRisk: 'OVERDUE',
+          expertSignStatus: 'PENDING',
+          currentStage: 'EXPERT_SIGNING',
+        }),
+        // Answered. The stage clock still runs until QC, and that must not read as no response.
+        card({
+          caseCode: 'signed',
+          slaStatus: 'OVERDUE',
+          expertSignStatus: 'SIGNED',
+          currentStage: 'EXPERT_SIGNING',
+        }),
+      ],
+      'EXPERT_SIGNING',
+    )
+
+    expect(expertSignOverdue(data).map((row) => row.caseCode)).toEqual(['late'])
+  })
+})
+
+describe('myDrafts', () => {
+  it('puts a returned draft first, because that is the work for today', () => {
+    const data = board([card({ caseCode: 'in-flight', deadline: '2026-07-09T12:00:00Z' })], 'DRAFT_IN_PROGRESS')
+    data.stages.DRAFT_REVIEW = [
+      card({ caseCode: 'awaiting-pm', deadline: '2026-07-08T12:00:00Z' }),
+    ]
+    data.exceptions.EXPERT_DECLINED_REMATCHING = [
+      card({ caseCode: 'returned', pmApprovalStatus: 'RETURNED', deadline: '2026-07-20T12:00:00Z' }),
+    ]
+
+    // `returned` has the LATEST deadline and still leads: the grouping outranks the ordering,
+    // which is the whole point of the screen.
+    expect(myDrafts(data).map((row) => row.caseCode)).toEqual(['returned', 'awaiting-pm', 'in-flight'])
+  })
+
+  it('keeps a draft that is with the PM, which is where the CM looks for it', () => {
+    // Showing only DRAFT_IN_PROGRESS would empty the screen at exactly the moment a CM wants to
+    // know where the version they just submitted went.
+    const data = board([], 'DRAFT_IN_PROGRESS')
+    data.stages.DRAFT_REVIEW = [card({ caseCode: 'submitted' })]
+
+    expect(myDrafts(data).map((row) => row.caseCode)).toEqual(['submitted'])
   })
 })

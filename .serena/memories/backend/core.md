@@ -1,5 +1,47 @@
 # backend/ — Core
 
+> ## ⚠ SCOPE CUT 2026-09-02 — Units 13, 18 and 20 are REMOVED
+>
+> - **13 Redacted CV** (was built): deleted. `RedactedProfileService`,
+>   `ExpertProfileController`, `RedactedProfilePanel`, `redactionRules`, the
+>   `REDACTED_PROFILE` document kind, and the portal's `expertProfile` /
+>   `expertReference`. **The client is told nothing about the expert at all now.**
+>   `AuditAction.EXPORTED` is **kept** — the audit trail is append-only, so the enum must
+>   read every value any historical row carries. `mayMintPortalLink` moved to
+>   `client-portal/portalRules.ts` (it was Unit 14's rule, only sharing a file).
+> - **18 Outbound dispatcher + Handoff C** (never built): removed. **Two handoffs, not
+>   three. EvalOS emits NOTHING outbound.** Inbound GHL webhooks and read-only funnel pulls
+>   are the whole integration surface. The payout entry on delivery survives — that was
+>   Unit 16's. Telling GHL a case was delivered is now **manual**.
+> - **20 AI widgets** (never built): removed, and promoted to **invariant 15 — no AI makes
+>   a production decision and there is no AI in the system.** Unit 12's match engine is not
+>   an exception: declared factors, inspectable arithmetic, never auto-assigns, no model.
+>
+> **Consequences to carry:** invariant 14's "sends no email" is settled, not pending —
+> there is no outbound channel at all. Unit 30's PDF question is **closed by removal**: the
+> redacted profile was the only document EvalOS generated. And client-facing messages
+> (chases, "draft ready") have **no automated route** — manual in GHL, or they become
+> states in the client portal, which is still open.
+
+> ## ⚠ PIVOT: Google Drive → S3 document store (Unit 30, SPECCED 2026-09-02, NOT BUILT)
+>
+> **Read `context/specs/30-s3-document-store.md` before touching any document path.**
+> Everything below about Drive still describes the **code as it stands today** — the client,
+> the config, the columns are all still there. It no longer describes the **decision**.
+>
+> - Documents move to an **S3 bucket**. Google Drive leaves entirely: client, config,
+>   service account, dependency, `drive_link` column.
+> - **A separate Client Portal application writes client uploads**; EvalOS's credential is
+>   **read-only** on `client/{clientId}/`. EvalOS writes only under `case/{caseId}/`.
+> - `{clientId}` is **GHL's contact id** — one client across GHL, the Client Portal and
+>   EvalOS, no mapping table. **Email stays a fallback key (V27), never the identity.**
+> - Reads are **5-minute presigned URLs**, minted after the scope check, never stored.
+> - **Invariant 14 is amended and "No object storage" is deleted** from `architecture.md`.
+> - This **unblocks Units 13, 15 and 21**, which were all waiting on the Google service
+>   account. Unit 21 is reshaped: the upload leaves EvalOS.
+>
+> **Do not build new Drive work, and do not cite the Drive notes below as settled.**
+
 Spring Boot 3.5.16 / Java 21, base package `com.ie.evalos`, Maven Wrapper committed. **Units 01–10 +
 05a (all of Phase 1) and Units 11–12 are built**: config + response envelope, the tenancy/auth/RBAC
 spine, the domain schema, the case state machine + SLA, the inbound webhook gateway with Handoff A,
@@ -47,6 +89,20 @@ endpoint. A failed background read lands as `UNAVAILABLE` so a poller stops.
 **no write method, by design** — the token is `opportunities.readonly`, so read-only by grant *and*
 by code, and a mistake in either place is still not a write to a GHL pipeline. Four decisions in it
 worth knowing:
+
+> **⚠ One thing here outlived Unit 29, which was built and then removed.** The pacer lives in a
+> shared **`GhlHttp`** bean and this class **no longer owns a `RestClient` at all`**. `pace()`
+> synchronizes on `this` and GHL's 100-req/10s is per **location**, so a second client bean would
+> mean two pacers on one location — each under the limit, the pair over it. That is the same defect
+> this class's own comment warns about one scope out. `GhlHttp` stays extracted now that this is
+> the only client again: the limit belongs to the location, not to whoever is reading it, and
+> re-merging it is how the next client silently gets its own pacer. `GhlHttpTest` pins the shared
+> pacer across two instances of this class.
+>
+> **`GhlHttp` exposes `get` and nothing else.** Unit 29 gave it `post` and `put` for the sales
+> desk; both left with it, so the write capability is absent from the codebase rather than
+> present-and-unused. It is held by code alone — the credential still permits writes — so it is a
+> build-failing test. Do not add `post`, `put` or `delete` "for symmetry".
 
 - **Only three fields are bound off each opportunity** (`pipelineStageId`, `monetaryValue`,
   `source`). GHL's search response also carries every contact's name, email, phone and tags; a stage
@@ -360,7 +416,10 @@ frontend's typed mirror lives in `frontend/src/lib/api.ts`.
   normalises whitespace, so do not "fix" it**) — three names, **not** a list: a list
   needs a slug per entry to route and label it, and that slug is what the `Funnel` enum already is,
   `timeout` (10s, **per page**) and `cache-ttl` (`PT5M`). The token must be a GHL **Private
-  Integration Token scoped `opportunities.readonly` and nothing wider**.
+  Integration Token scoped `opportunities.readonly` and nothing wider**. (Unit 29a briefly widened
+  it to `opportunities.write` + `users.readonly` and added a `write-timeout`; the sales desk was
+  removed and both are gone. The *deployed* token may still carry the wider grant — which is why
+  read-only is asserted in `GhlHttpTest` against the code, not assumed from the credential.)
   **`location-id` is ONE location for the whole deployment — and note what that does NOT mean.**
   Each brand has its own GHL sub-account, so whatever is set here is **one brand's funnel, not a
   cross-brand total**. EvalOS has no mapping from a location to a brand, so it cannot say which

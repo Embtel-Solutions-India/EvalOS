@@ -1,5 +1,16 @@
 # Process & Automation — Production Process v2.0
 
+> **⚠ AMENDED by Unit 31 — Production lifecycle v2 (SPECCED 2026-09-02, not built).**
+> The workflow supplies a **complete event → owner → next stage → notification matrix**
+> — §30 and §35 of `31-production-lifecycle-v2.md` — which is this register's shape
+> applied to twelve stages instead of five. Reconcile the two before building: where they
+> differ, the A-numbers here are the older reading.
+>
+> **Two notifications have no event behind them today** and are added by Unit 31:
+> **QC failed → CM** (there is no `qc-fail` transition at all) and **sent to expert →
+> Expert + ENM** (nobody presses send; the case enters signing automatically). Both are
+> gaps in the current system, not merely relabelled rows.
+
 The business process EvalOS runs, and the automation register behind it. Sourced
 from the *International Evaluations CRM Build Spec* (June 2026) and reconciled
 against what the code actually does.
@@ -93,7 +104,8 @@ progress is read from `pm_approval_status` / `client_approval_status`, and
 `stage_entered_at` is restamped each round so a second round does not inherit the
 first one's spent clock.
 
-**"Comments visible inline on the draft" (A12) is Google Drive's own commenting** on
+**⚠ A12 is PARTLY covered — read the row carefully.** "Comments visible inline on the draft" rested
+on **Google Drive's own commenting** on
 the draft document. EvalOS records the PM's return reason and builds no annotation
 subsystem — the draft already lives somewhere that does this natively.
 
@@ -137,7 +149,7 @@ resolved by `RecipientResolver`.
 | **A09** | Docs not complete by day 3 → escalation to PM, flagged on the GM dashboard | `docs.escalation.day3` | *(new)* → **PM + GM** | **19** | **specced** |
 | **A10** | PM assigns case to CM → CM notified with PM notes, case in their queue | `expert.assigned` | `CASE_ASSIGNED` → assigned CM | 04 | **built** |
 | **A11** | CM submits draft → PM notified, draft at the top of the review queue | `draft.submitted` | `STAGE_CHANGED` → assigned PM | 04 | **built** *(queue view: Unit 17)* |
-| **A12** | PM returns draft with comments → CM notified, comments inline | `draft.returned` | `STAGE_CHANGED` → assigned CM | 04 | **built** *(inline = Drive)* |
+| **A12** | PM returns draft with comments → CM notified, comments inline | `draft.returned` | `STAGE_CHANGED` → assigned CM | 04, 32 | **partly**. Notification and return reason: **built**. Comments **per draft version**, stamped on `case_document.review_comment` and shown in the version history: **Unit 32**. Comments **positioned inside the document** (Drive's own feature, gone with Unit 30): **not covered and not planned** — anchors need a viewer that understands the file, which is a product rather than a migration |
 | **A13** | PM approves draft → Coordinator notified to share; client notified | `draft.pm_approved` + `draft.ready_for_client` | `STAGE_CHANGED` → Coordinators | 04 | **built** *(client leg: touchpoints)* |
 | **A14** | Client approves draft → CM notified to send to the expert | `draft.client_approved` | `STAGE_CHANGED` → assigned CM | 04/14 | **built** |
 | **A15** | Client requests revisions → CM notified, revision logged with a version number | `draft.revision_requested` | `STAGE_CHANGED` → assigned CM | 04/14 | **built** — `draft_version_count` |

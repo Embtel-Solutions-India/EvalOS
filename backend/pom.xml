@@ -19,9 +19,20 @@
 		<jjwt.version>0.13.0</jjwt.version>
 		<commons-csv.version>1.12.0</commons-csv.version>
 		<poi.version>5.4.1</poi.version>
-		<google-api-drive.version>v3-rev20260428-2.0.0</google-api-drive.version>
-		<google-auth.version>1.48.0</google-auth.version>
+		<aws-sdk.version>2.32.11</aws-sdk.version>
 	</properties>
+
+	<dependencyManagement>
+		<dependencies>
+			<dependency>
+				<groupId>software.amazon.awssdk</groupId>
+				<artifactId>bom</artifactId>
+				<version>${aws-sdk.version}</version>
+				<type>pom</type>
+				<scope>import</scope>
+			</dependency>
+		</dependencies>
+	</dependencyManagement>
 
 	<dependencies>
 		<dependency>
@@ -69,6 +80,20 @@
 			<groupId>org.flywaydb</groupId>
 			<artifactId>flyway-database-postgresql</artifactId>
 		</dependency>
+		<!--
+			The S3 document store (Unit 30). **One artifact, not two** — `S3Presigner` ships inside
+			`s3` in SDK v2; the separate `s3-presigner` artifact does not exist and asking for it
+			fails the build at pom parse. Presigning is not optional here: a document is read
+			through a short-lived URL issued after the scope check, never a permanent link stored
+			in a column.
+
+			The BOM pins the version so the transitive http-client and core artifacts cannot drift
+			apart — the failure that shows up as a NoSuchMethodError at runtime rather than at build.
+		-->
+		<dependency>
+			<groupId>software.amazon.awssdk</groupId>
+			<artifactId>s3</artifactId>
+		</dependency>
 		<dependency>
 			<groupId>org.postgresql</groupId>
 			<artifactId>postgresql</artifactId>
@@ -90,29 +115,6 @@
 			<groupId>org.apache.poi</groupId>
 			<artifactId>poi-ooxml</artifactId>
 			<version>${poi.version}</version>
-		</dependency>
-		<!--
-			Unit 13's Drive write, and the first outbound Google integration in EvalOS.
-			Installed here rather than earlier because until this unit `Case.driveLink`
-			was a string EvalOS stored and never dereferenced — see architecture.md's
-			stack table. Only integration/GoogleDriveClient and config/GoogleDriveConfig
-			touch either one.
-
-			No PDF library accompanies them, deliberately: the HTML is uploaded with a
-			target mime type of application/vnd.google-apps.document, so Drive converts
-			it to a Doc on the way in and its own export produces a PDF if one is ever
-			wanted. openhtmltopdf/PDFBox would be a dependency duplicating a feature of
-			an integration this unit already has.
-		-->
-		<dependency>
-			<groupId>com.google.apis</groupId>
-			<artifactId>google-api-services-drive</artifactId>
-			<version>${google-api-drive.version}</version>
-		</dependency>
-		<dependency>
-			<groupId>com.google.auth</groupId>
-			<artifactId>google-auth-library-oauth2-http</artifactId>
-			<version>${google-auth.version}</version>
 		</dependency>
 		<dependency>
 			<groupId>org.springframework.boot</groupId>

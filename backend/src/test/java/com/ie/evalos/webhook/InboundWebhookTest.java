@@ -6,6 +6,7 @@ import java.util.UUID;
 
 import com.ie.evalos.common.ApiErrors;
 import com.ie.evalos.domain.Brand;
+import com.ie.evalos.domain.ServiceType;
 import com.ie.evalos.domain.WebhookEvent;
 import com.ie.evalos.domain.WebhookSource;
 import com.ie.evalos.repository.BrandRepository;
@@ -90,29 +91,49 @@ class InboundWebhookTest {
 		given(webhookEvents.save(any(WebhookEvent.class))).willAnswer(call -> call.getArgument(0));
 	}
 
-	/** A realistic opportunity.won body, snake_case as GHL sends it. */
+	/**
+	 * A live GHL delivery, copied rather than imagined. The Custom Webhook action is wired to
+	 * the <strong>Contact</strong> lookup, so everything GHL writes is the contact record, flat
+	 * at the top level — it contains no opportunity block, no amount and no delivery id,
+	 * because a contact has none of those. The deal is in {@code customData}, which is the one
+	 * part of the body the workflow author fills in; GHL still sends the {@code event_id}
+	 * beside it empty.
+	 *
+	 * <p>Note {@code contact} is present and is <em>not</em> the contact — it holds attribution
+	 * data. Nothing reads it, and this body is what proves it.
+	 */
+	private static final String WON_BODY = """
+			{
+			  "contact_id": "NbJ72PwZKN26IMzEYntf",
+			  "first_name": "Anita",
+			  "last_name": "Rao",
+			  "full_name": "Anita Rao",
+			  "email": "anita@raolaw.example",
+			  "tags": "2_sep_2026_6_32_am",
+			  "date_created": "2026-09-02T01:03:25.791Z",
+			  "full_address": "",
+			  "contact_type": "lead",
+			  "location": {"name": "International Evaluations", "id": "kBumF0uUOmMBB5bneYjx"},
+			  "workflow": {"id": "3089c141", "name": "Webhook for Case creation in EvalOS"},
+			  "triggerData": {},
+			  "contact": {"attributionSource": {"sessionSource": "CRM UI", "medium": "csv_import"}},
+			  "attributionSource": {},
+			  "customData": {
+			    "event_type": "opportunity.won",
+			    "event_id": "",
+			    "service_type": "EXPERT_OPINION_LETTER",
+			    "opportunity_id": "opp-4711",
+			    "amount": 1450.00
+			  }
+			}""";
+
+	/**
+	 * The same body with a delivery id put into it, for the tests that need to name the key
+	 * they are asserting on. GHL does not send one — see {@link #WON_BODY} and
+	 * {@link #aDeliveryCarryingNoEventIdIsKeyedOnADigestOfItsBody}.
+	 */
 	private static String wonBody(String eventId) {
-		return """
-				{
-				  "event_type": "opportunity.won",
-				  "event_id": "%s",
-				  "opportunity": {
-				    "ghl_opportunity_id": "opp-4711",
-				    "amount": 1450.00,
-				    "status": "won"
-				  },
-				  "service_type": "EXPERT_OPINION_LETTER",
-				  "visa_category": "EB2_NIW",
-				  "drive_link": "https://drive.google.com/folder/abc",
-				  "campaign_attribution": "eb2-niw-q3",
-				  "contact": {
-				    "ghl_contact_id": "ghl-c-1",
-				    "full_name": "Anita Rao",
-				    "email": "anita@raolaw.example",
-				    "client_type": "ATTORNEY",
-				    "source": "GOOGLE_ADS"
-				  }
-				}""".formatted(eventId);
+		return WON_BODY.replace("\"event_id\": \"\"", "\"event_id\": \"" + eventId + "\"");
 	}
 
 	/** Exactly what GHL sends: a URL, a content type, a body. No other header. */
@@ -185,7 +206,12 @@ class InboundWebhookTest {
 
 		ArgumentCaptor<CaseIntakeService.NewCase> command = ArgumentCaptor.forClass(CaseIntakeService.NewCase.class);
 		verify(intake).intake(any(Brand.class), command.capture());
-		// The opportunity's own two fields reach the service; nothing else about it does.
+		// Both halves reach the service: the contact record GHL writes, and the deal the
+		// workflow author put in customData. Nothing is read from the `contact` key.
+		assertThat(command.getValue().contact().ghlContactId()).isEqualTo("NbJ72PwZKN26IMzEYntf");
+		assertThat(command.getValue().contact().fullName()).isEqualTo("Anita Rao");
+		assertThat(command.getValue().contact().email()).isEqualTo("anita@raolaw.example");
+		assertThat(command.getValue().serviceType()).isEqualTo(ServiceType.EXPERT_OPINION_LETTER);
 		assertThat(command.getValue().ghlOpportunityId()).isEqualTo("opp-4711");
 		assertThat(command.getValue().dealValue()).isEqualByComparingTo("1450.00");
 
@@ -201,8 +227,8 @@ class InboundWebhookTest {
 	@Test
 	void theBrandComesFromTheEndpointTokenNeverFromTheBody() throws Exception {
 		// The body claims another brand. It is not consulted (invariant 8).
-		String body = wonBody(EVENT_ID).replace("\"contact\": {",
-				"\"brand_id\": \"" + BRAND_XP + "\",\n  \"contact\": {");
+		String body = wonBody(EVENT_ID).replace("\"customData\": {",
+				"\"brand_id\": \"" + BRAND_XP + "\",\n  \"customData\": {");
 
 		deliver(body).andExpect(status().isOk());
 
@@ -267,6 +293,7 @@ class InboundWebhookTest {
 	/** {@code webhook_id} is the accepted second name for the same idempotency key. */
 	@Test
 	void anEventCarryingWebhookIdInsteadOfEventIdIsKeyedOnIt() throws Exception {
+		// Nested under customData like everything else the workflow author adds.
 		deliver(wonBody(EVENT_ID).replace("\"event_id\"", "\"webhook_id\""))
 				.andExpect(status().isOk())
 				.andExpect(jsonPath("$.data.status").value("accepted"));
@@ -302,40 +329,67 @@ class InboundWebhookTest {
 				.andExpect(status().isBadRequest())
 				.andExpect(jsonPath("$.error.code").value("MALFORMED_PAYLOAD"));
 
-		// Never keyed on a bare `id` or on `ghl_opportunity_id`: both are resource ids, and
-		// the second would make a legitimately re-won opportunity look like a redelivery.
-		deliver("{\"event_type\":\"opportunity.won\",\"opportunity\":{\"ghl_opportunity_id\":\"opp-4711\"}}")
-				.andExpect(status().isBadRequest())
-				.andExpect(jsonPath("$.error.code").value("MISSING_EXTERNAL_ID"));
-
+		// No event type anywhere — neither top-level nor in customData — is still a refusal:
+		// with nothing to route on there is no handler to call.
 		deliver("{\"event_id\":\"evt-1\"}")
+				.andExpect(status().isBadRequest())
+				.andExpect(jsonPath("$.error.code").value("MISSING_EVENT_TYPE"));
+
+		deliver("{\"customData\":{\"event_id\":\"evt-1\"}}")
 				.andExpect(status().isBadRequest())
 				.andExpect(jsonPath("$.error.code").value("MISSING_EVENT_TYPE"));
 
 		verify(intake, never()).intake(any(), any());
 	}
 
+	/**
+	 * GHL mints no delivery id of its own and sends the workflow's {@code event_id} as
+	 * {@code ""} until somebody wires a value into it, so refusing a keyless payload refused
+	 * every real delivery. A digest of the body stands in: a retry replays the same bytes and
+	 * still dedupes, and a different event still gets its own key.
+	 */
+	@Test
+	void aDeliveryCarryingNoEventIdIsKeyedOnADigestOfItsBody() throws Exception {
+		// WON_BODY as GHL sends it: event_id empty, because a contact record has no delivery id.
+		String keyless = WON_BODY;
+
+		deliver(keyless)
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.data.status").value("accepted"));
+
+		ArgumentCaptor<WebhookEvent> archived = ArgumentCaptor.forClass(WebhookEvent.class);
+		verify(webhookEvents, org.mockito.Mockito.atLeastOnce()).save(archived.capture());
+		String firstKey = archived.getValue().getExternalId();
+		assertThat(firstKey).startsWith("sha256:").hasSize("sha256:".length() + 64);
+
+		// The same bytes again are the same key — which is what makes a retry a duplicate.
+		deliver(keyless).andExpect(status().isOk());
+		verify(webhookEvents, org.mockito.Mockito.atLeastOnce()).save(archived.capture());
+		assertThat(archived.getValue().getExternalId()).isEqualTo(firstKey);
+
+		// A different contact is a different event, not a redelivery of this one.
+		deliver(keyless.replace("NbJ72PwZKN26IMzEYntf", "SomeOtherContactId01")).andExpect(status().isOk());
+		verify(webhookEvents, org.mockito.Mockito.atLeastOnce()).save(archived.capture());
+		assertThat(archived.getValue().getExternalId()).isNotEqualTo(firstKey);
+	}
+
 	@Test
 	void aPayloadMissingARequiredFieldIsABadRequest() throws Exception {
-		String noServiceType = wonBody(EVENT_ID).replace("\"service_type\": \"EXPERT_OPINION_LETTER\",", "");
-		deliver(noServiceType)
+		// `contact_id` is the client's identity (invariant 7), so it is the one field a
+		// delivery cannot be without: a case has to point at somebody.
+		String noContactId = wonBody(EVENT_ID).replace("\"contact_id\": \"NbJ72PwZKN26IMzEYntf\",", "");
+		deliver(noContactId)
 				.andExpect(status().isBadRequest())
 				.andExpect(jsonPath("$.error.code").value("VALIDATION_FAILED"));
 
-		// The contact's name is what every downstream surface identifies the case by.
-		String noName = wonBody(EVENT_ID).replace("\"full_name\": \"Anita Rao\",", "");
-		deliver(noName)
-				.andExpect(status().isBadRequest())
-				.andExpect(jsonPath("$.error.code").value("VALIDATION_FAILED"));
-
-		String blankName = wonBody(EVENT_ID).replace("\"Anita Rao\"", "\"   \"");
-		deliver(blankName)
-				.andExpect(status().isBadRequest())
-				.andExpect(jsonPath("$.error.code").value("VALIDATION_FAILED"));
-
-		// The whole contact block missing is the same refusal, not an NPE in the mapper.
-		String noContact = wonBody(EVENT_ID).replaceAll("(?s),\\s*\"contact\": \\{.*?\\}\\s*\\}$", "}");
-		deliver(noContact)
+		// The contact's name is what every downstream surface identifies the case by. GHL
+		// sends "" rather than omitting, so both spellings of "nameless" are refused — but
+		// only once first and last are gone too, since the name is rebuilt from those.
+		String nameless = wonBody(EVENT_ID)
+				.replace("\"first_name\": \"Anita\",", "")
+				.replace("\"last_name\": \"Rao\",", "")
+				.replace("\"Anita Rao\"", "\"   \"");
+		deliver(nameless)
 				.andExpect(status().isBadRequest())
 				.andExpect(jsonPath("$.error.code").value("VALIDATION_FAILED"));
 
@@ -343,55 +397,65 @@ class InboundWebhookTest {
 	}
 
 	/**
-	 * The payload's typed fields are parsed before anything is created, so a value GHL
-	 * cannot have meant — an enum constant that does not exist, a date that is not a
-	 * date, an id that is not a UUID — is refused as unreadable rather than quietly
-	 * dropped to null on a paid case.
-	 */
-	@ParameterizedTest
-	@ValueSource(strings = {
-			"\"service_type\": \"EXPERT_OPINION_LETTER\"|\"service_type\": \"NOT_A_SERVICE\"",
-			"\"visa_category\": \"EB2_NIW\"|\"visa_category\": \"EB9_IMAGINARY\"",
-			"\"client_type\": \"ATTORNEY\"|\"client_type\": \"WIZARD\"",
-			"\"campaign_attribution\": \"eb2-niw-q3\"|\"deadline\": \"next Tuesday\"",
-			"\"campaign_attribution\": \"eb2-niw-q3\"|\"selected_expert_id\": \"not-a-uuid\"" })
-	void anUnreadableEnumDateOrUuidIsAMalformedPayload(String fromPipeTo) throws Exception {
-		String[] fromTo = fromPipeTo.split("\\|");
-
-		deliver(wonBody(EVENT_ID).replace(fromTo[0], fromTo[1]))
-				.andExpect(status().isBadRequest())
-				.andExpect(jsonPath("$.error.code").value("MALFORMED_PAYLOAD"));
-
-		verify(intake, never()).intake(any(), any());
-	}
-
-	/**
-	 * A won opportunity with no money on it is a data error in GHL, not a free case. The
-	 * annotation is the only thing between GHL and a paid case worth nothing, and the payload
-	 * contract is still unconfirmed — so the rule is asserted rather than left to the field
-	 * surviving a rename. Same for the opportunity id: without it the case has nothing for
-	 * Unit 18 to close.
+	 * A workflow that lost its customData fields, or never had them. A won opportunity has
+	 * already been paid for, so the only unacceptable outcome is losing it: the name is rebuilt
+	 * from its parts, the service falls back to the flagship one, and the deal is simply
+	 * absent rather than fatal. Every field here is one somebody can delete in the GHL UI
+	 * without EvalOS ever hearing about it.
 	 */
 	@Test
-	void aWonOpportunityCarryingNoRealMoneyIsRefused() throws Exception {
+	void whatAWorkflowOmitsIsFilledInRatherThanRefused() throws Exception {
+		String bare = WON_BODY
+				.replace("\"full_name\": \"Anita Rao\",", "")
+				.replace("\"service_type\": \"EXPERT_OPINION_LETTER\",", "")
+				.replace("\"opportunity_id\": \"opp-4711\",", "")
+				.replace("\"amount\": 1450.00", "\"unused\": 0");
+
+		deliver(bare)
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.data.status").value("accepted"));
+
+		ArgumentCaptor<CaseIntakeService.NewCase> command = ArgumentCaptor.forClass(CaseIntakeService.NewCase.class);
+		verify(intake).intake(any(Brand.class), command.capture());
+		assertThat(command.getValue().serviceType()).isEqualTo(ServiceType.CREDENTIAL_EVALUATION);
+		assertThat(command.getValue().contact().fullName()).isEqualTo("Anita Rao");
+		// `contact_id` is the client id, carried through untouched.
+		assertThat(command.getValue().contact().ghlContactId()).isEqualTo("NbJ72PwZKN26IMzEYntf");
+		assertThat(command.getValue().dealValue()).isNull();
+		assertThat(command.getValue().ghlOpportunityId()).isNull();
+	}
+
+	/**
+	 * An amount GHL cannot have meant is a data error in the workflow, not a free case, and
+	 * the {@code @Positive} is the only thing between it and a paid case worth nothing.
+	 */
+	@Test
+	void anAmountThatIsNotRealMoneyIsRefused() throws Exception {
 		for (String badAmount : new String[] { "0", "-1", "0.00" }) {
-			deliver(wonBody(EVENT_ID).replace("\"amount\": 1450.00", "\"amount\": " + badAmount))
+			deliver(WON_BODY.replace("\"amount\": 1450.00", "\"amount\": " + badAmount))
 					.andExpect(status().isBadRequest())
 					.andExpect(jsonPath("$.error.code").value("VALIDATION_FAILED"));
 		}
 
-		deliver(wonBody(EVENT_ID).replace("\"amount\": 1450.00,", ""))
-				.andExpect(status().isBadRequest())
-				.andExpect(jsonPath("$.error.code").value("VALIDATION_FAILED"));
+		verify(intake, never()).intake(any(), any());
+	}
 
-		deliver(wonBody(EVENT_ID).replace("\"ghl_opportunity_id\": \"opp-4711\",", ""))
-				.andExpect(status().isBadRequest())
-				.andExpect(jsonPath("$.error.code").value("VALIDATION_FAILED"));
+	/**
+	 * The payload's typed fields are parsed before anything is created, so a value the
+	 * workflow cannot have meant is refused as unreadable rather than quietly dropped to null.
+	 * For the service that matters twice over: a null would then be silently defaulted, and a
+	 * case born of a typo would look deliberate.
+	 */
+	@ParameterizedTest
+	@ValueSource(strings = {
+			"\"service_type\": \"EXPERT_OPINION_LETTER\"|\"service_type\": \"NOT_A_SERVICE\"",
+			"\"amount\": 1450.00|\"amount\": \"one thousand\"" })
+	void anUnreadableTypedFieldIsAMalformedPayload(String fromPipeTo) throws Exception {
+		String[] fromTo = fromPipeTo.split("\\|");
 
-		// The whole block missing is the same refusal, not an NPE in the mapper.
-		deliver(wonBody(EVENT_ID).replaceAll("\"opportunity\": \\{[^}]*\\},", ""))
+		deliver(WON_BODY.replace(fromTo[0], fromTo[1]))
 				.andExpect(status().isBadRequest())
-				.andExpect(jsonPath("$.error.code").value("VALIDATION_FAILED"));
+				.andExpect(jsonPath("$.error.code").value("MALFORMED_PAYLOAD"));
 
 		verify(intake, never()).intake(any(), any());
 	}

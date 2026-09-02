@@ -1,5 +1,42 @@
 # backend/ — Persistence, audit & field encryption
 
+> ## Removing an enum value: two different rules, and the difference is the store
+>
+> Learned removing Unit 13 (2026-09-02). **Whether a value can be deleted depends on whether
+> anything ever wrote it, and whether that store can be rewritten.**
+>
+> - **`case_document.kind` → `REDACTED_PROFILE` was DROPPED.** Nothing ever wrote one (the
+>   table is V31; Unit 13 stalled long before it), so the value could orphan nothing. `V33`
+>   narrows the CHECK, because the CHECK is the writer the enum cannot reach — a seed script
+>   or a hand-run UPDATE could still write a value `valueOf` would then choke on.
+> - **`AuditAction.EXPORTED` was KEPT.** The audit trail is append-only by invariant and its
+>   rows can never be rewritten, so an enum that cannot read a value some historical row
+>   carries fails on read. **A retired audit action stays readable forever.** That is the
+>   cost of an immutable history and it is the right cost.
+>
+> **The test to apply:** can I rewrite every row that might hold this value? If yes, drop it
+> and narrow the CHECK. If no — audit, or any append-only table — keep the value and mark it
+> retired in the javadoc. Same question, opposite answers, one session apart.
+
+> ## ⚠ PIVOT: Google Drive → S3 document store (Unit 30, SPECCED 2026-09-02, NOT BUILT)
+>
+> **Read `context/specs/30-s3-document-store.md` before touching any document path.**
+> Everything below about Drive still describes the **code as it stands today** — the client,
+> the config, the columns are all still there. It no longer describes the **decision**.
+>
+> - Documents move to an **S3 bucket**. Google Drive leaves entirely: client, config,
+>   service account, dependency, `drive_link` column.
+> - **A separate Client Portal application writes client uploads**; EvalOS's credential is
+>   **read-only** on `client/{clientId}/`. EvalOS writes only under `case/{caseId}/`.
+> - `{clientId}` is **GHL's contact id** — one client across GHL, the Client Portal and
+>   EvalOS, no mapping table. **Email stays a fallback key (V27), never the identity.**
+> - Reads are **5-minute presigned URLs**, minted after the scope check, never stored.
+> - **Invariant 14 is amended and "No object storage" is deleted** from `architecture.md`.
+> - This **unblocks Units 13, 15 and 21**, which were all waiting on the Google service
+>   account. Unit 21 is reshaped: the upload leaves EvalOS.
+>
+> **Do not build new Drive work, and do not cite the Drive notes below as settled.**
+
 Built in Unit 03 (`V4`–`V10`). Entities: `ContactSnapshot`, `Case` (table **`evalos_case`** — `case`
 is reserved SQL), `DocumentChecklistItem`, `Expert`, `PayoutLedger`, `PayoutPayment`, `Notification`, `AuditEvent`,
 plus Unit 02's `Brand`/`TeamMember`, Unit 12's `ExpertCaseOffer` and Unit 14's `PortalAccess`. Schema
@@ -36,7 +73,8 @@ database, which is what CI builds each run. `V900` cannot be edited (invariant 9
 `payout_ledger.currency NOT NULL` is what actually keeps a null out of the ledger, and
 `PayoutService.openForDelivery` refuses a brand with no currency rather than guessing one.
 
-**Unit 21** adds `document_checklist_item.drive_file_id` + `uploaded_at` (the file behind an `UPLOADED`
+**Unit 21** adds `document_checklist_item.object_key` + `uploaded_at` (**was `drive_file_id`** — Unit 30;
+the S3 object behind an `UPLOADED`
 item, and when it arrived). **No `uploaded_by`** — the audit trail records who, and a second record of
 the same fact is a second thing that can disagree, the same reasoning that refused `paid_by`.
 
@@ -67,7 +105,12 @@ transition and endpoint are deleted, so nothing but `CaseIntakeService` ever wri
 `CaseIntakeService.refresh()` **overwrites** rather than fills, because deleting `markPaid` removed
 its only other writer and the figure feeds revenue recognition.
 
-`draft_link` vs `drive_link` is not a detail: `drive_link` is the client's **own document folder**
+**⚠ Unit 30 drops `drive_link` and keeps `draft_link` — and the reason is the distinction below.** A
+client's documents become *derivable* from the contact the case already points at
+(`client/{ghl_contact_id}/`), so storing a link to them is a second copy of a fact the schema holds.
+A draft is **one file among several versions** and is not derivable, so `draft_link` survives — as an
+S3 **object key**, not a URL. Same column, different kind of value; nothing may guess which.
+The original distinction, still worth reading: `drive_link` was the client's **own document folder**
 (passports, transcripts) and `draft_link` is the drafted letter. Only the second is ever shown to a
 client, and a case without one is told "not ready" — never given the folder as a fallback. `DraftPanel`
 pointed the client-facing "open the draft" link at `drive_link` from Unit 09 until `V20` existed, which

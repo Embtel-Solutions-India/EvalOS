@@ -1,5 +1,36 @@
 # Unit 13 — Redacted CV generation
 
+> # ⚠ **REMOVED (2026-09-02). This spec is history, not a plan.**
+>
+> The redacted CV is gone from the codebase: `RedactedProfileService`,
+> `ExpertProfileController`, `RedactedProfilePanel`, `redactionRules`, the
+> `REDACTED_PROFILE` document kind, and the client portal's `expertProfile` /
+> `expertReference` fields. `V33` narrows the `case_document` kind CHECK.
+>
+> **The client is now told nothing about the expert at all** — the stronger position, and
+> the one with nothing to get wrong. There is no redaction rule to leak through and no
+> generated document to keep anonymous.
+>
+> **It cancelled a debt rather than paying one.** This unit was the only thing in EvalOS
+> that generated a document, so it was the only reason Unit 30 owed a PDF library once
+> Drive's free export went away. Removing it removed the problem.
+>
+> **`AuditAction.EXPORTED` is kept**, and the reason generalises: the audit trail is
+> append-only, so an enum must be able to read every value any historical row carries. A
+> retired audit action stays readable forever.
+>
+> **`mayMintPortalLink` was never this unit's** — it only shared a file. It lives in
+> `client-portal/portalRules.ts` now, with its test.
+
+> **⚠ AMENDED by Unit 30 (2026-09-02) — output target only.** **The redaction rules are
+> this unit's whole substance and none of them move.** What changes is where the generated
+> profile goes: `case/{caseId}/redacted-profile/` in **S3**, not the case's Drive folder.
+> `GoogleDriveClient`, `GoogleDriveConfig` and the service account are deleted — which is
+> what **unblocks this unit**, code-complete and waiting on that credential for weeks.
+> **One cost carried, not hidden:** Drive's export produced a PDF for free and S3 converts
+> nothing, so the output format is Unit 30's open question (d). See
+> `30-s3-document-store.md`.
+
 **Phase:** 2 — Connect the seams
 **Depends on:** 11, and — omitted from an earlier draft of this line — 04 (all
 three routes read the case through `CaseLifecycleService.read`) and 09 (the panel

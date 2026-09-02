@@ -1,8 +1,28 @@
 # `db/seed-local` — local dev seed, and why it lives here
 
-These scripts seed a laptop: two brands, six staff logins sharing one committed BCrypt
-hash (`DevPassw0rd!`), throwaway per-brand webhook secrets, and a handful of experts.
-They must never reach a real environment.
+These scripts seed a laptop: two brands, **six** staff logins sharing one committed
+BCrypt hash (`DevPassw0rd!`), throwaway per-brand webhook secrets, and a handful of
+experts. They must never reach a real environment.
+
+## The logins
+
+All six share the password **`DevPassw0rd!`**.
+
+| Email | Role | Brand | Notes |
+|---|---|---|---|
+| `gm@evalos.local` | GM | *none — every brand* | The only cross-brand reader |
+| `bm.ie@evalos.local` | Brand Manager | International Evaluations | |
+| `bm.xp@evalos.local` | Brand Manager | XpertsPortal | |
+| `pm.ie@evalos.local` | Project Manager | IE | |
+| `cm.ie@evalos.local` | Case Manager | IE | |
+| `pc.ie@evalos.local` | Project Coordinator | IE | |
+| `enm.ie@evalos.local` | Expert Network Manager | IE | |
+
+**The GM's NULL brand means *every* brand** (`Tier.ALL` skips the predicate). It is the
+only brand-less row the database allows — `team_member_brand_required` says so, restored
+to that form by V30. Unit 29's sales executive briefly held a NULL meaning the *opposite*
+("no brand": `Tier.SELF` with no brand is `disjunction()`, matching nothing); that role,
+its seed (`V906`) and its widened constraint are all gone.
 
 **This directory is a sibling of `db/migration`, not a child, and moving it back under
 `db/migration` would be a security regression.** Flyway scans a location *and every
@@ -64,3 +84,18 @@ Run it against every schema that has one (on a stock dev box: `public` in `evalo
 and `evalos_test`). A database that should never have had the seed at all needs more
 than this: delete the seeded rows and **rotate the webhook secrets**, because
 `V901`'s values are in this repository.
+
+## A deleted seed: `V906`
+
+`V906__seed_local_sales_executive.sql` was removed with the sales desk. A database that
+already applied it still carries version 906 in `flyway_schema_history` with no file
+behind it, and Flyway's default validation refuses to migrate in that state — so
+`application-local.yml` and `LocalPostgresIntegrationTest` both set
+`ignore-migration-patterns: "*:missing"`, and **only** those two. A checksum mismatch (an
+*edited* applied migration) still fails the boot, which is the check that protects the
+schema. **Never carry that setting into `application.yml` or a deployed profile**: nothing
+under `db/migration` is ever deleted, so a missing one there is a real defect.
+
+Deleting a file from *this* tree is allowed at all only because it is a disposable local
+seed. `V30__drop_sales_executive.sql` removes the row it inserted, so a database that ran
+it ends up in the same state as one that never did.

@@ -11,6 +11,10 @@ import java.util.UUID;
 import com.ie.evalos.common.ForbiddenException;
 import com.ie.evalos.domain.AuditAction;
 import com.ie.evalos.domain.Availability;
+import com.ie.evalos.domain.CaseDocument;
+import com.ie.evalos.domain.DocumentKind;
+import com.ie.evalos.domain.DocumentStatus;
+import com.ie.evalos.domain.ActorType;
 import com.ie.evalos.domain.Case;
 import com.ie.evalos.domain.ChecklistItemStatus;
 import com.ie.evalos.domain.ClientApprovalStatus;
@@ -30,6 +34,8 @@ import com.ie.evalos.domain.SlaStatus;
 import com.ie.evalos.domain.Stage;
 import com.ie.evalos.domain.TeamMember;
 import com.ie.evalos.event.CaseEvents;
+import com.ie.evalos.integration.DocumentStore;
+import com.ie.evalos.repository.CaseDocumentRepository;
 import com.ie.evalos.repository.CaseRepository;
 import com.ie.evalos.repository.DocumentChecklistItemRepository;
 import com.ie.evalos.repository.ExpertCaseOfferRepository;
@@ -99,8 +105,10 @@ class CaseLifecycleServiceTest {
 	private final PayoutService payoutService = mock(PayoutService.class);
 
 	private final SlaCalculator sla = new SlaCalculator(new BusinessCalendar());
+	private final CaseDocumentRepository documents = mock(CaseDocumentRepository.class);
+	private final DocumentStore store = mock(DocumentStore.class);
 	private final CaseLifecycleService lifecycle = new CaseLifecycleService(
-			cases, checklistItems, experts, offers, teamMembers, audit, sla, events, payoutService);
+			cases, checklistItems, experts, offers, teamMembers, documents, store, audit, sla, events, payoutService);
 	private final RefundService refunds = new RefundService(lifecycle, payouts);
 
 	private Case subject;
@@ -186,7 +194,7 @@ class CaseLifecycleServiceTest {
 		actAs(Role.PROJECT_COORDINATOR);
 		lifecycle.markDocsComplete(CASE_ID);
 		actAs(Role.PROJECT_MANAGER);
-		lifecycle.assignCaseManager(CASE_ID, CM_ID, EXPERT_ID);
+		lifecycle.assignCaseManager(CASE_ID, CM_ID, EXPERT_ID, "strongest ophthalmology record on the roster");
 	}
 
 	private List<CaseEvents.Type> publishedEventTypes(int expected) {
@@ -201,7 +209,7 @@ class CaseLifecycleServiceTest {
 	@Test
 	void theDeclaredPathWalksFromDocCollectionToClosed() {
 		walkToDraftGeneration();
-		assertEquals(Stage.DRAFT_GENERATION, subject.getCurrentStage());
+		assertEquals(Stage.DRAFT_IN_PROGRESS, subject.getCurrentStage());
 		assertEquals(PoolStatus.ASSIGNED, subject.getPoolStatus());
 		assertEquals(TEAM, subject.getTeamId(), "the PM's team is what opens the case to that team");
 
@@ -209,22 +217,30 @@ class CaseLifecycleServiceTest {
 		lifecycle.submitDraft(CASE_ID, DRAFT_LINK);
 		assertEquals(1, subject.getDraftVersionCount());
 		assertEquals(DRAFT_LINK, subject.getDraftLink(), "the draft arrives with the link the client will read");
-		assertNull(subject.getDriveLink(), "and never by way of the client's document folder");
 
 		actAs(Role.PROJECT_MANAGER);
-		lifecycle.pmApproveDraft(CASE_ID);
+		lifecycle.pmApproveDraft(CASE_ID, null);
 		actAs(Role.PROJECT_COORDINATOR);
 		lifecycle.sendDraftToClient(CASE_ID);
 		lifecycle.clientApproveDraft(CASE_ID);
+		// Unit 31: approval lands on CLIENT_APPROVAL, not on EXPERT_SIGNING. The approved version
+		// is locked here and the CM has to *send* it — which is the act that starts the signing
+		// clock, and the reason the stage exists at all.
+		assertEquals(Stage.CLIENT_APPROVAL, subject.getCurrentStage());
+
+		actAs(Role.CASE_MANAGER);
+		lifecycle.sendToExpert(CASE_ID);
 		assertEquals(Stage.EXPERT_SIGNING, subject.getCurrentStage());
 
 		actAs(Role.PROJECT_MANAGER);
 		lifecycle.expertSigned(CASE_ID);
+		assertEquals(Stage.FINAL_QC, subject.getCurrentStage(), "signing hands the case to QC");
 		lifecycle.pmQcApprove(CASE_ID);
-		assertEquals(Stage.FINAL_DELIVERY, subject.getCurrentStage());
+		assertEquals(Stage.READY_TO_DELIVER, subject.getCurrentStage());
 
 		actAs(Role.PROJECT_COORDINATOR);
 		lifecycle.deliverToClient(CASE_ID);
+		assertEquals(Stage.DELIVERED, subject.getCurrentStage(), "delivered is its own stage now");
 		lifecycle.confirmReceiptAndClose(CASE_ID);
 
 		assertEquals(Stage.CLOSED, subject.getCurrentStage());
@@ -232,9 +248,10 @@ class CaseLifecycleServiceTest {
 		assertTrue(RefundService.isRevenueRecognized(subject));
 		assertNull(subject.getSlaStatus(), "a closed case runs no clock");
 
-		// Exactly one audit entry and one event per hop, and in the declared order. Eleven,
-		// not twelve: the walk no longer opens with a payment, because the case is born paid.
-		verify(audit, times(11)).recordEvent(any(), any(), any(), any(), any(), any());
+		// Exactly one audit entry and one event per hop, and in the declared order. Twelve as of
+		// Unit 31 — the CM's send-to-expert is a hop of its own, because it is what starts the
+		// signing clock. (It was eleven once the walk stopped opening with a payment.)
+		verify(audit, times(12)).recordEvent(any(), any(), any(), any(), any(), any());
 		assertEquals(List.of(
 				CaseEvents.Type.PM_ASSIGNED,
 				CaseEvents.Type.DOCUMENTS_COMPLETED,
@@ -243,10 +260,11 @@ class CaseLifecycleServiceTest {
 				CaseEvents.Type.DRAFT_PM_APPROVED,
 				CaseEvents.Type.DRAFT_READY_FOR_CLIENT,
 				CaseEvents.Type.DRAFT_CLIENT_APPROVED,
+				CaseEvents.Type.EXPERT_SENT_FOR_SIGNING,
 				CaseEvents.Type.EXPERT_SIGNED,
 				CaseEvents.Type.QC_APPROVED,
 				CaseEvents.Type.CASE_DELIVERED,
-				CaseEvents.Type.CASE_CLOSED), publishedEventTypes(11));
+				CaseEvents.Type.CASE_CLOSED), publishedEventTypes(12));
 	}
 
 	/**
@@ -257,7 +275,7 @@ class CaseLifecycleServiceTest {
 	 */
 	@Test
 	void aDeliveryWithNoExpertReportsItRatherThanStayingSilent() {
-		subject.setCurrentStage(Stage.FINAL_DELIVERY);
+		subject.setCurrentStage(Stage.READY_TO_DELIVER);
 		subject.setPaid(true);
 		given(payoutService.openForDelivery(any(Case.class))).willReturn(Optional.empty());
 
@@ -288,7 +306,7 @@ class CaseLifecycleServiceTest {
 		actAs(Role.PROJECT_MANAGER);
 		lifecycle.assignCoordinator(CASE_ID, COORDINATOR_ID);
 		assertEquals(COORDINATOR_ID, subject.getAssignedCoordinator());
-		assertEquals(Stage.DRAFT_GENERATION, subject.getCurrentStage());
+		assertEquals(Stage.DRAFT_IN_PROGRESS, subject.getCurrentStage());
 	}
 
 	/**
@@ -376,7 +394,7 @@ class CaseLifecycleServiceTest {
 		subject.setPaid(true);
 		actAs(Role.PROJECT_COORDINATOR);
 		lifecycle.markDocsComplete(CASE_ID);
-		assertEquals(Stage.EXPERT_ASSIGNMENT, subject.getCurrentStage());
+		assertEquals(Stage.PM_REVIEW, subject.getCurrentStage());
 	}
 
 	/**
@@ -406,7 +424,7 @@ class CaseLifecycleServiceTest {
 		actAs(Role.PROJECT_COORDINATOR);
 		lifecycle.resumeFromHold(CASE_ID);
 		assertEquals(ExceptionState.NONE, subject.getExceptionState());
-		assertEquals(Stage.DRAFT_GENERATION, subject.getCurrentStage(), "resume returns the stage it never left");
+		assertEquals(Stage.DRAFT_IN_PROGRESS, subject.getCurrentStage(), "resume returns the stage it never left");
 	}
 
 	/**
@@ -429,7 +447,7 @@ class CaseLifecycleServiceTest {
 		actAs(Role.CASE_MANAGER);
 		lifecycle.submitDraft(CASE_ID, DRAFT_LINK);
 		actAs(Role.PROJECT_MANAGER);
-		lifecycle.pmApproveDraft(CASE_ID);
+		lifecycle.pmApproveDraft(CASE_ID, null);
 		actAs(Role.PROJECT_COORDINATOR);
 		lifecycle.sendDraftToClient(CASE_ID);
 		clearInvocations(audit, events);
@@ -437,9 +455,11 @@ class CaseLifecycleServiceTest {
 		SecurityContextHolder.clearContext();
 		lifecycle.clientApproveDraftFromPortal(subject);
 
-		assertEquals(Stage.EXPERT_SIGNING, subject.getCurrentStage());
+		// Unit 31: the client's approval locks the version and hands the case to the CM. It does
+		// not put the letter in front of an expert — the CM's send does that, and until they send
+		// it no signing clock is running against anybody.
+		assertEquals(Stage.CLIENT_APPROVAL, subject.getCurrentStage());
 		assertEquals(ClientApprovalStatus.APPROVED, subject.getClientApprovalStatus());
-		assertEquals(ExpertSignStatus.PENDING, subject.getExpertSignStatus());
 		assertEquals(List.of(CaseEvents.Type.DRAFT_CLIENT_APPROVED), publishedEventTypes(1));
 
 		// The brand comes off the case, never a request. One row, and not a staff one.
@@ -470,23 +490,147 @@ class CaseLifecycleServiceTest {
 		actAs(Role.CASE_MANAGER);
 		lifecycle.submitDraft(CASE_ID, DRAFT_LINK);
 		actAs(Role.PROJECT_MANAGER);
-		lifecycle.pmApproveDraft(CASE_ID);
+		lifecycle.pmApproveDraft(CASE_ID, null);
 		actAs(Role.PROJECT_COORDINATOR);
 		lifecycle.sendDraftToClient(CASE_ID);
 		lifecycle.clientApproveDraft(CASE_ID);
+		actAs(Role.CASE_MANAGER);
+		lifecycle.sendToExpert(CASE_ID);
 
 		actAs(Role.PROJECT_MANAGER);
 		lifecycle.expertDeclined(CASE_ID, "outside my field");
 		assertEquals(ExceptionState.EXPERT_DECLINED_REMATCHING, subject.getExceptionState());
 
-		assertThrows(IllegalTransitionException.class, () -> lifecycle.reassignExpert(CASE_ID, EXPERT_ID),
+		assertThrows(IllegalTransitionException.class, () -> lifecycle.reassignExpert(CASE_ID, EXPERT_ID, null),
 				"the expert who declined is not a rematch");
 
-		lifecycle.reassignExpert(CASE_ID, OTHER_EXPERT_ID);
-		assertEquals(Stage.EXPERT_ASSIGNMENT, subject.getCurrentStage());
+		lifecycle.reassignExpert(CASE_ID, OTHER_EXPERT_ID, null);
+		// **Unit 31: a rematch returns to CLIENT_APPROVAL, not to assignment.** The letter is
+		// written, client-approved and locked — nothing about it changed because an expert walked
+		// away, so re-running PM review would ask somebody to re-approve untouched work. What has
+		// to happen is the CM sending it to the replacement, and that send restarts the clock.
+		assertEquals(Stage.CLIENT_APPROVAL, subject.getCurrentStage());
 		assertEquals(ExceptionState.NONE, subject.getExceptionState());
 		assertEquals(OTHER_EXPERT_ID, subject.getExpertId());
 		assertEquals(ExpertSignStatus.REASSIGNED, subject.getExpertSignStatus());
+	}
+
+	/**
+	 * The 24h prompt's answer, and the property that matters is which door it opens.
+	 *
+	 * <p>A timeout that left the case in {@code NONE} would leave the PM's board flagging a red
+	 * row with no legal action on it — {@code REASSIGN_EXPERT} is declared only from
+	 * {@code EXPERT_DECLINED_REMATCHING}, which is asserted here rather than assumed.
+	 */
+	@Test
+	void aTimedOutExpertOpensTheSameRematchADeclineDoes() {
+		walkToDraftGeneration();
+		actAs(Role.CASE_MANAGER);
+		lifecycle.submitDraft(CASE_ID, DRAFT_LINK);
+		actAs(Role.PROJECT_MANAGER);
+		lifecycle.pmApproveDraft(CASE_ID, null);
+		actAs(Role.PROJECT_COORDINATOR);
+		lifecycle.sendDraftToClient(CASE_ID);
+		lifecycle.clientApproveDraft(CASE_ID);
+		actAs(Role.CASE_MANAGER);
+		lifecycle.sendToExpert(CASE_ID);
+
+		ExpertCaseOffer open = new ExpertCaseOffer(BRAND, CASE_ID, EXPERT_ID);
+		given(offers.findByCaseIdAndOutcome(any(), eq(OfferOutcome.OFFERED))).willReturn(List.of(open));
+
+		actAs(Role.PROJECT_MANAGER);
+		lifecycle.expertTimedOut(CASE_ID);
+
+		assertEquals(Stage.EXPERT_SIGNING, subject.getCurrentStage(), "a timeout does not move the case");
+		assertEquals(ExceptionState.EXPERT_DECLINED_REMATCHING, subject.getExceptionState());
+		assertEquals(OfferOutcome.TIMED_OUT, open.getOutcome(), "not DECLINED — the expert never answered");
+		assertNull(open.getDeclineReason(), "the absence of an answer is the reason");
+
+		lifecycle.reassignExpert(CASE_ID, OTHER_EXPERT_ID, null);
+		assertEquals(Stage.CLIENT_APPROVAL, subject.getCurrentStage());
+		assertEquals(OTHER_EXPERT_ID, subject.getExpertId());
+	}
+
+	/**
+	 * Unit 32: the review comment lands on the version, and the version history is what a Case
+	 * Manager reads next to the draft they have to fix.
+	 *
+	 * <p>The property worth pinning is that the comment is written by the <em>transition</em>. The
+	 * reason already reaches the audit trail, so the tempting alternative is to render history by
+	 * matching an audit row to a version on time — and time is not an identity: two quick rounds
+	 * would attach the wrong comment to the wrong version, silently and plausibly.
+	 */
+	@Test
+	void aReturnStampsItsCommentOnTheVersionItRuledOn() {
+		walkToDraftGeneration();
+		CaseDocument v1 = new CaseDocument(BRAND, CASE_ID, DocumentKind.DRAFT, 1, CM_ID,
+				ActorType.STAFF, null);
+		given(documents.findFirstByCaseIdAndKindOrderByVersionDesc(any(), eq(DocumentKind.DRAFT)))
+				.willReturn(Optional.of(v1));
+
+		actAs(Role.CASE_MANAGER);
+		lifecycle.submitDraft(CASE_ID, DRAFT_LINK);
+
+		actAs(Role.PROJECT_MANAGER);
+		lifecycle.pmReturnDraft(CASE_ID, "Section 2 needs the accreditation.");
+
+		assertEquals(DocumentStatus.RETURNED, v1.getStatus());
+		assertEquals("Section 2 needs the accreditation.", v1.getReviewComment());
+	}
+
+	/**
+	 * The rationale is the PM's answer to "why this expert", and a reassignment replaces it.
+	 *
+	 * <p>Both writes are optional: a PM who has not put the reason into words must not be blocked
+	 * from staffing a case. **A null on reassignment leaves the previous text alone** rather than
+	 * erasing it — losing a recorded reason because somebody reassigned in a hurry is the worse of
+	 * the two failures.
+	 */
+	@Test
+	void theExpertRationaleIsWrittenOnAssignmentAndReplacedOnReassignment() {
+		walkToDraftGeneration();
+		assertEquals("strongest ophthalmology record on the roster",
+				subject.getExpertSelectionRationale(), "written when the expert was chosen");
+
+		subject.setCurrentStage(Stage.EXPERT_SIGNING);
+		subject.setExceptionState(ExceptionState.EXPERT_DECLINED_REMATCHING);
+		actAs(Role.PROJECT_MANAGER);
+
+		lifecycle.reassignExpert(CASE_ID, OTHER_EXPERT_ID, null);
+		assertEquals("strongest ophthalmology record on the roster",
+				subject.getExpertSelectionRationale(), "a null does not erase what was there");
+
+		subject.setExceptionState(ExceptionState.EXPERT_DECLINED_REMATCHING);
+		lifecycle.reassignExpert(CASE_ID, EXPERT_ID, "first choice went silent; this one has signed for us twice");
+		assertEquals("first choice went silent; this one has signed for us twice",
+				subject.getExpertSelectionRationale(), "and a new reason replaces the old one");
+	}
+
+	/**
+	 * <strong>The supply-side role reaches the case and must not reach its documents.</strong>
+	 *
+	 * <p>Found in review. {@code Tier.SUPPLY} reads its whole brand, so the ENM passes the scoped
+	 * load on every case — and the presigned-URL route ran only that check. It would have handed
+	 * them the client's passport scan: the exact bytes behind the fields the detail payload nulls
+	 * out for that tier.
+	 *
+	 * <p>The listing is asserted as well as the download, because <strong>a filename alone leaks
+	 * identity</strong> — {@code Ravi_Kumar_Passport.pdf} names the client whether or not anybody
+	 * opens it.
+	 */
+	@Test
+	void theSupplySideRoleReachesTheCaseButNotItsDocuments() {
+		actAs(Role.EXPERT_NETWORK_MANAGER);
+
+		assertThrows(ForbiddenException.class, () -> lifecycle.readUrl(CASE_ID, UUID.randomUUID()),
+				"a presigned URL is the document, so this is the download");
+		assertThrows(ForbiddenException.class, () -> lifecycle.versionsOf(CASE_ID, DocumentKind.DRAFT),
+				"and the filenames alone would name the client");
+
+		// The row itself stays reachable: the ENM has three case transitions that must load it.
+		actAs(Role.PROJECT_MANAGER);
+		assertEquals(DocumentKind.DRAFT, DocumentKind.valueOf("DRAFT"));
+		lifecycle.versionsOf(CASE_ID, DocumentKind.DRAFT);
 	}
 
 	@Test
@@ -501,8 +645,8 @@ class CaseLifecycleServiceTest {
 
 		actAs(Role.PROJECT_MANAGER);
 		assertThrows(IllegalTransitionException.class,
-				() -> lifecycle.assignCaseManager(CASE_ID, CM_ID, EXPERT_ID));
-		assertEquals(Stage.EXPERT_ASSIGNMENT, subject.getCurrentStage());
+				() -> lifecycle.assignCaseManager(CASE_ID, CM_ID, EXPERT_ID, null));
+		assertEquals(Stage.PM_REVIEW, subject.getCurrentStage());
 	}
 
 	// --- Unit 12: the offer rows the acceptance-rate factor is aggregated from -----
@@ -539,7 +683,7 @@ class CaseLifecycleServiceTest {
 		// still null here, while CASE_ID is only the key the scoped read is stubbed against.
 		given(offers.findByCaseIdAndOutcome(any(), eq(OfferOutcome.OFFERED))).willReturn(List.of(stillOpen));
 
-		lifecycle.reassignExpert(CASE_ID, OTHER_EXPERT_ID);
+		lifecycle.reassignExpert(CASE_ID, OTHER_EXPERT_ID, null);
 		assertEquals(OfferOutcome.SUPERSEDED, stillOpen.getOutcome());
 		assertNull(stillOpen.getDeclineReason(), "nobody declined — the offer was withdrawn");
 		assertFalse(stillOpen.getOutcome().countsTowardAcceptanceRate(),
@@ -570,7 +714,13 @@ class CaseLifecycleServiceTest {
 		assertEquals(OfferOutcome.ACCEPTED, offer.getOutcome());
 
 		// The same offer offered again to the repository, as an out-of-order callback would.
+		// **Unit 31 made this path load-bearing rather than merely tolerated**: signing now
+		// advances the case to FINAL_QC, so a second call arrives from a stage where the action is
+		// not declared. It must still be a no-op, because Unit 15 has two acts that both mean
+		// accepted and both fire on the ordinary happy path.
+		assertEquals(Stage.FINAL_QC, subject.getCurrentStage(), "the first signature moved it to QC");
 		lifecycle.expertSigned(CASE_ID);
+		assertEquals(Stage.FINAL_QC, subject.getCurrentStage(), "and the second moved nothing");
 		assertEquals(OfferOutcome.ACCEPTED, offer.getOutcome());
 		assertEquals(resolvedAt, offer.getOutcomeAt(), "the moment it was answered does not move");
 		verify(offers, times(1)).save(offer);
@@ -658,9 +808,9 @@ class CaseLifecycleServiceTest {
 		lifecycle.markDocsComplete(CASE_ID);
 
 		actAs(Role.PROJECT_MANAGER);
-		lifecycle.assignCaseManager(CASE_ID, CM_ID, OTHER_EXPERT_ID);
+		lifecycle.assignCaseManager(CASE_ID, CM_ID, OTHER_EXPERT_ID, null);
 
-		assertEquals(Stage.DRAFT_GENERATION, subject.getCurrentStage());
+		assertEquals(Stage.DRAFT_IN_PROGRESS, subject.getCurrentStage());
 		assertEquals(OTHER_EXPERT_ID, subject.getExpertId());
 		assertEquals(OTHER_EXPERT_ID, savedOffers().getLast().getExpertId(),
 				"and the offer is recorded, so an off-list assignment still feeds the rate");
@@ -674,7 +824,7 @@ class CaseLifecycleServiceTest {
 
 	@Test
 	void onlyTheGmMayRuleOnARefund() {
-		subject.setCurrentStage(Stage.FINAL_DELIVERY);
+		subject.setCurrentStage(Stage.READY_TO_DELIVER);
 		subject.setDeliveryDate(Instant.now());
 		subject.setPaid(true);
 
@@ -689,7 +839,7 @@ class CaseLifecycleServiceTest {
 
 	@Test
 	void approvedRefundReversesRecognitionAndVoidsThePendingPayout() {
-		subject.setCurrentStage(Stage.FINAL_DELIVERY);
+		subject.setCurrentStage(Stage.READY_TO_DELIVER);
 		subject.setDeliveryDate(Instant.now());
 		subject.setPaid(true);
 
@@ -714,7 +864,7 @@ class CaseLifecycleServiceTest {
 
 	@Test
 	void aDeniedRefundPutsTheCaseBackWhereItWas() {
-		subject.setCurrentStage(Stage.FINAL_DELIVERY);
+		subject.setCurrentStage(Stage.READY_TO_DELIVER);
 		subject.setDeliveryDate(Instant.now());
 		subject.setPaid(true);
 
@@ -723,7 +873,7 @@ class CaseLifecycleServiceTest {
 		actAs(Role.GM);
 		refunds.denyRefund(CASE_ID, "work already delivered and signed");
 
-		assertEquals(Stage.FINAL_DELIVERY, subject.getCurrentStage());
+		assertEquals(Stage.READY_TO_DELIVER, subject.getCurrentStage());
 		assertEquals(ExceptionState.NONE, subject.getExceptionState());
 		assertTrue(RefundService.isRevenueRecognized(subject));
 	}
@@ -816,7 +966,7 @@ class CaseLifecycleServiceTest {
 		Case moved = lifecycle.reassignCaseManager(CASE_ID, OTHER_CM_ID);
 
 		assertEquals(OTHER_CM_ID, moved.getAssignedCm());
-		assertEquals(Stage.DRAFT_GENERATION, moved.getCurrentStage(),
+		assertEquals(Stage.DRAFT_IN_PROGRESS, moved.getCurrentStage(),
 				"reassignment moves the owner, never the case");
 		verify(offers, never()).save(any());
 	}
@@ -869,7 +1019,7 @@ class CaseLifecycleServiceTest {
 		actAs(Role.CASE_MANAGER);
 		lifecycle.submitDraft(CASE_ID, DRAFT_LINK);
 		actAs(Role.PROJECT_MANAGER);
-		lifecycle.pmApproveDraft(CASE_ID);
+		lifecycle.pmApproveDraft(CASE_ID, null);
 		actAs(Role.PROJECT_COORDINATOR);
 		lifecycle.sendDraftToClient(CASE_ID);
 		clearInvocations(audit);

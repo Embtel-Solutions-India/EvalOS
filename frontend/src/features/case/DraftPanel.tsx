@@ -55,7 +55,7 @@ export default function DraftPanel({ detail }: { detail: CaseDetail }) {
       </dl>
 
       {/*
-        `draftLink`, not `driveLink`. This link said "Open the current draft" and pointed at the
+        `draftLink`, not the client's own documents. This link said "Open the current draft" and pointed at the
         client's own *documents folder* from Unit 09 until Unit 14 gave the draft its own column —
         internally a mislabel, and a leak the moment the same field reached a client-facing screen.
         A case with no draft link says so rather than falling back to anything.

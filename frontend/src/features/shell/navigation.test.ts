@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Role } from '../../lib/session'
-import { CASE_DETAIL_PATH, NAV_ITEMS, boardPathFor, itemFor, mayReach, navFor, navSectionsFor } from './navigation'
+import { CASE_DETAIL_PATH, NAV_ITEMS, boardPathFor, homePathFor, itemFor, mayReach, navFor, navSectionsFor } from './navigation'
 
 /**
  * The nav table is also the route allow-list, so a mistake here is a screen that is either
@@ -17,12 +17,35 @@ const ALL_ROLES: readonly Role[] = [
   'EXPERT_NETWORK_MANAGER',
 ]
 
+/**
+ * Every role that works EvalOS's own cases — which, with the sales desk removed, is all of them.
+ *
+ * **Kept as its own name rather than folded back into `ALL_ROLES`.** Unit 29 split it off because
+ * a role existed that was assigned no case, and the assertions beginning "every role" stopped
+ * being true of every role. That role is gone and the two lists are equal again, but the split is
+ * what makes the next such role a one-line change here instead of a rewrite of six assertions.
+ */
+const CASE_ROLES: readonly Role[] = ALL_ROLES
+
 describe('the nav and route table', () => {
-  it('gives every role a dashboard and at least one screen beyond it', () => {
-    for (const role of ALL_ROLES) {
+  it('gives every case-working role a dashboard and at least one screen beyond it', () => {
+    for (const role of CASE_ROLES) {
       const paths = navFor(role).map((item) => item.path)
       expect(paths, `${role} has no dashboard`).toContain('/dashboard')
       expect(paths.length, `${role} has only a dashboard`).toBeGreaterThan(1)
+    }
+  })
+
+  it('sends every role somewhere it may actually go after signing in', () => {
+    // The generalisation of the line above: no role's landing screen may be one it cannot reach.
+    // Dashboard-first for everyone who has one, so this also pins that Unit 29 changed nobody
+    // else's landing screen.
+    for (const role of CASE_ROLES) {
+      expect(homePathFor(role), `${role} lands somewhere else now`).toBe('/dashboard')
+    }
+    for (const role of ALL_ROLES) {
+      const home = homePathFor(role)
+      expect(mayReach(role, home) || home === '/dashboard', `${role} → ${home}`).toBe(true)
     }
   })
 
@@ -49,7 +72,7 @@ describe('the nav and route table', () => {
     // Reached from a board card, so it is absent from every nav — but still gated. Every role
     // may open a case; which cases is the server's scope, not this table's.
     expect(itemFor(CASE_DETAIL_PATH)).toBeUndefined()
-    for (const role of ALL_ROLES) {
+    for (const role of CASE_ROLES) {
       expect(mayReach(role, CASE_DETAIL_PATH), `${role} cannot open a case`).toBe(true)
     }
     // And it is genuinely not in the nav, or it would render as a broken link.
@@ -136,8 +159,31 @@ describe('the nav and route table', () => {
     expect(mayReach('BRAND_MANAGER', '/inbox')).toBe(false)
     expect(mayReach('BRAND_MANAGER', '/drafts')).toBe(false)
 
+    // Both CM screens are CM-only. They draw the same cases and are deliberately two entries:
+    // "what did the PM ask for" is read once before drafting, "where did my work get to" is read
+    // repeatedly after. The file's own `/cases`-beside-`/board` warning is about two entries for
+    // one *screen*; these are two screens.
+    expect(ALL_ROLES.filter((role) => mayReach(role, '/pm-notes'))).toEqual(['CASE_MANAGER'])
+
+    // The CM's own drafting queue (Unit 32a). CM-only, and deliberately not the same screen as
+    // `/drafts`: that one is the PM's work queue of other people's drafts, this is a status board
+    // of your own. Both roles care about drafts; they are asking opposite questions.
+    expect(ALL_ROLES.filter((role) => mayReach(role, '/my-drafts'))).toEqual(['CASE_MANAGER'])
+    expect(mayReach('PROJECT_MANAGER', '/my-drafts')).toBe(false)
+
     // A Case Manager's drafts are on their own board; the review side is not theirs.
     expect(mayReach('CASE_MANAGER', '/drafts')).toBe(false)
+
+    // The expert assignment board is the third PM queue and PM-only for the `/inbox` reason
+    // rather than the `/drafts` one: the GM *does* hold both gates behind it
+    // (`expert/timed-out` and `reassign-expert` are `GM_OR`), and is left out because staffing an
+    // expert is the PM's day, not because the server would refuse them.
+    expect(ALL_ROLES.filter((role) => mayReach(role, '/expert-assignment'))).toEqual(['PROJECT_MANAGER'])
+
+    // The ENM is the tempting addition here: they own the roster this screen shows. They do not
+    // staff cases — `ExpertShortlistController` and `CaseController.expertTimedOut` both exclude
+    // them — so the two buttons on it would answer 403.
+    expect(mayReach('EXPERT_NETWORK_MANAGER', '/expert-assignment')).toBe(false)
   })
 
   it('pins the expert database to its backend gate, as one entry rather than two', () => {

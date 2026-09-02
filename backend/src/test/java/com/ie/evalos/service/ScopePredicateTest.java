@@ -194,4 +194,42 @@ class ScopePredicateTest {
 		verify(cb, never()).conjunction();
 		verify(cb, never()).equal(any(), any(Object.class));
 	}
+
+	/**
+	 * <strong>The same fail-closed rule, on the {@code SELF} tier.</strong>
+	 *
+	 * <p>The Brand Manager case above covers {@code TEAM}; this covers {@code SELF}, which reaches
+	 * the brand check by a different branch. A {@code SELF}-tier row with no brand is what a
+	 * mis-seeded or hand-written {@code team_member} produces — the thing V3's
+	 * {@code team_member_brand_required} exists to prevent — and the predicate must match nothing
+	 * rather than everything if one ever gets past it.
+	 *
+	 * <p>These two tests were written for the sales executive, whose NULL brand was deliberate
+	 * (Unit 29). That role is gone; the property is not, because it is a property of
+	 * {@code ScopePredicate} and not of the role that happened to exercise it. What would break it:
+	 * widening the null-brand case to {@code conjunction()}, which is a silent, total loss of
+	 * containment.
+	 */
+	@Test
+	void aSelfTierRoleWithNoBrandMatchesNothing() {
+		applyAs(Role.CASE_MANAGER, null, null);
+
+		verify(cb).disjunction();
+		verify(cb, never()).conjunction();
+		verify(cb, never()).equal(any(), any(Object.class));
+	}
+
+	/**
+	 * And it stays true for an entity with no assignment column — the one place the SELF tier
+	 * deliberately does <em>not</em> narrow (a Case Manager reads their brand's expert roster
+	 * through exactly this path). Without a brand there is still nothing to read.
+	 */
+	@Test
+	void aSelfTierRoleWithNoBrandMatchesNothingOnBrandOnlyEntitiesEither() {
+		ScopePredicate.<Object>of(new TenantContext(MEMBER, Role.CASE_MANAGER, null, null),
+				ScopePredicate.Fields.brandOnly("brandId")).toPredicate(root, null, cb);
+
+		verify(cb).disjunction();
+		verify(cb, never()).conjunction();
+	}
 }

@@ -2,6 +2,9 @@ package com.ie.evalos.service;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.stream.Collectors;
 import java.util.UUID;
 import java.util.function.Consumer;
 
@@ -25,6 +28,12 @@ import com.ie.evalos.domain.SlaStatus;
 import com.ie.evalos.domain.Stage;
 import com.ie.evalos.domain.TeamMember;
 import com.ie.evalos.event.CaseEvents;
+import com.ie.evalos.domain.ActorType;
+import com.ie.evalos.integration.DocumentStore;
+import com.ie.evalos.domain.CaseDocument;
+import com.ie.evalos.domain.DocumentKind;
+import com.ie.evalos.domain.DocumentStatus;
+import com.ie.evalos.repository.CaseDocumentRepository;
 import com.ie.evalos.repository.CaseRepository;
 import com.ie.evalos.repository.DocumentChecklistItemRepository;
 import com.ie.evalos.repository.ExpertCaseOfferRepository;
@@ -93,19 +102,24 @@ public class CaseLifecycleService {
 	private final ExpertRepository experts;
 	private final ExpertCaseOfferRepository offers;
 	private final TeamMemberRepository teamMembers;
+	private final CaseDocumentRepository documents;
+	private final DocumentStore store;
 	private final AuditService audit;
 	private final SlaCalculator sla;
 	private final ApplicationEventPublisher events;
 	private final PayoutService payouts;
 
 	CaseLifecycleService(CaseRepository cases, DocumentChecklistItemRepository checklistItems, ExpertRepository experts,
-			ExpertCaseOfferRepository offers, TeamMemberRepository teamMembers, AuditService audit, SlaCalculator sla,
-			ApplicationEventPublisher events, PayoutService payouts) {
+			ExpertCaseOfferRepository offers, TeamMemberRepository teamMembers, CaseDocumentRepository documents,
+			DocumentStore store, AuditService audit, SlaCalculator sla, ApplicationEventPublisher events,
+			PayoutService payouts) {
 		this.cases = cases;
 		this.checklistItems = checklistItems;
 		this.experts = experts;
 		this.offers = offers;
 		this.teamMembers = teamMembers;
+		this.documents = documents;
+		this.store = store;
 		this.audit = audit;
 		this.sla = sla;
 		this.events = events;
@@ -200,7 +214,7 @@ public class CaseLifecycleService {
 	 * not they were on any shortlist — the ranking is assistance, never a precondition.
 	 */
 	@Transactional
-	public Case assignCaseManager(UUID caseId, UUID cmId, UUID expertId) {
+	public Case assignCaseManager(UUID caseId, UUID cmId, UUID expertId, String expertRationale) {
 		Case subject = load(caseId);
 		Stage to = CaseTransitions.target(subject, Action.ASSIGN_CASE_MANAGER);
 		TeamMember cm = member(cmId, Role.CASE_MANAGER, subject.getBrandId());
@@ -212,6 +226,12 @@ public class CaseLifecycleService {
 			c.setAssignedCm(cm.getId());
 			c.setExpertId(expert.getId());
 			c.setExpertSignStatus(ExpertSignStatus.PENDING);
+			// Optional (Unit 32): a PM who has not yet put the reason into words must not be
+			// blocked from staffing a case, and a required field is how "n/a" becomes a column's
+			// most common value.
+			if (expertRationale != null && !expertRationale.isBlank()) {
+				c.setExpertSelectionRationale(expertRationale);
+			}
 		});
 		offers.save(new ExpertCaseOffer(saved.getBrandId(), saved.getId(), expert.getId()));
 		return saved;
@@ -399,7 +419,7 @@ public class CaseLifecycleService {
 	 * <p>{@code draftLink} is where {@code draft_link} comes from — the column the client portal
 	 * shows (Unit 14). Optional and only overwritten when given: a second version filed in the same
 	 * place needs no new link, and blanking one by omission would take the draft away from a client
-	 * mid-review. There is deliberately no fallback to {@code drive_link}: that is the client's own
+	 * mid-review. There is deliberately no fallback to the client's own uploads: those are their own
 	 * document folder, and a case with no draft link tells the portal "not ready".
 	 */
 	@Transactional
@@ -407,7 +427,18 @@ public class CaseLifecycleService {
 		Case subject = load(caseId);
 		Stage to = CaseTransitions.target(subject, Action.SUBMIT_DRAFT);
 
-		return apply(subject, to, Action.SUBMIT_DRAFT, null, c -> {
+		// **The previous version is closed before the new one opens.** A version nobody ruled on —
+		// the CM resubmitting after a client revision, say — is SUPERSEDED rather than left
+		// SUBMITTED forever, which is the same permanently-open-row problem `expert_case_offer`
+		// closes with its SUPERSEDED outcome. A row left open is one that eventually gets counted.
+		documents.findFirstByCaseIdAndKindOrderByVersionDesc(subject.getId(), DocumentKind.DRAFT)
+				.filter(previous -> previous.getStatus() == DocumentStatus.SUBMITTED)
+				.ifPresent(previous -> {
+					previous.superseded();
+					documents.save(previous);
+				});
+
+		Case saved = apply(subject, to, Action.SUBMIT_DRAFT, null, c -> {
 			c.setDraftVersionCount(c.getDraftVersionCount() + 1);
 			c.setPmApprovalStatus(PmApprovalStatus.PENDING);
 			// A new draft is not the draft the client already saw.
@@ -416,6 +447,15 @@ public class CaseLifecycleService {
 				c.setDraftLink(draftLink.trim());
 			}
 		});
+
+		// **The version number comes off the case's own counter, not from counting rows.** Counting
+		// would be a read-then-write with no lock behind it; the counter is incremented inside the
+		// same transaction above, and `uq_case_document_version` is what actually refuses a
+		// duplicate if two submissions ever race.
+		CaseDocument version = new CaseDocument(saved.getBrandId(), saved.getId(), DocumentKind.DRAFT,
+				saved.getDraftVersionCount(), TenantContext.current().memberId(), ActorType.STAFF, null);
+		documents.save(version);
+		return saved;
 	}
 
 	@Transactional
@@ -424,18 +464,137 @@ public class CaseLifecycleService {
 		Stage to = CaseTransitions.target(subject, Action.PM_RETURN_DRAFT);
 		requireState(subject.getPmApprovalStatus() == PmApprovalStatus.PENDING, "no draft is awaiting PM review");
 
+		// The comment goes to two places for two purposes, the shape `expertDeclined` already uses:
+		// the audit trail, which is the history, and the version row, which is what the Case
+		// Manager reads next to the draft they have to fix.
+		stampLatestDraft(subject, DocumentStatus.RETURNED, comments);
 		return apply(subject, to, Action.PM_RETURN_DRAFT, comments,
 				c -> c.setPmApprovalStatus(PmApprovalStatus.RETURNED));
 	}
 
 	@Transactional
-	public Case pmApproveDraft(UUID caseId) {
+	public Case pmApproveDraft(UUID caseId, String comment) {
 		Case subject = load(caseId);
 		Stage to = CaseTransitions.target(subject, Action.PM_APPROVE_DRAFT);
 		requireState(subject.getPmApprovalStatus() == PmApprovalStatus.PENDING, "no draft is awaiting PM review");
 
-		return apply(subject, to, Action.PM_APPROVE_DRAFT, null,
+		stampLatestDraft(subject, DocumentStatus.PM_APPROVED, comment);
+		return apply(subject, to, Action.PM_APPROVE_DRAFT, comment,
 				c -> c.setPmApprovalStatus(PmApprovalStatus.APPROVED));
+	}
+
+	/**
+	 * Records a review ruling on the case's newest draft version.
+	 *
+	 * <p><strong>Tolerant of a missing row, on purpose.</strong> Every draft submitted from Unit 32
+	 * onward has a version row, but a case that was already mid-review when this shipped does not —
+	 * and refusing a legitimate approval because a history row is absent would let a reporting
+	 * concern block the pipeline. The same edge {@code resolveOpenOffer} takes, for the same reason.
+	 */
+	private void stampLatestDraft(Case subject, DocumentStatus ruling, String comment) {
+		documents.findFirstByCaseIdAndKindOrderByVersionDesc(subject.getId(), DocumentKind.DRAFT)
+				.ifPresent(version -> {
+					version.reviewed(ruling, comment);
+					documents.save(version);
+				});
+	}
+
+	/**
+	 * One version and who wrote it.
+	 *
+	 * <p>The name is resolved here rather than left to the client: an id alone would make the case
+	 * page join against a roster endpoint that several of the roles reading this page may not call.
+	 */
+	public record Version(CaseDocument document, String uploadedByName) {
+	}
+
+	/**
+	 * Refuses a caller who may reach the case but may not read what is in it.
+	 *
+	 * <p><strong>This is not the same check as {@link #load}, and conflating them was a real hole.</strong>
+	 * {@code load} answers "may this caller reach this case" — and {@code Tier.SUPPLY} reads its
+	 * whole brand, so an Expert Network Manager passes it on every case in their brand. What they
+	 * must not have is the case's <em>content</em>: {@code CaseController} already withholds
+	 * {@code clientName} and {@code draftLink} from that tier on the detail payload, and a document
+	 * is the same content in a file.
+	 *
+	 * <p>The rule itself lives on {@link com.ie.evalos.domain.Role}, so this and the detail
+	 * payload's field projection cannot drift apart.
+	 *
+	 * <p>Without this, the presigned-URL route would have handed a SUPPLY-tier caller the client's
+	 * passport scan — the exact bytes behind the fields the detail projection nulls out. **A
+	 * filename alone is enough to leak identity** (`Ravi_Kumar_Passport.pdf`), which is why the
+	 * listing is gated too and not only the download.
+	 */
+	private static void requireCaseContent() {
+		if (!TenantContext.current().role().seesCaseContent()) {
+			throw new ForbiddenException("this role does not read case documents");
+		}
+	}
+
+	/**
+	 * A short-lived URL for reading one of this case's documents (Unit 30).
+	 *
+	 * <p><strong>The scope check runs first and it is not optional.</strong> {@link #load} decides
+	 * whether this caller may read the case at all, and it runs <em>before</em> the URL is minted —
+	 * a presigned URL created ahead of the check is a URL that leaked ahead of the check, and no
+	 * later refusal takes it back.
+	 *
+	 * <p>The document is then matched against that case. Without it a caller who may read case A
+	 * could name a document belonging to case B and be handed a URL for it: <strong>the object key
+	 * is not the authorisation, the case is.</strong>
+	 *
+	 * <p>Every issue writes an audit row — who opened which document, and when. That is the
+	 * EvalOS-side record that a document was accessed, through the same append-only trail as every
+	 * other act (invariant 13). It also gives {@code AuditAction.EXPORTED} a writer again: it was
+	 * retired with Unit 13 and kept only for historical rows, and "a document left EvalOS" turns
+	 * out to describe a presigned read exactly.
+	 */
+	@Transactional
+	public String readUrl(UUID caseId, UUID documentId) {
+		Case subject = load(caseId);
+		requireCaseContent();
+		CaseDocument document = documents.findById(documentId)
+				.filter(row -> row.getCaseId().equals(subject.getId()))
+				.orElseThrow(() -> new java.util.NoSuchElementException("No document " + documentId));
+		requireState(document.getObjectKey() != null,
+				"that document predates the document store and has no file behind it");
+
+		// The brand is deliberately not passed: `recordEvent` takes it from the authenticated
+		// caller, never from an argument a caller could get wrong.
+		audit.recordEvent("CASE_DOCUMENT", document.getId(), AuditAction.EXPORTED,
+				TenantContext.current().memberId(), null,
+				Map.of("opened", String.valueOf(document.getFilename())));
+		return store.presignedUrl(document.getObjectKey());
+	}
+
+	/**
+	 * Every version of one kind on this case, newest first.
+	 *
+	 * <p>Reached through {@link #load}, so a caller who may not read the case gets nothing — the
+	 * document rows carry no assignee of their own to scope on, and the case's own scope is the
+	 * real guard.
+	 */
+	@Transactional(readOnly = true)
+	public List<Version> versionsOf(UUID caseId, DocumentKind kind) {
+		Case subject = load(caseId);
+		requireCaseContent();
+		List<CaseDocument> rows = documents.findByCaseIdAndKindOrderByVersionDesc(subject.getId(), kind);
+
+		// One lookup for the whole list rather than one per row: a history is a handful of versions
+		// written by one or two people, and N queries for two distinct names is the shape that
+		// looks harmless until a case has thirty rounds.
+		Map<UUID, String> names = teamMembers.findAllById(rows.stream()
+						.map(CaseDocument::getUploadedBy)
+						.filter(Objects::nonNull)
+						.distinct()
+						.toList()).stream()
+				.collect(Collectors.toMap(TeamMember::getId, TeamMember::getDisplayName));
+
+		return rows.stream()
+				// A null name is honest for a client or an expert upload, which have no staff row.
+				.map(row -> new Version(row, names.get(row.getUploadedBy())))
+				.toList();
 	}
 
 	@Transactional
@@ -522,6 +681,21 @@ public class CaseLifecycleService {
 	@Transactional
 	public Case expertSigned(UUID caseId) {
 		Case subject = load(caseId);
+
+		// **A second "signed" is a no-op, not a failure, and Unit 31 is what made this necessary.**
+		// EXPERT_SIGNED used to be stage-preserving, so a repeat was harmless by construction. It
+		// now advances the case to FINAL_QC, which means the second of Unit 15's two acts that both
+		// mean accepted — the expert pressing Accept, then the signing callback landing — would
+		// throw from a stage where the action is no longer declared. Both fire on the ordinary
+		// happy path, so that would turn a normal sequence into a 500.
+		//
+		// The same first-write-wins reasoning `ExpertCaseOffer.resolve` already applies to the
+		// offer row, applied to the transition. Returning the case unchanged publishes no second
+		// event and writes no second audit row, which is the point: it happened once.
+		if (subject.getExpertSignStatus() == ExpertSignStatus.SIGNED) {
+			return subject;
+		}
+
 		Stage to = CaseTransitions.target(subject, Action.EXPERT_SIGNED);
 
 		resolveOpenOffer(subject, OfferOutcome.ACCEPTED, null);
@@ -541,6 +715,36 @@ public class CaseLifecycleService {
 	}
 
 	/**
+	 * The 24-hour sign budget ran out and nobody answered.
+	 *
+	 * <p><strong>A human fires this, never a timer.</strong> Unit 19's sweep raises the prompt on
+	 * the PM's assignment board; it does not move the case. The distinction is the whole point: a
+	 * job that timed a case out on its own would be taking work off an expert who is mid-signature
+	 * on a schedule nobody watched, and reaching {@code EXPERT_DECLINED_REMATCHING} is what opens
+	 * {@code REASSIGN_EXPERT}.
+	 *
+	 * <p>Mirrors {@link #expertDeclined} exactly, minus the reason — the absence of an answer is
+	 * the reason, and asking staff to type one invites a guess at what the expert was thinking
+	 * into the audit trail. {@link OfferOutcome#TIMED_OUT} is a distinct outcome for the same
+	 * argument; the acceptance rate counts it in the denominator, which is a scoring decision
+	 * made in {@code ExpertMatchService} and not a claim that the expert declined.
+	 *
+	 * <p>{@code ExpertSignStatus.OVERDUE} is deliberately NOT set here. The board derives overdue
+	 * from the 24h {@code EXPERT_SIGN} budget in {@code SlaCalculator} — the same clock this
+	 * transition answers — and a column stating the same fact is a second place for it to be
+	 * wrong. The exception state is what the card shows once this fires.
+	 */
+	@Transactional
+	public Case expertTimedOut(UUID caseId) {
+		Case subject = load(caseId);
+		Stage to = CaseTransitions.target(subject, Action.EXPERT_TIMED_OUT);
+
+		resolveOpenOffer(subject, OfferOutcome.TIMED_OUT, null);
+		return apply(subject, to, Action.EXPERT_TIMED_OUT, null,
+				c -> c.setExceptionState(ExceptionState.EXPERT_DECLINED_REMATCHING));
+	}
+
+	/**
 	 * The rematch. Two offer writes, in this order: the outgoing offer is closed
 	 * {@code SUPERSEDED} and a fresh one opened for the replacement.
 	 *
@@ -551,7 +755,7 @@ public class CaseLifecycleService {
 	 * {@code OfferOutcome.countsTowardAcceptanceRate} excludes it.
 	 */
 	@Transactional
-	public Case reassignExpert(UUID caseId, UUID expertId) {
+	public Case reassignExpert(UUID caseId, UUID expertId, String expertRationale) {
 		Case subject = load(caseId);
 		Stage to = CaseTransitions.target(subject, Action.REASSIGN_EXPERT);
 		Expert replacement = availableExpert(expertId);
@@ -563,6 +767,13 @@ public class CaseLifecycleService {
 			c.setExpertId(replacement.getId());
 			c.setExpertSignStatus(ExpertSignStatus.REASSIGNED);
 			c.setExceptionState(ExceptionState.NONE);
+			// **Overwritten, not appended.** The rationale is about the expert on the case, and the
+			// case now has a different one — keeping the old text beside the new expert would be a
+			// reason for a decision that was reversed. A null leaves the previous text alone, so a
+			// reassignment made in a hurry does not silently erase what was recorded before.
+			if (expertRationale != null && !expertRationale.isBlank()) {
+				c.setExpertSelectionRationale(expertRationale);
+			}
 		});
 		offers.save(new ExpertCaseOffer(saved.getBrandId(), saved.getId(), replacement.getId()));
 		return saved;
@@ -609,6 +820,66 @@ public class CaseLifecycleService {
 
 		return apply(subject, to, Action.PM_QC_APPROVE, null, c -> {
 		});
+	}
+
+	/**
+	 * The PM rejects the signed letter and sends it back to the Case Manager (Unit 31).
+	 *
+	 * <p><strong>The counterpart {@link #pmQcApprove} never had.</strong> Before this, a final QC
+	 * that failed had nowhere to go: the transition table declared approval and nothing else, so a
+	 * signed letter the PM judged unacceptable left the case sitting in QC while the fix was
+	 * arranged by conversation. This is the transition that catches a bad letter before a client
+	 * sees it.
+	 *
+	 * <p><strong>A reason is required</strong>, for the same argument {@code pmReturnDraft} makes:
+	 * a rejection a Case Manager cannot act on is a rejection they will have to ask about, and the
+	 * asking happens outside the system where the trail cannot see it.
+	 *
+	 * <p><strong>What this does not do is unwind the approvals below it.</strong> The signed
+	 * document, the client-approved version and the client's approval all stand as recorded facts;
+	 * the case goes back to {@code DRAFT_IN_PROGRESS} and comes forward through PM review again.
+	 * Whether the client must re-approve is the PM's judgement on whether the correction changed
+	 * the content — deliberately not a rule this method infers, because inferring it would be
+	 * deciding whether a client needs to re-consent.
+	 */
+	@Transactional
+	public Case pmQcFail(UUID caseId, String reason) {
+		Case subject = load(caseId);
+		Stage to = CaseTransitions.target(subject, Action.PM_QC_FAIL);
+		requireState(reason != null && !reason.isBlank(), "a QC rejection needs a reason");
+
+		return apply(subject, to, Action.PM_QC_FAIL, reason, c -> {
+			// Back into the PM's queue when it returns: the draft sub-status says what the CM owes,
+			// and a correction is reviewed like any other revision.
+			c.setPmApprovalStatus(PmApprovalStatus.RETURNED);
+		});
+	}
+
+	/**
+	 * The Case Manager sends the client-approved letter to the expert (Unit 31).
+	 *
+	 * <p><strong>This is what starts the signing SLA, and before it existed nobody sent
+	 * anything.</strong> The case entered {@code EXPERT_SIGNING} automatically on client approval,
+	 * and {@code SlaCalculator} measured the budget from {@code stage_entered_at} — so a letter
+	 * sent two hours after the approval charged the expert for those two hours, and an expert
+	 * could be reported overdue having had less than the full budget.
+	 *
+	 * <p>Making the send the transition fixes that with no new column: the stage is entered here,
+	 * so {@code stage_entered_at} <em>is</em> the send time. A {@code sent_to_expert_at} beside it
+	 * would be a second answer to "when did this begin", and two answers drift.
+	 *
+	 * <p><strong>An expert must already be on the case.</strong> One is chosen at
+	 * {@code assignCaseManager}; this refuses rather than silently sending nothing, which is the
+	 * failure that would otherwise start a clock against nobody.
+	 */
+	@Transactional
+	public Case sendToExpert(UUID caseId) {
+		Case subject = load(caseId);
+		Stage to = CaseTransitions.target(subject, Action.SEND_TO_EXPERT);
+		requireState(subject.getExpertId() != null, "no expert is assigned to this case");
+
+		return apply(subject, to, Action.SEND_TO_EXPERT, null,
+				c -> c.setExpertSignStatus(ExpertSignStatus.PENDING));
 	}
 
 	// --- delivery and close --------------------------------------------------

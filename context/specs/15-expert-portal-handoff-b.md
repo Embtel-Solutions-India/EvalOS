@@ -1,5 +1,29 @@
 # Unit 15 — Expert portal + Handoff B + sign-off
 
+> **⚠ The expert portal is a SEPARATE FRONTEND (confirmed 2026-09-02), sharing a deployment
+> with the client portal and calling this backend.** The download-sign-reupload step below is
+> exactly right and is confirmed; further expert functionality is to be specified later.
+>
+> **Nothing in this unit's auth model changes.** `portal_access.audience` already admits
+> `'EXPERT'` (V21), `PortalAudience` already maps it to `ActorType.EXPERT`, and the portal chain
+> already matches `/api/portal/**`. A second frontend consuming that chain is a deployment fact,
+> not a new surface — which was Unit 14's design working as intended.
+>
+> **What it does add is CORS**, which does not exist anywhere in the codebase today and is
+> filed in `30-s3-document-store.md` because it is one configuration for both portals. Without it
+> every browser call from the portal fails at preflight — including the ones that pass a curl test.
+>
+> **⚠ AMENDED by Unit 30 (2026-09-02) — where the signed letter lands.** The signed PDF
+> streams to `case/{caseId}/signed/` in **S3** instead of the case's Drive folder.
+> **Nothing about how that file is trusted changes**: the hash pair, the attestation and
+> the `EXPERT` audit row are the provenance model and they are untouched.
+>
+> Two corrections to this spec's assumptions. First, it said it "reuses Unit 21's upload
+> path wholesale" — Unit 21's upload moved to the separate Client Portal, so this unit
+> uses Unit 30's S3 client directly and is now the **only** upload EvalOS accepts. Second,
+> the Google service account this unit was blocked on is gone; the credential is AWS.
+> See `30-s3-document-store.md`.
+
 > **Rewritten: Dropbox Sign is out.** The expert signs the letter however they
 > already sign things and **uploads it back through their portal**. See "Signing
 > without a signature provider" below for the decision, what it costs, and the three

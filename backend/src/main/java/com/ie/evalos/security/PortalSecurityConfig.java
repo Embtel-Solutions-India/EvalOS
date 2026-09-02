@@ -32,6 +32,42 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 public class PortalSecurityConfig {
 
 	/**
+	 * CORS for the portal chain only.
+	 *
+	 * <p><strong>Named origins, never {@code *}.</strong> This chain is credentialed — it carries
+	 * {@code X-Portal-Token} — and a wildcard origin on a credentialed API hands any page on the
+	 * internet the ability to make authenticated calls with a token it has phished. The property
+	 * is a comma-separated list so an environment can name its own, and it is <strong>empty by
+	 * default</strong>: an environment that forgets it gets a failing preflight, which is loud,
+	 * rather than an open one, which is not.
+	 *
+	 * <p><strong>Scoped to {@code /api/portal/**} by living on this chain.</strong> The staff API
+	 * is same-origin and has no reason to answer a preflight at all; giving it CORS would widen a
+	 * surface for no caller.
+	 *
+	 * <p>{@code X-Portal-Token} is in the allowed headers deliberately. Omit it and the preflight
+	 * passes while the real request arrives with the header stripped — a 401 that looks exactly
+	 * like a bad token and is not one.
+	 */
+	private static org.springframework.web.cors.CorsConfigurationSource portalCors(String allowedOrigins) {
+		org.springframework.web.cors.CorsConfiguration config = new org.springframework.web.cors.CorsConfiguration();
+		config.setAllowedOrigins(allowedOrigins.isBlank() ? java.util.List.of()
+				: java.util.Arrays.stream(allowedOrigins.split(",")).map(String::trim)
+						.filter(origin -> !origin.isEmpty()).toList());
+		config.setAllowedMethods(java.util.List.of("GET", "POST", "OPTIONS"));
+		config.setAllowedHeaders(java.util.List.of("Content-Type", PortalTokenFilter.HEADER));
+		// No cookies are used and none should be: the credential is a header, and allowing
+		// credentials would turn a mistaken origin into a session-riding hole.
+		config.setAllowCredentials(false);
+		config.setMaxAge(java.time.Duration.ofMinutes(30));
+
+		org.springframework.web.cors.UrlBasedCorsConfigurationSource source =
+				new org.springframework.web.cors.UrlBasedCorsConfigurationSource();
+		source.registerCorsConfiguration("/api/portal/**", config);
+		return source;
+	}
+
+	/**
 	 * {@code authenticated()} with no role rule: the token names one case and one audience, and the
 	 * audience is checked in exactly one place, {@code PortalPrincipal.current}.
 	 *
@@ -43,9 +79,16 @@ public class PortalSecurityConfig {
 	@Bean
 	@Order(1)
 	SecurityFilterChain portalApi(HttpSecurity http, PortalAccessService portalAccess, ApiErrors apiErrors,
-			@Value("${evalos.portal.rate-limit-per-minute}") int rateLimit) throws Exception {
+			@Value("${evalos.portal.rate-limit-per-minute}") int rateLimit,
+			@Value("${evalos.portal.allowed-origins:}") String allowedOrigins) throws Exception {
 		return http
 				.securityMatcher("/api/portal/**")
+				// **CORS, and it is required rather than a nicety (Unit 30).** The client and expert
+				// portals are a SEPARATE frontend on another origin, so every non-simple request is
+				// preflighted — and without this the preflight fails before any filter runs, while
+				// the very same call passes a curl test. That is how this gets diagnosed as a token
+				// problem for an afternoon.
+				.cors(cors -> cors.configurationSource(portalCors(allowedOrigins)))
 				// No cookies or sessions, so there is no CSRF surface — and the credential is a
 				// header the browser does not attach on its own.
 				.csrf(csrf -> csrf.disable())

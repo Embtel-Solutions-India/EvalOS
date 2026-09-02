@@ -1,5 +1,14 @@
 # Unit 22 — Role operations UI (supersedes Unit 17)
 
+> **⚠ AMENDED by Unit 31 — Production lifecycle v2 (SPECCED 2026-09-02, not built).**
+> The pipeline becomes **twelve explicit stages, each with one owner, one primary action and
+> one next owner**, drawn as **eight board columns**. Three facts this codebase currently carries as *sub-statuses on a stage*
+> — PM approval, client approval, and the QC/delivered split — become **stages**, and the
+> draft becomes a **versioned file** rather than a link. Two transitions are added
+> (`qc-fail`, `send-to-expert`) and several gates move, notably the Case Manager taking
+> ownership of expert signing and reassignment.
+> **Read `context/specs/31-production-lifecycle-v2.md` before changing anything below.**
+
 **Phase:** 2 — Connect the seams
 **Depends on:** 04 (lifecycle + timestamps), 08 (the board), 09 (case detail),
 11 (roster), 12 (match scoring)

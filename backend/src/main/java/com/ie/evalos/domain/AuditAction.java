@@ -26,16 +26,17 @@ public enum AuditAction {
 	 */
 	IMPORTED,
 	/**
-	 * A generated document left EvalOS (Unit 13: the redacted expert profile written into
-	 * the case's Google Drive folder).
+	 * A generated document left EvalOS. <strong>Retired with Unit 13 (2026-09-02) and kept
+	 * anyway.</strong>
 	 *
-	 * <p>Its own action rather than an {@code UPDATED} row, because nothing about the case
-	 * changed — a document was published toward the client, which is the fact worth a
-	 * permanent record. The snapshot carries the Drive file and folder ids, so the trail
-	 * answers "which document, and where did it go" and not merely "something was exported".
+	 * <p>Its only writer was the redacted expert profile, and that unit is removed — so nothing
+	 * writes this now. <strong>Do not delete the value.</strong> The audit trail is append-only by
+	 * invariant and its rows can never be rewritten, so an enum that cannot read a value some
+	 * historical row carries would fail on read. A retired audit action stays readable forever;
+	 * that is the cost of an immutable history and it is a cost worth paying.
 	 *
-	 * <p>The frontend's {@code AuditAction} union and {@code Timeline}'s label map already
-	 * carried this value before anything wrote it.
+	 * <p>The frontend's {@code AuditAction} union and {@code Timeline}'s label map keep it for the
+	 * same reason.
 	 */
 	EXPORTED,
 	/**

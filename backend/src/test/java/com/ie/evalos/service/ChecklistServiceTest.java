@@ -128,7 +128,7 @@ class ChecklistServiceTest {
 		// willReturn(...) argument leaves the outer stubbing unfinished, which is the trap
 		// CaseLifecycleServiceTest records.
 		Case waiting = aCase(Stage.DOC_COLLECTION, Instant.now().minus(2, ChronoUnit.HOURS));
-		Case drafting = aCase(Stage.DRAFT_GENERATION, Instant.now());
+		Case drafting = aCase(Stage.DRAFT_IN_PROGRESS, Instant.now());
 		List<DocumentChecklistItem> items = List.of(
 				item(waiting.getId(), ChecklistItemStatus.APPROVED),
 				item(waiting.getId(), ChecklistItemStatus.REQUIRED),

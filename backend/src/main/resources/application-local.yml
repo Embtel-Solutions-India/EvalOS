@@ -18,6 +18,19 @@ spring:
     # out-of-order migration and Flyway refuses it. Allowed here only: this is the
     # one profile that applies the seed, and prod keeps the strict default.
     out-of-order: true
+    # **Because V906 was deleted, not because missing migrations are acceptable.**
+    #
+    # The sales-executive seed was removed when the role was. Any database that already applied it
+    # carries version 906 in `flyway_schema_history` with no file to match, and Flyway's default
+    # `validate-on-migrate` refuses to run at all in that state — which would break every laptop
+    # that had ever booted this profile, over a seed row that V30 deletes anyway.
+    #
+    # Scoped to `missing` alone: a CHECKSUM mismatch (an *edited* applied migration) still fails
+    # the boot, which is the check that actually protects the schema. And scoped to this profile
+    # and the local integration test — the two that list the disposable seed tree. **Never add
+    # this to `application.yml` or a deployed profile**: nothing under `db/migration` is ever
+    # deleted, so a missing one there is a real defect and must stop the boot.
+    ignore-migration-patterns: "*:missing"
 
 evalos:
   security:
@@ -26,19 +39,15 @@ evalos:
     # base64('local-dev-field-key-not-for-prod'). Throwaway: rows encrypted with
     # it are local rows, and a real key never appears in this file.
     field-key: ${EVALOS_FIELD_KEY:bG9jYWwtZGV2LWZpZWxkLWtleS1ub3QtZm9yLXByb2Q=}
-  drive:
-    # The one profile allowed to run without Google Drive credentials, so the whole app
-    # — every other route included — starts on a laptop with no service-account key.
-    # The redacted and full profiles are generated locally and served as normal; only
-    # the Drive write answers 502, saying it is not configured. Set GOOGLE_DRIVE_KEY_JSON
-    # in the environment to exercise the real upload from here.
-    #
-    # Worth knowing before Units 21 and 15: those units are *mostly* Drive. Their
-    # validation, auth, checklist and transition logic can all be exercised and tested
-    # here with no key, but the happy path cannot — an upload answers 502 rather than
-    # filing anything, so a green local run does not mean the unit works. Their live
-    # criteria need a real key, which is the same one Unit 13 is still owed.
-    required: ${DRIVE_REQUIRED:false}
+  portal:
+    # The portal dev server. Vite's default; change it if yours differs.
+    allowed-origins: ${EVALOS_PORTAL_ORIGINS:http://localhost:5174}
+  s3:
+    # Blank on a laptop, deliberately. The whole app boots with no AWS access and every non-document
+    # route works; only the document routes answer 502, naming both variables. Set them to exercise
+    # a real bucket from here — the same shape `evalos.drive.required=false` used to provide.
+    bucket: ${EVALOS_S3_BUCKET:}
+    region: ${EVALOS_S3_REGION:}
   ghl:
     # Every `evalos.ghl.*` value, listed so the whole knob set is visible in one place.
     #

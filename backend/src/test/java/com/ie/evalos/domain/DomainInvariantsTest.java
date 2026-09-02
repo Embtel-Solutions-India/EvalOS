@@ -9,6 +9,7 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import com.ie.evalos.repository.AuditEventRepository;
+import com.ie.evalos.repository.CaseDocumentRepository;
 import com.ie.evalos.repository.CaseRepository;
 import com.ie.evalos.repository.ContactSnapshotRepository;
 import com.ie.evalos.repository.DocumentChecklistItemRepository;
@@ -51,6 +52,7 @@ class DomainInvariantsTest {
 		return Stream.of(
 				arguments(ContactSnapshotRepository.SCOPE, ContactSnapshot.class),
 				arguments(CaseRepository.SCOPE, Case.class),
+				arguments(CaseDocumentRepository.SCOPE, CaseDocument.class),
 				arguments(DocumentChecklistItemRepository.SCOPE, DocumentChecklistItem.class),
 				arguments(ExpertRepository.SCOPE, Expert.class),
 				arguments(ExpertCaseOfferRepository.SCOPE, ExpertCaseOffer.class),

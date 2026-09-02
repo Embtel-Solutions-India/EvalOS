@@ -109,13 +109,29 @@ public class CaseBoardController {
 			Map<ExceptionState, List<BoardCard>> exceptions) {
 	}
 
-	/** The five columns work moves through. CLOSED is not a column on a production board. */
+	/**
+	 * The stages work moves through, ten of the twelve.
+	 *
+	 * <p><strong>The server returns stages; the client draws columns.</strong> Unit 31's board is
+	 * eight columns for these ten — two stages share a column where they share an owner — and that
+	 * folding is a presentation decision that belongs in {@code boardRules.ts} beside the labels.
+	 * Sending pre-folded groups would put the column layout in the payload, where a second client
+	 * (or a changed mind about the folding) could not disagree with it.
+	 *
+	 * <p>{@code DELIVERED} and {@code CLOSED} are absent: they are outcomes, and a column of
+	 * finished work only grows.
+	 */
 	private static final List<Stage> COLUMNS = List.of(
 			Stage.DOC_COLLECTION,
-			Stage.EXPERT_ASSIGNMENT,
-			Stage.DRAFT_GENERATION,
+			Stage.PM_REVIEW,
+			Stage.DRAFT_IN_PROGRESS,
+			Stage.DRAFT_REVIEW,
+			Stage.READY_TO_SEND,
+			Stage.CLIENT_REVIEW,
+			Stage.CLIENT_APPROVAL,
 			Stage.EXPERT_SIGNING,
-			Stage.FINAL_DELIVERY);
+			Stage.FINAL_QC,
+			Stage.READY_TO_DELIVER);
 
 	/** The three lanes. {@code NONE} is not a lane — it is the absence of one. */
 	private static final List<ExceptionState> LANES = List.of(

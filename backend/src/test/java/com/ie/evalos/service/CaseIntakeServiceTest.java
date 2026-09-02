@@ -101,13 +101,18 @@ class CaseIntakeServiceTest {
 
 	private static CaseIntakeService.NewCase wonDeal(String ghlContactId, String email, ServiceType serviceType,
 			BigDecimal amount) {
+		return wonDeal(ghlContactId, email, serviceType, amount, "opp-4711");
+	}
+
+	/** Both halves of the deal are nullable: GHL sends neither unless the workflow adds them. */
+	private static CaseIntakeService.NewCase wonDeal(String ghlContactId, String email, ServiceType serviceType,
+			BigDecimal amount, String opportunityId) {
 		return new CaseIntakeService.NewCase(
 				new CaseIntakeService.ContactDetails(ghlContactId, "Anita Rao", email, "+1 555 0100",
 						"Rao Immigration LLP", ClientType.ATTORNEY, SourceChannel.GOOGLE_ADS,
 						"google", "cpc", "eb2-niw-q3"),
-				serviceType, null, VisaCategory.EB2_NIW, OTHER_EXPERT, "opp-4711",
-				amount, Instant.now().plusSeconds(86_400),
-				"https://drive.google.com/folder/abc", "INV-99123", "eb2-niw-q3",
+				serviceType, null, VisaCategory.EB2_NIW, OTHER_EXPERT, opportunityId,
+				amount, Instant.now().plusSeconds(86_400), "INV-99123", "eb2-niw-q3",
 				"Client needs this by the visa filing date — transcripts already with them.");
 	}
 
@@ -422,6 +427,25 @@ class CaseIntakeServiceTest {
 	}
 
 	/**
+	 * The other side of "they move together": a delivery that names neither leaves both
+	 * alone. GHL's Custom Webhook contributes no money field of its own, so a workflow that
+	 * has not been told about the deal sends nulls — and overwriting with those would blank
+	 * an amount that feeds revenue recognition and the opportunity id Unit 18 closes on,
+	 * from a delivery that never claimed anything about either.
+	 */
+	@Test
+	void aDeliveryCarryingNoDealLeavesTheOneAlreadyOnTheCase() {
+		Case inFlight = openCaseWorthNineHundred();
+		inFlight.setGhlOpportunityId("opp-first");
+
+		Case result = intake.intake(brand, wonDeal("ghl-c-1", "anita@raolaw.example",
+				ServiceType.EXPERT_OPINION_LETTER, null, null));
+
+		assertThat(result.getDealValue()).isEqualByComparingTo("900.00");
+		assertThat(result.getGhlOpportunityId()).isEqualTo("opp-first");
+	}
+
+	/**
 	 * A money change that reads as a no-op edit is worse than a noisy one. The snapshot either
 	 * side of a refresh omits `deal_value` on purpose — it is role-restricted and
 	 * `CaseTimelineService` shows the note to every role that may read the case — so without
@@ -463,7 +487,7 @@ class CaseIntakeServiceTest {
 
 	/** An open, paid case for the standard contact and service, sold for 900. */
 	private Case openCaseWorthNineHundred() {
-		Case inFlight = new Case(BRAND, "IE-2026-ABCDEF", Stage.DRAFT_GENERATION);
+		Case inFlight = new Case(BRAND, "IE-2026-ABCDEF", Stage.DRAFT_IN_PROGRESS);
 		inFlight.setContactId(CONTACT_ID);
 		inFlight.setServiceType(ServiceType.EXPERT_OPINION_LETTER);
 		inFlight.setDealValue(new BigDecimal("900.00"));

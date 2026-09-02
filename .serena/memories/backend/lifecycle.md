@@ -1,5 +1,53 @@
 # backend/ — Case lifecycle, payment, SLA & refunds
 
+> ## ✅ production lifecycle v2 — twelve stages, eight columns (Unit 31, BUILT 2026-09-02)
+>
+> **Read `context/specs/31-production-lifecycle-v2.md` before touching the state machine,
+> the board, or any transition gate.** Everything below describes the **code as it stands**
+> — five active stages plus sub-status chips. It no longer describes the **decision**.
+>
+> - **Twelve stages, one owner each** (eleven were specced; *Ready to Send* was added when it
+>   was settled that a stage is entered by the act that starts its clock). **The board draws
+>   eight columns** — two stages share one only where they share an owner (05+06 Coordinator,
+>   07+08 CM); Delivered and Closed are a filter.
+> - **When a clock starts at an act, make the act a transition.** Client Review is entered by
+>   the Coordinator's *Send*, Expert Signing by the CM's *Send to Expert*. This **removes the
+>   `sent_to_expert_at` column** an earlier draft proposed: `stage_entered_at` *is* the send
+>   time. A timestamp beside a stage is a second answer to "when did this begin".
+> - ~~Eleven stages, one owner each.~~ PM approval, client approval and the QC/delivered
+>   split stop being sub-statuses and become stages. The three columns stay, demoted: they
+>   record a review *outcome*, they no longer drive the stage.
+> - **Two transitions are added.** `qc-fail` (a failed final QC has nowhere to go today)
+>   and `send-to-expert` (the act that should start the 24h SLA — it currently runs from
+>   `stage_entered_at`, so an expert sent the letter late is charged for the delay).
+> - **Gates move.** The **Case Manager** takes expert signing, `expert/timed-out` and
+>   reassignment; ENM is notified and supports. `docs-complete` narrows to the Coordinator.
+>   `draft/pm-approve` and `pm-return` stay PM-only with no GM override (Unit 23a) —
+>   unchanged, and checked rather than assumed.
+> - **The draft becomes a versioned file** in a new `case_document` table; `draft_link` and
+>   `draft_version_count` are replaced. No version is ever overwritten.
+> - **Owner is not the exclusive actor — the rule that governs the whole stage table.** A
+>   stage's owner is who is accountable: queue placement, card label, notification routing.
+>   It is not a claim that nobody else may act. Confirmed 2026-09-02 on `docs-complete`: the
+>   **Coordinator owns it, the Brand Manager and PM keep the gate.** **Unit 31 narrows no
+>   gate at all** — every change is a widening (the CM gaining the expert-signing
+>   transitions). Precedent: Unit 23 took `/inbox` and `/checklists` out of roles' nav while
+>   leaving `GM_OR` on the backend gates — *"a listing decision and not a capability one."*
+> - **The expert-sign SLA is wrong today and Unit 31 fixes it twice.** `EXPERT_SIGN =
+>   Duration.ofHours(24)` on `BusinessCalendar` is **three working days** (that class's
+>   comment: "a business day is eight hours"), while the business means one day; and the
+>   clock runs from `stage_entered_at`, so an expert sent the letter late is charged for the
+>   delay. Decision: start at `sent_to_expert_at`, budget **8 business hours**, drop the
+>   separate 20h warning (`AT_RISK_FRACTION` 0.75 × 8 = 6h already), relabel "one business
+>   day". **Do not switch this to wall clock** — `expert_case_offer` counts `TIMED_OUT` into
+>   the acceptance rate `ExpertMatchService` ranks on, so a Friday-afternoon send would
+>   demote a good expert for our sending time.
+> - **No AI in any production decision** — verification, expert selection, drafting,
+>   review, approval, reassignment, QC. Automation is limited to notifications, timestamps,
+>   versioning and audit.
+> - **Reverses spec 08's derived-grouping decision.** A chip says what state work is in,
+>   not whose turn it is.
+
 Unit 04 built the state machine; 05a added payment to it as a transition, and **Case Creation v2.0
 (spec `05b`) moved payment out of it again** — `paid` is now set once, by intake, from a won GHL
 opportunity. `Stage`:
@@ -48,8 +96,18 @@ another.
   the scope are one decision and neither works alone.
 - **Expert transitions also write an `expert_case_offer` row, inside the same transaction** (Unit 12),
   so an offer and the transition that caused it commit together or not at all: `assignCaseManager` and
-  `reassignExpert` open one, `expertDeclined` stamps `DECLINED` with the reason, `expertSigned` stamps
-  `ACCEPTED`, and a rematch closes the previous row `SUPERSEDED` so no permanently-open row survives.
+  `reassignExpert` open one, `expertDeclined` stamps `DECLINED` with the reason, `expertTimedOut`
+  stamps `TIMED_OUT` with none, `expertSigned` stamps `ACCEPTED`, and a rematch closes the previous
+  row `SUPERSEDED` so no permanently-open row survives.
+- **`EXPERT_TIMED_OUT` is the human answer to the 24h sign prompt, and a human fires it — never a
+  job.** Stage-preserving from `EXPERT_SIGNING` and a mirror of `EXPERT_DECLINED`: both land in
+  `EXPERT_DECLINED_REMATCHING`, which is the *only* state `REASSIGN_EXPERT` is declared from, so a
+  timeout that left the case in `NONE` would flag a red row with no legal action on it. No reason
+  body — the absence of an answer is the reason. Gate is **`GM · BRAND_MANAGER · PROJECT_MANAGER`**
+  (`POST /cases/{id}/expert/timed-out`), the reverse of the two sign callbacks beside it: the ENM
+  records what an expert did but does not take a case off one. `ExpertSignStatus.OVERDUE` is
+  deliberately still unwritten — the PM's board derives overdue from `SlaCalculator`'s 24h
+  `EXPERT_SIGN` budget, and a column restating it is a second place for it to be wrong.
   Invariants of that table — including why its partial index being non-unique matters — are in
   `mem:backend/persistence`.
 

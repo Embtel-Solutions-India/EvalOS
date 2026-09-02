@@ -41,8 +41,9 @@ own brand. The GM sees across all brands.
 5. Expert payouts run off a **manual payout ledger** tied to cases and invoices,
    filled in by the responsible team member — replacing payout details posted in
    a WhatsApp group. No payment-platform integration.
-6. On "Delivered," EvalOS fires Handoff C back to GHL to start the review
-   sequence — instrumenting the #2 health metric (the Google review).
+6. On "Delivered," the payout entry is created. **The review sequence is started by hand
+   in GHL** — Handoff C fired it automatically and went with Unit 18 (2026-09-02), so the
+   #2 health metric (the Google review) is no longer instrumented from here.
 7. Dashboards report money-in vs. delivered (collected-but-undelivered shown as
    open liability), cycle time by stage, expert utilization/acceptance rate, and
    review capture rate — per brand and, for the GM, across all brands.
@@ -51,9 +52,14 @@ own brand. The GM sees across all brands.
 
 Production hierarchy: **GM** (all brands) → **Brand Manager** (one brand) →
 **Project Manager** (a team's cases) → { **Project Coordinator**, **Case
-Manager**, **Expert Network Manager** }. Sales & Marketing roles live in GHL and
-report to the Brand Manager; EvalOS does not build sales/marketing user roles.
+Manager**, **Expert Network Manager** }. Marketing roles live in GHL and
+report to the Brand Manager; EvalOS builds no marketing user role.
 There is no "Head of Evaluations" role and no intern tier in v1.
+
+**There is no sales role, and there was one for a while.** Unit 29 added a
+`SALES_EXECUTIVE` outside this hierarchy, whose working surface was GHL's own sales
+pipeline operated from an EvalOS screen. It and its screen were removed, so the original
+line stands again: **EvalOS builds no sales user role.** The six above are all of them.
 
 **Reading the CRM build spec against this:** where that document says "Head of Eval"
 — the day-3 document escalation, the unassigned-after-4h alert, the revenue
@@ -84,7 +90,8 @@ The case lifecycle, from EvalOS's point of view (EvalOS owns stages 3–7 of the
    Nobody in EvalOS records payment by hand; GHL is the only source of that fact.
    Leads stay in GHL, so EvalOS never sees a case before the money is in.
 2. **Document collection.** The Project Coordinator tracks required vs. uploaded
-   documents (files live in Google Drive; the case holds the Drive link) and
+   documents (files live in the **S3 document store**; the case resolves them by the
+   client's own id — Unit 30) and
    chases the client via GHL. When the package is complete, the Coordinator
    marks docs complete and the case moves to the PM.
 3. **Expert selection & assignment.** The PM reads the documents, writes strategy
@@ -103,9 +110,9 @@ The case lifecycle, from EvalOS's point of view (EvalOS owns stages 3–7 of the
    reassignment.
 6. **Final QC.** The PM runs the QC checklist on the signed letter and marks the
    case **Delivered**.
-7. **Delivery return (Handoff C).** "Delivered" fires an outbound call to GHL to
-   start the review sequence and referral track, and creates the payout ledger
-   entry (status Pending) at the same moment.
+7. **Delivery.** "Delivered" creates the payout ledger entry (status Pending) in the
+   same transaction. **It no longer calls GHL** — Handoff C went with Unit 18
+   (2026-09-02), so the review sequence and referral track are started by hand in GHL.
 8. **Close & retention.** The Coordinator confirms client receipt and closes the
    case. Retention/win-back runs in GHL.
 
@@ -113,12 +120,20 @@ The case lifecycle, from EvalOS's point of view (EvalOS owns stages 3–7 of the
 
 ### Case Production Pipeline
 - Structured, brand-scoped case record: client, attorney/company, service type,
-  visa category, Google Drive link, invoice reference, campaign attribution
+  visa category, invoice reference, campaign attribution
   (inherited from GHL), stage, owner, per-stage timestamps, SLA status.
 - 8-stage canonical pipeline; EvalOS owns stages 3–7 via the internal state
   machine `DOC_COLLECTION → EXPERT_ASSIGNMENT → DRAFT_GENERATION →
   EXPERT_SIGNING → FINAL_DELIVERY → CLOSED`, plus exception states (On Hold —
   Awaiting Client, Expert Declined — Rematching, Refund Requested).
+
+  **⚠ Unit 31 replaces this with twelve stages** (SPECCED 2026-09-02, not built):
+  Document Collection → PM Review & Assignment → Draft In Progress → Draft Review →
+  **Ready to Send** → Client Review → Client Approval → Expert Signing → Final QC →
+  Ready to Deliver → Delivered → Closed. **The board still draws eight columns.** **Each has exactly one owner and one primary action**, which is the
+  point: today `DRAFT_GENERATION` is three owners' work distinguished by two nullable
+  columns. **The whole workflow is manual by decision — no AI makes a production call.**
+  See `context/specs/31-production-lifecycle-v2.md`.
 - Pool intake then assignment: new cases land in the brand pool; GM/Brand
   Manager assigns to a PM; PM assigns to a Case Manager.
 - Role-based, brand-scoped queues. Append-only, non-editable audit trail on
@@ -130,19 +145,21 @@ The case lifecycle, from EvalOS's point of view (EvalOS owns stages 3–7 of the
   tier, availability, quality score, turnaround/decline history.
 - Rule-based match scoring → ranked shortlist (field match, letter-type
   experience, acceptance rate, current load). Assist mode: humans confirm.
-  (AI-enhanced suggestion/anomaly detection is a later phase.)
+  **No AI — Unit 20 is removed (2026-09-02), so this is no longer "a later phase" but a
+  standing property of the system.** See invariant 15 in `architecture.md`.
 - Template-generated redacted CV (name/institution/contact stripped); full
   profile releases on payment.
 
 ### Client Portal (draft review) — built in Unit 14
 - Passwordless access via a link delivered through GHL. The client sees the
   drafted letter, approves or requests revisions, and a read receipt is recorded.
-- **Source-document upload is in the portal, from Unit 21.** This line used to say
-  it was not. The client uploads against their own checklist, one file per required
-  item, and the bytes stream straight through to the case's Drive folder — so the
-  documents still live in Drive, but the client gets them there through EvalOS
-  instead of outside it. The Coordinator reviews what arrives and flags anything
-  missing or incorrect. **No AI review** — that is a human step by decision.
+- **Source-document upload moved OUT of this portal in Unit 30, and that is a reversal
+  worth reading twice.** Unit 21 was to take the upload here and stream it to Drive; it
+  was never built. Clients now upload in a **separate Client Portal application**, which
+  writes to the S3 document store under the client's own id, and **EvalOS reads**. The
+  Coordinator still reviews what arrives against the same checklist and still flags
+  anything missing or incorrect — that half is unchanged, because the checklist vocabulary
+  was never the Drive-shaped part. **No AI review** — a human step by decision.
 - **The link is minted in EvalOS and, for now, sent by hand.** Whether GHL can
   deliver it on an EvalOS event is still open, so staff copy it off the case page;
   Unit 18 dispatches it automatically if the answer is yes. Nothing else changes.
@@ -200,9 +217,16 @@ The case lifecycle, from EvalOS's point of view (EvalOS owns stages 3–7 of the
 - Handoff A (inbound): GHL won-opportunity webhook (per-brand endpoint) → create a
   paid case in the PM/Coordinator pool. GHL is the only source of the payment fact.
 - Handoff B (internal): client-approved → expert portal → signed letter uploaded back.
-- Handoff C (outbound): Delivered → GHL review/referral trigger + payout entry.
-- **Google Drive is the only external system in the production path** — document
-  links, and the folder the signed letter is filed into. No e-signature provider.
+- ~~Handoff C (outbound)~~ — **removed with Unit 18.** The payout entry still happens on
+  delivery (Unit 16); nothing is sent to GHL. **EvalOS emits no outbound integration at all.**
+- **The S3 document store is the only external system in the production path** (Unit 30) —
+  client documents written there by the separate Client Portal and read by EvalOS, plus
+  EvalOS's own draft, redacted profile and signed letter under the case's prefix. Google
+  Drive was that system until Unit 30 and is gone. No e-signature provider.
+- **One client, three systems.** GHL's contact id is the Client ID in GHL, the Client
+  Portal and EvalOS alike, with the email address consistent alongside it. There is no
+  mapping table between them, which is what lets a document uploaded in the portal be
+  found by the case in EvalOS. Email stays a **fallback** identity, never the key (V27).
 
 ## Scope
 
@@ -213,7 +237,7 @@ The case lifecycle, from EvalOS's point of view (EvalOS owns stages 3–7 of the
   CV generation.
 - Client draft-review portal (with document upload) and expert portal (with signed-letter
   upload).
-- Document checklist tracking (Drive links; files not re-hosted).
+- Document checklist tracking (S3 object keys; files not re-hosted).
 - Manual payout ledger.
 - Production/expert/delivery/finance dashboards (production-side roles).
 - In-app staff notifications.
@@ -235,16 +259,27 @@ The case lifecycle, from EvalOS's point of view (EvalOS owns stages 3–7 of the
   second screen did and did not settle: reading **another pipeline** in the location
   EvalOS already reads is decided; *sending* an email from EvalOS is still out, and
   the email funnel being visible here changes nothing about that.
-- Sales pipeline, lead qualification, proposals, quoting; sales/marketing user
-  roles. Their **dashboards** stay in GHL too, with the exception above: the open
-  question that defaulted to "GHL-native" is now answered as *read-only GM funnel
-  views in EvalOS over pipelines in the one configured location, everything else in
-  GHL*.
+- Lead qualification, proposals, quoting; marketing user roles. Their **dashboards**
+  stay in GHL too, with the exception above: the open question that defaulted to
+  "GHL-native" is answered as *read-only GM funnel views in EvalOS over pipelines in
+  the one configured location, everything else in GHL*.
+
+  **The sales pipeline left this list in Unit 29 and came back.** A `SALES_EXECUTIVE`
+  briefly worked it from an EvalOS screen with every action written straight to GHL. The
+  desk and the role were removed; selling is wholly GHL's again, and the funnel reads
+  above are the only sales-shaped thing EvalOS has. What never left this list is
+  everything that would need EvalOS-side state — targets, quotas, commission, sales
+  reporting — because those are stored facts, and storage is where invariant 2 draws its
+  line whichever direction the traffic runs.
+
 - Invoicing and payment collection; the payment processor integration itself
   (EvalOS listens to GHL's webhook, not to Stripe/Razorpay directly).
-- Any object/file storage of documents — EvalOS stores Drive file ids and links, not
-  the files. Uploads (client documents, the signed letter) **stream through** to Drive
-  and are never persisted here.
+- **Hosting document bytes.** EvalOS stores S3 object keys, never files. It reads through
+  short-lived presigned URLs, and the one upload it still accepts — the expert's signed
+  letter — **streams through** to the store and is never persisted here. Unit 30 changed
+  the backing store from Drive to S3; it did not change this line.
+- **Taking client uploads.** As of Unit 30 the separate Client Portal takes them and
+  writes them; EvalOS's credential is read-only on that prefix and cannot write there.
 - Any payment-platform / disbursement rail — the payout ledger is manual.
 - Delivery of the review/retention email sequences — GHL runs them.
 - Jurisdiction-specific data-protection features (GDPR/CCPA) — out of scope v1.
@@ -262,8 +297,8 @@ The case lifecycle, from EvalOS's point of view (EvalOS owns stages 3–7 of the
    or request revisions, and the read receipt is recorded.
 4. An expert can access an assigned case with draft + evidence + goal, and complete
    sign-off by uploading the signed letter back through their portal.
-5. On **Delivered**, a payout ledger entry (Pending) is created and Handoff C
-   posts to GHL to start the review sequence.
+5. On **Delivered**, a payout ledger entry (Pending) is created. Nothing is posted to
+   GHL — the review sequence is started there by hand (Unit 18 removed, 2026-09-02).
 6. The dashboard shows collected-but-undelivered value as open liability and
    cycle time by stage, correctly scoped per brand (all brands for the GM).
 7. Every state transition on every object writes an append-only audit entry, and

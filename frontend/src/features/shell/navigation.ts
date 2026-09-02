@@ -27,7 +27,15 @@ export type NavItem = {
 
 export type NavGroup = 'Overview' | 'Marketing' | 'Sales' | 'Pipeline' | 'Records' | 'Admin'
 
-const ALL_ROLES: readonly Role[] = [
+/**
+ * Every role that works EvalOS's own cases — which, with the sales desk removed, is every role.
+ *
+ * **Kept as `PRODUCTION_ROLES` rather than renamed back to `ALL_ROLES`.** The two were the same
+ * list before Unit 29 and are the same list again now, but the name that states the *reason* a
+ * role is on it survives the next role that is not. A constant named "all" is the one that goes
+ * quietly wrong when somebody adds a seventh role that reads no cases.
+ */
+const PRODUCTION_ROLES: readonly Role[] = [
   'GM',
   'BRAND_MANAGER',
   'PROJECT_MANAGER',
@@ -37,7 +45,7 @@ const ALL_ROLES: readonly Role[] = [
 ]
 
 export const NAV_ITEMS: readonly NavItem[] = [
-  { path: '/dashboard', label: 'Dashboard', roles: ALL_ROLES, becomes: 'Role dashboard (Unit 17)', group: 'Overview' },
+  { path: '/dashboard', label: 'Dashboard', roles: PRODUCTION_ROLES, becomes: 'Role dashboard (Unit 17)', group: 'Overview' },
 
   // The one screen in EvalOS that reads GHL's front of house: the Google Ads sales funnel,
   // stage by stage, with the sources behind it.
@@ -154,6 +162,64 @@ export const NAV_ITEMS: readonly NavItem[] = [
     group: 'Pipeline',
   },
 
+  // The expert assignment board (Unit 17's PM widget, `17-dashboards.md`): who is waiting for an
+  // expert, who is free to take one, and which signature has run past its 24-hour budget.
+  //
+  // **PM-only, matching its two neighbours above rather than the endpoints it reads.** Every read
+  // behind it is wider — the board is four roles, the availability board is `ROSTER_READ` — but
+  // the screen exists to *act*: fire the timeout, then reassign. The GM holds both gates and is
+  // still absent for the reason Unit 23 gave for `/inbox`: staffing an expert is the PM's day,
+  // and the GM can do it from any case without a queue of somebody else's work in their sidebar.
+  //
+  // The ENM is absent for the opposite reason — they own the roster but do not staff cases, which
+  // is the same split `ExpertShortlistController` already draws and which
+  // `CaseController.expertTimedOut` enforces on the server.
+  {
+    path: '/expert-assignment',
+    label: 'Expert assignment',
+    roles: ['PROJECT_MANAGER'],
+    becomes: 'Cases waiting for an expert, availability, overdue signatures',
+    group: 'Pipeline',
+  },
+
+  // What the PM asked for, on every case that is the CM's (Unit 32b).
+  //
+  // **A second CM entry over the same cases, which this file otherwise warns against** — see the
+  // `/cases`-beside-`/board` note above. It earns the exception because it is a different question
+  // rather than a different view: *what did the PM ask for* is read once, before drafting starts,
+  // while `/my-drafts` is *where did my work get to*, read repeatedly after. The notes were
+  // reachable only by opening a case, then expanding a row, which is what made them invisible.
+  //
+  // The two screens draw the same cases and share no component: this one lists notes with nothing
+  // to expand, because a "PM notes" screen that hides the notes repeats the problem it fixes.
+  {
+    path: '/pm-notes',
+    label: 'PM notes',
+    roles: ['CASE_MANAGER'],
+    becomes: "The PM's strategy notes for your cases",
+    group: 'Pipeline',
+  },
+
+  // The Case Manager's own drafting queue (Unit 32a): what the PM told them, and what became of
+  // each draft they submitted.
+  //
+  // **Why this is a second CM screen when `/my-cases` was deliberately not one.** That entry is
+  // the board narrowed by assignment — it answers *which cases are mine*. This answers a different
+  // question the board cannot: *what did the PM say, and which version are we on*. Both facts live
+  // per case today, so a CM chasing a returned draft opens cases one at a time looking for the
+  // comment. A queue is the shape of that job.
+  //
+  // CM-only. The PM has `/drafts`, which is the same subject from the reviewing side and is
+  // deliberately a different screen: theirs is a work queue of other people's drafts, this is a
+  // status board of your own.
+  {
+    path: '/my-drafts',
+    label: 'My drafts',
+    roles: ['CASE_MANAGER'],
+    becomes: 'PM strategy notes and your draft history',
+    group: 'Pipeline',
+  },
+
   // Case Manager. Their docket is the same board narrowed by their own assignment, which
   // the server does — so this is the board, not a second screen.
   {
@@ -260,7 +326,7 @@ const PARAMETERIZED: readonly NavItem[] = [
   {
     path: CASE_DETAIL_PATH,
     label: 'Case',
-    roles: ALL_ROLES,
+    roles: PRODUCTION_ROLES,
     becomes: 'Case detail',
     group: 'Pipeline',
   },
@@ -313,6 +379,18 @@ export function boardPathFor(role: Role): { path: string; label: string } {
     if (item && mayReach(role, path)) return { path, label: `Go to ${item.label.toLowerCase()}` }
   }
   return { path: '/dashboard', label: 'Back to your dashboard' }
+}
+
+/**
+ * Where a role lands after signing in, and where `/` sends them.
+ *
+ * **Every role has a dashboard again**, now that the sales desk is gone, so this resolves to
+ * `/dashboard` for all of them. Kept rather than inlined back into `App.tsx`: it was added because
+ * a hardcoded landing path in two places was wrong the moment one role could not reach it, and
+ * that is a property of hardcoding it, not of the role that exposed it.
+ */
+export function homePathFor(role: Role): string {
+  return mayReach(role, '/dashboard') ? '/dashboard' : boardPathFor(role).path
 }
 
 export function itemFor(path: string): NavItem | undefined {

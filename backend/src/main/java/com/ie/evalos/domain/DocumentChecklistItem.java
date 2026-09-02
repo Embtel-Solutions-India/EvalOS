@@ -10,7 +10,7 @@ import jakarta.persistence.Enumerated;
 import jakarta.persistence.Table;
 
 /**
- * One required document on a case. The document itself is a Google Drive link on
+ * One required document on a case. The document itself is an S3 object (Unit 30) reached from
  * the case; this row tracks only whether it has arrived and passed review.
  */
 @Entity

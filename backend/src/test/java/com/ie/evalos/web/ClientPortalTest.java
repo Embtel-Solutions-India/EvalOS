@@ -15,6 +15,7 @@ import com.ie.evalos.security.PortalSecurityConfig;
 import com.ie.evalos.security.PortalTokenFilter;
 import com.ie.evalos.security.SecurityConfig;
 import com.ie.evalos.security.StaffPrincipal;
+import com.ie.evalos.service.CaseBoardService;
 import com.ie.evalos.service.CaseDetailService;
 import com.ie.evalos.service.CaseLifecycleService;
 import com.ie.evalos.service.PortalAccessService;
@@ -86,6 +87,9 @@ class ClientPortalTest {
 	CaseDetailService details;
 
 	@MockitoBean
+	CaseBoardService board;
+
+	@MockitoBean
 	EvalOsUserDetailsService userDetailsService;
 
 	private String staffBearer(Role role) {
@@ -106,8 +110,7 @@ class ClientPortalTest {
 
 	private static PortalCaseService.ClientDraftView view(String reference) {
 		return new PortalCaseService.ClientDraftView("Anita Rao", ServiceType.EXPERT_OPINION_LETTER, reference,
-				"https://docs.google.com/document/d/draft/edit", 2, ClientApprovalStatus.PENDING, true,
-				"<html>Expert AK</html>", "Expert AK");
+				"https://docs.google.com/document/d/draft/edit", 2, ClientApprovalStatus.PENDING, true);
 	}
 
 	/**

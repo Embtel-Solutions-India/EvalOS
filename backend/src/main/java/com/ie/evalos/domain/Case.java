@@ -140,19 +140,34 @@ public class Case extends ScopedEntity {
 	@Column(name = "client_portal_read_at")
 	private Instant clientPortalReadAt;
 
-	/** Google Drive folder. EvalOS stores the link, never the document bytes. */
-	@Column(name = "drive_link")
-	private String driveLink;
+	/**
+	 * Why <em>this</em> expert (Unit 32).
+	 *
+	 * <p><strong>Its own field rather than more prose in {@code pmStrategyNotes}</strong>, because
+	 * it is a different fact rather than a longer one: it is rewritten per expert (and a
+	 * reassignment is a normal path), it is read by the Expert Network Manager and not by the Case
+	 * Manager, and it is the answer to the question asked after something goes wrong.
+	 *
+	 * <p>Not versioned. The current rationale is what matters; who was assigned when is already
+	 * recorded twice, in the audit trail and in {@code expert_case_offer}.
+	 */
+	@Column(name = "expert_selection_rationale")
+	private String expertSelectionRationale;
 
 	/**
 	 * The drafted letter the client reviews (Unit 14). Written by
 	 * {@code CaseLifecycleService.submitDraft}, so the link arrives with the draft it names.
 	 *
-	 * <p><strong>Distinct from {@link #driveLink} and never defaulted to it.</strong> That column
-	 * is the client's own document folder — passports, transcripts — and it is the one field the
-	 * client portal must never be shown: EvalOS does not control what is in that folder or who it
-	 * is shared with, so presenting it as "your draft" would be a leak rather than a mislabel. A
-	 * case with no draft link shows the portal an honest "not ready".
+	 * <p><strong>Distinct from the client's own documents, and never a fallback for them.</strong>
+	 * This used to sit beside a {@code drive_link} column naming the folder of passports and
+	 * transcripts, and pointing the portal's "open your draft" at that column was the defect Unit
+	 * 14 had to close. Unit 30 removed the column — a client's documents live under their own S3
+	 * prefix, derivable from the contact the case already points at — but the rule it protected is
+	 * the same one: **only this field is ever shown to a client**, and a case with no draft link
+	 * shows an honest "not ready" rather than anything else.
+	 *
+	 * <p>An S3 object key as of Unit 30, not a URL. Same column, different kind of value; nothing
+	 * may guess which one a row holds.
 	 */
 	@Column(name = "draft_link")
 	private String draftLink;
@@ -340,8 +355,13 @@ public class Case extends ScopedEntity {
 		this.pmStrategyNotes = pmStrategyNotes;
 	}
 
-	public String getDriveLink() {
-		return driveLink;
+	public String getExpertSelectionRationale() {
+		return expertSelectionRationale;
+	}
+
+	/** @param rationale blank is stored as null, so "not written" has one representation. */
+	public void setExpertSelectionRationale(String rationale) {
+		this.expertSelectionRationale = rationale == null || rationale.isBlank() ? null : rationale.strip();
 	}
 
 	public String getDraftLink() {
@@ -366,10 +386,6 @@ public class Case extends ScopedEntity {
 
 	public String getInvoiceRef() {
 		return invoiceRef;
-	}
-
-	public void setDriveLink(String driveLink) {
-		this.driveLink = driveLink;
 	}
 
 	public void setInvoiceRef(String invoiceRef) {

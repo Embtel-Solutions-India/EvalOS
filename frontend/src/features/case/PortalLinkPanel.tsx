@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { Role } from '../../lib/session'
 import { fetchPortalLink, mintPortalLink, type CaseDetail, type MintedLink, type PortalLinkStatus } from './caseApi'
-import { mayMintPortalLink } from './redactionRules'
+import { mayMintPortalLink } from '../client-portal/portalRules'
 
 /**
  * The staff side of the client's draft-review link (Unit 14).

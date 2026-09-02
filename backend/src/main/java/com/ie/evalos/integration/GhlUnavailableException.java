@@ -6,7 +6,7 @@ package com.ie.evalos.integration;
  * does not have.
  *
  * <p>Mapped to <strong>502</strong> by {@code ApiExceptionHandler}, alongside
- * {@link DriveUnavailableException} and for the same reason: the fault is upstream, and the
+ * {@link DocumentStoreUnavailableException} and for the same reason: the fault is upstream, and the
  * distinction from a 500 is what tells the reader to try again rather than to report a bug.
  *
  * <p><strong>Nothing in EvalOS changes when this is thrown.</strong> Every caller is a

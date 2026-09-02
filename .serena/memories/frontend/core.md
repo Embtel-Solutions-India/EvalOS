@@ -1,5 +1,56 @@
 # frontend/ — Core
 
+> ## ⚠ SCOPE CUT 2026-09-02 — Units 13, 18 and 20 are REMOVED
+>
+> - **13 Redacted CV** (was built): deleted. `RedactedProfileService`,
+>   `ExpertProfileController`, `RedactedProfilePanel`, `redactionRules`, the
+>   `REDACTED_PROFILE` document kind, and the portal's `expertProfile` /
+>   `expertReference`. **The client is told nothing about the expert at all now.**
+>   `AuditAction.EXPORTED` is **kept** — the audit trail is append-only, so the enum must
+>   read every value any historical row carries. `mayMintPortalLink` moved to
+>   `client-portal/portalRules.ts` (it was Unit 14's rule, only sharing a file).
+> - **18 Outbound dispatcher + Handoff C** (never built): removed. **Two handoffs, not
+>   three. EvalOS emits NOTHING outbound.** Inbound GHL webhooks and read-only funnel pulls
+>   are the whole integration surface. The payout entry on delivery survives — that was
+>   Unit 16's. Telling GHL a case was delivered is now **manual**.
+> - **20 AI widgets** (never built): removed, and promoted to **invariant 15 — no AI makes
+>   a production decision and there is no AI in the system.** Unit 12's match engine is not
+>   an exception: declared factors, inspectable arithmetic, never auto-assigns, no model.
+>
+> **Consequences to carry:** invariant 14's "sends no email" is settled, not pending —
+> there is no outbound channel at all. Unit 30's PDF question is **closed by removal**: the
+> redacted profile was the only document EvalOS generated. And client-facing messages
+> (chases, "draft ready") have **no automated route** — manual in GHL, or they become
+> states in the client portal, which is still open.
+
+> ## ✅ production lifecycle v2 — twelve stages, eight columns (Unit 31, BUILT 2026-09-02)
+>
+> **Read `context/specs/31-production-lifecycle-v2.md` before touching the state machine,
+> the board, or any transition gate.** Everything below describes the **code as it stands**
+> — five active stages plus sub-status chips. It no longer describes the **decision**.
+>
+> - **Twelve stages, one owner each; the board draws EIGHT columns** — two stages share
+>   one only where they share an owner (05+06 Coordinator, 07+08 CM), so a column still
+>   answers "whose turn is it". Delivered and Closed are a filter, not columns.
+> - **A stage is entered by the act that starts its clock** — Client Review by the
+>   Coordinator's *Send*, Expert Signing by the CM's *Send to Expert*. No `sent_at` columns. PM approval, client approval and the QC/delivered
+>   split stop being sub-statuses and become stages. The three columns stay, demoted: they
+>   record a review *outcome*, they no longer drive the stage.
+> - **Two transitions are added.** `qc-fail` (a failed final QC has nowhere to go today)
+>   and `send-to-expert` (the act that should start the 24h SLA — it currently runs from
+>   `stage_entered_at`, so an expert sent the letter late is charged for the delay).
+> - **Gates move.** The **Case Manager** takes expert signing, `expert/timed-out` and
+>   reassignment; ENM is notified and supports. `docs-complete` narrows to the Coordinator.
+>   `draft/pm-approve` and `pm-return` stay PM-only with no GM override (Unit 23a) —
+>   unchanged, and checked rather than assumed.
+> - **The draft becomes a versioned file** in a new `case_document` table; `draft_link` and
+>   `draft_version_count` are replaced. No version is ever overwritten.
+> - **No AI in any production decision** — verification, expert selection, drafting,
+>   review, approval, reassignment, QC. Automation is limited to notifications, timestamps,
+>   versioning and audit.
+> - **Reverses spec 08's derived-grouping decision.** A chip says what state work is in,
+>   not whose turn it is.
+
 Vite SPA under `frontend/src`. Structure is `lib/`, `components/`, `features/`, `pages/`, `styles/`;
 `features/` is where the real screens live — `auth`, `shell`, `board`, `case`, `checklist`,
 `dashboards`, `experts`, `queues`, `client-portal`, `marketing`.
@@ -24,10 +75,20 @@ yet; `empty` carries operational copy ("All incoming cases are assigned"), and *
 are different states** — a figure summing to zero renders `0`. A card is clickable **only** if
 given a `to`, which is what stops every tile looking interactive.
 
-`features/queues/` holds the three queue screens — `/inbox`, `/drafts` (PM) and `/delivery`
-(Coordinator). **All three read `/api/cases/board`** rather than adding endpoints: a second read
-would mean a second scope predicate that could drift from the board's. Selection lives in the pure
-`queueRules.ts` and is the only part with tests.
+`features/queues/` holds the five queue screens — `/inbox`, `/drafts`, `/expert-assignment` (PM)
+`/my-drafts` (CM) and `/delivery` (Coordinator). **All five read `/api/cases/board`** rather than adding endpoints: a
+second read would mean a second scope predicate that could drift from the board's. Selection lives
+in the pure `queueRules.ts` and is the only part with tests.
+
+**`/expert-assignment` is Unit 17's PM widget, built as a composition and not a service.** Three
+questions on one screen because they are one decision: `awaitingExpert` (the `EXPERT_ASSIGNMENT`
+bucket **plus** the `EXPERT_DECLINED_REMATCHING` lane — `CaseBoardController` puts a case in a
+stage bucket only while its exception is `NONE`, so reading the stage alone drops the cases whose
+expert walked away), `expertSignOverdue` (`slaStatus === 'OVERDUE'` on `EXPERT_SIGNING` with
+`expertSignStatus === 'PENDING'` — that *is* the 24h `EXPERT_SIGN` budget on business hours, never
+a client-side hour count), and Unit 11's shipped `AvailabilityBoard` underneath. The red row's
+prompt runs `expert/timed-out` then `reassign-expert`, both through the board's existing
+`QuickActionDialog`, so the Unit 12 shortlist comes along free.
 
 **`/inbox` is the front door for incoming work and is the PM's alone (Unit 23).** A paid case
 arrives in the pool and surfaces under *Unassigned*; the PM takes it, then staffs the coordinator
@@ -193,6 +254,21 @@ own pipeline name arrives in the payload and replaces it, which is what lets thr
 stay tellable apart). `funnel` sits in the `useMetrics` deps beside `dateRange`, or a route change
 would leave another funnel's numbers under this one's heading. The file was `AdsPipelinePage.tsx`
 until Unit 26.
+
+**⚠ Unit 29's sales board was BUILT and then REMOVED (2026-09-02).** `features/sales/`, the
+`/sales/board` nav entry and `Role.SALES_EXECUTIVE` are all deleted. `/sales/pipeline` — the GM's
+*read* of that same funnel through this component — is untouched, and it keeps its own `Sales` nav
+heading for the reason above: it is a salesperson's pipeline, not a campaign funnel, and filing it
+under Marketing would imply three comparable channel results.
+
+**Two role-table notes the removal leaves in place.** `navigation.ts` keeps the name
+**`PRODUCTION_ROLES`** rather than reverting to `ALL_ROLES`, and `boardRules.test.ts` /
+`navigation.test.ts` keep their `CASE_ROLES` split, even though both lists are equal to every role
+again. The name states the *reason* a role is on the list, and that survives the next role that is
+not — a constant named "all" is the one that goes quietly wrong. And `STAGE_ACCESS` / `DASHBOARDS`
+stay `Record<Role, ...>`: adding a role is a build failure until it declares board access and a
+dashboard node. That totality is what made removing one a compile error rather than a runtime
+`undefined`; do not relax it to `Partial`.
 
 **Unit 27 added no file here** — a union member and one route-table line in `App.tsx`. If a fourth
 funnel needs a component of its own, something has actually changed; check that first.
@@ -429,6 +505,13 @@ deliberately no client-side scoring. The ranking and its factor breakdown come f
 *silently dropped* rather than visibly wrong; and `breakdownAddsUp` makes the panel say so if the
 rows ever contradict the total above them.
 
+**The expert `<select>` under the shortlist is server-narrowed, not client-filtered.**
+`fetchAvailableExperts(caseId)` passes `forCase` and `GET /api/experts` drops both what
+`availableExpert` refuses (anything not `AVAILABLE`) *and* the expert already on the case, which
+`reassignExpert` answers 409 to. Passed unconditionally — on `assign-cm` the case has no expert
+yet, so it is a no-op. **Do not try to filter this client-side:** `BoardCard` deliberately carries
+no `expertId`, and the fix for a picker offering a refused choice belongs in the picker.
+
 ## Styling — design tokens only
 
 - `src/styles/tokens.css` (imported by `src/index.css`) is the single source of truth, mirroring
@@ -472,7 +555,7 @@ rows ever contradict the total above them.
   `NAV_ICONS` stays keyed by the same `path` the router uses, so a missing entry degrades to a
   fallback instead of adding a second list.
 - **Density: the reference screen is 1366 × 768, not 1920.** 36px for every control (pill, select,
-  search, icon button, nav item), 72px header, 240px sidebar, 288px board column, `text-2xl` screen
+  search, icon button, nav item), 72px header, 240px sidebar, 240px board column, `text-2xl` screen
   `h1`. The adopted template ships 44–48px controls, a 400px sidebar and a 136px header; that scale
   was rejected on purpose — it spends 28% of a 1366 viewport's width and 18% of its height on chrome.
   Table in `context/ui-context.md` → "Density"; the reasoning is the deviation table in
@@ -483,9 +566,28 @@ rows ever contradict the total above them.
   split is what pins the SLA rail and the column headers while cases move under them — the rail is the
   board's one instrument and it used to leave the screen with the page. `PoolLane` is capped at two
   rows of pills and "Off the pipeline" starts **closed**; both used to push the columns below the
-  fold. `--board-column-max` subtracts a measured 22rem of chrome from `100svh` and is marked
+  fold. `--board-column-max` subtracts a measured 20rem of chrome from `100svh` and is marked
   `ponytail:` — the non-magic version is a viewport-height app frame (`AppShell` owning the scroll for
   every screen, strip as `flex-1 min-h-0`), which is not worth it for one board.
+- **`CaseCard` is one stretched link, and the density is the point.** The card was widened out of
+  `w-72` into `w-60` and its stacked `Due` / `Value` definition list collapsed onto a single inline
+  line, so a laptop shows both more cases per column and more stages across. The whole card is a
+  `<Link>` positioned `absolute inset-0`; the text over it is `pointer-events-none` and only the quick
+  action buttons keep their own events. Do not put a second anchor or an `onClick` inside the card —
+  it would either be swallowed by the overlay or nest inside it. The chip row renders **only when it
+  has chips**; it used to cost every card a blank line.
+- **A board card carries no controls at all, as of 2026-08-28.** `CaseCard` takes `card` and `mine`
+  and nothing else — no `actions`, no `busy`, no `error`, no `onAction`. Quick actions were on the
+  card in flow, then as a hover overlay, and both spent the board's scarcest resources (vertical
+  room, a layout that holds still under the pointer) on controls one click away; they live on the
+  case (`StageActions`, off the same `boardRules.actionsFor` table) and in the draft/delivery
+  queues. **Do not put them back** — spec 08 §4 is amended to say so. The board's one remaining
+  action is `PoolLane`'s Assign PM, and `BoardView` holds a single `actionError` string for it
+  rather than a map keyed by case, because the pool can only be assigning one case at a time.
+- **A card's background lives in classes, never inline.** An inline `background` outranks every class
+  rule, which had left `hover:bg-(--bg-surface)` silently dead on `CaseCard` since it was written.
+  Overdue keeps its `--status-red-bg` tint through the hover; everything else lifts `--bg-base` →
+  `--bg-surface`, and the action overlay paints whichever of those the hovered card is showing.
 
 Style rules and the `@/*` alias caveat: `mem:conventions`. Commands and the fixed dev port:
 `mem:suggested_commands`.

@@ -137,21 +137,13 @@ export default function CaseChecklist({
   return (
     <div className="flex flex-col gap-3 p-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        {view.driveLink ? (
-          <a
-            href={view.driveLink}
-            target="_blank"
-            rel="noreferrer noopener"
-            className="text-sm font-medium"
-            style={{ color: 'var(--accent-primary)' }}
-          >
-            Open the Drive folder ↗
-          </a>
-        ) : (
-          <span className="text-sm" style={{ color: 'var(--text-muted)' }}>
-            No Drive folder linked yet — the documents have nowhere to go.
-          </span>
-        )}
+        {/*
+          **No folder link any more (Unit 30).** There is no folder: a client's documents are S3
+          objects, opened one at a time through a URL minted at the click. The per-item status
+          below is what says whether a document arrived, which is the question this board is for —
+          the old link answered "where would it be" rather than "did it come".
+        */}
+        <span className="text-sm font-medium">Documents</span>
         <span className="font-num text-xs tabular-nums" style={{ color: 'var(--text-muted)' }}>
           {view.lastChasedAt ? `Last chased ${agingLabel(sinceChase)} ago` : 'Never chased'}
         </span>

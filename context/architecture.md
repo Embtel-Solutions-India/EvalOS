@@ -8,51 +8,53 @@
 | Database         | PostgreSQL + Spring Data JPA (Hibernate)           | System of record: brands, cases, experts, payout ledger, contact snapshots, audit |
 | Migrations       | Flyway                                             | Versioned schema — every change is a new migration, never an edited one           |
 | Internal auth    | Spring Security + JWT + role authorities (RBAC/ABAC) | Staff login; per-role + brand/team/assignee authorization (optional SSO later)   |
-| Portal auth      | Separate Spring Security filter chains (scoped, link-based) | Expert portal and client draft-review portal — isolated from internal auth |
+| Portal auth      | Separate Spring Security filter chain (scoped, link-based), one chain, two audiences | **Both portals live in one external frontend** calling this backend: the client's document-upload and draft-review surface, and the expert's download-sign-reupload surface. `portal_access.audience` (`CLIENT` / `EXPERT`, V21) is what separates them — isolated from internal auth. **CORS is required and not yet configured** — see `30-s3-document-store.md` |
 | Frontend         | React + TypeScript (Vite SPA) + Tailwind, with `radix-ui`, `lucide-react`, `recharts` | Internal role-based dashboards, client portal, expert portal. The three UI packages landed in Unit 22 slice 1, each against a screen that needed it; dnd-kit, TanStack Table and Motion stay deferred with written triggers in that spec |
-| Raw documents    | Google Drive (existing) + **Drive API v3 (outbound, Unit 13)** | Client document folders — link stored on the case, not re-hosted. **Since Unit 13 EvalOS also writes one file into the case's folder**: the redacted expert profile, uploaded as a Google Doc |
+| Raw documents    | **S3 document store (Unit 30)** — AWS SDK v2 | Client documents written by the **separate Client Portal** under `client/{clientId}/` and read by EvalOS; EvalOS's own artefacts (draft, redacted profile, signed letter) under `case/{caseId}/`. **EvalOS holds object keys, never bytes**, and serves them as 5-minute presigned URLs. Replaced Google Drive in Unit 30 |
 | E-signature      | **None — no provider.** The expert signs in their own tool and uploads the signed PDF through their portal | A scanned wet signature is the norm for an expert opinion letter. Provenance is a hash pair + an attestation + an `EXPERT` audit row, not a certificate — see `15-expert-portal-handoff-b.md` |
 | Notifications    | In-app notification center (staff) + GHL (clients) + a portal link (experts) | No EvalOS mail server                                            |
 | Background work  | Spring `@Scheduled` (+ app events) + a `scheduled_job` run ledger + a Postgres advisory lock per sweep | SLA timers, reminders, escalations, expert-sign prompts, the outbound outbox. **No Quartz, no ShedLock, no broker** |
 | Queue            | The `webhook_delivery` outbox table, claimed `FOR UPDATE SKIP LOCKED` | Outbound delivery with backoff + dead-letter. The only cross-process work is "deliver one webhook and keep trying", which a durable row does |
-| Integration seam | Inbound webhook gateway + outbound webhook dispatcher (+ GHL and Google Drive clients) | Receive GHL events; emit EvalOS lifecycle events to subscribers. **One inbound source, GHL** — dropping the signature provider removed the second |
+| Integration seam | Inbound webhook gateway + outbound webhook dispatcher (+ the GHL and S3 clients) | Receive GHL events; emit EvalOS lifecycle events to subscribers. **One inbound source, GHL** — dropping the signature provider removed the second |
 | GHL read API | `RestClient` against GHL's public API, `opportunities.readonly` (**inbound *pull*, Unit 24**) | The GM's marketing funnel view, and nothing else. **Read-only, and no write method**: two calls and a cached payload. The *aggregate* the screen draws is cached in `ghl_funnel_cache` (it was a heap map until 2026-08-26 — a per-process cache lost a completed background total on restart and could not hand one instance's result to another). **No opportunity rows are stored**: there is no `ghl_opportunity` table and there must not be one, because a stage dragged five seconds ago would already be wrong in it. The table is a cache, not a record — safe to truncate, and not brand-scoped because the figures come from one global GHL location EvalOS cannot attribute to a brand. This is the third direction across the GHL seam — events in, events out, and now one pull — and it is the only one that is not a handoff |
 
-**No object storage.** EvalOS hosts no files. Client documents and drafts are
-referenced by Google Drive link; the signed letter is filed into the case's own Drive
-folder by the expert's upload; the
-redacted CV is generated on demand (and, if persisted, written to the case's
-Drive folder — never to a database blob).
+**Object storage, and EvalOS hosts nothing in it.** Documents live in an **S3 bucket**
+(Unit 30). The sentence here used to read *"No object storage. EvalOS hosts no files."* —
+the first half is now false and is gone; the second half is still true and is what
+invariant 14 carries. EvalOS stores **object keys**, exactly as it stored Drive links, and
+no bytes on disk, on the heap or in a column.
 
-**Accepting a file is not hosting one.** Unit 21 takes client uploads on the portal
-and **streams them through** to the case's Drive folder — `InputStreamContent`, not a
-byte array, so a large file never lands on the heap either. EvalOS keeps the Drive
-file id and nothing else. There is no upload directory, no temp file and no blob
-column, and Unit 21 asserts that rather than assuming it.
+**Two owners, split by prefix, enforced by IAM rather than by convention.** The **Client
+Portal is a separate application**: clients sign in there and upload, and it writes
+`client/{clientId}/…`. EvalOS's credential is **read-only on that prefix** — not "does not
+write", but *cannot*. A client's uploaded document is evidence, and a system able to
+overwrite evidence it did not author will eventually be asked whether it did. EvalOS reads
+and writes `case/{caseId}/…`, which holds the draft, the redacted expert profile and the
+expert's signed letter.
 
-**Drive stopped being a link-only external in Unit 13.** Until then
-`Case.driveLink` was a string EvalOS stored and never dereferenced, and this
-table said so. It is now an **outbound integration**: `integration/GoogleDriveClient`
-uploads the generated redacted profile into the folder that link names, with a
-target mime type of `application/vnd.google-apps.document` so Drive converts it
-to a Doc on the way in. This is deliberately the narrowest possible capability —
-**one file into a folder that already exists**, no folder creation, no permissions
-management, no reading documents back out. It is also why EvalOS has no PDF
-library: Drive's own export produces a PDF from the created Doc.
+**`{clientId}` is GHL's contact id** — the same identifier EvalOS keys
+`contact_snapshot.ghl_contact_id` on and the same one the Client Portal uses. One client is
+one client in all three systems, with **no mapping table between them**, which is the whole
+reason a key written by the portal resolves in EvalOS. Email stays a **fallback** key
+(V27): consistent across the three systems, but never the identity, because two GHL
+contacts can share an inbox and treating email as identity once attached a case to the
+wrong client.
 
-Two consequences worth stating where the stack is described. First, this is the
-**one external dependency in Phase 2** — and, since the signature provider was
-dropped, the **only** one: Units 13, 15 and 21 all need this same service account, and
-nothing else in the phase needs a credential. It
-needs credentials that are provisioned rather than coded — a Google Cloud service
-account, its JSON key (`GOOGLE_DRIVE_KEY_JSON` or `GOOGLE_APPLICATION_CREDENTIALS`,
-bound the same env-backed way as `EVALOS_FIELD_KEY`, with **no default outside
-`local`**, so an environment that forgets it fails to start). Second, the write
-access behind that key **must be granted per brand folder tree**: one service
-account with blanket access to both brands' Drives is a cross-brand hole *outside
-the database*, which no `brand_id` predicate can close. EvalOS holds the half it
-can — it writes only into the folder the case's own `drive_link` names, and an
-unparseable link is a refusal, never a fallback to a default folder.
+**Reads are bounded capabilities, not permanent ones.** A document is opened through a
+**presigned GET URL valid for 5 minutes**, minted per request, never stored, and issued
+**only after** the caller passes the same scope check that guards the case — a URL minted
+before the check is a URL that leaked before the check. Every issue writes an audit row.
+This is strictly safer than the Drive link it replaces, which was a permanent capability
+sitting in a column.
+
+**Accepting a file is still not hosting one.** An upload through EvalOS's own portal — the
+expert's signed letter — **streams** to S3. No byte array, no temp file, no blob column,
+and Unit 30 asserts that rather than assuming it.
+
+**Google Drive is gone as of Unit 30**, along with the service account that blocked Units
+13, 15 and 21 for weeks. See `context/specs/30-s3-document-store.md`; the AWS credential is
+environment-supplied with no default outside `local`, bound the same way as
+`EVALOS_FIELD_KEY`, and the local profile still boots without it.
 
 Unit 11 added the one **upload** in EvalOS, and it does not change that: the
 expert roster sheet is parsed in memory and thrown away — no row, column or temp
@@ -79,7 +81,10 @@ Repository layout is a monorepo: `backend/` (Spring Boot) and `frontend/`
   determines `brand_id` even when GHL's payload omits it. The brand ↔ endpoint
   mapping is 1:1.
 - **The GM is the only cross-brand role.** Everyone else is hard-locked to their
-  brand (Brand Manager) or narrower (team/self).
+  brand (Brand Manager) or narrower (team/self). No exceptions: Unit 29's
+  `SALES_EXECUTIVE` was one role with a NULL brand and it has been removed along with
+  the sales desk, so every non-GM row again carries a brand — enforced by
+  `team_member_brand_required` (V3, restored by V30).
 - **One exception to "no request field names a brand", and it is not a scope.**
   Unit 11 is the first unit where staff *create* a scoped row (every case comes
   from a webhook), and a GM has no brand of their own to create it in. So
@@ -102,11 +107,10 @@ Java packages under `com.ie.evalos`:
 - `domain` — JPA entities (and enums like `Stage`, `PayoutStatus`, `Role`).
   Mapping and invariants only, no business orchestration.
 - `repository` — Spring Data JPA repositories; brand/team/assignee scoping filters.
-- `integration` — outbound clients for the GHL API and **Google
-  Drive** (`GoogleDriveClient`, Unit 13 — the first one built). Each is one narrow
-  capability, not a general SDK wrapper: the Drive client uploads one file into one
-  existing folder and does nothing else. A failure here is a 502 that changes
-  nothing in EvalOS, never a partially-applied state.
+- `integration` — outbound clients for the GHL API and the **S3 document store**
+  (Unit 30). Each is one narrow capability, not a general SDK wrapper: the S3 client
+  lists a prefix, gets an object, puts one under `case/`, and presigns a read. A failure
+  here is a 502 that changes nothing in EvalOS, never a partially-applied state.
 - `webhook` — inbound webhook gateway: brand resolution from the per-brand
   endpoint token, idempotency, raw-payload archival, routing to a domain
   service. **No signature verification** — see the inbound gateway below.
@@ -162,24 +166,24 @@ Frontend under `frontend/src`: `components/ui` (generated primitives),
   not a limitation to design around. `pm_strategy_notes` stays a column and stays separate
   — it is the PM's private working note and is role-restricted; a case note is the
   opposite, readable by everyone the case scope admits.
-- **Google Drive (existing, external)**: raw client document folders and drafts.
-  EvalOS stores **two separate links** on the case and they are never
-  interchangeable: `drive_link` is the client's own document folder (passports,
-  transcripts) and `draft_link` (Unit 14) is the drafted letter. Only the second
-  is ever shown to a client — the first is a folder whose contents and sharing
-  EvalOS does not control, so presenting it as "your draft" would be a leak, and a
-  case with no `draft_link` is told "not ready" rather than given a fallback.
-  EvalOS does not re-host documents. Since
-  Unit 13 it also **writes** one generated document into that folder (see the
-  outbound-integration note under the stack table) — writing into a folder is not
-  re-hosting: the file lives in Drive, and EvalOS keeps only the audit row.
+- **S3 document store (Unit 30)**: client documents and EvalOS's own artefacts. The case
+  carries **no client-document link at all** — a client's prefix is *derived* from the
+  contact the case already points at (`client/{ghl_contact_id}/`), so there is no second
+  copy of a fact the schema already holds. `draft_link` survives as an **object key**
+  because a draft is one file among several versions and is not derivable. Only the draft
+  is ever shown to a client: the client-document prefix is theirs, and presenting it as
+  "your draft" would be a leak, so a case with no `draft_link` is told "not ready" rather
+  than given a fallback.
 - **No e-signature provider.** The expert signs in whatever tool they already use and
-  uploads the signed PDF; it is filed in Drive like every other document. EvalOS keeps
-  the file id, a hash of what it sent and of what came back, and the expert's
-  attestation.
+  uploads the signed PDF through their portal; it streams to `case/{caseId}/signed/`.
+  EvalOS keeps the object key, a hash of what it sent and of what came back, and the
+  expert's attestation. **Unit 30 changed where that file lands and nothing about how it
+  is trusted.**
 - **Redacted CV**: generated on demand from the expert profile; not persisted to
-  any EvalOS-hosted store. Held in memory only — streamed to the caller, or handed
-  to Drive — and never written to Postgres or to disk.
+  any EvalOS-hosted store. Held in memory only — streamed to the caller, or streamed to
+  `case/{caseId}/redacted-profile/` — and never written to Postgres or to disk. **Note the
+  cost Unit 30 carries here:** Drive's export produced a PDF for free and S3 converts
+  nothing, so the output format is an open question rather than a solved one.
 - **Encrypted at rest (field-level)**: the single optional expert
   `payment_detail` field, via a JPA `AttributeConverter`. Never logged, never
   placed in a DTO, webhook payload, or chat tool. (Payouts are manual and no
@@ -254,21 +258,29 @@ The front/back seam generalises, and stating it once settles a class of question
 | Retention & reviews | the 7-day review request, the 30/90/180/365 sequence | nothing — EvalOS emits `case.delivered` and schedules none of it |
 | Google Ads funnel | the whole thing — lead → warm → hot → won/cold/lost | **nothing. Unit 24 *reads* it and takes custody of none of it** |
 | Email marketing funnel | the whole thing, campaigns included | **nothing. Unit 26 *reads* it on the same terms** |
-| Sales pipeline (*Aditya's pipeline*) | the whole thing — meetings, quotes, invoices sent, refunds | **nothing. Unit 27 *reads* it on the same terms** |
+| Sales pipeline (*Aditya's pipeline*) | **the record.** Every opportunity lives here and nowhere else | **nothing. Unit 27 *reads* it on the same terms as the two funnels above.** No `ghl_opportunity` table, no sales row anywhere in EvalOS. Unit 29 briefly *operated* it from an EvalOS screen; that desk was removed and EvalOS writes nothing to GHL again |
 
 Those last three rows are the exception the table needed, and the distinction they draw
-is the one to keep: **custody and visibility are different things.** Unit 27's row is
-where that is easiest to misread — it is a *sales* pipeline, and reading one is no more
-selling than reading a campaign funnel is running marketing. Nine stages including
-`Invoice sent` and `Refund` are read and none is acted on: invoicing is GHL's, and a
-refund is a payment fact that reaches EvalOS through the payment record if it reaches it
-at all. Unit 24 puts GHL's Google
+is the one to keep: **custody and visibility are different things.**
+
+**The sales desk was the one exception to that pair and it is gone.** Unit 29 let a sales
+executive move a stage from an EvalOS screen — visibility plus *operation*, while still
+holding nothing. That role and that screen were removed, so the pair stands unqualified
+again: custody and visibility, and EvalOS has visibility only. `GhlHttp` has no write
+verb at all now, which is the code-level statement of it.
+
+Unit 24 puts GHL's Google
 Ads funnel on a GM screen — counts, values and sources per stage — while GHL stays the
 system of record for every row in it. Nothing is copied here (no `ghl_opportunity`
 table, by decision: a stage a salesperson dragged five seconds ago is already wrong in
-a copy), nothing is written back, and no case exists until `opportunity.won` fires as
-it always did. Invariant 2 is about *running* marketing, and reading a funnel is not
-running one.
+a copy), nothing is written back **from the three funnel screens**, and no case exists
+until `opportunity.won` fires as it always did. Invariant 2 is about *running*
+marketing, and reading a funnel is not running one.
+
+The `ghl_opportunity` decision — that no EvalOS table copies a pipeline row — outlasted
+the desk that made it load-bearing, and is the reason removing the desk cost one
+migration and no data reconciliation at all: there was nothing stored to unwind.
+`opportunity.won` still fires from GHL and still creates the case through Handoff A.
 
 **Each brand has its own GHL sub-account** — confirmed when the first Private
 Integration Token arrived, for International Evaluations. So a funnel read is one
@@ -357,26 +369,62 @@ unconditional either way, so it widens a tier inside one brand and never across 
 - **Handoff B — internal (trigger: client approves draft).** The case moves to
   `EXPERT_SIGNING` and appears in the expert portal with draft + evidence + goal.
   The expert **downloads the letter, signs it in their own tool, and uploads the
-  signed PDF back**, which files it into the case's Drive folder and moves the case to
+  signed PDF back**, which streams it to `case/{caseId}/signed/` and moves the case to
   the PM for final QC. There is no signature provider: provenance is a hash of what
   was sent and what came back, an attestation captured at upload, and an audit row
   with `actor_type = 'EXPERT'`. Exception paths: request-evidence
   opens a client task; decline returns the case to `EXPERT_DECLINED_REMATCHING`
   with the reason logged and the match engine proposing the next expert.
-- **Handoff C — EvalOS → GHL (trigger: delivered).** On QC-complete delivery,
-  EvalOS emits a signed outbound `case.delivered` webhook to its subscribers
-  (GHL first; its inbound automation URL starts the review + referral track and
-  stamps the closed value). The payout ledger entry (Pending) is created in the
-  same transaction. Delivered/active contacts are synced to GHL's global
-  suppression list so no cold/bulk campaign ever emails a current client.
+- **~~Handoff C — EvalOS → GHL~~ — REMOVED with Unit 18 (2026-09-02). There are two
+  handoffs, not three.** EvalOS was to emit a signed outbound `case.delivered` webhook
+  on delivery, starting GHL's review and referral track. That dispatcher was never
+  built and is now out of scope.
+
+  **What survives, and it is the half that matters operationally:** the payout ledger
+  entry is still created on delivery, in the same transaction as the transition
+  (`CaseLifecycleService.deliverToClient` → `PayoutService.openForDelivery`). That was
+  always Unit 16's, not Unit 18's, and it is built.
+
+  **What is genuinely lost — say it plainly.** Nothing tells GHL a case was delivered,
+  so the review sequence, the referral track and the suppression-list sync do not fire
+  from EvalOS. **Somebody has to start them by hand in GHL**, and that is the cost of
+  this decision rather than an oversight to be discovered later.
+
+  **The larger consequence: EvalOS now emits nothing outbound at all.** Its integration
+  surface is inbound webhooks from GHL and read-only pulls of GHL's funnels. Domain
+  events still publish, but only in-process, and their only consumer is the in-app
+  notification centre. See invariant 14 — "sends no email" is no longer a pending
+  decision, it is the architecture.
 
 ## Case State Machine (EvalOS-owned stages 3–7)
+
+> **⚠ Being replaced by Unit 31 — Production lifecycle v2.** Read
+> `context/specs/31-production-lifecycle-v2.md` before changing any transition. Two
+> transitions are added — **`qc-fail`**, which does not exist today and is the one that
+> catches a bad letter before a client sees it, and **`send-to-expert`**, which is the act
+> that should start the 24-hour signing SLA. Several gates move; the Case Manager takes
+> ownership of expert signing and reassignment.
 
 Canonical 8-stage business pipeline; GHL owns stages 1 (Marketing), 2 (Sales),
 and 8 (Retention). EvalOS's internal `Stage` enum covers stages 3–7:
 
 ```
 DOC_COLLECTION → EXPERT_ASSIGNMENT → DRAFT_GENERATION → EXPERT_SIGNING → FINAL_DELIVERY → CLOSED
+```
+
+**⚠ Unit 31 replaces this with twelve stages (SPECCED 2026-09-02, not built).** Each has
+**one owner, one primary action, one event and one next owner**; facts held today as
+sub-statuses on a stage become stages of their own.
+
+```
+01 Document Collection (Coordinator) → 02 PM Review & Assignment (PM)
+→ 03 Draft In Progress (CM) → 04 Draft Review (PM) → 05 Ready to Send (Coordinator)
+→ 06 Client Review (client acts) → 07 Client Approval (CM) → 08 Expert Signing (expert acts)
+→ 09 Final QC (PM) → 10 Ready to Deliver (Coordinator) → 11 Delivered → 12 Closed
+
+A stage is entered by the ACT that starts its clock: Client Review by the Coordinator's
+Send, Expert Signing by the CM's Send to Expert. So `stage_entered_at` is the send time and
+no `sent_at` column exists. The board draws EIGHT columns, not twelve.
 ```
 
 Exception states reachable from any active stage: `ON_HOLD_AWAITING_CLIENT`,
@@ -413,6 +461,11 @@ business logic in the transport layer; both are idempotent and observable.
    replayed event never produces a second side effect. "Already seen" is not
    "already done" — only a *processed* row is a duplicate, so a redelivery after
    a handler failure retries instead of being swallowed.
+
+   **The event id is looked for at the top level and inside `customData`, and
+   falls back to a SHA-256 of the body.** GHL's Custom Webhook mints no delivery
+   id of its own, so demanding one refused every real delivery — and a webhook
+   retry replays the same bytes, which is exactly what the digest keys on.
 4. **Archive** the raw payload (JSONB) for audit and replay.
 5. **Route** to the matching handler, which calls a domain service.
 6. **Acknowledge** fast; slow work is handed to a `job`. Failures return a
@@ -464,12 +517,16 @@ exist because every transition owes exactly one event. They live in
 - Scale: 50–100 cases per brand per month. No microservices, message broker, or
   sharding — a single Spring Boot app + one Postgres.
 - Availability ~99%, single region; nightly DB backups (RPO ~24h).
-- Document retention is handled in Drive, not by EvalOS.
+- **Document retention is an open question (Unit 30 (a)).** Drive held this policy and
+  nothing does now. The default until it is answered is keep-indefinitely with bucket
+  versioning on — deleting a client's evidence on a guess is the worse of the two errors.
 
 ## Invariants
 
 1. **Brand isolation.** Every scoped query filters by `brand_id`; no code path
-   returns another brand's data. The GM is the only cross-brand role.
+   returns another brand's data. The GM is the only cross-brand role **reader of
+   EvalOS rows**.
+
    **One stated exception, and it is not a query over EvalOS rows**: the GHL pipeline
    reads (Units 24, 26 and 27) go to the one GHL sub-account named by
    `evalos.ghl.location-id`, a *global* setting with no link to a brand — so no
@@ -495,16 +552,33 @@ exist because every transition owes exactly one event. They live in
    Unit 25a then re-scopes all three screens together.
    **Read the invariant as: every query over EvalOS rows.** An unscoped query over
    EvalOS rows is still a defect, and this exception licenses nothing about them.
-2. A case is in exactly one system's custody at any moment. EvalOS never runs
-   marketing, sales, nurture/cold email, ad attribution, or invoicing.
-   **"Runs" is the operative word, and Units 24, 26 and 27 test it.** EvalOS may *read*
-   GHL's campaign funnels *and its sales pipeline* onto a GM screen; it may not create a
-   lead, move a stage, price a deal, send a campaign, or write anything back. Unit 27 is
-   the sharpest test of the word, because it reads stages named `Invoice sent` and
-   `Refund` and acts on neither — invoicing is GHL's, full stop. The GHL credential is
-   `opportunities.readonly` and the client has no write method — read-only by grant as
-   well as by code, so a mistake in either place is still not a write. The day something
-   here writes to a GHL pipeline, two systems own it and this invariant is gone.
+2. A case is in exactly one system's custody at any moment. EvalOS runs no
+   marketing, nurture/cold email, ad attribution, invoicing **or sales** of its own.
+
+   **This reverted, and the round trip is worth keeping.** Unit 29 amended it to allow
+   one narrow exception — a sales executive operating GHL's pipeline from an EvalOS
+   screen, as a client of GHL holding no state. The desk and the role were removed, and
+   with them the amendment: EvalOS reads GHL and writes nothing back to it.
+
+   **What made the reversal cheap is the decision that was never amended.** There is no
+   `ghl_opportunity` table, no sales column on any EvalOS entity, no sales row in any
+   EvalOS table, and there never was — so removing the desk cost one migration and no
+   data reconciliation. **The day EvalOS *stores* a pipeline fact, two systems own it
+   and this invariant is gone**, whatever the direction of the traffic.
+
+   Units 24, 26 and 27 remain pure reads of three GHL funnels. `Invoice sent` and
+   `Refund` are stages this system reads and acts on neither — invoicing is GHL's, full
+   stop, and a refund is a payment fact.
+
+   **The guarantee is code, not the credential.** `GhlHttp` exposes no `post`, `put` or
+   `delete` — the write capability is *absent from the codebase*, not merely unused.
+   The grant is still `opportunities.write` + `contacts.write`, both of which permit
+   writes and deletes, so this rests on code alone and is a build-failing test in
+   `GhlHttpTest` rather than a convention. If a later unit needs to write to GHL, it
+   adds the verb and answers for it here.
+
+   **And Handoff A is still the only door a case enters custody through**:
+   `opportunity.won` fires from GHL and creates the case, exactly as before.
 3. Role, brand, and ownership are enforced before every mutation. Case Managers,
    clients, and experts never see data outside their assignment.
 4. The optional expert `payment_detail` is encrypted at rest and never appears in
@@ -574,21 +648,63 @@ exist because every transition owes exactly one event. They live in
     surface — `recordEvent`, `recordSystemEvent`, `recordPortalEvent` — and each
     takes its brand from the most authoritative signal it has, never from a
     request body.
-14. EvalOS hosts no files and sends no email. Documents are Drive links, the signed
-    letter is filed into the case's Drive folder by the expert's own upload, staff
-    alerts are in-app, clients are reached through GHL, and experts through a scoped
-    portal link.
+14. EvalOS hosts no files and sends no email. Documents are **objects in the S3 document
+    store, referenced by key**; the expert's signed letter streams into
+    `case/{caseId}/signed/` through their own portal upload, staff alerts are in-app,
+    clients are reached through GHL, and experts through a scoped portal link.
 
-    **"Hosts no files" means stores none, not accepts none.** Unit 21 lets a client
-    upload a document through the portal, and the bytes **stream through to the
-    case's Drive folder** — EvalOS writes no file to disk, holds no blob column, and
-    keeps only the Drive file id. That is a testable property, not a convention, and
-    it is the whole reason an upload endpoint does not break this invariant.
+    **"Hosts no files" means stores none, not accepts none, and the property is
+    unchanged by Unit 30's move from Drive to S3.** An upload through EvalOS's portal
+    **streams** to the store — EvalOS writes no file to disk, holds no blob column and no
+    byte array, and keeps only the object key. That is a testable property, not a
+    convention, and it is the whole reason an upload endpoint does not break this
+    invariant. **The backing store changed; the test did not.**
 
-    **"Sends no email" is currently true and is under review.** Every client- and
-    expert-facing touchpoint is listed in `context/process-automation.md` with its
-    channel marked *decision pending*: GHL delivers them off the outbound event
-    (today's answer) or EvalOS sends mail itself, which would **reverse this
-    invariant** and bring in SMTP, deliverability, bounces, unsubscribe and a
-    suppression list. Nothing is built either way. Until that decision is taken, do
-    not add a mail dependency — and if it is taken, this invariant is what changes.
+    **What Unit 30 did change:** a document is now read through a **5-minute presigned
+    URL**, minted per request after the case's scope check and never stored, rather than
+    through a permanent Drive link sitting in a column. And **client documents are written
+    by a separate Client Portal**, not by EvalOS — EvalOS's credential is read-only on
+    that prefix, so "hosts no files" is now backed by IAM on the half that matters most.
+
+    **"Sends no email" is settled as of 2026-09-02, and is no longer a pending decision.**
+    Unit 18 — the outbound dispatcher that would have carried client-facing messages to
+    GHL for delivery — is removed. With it goes the mechanism, so the question of whether
+    EvalOS sends mail *itself* is not merely unanswered: **EvalOS has no outbound channel
+    of any kind.** Domain events publish in-process and the notification centre is their
+    only consumer.
+
+    **What this costs, named rather than buried:** a document chase, a "your draft is
+    ready", and the post-delivery review request have no automated route to the client.
+    They are either done by hand in GHL, or they become **states the client sees in the
+    client portal** — which is the natural home now that the portal is a real frontend
+    with this backend. That is a product decision still to be taken; what is settled is
+    that EvalOS does not send.
+
+    The original note, kept because the reasoning still applies to any future proposal:
+    every client- and expert-facing touchpoint is listed in
+    `context/process-automation.md`. EvalOS sending mail itself would **reverse this
+    invariant** and bring in SMTP, deliverability, bounces, unsubscribe and a suppression
+    list. **Do not add a mail dependency**; if that decision is ever taken, this invariant
+    is what changes, and it changes in writing first.
+
+15. **No AI makes a production decision, and there is no AI in the system at all.**
+
+    Unit 20 (AI widgets — suggestion and anomaly detection) is **removed from scope**
+    (2026-09-02). What was a deferred unit is now a property of the system: **document
+    verification, expert selection, drafting, draft review, client approval, expert
+    reassignment and quality control are human judgements**, every one of them.
+
+    **What is still allowed is everything that is not a judgement:** notifications, stage
+    transitions a human triggers, timestamps, versioning, audit logging, and the
+    arithmetic behind a dashboard.
+
+    **The one thing that looks like an exception and is not:** Unit 12's match engine
+    ranks experts on four declared, inspectable factors. It is arithmetic over a roster,
+    it never auto-assigns, and the full picker sits underneath so a PM can ignore it
+    entirely. **It contains no model.** A proposal to make that ranking "smarter" by
+    asking something to reason about a case is this invariant, and it must be reversed in
+    writing before any such code exists.
+
+    This is the constraint most likely to be eroded by a plausible-sounding convenience:
+    a "suggested strategy" or a "draft summary" is a production decision wearing a
+    helpful hat.

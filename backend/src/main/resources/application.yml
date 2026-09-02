@@ -17,32 +17,27 @@ spring:
     locations: classpath:db/migration
   servlet:
     multipart:
-      # Today: the expert sheet upload (Unit 11), the only multipart endpoint in EvalOS.
-      # file-size-threshold matches max-file-size on purpose: above the threshold the
-      # container spools the upload to a temp file, and EvalOS hosts no files
-      # (invariant 14) — a roster sheet is parsed in memory and never lands on disk.
-      # A roster is tens of rows, so 5 MB is already generous for a .xlsx.
+      # Two endpoints now: the expert roster sheet (Unit 11) and the client document upload
+      # (Unit 30). **The trade this block deferred to "Unit 21, not before" is settled here**,
+      # because Unit 30 is that upload under a different number.
       #
-      # Deliberately NOT raised yet, and there is a real trade to settle when it is.
-      # Units 21 (client document upload) and 15 (the expert's signed letter) add two
-      # more multipart endpoints, and a scanned transcript or a signed PDF is bigger
-      # than a roster sheet. But `threshold = max` buys "never spools to disk" by
-      # buffering the whole upload IN MEMORY, so raising this cap raises per-request
-      # heap exposure by the same amount — the two goals pull against each other, and
-      # at 5 MB for a parsed sheet the trade is right where a 25 MB scan it would not be.
+      # `file-size-threshold` still equals `max-file-size`, and that is the load-bearing line:
+      # above the threshold the container spools to a temp file, and EvalOS hosts no files
+      # (invariant 14). Keeping them equal buys "never spools to disk" by buffering the part in
+      # heap instead — so the cap and the per-request heap exposure are the same number.
       #
-      # The answer at Unit 21, not before (this is one knob and it is global — Spring
-      # has no per-endpoint multipart limit):
-      #   - raise this to the largest legitimate upload, and have each endpoint enforce
-      #     its own tighter cap in code before streaming (spec 21 already requires that);
-      #   - or, if the cap has to be large, take the upload endpoints off the multipart
-      #     resolver entirely and stream the raw request body to Drive, which is the only
-      #     way to get neither a temp file nor a heap buffer.
-      # Whichever is chosen, keep threshold == max-file-size, or the "no temp file"
-      # guarantee that invariant 14 rests on quietly stops holding.
-      max-file-size: ${UPLOAD_MAX_SIZE:5MB}
-      max-request-size: ${UPLOAD_MAX_SIZE:5MB}
-      file-size-threshold: ${UPLOAD_MAX_SIZE:5MB}
+      # 15 MB because a scanned transcript is not a roster sheet. At 50-100 cases per brand per
+      # month the concurrent-upload count is tiny, so 15 MB of transient heap per in-flight upload
+      # is affordable; at ten times the volume this becomes the streaming rewrite the old note
+      # described, not a bigger number.
+      #
+      # **`max-request-size` is deliberately LARGER than `max-file-size`.** They were equal, which
+      # meant a file at exactly the cap plus its `checklistItemId` field exceeded the request cap
+      # and was rejected for being one form field too big — a limit that fires before the one the
+      # user was told about.
+      max-file-size: ${UPLOAD_MAX_SIZE:15MB}
+      max-request-size: ${UPLOAD_MAX_REQUEST_SIZE:16MB}
+      file-size-threshold: ${UPLOAD_MAX_SIZE:15MB}
 
 evalos:
   security:
@@ -72,6 +67,10 @@ evalos:
     # target had nowhere to live.
     monthly-onboarding-target: ${ROSTER_MONTHLY_TARGET:5}
   portal:
+    # The portal frontend's origin(s), comma-separated. **Empty by default and never `*`** —
+    # see PortalSecurityConfig. An environment that forgets this gets a failing preflight, which
+    # is loud; a wildcard would be silent and wrong.
+    allowed-origins: ${EVALOS_PORTAL_ORIGINS:}
     # Where a minted portal link points. The SPA serves /portal/client, so this is the client
     # app's own origin — defaulted to the Vite dev server because that is where it is correct
     # for every developer, and it must be set to the real origin in any deployed environment or
@@ -91,6 +90,14 @@ evalos:
     # and 15 need a second, per-token budget, which is new work and not something this setting
     # already covers. Give it its own property then; do not stretch this one to mean both.
     rate-limit-per-minute: ${PORTAL_RATE_LIMIT:60}
+  s3:
+    # The document store (Unit 30). **No defaults for either value** — an environment that forgets
+    # them gets 502s on document routes and a warning at boot, never a silent write to the wrong
+    # bucket. The AWS credential itself is not a property at all: the SDK's default provider chain
+    # reads the environment, the shared profile or the instance role, so no credential can end up
+    # in a committed yaml (`ConfigSecretsTest` fails the build if one does).
+    bucket: ${EVALOS_S3_BUCKET:}
+    region: ${EVALOS_S3_REGION:}
   ghl:
     # The GHL public API, read-only. Only the marketing pipeline view uses it: EvalOS reads
     # GHL's Google Ads funnel and writes nothing back, because GHL owns the front of house.
@@ -144,8 +151,8 @@ evalos:
     # comparing, precisely so nobody has to notice or preserve an invisible character here. Do not
     # "correct" this line by pasting the double space back in — read that method's comment first.
     sales-pipeline-name: ${GHL_SALES_PIPELINE_NAME:Aditya's pipeline}
-    # Connect and read timeout on each GHL request. Required for the same reason drive.timeout
-    # is: this runs in a controller-triggered path, and a bound is what keeps it "one bounded
+    # Connect and read timeout on each GHL request. Required because this runs in a
+    # controller-triggered path, and a bound is what keeps it "one bounded
     # request" rather than long-lived work (invariant 6). The read is paginated, so the bound is
     # per page and not for the whole funnel.
     timeout: ${GHL_TIMEOUT:10s}
@@ -156,56 +163,6 @@ evalos:
     # minutes on a sales funnel is invisible to a GM reading trend, and the payload carries
     # `readAt` so the screen states how old the figures are rather than implying they are live.
     cache-ttl: ${GHL_CACHE_TTL:PT5M}
-  drive:
-    # Google service-account credentials for every Drive write. Two sources
-    # because a container secret and a mounted volume take different shapes; inline
-    # wins if both are set. Both default to empty rather than being absent, so that
-    # setting *either* one starts the app — the "an environment that forgets it must
-    # fail to start" rule is enforced by `required` below instead of by an
-    # unresolvable placeholder, which could only ever demand one specific variable.
-    #
-    # This is now THE credential to have: three units need it — Unit 13's redacted
-    # profile write, Unit 21's client document upload, and Unit 15's signed-letter
-    # upload — and since the e-signature provider was dropped it is the only external
-    # credential the production path needs at all.
-    #
-    # The grant behind it must be scoped PER BRAND FOLDER TREE. A service account with
-    # blanket access to both brands' Drives is a cross-brand hole that lives outside
-    # the database, where no brand_id predicate can reach it. That mattered when only
-    # Unit 13 wrote to Drive; it matters more now that client documents and signed
-    # letters land there too.
-    key-json: ${GOOGLE_DRIVE_KEY_JSON:}
-    credentials-path: ${GOOGLE_APPLICATION_CREDENTIALS:}
-    # True here and false only on `local`. GoogleDriveConfig refuses to build the
-    # context when this is true and neither source above is set, which is the same
-    # rule EVALOS_FIELD_KEY and JWT_SECRET set: a deployed environment that forgets
-    # the key must fail to start, not start and then fail at the first upload in
-    # front of a waiting client.
-    #
-    # "In front of a waiting client" stopped being figurative. With Units 21 and 15 the
-    # client and the expert upload through their own portals, so a missing key is not a
-    # staff-visible 502 on a background write any more — it is an outsider being told
-    # their document did not go through.
-    required: ${DRIVE_REQUIRED:true}
-    # drive.file is least privilege: create files, and reach nothing the app did not
-    # create or was not explicitly given. If the live upload ever answers 403 on a
-    # correctly-shared folder, the fallback is
-    # https://www.googleapis.com/auth/drive — a property, not a code change, because
-    # the person debugging that has an environment and not a build.
-    scope: ${DRIVE_SCOPE:https://www.googleapis.com/auth/drive.file}
-    # Connect and read timeout on the upload. It runs in a controller-triggered path,
-    # so a bound is what keeps it "one bounded request" rather than long-lived work
-    # (invariant 6). If it stops fitting, the upload moves to `job` (Unit 19).
-    #
-    # 20s was sized for Unit 13's generated profile — a small HTML doc EvalOS builds
-    # itself. A client's scanned transcript over a domestic connection is a different
-    # shape of request, so revisit this at Unit 21 rather than discovering it as a
-    # timeout in front of a client. Note the ceiling, though: this cannot grow far,
-    # because a portal upload is a request a human is watching, and the "one bounded
-    # request" rule is what keeps it out of `job`. If a legitimate upload cannot finish
-    # inside a sane bound, the answer is a smaller size cap, not a longer timeout.
-    timeout: ${DRIVE_TIMEOUT:20s}
-
 server:
   port: ${SERVER_PORT:8080}
   # Whether to trust X-Forwarded-* and resolve the real client address.

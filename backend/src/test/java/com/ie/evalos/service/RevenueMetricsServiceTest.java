@@ -47,7 +47,7 @@ class RevenueMetricsServiceTest {
 	void collectedSplitsExactlyIntoRecognisedAndOpenLiability() {
 		Case delivered = paid("IE-1", Stage.CLOSED);
 		delivered.setDeliveryDate(Instant.now());
-		Case inFlight = paid("IE-2", Stage.DRAFT_GENERATION);
+		Case inFlight = paid("IE-2", Stage.DRAFT_IN_PROGRESS);
 
 		var total = money(List.of(delivered, inFlight));
 
@@ -113,12 +113,12 @@ class RevenueMetricsServiceTest {
 	 */
 	@Test
 	void theOpenCaseCountMatchesTheOpenLiabilityFigureItSitsUnder() {
-		Case open = paid("IE-1", Stage.DRAFT_GENERATION);
+		Case open = paid("IE-1", Stage.DRAFT_IN_PROGRESS);
 
 		Case refundedUndelivered = paid("IE-2", Stage.CLOSED);
 		refundedUndelivered.setExceptionState(ExceptionState.REFUND_REQUESTED);
 
-		Case unpaid = new Case(BRAND, "IE-3", Stage.DRAFT_GENERATION);
+		Case unpaid = new Case(BRAND, "IE-3", Stage.DRAFT_IN_PROGRESS);
 		unpaid.setDealValue(FEE);
 
 		given(lifecycle.list(any(), any(), any()))

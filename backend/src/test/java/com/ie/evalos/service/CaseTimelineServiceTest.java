@@ -201,7 +201,7 @@ class CaseTimelineServiceTest {
 		givenRows(
 				row(AuditAction.UPDATED, null, "{\"pmStrategyNotes\":\"lead with the publications\"}"),
 				row(AuditAction.UPDATED, null, "not json at all"),
-				row(AuditAction.STAGE_CHANGED, null, snapshotJson(Stage.EXPERT_ASSIGNMENT, ExceptionState.NONE, null)));
+				row(AuditAction.STAGE_CHANGED, null, snapshotJson(Stage.PM_REVIEW, ExceptionState.NONE, null)));
 
 		List<TimelineEntry> entries = timeline.forCase(CASE_ID);
 
@@ -215,7 +215,7 @@ class CaseTimelineServiceTest {
 		assertThat(entries.get(0).stage()).isNull();
 		assertThat(entries.get(0).note()).isNull();
 		assertThat(entries.get(1).stage()).isNull();
-		assertThat(entries.get(2).stage()).isEqualTo(Stage.EXPERT_ASSIGNMENT);
+		assertThat(entries.get(2).stage()).isEqualTo(Stage.PM_REVIEW);
 	}
 
 	@Test

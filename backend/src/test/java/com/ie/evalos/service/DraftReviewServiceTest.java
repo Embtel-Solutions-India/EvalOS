@@ -24,7 +24,7 @@ class DraftReviewServiceTest {
 	private static final UUID BRAND = UUID.randomUUID();
 
 	private static Case drafting() {
-		Case subject = new Case(BRAND, "IE-2026-0001", Stage.DRAFT_GENERATION);
+		Case subject = new Case(BRAND, "IE-2026-0001", Stage.DRAFT_IN_PROGRESS);
 		subject.setDraftVersionCount(1);
 		return subject;
 	}
@@ -56,7 +56,7 @@ class DraftReviewServiceTest {
 		awaitingQc.setPmApprovalStatus(PmApprovalStatus.APPROVED);
 		assertThat(DraftReviewService.statusOf(awaitingQc)).isEqualTo(DraftStatus.READY_FOR_QC);
 
-		Case delivered = new Case(BRAND, "IE-2026-0002", Stage.FINAL_DELIVERY);
+		Case delivered = new Case(BRAND, "IE-2026-0002", Stage.READY_TO_DELIVER);
 		delivered.setDraftVersionCount(1);
 		delivered.setPmApprovalStatus(PmApprovalStatus.APPROVED);
 		assertThat(DraftReviewService.statusOf(delivered)).isEqualTo(DraftStatus.APPROVED);

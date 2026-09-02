@@ -25,7 +25,6 @@ export type ChecklistItem = {
 
 export type ChecklistView = {
   caseId: string
-  driveLink: string | null
   items: ChecklistItem[]
   total: number
   complete: number

@@ -1,5 +1,13 @@
 # Unit 10 — Document checklist board + Coordinator flow
 
+> **⚠ AMENDED by Unit 30 (2026-09-02) — storage only.** The checklist's *vocabulary* is
+> untouched: `REQUIRED · UPLOADED · APPROVED · MISSING · INCORRECT` still carries A07's
+> flags, and the Coordinator's review loop is unchanged. What changed is where the
+> documents are and who put them there: clients upload in a **separate Client Portal**
+> that writes to **S3** under the client's own id, and EvalOS **reads** that prefix and
+> associates an object with a checklist item. Wherever this spec says "Drive link", read
+> "the client's S3 prefix". See `30-s3-document-store.md`.
+
 **Phase:** 1 — Structure the data (the spine) — final unit
 **Depends on:** 04, 09
 **Unlocks:** completes the intake→production handoff; feeds Unit 19 (reminder
