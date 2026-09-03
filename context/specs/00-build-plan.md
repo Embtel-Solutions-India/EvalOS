@@ -40,7 +40,7 @@ attention:
 | ~~Google service account for Drive~~ **AWS credential + bucket for the S3 document store** | **Unit 13's last criterion, Unit 21, Unit 15** | **Unit 30 replaced the blocker rather than working around it.** One credential, three units — still the most valuable thing to chase, but it is now an AWS one the business already controls rather than a Google service account that never arrived. See `30-s3-document-store.md`; its open questions (b) key format, (d) PDF, (f) the portal contract should be answered before code starts |
 | GHL outbound contract — subscriber URL, signing secret, and *whether GHL can send a client-facing transactional message on an EvalOS event* | **Unit 18**, and the whole email decision | That last clause is the one that decides invariant 14 |
 | The real `opportunity.won` payload, signature header name, HMAC encoding | **Unit 05b's live run** — not its code | Build and unit-test 05b without it; only the end-to-end firing needs it |
-| Anthropic key **plus a decision to send case data to a third party at all** | Unit 20's AI half | A compliance call, not a technical one. The anomaly half needs neither |
+| ~~Anthropic key + a compliance decision~~ | ~~Unit 20's AI half~~ | **Struck 2026-09-04. There is no AI half and no Unit 20.** The unit was removed from scope on 2026-09-02 and is now `architecture.md` invariant 15; leaving its key in the "things to request" table kept the door open. **Nothing in EvalOS needs an LLM.** The anomaly figure it also proposed is arithmetic, not AI — if the business wants it, it is a Unit 17 tile over stored metrics, and it does not need a unit whose name invites the model back |
 
 ### Track A — buildable today, nothing external. Do these in order.
 
@@ -57,8 +57,9 @@ input; the live hand-fired run waits on the payload confirmation from Step 0.
 Re-read `05b` first — it gained two corrections after review (the `V24` index must be
 scoped to open cases, and `refresh()` must overwrite `deal_value`).
 
-**A3 · Unit 16 + 16b — payout ledger and weekly settlement.** The only substantial unit
-with **zero** external dependency: a manual ledger, its own endpoints, no integration.
+**A3 · Unit 16 + 16b — payout ledger and weekly settlement. BUILT 2026-08-27.** Kept here for
+the ordering argument it settled. The only substantial unit with
+**zero** external dependency: a manual ledger, its own endpoints, no integration.
 It also unblocks Unit 17's money-out tiles, so it comes before dashboards rather than
 after. **Read `16b-weekly-settlement.md` alongside `16`** — the business charges per
 draft and settles weekly, so a payment is its own table and 16's per-row form is
@@ -83,10 +84,10 @@ interleave Track B as blockers clear**, rather than idling on a credential.
 
 | When this arrives | Build |
 |---|---|
-| AWS credential + bucket | **Unit 30 first** (the S3 client, the key format, the presigned read), then **Unit 13's last criterion**, then **Unit 15** (expert portal + signed-letter upload). **Unit 21 changed shape**: the client upload now happens in the separate Client Portal, so what remains for EvalOS is *reading* a prefix and reconciling it against the checklist. This chain can interrupt Track A at any point |
-| GHL outbound contract | **Unit 18** (outbound dispatcher, Handoff C) — and the email-channel decision resolves here |
-| 10, 15 and 18 all done | **Unit 19** (background jobs) — genuinely last, because it is the clock behind hooks those units install. Re-read it: the advisory lock must be **session-scoped**, and the client chases are **wall-clock** while the escalation is business hours |
-| 17 done | **Unit 20's anomaly half** (no AI needed). The AI half only if the compliance decision says yes |
+| AWS credential + bucket | **Unit 30 first** (the S3 client, the key format, the presigned read), then **Unit 13's last criterion**, then **Unit 15** (expert portal + signed-letter upload) — **15's code is built as of 2026-09-03; what waits on the credential is its live round-trip**. **Unit 21 changed shape**: the client upload now happens in the separate Client Portal, so what remains for EvalOS is *reading* a prefix and reconciling it against the checklist. This chain can interrupt Track A at any point |
+| ~~GHL outbound contract~~ | ~~**Unit 18**~~ — **struck 2026-09-04: Unit 18 was removed from scope on 2026-09-02**, so EvalOS has no outbound channel and there is no contract to wait for. What remains open is *who reaches the client at all*, which the portal now partly answers (`process-automation.md`) |
+| ~~10, 15 and 18 all done~~ → **now** | **Unit 19** (background jobs) — **its prerequisites are met**: Unit 10 and Unit 15 are built and Unit 18 is gone, so the only thing left to wait for was itself. Re-read it: the advisory lock must be **session-scoped**, and the client chases are **wall-clock** while the escalation is business hours. Unit 15 left it the 20h/24h sign prompts to fire |
+| ~~17 done~~ | ~~**Unit 20's anomaly half**~~ — **struck 2026-09-04.** See the Step 0 note: no Unit 20, and the anomaly arithmetic is a Unit 17 tile if it is wanted at all |
 
 ### Why not simply follow the phase order
 
@@ -272,6 +273,11 @@ actions, and read-receipt tracking. Draft-review only — no source-doc upload.
 Depends on: 02 (separate auth surface), 04.
 
 ### Unit 15 — Expert portal + Handoff B + sign-off
+**BUILT 2026-09-03 (backend + the staff case card).** Six portal routes, two new transitions
+(`EXPERT_ACCEPTED` guarded on the offer, `EXPERT_REQUEST_EVIDENCE`), the signed-letter upload with
+content sniffing and a required attestation, `V36`. Two knowing departures: **the hash of the letter
+as sent is not recorded** (the draft is a pasted link EvalOS holds no bytes of) and **the 20h/24h
+events are Unit 19's to declare**. The expert-facing SPA is Unit 34 slice 34e.
 Builds: the separate scoped filter chain for expert access (CM-shared link), the
 single-column assigned-case view (draft + evidence + goal), the accept /
 request-evidence (opens client task) / decline (→ `EXPERT_DECLINED_REMATCHING`)
@@ -581,10 +587,38 @@ List stays lean, detail shows everything. Still no payment column, ever.
 See `33-case-and-expert-dossier.md`.
 Depends on: 11, 12, 31.
 
+### Unit 34 — The portal frontend, and wiring it to EvalOS — SPECCED, NOT BUILT
+Builds: the external SPA that arrived in `client/` on 2026-09-03 — **both portals, one
+deployment, port 5174, the origin the backend already allows** — becomes a real client of
+this backend. It is a **pivot spec**, because the app was built against a different auth
+model (email+password accounts in `localStorage`), a different case model (a *list* of
+cases per user, which no case-scoped token can answer) and **four duplicate lifecycle
+vocabularies**. Three invariants are in its path: a guided intake funnel that mints its
+own case reference (**8**), payments and invoices pages (**2**), and client messaging plus
+support tickets (**14** — EvalOS has had no outbound channel since Unit 18 was removed).
+And the one thing the backend already implements — **draft review, approve, request
+revisions** — has **no screen in the app at all**.
+
+Five decisions gate it, each with a recommendation: **D1** widen `portal_access` to name a
+*party* rather than a case (rather than building an account system, whose password reset
+needs a mail channel invariant 14 forbids); **D2–D4** cut intake, invoicing and messaging;
+**D5** one lifecycle vocabulary, EvalOS's, projected into the payload so the SPA holds no
+enum. Slices **34a** seam → **34b** draft review → **34c** documents → **34d** case list +
+projection → **34e** expert portal, **BUILT 2026-09-03** against Unit 15's six routes: the one case
+the token names, at `/case#<token>` outside the account shell. D1 still gates the assignments
+*list*; D6 still gates payments.
+See `34-portal-frontend-wiring.md`.
+Depends on: 14, 30, 31, and 15 for slice 34e.
+
 ---
 
 ## Notes
 
+- **The monorepo is three applications as of 2026-09-03**, not two: `backend/`,
+  `frontend/` (staff, 5173, same-origin `/api` proxy) and `client/` (the external portal
+  frontend, 5174, cross-origin against `/api/portal/**`). The stack line at the top of
+  this file predates the third and is corrected here rather than there, because the line
+  is quoting the roadmap. `client/` is mock-backed and calls nothing until Unit 34.
 - Automation rules from the CRM spec are covered across Units 04–21, and
   **`context/process-automation.md` is the register** — it maps every A-number to
   the event, the recipients, the owning unit and whether it is built yet. Read that

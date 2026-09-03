@@ -261,7 +261,15 @@ public class CaseController {
 			/** The discipline the case was matched on (Unit 33). Not client identity, so ungated. */
 			FieldTag fieldOfExpertise,
 			/** The USCIS filing deadline (Unit 33). A production fact, so ungated. */
-			LocalDate rfeDate) {
+			LocalDate rfeDate,
+			/**
+			 * When the expert first opened their portal link (Unit 15), or null if they never have.
+			 *
+			 * <p>The answer a Case Manager actually wants before chasing a signature, and it is what
+			 * replaces the signature provider's viewed callback. A production fact about staffing
+			 * rather than client identity, so it is ungated like the sign status beside it.
+			 */
+			Instant expertPortalReadAt) {
 
 		static CaseDetail of(CaseDetailService.CaseWithContext context, TenantContext ctx) {
 			Case subject = context.subject();
@@ -287,7 +295,8 @@ public class CaseController {
 					seesRationale,
 					seesContent ? subject.getApplicantName() : null,
 					subject.getFieldOfExpertise(),
-					subject.getRfeDate());
+					subject.getRfeDate(),
+					subject.getExpertPortalReadAt());
 		}
 	}
 

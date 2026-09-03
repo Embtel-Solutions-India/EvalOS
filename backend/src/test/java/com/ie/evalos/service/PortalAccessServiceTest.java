@@ -23,6 +23,7 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.security.core.context.SecurityContextHolder;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
@@ -48,7 +49,8 @@ class PortalAccessServiceTest {
 	private final AuditService audit = mock(AuditService.class);
 
 	private final PortalAccessService links = new PortalAccessService(
-			tokens, lifecycle, audit, Duration.ofDays(30), "https://portal.evalos.test/");
+			tokens, lifecycle, audit, Duration.ofDays(30), "https://portal.evalos.test/",
+			"https://experts.evalos.test");
 
 	private Case subject;
 
@@ -125,7 +127,7 @@ class PortalAccessServiceTest {
 	 */
 	@Test
 	void reMintingRevokesTheLinkItSupersedes() {
-		PortalAccess previous = new PortalAccess(BRAND, CASE_ID, PortalAudience.CLIENT, "old-hash",
+		PortalAccess previous = new PortalAccess(BRAND, CASE_ID, PortalAudience.CLIENT, null, "old-hash",
 				Instant.now().plus(Duration.ofDays(10)));
 		given(tokens.findByCaseIdAndAudienceOrderByCreatedAtDesc(any(), eq(PortalAudience.CLIENT)))
 				.willReturn(List.of(previous));
@@ -147,7 +149,7 @@ class PortalAccessServiceTest {
 	 */
 	@Test
 	void anExpiredLinkIsRetiredSoTheNextMintDoesNotCollideWithTheIndex() {
-		PortalAccess expired = new PortalAccess(BRAND, CASE_ID, PortalAudience.CLIENT, "stale-hash",
+		PortalAccess expired = new PortalAccess(BRAND, CASE_ID, PortalAudience.CLIENT, null, "stale-hash",
 				Instant.now().minus(Duration.ofDays(1)));
 		given(tokens.findByCaseIdAndAudienceOrderByCreatedAtDesc(any(), eq(PortalAudience.CLIENT)))
 				.willReturn(List.of(expired));
@@ -161,7 +163,7 @@ class PortalAccessServiceTest {
 	/** A row already retired is left exactly as it was — first revocation wins. */
 	@Test
 	void anAlreadyRetiredLinkIsNotRestamped() {
-		PortalAccess retired = new PortalAccess(BRAND, CASE_ID, PortalAudience.CLIENT, "older-hash",
+		PortalAccess retired = new PortalAccess(BRAND, CASE_ID, PortalAudience.CLIENT, null, "older-hash",
 				Instant.now().plus(Duration.ofDays(10)));
 		Instant revokedAt = Instant.now().minus(Duration.ofHours(3));
 		retired.revoke(revokedAt);
@@ -194,9 +196,9 @@ class PortalAccessServiceTest {
 	@Test
 	void everyKindOfBadTokenResolvesToTheSameNothing() {
 		String token = "a-token-somebody-was-given";
-		PortalAccess expired = new PortalAccess(BRAND, CASE_ID, PortalAudience.CLIENT,
+		PortalAccess expired = new PortalAccess(BRAND, CASE_ID, PortalAudience.CLIENT, null,
 				PortalAccessService.hash(token), Instant.now().minus(Duration.ofDays(1)));
-		PortalAccess revoked = new PortalAccess(BRAND, CASE_ID, PortalAudience.CLIENT,
+		PortalAccess revoked = new PortalAccess(BRAND, CASE_ID, PortalAudience.CLIENT, null,
 				PortalAccessService.hash(token), Instant.now().plus(Duration.ofDays(1)));
 		revoked.revoke(Instant.now());
 
@@ -216,7 +218,7 @@ class PortalAccessServiceTest {
 	@Test
 	void aLiveTokenResolvesToItsOwnCaseAndStampsLastSeen() {
 		String token = "a-live-token";
-		PortalAccess live = new PortalAccess(BRAND, CASE_ID, PortalAudience.CLIENT,
+		PortalAccess live = new PortalAccess(BRAND, CASE_ID, PortalAudience.CLIENT, null,
 				PortalAccessService.hash(token), Instant.now().plus(Duration.ofDays(1)));
 		given(tokens.findByTokenHash(PortalAccessService.hash(token))).willReturn(Optional.of(live));
 
@@ -239,7 +241,7 @@ class PortalAccessServiceTest {
 	 */
 	@Test
 	void theStatusReadCannotLeakTheToken() {
-		PortalAccess live = new PortalAccess(BRAND, CASE_ID, PortalAudience.CLIENT, "hash",
+		PortalAccess live = new PortalAccess(BRAND, CASE_ID, PortalAudience.CLIENT, null, "hash",
 				Instant.now().plus(Duration.ofDays(5)));
 		given(tokens.findByCaseIdAndAudienceOrderByCreatedAtDesc(any(), eq(PortalAudience.CLIENT)))
 				.willReturn(List.of(live));
@@ -254,5 +256,30 @@ class PortalAccessServiceTest {
 		assertThat(PortalAccessService.LinkStatus.class.getRecordComponents())
 				.extracting(java.lang.reflect.RecordComponent::getName)
 				.containsExactly("live", "expiresAt", "lastSeenAt");
+	}
+
+	/**
+	 * <strong>Two apps, two origins (Unit 34e).</strong> The expert portal is its own deployment,
+	 * so its link cannot be built from the client's base — a link to the wrong host reads to its
+	 * holder exactly like a revoked token, and the holder here is the participant EvalOS cannot
+	 * train.
+	 */
+	@Test
+	void theExpertsLinkPointsAtTheExpertsOwnApp() {
+		subject.setExpertId(UUID.randomUUID());
+
+		assertThat(links.mint(CASE_ID, PortalAudience.EXPERT).url())
+				.startsWith("https://experts.evalos.test/case#");
+		assertThat(links.mint(CASE_ID, PortalAudience.CLIENT).url())
+				.startsWith("https://portal.evalos.test/portal/client#");
+	}
+
+	/** An expert link with no expert on the case is a credential naming nobody. */
+	@Test
+	void anExpertLinkIsRefusedWhenNoExpertIsAssigned() {
+		assertThatThrownBy(() -> links.mint(CASE_ID, PortalAudience.EXPERT))
+				.isInstanceOf(com.ie.evalos.domain.IllegalTransitionException.class);
+
+		verify(tokens, never()).save(any());
 	}
 }

@@ -176,6 +176,9 @@ public class Case extends ScopedEntity {
 	@Column(name = "client_portal_read_at")
 	private Instant clientPortalReadAt;
 
+	@Column(name = "expert_portal_read_at")
+	private Instant expertPortalReadAt;
+
 	/**
 	 * Why <em>this</em> expert (Unit 32).
 	 *
@@ -418,6 +421,20 @@ public class Case extends ScopedEntity {
 
 	public void setClientPortalReadAt(Instant clientPortalReadAt) {
 		this.clientPortalReadAt = clientPortalReadAt;
+	}
+
+	/**
+	 * When the expert first opened their portal link (Unit 15). The same rule as
+	 * {@link #getClientPortalReadAt}: stamped once, and it is what replaces the signature
+	 * provider's {@code signature_request.viewed} callback — the capability survives the provider
+	 * being dropped.
+	 */
+	public Instant getExpertPortalReadAt() {
+		return expertPortalReadAt;
+	}
+
+	public void setExpertPortalReadAt(Instant expertPortalReadAt) {
+		this.expertPortalReadAt = expertPortalReadAt;
 	}
 
 	public String getInvoiceRef() {

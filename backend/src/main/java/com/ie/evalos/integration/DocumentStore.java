@@ -143,13 +143,28 @@ public class DocumentStore {
 	 *
 	 * <p><strong>Never stored.</strong> A presigned URL in a database column is a credential in a
 	 * database column. It is minted per request, handed to one caller, and expires.
+	 *
+	 * <p><strong>Always an attachment, and this is the half of gap G14 that closes the path rather
+	 * than the file.</strong> EvalOS runs no virus scanner — scanning is the bucket's job — so the
+	 * control that matters is that an uploaded file cannot *execute*: with
+	 * {@code Content-Disposition: attachment} the browser downloads it instead of rendering it, so
+	 * a malicious HTML page or SVG that got past the sniffer still has no origin to run in. Every
+	 * read path in EvalOS goes through this method, which is why it is one line here rather than a
+	 * rule each caller has to remember.
 	 */
 	public String presignedUrl(String key) {
 		requireConfigured();
 		try {
 			return presigner.presignGetObject(GetObjectPresignRequest.builder()
 					.signatureDuration(READ_WINDOW)
-					.getObjectRequest(GetObjectRequest.builder().bucket(bucket).key(key).build())
+					.getObjectRequest(GetObjectRequest.builder()
+							.bucket(bucket)
+							.key(key)
+							// The filename is deliberately not set: it would put client-supplied text
+							// into a response header, and the browser's own default (the key's last
+							// segment, a UUID) is safe and sufficient.
+							.responseContentDisposition("attachment")
+							.build())
 					.build())
 					.url()
 					.toString();

@@ -14,6 +14,7 @@ import java.util.UUID;
 
 import com.ie.evalos.domain.AuditAction;
 import com.ie.evalos.domain.Case;
+import com.ie.evalos.domain.IllegalTransitionException;
 import com.ie.evalos.domain.PortalAccess;
 import com.ie.evalos.domain.PortalAudience;
 import com.ie.evalos.repository.PortalAccessRepository;
@@ -63,16 +64,26 @@ public class PortalAccessService {
 	private final AuditService audit;
 	private final Duration ttl;
 	private final String baseUrl;
+	private final String expertBaseUrl;
 
 	PortalAccessService(PortalAccessRepository tokens, CaseLifecycleService cases, AuditService audit,
 			@Value("${evalos.portal.link-ttl}") Duration ttl,
-			@Value("${evalos.portal.base-url}") String baseUrl) {
+			@Value("${evalos.portal.base-url}") String baseUrl,
+			@Value("${evalos.portal.expert-base-url:}") String expertBaseUrl) {
 		this.tokens = tokens;
 		this.cases = cases;
 		this.audit = audit;
 		this.ttl = ttl;
 		// A trailing slash is a configuration typo, not a different URL.
-		this.baseUrl = baseUrl.endsWith("/") ? baseUrl.substring(0, baseUrl.length() - 1) : baseUrl;
+		this.baseUrl = trimSlash(baseUrl);
+		// Blank falls back to the client's origin, which is what a single-deployment environment
+		// wants and what every test that predates the split expects. Two apps on two subdomains
+		// set it; one app serving both does not have to.
+		this.expertBaseUrl = expertBaseUrl.isBlank() ? this.baseUrl : trimSlash(expertBaseUrl);
+	}
+
+	private static String trimSlash(String url) {
+		return url.endsWith("/") ? url.substring(0, url.length() - 1) : url;
 	}
 
 	// --- mint ----------------------------------------------------------------
@@ -104,13 +115,24 @@ public class PortalAccessService {
 	@Transactional
 	public MintedLink mint(UUID caseId, PortalAudience audience) {
 		Case subject = cases.load(caseId);
+		// An expert link with no expert on the case is a credential naming nobody — and since
+		// Unit 15 the link is the only way the expert is reached, minting one early is how a
+		// Case Manager ends up sending a letter to a person who was never assigned.
+		if (audience == PortalAudience.EXPERT && subject.getExpertId() == null) {
+			throw new IllegalTransitionException("no expert is assigned to this case");
+		}
 		Instant now = Instant.now();
 
 		retirePrevious(subject.getId(), audience, now);
 
 		String token = freshToken();
+		// **The expert is stamped on the credential, not just the case** (V37). A CLIENT row leaves
+		// it null: the client is the case's own contact, and copying that here would be a second
+		// place for it to disagree.
 		PortalAccess minted = tokens.save(new PortalAccess(
-				subject.getBrandId(), subject.getId(), audience, hash(token), now.plus(ttl)));
+				subject.getBrandId(), subject.getId(), audience,
+				audience == PortalAudience.EXPERT ? subject.getExpertId() : null,
+				hash(token), now.plus(ttl)));
 
 		audit.recordEvent("CASE", subject.getId(), AuditAction.PORTAL_LINK_ISSUED,
 				TenantContext.current().memberId(), CaseSnapshot.of(subject),
@@ -214,7 +236,12 @@ public class PortalAccessService {
 	 * puts it in the {@code X-Portal-Token} header.
 	 */
 	private String urlFor(PortalAudience audience, String token) {
-		String path = audience == PortalAudience.CLIENT ? "/portal/client" : "/portal/expert";
-		return baseUrl + path + "#" + token;
+		// **Two apps, two origins, two paths (Unit 34e).** The expert portal is its own deployment
+		// serving `/case`; the client's link still points at `/portal/client`, which is where that
+		// screen lives until Unit 34 slice 34b moves it. Getting either wrong mints a link to a
+		// page that does not exist — which reads to its holder exactly like a revoked token.
+		return audience == PortalAudience.CLIENT
+				? baseUrl + "/portal/client#" + token
+				: expertBaseUrl + "/case#" + token;
 	}
 }

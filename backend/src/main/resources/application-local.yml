@@ -40,8 +40,10 @@ evalos:
     # it are local rows, and a real key never appears in this file.
     field-key: ${EVALOS_FIELD_KEY:bG9jYWwtZGV2LWZpZWxkLWtleS1ub3QtZm9yLXByb2Q=}
   portal:
-    # The portal dev server. Vite's default; change it if yours differs.
-    allowed-origins: ${EVALOS_PORTAL_ORIGINS:http://localhost:5174}
+    # The two portal dev servers: client on 5174, expert on 5175. They are separate
+    # apps under client-expert/ so they can be deployed to separate subdomains, and a
+    # missing origin here fails at the preflight looking exactly like a bad token.
+    allowed-origins: ${EVALOS_PORTAL_ORIGINS:http://localhost:5174,http://localhost:5175}
   s3:
     # Blank on a laptop, deliberately. The whole app boots with no AWS access and every non-document
     # route works; only the document routes answer 502, naming both variables. Set them to exercise

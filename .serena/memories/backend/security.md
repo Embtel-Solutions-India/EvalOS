@@ -73,9 +73,37 @@ second bean beside the staff chain for two reasons: the surfaces are separate, a
   back to only the *live* rows: an unrevoked expired row would sit in the index and block the next
   mint. See `mem:backend/persistence`. Resolving stamps `last_seen_at`.
 
+## What a portal credential will name (decided 2026-09-04, NOT yet built)
+
+**`portal_access` is becoming party-scoped** (`D1`, built in
+`context/specs/35-party-scoped-portal-access.md`): a `CLIENT` row will name a `ghl_contact_id`, an
+`EXPERT` row its `expert_id` (already there since `V37`), and `case_id` becomes **nullable**. A
+case-scoped row stays legal and keeps exactly today's behaviour — including `V37`'s expert check —
+so nothing below regresses. What the widening must not touch: the 256-bit token, the
+SHA-256-at-rest, one live token per scope, the absolute expiry, re-mint revoking the previous, and
+one identical 401 for unknown/expired/revoked.
+
+Two properties, because a party token is the wider credential: `evalos.portal.link-ttl` stays
+`P30D` and `evalos.portal.party-link-ttl` is **`P7D`**. On a party token, the single-case routes
+take the case id as a path variable **matched against the party** — which is safe for the reason
+Unit 34c's kind filter is safe: the id may come from the request precisely because it is checked
+against the credential first. With several cases they answer **409**, never a guess.
+
+**There are no accounts and that was refused, not deferred.** No password store, rotation, lockout
+or session — a reset needs a mail channel invariant 14 says does not exist.
+
 ## The portal principal — why it is NOT a TenantContext
 
-`security/PortalPrincipal` (`portalAccessId`, `brandId`, `caseId`, `audience`). The token **is** the
+`security/PortalPrincipal` (`portalAccessId`, `brandId`, `caseId`, `audience`, `expertId`).
+
+**`expertId` is `V37` and it is the second half of the scope on the expert surface** — null for a
+client, whose identity is the case's own contact. A case-scoped token said *which case* and not
+*which person*, so one expert's token was indistinguishable from another's on the same case: after a
+rematch the previous expert's month-long link still admitted them, up to uploading the deliverable
+in their own name. `ExpertPortalService.authorized` compares it with the case's expert and refuses a
+mismatch, and **fails closed on a null** — a pre-V37 token is refused, not waved through. Do not
+weaken that to a fallback: "the column is not set yet" and "this is the wrong expert" are
+indistinguishable from the row, and only one of them is safe to allow. The token **is** the
 scope: it names one case, so no predicate is built, nothing can fail open, and `ScopePredicate` is
 not involved. Manufacturing a synthetic `TenantContext` would put a non-staff caller into the staff
 scoping path, where a later widening of a role tier silently widens what a client can read.
@@ -84,13 +112,42 @@ that is what keeps the surfaces apart, and it means any staff-path code reached 
 throws rather than attributing the act to whoever was last in the context.
 
 The audience is checked in exactly one place, `PortalPrincipal.current(expected)`; Unit 15's expert
-routes inherit it by asking for `EXPERT`. No authorities are granted, deliberately — a role name in
+routes (built 2026-09-03) inherit it by asking for `EXPERT`, and `ExpertPortalTest` asserts the refusal
+in **both** directions — a `CLIENT` token on `/api/portal/expert/**` and an `EXPERT` token on
+`/api/portal/client/**`. No authorities are granted, deliberately — a role name in
 the filter would be a second statement of the same rule.
 
 `service/PortalCaseService` is the client's own narrow read: a **whitelist**, not a widened
 `CaseDetailService`, and it loads by the token's `case_id` with `findById` (the one deliberate
 exception to the `findScoped` rule — there is nothing to scope *by*) plus an explicit
 token-brand-equals-case-brand check.
+
+`service/ExpertPortalService` (Unit 15) is the expert's, **beside it and never merged with it**. The
+two whitelists differ in both directions — the expert sees the goal, the applicant and the supplied
+evidence; the client sees the approval state — and one record serving both audiences is one record
+somebody widens for one of them. Same `findById`-plus-brand-check shape, same reason.
+
+**The signed-letter upload is the second outside-party write surface, and it is narrower than the
+client's**: PDF **by content sniffing** (the first five bytes, in `ExpertPortalController` — a
+`.pdf`-named JPEG is refused), and the attestation is required by the API and must equal the wording
+the server composed, because the wording *is* the evidence and a sentence the uploader wrote about
+themselves proves nothing.
+
+**The name on the attestation comes off the case, never off the request** (review fix, 2026-09-03).
+The first version compared the sentence against a caller-supplied `attestedName`, which any
+consistent pair satisfied — so the evidence row could name somebody who was never on the case. The
+parameter is gone; `expert.full_name` for the case's own expert is the signer, and a case with no
+expert cannot be signed at all. **The hash is its own streaming pass** over the part rather than a
+digest wrapped around the store's read: the S3 SDK re-reads a mark-supporting stream on a retry, and
+a reset resets neither a digest nor a counter, so a retry hashed the file twice over. The transition is checked before the object is written, so a case that
+cannot legally be signed leaves no orphan behind.
+
+**One mint route, two audiences**: `POST /api/cases/{id}/portal-link?audience=EXPERT` (GM · Brand
+Manager · PM · CM), refused when the case has no expert — since Unit 15 the link is the only way an
+expert is reached at all. **The two audiences' links point at different origins** (34e):
+`evalos.portal.base-url` + `/portal/client#…` and `evalos.portal.expert-base-url` + `/case#…`,
+because the portals are two deployments. A blank expert base falls back to the client's, so a
+single-deployment environment needs no new setting.
 
 ## The upload trust boundary (Unit 21)
 
@@ -218,7 +275,18 @@ become a way for a non-GM to trigger client-facing messages.
 
 Portal (no role gate, no case id on any route — the token names the case):
 `GET /api/portal/client/case` (whitelisted view; stamps `client_portal_read_at` once) ·
-`POST /api/portal/client/approve` (Handoff B) · `POST /api/portal/client/request-revisions`.
+`POST /api/portal/client/approve` (Handoff B) · `POST /api/portal/client/request-revisions` ·
+`POST /api/portal/client/documents` (multipart, streams to S3) ·
+**`GET /api/portal/client/documents`** (checklist + the client's own uploads) ·
+**`GET /api/portal/client/documents/{documentId}/url`** (5-minute presign, Unit 34c).
+
+**The last two exist because the upload was uncallable without them.** It takes a
+`checklistItemId` and no portal route revealed one — `ClientDraftView`'s javadoc excludes the
+checklist by design, and correctly: these are a *second* whitelist for a second screen, not a
+widening of the first. Both reads carry **two** filters, and the second is half the
+authorization: the document must be on the token's case **and** be `CLIENT_UPLOAD`. Without the
+kind filter a client could name their own draft — or Unit 15's signed letter — and read it
+outside the flow that decides when they may. No object key crosses the wire on either.
 Staff-side: `GET`/`POST /api/cases/{id}/portal-link` — status and mint, GM · Brand Manager · PM ·
 CM. **No route returns an existing link's URL**; losing it means minting a new one.
 

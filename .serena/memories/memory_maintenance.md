@@ -36,7 +36,9 @@ trusted. Routing:
 - backend domain/services → `mem:backend/core`; case lifecycle + transitions → `mem:backend/lifecycle`
 - entities, migrations, repositories, converters → `mem:backend/persistence`
 - auth, roles, scoping, encryption → `mem:backend/security`; GHL and Drive edges → `mem:backend/webhooks`
-- frontend structure/conventions → `mem:frontend/core`
+- staff frontend structure/conventions → `mem:frontend/core`
+- portal frontends (`client-expert/`) structure, its contract conflicts, its design tokens →
+  `mem:client-expert/core`
 - stack or dependency change → `mem:tech_stack`; command change → `mem:suggested_commands`
 - convention change → `mem:conventions`; verification-step change → `mem:task_completion`
 - a new domain large enough to stand alone → new memory, linked from `mem:core`

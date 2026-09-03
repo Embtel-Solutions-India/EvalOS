@@ -24,11 +24,18 @@ import org.springframework.security.core.context.SecurityContextHolder;
  * <p><strong>The token is the scope.</strong> {@link #caseId} came off the token's own row, so
  * there is no predicate to build and nothing to fail open: no portal route accepts a case id, so
  * there is nothing to enumerate. {@code ScopePredicate} is not involved.
+ *
+ * <p><strong>{@link #expertId} is the second half of that scope on the expert surface</strong>
+ * (V37), and null for a client. A case-scoped token said which case but not which person, so a
+ * token that outlived a rematch admitted the previous expert to a case that had moved on —
+ * {@code ExpertPortalService} compares it against the case's own expert and refuses a mismatch.
  */
-public record PortalPrincipal(UUID portalAccessId, UUID brandId, UUID caseId, PortalAudience audience) {
+public record PortalPrincipal(UUID portalAccessId, UUID brandId, UUID caseId, PortalAudience audience,
+		UUID expertId) {
 
 	public static PortalPrincipal of(PortalAccess access) {
-		return new PortalPrincipal(access.getId(), access.getBrandId(), access.getCaseId(), access.getAudience());
+		return new PortalPrincipal(access.getId(), access.getBrandId(), access.getCaseId(), access.getAudience(),
+				access.getExpertId());
 	}
 
 	/**

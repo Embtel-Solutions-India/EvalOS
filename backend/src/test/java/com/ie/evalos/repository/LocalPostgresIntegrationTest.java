@@ -973,17 +973,17 @@ class LocalPostgresIntegrationTest {
 		Instant expires = Instant.now().plus(Duration.ofDays(30));
 
 		PortalAccess first = portalTokens.saveAndFlush(
-				new PortalAccess(BRAND_IE, caseId, PortalAudience.CLIENT, hash, expires));
+				new PortalAccess(BRAND_IE, caseId, PortalAudience.CLIENT, null, hash, expires));
 
 		assertThatThrownBy(() -> portalTokens.saveAndFlush(
-				new PortalAccess(BRAND_IE, otherCaseId, PortalAudience.CLIENT, hash, expires)))
+				new PortalAccess(BRAND_IE, otherCaseId, PortalAudience.CLIENT, null, hash, expires)))
 				.hasStackTraceContaining("uq_portal_access_token_hash");
 
 		// V23: a second UNREVOKED token on the same case and audience is refused by the database.
 		// This is what makes two concurrent mints impossible rather than merely unlikely — the loser
 		// rolls back. Until V23 both inserts succeeded and the case had two live credentials.
 		assertThatThrownBy(() -> portalTokens.saveAndFlush(new PortalAccess(
-				BRAND_IE, caseId, PortalAudience.CLIENT, "hash-" + UUID.randomUUID(), expires)))
+				BRAND_IE, caseId, PortalAudience.CLIENT, null, "hash-" + UUID.randomUUID(), expires)))
 				.hasStackTraceContaining("uq_portal_access_one_unrevoked");
 
 		// Retiring the previous row is what makes the re-mint legal, which is exactly the order
@@ -991,7 +991,7 @@ class LocalPostgresIntegrationTest {
 		first.revoke(Instant.now());
 		portalTokens.saveAndFlush(first);
 		UUID second = portalTokens.saveAndFlush(new PortalAccess(
-				BRAND_IE, caseId, PortalAudience.CLIENT, "hash-" + UUID.randomUUID(), expires)).getId();
+				BRAND_IE, caseId, PortalAudience.CLIENT, null, "hash-" + UUID.randomUUID(), expires)).getId();
 
 		assertThat(portalTokens.findByCaseIdAndAudienceOrderByCreatedAtDesc(caseId, PortalAudience.CLIENT))
 				.extracting(PortalAccess::getId).contains(first.getId(), second);
@@ -1001,13 +1001,13 @@ class LocalPostgresIntegrationTest {
 		retired.revoke(Instant.now());
 		portalTokens.saveAndFlush(retired);
 		assertThat(portalTokens.saveAndFlush(new PortalAccess(
-				BRAND_IE, caseId, PortalAudience.CLIENT, "hash-" + UUID.randomUUID(), expires)).getId()).isNotNull();
+				BRAND_IE, caseId, PortalAudience.CLIENT, null, "hash-" + UUID.randomUUID(), expires)).getId()).isNotNull();
 
 		// And the other audience is a different slot: Unit 15 can hold its own live token per case.
 		assertThat(portalTokens.findByCaseIdAndAudienceOrderByCreatedAtDesc(caseId, PortalAudience.EXPERT))
 				.as("Unit 15's audience shares the table and not the rows").isEmpty();
 		assertThat(portalTokens.saveAndFlush(new PortalAccess(
-				BRAND_IE, caseId, PortalAudience.EXPERT, "hash-" + UUID.randomUUID(), expires)).getId()).isNotNull();
+				BRAND_IE, caseId, PortalAudience.EXPERT, UUID.randomUUID(), "hash-" + UUID.randomUUID(), expires)).getId()).isNotNull();
 		assertThat(portalTokens.findByTokenHash(hash)).get()
 				.extracting(PortalAccess::getId).isEqualTo(first.getId());
 

@@ -4,6 +4,322 @@ Update this file after every meaningful implementation change.
 
 ## Current Phase
 
+- **2026-09-04 — Four decisions taken, Unit 20 struck, planning sections rewritten, and
+  **D8 + G14 BUILT**.** 588 backend tests green (was 581); both portal apps build. D1/D5/D6 are
+  decided and **specced, not built** — that is Unit 35's larger half, deliberately left as the
+  next piece of work rather than started in the same sitting as the docs.
+
+  **What shipped today, in the order Unit 35 §6 asks for:**
+  - **D8 — analytics deleted.** Seven `trackEvent` call sites, `utils/analytics.ts`,
+    `VITE_GTM_ID` and `VITE_GA4_ID` are gone from `client-expert/client`. Pages that show a
+    client's passport scan now send nothing to anybody, and there is no variable left to turn a
+    tag back on by configuration.
+  - **G14 — the AV posture, implemented.** `common/UploadedFileType` sniffs magic bytes for one
+    of five kinds and **both** upload surfaces call it: the client's document (Unit 30's owed
+    item — that endpoint recorded a declared content type and trusted it, so a renamed executable
+    reached S3 and then a Coordinator's screen) and the signed letter, whose own five-byte check
+    moved into it. `DocumentStore.presignedUrl` now mints every read as
+    **`Content-Disposition: attachment`**, which is the control that closes the *path* rather than
+    the file: an HTML page or SVG that got past the sniffer has no browser origin to execute in.
+    12 new tests. The limit is stated in the class and the spec: `.docx` is a ZIP and `.doc` an
+    OLE2, so sniffing proves the container, not the document — **scanning is the bucket's job**,
+    an infra control that now sits beside the AWS credential in Next Up.
+  - **D1 — a portal credential names a PARTY, no accounts.** `portal_access` gains
+    `ghl_contact_id`, `case_id` becomes nullable, and `expert_id` (`V37`) gets a second job. A
+    client with two cases has one link and sees both; a **case-scoped link stays legal** for one
+    case sent once. The accounts alternative was **refused, not deferred** — a password store needs
+    a mail channel invariant 14 says does not exist. Open question (a) answered in the same breath:
+    a party token lives **7 days** against the case token's unchanged 30, being the wider
+    credential.
+  - **D5 — one lifecycle vocabulary, EvalOS's, projected** into the payload. The SPA renders the
+    label it is given and holds no enum, which is what lets the *list* screens keep the line 34c
+    and 34e already hold.
+  - **D6 — an expert may read their own payout rows**: case reference, amount, currency, status,
+    settlement date. **Never `payment_detail`** — no read path exists for that field anywhere,
+    not even for the ENM who typed it (invariant 4), and this does not become the first one.
+  - **D8 — analytics off.** `VITE_GTM_ID`, `VITE_GA4_ID` and `utils/analytics.ts` come out.
+    Deleted rather than stubbed: a no-op module is one somebody re-points at a provider.
+  - **G14 — the antivirus posture gets implemented rather than declared.** Three controls, no new
+    infrastructure: content sniffing on the *client's* upload too (Unit 30's owed item, and Unit
+    15 already wrote the helper), every presigned read minted as an **attachment** so a malicious
+    HTML or SVG cannot execute in the browser origin, and the stance written down —
+    **scanning is the bucket's job**, an infra control the business enables, not code EvalOS ships.
+    That ask now sits beside the credential.
+  - **Unit 20 is gone from the schedule, not only from scope.** It was removed 2026-09-02 and is
+    invariant 15, but the build plan still had a row asking for an **Anthropic key** and another
+    promising "the anomaly half ships anyway". Both struck. The anomaly figure is arithmetic and is
+    a **Unit 17 tile** if the business wants it; a unit named for the model is how the model comes
+    back wearing a helpful hat.
+  - **New spec: `35-party-scoped-portal-access.md`** — D1 + D5 + D6 + D8 + G14, with the build
+    order (deletions and hardening first, then the migration, then the screens), the acceptance
+    criteria and the invariant impact. **It unblocks 34b and 34d**, and 34b is the highest-value
+    screen left in the portal: three endpoints EvalOS has implemented since Unit 14 that no screen
+    calls.
+  - **Also corrected here, because it had rotted**: `Next Up` was still chasing a Google service
+    account (Unit 30 replaced it with AWS), still called Unit 15 "next" and blocked on Unit 21, and
+    still called Unit 16 next though 16b shipped 2026-08-27. `In Progress` still listed Unit 13's
+    live Drive check — Unit 13 and Drive are both gone (`V33`, `V34`) — and a
+    `UI_MIGRATION_GUIDE.md` that has been deleted. The build plan still scheduled Unit 18, removed
+    2026-09-02. **Unit 19's prerequisites are now met** (10 and 15 built, 18 gone), which the old
+    table hid behind a dependency on a deleted unit.
+
+- **2026-09-04 — The two things the review left deferred are done.** 581 backend tests green
+  (was 578). Both were "fixed the symptom, recorded the root cause" — now the root causes are fixed.
+  - **`V37`: `portal_access.expert_id`, and the read fails closed on it.** Revoking the expert's
+    link at the four ends of their involvement (yesterday's fix) closes every path that exists
+    *today*; a token that names a case and an audience but **not a person** still could not tell one
+    expert from another, so the guard was four remembered calls rather than a property. The column
+    binds the credential to the expert it was minted for and
+    `ExpertPortalService.authorized` refuses a mismatch — so a fifth path written in some later unit
+    inherits the guard instead of having to know about it. A pre-V37 token carries no expert and is
+    **refused**, not waved through; it is re-minted in one click.
+    No CHECK constraint tying it to `audience = 'EXPERT'`, and the migration says why: a plain one
+    fails against an existing EXPERT row and a `NOT VALID` one then refuses the very UPDATE that
+    revokes such a row — the constraint would block the cleanup it exists to force. `mint` is the
+    only writer and the read fails closed, which is the same guarantee by a different route.
+    `PortalPrincipal` gained a fifth component (null for a client), so every construction site moved
+    with it.
+  - **Re-staffing no longer restarts a stage clock.** `ASSIGN_PM` and `ASSIGN_COORDINATOR` joined
+    `KEEPS_STAGE_CLOCK`: a stage budget is owed by the case, not by whoever holds it, so putting a
+    Coordinator on a case forty hours into a client's forty-eight-hour review was restarting that
+    review, and the first PM assignment was restarting the document clock `CaseIntakeService` starts
+    at creation. **Safe only because intake stamps `stage_entered_at` on create** — checked before
+    changing it, because without that the first assignment is what started the clock at all. The
+    exception-state actions still restamp, deliberately: on-hold and refund-requested run no clock,
+    and resume/deny restart the budget from when work could resume, which is the reading that does
+    not charge a team for the client's silence.
+  - Also: dropped an unused `List` import from `CaseTransitions`.
+  - Amends: `15-expert-portal-handoff-b.md`, `architecture.md`. Serena: `mem:backend/security`,
+    `mem:backend/persistence`, `mem:backend/lifecycle`.
+
+- **2026-09-03 — Code review of Units 15 + 34e: six findings, all fixed.** 578 backend tests green
+  (was 571). The one that mattered was a **security hole nobody had asked the right question about**.
+  - **A rematch left the outgoing expert holding a live link (high).** `portal_access` is keyed on
+    `(case_id, audience)` and carries **no expert identity**, so nothing downstream can tell one
+    expert's token from another's — and the TTL is thirty days. Expert A declines, the case is
+    reassigned to B and sent, and A's old link would still accept, hold the case, decline again, or
+    **upload the deliverable** with A's name on the attestation while the case names B. Fixed with
+    `CaseLifecycleService.revokeExpertLink`, called at all four ends of an expert's involvement —
+    signed, declined, timed out, reassigned. That is what makes "one token, one case" also mean one
+    token, one expert. The alternative (an `expert_id` column on `portal_access`) is the stronger
+    fix and is a migration; revoking is the whole of it for now.
+  - **`EXPERT_ACCEPTED` reset the signing clock (medium).** `apply` restamps `stage_entered_at`,
+    which is what `SlaCalculator` measures the one-business-day sign budget from — so an expert
+    pressing "I will sign this" seven hours in reset their own clock to green and dropped the case
+    off the CM's overdue list, on the happy path of every signed case. New `KEEPS_STAGE_CLOCK` set,
+    one member. `ASSIGN_PM`/`ASSIGN_COORDINATOR` restamp too and were left alone: that is the same
+    shape of defect, rare, and needs a decision about what a re-staffed case's budget should be.
+  - **The attestation was self-referential (medium).** It compared the sentence against a name the
+    *request* supplied, so any consistent pair passed and the row the code calls "the evidence"
+    could name somebody who was never on the case. The name is now read from the case's expert and
+    `attestedName` is **gone from the API**.
+  - **The digest could be corrupted by an S3 retry (low, but it is the evidence).** The SDK resets
+    and re-reads a mark-supporting stream, and a reset resets neither a `DigestInputStream` nor a
+    byte counter — so one transient retry hashed the file twice over, and the guard added for it
+    turned a successful upload into a 500. The hash is now **its own pass** over the part
+    (`InputStreamSource`, 8 KB chunks, nothing accumulated), so no store behaviour can change it.
+  - **Two blocked-popup bugs (medium).** `window.open` after an `await` is rejected by Safari and
+    Firefox: the expert's "Open the letter" and the client's document download both minted a URL,
+    wrote the audit row, and then opened nothing with no error. Both now open the tab synchronously
+    and navigate it — the pattern the staff app's `DocumentList` already documented. **The client's
+    was pre-existing (34c)**; fixed here because it is one root cause in two places.
+  - Amends: `15-expert-portal-handoff-b.md`, `34-portal-frontend-wiring.md`. Serena:
+    `mem:backend/lifecycle`, `mem:backend/security`, `mem:client-expert/core`.
+
+- **2026-09-03 — Unit 34 slice 34e BUILT: the expert portal calls EvalOS.** 571 backend tests green
+  (was 569); both portal apps build, 22 portal tests pass (was 10).
+  - `expert/src/pages/portal/ExpertCasePortal.tsx` at **`/case#<token>`, outside
+    `ExpertAuthenticatedRoute`** — the same placement 34c used and for the same reason: the
+    credential names one case, not an account, and mounting it behind the shell would answer D1 by
+    accident. One column: goal → the letter → the evidence it rests on → the three answers, with
+    the sign panel between them.
+  - **The sign step reads as what it is**: open the letter, sign it in your own tool (a scanned wet
+    signature is stated as expected and accepted), upload the PDF back. The attestation is part of
+    the upload — the dropzone is disabled until it is ticked, and the API refuses it absent
+    regardless. The wording is the server's, returned unedited, because it is the evidence.
+  - `expert/src/lib/expertCase.ts` — wire types + display rules, **12 tests**. It holds no
+    lifecycle: `stateOf` reads booleans EvalOS sent, and the two label tables have a test that
+    fails if EvalOS gains a fifth `ExpertSignStatus` or a fourth `SlaStatus` (D5's rule in
+    practice). `serviceType`/`visaCategory` are prettified generically rather than tabled — an open
+    vocabulary would go stale.
+  - **Two seam changes it forced.** `apiClient`'s base is now `/api/portal` and each service names
+    its own half (`/client/…`, `/expert/…`). And **EvalOS mints expert links at a separate origin**:
+    new `evalos.portal.expert-base-url` (default `http://localhost:5175`), path `/case#<token>`,
+    because the portals are two deployments now — a link to the wrong host reads to its holder
+    exactly like a revoked token. Blank falls back to the client base, so single-deployment
+    environments and every older test are unaffected.
+  - **Still mock in `expert/`**: the assignments list (needs **D1** — one token names one case), the
+    login, payments (needs **D6**) and profile. The mock screens are still routed, untouched.
+  - Amends: `34-portal-frontend-wiring.md` (§5 slice 34e, status block), `00-build-plan.md`,
+    `application.yml`. Serena: `mem:client-expert/core`, `mem:backend/security`.
+
+- **2026-09-03 — Unit 15 BUILT: the expert portal, Handoff B's far side, and the signature.**
+  569 backend tests green (was 536); `frontend/` builds, 141 tests pass. The expert is now a
+  first-hand actor in EvalOS rather than somebody a staff member records claims about.
+  - **Six portal routes** on Unit 14's chain, `X-Portal-Token`, audience `EXPERT`:
+    `GET /case` (whitelisted view + read receipt), `POST /accept`, `POST /request-evidence`,
+    `POST /decline`, `GET /letter`, `POST /signed-letter`. A `CLIENT` token is refused on all
+    six and an `EXPERT` token on the client's — one line, `PortalPrincipal.current`.
+  - **Two new transitions**, both `EXPERT_SIGNING`-only and stage-preserving: `EXPERT_ACCEPTED`
+    (**guarded on the offer, not the stage** — a second Accept answers 200 unchanged, an offer
+    that is `DECLINED`/`TIMED_OUT`/`SUPERSEDED` answers 409) and `EXPERT_REQUEST_EVIDENCE`
+    (`ON_HOLD_AWAITING_CLIENT` + a required checklist item, so the expert cannot then sign until
+    the Coordinator resumes and no sign clock runs while held).
+  - **The signature**: multipart, **PDF by content sniffing** (a `.pdf`-named JPEG is refused),
+    attestation required by the API and refused unless it is the exact server-composed wording,
+    streamed to `{brandId}/case/{caseId}/signed/{id}` and **hashed as it streams**. Object first,
+    row second, transition last — a store failure answers 503 with the case unchanged.
+  - **The provenance model, with no signature provider**: the SHA-256 of what came back, the
+    attestation verbatim with the name it displayed, and an audit row whose `actor_type` is
+    `EXPERT`. Stated plainly in the spec: EvalOS cannot cryptographically prove a signature, and
+    **PM final QC is now load-bearing** rather than a formality.
+  - **`letter_sent_hash` is deliberately not implemented** — the letter is `draft_link`, free
+    text to a document EvalOS holds no bytes of, and `DocumentStore` has no read capability. Half
+    the hash pair is missing and is recorded as missing rather than faked. It becomes possible
+    when a draft is an S3 object.
+  - **`V36` adds four columns, not the spec's eight** — the other four state facts the system
+    already holds (`SlaCalculator`'s deadline, the document row's `uploaded_at`, its `object_key`).
+    Provenance sits on `case_document` because a failed QC means a case can be signed twice.
+  - **Staff side**: `POST /api/cases/{id}/portal-link?audience=EXPERT` (one route, two audiences;
+    refused when no expert is assigned), and the case detail's expert card gained the read
+    receipt, the signed-letter list and the mint control. `expertPortalReadAt` is on the detail
+    payload.
+  - **Notifications**: `expert.accepted` and `expert.declined` → the Case Manager;
+    `expert.evidence_requested` → the **Coordinators**, because it became a checklist item and
+    the checklist is theirs. `expert.timed_out` stays unrouted — a human fires it.
+  - **Not this unit**: the expert-facing SPA is Unit 34 slice **34e** (`client-expert/expert/`),
+    which was blocked on this and now is not. The 20h/24h timers remain Unit 19's.
+  - Amends: `15-expert-portal-handoff-b.md` (status block), `architecture.md`,
+    `00-build-plan.md`, `34-portal-frontend-wiring.md`. Serena: `mem:core`,
+    `mem:backend/lifecycle`, `mem:backend/persistence`, `mem:backend/security`,
+    `mem:client-expert/core`.
+
+- **2026-09-03 — The portal frontend split into two apps: `client-expert/{client,expert}`.**
+  Directed, not specced first: one deployment carrying both portals became **two builds** so
+  each can take its own subdomain. `client/` (5174) and `expert/` (5175) each own their
+  `vite.config.ts`, `index.html`, `tsconfig`, Tailwind/PostCSS config, `.env` and `dist`;
+  what both use moved to `shared/src` and is imported as `@shared/*`. **Dependencies stayed
+  single** — one `package.json`, one `node_modules`, one lockfile at `client-expert/`, no
+  workspaces; the root scripts `cd` into the app they build, which is what makes each app's
+  Tailwind config resolve. Neither app imports the other, and that is the rule that keeps
+  them deployable apart.
+  - Both apps `tsc -b` and `vite build` clean; the 10 Vitest tests still pass (now run from
+    `client-expert/` via its own `vitest.config.ts`, since there is no single `vite.config.ts`).
+  - `application-local.yml` now allows **both** dev origins (5174 + 5175); a deployment must
+    name both in `EVALOS_PORTAL_ORIGINS` or the expert app fails at the preflight.
+  - Found on the way: `node_modules/react-hook-form` was a **corrupted extraction** — its
+    `dist/index.d.ts` re-exported from a `../src` the package does not ship, so every
+    `useForm` import failed to typecheck. Deleting that one package and re-installing the
+    same version fixed it; nothing about the split caused it.
+  - Amends: `architecture.md` (repo layout, portal auth row, the frontend structure list),
+    `ui-context.md` (the portal surface table), `34-portal-frontend-wiring.md` (§1 and §5e),
+    `client-expert/README.md`, `application-local.yml`. Serena: `mem:client/core` renamed to
+    `mem:client-expert/core` and rewritten, `mem:core`, `mem:task_completion`,
+    `mem:memory_maintenance`.
+
+- **2026-09-03 — Unit 34 slices 34a + 34c BUILT: the portal frontend now calls EvalOS, and S3 is
+  wired end to end for the client.** 536 backend tests green (was 532), `client/` builds clean and
+  its new Vitest suite passes 10. **D1 is still open and this build deliberately does not answer
+  it.**
+  - **The finding that justified the slice: `POST /api/portal/client/documents` was uncallable.**
+    It has taken a `checklistItemId` since Unit 30 and **no portal route ever revealed one.** Not
+    insecure — unreachable. A backend review sees a tested endpoint; a frontend review sees a
+    parameter it cannot source; only wiring the two together finds it. Closed with **two new
+    reads**, `GET /api/portal/client/documents` (checklist + the client's own uploads) and
+    `GET /api/portal/client/documents/{documentId}/url` (5-minute presign).
+  - **A second whitelist, not a widening of the first.** `ClientDraftView`'s javadoc excludes the
+    checklist and the client's documents, and that is right — so the answer was a separate
+    projection for a separate screen. A field added to either does not now appear on the other.
+  - **The kind filter is half the authorization.** Both new reads match the document against the
+    token's case **and** against `CLIENT_UPLOAD`. The obvious version — "any document on this
+    case" — hands a client their own draft outside the approval flow and, once Unit 15 lands, the
+    expert's signed letter. `theDraftAndTheSignedLetterAreNotReachableThroughTheDocumentRoute`
+    asserts both refusals **and that nothing was minted**: a presigned URL created ahead of a check
+    has already leaked. No object key is in either payload.
+  - **`withCredentials: true` vs `allowCredentials(false)` confirmed, not just predicted.** P8 was
+    right: every cross-origin portal call would have died at the preflight with an error that reads
+    like a token problem. `apiClient` now sends `X-Portal-Token` from the URL fragment, holds it in
+    a module variable, **persists nothing**, and sets no default `Content-Type` — so a `FormData`
+    body keeps the browser's multipart boundary, which the chain accepts because the allowed
+    *header name* is `Content-Type`.
+  - **The wired screen sits OUTSIDE `AuthenticatedRoute` and is off the sidebar.** Its credential
+    is a scoped link naming one case, not the mock account session. Mounting it inside the shell
+    would have answered D1 by accident, which is exactly the drift the spec warns about.
+  - **`MISSING` / `INCORRECT` now reach the client, and that is D4 working.** Touchpoint **T4** —
+    "your upload was flagged" — arrives as a state the client sees rather than a message EvalOS has
+    no channel to send. Unit 10's vocabulary passes through unmapped; `lib/portal.ts` holds a
+    label-and-colour table for the five values with a test that **fails if the server can send a
+    sixth**. The SPA holds no lifecycle enum and derives no status. That is D5 in practice.
+  - **Two stale decisions were corrected in place while working through them, both load-bearing
+    here.** `architecture.md` and `mem:core` still said *"a separate Client Portal application
+    writes to S3, EvalOS read-only on `client/`"* — **spec 30 corrected that the same day it was
+    written.** The portal holds **no AWS credential**; it calls EvalOS, and **EvalOS is the only
+    writer**. `mem:core` also still described Drive as live and told the reader not to introduce
+    CORS, which Unit 30 built. Both rewritten, not annotated beside.
+  - **Recorded because 34b will assume otherwise: `draft_link` is still a free-text link the CM
+    pastes.** A `DRAFT` `case_document` is created with no `object_key`, so **S3 holds client
+    uploads and nothing else today.**
+  - Deleted with the slice: `MOCK_DOCUMENTS`, `ClientDocument`, `DocumentStatus`,
+    `DocumentStatusBadge`. `simulateUpload` moved to `mock/` — a mock beside real calls in one
+    module is how somebody ships the mock.
+  - **Owed:** no content sniffing on upload (Unit 30's own open item — the declared content type is
+    recorded, not trusted); the two `Link to="/documents"` buttons on mock screens now land on a
+    "needs your link" page, and go when those screens do; `frontend/`'s `portalRules.ts` still
+    declares `expertProfile`/`expertReference`, removed from the server with Unit 13.
+  - Docs and memories amended in the same step: spec 34 (§2, §5, and a new §9 *What building 34a +
+    34c found*), `architecture.md`, `process-automation.md` (T4), `client/README.md`,
+    `mem:client/core`, `mem:core`, `mem:backend/security` (the endpoint list), `mem:task_completion`,
+    `mem:suggested_commands`, `mem:tech_stack`.
+
+- **2026-09-03 — The portal frontend landed in `client/`, and Unit 34 is SPECCED against it.
+  Not built, and deliberately not wired.** A third application joined the monorepo: a Vite 8 /
+  React 19 SPA, ~9.5k lines over 130 files, **both portals in one deployment**, served on port
+  **5174** — which is the origin `application-local.yml` has allowed since Unit 30. The shape is
+  exactly what Unit 30 §1 predicted. The contract is not.
+  - **The single most important finding: the app has no draft review screen at all.** A search
+    for `approve` or `revision` across `client/src` returns nothing. The three endpoints EvalOS
+    *actually implements* — `GET /api/portal/client/case`, `/approve`, `/request-revisions` —
+    have no caller and no UI. The `/reports` page is download-only. **The portal's whole reason
+    for existing is the one thing missing from it.**
+  - **Three invariants are in its path, and none is breached yet because nothing calls anything.**
+    A seven-screen intake funnel mints `IE-{year}-{6 digits}` and writes a case-shaped record
+    (**invariant 8** — only `opportunity.won` creates a case, and `DomainInvariantsTest` enforces
+    it structurally); Payments and Invoices pages (**invariant 2** — invoicing is GHL's); Messages
+    and Tickets (**invariant 14** — EvalOS has had no outbound channel of any kind since Unit 18
+    was removed). Unit 34 D2–D4 recommend cutting all three rather than finding them a backend.
+  - **The fork everything hangs off is auth.** The app has email+password accounts in
+    `localStorage` for *both* audiences and draws a **list** of cases for each. A `portal_access`
+    row names exactly one case, so no case-scoped token can answer "my cases" — a client with two
+    cases needs two links today. **D1 recommends widening the token to name a *party*** (`ghl_contact_id`
+    for `CLIENT`, `expert_id` for `EXPERT`) rather than building an account system, because every
+    other property of the token model carries over untouched **and a password reset needs a mail
+    channel invariant 14 says does not exist.** It also fixes a problem Unit 15 already had: one
+    hand-sent link per expert instead of one per case. The cost is stated, not buried — a
+    party-scoped token is a wider credential, so its expiry must be shorter than 30 days.
+  - **Four duplicate lifecycle vocabularies** (`RequestStatus`, `SigningStatus`, `DocumentStatus`,
+    `IntakeDocumentStatus`) against Unit 31's twelve stages. **This is where "no duplicate
+    workflow" fails first.** D5: EvalOS serves the client's step and the expert's step in the
+    payload; the SPA holds no lifecycle enum and derives nothing.
+  - **One concrete runtime failure, found by reading the two configs against each other:**
+    `client/src/services/apiClient.ts` sets `withCredentials: true`, and `PortalSecurityConfig`
+    sets `allowCredentials(false)`. The chain also allows only `GET/POST/OPTIONS` and only
+    `Content-Type` + `X-Portal-Token`. The Axios instance sends no portal token and **is imported
+    by nothing** — every one of the 12 service modules is a `localStorage` mock.
+  - **It ships zero tests and no test runner** (`frontend/` has 141). `task_completion`'s frontend
+    gate does not reach `client/`, so a third gate is owed.
+  - **`services/*` is the entire mock/real boundary and that is the one property making this
+    tractable.** A page that reaches past it ends the tractability; that is a code-review rule now.
+  - Docs amended in the same step: `architecture.md` (repo layout is **three** apps, the *Portal
+    auth* row now records that CORS is **built** rather than missing, the one-token-one-case bullet
+    is marked under challenge, invariants 8 and 14 gain the portal's pressure), `project-overview.md`
+    (a portal-frontend section, and intake/invoicing/messaging/ticketing added to Out of Scope),
+    `ui-context.md` (a token-set comparison, and the note that "minimal chrome, no navigation" now
+    describes only what is shipped), `process-automation.md` (in-portal state as a third option for
+    T1–T8, with its reach limit stated), `00-build-plan.md` (Unit 34 + the three-app note),
+    `client/README.md` (its "no backend exists" claims corrected). Serena: new `mem:client/core`,
+    linked from `mem:core`, whose stale Drive/no-object-storage/no-CORS paragraph was rewritten in
+    place rather than contradicted beside.
+
 - **2026-09-03 — Unit 33 BUILT: `V35`, the dossier, the applicant, the discipline.** Migration,
   entities, form, importer, both record screens and the two sample workbooks. **532 backend tests
   and 141 frontend tests green**, `ddl-auto=validate` passing against a real Postgres — which is
@@ -1464,7 +1780,7 @@ confirmation. What is genuinely outstanding, with its owner:
 | G11 | Sales notes on the cases-inbox widget | Unit 05b/17 | No field carries GHL's sales notes. Either intake starts carrying one or the column comes out |
 | ~~G12~~ | **CLOSED (partly, deliberately)** Unit 22 slice 1 — change deadline and reassign CM shipped, both stage-preserving. **Mark urgent was refused, not missed** (decision 5): the deadline already expresses urgency and drives `DeadlineRisk`, so a second flag is a second truth that can disagree with it. Note the reassign is a *new* field update, **not** `assign-cm` widened — that action also writes an `ExpertCaseOffer` and would have minted phantom offers, exactly as this row's own note warned. Was: Mark case urgent / change deadline; reassign CM mid-draft | Unit 04/17 | Two quick actions with no transition behind them (`assign-cm` is declared on `EXPERT_ASSIGNMENT` only) |
 | G13 | Client communication log | **not scoped** | Architecturally GHL's. A threaded per-case log would be a new *inbound* integration pulling GHL conversations. Recorded, not planned |
-| G14 | Antivirus posture for accepted uploads | **decision** | Drive scans on ingest; that is not the same as EvalOS having an AV stance on files from a public link. Flagged in Unit 21, does not block it. **Now covers two surfaces** — client documents and the signed letter |
+| G14 | Antivirus posture for accepted uploads | **decided 2026-09-04 → Unit 35** | Drive scanned on ingest and Drive is gone, so EvalOS owed a stance of its own on files arriving from a public link. **Implemented rather than declared**: content sniffing on *both* upload surfaces, every presigned read served as an **attachment** so nothing executes in the browser origin, and the written position that **scanning is the bucket's job** — S3 malware protection is an infrastructure control the business enables, not code EvalOS ships. That infra ask sits with the credential |
 | G15 | Getting the expert's portal link to the expert | **decision (T6)** | Dropping the signature provider removed what used to email it. Hand-sent by the CM until the email channel is decided — and unlike the client link, an expert who never gets theirs cannot sign while the 20h/24h clock runs |
 | G16 | **No screen shows which portal links exist, or whether anyone opened them** | **Unit 17** (specced) | The compensating control for G15 and T1/T5/T6: because delivery is a human copy-paste, the *only* evidence a link arrived is `portal_access.last_seen_at`, and nothing reads it in aggregate. So the likeliest way to breach the 24h signing SLA — a link nobody sent — is currently invisible. Specced as metric 5 in `17-dashboards.md`; **needs no migration**, all four facts are already stored |
 | ~~G17~~ | **CLOSED 2026-08-27 — by removing the inbound signature, not by confirming it.** The answer to "which encoding does GHL sign with" turned out to be *none*: GHL's Custom Webhook action posts a URL, a content type and a JSON body and cannot compute an HMAC at all, so the check was not merely unverified, it was unsatisfiable. `WebhookVerifier`, `X-Evalos-Signature`, `evalos.webhook.signature-header` and `Brand.ghlWebhookSecret` are deleted; the per-brand endpoint token against an **active** brand is the whole credential. Was: The GHL signature scheme is unverified, and only its header name is configurable | ~~release blocker~~ | The outbound half (Unit 18) is untouched and still HMAC-signs — EvalOS *can* sign what it sends |
@@ -3387,81 +3703,62 @@ gained the power to rewrite money, which the spec asked for and then did not fol
 
 ## In Progress
 
-- **Visual refresh (`UI_MIGRATION_GUIDE.md`) — shell and board migrated, other screens not.**
-  Tokens, `AppShell`, `LeftNav`, `TopBar`, `BrandSwitcher`, `DateFilter`,
-  `NotificationBell` and `features/board/*` are in the adopted language. Everything else
-  still renders the pre-migration one, so the app is mid-flight by design and the two look
-  different side by side.
+Nothing is half-built. Everything below is code-complete and waiting on somebody outside the
+repo — listed so a session does not mistake a provisioning wait for unfinished work.
 
-  **The density is now settled, and it is not the template's.** Protend is built for a
-  1920 desktop: 400px sidebar, 136px header, 44–48px controls. EvalOS staff run
-  **1366 × 768**, where that spends 28% of the width and 18% of the height on chrome. The
-  adopted scale is **240px sidebar / 72px header / 36px controls / 288px board column**,
-  recorded as a new "Density" section in `ui-context.md` and as a deviation table in the
-  guide. The template's identity — radius, tinted canvas, ambient shadow, indigo accent —
-  is untouched; only its density is rejected.
-
-  **The board scrolls on both axes, with one owner each.** The column strip owns
-  horizontal, each column's card list owns vertical, bounded by a new
-  `--board-column-max` token. The page heading, filters, pool and every column header and
-  SLA rail stay fixed — which is the point, since the rail is the board's one instrument
-  and it used to scroll off the top with the page. The pool lane is capped at two rows of
-  pills and "Off the pipeline" now starts closed; both used to push the columns below the
-  fold. `--board-column-max` subtracts a measured 22rem of chrome from `100svh` and is
-  marked `ponytail:` in `tokens.css` — the non-magic version is a viewport-height app
-  frame where the strip is `flex-1 min-h-0`, which means `AppShell` owning the scroll for
-  every screen. Not worth it for one board.
-
-  Verified: `tsc --noEmit` clean, `vite build` clean. **Not yet verified in a browser** —
-  the 1366×768 pass the guide's checklist now asks for is owed.
-
-  **One known inconsistency, left deliberately:** the colour table in `ui-context.md`
-  still lists the pre-migration hexes (`#F7F8FA`, `#3552E0`, …) while `tokens.css` ships
-  the adopted ones. The file's own banner says the guide supersedes it on colour *values*
-  and that it stays authoritative on RAG *semantics*, so it is not wrong, but the table
-  should be restated once the last screen lands.
-
-- **Unit 13's one live check.** The manual Drive upload above. It needs credentials that are
-  provisioned, not coded, so it is blocked on somebody with Google Cloud access rather than on
-  any remaining work in the repo.
-- **Unit 05b's live run.** A signed `opportunity.won` over real HTTP + HMAC + Postgres, which is
-  what closed Unit 05/05a's criterion 1 for the previous trigger. Blocked on the same Step 0 item
-  as before — confirmation of what GHL actually sends on Won. Everything below the transport is
-  verified; what is unproven is the field names.
+- **Unit 15's live round-trip.** A real expert token, a real download, a real signed PDF into a
+  real bucket. Blocked on the **AWS credential + bucket**, which is the same thing Unit 30's live
+  path and Unit 21's reconcile wait for. Everything below the transport is verified against a test
+  double.
+- **Unit 05b's live run.** A real `opportunity.won` over HTTP + Postgres, which is what closed the
+  previous trigger's criterion 1. Blocked on **confirmation of what GHL actually sends on Won** —
+  the transport is verified; the field names are not.
+- **The visual refresh, in the staff app.** Tokens, `AppShell`, the nav and `features/board/*` are
+  in the adopted language (240px sidebar / 72px header / 36px controls / 288px board column, the
+  density recorded in `ui-context.md`); the other screens still render the pre-migration one, so
+  the app is mid-flight by design. **`UI_MIGRATION_GUIDE.md` has been deleted** — the density
+  section in `ui-context.md` is what survives it, and the colour table there still lists the
+  pre-migration hexes while `tokens.css` ships the adopted ones. Restate that table when the last
+  screen lands. **Not yet checked in a browser at 1366×768**, which is the check that was owed.
 
 ## Next Up
 
 **The schedule lives in `context/specs/00-build-plan.md` → "Execution sequence for v2.0".**
-Read it there rather than here; this section names only what is immediately next so the
-two cannot drift.
+Read it there rather than here; this section names only what is immediately next, so the two
+cannot drift. **Rewritten 2026-09-04** — the previous version chased a Google service account
+Unit 30 had already replaced, called a built unit next, and called Unit 15 blocked on Unit 21.
 
-- **Step 0 — request the four external things** (Google service account, the GHL
-  outbound contract, the real `opportunity.won` payload, and the Anthropic key +
-  compliance decision). All have lead time. **The Google account is the one to chase
-  hardest: it now blocks three units** — Unit 13's live upload, Unit 21 and Unit 15 —
-  and Unit 13 has been code-complete and stuck on it. *(Dropbox Sign was the fifth
-  item; there is no signature provider any more.)*
-- ~~**A1 — the missing QC notification**~~ and ~~**A2 — Unit 05b**~~ are **done**; see their
-  entries in Completed. A2's code and tests are green, but its live hand-fired run is
-  still owed and sits under In Progress — it waits on the same payload confirmation.
-- **A3 — Unit 16, the payout ledger. This is next.** The only substantial unit with zero
-  external dependency, and it unblocks Unit 17's money-out tiles, so it comes before
-  dashboards. Re-read spec 16 first — it is a Phase 2 draft, and it already carries one
-  correction found while writing later specs (payout uniqueness).
-- **Then A4 Unit 17a → A5 Unit 17b**, interleaving Unit 21 / 15 / 18 the moment their
-  blockers clear.
+**Buildable now, in this order:**
 
-**Unit 15 is no longer "next", and it is also no longer blocked.** It was scheduled
-first and gated on Dropbox Sign; dropping the signature provider removed that gate
-entirely. It now **depends on Unit 21** — it reuses that upload path with
-`audience = 'EXPERT'` — and needs only the Google service account that Units 13 and 21
-need, so build 13's criterion → 21 → 15 back to back when the credential lands. Unit 14
-still leaves it the whole portal foundation (token model, principal, chain, portal audit
-writer) built for reuse.
-- Unit 12 still leaves two things for their owning units: the `expert_case_offer` row (Unit 15
-  fills `ACCEPTED` from the expert's own signed-letter upload instead of the staff-recorded
-  stand-in, and owns `TIMED_OUT`) and the rule-based score Unit 20's AI layer ranks **on top of**,
-  not instead of.
+1. **Unit 35 — party-scoped portal access.** D1/D5/D6/D8 + G14, specced 2026-09-04. Start with the
+   deletions (D8) and the upload hardening (G14): both are small, self-contained and improve a
+   surface that is already live. Then the migration and the two party reads.
+2. **34b — the client's draft review screen.** The highest-value screen left in the portal: read,
+   approve, request revisions are **built and tested in EvalOS since Unit 14 and no screen calls
+   them.** Unblocked by D1, which is what tells it which case it is showing.
+3. **34d — the two case lists**, over Unit 35's party reads and D5's projection.
+4. **Unit 17a — dashboards without charts**, carrying gaps **G9–G11** and **G16**. G16 is the one
+   to read twice: nothing shows which portal links exist or whether anyone opened them, so "a link
+   nobody sent" — the likeliest way to breach the 24h signing SLA — is invisible today.
+5. **Unit 19 — background jobs.** **Its prerequisites are met**: Unit 10 and Unit 15 are built and
+   Unit 18 is gone. Unit 15 left it the 20h/24h sign prompts to fire, and it must only ever
+   *prompt* — no sweep calls a transition.
+6. **Unit 17b — the cycle-time chart**, once the charting library is chosen (`ui-context.md`).
+
+**Waiting on somebody outside the repo:**
+
+- **AWS credential + bucket** → Unit 15's live round-trip, Unit 30's live path, Unit 21's
+  remaining half (read the `client/` prefix, reconcile against the checklist). **Now also carries
+  G14's infrastructure half**: S3 malware protection on the bucket, which is the scanning EvalOS
+  deliberately does not do in code.
+- **The real `opportunity.won` payload** → Unit 05b's live run.
+- **Decisions still open**: **G15** — how an expert's link actually reaches them (hand-sent today,
+  and an expert who never gets theirs cannot sign while the clock runs); and who reaches the client
+  at all, which the portal downgrades from blocking to a reach problem (`process-automation.md`).
+
+**Struck, so nothing waits on them:** Unit 13 (redacted CV), Unit 18 (outbound dispatcher) and
+Unit 20 (AI widgets) are **removed from scope** — `V33`, and invariant 15. There is no Anthropic
+key to request and no anomaly *unit*; that arithmetic is a Unit 17 tile if it is wanted.
 
 ### Phase 2 readiness — which open questions block which unit
 
@@ -3606,6 +3903,32 @@ whenever a third brand is seeded. Staff SSO stays deferred.
 
 ## Open Questions
 
+- ~~**Does a portal token name a case or a party? (Unit 34 D1.)**~~ **ANSWERED 2026-09-04: a
+  party.** `ghl_contact_id` for `CLIENT`, `expert_id` for `EXPERT`, `case_id` nullable — one
+  column plus a nullable one, keeping the 256-bit token, the SHA-256-at-rest, the single-live-token
+  index, the absolute expiry and the one indistinguishable 401 exactly as they are. **A
+  case-scoped link stays legal** for one case sent once. **The account system was refused, not
+  deferred**: credential storage, rotation, lockout and a password-reset mail channel
+  **invariant 14 says does not exist**. Sub-question answered with it: a party token lives
+  **7 days**, the case token keeps 30. Built in `35-party-scoped-portal-access.md`; the four
+  documents it touches are amended.
+- **Do intake, invoicing, client messaging and support ticketing get cut? (Unit 34 D2–D4.)**
+  Recommended: **yes, all four.** Each breaches an invariant if wired (8, 2, 14, 14) and each
+  has a home in GHL, which is where the front of house is. The residual question is not
+  *whether* but *what happens to the code* — the intake funnel is ~2k lines of working work,
+  and the recommendation is to park it behind an unregistered route with a dated note rather
+  than delete work whose owner has not been asked.
+- ~~**May an expert see their payout rows? (Unit 34 D6.)**~~ **ANSWERED 2026-09-04: yes — rows
+  only** (case reference, amount, currency, status, settlement date), for their own `expert_id`.
+  **Never `payment_detail`**, which has no read path anywhere in EvalOS, not even for the ENM who
+  typed it (invariant 4) — and this does not become the first one. A new whitelist, so it ships
+  with the named field list and the serialization test Unit 14's and Unit 15's got. Built in
+  Unit 35. **D5** (one projected vocabulary) and **D8** (analytics off, by deletion) were taken in
+  the same sitting.
+- **Where is the portal deployed, and how does its origin reach `EVALOS_PORTAL_ORIGINS`?**
+  Not a code question — `application-prod.yml` has no default, so a missing value fails the
+  boot by design. It is a deployment prerequisite that will otherwise be discovered at the
+  worst moment.
 - **Who delivers client- and expert-facing messages — GHL or EvalOS?** Every
   touchpoint is listed in `context/process-automation.md` with its channel marked
   *decision pending*. GHL delivering them off the outbound event is the current

@@ -2,7 +2,6 @@ package com.ie.evalos.service;
 
 import java.util.EnumMap;
 import java.util.EnumSet;
-import java.util.List;
 import java.util.Map;
 
 import com.ie.evalos.domain.AuditAction;
@@ -47,6 +46,14 @@ public final class CaseTransitions {
 		CLIENT_APPROVE_DRAFT(CaseEvents.Type.DRAFT_CLIENT_APPROVED, AuditAction.STAGE_CHANGED),
 		EXPERT_SIGNED(CaseEvents.Type.EXPERT_SIGNED, AuditAction.UPDATED),
 		EXPERT_DECLINED(CaseEvents.Type.EXPERT_DECLINED, AuditAction.UPDATED),
+		/**
+		 * The expert takes the case (Unit 15). Stage-preserving, so the stage cannot be its own
+		 * guard — {@code CaseLifecycleService.expertAccepted} guards on the <strong>offer</strong>
+		 * instead, because pressing Accept twice is not an error the state machine can see.
+		 */
+		EXPERT_ACCEPTED(CaseEvents.Type.EXPERT_ACCEPTED, AuditAction.UPDATED),
+		/** The expert asks for more evidence before signing (Unit 15). */
+		EXPERT_REQUEST_EVIDENCE(CaseEvents.Type.EXPERT_EVIDENCE_REQUESTED, AuditAction.UPDATED),
 		EXPERT_TIMED_OUT(CaseEvents.Type.EXPERT_TIMED_OUT, AuditAction.UPDATED),
 		REASSIGN_EXPERT(CaseEvents.Type.EXPERT_ASSIGNED, AuditAction.ASSIGNED),
 		PM_QC_APPROVE(CaseEvents.Type.QC_APPROVED, AuditAction.STAGE_CHANGED),
@@ -134,6 +141,11 @@ public final class CaseTransitions {
 		declare(Stage.EXPERT_SIGNING, Action.EXPERT_SIGNED, Stage.FINAL_QC);
 		declare(Stage.EXPERT_SIGNING, Action.EXPERT_DECLINED, Stage.EXPERT_SIGNING);
 		declare(Stage.EXPERT_SIGNING, Action.EXPERT_TIMED_OUT, Stage.EXPERT_SIGNING);
+		// Unit 15's two portal actions, both from EXPERT_SIGNING only and both stage-preserving:
+		// accepting does not move the case (the signature does), and asking for evidence raises an
+		// exception state on the stage the case is already in.
+		declare(Stage.EXPERT_SIGNING, Action.EXPERT_ACCEPTED, Stage.EXPERT_SIGNING);
+		declare(Stage.EXPERT_SIGNING, Action.EXPERT_REQUEST_EVIDENCE, Stage.EXPERT_SIGNING);
 
 		declare(Stage.FINAL_QC, Action.PM_QC_APPROVE, Stage.READY_TO_DELIVER);
 		declare(Stage.FINAL_QC, Action.PM_QC_FAIL, Stage.DRAFT_IN_PROGRESS);

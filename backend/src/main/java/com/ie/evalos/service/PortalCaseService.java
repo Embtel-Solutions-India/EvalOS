@@ -148,6 +148,108 @@ public class PortalCaseService {
 	}
 
 	/**
+	 * What the client must send, and what they have sent (Unit 34c).
+	 *
+	 * <p><strong>Why this exists at all:</strong> {@link #upload} takes a {@code checklistItemId}
+	 * and there was no way for a client to learn one. The upload endpoint shipped in Unit 30
+	 * unreachable — not insecure, just uncallable — and this is the read that closes it.
+	 *
+	 * <p><strong>Not a widening of {@link ClientDraftView}.</strong> That record's javadoc says the
+	 * checklist and the client's own documents are excluded, and it stays that way: the draft view
+	 * is one screen's whitelist and this is another's. Keeping them apart means a field added to
+	 * either does not silently appear on the other, which is the same argument that made
+	 * {@code ClientDraftView} a projection rather than a narrowed staff DTO.
+	 *
+	 * <p><strong>Only the client's own uploads.</strong> {@code DocumentKind.DRAFT} and
+	 * {@code SIGNED_LETTER} are filtered out here and again in {@link #documentUrl}. A draft
+	 * reaches the client through {@code draftLink} on the other screen, under the approval guard
+	 * that belongs to it; the signed letter is Unit 15's and delivery is a decision nobody has
+	 * taken. Widening this filter is how either of those leaks early.
+	 */
+	public record ClientDocumentsView(java.util.List<ChecklistItemView> checklist,
+			java.util.List<UploadedDocumentView> uploaded) {
+	}
+
+	/**
+	 * One required document.
+	 *
+	 * <p>The status is <strong>Unit 10's own vocabulary, unmapped</strong> — {@code REQUIRED},
+	 * {@code UPLOADED}, {@code APPROVED}, {@code MISSING}, {@code INCORRECT}. No portal-specific
+	 * status enum is invented, because a second vocabulary for the same fact is a second thing that
+	 * can disagree with the Coordinator's screen. {@code MISSING} and {@code INCORRECT} reaching
+	 * the client is the point rather than a leak: it is touchpoint T4 — "your upload was flagged" —
+	 * arriving as a state the client can see instead of a message EvalOS has no way to send.
+	 */
+	public record ChecklistItemView(UUID id, String label, ChecklistItemStatus status) {
+	}
+
+	/**
+	 * One document the client sent.
+	 *
+	 * <p><strong>No object key</strong>, for the reason {@code CaseController.DocumentVersion}
+	 * gives: a key is an internal address, and a client-side copy of one is a pointer somebody
+	 * eventually tries to turn into a URL. The bytes are reached through {@link #documentUrl},
+	 * which mints a five-minute capability per request.
+	 *
+	 * @param checklistLabel which requirement this answered, so a client can tell two PDFs apart
+	 */
+	public record UploadedDocumentView(UUID id, String filename, int version, Instant uploadedAt,
+			String checklistLabel) {
+	}
+
+	/** Both lists for the client's document screen. Read-only: no receipt is stamped here. */
+	@Transactional(readOnly = true)
+	public ClientDocumentsView documents(PortalPrincipal principal) {
+		Case subject = authorized(principal);
+
+		java.util.List<ChecklistItemView> checklist = checklistItems.findByCaseId(subject.getId()).stream()
+				.map(item -> new ChecklistItemView(item.getId(), item.getLabel(), item.getStatus()))
+				.toList();
+
+		java.util.List<UploadedDocumentView> uploaded = documents
+				.findByCaseIdAndKindOrderByVersionDesc(subject.getId(), DocumentKind.CLIENT_UPLOAD).stream()
+				.map(row -> new UploadedDocumentView(row.getId(), row.getFilename(), row.getVersion(),
+						row.getUploadedAt(), row.getNotes()))
+				.toList();
+
+		return new ClientDocumentsView(checklist, uploaded);
+	}
+
+	/**
+	 * A five-minute URL for one document the client themselves uploaded (Unit 34c).
+	 *
+	 * <p><strong>The token's case is the authorization and the kind filter is the second half of
+	 * it.</strong> {@link #authorized} proves which case this caller holds; the document is then
+	 * matched against that case <em>and</em> against {@code CLIENT_UPLOAD}. Without the case match
+	 * a client could name any document id in the system; without the kind match they could name the
+	 * draft or the expert's signed letter on their own case and read it outside the approval flow.
+	 *
+	 * <p>The URL is minted <strong>after</strong> both checks, never before — a presigned URL
+	 * created ahead of the check is a URL that leaked ahead of the check. It is never stored.
+	 *
+	 * <p>Every issue writes an {@code EXPORTED} row with {@code actor_type = CLIENT}, which is what
+	 * makes "the client opened their own passport scan on the 4th" a fact the trail holds rather
+	 * than an inference from a web log.
+	 */
+	@Transactional
+	public String documentUrl(PortalPrincipal principal, UUID documentId) {
+		Case subject = authorized(principal);
+
+		CaseDocument document = documents.findById(documentId)
+				.filter(row -> row.getCaseId().equals(subject.getId()))
+				.filter(row -> row.getKind() == DocumentKind.CLIENT_UPLOAD)
+				.orElseThrow(() -> new ForbiddenException("That document is not one of yours"));
+
+		requireState(document.getObjectKey() != null,
+				"that document predates the document store and has no file behind it");
+
+		audit.recordPortalEvent(subject.getBrandId(), PortalAudience.CLIENT, "CASE_DOCUMENT",
+				document.getId(), AuditAction.EXPORTED, null,
+				java.util.Map.of("opened", String.valueOf(document.getFilename())));
+		return store.presignedUrl(document.getObjectKey());
+	}
+
+	/**
 	 * The client uploads one document against one checklist item (Unit 30).
 	 *
 	 * <p><strong>No file on disk and no blob column — but the part IS buffered in heap, and the

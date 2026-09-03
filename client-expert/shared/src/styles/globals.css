@@ -1,0 +1,177 @@
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=DM+Serif+Display:ital@0;1&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 210 40% 99%;
+    --foreground: 204 45% 12%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 204 45% 12%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 204 45% 12%;
+
+    /* International Evaluations brand navy — #003152 */
+    --primary: 204 100% 16%;
+    --primary-foreground: 210 40% 98%;
+
+    --secondary: 207 36% 66%;
+    --secondary-foreground: 204 100% 12%;
+
+    --muted: 204 20% 95%;
+    --muted-foreground: 204 14% 42%;
+
+    --accent: 204 55% 95%;
+    --accent-foreground: 204 100% 16%;
+
+    /* International Evaluations brand crimson — #c8102e */
+    --destructive: 350 85% 42%;
+    --destructive-foreground: 210 40% 98%;
+
+    --success: 142 72% 29%;
+    --success-foreground: 210 40% 98%;
+
+    --warning: 26 90% 37%;
+    --warning-foreground: 210 40% 98%;
+
+    --info: 204 70% 40%;
+    --info-foreground: 210 40% 98%;
+
+    --border: 204 24% 89%;
+    --input: 204 24% 89%;
+    --ring: 204 90% 30%;
+
+    /* Brand hex values exposed for one-off gradient/blob usage where the
+       HSL tokens above aren't convenient (e.g. radial-gradient stops). */
+    --brand-navy: #003152;
+    --brand-crimson: #c8102e;
+
+    --sidebar: 204 62% 9%;
+    --sidebar-foreground: 204 24% 88%;
+    --sidebar-border: 204 40% 16%;
+    /* Active nav item — brand crimson, darkened to sit on the navy sidebar. */
+    --sidebar-accent: 350 55% 24%;
+
+    --radius: 0.625rem;
+  }
+
+  .dark {
+    --background: 205 45% 7%;
+    --foreground: 204 24% 92%;
+
+    --card: 205 40% 10%;
+    --card-foreground: 204 24% 92%;
+
+    --popover: 205 40% 10%;
+    --popover-foreground: 204 24% 92%;
+
+    --primary: 204 75% 58%;
+    --primary-foreground: 205 45% 8%;
+
+    --secondary: 207 36% 50%;
+    --secondary-foreground: 210 40% 98%;
+
+    --muted: 205 24% 16%;
+    --muted-foreground: 204 16% 65%;
+
+    --accent: 204 40% 18%;
+    --accent-foreground: 204 80% 78%;
+
+    --destructive: 350 75% 55%;
+    --destructive-foreground: 210 40% 98%;
+
+    --success: 142 48% 42%;
+    --success-foreground: 210 40% 98%;
+
+    --warning: 26 85% 55%;
+    --warning-foreground: 205 45% 8%;
+
+    --info: 204 89% 58%;
+    --info-foreground: 205 45% 8%;
+
+    --border: 205 24% 20%;
+    --input: 205 24% 20%;
+    --ring: 204 75% 58%;
+
+    --brand-navy: #0a4a75;
+    --brand-crimson: #e2405a;
+
+    --sidebar: 205 50% 6%;
+    --sidebar-foreground: 204 24% 88%;
+    --sidebar-border: 205 30% 14%;
+    --sidebar-accent: 350 50% 22%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+  }
+
+  :focus-visible {
+    @apply outline-none ring-2 ring-ring ring-offset-2 ring-offset-background;
+  }
+}
+
+@layer utilities {
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+
+  /* Frosted-glass surface used for cards that float over the liquid blobs
+     on marketing/auth pages. */
+  .glass-panel {
+    background: hsl(var(--card) / 0.72);
+    background: color-mix(in oklab, hsl(var(--card)) 72%, transparent);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid hsl(var(--card) / 0.4);
+    border-color: color-mix(in oklab, hsl(var(--card)) 40%, transparent);
+  }
+
+  .glass-panel-dark {
+    background: rgb(255 255 255 / 0.1);
+    background: color-mix(in oklab, white 10%, transparent);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid rgb(255 255 255 / 0.18);
+    border-color: color-mix(in oklab, white 18%, transparent);
+  }
+}
+
+@keyframes liquid-float-a {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  33% { transform: translate(3%, -4%) scale(1.05); }
+  66% { transform: translate(-2%, 3%) scale(0.97); }
+}
+
+@keyframes liquid-float-b {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  50% { transform: translate(-4%, 4%) scale(1.08); }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .animate-liquid-a {
+    animation: liquid-float-a 22s ease-in-out infinite;
+  }
+  .animate-liquid-b {
+    animation: liquid-float-b 26s ease-in-out infinite;
+  }
+}

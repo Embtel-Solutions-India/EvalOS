@@ -90,6 +90,24 @@ Still-dead-and-should-stay-dead, for the same derive-don't-store reason as the t
 `expert.avg_response_hours`. Unit 17 derives turnaround from `expert_case_offer`; reviving the column
 would be a second, staler answer.
 
+**`V37` adds `portal_access.expert_id`** (nullable, `updatable = false`), which binds an expert's
+credential to the expert rather than only to the case — see `mem:backend/security` for what that
+closes. **No CHECK tying it to `audience = 'EXPERT'`, and the reason is worth keeping**: a plain
+CHECK fails the migration against any existing EXPERT row, and a `NOT VALID` one is still enforced on
+UPDATE — so it would refuse the very revoke that retires such a row, blocking the cleanup it exists
+to force. `PortalAccessService.mint` is the only writer and the read fails closed instead. That is a
+deliberate exception to the V15/V16 "put the invariant in the database" rule, not an oversight.
+
+**`V36` (Unit 15) is four columns and the count is the decision.** `evalos_case.expert_portal_read_at`
+mirrors `client_portal_read_at` exactly (stamped **once**, on first read; "when did they last look" is
+`portal_access.last_seen_at`), and `case_document` gains `content_sha256`, `attestation` and
+`attested_name`. The spec drafted eight; the other four state facts the system already holds —
+`SlaCalculator` computes the sign deadline, the document row carries the key and `uploaded_at`, and
+`letter_sent_hash` **cannot be computed at all** because the draft is a pasted link and `DocumentStore`
+has no read capability. **The provenance is on `case_document`, not `evalos_case`, because a failed
+final QC means a case can be signed twice** and a per-case column would keep the newest and lose the
+one a dispute is about.
+
 **`V35` (Unit 33) adds `expert.avg_turnaround_days` beside it, and that is not a reversal — read the
 two names.** `avg_response_hours` is how fast an expert *answers an offer*, which the offer table
 already knows; `avg_turnaround_days` is how long they take to *write the letter*, which EvalOS cannot

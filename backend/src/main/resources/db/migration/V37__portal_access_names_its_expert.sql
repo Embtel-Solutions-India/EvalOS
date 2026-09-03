@@ -1,0 +1,32 @@
+-- One column, and it closes the hole the Unit 15 review found.
+--
+-- **A `portal_access` row named a case and an audience and NOT a person.** So nothing downstream
+-- could tell one expert's token from another's: `ExpertPortalService.authorized()` proved the token
+-- pointed at *a* case in the right brand, and stopped there. With a 30-day TTL, that meant expert A
+-- could decline, the Case Manager could rematch to B and send, and A's old link would still accept
+-- the case, hold it awaiting the client, decline it again, or — the one that matters — upload the
+-- deliverable, filing an attestation in A's name against a case that names B.
+--
+-- `CaseLifecycleService.revokeExpertLink` closed the paths that exist today by revoking the link at
+-- all four ends of an expert's involvement (signed / declined / timed out / reassigned). **This
+-- column is what makes that structural rather than remembered**: the token is bound to the expert
+-- it was minted for, and a token whose expert is not the case's expert is refused whether or not
+-- anybody remembered to revoke it. A fifth path added in some later unit inherits the guard instead
+-- of having to know about it.
+--
+-- **Nullable, and no CHECK tying it to `audience = 'EXPERT'`** — which this codebase would normally
+-- prefer (the V15/V16 lesson: put the invariant in the database). Two reasons it does not here.
+-- A plain CHECK would fail the migration against any existing EXPERT row, and a `NOT VALID` one
+-- would then refuse the very UPDATE that revokes such a row — so the constraint would block the
+-- cleanup it exists to force. Instead: `PortalAccessService.mint` is the only writer and always
+-- sets it for an EXPERT token, and the read **fails closed** — a null on an expert token is
+-- refused, not waved through. A pre-column token therefore stops working and is re-minted, which
+-- is one click and the safe direction to fail.
+--
+-- CLIENT rows leave it null and always will: a client is identified by the case's own contact, and
+-- a second copy of that here would be a second thing to keep in step (invariant 7).
+ALTER TABLE portal_access
+    ADD COLUMN expert_id uuid;
+
+-- No index. Every portal request looks this row up by `token_hash`, which is already unique (V21);
+-- this column is read off the row that lookup returns and is never itself a search key.

@@ -5,6 +5,7 @@ import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.stream.Collectors;
 import java.util.UUID;
 import java.util.function.Consumer;
@@ -13,6 +14,7 @@ import com.ie.evalos.common.ForbiddenException;
 import com.ie.evalos.domain.AuditAction;
 import com.ie.evalos.domain.Availability;
 import com.ie.evalos.domain.Case;
+import com.ie.evalos.domain.ChecklistItemStatus;
 import com.ie.evalos.domain.ClientApprovalStatus;
 import com.ie.evalos.domain.DocumentChecklistItem;
 import com.ie.evalos.domain.ExceptionState;
@@ -24,6 +26,7 @@ import com.ie.evalos.domain.IllegalTransitionException;
 import com.ie.evalos.domain.OfferOutcome;
 import com.ie.evalos.domain.PmApprovalStatus;
 import com.ie.evalos.domain.PoolStatus;
+import com.ie.evalos.domain.PortalAccess;
 import com.ie.evalos.domain.PortalAudience;
 import com.ie.evalos.domain.Role;
 import com.ie.evalos.domain.SlaStatus;
@@ -40,6 +43,7 @@ import com.ie.evalos.repository.CaseRepository;
 import com.ie.evalos.repository.DocumentChecklistItemRepository;
 import com.ie.evalos.repository.ExpertCaseOfferRepository;
 import com.ie.evalos.repository.ExpertRepository;
+import com.ie.evalos.repository.PortalAccessRepository;
 import com.ie.evalos.repository.TeamMemberRepository;
 import com.ie.evalos.security.TenantContext;
 import com.ie.evalos.service.CaseTransitions.Action;
@@ -63,6 +67,34 @@ import org.springframework.transaction.annotation.Transactional;
 public class CaseLifecycleService {
 
 	private static final String OBJECT_TYPE = "CASE";
+
+	/**
+	 * Actions that must <strong>not</strong> restamp {@code stage_entered_at}.
+	 *
+	 * <p>{@code stage_entered_at} is what {@code SlaCalculator} measures the stage budget from, so
+	 * restamping it restarts the clock. That is right for every action that changes stage, and right
+	 * for a resume (the budget starts again from when work could resume) — but wrong for
+	 * {@code EXPERT_ACCEPTED}, which is <em>inside</em> the signing budget: an expert pressing "I
+	 * will sign this" seven hours into a one-business-day budget would otherwise reset their own
+	 * clock to green and take the case off the Case Manager's overdue list. The acceptance is not
+	 * the start of the work; the send was.
+	 *
+	 * <p><strong>And wrong for the two assignments, for the same reason.</strong> A stage budget is
+	 * owed by the case, not by whoever happens to hold it: putting a Coordinator on a case forty
+	 * hours into a client's forty-eight-hour review would have restarted that review, and assigning
+	 * the first PM would have restarted the document clock that {@code CaseIntakeService} started
+	 * when the case was created. Re-staffing is not new work. (Safe to stop restamping precisely
+	 * because intake stamps at creation — without that, the first assignment would be what started
+	 * the clock at all.)
+	 *
+	 * <p>The exception states are deliberately not here. {@code PUT_ON_HOLD} and
+	 * {@code REQUEST_REFUND} restamp invisibly — no clock runs while an exception is set — and
+	 * {@code RESUME_FROM_HOLD} and {@code DENY_REFUND} restamp on purpose: the budget starts again
+	 * from when work could resume, which is the one reading that does not charge a team for the
+	 * client's silence.
+	 */
+	private static final java.util.Set<Action> KEEPS_STAGE_CLOCK = java.util.EnumSet.of(
+			Action.EXPERT_ACCEPTED, Action.ASSIGN_PM, Action.ASSIGN_COORDINATOR);
 
 	/**
 	 * What the audit trail records either side of a transition: the state fields and
@@ -105,6 +137,13 @@ public class CaseLifecycleService {
 	private final ExpertCaseOfferRepository offers;
 	private final TeamMemberRepository teamMembers;
 	private final CaseDocumentRepository documents;
+	/**
+	 * Only ever written to, and only to <strong>revoke</strong> — see {@link #revokeExpertLink}.
+	 *
+	 * <p>The repository rather than {@code PortalAccessService}, which would be a constructor
+	 * cycle: that service loads the case through {@link #load}. Minting stays entirely its job.
+	 */
+	private final PortalAccessRepository portalTokens;
 	private final DocumentStore store;
 	private final AuditService audit;
 	private final SlaCalculator sla;
@@ -113,14 +152,15 @@ public class CaseLifecycleService {
 
 	CaseLifecycleService(CaseRepository cases, DocumentChecklistItemRepository checklistItems, ExpertRepository experts,
 			ExpertCaseOfferRepository offers, TeamMemberRepository teamMembers, CaseDocumentRepository documents,
-			DocumentStore store, AuditService audit, SlaCalculator sla, ApplicationEventPublisher events,
-			PayoutService payouts) {
+			PortalAccessRepository portalTokens, DocumentStore store, AuditService audit, SlaCalculator sla,
+			ApplicationEventPublisher events, PayoutService payouts) {
 		this.cases = cases;
 		this.checklistItems = checklistItems;
 		this.experts = experts;
 		this.offers = offers;
 		this.teamMembers = teamMembers;
 		this.documents = documents;
+		this.portalTokens = portalTokens;
 		this.store = store;
 		this.audit = audit;
 		this.sla = sla;
@@ -726,8 +766,23 @@ public class CaseLifecycleService {
 	 */
 	@Transactional
 	public Case expertSigned(UUID caseId) {
-		Case subject = load(caseId);
+		return signed(load(caseId), null);
+	}
 
+	/**
+	 * The same transition, performed by the expert themselves through their portal (Unit 15).
+	 *
+	 * <p>Takes the case because the portal has already authorized it — the same shape as
+	 * {@link #clientApproveDraftFromPortal}, and for the same reason. The only difference in the
+	 * trail is who it names: {@code actor_type = EXPERT} here, {@code STAFF} on the staff-recorded
+	 * stand-in above. Both are legitimate; only one is first-hand evidence.
+	 */
+	@Transactional
+	public Case expertSignedFromPortal(Case authorized) {
+		return signed(authorized, PortalAudience.EXPERT);
+	}
+
+	private Case signed(Case subject, PortalAudience actor) {
 		// **A second "signed" is a no-op, not a failure, and Unit 31 is what made this necessary.**
 		// EXPERT_SIGNED used to be stage-preserving, so a repeat was harmless by construction. It
 		// now advances the case to FINAL_QC, which means the second of Unit 15's two acts that both
@@ -745,19 +800,109 @@ public class CaseLifecycleService {
 		Stage to = CaseTransitions.target(subject, Action.EXPERT_SIGNED);
 
 		resolveOpenOffer(subject, OfferOutcome.ACCEPTED, null);
-		return apply(subject, to, Action.EXPERT_SIGNED, null, c -> c.setExpertSignStatus(ExpertSignStatus.SIGNED));
+		// The signature is the expert's last act on this case; the link has nothing left to open.
+		revokeExpertLink(subject);
+		return apply(subject, to, Action.EXPERT_SIGNED, null,
+				c -> c.setExpertSignStatus(ExpertSignStatus.SIGNED), actor);
 	}
 
 	@Transactional
 	public Case expertDeclined(UUID caseId, String reason) {
-		Case subject = load(caseId);
+		return declined(load(caseId), reason, null);
+	}
+
+	/** The decline, made by the expert in their own portal (Unit 15). See {@link #expertSignedFromPortal}. */
+	@Transactional
+	public Case expertDeclinedFromPortal(Case authorized, String reason) {
+		return declined(authorized, reason, PortalAudience.EXPERT);
+	}
+
+	private Case declined(Case subject, String reason, PortalAudience actor) {
 		Stage to = CaseTransitions.target(subject, Action.EXPERT_DECLINED);
 
 		// The reason goes to two places for two purposes: the audit trail, which is the history,
 		// and the offer row, which is what the acceptance rate is aggregated from.
 		resolveOpenOffer(subject, OfferOutcome.DECLINED, reason);
+		revokeExpertLink(subject);
 		return apply(subject, to, Action.EXPERT_DECLINED, reason,
-				c -> c.setExceptionState(ExceptionState.EXPERT_DECLINED_REMATCHING));
+				c -> c.setExceptionState(ExceptionState.EXPERT_DECLINED_REMATCHING), actor);
+	}
+
+	/**
+	 * The expert takes the case (Unit 15). Stage-preserving, so <strong>the guard is the offer,
+	 * not the stage</strong>.
+	 *
+	 * <p>{@code EXPERT_ACCEPTED} leaves the case in {@code EXPERT_SIGNING}, which means the
+	 * transition table finds it legal again the moment it finishes: pressing Accept twice is not
+	 * an error the state machine can see, and an expert refreshing a slow page is enough to do it.
+	 * A second acceptance would re-stamp the offer, publish a second {@code expert.accepted} and
+	 * fire every listener again.
+	 *
+	 * <p>So the open offer decides:
+	 * <ul>
+	 * <li><strong>{@code OFFERED}</strong> — accept it, stamp the offer, publish once.</li>
+	 * <li><strong>already {@code ACCEPTED}</strong> — return the case unchanged. The expert did
+	 * what they meant to; a second click is not a failure to report.</li>
+	 * <li><strong>{@code DECLINED}, {@code TIMED_OUT} or {@code SUPERSEDED}</strong> — 409. That
+	 * offer is over, and accepting it now would resurrect a case somebody has already rematched.
+	 * The same guard is what stops an accept racing a timeout.</li>
+	 * </ul>
+	 *
+	 * <p>A case with <em>no</em> offer row at all is accepted, matching
+	 * {@link #resolveOpenOffer}'s tolerance: the offer table serves a ranking, and a missing row
+	 * must not stop an expert taking a case they were legitimately sent.
+	 */
+	@Transactional
+	public Case expertAcceptedFromPortal(Case authorized) {
+		Stage to = CaseTransitions.target(authorized, Action.EXPERT_ACCEPTED);
+
+		List<ExpertCaseOffer> open = offers.findByCaseIdAndOutcome(authorized.getId(), OfferOutcome.OFFERED);
+		if (open.isEmpty()) {
+			Optional<ExpertCaseOffer> latest = offers.findByCaseIdOrderByOfferedAtDesc(authorized.getId()).stream()
+					.findFirst();
+			if (latest.isPresent() && latest.get().getOutcome() == OfferOutcome.ACCEPTED) {
+				return authorized;
+			}
+			if (latest.isPresent()) {
+				throw new IllegalTransitionException(
+						"this offer is already " + latest.get().getOutcome() + " and cannot be accepted");
+			}
+		}
+
+		resolveOpenOffer(authorized, OfferOutcome.ACCEPTED, null);
+		return apply(authorized, to, Action.EXPERT_ACCEPTED, null, c -> {
+		}, PortalAudience.EXPERT);
+	}
+
+	/**
+	 * The expert will not sign until the client sends something more (Unit 15).
+	 *
+	 * <p><strong>"Opens a client task" is a checklist item</strong>, not a new entity: Unit 10
+	 * already owns required-vs-supplied documents and the Coordinator's board already shows what a
+	 * case is waiting for. A separate task table would be a second answer to "what does this case
+	 * need from the client", and two answers disagree.
+	 *
+	 * <p>The row is written here rather than through {@code ChecklistService.addItem}, which reads
+	 * the case through the scoped staff path and would need a {@code TenantContext} a portal
+	 * request does not have. Same table, same status, same board.
+	 *
+	 * <p>{@code ON_HOLD_AWAITING_CLIENT} has a consequence worth stating: a held case accepts
+	 * nothing but {@code RESUME_FROM_HOLD}, so <strong>the expert cannot then sign</strong> until
+	 * the Coordinator resumes it. That is correct — they asked for evidence precisely because they
+	 * were not willing to sign yet — and {@code SlaCalculator} already stops the sign clock while
+	 * an exception state is set.
+	 */
+	@Transactional
+	public Case expertRequestEvidenceFromPortal(Case authorized, String missing) {
+		Stage to = CaseTransitions.target(authorized, Action.EXPERT_REQUEST_EVIDENCE);
+		requireState(missing != null && !missing.isBlank(),
+				"say what is missing — a request the client cannot act on is not a request");
+
+		checklistItems.save(new DocumentChecklistItem(authorized.getBrandId(), authorized.getId(),
+				missing.strip(), ChecklistItemStatus.REQUIRED));
+
+		return apply(authorized, to, Action.EXPERT_REQUEST_EVIDENCE, missing.strip(),
+				c -> c.setExceptionState(ExceptionState.ON_HOLD_AWAITING_CLIENT), PortalAudience.EXPERT);
 	}
 
 	/**
@@ -786,6 +931,8 @@ public class CaseLifecycleService {
 		Stage to = CaseTransitions.target(subject, Action.EXPERT_TIMED_OUT);
 
 		resolveOpenOffer(subject, OfferOutcome.TIMED_OUT, null);
+		// Taking the case off an expert has to take the link with it, or it was not taken off them.
+		revokeExpertLink(subject);
 		return apply(subject, to, Action.EXPERT_TIMED_OUT, null,
 				c -> c.setExceptionState(ExceptionState.EXPERT_DECLINED_REMATCHING));
 	}
@@ -810,6 +957,9 @@ public class CaseLifecycleService {
 				"that is the expert who declined");
 
 		resolveOpenOffer(subject, OfferOutcome.SUPERSEDED, null);
+		// **The one that matters.** The case is about to name a different expert; the outgoing one's
+		// link must stop working before that is true, not whenever somebody remembers to re-mint.
+		revokeExpertLink(subject);
 		Case saved = apply(subject, to, Action.REASSIGN_EXPERT, null, c -> {
 			c.setExpertId(replacement.getId());
 			c.setExpertSignStatus(ExpertSignStatus.REASSIGNED);
@@ -1041,7 +1191,9 @@ public class CaseLifecycleService {
 		CaseSnapshot before = CaseSnapshot.of(subject);
 		mutation.accept(subject);
 		subject.setCurrentStage(to);
-		subject.setStageEnteredAt(Instant.now());
+		if (!KEEPS_STAGE_CLOCK.contains(action)) {
+			subject.setStageEnteredAt(Instant.now());
+		}
 		subject.setSlaStatus(sla.statusOf(subject));
 
 		Case saved = cases.save(subject);
@@ -1056,6 +1208,36 @@ public class CaseLifecycleService {
 		}
 		events.publishEvent(CaseEvents.CaseEvent.of(action.event(), saved));
 		return saved;
+	}
+
+	/**
+	 * Kills the expert's portal link the moment their part in the case ends.
+	 *
+	 * <p><strong>Without this, a rematch leaves the outgoing expert holding a live credential to a
+	 * case that is now somebody else's.</strong> {@code portal_access} is keyed on
+	 * {@code (case_id, audience)} and carries no expert identity, so
+	 * {@code ExpertPortalService.authorized} cannot tell one expert's token from another's — and the
+	 * default TTL is thirty days. Expert A declines, the case is reassigned to B and sent, and A's
+	 * old link would still accept, request evidence, decline again, or <em>upload the deliverable</em>
+	 * with A's name on the attestation while the case names B. Revoking here is what makes "one
+	 * token, one case" also mean one token, one expert.
+	 *
+	 * <p>Called from all four ends of an expert's involvement — signed, declined, timed out and
+	 * reassigned — because the rule is about the involvement, not about any one of them. Re-minting
+	 * is one click, and a fresh link is how the next expert is reached anyway.
+	 *
+	 * <p>Revoking rather than deleting: {@code portal_access} rows are the record that a credential
+	 * was issued, and {@code V23}'s partial unique index is on the unrevoked ones.
+	 */
+	private void revokeExpertLink(Case subject) {
+		Instant now = Instant.now();
+		for (PortalAccess issued : portalTokens.findByCaseIdAndAudienceOrderByCreatedAtDesc(
+				subject.getId(), PortalAudience.EXPERT)) {
+			if (issued.getRevokedAt() == null) {
+				issued.revoke(now);
+				portalTokens.save(issued);
+			}
+		}
 	}
 
 	/** Scoped load. Out of the caller's brand, team or assignment means not found. */

@@ -158,6 +158,11 @@ The case lifecycle, from EvalOS's point of view (EvalOS owns stages 3–7 of the
 ### Client Portal (draft review) — built in Unit 14
 - Passwordless access via a link delivered through GHL. The client sees the
   drafted letter, approves or requests revisions, and a read receipt is recorded.
+- **The link names a party, not a case, and that was decided on 2026-09-04** (`D1`, built in
+  `35-party-scoped-portal-access.md`): a client with two cases has one link and sees both. A
+  case-scoped link stays legal for a single case sent once. **Still no accounts** — that half of
+  the question was refused, not deferred; a password store needs a mail channel invariant 14 says
+  does not exist.
 - **Source-document upload moved OUT of this portal in Unit 30, and that is a reversal
   worth reading twice.** Unit 21 was to take the upload here and stream it to Drive; it
   was never built. Clients now upload in a **separate Client Portal application**, which
@@ -182,6 +187,27 @@ The case lifecycle, from EvalOS's point of view (EvalOS owns stages 3–7 of the
   goal (initial petition vs. RFE), and evidence pack in one place.
 - Accept / request-evidence / decline-with-reason, then **download the letter and
   upload it back signed**. Every request-evidence loop tracked on the case timeline.
+- **BUILT 2026-09-03 (Unit 15), and wired 2026-09-03 (Unit 34e).** Six routes on the portal
+  chain — the whitelisted case view, accept, request-evidence, decline, the letter, and the
+  signed-letter upload — and a screen at `/case#<token>` in `client-expert/expert`. What follows
+  is the design it implements.
+
+### The portal frontends (`client-expert/`) — arrived 2026-09-03, partly wired
+Both portals above live under **`client-expert/`**, as **two separately built apps** —
+`client/` on 5174 and `expert/` on 5175, sharing `shared/src` and one dependency set, split so
+each can take its own subdomain. It is the deployment Unit 30 named, and both ports are origins
+the backend allows.
+
+**Three screens now call EvalOS**: the client's documents (Unit 34c), and the expert's case,
+answers and signature (Unit 34e). **Everything else is still mock-backed**, and the app was
+built against a
+different auth model, a different case model and a different lifecycle vocabulary than
+this system runs. What it carries that EvalOS will not give it — a guided intake funnel
+that mints its own case, payments and invoices pages, client messaging and support
+tickets — is named against the invariant it breaches in
+`context/specs/34-portal-frontend-wiring.md`, together with what it is *missing*: **the
+draft review screen, which is the one thing the backend already implements.** Read that
+spec before touching either portal.
 
 ### Payout Ledger (manual)
 - Payout entry auto-created (status Pending) when a case reaches Delivered, tied
@@ -241,7 +267,9 @@ The case lifecycle, from EvalOS's point of view (EvalOS owns stages 3–7 of the
 - Expert database (ENM sheet upload + CRUD), rule-based match scoring, redacted
   CV generation.
 - Client draft-review portal (with document upload) and expert portal (with signed-letter
-  upload).
+  upload), served from **one external SPA** (`client/`) against the portal filter chain.
+  What that SPA may show is a **whitelist decided here**, not whatever its screens happen
+  to draw — see Unit 34.
 - Document checklist tracking (S3 object keys; files not re-hosted).
 - Manual payout ledger.
 - Production/expert/delivery/finance dashboards (production-side roles).
@@ -264,6 +292,11 @@ The case lifecycle, from EvalOS's point of view (EvalOS owns stages 3–7 of the
   second screen did and did not settle: reading **another pipeline** in the location
   EvalOS already reads is decided; *sending* an email from EvalOS is still out, and
   the email funnel being visible here changes nothing about that.
+- **Client-facing intake, invoicing, messaging and support ticketing.** The portal
+  frontend ships screens for all four; none of them gets an EvalOS backend. Intake would
+  create a case outside Handoff A (invariant 8), invoicing is GHL's (invariant 2), and
+  EvalOS has had **no outbound channel of any kind** since Unit 18 was removed
+  (invariant 14). Cutting them is Unit 34 D2–D4, with recommendations attached.
 - Lead qualification, proposals, quoting; marketing user roles. Their **dashboards**
   stay in GHL too, with the exception above: the open question that defaulted to
   "GHL-native" is answered as *read-only GM funnel views in EvalOS over pipelines in

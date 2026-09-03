@@ -8,9 +8,9 @@
 | Database         | PostgreSQL + Spring Data JPA (Hibernate)           | System of record: brands, cases, experts, payout ledger, contact snapshots, audit |
 | Migrations       | Flyway                                             | Versioned schema — every change is a new migration, never an edited one           |
 | Internal auth    | Spring Security + JWT + role authorities (RBAC/ABAC) | Staff login; per-role + brand/team/assignee authorization (optional SSO later)   |
-| Portal auth      | Separate Spring Security filter chain (scoped, link-based), one chain, two audiences | **Both portals live in one external frontend** calling this backend: the client's document-upload and draft-review surface, and the expert's download-sign-reupload surface. `portal_access.audience` (`CLIENT` / `EXPERT`, V21) is what separates them — isolated from internal auth. **CORS is required and not yet configured** — see `30-s3-document-store.md` |
+| Portal auth      | Separate Spring Security filter chain (scoped, link-based), one chain, two audiences; an `EXPERT` token also **names its expert** (`V37`) and is refused when the case's expert is somebody else | **Both portals live in `client-expert/`, as two separately built apps** (`client/` 5174, `expert/` 5175) calling this backend: the client's document-upload and draft-review surface, and the expert's download-sign-reupload surface. `portal_access.audience` (`CLIENT` / `EXPERT`, V21) is what separates them — isolated from internal auth. **CORS is built** (Unit 30): scoped to `/api/portal/**`, origins from `evalos.portal.allowed-origins` (no default in prod, so a missing value fails the boot), methods `GET/POST/OPTIONS`, headers `Content-Type` + `X-Portal-Token`, and **`allowCredentials(false)`** — the credential is a header, never a cookie. **The delivered app sent `withCredentials: true` and no portal token at all; Unit 34a fixed both** — the token now travels in `X-Portal-Token` out of the URL fragment, held in memory and never persisted |
 | Frontend         | React + TypeScript (Vite SPA) + Tailwind, with `radix-ui`, `lucide-react`, `recharts` | Internal role-based dashboards, client portal, expert portal. The three UI packages landed in Unit 22 slice 1, each against a screen that needed it; dnd-kit, TanStack Table and Motion stay deferred with written triggers in that spec |
-| Raw documents    | **S3 document store (Unit 30)** — AWS SDK v2 | Client documents written by the **separate Client Portal** under `client/{clientId}/` and read by EvalOS; EvalOS's own artefacts (draft, redacted profile, signed letter) under `case/{caseId}/`. **EvalOS holds object keys, never bytes**, and serves them as 5-minute presigned URLs. Replaced Google Drive in Unit 30 |
+| Raw documents    | **S3 document store (Unit 30)** — AWS SDK v2 | **EvalOS is the only writer.** Client documents land under `{brandId}/client/{ghlContactId}/{documentId}` when the portal frontend posts them *through* EvalOS, which streams them; its own artefacts sit under `{brandId}/case/{caseId}/{folder}/{documentId}`. **EvalOS holds object keys, never bytes**, and serves them as 5-minute presigned URLs. Replaced Google Drive in Unit 30 |
 | E-signature      | **None — no provider.** The expert signs in their own tool and uploads the signed PDF through their portal | A scanned wet signature is the norm for an expert opinion letter. Provenance is a hash pair + an attestation + an `EXPERT` audit row, not a certificate — see `15-expert-portal-handoff-b.md` |
 | Notifications    | In-app notification center (staff) + GHL (clients) + a portal link (experts) | No EvalOS mail server                                            |
 | Background work  | Spring `@Scheduled` (+ app events) + a `scheduled_job` run ledger + a Postgres advisory lock per sweep | SLA timers, reminders, escalations, expert-sign prompts, the outbound outbox. **No Quartz, no ShedLock, no broker** |
@@ -24,13 +24,27 @@ the first half is now false and is gone; the second half is still true and is wh
 invariant 14 carries. EvalOS stores **object keys**, exactly as it stored Drive links, and
 no bytes on disk, on the heap or in a column.
 
-**Two owners, split by prefix, enforced by IAM rather than by convention.** The **Client
-Portal is a separate application**: clients sign in there and upload, and it writes
-`client/{clientId}/…`. EvalOS's credential is **read-only on that prefix** — not "does not
-write", but *cannot*. A client's uploaded document is evidence, and a system able to
-overwrite evidence it did not author will eventually be asked whether it did. EvalOS reads
-and writes `case/{caseId}/…`, which holds the draft, the redacted expert profile and the
-expert's signed letter.
+**One writer, two prefixes, and the prefixes are for humans rather than for IAM.** *(This
+paragraph said the opposite until it was corrected — spec 30's first draft had the Client Portal
+writing to S3 with EvalOS read-only on `client/`. **That is wrong and must not be revived.** The
+portal is a separate **frontend** and holds **no AWS credential at all**; it calls EvalOS, and
+EvalOS streams the bytes.)*
+
+`{brandId}/client/{ghlContactId}/…` is what a client sent us; `{brandId}/case/{caseId}/…` is what
+we produced. **Brand first**, because every other store in EvalOS enforces brand at the row and a
+key prefix is S3's equivalent — and changing that later migrates the objects, not the code. The
+object name is the **document's own id**, never its filename, which closes path traversal,
+collisions and PII-in-the-key at once.
+
+**What replaces the IAM guarantee, since it is a real reduction in defence:** bucket versioning is
+**non-optional**, and **EvalOS never overwrites a `client/` key** — every upload mints a new
+document id and therefore a new key, so a client replacing a rejected transcript adds a version
+rather than destroying the evidence of why it was rejected. That is a code rule with a test behind
+it instead of a policy.
+
+A presigned **PUT** handed to the browser was considered and rejected: it puts the key format —
+the thing that makes a document findable — in the hands of the least controlled party, and skips
+the content-type and size checks that have to happen somewhere.
 
 **`{clientId}` is GHL's contact id** — the same identifier EvalOS keys
 `contact_snapshot.ghl_contact_id` on and the same one the Client Portal uses. One client is
@@ -64,8 +78,28 @@ spools the part to a temp file. Two parsers sit behind it (`commons-csv` for
 `.csv`, `poi-ooxml` for `.xlsx`); only `service/ExpertImportService` touches
 either.
 
-Repository layout is a monorepo: `backend/` (Spring Boot) and `frontend/`
-(React + Vite). Java lives under the base package `com.ie.evalos`.
+Repository layout is a monorepo of **three** applications, and it was two until
+2026-09-03:
+
+- `backend/` — Spring Boot. Java under the base package `com.ie.evalos`.
+- `frontend/` — the **internal staff** SPA (React + Vite, port 5173, `/api` proxied
+  same-origin). It still carries Unit 14's one-screen client portal at `/portal/*`,
+  which **Unit 34 supersedes** when the portal frontend is wired.
+- `client-expert/` — the **external portal frontends** (React + Vite): `client/` on port
+  5174 and `expert/` on port 5175 are **two applications with two builds**, so each can
+  take its own subdomain, over **one** `package.json` and `node_modules` and a `shared/`
+  folder both import as `@shared/*` (split 2026-09-03; they shipped as one app). Neither
+  app imports the other — that is what keeps them deployable apart. Cross-origin
+  against `/api/portal/**`, which is why that chain is the only one with CORS. **One screen
+  is wired** — the client's `/documents`, against the real S3-backed portal API (Unit 34
+  slices 34a + 34c); every other screen is still a `localStorage` mock. The rest of the
+  wiring, and the three invariant conflicts the app arrives with, are
+  `context/specs/34-portal-frontend-wiring.md`.
+
+`client-expert/` is a separate deployment and shares no code, no build and no design tokens
+with `frontend/` — deliberately. An external client-facing surface is not the internal
+operations tool, and a shared component library across that boundary would drag the
+staff app's density and palette onto a client's screen.
 
 ## Multi-Tenancy (brands)
 
@@ -141,6 +175,18 @@ Frontend under `frontend/src`: `components/ui` (generated primitives),
 `features` (board, case detail, dashboards, client portal, expert portal),
 `lib` (API client, hooks).
 
+Portal frontends under `client-expert/`: `shared/src` holds what both apps use —
+`components/ui` (shadcn-style primitives — the same "generated, do not edit" rule
+applies), `components/common`, `services/apiClient.ts`, `lib/portal.ts`, `styles`;
+`client/src` and `expert/src` each hold their own
+`components`, `layouts` (Auth / Intake / Portal, and ExpertAuth / ExpertPortal),
+`pages` (one folder per route group), `routes` (guards), `context` (`AuthContext`,
+`ExpertAuthContext`),
+**`services` (the entire mock/real boundary — every future HTTP call lives here and
+nowhere else)**, `schemas` (Zod), `types`, `constants`, `mock`, `utils`, `styles`.
+The `services` isolation is the single property that makes Unit 34 tractable; a page that
+reaches past it is the defect that ends it.
+
 ## Storage Model
 
 - **PostgreSQL (system of record)**: brands, brand-scoped case records, stage +
@@ -211,12 +257,26 @@ Frontend under `frontend/src`: `components/ui` (generated primitives),
   pipeline and the people working it hold different slots. This supersedes the note
   that a Coordinator's case scope was not yet expressible; it was the gap that left
   their board empty and answered 403 on cases they owned.)*
-- **Clients** access the draft-review portal via a passwordless link delivered
-  through GHL (a separate, scoped filter chain). They see only their own case's
-  draft, and can approve or request revisions.
-- **Experts** access an assigned case via a scoped portal link shared by the Case
-  Manager (a separate filter chain), download the letter, and upload it back signed.
-  One token names one case, so an expert can only ever see the case that link is for.
+- **Clients** access the portal via a passwordless link delivered through GHL (a separate,
+  scoped filter chain). They see their own case or cases — the draft, the checklist, their own
+  uploads — and can approve or request revisions.
+- **Experts** access their assignments through a scoped portal link the Case Manager sends
+  (the same chain, the other audience), download the letter, and upload it back signed.
+- **A portal credential names a PARTY, and that was decided on 2026-09-04** (`D1` in
+  `34-portal-frontend-wiring.md`, built in `35-party-scoped-portal-access.md`). A `CLIENT` row
+  names a `ghl_contact_id`; an `EXPERT` row names an `expert_id`; `case_id` is nullable, because a
+  **case-scoped link stays legal** for the thing it is better at — one case, forwarded once,
+  revocable on its own. A party token lives **7 days** against the case token's 30, being the
+  wider credential.
+  *Superseded: "one token, one case" as the whole access model.* It could not answer "my cases",
+  which is what both delivered surfaces draw and what a client with two cases needs.
+  **There are still no accounts, and that is the half of D1 that was refused rather than deferred**
+  — no password store, no reset, no lockout, no session. Building them by drift reverses four
+  documents and needs a mail channel invariant 14 says does not exist.
+- **What the widening does not touch**: 256 bits from `SecureRandom`, returned once, stored only as
+  a SHA-256 hash, absolute expiry, one live token per scope, re-mint revokes the previous, and one
+  identical 401 for unknown / expired / revoked. An `EXPERT` token also names its expert (`V37`),
+  so a token that outlived a rematch admits nobody.
 - **The portal token model** (built in Unit 14, one table for both portals). A
   `portal_access` row names one case and one audience (`CLIENT` / `EXPERT`); the
   token is 256 bits from `SecureRandom`, returned **once** at mint time and stored
@@ -366,15 +426,21 @@ unconditional either way, so it widens a tier inside one brand and never across 
   after the first case closed opens a new one. Enforced by a **partial unique
   index** (`V15`), not by the lookup — a lookup followed by an insert is a
   check-then-act that two concurrent deliveries can both win.
-- **Handoff B — internal (trigger: client approves draft).** The case moves to
-  `EXPERT_SIGNING` and appears in the expert portal with draft + evidence + goal.
-  The expert **downloads the letter, signs it in their own tool, and uploads the
-  signed PDF back**, which streams it to `case/{caseId}/signed/` and moves the case to
-  the PM for final QC. There is no signature provider: provenance is a hash of what
-  was sent and what came back, an attestation captured at upload, and an audit row
-  with `actor_type = 'EXPERT'`. Exception paths: request-evidence
-  opens a client task; decline returns the case to `EXPERT_DECLINED_REMATCHING`
-  with the reason logged and the match engine proposing the next expert.
+- **Handoff B — internal (trigger: the CM sends the client-approved letter).** The case is in
+  `EXPERT_SIGNING` and appears in the expert portal with draft + evidence + goal (**built,
+  Unit 15**). The expert **downloads the letter, signs it in their own tool, and uploads the
+  signed PDF back**, which streams it to `{brandId}/case/{caseId}/signed/` and moves the case to
+  the PM for final QC. There is no signature provider: provenance is **the hash of what came
+  back**, an attestation captured at upload with the name it displayed, and an audit row with
+  `actor_type = 'EXPERT'`.
+  **The hash of what was *sent* is not recorded and cannot be** — the letter is `draft_link`, a
+  pasted link to a document EvalOS holds no bytes of, and the document store has no read
+  capability. Half the pair is missing until a draft is an object in S3; **PM final QC is
+  load-bearing** in the meantime, being the only check that the file is the right letter and is
+  actually signed. Exception paths: request-evidence raises `ON_HOLD_AWAITING_CLIENT` and opens a
+  **required checklist item** (never a second task entity), so the expert cannot sign until the
+  Coordinator resumes; decline returns the case to `EXPERT_DECLINED_REMATCHING` with the reason
+  logged and the match engine proposing the next expert.
 - **~~Handoff C — EvalOS → GHL~~ — REMOVED with Unit 18 (2026-09-02). There are two
   handoffs, not three.** EvalOS was to emit a signed outbound `case.delivered` webhook
   on delivery, starting GHL's review and referral track. That dispatcher was never
@@ -626,6 +692,16 @@ exist because every transition owes exactly one event. They live in
    **won opportunity** — no other code path and no other event may create one. The
    case is created **paid**, from the opportunity's own amount; **no staff action
    sets `paid`**, and no unpaid case may pass `DOC_COLLECTION`.
+
+   **The first real pressure on this arrived with the portal frontend.** `client-expert/client/`
+   ships a seven-screen guided intake that mints its own reference and submits a
+   request — a case-shaped object created by a client, outside Handoff A. It is
+   mock-backed and reaches nothing, so nothing is breached today; `34-portal-frontend-wiring.md`
+   **D2 recommends cutting it** rather than finding it a backend. `DomainInvariantsTest`
+   is what would refuse it anyway (only `GhlOpportunityHandler` may depend on
+   `CaseIntakeService`, so a `POST /api/cases` breaks the build) — but a structural test
+   is the last line, not the argument. **Intake is front of house and front of house is
+   GHL's.**
 9. Schema changes ship as new Flyway migrations. An applied migration is never
    edited in place.
 10. Every inbound webhook is brand-resolved from its endpoint token (the brand
@@ -680,6 +756,12 @@ exist because every transition owes exactly one event. They live in
     with this backend. That is a product decision still to be taken; what is settled is
     that EvalOS does not send.
 
+    **The portal arrived on 2026-09-03 (`client-expert/`), which makes that decision takeable
+    and does not take it.** `34-portal-frontend-wiring.md` D4 recommends the in-portal
+    route for T1–T8 and states its limit plainly: **a client who never opens the portal
+    is never notified.** So this downgrades the email question from blocking to a reach
+    problem; it does not close it, and it must not be written up as if it had.
+
     The original note, kept because the reasoning still applies to any future proposal:
     every client- and expert-facing touchpoint is listed in
     `context/process-automation.md`. EvalOS sending mail itself would **reverse this
@@ -689,6 +771,10 @@ exist because every transition owes exactly one event. They live in
 
 15. **No AI makes a production decision, and there is no AI in the system at all.**
 
+    **And as of 2026-09-04 it is gone from the schedule too, not only from scope** — the build
+    plan's "request an Anthropic key" row and its "the anomaly half ships anyway" row are struck.
+    The anomaly figure was arithmetic and belongs to Unit 17 as a tile if the business wants it;
+    keeping a unit named for the model is how the model comes back wearing a helpful hat.
     Unit 20 (AI widgets — suggestion and anomaly detection) is **removed from scope**
     (2026-09-02). What was a deferred unit is now a property of the system: **document
     verification, expert selection, drafting, draft review, client approval, expert

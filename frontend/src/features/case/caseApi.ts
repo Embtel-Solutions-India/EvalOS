@@ -77,6 +77,13 @@ export type CaseDetail = {
    * the client was promised. Shown side by side because the gap between them is the point.
    */
   rfeDate: string | null
+  /**
+   * When the expert first opened their portal link (Unit 15), or null if they never have.
+   *
+   * The answer before chasing a signature: "they have not looked at it" and "they have looked and
+   * not signed" are different problems with different next moves.
+   */
+  expertPortalReadAt: string | null
 }
 
 export type AuditAction =
@@ -221,4 +228,23 @@ export type CaseNotes = {
  */
 export async function fetchPmNotes(brandId: string | null, signal?: AbortSignal): Promise<CaseNotes[]> {
   return unwrap<CaseNotes[]>(api.get('/cases/pm-notes', { params: brandId ? { brandId } : {}, signal }))
+}
+
+/**
+ * Mint (or re-mint) a portal link for this case (Units 14 and 15).
+ *
+ * **The token exists exactly once, in this response.** Nothing reads it back — a staff member who
+ * loses it re-mints, which revokes the previous one immediately. So the URL is shown, copied, and
+ * never stored by this app.
+ *
+ * `audience` picks which portal: the client's draft-review link, or the expert's sign-and-upload
+ * link, which since Unit 15 is the only way the expert is reached at all.
+ */
+export async function mintPortalLink(
+  caseId: string,
+  audience: 'CLIENT' | 'EXPERT',
+): Promise<{ url: string; expiresAt: string }> {
+  return unwrap<{ url: string; expiresAt: string }>(
+    api.post(`/cases/${caseId}/portal-link`, null, { params: { audience } }),
+  )
 }

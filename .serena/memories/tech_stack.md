@@ -5,9 +5,14 @@ majors, so training-data-era API habits are frequently wrong. Verify against cur
 using older idioms.
 
 **Locked by `context/ai-workflow-rules.md`:** Java 21 + Spring Boot + PostgreSQL (Spring Data JPA) +
-Flyway + Spring Security/JWT on the backend, React/Vite + Tailwind on the frontend. Do not introduce
-a Node backend, another database, an object store, a mail server, or a different auth model. Install
-a dependency only in the unit where it first unlocks real behavior.
+Flyway + Spring Security/JWT on the backend, React/Vite + Tailwind on **both** frontends. Do not
+introduce a Node backend, another database, a mail server, or a different auth model. **The object
+store came off that list in Unit 30** — S3 is the document store; what stays banned is storing bytes
+in EvalOS. Install a dependency only in the unit where it first unlocks real behavior.
+
+**Three apps, and the two frontends are pinned differently on purpose** — they are separate
+deployments with separate lockfiles, so `frontend/` being on Tailwind 4 while `client/` is on
+Tailwind 3 is a fact to work with, not drift to reconcile.
 
 **Also decided, so these are not open choices (Production Process v2.0):**
 
@@ -16,15 +21,33 @@ a dependency only in the unit where it first unlocks real behavior.
 | Scheduling the Unit 19 sweeps | Spring `@Scheduled` + `@EnableScheduling`, already on the classpath | **Quartz** — no dynamic schedules or per-row timers to justify its tables |
 | Stopping two instances double-firing a sweep | `pg_try_advisory_lock(hashtext(:jobType))` — **session-scoped**, released in a `finally`; the `_xact_` variant is wrong because sweeps use one transaction per item | **ShedLock** — another dependency and another table for a Postgres builtin |
 | Queue / outbound delivery | the `webhook_delivery` outbox, `FOR UPDATE SKIP LOCKED` | **Kafka / Rabbit / SQS** — the only cross-process work is retrying one webhook |
-| Accepting a client's document, or a signed letter | stream through to Drive (`InputStreamContent`) | **S3 or any blob column** |
+| Accepting a client's document, or a signed letter | **stream through to S3** via the AWS SDK v2 `DocumentStore` (put + presign; no delete, no list). **Unit 30 replaced Drive** — the API client, service account, dependency and `drive_link` are gone | **a blob column, a byte array or a temp file.** The store changed; "EvalOS holds keys, never bytes" did not |
 | Expert e-signature | **no provider** — the expert signs in their own tool and uploads the PDF back through their portal | **Dropbox Sign** (dropped), DocuSign, or an in-browser signature pad. This removed an account, API key, template, callback secret, an SDK and a second inbound webhook source |
 | Charts (Unit 17 cycle-time p90) | **undecided** — small library vs hand-rolled SVG, chosen at the start of that unit | installing one before a screen renders it |
 | Reading GHL's public API (Unit 24) | **`RestClient`** from `spring-boot-starter-web`, already on the classpath; timeouts via `SimpleClientHttpRequestFactory`, wire shapes as `record`s bound by Boot's own `ObjectMapper` | **a GHL SDK, WebClient/`spring-boot-starter-webflux`, or a generated client** — this is two GET requests, and a `Map<String,Object>` in place of the records would turn a GHL response change into a `ClassCastException` three layers up instead of a compile error |
 | Drawing a stage funnel (Units 24, 26) | **Recharts horizontal bars** | **`clip-path` chevrons** (what this started as) or a funnel-chart package — the chevrons implied a progression the data has not: Won/Cold/Lost are parallel outcomes, so bar *length* is the only claim the figures support |
 | Caching the GHL read | **a `ConcurrentHashMap` keyed by `(Funnel, DateRange)` + a TTL compare inside the service** | **`spring-boot-starter-cache` / Caffeine / Redis** — a handful of payloads with one TTL, bounded by construction (both key halves are small enums), and a distributed cache is infrastructure for a few seconds of skew on a funnel count. It was a single `AtomicReference` when there was one funnel and no period selector; each added dimension **must** join the key, or one combination answers for another for a whole TTL |
 
-The mail-server ban is still in force but is **under review** — the open GHL-vs-EvalOS-mail decision is
-in `context/process-automation.md`. Until it is taken, do not add an SMTP dependency.
+The mail-server ban is **settled, not under review**: Unit 18's outbound dispatcher was removed
+(2026-09-02), so EvalOS has no outbound channel at all and there is nothing for SMTP to plug into.
+What is still open is who reaches the client — `context/process-automation.md`. Do not add an SMTP
+dependency.
+
+## client/ (the portal frontend) — see `mem:client/core`
+
+- React 19 + react-router-dom 7, TypeScript ~6.0, **Vite 8**, `@vitejs/plugin-react`. Port **5174**,
+  **no `/api` proxy** — genuinely cross-origin.
+- **Tailwind v3 with a real `tailwind.config.js`** and PostCSS/autoprefixer — the opposite of
+  `frontend/`'s CSS-first Tailwind 4. Tokens are HSL triples in `src/styles/globals.css` behind
+  shadcn names, with a `.dark` palette.
+- **Many more runtime deps than the staff app**, and they were not chosen unit by unit: per-primitive
+  `@radix-ui/react-*` (not the unified `radix-ui`), `@tanstack/react-query`, `react-hook-form` +
+  `@hookform/resolvers` + `zod`, `framer-motion`, `sonner`, `recharts`, `date-fns`,
+  `class-variance-authority` / `clsx` / `tailwind-merge`, `lucide-react`, `axios`. Wiring it is the
+  moment to ask which of these earn their place; **`recharts` on an Analytics page for a single
+  client is the first candidate.**
+- oxlint (config `client/.oxlintrc.json`) and **Vitest 4** (added Unit 34a), with no config file of
+  its own — it reads `vite.config.ts`, same as `frontend/`.
 
 ## frontend/
 

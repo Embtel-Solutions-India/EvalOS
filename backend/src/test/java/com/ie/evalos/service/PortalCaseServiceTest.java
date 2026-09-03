@@ -7,9 +7,15 @@ import java.util.UUID;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ie.evalos.common.ForbiddenException;
+import com.ie.evalos.domain.ActorType;
+import com.ie.evalos.domain.AuditAction;
 import com.ie.evalos.domain.Case;
+import com.ie.evalos.domain.CaseDocument;
+import com.ie.evalos.domain.ChecklistItemStatus;
 import com.ie.evalos.domain.ClientApprovalStatus;
 import com.ie.evalos.domain.ContactSnapshot;
+import com.ie.evalos.domain.DocumentChecklistItem;
+import com.ie.evalos.domain.DocumentKind;
 import com.ie.evalos.domain.Expert;
 import com.ie.evalos.domain.PortalAudience;
 import com.ie.evalos.domain.ServiceType;
@@ -24,10 +30,12 @@ import com.ie.evalos.security.PortalPrincipal;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -61,12 +69,15 @@ class PortalCaseServiceTest {
 	private Case subject;
 
 	private static PortalPrincipal tokenFor(UUID brandId, UUID caseId) {
-		return new PortalPrincipal(UUID.randomUUID(), brandId, caseId, PortalAudience.CLIENT);
+		return new PortalPrincipal(UUID.randomUUID(), brandId, caseId, PortalAudience.CLIENT, null);
 	}
 
 	@BeforeEach
 	void aCaseWithADraftWithTheClient() {
 		subject = new Case(BRAND, "IE-2026-0001", Stage.DRAFT_IN_PROGRESS);
+		// The document routes match a row's `case_id` against this, so an unsaved entity's null id
+		// would make every one of them refuse for the wrong reason.
+		ReflectionTestUtils.setField(subject, "id", CASE_ID);
 		subject.setServiceType(ServiceType.EXPERT_OPINION_LETTER);
 		subject.setDraftLink("https://docs.google.com/document/d/draft/edit");
 		subject.setDraftVersionCount(2);
@@ -221,6 +232,94 @@ class PortalCaseServiceTest {
 
 		assertThatThrownBy(() -> portal.clientView(tokenFor(BRAND, CASE_ID)))
 				.isInstanceOf(ForbiddenException.class);
+	}
+
+	// -----------------------------------------------------------------------------------------
+	// Unit 34c — the client's documents. The upload endpoint shipped in Unit 30 taking a
+	// checklistItemId no route revealed, so these two reads are what make it callable.
+	// -----------------------------------------------------------------------------------------
+
+	private CaseDocument documentOn(UUID caseId, DocumentKind kind, String filename, String key) {
+		CaseDocument row = new CaseDocument(BRAND, caseId, kind, 1, null, ActorType.CLIENT,
+				"Passport / Government ID");
+		ReflectionTestUtils.setField(row, "id", UUID.randomUUID());
+		row.setFilename(filename);
+		row.setObjectKey(key);
+		return row;
+	}
+
+	/** What must be sent, and what has been. The status vocabulary is Unit 10's, unmapped. */
+	@Test
+	void theClientSeesTheirChecklistAndTheirOwnUploads() {
+		DocumentChecklistItem outstanding =
+				new DocumentChecklistItem(BRAND, CASE_ID, "Academic Transcript", ChecklistItemStatus.INCORRECT);
+		ReflectionTestUtils.setField(outstanding, "id", UUID.randomUUID());
+		given(checklistItems.findByCaseId(CASE_ID)).willReturn(java.util.List.of(outstanding));
+		given(documents.findByCaseIdAndKindOrderByVersionDesc(CASE_ID, DocumentKind.CLIENT_UPLOAD))
+				.willReturn(java.util.List.of(documentOn(CASE_ID, DocumentKind.CLIENT_UPLOAD,
+						"passport.pdf", "brand/client/ghl-1/doc")));
+
+		PortalCaseService.ClientDocumentsView view = portal.documents(tokenFor(BRAND, CASE_ID));
+
+		assertThat(view.checklist()).singleElement()
+				.satisfies(item -> {
+					assertThat(item.label()).isEqualTo("Academic Transcript");
+					// INCORRECT reaching the client is the point: it is touchpoint T4 arriving as a
+					// state rather than as a message EvalOS has no way to send.
+					assertThat(item.status()).isEqualTo(ChecklistItemStatus.INCORRECT);
+				});
+		assertThat(view.uploaded()).singleElement()
+				.satisfies(row -> assertThat(row.filename()).isEqualTo("passport.pdf"));
+
+		// **The object key is an internal address and has no component to travel in.** Asserted on
+		// the record rather than on serialized output, so a key added as a field fails here even if
+		// it happened to be null in this fixture.
+		assertThat(PortalCaseService.UploadedDocumentView.class.getRecordComponents())
+				.extracting(java.lang.reflect.RecordComponent::getName)
+				.containsExactly("id", "filename", "version", "uploadedAt", "checklistLabel");
+	}
+
+	@Test
+	void aReadUrlIsMintedForTheClientsOwnUploadAndTheOpeningIsAudited() {
+		CaseDocument own = documentOn(CASE_ID, DocumentKind.CLIENT_UPLOAD, "passport.pdf", "key/passport");
+		given(documents.findById(own.getId())).willReturn(Optional.of(own));
+		given(store.presignedUrl("key/passport")).willReturn("https://s3.example/presigned");
+
+		String url = portal.documentUrl(tokenFor(BRAND, CASE_ID), own.getId());
+
+		assertThat(url).isEqualTo("https://s3.example/presigned");
+		verify(audit).recordPortalEvent(eq(BRAND), eq(PortalAudience.CLIENT), eq("CASE_DOCUMENT"),
+				eq(own.getId()), eq(AuditAction.EXPORTED), any(), any());
+	}
+
+	/**
+	 * <strong>The kind filter is half the authorization, not a tidy-up.</strong> Without it a
+	 * client could name the draft — or, once Unit 15 lands, the expert's signed letter — on their
+	 * own case and read it outside the flow that decides when they may. The draft reaches them
+	 * through {@code draftLink} on the other screen, under that screen's guard.
+	 */
+	@Test
+	void theDraftAndTheSignedLetterAreNotReachableThroughTheDocumentRoute() {
+		for (DocumentKind kind : java.util.List.of(DocumentKind.DRAFT, DocumentKind.SIGNED_LETTER)) {
+			CaseDocument notTheirs = documentOn(CASE_ID, kind, "letter.pdf", "key/letter");
+			given(documents.findById(notTheirs.getId())).willReturn(Optional.of(notTheirs));
+
+			assertThatThrownBy(() -> portal.documentUrl(tokenFor(BRAND, CASE_ID), notTheirs.getId()))
+					.isInstanceOf(ForbiddenException.class);
+		}
+		// Refused before anything was minted — a URL created ahead of the check has already leaked.
+		verify(store, never()).presignedUrl(any());
+	}
+
+	@Test
+	void aDocumentBelongingToAnotherCaseIsRefusedAndNothingIsMinted() {
+		CaseDocument elsewhere = documentOn(UUID.randomUUID(), DocumentKind.CLIENT_UPLOAD,
+				"someone-else.pdf", "key/other");
+		given(documents.findById(elsewhere.getId())).willReturn(Optional.of(elsewhere));
+
+		assertThatThrownBy(() -> portal.documentUrl(tokenFor(BRAND, CASE_ID), elsewhere.getId()))
+				.isInstanceOf(ForbiddenException.class);
+		verify(store, never()).presignedUrl(any());
 	}
 
 	/** Both writes go through Unit 04, on the case the token authorized — never on an id. */

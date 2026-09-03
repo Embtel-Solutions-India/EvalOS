@@ -46,6 +46,21 @@ public interface ExpertCaseOfferRepository extends ScopedRepository<ExpertCaseOf
 	List<ExpertCaseOffer> findByCaseIdAndOutcome(UUID caseId, OfferOutcome outcome);
 
 	/**
+	 * Every offer this case has had, newest first — read by exactly one caller,
+	 * {@code CaseLifecycleService.expertAcceptedFromPortal}, to tell "you already accepted this"
+	 * from "that offer is over".
+	 *
+	 * <p>The distinction is the whole reason it exists: a second Accept from an expert refreshing
+	 * a slow page must answer 200 with the state as it stands, while accepting an offer that was
+	 * declined, timed out or superseded must answer 409 — resurrecting a case somebody has already
+	 * rematched is the failure that matters.
+	 *
+	 * <p>No brand predicate, by the same convention as {@link #findByCaseIdAndOutcome}: the case
+	 * id has already come out of an authorized read.
+	 */
+	List<ExpertCaseOffer> findByCaseIdOrderByOfferedAtDesc(UUID caseId);
+
+	/**
 	 * How many offers each of these experts resolved which way — the aggregate the acceptance
 	 * factor is built on, one query per shortlist rather than one per expert.
 	 *

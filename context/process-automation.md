@@ -76,8 +76,9 @@ pipeline generate no EvalOS automation.** Everything below covers stages 3–7.
 
 **Human review, not AI.** The build spec's "AI reviews uploads and flags missing or
 incorrect items" is **out of scope by decision** — the Coordinator does the review.
-See Unit 20, which records the same exclusion so it is not read as a natural
-extension.
+It is `architecture.md` **invariant 15**, not a deferral: Unit 20 was removed from scope
+(2026-09-02) and struck from the schedule too (2026-09-04), so there is no unit for this to
+arrive as an extension of.
 
 ### 05 · Expert evaluation & assignment — PM assigns, ENM advises on availability
 
@@ -218,7 +219,7 @@ today**, and whether it ever should is undecided.
 | T1 | Checklist + upload link | `checklist.requested` | client | **DECISION PENDING** |
 | T2 | 24h chase | `checklist.reminder` (Unit 19) | client | **DECISION PENDING** |
 | T3 | 48h chase | `checklist.reminder` (Unit 19) | client | **DECISION PENDING** |
-| T4 | Upload flagged incomplete/incorrect (A07) | *(Unit 21)* | client | **DECISION PENDING** |
+| T4 | Upload flagged incomplete/incorrect (A07) | *(Unit 21)* | client | **IN-PORTAL, BUILT** (Unit 34c) — the Coordinator's `MISSING` / `INCORRECT` is shown on the client's document screen. Still no *message*: see the reach limit below |
 | T5 | Draft ready to review | `draft.ready_for_client` | client | **DECISION PENDING** |
 | T6 | Signing link (A16) | *(Unit 15)* | expert | **DECISION PENDING** — see below |
 | T7 | Evidence requested | `expert.evidence_requested` | client | **DECISION PENDING** |
@@ -231,6 +232,20 @@ exists), or EvalOS sends mail itself — which **reverses invariant 14** and bri
 an SMTP provider, deliverability, bounce handling, unsubscribe and a suppression
 list. That is a business call about who owns the client relationship, not a
 technical preference. Nothing is built either way.
+
+**A third option exists as of 2026-09-03, and it is not a channel.** The portal frontend
+(`client/`) makes T1, T2, T3, T4, T5, T7 and T8 expressible as **states the client sees
+when they open the portal** — an outstanding checklist item, a draft waiting for review,
+an evidence request, a delivered letter ready to download. Nothing is sent, so invariant
+14 is untouched and no dependency is added. Unit 34 **D4** recommends it.
+
+**Its limit is the whole reason it does not close the question:** a message *reaches* the
+client; a state *waits* for them. A client who never opens the portal is never notified,
+and the stage clock runs regardless — the same failure T6 has with the expert. So the
+portal downgrades this from blocking to a reach problem and **is not an answer to it**.
+The compensating control is the same one below: `portal_access.last_seen_at` is honest
+evidence a link was opened, and a live-but-never-opened link against a running clock is
+the shape the failure takes.
 
 **T9 is settled — GHL owns retention and reviews.** **T6 moved back into the open**
 when the signature provider was dropped: Dropbox Sign used to email the expert its own

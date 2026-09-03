@@ -1,0 +1,188 @@
+# client-expert/ — the external portal frontends
+
+Third *folder* in the monorepo (added 2026-09-03), holding **two applications**. Vite 8 /
+React 19 / TS 6 / Tailwind 3.
+
+**Split into two apps on 2026-09-03** — they arrived as one. `client/` (port **5174**) and
+`expert/` (port **5175**) each have their own `vite.config.ts`, `index.html`, `tsconfig`,
+`tailwind.config.js`, `.env` and `dist`, so **each deploys to its own subdomain**.
+`application-local.yml` allows both origins by default.
+
+**One dependency set, at `client-expert/`.** One `package.json`, one `node_modules`, one
+lockfile — the apps carry configuration, never dependencies, and there is no workspace
+indirection. Scripts `cd` into the app they build (`dev:client`, `dev:expert`,
+`build:client`, `build:expert`, `build` = both), which is what makes Tailwind and PostCSS
+resolve their per-app config.
+
+**`shared/src` is what both import, as `@shared/*`; `@/` is the app you are in.** Neither app
+imports the other — that is the property that keeps them deployable apart, and it is the
+review rule. Anything both need moves into `shared/`.
+
+**Mostly mock-backed. Four modules are real (Unit 34 slices 34a, 34c and 34e, 2026-09-03):**
+`services/apiClient.ts` — the portal HTTP client, `X-Portal-Token` out of the URL fragment, held
+in a module variable and **never persisted**, `withCredentials` deleted, no default
+`Content-Type` (so a `FormData` body keeps the browser's multipart boundary), `ApiResponse`
+unwrapped in one place — and `services/documentService.ts`, against the real S3-backed endpoints.
+`lib/portal.ts` holds the wire types and the pure display rules; `lib/portal.test.ts` covers them.
+`expert/src/services/expertPortalService.ts` + `expert/src/lib/expertCase.ts` are the expert's
+half (34e), against Unit 15's six routes. Every other service module is still a `localStorage` fake
+behind `mockDelay`.
+
+**`apiClient`'s base is `/api/portal` and each service names its own half** — `/client/…` or
+`/expert/…`. The token decides which audience it is admitted to, so the path is addressing, not
+authorization.
+
+**D1, D5, D6 and D8 were DECIDED 2026-09-04, all as recommended** — so the remaining slices are
+no longer gated, they are queued behind one backend unit:
+
+- **D1: a portal credential names a PARTY.** `ghl_contact_id` for `CLIENT`, `expert_id` for
+  `EXPERT`, `case_id` nullable — so "my cases" is answerable and the delivered list screens have a
+  backend. A **case-scoped link stays legal**; the two wired screens keep working unchanged. Party
+  tokens live **7 days**, case tokens 30. **No accounts** — refused, not deferred.
+- **D5: one vocabulary, EvalOS's, projected.** The server sends the step; this app renders the
+  label and still holds no lifecycle enum.
+- **D6: an expert reads their own payout rows** — never `payment_detail`.
+- **D8: analytics OFF.** `VITE_GTM_ID`, `VITE_GA4_ID` and `utils/analytics.ts` are **deleted**, not
+  stubbed: a no-op module is one somebody re-points at a provider.
+
+**The backend half is `35-party-scoped-portal-access.md` and it is not built yet.** Do not wire a
+list screen before it lands, and do not wire anything else ad hoc.
+
+## Layout
+
+- `shared/src` — `components/ui` (shadcn primitives), `components/common` (EmptyState,
+  FileDropzone, FormField, PageHeader, Logo, ErrorBoundary, …), `services/apiClient.ts`,
+  `lib/portal.ts` (+ its test), `styles/globals.css`, `constants/{storage,upload}`,
+  `schemas/auth`, `utils/{cn,formatters,storage}`, `hooks/useMediaQuery`, `pages/NotFound`,
+  `assets/logo.png`.
+- `client/src` — `components/{intake,layout,common}`, `layouts/{Auth,Intake,Portal}`,
+  `pages/*` (dashboard, requests, documents, reports, messages, tickets, intake, …),
+  `routes/guards.tsx`, `context/AuthContext`, the ten mock `services/*`, `schemas/`,
+  `types/`, `constants/`, `mock/`, `utils/analytics.ts`, `lib/questionnaire.ts`.
+- `expert/src` — `components/{expert,layout}`, `layouts/{ExpertAuth,ExpertPortal}`,
+  `pages/expert/*`, `routes/expertGuards.tsx`, `context/ExpertAuthContext`,
+  `services/{expertAuthService,expertCaseService}`, `types/expert.ts`,
+  `constants/expertNavigation.ts`, `mock/expertMockData.ts`.
+
+Aliases `@` → that app's `src`, `@shared` → `shared/src`. Build is `tsc -b && vite build`
+per app; lint is **oxlint**, not ESLint. **The expert app keeps its `/expert/*` URL paths**
+even alone on a subdomain — the links inside its screens are absolute; changing that is one
+edit in `expert/src/App.tsx`.
+
+- **`services/*` (in each app, plus `shared/src/services/apiClient.ts`) is the entire
+  mock/real boundary.** Every future HTTP call lives there and
+  nowhere else; pages depend on function signatures only. This is the one property that
+  makes the wiring tractable — **a page that reaches past it ends that, and is a review
+  reject.**
+- `shared/src/components/ui/*` — shadcn-style generated primitives. **Protected**, same rule as
+  `frontend/src/components/ui/*`.
+- Two independent auth contexts, two route-guard files, two layouts. Client and expert
+  share no session state, and that separation is deliberate — keep it.
+- **Vitest as of 34a** (`npm run test` → `vitest run` from `client-expert/`, over all three
+  folders; `vitest.config.ts` at that level carries the `@shared` alias, because there is no
+  single `vite.config.ts` any more). Pure rules modules only, same discipline as `frontend/`:
+  no jsdom, no Testing Library, so a `.tsx` change catches nothing — verify those by running it.
+
+## Contract conflicts — read before writing any wiring code
+
+| | the portal apps as delivered | EvalOS as built |
+|---|---|---|
+| Credential | email + password in `localStorage`, both audiences | `portal_access` token, `X-Portal-Token` header, never persisted |
+| Scope | a **list** of cases per user | **one case per token** (`PortalPrincipal`) |
+| Lifecycle | 4 local enums: `RequestStatus`, `SigningStatus`, `DocumentStatus`, `IntakeDocumentStatus` | Unit 31's 12 stages, `CaseTransitions` |
+| Identity | mints `IE-{year}-{6 digits}` | `case_code`, `ghl_contact_id` |
+| CORS | `withCredentials: true` | `allowCredentials(false)`, `GET/POST/OPTIONS`, `Content-Type` + `X-Portal-Token` only |
+
+**Three invariants are in its path** (none breached — none of those screens calls anything):
+
+- the intake funnel (`pages/intake/*`, `services/intakeService.submitRequest`) creates a
+  case-shaped record → **invariant 8**, only `opportunity.won` creates a case
+- `pages/payments`, `pages/invoices` → **invariant 2**, invoicing is GHL's
+- `pages/messages`, `pages/tickets` → **invariant 14**, EvalOS has no outbound channel
+
+**And the thing it is missing is the thing the backend already does:** there is **no draft
+review screen anywhere** — no approve, no request-revisions, nothing calling
+`GET /api/portal/client/case`. `pages/reports` is download-only. That is Unit 34 slice 34b
+and the highest-value work left in the app.
+
+## The one wired screen: `/documents` (34c)
+
+`client/src/pages/documents/Documents.tsx` — checklist (outstanding first), one upload per item with a real
+progress bar, per-click presigned download. **Routed OUTSIDE `AuthenticatedRoute` and removed
+from `SECONDARY_NAV`**, deliberately: its credential is a scoped portal link naming one case, not
+the mock account session, and putting it behind the account guard would answer D1 sideways. It
+reads its token from `window.location.hash` in a lazy `useState` initializer — not an effect,
+because the token must be set before the query fires.
+
+**It holds no lifecycle enum.** `CHECKLIST_STATUS` in `shared/src/lib/portal.ts` maps EvalOS's five
+`ChecklistItemStatus` values to a label and a badge variant, and a test fails if the server can
+send a sixth. That is presentation of a server-owned vocabulary — never a derivation, never an
+ordering, never a status this app computes. **This is D5's rule in practice; hold the line here.**
+
+Deleted with it because they were the mock surface it replaced: `MOCK_DOCUMENTS`,
+`ClientDocument`, `DocumentStatus`, `DocumentStatusBadge`. The intake wizard's fake progress bar
+moved to `client/src/mock/simulateUpload.ts` — a mock beside real calls in one module is how somebody ships
+the mock.
+
+## The expert's wired screen: `/case` (34e, 2026-09-03)
+
+`expert/src/pages/portal/ExpertCasePortal.tsx`, at **`/case#<token>` and OUTSIDE
+`ExpertAuthenticatedRoute`** — same placement and same reason as the client's `/documents`: one case
+per token is not an account session, and mounting it behind the shell answers D1 sideways. One
+column: goal → the letter → the supplied evidence → the three answers, with the sign panel between.
+
+Against Unit 15's six routes: `GET /api/portal/expert/case` (also stamps the read receipt),
+`POST /accept`, `POST /request-evidence`, `POST /decline`, `GET /letter`, `POST /signed-letter`
+(multipart, **PDF by content sniffing** server-side, attestation required and checked against the
+server's own wording). Staff mint the link with
+`POST /api/cases/{id}/portal-link?audience=EXPERT`.
+
+- **The attestation is part of the upload, never a step.** The dropzone is disabled until the tick,
+  the wording comes from the server on the view and goes back unedited, and the API refuses an
+  upload without it whatever the UI does — it is the evidence. If EvalOS could not name the expert,
+  the panel closes rather than sending a nameless attestation into a 400.
+- **`expert/src/lib/expertCase.ts` holds no lifecycle.** `stateOf` reads `signed` / `onHold` /
+  `awaitingAnswer` — booleans the server states so the browser need not infer them from a stage —
+  and the `SIGN_STATUS` / `SIGN_SLA` tables have a test that fails if EvalOS gains a value.
+  `serviceType` and `visaCategory` are prettified by a generic `humanize`, deliberately **not**
+  tabled: those vocabularies grow, and a table here would show a raw constant the day one does.
+- **Expert links are minted at a different origin** — `evalos.portal.expert-base-url`, path
+  `/case#<token>`. The two portals are two deployments; a link to the wrong host reads to its
+  holder exactly like a revoked token. Blank falls back to the client base.
+- **Still mock**: the assignments list (**D1** — a token names one case), login, payments (**D6**)
+  and profile. Those screens are routed and untouched; do not wire them ad hoc.
+- **`window.open` must be called synchronously in the click handler, then navigated** — both this
+  screen's "Open the letter" and the client's document download opened the tab *after* an `await`,
+  which Safari and Firefox block: the URL was minted and audited and nothing opened, with no error
+  to show. Open the blank tab, sever `opener`, then set `location.href` when the URL arrives (and
+  no `noopener` in the features string — it makes `window.open` return null, so there is no handle
+  to navigate). Fixed in both apps by review, 2026-09-03; `frontend/src/features/case/DocumentList.tsx`
+  had documented the pattern all along.
+
+## Design system — its own, and correctly so
+
+`shared/src/styles/globals.css`: HSL triples behind shadcn names, DM Sans + DM Serif Display, IE
+navy `#003152` + crimson `#c8102e`, `.dark` class with a full palette, `--radius: .625rem`.
+Shares **no token** with `frontend/src/styles/tokens.css` and should not — a client
+reviewing one letter is not a coordinator on a nine-hour shift. Two rules still cross the
+boundary because they are semantic: **RAG is status-only, never decorative**, and **tabular
+figures on money, dates, deadlines and counts**.
+
+**The palette is hard-coded to one brand and EvalOS is multi-brand** — XpertsPortal has no
+home in it. Unit 34 D7: brand name + palette travel in the portal payload.
+
+## Recorded so it is not re-derived
+
+- Port 5174 matching `EVALOS_PORTAL_ORIGINS`' local default is **not a coincidence** —
+  Unit 30 §1 specified "one external frontend deployment, two portals, one backend" before
+  this app existed.
+- `VITE_GTM_ID` / `VITE_GA4_ID` are declared in `.env.example`. **A third-party tag on a
+  page showing identity documents is undecided** (Unit 34 D8, recommended off).
+- `client-expert/README.md` describes the apps on their own terms and now names the EvalOS backend it
+  belongs to; its "connecting a real backend" section is superseded by Unit 34's slices.
+- `client/dist` and `expert/dist` are gitignored, along with `.tmp` (per-app `tsc -b`
+  state). Not tracked.
+- **`react-hook-form` in `node_modules` was a corrupted extraction** (its `dist/index.d.ts`
+  re-exported from a `../src` that was not there, so every `useForm` import failed to
+  typecheck). Deleting that one package and re-running `npm install` fixed it, same version.
+  Suspect the same shape before blaming a config if types vanish from one package only.

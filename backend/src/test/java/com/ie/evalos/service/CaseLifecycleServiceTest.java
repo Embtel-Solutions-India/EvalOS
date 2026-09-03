@@ -30,6 +30,7 @@ import com.ie.evalos.domain.OfferOutcome;
 import com.ie.evalos.domain.PayoutLedger;
 import com.ie.evalos.domain.PayoutStatus;
 import com.ie.evalos.domain.PoolStatus;
+import com.ie.evalos.domain.PortalAccess;
 import com.ie.evalos.domain.PortalAudience;
 import com.ie.evalos.domain.Role;
 import com.ie.evalos.domain.SlaStatus;
@@ -58,6 +59,7 @@ import org.mockito.ArgumentCaptor;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -100,6 +102,8 @@ class CaseLifecycleServiceTest {
 	private final DocumentChecklistItemRepository checklistItems = mock(DocumentChecklistItemRepository.class);
 	private final ExpertRepository experts = mock(ExpertRepository.class);
 	private final ExpertCaseOfferRepository offers = mock(ExpertCaseOfferRepository.class);
+	private final com.ie.evalos.repository.PortalAccessRepository portalTokens =
+			mock(com.ie.evalos.repository.PortalAccessRepository.class);
 	private final TeamMemberRepository teamMembers = mock(TeamMemberRepository.class);
 	private final PayoutLedgerRepository payouts = mock(PayoutLedgerRepository.class);
 	private final AuditService audit = mock(AuditService.class);
@@ -110,7 +114,8 @@ class CaseLifecycleServiceTest {
 	private final CaseDocumentRepository documents = mock(CaseDocumentRepository.class);
 	private final DocumentStore store = mock(DocumentStore.class);
 	private final CaseLifecycleService lifecycle = new CaseLifecycleService(
-			cases, checklistItems, experts, offers, teamMembers, documents, store, audit, sla, events, payoutService);
+			cases, checklistItems, experts, offers, teamMembers, documents, portalTokens, store, audit, sla, events,
+			payoutService);
 	private final RefundService refunds = new RefundService(lifecycle, payouts);
 
 	private Case subject;
@@ -1153,5 +1158,233 @@ class CaseLifecycleServiceTest {
 		lifecycle.addNote(CASE_ID, "client said they are back on the 14th");
 
 		verify(audit).recordEvent(anyString(), any(), eq(AuditAction.NOTE_ADDED), any(), any(), any());
+	}
+
+	// --- Unit 15: what the expert does first-hand ----------------------------
+
+	/** The walk every expert-portal test starts from: a case sitting in EXPERT_SIGNING. */
+	private void walkToExpertSigning() {
+		walkToDraftGeneration();
+		actAs(Role.CASE_MANAGER);
+		lifecycle.submitDraft(CASE_ID, DRAFT_LINK);
+		actAs(Role.PROJECT_MANAGER);
+		lifecycle.pmApproveDraft(CASE_ID, null);
+		actAs(Role.PROJECT_COORDINATOR);
+		lifecycle.sendDraftToClient(CASE_ID);
+		lifecycle.clientApproveDraft(CASE_ID);
+		actAs(Role.CASE_MANAGER);
+		lifecycle.sendToExpert(CASE_ID);
+		// A portal caller has no TenantContext, and clearing it here is what proves these paths
+		// never reach for one.
+		SecurityContextHolder.clearContext();
+		clearInvocations(audit, events);
+	}
+
+	/**
+	 * Accepting stamps the offer and names the expert in the trail.
+	 *
+	 * <p>The audit actor is the whole reason this route exists: "the expert accepted" and "a Case
+	 * Manager recorded that the expert accepted" are two different facts, and only one of them is
+	 * first-hand.
+	 */
+	@Test
+	void anExpertAcceptingStampsTheOfferAndAuditsAsTheExpert() {
+		walkToExpertSigning();
+		ExpertCaseOffer open = new ExpertCaseOffer(BRAND, CASE_ID, EXPERT_ID);
+		given(offers.findByCaseIdAndOutcome(any(), eq(OfferOutcome.OFFERED))).willReturn(List.of(open));
+
+		lifecycle.expertAcceptedFromPortal(subject);
+
+		assertEquals(OfferOutcome.ACCEPTED, open.getOutcome());
+		assertEquals(Stage.EXPERT_SIGNING, subject.getCurrentStage(), "accepting does not move the case");
+		assertEquals(List.of(CaseEvents.Type.EXPERT_ACCEPTED), publishedEventTypes(1));
+		verify(audit).recordPortalEvent(eq(BRAND), eq(PortalAudience.EXPERT), eq("CASE"), any(), any(), any(), any());
+	}
+
+	/**
+	 * <strong>The guard is the offer, not the stage.</strong> Accepting leaves the case in
+	 * EXPERT_SIGNING, so the transition table finds it legal again immediately — an expert
+	 * refreshing a slow page would otherwise re-stamp the offer and fire every listener twice.
+	 */
+	@Test
+	void aSecondAcceptIsANoOpRatherThanASecondEvent() {
+		walkToExpertSigning();
+		ExpertCaseOffer accepted = new ExpertCaseOffer(BRAND, CASE_ID, EXPERT_ID);
+		accepted.resolve(OfferOutcome.ACCEPTED, null);
+		given(offers.findByCaseIdAndOutcome(any(), eq(OfferOutcome.OFFERED))).willReturn(List.of());
+		given(offers.findByCaseIdOrderByOfferedAtDesc(any())).willReturn(List.of(accepted));
+
+		lifecycle.expertAcceptedFromPortal(subject);
+
+		verifyNoInteractions(events);
+		verifyNoInteractions(audit);
+	}
+
+	/**
+	 * An offer that is over cannot be accepted — 409, not a silent revival.
+	 *
+	 * <p>This is the one that matters: the ENM has already rematched the case, and an expert
+	 * clicking a stale link would otherwise take a case that belongs to somebody else now. The
+	 * same guard is what stops an accept racing a timeout.
+	 */
+	@Test
+	void acceptingAnOfferThatIsOverIsRefused() {
+		walkToExpertSigning();
+		ExpertCaseOffer timedOut = new ExpertCaseOffer(BRAND, CASE_ID, EXPERT_ID);
+		timedOut.resolve(OfferOutcome.TIMED_OUT, null);
+		given(offers.findByCaseIdAndOutcome(any(), eq(OfferOutcome.OFFERED))).willReturn(List.of());
+		given(offers.findByCaseIdOrderByOfferedAtDesc(any())).willReturn(List.of(timedOut));
+
+		assertThrows(IllegalTransitionException.class, () -> lifecycle.expertAcceptedFromPortal(subject));
+		verifyNoInteractions(events);
+	}
+
+	/**
+	 * Request-evidence holds the case, opens a required checklist item, and — the assertion the
+	 * spec asks for explicitly — <strong>stops the expert signing until it is resumed</strong>,
+	 * with no sign clock running in the meantime.
+	 */
+	@Test
+	void requestingEvidenceHoldsTheCaseAndBlocksSigningUntilItResumes() {
+		walkToExpertSigning();
+
+		lifecycle.expertRequestEvidenceFromPortal(subject, "the 2019 employment letter");
+
+		assertEquals(ExceptionState.ON_HOLD_AWAITING_CLIENT, subject.getExceptionState());
+		assertEquals(Stage.EXPERT_SIGNING, subject.getCurrentStage(), "a hold does not move the case");
+		assertEquals(List.of(CaseEvents.Type.EXPERT_EVIDENCE_REQUESTED), publishedEventTypes(1));
+
+		ArgumentCaptor<DocumentChecklistItem> item = ArgumentCaptor.forClass(DocumentChecklistItem.class);
+		verify(checklistItems).save(item.capture());
+		assertEquals("the 2019 employment letter", item.getValue().getLabel());
+		assertEquals(ChecklistItemStatus.REQUIRED, item.getValue().getStatus(),
+				"REQUIRED is what makes the case incomplete again — Unit 10's own vocabulary");
+
+		// The expert asked precisely because they were not willing to sign yet.
+		assertThrows(IllegalTransitionException.class, () -> lifecycle.expertSignedFromPortal(subject));
+		// And nobody is charged for the wait: SlaCalculator returns null in an exception state.
+		assertNull(sla.statusOf(subject));
+
+		actAs(Role.PROJECT_COORDINATOR);
+		lifecycle.resumeFromHold(CASE_ID);
+		assertEquals(ExceptionState.NONE, subject.getExceptionState());
+	}
+
+	/** An evidence request nobody can act on is not a request. */
+	@Test
+	void requestingEvidenceWithNothingNamedIsRefused() {
+		walkToExpertSigning();
+
+		assertThrows(IllegalTransitionException.class,
+				() -> lifecycle.expertRequestEvidenceFromPortal(subject, "   "));
+		verifyNoInteractions(events);
+	}
+
+	/**
+	 * The expert declining first-hand: the same transition staff already had, with the one
+	 * difference that matters — the trail says the expert did it.
+	 */
+	@Test
+	void anExpertDecliningInTheirOwnPortalAuditsAsTheExpert() {
+		walkToExpertSigning();
+		ExpertCaseOffer open = new ExpertCaseOffer(BRAND, CASE_ID, EXPERT_ID);
+		given(offers.findByCaseIdAndOutcome(any(), eq(OfferOutcome.OFFERED))).willReturn(List.of(open));
+
+		lifecycle.expertDeclinedFromPortal(subject, "outside my field");
+
+		assertEquals(ExceptionState.EXPERT_DECLINED_REMATCHING, subject.getExceptionState());
+		assertEquals(OfferOutcome.DECLINED, open.getOutcome());
+		assertEquals("outside my field", open.getDeclineReason());
+		verify(audit).recordPortalEvent(eq(BRAND), eq(PortalAudience.EXPERT), eq("CASE"), any(), any(), any(), any());
+	}
+
+	/**
+	 * The signature, performed by the expert: the offer is stamped once even though Accept already
+	 * stamped it, because {@code ExpertCaseOffer.resolve} is first-write-wins — both acts fire on
+	 * the ordinary happy path.
+	 */
+	@Test
+	void signingFromThePortalMovesTheCaseToQcAndWritesOneOutcome() {
+		walkToExpertSigning();
+		ExpertCaseOffer open = new ExpertCaseOffer(BRAND, CASE_ID, EXPERT_ID);
+		given(offers.findByCaseIdAndOutcome(any(), eq(OfferOutcome.OFFERED))).willReturn(List.of(open));
+
+		lifecycle.expertAcceptedFromPortal(subject);
+		lifecycle.expertSignedFromPortal(subject);
+
+		assertEquals(Stage.FINAL_QC, subject.getCurrentStage());
+		assertEquals(ExpertSignStatus.SIGNED, subject.getExpertSignStatus());
+		assertEquals(OfferOutcome.ACCEPTED, open.getOutcome());
+		assertEquals(Instant.class, open.getOutcomeAt().getClass());
+		assertEquals(List.of(CaseEvents.Type.EXPERT_ACCEPTED, CaseEvents.Type.EXPERT_SIGNED),
+				publishedEventTypes(2));
+	}
+
+	/**
+	 * <strong>A rematch kills the outgoing expert's link.</strong>
+	 *
+	 * <p>The hole this closes: {@code portal_access} is keyed on {@code (case_id, audience)} and
+	 * carries no expert identity, so nothing downstream can tell one expert's token from another's
+	 * — and the default TTL is thirty days. Without this, expert A declines, the case is reassigned
+	 * to B and sent, and A's old link still accepts, holds, declines again or <em>uploads the
+	 * deliverable</em> with A's name on it while the case names B.
+	 */
+	@Test
+	void aRematchRevokesTheOutgoingExpertsLink() {
+		walkToExpertSigning();
+		PortalAccess issued = new PortalAccess(BRAND, CASE_ID, PortalAudience.EXPERT, EXPERT_ID, "hash",
+				Instant.now().plus(Duration.ofDays(30)));
+		given(portalTokens.findByCaseIdAndAudienceOrderByCreatedAtDesc(any(), eq(PortalAudience.EXPERT)))
+				.willReturn(List.of(issued));
+
+		actAs(Role.PROJECT_MANAGER);
+		lifecycle.expertDeclined(CASE_ID, "outside my field");
+		lifecycle.reassignExpert(CASE_ID, OTHER_EXPERT_ID, null, null);
+
+		assertNotNull(issued.getRevokedAt(), "the link the previous expert holds must stop working");
+		assertFalse(issued.isLive(Instant.now()));
+	}
+
+	/**
+	 * <strong>Accepting does not restart the signing clock.</strong>
+	 *
+	 * <p>{@code EXPERT_ACCEPTED} is stage-preserving, and {@code apply} restamps
+	 * {@code stage_entered_at} on every other action — which is what {@code SlaCalculator} measures
+	 * the one-business-day sign budget from. So an expert pressing "I will sign this" seven hours in
+	 * would otherwise reset their own clock to green and drop the case off the Case Manager's
+	 * overdue list, on the happy path of every signed case.
+	 */
+	@Test
+	void acceptingDoesNotRestartTheSignClock() {
+		walkToExpertSigning();
+		Instant sent = subject.getStageEnteredAt();
+		given(offers.findByCaseIdAndOutcome(any(), eq(OfferOutcome.OFFERED)))
+				.willReturn(List.of(new ExpertCaseOffer(BRAND, CASE_ID, EXPERT_ID)));
+
+		lifecycle.expertAcceptedFromPortal(subject);
+
+		assertEquals(sent, subject.getStageEnteredAt(), "the send started the clock, not the acceptance");
+	}
+
+	/**
+	 * <strong>Re-staffing a case does not restart its clock either.</strong>
+	 *
+	 * <p>The same defect as the acceptance above, in the two stage-preserving assignments: a stage
+	 * budget is owed by the case, not by whoever holds it, so putting a Coordinator on a case forty
+	 * hours into a client's forty-eight-hour review used to restart that review — and assigning the
+	 * first PM restarted the document clock {@code CaseIntakeService} started at creation.
+	 */
+	@Test
+	void reStaffingDoesNotRestartTheStageClock() {
+		Instant created = Instant.now().minus(Duration.ofHours(20));
+		subject.setStageEnteredAt(created);
+
+		actAs(Role.BRAND_MANAGER);
+		lifecycle.assignPm(CASE_ID, PM_ID);
+		assertEquals(created, subject.getStageEnteredAt(), "the case has been collecting documents for 20 hours");
+
+		actAs(Role.PROJECT_MANAGER);
+		lifecycle.assignCoordinator(CASE_ID, COORDINATOR_ID);
+		assertEquals(created, subject.getStageEnteredAt(), "and a second coordinator does not buy it more time");
 	}
 }

@@ -81,6 +81,27 @@ public class NotificationListeners {
 					(c, r) -> r.assignedCm(c),
 					"The client asked for revisions on %s."),
 
+			// Unit 15. The expert took the case but has not signed yet — a real state a case can
+			// sit in for most of a business day, and the one the CM chases from. Their own event
+			// rather than folding into `expert.signed`: "I will sign this" and "here it is" are
+			// different facts, and only the second moves the case.
+			route(CaseEvents.Type.EXPERT_ACCEPTED, NotificationType.STAGE_CHANGED,
+					(c, r) -> r.assignedCm(c),
+					"The expert accepted %s and is signing it."),
+
+			// Unit 15. Goes to the Coordinators rather than the CM: the expert's request became a
+			// required checklist item, and the checklist and the client chase are theirs.
+			route(CaseEvents.Type.EXPERT_EVIDENCE_REQUESTED, NotificationType.EXCEPTION_RAISED,
+					(c, r) -> r.coordinators(c.getBrandId()),
+					"The expert on %s needs more evidence before signing — the case is on hold."),
+
+			// Unit 15. Nothing routes `expert.declined` or `expert.timed_out`, and that is still
+			// deliberate: staff fire those and already know. An expert declining in their own
+			// portal is new, and it is the one nobody is watching for — so it is routed.
+			route(CaseEvents.Type.EXPERT_DECLINED, NotificationType.EXCEPTION_RAISED,
+					(c, r) -> r.assignedCm(c),
+					"The expert declined %s — it needs a rematch."),
+
 			route(CaseEvents.Type.EXPERT_SIGNED, NotificationType.STAGE_CHANGED,
 					(c, r) -> r.assignedPm(c),
 					"The expert signed %s — it is ready for QC."),

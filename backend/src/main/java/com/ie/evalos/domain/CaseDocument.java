@@ -83,6 +83,28 @@ public class CaseDocument extends ScopedEntity {
 	@Column(name = "review_comment")
 	private String reviewComment;
 
+	/**
+	 * SHA-256 of the bytes as received, hex (Unit 15). Null on every row that predates the
+	 * document store, and on the {@code DRAFT} rows, which have no bytes.
+	 */
+	@Column(name = "content_sha256", updatable = false)
+	private String contentSha256;
+
+	/**
+	 * The attestation the expert ticked, verbatim, and the name they were shown when they ticked
+	 * it — set together with the hash and never afterwards.
+	 *
+	 * <p><strong>This is the evidence.</strong> With no signature provider there is no
+	 * tamper-evident certificate, so what EvalOS can say is: this file hashes to this, a person
+	 * named this, acting through this token, stated this sentence at this time. A boolean would
+	 * carry none of it.
+	 */
+	@Column(name = "attestation", updatable = false)
+	private String attestation;
+
+	@Column(name = "attested_name", updatable = false)
+	private String attestedName;
+
 	protected CaseDocument() {
 		// for JPA
 	}
@@ -117,6 +139,31 @@ public class CaseDocument extends ScopedEntity {
 	/** Closes a version nobody will rule on, because a newer one replaced it. */
 	public void superseded() {
 		this.status = DocumentStatus.SUPERSEDED;
+	}
+
+	/**
+	 * Records the provenance of a signed letter (Unit 15): the hash of what arrived, and the
+	 * contemporaneous statement that it is this person's signature.
+	 *
+	 * <p>One method rather than three setters because the three are one fact and a row carrying
+	 * a hash with no attestation would be a signed letter nobody claimed.
+	 */
+	public void attested(String contentSha256, String attestation, String attestedName) {
+		this.contentSha256 = contentSha256;
+		this.attestation = attestation;
+		this.attestedName = attestedName;
+	}
+
+	public String getContentSha256() {
+		return contentSha256;
+	}
+
+	public String getAttestation() {
+		return attestation;
+	}
+
+	public String getAttestedName() {
+		return attestedName;
 	}
 
 	public UUID getCaseId() {

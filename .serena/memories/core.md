@@ -51,24 +51,32 @@
 > - **Reverses spec 08's derived-grouping decision.** A chip says what state work is in,
 >   not whose turn it is.
 
-> ## ⚠ PIVOT: Google Drive → S3 document store (Unit 30, SPECCED 2026-09-02, NOT BUILT)
+> ## ✅ S3 document store — Google Drive is GONE (Unit 30, BUILT 2026-09-02)
 >
 > **Read `context/specs/30-s3-document-store.md` before touching any document path.**
-> Everything below about Drive still describes the **code as it stands today** — the client,
-> the config, the columns are all still there. It no longer describes the **decision**.
+> Drive is not "still in the code": the API client, the service account, the dependency and
+> `drive_link` (`V34`) are all deleted. Any Drive note elsewhere in this memory is history.
 >
-> - Documents move to an **S3 bucket**. Google Drive leaves entirely: client, config,
->   service account, dependency, `drive_link` column.
-> - **A separate Client Portal application writes client uploads**; EvalOS's credential is
->   **read-only** on `client/{clientId}/`. EvalOS writes only under `case/{caseId}/`.
-> - `{clientId}` is **GHL's contact id** — one client across GHL, the Client Portal and
->   EvalOS, no mapping table. **Email stays a fallback key (V27), never the identity.**
-> - Reads are **5-minute presigned URLs**, minted after the scope check, never stored.
+> - `integration/DocumentStore` — **two capabilities and no more**: `put` and `presignedUrl`.
+>   No delete, no list, no copy. Unconfigured is a **502, not a failed boot**.
+> - **Keys are brand-first**: `{brandId}/client/{ghlContactId}/{documentId}` and
+>   `{brandId}/case/{caseId}/{folder}/{documentId}`. The object name is the document's own id —
+>   which closes path traversal, collisions and PII-in-the-key at once.
+> - `{ghlContactId}` is **GHL's contact id** — one client across GHL, the portal and EvalOS, no
+>   mapping table. **Email stays a fallback key (V27), never the identity, and never in a key.**
+> - Reads are **5-minute presigned URLs**, minted *after* the scope check, never stored.
+> - **⚠ The first draft of spec 30 said a separate Client Portal application writes to S3 with
+>   EvalOS read-only on `client/`. That was CORRECTED the same day and is wrong.** The portal is a
+>   separate **frontend** with **no AWS credential at all**; it calls EvalOS, and **EvalOS is the
+>   only writer**. What replaces the IAM guarantee: bucket versioning is non-optional, and EvalOS
+>   never overwrites a `client/` key — every upload mints a new one.
+> - **`CLIENT_UPLOAD` and, since Unit 15, `SIGNED_LETTER` rows have an `object_key`.** `draft_link`
+>   is still a free-text link the CM pastes and a `DRAFT` `case_document` is created with no key —
+>   which is why **the hash of the letter *as sent* cannot be recorded**: EvalOS holds no bytes of
+>   it, and `DocumentStore` has no read capability. Half of Unit 15's hash pair is deliberately
+>   missing rather than faked; it lands when a draft becomes an object.
 > - **Invariant 14 is amended and "No object storage" is deleted** from `architecture.md`.
-> - This **unblocks Units 13, 15 and 21**, which were all waiting on the Google service
->   account. Unit 21 is reshaped: the upload leaves EvalOS.
->
-> **Do not build new Drive work, and do not cite the Drive notes below as settled.**
+> - **CORS is built with it**, on `/api/portal/**` only — see the module-contract bullet below.
 
 **The shell's date filter is backwards-looking and the production board's is forwards — two types,
 not one (Unit 28).** They were one shared value for two units, which once left the production board
@@ -353,22 +361,47 @@ Later units carry named external dependencies that do not exist yet (the GHL out
 18) — all listed in the tracker. **Unit 13's Google service account is
 the one that has already bitten**, and it now blocks three units rather than one: 13's own live
 upload, Unit 21's client document upload, and Unit 15's signed-letter upload. Unit 15 used to be
-gated on a Dropbox Sign account; there is no signature provider any more. Here, the code is finished
-and the live upload is not, so the unit is
+gated on a Dropbox Sign account; there is no signature provider any more, and **Unit 15's code is
+now built (2026-09-03)** — what it still owes is the same live round-trip against a real bucket.
+Here, the code is finished and the live upload is not, so the unit is
 open. Until it runs, three things are proven only against a test double — that the credentials
 work, that the `drive.file` scope suffices for a create into a shared folder, and that Drive's
 HTML → Doc conversion is worth sending to a client.
 
 ## Layout
 
-Monorepo, but no root build: each half is built and run from **inside its own directory**.
+Monorepo of **three** apps, no root build: each is built and run from **inside its own
+directory**, with its own `package.json` / `pom.xml` and its own lockfile.
 
 - `backend/` — Spring Boot 3.5 / Java 21 Maven project, base package `com.ie.evalos`.
   `mem:backend/core` for package boundaries, config profiles, Flyway ownership, the response
   envelope.
-- `frontend/` — Vite + React 19 + TS SPA. `mem:frontend/core` for routing, the HTTP layer, and the
-  design-token styling system.
+- `frontend/` — the **internal staff** Vite + React 19 + TS SPA, port 5173, `/api` proxied
+  same-origin. `mem:frontend/core` for routing, the HTTP layer, and the design-token styling
+  system.
+- `client-expert/` — the **external portal frontends** (added 2026-09-03), cross-origin
+  against `/api/portal/**`. **Two apps, two builds, one dependency set**: `client/` (5174) and
+  `expert/` (5175) with a `shared/` folder both import as `@shared/*`, split 2026-09-03 so each
+  can take its own subdomain. **One screen is wired** — the client's `/documents`, against the
+  real S3-backed portal API (Unit 34 slices 34a + 34c); everything else is still a
+  `localStorage` mock. Read `mem:client-expert/core` before
+  touching it or either portal: it carries a different auth model, a different case model and four
+  duplicate lifecycle vocabularies, and three invariants are in its path. The rest of the wiring
+  is Unit 34, gated on decisions D1 and D5.
 - `context/` — the specs and design docs above. `README.md` — local run + verify steps.
+
+**Four portal decisions were taken 2026-09-04 and one unit was struck** (`mem:client-expert/core`
+for what they mean to the apps). **D1: a portal credential names a party, not a case** — one link
+per client or expert, case-scoped links still legal, party tokens 7 days, **and no accounts, which
+was refused rather than deferred**. **D5**: one projected vocabulary. **D6**: an expert reads their
+own payout rows, never `payment_detail`. **D8**: analytics off, by deletion. **G14**: the AV posture
+is implemented — sniff both upload surfaces, serve every presigned read as an `attachment`, and
+scanning is the bucket's job. All of it is `context/specs/35-party-scoped-portal-access.md`, specced
+and **not built**.
+
+**Unit 20 is gone from the schedule as well as from scope**: no Anthropic key to request, no
+anomaly *unit* (that arithmetic is a Unit 17 tile if wanted). With Units 13 and 18, three units are
+removed — `V33`, and invariant 15.
 - `.github/workflows/ci.yml` — the only CI. Note it runs **`npm install`, not `npm ci`**: the
   lockfile is written on Windows and records wasm-fallback bindings without their `@emnapi/*` deps,
   which `npm ci` rejects on Linux. Cost is that CI resolves within semver ranges instead of pinning;
@@ -401,23 +434,28 @@ Monorepo, but no root build: each half is built and run from **inside its own di
   for afterwards.
 - **Flyway owns the schema.** `ddl-auto: validate`. Every change is a new migration; an applied
   migration is never edited.
-- **No object storage, no mail server.** Documents are Google Drive links, signed letters live in
-  the case's own Drive folder (the expert uploads it there), staff alerts are in-app, client messages
-  go out through GHL, and an expert is reached by a scoped portal link. Do not add S3 or SMTP.
-  (Unit 13 **added** that Drive API client, for one write path — links-only stopped being the whole
-  story, and EvalOS still hosts no bytes: the redacted profile is generated in memory, streamed to
-  the caller or handed to Drive, and written to neither Postgres nor disk. The client is
-  deliberately the narrowest capability that works: one file into a folder that already exists,
-  no folder creation, no permissions management, no reads.) Unit 11 added the one **upload** — the expert
-  roster sheet — and it holds too: parsed in memory, never stored, with
-  `multipart.file-size-threshold` set equal to `max-file-size` so the container cannot spool it to a
-  temp file. **Unit 21 is the third and must use the same two mechanisms**: that threshold setting,
-  plus `InputStreamContent` into Drive rather than a byte array — a client document streams through
-  and EvalOS keeps only the Drive file id. "Hosts no files" means **stores none, not accepts none**;
-  three units now accept bytes and none stores them.
-  Sending email is still forbidden, but that rule is now **under review** — every client/expert
-  touchpoint and the open GHL-vs-EvalOS-mail decision are in `context/process-automation.md`. Until it
-  is decided, adding a mail dependency is still wrong.
+- **S3 is the document store; EvalOS still hosts no bytes, and there is no mail server.**
+  **Google Drive is gone as of Unit 30** — API client, service account, dependency and the
+  `drive_link` column (`V34`). Documents are **S3 object keys**, read through **5-minute presigned
+  GET URLs** minted per request *after* the same scope check that guards the case, never stored.
+  Keys are **brand-first**: `{brandId}/client/{ghlContactId}/{documentId}` and
+  `{brandId}/case/{caseId}/{folder}/{documentId}` — the object name is the document's own id,
+  which closes path traversal, collisions and PII-in-the-key at once. Staff alerts are in-app,
+  client messages go out through GHL, an expert is reached by a scoped portal link.
+  **Do not add SMTP.**
+  "Hosts no files" means **stores none, not accepts none** — every upload **streams**: the expert
+  roster sheet (Unit 11, parsed in memory and thrown away, with
+  `multipart.file-size-threshold` set equal to `max-file-size` so the container cannot spool it to
+  a temp file), the client document (Unit 30's portal upload), and the expert's signed letter
+  (Unit 15, **built 2026-09-03** — digested with a `DigestInputStream` as it streams, and the
+  upload fails loudly if the store did not read the whole file, because a hash of a partial read
+  filed as the letter's hash is worse than no hash). No byte array, no temp file, no blob column, and it is a test rather than
+  a convention.
+  Sending email is **settled, not under review**: Unit 18's outbound dispatcher was removed
+  (2026-09-02), so EvalOS has **no outbound channel of any kind** and the question of whether it
+  sends mail *itself* has no mechanism behind it. What remains open is who reaches the client at
+  all — `context/process-automation.md`, where the portal frontend now offers a third option
+  (in-portal state, nothing sent) whose limit is that a client who never opens it is never told.
 - **A case is created only by a per-brand GHL webhook endpoint, from a won opportunity** — no other
   path and no other event, enforced structurally by `DomainInvariantsTest` (only
   `GhlOpportunityHandler` may depend on `CaseIntakeService`, so adding a `POST /api/cases` breaks the
@@ -428,8 +466,15 @@ Monorepo, but no root build: each half is built and run from **inside its own di
   defects have been one bug: a screen or escape hatch linked without `mayReach`. `navigation.ts` is
   one table for nav + router + allow-list, and `boardPathFor(role)` walks it. Grep before adding any
   cross-screen link.
-- Module contract is HTTP under `/api`, same-origin in dev via the Vite proxy; no CORS config exists
-  on either side — add endpoints under `/api` rather than introducing CORS.
+- Module contract is HTTP under `/api`. **The staff app is same-origin** (Vite proxies `/api` to
+  8080) and has **no CORS and must not gain any** — add staff endpoints under `/api` rather than
+  introducing it. **`/api/portal/**` is the one exception and CORS there is built** (Unit 30),
+  because the portals are a separate frontend on another origin: origins from
+  `evalos.portal.allowed-origins` (no default in prod, so a missing value fails the boot), methods
+  `GET/POST/OPTIONS`, headers `Content-Type` + `X-Portal-Token`, **`allowCredentials(false)`** — the
+  credential is a header, never a cookie, and allowing credentials would turn a mistaken origin
+  into a session-riding hole. Omitting `X-Portal-Token` from the allowed headers is the trap: the
+  preflight passes, the header is stripped, and the 401 looks exactly like a bad token.
 
 Cross-cutting refs: `mem:tech_stack`, `mem:suggested_commands`, `mem:conventions`,
 `mem:task_completion`.

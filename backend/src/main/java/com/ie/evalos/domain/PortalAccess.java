@@ -40,6 +40,18 @@ public class PortalAccess extends ScopedEntity {
 	@Column(name = "token_hash", nullable = false, updatable = false)
 	private String tokenHash;
 
+	/**
+	 * The expert this token was minted for (V37), and null on a {@code CLIENT} row.
+	 *
+	 * <p><strong>Why a credential names a person as well as a case.</strong> Without it, one
+	 * expert's token is indistinguishable from another's on the same case — so a token that
+	 * outlived a rematch admitted the wrong expert to a case that had moved on, up to and
+	 * including uploading the deliverable in their own name. The read fails closed on a null here,
+	 * so a token minted before the column stops working rather than being waved through.
+	 */
+	@Column(name = "expert_id", updatable = false)
+	private UUID expertId;
+
 	@Column(name = "expires_at", nullable = false, updatable = false)
 	private Instant expiresAt;
 
@@ -53,10 +65,17 @@ public class PortalAccess extends ScopedEntity {
 		// for JPA
 	}
 
-	public PortalAccess(UUID brandId, UUID caseId, PortalAudience audience, String tokenHash, Instant expiresAt) {
+	/**
+	 * @param expertId the expert this admits, required for {@code EXPERT} and null for
+	 *                 {@code CLIENT} — a client is identified by the case's own contact, and a
+	 *                 second copy of that here would be a second thing to keep in step
+	 */
+	public PortalAccess(UUID brandId, UUID caseId, PortalAudience audience, UUID expertId, String tokenHash,
+			Instant expiresAt) {
 		super(brandId);
 		this.caseId = caseId;
 		this.audience = audience;
+		this.expertId = expertId;
 		this.tokenHash = tokenHash;
 		this.expiresAt = expiresAt;
 	}
@@ -96,6 +115,10 @@ public class PortalAccess extends ScopedEntity {
 	/** Stamped on every use, which is what support needs — see {@code client_portal_read_at}. */
 	public void seen(Instant at) {
 		lastSeenAt = at;
+	}
+
+	public UUID getExpertId() {
+		return expertId;
 	}
 
 	public UUID getCaseId() {

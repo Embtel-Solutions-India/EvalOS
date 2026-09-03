@@ -26,6 +26,7 @@ import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 
 /**
  * Unit 06's central acceptance criterion: each mapped event reaches exactly the mapped
@@ -166,6 +167,32 @@ class NotificationListenersTest {
 		assertThat(recipientsOf(CaseEvents.Type.DRAFT_RETURNED)).containsExactly(CM);
 		assertThat(recipientsOf(CaseEvents.Type.DRAFT_CLIENT_APPROVED)).containsExactly(CM);
 		assertThat(recipientsOf(CaseEvents.Type.DRAFT_REVISION_REQUESTED)).containsExactly(CM);
+	}
+
+	/**
+	 * Unit 15's three, and the one that is not like its siblings.
+	 *
+	 * <p>Accept and decline go to the Case Manager, who owns the signing stage. <strong>An evidence
+	 * request goes to the Coordinators instead</strong>, because what the expert asked for became a
+	 * required checklist item and the checklist is theirs — routing it to the CM would put the alert
+	 * on the desk of somebody who cannot act on it.
+	 */
+	@Test
+	void whatTheExpertDoesReachesWhoeverActsOnIt() {
+		assertThat(recipientsOf(CaseEvents.Type.EXPERT_ACCEPTED)).containsExactly(CM);
+		assertThat(recipientsOf(CaseEvents.Type.EXPERT_DECLINED)).containsExactly(CM);
+		assertThat(recipientsOf(CaseEvents.Type.EXPERT_EVIDENCE_REQUESTED)).containsExactly(COORDINATOR);
+	}
+
+	/**
+	 * A timeout stays unrouted, and that is still deliberate: a human fires it, so the person who
+	 * would be told is the person who did it. Unit 19's clock raises the prompt that asks for it.
+	 */
+	@Test
+	void aTimeoutRaisesNothingBecauseTheStaffWhoFireItAlreadyKnow() {
+		org.mockito.Mockito.clearInvocations(notifications);
+		fire(CaseEvents.Type.EXPERT_TIMED_OUT);
+		verifyNoInteractions(notifications);
 	}
 
 	/**

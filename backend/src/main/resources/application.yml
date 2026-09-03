@@ -76,6 +76,12 @@ evalos:
     # for every developer, and it must be set to the real origin in any deployed environment or
     # the link mailed to a client points at somebody's laptop.
     base-url: ${PORTAL_BASE_URL:http://localhost:5173}
+    # **The expert portal is a different application on a different origin** (client-expert/expert,
+    # split 2026-09-03), so its links cannot be built from the client's base. Defaults to the
+    # expert Vite dev server. Set it in every deployed environment: an unset value here does not
+    # fail loudly — it mints a link to the wrong host, which looks like a broken link to the one
+    # participant EvalOS cannot train.
+    expert-base-url: ${PORTAL_EXPERT_BASE_URL:http://localhost:5175}
     # How long a link works. A draft-review link that never expired would be a permanent bearer
     # credential sitting in somebody's inbox; re-minting is one click, so a short life costs
     # little. Configurable because "how long does the client have" is a business question.
