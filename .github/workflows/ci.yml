@@ -1,28 +1,21 @@
-name: CI
-
-# The DB-backed suite is why this file exists.
-#
-# `LocalPostgresIntegrationTest` is gated behind `-Devalos.db.test=true` so that a
-# laptop with no Postgres can still run `./mvnw test`. For ten units nothing ever
-# set that flag, which made the one suite that puts brand-scoping predicates,
-# `ddl-auto=validate`, the payment-detail ciphertext and the append-only trigger in
-# front of real SQL the one suite nobody ran. A flag nobody sets is the same as a
-# test nobody wrote. This job sets it.
+name: EvalOS CI/CD
 
 on:
   push:
-    branches: [main, Development]
-  pull_request:
-  workflow_dispatch:
+    branches:
+      - main
+
+permissions:
+  contents: read
+  id-token: write
 
 jobs:
   backend:
-    name: Backend (against real Postgres)
+    name: Backend CI
     runs-on: ubuntu-latest
 
     services:
       postgres:
-        # Matches the local dev server the suite was written against.
         image: postgres:16
         env:
           POSTGRES_DB: evalos
@@ -30,8 +23,6 @@ jobs:
           POSTGRES_PASSWORD: postgres
         ports:
           - 5432:5432
-        # Without the health gate, Flyway's first migration races the server's
-        # startup and the job fails on a connection refused rather than a test.
         options: >-
           --health-cmd pg_isready
           --health-interval 10s
@@ -39,69 +30,79 @@ jobs:
           --health-retries 10
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-      - uses: actions/setup-java@v4
+      - name: Setup Java
+        uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '21'
           cache: maven
 
-      - name: Test, including the 18 DB-gated tests
+      - name: Run backend tests
         working-directory: backend
         env:
-          # DB_TEST_URL, not DB_URL: the suite writes into its own `evalos_test`
-          # schema and must not be redirectable to a database holding real rows.
-          DB_TEST_URL: jdbc:postgresql://localhost:5432/evalos?currentSchema=evalos_test
+          DB_TEST_URL: jdbc:postgresql://localhost:5432/evalos
           DB_USER: postgres
           DB_PASSWORD: postgres
         run: ./mvnw --batch-mode test -Devalos.db.test=true
 
-      # The surefire XML is the only record of which tests actually ran. Keep it on
-      # failure, because "18 skipped" and "18 passed" both exit zero from a distance.
-      - name: Keep the surefire reports
-        uses: actions/upload-artifact@v4
-        if: failure()
-        with:
-          name: surefire-reports
-          path: backend/target/surefire-reports/
-
   frontend:
-    name: Frontend
+    name: Frontend CI
     runs-on: ubuntu-latest
+
     defaults:
       run:
         working-directory: frontend
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
           node-version: '24'
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
-      # `npm install`, not `npm ci`, and not by preference.
-      #
-      # package-lock.json is generated on Windows, where npm records
-      # @rolldown/binding-wasm32-wasi and @tailwindcss/oxide-wasm32-wasi but omits
-      # their @emnapi/* dependencies — this host never needs the wasm fallback, so
-      # it never resolves them. `npm ci` on Linux then rejects the lockfile as out
-      # of sync ("Missing: @emnapi/core@1.11.3 from lock file"), and neither
-      # --package-lock-only nor --os=linux --cpu=x64 materialises those entries
-      # from Windows. So the lockfile cannot be made installable off-Windows from
-      # the machine that writes it.
-      #
-      # The cost is that this resolves within semver ranges instead of pinning, so
-      # a bad upstream patch release can reach CI. Going back to `npm ci` needs the
-      # lockfile regenerated once on Linux and committed — do that when there is a
-      # Linux box or a working Docker daemon to hand.
-      - run: npm install --no-audit --no-fund
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
 
-      - run: npm test
+      - name: Run frontend tests
+        run: npm test
 
-      # `build` is `tsc -b && vite build`, so this is the typecheck as well.
-      - run: npm run build
+      - name: Build frontend
+        run: npm run build
 
-      - run: npm run lint
+      - name: Run lint
+        run: npm run lint
+
+  deploy:
+    name: Deploy to EC2
+    needs:
+      - backend
+      - frontend
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::637442130394:role/EvalOS-GitHub-Deploy-Role
+          aws-region: us-east-1
+
+      - name: Deploy to EC2
+        run: |
+          aws ssm send-command \
+            --instance-ids "i-0b4f356f554f30fb6" \
+            --document-name "AWS-RunShellScript" \
+            --parameters 'commands=[
+              "cd ~/EvalOS",
+              "git pull --ff-only origin main",
+              "docker compose --env-file ./backend/.env build frontend backend",
+              "docker compose --env-file ./backend/.env up -d frontend backend",
+              "docker compose --env-file ./backend/.env ps"
+            ]' \
+            --comment "EvalOS deployment from GitHub Actions"

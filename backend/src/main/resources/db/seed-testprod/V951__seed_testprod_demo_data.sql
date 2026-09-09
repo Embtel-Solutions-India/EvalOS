@@ -397,7 +397,8 @@ INSERT INTO expert_case_offer (id, brand_id, case_id, expert_id, offered_at, out
 --
 -- `confirmed_at` is left NULL so the confirmation step is still available to
 -- click: a payment that arrives already confirmed hides half the screen.
-INSERT INTO payout_payment (id, brand_id, expert_id, amount, currency, method, reference, paid_date, no>
+
+INSERT INTO payout_payment (id, brand_id, expert_id, amount, currency, method, reference, paid_date, notes, confirmed_at, recorded_by) VALUES
     ('88888888-0000-0000-0000-000000000001', '33333333-3333-3333-3333-333333333333',
      'ffffffff-0000-0000-0000-000000000002', 300.00, 'USD', 'Wise transfer', 'WISE-TP-40118',
      now() - INTERVAL '9 days', 'Single draft; weekly batch was one row that week.', NULL,
