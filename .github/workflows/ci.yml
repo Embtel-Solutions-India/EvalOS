@@ -43,7 +43,7 @@ jobs:
       - name: Run backend tests
         working-directory: backend
         env:
-          DB_TEST_URL: jdbc:postgresql://localhost:5432/evalos
+          DB_TEST_URL: jdbc:postgresql://localhost:5432/evalos?currentSchema=evalos_test
           DB_USER: postgres
           DB_PASSWORD: postgres
         run: ./mvnw --batch-mode test -Devalos.db.test=true
@@ -59,7 +59,6 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
