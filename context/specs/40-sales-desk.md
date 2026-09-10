@@ -1,6 +1,7 @@
 # Unit 40 — The sales desk
 
-> **Status: SPECCED 2026-09-10, not built.** Programme decisions: `00b-ghl-operational-programme.md`.
+> **Status: BUILT 2026-09-11, except meetings.** Programme decisions:
+> `00b-ghl-operational-programme.md`.
 >
 > **Scoped, not detailed** — same reasoning as Unit 39's header. The contract is fixed here;
 > screen detail is written when it is built.
@@ -87,14 +88,70 @@ the opportunity screen" request is exactly the thing that ruling exists to answe
 
 ## 6. Acceptance criteria
 
-- [ ] A `SALES` caller can update, stage-move and win/lose an opportunity **on their own pipeline
+- [x] A `SALES` caller can update, stage-move and win/lose an opportunity **on their own pipeline
       only**; another pipeline's opportunity answers 403.
-- [ ] Marking won writes to GHL and **creates no case** — the case arrives by webhook, asserted by
+- [x] Marking won writes to GHL and **creates no case** — the case arrives by webhook, asserted by
       the absence of any path from this unit to `CaseIntakeService`.
-- [ ] Notes written before a stage move are readable after it, with no migration step.
-- [ ] Every write produces an audit row.
-- [ ] The screen shows a pending state between "won" and the case appearing (§2).
-- [ ] **Verified before build:** GHL's marketing→sales automation preserves `ghl_opportunity_id`
+- [x] Notes written before a stage move are readable after it, with no migration step.
+- [x] Every write produces an audit row.
+- [x] The screen shows a pending state between "won" and the case appearing (§2).
+- [x] **Verified before build:** GHL's marketing→sales automation preserves `ghl_opportunity_id`
       (§3). If it does not, this spec is amended before code.
-- [ ] Meetings are behind the `calendars/*` grant and their absence does not block the rest.
-- [ ] `./mvnw verify` green; frontend builds.
+- [ ] **Meetings are NOT built** — `calendars/events.write` and `calendars.readonly` are still
+      ungranted. Their absence blocked nothing else, which is what this criterion asked.
+- [x] `./mvnw verify` green; frontend builds.
+
+
+## 7. What the build found and changed
+
+### The gating check passed, and here is the evidence
+
+§3 said to verify **before building** that GHL's marketing→sales automation preserves
+`ghl_opportunity_id`, because notes are keyed on it and would not follow a re-created deal.
+
+**It does.** `PUT /opportunities/{id}` accepts a **`pipelineId`** in its body — GHL treats the
+pipeline as a mutable field on the opportunity, not as part of its identity. A workflow that
+moves a deal to another pipeline is doing that same update, so the id survives and the note
+stream comes with it. No migration step, and `GhlWriteClientTest.movingAStageIsAnUpdateOnTheSameOpportunityId`
+pins it.
+
+**The limit of that evidence, stated honestly:** this verifies GHL's *API*, not the business's
+particular workflow, which could in principle be configured to create a new opportunity instead.
+The API evidence is strong — moving *is* an update — but the definitive check is watching one
+real lead get promoted, and that has not been done.
+
+### Follow-ups shipped; meetings did not
+
+Both were listed as blocked on the `calendars/*` grant. **Only meetings actually are.** A
+follow-up is a GHL task (`POST /contacts/{contactId}/tasks`) and needs only `contacts.write`,
+which has been granted all along — so the desk ships with follow-ups working rather than with
+that half deferred too. Checking the scope per endpoint rather than per feature is what found it.
+
+### The refactor Unit 39 set up
+
+Unit 39 put notes on `MarketingLeadService` with a note that Sales would share the table.
+Sharing a table through a class named for the other desk is how the second caller ends up with a
+copy, so this unit split it:
+
+- **`OpportunityNoteService` + `OpportunityNoteController`** at
+  `/api/opportunities/{id}/notes` — **not** under `/marketing` or `/sales`. The conversation
+  belongs to the *deal*, which is nurtured by one desk and closed by the other.
+- **`PipelineScope`** — "which pipeline is mine" and "is this deal in it", extracted because
+  three desks were about to hold three copies of one security check. Three copies is three
+  places for one to drift permissive, invisibly, since each looks right alone.
+- **`GhlLeadClient` → `GhlWriteClient`.** It was named for the desk that first used it; Sales now
+  closes deals and sets follow-ups through the same class.
+
+### Two absences asserted as tests
+
+`thereIsNoRouteToMoveADealBetweenPipelines` and `thereIsNoRouteToBookAMeeting` both expect 404.
+The first is a **design boundary** — promotion is GHL's workflow, and a second path here would
+race the automation the business owns. The second is an **ungranted scope**, written as a test so
+the gap stays visible instead of being rediscovered as "why is there no meeting button".
+
+### `open` is not a closable status
+
+`close` accepts `won`, `lost`, `abandoned` — not GHL's other two. **Re-opening a won deal would
+not un-create the case its webhook already made**, so it is a correction with a case-side answer
+rather than a sales action. Case-sensitivity is asserted too: GHL's enum is lowercase, and
+accepting `WON` here would send it something it refuses.

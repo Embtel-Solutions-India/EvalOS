@@ -3,6 +3,7 @@ import { Card } from '../../components/ui/card'
 import { useMe } from '../../lib/authContext'
 import { useMetrics } from '../dashboards/useMetrics'
 import { formatCount, formatMoney } from '../../lib/money'
+import DealActions from './DealActions'
 import DealNotes from './DealNotes'
 import NewLeadForm from './NewLeadForm'
 import { fetchOpportunityBoard, type BoardColumn, type Deal } from './opportunityApi'
@@ -15,8 +16,10 @@ import { fetchOpportunityBoard, type BoardColumn, type Deal } from './opportunit
  * data, and the only difference is whose pipeline it is. The server decides that from the
  * caller's own token; nothing here can name a pipeline, and nothing here should ever be able to.
  *
- * **Unit 39 made it a desk for Marketing**: a lead can be opened here, and every card carries
- * its note stream. Dragging between stages and the sales-side actions are Unit 40's.
+ * **Unit 39 made it a desk for Marketing and Unit 40 for Sales.** A lead can be opened here,
+ * every card carries its note stream, and a salesperson can move a deal between stages, close
+ * it, and set a follow-up. Each role sees only its own actions — the server refuses the others,
+ * and a button that 403s is worse than no button.
  *
  * **Only `MARKETING` sees the new-lead form.** Sales works the same opportunities and shares the
  * note table, but *opening* a lead is a marketing act — the server refuses the route to anyone
@@ -29,7 +32,15 @@ import { fetchOpportunityBoard, type BoardColumn, type Deal } from './opportunit
 export default function OpportunityBoardPage() {
   const [reloads, setReloads] = useState(0)
   const { data, state } = useMetrics((signal) => fetchOpportunityBoard(signal), [reloads])
-  const isMarketing = useMe().role === 'MARKETING'
+  const role = useMe().role
+  const isMarketing = role === 'MARKETING'
+  const reload = () => setReloads((n) => n + 1)
+  // Every stage on the board, so a salesperson can move a deal to any of them. Taken from the
+  // board itself rather than fetched separately: it is the same pipeline, already loaded.
+  const stages = (data?.columns ?? []).map((column) => ({
+    stageId: column.stageId,
+    stageName: column.stageName,
+  }))
 
   return (
     <section className="space-y-4">
@@ -61,7 +72,7 @@ export default function OpportunityBoardPage() {
         opportunity now lives in GHL, and the only honest confirmation it landed is reading it
         back. A locally inserted card would show an outcome the server has not agreed to.
       */}
-      {isMarketing && <NewLeadForm onOpened={() => setReloads((n) => n + 1)} />}
+      {isMarketing && <NewLeadForm onOpened={reload} />}
 
       <Card title="" state={state}>
         {data && data.columns.length === 0 ? (
@@ -76,7 +87,15 @@ export default function OpportunityBoardPage() {
           </p>
         ) : (
           <div className="flex gap-3 overflow-x-auto p-1">
-            {data?.columns.map((column) => <StageColumn key={column.stageId} column={column} />)}
+            {data?.columns.map((column) => (
+              <StageColumn
+                key={column.stageId}
+                column={column}
+                isSales={role === 'SALES'}
+                stages={stages}
+                onChanged={reload}
+              />
+            ))}
           </div>
         )}
       </Card>
@@ -84,7 +103,17 @@ export default function OpportunityBoardPage() {
   )
 }
 
-function StageColumn({ column }: { column: BoardColumn }) {
+function StageColumn({
+  column,
+  isSales,
+  stages,
+  onChanged,
+}: {
+  column: BoardColumn
+  isSales: boolean
+  stages: readonly { stageId: string; stageName: string }[]
+  onChanged: () => void
+}) {
   return (
     <div className="flex w-64 shrink-0 flex-col gap-2">
       <div className="flex items-baseline justify-between border-b border-slate-200 pb-1">
@@ -94,12 +123,30 @@ function StageColumn({ column }: { column: BoardColumn }) {
       {column.deals.length > 0 && (
         <p className="text-xs text-slate-500">{formatMoney(column.total)}</p>
       )}
-      {column.deals.map((deal) => <DealCard key={deal.opportunityId} deal={deal} />)}
+      {column.deals.map((deal) => (
+        <DealCard
+          key={deal.opportunityId}
+          deal={deal}
+          isSales={isSales}
+          stages={stages}
+          onChanged={onChanged}
+        />
+      ))}
     </div>
   )
 }
 
-function DealCard({ deal }: { deal: Deal }) {
+function DealCard({
+  deal,
+  isSales,
+  stages,
+  onChanged,
+}: {
+  deal: Deal
+  isSales: boolean
+  stages: readonly { stageId: string; stageName: string }[]
+  onChanged: () => void
+}) {
   // Notes are loaded per card, and only when a card is opened. Eagerly fetching a stream for
   // every deal on the board would be one request per card against a shared 100-per-10-seconds
   // budget, to show text nobody has asked to read yet.
@@ -124,6 +171,14 @@ function DealCard({ deal }: { deal: Deal }) {
         {deal.amount === null ? 'No value set' : formatMoney(deal.amount)}
         {deal.status !== 'open' && <span className="ml-2 uppercase">{deal.status}</span>}
       </p>
+      {open && isSales && (
+        <DealActions
+          opportunityId={deal.opportunityId}
+          contactId={deal.contactId}
+          stages={stages}
+          onChanged={onChanged}
+        />
+      )}
       {open && <DealNotes opportunityId={deal.opportunityId} />}
     </article>
   )

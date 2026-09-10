@@ -101,7 +101,7 @@ none. What is true now: **GHL stays the CRM, the pipeline engine, the automation
 invoice/QuickBooks integration; EvalOS is the interface Sales and Marketing work in.** Invoicing
 is still GHL's — EvalOS reads invoices and raises none.
 
-**Four of six units are built (36–39).** The **GHL
+**Five of six units are built (36–40), meetings excepted.** The **GHL
 operational programme (Units 36–41)** makes EvalOS the interface Sales and Marketing *work in*, so
 they never open GHL; GHL stays the CRM, pipeline, automation and invoice/QuickBooks layer
 underneath. Spec: **`context/specs/00b-ghl-operational-programme.md`** — read it before any GHL
@@ -113,7 +113,30 @@ work, it holds the truth model and the invariant ledger.
 |---|---|
 | **Decided** | Two roles `SALES`/`MARKETING` (`Tier.PIPELINE`) + a `segment` column, *not* six roles; one personal exclusive pipeline each; **GHL owns the opportunity, EvalOS owns the note stream keyed on `ghl_opportunity_id`**; a droppable non-authoritative opportunity cache; **single selling brand** (`evalos.ghl.sales-brand`) enforced with a 400 until Unit 25 |
 | **Built** | **36** (`V39`): eight roles, `Tier.PIPELINE` fails closed, `team_member.ghl_pipeline_id` + `segment`, two GM routes, single-brand ceiling enforced with a 400. **37**: `GhlHttp` has `post`/`put`/`delete`; **invariant 2 dead and rewritten**; guard replaced by "verb list closed" + "every write caller reaches `AuditService`". **38** (`V40`): `ghl_opportunity_cache`, `GhlOpportunityClient`, `GET /api/opportunities/board`, and the SPA's two new roles + their board. **39** (`V41`): `GhlLeadClient` (the first writer), `opportunity_note`, `/api/marketing/leads`, **invariant 7 amended**, New-lead form + notes on the board. |
-| **Next** | **Unit 40** — the sales desk. Opportunity CRUD, stage moves, notes (shared table), meetings. **Meetings half blocked** on `calendars/events.write` + `calendars.readonly`; the rest needs only the existing grant. |
+| **40** (no migration) | The sales desk: update/stage-move/close a deal, follow-ups as GHL tasks, shared note stream. **Meetings NOT built** — the only thing still needing `calendars/*`. |
+| **Next** | **Unit 41** — Client Portal invoices, the last unit. **Blocked on `invoices.readonly` alone** and independent of 36–40: Unit 35 already ships a credential naming a `ghl_contact_id`, which is the key `GET /invoices/` takes. |
+
+**Unit 40's structure, because three desks now share two things:**
+- **`PipelineScope`** answers "which pipeline is mine" and "is this deal in it" for all of them.
+  Extracted because three copies of one security check is three places for one to drift
+  permissive — invisibly, since each copy looks right alone. **Do not inline it back.**
+- **Notes live at `/api/opportunities/{id}/notes`**, under neither desk's URL, served by
+  `OpportunityNoteService`. The conversation belongs to the *deal*: nurtured by Marketing,
+  promoted by GHL's workflow, closed by Sales.
+- **`GhlWriteClient`** (renamed from `GhlLeadClient`) is every write EvalOS makes to GHL.
+
+**⚠ Two things Sales deliberately CANNOT do, both asserted as 404 tests:**
+- **Move a deal between pipelines.** That is the marketing→sales promotion and it is **GHL's
+  workflow**. A route here would race the automation the business already owns.
+- **Book a meeting.** Ungranted scope, not an oversight.
+
+**Verified 2026-09-11: a pipeline move preserves `ghl_opportunity_id`.** `PUT
+/opportunities/{id}` takes a `pipelineId`, so GHL treats the pipeline as a mutable field rather
+than as identity — which is why notes survive the handoff with no migration step. **Caveat: that
+is the API, not this business's particular workflow**, which nobody has watched run.
+
+**`close` accepts `won`/`lost`/`abandoned` only.** `open` is absent: re-opening a won deal would
+not un-create the case its webhook already made. Lowercase only — GHL's enum is.
 
 **⚠ WRITES TO GHL GO THROUGH UPSERT, NOT CREATE, and that is the idempotency answer.** GHL marks
 every write `idempotencyRequired` but **offers no key** — no header, no client token (verified

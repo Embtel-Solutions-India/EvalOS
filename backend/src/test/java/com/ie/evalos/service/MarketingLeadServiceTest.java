@@ -1,27 +1,22 @@
 package com.ie.evalos.service;
 
 import java.math.BigDecimal;
-import java.util.List;
 import java.util.UUID;
 
 import com.ie.evalos.common.ForbiddenException;
 import com.ie.evalos.common.InvalidRequestException;
-import com.ie.evalos.domain.OpportunityNote;
 import com.ie.evalos.domain.Role;
-import com.ie.evalos.integration.GhlLeadClient;
-import com.ie.evalos.repository.OpportunityNoteRepository;
+import com.ie.evalos.integration.GhlWriteClient;
 import com.ie.evalos.security.StaffPrincipal;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
-import org.mockito.ArgumentCaptor;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -43,10 +38,10 @@ class MarketingLeadServiceTest {
 	private static final String MINE = "pipe_mine";
 	private static final String OPPORTUNITY = "opp_1";
 
-	private final GhlLeadClient ghl = mock(GhlLeadClient.class);
-	private final OpportunityNoteRepository notes = mock(OpportunityNoteRepository.class);
+	private final GhlWriteClient ghl = mock(GhlWriteClient.class);
 	private final OpportunityCache cache = mock(OpportunityCache.class);
-	private final MarketingLeadService service = new MarketingLeadService(ghl, notes, cache);
+	private final MarketingLeadService service =
+			new MarketingLeadService(ghl, new PipelineScope(cache));
 
 	private void authenticate(Role role, String pipelineId) {
 		StaffPrincipal principal = new StaffPrincipal(MEMBER, "desk@ie.test", "Desk", role, BRAND, null,
@@ -70,9 +65,9 @@ class MarketingLeadServiceTest {
 	void opensALeadOnTheCallersOwnPipeline() {
 		authenticate(Role.MARKETING, MINE);
 		when(ghl.upsertContact(any(), any(), any(), any()))
-				.thenReturn(new GhlLeadClient.UpsertedContact("c1", "Ada Lovelace", "ada@example.test", null));
+				.thenReturn(new GhlWriteClient.UpsertedContact("c1", "Ada Lovelace", "ada@example.test", null));
 		when(ghl.upsertOpportunity(eq(MINE), eq("c1"), any(), any()))
-				.thenReturn(new GhlLeadClient.UpsertedOpportunity("o1", "c1", MINE, "s1", "open",
+				.thenReturn(new GhlWriteClient.UpsertedOpportunity("o1", "c1", MINE, "s1", "open",
 						"Ada Lovelace", new BigDecimal("500"), true));
 
 		MarketingLeadService.Lead lead = service.openLead("Ada", "Lovelace", "ada@example.test", null,
@@ -93,9 +88,9 @@ class MarketingLeadServiceTest {
 	void aRepeatSubmissionIsNotASecondDeal() {
 		authenticate(Role.MARKETING, MINE);
 		when(ghl.upsertContact(any(), any(), any(), any()))
-				.thenReturn(new GhlLeadClient.UpsertedContact("c1", "Ada", "ada@example.test", null));
+				.thenReturn(new GhlWriteClient.UpsertedContact("c1", "Ada", "ada@example.test", null));
 		when(ghl.upsertOpportunity(any(), any(), any(), any()))
-				.thenReturn(new GhlLeadClient.UpsertedOpportunity("o1", "c1", MINE, "s1", "open", "Ada",
+				.thenReturn(new GhlWriteClient.UpsertedOpportunity("o1", "c1", MINE, "s1", "open", "Ada",
 						null, false));
 
 		assertThat(service.openLead("Ada", null, "ada@example.test", null, null, null).created()).isFalse();
@@ -145,13 +140,8 @@ class MarketingLeadServiceTest {
 
 		assertThatThrownBy(() -> service.value("opp_theirs", null, BigDecimal.TEN))
 				.isInstanceOf(ForbiddenException.class);
-		assertThatThrownBy(() -> service.addNote("opp_theirs", "hello"))
-				.isInstanceOf(ForbiddenException.class);
-		assertThatThrownBy(() -> service.notesOn("opp_theirs"))
-				.isInstanceOf(ForbiddenException.class);
 
 		verify(ghl, never()).updateOpportunity(any(), any(), any(), any(), any());
-		verify(notes, never()).save(any());
 	}
 
 	@Test
@@ -159,7 +149,7 @@ class MarketingLeadServiceTest {
 		authenticate(Role.MARKETING, MINE);
 		givenTheOpportunityIsMine();
 		when(ghl.updateOpportunity(any(), any(), any(), any(), any()))
-				.thenReturn(new GhlLeadClient.UpsertedOpportunity(OPPORTUNITY, "c1", MINE, "s1", "open",
+				.thenReturn(new GhlWriteClient.UpsertedOpportunity(OPPORTUNITY, "c1", MINE, "s1", "open",
 						"Ada", BigDecimal.TEN, false));
 
 		service.value(OPPORTUNITY, null, BigDecimal.TEN);
@@ -175,7 +165,7 @@ class MarketingLeadServiceTest {
 		authenticate(Role.MARKETING, MINE);
 		givenTheOpportunityIsMine();
 		when(ghl.updateOpportunity(any(), any(), any(), any(), any()))
-				.thenReturn(new GhlLeadClient.UpsertedOpportunity(OPPORTUNITY, "c1", MINE, "s1", "open",
+				.thenReturn(new GhlWriteClient.UpsertedOpportunity(OPPORTUNITY, "c1", MINE, "s1", "open",
 						"Ada", new BigDecimal("2500"), false));
 
 		MarketingLeadService.Lead lead = service.value(OPPORTUNITY, "Ada — expedited",
@@ -184,68 +174,5 @@ class MarketingLeadServiceTest {
 		verify(ghl).updateOpportunity(OPPORTUNITY, MINE, "Ada — expedited", new BigDecimal("2500"), null);
 		// What comes back is GHL's answer, not the request body echoed.
 		assertThat(lead.monetaryValue()).isEqualByComparingTo("2500");
-	}
-
-	// --- notes -----------------------------------------------------------------
-
-	/**
-	 * <strong>A note is labelled from the principal, not the request.</strong>
-	 *
-	 * <p>The brand and the pipeline are what {@code ScopePredicate} will scope this row by later.
-	 * If either could come from the caller, a marketer could write a note into another desk's
-	 * stream and it would read back as legitimately theirs.
-	 */
-	@Test
-	void aNoteCarriesTheCallersBrandAndPipelineNotTheRequests() {
-		authenticate(Role.MARKETING, MINE);
-		givenTheOpportunityIsMine();
-		when(notes.save(any())).thenAnswer((call) -> call.getArgument(0));
-
-		service.addNote(OPPORTUNITY, "  Spoke to Ada, wants expedited  ");
-
-		ArgumentCaptor<OpportunityNote> saved = ArgumentCaptor.forClass(OpportunityNote.class);
-		verify(notes).save(saved.capture());
-		assertThat(saved.getValue().getBrandId()).isEqualTo(BRAND);
-		assertThat(saved.getValue().getGhlPipelineId()).isEqualTo(MINE);
-		assertThat(saved.getValue().getAuthorId()).isEqualTo(MEMBER);
-		assertThat(saved.getValue().getGhlOpportunityId()).isEqualTo(OPPORTUNITY);
-		// Trimmed, so a note that is only whitespace cannot slip past the blank check.
-		assertThat(saved.getValue().getBody()).isEqualTo("Spoke to Ada, wants expedited");
-	}
-
-	@Test
-	void aBlankNoteIsRefused() {
-		authenticate(Role.MARKETING, MINE);
-		givenTheOpportunityIsMine();
-
-		assertThatThrownBy(() -> service.addNote(OPPORTUNITY, "   "))
-				.isInstanceOf(InvalidRequestException.class);
-
-		verify(notes, never()).save(any());
-	}
-
-	@Test
-	void theNoteStreamIsReadNewestFirstForOneDeal() {
-		authenticate(Role.MARKETING, MINE);
-		givenTheOpportunityIsMine();
-		when(notes.findByGhlOpportunityIdOrderByCreatedAtDesc(OPPORTUNITY))
-				.thenReturn(List.of(new OpportunityNote(OPPORTUNITY, BRAND, MINE, MEMBER, "second"),
-						new OpportunityNote(OPPORTUNITY, BRAND, MINE, MEMBER, "first")));
-
-		assertThat(service.notesOn(OPPORTUNITY)).extracting(MarketingLeadService.Note::body)
-				.containsExactly("second", "first");
-	}
-
-	/** No note read ever spans opportunities: the stream is always one deal's. */
-	@Test
-	void theNoteStreamIsNeverReadAcrossOpportunities() {
-		authenticate(Role.MARKETING, MINE);
-		givenTheOpportunityIsMine();
-		when(notes.findByGhlOpportunityIdOrderByCreatedAtDesc(anyString())).thenReturn(List.of());
-
-		service.notesOn(OPPORTUNITY);
-
-		verify(notes).findByGhlOpportunityIdOrderByCreatedAtDesc(OPPORTUNITY);
-		verify(notes, never()).findAll();
 	}
 }

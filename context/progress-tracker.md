@@ -4,6 +4,54 @@ Update this file after every meaningful implementation change.
 
 ## Current Phase
 
+- **2026-09-11 — Unit 40 BUILT (except meetings): the sales desk, and the operating half of the
+  programme is done.** 797 backend tests green (was 749), frontend builds, 141 frontend tests
+  pass. No migration.
+
+  **A `SALES` employee now works a deal to a close from EvalOS**: rename it, re-price it, move it
+  between stages, mark it won/lost/abandoned, set a follow-up, and read and write the same note
+  stream Marketing uses.
+
+  **The gating check passed, and the evidence is concrete.** Spec 40 said to verify *before
+  building* that GHL's marketing→sales promotion preserves `ghl_opportunity_id` — notes are keyed
+  on it and would not follow a re-created deal. **`PUT /opportunities/{id}` accepts a
+  `pipelineId`**, so GHL treats the pipeline as a mutable field rather than as identity: a move
+  is an update in place, the id survives, and the history comes with it. No migration step.
+  **The limit, stated:** that verifies GHL's *API*, not this business's particular workflow. The
+  definitive check is watching one real lead get promoted, and that has not been done.
+
+  **Follow-ups shipped; only meetings are actually blocked.** Both were listed as waiting on the
+  `calendars/*` grant. A follow-up is a GHL **task** (`POST /contacts/{contactId}/tasks`) and
+  needs only `contacts.write`, granted all along — so the desk ships with follow-ups working
+  instead of that half deferred too. **Checking the scope per endpoint rather than per feature is
+  what found it.**
+
+  **The refactor Unit 39 set up.** Unit 39 left notes on `MarketingLeadService` with a note that
+  Sales would share the table — and sharing a table through a class named for the other desk is
+  how the second caller ends up with a copy. So: **`OpportunityNoteService` +
+  `OpportunityNoteController` at `/api/opportunities/{id}/notes`**, under neither desk's URL
+  because the conversation belongs to the *deal*; **`PipelineScope`**, extracted because three
+  desks were about to hold three copies of one security check (three copies is three places for
+  one to drift permissive, invisibly, since each looks right alone); and **`GhlLeadClient` →
+  `GhlWriteClient`**, since Sales now writes through it too.
+
+  **Two absences asserted as tests.** `thereIsNoRouteToMoveADealBetweenPipelines` — promotion is
+  GHL's workflow, and a second path would race the automation the business owns. And
+  `thereIsNoRouteToBookAMeeting` — an ungranted scope, written as a test so the gap stays visible
+  rather than being rediscovered as "why is there no meeting button".
+
+  **`open` is not a closable status.** Re-opening a won deal would not un-create the case its
+  webhook already made, so it is a correction with a case-side answer, not a sales action. Case
+  matters too: GHL's enum is lowercase, and `WON` is refused.
+
+  **Winning still does not create a case.** EvalOS tells GHL and waits for the webhook
+  (invariant 8, Handoff A). The screen says so — "the case appears once GHL confirms it" —
+  because a button that goes quiet is a button pressed twice.
+
+  **Next: Unit 41** — Client Portal invoices, the last unit of the programme. **Blocked only on
+  `invoices.readonly`**, and independent of everything above: Unit 35 already ships a portal
+  credential naming a `ghl_contact_id`, which is exactly the key `GET /invoices/` takes.
+
 - **2026-09-11 — Unit 39 BUILT: EvalOS writes to GHL for the first time, and invariant 7 is
   amended.** `V41`. Backend green (40 Postgres tests included), frontend builds, 141 frontend
   tests pass.

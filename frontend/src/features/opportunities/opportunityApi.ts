@@ -103,8 +103,15 @@ export function valueLead(
   return unwrap<Lead>(api.put(`/marketing/leads/${opportunityId}`, update))
 }
 
+/**
+ * One deal's notes.
+ *
+ * **Not under /marketing or /sales.** Unit 40 moved these routes: a lead is nurtured by
+ * Marketing, promoted by GHL's automation and closed by Sales, so the conversation belongs to
+ * the deal rather than to whichever desk currently holds it.
+ */
 export function fetchNotes(opportunityId: string, signal?: AbortSignal): Promise<readonly Note[]> {
-  return unwrap<readonly Note[]>(api.get(`/marketing/leads/${opportunityId}/notes`, { signal }))
+  return unwrap<readonly Note[]>(api.get(`/opportunities/${opportunityId}/notes`, { signal }))
 }
 
 /**
@@ -113,5 +120,65 @@ export function fetchNotes(opportunityId: string, signal?: AbortSignal): Promise
  * This is the client conversation rather than a record of it, so a correction is a new note.
  */
 export function addNote(opportunityId: string, body: string): Promise<Note> {
-  return unwrap<Note>(api.post(`/marketing/leads/${opportunityId}/notes`, { body }))
+  return unwrap<Note>(api.post(`/opportunities/${opportunityId}/notes`, { body }))
+}
+
+// --- Unit 40: the sales desk ------------------------------------------------
+
+/** What the sales desk gets back after an action — GHL's answer, not the request echoed. */
+export type SalesDeal = {
+  opportunityId: string
+  contactId: string
+  name: string | null
+  stageId: string
+  status: string
+  monetaryValue: number | null
+}
+
+/**
+ * The three outcomes a salesperson may set.
+ *
+ * `open` is absent deliberately: re-opening a won deal would not un-create the case its
+ * webhook already made, so it is a correction with a case-side answer rather than a sales
+ * action. The server refuses anything else, lowercase included — GHL's enum is lowercase.
+ */
+export type CloseStatus = 'won' | 'lost' | 'abandoned'
+
+export function updateDeal(
+  opportunityId: string,
+  update: { name?: string; monetaryValue?: number },
+): Promise<SalesDeal> {
+  return unwrap<SalesDeal>(api.put(`/sales/opportunities/${opportunityId}`, update))
+}
+
+/**
+ * Moves a deal to another stage **of the pipeline it is already in**.
+ *
+ * There is no target-pipeline parameter and there must never be one: promotion between
+ * pipelines is GHL's workflow, and a second path here would race the automation the business
+ * already owns.
+ */
+export function moveStage(opportunityId: string, stageId: string): Promise<SalesDeal> {
+  return unwrap<SalesDeal>(api.put(`/sales/opportunities/${opportunityId}/stage`, { stageId }))
+}
+
+/**
+ * Closes the deal.
+ *
+ * **Winning returns before the case exists.** EvalOS tells GHL; GHL's `opportunity.won` webhook
+ * creates the case (invariant 8, Handoff A). The screen must show that gap as pending rather
+ * than as nothing, or a salesperson presses Won twice.
+ */
+export function closeDeal(opportunityId: string, status: CloseStatus): Promise<SalesDeal> {
+  return unwrap<SalesDeal>(api.put(`/sales/opportunities/${opportunityId}/status`, { status }))
+}
+
+/** A follow-up is a GHL task on the deal's contact, not an EvalOS reminder. */
+export function setFollowUp(
+  opportunityId: string,
+  followUp: { contactId: string; title: string; dueAt: string },
+): Promise<{ ghlTaskId: string }> {
+  return unwrap<{ ghlTaskId: string }>(
+    api.post(`/sales/opportunities/${opportunityId}/follow-ups`, followUp),
+  )
 }

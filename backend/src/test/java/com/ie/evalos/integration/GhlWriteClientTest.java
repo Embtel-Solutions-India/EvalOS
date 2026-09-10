@@ -27,6 +27,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
@@ -37,7 +38,7 @@ import static org.mockito.Mockito.verify;
  * {@code GhlPipelineClientHttpTest} gives: a tool that normalises what it sends is a tool that
  * tests something other than what ships. This sees the literal path and the literal body.
  */
-class GhlLeadClientTest {
+class GhlWriteClientTest {
 
 	private static final String LOCATION = "kBumF0uUOmMBB5bneYjx";
 	private static final String PIPELINE = "tj2agZ90S1LQgCpDAoKi";
@@ -73,8 +74,8 @@ class GhlLeadClientTest {
 		}
 	}
 
-	private GhlLeadClient client() {
-		return new GhlLeadClient(new GhlHttp("http://127.0.0.1:" + server.getAddress().getPort(),
+	private GhlWriteClient client() {
+		return new GhlWriteClient(new GhlHttp("http://127.0.0.1:" + server.getAddress().getPort(),
 				"2021-07-28", "pit-test-token", LOCATION, Duration.ofSeconds(5)), audit);
 	}
 
@@ -90,7 +91,7 @@ class GhlLeadClientTest {
 		responses.add("{\"contact\":{\"id\":\"c1\",\"contactName\":\"Ada Lovelace\","
 				+ "\"email\":\"ada@example.test\",\"phone\":null}}");
 
-		GhlLeadClient.UpsertedContact contact = client().upsertContact("Ada", "Lovelace",
+		GhlWriteClient.UpsertedContact contact = client().upsertContact("Ada", "Lovelace",
 				"ada@example.test", null);
 
 		assertThat(paths).containsExactly("POST /contacts/upsert");
@@ -107,7 +108,7 @@ class GhlLeadClientTest {
 		responses.add("{\"opportunity\":{\"id\":\"o1\",\"name\":\"Ada\",\"contactId\":\"c1\","
 				+ "\"pipelineStageId\":\"s1\",\"status\":\"open\",\"monetaryValue\":500},\"new\":true}");
 
-		GhlLeadClient.UpsertedOpportunity opportunity = client().upsertOpportunity(PIPELINE, "c1", "Ada",
+		GhlWriteClient.UpsertedOpportunity opportunity = client().upsertOpportunity(PIPELINE, "c1", "Ada",
 				new BigDecimal("500"));
 
 		assertThat(paths).containsExactly("POST /opportunities/upsert");
@@ -157,7 +158,7 @@ class GhlLeadClientTest {
 		responses.add("{\"opportunity\":{\"id\":\"o1\",\"name\":\"B\",\"contactId\":\"c1\","
 				+ "\"pipelineStageId\":\"s1\",\"status\":\"open\",\"monetaryValue\":null}}");
 
-		GhlLeadClient client = client();
+		GhlWriteClient client = client();
 		client.upsertOpportunity(PIPELINE, "c1", "A", null);
 		client.updateOpportunity("o1", PIPELINE, "B", null, null);
 
@@ -174,7 +175,7 @@ class GhlLeadClientTest {
 		responses.add("{\"opportunity\":{\"id\":\"same\",\"name\":\"A\",\"contactId\":\"same\","
 				+ "\"pipelineStageId\":\"s1\",\"status\":\"open\",\"monetaryValue\":null},\"new\":true}");
 
-		GhlLeadClient client = client();
+		GhlWriteClient client = client();
 		client.upsertContact("A", null, "a@b.test", null);
 		client.upsertOpportunity(PIPELINE, "same", "A", null);
 
@@ -197,6 +198,80 @@ class GhlLeadClientTest {
 		assertThat(bodies.get(0)).contains("\"monetaryValue\":2500");
 	}
 
+	// --- Unit 40: the sales desk's writes ---------------------------------------
+
+	/**
+	 * <strong>A pipeline move is an update in place, and the id survives it.</strong>
+	 *
+	 * <p>This was Unit 40's gating check. {@code PUT /opportunities/{id}} accepts a
+	 * {@code pipelineId}, so GHL treats the pipeline as a mutable field rather than as identity
+	 * — which is why the note stream survives the marketing-to-sales handoff with no migration
+	 * step. If GHL had minted a new opportunity instead, notes would not follow and Unit 40
+	 * would have needed one.
+	 */
+	@Test
+	void movingAStageIsAnUpdateOnTheSameOpportunityId() {
+		responses.add("{\"opportunity\":{\"id\":\"o1\",\"name\":\"Acme\",\"contactId\":\"c1\","
+				+ "\"pipelineStageId\":\"s2\",\"status\":\"open\",\"monetaryValue\":1200}}");
+
+		GhlWriteClient.UpsertedOpportunity moved = client().moveStage("o1", PIPELINE, "s2");
+
+		assertThat(paths).containsExactly("PUT /opportunities/o1");
+		assertThat(bodies.get(0)).contains("\"pipelineStageId\":\"s2\"");
+		assertThat(moved.id()).isEqualTo("o1");
+		assertThat(moved.stageId()).isEqualTo("s2");
+	}
+
+	@Test
+	void closingADealPutsItsStatusAndAuditsTheChange() {
+		responses.add("{\"opportunity\":{\"id\":\"o1\",\"name\":\"Acme\",\"contactId\":\"c1\","
+				+ "\"pipelineStageId\":\"s2\",\"status\":\"won\",\"monetaryValue\":1200}}");
+
+		GhlWriteClient.UpsertedOpportunity closed = client().setStatus("o1", PIPELINE, "won");
+
+		assertThat(paths).containsExactly("PUT /opportunities/o1/status");
+		assertThat(bodies.get(0)).contains("\"status\":\"won\"");
+		assertThat(closed.status()).isEqualTo("won");
+		verify(audit).recordEvent(eq("GHL_OPPORTUNITY"), any(UUID.class), eq(AuditAction.STAGE_CHANGED),
+				any(), any(), any());
+	}
+
+	/**
+	 * A follow-up is a GHL task on the contact, and it needs no scope beyond
+	 * {@code contacts.write} — which is why it shipped while meetings did not.
+	 */
+	@Test
+	void aFollowUpIsAGhlTaskOnTheContact() {
+		responses.add("{\"task\":{\"id\":\"t1\",\"title\":\"Call back\","
+				+ "\"dueDate\":\"2026-09-18T09:00:00Z\"}}");
+
+		String taskId = client().createFollowUp("c1", "o1", PIPELINE, "Call back",
+				"2026-09-18T09:00:00Z");
+
+		assertThat(paths).containsExactly("POST /contacts/c1/tasks");
+		assertThat(bodies.get(0)).contains("\"title\":\"Call back\"");
+		assertThat(bodies.get(0)).contains("\"dueDate\":\"2026-09-18T09:00:00Z\"");
+		assertThat(taskId).isEqualTo("t1");
+	}
+
+	/**
+	 * The follow-up is audited against the <em>opportunity</em>, not the contact.
+	 *
+	 * <p>The task hangs off the contact because that is where GHL puts tasks, but the thing a
+	 * salesperson is chasing is the deal — and an audit trail keyed on the contact would scatter
+	 * one deal's chases across every deal that client has ever had.
+	 */
+	@Test
+	void aFollowUpIsAuditedAgainstTheDealNotTheContact() {
+		responses.add("{\"task\":{\"id\":\"t1\",\"title\":\"Call back\",\"dueDate\":\"x\"}}");
+
+		client().createFollowUp("c1", "o1", PIPELINE, "Call back", "2026-09-18T09:00:00Z");
+
+		verify(audit).recordEvent(eq("GHL_OPPORTUNITY"), any(UUID.class), eq(AuditAction.CHASED),
+				any(), any(), any());
+		verify(audit, never()).recordEvent(eq("GHL_CONTACT"), any(), any(), any(), any(), any());
+	}
+
 	/**
 	 * <strong>A write GHL accepted but answered emptily is a 502, not a silent success.</strong>
 	 *
@@ -216,7 +291,7 @@ class GhlLeadClientTest {
 	/** An unconfigured environment writes nothing at all, and says which variables are missing. */
 	@Test
 	void anUnconfiguredEnvironmentWritesNothing() {
-		GhlLeadClient client = new GhlLeadClient(
+		GhlWriteClient client = new GhlWriteClient(
 				new GhlHttp("http://127.0.0.1:1", "2021-07-28", "", "", Duration.ofMillis(200)), audit);
 
 		assertThatThrownBy(() -> client.upsertContact("Ada", null, "ada@example.test", null))

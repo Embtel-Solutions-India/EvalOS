@@ -14,7 +14,12 @@ import com.ie.evalos.service.AuditService;
 import org.springframework.stereotype.Component;
 
 /**
- * The first thing in EvalOS that writes to GHL.
+ * Every write EvalOS makes to GHL.
+ *
+ * <p><strong>Renamed from {@code GhlLeadClient} in Unit 40.</strong> It was named for the
+ * marketing desk that first used it; the sales desk now closes deals and schedules follow-ups
+ * through the same methods, so the old name described one of its two callers. A class named for
+ * whoever happened to need it first is a name the next reader has to un-learn.
  *
  * <p><strong>It audits, and {@code GhlHttp} still does not.</strong> Unit 37 argued that the door
  * is transport and cannot write a meaningful audit row, because it does not know what a write
@@ -39,7 +44,7 @@ import org.springframework.stereotype.Component;
  * nobody wants to change.
  */
 @Component
-public class GhlLeadClient {
+public class GhlWriteClient {
 
 	/**
 	 * What GHL returns from an opportunity upsert.
@@ -59,7 +64,7 @@ public class GhlLeadClient {
 	private final GhlHttp http;
 	private final AuditService audit;
 
-	GhlLeadClient(GhlHttp http, AuditService audit) {
+	GhlWriteClient(GhlHttp http, AuditService audit) {
 		this.http = http;
 		this.audit = audit;
 	}
@@ -155,6 +160,76 @@ public class GhlLeadClient {
 				row.status(), row.name(), row.monetaryValue(), false);
 	}
 
+	/**
+	 * Moves an opportunity to a stage, and optionally to another pipeline.
+	 *
+	 * <p><strong>A pipeline move is an update in place — the id does not change.</strong> That is
+	 * what makes the note stream survive the marketing-to-sales handoff without a migration
+	 * step, and it was Unit 40's gating check: {@code PUT /opportunities/{id}} accepts a
+	 * {@code pipelineId}, so GHL treats the pipeline as a mutable field rather than as identity.
+	 */
+	public UpsertedOpportunity moveStage(String opportunityId, String pipelineId, String stageId) {
+		return updateOpportunity(opportunityId, pipelineId, null, null, stageId);
+	}
+
+	/**
+	 * Marks an opportunity won, lost or abandoned.
+	 *
+	 * <p><strong>Winning does NOT create a case, and must never be made to.</strong> EvalOS tells
+	 * GHL the deal is won and waits for the {@code opportunity.won} webhook, which is Handoff A
+	 * and the only door a case enters custody through (invariant 8). The delay between the two is
+	 * real and the screen shows it as pending — a "helpful" local case creation here would be a
+	 * second intake path racing the webhook, and {@code DomainInvariantsTest} refuses the shape.
+	 */
+	public UpsertedOpportunity setStatus(String opportunityId, String pipelineId, String status) {
+		Map<String, Object> body = Map.of("status", status);
+
+		OpportunityEnvelope response = http.put(OpportunityEnvelope.class,
+				(uri) -> uri.path("/opportunities/{id}/status").build(opportunityId), body);
+		OpportunityRow row = require(response == null ? null : response.opportunity(), "opportunity");
+
+		audit.recordEvent("GHL_OPPORTUNITY", auditKey("GHL_OPPORTUNITY", opportunityId),
+				AuditAction.STAGE_CHANGED, actor(), null,
+				Map.of("ghlOpportunityId", opportunityId, "ghlPipelineId", pipelineId, "status", status));
+
+		return new UpsertedOpportunity(row.id(), row.contactId(), pipelineId, row.pipelineStageId(),
+				row.status(), row.name(), row.monetaryValue(), false);
+	}
+
+	/**
+	 * Sets a follow-up as a <strong>GHL task</strong>, not an EvalOS reminder.
+	 *
+	 * <p><strong>Deliberately GHL's, and it needs no new grant.</strong> GHL has tasks, its
+	 * automation can act on them, and they appear where the rest of the business already looks.
+	 * An EvalOS-side reminder would need the {@code job} package, would duplicate something that
+	 * exists, and would <em>reach nobody</em> — invariant 14: EvalOS has no outbound channel.
+	 * {@code POST /contacts/{contactId}/tasks} needs only {@code contacts.write}, which is
+	 * already granted, so this ships without waiting on the {@code calendars/*} scopes that hold
+	 * up meetings.
+	 *
+	 * <p>Hung off the contact because that is where GHL puts tasks. The opportunity is named in
+	 * the title so the task is legible over there, which is the same reasoning that keeps notes
+	 * on the EvalOS side: GHL's task has nowhere to record which deal it belongs to.
+	 */
+	public String createFollowUp(String contactId, String opportunityId, String pipelineId, String title,
+			String dueAt) {
+		Map<String, Object> body = new LinkedHashMap<>();
+		body.put("title", title);
+		body.put("dueDate", dueAt);
+		body.put("completed", false);
+
+		TaskEnvelope response = http.post(TaskEnvelope.class,
+				(uri) -> uri.path("/contacts/{contactId}/tasks").build(contactId), body);
+		TaskRow task = require(response == null ? null : response.task(), "task");
+
+		audit.recordEvent("GHL_OPPORTUNITY", auditKey("GHL_OPPORTUNITY", opportunityId),
+				AuditAction.CHASED, actor(), null,
+				Map.of("ghlOpportunityId", opportunityId, "ghlPipelineId", pipelineId,
+						"ghlTaskId", task.id(), "dueAt", dueAt));
+
+		return task.id();
+	}
+
 	/** The staff member responsible, or null outside a request — the audit contract's own rule. */
 	private static UUID actor() {
 		return TenantContext.find().map(TenantContext::memberId).orElse(null);
@@ -230,5 +305,11 @@ public class GhlLeadClient {
 
 	record OpportunityRow(String id, String name, String contactId, String pipelineStageId, String status,
 			BigDecimal monetaryValue) {
+	}
+
+	record TaskEnvelope(TaskRow task) {
+	}
+
+	record TaskRow(String id, String title, String dueDate) {
 	}
 }
