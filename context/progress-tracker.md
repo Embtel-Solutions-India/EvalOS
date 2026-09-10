@@ -4,6 +4,33 @@ Update this file after every meaningful implementation change.
 
 ## Current Phase
 
+- **2026-09-11 — two of the three "blocked on a GHL scope" items were never blocked.** Probed
+  every scope against the app's own token before building anything. No code changed.
+
+  | Scope | Recorded as | Actually |
+  |---|---|---|
+  | `invoices.readonly` | ❌ ask, "chase it first" | ✅ **granted** — HTTP 200, 212 real invoices |
+  | `calendars.readonly` | ❌ not granted | ✅ **granted** — HTTP 200 |
+  | `calendars/events.readonly` | not listed | ✅ **granted** — HTTP 200 |
+  | `calendars/events.write` | ❌ not granted | **unverified** — confirming it means booking a real appointment on a live calendar |
+
+  **Unit 41 is exercised live.** A party-scoped portal credential for GHL contact
+  `lF6a5leuKo7GMBLGz60F` returned two genuine paid invoices — INV-1220 ($700) and INV-1127
+  ($1,648) — through `GET /api/portal/client/invoices`. The unit was correct all along.
+
+  **How the false claim survived.** The scopes were recorded as asks when Units 40/41 were
+  specced on 2026-09-10 and never re-probed after the build. A 401/403 was assumed and never
+  observed. **The rule worth keeping: probe the grant before writing "blocked" in a doc, and read
+  the status code** — my own first probe of `/invoices/` returned **422**, which is auth passing
+  and params missing (`limit` and `offset` are required), not a refusal. `GhlInvoiceClient` was
+  already sending both.
+
+  **Meetings are therefore not scope-blocked; they are unbuilt.** There is no calendar client, no
+  endpoint and no UI. `GhlWriteClient.createFollowUp` writes a GHL *task* over `contacts.write`,
+  which is a different thing and was always specced as such.
+
+  Corrected: `41`, `40`, `37`, `00b`, `00-build-plan` and two older entries in this file.
+
 - **2026-09-11 — IE's sales and marketing desks are reachable, on live GHL data.** Not a unit:
   Units 36–41 were built, tested and **impossible to log into**, because `evalos.ghl.sales-brand`
   was blank (so no member of any brand could hold a pipeline-scoped role) and no seeded login
@@ -233,7 +260,8 @@ Update this file after every meaningful implementation change.
   and Unit 17b (the cycle-time chart).
 
 - **2026-09-11 — Unit 41 BUILT: the programme is code-complete.** Both portal apps build, 22
-  portal tests pass. **Not yet exercised live** — `invoices.readonly` is still ungranted, so
+  portal tests pass. ~~**Not yet exercised live**~~ — **exercised live 2026-09-11**; the scope was
+  already granted. Was: `invoices.readonly` is still ungranted, so
   every invoice call answers 502 until it lands. No migration.
 
   **A client with a party-scoped link now sees their invoices and what has been paid.** EvalOS
@@ -590,13 +618,15 @@ Update this file after every meaningful implementation change.
 
   **Verified against the live GHL API rather than assumed.** Opportunity CRUD and a server-side
   `pipelineId` search parameter exist; `GET /invoices/` filters by `contactId` + `status`;
-  appointments exist. **Three scopes are not granted** — `invoices.readonly`,
-  `calendars/events.write`, `calendars.readonly` — and they are now rows in the build plan's
-  Step 0.
+  appointments exist. ~~**Three scopes are not granted**~~ — **wrong, corrected 2026-09-11.**
+  `invoices.readonly`, `calendars.readonly` and `calendars/events.readonly` were all probed
+  against the app's own token and all answer HTTP 200. The grants were never re-tested after this
+  entry was written; only `calendars/events.write` is still unverified.
 
   **Unit 41 does not queue behind the programme.** It needs Unit 35 (shipped: a portal credential
-  naming a `ghl_contact_id` — exactly the key `GET /invoices/` takes) and the one scope. Chase
-  `invoices.readonly` first: it is the cheapest ask and unblocks a whole unit.
+  naming a `ghl_contact_id` — exactly the key `GET /invoices/` takes) and the one scope. ~~Chase
+  `invoices.readonly` first~~ — **it was already granted**; Unit 41 was exercised live on
+  2026-09-11 with no code change.
 
   **Verification pass done first**, because `0d88f0c` exists: `V38` is latest so the programme
   starts at `V39`; `SALES_EXECUTIVE` and `GoogleDrive` survive only in applied migrations and

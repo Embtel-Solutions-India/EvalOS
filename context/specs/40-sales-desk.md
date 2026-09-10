@@ -59,9 +59,16 @@ new one, notes do **not** follow, and this unit needs a note-migration step keye
 
 | Need | Endpoint | Scope | Status |
 | --- | --- | --- | --- |
-| Schedule a meeting | `POST /calendars/events/appointments` | `calendars/events.write` | **not granted** |
-| Reschedule | `PUT /calendars/events/appointments/{eventId}` | `calendars/events.write` | **not granted** |
-| Pick a calendar | calendars list | `calendars.readonly` | **not granted** |
+| Schedule a meeting | `POST /calendars/events/appointments` | `calendars/events.write` | **unverified** — confirming it means booking a real appointment on a live calendar, so it has not been probed |
+| Reschedule | `PUT /calendars/events/appointments/{eventId}` | `calendars/events.write` | **unverified**, as above |
+| Pick a calendar | `GET /calendars/?locationId=` | `calendars.readonly` | ✅ **granted, verified live 2026-09-11** (HTTP 200) |
+| Read existing appointments | `GET /calendars/events` | `calendars/events.readonly` | ✅ **granted, verified live 2026-09-11** (HTTP 200) |
+
+> **Corrected 2026-09-11.** All three rows above said "not granted", and two of them were wrong —
+> the grants were recorded as asks when this spec was written and never re-probed. **Meetings are
+> not scope-blocked; they are unbuilt.** There is no calendar client, no endpoint and no UI in
+> EvalOS: `GhlWriteClient.createFollowUp` writes a GHL *task* (`contacts.write`), which is a
+> different thing and was always specced as such.
 
 **This unit cannot be built until those two scopes are granted.** They belong in
 `00-build-plan.md`'s Step 0 table. Everything else in this unit — opportunity CRUD, stage moves,

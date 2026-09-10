@@ -121,9 +121,12 @@ The replacement is two structural assertions:
 
 - **No caller.** Nothing invokes the new verbs. That is the point: the door and the first thing
   through it are separate decisions, and the door is reversible until Unit 38 stores a row.
-- **No new scope request.** `opportunities.write` and `contacts.write` are already granted. The
-  three scopes the programme still needs (`invoices.readonly`, `calendars/events.write`,
-  `calendars.readonly`) are Units 40 and 41's, and are in `00b` §3.
+- **No new scope request.** `opportunities.write` and `contacts.write` are already granted.
+  **Corrected 2026-09-11:** the "three scopes the programme still needs" was wrong on at least
+  two counts — `invoices.readonly`, `calendars.readonly` and `calendars/events.readonly` were all
+  probed against the app's own token and all answer HTTP 200. Only `calendars/events.write`
+  remains unverified, and only because confirming it means booking a real appointment on a live
+  calendar. See `00b` §3.
 - **No idempotency scheme** (§4).
 - **No retry.** Reads do not retry today and writes must not start: a blind retry on a write with
   no idempotency key is how one opportunity becomes two.

@@ -42,7 +42,7 @@ longer the thing everything queues behind. Two rows are struck and kept as the r
 | ~~GHL outbound contract~~ | ~~**Unit 18**~~ | **Struck 2026-09-09. Unit 18 was removed on 2026-09-02**, so there is no subscriber to register and no signing secret to hold. Invariant 14 is settled, not pending. What survives is not a contract but a question — *who reaches the client at all* — tracked as **G15** in `process-automation.md`, not here |
 | The real `opportunity.won` payload, signature header name, HMAC encoding | **Unit 05b's live run** — not its code, which is **built** | Always true and now demonstrated: 05b shipped with unit tests and never needed this. Only the end-to-end firing does |
 | ~~Anthropic key + a compliance decision~~ | ~~Unit 20's AI half~~ | **Struck 2026-09-04. There is no AI half and no Unit 20.** The unit was removed from scope on 2026-09-02 and is now `architecture.md` invariant 15; leaving its key in the "things to request" table kept the door open. **Nothing in EvalOS needs an LLM.** The anomaly figure it also proposed is arithmetic, not AI — if the business wants it, it is a Unit 17 tile over stored metrics, and it does not need a unit whose name invites the model back |
-| **`invoices.readonly` on the GHL token** | **Unit 41's live use — the code is BUILT** | **Added 2026-09-10** with the GHL operational programme. Unit 41 is otherwise **unblocked**: Unit 35 shipped a portal credential naming a `ghl_contact_id`, and that is exactly the key `GET /invoices/` takes. This is the cheapest ask on the list and it unblocks a whole unit that waits on nothing else — **chase it first** |
+| ~~**`invoices.readonly` on the GHL token**~~ | ~~Unit 41's live use~~ | **STRUCK 2026-09-11 — it was already granted.** Probed with the app's own token: HTTP 200, 212 real invoices. Unit 41 was verified end to end against live GHL the same day and no code changed. It had been listed as blocked since 2026-09-10 on an assumption nobody re-tested |
 | **`calendars/events.write` + `calendars.readonly`** | **Unit 40's meetings half only — still outstanding** | **Added 2026-09-10; still the only thing Unit 40 is missing.** The desk shipped 2026-09-11 without meetings, exactly as predicted. **Follow-ups turned out NOT to need this** — a GHL task is `POST /contacts/{contactId}/tasks`, which needs only `contacts.write`. Checking the scope per *endpoint* rather than per *feature* is what found that |
 
 **All three are scopes on the existing token, not new credentials.** The current grant is
@@ -128,7 +128,7 @@ single-brand ceiling and the invariant ledger, and a unit spec that disagrees wi
 | **38** | Opportunity reads and the board | 36 | **BUILT** 2026-09-11, `V40`. **Past the point of cheap return** |
 | **39** | Marketing lead desk | 38 | **BUILT** 2026-09-11, `V41`. Amended invariant 7; first caller of the write door; idempotency answered with **upsert** |
 | **40** | Sales desk | 38, 39 | **BUILT** 2026-09-11 **except meetings**, which alone need the `calendars/*` grant. Follow-ups shipped — a GHL task needs only `contacts.write` |
-| **41** | Client Portal invoices | **35 ✅** | **BUILT** 2026-09-11. **Not exercised live** — `invoices.readonly` still ungranted, so it answers 502 by design until it lands |
+| **41** | Client Portal invoices | **35 ✅** | **BUILT and exercised live** 2026-09-11. `invoices.readonly` was already granted; two real paid invoices returned through the portal for a genuine GHL contact |
 
 **Track C does not queue behind Track A**, and two of its rows are the reason to say so:
 

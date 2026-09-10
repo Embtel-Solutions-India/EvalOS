@@ -1,8 +1,16 @@
 # Unit 41 — Invoices and payments in the Client Portal
 
-> **Status: BUILT 2026-09-11. Not yet exercised live** — `invoices.readonly` is still ungranted,
-> so every call answers 502 until it lands. Programme decisions:
+> **Status: BUILT and EXERCISED LIVE 2026-09-11.** `invoices.readonly` turned out to be
+> **already granted** — a probe with the app's own token returned HTTP 200 and 212 real invoices
+> for the location. A party-scoped portal credential for GHL contact `lF6a5leuKo7GMBLGz60F`
+> returned two genuine paid invoices (INV-1220 $700, INV-1127 $1,648) through
+> `GET /api/portal/client/invoices`. No code changed. Programme decisions:
 > `00b-ghl-operational-programme.md`.
+>
+> **How the "ungranted" claim survived so long:** the scope was recorded as an ask when the unit
+> was specced and never re-probed after the build. A 401/403 was assumed, never observed. The
+> lesson is cheap and worth keeping — **probe the grant before writing "blocked" in a doc**, and
+> distinguish a 422 (auth passed, params wrong) from a 401/403.
 >
 > **Independent of Units 36–40.** This unit needs nothing from the pipeline access model, the write
 > door, the boards or the desks. It needs **Unit 35, which shipped**, and **one OAuth scope, which

@@ -155,7 +155,7 @@ Verified 2026-09-10 against the live API surface, not assumed.
 | Read opportunities by pipeline | `GET /opportunities/search` — filters `pipelineId`, `pipelineStageId`, `contactId`, `assignedTo`, `status` | `opportunities.readonly` | ✅ |
 | Create / update opportunity | `POST /opportunities/`, `PUT /opportunities/{id}`, `PUT /opportunities/{id}/status` | `opportunities.write` | ✅ |
 | Create / update contact | contacts endpoints | `contacts.write` | ✅ |
-| Invoices with payment status | `GET /invoices/` — filters `contactId`, `status` | `invoices.readonly` | ❌ **ask** |
+| Invoices with payment status | `GET /invoices/` — filters `contactId`, `status`; **`limit` and `offset` are REQUIRED** (omitting them is a 422, not a 400) | `invoices.readonly` | ✅ **granted, verified live 2026-09-11** |
 | Meetings | `POST /calendars/events/appointments`, `PUT /calendars/events/appointments/{eventId}` | `calendars/events.write` | ❌ **ask** |
 | Calendar list | calendars endpoints | `calendars.readonly` | ❌ **ask** |
 
@@ -165,7 +165,7 @@ opportunities in the first place. The EvalOS-side predicate stays anyway (defenc
 is what scopes the note table), but the network call is scoped too.
 
 **Three OAuth scopes are an external ask** and belong in `00-build-plan.md`'s Step 0 table beside
-the AWS credential. Unit 41 is blocked on `invoices.readonly` and on nothing else.
+the AWS credential. **Unit 41 is not blocked at all** — `invoices.readonly` was already granted, and the unit was exercised live on 2026-09-11.
 
 ---
 
@@ -182,7 +182,7 @@ the AWS credential. Unit 41 is blocked on `invoices.readonly` and on nothing els
 
 **Unit 41 is independent of 36–40 and should not wait for them.** Unit 35 shipped a portal
 credential that names a `ghl_contact_id`, and that is exactly the key `GET /invoices/` takes. It is
-blocked on the `invoices.readonly` grant and nothing else, so it runs in parallel the moment that
+**not blocked** — the grant was already in place, proven live 2026-09-11 — so it ran in parallel the moment that
 scope lands.
 
 **Unit 37 is its own unit, and folding it into 38 is the mistake to avoid.** It is one class gaining
