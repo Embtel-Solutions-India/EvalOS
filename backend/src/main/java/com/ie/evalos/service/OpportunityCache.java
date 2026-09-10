@@ -51,6 +51,17 @@ public class OpportunityCache {
 	}
 
 	/**
+	 * Whether this opportunity is in this pipeline — the scope check in front of a write.
+	 *
+	 * <p>An existence query rather than loading the pipeline and scanning it: a write should not
+	 * cost a full board read, and this cannot accidentally return rows to a caller that only
+	 * asked a yes/no question.
+	 */
+	public boolean isInPipeline(String opportunityId, String pipelineId) {
+		return rows.existsByGhlOpportunityIdAndGhlPipelineId(opportunityId, pipelineId);
+	}
+
+	/**
 	 * Replaces one pipeline's contents with what GHL just returned.
 	 *
 	 * <p><strong>Wholesale, never an upsert.</strong> An opportunity that has left the pipeline

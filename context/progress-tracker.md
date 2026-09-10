@@ -4,6 +4,56 @@ Update this file after every meaningful implementation change.
 
 ## Current Phase
 
+- **2026-09-11 — Unit 39 BUILT: EvalOS writes to GHL for the first time, and invariant 7 is
+  amended.** `V41`. Backend green (40 Postgres tests included), frontend builds, 141 frontend
+  tests pass.
+
+  **A `MARKETING` member now opens a lead, values it and writes notes on it without opening GHL.**
+  Contacts and opportunities go **to GHL** and display what GHL returns; the note stream is
+  EvalOS's own.
+
+  **Unit 37's tripwire caught its first caller, exactly as designed.** `GhlLeadClient` holds
+  `GhlHttp`, calls write verbs, and therefore had to reach `AuditService` — the structural test
+  whose expected set was empty now has a member that satisfies it rather than a rule that was
+  quietly waived.
+
+  **The idempotency decision Unit 37 deferred is made, and GHL made it easier than expected.**
+  Every GHL write is marked `idempotencyRequired`, but **no key exists to send** — no header, no
+  client token. What GHL offers instead is **upsert**, keyed on data it already owns:
+  `POST /contacts/upsert` (email then phone, per the location's duplicate setting) and
+  `POST /opportunities/upsert` (`contactId` + `pipelineId`, returning a **`new`** flag). So
+  creates go through upsert and a double-submit yields one lead. **Two limits stated in the
+  spec:** upsert means one open opportunity per contact per pipeline — right for a marketing
+  lead, **wrong for a repeat client's second deal, which Unit 40 must not route this way** — and
+  contact dedupe depends on a GHL setting EvalOS does not control.
+
+  **Invariant 7 is amended in one clause and the rest is load-bearing.** Contact data stops being
+  "never mutated"; **EvalOS still mints no `ghl_contact_id`** — it asks GHL and GHL returns the
+  id, which is why the amendment is narrow: the write direction moved, the identity authority did
+  not. And Unit 39 *leans on* the three-identifier rule rather than merely respecting it:
+  `opportunity_note` is keyed on `ghl_opportunity_id`, because a repeat client is one contact and
+  two deals and GHL's own notes hang off the contact.
+
+  **Two bugs the tests caught, both of which would have shipped silently.** The audit keys
+  **collided**: the first version hashed `"ghl:" + id` for contacts and opportunities alike, so
+  the same id in both merged their histories — **and the javadoc claimed the prefix prevented
+  exactly that.** And GHL's `new` flag **never bound**, because the JSON key is a Java keyword and
+  Jackson needs `@JsonProperty("new")`; every upsert would have reported "already open" whatever
+  GHL said, with nothing failing.
+
+  **And a lesson about testing an append-only table.** A note test passed on its first run and
+  failed on its second. Nothing was flaky: notes cannot be deleted (that is the trigger doing its
+  job) and `evalos_test` persists, so a count over a fixed id grew every run. The tests now
+  generate per-run ids, verified by running the suite twice.
+
+  **Screens:** a New lead form for `MARKETING` above the board, and notes on each card, loaded on
+  expand rather than eagerly. Opening a lead **refetches** rather than inserting a card locally —
+  the deal lives in GHL now, and reading it back is the only honest confirmation.
+
+  **Next: Unit 40** — the sales desk. Opportunity CRUD, stage moves, notes (shared table), and
+  meetings. **Its meetings half is blocked** on `calendars/events.write` + `calendars.readonly`;
+  everything else needs only the existing grant.
+
 - **2026-09-11 — Unit 38 BUILT: opportunities are readable, and the pivot is now expensive to
   reverse.** `V40`. Backend green; frontend builds and its 141 tests pass.
 

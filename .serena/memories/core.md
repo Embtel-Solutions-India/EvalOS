@@ -101,7 +101,7 @@ none. What is true now: **GHL stays the CRM, the pipeline engine, the automation
 invoice/QuickBooks integration; EvalOS is the interface Sales and Marketing work in.** Invoicing
 is still GHL's — EvalOS reads invoices and raises none.
 
-**Three of six units are built (36, 37, 38).** The **GHL
+**Four of six units are built (36–39).** The **GHL
 operational programme (Units 36–41)** makes EvalOS the interface Sales and Marketing *work in*, so
 they never open GHL; GHL stays the CRM, pipeline, automation and invoice/QuickBooks layer
 underneath. Spec: **`context/specs/00b-ghl-operational-programme.md`** — read it before any GHL
@@ -112,8 +112,33 @@ work, it holds the truth model and the invariant ledger.
 | | |
 |---|---|
 | **Decided** | Two roles `SALES`/`MARKETING` (`Tier.PIPELINE`) + a `segment` column, *not* six roles; one personal exclusive pipeline each; **GHL owns the opportunity, EvalOS owns the note stream keyed on `ghl_opportunity_id`**; a droppable non-authoritative opportunity cache; **single selling brand** (`evalos.ghl.sales-brand`) enforced with a 400 until Unit 25 |
-| **Built** | **36** (`V39`): eight roles, `Tier.PIPELINE` fails closed, `team_member.ghl_pipeline_id` + `segment`, two GM routes, single-brand ceiling enforced with a 400. **37**: `GhlHttp` has `post`/`put`/`delete`; **invariant 2 dead and rewritten**; guard replaced by "verb list closed" + "every write caller reaches `AuditService`". **38** (`V40`): `ghl_opportunity_cache`, `GhlOpportunityClient`, `GET /api/opportunities/board` for SALES/MARKETING/GM, and the SPA's two new roles + their board. |
-| **Next** | **Unit 39** — the marketing lead desk (`V41`). Amends invariant 7, introduces `opportunity_note` (keyed on `ghl_opportunity_id`), and is **the first caller of the write door**, so it owns the idempotency decision Unit 37 deferred. |
+| **Built** | **36** (`V39`): eight roles, `Tier.PIPELINE` fails closed, `team_member.ghl_pipeline_id` + `segment`, two GM routes, single-brand ceiling enforced with a 400. **37**: `GhlHttp` has `post`/`put`/`delete`; **invariant 2 dead and rewritten**; guard replaced by "verb list closed" + "every write caller reaches `AuditService`". **38** (`V40`): `ghl_opportunity_cache`, `GhlOpportunityClient`, `GET /api/opportunities/board`, and the SPA's two new roles + their board. **39** (`V41`): `GhlLeadClient` (the first writer), `opportunity_note`, `/api/marketing/leads`, **invariant 7 amended**, New-lead form + notes on the board. |
+| **Next** | **Unit 40** — the sales desk. Opportunity CRUD, stage moves, notes (shared table), meetings. **Meetings half blocked** on `calendars/events.write` + `calendars.readonly`; the rest needs only the existing grant. |
+
+**⚠ WRITES TO GHL GO THROUGH UPSERT, NOT CREATE, and that is the idempotency answer.** GHL marks
+every write `idempotencyRequired` but **offers no key** — no header, no client token (verified
+2026-09-10). What it offers is upsert keyed on its own data: `POST /contacts/upsert` (email then
+phone, per the location's *Allow Duplicate Contact* setting) and `POST /opportunities/upsert`
+(`contactId` + `pipelineId`, returning **`new`**). **Never swap these for the plain create routes**
+— they look equivalent and silently remove the only protection against a double-submit.
+
+- **A lead needs an email or a phone.** With neither, GHL has nothing to match on and upsert stops
+  being idempotent. Enforced in `MarketingLeadService`.
+- **Upsert means one open opportunity per contact per pipeline.** Right for a marketing lead;
+  **wrong for a repeat client's second deal** — Unit 40 must not route that through upsert. The
+  escape hatch is `POST /opportunities/`, which brings the duplicate risk back.
+- **Writes still never retry** (Unit 37). Upsert makes a repeated *human* action safe, not an
+  automatic retry.
+- **`GhlLeadClient` audits; `GhlHttp` still does not.** The domain client knows what a write
+  *means*, which is what makes the audit row worth writing.
+- **`audit_event.object_id` is a UUID and GHL ids are strings**, so the key is *derived* and
+  **namespaced by object type** — hashing a bare `"ghl:" + id` made a contact and an opportunity
+  with the same id share a history. It is an audit key, never an identity.
+
+**⚠ `opportunity_note` is append-only by trigger, which has a testing consequence.** Rows cannot
+be deleted and `evalos_test` persists between runs, so **a test that counts notes over a fixed id
+grows every run**. Generate per-run ids. A note test that passes once and fails next time is the
+trigger working, not a flake.
 
 **⚠ THE PIVOT IS NO LONGER CHEAPLY REVERSIBLE, as of Unit 38.** `ghl_opportunity_cache` is the
 first EvalOS row holding a pipeline fact — the exact thing invariant 2 spent years warning about,

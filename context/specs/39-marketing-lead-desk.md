@@ -1,6 +1,6 @@
 # Unit 39 — The marketing lead desk
 
-> **Status: SPECCED 2026-09-10, not built.** Programme decisions: `00b-ghl-operational-programme.md`.
+> **Status: BUILT 2026-09-11** (`V41`). Programme decisions: `00b-ghl-operational-programme.md`.
 >
 > **Scoped, not detailed.** `CLAUDE.md` generates a unit's full spec just before it is built, and
 > Units 38's boards will change what the right screens are. What is fixed here is the **contract**:
@@ -77,6 +77,42 @@ opportunity is.
 stays, orphaned and readable. Append-only truth outranks tidiness, and a deleted opportunity is
 exactly when the history matters.
 
+## 3a. Idempotency — decided here, because this is the first caller
+
+Unit 37 deferred this to the first caller of the write door. That is this unit.
+
+**There is no idempotency key to send, and inventing one would have been the wrong answer.** GHL's
+operation metadata marks every write `idempotencyRequired: true`, but the request schemas carry
+**no `Idempotency-Key` header and no client-token field** — verified against the live API surface
+2026-09-10. The flag is a warning not to blindly retry, not a protocol feature.
+
+**What GHL offers instead is upsert, keyed on data it already owns**, and it is a better answer
+than a key would have been:
+
+| Need | Endpoint | Dedupes on | Tells you which happened |
+| --- | --- | --- | --- |
+| Create a lead | `POST /contacts/upsert` | the location's *Allow Duplicate Contact* setting — email, then phone | the returned contact |
+| Open an opportunity | `POST /opportunities/upsert` | `contactId` + `pipelineId` | **`new: true/false`** |
+
+**So the rule for this unit: creates go through upsert, never through `POST /opportunities/` or
+`POST /contacts/`.** A marketer who double-submits gets one lead, and the response says whether
+anything was created.
+
+**Two limits, stated because they are real:**
+
+1. **Opportunity upsert means one open opportunity per contact per pipeline.** That is correct
+   for a *marketing* pipeline — a lead is a lead. It is **not** correct for a repeat client
+   buying a second evaluation, which is exactly the case invariant 7's three-identifier rule
+   exists for. **Unit 40 must not reuse this path for a genuine second deal**; the escape hatch
+   is `POST /opportunities/`, and taking it brings the duplicate risk back, knowingly.
+2. **Contact dedupe depends on a GHL location setting EvalOS does not control.** If *Allow
+   Duplicate Contact* is switched on over there, upsert stops merging and two leads with one
+   email become two contacts. EvalOS cannot detect or prevent that, and must not pretend to.
+
+**Retries remain forbidden** (Unit 37 §7). Upsert makes a *repeated user action* safe; it does
+not make an automatic retry safe, because a retry after an ambiguous failure can still race a
+first attempt that succeeded.
+
 ## 4. Valuation
 
 A valuation is the marketer's estimate of what the lead is worth. **It is GHL's `monetaryValue` on
@@ -100,14 +136,72 @@ not a column added quietly here.
 
 ## 6. Acceptance criteria
 
-- [ ] A `MARKETING` caller can create a contact and an opportunity on **their own** pipeline; the
+- [x] A `MARKETING` caller can create a contact and an opportunity on **their own** pipeline; the
       created ids come from GHL's response and EvalOS mints neither.
-- [ ] Creating an opportunity on a pipeline the caller does not own answers **403**.
-- [ ] A note is scoped by pipeline **and** brand; a caller reads no note from another pipeline.
-- [ ] `opportunity_note` has no update and no delete path, enforced by trigger.
-- [ ] A note survives its opportunity vanishing from the cache and from GHL (P3).
-- [ ] Every contact and opportunity write produces an audit row (Unit 37 §5's structural test).
-- [ ] `architecture.md` invariant 7's first clause is amended **and the three-identifier clause is
+- [x] Creating an opportunity on a pipeline the caller does not own answers **403**.
+- [x] A note is scoped by pipeline **and** brand; a caller reads no note from another pipeline.
+- [x] `opportunity_note` has no update and no delete path, enforced by trigger.
+- [x] A note survives its opportunity vanishing from the cache and from GHL (P3).
+- [x] Every contact and opportunity write produces an audit row (Unit 37 §5's structural test).
+- [x] `architecture.md` invariant 7's first clause is amended **and the three-identifier clause is
       verbatim unchanged** — asserted by review, and by the fact that no code mints a contact id.
-- [ ] The `.serena/memories/` entry stating the old invariant 7 is **edited**, not supplemented.
-- [ ] `./mvnw verify` green; frontend builds.
+- [x] The `.serena/memories/` entry stating the old invariant 7 is **edited**, not supplemented.
+- [x] `./mvnw verify` green; frontend builds.
+
+
+## 7. What the build added, and the two bugs the tests caught
+
+**The scope check in front of every write is the cache, not GHL, and the failure mode is
+deliberate.** `MarketingLeadService.requireInMyPipeline` asks `ghl_opportunity_cache` whether the
+opportunity is in the caller's pipeline. The cache is droppable, so a real-but-unfetched
+opportunity is **refused** — a false negative. That is the correct direction: a refusal is visible
+and recoverable (the board refreshes, the write succeeds), while trusting an unverified id would
+let a caller reach another desk's deal by guessing one. Asking GHL instead would be a second round
+trip on every write against a 100-per-10-seconds budget, to close a gap the board read has already
+closed for anything the caller can actually see.
+
+**A lead needs an email or a phone, and the reason is idempotency rather than data quality.** GHL
+matches an existing contact on email, then phone. With neither there is nothing to match on, so
+the upsert chosen precisely for its idempotency silently stops being idempotent and every save
+creates another contact. Refused in the service, and asked for in the form.
+
+**`audit_event.object_id` is a UUID and a GHL id is a string.** Widening an append-only table
+whose trigger refuses `UPDATE` is the most expensive migration in the schema, to store a foreign
+id that is already recorded verbatim in `after_snapshot`. So the key is **derived**
+(`UUID.nameUUIDFromBytes`), which keeps `idx_audit_object` answering "this deal's history". It is
+an audit key, not an identity: nothing outside that method sees it, no column stores it, and
+invariant 7's "EvalOS never mints one" is untouched.
+
+### Two bugs the tests caught, both of which would have shipped silently
+
+**1. The audit keys collided.** The first version hashed `"ghl:" + id` for both contacts and
+opportunities — an identical prefix — so a contact and an opportunity sharing an id hashed to the
+same `object_id` and their histories merged. **The javadoc claimed the prefix prevented exactly
+that.** It did not; the object type does. Caught by
+`GhlLeadClientTest.contactAndOpportunityAuditKeysDoNotCollide`.
+
+**2. GHL's `new` flag never bound.** The JSON key is `new`, which is a Java keyword, so the record
+component is `isNew` — and without `@JsonProperty("new")` Jackson found nothing and left it null.
+Every upsert would have reported "matched an existing deal" regardless of what GHL said: a wrong
+audit action and a wrong message to the marketer, with **nothing failing**.
+
+### And one lesson about testing an append-only table
+
+`notesAreScopedWithoutTouchingTheCache` passed on its first run and failed on its second. Nothing
+was flaky: `opportunity_note` is append-only by trigger, so a test row **can never be cleaned
+up**, and `evalos_test` persists between runs — so a count over a fixed pipeline id grew every
+time. The append-only property was working exactly as designed; the test was wrong to assume an
+empty table. Every note test now generates ids unique to its run, and the fix was verified by
+running the suite twice.
+
+### The screens
+
+`MARKETING` gets a **New lead** form above the board, and every card expands to its note stream.
+Notes load per card on expand rather than eagerly — a stream per card would be one request per
+deal against the shared budget, to show text nobody has asked to read. Opening a lead **refetches
+the board** rather than inserting a card locally: the opportunity now lives in GHL, and the only
+honest confirmation is reading it back.
+
+**Sales does not see the form.** It shares the note table and works the same opportunities, but
+*opening* a lead is a marketing act — widening the route is Unit 40's argument to make, not a
+convenience to add because the two desks look similar.

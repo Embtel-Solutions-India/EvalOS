@@ -108,6 +108,15 @@ Still-dead-and-should-stay-dead, for the same derive-don't-store reason as the t
 `expert.avg_response_hours`. Unit 17 derives turnaround from `expert_case_offer`; reviving the column
 would be a second, staler answer.
 
+**`V41` adds `opportunity_note` — the one thing in the GHL programme EvalOS genuinely owns.**
+GHL has nowhere to put it: its only note endpoints hang off the **contact**, so a repeat client's
+two deals would share one stream. **Keyed on `ghl_opportunity_id`, never `ghl_contact_id`**
+(invariant 7's three-identifier rule). **No FK to `ghl_opportunity_cache`** — that table is
+droppable, and a FK into it would make truncating a cache delete real notes. `brand_id` and
+`ghl_pipeline_id` are **denormalised onto the row** so `ScopePredicate` can scope a note without
+joining the droppable cache; a scope that depends on a droppable table fails *open* when it is
+empty. **Append-only by trigger**, same mechanism and same reasoning as `audit_event`.
+
 **⚠ `V40` adds `ghl_opportunity_cache` — the first table holding another system's records.**
 Every column is a field GHL owns; it is **droppable without loss**; a pipeline is **replaced
 wholesale, never upserted** (a departed opportunity has no fresh row to update, so an upsert

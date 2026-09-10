@@ -118,8 +118,8 @@ single-brand ceiling and the invariant ledger, and a unit spec that disagrees wi
 | **36** | Pipeline-scoped access | 02, 03 | **BUILT** 2026-09-10, `V39` |
 | **37** | The GHL write door | 36 | **BUILT** 2026-09-10. Invariant 2 died here |
 | **38** | Opportunity reads and the board | 36 | **BUILT** 2026-09-11, `V40`. **Past the point of cheap return** |
-| **39** | Marketing lead desk | 38 | next. `V41`. Amends invariant 7; **first caller of the write door**, so it owns the idempotency decision |
-| **40** | Sales desk | 38, 39 | **meetings half only** blocked, on the `calendars/*` grant |
+| **39** | Marketing lead desk | 38 | **BUILT** 2026-09-11, `V41`. Amended invariant 7; first caller of the write door; idempotency answered with **upsert** |
+| **40** | Sales desk | 38, 39 | next. **Meetings half only** blocked, on the `calendars/*` grant |
 | **41** | Client Portal invoices | **35 ✅** | **blocked on `invoices.readonly`, and nothing else** |
 
 **Track C does not queue behind Track A**, and two of its rows are the reason to say so:

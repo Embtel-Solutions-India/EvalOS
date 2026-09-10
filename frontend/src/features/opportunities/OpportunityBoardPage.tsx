@@ -1,6 +1,10 @@
+import { useState } from 'react'
 import { Card } from '../../components/ui/card'
+import { useMe } from '../../lib/authContext'
 import { useMetrics } from '../dashboards/useMetrics'
 import { formatCount, formatMoney } from '../../lib/money'
+import DealNotes from './DealNotes'
+import NewLeadForm from './NewLeadForm'
 import { fetchOpportunityBoard, type BoardColumn, type Deal } from './opportunityApi'
 
 /**
@@ -11,15 +15,21 @@ import { fetchOpportunityBoard, type BoardColumn, type Deal } from './opportunit
  * data, and the only difference is whose pipeline it is. The server decides that from the
  * caller's own token; nothing here can name a pipeline, and nothing here should ever be able to.
  *
- * **Read-only in Unit 38.** No dragging, no editing, no notes. Units 39 and 40 make it a desk;
- * this is the desk arriving empty of drawers.
+ * **Unit 39 made it a desk for Marketing**: a lead can be opened here, and every card carries
+ * its note stream. Dragging between stages and the sales-side actions are Unit 40's.
+ *
+ * **Only `MARKETING` sees the new-lead form.** Sales works the same opportunities and shares the
+ * note table, but *opening* a lead is a marketing act — the server refuses the route to anyone
+ * else, and showing a button that 403s is worse than showing none.
  *
  * **Not the production board.** That one draws EvalOS *cases*, which begin at payment
  * (invariant 8) — by which point the deal has left this screen. Two boards over two things, and
  * `boardRules.ts` gives Sales and Marketing `none` on every production stage for that reason.
  */
 export default function OpportunityBoardPage() {
-  const { data, state } = useMetrics((signal) => fetchOpportunityBoard(signal), [])
+  const [reloads, setReloads] = useState(0)
+  const { data, state } = useMetrics((signal) => fetchOpportunityBoard(signal), [reloads])
+  const isMarketing = useMe().role === 'MARKETING'
 
   return (
     <section className="space-y-4">
@@ -45,6 +55,13 @@ export default function OpportunityBoardPage() {
           </p>
         )}
       </header>
+
+      {/*
+        Opening a lead refetches the board rather than inserting the new card locally: the
+        opportunity now lives in GHL, and the only honest confirmation it landed is reading it
+        back. A locally inserted card would show an outcome the server has not agreed to.
+      */}
+      {isMarketing && <NewLeadForm onOpened={() => setReloads((n) => n + 1)} />}
 
       <Card title="" state={state}>
         {data && data.columns.length === 0 ? (
@@ -83,9 +100,21 @@ function StageColumn({ column }: { column: BoardColumn }) {
 }
 
 function DealCard({ deal }: { deal: Deal }) {
+  // Notes are loaded per card, and only when a card is opened. Eagerly fetching a stream for
+  // every deal on the board would be one request per card against a shared 100-per-10-seconds
+  // budget, to show text nobody has asked to read yet.
+  const [open, setOpen] = useState(false)
+
   return (
     <article className="rounded border border-slate-200 bg-white p-3 shadow-sm">
-      <p className="truncate text-sm font-medium text-slate-900">{deal.name ?? 'Untitled'}</p>
+      <button
+        type="button"
+        onClick={() => setOpen((shown) => !shown)}
+        className="w-full text-left"
+        aria-expanded={open}
+      >
+        <p className="truncate text-sm font-medium text-slate-900">{deal.name ?? 'Untitled'}</p>
+      </button>
       <p className="mt-1 text-xs text-slate-500">
         {/*
           `amount` is null when GHL holds no value, and that is shown as "no value" rather than
@@ -95,6 +124,7 @@ function DealCard({ deal }: { deal: Deal }) {
         {deal.amount === null ? 'No value set' : formatMoney(deal.amount)}
         {deal.status !== 'open' && <span className="ml-2 uppercase">{deal.status}</span>}
       </p>
+      {open && <DealNotes opportunityId={deal.opportunityId} />}
     </article>
   )
 }

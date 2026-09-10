@@ -1601,4 +1601,106 @@ class LocalPostgresIntegrationTest {
 
 		jdbc.update("DELETE FROM team_member WHERE id IN (?, ?)", ieDesk, xpDesk);
 	}
+
+	// --- Unit 39: the note stream, V41 ----------------------------------------
+
+	/**
+	 * <strong>Every note test uses ids unique to its own run, and it has to.</strong>
+	 *
+	 * <p>{@code opportunity_note} is append-only by trigger, so a test row can never be cleaned
+	 * up — and {@code evalos_test} persists between runs on a developer machine. A test that
+	 * asserted "count is 1" over a fixed pipeline id therefore passed once and then counted every
+	 * previous run's rows. That is not a flake to retry; it is the append-only property working
+	 * exactly as designed, and the tests are what had to change.
+	 */
+	private static String uniqueId(String prefix) {
+		return prefix + "-" + UUID.randomUUID();
+	}
+
+	private UUID insertNote(UUID brandId, String opportunityId, String pipelineId, String body) {
+		UUID id = UUID.randomUUID();
+		jdbc.update("INSERT INTO opportunity_note "
+				+ "(id, ghl_opportunity_id, brand_id, ghl_pipeline_id, author_id, body) "
+				+ "VALUES (?, ?, ?, ?, ?, ?)", id, opportunityId, brandId, pipelineId, GM, body);
+		return id;
+	}
+
+	/**
+	 * <strong>Append-only, against the real database.</strong>
+	 *
+	 * <p>No Java test can prove this: the entity has no setters and the repository exposes no
+	 * delete, so every unit test passes whether or not the trigger exists. A seed script, a
+	 * hand-run UPDATE or a future repository method would all get through. The trigger is the
+	 * only thing that holds for every writer — including the application, which connects as the
+	 * table owner and is therefore immune to {@code REVOKE}.
+	 */
+	@Test
+	void anOpportunityNoteCannotBeEditedOrDeleted() {
+		UUID note = insertNote(BRAND_IE, uniqueId("opp"), uniqueId("pipe"), "Spoke to the client");
+
+		assertThatThrownBy(() -> jdbc.update("UPDATE opportunity_note SET body = ? WHERE id = ?",
+				"rewritten", note))
+				.hasMessageContaining("append-only");
+
+		assertThatThrownBy(() -> jdbc.update("DELETE FROM opportunity_note WHERE id = ?", note))
+				.hasMessageContaining("append-only");
+
+		// Still there, and still saying what it said.
+		assertThat(jdbc.queryForObject("SELECT body FROM opportunity_note WHERE id = ?", String.class,
+				note)).isEqualTo("Spoke to the client");
+	}
+
+	/** A blank note is refused by the database as well as by the service. */
+	@Test
+	void anOpportunityNoteNeedsABody() {
+		assertThatThrownBy(() -> insertNote(BRAND_IE, uniqueId("opp"), uniqueId("pipe"), "   "))
+				.hasMessageContaining("opportunity_note_body_not_blank");
+	}
+
+	/**
+	 * <strong>P3: a note outlives the opportunity it describes.</strong>
+	 *
+	 * <p>There is deliberately no foreign key to {@code ghl_opportunity_cache} — that table is
+	 * droppable (V40), and a FK into it would make truncating a cache delete real notes. This
+	 * asserts the property directly: wipe the cache, the notes are untouched. Append-only truth
+	 * outranks tidiness, and a vanished opportunity is exactly when the history matters.
+	 */
+	@Test
+	void aNoteSurvivesItsOpportunityVanishingFromTheCache() {
+		String doomed = uniqueId("opp-doomed");
+		jdbc.update("INSERT INTO ghl_opportunity_cache "
+				+ "(ghl_opportunity_id, ghl_pipeline_id, ghl_contact_id, stage_id, status, fetched_at) "
+				+ "VALUES (?, ?, 'contact-1', 's1', 'open', now())", doomed, uniqueId("pipe"));
+		UUID note = insertNote(BRAND_IE, doomed, uniqueId("pipe"), "The deal we lost");
+
+		jdbc.update("DELETE FROM ghl_opportunity_cache WHERE ghl_opportunity_id = ?", doomed);
+
+		assertThat(jdbc.queryForObject("SELECT body FROM opportunity_note WHERE id = ?", String.class,
+				note)).isEqualTo("The deal we lost");
+	}
+
+	/**
+	 * The note carries its own brand and pipeline so a scoped read never has to join the cache.
+	 *
+	 * <p>That denormalisation is the point: the cache is droppable, and a scope predicate that
+	 * depends on a droppable table fails <em>open</em> the moment the table is empty.
+	 */
+	@Test
+	void notesAreScopedWithoutTouchingTheCache() {
+		String mine = uniqueId("pipe-mine");
+		String theirs = uniqueId("pipe-theirs");
+		insertNote(BRAND_IE, uniqueId("opp"), mine, "mine");
+		insertNote(BRAND_XP, uniqueId("opp"), theirs, "theirs");
+		jdbc.update("TRUNCATE ghl_opportunity_cache");
+
+		// The cache is empty and the scope still answers — which is the whole reason
+		// `ghl_pipeline_id` is denormalised onto the note rather than joined from the cache.
+		assertThat(jdbc.queryForObject(
+				"SELECT count(*) FROM opportunity_note WHERE brand_id = ? AND ghl_pipeline_id = ?",
+				Integer.class, BRAND_IE, mine)).isEqualTo(1);
+		// The brand predicate is what refuses the other desk's note, not the pipeline alone.
+		assertThat(jdbc.queryForObject(
+				"SELECT count(*) FROM opportunity_note WHERE brand_id = ? AND ghl_pipeline_id = ?",
+				Integer.class, BRAND_IE, theirs)).isZero();
+	}
 }

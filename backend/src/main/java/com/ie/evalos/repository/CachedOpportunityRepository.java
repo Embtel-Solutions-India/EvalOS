@@ -34,6 +34,14 @@ public interface CachedOpportunityRepository extends JpaRepository<CachedOpportu
 	List<CachedOpportunity> findByGhlPipelineIdIn(Collection<String> ghlPipelineIds);
 
 	/**
+	 * Whether one opportunity is in one pipeline — the check in front of every write.
+	 *
+	 * <p>Both parameters are required, which is what keeps it a scope check rather than an
+	 * existence oracle: it can only ever answer "is this one mine", never "does this exist".
+	 */
+	boolean existsByGhlOpportunityIdAndGhlPipelineId(String ghlOpportunityId, String ghlPipelineId);
+
+	/**
 	 * The freshest row in a pipeline, which is how the TTL is judged.
 	 *
 	 * <p>Freshest rather than oldest: a pipeline is refilled as a unit, so every row shares a

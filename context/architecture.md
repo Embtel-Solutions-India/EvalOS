@@ -730,17 +730,40 @@ exist because every transition owes exactly one event. They live in
    a ~13s floor under it — past the browser's 15s timeout. The controller still
    returns immediately; the cache is the handover. A `job` row for a read nobody has
    asked to be durable would be ceremony around a cache miss.
-7. EvalOS is the system of record for cases, experts, and payouts. Contact data
-   is a read-only, brand-tagged snapshot synced from GHL and is never mutated.
+7. EvalOS is the system of record for cases, experts, and payouts.
+
+   **Contact data is GHL's, and since Unit 39 (2026-09-11) EvalOS may ask GHL to change
+   it.** The old clause read *"a read-only, brand-tagged snapshot synced from GHL and
+   never mutated"*. Marketing now opens and edits leads from an EvalOS screen.
+
+   **What "may change it" does and does not license**, because this is the clause most
+   likely to be over-read:
+   - EvalOS **asks GHL** to create or update a contact, and **displays what GHL returns**.
+   - EvalOS still holds **no authoritative contact field of its own**. There is no
+     EvalOS-owned name, email or phone that a screen reads in preference to GHL's.
+   - The snapshot is still a snapshot. Writing through it does not make it a record.
+
+   **The rest of this invariant is unchanged and is load-bearing for the whole GHL
+   programme:**
+
    **`ghl_contact_id` is the canonical external client identity** — everywhere,
-   including any future connected app. EvalOS never mints one, never changes one
-   when a case is created, and never substitutes another identifier for it. Three
-   identifiers, never conflated: `ghl_contact_id` = the client;
+   including any future connected app. **EvalOS never mints one** — it asks GHL to
+   create a contact and GHL returns the id, which is exactly why the amendment above is
+   narrow: the write direction moved, the identity authority did not. EvalOS never
+   changes one when a case is created, and never substitutes another identifier for it.
+   Three identifiers, never conflated: `ghl_contact_id` = the client;
    `ghl_opportunity_id` = one purchase; `evalos_case.id` / `case_code` = one
    service engagement, **internal only**. One contact has many cases, so a case
    identifier is never a client identifier. Contact matching goes by
    `ghl_contact_id` first; `email` is a fallback only, used when no GHL id is
    given.
+
+   **Unit 39 leans on that three-identifier rule rather than merely respecting it.**
+   `opportunity_note` is keyed on `ghl_opportunity_id` and not on `ghl_contact_id`,
+   because a repeat client is one contact and two deals — keying on the contact would
+   merge two conversations with no way to separate them afterwards. GHL itself cannot
+   express this: its only note endpoints hang off the contact, which is why the note
+   stream is the one thing in this programme EvalOS owns outright.
 8. A case is only ever created through a per-brand GHL webhook endpoint, by a
    **won opportunity** — no other code path and no other event may create one. The
    case is created **paid**, from the opportunity's own amount; **no staff action
