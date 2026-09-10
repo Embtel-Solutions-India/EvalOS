@@ -287,6 +287,13 @@ become a way for a non-GM to trigger client-facing messages.
     - **Single-brand ceiling, enforced:** `evalos.ghl.sales-brand`. A pipeline-scoped member of
       any other brand is refused 400; a blank property refuses everyone. This NARROWS invariant
       1's location exception from "GM-only" to "one named brand". Unit 25 closes it.
+      **The named brand is International Evaluations** — `application-local.yml` defaults it to
+      IE's seeded brand id (2026-09-11), because IE owns the one GHL location
+      (`kBumF0uUOmMBB5bneYjx`). It was blank until then, which meant the desks Units 36-41 built
+      were unreachable on every laptop: built, tested, and impossible to log into.
+      `db/seed-local/V908` seeds the five IE logins — three SALES (Aditya / Alex / Junaid
+      pipelines, one per segment) and two MARKETING (Google Ads, Shivangi's Email). Deployed
+      environments must still set `GHL_SALES_BRAND_ID`; the default is local only.
     - **⚠ `V39`'s segment CHECK needs `segment IS NOT NULL` before the `IN`.** `NULL IN (...)`
       is NULL, and **a CHECK evaluating to NULL passes in Postgres** — without it the constraint
       permitted the exact row it forbids. Caught only by `LocalPostgresIntegrationTest`. Apply

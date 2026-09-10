@@ -4,6 +4,51 @@ Update this file after every meaningful implementation change.
 
 ## Current Phase
 
+- **2026-09-11 — IE's sales and marketing desks are reachable, on live GHL data.** Not a unit:
+  Units 36–41 were built, tested and **impossible to log into**, because `evalos.ghl.sales-brand`
+  was blank (so no member of any brand could hold a pipeline-scoped role) and no seeded login
+  carried `SALES` or `MARKETING`. Both closed.
+
+  **`sales-brand` now defaults to International Evaluations** in `application-local.yml`. IE owns
+  the one GHL location (`kBumF0uUOmMBB5bneYjx`), so IE is the selling brand; XpertsPortal is
+  refused 400 by `PipelineAssignmentService` until Unit 25 gives it its own location. That is the
+  single-brand ceiling doing its job, not a workaround. Deployed environments still set
+  `GHL_SALES_BRAND_ID` — the default is local only.
+
+  **`V908` seeds five IE logins**, mapped to the real pipelines read live from GHL on 2026-09-11:
+  SALES `ATTORNEY` → Aditya's, `EMPLOYER_FIRM` → Alex, `INDIVIDUAL` → Junaid; MARKETING
+  `INDIVIDUAL` → Google ADS, `ATTORNEY` → Shivangi's Email. **Two marketing users, not three** —
+  the location has two marketing funnels, and `uq_team_member_pipeline` would refuse a second
+  person on one pipeline anyway. `Ayush's Professors Pipeline` (expert recruitment) and
+  `Master Pipeline` are deliberately unassigned; assigning one is a GM decision, not a seed guess.
+
+  **Verified end to end against live GHL**, five desks, five distinct boards:
+
+  | Desk | Pipeline | Stages | Live deals |
+  |---|---|---|---|
+  | sales · attorney | Aditya's | 9 | 768 |
+  | sales · employer/firm | Alex | 7 | 6 |
+  | sales · individual | Junaid | 7 | 43 |
+  | marketing · individual | Google ADS | 6 | 93 |
+  | marketing · attorney | Shivangi's Email | 6 | **11,718** |
+
+  **⚠ The board's inline-refill assumption is already false, on day one.**
+  `OpportunityBoardService.refillIfStale` carries a `ponytail:` note justifying an inline
+  (on-request) refill because "one person's live pipeline is one or two pages" — and names the
+  upgrade trigger as "if one pipeline ever grows past a few pages". Shivangi's Email Marketing is
+  **11,718 opportunities ≈ 117 pages**, which is the ~13s figure §4 of the spec used to justify
+  the cache in the first place. With `board-cache-ttl` at 2m that is a ~117-page GHL fetch every
+  two minutes for as long as that board is open, against a 100-req/10s per-location budget shared
+  with every other screen. **Not fixed here**: the trigger is met and the upgrade path is named
+  (the off-thread refill `MarketingPipelineService` already implements), but it is a change to a
+  built unit and its own decision. A warm read is 0.6s; it is the cold refill that is the problem.
+
+  **Also corrected:** `application-local.yml` already declared `sales-brand`, so the fix is an
+  edit to that line rather than a second key — a duplicate YAML key would have been silently
+  overridden by the later one.
+
+  Nothing else changed. Backend 885 tests green including the DB suite.
+
 - **2026-09-11 — Unit 19 BUILT: EvalOS does something on its own for the first time.** V42
   (`scheduled_job`), four sweeps, an advisory lock, a run ledger and a GM panel. Backend 885
   tests green including the DB suite; staff frontend green.
