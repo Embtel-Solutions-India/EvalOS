@@ -27,10 +27,15 @@ import software.amazon.awssdk.services.s3.presigner.model.GetObjectPresignReques
  *
  * <p><strong>Two capabilities and no more: put an object, presign a read.</strong> There is no
  * delete, no list, no copy and no move. The capability is <em>absent from the codebase</em> rather
- * than present-and-unused, so a future unit that needs one has to add it and answer for it. That
- * is the position {@code GhlHttp} holds about writing to GHL, and it is worth more here: these
- * objects are a client's identity documents and an expert's signed letter, and a system that can
- * quietly delete evidence will eventually be asked whether it did.
+ * than present-and-unused, so a future unit that needs one has to add it and answer for it.
+ *
+ * <p><strong>{@code GhlHttp} used to hold the same position and no longer does</strong> — Unit 37
+ * gave it {@code post}, {@code put} and {@code delete} so Sales and Marketing could work
+ * opportunities from EvalOS. <strong>That is not a precedent for this class.</strong> The
+ * argument there was that the desk had moved and every write would be audited; the argument here
+ * is about evidence. These objects are a client's identity documents and an expert's signed
+ * letter, and a system that can quietly delete evidence will eventually be asked whether it did.
+ * Read the two as separate decisions, because they were.
  *
  * <p><strong>Bytes stream and are never buffered.</strong> {@link #put} takes an
  * {@link InputStream} with a known length and hands it straight to the SDK. EvalOS holds no byte

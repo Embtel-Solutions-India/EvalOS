@@ -89,12 +89,19 @@ owns `DeadlineWindow` (week/month/year). **Enforced by the type — do not re-me
 `files: []` with project references, so plain `tsc` checks nothing and exits 0. Three real errors
 hid behind it once.
 
-Back-of-house production CRM for a **multi-brand** credential-evaluation business (International
-Evaluations, XpertsPortal). Takes custody at **`opportunity.won`** in GoHighLevel (GHL) and owns the
-case to signed delivery + expert payout. GHL stays front-of-house (leads, sales, invoicing, review
-campaigns); **EvalOS never does marketing, sales, or invoicing.**
+Production CRM for a **multi-brand** credential-evaluation business (International Evaluations,
+XpertsPortal). Takes custody at **`opportunity.won`** in GoHighLevel (GHL) and owns the case to
+signed delivery + expert payout.
 
-**⚠ THAT LAST CLAUSE IS SCHEDULED TO DIE. Decided 2026-09-10; Unit 36 of six is built.** The **GHL
+**It is no longer only back-of-house.** This memory used to end that paragraph with *"GHL stays
+front-of-house (leads, sales, invoicing, review campaigns); EvalOS never does marketing, sales, or
+invoicing."* **That clause is dead as of Unit 37 (2026-09-10)** — the sentence is rewritten here
+rather than contradicted a line below it, because a memory that argues with itself is worse than
+none. What is true now: **GHL stays the CRM, the pipeline engine, the automation engine and the
+invoice/QuickBooks integration; EvalOS is the interface Sales and Marketing work in.** Invoicing
+is still GHL's — EvalOS reads invoices and raises none.
+
+**Two of six units are built.** The **GHL
 operational programme (Units 36–41)** makes EvalOS the interface Sales and Marketing *work in*, so
 they never open GHL; GHL stays the CRM, pipeline, automation and invoice/QuickBooks layer
 underneath. Spec: **`context/specs/00b-ghl-operational-programme.md`** — read it before any GHL
@@ -105,8 +112,8 @@ work, it holds the truth model and the invariant ledger.
 | | |
 |---|---|
 | **Decided** | Two roles `SALES`/`MARKETING` (`Tier.PIPELINE`) + a `segment` column, *not* six roles; one personal exclusive pipeline each; **GHL owns the opportunity, EvalOS owns the note stream keyed on `ghl_opportunity_id`**; a droppable non-authoritative opportunity cache; **single selling brand** (`evalos.ghl.sales-brand`) enforced with a 400 until Unit 25 |
-| **Live today** | Everything below this box, **plus Unit 36 (BUILT 2026-09-10, `V39`)**: `Role` has eight values, `Tier.PIPELINE` exists and fails closed, `team_member` carries `ghl_pipeline_id` + `segment`, and two GM routes assign a pipeline. Invariant 2 is **still enforced by code** — `GhlHttp` has no write verb and `GhlHttpTest` fails the build if one appears. **Unit 37 is where that changes and nowhere earlier.** |
-| **Next** | **Unit 37, the write door.** It ships no feature: three verbs on `GhlHttp`, invariant 2 rewritten, `GhlHttpTest`'s guard replaced by "the verb list is closed AND every write caller audits". |
+| **Built** | **Unit 36** (`V39`): `Role` has eight values, `Tier.PIPELINE` exists and fails closed, `team_member` carries `ghl_pipeline_id` + `segment`, two GM routes assign a pipeline, single-brand ceiling enforced with a 400. **Unit 37**: `GhlHttp` has `post`/`put`/`delete`; **invariant 2 is dead and rewritten in `architecture.md`**; the old guard is replaced by "the verb list is closed" + "every write caller reaches `AuditService`". No caller yet. |
+| **Next** | **Unit 38** — opportunity reads and the two boards (`V40`). It stores the first EvalOS row holding a pipeline fact, which is where the pivot stops being cheap to reverse. It must also decide open question P1 (whose pipelines the GM's union spans) and delete all three `evalos.ghl.*-pipeline-name` properties. |
 
 **Two things the programme does NOT touch:** invoicing stays GHL's (Unit 41 *reads* invoices,
 raises none), and **invariant 8 is untouched** — a case is still born only of a won opportunity
@@ -132,17 +139,35 @@ invariant 2 — a `SALES_EXECUTIVE` operated *Aditya's pipeline* from EvalOS, wr
 GHL — and **the amendment is reverted with it**. Everything above about the three funnel screens
 was true throughout and is untouched.
 
-**The live rule is again: EvalOS reads GHL and writes nothing to it.** `GhlHttp` has no `post`,
-`put` or `delete` — the write capability is *absent from the codebase*, not unused — and that is
-held by **code alone**, since the credential still permits writes. Hence a build-failing test in
-`GhlHttpTest`, not a convention. `/api/sales/**`, `SalesController`, `SalesBoardService`,
-`GhlSalesClient`, `Role.SALES_EXECUTIVE` and `team_member.ghl_user_id` are all deleted;
-`V30__drop_sales_executive.sql` reverses V29 in the database.
+**⚠ THAT RULE IS OVER as of Unit 37 (BUILT 2026-09-10). `GhlHttp` writes.** It has `post`, `put`
+and `delete`, and invariant 2 is rewritten in `architecture.md` rather than annotated.
+
+**What guards it now, because "the test was deleted" is not an answer.** Two build-failing
+assertions replaced the old "no write verb" one, both in `GhlHttpTest`:
+1. **The verb list is closed** — exactly `get`/`post`/`put`/`delete`. A fifth fails the build, so
+   the next capability is also a decision. No `patch`: GHL's API does not use it.
+2. **Every caller of a write verb must reach `AuditService`** — a source scan. This is
+   invariant 13 for writes landing in another system: *a mutation whose only trace is in GHL is
+   invisible to EvalOS forever.* `GhlHttp` audits nothing itself (it is transport — invariant 12's
+   reasoning), and **the caller set is empty today**, so the first unit that writes has to add
+   itself and notice the requirement.
+
+**Also true and easy to lose:** writes **do not retry** (no idempotency key scheme yet — a blind
+retry is one opportunity becoming two), reads and writes share the **one** location pacer, and the
+credential is unchanged and was never the guarantee.
+
+Unit 29's own artefacts are still gone: `/api/sales/**`, `SalesController`, `SalesBoardService`,
+`GhlSalesClient`, `Role.SALES_EXECUTIVE` and `team_member.ghl_user_id` are deleted, and
+`V30__drop_sales_executive.sql` reverses V29 in the database. **Unit 36/37 did not restore any of
+them** — the new model is pipeline-scoped, not assignee-scoped.
 
 **The reason the removal was cheap is the decision that never changed:** nothing was ever stored
 here — no `ghl_opportunity` table, no sales row anywhere. So it cost one migration and no data
-reconciliation. That test survives the unit: *"does this make EvalOS store a pipeline fact?"* is
-still the question to put to any GHL proposal, whichever direction the traffic runs.
+reconciliation. **That property is being spent deliberately at Unit 38**, whose cache is the first
+EvalOS row to hold a pipeline fact — so *this* pivot will not be reversible at Unit 29's price,
+and that is its real cost. The question *"does this make EvalOS store a pipeline fact?"* is still
+the right one to put to any GHL proposal; the answer is now "yes, and only fields GHL owns, in a
+table that is droppable without loss".
 
 **Do not cite the desk as precedent for writing to GHL.** It was tried, shipped and undone; a
 future write adds the verb to `GhlHttp` and answers for it in invariant 2.

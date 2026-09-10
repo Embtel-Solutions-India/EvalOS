@@ -596,14 +596,17 @@ exist because every transition owes exactly one event. They live in
 >
 > | Invariant | Fate | Unit |
 > |---|---|---|
-> | **1** brand isolation | **narrowed** — the GHL-location exception goes from "GM-only" to "one brand named in `evalos.ghl.sales-brand`" | 36 |
-> | **2** EvalOS runs no sales/marketing/invoicing | **dies** — but *invoicing stays GHL's* and *Handoff A stays the only door into custody* | 37 |
+> | **1** brand isolation | **narrowed ✅ (Unit 36 built)** — the GHL-location exception is now "one brand named in `evalos.ghl.sales-brand`", enforced with a 400 | 36 |
+> | **2** EvalOS runs no sales/marketing/invoicing | **DEAD ✅ (Unit 37 built)** — rewritten below. *Invoicing stays GHL's* and *Handoff A stays the only door into custody* | 37 |
 > | **7** contact data never mutated | **first clause amended only** — the three-identifier rule survives verbatim and is load-bearing | 39 |
 > | **14** EvalOS sends no email | **ruled on, not reversed** — EvalOS instructs, GHL delivers | ruled in `00b`, no unit |
 >
-> **Until the named unit ships, the invariant below is live and enforced.** Invariant 2 in
-> particular is still held by code: `GhlHttpTest` fails the build if a write verb appears in
-> `GhlHttp`. Do not pre-emptively relax any of these because the programme is coming.
+> **Until the named unit ships, the invariant below is live and enforced.** Do not pre-emptively
+> relax any of these because the programme is coming — **7 and 14 have not changed yet.**
+>
+> **Invariants 1 and 2 have now changed and their text below is rewritten, not annotated.**
+> `GhlHttp` writes as of Unit 37. What guards it instead: the verb list is closed, and every
+> caller of a write verb must reach `AuditService` — both build-failing tests in `GhlHttpTest`.
 >
 > **Invariants 5, 8, 13 and 15 are untouched by the programme** and the first three are load-bearing
 > inside it — especially **8**, which keeps a case born only of a won opportunity even though Sales
@@ -638,33 +641,63 @@ exist because every transition owes exactly one event. They live in
    Unit 25a then re-scopes all three screens together.
    **Read the invariant as: every query over EvalOS rows.** An unscoped query over
    EvalOS rows is still a defect, and this exception licenses nothing about them.
-2. A case is in exactly one system's custody at any moment. EvalOS runs no
-   marketing, nurture/cold email, ad attribution, invoicing **or sales** of its own.
+2. **A case is in exactly one system's custody at any moment.** That half stands and is the
+   part worth keeping. **The other half — "EvalOS runs no marketing, invoicing or sales of
+   its own" — died at Unit 37 (2026-09-10), deliberately and in writing.**
 
-   **This reverted, and the round trip is worth keeping.** Unit 29 amended it to allow
-   one narrow exception — a sales executive operating GHL's pipeline from an EvalOS
-   screen, as a client of GHL holding no state. The desk and the role were removed, and
-   with them the amendment: EvalOS reads GHL and writes nothing back to it.
+   **What EvalOS now does.** Sales and Marketing work their leads and opportunities from
+   EvalOS screens; `GhlHttp` has `post`, `put` and `delete`; and Unit 38 stores a cache of
+   GHL opportunities. GHL remains the CRM, the pipeline engine, the automation engine and
+   the invoice/QuickBooks integration underneath. The programme and its reasoning are in
+   `context/specs/00b-ghl-operational-programme.md`, which is amended before this is.
 
-   **What made the reversal cheap is the decision that was never amended.** There is no
-   `ghl_opportunity` table, no sales column on any EvalOS entity, no sales row in any
-   EvalOS table, and there never was — so removing the desk cost one migration and no
-   data reconciliation. **The day EvalOS *stores* a pipeline fact, two systems own it
-   and this invariant is gone**, whatever the direction of the traffic.
+   **What did not die, and must not be quietly taken with it:**
+   - **Invoicing is still GHL's, full stop.** EvalOS raises no invoice and touches no
+     accounting. Unit 41 *reads* invoices for the Client Portal; `Invoice sent` and `Refund`
+     remain stages it acts on neither, and a refund is a payment fact.
+   - **Handoff A is still the only door a case enters custody through.** `opportunity.won`
+     fires from GHL and creates the case (invariant 8, untouched). A salesperson marking an
+     opportunity won from EvalOS **waits for the webhook** — EvalOS never creates the case
+     itself, and `DomainInvariantsTest` refuses the shape.
+   - **EvalOS still sends nothing.** Invariant 14 holds: EvalOS instructs, GHL delivers.
 
-   Units 24, 26 and 27 remain pure reads of three GHL funnels. `Invoice sent` and
-   `Refund` are stages this system reads and acts on neither — invoicing is GHL's, full
-   stop, and a refund is a payment fact.
+   **The round trip, kept because it is the whole reason Unit 37 was its own unit.** Unit 29
+   amended this invariant for a sales desk in August 2026; the desk and the role were removed
+   days later and the amendment reverted with them. **What made that reversal cheap was a
+   decision that was never amended** — no `ghl_opportunity` table, no sales column on any
+   EvalOS entity, so undoing it cost one migration and no data reconciliation.
 
-   **The guarantee is code, not the credential.** `GhlHttp` exposes no `post`, `put` or
-   `delete` — the write capability is *absent from the codebase*, not merely unused.
-   The grant is still `opportunities.write` + `contacts.write`, both of which permit
-   writes and deletes, so this rests on code alone and is a build-failing test in
-   `GhlHttpTest` rather than a convention. If a later unit needs to write to GHL, it
-   adds the verb and answers for it here.
+   **That property is now being spent, knowingly.** Unit 38's cache is the first EvalOS row
+   holding a pipeline fact, so **this reversal is not reversible at the price the last one
+   was.** That, not the code, is the cost of the pivot. The old warning — *the day EvalOS
+   stores a pipeline fact, two systems own it* — was correct, and the answer is that the
+   cache holds **only fields GHL owns**, is **droppable without loss**, and is never the
+   answer to a write. If a column ever appears in it that GHL does not have, that decision is
+   void and gets re-argued here.
 
-   **And Handoff A is still the only door a case enters custody through**:
-   `opportunity.won` fires from GHL and creates the case, exactly as before.
+   **What replaced the old guarantee, because deleting a test is not a decision.**
+   `GhlHttpTest` used to assert that no write verb existed — the capability *absent from the
+   codebase*, not merely unused. That assertion is gone. Two took its place, in the same file:
+
+   - **The verb list is closed.** `GhlHttp` exposes exactly `get`, `post`, `put`, `delete`.
+     A fifth fails the build, so the next capability is also a decision. There is deliberately
+     no `patch`: GHL's API does not use it, and a verb no endpoint accepts is exactly the
+     present-and-unused capability this invariant used to be about.
+   - **Every caller of a write verb reaches `AuditService`.** A structural test over the
+     source. This is invariant 13 for writes that land in another system — **a mutation whose
+     only trace is in GHL is invisible to EvalOS forever**, which is the failure mode of
+     moving the desk over here. The caller audits, not `GhlHttp`: transport does not know what
+     a write *means* (invariant 12's reasoning), so any row it wrote would say nothing useful.
+
+   **The credential was never the guarantee and still is not.** The grant has always been
+   `opportunities.write` + `contacts.write` — it permitted writes throughout the period this
+   invariant forbade them. Code was the only thing holding that line, and code is the only
+   thing holding the new one.
+
+   **Writes do not retry.** Reads do not either, and GHL marks its write operations as
+   needing idempotency while EvalOS has no key scheme yet — so a blind retry is how one
+   opportunity becomes two, with nothing to reconcile them by. Asserted by counting requests
+   against a local server, not by reading configuration.
 3. Role, brand, and ownership are enforced before every mutation. Case Managers,
    clients, and experts never see data outside their assignment.
 4. The optional expert `payment_detail` is encrypted at rest and never appears in

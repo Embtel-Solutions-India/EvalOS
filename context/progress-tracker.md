@@ -4,6 +4,55 @@ Update this file after every meaningful implementation change.
 
 ## Current Phase
 
+- **2026-09-10 — Unit 37 BUILT: the write door is open, and invariant 2 is dead.** 665 backend
+  tests green (was 659). No migration, **no caller**, no screen.
+
+  **`GhlHttp` has `post`, `put` and `delete`.** That is the whole feature, and the unit existed
+  separately for exactly that reason: the class previously guaranteed the *absence* of those
+  verbs, backed by a build-failing test, and deleting a deliberate guard as step four of a feature
+  ticket is how a constraint disappears with nobody deciding to remove it.
+
+  **What replaced the guard, because deleting a test is not a decision.** Two assertions, same
+  file. **The verb list is closed** — exactly `get`/`post`/`put`/`delete`, a fifth fails the
+  build, and there is no `patch` because GHL's API does not use it. And **every caller of a write
+  verb must reach `AuditService`**, a source scan: invariant 13 for writes that land in another
+  system, because *a mutation whose only trace is in GHL is invisible to EvalOS forever*.
+
+  **That second test currently asserts an empty set, and that is the design rather than a
+  weakness.** This unit ships no caller. Enforcing a transitive "reaches audit eventually" across
+  a call graph that does not exist would have been a scheme invented for nobody, which the first
+  caller would then work around. As written, Unit 38 must come to this file and add itself — and
+  meets the requirement before shipping instead of after an incident.
+
+  **Invariant 2 is rewritten in `architecture.md`, not annotated.** Three things it earned are
+  kept explicitly, because they are the ones most likely to be swept along: **invoicing is still
+  GHL's** (EvalOS raises none), **Handoff A is still the only door into custody** — a salesperson
+  marking an opportunity won waits for the webhook — and the **Unit 29 round trip**, which is what
+  makes the real cost legible: that reversal was cheap only because no EvalOS row held a pipeline
+  fact, and **Unit 38 spends that property**. This pivot will not be undoable at Unit 29's price.
+
+  **Three collateral corrections, each because a true statement had become false.**
+  `GhlHttp.reads` is renamed `http` — a field name asserting a property the class no longer has
+  outlives every comment correcting it. The failure messages drop "read" ("GHL refused the read
+  with HTTP 500" points an operator at the wrong place on a write). And **`DocumentStore`'s
+  javadoc cited `GhlHttp`'s read-only stance as the precedent for having no `delete`** — now
+  false, and precisely the stale cross-reference someone later uses to argue the opposite, so it
+  now says why Unit 37 is *not* a precedent there: a desk that moved is a different argument from
+  evidence that must not vanish.
+
+  **`writesDoNotRetry` runs a real server** — a JDK `com.sun.net.httpserver.HttpServer` on an
+  ephemeral port, counting requests and answering 500. Asserting "exactly one POST" is the only
+  way to see a retry, which can arrive from the `RestClient` builder, an interceptor, or a Spring
+  default; reading configuration would miss two of the three. No dependency, no Docker.
+
+  **Still deliberately absent:** any caller, any idempotency scheme (deferred to Unit 38, the
+  first caller — a scheme invented without one is a scheme the caller works around), and any new
+  OAuth scope.
+
+  **Next: Unit 38** — opportunity reads and the two boards (`V40`). It stores the first EvalOS row
+  holding a pipeline fact, must decide open question **P1** (whose pipelines the GM's union
+  spans), and removes all three `evalos.ghl.*-pipeline-name` properties.
+
 - **2026-09-10 — Unit 36 BUILT: the access model the whole GHL programme reads.** `V39`,
   **659 backend tests green** (was 611), staff frontend builds. No GHL call, no screen, no write —
   invariant 2 is still enforced by code and `GhlHttpTest` still fails the build on a write verb.

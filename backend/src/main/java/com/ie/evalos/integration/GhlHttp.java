@@ -34,13 +34,29 @@ import org.springframework.web.util.UriBuilder;
  * pacer of its own. {@code GhlHttpTest} pins the shared-pacer property across two client
  * instances so that stays true.
  *
- * <p><strong>Read-only, and the absence is the guarantee.</strong> There is no {@code post},
- * {@code put} or {@code delete} here: EvalOS reads GHL and writes nothing back. Those verbs
- * existed for the sales desk, which is gone, and they went with it rather than staying
- * present-and-unused — a capability nothing calls is one somebody reaches for without deciding to.
- * Note what this does <em>not</em> rest on: the credential is still
- * {@code opportunities.write} + {@code contacts.write}, so this is held by code alone, which is
- * why {@code GhlHttpTest} asserts it rather than a comment claiming it.
+ * <p><strong>It writes, as of Unit 37, and that reverses invariant 2.</strong> This class was
+ * read-only and the absence of {@code post}/{@code put}/{@code delete} <em>was</em> the guarantee:
+ * EvalOS read GHL and wrote nothing back. That is over. Sales and Marketing now work their
+ * opportunities from EvalOS, and every one of those writes goes through this door.
+ *
+ * <p><strong>What replaced the guarantee, because "the test was deleted" is not an answer.</strong>
+ * The old assertion was "no write verb exists". The new one is two-part and lives in the same
+ * place: <em>the verb list is closed</em> — exactly {@code get}, {@code post}, {@code put} and
+ * {@code delete}, so a fifth verb is also a decision — and <em>every caller of a write verb
+ * reaches {@code AuditService}</em>. The second is the one that matters: a mutation whose only
+ * trace is in GHL is invisible to EvalOS forever, which is the failure mode of moving the desk
+ * over here.
+ *
+ * <p><strong>This was tried once before and undone.</strong> Unit 29 added these verbs for a sales
+ * desk; {@code V30} removed the desk and the verbs went with it. The reversal was cheap for one
+ * reason only — no EvalOS row held a pipeline fact. Unit 38 ends that, so <strong>Unit 37 is the
+ * last point in the programme where this is cheap to take back</strong>.
+ *
+ * <p>Two things that did <em>not</em> change with the verbs. The credential is the same
+ * ({@code opportunities.write} + {@code contacts.write}) — it always permitted writes, so the
+ * grant is evidence of nothing either way, and code is still the only thing holding any line
+ * here. And <strong>writes do not retry</strong>: reads do not either, and a blind retry on a
+ * write with no idempotency key is how one opportunity becomes two.
  */
 @Component
 public class GhlHttp {
@@ -60,7 +76,7 @@ public class GhlHttp {
 	 */
 	static final Duration MIN_REQUEST_INTERVAL = Duration.ofMillis(110);
 
-	private final RestClient reads;
+	private final RestClient http;
 	private final String locationId;
 	private final boolean configured;
 
@@ -81,8 +97,9 @@ public class GhlHttp {
 		this.configured = !token.isBlank() && !locationId.isBlank();
 
 		if (!configured) {
-			log.warn("No GHL API token or location configured — the GHL-backed screens will "
-					+ "answer 502. Set GHL_API_TOKEN and GHL_LOCATION_ID to enable them.");
+			log.warn("No GHL API token or location configured — every GHL-backed screen will "
+					+ "answer 502 and no write will leave the JVM. Set GHL_API_TOKEN and "
+					+ "GHL_LOCATION_ID to enable them.");
 		}
 		else {
 			// **What this line exists for.** A 401 from GHL has two causes that look identical
@@ -100,7 +117,7 @@ public class GhlHttp {
 			log.info("GHL configured: locationId={}, token length={}", locationId, token.length());
 		}
 
-		this.reads = build(baseUrl, apiVersion, token, timeout);
+		this.http = build(baseUrl, apiVersion, token, timeout);
 	}
 
 	/** The GHL sub-account every request is scoped to. One per deployment until Unit 25. */
@@ -114,10 +131,39 @@ public class GhlHttp {
 	}
 
 	public <T> T get(Class<T> type, Function<UriBuilder, URI> uri) {
-		return call(type, () -> reads.get().uri(uri).retrieve().body(type));
+		return call(type, () -> http.get().uri(uri).retrieve().body(type));
 	}
 
-	// There is deliberately no post(), put() or delete(). See the class comment: EvalOS reads GHL.
+	/**
+	 * Creates something in GHL and binds what GHL answers.
+	 *
+	 * <p><strong>The response is the point, not an afterthought.</strong> GHL mints the id — of a
+	 * contact, of an opportunity — and EvalOS never invents one (invariant 7). A caller that
+	 * discarded the body would have written a row it cannot name.
+	 */
+	public <T> T post(Class<T> type, Function<UriBuilder, URI> uri, Object body) {
+		return call(type, () -> http.post().uri(uri).body(body).retrieve().body(type));
+	}
+
+	/** Updates something in GHL. Same contract as {@link #post}. */
+	public <T> T put(Class<T> type, Function<UriBuilder, URI> uri, Object body) {
+		return call(type, () -> http.put().uri(uri).body(body).retrieve().body(type));
+	}
+
+	/**
+	 * Removes something in GHL.
+	 *
+	 * <p>Returns void and takes no body, matching the HTTP method rather than the shape of the
+	 * other two. {@code Void.class} is exempt from the empty-response check in {@link #call} — a
+	 * caller that binds no payload has said it wants none.
+	 */
+	public void delete(Function<UriBuilder, URI> uri) {
+		call(Void.class, () -> http.delete().uri(uri).retrieve().body(Void.class));
+	}
+
+	// There is deliberately no patch(): GHL's API does not use it, and a verb no endpoint accepts
+	// is exactly the "present and unused" capability the class comment argues against. The verb
+	// list is closed, and GhlHttpTest fails the build on a fifth.
 
 	private <T> T call(Class<T> type, java.util.function.Supplier<T> request) {
 		if (!configured) {
@@ -153,17 +199,17 @@ public class GhlHttp {
 			//
 			String upstream;
 			if (ex instanceof RestClientResponseException refused) {
-				upstream = "GHL refused the read with HTTP " + refused.getStatusCode().value();
+				upstream = "GHL refused the request with HTTP " + refused.getStatusCode().value();
 				// The token is never logged — it is a default header and appears in no message this
 				// class writes. GHL's response *body* is logged, because that is where the actual
 				// reason lives ("scope not authorized" and the like) and it is server-side only:
 				// it never reaches the API response.
-				log.error("GHL refused a read: HTTP {} body={}", refused.getStatusCode().value(),
+				log.error("GHL refused a request: HTTP {} body={}", refused.getStatusCode().value(),
 						refused.getResponseBodyAsString(), ex);
 			}
 			else {
-				upstream = "GHL did not answer the read";
-				log.error("GHL read failed with no response", ex);
+				upstream = "GHL did not answer";
+				log.error("GHL request failed with no response", ex);
 			}
 			throw new GhlUnavailableException(upstream, ex);
 		}

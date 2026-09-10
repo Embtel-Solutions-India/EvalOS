@@ -1,6 +1,7 @@
 # Unit 37 — The GHL write door
 
-> **Status: SPECCED 2026-09-10, not built.** Programme decisions: `00b-ghl-operational-programme.md`.
+> **Status: BUILT 2026-09-10** (665 backend tests green, was 659). Programme decisions:
+> `00b-ghl-operational-programme.md`.
 >
 > **This unit ships no feature and no screen.** It adds three methods to one class. It exists as a
 > unit of its own because those three methods **reverse invariant 2**, and a reversal that happens
@@ -123,14 +124,44 @@ The replacement is two structural assertions:
 
 ## 8. Acceptance criteria
 
-- [ ] `GhlHttp` exposes `post`, `put`, `delete`; each paces through the shared limiter, maps
+- [x] `GhlHttp` exposes `post`, `put`, `delete`; each paces through the shared limiter, maps
       failures to `GhlUnavailableException` with the upstream status, and refuses when unconfigured.
-- [ ] A fifth verb fails the build.
-- [ ] A class that calls a write verb without reaching `AuditService` fails the build.
-- [ ] Two `GhlHttp` instances still share one pacer — the existing assertion, unchanged, now
+- [x] A fifth verb fails the build.
+- [x] A class that calls a write verb without reaching `AuditService` fails the build.
+- [x] Two `GhlHttp` instances still share one pacer — the existing assertion, unchanged, now
       exercised across a read and a write.
-- [ ] Writes do **not** retry.
-- [ ] `architecture.md` invariant 2 is rewritten in this unit's commit, keeping Handoff A, "no
+- [x] Writes do **not** retry.
+- [x] `architecture.md` invariant 2 is rewritten in this unit's commit, keeping Handoff A, "no
       invoicing of its own", and the Unit 29 round trip.
-- [ ] The `.serena/memories/` entry stating the old invariant 2 is **edited**, not supplemented.
-- [ ] `./mvnw verify` green.
+- [x] The `.serena/memories/` entry stating the old invariant 2 is **edited**, not supplemented.
+- [x] `./mvnw verify` green.
+
+
+## 9. What the build added to this spec
+
+- **`GhlHttp.reads` is renamed `http`.** The field name asserted a property the class no longer
+  has, and a lie in a field name outlives every comment correcting it.
+- **The failure messages are verb-neutral.** "GHL refused the read with HTTP 500" is wrong on a
+  write path, and an operator reading it would look in the wrong place.
+- **`DocumentStore`'s javadoc is corrected in the same commit.** It cited `GhlHttp`'s read-only
+  position as the precedent for having no `delete`. That citation is now false, and it was the
+  kind of stale cross-reference that later gets used to argue the opposite: the note now says
+  explicitly that Unit 37 is **not** a precedent for adding delete to the document store, and
+  why the two arguments differ (a desk that moved, versus evidence that must not vanish).
+- **`writesDoNotRetry` runs a real server.** A JDK `com.sun.net.httpserver.HttpServer` on an
+  ephemeral port counts requests and returns 500. Asserting "exactly one POST" is the only way to
+  see a retry, which can arrive from the `RestClient` builder, an interceptor or a Spring
+  default — reading configuration would miss two of the three. No dependency, no Docker.
+- **`theWriteCallerScanBites`** — the audit scan has to be able to fail, or it is decoration. Same
+  rule `SegmentIsNotAnAccessKeyTest` applies to its own scan.
+- **`readsAndWritesSharePacer`**, which is the criterion's "across a read and a write": a write
+  path is the natural place to build a second `RestClient`, and that is the per-location rate-limit
+  bug arriving from the other direction.
+
+**The audit rule is a tripwire, not a policy, and the distinction is deliberate.** §5 asked that
+every class calling a write verb reach `AuditService`. The caller set is **empty**, because this
+unit ships no caller — so the test currently asserts emptiness. That is not a weaker test: the
+first unit to write to GHL has to come to this file, and in coming here it meets the requirement
+before shipping rather than after an incident. Enforcing a transitive "reaches audit eventually"
+across a call graph that does not exist yet would have been a scheme invented for no caller, which
+the caller would then work around.
