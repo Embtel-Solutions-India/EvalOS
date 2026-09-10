@@ -70,13 +70,19 @@ recreates the "present and unused" problem this unit is being careful about.
 ## 4. Idempotency
 
 GHL's own operation metadata marks its write operations `idempotencyRequired: true`. **What that
-means for us is not decided in this unit** and is deliberately deferred to Unit 38, the first
-caller — because the right key depends on what is being written, and inventing a scheme with no
-caller produces a scheme the caller then works around.
+means for us is not decided in this unit** and is deliberately deferred to the first caller —
+because the right key depends on what is being written, and inventing a scheme with no caller
+produces a scheme the caller then works around.
+
+**Corrected 2026-09-10, during Unit 38.** This section originally named **Unit 38** as the first
+caller. It is not: Unit 38 reads opportunities and writes nothing, as its own §8 says. **The first
+caller is Unit 39** (creating a contact and an opportunity), and that is where the scheme is
+decided. Recorded rather than silently repointed, because two specs disagreeing about who owns a
+decision is exactly how the decision ends up owned by nobody.
 
 **What this unit does do** is make sure the question cannot be skipped silently: the three methods
 take their URI builder and body from the caller, so a caller that needs an idempotency header sets
-one, and Unit 38's spec carries a section that must answer it.
+one, and Unit 39's spec carries the section that must answer it.
 
 ## 5. The test that replaces the guard
 

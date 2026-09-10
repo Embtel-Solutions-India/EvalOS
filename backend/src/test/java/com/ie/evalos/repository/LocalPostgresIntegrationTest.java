@@ -152,10 +152,22 @@ class LocalPostgresIntegrationTest {
 		Properties credentials = new Properties();
 		credentials.setProperty("user", envOr("DB_USER", "postgres"));
 		credentials.setProperty("password", envOr("DB_PASSWORD", "1234"));
-		// Seconds. Short on purpose: this runs on every build, so an unreachable host must cost
-		// a moment and not a stalled pipeline.
-		credentials.setProperty("connectTimeout", "2");
-		credentials.setProperty("loginTimeout", "2");
+		// Seconds. Short, so an unreachable host costs a moment rather than a stalled pipeline —
+		// but **not 2, which this suite silently skipped on.**
+		//
+		// **Raised from 2 during Unit 38, and the failure it fixes is the nasty kind.** Run on
+		// its own, all 36 tests passed. Run inside a full `./mvnw verify`, with a dozen Spring
+		// contexts starting around it, the probe lost the race and every one of them SKIPPED —
+		// and a skip is not a failure, so the build reported SUCCESS with the only tests that
+		// can see a real schema quietly not run. That is exactly how the `V39` NULL-in-CHECK bug
+		// would have shipped.
+		//
+		// 10 seconds keeps the original intent (a machine with no Postgres is not punished for
+		// it) while making the skip mean "absent" rather than "busy". If this ever needs to be
+		// higher, the honest fix is not a bigger number: it is `-Devalos.db.test=true` in CI,
+		// which forces the suite on so a broken database fails loudly instead of vanishing.
+		credentials.setProperty("connectTimeout", "10");
+		credentials.setProperty("loginTimeout", "10");
 
 		try (Connection probe = DriverManager.getConnection(envOr("DB_TEST_URL", TEST_URL), credentials)) {
 			return probe.isValid(2);

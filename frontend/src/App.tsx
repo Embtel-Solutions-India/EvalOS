@@ -11,6 +11,7 @@ import ChecklistBoard from './features/checklist/ChecklistBoard'
 import PortalRoot from './features/client-portal/PortalRoot'
 import ExpertRoster from './features/experts/ExpertRoster'
 import MarketingPipelinePage from './features/marketing/MarketingPipelinePage'
+import OpportunityBoardPage from './features/opportunities/OpportunityBoardPage'
 import PayoutBatch from './features/payouts/PayoutBatch'
 import ExpertPayouts from './features/payouts/ExpertPayouts'
 import PaymentDetail from './features/payouts/PaymentDetail'
@@ -63,9 +64,12 @@ const SCREENS: Record<string, React.ReactNode> = {
     <MarketingPipelinePage funnel="email" title="Email marketing pipeline" />
   ),
   '/sales/pipeline': <MarketingPipelinePage funnel="sales" title="Sales pipeline" />,
-  // The sales *desk* is not a fourth funnel and shares nothing with the three above: that
-  // component draws an aggregate from a cached read, this one draws individual deals with the
-  // contact on them, live, with actions that write to GHL. Same pipeline, different question.
+  // **The opportunity board is not a fourth funnel** and shares nothing with the three above.
+  // Those draw an aggregate over a date window and ask "how is the funnel converting"; this
+  // draws individual deals with the contact on them and asks "what is on my desk". Same
+  // pipelines underneath, different question — which is exactly why `/sales/pipeline` was NOT
+  // deleted when this arrived, contrary to what Unit 38's spec first said.
+  '/opportunities/board': <OpportunityBoardPage />,
 }
 
 /** The client portal's path prefix. `/portal/expert` joins it in Unit 15. */

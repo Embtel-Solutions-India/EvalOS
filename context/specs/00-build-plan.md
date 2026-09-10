@@ -113,14 +113,14 @@ pipeline, automation and invoice layer underneath. **Read
 `00b-ghl-operational-programme.md` before any of these** — it carries the truth model, the
 single-brand ceiling and the invariant ledger, and a unit spec that disagrees with it is wrong.
 
-| # | Unit | Depends on | Blocked? |
+| # | Unit | Depends on | State |
 |---|---|---|---|
-| **36** | Pipeline-scoped access | 02, 03 | **no — buildable today**, `V39` |
-| **37** | The GHL write door | 36 | no. Invariant 2 dies here |
-| **38** | Opportunity reads and boards | 37 | no. `V40`. **The point of no cheap return** |
-| **39** | Marketing lead desk | 38 | no. `V41`. Invariant 7 amended here |
-| **40** | Sales desk | 38, 39 | **meetings half only**, on the `calendars/*` grant |
-| **41** | Client Portal invoices | **35 ✅** | **yes — `invoices.readonly`, and nothing else** |
+| **36** | Pipeline-scoped access | 02, 03 | **BUILT** 2026-09-10, `V39` |
+| **37** | The GHL write door | 36 | **BUILT** 2026-09-10. Invariant 2 died here |
+| **38** | Opportunity reads and the board | 36 | **BUILT** 2026-09-11, `V40`. **Past the point of cheap return** |
+| **39** | Marketing lead desk | 38 | next. `V41`. Amends invariant 7; **first caller of the write door**, so it owns the idempotency decision |
+| **40** | Sales desk | 38, 39 | **meetings half only** blocked, on the `calendars/*` grant |
+| **41** | Client Portal invoices | **35 ✅** | **blocked on `invoices.readonly`, and nothing else** |
 
 **Track C does not queue behind Track A**, and two of its rows are the reason to say so:
 
@@ -132,6 +132,15 @@ single-brand ceiling and the invariant ledger, and a unit spec that disagrees wi
 a preference: 37 is where the write capability is *decided on* and 38 is where the pivot stops
 being cheaply reversible. Skipping 37 into 38 deletes a build-failing guard as a side effect of a
 feature, which is the specific thing 37 exists to prevent.
+
+**Two corrections the build made to this table.** Unit 38 does **not** depend on 37 — it reads
+only, and Unit 37 §4's claim that 38 was "the first caller" of the write door was wrong; **Unit 39
+is**, and owns the idempotency decision. And Unit 38 did **not** delete
+`/api/marketing/sales-pipeline` or the three `evalos.ghl.*-pipeline-name` properties, contrary to
+what specs 36 and 38 both said: those screens are analytics funnels over a date window, the board
+is an operational card list with none, and they answer different questions. **That cut is still
+available, on its own, if the business wants the funnels retired** — it would remove Units 24, 26
+and 27's screens, not just their config.
 
 ### Why not simply follow the phase order
 

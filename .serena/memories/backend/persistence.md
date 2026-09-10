@@ -108,6 +108,19 @@ Still-dead-and-should-stay-dead, for the same derive-don't-store reason as the t
 `expert.avg_response_hours`. Unit 17 derives turnaround from `expert_case_offer`; reviving the column
 would be a second, staler answer.
 
+**⚠ `V40` adds `ghl_opportunity_cache` — the first table holding another system's records.**
+Every column is a field GHL owns; it is **droppable without loss**; a pipeline is **replaced
+wholesale, never upserted** (a departed opportunity has no fresh row to update, so an upsert
+strands it on the board forever). **No `brand_id`, deliberately** — an opportunity belongs to a
+GHL *location*, and with one selling brand the column would hold one value while looking like a
+scope. Unit 25 is when it gains one, and that migration rewrites `V40`'s comment rather than
+adding one beside it.
+
+**It is not scoped by `ScopePredicate` and cannot be** (no brand column). Instead every finder on
+`CachedOpportunityRepository` *requires* the pipeline id, which comes from the caller's principal —
+`CachedOpportunityRepositoryScopeTest` fails the build on an unscoped finder. **Do not add
+`findAll`-shaped reads there.**
+
 **`V37` adds `portal_access.expert_id`** (nullable, `updatable = false`), which binds an expert's
 credential to the expert rather than only to the case — see `mem:backend/security` for what that
 closes. **No CHECK tying it to `audience = 'EXPERT'`, and the reason is worth keeping**: a plain

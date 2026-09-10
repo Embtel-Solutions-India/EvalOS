@@ -69,6 +69,7 @@ evalos:
     email-pipeline-name: ${GHL_EMAIL_PIPELINE_NAME:Shivangi's Email Marketing}
     # Unit 36's single-brand ceiling; the reasoning is in the base profile.
     sales-brand: ${GHL_SALES_BRAND_ID:}
+    board-cache-ttl: ${GHL_BOARD_CACHE_TTL:2m}
     # The sales funnel. Written with ONE space where GHL stores two — the client collapses
     # whitespace before matching, so this is correct as written; see the base profile.
     sales-pipeline-name: ${GHL_SALES_PIPELINE_NAME:Aditya's pipeline}

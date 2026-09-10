@@ -276,6 +276,31 @@ export const STAGE_ACCESS: Record<Role, Record<Stage, StageAccess>> = {
     DELIVERED: 'status',
     CLOSED: 'none',
   },
+
+  // **Sales and Marketing see no stage of the production board, and that is the design.**
+  //
+  // They act on GHL *opportunities*, which are not cases: a case does not exist until payment
+  // (invariant 8), and by then the deal has left their desk. Their screen is the opportunity
+  // board, which is a different board over different data.
+  //
+  // `none` throughout rather than `status`, and the difference matters — `columnsFor` filters
+  // out `none` columns, so these roles get an empty production board rather than a read-only
+  // view of work they have no part in. A salesperson who can watch the whole delivery pipeline
+  // is a salesperson who will be asked to explain its delays.
+  //
+  // The three business kinds of each (Attorney / Employer-Firm / Individual) are NOT roles and
+  // never reach this map: they are `team_member.segment`, they carry identical permissions, and
+  // nothing branches on them.
+  SALES: {
+    DOC_COLLECTION: 'none', PM_REVIEW: 'none', DRAFT_IN_PROGRESS: 'none', DRAFT_REVIEW: 'none',
+    READY_TO_SEND: 'none', CLIENT_REVIEW: 'none', CLIENT_APPROVAL: 'none', EXPERT_SIGNING: 'none',
+    FINAL_QC: 'none', READY_TO_DELIVER: 'none', DELIVERED: 'none', CLOSED: 'none',
+  },
+  MARKETING: {
+    DOC_COLLECTION: 'none', PM_REVIEW: 'none', DRAFT_IN_PROGRESS: 'none', DRAFT_REVIEW: 'none',
+    READY_TO_SEND: 'none', CLIENT_REVIEW: 'none', CLIENT_APPROVAL: 'none', EXPERT_SIGNING: 'none',
+    FINAL_QC: 'none', READY_TO_DELIVER: 'none', DELIVERED: 'none', CLOSED: 'none',
+  },
 }
 
 export const EXCEPTION_LANES: readonly { state: Exclude<ExceptionState, 'NONE'>; label: string }[] = [

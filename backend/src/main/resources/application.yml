@@ -182,6 +182,13 @@ evalos:
     # Blank means no brand may hold a pipeline-scoped role, which is the safe default for an
     # environment that has not been told which brand sells.
     sales-brand: ${GHL_SALES_BRAND_ID:}
+    # How long a cached pipeline is considered fresh before the next board read refetches it
+    # (Unit 38). Short, because a board is an operational screen and a salesperson dragging a
+    # card expects to see it move; long enough that a room full of open boards is not a room
+    # full of GHL calls against the 100-per-10-seconds-per-location budget.
+    #
+    # The cache is droppable: raising this trades freshness for requests and nothing else.
+    board-cache-ttl: ${GHL_BOARD_CACHE_TTL:2m}
     timeout: ${GHL_TIMEOUT:10s}
     # How long one funnel read is served from memory before GHL is asked again.
     #

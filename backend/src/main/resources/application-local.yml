@@ -97,6 +97,7 @@ evalos:
     sales-brand: ${GHL_SALES_BRAND_ID:}
     # One space, not the two GHL actually stores — see the base profile. The client normalises it.
     sales-pipeline-name: ${GHL_SALES_PIPELINE_NAME:Aditya's pipeline}
+    board-cache-ttl: ${GHL_BOARD_CACHE_TTL:2m}
     timeout: ${GHL_TIMEOUT:10s}
     # CHANGED from base (PT5M). That cache is a rate limiter, and a laptop is not what it
     # protects GHL from — one developer refreshing one screen is nothing next to a room of open

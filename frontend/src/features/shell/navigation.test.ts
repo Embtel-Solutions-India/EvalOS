@@ -15,17 +15,31 @@ const ALL_ROLES: readonly Role[] = [
   'PROJECT_COORDINATOR',
   'CASE_MANAGER',
   'EXPERT_NETWORK_MANAGER',
+  'SALES',
+  'MARKETING',
 ]
 
 /**
- * Every role that works EvalOS's own cases — which, with the sales desk removed, is all of them.
+ * Every role that works EvalOS's own cases — which is no longer all of them.
  *
- * **Kept as its own name rather than folded back into `ALL_ROLES`.** Unit 29 split it off because
- * a role existed that was assigned no case, and the assertions beginning "every role" stopped
- * being true of every role. That role is gone and the two lists are equal again, but the split is
- * what makes the next such role a one-line change here instead of a rewrite of six assertions.
+ * **The split this comment was kept for has just earned itself.** Unit 29 separated these lists
+ * because a role existed that was assigned no case; that role went, the lists became equal, and
+ * the previous note said keeping them apart was what would make the next such role a one-line
+ * change rather than a rewrite of six assertions. Unit 36 added two — `SALES` and `MARKETING`
+ * act on GHL opportunities and are assigned no case — and this was indeed the one line.
+ *
+ * **Do not fold these back together.** Every assertion phrased "every role" needs to know which
+ * kind of "every" it means, and the two answers have diverged for good: a case is born at
+ * payment (invariant 8), by which point the deal has left the sales desk.
  */
-const CASE_ROLES: readonly Role[] = ALL_ROLES
+const CASE_ROLES: readonly Role[] = [
+  'GM',
+  'BRAND_MANAGER',
+  'PROJECT_MANAGER',
+  'PROJECT_COORDINATOR',
+  'CASE_MANAGER',
+  'EXPERT_NETWORK_MANAGER',
+]
 
 describe('the nav and route table', () => {
   it('gives every case-working role a dashboard and at least one screen beyond it', () => {
@@ -207,28 +221,40 @@ describe('the nav and route table', () => {
     }
   })
 
-  it('keeps the marketing funnels GM-only, because they cannot be brand-scoped', () => {
+  it('keeps every unattributable GHL screen GM-only, and states the one exception', () => {
     // **This one is not a taste call about who should see marketing.**
-    // `/api/marketing/ads-pipeline` reads the one GHL sub-account named by `evalos.ghl.location-id`
-    // — a *global* setting with no link to a brand — so the figure cannot be attributed to a brand,
-    // and the endpoint accepts no `brandId` because none would narrow anything.
+    // These screens read the one GHL sub-account named by `evalos.ghl.location-id` — a *global*
+    // setting with no link to a brand — so their figures cannot be attributed to a brand, and
+    // the endpoints accept no `brandId` because none would narrow anything.
     //
     // The Brand Manager is the tempting addition and is the leak. Each brand has its own GHL
     // sub-account, so the configured one is *some* brand's funnel and the server cannot prove
-    // whose: a role locked to one brand could be shown another brand's numbers. Adding them here
-    // fails this test on purpose, and becomes correct only once Unit 25 maps locations to brands
-    // (then Unit 25a re-scopes this entry).
+    // whose: a role locked to one brand could be shown another brand's numbers.
     //
-    // All three funnels, because they read the SAME location: a screen added without the same door
-    // is the way this leaks next, and it is one line to prevent.
-    //
-    // **`/sales/pipeline` is in this list even though it is not under the Marketing heading**, and
-    // that is the point of including it here rather than in a case of its own. The nav split is
-    // real — a sales pipeline is not a campaign funnel — but it changes nothing about the scoping
-    // gap: one global `evalos.ghl.location-id`, one unattributable brand, one door. The heading is
-    // the likeliest reason someone would think this rule stops at Marketing.
-    for (const path of ['/marketing/google-ads', '/marketing/email', '/sales/pipeline']) {
-      expect(ALL_ROLES.filter((role) => mayReach(role, path)), path).toEqual(['GM'])
+    // **The list is derived, not typed out, and that is the change Unit 38 made.** It used to be
+    // three hardcoded paths, with a comment warning that "a screen added without the same door is
+    // the way this leaks next" — and then Unit 38 added a fourth screen over the same location
+    // and this test passed, because the new path simply was not in the list. A guard that only
+    // checks what somebody remembered to list is a guard against forgetting nothing. Items now
+    // declare `readsGhlLocation`, and this walks them.
+    const ghlScreens = NAV_ITEMS.filter((item) => item.readsGhlLocation)
+    expect(ghlScreens.length, 'no GHL screens found — is the marker still on the items?')
+      .toBeGreaterThanOrEqual(4)
+
+    for (const item of ghlScreens) {
+      const reachers = ALL_ROLES.filter((role) => mayReach(role, item.path))
+
+      if (item.path === '/opportunities/board') {
+        // **The one legitimate exception, stated rather than unnoticed.** Unit 36 added
+        // `evalos.ghl.sales-brand`, which names the brand that owns the location, and bound
+        // SALES/MARKETING to it with a 400 at assignment. So this screen's brand IS provable —
+        // the exception narrowed rather than widened. Everything else on this location is still
+        // unattributable and still GM-only.
+        expect(reachers.sort(), item.path).toEqual(['GM', 'MARKETING', 'SALES'])
+        continue
+      }
+
+      expect(reachers, item.path).toEqual(['GM'])
     }
   })
 

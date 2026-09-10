@@ -4,6 +4,83 @@ Update this file after every meaningful implementation change.
 
 ## Current Phase
 
+- **2026-09-11 — Unit 38 BUILT: opportunities are readable, and the pivot is now expensive to
+  reverse.** `V40`. Backend green; frontend builds and its 141 tests pass.
+
+  **This is the unit the whole programme was warned about.** Unit 29's sales desk was removed in
+  one migration with no data reconciliation *because no EvalOS row held a pipeline fact*.
+  `ghl_opportunity_cache` is that row. From here the pivot cannot be undone at Unit 29's price,
+  and that — not the code — is what it cost.
+
+  **What shipped.** `GhlOpportunityClient` reads `GET /opportunities/search` scoped by pipeline;
+  a droppable cache holds the result; one route, `GET /api/opportunities/board`, serves Sales,
+  Marketing and the GM; and the staff SPA gains the two roles Unit 36 deliberately left out,
+  together with the board they reach.
+
+  **What keeps the cache from becoming a second CRM**, all three checkable: every column is a
+  field GHL owns, `TRUNCATE` costs a refill and nothing else, and a pipeline is replaced
+  **wholesale** rather than upserted — an opportunity that has left has no fresh row to update,
+  so an upsert would strand it on the board forever.
+
+  **A bug of my own, caught in self-review before commit: a GHL call inside a database
+  transaction.** `forCaller()` was `@Transactional` and fetched from GHL within it, holding a
+  pooled connection open across a network round trip — a handful of concurrent board loads would
+  surface as pool exhaustion somewhere unrelated. Split into `OpportunityCache`, which owns the
+  writes; the board calls GHL outside any transaction. **It had to be a separate bean**, because
+  Spring's `@Transactional` is proxy-based and a self-call gets no transaction at all — the
+  annotation would sit there looking correct and do nothing.
+
+  **Six departures from the spec, all recorded in it.** *One* board rather than two (same
+  question, same data, only the asker differs). Scoping is **structural** rather than a
+  predicate — `ScopePredicate` needs a brand column and the cache deliberately has none, so every
+  finder *requires* the pipeline and it comes from the principal; a predicate is something a query
+  can forget, a required parameter is not. The refill is **inline**, because §4's ~13s floor is a
+  *year of one marketing funnel*, not one person's two-page pipeline. **No webhook eviction** —
+  the `opportunity.updated` subscription it needs does not exist, and TTL is 2 minutes. And
+  **nothing was deleted**: see below.
+
+  **The reversal worth arguing with.** Specs 36 and 38 both said this unit would delete
+  `/api/marketing/sales-pipeline` and the three `*-pipeline-name` properties as superseded. Reading
+  the code says they are not: those screens are **analytics funnels** over a date window, and this
+  is an **operational list of cards** with no date window at all. *"How is the funnel converting"*
+  and *"what is on my desk"* are different questions. The naming redundancy is real but **fails
+  loudly** (a rename gives a 502 saying so), and deleting three live GM screens to tidy it is a
+  scope cut inside a unit scoped to add one. **Left standing; the cut is available to take on its
+  own if the business wants it.**
+
+  **Open question P1 is decided and tested: the GM's union is the configured selling brand's**,
+  not every brand's — every other screen follows the brand switcher, and a board that silently
+  spanned brands would be the one exception nobody was told about. Moot while the single-brand
+  ceiling holds; defined anyway, because a screen undefined for a state the UI can reach is a bug
+  waiting for brand two.
+
+  **A spec contradiction found and fixed before coding:** Unit 37 §4 deferred the idempotency
+  decision to "Unit 38, the first caller". Unit 38 writes nothing — **Unit 39 is the first
+  caller**, and both specs now say so. Two specs disagreeing about who owns a decision is how it
+  ends up owned by nobody.
+
+  **Two stale guards, and the second is the one to read.** `navigation.test.ts`'s `ALL_ROLES` was
+  a hardcoded six, so every "no role may reach X" assertion silently excluded the new roles. And
+  the GM-only guard over the GHL location was a **hardcoded list of three paths** whose own
+  comment warned that *"a screen added without the same door is the way this leaks next"* — then
+  this unit added a fourth screen over that location and **the test passed, because the path was
+  simply not in the list.** Now derived: `NavItem` carries `readsGhlLocation`, the test walks
+  every marked item, and `/opportunities/board` is asserted as the one **explicit** exception
+  (legitimate — `evalos.ghl.sales-brand` names the brand, so the exception narrowed). Proved by
+  injecting a leak and watching it fail.
+
+  **And a harness flaw worth more than this unit.** `LocalPostgresIntegrationTest` skipped **all
+  36 tests** inside a full `verify` while passing when run alone: its connection probe had a
+  **2-second** timeout and lost the race against a dozen Spring contexts starting. A skip is not
+  a failure, so **the build reported SUCCESS with the only tests that can see a real schema
+  quietly not run** — which is exactly how `V39`'s NULL-in-CHECK bug would have shipped. Raised to
+  10s. The real fix is `-Devalos.db.test=true` in CI, which forces the suite on so a broken
+  database fails loudly instead of vanishing.
+
+  **Next: Unit 39** — the marketing lead desk (`V41`). It amends invariant 7, introduces
+  `opportunity_note`, and is **the first caller of Unit 37's write door**, so it owns the
+  idempotency decision.
+
 - **2026-09-10 — Unit 37 BUILT: the write door is open, and invariant 2 is dead.** 665 backend
   tests green (was 659). No migration, **no caller**, no screen.
 

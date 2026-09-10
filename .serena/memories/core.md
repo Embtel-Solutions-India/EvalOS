@@ -101,7 +101,7 @@ none. What is true now: **GHL stays the CRM, the pipeline engine, the automation
 invoice/QuickBooks integration; EvalOS is the interface Sales and Marketing work in.** Invoicing
 is still GHL's — EvalOS reads invoices and raises none.
 
-**Two of six units are built.** The **GHL
+**Three of six units are built (36, 37, 38).** The **GHL
 operational programme (Units 36–41)** makes EvalOS the interface Sales and Marketing *work in*, so
 they never open GHL; GHL stays the CRM, pipeline, automation and invoice/QuickBooks layer
 underneath. Spec: **`context/specs/00b-ghl-operational-programme.md`** — read it before any GHL
@@ -112,8 +112,38 @@ work, it holds the truth model and the invariant ledger.
 | | |
 |---|---|
 | **Decided** | Two roles `SALES`/`MARKETING` (`Tier.PIPELINE`) + a `segment` column, *not* six roles; one personal exclusive pipeline each; **GHL owns the opportunity, EvalOS owns the note stream keyed on `ghl_opportunity_id`**; a droppable non-authoritative opportunity cache; **single selling brand** (`evalos.ghl.sales-brand`) enforced with a 400 until Unit 25 |
-| **Built** | **Unit 36** (`V39`): `Role` has eight values, `Tier.PIPELINE` exists and fails closed, `team_member` carries `ghl_pipeline_id` + `segment`, two GM routes assign a pipeline, single-brand ceiling enforced with a 400. **Unit 37**: `GhlHttp` has `post`/`put`/`delete`; **invariant 2 is dead and rewritten in `architecture.md`**; the old guard is replaced by "the verb list is closed" + "every write caller reaches `AuditService`". No caller yet. |
-| **Next** | **Unit 38** — opportunity reads and the two boards (`V40`). It stores the first EvalOS row holding a pipeline fact, which is where the pivot stops being cheap to reverse. It must also decide open question P1 (whose pipelines the GM's union spans) and delete all three `evalos.ghl.*-pipeline-name` properties. |
+| **Built** | **36** (`V39`): eight roles, `Tier.PIPELINE` fails closed, `team_member.ghl_pipeline_id` + `segment`, two GM routes, single-brand ceiling enforced with a 400. **37**: `GhlHttp` has `post`/`put`/`delete`; **invariant 2 dead and rewritten**; guard replaced by "verb list closed" + "every write caller reaches `AuditService`". **38** (`V40`): `ghl_opportunity_cache`, `GhlOpportunityClient`, `GET /api/opportunities/board` for SALES/MARKETING/GM, and the SPA's two new roles + their board. |
+| **Next** | **Unit 39** — the marketing lead desk (`V41`). Amends invariant 7, introduces `opportunity_note` (keyed on `ghl_opportunity_id`), and is **the first caller of the write door**, so it owns the idempotency decision Unit 37 deferred. |
+
+**⚠ THE PIVOT IS NO LONGER CHEAPLY REVERSIBLE, as of Unit 38.** `ghl_opportunity_cache` is the
+first EvalOS row holding a pipeline fact — the exact thing invariant 2 spent years warning about,
+and the absence of which made Unit 29's removal cost one migration and no reconciliation. Three
+properties keep it honest and all three are checkable: **every column is a field GHL owns**, it is
+**droppable without loss** (`TRUNCATE` costs a refill), and a pipeline is **replaced wholesale**
+rather than upserted. If a column ever appears that GHL has no field for, the truth model in `00b`
+§1.3 is void and gets re-argued before the column lands.
+
+**Board facts worth not rediscovering:**
+- **One board, not two.** Sales and Marketing ask the same question of the same data; the role
+  gate is the only difference. `GET /api/opportunities/board` takes **no pipeline parameter** and
+  must never take one — the caller's principal decides everything.
+- **The cache is scoped structurally, not by `ScopePredicate`.** It has no `brand_id` (deliberately
+  — one selling brand would make it a column pretending to be a scope), so every finder *requires*
+  the pipeline id and it comes from the principal. `CachedOpportunityRepositoryScopeTest` fails the
+  build on an unscoped finder, and asserts `-parameters` is on so it cannot pass by being blind.
+- **Refill is inline, TTL 2m, no webhook eviction.** §4's ~13s floor is a *year of one marketing
+  funnel*, not one person's pipeline. There is no `opportunity.updated` subscription to evict on.
+- **P1 answered: the GM's union is the configured selling brand's pipelines**, not every brand's.
+- **`/api/marketing/sales-pipeline` and the three `*-pipeline-name` properties were NOT deleted**,
+  reversing what specs 36 and 38 said. Those are analytics funnels over a date window; the board is
+  an operational card list with none. Different questions. The naming redundancy is real but fails
+  loudly (502 on rename).
+
+**⚠ `LocalPostgresIntegrationTest` can skip silently and report SUCCESS.** Its probe timeout was
+2s and lost the race under a full `verify`, skipping **all 36** schema tests while the build went
+green — the same tests that caught `V39`'s NULL-in-CHECK bug. Raised to 10s in Unit 38. **Use
+`-Devalos.db.test=true` in CI**, which forces the suite on so a broken database fails rather than
+vanishes. If a run reports a jump in "Skipped", check this first.
 
 **Two things the programme does NOT touch:** invoicing stays GHL's (Unit 41 *reads* invoices,
 raises none), and **invariant 8 is untouched** — a case is still born only of a won opportunity

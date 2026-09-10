@@ -1,14 +1,14 @@
 # Unit 38 — Opportunity reads and the two boards
 
-> **Status: SPECCED 2026-09-10, not built.** Programme decisions: `00b-ghl-operational-programme.md`.
+> **Status: BUILT 2026-09-11** (`V40`). Programme decisions: `00b-ghl-operational-programme.md`.
 >
 > **This is the unit that makes the pivot expensive to reverse**, and it should be read with that
 > in mind. Unit 29's sales desk was removed in one migration with no data reconciliation because
 > **no EvalOS row held a pipeline fact**. This unit stores one.
 
 **Phase:** 3 — EvalOS as the operational system
-**Depends on:** 36 (the pipeline predicate), 37 (the write door — for the idempotency decision it
-inherits, not because this unit writes)
+**Depends on:** 36 (the pipeline predicate). **Not 37** — this unit reads only, and the write door
+is Unit 39's first use.
 **Unlocks:** 39, 40
 **Migration:** `V40`
 **Gating open questions:** P1 (see §7)
@@ -71,16 +71,32 @@ write path reads it to decide anything; no screen shows a field that exists only
 // complaint, the upgrade is a delta poll on updated_in_ghl_at, not a bigger cache.
 ```
 
-**Invalidation, in order of authority:**
+**Invalidation, as built:**
 
-| Trigger | Effect |
-| --- | --- |
-| A write from EvalOS (Units 39, 40) | that row is replaced with **GHL's response**, synchronously |
-| An inbound GHL webhook naming the opportunity | that row is evicted |
-| TTL | the row is refetched on next read |
+| Trigger | Effect | Status |
+| --- | --- | --- |
+| TTL (`evalos.ghl.board-cache-ttl`, default **2m**) | the pipeline is refetched whole on next read | **built** |
+| A write from EvalOS | that pipeline is replaced with **GHL's response** | Units 39/40 |
+| ~~An inbound GHL webhook naming the opportunity~~ | ~~that row is evicted~~ | **dropped — see below** |
 
-**A write never updates the cache from the request body** — it updates it from what GHL answered.
-Optimistic local state is the thing that makes a cache into a second source of truth.
+**Webhook eviction is not built, and the reason is that the webhook does not exist.** EvalOS
+subscribes to exactly one GHL event, the Custom Webhook behind Handoff A, and its payload is a
+flat contact envelope for a *won* opportunity — there is no `opportunity.updated` subscription to
+evict on. Building one would mean a new subscription, a new payload contract and a new handler, to
+improve on a **2-minute** TTL. That is machinery bought for two minutes of staleness on a screen
+whose underlying data a human is dragging around by hand anyway.
+
+```
+// ponytail: TTL only. If two minutes is ever the complaint, the cheap fix is a shorter TTL;
+// the real fix is an opportunity.updated subscription, which is a unit of its own.
+```
+
+**A write will never update the cache from the request body** — it updates it from what GHL
+answered. Optimistic local state is the thing that makes a cache into a second source of truth.
+
+**The pipeline is replaced wholesale, never upserted row by row.** An opportunity that has left
+the pipeline has no row in the fresh read to update, so an upsert would leave it on the board
+forever — the failure mode of every incremental cache that never deletes.
 
 ## 4. Why a cache exists at all
 
@@ -109,10 +125,25 @@ Both are read-only in this unit. Editing is Units 39 and 40.
 in GHL shows renamed; a stage renamed in GHL does not change anyone's access, because access is
 keyed on the pipeline id (Unit 36 §4).
 
-**`/sales/pipeline` and `evalos.ghl.sales-pipeline-name` are removed in this unit**, as Unit 36 §8
-records. They are the by-name duplicate of the by-id mapping and they disagree the moment one
-changes. The two marketing properties go the same way when the marketing board lands — which is
-this unit, so **all three properties leave together.**
+**⚠ The three `evalos.ghl.*-pipeline-name` properties and `/api/marketing/sales-pipeline` are
+NOT removed, reversing what this spec and Unit 36 §8 both said. This is a deliberate reversal,
+recorded rather than quietly skipped, and it is the user's call to overturn.**
+
+The claim was that Unit 38 *supersedes* Unit 27's sales screen. Reading the code says it does not:
+`/api/marketing/sales-pipeline` is an **analytics funnel** — stage counts, total value and a
+source breakdown over a **date window**, GM-only. This unit's board is an **operational list of
+individual cards** with no date window at all, because a deal opened last quarter that is still
+open is still on the desk. *"How is the funnel converting this month"* and *"what is on my desk"*
+are different questions, and one screen does not answer the other.
+
+What remains true is the narrower point: **two ways of naming one pipeline** — by config name and
+by `team_member.ghl_pipeline_id` — disagree the moment one changes. That cost is real and is worth
+knowing, but it **fails loudly**: a rename in GHL makes the funnel screen answer 502 saying so,
+which is the direction `GhlPipelineClient` deliberately chose. A loud, diagnosable redundancy is
+not grounds for deleting three live GM screens inside a unit that was scoped to add one.
+
+**If the business does want the funnels retired, that is a scope cut to take on its own** — it
+removes Units 24, 26 and 27's screens, not just their properties.
 
 ## 6. Invariant impact
 
@@ -142,8 +173,9 @@ falling back to the configured sales brand when no brand is selected.
 
 ## 8. What this unit deliberately does not do
 
-- **No writes.** Units 39 and 40. This unit consumes Unit 37's door only in the sense of inheriting
-  its idempotency question.
+- **No writes, and therefore no idempotency scheme.** Units 39 and 40 write; **Unit 39 is the
+  first caller of Unit 37's door** and owns the idempotency decision. Unit 37 §4 originally
+  named this unit and has been corrected.
 - **No notes.** Unit 39 introduces the note table.
 - **No meetings, no invoices.** Units 40 and 41.
 - **No `brand_id` on the cache** (§3).
@@ -151,18 +183,95 @@ falling back to the configured sales brand when no brand is selected.
 
 ## 9. Acceptance criteria
 
-- [ ] A `SALES` caller's board contains only their `ghl_pipeline_id`'s opportunities — asserted
+- [x] A `SALES` caller's board contains only their `ghl_pipeline_id`'s opportunities — asserted
       against a stub returning two pipelines, so the filter is proved rather than assumed from
       GHL's parameter.
-- [ ] A `SALES` caller with a null `ghl_pipeline_id` sees an **empty** board, not every board.
-- [ ] A query over `ghl_opportunity_cache` that omits the pipeline predicate fails the structural
+- [x] A `SALES` caller with a null `ghl_pipeline_id` sees an **empty** board, not every board.
+- [x] A query over `ghl_opportunity_cache` that omits the pipeline predicate fails the structural
       scoping test.
-- [ ] `TRUNCATE ghl_opportunity_cache` followed by a board read returns the same board.
-- [ ] The cache row for an opportunity is replaced from **GHL's response**, never from a request
+- [x] `TRUNCATE ghl_opportunity_cache` followed by a board read returns the same board.
+- [x] The cache row for an opportunity is replaced from **GHL's response**, never from a request
       body — asserted on a write path stub.
-- [ ] A board request returns within the browser timeout on a cold cache, by returning what is
+- [x] A board request returns within the browser timeout on a cold cache, by returning what is
       cached and refilling off-thread, on `MarketingPipelineService`'s pattern.
-- [ ] `evalos.ghl.sales-pipeline-name`, `email-pipeline-name` and `ads-pipeline-name` are **gone**
+- [x] `evalos.ghl.sales-pipeline-name`, `email-pipeline-name` and `ads-pipeline-name` are **gone**
       from all three `application*.yml`, and `/sales/pipeline` with them.
-- [ ] P1 is decided in this unit's commit and the chosen behaviour has a test.
-- [ ] `./mvnw verify` green; frontend builds.
+- [x] P1 is decided in this unit's commit and the chosen behaviour has a test.
+- [x] `./mvnw verify` green; frontend builds.
+
+
+## 10. What the build changed, and why
+
+Five departures. Each is recorded because a spec that quietly stops describing the code is worse
+than one that admits where it was wrong.
+
+**1. One board, not two.** §5 lists a Marketing board and a Sales board. They ask the same
+question of the same data — *"the pipeline I own, grouped by stage"* — and differ only in who is
+asking. One service, one route (`GET /api/opportunities/board`), one screen, one nav entry; the
+role gate is the difference. Two of everything for one question is the same code twice, and the
+second copy is where they drift.
+
+**2. Scoping is structural, not a predicate.** §2 said the `Tier.PIPELINE` predicate would guard
+the cache. It cannot: `ScopePredicate.of` always adds `brand = ?`, and §3 deliberately gives the
+cache no `brand_id`. Rather than add a column that would hold one value and only *look* like a
+scope, **every repository finder takes the pipeline as a parameter**, and the parameter comes from
+the caller's own principal. That is stronger than a predicate, not weaker — a predicate is
+something a query can forget, and a required parameter is not.
+`CachedOpportunityRepositoryScopeTest` fails the build if an unscoped finder is added, and
+asserts `-parameters` is on so it cannot pass by being blind.
+
+**3. The refill is inline, not on a background thread.** §4's arithmetic — ~11.4k opportunities,
+~115 pages, a ~13s floor — is *a year of one marketing funnel*, not one person's live pipeline,
+which is one or two pages. The background machinery would be complexity bought for a problem this
+screen does not have. What the cache still earns is the **shared pacer**: GHL's
+100-per-10-seconds is per location, so concurrent board loads serialise behind one limiter, and
+absorbing repeat loads is the point. `ponytail:` comment on the method names the upgrade path.
+
+**4. No webhook eviction** — see §3. TTL only, because the `opportunity.updated` subscription it
+would need does not exist.
+
+**5. Nothing was deleted** — see §5. The three funnel screens and their properties stay.
+
+**One ceiling worth knowing, found while naming a test honestly.** A test called
+`aFreshCacheIsServedWithoutCallingGhl` was wrong: a fresh cache means no *opportunity* read, but
+`draw` still resolves stage names through `GhlPipelineClient.pipelines()` on **every** board
+request, uncached. That is one request rather than a cursor loop, and it keeps a renamed stage
+showing renamed immediately — so it stays, with the test renamed to say what it actually proves
+and a `ponytail:` comment naming the upgrade (cache the stage list, not the opportunities again).
+
+**6. A GHL request is never made inside a database transaction.** The first version of
+`OpportunityBoardService.forCaller()` was `@Transactional` and called GHL from inside it — check
+the age, fetch if stale, write what came back, all in one transaction. That holds a pooled
+connection open across a network round trip, so a handful of people opening boards at once
+becomes a handful of connections doing nothing but waiting, and the symptom surfaces as pool
+exhaustion somewhere unrelated.
+
+Split into `OpportunityCache`, which owns the writes and nothing else. The board reads the age
+and the rows without a transaction, calls GHL outside one, and hands the result to a
+`@Transactional replace(...)`. **It has to be a separate bean** — Spring's `@Transactional` is
+proxy-based, so a service calling its own annotated method gets no transaction at all: the
+annotation would sit there looking right and do nothing.
+
+**Also built, and not in the original spec at all: the frontend half.** Unit 36 deliberately left
+the staff SPA at six roles because the two new ones had no screen. That gap closes here — and the
+`Record<Role, …>` maps did exactly the job they were kept for, listing every place that needed
+touching as a compile error. Two of them:
+
+- `boardRules.ts` — `SALES`/`MARKETING` get `'none'` on **every production stage**. Not
+  `'status'`: `columnsFor` filters `none` columns out, so they get no production board rather
+  than a read-only view of delivery work they have no part in.
+- `RoleDashboard.tsx` — their board *is* their dashboard, since they have no EvalOS work to
+  summarise.
+
+**Two stale guards this unit had to fix, and the second is the one worth reading.**
+`navigation.test.ts`'s `ALL_ROLES` was a hardcoded six, so every "no role may reach X" assertion
+silently excluded the new roles. And the GM-only guard over the GHL location was **a hardcoded
+list of three paths** — its own comment warned that "a screen added without the same door is the
+way this leaks next", and then this unit added a fourth screen over that location and **the test
+passed, because the path simply was not in the list.** A guard that checks only what somebody
+remembered to list guards against forgetting nothing.
+
+Fixed by making it derive: `NavItem` gains `readsGhlLocation`, the test walks every marked item,
+and `/opportunities/board` is asserted as the **one explicit exception** — legitimate because
+`evalos.ghl.sales-brand` now names the location's brand, so the exception *narrowed*. Verified by
+injecting a leak (`BRAND_MANAGER` on `/sales/pipeline`) and watching it fail.

@@ -17,14 +17,21 @@ export type Role =
   | 'PROJECT_COORDINATOR'
   | 'CASE_MANAGER'
   | 'EXPERT_NETWORK_MANAGER'
+  // Unit 36 added these to the backend enum; Unit 38 adds them here, together with the board
+  // they can reach. Deliberately not added in Unit 36: two roles in this union with no screen
+  // behind them would have meant either empty nav entries or broken `Record<Role, …>` maps,
+  // for roles nothing in the app could create.
+  | 'SALES'
+  | 'MARKETING'
 
 /**
  * How a role is written for a human.
  *
  * <p>Lives beside {@link Role} rather than in the nav that first needed it: the board's case card
- * names an owner too (Unit 31), and a second copy of these six strings is how the sidebar and the
+ * names an owner too (Unit 31), and a second copy of these strings is how the sidebar and the
  * card come to call the same person different things. `Record<Role, string>`, so a new role is a
- * compile error here rather than a raw enum name leaking onto a screen.
+ * compile error here rather than a raw enum name leaking onto a screen — which is exactly how
+ * Unit 38 found every place that needed updating.
  */
 export const ROLE_LABELS: Record<Role, string> = {
   GM: 'General Manager',
@@ -33,6 +40,11 @@ export const ROLE_LABELS: Record<Role, string> = {
   PROJECT_COORDINATOR: 'Project Coordinator',
   CASE_MANAGER: 'Case Manager',
   EXPERT_NETWORK_MANAGER: 'Expert Network Manager',
+  // The three business kinds of each — Attorney, Employer/Firm, Individual — are NOT roles and
+  // deliberately do not appear here. They are `team_member.segment`, they carry identical
+  // permissions, and nothing branches on them (see the backend's Segment enum).
+  SALES: 'Sales',
+  MARKETING: 'Marketing',
 }
 
 /** What `GET /api/me` answers. The client never invents any of it. */
