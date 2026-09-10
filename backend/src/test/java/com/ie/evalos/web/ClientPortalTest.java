@@ -20,6 +20,7 @@ import com.ie.evalos.service.CaseDetailService;
 import com.ie.evalos.service.CaseLifecycleService;
 import com.ie.evalos.service.PortalAccessService;
 import com.ie.evalos.service.PortalCaseService;
+import com.ie.evalos.service.PortalInvoiceService;
 import com.ie.evalos.service.RefundService;
 
 import org.junit.jupiter.api.Test;
@@ -76,6 +77,13 @@ class ClientPortalTest {
 
 	@MockitoBean
 	PortalCaseService portal;
+
+	// Unit 41 gave ClientPortalController an invoice route, so this slice needs the collaborator
+	// behind it. Mocked rather than imported: nothing here exercises invoices — that is
+	// ClientPortalInvoiceTest's job — and importing the real service would drag GhlHttp and a
+	// GHL credential into a test about the two chains refusing each other's tokens.
+	@MockitoBean
+	PortalInvoiceService portalInvoices;
 
 	@MockitoBean
 	CaseLifecycleService lifecycle;

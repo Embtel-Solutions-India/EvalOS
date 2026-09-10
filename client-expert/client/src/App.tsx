@@ -34,6 +34,7 @@ const Dashboard = lazy(() => import('@/pages/dashboard/Dashboard'))
 const Requests = lazy(() => import('@/pages/requests/Requests'))
 const RequestDetail = lazy(() => import('@/pages/requests/RequestDetail'))
 const Documents = lazy(() => import('@/pages/documents/Documents'))
+const Invoices = lazy(() => import('@/pages/invoices/Invoices'))
 const Reports = lazy(() => import('@/pages/reports/Reports'))
 const ReportDetail = lazy(() => import('@/pages/reports/ReportDetail'))
 const Profile = lazy(() => import('@/pages/profile/Profile'))
@@ -58,6 +59,13 @@ function AppRoutes() {
           one case, not an account, and mounting it behind AuthenticatedRoute would answer Unit
           34's open decision D1 by accident. No layout, no nav — see pages/documents/Documents. */}
       <Route path="/documents" element={<Documents />} />
+
+      {/* Invoices (Unit 41), outside the account shell for the same reason and one more: this
+          one needs a PARTY-scoped token, because an invoice belongs to the client rather than to
+          one engagement. A case-scoped link answers 403 and the page says so in the client's
+          own terms. Unit 35 settled D1 by making a credential able to name a party, so this is
+          no longer answering an open decision by accident — it is using the answer. */}
+      <Route path="/invoices" element={<Invoices />} />
 
       <Route element={<AuthenticatedRoute />}>
         <Route element={<PortalLayout />}>

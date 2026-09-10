@@ -114,3 +114,27 @@ export function failureMessage(status: number | undefined): string {
 export const NO_TOKEN =
   'This page needs the full link that was sent to you, including everything after the # sign. ' +
   'Please open it again from the original message, or ask whoever sent it for a new one.'
+
+/**
+ * One invoice, as the client is shown it (Unit 41).
+ *
+ * **Deliberately narrow.** GHL's invoice payload carries line items, internal ids and the
+ * business's own contact block; a client needs to know what they were billed, when, and whether
+ * it is settled. The server projects this whitelist and a test asserts on the serialized body,
+ * because a nested DTO passes a field-name check and still leaks.
+ *
+ * **A settled invoice is not revenue.** EvalOS recognises revenue as *paid AND delivered*
+ * (invariant 5), read only through the server's own `RefundService`. Nothing on this screen may
+ * be summed into a revenue figure.
+ */
+export type ClientInvoice = {
+  invoiceNumber: string | null
+  /** GHL's own word: `paid`, `unpaid`, `partially_paid`, `void`, and whatever else it uses. */
+  status: string | null
+  total: number | null
+  amountPaid: number | null
+  amountDue: number | null
+  currency: string | null
+  issueDate: string | null
+  dueDate: string | null
+}

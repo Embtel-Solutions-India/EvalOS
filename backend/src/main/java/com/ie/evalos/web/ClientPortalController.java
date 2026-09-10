@@ -4,7 +4,9 @@ import com.ie.evalos.common.ApiResponse;
 import com.ie.evalos.common.UploadedFileType;
 import com.ie.evalos.domain.PortalAudience;
 import com.ie.evalos.security.PortalPrincipal;
+import com.ie.evalos.integration.GhlInvoiceClient;
 import com.ie.evalos.service.PortalCaseService;
+import com.ie.evalos.service.PortalInvoiceService;
 
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
@@ -42,13 +44,36 @@ public class ClientPortalController {
 	}
 
 	private final PortalCaseService portal;
+	private final PortalInvoiceService portalInvoices;
 
-	ClientPortalController(PortalCaseService portal) {
+	ClientPortalController(PortalCaseService portal, PortalInvoiceService portalInvoices) {
 		this.portal = portal;
+		this.portalInvoices = portalInvoices;
 	}
 
 	private static PortalPrincipal client() {
 		return PortalPrincipal.current(PortalAudience.CLIENT);
+	}
+
+	/**
+	 * The client's invoices and what has been paid (Unit 41).
+	 *
+	 * <p><strong>Read straight from GHL, stored nowhere.</strong> Sales raises invoices in GHL,
+	 * GHL's QuickBooks integration does the accounting, and EvalOS shows the outcome — invariant
+	 * 2 kept that clause when it lost the others.
+	 *
+	 * <p><strong>No parameter names a contact.</strong> The id comes off the portal credential
+	 * (Unit 35's party scope), which is the whole reason this route is safe.
+	 *
+	 * <p><strong>Do not read a paid invoice as revenue.</strong> Invariant 5 is unchanged:
+	 * recognition is <em>paid AND delivered</em>, read only through
+	 * {@code RefundService.isRevenueRecognized}. A settled invoice here is a fact about the
+	 * client's bill, not about the case — and a later dashboard summing this screen would be
+	 * exactly the mistake that invariant exists to prevent.
+	 */
+	@GetMapping("/invoices")
+	public ApiResponse<List<GhlInvoiceClient.ClientInvoice>> invoices() {
+		return ApiResponse.ok(portalInvoices.forCaller(client()));
 	}
 
 	/** The whitelisted view, and the first read stamps the receipt. */

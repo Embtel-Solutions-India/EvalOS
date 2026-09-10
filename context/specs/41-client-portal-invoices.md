@@ -1,6 +1,8 @@
 # Unit 41 — Invoices and payments in the Client Portal
 
-> **Status: SPECCED 2026-09-10, not built.** Programme decisions: `00b-ghl-operational-programme.md`.
+> **Status: BUILT 2026-09-11. Not yet exercised live** — `invoices.readonly` is still ungranted,
+> so every call answers 502 until it lands. Programme decisions:
+> `00b-ghl-operational-programme.md`.
 >
 > **Independent of Units 36–40.** This unit needs nothing from the pipeline access model, the write
 > door, the boards or the desks. It needs **Unit 35, which shipped**, and **one OAuth scope, which
@@ -105,15 +107,55 @@ this unit even though it is the unit named "invoices".
 
 ## 8. Acceptance criteria
 
-- [ ] A party credential reads its own contact's invoices; the contact id comes from the
+- [x] A party credential reads its own contact's invoices; the contact id comes from the
       credential and a contact id in the request is ignored or refused.
-- [ ] A case-scoped credential answers **403**, not 404 and not an empty list.
-- [ ] Another contact's invoice is unreachable by any request this portal can make.
-- [ ] The response JSON contains exactly the §4 whitelist — asserted on the serialized body, so a
+- [x] A case-scoped credential answers **403**, not 404 and not an empty list.
+- [x] Another contact's invoice is unreachable by any request this portal can make.
+- [x] The response JSON contains exactly the §4 whitelist — asserted on the serialized body, so a
       nested DTO cannot smuggle a field through.
-- [ ] Multiple invoices for one contact are all listed, with per-invoice status.
-- [ ] No table, no migration, no cached invoice row exists after a portal read.
-- [ ] Absent the `invoices.readonly` grant the route answers **502** through
+- [x] Multiple invoices for one contact are all listed, with per-invoice status.
+- [x] No table, no migration, no cached invoice row exists after a portal read.
+- [x] Absent the `invoices.readonly` grant the route answers **502** through
       `GhlUnavailableException`, with a message naming the missing scope — the failure a
       provisioner can act on, following `GhlHttp`'s existing diagnostic reasoning.
-- [ ] `./mvnw verify` green; the client portal app builds.
+- [x] `./mvnw verify` green; the client portal app builds.
+
+
+## 9. What the build found
+
+**The block was on exercising the code, not on writing it** — the same distinction the build plan
+already draws for the AWS credential. Every acceptance criterion above is met against a stub GHL;
+what waits on `invoices.readonly` is a live call, and the unit was specced from the start to
+answer **502 naming the missing scope** in exactly this state.
+
+**The missing-grant diagnostic earns its place.** Every *other* GHL-backed screen in EvalOS works
+on the current token, so a 401 here reads as "the token is broken" when it means "the token is
+missing one scope that nothing else uses". `GhlInvoiceClient.missingScopeHint` decorates 401 and
+403 with the grant name — **and only those two**: a guard that fires on 404s and timeouts too
+would teach the reader to ignore it, so `anUpstreamFaultIsNotBlamedOnTheScope` pins that it does
+not.
+
+**One API detail worth knowing, and it is not consistent with the rest of GHL.** The invoice
+endpoint addresses the sub-account with **`altId` + `altType=location`**, not with `locationId`
+like the opportunity endpoints. Pinned in `GhlInvoiceClientHttpTest`, because getting it wrong is
+a 422 and nothing else — the same class of mistake that cost this codebase a live afternoon on
+`pipeline_stage_id`.
+
+**The 403 is explained on screen rather than left generic.** A case-scoped link cannot show
+billing, and "something went wrong" would send the client to support for something a different
+link fixes. The portal page says so in their own terms: *"This link opens one case rather than
+your account."*
+
+**Two portal test slices needed a mock bean**, because `ClientPortalController` gained a
+collaborator — `ClientPortalTest` and `ExpertPortalTest`, both of which import that controller.
+Caught by the full `verify` rather than by any per-class run, which is the third time this
+programme that a slice test has needed updating for a new constructor argument.
+
+**Nothing is stored, and there is no migration.** Unit 38's cache exists because a board is ~115
+cursor pages; one client's invoices are one page, and `GhlHttp`'s limiter already paces it. So
+`00b` §1.3's "GHL is truth" holds here in its strongest form: EvalOS holds no invoice fact at all.
+
+**Invariant 5 is the trap this unit is closest to.** A GHL invoice marked paid is **not** revenue
+recognition — that is *paid AND delivered*, read only through `RefundService.isRevenueRecognized`.
+Said on the route, in the shared type, and here, because a later dashboard summing this screen is
+exactly the mistake the invariant exists to prevent.

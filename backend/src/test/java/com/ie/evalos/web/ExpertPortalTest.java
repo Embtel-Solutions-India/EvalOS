@@ -17,6 +17,7 @@ import com.ie.evalos.security.PortalPrincipal;
 import com.ie.evalos.security.PortalSecurityConfig;
 import com.ie.evalos.security.PortalTokenFilter;
 import com.ie.evalos.service.ExpertPortalService;
+import com.ie.evalos.service.PortalInvoiceService;
 import com.ie.evalos.service.PortalAccessService;
 
 import org.junit.jupiter.api.Test;
@@ -77,6 +78,13 @@ class ExpertPortalTest {
 
 	@MockitoBean
 	PortalAccessService portalAccess;
+
+	// Unit 41 gave ClientPortalController an invoice route, so this slice needs the collaborator
+	// behind it. Mocked rather than imported: nothing here exercises invoices — that is
+	// ClientPortalInvoiceTest's job — and importing the real service would drag GhlHttp and a
+	// GHL credential into a test about the two chains refusing each other's tokens.
+	@MockitoBean
+	PortalInvoiceService portalInvoices;
 
 	@MockitoBean
 	ExpertPortalService portal;

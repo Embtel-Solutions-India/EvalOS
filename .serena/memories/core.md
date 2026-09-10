@@ -101,7 +101,7 @@ none. What is true now: **GHL stays the CRM, the pipeline engine, the automation
 invoice/QuickBooks integration; EvalOS is the interface Sales and Marketing work in.** Invoicing
 is still GHL's — EvalOS reads invoices and raises none.
 
-**Five of six units are built (36–40), meetings excepted.** The **GHL
+**All six units are built (36–41).** Meetings and Unit 41's live exercise wait on OAuth grants. The **GHL
 operational programme (Units 36–41)** makes EvalOS the interface Sales and Marketing *work in*, so
 they never open GHL; GHL stays the CRM, pipeline, automation and invoice/QuickBooks layer
 underneath. Spec: **`context/specs/00b-ghl-operational-programme.md`** — read it before any GHL
@@ -114,7 +114,30 @@ work, it holds the truth model and the invariant ledger.
 | **Decided** | Two roles `SALES`/`MARKETING` (`Tier.PIPELINE`) + a `segment` column, *not* six roles; one personal exclusive pipeline each; **GHL owns the opportunity, EvalOS owns the note stream keyed on `ghl_opportunity_id`**; a droppable non-authoritative opportunity cache; **single selling brand** (`evalos.ghl.sales-brand`) enforced with a 400 until Unit 25 |
 | **Built** | **36** (`V39`): eight roles, `Tier.PIPELINE` fails closed, `team_member.ghl_pipeline_id` + `segment`, two GM routes, single-brand ceiling enforced with a 400. **37**: `GhlHttp` has `post`/`put`/`delete`; **invariant 2 dead and rewritten**; guard replaced by "verb list closed" + "every write caller reaches `AuditService`". **38** (`V40`): `ghl_opportunity_cache`, `GhlOpportunityClient`, `GET /api/opportunities/board`, and the SPA's two new roles + their board. **39** (`V41`): `GhlLeadClient` (the first writer), `opportunity_note`, `/api/marketing/leads`, **invariant 7 amended**, New-lead form + notes on the board. |
 | **40** (no migration) | The sales desk: update/stage-move/close a deal, follow-ups as GHL tasks, shared note stream. **Meetings NOT built** — the only thing still needing `calendars/*`. |
-| **Next** | **Unit 41** — Client Portal invoices, the last unit. **Blocked on `invoices.readonly` alone** and independent of 36–40: Unit 35 already ships a credential naming a `ghl_contact_id`, which is the key `GET /invoices/` takes. |
+| **41** (no migration) | Client Portal invoices, read live from GHL and stored nowhere. **BUILT but not exercised** — `invoices.readonly` ungranted, so it answers 502 by design. |
+| **Next** | **Nothing in this programme.** It is code-complete. What remains is two OAuth grants (below), not code. |
+
+**⚠ The GHL programme (36–41) is CODE-COMPLETE as of 2026-09-11.** Two things outstanding, both
+external: **`invoices.readonly`** (Unit 41 answers 502 until it lands) and
+**`calendars/events.write` + `calendars.readonly`** (Unit 40's meetings, the only feature not
+built). Everything else ships.
+
+**Invoice specifics worth not rediscovering:**
+- **The invoice endpoint uses `altId` + `altType=location`**, NOT `locationId` like the
+  opportunity endpoints. Getting it wrong is a 422 and nothing else. Pinned in
+  `GhlInvoiceClientHttpTest`.
+- **401/403 are decorated with the missing scope name; nothing else is.** Every other GHL screen
+  works on the current token, so a bare 401 here misdirects the reader to the token. A hint that
+  fired on timeouts too would train them to ignore it.
+- **A party-scoped credential is required**; a case-scoped one gets 403, because an invoice
+  belongs to the client who may have several cases.
+- **⚠ A paid invoice is NOT revenue recognition** (invariant 5 — that is *paid AND delivered*, via
+  `RefundService.isRevenueRecognized`). Do not let a dashboard sum this screen.
+
+**⚠ A pattern this programme hit three times:** adding a constructor argument to a controller
+breaks **every `@WebMvcTest` that imports it**, and **only a full `./mvnw verify` sees it** — a
+per-class run of the new test passes. `SecurityFlowTest` (Unit 36), then `ClientPortalTest` +
+`ExpertPortalTest` (Unit 41). Run the full verify before believing a controller change is done.
 
 **Unit 40's structure, because three desks now share two things:**
 - **`PipelineScope`** answers "which pipeline is mine" and "is this deal in it" for all of them.

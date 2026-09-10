@@ -4,6 +4,52 @@ Update this file after every meaningful implementation change.
 
 ## Current Phase
 
+- **2026-09-11 — Unit 41 BUILT: the programme is code-complete.** Both portal apps build, 22
+  portal tests pass. **Not yet exercised live** — `invoices.readonly` is still ungranted, so
+  every invoice call answers 502 until it lands. No migration.
+
+  **A client with a party-scoped link now sees their invoices and what has been paid.** EvalOS
+  reads `GET /invoices/` per request and stores **nothing**: Sales raises invoices in GHL, GHL's
+  QuickBooks integration does the accounting, and this is a window onto the result.
+
+  **The block was on exercising the code, not on writing it** — the same distinction the build
+  plan draws for the AWS credential. Every acceptance criterion is met against a stub GHL, and
+  the unit was specced from the start to answer **502 naming the missing scope** in exactly this
+  state.
+
+  **Unit 35 is why this was the cheapest unit in the programme.** It made a portal credential
+  name a `ghl_contact_id`, and `GET /invoices/` filters by exactly that — the key the portal
+  already held is the key the invoice API wanted. No mapping, no new identity, no lookup.
+
+  **The missing-grant diagnostic earns its place.** Every *other* GHL screen works on the current
+  token, so a 401 here reads as "the token is broken" when it means "missing one scope nothing
+  else uses". The client decorates 401 and 403 with the grant name — **and only those two**,
+  because a hint that fires on timeouts too teaches the reader to ignore it.
+
+  **One API inconsistency worth knowing:** the invoice endpoint addresses the sub-account with
+  **`altId` + `altType=location`**, not `locationId` like the opportunity endpoints. Pinned in a
+  wire test, because getting it wrong is a 422 and nothing else — the same class of mistake that
+  cost a live afternoon on `pipeline_stage_id`.
+
+  **The 403 is explained rather than left generic.** A case-scoped link cannot show billing, and
+  "something went wrong" would send the client to support for something a different link fixes.
+  The page says: *"This link opens one case rather than your account."*
+
+  **Two portal slices needed a mock bean** — `ClientPortalTest` and `ExpertPortalTest`, both of
+  which import the controller that gained a collaborator. Caught by the full `verify` and by no
+  per-class run. **Third time this programme**, which is a pattern worth naming: adding a
+  constructor argument to a controller breaks every `@WebMvcTest` importing it, and only a full
+  verify sees it.
+
+  **Invariant 5 is the trap this unit sits closest to.** A GHL invoice marked paid is **not**
+  revenue recognition — that is *paid AND delivered*, read only through
+  `RefundService.isRevenueRecognized`. Said on the route, in the shared type and in the spec,
+  because a later dashboard summing this screen is exactly what that invariant exists to prevent.
+
+  **The programme (Units 36–41) is now code-complete.** What remains is not code:
+  **`invoices.readonly`** to exercise this unit, and **`calendars/events.write` +
+  `calendars.readonly`** for Unit 40's meetings.
+
 - **2026-09-11 — Unit 40 BUILT (except meetings): the sales desk, and the operating half of the
   programme is done.** 797 backend tests green (was 749), frontend builds, 141 frontend tests
   pass. No migration.

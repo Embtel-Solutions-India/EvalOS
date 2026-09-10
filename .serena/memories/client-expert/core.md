@@ -97,7 +97,13 @@ edit in `expert/src/App.tsx`.
 
 - the intake funnel (`pages/intake/*`, `services/intakeService.submitRequest`) creates a
   case-shaped record → **invariant 8**, only `opportunity.won` creates a case
-- `pages/payments`, `pages/invoices` → **invariant 2**, invoicing is GHL's
+- `pages/payments`, `pages/invoices` → **invariant 2**, invoicing is GHL's.
+  **⚠ `pages/invoices` came back on 2026-09-11 as Unit 41, and it is a different screen.** The
+  deleted one let a client pay and manage billing — EvalOS *doing* invoicing. The new one is
+  **read-only**: it shows what GHL's invoice API returns, stores nothing, and offers no payment
+  action (paying goes through GHL's own link). **Invariant 2 lost most of its clauses to the GHL
+  programme but kept this one** — *invoicing is GHL's, full stop* — and reading a figure has
+  never breached it, which is what Units 24/26/27 already established.
 - `pages/messages`, `pages/tickets` → **invariant 14**, EvalOS has no outbound channel
 
 **And the thing it is missing is the thing the backend already does:** there is **no draft
@@ -105,7 +111,27 @@ review screen anywhere** — no approve, no request-revisions, nothing calling
 `GET /api/portal/client/case`. `pages/reports` is download-only. That is Unit 34 slice 34b
 and the highest-value work left in the app.
 
-## The one wired screen: `/documents` (34c)
+## The wired screens: `/documents` (34c) and `/invoices` (41)
+
+### `/invoices` — the client's billing (Unit 41, BUILT 2026-09-11)
+
+`client/src/pages/invoices/Invoices.tsx`, `services/invoiceService.ts`. **Outside
+`AuthenticatedRoute` and absent from nav**, same as `/documents` and for the same reason: a
+scoped portal token, not the mock account session.
+
+- **Needs a PARTY-scoped token** (Unit 35), because an invoice belongs to the client, who may
+  have several cases. A case-scoped link gets 403 — and the page explains that specific cause in
+  the client's own words rather than showing the generic failure, since a different link fixes it.
+- **`invoices.readonly` is NOT granted.** Until it is, every call answers 502. That is by design
+  and the server names the missing scope in the message.
+- **Every status word is GHL's** (`paid`, `unpaid`, `partially_paid`…). This screen computes
+  nothing about money — that would be a second opinion about it.
+- **A null amount renders as an em dash, never 0.00.** "Not recorded" and "nothing owed" are
+  different facts.
+- **⚠ A paid invoice is not revenue** (invariant 5 — *paid AND delivered*). Nothing here may be
+  summed into a revenue figure.
+
+### `/documents` (34c)
 
 `client/src/pages/documents/Documents.tsx` — checklist (outstanding first), one upload per item with a real
 progress bar, per-click presigned download. **Routed OUTSIDE `AuthenticatedRoute` and removed
