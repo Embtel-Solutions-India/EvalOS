@@ -30,6 +30,7 @@ import {
 } from './features/shell/navigation'
 import AuthProvider from './lib/auth'
 import { useAuth, useMe } from './lib/authContext'
+import JobRunsPage from './features/jobs/JobRunsPage'
 import NotFound from './pages/NotFound'
 
 /**
@@ -51,6 +52,7 @@ const SCREENS: Record<string, React.ReactNode> = {
   '/checklists': <ChecklistBoard />,
   '/experts': <ExpertRoster />,
   '/payouts': <PayoutBatch />,
+  '/admin/jobs': <JobRunsPage />,
   // Three funnels, one component: same stage shape, same question, different GHL pipeline. The
   // heading each carries is only a placeholder — GHL's own pipeline name replaces it on load.
   //

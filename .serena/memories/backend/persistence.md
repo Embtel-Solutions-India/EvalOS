@@ -359,7 +359,32 @@ column breaks the build. Unit 12 reuses the service; Unit 16 owes `total_payment
 treatment.
 
 Same trap, different shape: `Case.retention_30_sent_at` … `retention_365_sent_at` and
-`google_review_requested` exist and are unwritten, reserved for the jobs/outbound units.
+`google_review_requested` exist and are unwritten. **They are not "reserved" any more** — Unit 19
+shipped without a `RetentionSweep` (GHL owns retention) and Unit 18's dispatcher was removed, so
+nothing is coming to write them. Give them no accessors.
+
+## `scheduled_job` (`V42`, Unit 19) — the one table with no `brand_id`, deliberately
+
+The sweep run ledger: `job_type`, `started_at`, `finished_at`, `status` (`RUNNING`/`OK`/`FAILED`),
+`items_seen`, `items_acted`, `error`. Index on `(job_type, started_at DESC)`.
+
+- **No `brand_id`, and `ScheduledJobRepository` is not a `ScopedRepository`.** A run spans every
+  brand's cases by nature, so there is no brand to record and a scoped read of it would misstate
+  what ran. It is gated at the route instead (`/api/jobs/**`, GM-only), which is where cross-brand
+  infrastructure is gated everywhere else. **This is the exception, not a precedent**: everything
+  that names a case still carries a brand, and the sweeps' own notifications and audit rows take
+  it off the case row.
+- **Rows, not timers.** No row-per-future-reminder — a sweeper asks "what is overdue now", which is
+  correct on the first run after any outage. Every sweep's idempotency already lives in the data it
+  reads (`CHASED` audit rows, notification rows, the stored `sla_status`), so a job row asserting
+  "the chase fired" would be a second record of a fact the system already holds.
+- **The row is written before the work.** A row left `RUNNING` with no `finished_at` is how a JVM
+  killed mid-sweep announces itself, and the panel colours it amber for that reason.
+- `error` is truncated to 1000 chars in `ScheduledJob.finish` — a stack trace in a ledger column is
+  a row nobody can scan past. The full one is in the log.
+- **Nothing prunes it.** At four sweeps on 15–30 minute ticks that is ~250 rows a day; the panel
+  reads `findTop50ByOrderByStartedAtDesc`. A retention policy is a later decision, not an omission
+  — say so before adding one, because "the ledger stopped gaining rows" is a diagnostic.
 
 ## Scoped repositories
 

@@ -79,12 +79,11 @@ still the narrative record; this is the index.
   **18** (outbound dispatcher + Handoff C) and **20** (AI widgets) were dropped by
   `V33__drop_unit_13_18_20.sql`; **29 / 29a** (sales desk) was built 2026-08-29 and removed
   2026-09-02. Their spec files still exist, carrying REMOVED banners as the record of a decision.
-- **Specced, not built.** **19** (background jobs — `job/` is still a bare `.gitkeep`, and there is
-  **no `@Scheduled` or `@EnableScheduling` anywhere in the tree**), **25** (GHL OAuth — no
-  `ghl_connection` table, no OAuth code; this is what the deferred `PaymentDetailConverter`
-  extraction waits on), and **35**'s D1/D5/D6 — `portal_access` has **not** gained `ghl_contact_id`
-  and its `case_id` is still `NOT NULL`.
-- Schema head is **`V37__portal_access_names_its_expert.sql`**.
+- **Specced, not built.** **25** (GHL OAuth — no `ghl_connection` table, no OAuth code; this is
+  what the deferred `PaymentDetailConverter` extraction waits on) and **17b** (the cycle-time
+  chart, the last Track A item). **19 shipped 2026-09-11** and **35**'s D1/D5/D6 shipped with
+  `V38__portal_access_names_a_party.sql`.
+- Schema head is **`V42__scheduled_job.sql`**.
 
 **`context/specs/00-build-plan.md` is stale on one point**: its Unit 34 heading reads "SPECCED, NOT
 BUILT" while 34a, 34c and 34e have shipped. Trust the tracker over the plan on status.
@@ -95,14 +94,14 @@ BUILT" while 34a, 34c and 34e have shipped. Trust the tracker over the plan on s
 entities + enums) · `repository` (Spring Data + brand/team/assignee scoping) · `integration` (the GHL
 read client and the S3 `DocumentStore`) · `webhook` (inbound gateway: verify → resolve brand → dedupe → archive →
 route) · `event` (domain events; the outbound HMAC dispatcher it once held was removed with Unit 18) ·
-`job` (`@Scheduled` sweeps — **empty, Unit 19**) ·
+`job` (`@Scheduled` sweeps, Unit 19) ·
 `notification` (in-app staff center) · `security` · `common` (envelope, encryption converter, error
 types, `UploadedFileType`). **There is no `config` package** — it held `GoogleDriveConfig` and went
 with Drive in Unit 30.
 
 `web`/`service`/`domain`/`repository`/`security`/`common`/`webhook`/`event`/`notification`/`integration`
-are populated; **`job` is still an empty `.gitkeep` placeholder** — Unit 19 is unbuilt, and nothing in
-the tree carries `@Scheduled`. (`integration` was first populated by Unit 13's Drive client; that unit
+are populated, and so is `job` as of Unit 19 (2026-09-11): four `@Scheduled` sweeps, an advisory
+lock and a run ledger. (`integration` was first populated by Unit 13's Drive client; that unit
 is gone, and Unit 30's `DocumentStore` holds the slot.) Put code in
 the package that matches the concern — controllers never hold logic, entities never leave the service
 layer (map to DTOs). `notification/NotificationListeners` is the only subscriber to `event`, and now the
@@ -373,13 +372,20 @@ not be reachable as anyone else by a later job, webhook handler or service.
 
 `expert.total_payments_pending` stays dead and derived, beside `current_active_count`.
 
-## `job`, when it stops being empty (Unit 19)
+## `job` — the sweeps (Unit 19, BUILT 2026-09-11)
 
-Decisions already taken, so the package does not get invented from scratch:
+`Sweep` (interface: `jobType()` + `run()`) · `SweepRunner` · `JobLock` · `JobLedger` ·
+`JobSchedule` · `JobProperties` · `JobAdminService` · four sweeps. Spec:
+`context/specs/19-background-jobs.md`.
 
 - **Spring `@Scheduled` + `@EnableScheduling`.** No Quartz, no ShedLock — both are a dependency and a
-  table for what is already on the classpath. Intervals bind from `evalos.jobs.*`;
-  `evalos.jobs.enabled=false` in the test profile so the suite cannot race a sweep.
+  table for what is already on the classpath. `@EnableScheduling` sits on `JobSchedule`, not on the
+  application class, so it can carry `@ConditionalOnProperty(evalos.jobs.enabled, matchIfMissing=true)`.
+  Off in `LocalPostgresIntegrationTest`; **on by default everywhere else**, because the opposite
+  default is a production instance that quietly chases nobody and looks fine.
+- **Intervals are keyed BY `JOB_TYPE`** — `evalos.jobs.intervals.DOC_CHASE` and so on — because two
+  things read them: `@Scheduled`, and the panel's staleness check via `JobProperties`. A second list
+  for the check would drift, and the drift is silent: the panel just stops warning.
 - **Every sweep claims `pg_try_advisory_lock(hashtext(:jobType))` first** and returns if it loses,
   releasing it in a `finally`. Not for scale-out — because **every rolling deploy runs two instances
   for a few seconds**, and two sweeps ticking together double-chase a client and double-alert staff
@@ -388,17 +394,38 @@ Decisions already taken, so the package does not get invented from scratch:
   runs *one transaction per item* — so it would drop the lock after the first item and leave the rest of
   the run unprotected, which is the exact failure it was added to prevent. Claim it outside the per-item
   transactions.
+- **`JobLedger` is a separate bean from `SweepRunner` and must stay one.** `@Transactional` is
+  proxy-based: a runner calling its own annotated methods gets no transaction, silently. Third time
+  in this codebase (see `OpportunityCache`, Unit 38).
 - **`scheduled_job` records runs, not intentions.** No row-per-future-timer: a sweeper asking "what is
   overdue right now" is correct on the first run after any outage. Idempotency comes from the data the
   action already writes (`CHASED` audit rows for chases, notification rows for thresholds), never from
-  an "already ran" marker — which is why `POST /api/jobs/{type}/run` is safe to press twice.
+  an "already ran" marker — which is why `POST /api/jobs/{type}/run` is safe to press twice. It goes
+  **through** the lock, and answers `started: false` rather than 409 when it is held.
 - **One transaction per item**, so one poisoned case cannot stop the sweep; the run is recorded
-  `FAILED` with the error and the next tick retries.
-- **A sweep prompts and publishes; it never transitions.** No sweep may fire `EXPERT_TIMED_OUT`.
+  `FAILED` with the error and the next tick retries. A throw must leave `JobLedger.actOnOneItem` for
+  `REQUIRES_NEW` to roll the item back — `SweepRunner` absorbs and logs it one frame out.
+- **A sweep prompts and publishes; it never transitions.** No sweep may fire `EXPERT_TIMED_OUT`, and
+  there is no call site for it in the package.
 - Unscoped reads are deliberate (no authenticated caller, so `ScopePredicate` does not apply); every
-  side effect goes through `AuditService.recordSystemEvent` with the brand from the row.
-- **Five sweeps, not six** — retention left the unit; GHL owns it.
-- The **queue is the `webhook_delivery` outbox**, `FOR UPDATE SKIP LOCKED`. See `mem:backend/webhooks`.
+  side effect goes through `AuditService.recordSystemEvent` with the brand from the row. Both finders
+  (`CaseRepository.findAllAtStageForSweep`, `findActiveForSweep`) additionally filter `paid`.
+- **Each sweep owns its notification type.** `DOC_CHASE_DUE`, `DOCS_ESCALATED`,
+  `EXPERT_SIGN_AT_RISK`, `EXPERT_SIGN_OVERDUE`. **Not a naming preference** — idempotency is
+  `alreadyRaised(caseId, type)`, so a shared value lets one sweep silence another: the escalation and
+  the stage sweep both fire on the same `DOC_COLLECTION` case at the same moment, and
+  `EXCEPTION_RAISED` is raised on a case by four unrelated paths. Add a value, never reuse one.
+- **`DocChaseSweep` raises its own prompt rather than relying on a route.** With Unit 18 gone,
+  `checklist.reminder` has no subscriber, so the chase reaches nobody unless the sweep notifies the
+  Coordinator itself — naming which of the two chases is due, with no `alreadyRaised` guard (the
+  `CHASED` rows cap it at two). Neither Unit 19 event is in `NotificationListeners.ROUTES`: a route
+  would also fire on a Coordinator's manual reminder and could not name the chase number.
+- **Four sweeps, not five or six** — retention left the unit (GHL owns it) and `OutboxSender` left
+  with Unit 18 on 2026-09-02. There is no outbox and no `webhook_delivery` table.
+- **`SweepRegistrationTest` is load-bearing**: an unresolvable `${evalos.jobs.…}` only fails the boot
+  under `@EnableScheduling`, which the one full-context test disables — so a new sweep missing its
+  property would pass the whole build and fail in production. It scans the source for
+  `implements Sweep`, a `@Scheduled` tick, and a matching yaml key equal to `JOB_TYPE`.
 
 ## Response envelope — non-negotiable
 

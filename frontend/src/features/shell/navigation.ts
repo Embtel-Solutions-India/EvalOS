@@ -334,6 +334,24 @@ export const NAV_ITEMS: readonly NavItem[] = [
   },
 
   { path: '/brands', label: 'Brands', roles: ['GM'], becomes: 'Brand administration', group: 'Admin' },
+
+  // Unit 19's sweeps: are they still running?
+  //
+  // **GM-only, and not for the reason the GHL screens are.** Those are gated because the
+  // location cannot be attributed to a brand. This one is gated because the run ledger is
+  // cross-brand by nature — one sweep pass covers every brand's cases — so there is no scoped
+  // view of it to hand a Brand Manager, and a partial one would misstate what ran.
+  //
+  // In Admin rather than Overview deliberately: nobody's day starts here. It is the screen you
+  // open when a chase did not happen, which is exactly the failure a background job produces
+  // — silence, with nothing on any dashboard to show for it.
+  {
+    path: '/admin/jobs',
+    label: 'Background jobs',
+    roles: ['GM'],
+    becomes: 'Sweep status and run ledger',
+    group: 'Admin',
+  },
 ]
 
 /**

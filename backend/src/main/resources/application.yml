@@ -197,6 +197,34 @@ evalos:
     # minutes on a sales funnel is invisible to a GM reading trend, and the payload carries
     # `readAt` so the screen states how old the figures are rather than implying they are live.
     cache-ttl: ${GHL_CACHE_TTL:PT5M}
+  jobs:
+    # The background sweeps (Unit 19). Off in the integration suite, on everywhere else — see
+    # JobSchedule for why the default points that way.
+    enabled: ${EVALOS_JOBS_ENABLED:true}
+    # Every interval is a fixed DELAY, not a rate: the gap is measured from the end of the last
+    # run, so a slow sweep cannot stack on top of itself. Between the delay and the advisory
+    # lock, a sweep overlapping a sweep is impossible in both directions.
+    #
+    # **Keyed by JOB_TYPE, and that is load-bearing rather than tidy.** Two things read these:
+    # the `@Scheduled` on each sweep, and the staleness check behind the admin panel's "this
+    # sweep has stopped" warning. A separate list of intervals for the second would be a second
+    # number that drifts from the first, and the drift is invisible — the panel would simply
+    # stop warning, which is the exact failure the panel exists to catch.
+    intervals:
+      # 30 minutes on the three that measure a 24h+ clock. A finer interval would not make a
+      # case late any sooner; it would only land the chase nearer the exact hour, which nobody
+      # asked for, and multiply the ledger rows a GM has to read past.
+      DOC_CHASE: ${JOBS_DOC_CHASE_INTERVAL:30m}
+      DOC_ESCALATION: ${JOBS_DOC_ESCALATION_INTERVAL:30m}
+      EXPERT_SIGN: ${JOBS_EXPERT_SIGN_INTERVAL:30m}
+      # 15 minutes: this one refreshes the column the board's RAG rail is painted from, so its
+      # interval is how stale a status light may be. Faster than the chases and for a different
+      # reason — it feeds a screen, not a deadline.
+      STAGE_SLA: ${JOBS_STAGE_SLA_INTERVAL:15m}
+    # How many missed intervals before the panel calls a sweep stopped. Four rather than two so
+    # one slow pass or one restart is not an alarm; low enough that a scheduler that died is
+    # named within a couple of hours rather than the next morning.
+    stale-after-intervals: ${JOBS_STALE_AFTER:4}
 server:
   port: ${SERVER_PORT:8080}
   # Whether to trust X-Forwarded-* and resolve the real client address.

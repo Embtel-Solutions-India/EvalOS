@@ -78,13 +78,17 @@ routes), so what remains is the per-role operational contract and the gap list, 
 **G16 is the one to read twice** — nothing shows which portal links exist or whether anyone opened
 them, so "a link nobody sent", the likeliest way to breach the 24h signing SLA, is invisible today.
 
-**A5 · Unit 19 — background jobs.** Prerequisites met: 10 and 15 are built, 18 is gone. `job/` is
-still a bare `.gitkeep` and **nothing in the tree carries `@Scheduled`**. Re-read it: the advisory
-lock must be **session-scoped**, client chases are **wall-clock** while escalation is business
-hours, and it must only ever *prompt* — **no sweep calls a transition**. Unit 15 left it the 20h/24h
-sign prompts.
+**A5 · Unit 19 — BUILT 2026-09-11.** V42's `scheduled_job` ledger, four sweeps, the advisory lock
+and a GM panel at `/admin/jobs`. Every re-read note held: the lock is **session-scoped** (an
+xact-scoped one would release after the first item, since a sweep runs one transaction per item),
+chases are **wall-clock** against a business-hours escalation so the order is chase→chase→escalate,
+and **no sweep calls a transition** — the 24h sign deadline raises a prompt and there is no call
+site for `EXPERT_TIMED_OUT` in the package. Two things the build changed: three notification types
+were added because two sweeps would otherwise have silenced each other through
+`alreadyRaised`, and `DocChaseSweep` now raises its own Coordinator prompt because
+`checklist.reminder` has had no subscriber since Unit 18 left.
 
-**A6 · Unit 17b — the cycle-time chart.** No longer blocked: **Recharts was settled in Unit 22
+**A6 · Unit 17b — the cycle-time chart. The last Track A item.** No longer blocked: **Recharts was settled in Unit 22
 slice 1** and is installed. Last because it is one widget, not because anything gates it.
 
 That is a lot of runway with no waiting. Track A is the default: **work A1→A6 and interleave Track B
@@ -396,7 +400,7 @@ Builds: the full `job` package backed by the `scheduled_job` **run ledger** —
 double-fire, doc-collection reminders (24h/48h), the day-3 escalation, stage-SLA
 escalations, and expert sign 20h/24h alerts (which **prompt**, never reassign) — on the Pacific
 business calendar.
-Depends on: 05, 10, 15. **All met**, which is why this is **A5** and not a Track B item.
+Depends on: 05, 10, 15. **All met.** **BUILT 2026-09-11** — see the spec's *What the build found*.
 **Four sweeps, not six.** Two left this unit and for different reasons: retention/countdown timers
 because **GHL owns** retention and the post-delivery review end to end, and the **outbox sender
 because Unit 18 was removed (2026-09-02)** — there is no outbound channel, so there is no outbox to

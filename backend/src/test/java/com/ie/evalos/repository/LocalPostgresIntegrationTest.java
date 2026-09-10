@@ -126,6 +126,10 @@ import com.ie.evalos.service.ExpertLoadService;
 		"spring.flyway.ignore-migration-patterns=*:missing",
 		"spring.jpa.properties.hibernate.default_schema=evalos_test",
 		"spring.jpa.show-sql=false",
+		// The sweeps stay asleep here. They would otherwise tick against the very rows these
+		// tests are asserting on, and a job that fires mid-assertion is a flake nobody
+		// reproduces. Their logic is tested directly, not by waiting for a clock.
+		"evalos.jobs.enabled=false",
 })
 class LocalPostgresIntegrationTest {
 

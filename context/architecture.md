@@ -13,8 +13,8 @@
 | Raw documents    | **S3 document store (Unit 30)** — AWS SDK v2 | **EvalOS is the only writer.** Client documents land under `{brandId}/client/{ghlContactId}/{documentId}` when the portal frontend posts them *through* EvalOS, which streams them; its own artefacts sit under `{brandId}/case/{caseId}/{folder}/{documentId}`. **EvalOS holds object keys, never bytes**, and serves them as 5-minute presigned URLs. Replaced Google Drive in Unit 30 |
 | E-signature      | **None — no provider.** The expert signs in their own tool and uploads the signed PDF through their portal | A scanned wet signature is the norm for an expert opinion letter. Provenance is a hash pair + an attestation + an `EXPERT` audit row, not a certificate — see `15-expert-portal-handoff-b.md` |
 | Notifications    | In-app notification center (staff) + GHL (clients) + a portal link (experts) | No EvalOS mail server                                            |
-| Background work  | Spring `@Scheduled` (+ app events) + a `scheduled_job` run ledger + a Postgres advisory lock per sweep | SLA timers, reminders, escalations, expert-sign prompts, the outbound outbox. **No Quartz, no ShedLock, no broker** |
-| Queue            | The `webhook_delivery` outbox table, claimed `FOR UPDATE SKIP LOCKED` | Outbound delivery with backoff + dead-letter. The only cross-process work is "deliver one webhook and keep trying", which a durable row does |
+| Background work  | Spring `@Scheduled` (+ app events) + a `scheduled_job` run ledger + a session-scoped Postgres advisory lock per sweep | SLA timers, reminders, escalations, expert-sign prompts. No outbound outbox — Unit 18 was removed. **No Quartz, no ShedLock, no broker** |
+| Queue            | **None.** `webhook_delivery` went with Unit 18 (removed 2026-09-02) | EvalOS has no cross-process work left. If outbound delivery ever returns, the argument to re-read is Unit 19's: a durable row with backoff, not a broker |
 | Integration seam | Inbound webhook gateway + outbound webhook dispatcher (+ the GHL and S3 clients) | Receive GHL events; emit EvalOS lifecycle events to subscribers. **One inbound source, GHL** — dropping the signature provider removed the second |
 | GHL read API | `RestClient` against GHL's public API, `opportunities.readonly` (**inbound *pull*, Unit 24**) | The GM's marketing funnel view, and nothing else. **Read-only, and no write method**: two calls and a cached payload. The *aggregate* the screen draws is cached in `ghl_funnel_cache` (it was a heap map until 2026-08-26 — a per-process cache lost a completed background total on restart and could not hand one instance's result to another). **No opportunity rows are stored**: there is no `ghl_opportunity` table and there must not be one, because a stage dragged five seconds ago would already be wrong in it. The table is a cache, not a record — safe to truncate, and not brand-scoped because the figures come from one global GHL location EvalOS cannot attribute to a brand. This is the third direction across the GHL seam — events in, events out, and now one pull — and it is the only one that is not a handoff |
 
@@ -153,11 +153,14 @@ Java packages under `com.ie.evalos`:
   with it the only place in the design that threatened the protected
   brand-resolution step.
 - `event` — internal domain events (Spring `ApplicationEvent`) published on
-  lifecycle transitions, plus the outbound webhook dispatcher (subscriber
-  registry, HMAC signing, retry/backoff, dead-letter, delivery log, replay).
-- `job` — `@Scheduled` sweeps backed by the `scheduled_job` **run ledger**
-  (doc chases, day-3 escalation, stage SLA, expert sign 20h/24h prompts, and the
-  outbox sender). Each sweep takes a **Postgres advisory lock on its job type**, so
+  lifecycle transitions. **`CaseEvents` alone**: the outbound webhook dispatcher went with
+  Unit 18 (2026-09-02), so `notification/NotificationListeners` is the only subscriber there
+  will be, and an event with no route raises nothing by decision rather than by omission.
+- `job` — `@Scheduled` sweeps backed by the `scheduled_job` **run ledger** (BUILT, Unit 19).
+  **Four sweeps**: doc chases, day-3 escalation, stage SLA, expert sign 20h/24h prompts. No
+  outbox sender — it went with Unit 18. Each sweep takes a **session-scoped Postgres advisory
+  lock on its job type** (not `pg_try_advisory_xact_lock`, which would release after the first
+  item since a sweep runs one transaction per item), so
   the seconds of overlap in every rolling deploy cannot double-chase a client. The
   ledger records *runs, not intentions*: idempotency comes from the data the sweep
   reads, never from a queued timer row. Sweeps **prompt and publish; they never
@@ -714,10 +717,11 @@ exist because every transition owes exactly one event. They live in
    exposure), never as earned. A GM-approved refund reverses recognition and voids
    the pending payout.
 6. Controllers stay thin and never run long-lived work. SLA timers, reminders, the
-   day-3 escalation, the expert-sign **prompts** (they never reassign), and the
-   outbound outbox run in `job`. Retention/countdown is **not** on that list — GHL
-   owns it. Each sweep holds an advisory lock on its job type, and no sweep
-   transitions a case.
+   day-3 escalation and the expert-sign **prompts** (they never reassign) run in `job`.
+   Retention/countdown is **not** on that list — GHL owns it, and neither is an outbound
+   outbox, which left with Unit 18. Each sweep holds an advisory lock on its job type, and
+   **no sweep transitions a case** — there is no call site for `EXPERT_TIMED_OUT` in the
+   package, which is what makes that a structure rather than a promise.
 
    **One read-side exception, and it does not weaken the rule.**
    `MarketingPipelineService` totals a GHL window larger than ~1,000 opportunities on

@@ -4,6 +4,57 @@ Update this file after every meaningful implementation change.
 
 ## Current Phase
 
+- **2026-09-11 — Unit 19 BUILT: EvalOS does something on its own for the first time.** V42
+  (`scheduled_job`), four sweeps, an advisory lock, a run ledger and a GM panel. Backend 885
+  tests green including the DB suite; staff frontend green.
+
+  **Four sweeps, not five.** `OutboxSender` went with Unit 18 on 2026-09-02, so there is no
+  outbox to drain and no `webhook_delivery` table. `DocChaseSweep` (24h/48h wall-clock),
+  `DocEscalationSweep` (business hours, threshold read from `SlaCalculator`), `StageSlaSweep`
+  (refreshes `sla_status`, notifies only on the transition into breach) and `ExpertSignSweep`
+  (20h warning derived as ⅚ of the 24h budget, prompt at the deadline).
+
+  **No sweep fires a transition, and there is no call site for one in the package.** The
+  signing deadline raises a prompt asking a human to decide; it never calls Unit 15's
+  `EXPERT_TIMED_OUT`. A job reassigning an expert at 3am would be a production decision nobody
+  asked a person about, and `ExpertSignSweepTest.theDeadlineNeverTimesTheExpertOut` is the
+  guard rather than a comment.
+
+  **Three notification types exist because two sweeps were about to silence each other.**
+  `DocEscalationSweep` and `StageSlaSweep` ask `SlaCalculator` the same question about the same
+  `DOC_COLLECTION` case at the same moment, and both were specced to raise `SLA_OVERDUE` under
+  an `alreadyRaised` guard — so **which message a PM got depended on scheduler order**. The
+  sign sweep had the same defect against `EXCEPTION_RAISED`, which four other paths raise on a
+  case. `DOCS_ESCALATED`, `EXPERT_SIGN_AT_RISK` and `EXPERT_SIGN_OVERDUE` give each its own key.
+
+  **The doc chase now prompts a Coordinator instead of doing nothing.** It was specced to
+  publish `checklist.reminder` "→ GHL chases the client"; with Unit 18 gone, nothing subscribes,
+  so the chase was a no-op that looked like a feature. It raises `DOC_CHASE_DUE` naming which
+  of the two chases is due, with **no** `alreadyRaised` guard — both chases must be seen, and
+  the `CHASED` audit rows already cap it at two. The event is still published unchanged.
+
+  **The lock is session-scoped and must not become `pg_try_advisory_xact_lock`.** These sweeps
+  run one transaction per item so one bad case cannot abort the pass — an xact-scoped lock would
+  release after the *first* item and leave the rest unprotected, which is the rolling-deploy
+  double-chase it exists to prevent.
+
+  **The panel exists because a stopped sweep has no symptom.** Nobody is chased, nothing
+  escalates, no error appears; the first sign is a client asking why nobody followed up. So
+  `evalos.jobs.intervals` is keyed **by `JOB_TYPE`** and both the scheduler and the staleness
+  check read that one number — a second list for the check would drift, and the drift is
+  invisible: the panel would simply stop warning.
+
+  **`SweepRegistrationTest` is load-bearing.** An unresolvable `${evalos.jobs.…}` normally
+  fails the boot, but only under `@EnableScheduling` — and the one full-context test sets
+  `evalos.jobs.enabled=false`. A fifth sweep whose interval nobody added would otherwise pass
+  the whole build and fail in production.
+
+  **Two acceptance criteria are not met and are named in the spec**: the holiday-ordering walk
+  is asserted as thresholds rather than end to end over a real calendar, and the DB-gated
+  cross-brand isolation test for the two sweep finders is not written.
+
+  **Next in Track A: Unit 17b** (the cycle-time chart) — the last item.
+
 - **2026-09-11 — Unit 17a BUILT: "a link nobody sent" is visible for the first time.** Backend
   and staff frontend both green. No migration, no new column.
 

@@ -202,6 +202,16 @@ replaced the old `gmOnly` boolean and has three states — absent = GM-also (the
 re-deriving it, because a second copy is how "the GM sees everything" survives a decision against
 it.
 
+**`/admin/jobs` is GM-only for a third, different reason** (Unit 19, BUILT 2026-09-11).
+Not because the GHL location is unattributable and not because a worklist belongs to one role —
+because the **sweep run ledger is cross-brand by nature**: one pass covers every brand's cases, so
+there is no scoped view of it to hand a Brand Manager and a partial one would misstate what ran.
+`features/jobs/JobRunsPage.tsx` + `jobsApi.ts`, in the **Admin** group deliberately: nobody's day
+starts here. It is the screen you open when a chase did not happen — which is exactly the failure
+a background job produces, silence with nothing on any dashboard to show for it. The staleness
+verdict is a **string computed on the server** against the sweep's own configured interval; do not
+re-derive it here from a threshold this file would have to guess.
+
 **One path per screen.** `/cases` beside `/board`, `/delivery` with no screen behind it, and
 `/experts` beside `/expert-database` were all deleted for the same reason, and the test asserts their
 absence so they are not re-added.

@@ -158,4 +158,31 @@ public interface CaseRepository extends ScopedRepository<Case> {
 		}
 		return findAll(spec);
 	}
+
+	/**
+	 * Every paid, active case at one stage — the finder the sweeps use (Unit 19).
+	 *
+	 * <p><strong>Brand-wide, and that is legitimate here rather than an oversight.</strong> A
+	 * sweep has no authenticated caller, so there is no {@code TenantContext} to scope against —
+	 * the same situation the inbound gateway is in. Saying so in the javadoc is the point: the
+	 * old "do not call this with ids from a request" convention was retired in 2026-08 after a
+	 * review observed that a comment is not a scope. What makes this safe is that a sweep has no
+	 * caller to widen it for, and everything it <em>raises</em> carries the case's own brand.
+	 *
+	 * <p><strong>The {@code paid} predicate is in the query, not assumed.</strong> Case Creation
+	 * v2.0 means every case is born paid, so it matches everything today and costs nothing —
+	 * which is exactly why it is written down rather than left resting on a fact about intake
+	 * that has already changed twice.
+	 */
+	@Query("select c from Case c where c.currentStage = :stage and c.paid = true")
+	List<Case> findAllAtStageForSweep(@Param("stage") Stage stage);
+
+	/**
+	 * Every paid case that is still running — for the SLA sweep, which is not stage-specific.
+	 *
+	 * <p>Delivered and closed cases are excluded: no clock runs against them, and refreshing
+	 * their {@code sla_status} would be rewriting history.
+	 */
+	@Query("select c from Case c where c.paid = true and c.currentStage not in :terminal")
+	List<Case> findActiveForSweep(@Param("terminal") Collection<Stage> terminal);
 }

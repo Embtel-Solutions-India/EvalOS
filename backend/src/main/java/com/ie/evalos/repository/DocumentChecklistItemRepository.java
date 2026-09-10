@@ -4,6 +4,7 @@ import java.util.Collection;
 import java.util.List;
 import java.util.UUID;
 
+import com.ie.evalos.domain.ChecklistItemStatus;
 import com.ie.evalos.domain.DocumentChecklistItem;
 import com.ie.evalos.service.ScopePredicate;
 
@@ -38,4 +39,21 @@ public interface DocumentChecklistItemRepository extends ScopedRepository<Docume
 	 * instead of returning that brand's checklist.
 	 */
 	List<DocumentChecklistItem> findByBrandIdInAndCaseIdIn(Collection<UUID> brandIds, Collection<UUID> caseIds);
+
+	/**
+	 * Whether every item asked for on this case has been approved.
+	 *
+	 * <p>Lives here rather than in each caller because two sweeps ask the same question and a
+	 * second copy is a second answer waiting to drift. Same scoping caveat as
+	 * {@link #findByCaseId}.
+	 *
+	 * <p><strong>An empty checklist is not a complete one.</strong> Nothing has been asked for
+	 * yet, so there is nothing the client is late with — a chase against an empty list would be
+	 * chasing somebody for documents nobody named.
+	 */
+	default boolean isChecklistComplete(UUID caseId) {
+		List<DocumentChecklistItem> items = findByCaseId(caseId);
+		return !items.isEmpty()
+				&& items.stream().allMatch((item) -> item.getStatus() == ChecklistItemStatus.APPROVED);
+	}
 }

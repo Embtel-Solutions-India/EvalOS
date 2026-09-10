@@ -153,6 +153,13 @@ public class NotificationListeners {
 		// client-facing (`checklist.requested`, `draft.ready_for_client`, `case.delivered`
 		// go to GHL via Unit 18 and are never a staff alert — invariant 14), or the spec
 		// writes no rule for it. Both are decisions; neither needs its own branch.
+		//
+		// Unit 19's two events are absent for a THIRD reason, and it is worth stating so nobody
+		// "fixes" it by adding rows. `checklist.reminder` and `docs.escalation.day3` do raise a
+		// staff alert — but the sweeps raise it themselves, because the message depends on
+		// something the event does not carry (which of the two chases is due) and because the
+		// same events are also published by a Coordinator acting by hand, who does not need to
+		// be told what they just did. A route here would fire on both paths with one wording.
 		Route route = ROUTES.get(event.type());
 		if (route == null) {
 			return;
