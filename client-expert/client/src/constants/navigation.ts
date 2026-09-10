@@ -1,14 +1,4 @@
-import {
-  BarChart3,
-  FileCheck2,
-  LayoutDashboard,
-  LifeBuoy,
-  MessageSquare,
-  Receipt,
-  Settings,
-  UserRound,
-  Wallet,
-} from 'lucide-react'
+import { FileCheck2, LayoutDashboard, Settings, UserRound } from 'lucide-react'
 import type { ComponentType } from 'react'
 
 export interface NavItem {
@@ -30,16 +20,14 @@ export const PRIMARY_NAV: NavItem[] = [
 // **Documents is deliberately not here (Unit 34c).** `/documents` is now the real,
 // EvalOS-backed screen and its credential is a scoped portal link, not this shell's session —
 // so it is reached from that link and not from a sidebar entry that would open it without one.
+// **Payments, Invoices, Analytics and SUPPORT_NAV's two entries all left on 2026-09-10**, with
+// their pages. A nav entry is a promise that a route exists, so an entry outliving its page is a
+// link to a 404 — see the note at the top of App.tsx for which went and why.
+//
+// One entry left, so this group is a single row. If it loses that one too, delete the group and its
+// "More" heading rather than rendering an empty section.
 export const SECONDARY_NAV: NavItem[] = [
-  { label: 'Analytics', to: '/analytics', icon: BarChart3 },
-  { label: 'Payments', to: '/payments', icon: Wallet },
-  { label: 'Invoices', to: '/invoices', icon: Receipt },
   { label: 'Reports', to: '/reports', icon: FileCheck2 },
-]
-
-export const SUPPORT_NAV: NavItem[] = [
-  { label: 'Messages', to: '/messages', icon: MessageSquare },
-  { label: 'Help & Support', to: '/tickets', icon: LifeBuoy },
 ]
 
 export const ACCOUNT_NAV: NavItem[] = [

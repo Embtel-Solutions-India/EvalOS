@@ -5,33 +5,37 @@ import { AppLoadingScreen } from '@shared/components/common/AppLoadingScreen'
 import { ErrorBoundary } from '@shared/components/common/ErrorBoundary'
 import { AuthProvider } from '@/context/AuthContext'
 import { AuthLayout } from '@/layouts/AuthLayout'
-import { IntakeLayout } from '@/layouts/IntakeLayout'
 import { PortalLayout } from '@/layouts/PortalLayout'
-import { AuthenticatedRoute, IntakeContinueRoute, IntakeStartRoute, PublicRoute } from '@/routes/guards'
+import { AuthenticatedRoute, PublicRoute } from '@/routes/guards'
 
 const Login = lazy(() => import('@/pages/auth/Login'))
 const ForgotPassword = lazy(() => import('@/pages/auth/ForgotPassword'))
 const VerifyEmail = lazy(() => import('@/pages/auth/VerifyEmail'))
 
-const Welcome = lazy(() => import('@/pages/intake/Welcome'))
-const ChooseService = lazy(() => import('@/pages/intake/ChooseService'))
-const ChoosePurpose = lazy(() => import('@/pages/intake/ChoosePurpose'))
-const AboutYou = lazy(() => import('@/pages/intake/AboutYou'))
-const Questionnaire = lazy(() => import('@/pages/intake/Questionnaire'))
-const IntakeDocuments = lazy(() => import('@/pages/intake/IntakeDocuments'))
-const IntakeReview = lazy(() => import('@/pages/intake/IntakeReview'))
+/*
+ * 2026-09-10 — what left this router, and the two different reasons.
+ *
+ * **Deleted outright**, because the requirement change of the same day settled that nothing will
+ * ever want them: /payments and /invoices (a client pays through a GHL invoice link the
+ * salesperson generates — the portal is never a payment surface), /messages and /tickets
+ * (invariant 14, no outbound channel), and /analytics (a client-facing analytics page that no
+ * flow asks for). Their pages and services are gone from disk; git history holds them.
+ *
+ * **Unregistered but KEPT on disk** — the seven-step intake funnel at /start*. It is unreachable
+ * today because it minted its own case-shaped reference outside Handoff A, which invariant 8
+ * forbids. It is not deleted because the new client-portal flow puts a questionnaire back, this
+ * time feeding a GHL *opportunity* rather than creating a case — so the screens are wanted and
+ * the wiring underneath them is not. Re-registering is one line per route once that unit exists.
+ *
+ * Until then: do NOT wire /start* to EvalOS as it stands. The invariant is the reason.
+ */
 
 const Dashboard = lazy(() => import('@/pages/dashboard/Dashboard'))
-const Analytics = lazy(() => import('@/pages/analytics/Analytics'))
 const Requests = lazy(() => import('@/pages/requests/Requests'))
 const RequestDetail = lazy(() => import('@/pages/requests/RequestDetail'))
 const Documents = lazy(() => import('@/pages/documents/Documents'))
-const Payments = lazy(() => import('@/pages/payments/Payments'))
-const Invoices = lazy(() => import('@/pages/invoices/Invoices'))
 const Reports = lazy(() => import('@/pages/reports/Reports'))
 const ReportDetail = lazy(() => import('@/pages/reports/ReportDetail'))
-const Messages = lazy(() => import('@/pages/messages/Messages'))
-const Tickets = lazy(() => import('@/pages/tickets/Tickets'))
 const Profile = lazy(() => import('@/pages/profile/Profile'))
 const Settings = lazy(() => import('@/pages/settings/Settings'))
 const NotFound = lazy(() => import('@shared/pages/NotFound'))
@@ -49,24 +53,6 @@ function AppRoutes() {
         <Route path="/verify-email" element={<VerifyEmail />} />
       </Route>
 
-      {/* The guided client-acquisition flow: Welcome → Choose Service →
-          Purpose (conditional) → About You (creates the account) are public;
-          Questionnaire → Documents → Review require the account just
-          created. See routes/guards.tsx for the split. */}
-      <Route element={<IntakeLayout />}>
-        <Route element={<IntakeStartRoute />}>
-          <Route path="/start" element={<Welcome />} />
-          <Route path="/start/service" element={<ChooseService />} />
-          <Route path="/start/purpose" element={<ChoosePurpose />} />
-          <Route path="/start/about-you" element={<AboutYou />} />
-        </Route>
-        <Route element={<IntakeContinueRoute />}>
-          <Route path="/start/questions" element={<Questionnaire />} />
-          <Route path="/start/documents" element={<IntakeDocuments />} />
-          <Route path="/start/review" element={<IntakeReview />} />
-        </Route>
-      </Route>
-
       {/* The one route wired to EvalOS (Unit 34c). It carries a scoped portal token out of the
           URL fragment and is deliberately OUTSIDE the account shell above: the credential names
           one case, not an account, and mounting it behind AuthenticatedRoute would answer Unit
@@ -76,15 +62,10 @@ function AppRoutes() {
       <Route element={<AuthenticatedRoute />}>
         <Route element={<PortalLayout />}>
           <Route path="/dashboard" element={<Dashboard />} />
-          <Route path="/analytics" element={<Analytics />} />
           <Route path="/requests" element={<Requests />} />
           <Route path="/requests/:id" element={<RequestDetail />} />
-          <Route path="/payments" element={<Payments />} />
-          <Route path="/invoices" element={<Invoices />} />
           <Route path="/reports" element={<Reports />} />
           <Route path="/reports/:id" element={<ReportDetail />} />
-          <Route path="/messages" element={<Messages />} />
-          <Route path="/tickets" element={<Tickets />} />
           <Route path="/profile" element={<Profile />} />
           <Route path="/settings" element={<Settings />} />
         </Route>

@@ -5,9 +5,9 @@ import { PageTransition } from '@shared/components/common/PageTransition'
 import { MobileNavDrawer } from '@/components/layout/MobileNavDrawer'
 import { PortalHeader } from '@/components/layout/PortalHeader'
 import { PortalSidebar } from '@/components/layout/PortalSidebar'
-import { ACCOUNT_NAV, PRIMARY_NAV, SECONDARY_NAV, SUPPORT_NAV } from '@/constants/navigation'
+import { ACCOUNT_NAV, PRIMARY_NAV, SECONDARY_NAV } from '@/constants/navigation'
 
-const ALL_NAV = [...PRIMARY_NAV, ...SECONDARY_NAV, ...SUPPORT_NAV, ...ACCOUNT_NAV]
+const ALL_NAV = [...PRIMARY_NAV, ...SECONDARY_NAV, ...ACCOUNT_NAV]
 
 function getPageTitle(pathname: string): string {
   const match = ALL_NAV.find((item) => pathname.startsWith(item.to))

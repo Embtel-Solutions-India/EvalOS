@@ -1,9 +1,8 @@
-import { LogOut, Plus } from 'lucide-react'
-import { Link, NavLink } from 'react-router-dom'
+import { LogOut } from 'lucide-react'
+import { NavLink } from 'react-router-dom'
 import { Logo } from '@shared/components/common/Logo'
-import { Button } from '@shared/components/ui/button'
 import { Separator } from '@shared/components/ui/separator'
-import { ACCOUNT_NAV, PRIMARY_NAV, SECONDARY_NAV, SUPPORT_NAV, type NavItem } from '@/constants/navigation'
+import { ACCOUNT_NAV, PRIMARY_NAV, SECONDARY_NAV, type NavItem } from '@/constants/navigation'
 import { useAuth } from '@/hooks/useAuth'
 import { cn } from '@shared/utils/cn'
 
@@ -41,22 +40,15 @@ export function PortalSidebar({ onNavigate }: { onNavigate?: () => void }) {
       <div className="flex h-16 items-center border-b border-sidebar-border px-5">
         <Logo variant="light" />
       </div>
-      <div className="px-3 pt-4">
-        <Button asChild className="w-full">
-          <Link to="/start/service" onClick={onNavigate}>
-            <Plus className="h-4 w-4" />
-            New Request
-          </Link>
-        </Button>
-      </div>
+      {/* The "New Request" button stood here and opened /start/service. Parked 2026-09-10 with the
+          rest of the intake funnel (D2) — a client starts a request in GHL, which is the front of
+          house. See the parked note in App.tsx. */}
       <nav className="no-scrollbar flex-1 space-y-6 overflow-y-auto px-3 py-5">
         <NavSection items={PRIMARY_NAV} onNavigate={onNavigate} />
         <div>
           <p className="px-3 pb-1.5 text-[11px] font-semibold uppercase tracking-wide text-sidebar-foreground/50">More</p>
           <NavSection items={SECONDARY_NAV} onNavigate={onNavigate} muted />
         </div>
-        <Separator className="bg-sidebar-border" />
-        <NavSection items={SUPPORT_NAV} onNavigate={onNavigate} />
         <Separator className="bg-sidebar-border" />
         <NavSection items={ACCOUNT_NAV} onNavigate={onNavigate} />
       </nav>

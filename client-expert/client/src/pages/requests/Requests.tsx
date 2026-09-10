@@ -1,7 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
-import { FileCheck2, Plus } from 'lucide-react'
-import { Link } from 'react-router-dom'
-import { Button } from '@shared/components/ui/button'
+import { FileCheck2 } from 'lucide-react'
 import { EmptyState } from '@shared/components/common/EmptyState'
 import { ErrorState } from '@shared/components/common/ErrorState'
 import { ListSkeleton } from '@shared/components/common/LoadingState'
@@ -16,15 +14,7 @@ export default function Requests() {
     <div>
       <PageHeader
         title="My Requests"
-        description="Every request you've submitted, and where it stands."
-        actions={
-          <Button asChild>
-            <Link to="/start/service">
-              <Plus className="h-4 w-4" />
-              Start a New Request
-            </Link>
-          </Button>
-        }
+        description="Every request of yours, and where it stands."
       />
 
       {isLoading && <ListSkeleton />}
@@ -34,12 +24,7 @@ export default function Requests() {
         <EmptyState
           icon={FileCheck2}
           title="No requests yet"
-          description="Start a new request and we'll guide you through what's needed."
-          action={
-            <Button asChild>
-              <Link to="/start/service">Start a New Request</Link>
-            </Button>
-          }
+          description="Nothing here yet. When a request of yours is opened, it will appear here."
         />
       )}
 

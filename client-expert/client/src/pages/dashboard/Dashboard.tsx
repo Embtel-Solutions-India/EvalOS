@@ -65,12 +65,7 @@ export default function Dashboard() {
             className="mt-2 border-0 bg-transparent p-0"
             icon={Plus}
             title="No requests yet"
-            description="Start a request and we'll guide you through exactly what's needed."
-            action={
-              <Button asChild>
-                <Link to="/start/service">Start a New Request</Link>
-              </Button>
-            }
+            description="Nothing here yet. When a request of yours is opened, it will appear here."
           />
         </motion.div>
       )}

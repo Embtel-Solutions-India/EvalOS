@@ -29,13 +29,11 @@ export default function VerifyEmail() {
           Please create an account or log in to verify your email address.
         </p>
         <Button asChild className="mt-6">
-          <Link to="/start">Get Started</Link>
+          <Link to="/login">Log In</Link>
         </Button>
       </div>
     )
   }
-
-  const currentUser = user
 
   async function handleResend() {
     setIsResending(true)
@@ -52,7 +50,9 @@ export default function VerifyEmail() {
     setIsVerifying(true)
     try {
       await verifyEmail()
-      navigate(currentUser.profileCompleted ? '/dashboard' : '/start/questions', { replace: true })
+      // Was: profileCompleted ? '/dashboard' : '/start/questions'. The intake funnel is parked
+      // (D2, 2026-09-10), so there is nowhere to send an incomplete profile but the dashboard.
+      navigate('/dashboard', { replace: true })
     } finally {
       setIsVerifying(false)
     }

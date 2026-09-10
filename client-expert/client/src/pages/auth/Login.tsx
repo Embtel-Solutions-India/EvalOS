@@ -100,12 +100,8 @@ export default function Login() {
         </Button>
       </form>
 
-      <p className="mt-6 text-center text-sm text-muted-foreground">
-        Don't have an account?{' '}
-        <Link to="/start" className="font-medium text-primary hover:underline">
-          Create Account
-        </Link>
-      </p>
+      {/* "Create Account" pointed at /start, the parked intake funnel (D2, 2026-09-10). There is
+          no self-serve signup: a client is created in GHL, which is the front of house. */}
     </div>
   )
 }
