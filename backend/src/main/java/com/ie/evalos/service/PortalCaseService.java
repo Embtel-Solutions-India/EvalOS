@@ -415,10 +415,34 @@ public class PortalCaseService {
 		return view(lifecycle.clientApproveDraftFromPortal(authorized(principal)));
 	}
 
+	/**
+	 * Approves one named case (34b).
+	 *
+	 * <p><strong>This closes a gap Unit 35 left, and it is worth naming.</strong> D1 made a
+	 * credential able to name a <em>party</em> and gave the reads a case id —
+	 * {@code GET /cases/{'{'}caseId{'}'}} — but left the two <em>writes</em> resolving the case from
+	 * the token alone. So a client with two cases could read either draft and approve neither:
+	 * both actions answered 409 {@code SAY_WHICH_CASE} with no way to say which. The read half of
+	 * party scoping shipped and the write half did not.
+	 *
+	 * <p>{@link #approve(PortalPrincipal)} stays for the case-scoped token, which has no id to
+	 * pass and must not be made to invent one.
+	 */
+	@Transactional
+	public ClientDraftView approve(PortalPrincipal principal, UUID caseId) {
+		return view(lifecycle.clientApproveDraftFromPortal(authorized(principal, caseId)));
+	}
+
 	/** Revisions carry the client's own words, which is what the Case Manager works from. */
 	@Transactional
 	public ClientDraftView requestRevisions(PortalPrincipal principal, String notes) {
 		return view(lifecycle.clientRequestRevisionsFromPortal(authorized(principal), notes));
+	}
+
+	/** Revisions on one named case — see {@link #approve(PortalPrincipal, UUID)}. */
+	@Transactional
+	public ClientDraftView requestRevisions(PortalPrincipal principal, UUID caseId, String notes) {
+		return view(lifecycle.clientRequestRevisionsFromPortal(authorized(principal, caseId), notes));
 	}
 
 	/**

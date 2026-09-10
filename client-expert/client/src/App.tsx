@@ -35,6 +35,7 @@ const Requests = lazy(() => import('@/pages/requests/Requests'))
 const RequestDetail = lazy(() => import('@/pages/requests/RequestDetail'))
 const Documents = lazy(() => import('@/pages/documents/Documents'))
 const Invoices = lazy(() => import('@/pages/invoices/Invoices'))
+const DraftReview = lazy(() => import('@/pages/draft/DraftReview'))
 const Reports = lazy(() => import('@/pages/reports/Reports'))
 const ReportDetail = lazy(() => import('@/pages/reports/ReportDetail'))
 const Profile = lazy(() => import('@/pages/profile/Profile'))
@@ -66,6 +67,12 @@ function AppRoutes() {
           own terms. Unit 35 settled D1 by making a credential able to name a party, so this is
           no longer answering an open decision by accident — it is using the answer. */}
       <Route path="/invoices" element={<Invoices />} />
+
+      {/* The draft review (34b) — the screen the portal existed for and did not have. Read,
+          approve, request changes; the three endpoints have been in EvalOS since Unit 14 with
+          nothing calling them. Outside the account shell for the same reason as its two
+          neighbours: a scoped portal link, not this app's mock session. */}
+      <Route path="/draft" element={<DraftReview />} />
 
       <Route element={<AuthenticatedRoute />}>
         <Route element={<PortalLayout />}>

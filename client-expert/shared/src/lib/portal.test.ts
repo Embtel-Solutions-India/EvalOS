@@ -1,12 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import {
   actionFirst,
+  APPROVAL_STATUS,
   CHECKLIST_STATUS,
   failureMessage,
   needsClientAction,
   tokenFromFragment,
   type ChecklistItem,
   type ChecklistItemStatus,
+  type ClientApprovalStatus,
 } from '@shared/lib/portal'
 
 const ALL_STATUSES: ChecklistItemStatus[] = ['REQUIRED', 'UPLOADED', 'APPROVED', 'MISSING', 'INCORRECT']
@@ -78,5 +80,29 @@ describe('failureMessage', () => {
 
   it('tells a client nothing was lost when the store is down, so they do not re-send in a panic', () => {
     expect(failureMessage(502)).toContain('Nothing was lost')
+  })
+})
+
+describe('APPROVAL_STATUS', () => {
+  const ALL: ClientApprovalStatus[] = ['PENDING', 'APPROVED', 'REVISION_REQUESTED']
+
+  // Same rule as CHECKLIST_STATUS above, and the same reason: this is presentation of a
+  // server-owned vocabulary. If EvalOS adds a fourth ClientApprovalStatus, this fails rather
+  // than a blank badge shipping to a client on the one screen where the words are about
+  // whether they have agreed to something.
+  it('names every status EvalOS can send', () => {
+    for (const status of ALL) {
+      expect(APPROVAL_STATUS[status]?.label, status).toBeTruthy()
+    }
+    expect(Object.keys(APPROVAL_STATUS).sort()).toEqual([...ALL].sort())
+  })
+
+  // The labels are the client's words, not the enum's. "REVISION_REQUESTED" on a screen is a
+  // database value that escaped.
+  it('reads as English rather than as an enum', () => {
+    for (const status of ALL) {
+      expect(APPROVAL_STATUS[status].label).not.toMatch(/_/)
+      expect(APPROVAL_STATUS[status].label).not.toEqual(status)
+    }
   })
 })

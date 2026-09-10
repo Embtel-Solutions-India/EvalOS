@@ -197,4 +197,28 @@ public class ClientPortalController {
 			@Valid @RequestBody RevisionsRequest request) {
 		return ApiResponse.ok(portal.requestRevisions(client(), request.notes()));
 	}
+
+	/**
+	 * Approve one named case (34b).
+	 *
+	 * <p><strong>Added because Unit 35 gave party scoping to the reads and not to the writes.</strong>
+	 * A client with two cases could open either draft through {@code GET /cases/{caseId}} and
+	 * approve neither: both actions resolved the case from the token and answered 409
+	 * {@code SAY_WHICH_CASE} with nowhere to say which. The screen 34b builds is unusable for
+	 * that client without this.
+	 *
+	 * <p>The path variable is safe for the same reason the read's is: it is checked against the
+	 * credential's party before anything is read or written, and a case that is not theirs
+	 * answers 403 rather than 404.
+	 */
+	@PostMapping("/cases/{caseId}/approve")
+	public ApiResponse<PortalCaseService.ClientDraftView> approveCase(@PathVariable UUID caseId) {
+		return ApiResponse.ok(portal.approve(client(), caseId));
+	}
+
+	@PostMapping("/cases/{caseId}/request-revisions")
+	public ApiResponse<PortalCaseService.ClientDraftView> requestRevisionsOnCase(
+			@PathVariable UUID caseId, @Valid @RequestBody RevisionsRequest request) {
+		return ApiResponse.ok(portal.requestRevisions(client(), caseId, request.notes()));
+	}
 }

@@ -62,9 +62,11 @@ one carries the reasoning.
 becomes nullable, so a credential names a *party* and a client with two cases has one link. Do it
 first because **two later items wait on it and nothing waits on them**.
 
-**A2 · 34b — the client's draft review screen.** The highest-value screen left anywhere: read,
-approve and request-revisions have been **built and tested in EvalOS since Unit 14, and no screen
-calls them.** Unblocked by D1, which is what tells the screen which case it is showing.
+**A2 · 34b — the client's draft review screen. BUILT 2026-09-11.** Read, approve and
+request-revisions had been in EvalOS since Unit 14 with no screen calling them. Building it
+surfaced a gap Unit 35 left: **D1 gave party scoping to the reads and not to the writes**, so a
+client with two cases could open either draft and approve neither. Closed with
+`POST /cases/{caseId}/approve` and `.../request-revisions`.
 
 **A3 · 34d — the two case lists**, over Unit 35's party reads and D5's projection.
 

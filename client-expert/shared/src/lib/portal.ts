@@ -138,3 +138,53 @@ export type ClientInvoice = {
   issueDate: string | null
   dueDate: string | null
 }
+
+// --- 34b: the draft the client reviews -------------------------------------
+
+/**
+ * Where a draft stands with the client.
+ *
+ * **The server's vocabulary, unmapped.** Like `ChecklistItemStatus`, this app holds a label
+ * table for the values EvalOS can send and never derives one — a status this screen computed
+ * would be a second opinion about whether a client has approved something.
+ */
+export type ClientApprovalStatus = 'PENDING' | 'APPROVED' | 'REVISION_REQUESTED'
+
+/** How each status reads, and how it looks. A test fails if the server can send a fourth. */
+export const APPROVAL_STATUS: Record<
+  ClientApprovalStatus,
+  { label: string; variant: 'default' | 'secondary' | 'outline' }
+> = {
+  PENDING: { label: 'Awaiting your review', variant: 'default' },
+  APPROVED: { label: 'Approved', variant: 'secondary' },
+  REVISION_REQUESTED: { label: 'Revisions requested', variant: 'outline' },
+}
+
+/**
+ * The draft as the client sees it (Unit 14, `PortalCaseService.ClientDraftView`).
+ *
+ * **No expert anywhere.** Unit 13's redacted profile was deleted with the unit, and withholding
+ * the expert's identity entirely is the stronger position: there is no redaction to get wrong.
+ *
+ * `draftLink` is a link the Case Manager pasted, not an S3 key — only client *uploads* have
+ * object keys today, so this cannot be presigned and must be rendered as an external link.
+ */
+export type ClientDraftView = {
+  clientName: string | null
+  serviceType: string
+  caseReference: string
+  draftLink: string | null
+  draftVersion: number
+  approvalStatus: ClientApprovalStatus
+  /** Whether EvalOS is waiting on the client right now — the server decides, not this app. */
+  awaitingAnswer: boolean
+}
+
+/** One row of "my cases" (Unit 35). `step` is a server-rendered phrase, never an enum. */
+export type ClientCaseSummary = {
+  caseId: string
+  caseReference: string
+  serviceType: string
+  step: string
+  actionRequired: boolean
+}

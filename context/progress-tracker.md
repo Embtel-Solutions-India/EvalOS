@@ -4,6 +4,43 @@ Update this file after every meaningful implementation change.
 
 ## Current Phase
 
+- **2026-09-11 — 34b BUILT: the client can finally answer their draft.** Both portal apps build,
+  **24 portal tests** (was 22). No migration.
+
+  **The screen the portal existed for and did not have.** `read`, `approve` and
+  `request-revisions` have been in EvalOS **since Unit 14** with nothing calling them — which is
+  why the build plan called this the highest-value work left anywhere.
+
+  **It could not be built as specced, and that is the finding.** Unit 35's D1 gave party scoping
+  to the **reads** (`GET /cases/{caseId}`) and left the two **writes** resolving the case from
+  the token alone. A client whose link covered two cases could open either draft and **approve
+  neither**: both answered 409 `SAY_WHICH_CASE` with nowhere to say which. The read half of
+  party scoping shipped and the write half did not — invisible until a screen tried to use it.
+
+  **Closed with `POST /cases/{caseId}/approve` and `POST /cases/{caseId}/request-revisions`**,
+  mirroring the read route and reusing its party check. **The tokenless routes stay and still
+  refuse to guess:** approving is Handoff B — it sends a letter to an expert to sign, with no
+  undo that reaches the client — so a route that picked the newest case would be guessing about
+  an irreversible act. The new route lets the client *answer* the ambiguity rather than removing
+  the refusal.
+
+  **The screen holds no lifecycle vocabulary.** `APPROVAL_STATUS` maps the three values EvalOS
+  can send, with a test that fails on a fourth (the rule `CHECKLIST_STATUS` already follows), and
+  `awaitingAnswer` is the server's flag, not something the page infers. The case picker appears
+  only for more than one case.
+
+  **Two things said plainly on screen rather than left to be discovered:** approving "sends it to
+  the expert to sign — it cannot be undone from here", and a case-scoped link that cannot list
+  cases gets "use the link we sent for that case" instead of a generic failure.
+
+  **`draftLink` is still a pasted link, not an S3 key** — only client uploads have object keys —
+  so it renders as an external link and says so when empty. That was flagged in spec 34's
+  caveats before 34b started, and held.
+
+  **Next in Track A: 34d** — the two case lists, over Unit 35's party reads and D5's projection.
+  The remaining Track A items after that are Unit 17a (dashboards), Unit 19 (background jobs)
+  and Unit 17b (the cycle-time chart).
+
 - **2026-09-11 — Unit 41 BUILT: the programme is code-complete.** Both portal apps build, 22
   portal tests pass. **Not yet exercised live** — `invoices.readonly` is still ungranted, so
   every invoice call answers 502 until it lands. No migration.

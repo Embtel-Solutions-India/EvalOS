@@ -283,10 +283,31 @@ know where a draft screen lives, and 34d *is* D1.
   rules. **Vitest installed** (`npm run test`), 10 tests. `mock/simulateUpload.ts` is where the
   intake wizard's fake upload went — a mock beside real calls in one module is how somebody ships
   the mock.
-- **34b · Client draft review.** The three built endpoints get their screens: read,
-  approve, request revisions. **This is the highest-value slice left in the unit** — it is the
-  one thing the backend already does and the app cannot. **Unblocked by D1** (2026-09-04): it now
-  knows which case it is showing, because the party read names them.
+- **34b · Client draft review — BUILT 2026-09-11.** `client/src/pages/draft/DraftReview.tsx` at
+  `/draft`, outside `AuthenticatedRoute` like its two neighbours. Read, approve, request
+  revisions — the three endpoints that had existed since Unit 14 with nothing calling them.
+
+  **It could not have been built as specced, and the reason is worth recording.** Unit 35's D1
+  gave party scoping to the *reads* (`GET /cases/{caseId}`) and left the two *writes* resolving
+  the case from the token alone. So a client whose link covered two cases could open either
+  draft and **approve neither** — both actions answered 409 `SAY_WHICH_CASE` with nowhere to say
+  which. The read half of party scoping shipped; the write half did not.
+
+  **Closed by `POST /cases/{caseId}/approve` and `POST /cases/{caseId}/request-revisions`**,
+  mirroring the read route and using the same party check. The tokenless routes stay and still
+  refuse to guess: approving is Handoff B, it sends a letter to an expert to sign, and there is
+  no undo that reaches the client — so a route that picked the newest case would be guessing
+  about an irreversible act. The new route is how a client *answers* the ambiguity, not a
+  replacement for refusing it.
+
+  **The screen holds no lifecycle vocabulary.** `APPROVAL_STATUS` maps the three values EvalOS
+  can send, with a test that fails on a fourth — the same rule `CHECKLIST_STATUS` follows — and
+  `awaitingAnswer` is the server's flag rather than something the page infers. A picker appears
+  only when a party link covers more than one case; choosing from a list of one is a step that
+  exists because the code did not notice.
+
+  **`draftLink` is still a pasted link, not an S3 key** (§ the caveat below), so the screen
+  renders it as an external link and says plainly when there is nothing to read yet.
 - **34c · Client documents — BUILT.** `pages/documents/Documents.tsx` is the app's first real
   screen: the checklist (outstanding first), an upload per item with a real progress bar, and a
   per-click presigned download. Routed at `/documents` **outside `AuthenticatedRoute`** and removed

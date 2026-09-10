@@ -106,12 +106,29 @@ edit in `expert/src/App.tsx`.
   never breached it, which is what Units 24/26/27 already established.
 - `pages/messages`, `pages/tickets` → **invariant 14**, EvalOS has no outbound channel
 
-**And the thing it is missing is the thing the backend already does:** there is **no draft
-review screen anywhere** — no approve, no request-revisions, nothing calling
-`GET /api/portal/client/case`. `pages/reports` is download-only. That is Unit 34 slice 34b
-and the highest-value work left in the app.
+**That gap is closed as of 2026-09-11.** `pages/draft/DraftReview.tsx` at `/draft` is 34b:
+read, approve, request revisions. `pages/reports` remains download-only and is a different
+screen. See the section below.
 
-## The wired screens: `/documents` (34c) and `/invoices` (41)
+## The wired screens: `/documents` (34c), `/invoices` (41), `/draft` (34b)
+
+### `/draft` — the client answers their draft (34b, BUILT 2026-09-11)
+
+`client/src/pages/draft/DraftReview.tsx`, `services/draftService.ts`. Outside
+`AuthenticatedRoute`, no nav — a scoped portal link, same as its neighbours.
+
+- **⚠ It needed a backend change, and the reason generalises.** Unit 35 gave party scoping to
+  the READS and not to the WRITES: `GET /cases/{caseId}` existed, `/approve` and
+  `/request-revisions` still resolved the case from the token, so a two-case client could read
+  either draft and approve neither. Closed with `POST /cases/{caseId}/approve` and
+  `.../request-revisions`. **When a credential gains a scope, check both halves.**
+- **The tokenless routes still refuse to guess**, deliberately: approving is Handoff B and has
+  no undo that reaches the client.
+- **`APPROVAL_STATUS`** maps the three `ClientApprovalStatus` values, with a test that fails on a
+  fourth — same rule as `CHECKLIST_STATUS`. `awaitingAnswer` is the server's flag; this app
+  infers no case state.
+- **`draftLink` is a pasted link, not an S3 key.** Nothing to presign; rendered as an external
+  link, with an honest message when absent.
 
 ### `/invoices` — the client's billing (Unit 41, BUILT 2026-09-11)
 
