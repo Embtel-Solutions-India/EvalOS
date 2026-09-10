@@ -89,23 +89,26 @@ jobs:
 
     steps:
       - name: Debug GitHub OIDC claims
+        shell: bash
         run: |
-          echo "Repository: $GITHUB_REPOSITORY"
-          echo "Ref: $GITHUB_REF"
+          set -euo pipefail
 
-          TOKEN=$(curl -sS \
+          response="$(curl -sS \
             -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
-            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=sts.amazonaws.com" \
-            | jq -r '.value')
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=sts.amazonaws.com")"
 
-          PAYLOAD=$(echo "$TOKEN" | cut -d '.' -f 2 | tr '_-' '/+')
+          token="$(jq -r '.value' <<< "$response")"
 
-          case $((${#PAYLOAD} % 4)) in
-            2) PAYLOAD="${PAYLOAD}==" ;;
-            3) PAYLOAD="${PAYLOAD}=" ;;
+          payload="$(cut -d. -f2 <<< "$token" | tr '_-' '/+')"
+
+          case $(( ${#payload} % 4 )) in
+            2) payload="${payload}==" ;;
+            3) payload="${payload}=" ;;
+            0) ;;
+            *) echo "Invalid JWT payload"; exit 1 ;;
           esac
 
-          echo "$PAYLOAD" | base64 -d | jq '{
+          printf '%s' "$payload" | base64 -d | jq '{
             iss,
             aud,
             sub,
