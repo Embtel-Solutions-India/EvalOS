@@ -544,3 +544,34 @@ mechanism; `mem:backend/persistence` for entity, repository, audit and field-enc
 `mem:backend/lifecycle` before touching any case transition, the paid guard, SLA or refund logic;
 `mem:backend/webhooks` before touching the inbound gateway, idempotency or Handoff A.
 Java style and the deliberate absence of Lombok: `mem:conventions`, `mem:tech_stack`.
+
+## Portal-links ledger (G16, Unit 17a, BUILT 2026-09-11)
+
+`PortalLinkLedgerService` + `GET /api/metrics/portal-links`. **A compensating control for a
+channel that does not exist**, not a report: EvalOS sends no mail (invariant 14), so a link
+reaches its recipient because somebody sent it by hand and nothing records that they did. For an
+expert that is **G15** — the 20h/24h signing clock runs regardless, so *a link nobody sent* is
+the likeliest way that SLA is breached.
+
+- **⚠ There is no `sent_at` and there must never be one.** EvalOS cannot witness a staff member
+  pasting a URL into a mail client; a column claiming otherwise would be *reported by this very
+  dashboard* as true. `last_seen_at` is the honest proxy — evidence the link arrived. A test
+  asserts the row carries `openedAt` and never `sentAt`/`mintedBy`.
+- **No migration, no new column.** Everything is already on `portal_access`, and revoked rows
+  are kept so the re-mint history is on disk.
+- **The RAG band is derived from one question** — *is a clock running against a link nobody
+  opened?* — and **reuses the stage SLA** rather than a second threshold, so this and the
+  board's rail cannot disagree about one case.
+- **An absent link is GREEN wherever the stage does not want one.** `needs()` derives that from
+  the stage. A tile that shouted about every case would be ignored by the day it was right.
+- **One row per (case, audience)**, with a re-mint count — never one row per token.
+- **No issuer column.** The mint audits against the *case* with the audience in a free-text
+  note, so matching an issuer to one token means parsing a string. The row links to the case
+  timeline instead. Spec 17 §5 carries the two upgrade paths.
+- **The Expert Network Manager is refused**, unlike on four other metrics routes: `Tier.SUPPLY`
+  reads the roster, not case content, and every row here names a case.
+
+**G9 is closed by derivation (same unit).** `ExpertCaseOfferRepository.resolvedTurnaroundSeconds`
+reads `outcome_at - offered_at`; `ExpertNetworkMetrics.turnaround` reports the **median**.
+**Do not revive `expert.avg_response_hours`** — it is written by nothing. Median not mean (few,
+skewed samples); **null not zero** on no data, because zero reads as "answered instantly".

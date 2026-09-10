@@ -4,6 +4,60 @@ Update this file after every meaningful implementation change.
 
 ## Current Phase
 
+- **2026-09-11 — Unit 17a BUILT: "a link nobody sent" is visible for the first time.** Backend
+  and staff frontend both green. No migration, no new column.
+
+  **G16, the portal-links ledger, is the substance.** It answers four questions per (case,
+  audience): is there a live link, was it ever opened, when does it die, and is a clock running
+  against an unopened one. `GET /api/metrics/portal-links` plus a tile on the Coordinator, PM
+  and Case Manager dashboards.
+
+  **This is a compensating control for a channel that does not exist.** EvalOS sends no mail
+  (invariant 14), so a link reaches its recipient because a staff member copied it out and sent
+  it by hand — and nothing records that they did. Survivable for a client, who waits. For an
+  expert it is **G15**: the 20h/24h signing clock runs regardless, which makes **a link nobody
+  sent the likeliest way EvalOS breaches that SLA**, and no screen showed it until now.
+
+  **No `sent_at`, and that is the load-bearing decision.** EvalOS cannot observe a staff member
+  pasting a URL into someone else's mail client, and a column recording a fact the system cannot
+  witness is worse than an absent one — because this very dashboard would then report it as
+  true. `last_seen_at` is the honest proxy: evidence the link *arrived*. A test asserts the row
+  carries `openedAt` and never `sentAt`.
+
+  **The band is derived, never invented**, from one question: *is a clock running against a link
+  nobody opened?* It reuses the stage SLA rather than inventing a second threshold, so this tile
+  and the board's rail cannot disagree about one case. And **an absent link reads green wherever
+  the stage does not want one** — a tile that showed red for every case not yet at signing would
+  be ignored within a week, and then ignored on the day it was right.
+
+  **One row per (case, audience), not per token**: six superseded links are one line with a
+  re-mint count. Green rows are hidden — most rows are green, and a ledger nobody scrolls is one
+  that missed the red row.
+
+  **The Expert Network Manager is refused, and it is not an oversight.** They are on four other
+  metrics routes; `Tier.SUPPLY` reads the roster, not case content, and every row here names a
+  case. Asserted rather than left to look like a slip.
+
+  **G9 closed by derivation, exactly as its note instructed.** Turnaround now comes from
+  `expert_case_offer`'s own `outcome_at - offered_at`; the dead `avg_response_hours` column
+  stays dead. **Median, not mean** — one expert answering after a fortnight drags a mean
+  somewhere nobody recognises — and **null, not zero**, on no data, because zero reads as
+  "answered instantly".
+
+  **G10 accepted as a limitation, not built.** A quality-score trend needs history that a single
+  human-entered column does not have. The tile shows the score and no direction arrow. Faking it
+  was the one thing the gap forbade.
+
+  **G11 has a real answer now and I deliberately did not take it.** When the gap was written,
+  "no field carries GHL's sales notes" was true. **Unit 39 changed that** — `opportunity_note` is
+  keyed on `ghl_opportunity_id`, and `evalos_case` carries that id from Handoff A, so the join
+  exists. Not built because it is a scope decision, not a gap: those notes are written by Sales
+  for Sales, and putting them on a production widget shows a Case Manager a conversation nobody
+  wrote for them. **The data is no longer the obstacle — say the word and it is a small change.**
+
+  **Next in Track A: Unit 19** (background jobs — `job/` is still a bare `.gitkeep` and nothing
+  carries `@Scheduled`), then Unit 17b (the cycle-time chart).
+
 - **2026-09-11 — 34d BUILT: the client portal has no mock left in it, and no account.** Both
   portal apps build, 24 portal tests pass. **53 files deleted, 10 changed.** No backend change.
 
@@ -2398,9 +2452,9 @@ confirmation. What is genuinely outstanding, with its owner:
 | ~~G6~~ | **CLOSED** Unit 22 slice 4 — coverage per primary field, <5 alert — was: Coverage-gap alert per field (<5 available) | Unit 17 | Threshold is the business's |
 | ~~G7~~ | **CLOSED** Unit 22 slice 4 — count over `date_onboarded` vs `evalos.roster.monthly-onboarding-target` — was: "New experts onboarded vs target" | Unit 17 | One count over `expert.date_onboarded`; the *target* needs a config home |
 | ~~G8~~ | **CLOSED** Unit 22 slice 4 — ENM-gated writer + `PERFORMANCE_FLAGGED`; declines still read from the offer ledger — was: `performance_flags` has no writer | Unit 11/17 | Column and display exist; nothing sets it. Declines are better read from `expert_case_offer` |
-| G9 | `avg_response_hours` is permanently null | Unit 17 | **Do not revive the column** — derive turnaround from `expert_case_offer` |
-| G10 | Quality-score *trend* | Unit 17 | `quality_score` is human-entered and unversioned, so a month-over-month trend needs history or an accepted limitation. Do not fake it |
-| G11 | Sales notes on the cases-inbox widget | Unit 05b/17 | No field carries GHL's sales notes. Either intake starts carrying one or the column comes out |
+| ~~G9~~ | **CLOSED 2026-09-11 (17a) by derivation, exactly as instructed.** `ExpertCaseOfferRepository.resolvedTurnaroundSeconds` reads `outcome_at - offered_at` off the ledger, and `ExpertNetworkMetrics.turnaround` reports the **median**. The dead `avg_response_hours` column is still not revived. Two decisions inside it: **median not mean** (few, skewed samples — one expert answering after a fortnight drags a mean somewhere nobody recognises) and **null not zero** on no data (zero reads as "answered instantly"). Only resolved offers count; an open one has no turnaround yet — was: `avg_response_hours` is permanently null | Unit 17 | **Do not revive the column** — derive turnaround from `expert_case_offer` |
+| G10 | **ACCEPTED AS A LIMITATION 2026-09-11 (17a). Not built, and not owed.** A trend needs history and `quality_score` is a single human-entered column with none — so the only honest options were to add versioning or to say plainly that there is no trend. **The tile shows the current score and no direction arrow**, which is what "do not fake it" means in practice. If the business wants the trend, it wants a `quality_score_history` row per change, and that is a unit with a migration | Unit 17 | `quality_score` is human-entered and unversioned, so a month-over-month trend needs history or an accepted limitation. Do not fake it |
+| G11 | **REOPENED WITH A REAL ANSWER 2026-09-11 (17a) — and deliberately not taken here.** When this gap was written, "no field carries GHL's sales notes" was simply true. **Unit 39 changed that**: `opportunity_note` now holds the sales and marketing conversation, keyed on `ghl_opportunity_id` — and `evalos_case` carries that id from Handoff A, so the join a cases-inbox column would need **now exists**. It is not built because it is a scope decision rather than a gap: those notes are written by Sales for Sales, and putting them on a production widget shows a Case Manager a conversation nobody wrote for them. **Take it as its own change if the business wants it; the data is no longer the obstacle** | Unit 05b/17/39 | No field carries GHL's sales notes. Either intake starts carrying one or the column comes out |
 | ~~G12~~ | **CLOSED (partly, deliberately)** Unit 22 slice 1 — change deadline and reassign CM shipped, both stage-preserving. **Mark urgent was refused, not missed** (decision 5): the deadline already expresses urgency and drives `DeadlineRisk`, so a second flag is a second truth that can disagree with it. Note the reassign is a *new* field update, **not** `assign-cm` widened — that action also writes an `ExpertCaseOffer` and would have minted phantom offers, exactly as this row's own note warned. Was: Mark case urgent / change deadline; reassign CM mid-draft | Unit 04/17 | Two quick actions with no transition behind them (`assign-cm` is declared on `EXPERT_ASSIGNMENT` only) |
 | G13 | Client communication log | **not scoped** | Architecturally GHL's. A threaded per-case log would be a new *inbound* integration pulling GHL conversations. Recorded, not planned |
 | G14 | Antivirus posture for accepted uploads | **decided 2026-09-04 → Unit 35** | Drive scanned on ingest and Drive is gone, so EvalOS owed a stance of its own on files arriving from a public link. **Implemented rather than declared**: content sniffing on *both* upload surfaces, every presigned read served as an **attachment** so nothing executes in the browser origin, and the written position that **scanning is the bucket's job** — S3 malware protection is an infrastructure control the business enables, not code EvalOS ships. That infra ask sits with the credential |

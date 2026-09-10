@@ -54,6 +54,22 @@ export default function ExpertNetworkDashboard() {
         />
 
         <KpiCard
+          title="Offer turnaround"
+          state={
+            state.kind === 'ok' && data?.turnaround.medianHours === null
+              ? { kind: 'empty', note: 'No offer has resolved yet.' }
+              : state
+          }
+          value={data?.turnaround.medianHours ?? null}
+          unit="h"
+          denominator={data ? `median of ${data.turnaround.resolved} resolved offers` : undefined}
+          // Derived from expert_case_offer's own timestamps (G9). The stored
+          // `avg_response_hours` column was never written by any path and is deliberately not
+          // revived — a column nothing fills is a figure that reads as zero.
+          note="Median, not mean: one expert answering after a fortnight would move a mean."
+        />
+
+        <KpiCard
           title="Acceptance rate"
           state={
             state.kind === 'ok' && data?.acceptance.ratePct === null

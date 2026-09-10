@@ -97,4 +97,29 @@ public interface ExpertCaseOfferRepository extends ScopedRepository<ExpertCaseOf
 	@Query("select max(o.offeredAt) from ExpertCaseOffer o "
 			+ "where o.brandId = :brandId and o.expertId = :expertId")
 	Instant lastOfferedAt(@Param("brandId") UUID brandId, @Param("expertId") UUID expertId);
+
+	/**
+	 * How long each resolved offer took to answer, in seconds — <strong>gap G9</strong>.
+	 *
+	 * <p><strong>Derived, because the stored column was a lie.</strong> {@code expert
+	 * .avg_response_hours} existed, was never written by any path, and read as permanently null;
+	 * G9's instruction was "do not revive the column — derive turnaround from
+	 * {@code expert_case_offer}". Both timestamps this needs have been on the offer row since
+	 * {@code V19}: {@code offered_at} and {@code outcome_at}.
+	 *
+	 * <p><strong>Only resolved offers.</strong> An offer still open has no turnaround yet, and
+	 * counting it as zero — or as the time so far — would make the average fall every time a new
+	 * offer went out. {@code outcome_at is not null} is the whole filter.
+	 *
+	 * <p>Returned as raw seconds per offer rather than an average, so the caller decides between
+	 * a mean and a median. A mean over a handful of offers is dragged a long way by one expert
+	 * who answered after a fortnight.
+	 */
+	@Query("""
+			select function('date_part', 'epoch', o.outcomeAt - o.offeredAt)
+			from ExpertCaseOffer o
+			where o.brandId = :brandId and o.expertId in :expertIds and o.outcomeAt is not null
+			""")
+	List<Double> resolvedTurnaroundSeconds(@Param("brandId") UUID brandId,
+			@Param("expertIds") Collection<UUID> expertIds);
 }

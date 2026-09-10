@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import PortalLinkLedger from './PortalLinkLedger'
 import { Link } from 'react-router-dom'
 import { AlertTriangle, NotebookPen } from 'lucide-react'
 import { Card, KpiCard } from '../../components/ui/card'
@@ -152,6 +153,16 @@ export default function CaseManagerDashboard() {
             ))}
           </ul>
         </Card>
+      </div>
+
+      {/*
+        The portal-links ledger (G16). Shown on every dashboard whose role can act on a red
+        row, because the failure it catches — a link nobody sent, against a running clock — is
+        not owned by one desk: the Coordinator mints the client's, the Case Manager owns the
+        expert signing step, and the PM oversees both.
+      */}
+      <div className="mt-4">
+        <PortalLinkLedger />
       </div>
     </section>
   )

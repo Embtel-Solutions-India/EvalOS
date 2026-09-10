@@ -72,7 +72,7 @@ client with two cases could open either draft and approve neither. Closed with
 projection — and it finished the job by deleting the client's account shell, the model D1
 refused. 53 files went; there is no mock left in the client portal.
 
-**A4 · Unit 17a — dashboards without charts**, carrying gaps **G9–G11** and **G16**. This is 17a
+**A4 · Unit 17a — BUILT 2026-09-11.** G16's portal-links ledger shipped (the tile that makes "a link nobody sent" visible), G9 closed by derivation, G10 accepted as a limitation, G11 reopened with a real answer and left as a scope decision. Was: dashboards without charts, carrying gaps **G9–G11** and **G16**. This is 17a
 only: **Unit 17's read models are built** (five `*MetricsService` behind seven `MetricsController`
 routes), so what remains is the per-role operational contract and the gap list, not the data layer.
 **G16 is the one to read twice** — nothing shows which portal links exist or whether anyone opened

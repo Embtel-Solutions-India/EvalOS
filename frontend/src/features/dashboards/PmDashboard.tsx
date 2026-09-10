@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import PortalLinkLedger from './PortalLinkLedger'
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { Card, CapacityBar, ChartCard, KpiCard } from '../../components/ui/card'
 import type { CardState } from '../../components/ui/card'
@@ -202,6 +203,16 @@ export default function PmDashboard() {
           // Honest rather than zero: the signing events this measures do not exist yet.
           state={{ kind: 'unavailable', blockedBy: 'Unit 15' }}
         />
+      </div>
+
+      {/*
+        The portal-links ledger (G16). Shown on every dashboard whose role can act on a red
+        row, because the failure it catches — a link nobody sent, against a running clock — is
+        not owned by one desk: the Coordinator mints the client's, the Case Manager owns the
+        expert signing step, and the PM oversees both.
+      */}
+      <div className="mt-4">
+        <PortalLinkLedger />
       </div>
     </section>
   )

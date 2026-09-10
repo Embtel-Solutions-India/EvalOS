@@ -105,11 +105,28 @@ public class ExpertNetworkMetricsService {
 	public record DecliningExpert(UUID expertId, String name, int declines) {
 	}
 
+	/**
+	 * How long the roster takes to answer an offer — <strong>gap G9, closed by derivation</strong>.
+	 *
+	 * <p>{@code expert.avg_response_hours} existed, was written by nothing, and read as
+	 * permanently null. G9's instruction was not to revive it but to derive the figure from the
+	 * offer ledger, where both timestamps have lived since {@code V19}.
+	 *
+	 * @param medianHours the <em>median</em>, not the mean: over a handful of offers a single
+	 *                    expert who answered after a fortnight drags a mean somewhere nobody
+	 *                    recognises. Null when nothing has been resolved yet — never zero, which
+	 *                    would read as "answered instantly"
+	 * @param resolved    how many offers the figure is over, so a median of one is visible as one
+	 */
+	public record Turnaround(Long medianHours, int resolved) {
+	}
+
 	public record ExpertNetworkMetrics(
 			RosterHealth roster,
 			List<FieldCoverage> coverage,
 			Onboarding onboarding,
 			Acceptance acceptance,
+			Turnaround turnaround,
 			List<DecliningExpert> declining,
 			List<LowQualityExpert> lowQuality,
 			int activeCases) {
@@ -130,11 +147,17 @@ public class ExpertNetworkMetricsService {
 				? List.of()
 				: offers.countOutcomesPerExpert(ctx.brandId(), roster.stream().map(Expert::getId).toList());
 
+		List<Double> turnarounds = roster.isEmpty() || ctx.brandId() == null
+				? List.of()
+				: offers.resolvedTurnaroundSeconds(ctx.brandId(),
+						roster.stream().map(Expert::getId).toList());
+
 		return new ExpertNetworkMetrics(
 				health(roster),
 				coverage(roster),
 				onboarding(roster),
 				acceptance(outcomes),
+				turnaround(turnarounds),
 				declining(outcomes, roster),
 				lowQuality(roster),
 				activeCases);
@@ -221,6 +244,32 @@ public class ExpertNetworkMetricsService {
 	 * **the same expressions {@code ExpertMatchService} scores with**. Two definitions of an
 	 * acceptance rate is how this tile and a shortlist come to disagree about the same person.
 	 */
+	/**
+	 * The median hours between an offer going out and being answered (G9).
+	 *
+	 * <p>Median rather than mean, and stated as a decision: these samples are few and heavily
+	 * skewed — most experts answer within a day and one answers in three weeks — so a mean
+	 * reports a number nobody in the room recognises.
+	 *
+	 * <p>Null on no data rather than zero. Zero would read as "answered instantly", which is the
+	 * opposite of "we do not know yet", and this is exactly the kind of figure a dashboard is
+	 * asked to justify.
+	 */
+	private static Turnaround turnaround(List<Double> seconds) {
+		if (seconds.isEmpty()) {
+			return new Turnaround(null, 0);
+		}
+		List<Double> sorted = seconds.stream().filter((value) -> value != null).sorted().toList();
+		if (sorted.isEmpty()) {
+			return new Turnaround(null, 0);
+		}
+		int middle = sorted.size() / 2;
+		double median = sorted.size() % 2 == 1
+				? sorted.get(middle)
+				: (sorted.get(middle - 1) + sorted.get(middle)) / 2;
+		return new Turnaround(Math.round(median / 3600), sorted.size());
+	}
+
 	private static Acceptance acceptance(List<Object[]> outcomes) {
 		int accepted = 0;
 		int resolved = 0;
