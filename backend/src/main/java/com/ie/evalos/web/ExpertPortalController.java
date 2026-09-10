@@ -1,6 +1,8 @@
 package com.ie.evalos.web;
 
 import java.io.IOException;
+import java.util.List;
+import java.util.UUID;
 
 import com.ie.evalos.common.ApiResponse;
 import com.ie.evalos.common.InvalidRequestException;
@@ -13,6 +15,7 @@ import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -68,7 +71,42 @@ public class ExpertPortalController {
 		return ApiResponse.ok(portal.view(expert()));
 	}
 
-	/** "I will sign this." Idempotent — a second click answers 200 with the state as it stands. */
+	/** Every case this expert is on, behind a party-scoped link (Unit 35, D1). */
+	@GetMapping("/cases")
+	public ApiResponse<List<ExpertPortalService.ExpertCaseSummary>> cases() {
+		return ApiResponse.ok(portal.expertCases(expert()));
+	}
+
+	/**
+	 * One of them, named in the path and checked against the token's own expert.
+	 *
+	 * <p>Another expert's case id answers <strong>403</strong>, not a 404 with a hint — V37's bind
+	 * already refused a case whose expert is somebody else, and this route inherits it.
+	 */
+	@GetMapping("/cases/{caseId}")
+	public ApiResponse<ExpertPortalService.ExpertCaseView> readCase(@PathVariable UUID caseId) {
+		return ApiResponse.ok(portal.view(expert(), caseId));
+	}
+
+	/**
+	 * This expert's own payout rows (Unit 35, D6).
+	 *
+	 * <p>Case reference, amount, currency, status and settlement date. <strong>Never
+	 * {@code payment_detail}</strong> — invariant 4, and this surface does not become the first
+	 * read path onto it. Works for both token shapes: a payout belongs to the expert, and V37 put
+	 * the expert on a case-scoped row too.
+	 */
+	@GetMapping("/payouts")
+	public ApiResponse<List<ExpertPortalService.ExpertPayoutRow>> payouts() {
+		return ApiResponse.ok(portal.payoutRows(expert()));
+	}
+
+	/**
+	 * "I will sign this." Idempotent — a second click answers 200 with the state as it stands.
+	 *
+	 * <p>On a party token covering several cases this answers <strong>409
+	 * {@code SAY_WHICH_CASE}</strong>: accepting commits this expert to a specific piece of work.
+	 */
 	@PostMapping("/accept")
 	public ApiResponse<ExpertPortalService.ExpertCaseView> accept() {
 		return ApiResponse.ok(portal.accept(expert()));

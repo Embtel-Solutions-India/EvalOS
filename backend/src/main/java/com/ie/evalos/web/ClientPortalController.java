@@ -15,6 +15,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import com.ie.evalos.domain.CaseDocument;
 import com.ie.evalos.domain.IllegalTransitionException;
+import java.util.List;
 import java.util.UUID;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.multipart.MultipartFile;
@@ -57,10 +58,39 @@ public class ClientPortalController {
 	}
 
 	/**
+	 * Every case behind a party-scoped client link (Unit 35, D1) — the list no case token could
+	 * answer, and what {@code /requests} in the portal is for.
+	 *
+	 * <p>A case-scoped token is refused here rather than given a one-element list: the two
+	 * credentials are different things, and the narrow one does not get the wide one's reply.
+	 */
+	@GetMapping("/cases")
+	public ApiResponse<List<PortalCaseService.ClientCaseSummary>> cases() {
+		return ApiResponse.ok(portal.clientCases(client()));
+	}
+
+	/**
+	 * One of them, named in the path.
+	 *
+	 * <p><strong>The id comes from the request, and that is safe here for one reason only:</strong>
+	 * the service matches it against the credential before it reads anything — the client's own
+	 * contact id. Same shape as Unit 34c's document-kind filter. A case that is not theirs answers
+	 * 403, never a 404 that would confirm it exists.
+	 */
+	@GetMapping("/cases/{caseId}")
+	public ApiResponse<PortalCaseService.ClientDraftView> readCase(@PathVariable UUID caseId) {
+		return ApiResponse.ok(portal.clientView(client(), caseId));
+	}
+
+	/**
 	 * Handoff B: this is the act that sends the letter to an expert to sign.
 	 *
 	 * <p>A case whose draft is not with the client answers 409 through Unit 04's existing guard —
 	 * not a portal-specific check, so the state machine is not duplicated for this surface.
+	 *
+	 * <p>On a party token with several cases this answers <strong>409 {@code SAY_WHICH_CASE}</strong>
+	 * rather than picking one. Approving is what sends a letter onward, and there is no undo that
+	 * reaches the client.
 	 */
 	@PostMapping("/approve")
 	public ApiResponse<PortalCaseService.ClientDraftView> approve() {

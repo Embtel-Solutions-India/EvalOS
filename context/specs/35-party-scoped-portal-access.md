@@ -1,6 +1,7 @@
 # Unit 35 — Party-scoped portal access, the stage projection, and the expert's payout view
 
-> **Status: §7 BUILT 2026-09-04 (D8 + G14). The rest — D1, D5, D6 — is SPECCED, not built.** This is the unit that implements four decisions
+> **Status: §7 BUILT 2026-09-04 (D8 + G14). §6 step 3 BUILT 2026-09-10 — the migration, the two
+> party reads, the projection and D6's whitelist. §6 step 4 (34d then 34b) is NOT built.** This is the unit that implements four decisions
 > the business took on 2026-09-04, recorded in `34-portal-frontend-wiring.md` §4:
 > **D1** (a portal credential names a party, not a case), **D5** (one lifecycle vocabulary,
 > EvalOS's, projected into the payload), **D6** (an expert reads their own payout rows), and
@@ -123,9 +124,14 @@ with a named field list and a serialization test, like Unit 14's and Unit 15's.
    module and both env vars deleted from `client-expert/client`.
 2. ~~**G14's upload controls** (§7)~~ — **DONE 2026-09-04.** `common/UploadedFileType` guards both
    upload surfaces, and every presigned read is an `attachment`. 12 tests.
-3. The migration, the two party reads, the projection, D6's whitelist.
+3. ~~The migration, the two party reads, the projection, D6's whitelist.~~ — **DONE 2026-09-10.**
+   `V38`, `PortalStageProjection`, five new portal routes, `?party=true` on the mint. 23 tests;
+   611 backend green. What landed differs from this spec in one place, recorded rather than
+   hidden: **the 409 has its own code, `SAY_WHICH_CASE`**, not `ILLEGAL_TRANSITION` — a portal
+   that cannot tell "not allowed" from "which one" shows the client the wrong sentence.
 4. The two list screens (34d), then the client's draft review (34b) — which is the highest-value
-   screen in the whole portal and the reason D1 was worth taking.
+   screen in the whole portal and the reason D1 was worth taking. **Still owed**, and the reason
+   one acceptance criterion below is unticked.
 
 ## 7. Shipped alongside, because the business asked for them in the same breath
 
@@ -166,19 +172,26 @@ with a named field list and a serialization test, like Unit 14's and Unit 15's.
 
 ## 9. Acceptance criteria
 
-- [ ] A `CLIENT` party token lists exactly the cases its `ghl_contact_id` has, in one brand, and
+- [x] A `CLIENT` party token lists exactly the cases its `ghl_contact_id` has, in one brand, and
       nothing else — asserted with a second contact in the same brand and a third in another.
-- [ ] An `EXPERT` party token lists exactly its own assignments; another expert's case id on
+      `PartyScopedPortalAccessTest`.
+- [x] An `EXPERT` party token lists exactly its own assignments; another expert's case id on
       `/expert/cases/{id}` answers **403**, not 404 with a hint.
-- [ ] A case-scoped token behaves exactly as it does today, `V37`'s expert check included.
-- [ ] A party token on a single-case route with several cases answers **409**, and with one case
+- [x] A case-scoped token behaves exactly as it does today, `V37`'s expert check included —
+      claimed by the 588 pre-existing tests continuing to pass, not by a new assertion.
+- [x] A party token on a single-case route with several cases answers **409**, and with one case
       answers that case.
-- [ ] Every status word either portal shows is a string EvalOS sent; a search for a lifecycle
-      enum in `client-expert/*/src` finds none.
-- [ ] The expert's payout read carries no `payment_detail` in any form, asserted by serializing.
-- [ ] A party token expires in 7 days by default; re-minting revokes the previous one.
-- [ ] **A `.pdf`-named JPEG is refused on the client's upload too**, by content.
-- [ ] **A presigned read carries `attachment`**, asserted on the URL EvalOS mints.
-- [ ] No third-party tag loads in `client-expert/client`; `VITE_GTM_ID` and `VITE_GA4_ID` do not
-      exist.
-- [ ] `./mvnw verify` green; both portal apps build; the portal test suite green.
+- [ ] **NOT MET, and it belongs to 34b/34d.** Every status word either portal shows is a string
+      EvalOS sent; a search for a lifecycle enum in `client-expert/*/src` finds none. The server
+      half is done — `PortalStageProjection` is the single mapping and both list payloads carry
+      `step` + `actionRequired` — but the SPA still holds `RequestStatus`, `SigningStatus`,
+      `DocumentStatus` and `IntakeDocumentStatus`. They come out when the screens that read them
+      are rewired; three of the four now sit behind parked routes.
+- [x] The expert's payout read carries no `payment_detail` in any form, asserted by serializing.
+- [x] A party token expires in 7 days by default; re-minting revokes the previous one — and
+      **only the previous party one**: a case link already sent keeps working.
+- [x] **A `.pdf`-named JPEG is refused on the client's upload too**, by content. (G14, 2026-09-04.)
+- [x] **A presigned read carries `attachment`**, asserted on the URL EvalOS mints. (G14.)
+- [x] No third-party tag loads in `client-expert/client`; `VITE_GTM_ID` and `VITE_GA4_ID` do not
+      exist. (D8.)
+- [x] `./mvnw verify` green (611 tests); both portal apps build; the portal test suite green (22).

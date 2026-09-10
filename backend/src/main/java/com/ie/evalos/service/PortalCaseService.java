@@ -4,6 +4,7 @@ import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
 
+import com.ie.evalos.common.AmbiguousCaseException;
 import com.ie.evalos.common.ForbiddenException;
 import com.ie.evalos.domain.ActorType;
 import com.ie.evalos.domain.PortalAudience;
@@ -22,7 +23,6 @@ import com.ie.evalos.domain.ContactSnapshot;
 import com.ie.evalos.domain.ServiceType;
 import com.ie.evalos.repository.CaseRepository;
 import com.ie.evalos.repository.ContactSnapshotRepository;
-import com.ie.evalos.repository.ExpertRepository;
 import com.ie.evalos.security.PortalPrincipal;
 
 import org.springframework.stereotype.Service;
@@ -79,6 +79,28 @@ public class PortalCaseService {
 			boolean awaitingAnswer) {
 	}
 
+	/**
+	 * One row of "my cases" (Unit 35, D1 + D5).
+	 *
+	 * <p><strong>Narrower than {@link ClientDraftView} on purpose.</strong> A list is read by
+	 * anyone the link was forwarded to before they pick a case, so it carries the least that still
+	 * lets someone recognise their own work: the reference, the service, the step, and whether the
+	 * step is theirs. No client name — the reader is the client, and echoing the name back into a
+	 * list turns a forwarded link into a way to confirm who it belongs to. No draft link: that is
+	 * the detail read, behind a case id.
+	 *
+	 * @param step           D5's projected label, EvalOS's word for the stage
+	 * @param actionRequired whether this case is waiting on the client, so the SPA can mark it
+	 *                       without parsing {@code step}
+	 */
+	public record ClientCaseSummary(
+			UUID caseId,
+			String caseReference,
+			ServiceType serviceType,
+			String step,
+			boolean actionRequired) {
+	}
+
 	private final CaseRepository cases;
 	private final ContactSnapshotRepository contacts;
 	private final CaseLifecycleService lifecycle;
@@ -120,6 +142,49 @@ public class PortalCaseService {
 	public ClientDraftView clientView(PortalPrincipal principal) {
 		Case subject = authorized(principal);
 
+		if (subject.getClientPortalReadAt() == null) {
+			subject.setClientPortalReadAt(Instant.now());
+			cases.save(subject);
+		}
+		return view(subject);
+	}
+
+	/**
+	 * Every case this client party has, newest first (Unit 35, D1) — the read no case-scoped token
+	 * could answer, and the reason D1 was worth taking.
+	 *
+	 * <p>Refused outright for a case-scoped token rather than answering a one-element list. The two
+	 * credentials are different things and a caller that holds the narrow one should not be able to
+	 * discover the shape of the wide one's reply; a client holding a case link asks the case route.
+	 *
+	 * <p>{@code readOnly}, unlike {@link #clientView}: there is no case here to stamp
+	 * {@code client_portal_read_at} on. Opening a list is not reading a draft, and treating it as
+	 * one would tell a Case Manager the client had seen something they have not.
+	 */
+	@Transactional(readOnly = true)
+	public java.util.List<ClientCaseSummary> clientCases(PortalPrincipal principal) {
+		if (!principal.isPartyScoped()) {
+			throw new ForbiddenException("This link admits you to one case, not a list");
+		}
+		return partyCases(principal).stream().map(subject -> {
+			PortalStageProjection.PortalStep step = PortalStageProjection.forClient(subject.getCurrentStage());
+			return new ClientCaseSummary(subject.getId(), subject.getCaseCode(), subject.getServiceType(),
+					step.label(), step.actionRequired());
+		}).toList();
+	}
+
+	/**
+	 * One of the party's cases, named by the caller (Unit 35, D1).
+	 *
+	 * <p>The id arrives from the request, which is only safe because it is matched against the
+	 * credential before anything is read — the same shape Unit 34c's document-kind filter uses. A
+	 * case that is not this party's answers <strong>403, not 404</strong>: 404 would confirm the
+	 * difference between "no such case" and "not yours", which is the oracle a client with one link
+	 * would use to count the brand's cases.
+	 */
+	@Transactional
+	public ClientDraftView clientView(PortalPrincipal principal, UUID caseId) {
+		Case subject = authorized(principal, caseId);
 		if (subject.getClientPortalReadAt() == null) {
 			subject.setClientPortalReadAt(Instant.now());
 			cases.save(subject);
@@ -368,12 +433,69 @@ public class PortalCaseService {
 	 * stopped being true.
 	 */
 	private Case authorized(PortalPrincipal principal) {
-		UUID caseId = principal.caseId();
+		if (principal.isPartyScoped()) {
+			// A party token on a route that acts on one case. Resolve it only when there is no
+			// choice to get wrong — see AmbiguousCaseException for why this refuses rather than
+			// picking the newest.
+			java.util.List<Case> mine = partyCases(principal);
+			if (mine.size() == 1) {
+				return mine.get(0);
+			}
+			throw new AmbiguousCaseException(mine.isEmpty()
+					? "This link has no cases behind it"
+					: "You have several cases — say which one");
+		}
+		return byId(principal, principal.caseId());
+	}
+
+	/**
+	 * The same check for a case the caller named, which is the party-scoped routes' whole
+	 * authorization.
+	 *
+	 * <p>A case-scoped token may also reach here, and must be pinned to its own case: without the
+	 * equality check, the narrow credential would gain the wide one's reach the moment a path
+	 * variable existed to carry another id.
+	 */
+	private Case authorized(PortalPrincipal principal, UUID caseId) {
+		Case subject = byId(principal, caseId);
+		if (principal.isPartyScoped()) {
+			String mine = principal.ghlContactId();
+			String theirs = Optional.ofNullable(subject.getContactId())
+					.flatMap(contacts::findById)
+					.map(ContactSnapshot::getGhlContactId)
+					.orElse(null);
+			if (mine == null || !mine.equals(theirs)) {
+				throw new ForbiddenException("This link does not admit you to that case");
+			}
+		} else if (!caseId.equals(principal.caseId())) {
+			throw new ForbiddenException("This link does not admit you to that case");
+		}
+		return subject;
+	}
+
+	/**
+	 * The brand check both shapes share. Refuses with the same sentence a missing case gets, so
+	 * the two are one answer.
+	 */
+	private Case byId(PortalPrincipal principal, UUID caseId) {
 		Case subject = cases.findById(caseId)
 				.orElseThrow(() -> new ForbiddenException("This link no longer points at a case"));
 		if (!subject.getBrandId().equals(principal.brandId())) {
 			throw new ForbiddenException("This link no longer points at a case");
 		}
 		return subject;
+	}
+
+	/**
+	 * The cases behind a client party token: its GHL contact, resolved in the token's own brand.
+	 *
+	 * <p>Empty rather than an error when the contact has no cases — a client whose only case was
+	 * merged away holds a working link to an empty list, which is a truthful answer.
+	 */
+	private java.util.List<Case> partyCases(PortalPrincipal principal) {
+		return contacts.findByBrandIdAndGhlContactId(principal.brandId(), principal.ghlContactId())
+				.map(contact -> cases.findByBrandIdAndContactIdOrderByCreatedAtDesc(
+						principal.brandId(), contact.getId()))
+				.orElseGet(java.util.List::of);
 	}
 }

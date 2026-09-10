@@ -31,11 +31,35 @@ import org.springframework.security.core.context.SecurityContextHolder;
  * {@code ExpertPortalService} compares it against the case's own expert and refuses a mismatch.
  */
 public record PortalPrincipal(UUID portalAccessId, UUID brandId, UUID caseId, PortalAudience audience,
-		UUID expertId) {
+		UUID expertId, String ghlContactId) {
+
+	/**
+	 * A <strong>case-scoped</strong> principal — the original five-field shape, with no party.
+	 *
+	 * <p>Kept as a constructor rather than pushed onto every caller as a trailing {@code null},
+	 * because "case-scoped" is the thing being said and {@code null} is not a good way to say it.
+	 * A party principal only ever comes from {@link #of}, off a row the database has already
+	 * constrained, so there is no path that builds one of those by hand and forgets the party.
+	 */
+	public PortalPrincipal(UUID portalAccessId, UUID brandId, UUID caseId, PortalAudience audience,
+			UUID expertId) {
+		this(portalAccessId, brandId, caseId, audience, expertId, null);
+	}
 
 	public static PortalPrincipal of(PortalAccess access) {
 		return new PortalPrincipal(access.getId(), access.getBrandId(), access.getCaseId(), access.getAudience(),
-				access.getExpertId());
+				access.getExpertId(), access.getGhlContactId());
+	}
+
+	/**
+	 * Whether this credential names a person rather than a case (Unit 35, D1).
+	 *
+	 * <p>{@code caseId} is null exactly when it does, which is what every service branches on:
+	 * a case-scoped principal reads the one case it names, a party-scoped one takes the case id
+	 * from the path and checks it against the party before reading anything.
+	 */
+	public boolean isPartyScoped() {
+		return caseId == null;
 	}
 
 	/**

@@ -19,17 +19,28 @@ import jakarta.persistence.Table;
  * backup, a support query, a leaked dump — yields no working link. The token is returned exactly
  * once, at mint time, by {@code PortalAccessService}.
  *
- * <p><strong>The row is the scope.</strong> {@link #caseId} names the one case this token admits,
- * so no portal route takes a case id and there is nothing to enumerate. Everything that
- * identifies the credential is {@code updatable = false}; the three timestamps that record its
- * life — expiry is fixed at mint, revocation happens once, and last-seen moves — are the only
- * mutable state.
+ * <p><strong>The row is the scope, and since Unit 35 the scope has two shapes.</strong> A
+ * <em>case-scoped</em> row names one case in {@link #caseId} — the original credential, still
+ * legal, still 30 days, still the right thing for a link forwarded once and revocable on its own.
+ * A <em>party-scoped</em> row leaves {@code caseId} null and names a person instead:
+ * {@link #ghlContactId} for a client, {@link #expertId} for an expert. It answers "my cases",
+ * which is what the delivered list screens draw and what no case token can say.
+ *
+ * <p>A party token is the wider credential, so it lives 7 days against the case token's 30 — see
+ * {@code evalos.portal.party-link-ttl}. Everything else is identical: 256 bits from
+ * {@code SecureRandom}, returned once, stored as a hash, one live token per scope, re-mint revokes
+ * the previous, and unknown/expired/revoked answer one 401.
+ *
+ * <p>Everything that identifies the credential is {@code updatable = false}; the three timestamps
+ * that record its life — expiry is fixed at mint, revocation happens once, and last-seen moves —
+ * are the only mutable state.
  */
 @Entity
 @Table(name = "portal_access")
 public class PortalAccess extends ScopedEntity {
 
-	@Column(name = "case_id", nullable = false, updatable = false)
+	/** The one case a case-scoped token admits, and <strong>null on a party-scoped row.</strong> */
+	@Column(name = "case_id", updatable = false)
 	private UUID caseId;
 
 	@Enumerated(EnumType.STRING)
@@ -52,6 +63,16 @@ public class PortalAccess extends ScopedEntity {
 	@Column(name = "expert_id", updatable = false)
 	private UUID expertId;
 
+	/**
+	 * The client party this token admits, and null on every case-scoped row and every expert row.
+	 *
+	 * <p><strong>GHL's contact id, never an email</strong> (invariant 7; {@code V27} settled that
+	 * email is a fallback matching key only). It is the same identifier the S3 key prefix uses, so
+	 * one client resolves in GHL, in the bucket and in EvalOS with no mapping table.
+	 */
+	@Column(name = "ghl_contact_id", updatable = false)
+	private String ghlContactId;
+
 	@Column(name = "expires_at", nullable = false, updatable = false)
 	private Instant expiresAt;
 
@@ -66,9 +87,12 @@ public class PortalAccess extends ScopedEntity {
 	}
 
 	/**
+	 * A <strong>case-scoped</strong> credential: the original shape, unchanged.
+	 *
 	 * @param expertId the expert this admits, required for {@code EXPERT} and null for
-	 *                 {@code CLIENT} — a client is identified by the case's own contact, and a
-	 *                 second copy of that here would be a second thing to keep in step
+	 *                 {@code CLIENT} — on a case-scoped client token the client is identified by
+	 *                 the case's own contact, and a second copy of that here would be a second
+	 *                 thing to keep in step
 	 */
 	public PortalAccess(UUID brandId, UUID caseId, PortalAudience audience, UUID expertId, String tokenHash,
 			Instant expiresAt) {
@@ -78,6 +102,34 @@ public class PortalAccess extends ScopedEntity {
 		this.expertId = expertId;
 		this.tokenHash = tokenHash;
 		this.expiresAt = expiresAt;
+	}
+
+	/**
+	 * A <strong>party-scoped</strong> credential (Unit 35, D1): every case this person has.
+	 *
+	 * <p>Two factories rather than one constructor with a nullable case, because the two shapes are
+	 * different credentials with different lifetimes and different blast radii, and a single
+	 * constructor taking four nullable ids is one transposed argument away from minting the wrong
+	 * one. The database backs this up — {@code portal_access_scope_is_one_thing} refuses a row
+	 * scoped to nothing.
+	 */
+	public static PortalAccess forParty(UUID brandId, PortalAudience audience, String ghlContactId, UUID expertId,
+			String tokenHash, Instant expiresAt) {
+		PortalAccess party = new PortalAccess(brandId, null, audience, expertId, tokenHash, expiresAt);
+		party.ghlContactId = ghlContactId;
+		return party;
+	}
+
+	/**
+	 * Whether this credential names a person rather than a case.
+	 *
+	 * <p>Asked of {@code caseId} and not of the party columns, because {@code caseId} is the one
+	 * that decides which read runs. An expert row carries {@code expertId} in <em>both</em> shapes
+	 * — as an identity check on a case token ({@code V37}) and as the scope on a party token — so
+	 * testing that column would answer the wrong question.
+	 */
+	public boolean isPartyScoped() {
+		return caseId == null;
 	}
 
 	/**
@@ -123,6 +175,10 @@ public class PortalAccess extends ScopedEntity {
 
 	public UUID getCaseId() {
 		return caseId;
+	}
+
+	public String getGhlContactId() {
+		return ghlContactId;
 	}
 
 	public PortalAudience getAudience() {

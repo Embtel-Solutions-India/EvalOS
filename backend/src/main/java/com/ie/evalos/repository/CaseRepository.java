@@ -94,6 +94,29 @@ public interface CaseRepository extends ScopedRepository<Case> {
 	 *         completed]}. An expert with no cases is absent, not zero — the caller
 	 *         supplies the zero.
 	 */
+	/**
+	 * Every case this contact has, newest first — the client party read (Unit 35, D1).
+	 *
+	 * <p><strong>Every case, including closed ones</strong>, which is why this is not one of the
+	 * stage-filtered finders: a delivered case is precisely the one a client comes back for, and a
+	 * list that hides it looks like lost work. {@code V38} adds the index this needs — V15's is
+	 * partial on open cases and cannot serve it.
+	 *
+	 * <p>Brand-scoped in the signature rather than through {@code findScoped}, for the same reason
+	 * {@code PortalAccessRepository} explains: a portal caller has no {@code TenantContext}. The
+	 * brand comes off the token, which is the credential itself, so this is scoped by the thing
+	 * that authenticated rather than by an ambient one.
+	 */
+	List<Case> findByBrandIdAndContactIdOrderByCreatedAtDesc(UUID brandId, UUID contactId);
+
+	/**
+	 * Every case this expert is on, newest first — the expert party read (Unit 35, D1).
+	 *
+	 * <p>Covered by {@code V5}'s {@code idx_case_brand_expert}. Same brand-off-the-token reasoning
+	 * as the client finder above.
+	 */
+	List<Case> findByBrandIdAndExpertIdOrderByCreatedAtDesc(UUID brandId, UUID expertId);
+
 	@Query(nativeQuery = true, value = """
 			SELECT expert_id,
 			       count(*) FILTER (WHERE current_stage <> 'CLOSED')                     AS active,

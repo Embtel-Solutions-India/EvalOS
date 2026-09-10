@@ -88,12 +88,20 @@ public class PortalLinkController {
 	 * <p>For {@code EXPERT} this is now the <strong>only</strong> way the expert is reached, so it
 	 * is the main path rather than a fallback: there is no signature provider sending anything, and
 	 * EvalOS sends no mail (invariant 14). The Case Manager copies the link to the expert.
+	 *
+	 * <p><strong>{@code ?party=true} mints the wider credential (Unit 35, D1)</strong>: every case
+	 * that person has, rather than this one. It lives <strong>7 days</strong> against the case
+	 * link's 30, because it opens more. A flag on this route rather than a route of its own,
+	 * because the staff act is identical — you are on a case, you issue a link to the person it
+	 * names — and the party is derived from that case, never typed. The two shapes revoke
+	 * independently: minting a party link does not kill a case link already sent.
 	 */
 	@PostMapping
 	@PreAuthorize(MAY_MINT)
 	public ApiResponse<MintedLinkView> mint(@PathVariable UUID id,
-			@RequestParam(defaultValue = "CLIENT") PortalAudience audience) {
-		PortalAccessService.MintedLink minted = links.mint(id, audience);
+			@RequestParam(defaultValue = "CLIENT") PortalAudience audience,
+			@RequestParam(defaultValue = "false") boolean party) {
+		PortalAccessService.MintedLink minted = party ? links.mintForParty(id, audience) : links.mint(id, audience);
 		return ApiResponse.ok(new MintedLinkView(minted.url(), minted.expiresAt()));
 	}
 }

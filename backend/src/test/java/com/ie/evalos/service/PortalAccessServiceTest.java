@@ -8,10 +8,13 @@ import java.util.UUID;
 
 import com.ie.evalos.domain.AuditAction;
 import com.ie.evalos.domain.Case;
+import com.ie.evalos.domain.ContactSnapshot;
+import com.ie.evalos.domain.IllegalTransitionException;
 import com.ie.evalos.domain.PortalAccess;
 import com.ie.evalos.domain.PortalAudience;
 import com.ie.evalos.domain.Role;
 import com.ie.evalos.domain.Stage;
+import com.ie.evalos.repository.ContactSnapshotRepository;
 import com.ie.evalos.repository.PortalAccessRepository;
 import com.ie.evalos.security.PortalPrincipal;
 import com.ie.evalos.security.StaffPrincipal;
@@ -47,10 +50,11 @@ class PortalAccessServiceTest {
 	private final PortalAccessRepository tokens = mock(PortalAccessRepository.class);
 	private final CaseLifecycleService lifecycle = mock(CaseLifecycleService.class);
 	private final AuditService audit = mock(AuditService.class);
+	private final ContactSnapshotRepository contacts = mock(ContactSnapshotRepository.class);
 
 	private final PortalAccessService links = new PortalAccessService(
-			tokens, lifecycle, audit, Duration.ofDays(30), "https://portal.evalos.test/",
-			"https://experts.evalos.test");
+			tokens, lifecycle, contacts, audit, Duration.ofDays(30), Duration.ofDays(7),
+			"https://portal.evalos.test/", "https://experts.evalos.test");
 
 	private Case subject;
 
@@ -137,6 +141,85 @@ class PortalAccessServiceTest {
 		assertThat(previous.getRevokedAt()).isNotNull();
 		assertThat(previous.isLive(Instant.now())).isFalse();
 		verify(tokens).save(previous);
+	}
+
+	// --- Unit 35, D1: the party-scoped credential -----------------------------
+
+	/**
+	 * A party link lives <strong>7 days</strong>, not 30.
+	 *
+	 * <p>It opens every case that person has, so it is the wider of the two credentials and must
+	 * not outlive the narrow one by four times. Asserted against both bounds rather than just the
+	 * lower one: a party TTL that silently picked up {@code link-ttl} would still be "after 6 days"
+	 * and would be exactly the bug this exists to catch.
+	 */
+	@Test
+	void aPartyLinkLivesSevenDaysAndNotThirty() {
+		given(contacts.findById(any())).willReturn(java.util.Optional.of(contactRow()));
+		subject.setContactId(java.util.UUID.randomUUID());
+
+		links.mintForParty(CASE_ID, PortalAudience.CLIENT);
+
+		PortalAccess row = savedRow();
+		assertThat(row.getExpiresAt()).isAfter(Instant.now().plus(Duration.ofDays(6)));
+		assertThat(row.getExpiresAt()).isBefore(Instant.now().plus(Duration.ofDays(8)));
+		assertThat(row.isPartyScoped()).isTrue();
+		assertThat(row.getGhlContactId()).isEqualTo("ghl-contact-1");
+		assertThat(row.getCaseId()).isNull();
+	}
+
+	/**
+	 * Re-minting a party link revokes the previous <em>party</em> link — and leaves a case link
+	 * alone.
+	 *
+	 * <p>The two shapes are separate credentials with separate indexes ({@code V38}), so issuing a
+	 * party link must not kill a case link the Case Manager already sent. The finder this asserts
+	 * is the brand-scoped, {@code caseId IS NULL} one, which is what keeps the two apart.
+	 */
+	@Test
+	void reMintingAPartyLinkRevokesOnlyThePreviousPartyLink() {
+		given(contacts.findById(any())).willReturn(java.util.Optional.of(contactRow()));
+		subject.setContactId(java.util.UUID.randomUUID());
+
+		PortalAccess previousParty = PortalAccess.forParty(BRAND, PortalAudience.CLIENT, "ghl-contact-1", null,
+				"old-party-hash", Instant.now().plus(Duration.ofDays(3)));
+		given(tokens.findByBrandIdAndGhlContactIdAndAudienceAndCaseIdIsNullOrderByCreatedAtDesc(
+				eq(BRAND), eq("ghl-contact-1"), eq(PortalAudience.CLIENT)))
+				.willReturn(List.of(previousParty));
+
+		links.mintForParty(CASE_ID, PortalAudience.CLIENT);
+
+		assertThat(previousParty.getRevokedAt()).isNotNull();
+		// The case-scoped finder is never consulted on this path: a case link already in somebody's
+		// inbox keeps working.
+		verify(tokens, never()).findByCaseIdAndAudienceOrderByCreatedAtDesc(any(), any());
+	}
+
+	/**
+	 * A case with no GHL contact cannot have a client party link.
+	 *
+	 * <p>The scope would name nobody, and {@code V27} settled that email is a fallback *matching*
+	 * key and never an identity — so there is nothing to fall back to (invariant 7). Refusing beats
+	 * minting a credential whose reach is undefined.
+	 */
+	@Test
+	void aCaseWithNoContactCannotMintAClientPartyLink() {
+		subject.setContactId(null);
+
+		assertThatThrownBy(() -> links.mintForParty(CASE_ID, PortalAudience.CLIENT))
+				.isInstanceOf(IllegalTransitionException.class)
+				.hasMessageContaining("no GHL contact");
+	}
+
+	private static ContactSnapshot contactRow() {
+		return new ContactSnapshot(BRAND, "ghl-contact-1");
+	}
+
+	/** The row handed to {@code save}, which is where the minted credential's shape is visible. */
+	private PortalAccess savedRow() {
+		org.mockito.ArgumentCaptor<PortalAccess> saved = org.mockito.ArgumentCaptor.forClass(PortalAccess.class);
+		verify(tokens).save(saved.capture());
+		return saved.getValue();
 	}
 
 	/**

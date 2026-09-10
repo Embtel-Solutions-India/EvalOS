@@ -16,7 +16,6 @@ import com.ie.evalos.domain.ClientApprovalStatus;
 import com.ie.evalos.domain.ContactSnapshot;
 import com.ie.evalos.domain.DocumentChecklistItem;
 import com.ie.evalos.domain.DocumentKind;
-import com.ie.evalos.domain.Expert;
 import com.ie.evalos.domain.PortalAudience;
 import com.ie.evalos.domain.ServiceType;
 import com.ie.evalos.domain.Stage;
@@ -25,7 +24,6 @@ import com.ie.evalos.repository.CaseDocumentRepository;
 import com.ie.evalos.repository.DocumentChecklistItemRepository;
 import com.ie.evalos.repository.CaseRepository;
 import com.ie.evalos.repository.ContactSnapshotRepository;
-import com.ie.evalos.repository.ExpertRepository;
 import com.ie.evalos.security.PortalPrincipal;
 
 import org.junit.jupiter.api.BeforeEach;

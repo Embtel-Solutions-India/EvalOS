@@ -31,6 +31,8 @@ import com.ie.evalos.integration.DocumentStore;
 import com.ie.evalos.integration.DocumentStoreUnavailableException;
 import com.ie.evalos.repository.CaseDocumentRepository;
 import com.ie.evalos.repository.CaseRepository;
+import com.ie.evalos.repository.PayoutLedgerRepository;
+import com.ie.evalos.repository.PayoutPaymentRepository;
 import com.ie.evalos.repository.ContactSnapshotRepository;
 import com.ie.evalos.repository.DocumentChecklistItemRepository;
 import com.ie.evalos.repository.ExpertRepository;
@@ -86,10 +88,12 @@ class ExpertPortalServiceTest {
 	private final SlaCalculator sla = mock(SlaCalculator.class);
 	private final DocumentStore store = mock(DocumentStore.class);
 	private final AuditService audit = mock(AuditService.class);
+	private final PayoutLedgerRepository payouts = mock(PayoutLedgerRepository.class);
+	private final PayoutPaymentRepository payments = mock(PayoutPaymentRepository.class);
 	private final ObjectMapper objectMapper = new ObjectMapper();
 
-	private final ExpertPortalService portal = new ExpertPortalService(cases, contacts, experts, checklistItems,
-			documents, lifecycle, sla, store, audit);
+	private final ExpertPortalService portal = new ExpertPortalService(cases, contacts, experts, payouts, payments,
+			checklistItems, documents, lifecycle, sla, store, audit);
 
 	private Case subject;
 

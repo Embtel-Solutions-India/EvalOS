@@ -86,6 +86,12 @@ evalos:
     # credential sitting in somebody's inbox; re-minting is one click, so a short life costs
     # little. Configurable because "how long does the client have" is a business question.
     link-ttl: ${PORTAL_LINK_TTL:P30D}
+    # A **party**-scoped link (Unit 35, D1) opens every case that person has, so it is the wider
+    # credential of the two and must not live as long. Seven days survives a weekend and a chase;
+    # it is dead before a forwarded link is forgotten. Re-minting is one click, which is what makes
+    # a short life cheap. Deliberately a separate property rather than a fraction of the one above:
+    # they answer different business questions and will drift apart.
+    party-link-ttl: ${PORTAL_PARTY_LINK_TTL:P7D}
     # Requests per minute per caller on the portal chain, refused before the token is looked at.
     # Generous for one client reading one page, and low enough that guessing a 256-bit token is
     # not made cheaper by trying.

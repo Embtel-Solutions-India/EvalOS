@@ -14,9 +14,11 @@ import java.util.UUID;
 
 import com.ie.evalos.domain.AuditAction;
 import com.ie.evalos.domain.Case;
+import com.ie.evalos.domain.ContactSnapshot;
 import com.ie.evalos.domain.IllegalTransitionException;
 import com.ie.evalos.domain.PortalAccess;
 import com.ie.evalos.domain.PortalAudience;
+import com.ie.evalos.repository.ContactSnapshotRepository;
 import com.ie.evalos.repository.PortalAccessRepository;
 import com.ie.evalos.security.PortalPrincipal;
 import com.ie.evalos.security.TenantContext;
@@ -61,19 +63,25 @@ public class PortalAccessService {
 
 	private final PortalAccessRepository tokens;
 	private final CaseLifecycleService cases;
+	private final ContactSnapshotRepository contacts;
 	private final AuditService audit;
 	private final Duration ttl;
+	private final Duration partyTtl;
 	private final String baseUrl;
 	private final String expertBaseUrl;
 
-	PortalAccessService(PortalAccessRepository tokens, CaseLifecycleService cases, AuditService audit,
+	PortalAccessService(PortalAccessRepository tokens, CaseLifecycleService cases,
+			ContactSnapshotRepository contacts, AuditService audit,
 			@Value("${evalos.portal.link-ttl}") Duration ttl,
+			@Value("${evalos.portal.party-link-ttl}") Duration partyTtl,
 			@Value("${evalos.portal.base-url}") String baseUrl,
 			@Value("${evalos.portal.expert-base-url:}") String expertBaseUrl) {
 		this.tokens = tokens;
 		this.cases = cases;
+		this.contacts = contacts;
 		this.audit = audit;
 		this.ttl = ttl;
+		this.partyTtl = partyTtl;
 		// A trailing slash is a configuration typo, not a different URL.
 		this.baseUrl = trimSlash(baseUrl);
 		// Blank falls back to the client's origin, which is what a single-deployment environment
@@ -143,6 +151,71 @@ public class PortalAccessService {
 	}
 
 	/**
+	 * Mints a <strong>party-scoped</strong> link for the person this case names (Unit 35, D1):
+	 * the client's GHL contact, or the assigned expert. It admits every case that party has in
+	 * this brand, not only this one.
+	 *
+	 * <p><strong>The party is derived from a case, never taken from the caller.</strong> There is
+	 * deliberately no {@code mintForContact(ghlContactId)} entry point: an id arriving from a
+	 * request would make this an enumeration surface — type contact ids until one mints — and the
+	 * staff flow does not need it. A Case Manager is looking at a case when they issue a link, and
+	 * the case has already been through a scoped read, so the party it names is one they may
+	 * already see. Same reasoning {@link #mint} relies on for the brand.
+	 *
+	 * <p>Seven days rather than thirty, because this opens more than the case in front of you.
+	 */
+	@Transactional
+	public MintedLink mintForParty(UUID caseId, PortalAudience audience) {
+		Case subject = cases.load(caseId);
+		Instant now = Instant.now();
+		String token = freshToken();
+		PortalAccess minted;
+
+		if (audience == PortalAudience.EXPERT) {
+			// Same guard as the case-scoped mint, and for the same reason: a link naming nobody is
+			// the way a letter reaches a person who was never assigned.
+			if (subject.getExpertId() == null) {
+				throw new IllegalTransitionException("no expert is assigned to this case");
+			}
+			retirePreviousExpertParty(subject.getBrandId(), subject.getExpertId(), now);
+			minted = tokens.save(PortalAccess.forParty(subject.getBrandId(), audience, null,
+					subject.getExpertId(), hash(token), now.plus(partyTtl)));
+		} else {
+			String contact = contactOf(subject);
+			retirePreviousClientParty(subject.getBrandId(), contact, now);
+			minted = tokens.save(PortalAccess.forParty(subject.getBrandId(), audience, contact, null,
+					hash(token), now.plus(partyTtl)));
+		}
+
+		audit.recordEvent("CASE", subject.getId(), AuditAction.PORTAL_LINK_ISSUED,
+				TenantContext.current().memberId(), CaseSnapshot.of(subject),
+				CaseSnapshot.of(subject, "%s party portal link issued, expires %s".formatted(
+						audience.name().toLowerCase(), minted.getExpiresAt())));
+
+		return new MintedLink(urlFor(audience, token), minted.getExpiresAt());
+	}
+
+	/**
+	 * The case's client, as GHL's contact id.
+	 *
+	 * <p>Refuses rather than minting a link scoped to nothing. A case with no contact, or a
+	 * contact with no GHL id, cannot have a party link — {@code V27} settled that email is a
+	 * fallback *matching* key and never an identity, so there is no second thing to fall back to
+	 * here (invariant 7).
+	 */
+	private String contactOf(Case subject) {
+		String ghlContactId = subject.getContactId() == null ? null
+				: contacts.findById(subject.getContactId())
+						.map(ContactSnapshot::getGhlContactId)
+						.orElse(null);
+		if (ghlContactId == null || ghlContactId.isBlank()) {
+			throw new IllegalTransitionException(
+					"this case has no GHL contact, so a client party link would name nobody");
+		}
+		return ghlContactId;
+	}
+
+	/**
 	 * Stamps {@code revoked_at} on every row this mint supersedes — <strong>not only the live
 	 * ones</strong>.
 	 *
@@ -153,7 +226,27 @@ public class PortalAccessService {
 	 * index the next time a link was minted after a natural expiry.
 	 */
 	private void retirePrevious(UUID caseId, PortalAudience audience, Instant now) {
-		for (PortalAccess existing : tokens.findByCaseIdAndAudienceOrderByCreatedAtDesc(caseId, audience)) {
+		retire(tokens.findByCaseIdAndAudienceOrderByCreatedAtDesc(caseId, audience), now);
+	}
+
+	/**
+	 * The party equivalents, one per audience — {@code V38} indexes each shape separately, so each
+	 * has its own row to supersede. Both are brand-scoped: the same contact may be a client of two
+	 * brands and the same expert may sit on two panels, and minting one brand's link must not
+	 * revoke the other's.
+	 */
+	private void retirePreviousClientParty(UUID brandId, String ghlContactId, Instant now) {
+		retire(tokens.findByBrandIdAndGhlContactIdAndAudienceAndCaseIdIsNullOrderByCreatedAtDesc(
+				brandId, ghlContactId, PortalAudience.CLIENT), now);
+	}
+
+	private void retirePreviousExpertParty(UUID brandId, UUID expertId, Instant now) {
+		retire(tokens.findByBrandIdAndExpertIdAndAudienceAndCaseIdIsNullOrderByCreatedAtDesc(
+				brandId, expertId, PortalAudience.EXPERT), now);
+	}
+
+	private void retire(List<PortalAccess> superseded, Instant now) {
+		for (PortalAccess existing : superseded) {
 			if (existing.getRevokedAt() == null) {
 				existing.revoke(now);
 				tokens.save(existing);
