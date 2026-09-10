@@ -9,7 +9,18 @@ and expert opinion letters) by matching paying customers (immigration attorneys,
 employers, staffing firms, individuals) with US university professors and
 industry experts. GoHighLevel (GHL) stays the "front of house" and owns lead
 capture, nurture, quoting, invoicing, payment collection, and post-delivery
-review campaigns. EvalOS takes over the instant a contact lands in GHL: it turns
+review campaigns.
+
+**That division is changing, and the change is decided (2026-09-10) but not
+built.** Across **Units 36–41** GHL stops being the front *desk* and becomes the
+front *office*: Sales and Marketing do their work **in EvalOS**, while GHL keeps
+owning the CRM records, the pipelines, the automation that promotes a qualified
+lead, and the invoice/QuickBooks integration. **The customer segments in the
+paragraph above become the org chart** — three kinds of Sales employee and three
+of Marketing (attorney, employer/firm, individual), each owning one GHL pipeline.
+See `specs/00b-ghl-operational-programme.md`; **nothing below has changed yet.**
+
+EvalOS takes over the instant a contact lands in GHL: it turns
 each enquiry into a structured, brand-scoped case, records the payment against
 it, drives it through production,
 routes it to an expert for electronic sign-off, delivers the signed letter, and

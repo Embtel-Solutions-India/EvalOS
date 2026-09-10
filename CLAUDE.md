@@ -4,9 +4,26 @@ EvalOS is the back-of-house production CRM for a **multi-brand** credential-
 evaluation business (brands include International Evaluations and XpertsPortal).
 It takes custody the moment a contact is created in GoHighLevel (GHL), records
 the payment against that case, and owns it through signed delivery and expert
-payout. GHL remains the front of
-house (leads, sales, invoicing, review campaigns). EvalOS never does marketing,
-sales, or invoicing.
+payout.
+
+**This is changing, and the change is decided (2026-09-10).** The line above
+used to end "GHL remains the front of house (leads, sales, invoicing, review
+campaigns). EvalOS never does marketing, sales, or invoicing." Across
+**Units 36–41** EvalOS becomes the **interface Sales and Marketing work in**,
+so that they never open GHL. GHL stays the CRM, the pipeline engine, the
+automation engine and the invoice/QuickBooks integration **underneath** —
+it stops being the front *desk* and remains the front *office*.
+
+Read **`context/specs/00b-ghl-operational-programme.md`** before touching
+anything in that programme: it carries the truth model (GHL owns the
+opportunity, EvalOS owns the note stream), the single-brand ceiling, and the
+ledger of which invariants die and where. **Invariant 2 is still live until
+Unit 37 ships** — until then, EvalOS reads GHL and writes nothing back, and
+`GhlHttpTest` fails the build if that changes.
+
+Two things the pivot does **not** touch: **invoicing is still GHL's** (EvalOS
+reads invoices, raises none), and **a case is still born only of a won
+opportunity** through Handoff A.
 
 The authoritative design is the **EvalOS Technical Design Document (v1.1)**. The
 context files below are the working build context and must stay consistent with

@@ -258,6 +258,20 @@ become a way for a non-GM to trigger client-facing messages.
     `LocalPostgresIntegrationTest` pins both against the real database, which is the only place
     that failure can surface. **The GM is once again the only role that may have no brand**, and
     its NULL means "every brand" — the opposite of what the sales executive's meant.
+  - **⚠ Six becomes eight at Unit 36 (specced 2026-09-10, not built).** `SALES` and `MARKETING`
+    arrive, both on a **new `Tier.PIPELINE`**, keyed on `team_member.ghl_pipeline_id`.
+    Three things about that, decided rather than defaulted:
+    - **`PIPELINE` is not a reuse of `SELF`.** `SELF` means "rows naming me in an assignee column"
+      and is about `evalos_case`; there is no assignee column on what these roles read.
+    - **The three business kinds of each role (Attorney / Employer-Firm / Individual) are a
+      `segment` column, NOT six enum values** — identical permissions, so encoding them as roles
+      would grow every `switch (role)`, the role CHECK and the nav tests to express nothing.
+      **Nothing may branch on `segment`**; a structural test enforces that.
+    - **`uq_team_member_pipeline` is globally unique and deliberately not brand-scoped** — a GHL
+      pipeline belongs to the one location, not to a brand. Partial on `active` so a replacement
+      can inherit a leaver's pipeline.
+    - The predicate **fails closed** on a null pipeline, on the same rule as brand. `V39`.
+    Spec: `context/specs/36-pipeline-scoped-access.md`, programme: `00b-ghl-operational-programme.md`.
 - **`SUPPLY` is a field tier, not a row tier, and this is the one that surprises people.** At the
   row level it is identical to `BRAND` — `ScopePredicate` handles both under `default -> {}` and
   adds no predicate — because the ENM's three signing transitions must load the case. What makes

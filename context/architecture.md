@@ -589,6 +589,26 @@ exist because every transition owes exactly one event. They live in
 
 ## Invariants
 
+> **Four of these are scheduled to change (decided 2026-09-10), and none has changed yet.**
+> The GHL operational programme (Units 36–41) makes EvalOS the interface Sales and Marketing work
+> in. **`context/specs/00b-ghl-operational-programme.md` §2 is the ledger** — it says which
+> invariant changes, into what, and in which unit. The summary:
+>
+> | Invariant | Fate | Unit |
+> |---|---|---|
+> | **1** brand isolation | **narrowed** — the GHL-location exception goes from "GM-only" to "one brand named in `evalos.ghl.sales-brand`" | 36 |
+> | **2** EvalOS runs no sales/marketing/invoicing | **dies** — but *invoicing stays GHL's* and *Handoff A stays the only door into custody* | 37 |
+> | **7** contact data never mutated | **first clause amended only** — the three-identifier rule survives verbatim and is load-bearing | 39 |
+> | **14** EvalOS sends no email | **ruled on, not reversed** — EvalOS instructs, GHL delivers | ruled in `00b`, no unit |
+>
+> **Until the named unit ships, the invariant below is live and enforced.** Invariant 2 in
+> particular is still held by code: `GhlHttpTest` fails the build if a write verb appears in
+> `GhlHttp`. Do not pre-emptively relax any of these because the programme is coming.
+>
+> **Invariants 5, 8, 13 and 15 are untouched by the programme** and the first three are load-bearing
+> inside it — especially **8**, which keeps a case born only of a won opportunity even though Sales
+> now marks the opportunity won from EvalOS.
+
 1. **Brand isolation.** Every scoped query filters by `brand_id`; no code path
    returns another brand's data. The GM is the only cross-brand role **reader of
    EvalOS rows**.

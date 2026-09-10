@@ -94,6 +94,23 @@ Evaluations, XpertsPortal). Takes custody at **`opportunity.won`** in GoHighLeve
 case to signed delivery + expert payout. GHL stays front-of-house (leads, sales, invoicing, review
 campaigns); **EvalOS never does marketing, sales, or invoicing.**
 
+**⚠ THAT LAST CLAUSE IS SCHEDULED TO DIE. Decided 2026-09-10, not yet built.** The **GHL
+operational programme (Units 36–41)** makes EvalOS the interface Sales and Marketing *work in*, so
+they never open GHL; GHL stays the CRM, pipeline, automation and invoice/QuickBooks layer
+underneath. Spec: **`context/specs/00b-ghl-operational-programme.md`** — read it before any GHL
+work, it holds the truth model and the invariant ledger.
+
+**What is decided vs. what is live**, because the gap is where mistakes go:
+
+| | |
+|---|---|
+| **Decided** | Two roles `SALES`/`MARKETING` (`Tier.PIPELINE`) + a `segment` column, *not* six roles; one personal exclusive pipeline each; **GHL owns the opportunity, EvalOS owns the note stream keyed on `ghl_opportunity_id`**; a droppable non-authoritative opportunity cache; **single selling brand** (`evalos.ghl.sales-brand`) enforced with a 400 until Unit 25 |
+| **Live today** | Everything below this box. Invariant 2 is **still enforced by code** — `GhlHttp` has no write verb and `GhlHttpTest` fails the build if one appears. **Unit 37 is where that changes and nowhere earlier.** |
+
+**Two things the programme does NOT touch:** invoicing stays GHL's (Unit 41 *reads* invoices,
+raises none), and **invariant 8 is untouched** — a case is still born only of a won opportunity
+through Handoff A, even though Sales now marks it won from an EvalOS screen.
+
 **"Never does" means never *runs* — Units 24, 26 and 27 draw the line and are the only things on the
 other side of it.** EvalOS *reads* three GHL pipelines onto GM screens — the **Google ADS Pipeline**
 (Unit 24), **Shivangi's Email Marketing** (Unit 26) and **Aditya's pipeline**, the sales team's own
@@ -128,6 +145,18 @@ still the question to put to any GHL proposal, whichever direction the traffic r
 
 **Do not cite the desk as precedent for writing to GHL.** It was tried, shipped and undone; a
 future write adds the verb to `GhlHttp` and answers for it in invariant 2.
+
+**That future write is now scheduled: Unit 37, the write door.** Two things carry over from the
+Unit 29 episode rather than being overturned by the new direction:
+
+1. **Unit 37 is a unit of its own precisely because of this history.** Deleting the
+   `GhlHttpTest` guard as step four of a feature ticket is how a deliberate constraint disappears
+   with nobody deciding. Unit 37 is where somebody decides, and it ships no feature.
+2. **"Does this make EvalOS store a pipeline fact?" is still the right question — but the answer
+   is now knowingly yes, at Unit 38.** The cache is what makes a board load at all (~115
+   un-parallelisable cursor pages, a ~13s floor, past the browser's 15s timeout). It is kept
+   honest by holding *only* fields GHL owns and by being droppable without loss. **So the pivot is
+   NOT reversible at the price Unit 29's was**, and that — not the code — is its real cost.
 
 Unit 24 said a second marketing screen would be a new question; Unit 26 asked it and the answer is
 **yes for another *reading* of a pipeline in the same location, on identical terms**. Read that

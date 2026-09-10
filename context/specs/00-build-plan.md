@@ -42,6 +42,12 @@ longer the thing everything queues behind. Two rows are struck and kept as the r
 | ~~GHL outbound contract~~ | ~~**Unit 18**~~ | **Struck 2026-09-09. Unit 18 was removed on 2026-09-02**, so there is no subscriber to register and no signing secret to hold. Invariant 14 is settled, not pending. What survives is not a contract but a question — *who reaches the client at all* — tracked as **G15** in `process-automation.md`, not here |
 | The real `opportunity.won` payload, signature header name, HMAC encoding | **Unit 05b's live run** — not its code, which is **built** | Always true and now demonstrated: 05b shipped with unit tests and never needed this. Only the end-to-end firing does |
 | ~~Anthropic key + a compliance decision~~ | ~~Unit 20's AI half~~ | **Struck 2026-09-04. There is no AI half and no Unit 20.** The unit was removed from scope on 2026-09-02 and is now `architecture.md` invariant 15; leaving its key in the "things to request" table kept the door open. **Nothing in EvalOS needs an LLM.** The anomaly figure it also proposed is arithmetic, not AI — if the business wants it, it is a Unit 17 tile over stored metrics, and it does not need a unit whose name invites the model back |
+| **`invoices.readonly` on the GHL token** | **Unit 41 — and nothing else** | **Added 2026-09-10** with the GHL operational programme. Unit 41 is otherwise **unblocked**: Unit 35 shipped a portal credential naming a `ghl_contact_id`, and that is exactly the key `GET /invoices/` takes. This is the cheapest ask on the list and it unblocks a whole unit that waits on nothing else — **chase it first** |
+| **`calendars/events.write` + `calendars.readonly`** | **Unit 40's meetings half only** | **Added 2026-09-10.** Unit 40's opportunity CRUD, stage moves and notes need only the existing grant, so the sales desk **ships without meetings** if this is slow and they land as a follow-on. Not a blocker for the unit, only for one feature in it |
+
+**All three are scopes on the existing token, not new credentials.** The current grant is
+`opportunities.write` + `contacts.write`. Verified against the live GHL API surface 2026-09-10;
+the endpoints and their filters are tabulated in `00b-ghl-operational-programme.md` §3.
 
 ### Track A — buildable today, nothing external. Do these in order.
 
@@ -93,6 +99,39 @@ as blockers clear**, rather than idling on a credential.
 `ghl_connection` table, no OAuth code — and it needs GHL OAuth app credentials, so it is a Track B
 item with no arrival date. It is also what the deferred `PaymentDetailConverter` extraction waits
 on; **do not write that abstraction before its second caller exists.**
+
+**Unit 25 acquired a second dependant on 2026-09-10** and it is worth knowing which: the GHL
+operational programme runs **single-brand** until Unit 25 lands
+(`00b-ghl-operational-programme.md` §1.5). That is a ceiling enforced in code, not a hope — but
+the trigger for Unit 25 is now **"a second brand starts selling"**, which is a business event
+rather than a credential arriving.
+
+### Track C — the GHL operational programme (Units 36–41)
+
+**Added 2026-09-10.** EvalOS becomes the interface Sales and Marketing work in; GHL stays the CRM,
+pipeline, automation and invoice layer underneath. **Read
+`00b-ghl-operational-programme.md` before any of these** — it carries the truth model, the
+single-brand ceiling and the invariant ledger, and a unit spec that disagrees with it is wrong.
+
+| # | Unit | Depends on | Blocked? |
+|---|---|---|---|
+| **36** | Pipeline-scoped access | 02, 03 | **no — buildable today**, `V39` |
+| **37** | The GHL write door | 36 | no. Invariant 2 dies here |
+| **38** | Opportunity reads and boards | 37 | no. `V40`. **The point of no cheap return** |
+| **39** | Marketing lead desk | 38 | no. `V41`. Invariant 7 amended here |
+| **40** | Sales desk | 38, 39 | **meetings half only**, on the `calendars/*` grant |
+| **41** | Client Portal invoices | **35 ✅** | **yes — `invoices.readonly`, and nothing else** |
+
+**Track C does not queue behind Track A**, and two of its rows are the reason to say so:
+
+- **Unit 41 is independent of 36–40 entirely.** It reads `GET /invoices/?contactId=…` using the
+  credential Unit 35 already ships. The moment the scope lands it can be built beside anything.
+- **Unit 36 is buildable today** with no external anything.
+
+**The ordering rule inside Track C is strict, unlike Track A's.** 37 before 38 before 39/40 is not
+a preference: 37 is where the write capability is *decided on* and 38 is where the pivot stops
+being cheaply reversible. Skipping 37 into 38 deletes a build-failing guard as a side effect of a
+feature, which is the specific thing 37 exists to prevent.
 
 ### Why not simply follow the phase order
 

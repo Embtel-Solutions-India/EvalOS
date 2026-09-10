@@ -1,0 +1,119 @@
+# Unit 41 — Invoices and payments in the Client Portal
+
+> **Status: SPECCED 2026-09-10, not built.** Programme decisions: `00b-ghl-operational-programme.md`.
+>
+> **Independent of Units 36–40.** This unit needs nothing from the pipeline access model, the write
+> door, the boards or the desks. It needs **Unit 35, which shipped**, and **one OAuth scope, which
+> has not been granted**. Run it in parallel the moment that scope lands.
+
+**Phase:** 3 — EvalOS as the operational system
+**Depends on:** 35 ✅ (the party-scoped portal credential)
+**Unlocks:** nothing
+**Migration:** none
+**Gating open questions:** none; **blocked on `invoices.readonly`** (§2)
+
+---
+
+## 1. What changes, in one paragraph
+
+A client opens their portal and sees **their invoices and payment status**, alongside the cases
+Unit 35 already gives them. EvalOS reads `GET /invoices/?contactId=…` and projects a **named
+whitelist** of fields. Nothing is stored, nothing is written, and QuickBooks is never contacted —
+GHL's existing integration does the accounting and EvalOS reads the outcome.
+
+## 2. Why this is the cheapest unit in the programme
+
+`GET /invoices/` filters by **`contactId`** and `status`. Unit 35 shipped a portal credential that
+names a **`ghl_contact_id`** — `V38` made `case_id` nullable and added the column precisely so a
+credential could name a party rather than a case.
+
+**The key the portal already holds is the key the invoice API wants.** There is no mapping, no new
+identity, and no lookup: the credential's contact id goes straight into the query parameter.
+
+That is also the security property. The contact id is **matched from the credential, never from
+the request** — the same rule Unit 34c's document filter and Unit 35's case routes follow. A client
+cannot ask for another contact's invoices because they cannot name a contact at all.
+
+**The one blocker is the grant.** `invoices.readonly` is not in the current scope set
+(`opportunities.write` + `contacts.write`). It belongs in `00-build-plan.md`'s Step 0 table.
+
+## 3. The route
+
+| Method | Path | Answers |
+| --- | --- | --- |
+| GET | `/client/invoices` | every invoice for the credential's contact, newest first |
+
+**No `{id}` route in this unit.** A client with three invoices reads three rows on one screen;
+a detail route would be a second scope check protecting nothing the list does not already show.
+Add it when there is a field worth a screen of its own.
+
+**A party credential is required.** A case-scoped credential (Unit 35's other kind) answers
+**403** — it names a case, and an invoice belongs to the client, not the engagement. Consistent
+with Unit 35's rule that a wrong-scope read is 403 and never 404, so nothing here is an oracle.
+
+## 4. The field whitelist
+
+Named, not derived — the pattern Units 14, 15 and 35's D6 all use, and asserted **on the produced
+JSON** rather than on a field list, because a nested DTO passes a field-name check and still leaks.
+
+| Field | Why |
+| --- | --- |
+| invoice number | the client's reference when they call |
+| issue date, due date | what they need to act |
+| amount, currency | the figure |
+| status | paid / unpaid / partially paid / void |
+| amount paid, amount due | the reason a client opens this screen |
+
+**Not carried:** internal ids beyond the invoice number, GHL's raw payload, line-item cost
+structure, anything naming a team member, and anything about other contacts. **A GHL response is
+not a DTO** — the projection is explicit and the test asserts what is absent, not only what is
+present.
+
+## 5. Nothing is stored
+
+No table, no cache, no `V`-migration. Invoices are read live per request.
+
+**The Unit 38 arithmetic does not apply here.** That cache exists because a board is ~115 cursor
+pages; one client's invoices are one page. The rate limiter in `GhlHttp` already paces the call,
+and a portal read is not a dashboard sweep.
+
+**So `00b` §1.3's "GHL is truth" holds here in its strongest form:** EvalOS holds no invoice fact
+at all, and invariant 2's surviving clause — *invoicing is GHL's, full stop* — is untouched by
+this unit even though it is the unit named "invoices".
+
+## 6. Invariant impact
+
+- **2** — **untouched by this unit.** EvalOS raises no invoice, computes no total, and touches no
+  accounting. Reading a figure is what Units 24/26/27 already do.
+- **5** (revenue recognition = paid **and** delivered) — **untouched, and the trap is worth
+  naming.** A GHL invoice marked paid is **not** revenue recognition, and this screen must not be
+  read as such by any later dashboard. `RefundService.isRevenueRecognized` remains the only reader
+  of that question. A "paid" invoice here is a fact about the client's bill, not about the case.
+- **7** — `ghl_contact_id` is again the canonical client identity, used exactly as the invariant
+  says.
+- **13** — a portal read writes no audit row; `recordPortalEvent` exists for portal **actions**,
+  and there is no action here.
+
+## 7. What this unit deliberately does not do
+
+- **No invoice creation.** Sales raises invoices in GHL (Unit 40 §5).
+- **No QuickBooks.** GHL's integration owns it; EvalOS never sees it.
+- **No payment taking.** The portal displays status; paying happens through GHL's own link.
+- **No refund surface.** Refunds are GM-approved in EvalOS already and are a different question
+  (invariant 5).
+- **No storage** (§5).
+
+## 8. Acceptance criteria
+
+- [ ] A party credential reads its own contact's invoices; the contact id comes from the
+      credential and a contact id in the request is ignored or refused.
+- [ ] A case-scoped credential answers **403**, not 404 and not an empty list.
+- [ ] Another contact's invoice is unreachable by any request this portal can make.
+- [ ] The response JSON contains exactly the §4 whitelist — asserted on the serialized body, so a
+      nested DTO cannot smuggle a field through.
+- [ ] Multiple invoices for one contact are all listed, with per-invoice status.
+- [ ] No table, no migration, no cached invoice row exists after a portal read.
+- [ ] Absent the `invoices.readonly` grant the route answers **502** through
+      `GhlUnavailableException`, with a message naming the missing scope — the failure a
+      provisioner can act on, following `GhlHttp`'s existing diagnostic reasoning.
+- [ ] `./mvnw verify` green; the client portal app builds.

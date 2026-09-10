@@ -4,6 +4,79 @@ Update this file after every meaningful implementation change.
 
 ## Current Phase
 
+- **2026-09-10 — the direction changed, and it is SPECCED, not built. EvalOS becomes the interface
+  Sales and Marketing work in.** No code changed. Seven documents did.
+
+  **The ask.** Three kinds of Sales employee (Attorney, Employer/Firm, Individual) and three
+  Marketing counterparts work leads and opportunities **from EvalOS instead of GHL**. Marketing
+  creates and nurtures; GHL's own workflows promote a qualified opportunity into the right Sales
+  pipeline; Sales works it with full CRUD, notes, meetings and follow-ups; Sales raises invoices
+  **in GHL**, GHL's QuickBooks integration does the accounting, and the Client Portal *displays*
+  the result. **GHL stays the CRM, pipeline, automation and invoice layer underneath.**
+
+  **Six decisions, each taken against an alternative rather than by default:**
+
+  1. **Two roles, not six.** The three kinds carry identical permissions, so they are a `segment`
+     column and **nothing branches on it**. Six enum values would have grown every
+     `switch (role)`, the role CHECK, the nav tests and the permission matrix to express a
+     distinction that changes no permission — an org chart in a security enum.
+  2. **One personal, exclusive pipeline per employee.** `uq_team_member_pipeline` survives as
+     Unit 36 specced it.
+  3. **GHL is truth; the cache is droppable.** Every write goes to GHL and EvalOS displays GHL's
+     answer — no optimistic local state. A cache exists only because a board is ~115
+     un-parallelisable cursor pages against a 100-req/10s limit: a ~13s floor, past the browser's
+     15s timeout. **A pass-through board does not load.** It holds only fields GHL owns.
+  4. **EvalOS owns the note stream, keyed on `ghl_opportunity_id`.** **GHL has no opportunity
+     notes** — verified against the live API, notes hang off the *contact*. The business said "an
+     opportunity is itself a contact", which is true of every contact today and is exactly the
+     conflation invariant 7 forbids: a repeat client is one contact and two opportunities.
+     Keying on the opportunity costs nothing now and survives that. **The cost, named: a note
+     written in GHL never reaches EvalOS** — acceptable only because nobody is supposed to work
+     in GHL, and wrong the day somebody does.
+  5. **One selling brand, enforced with a 400, not documented.** EvalOS is multi-brand and points
+     at **one** GHL location that invariant 1 calls unattributable. Brand-locked sales roles break
+     that exception on contact. `evalos.ghl.sales-brand` names the brand; any other brand is
+     refused at assignment. **This narrows invariant 1's exception rather than widening it.**
+     Unit 25 is the upgrade path and the trigger is now a business event — *brand two sells*.
+  6. **Unit 37 exists as a unit that ships no feature.** It adds three methods to `GhlHttp`.
+     It is separate because `GhlHttpTest` currently *fails the build* if `post` appears, and
+     deleting a deliberate guard as step four of a feature ticket is how constraints vanish with
+     nobody deciding.
+
+  **The invariant ledger, because three reversals are not one.** **1** narrows (Unit 36); **2**
+  dies (Unit 37, *not* 36 — that unit reads nothing); **7**'s first clause is amended while its
+  three-identifier rule survives verbatim and load-bearing (Unit 39); **14** is *ruled on, not
+  reversed* — EvalOS instructs, GHL delivers, and composing a message itself is still refused.
+  **8 is untouched across the whole programme**: Sales marks an opportunity won and **waits for
+  the webhook**; EvalOS never creates the case.
+
+  **Verified against the live GHL API rather than assumed.** Opportunity CRUD and a server-side
+  `pipelineId` search parameter exist; `GET /invoices/` filters by `contactId` + `status`;
+  appointments exist. **Three scopes are not granted** — `invoices.readonly`,
+  `calendars/events.write`, `calendars.readonly` — and they are now rows in the build plan's
+  Step 0.
+
+  **Unit 41 does not queue behind the programme.** It needs Unit 35 (shipped: a portal credential
+  naming a `ghl_contact_id` — exactly the key `GET /invoices/` takes) and the one scope. Chase
+  `invoices.readonly` first: it is the cheapest ask and unblocks a whole unit.
+
+  **Verification pass done first**, because `0d88f0c` exists: `V38` is latest so the programme
+  starts at `V39`; `SALES_EXECUTIVE` and `GoogleDrive` survive only in applied migrations and
+  historical comments; Unit 18 and Unit 20 residue is genuinely **zero files**.
+
+  **Written:** `00b-ghl-operational-programme.md` (new, programme-level), specs `37`–`41` (new),
+  spec `36` amended (segment, brand ceiling, `V39`, Unit 39→37 renumbering), `CLAUDE.md`,
+  `architecture.md` (a ledger above the invariants — none is relaxed yet), `00-build-plan.md`
+  (Step 0 scopes + Track C), and the two Serena memories that stated the old direction
+  (`core`, `backend/security`) **edited, not appended to**.
+
+  **Still open:** P1 the GM's cross-brand union (moot while one brand sells, Unit 38 must still
+  decide it), P2 PM/PC/CM pre-case visibility (recommend no), P3 an orphaned note (recommend it
+  survives), P4 the three `*-pipeline-name` properties become duplicated truth and leave in
+  Unit 38. **And one thing to verify before Unit 40 is built:** that GHL's marketing→sales
+  automation *preserves* `ghl_opportunity_id`. If it mints a new opportunity, notes do not follow
+  and Unit 40 needs a migration step.
+
 - **2026-09-10 — D2–D4's screens parked, and Unit 35 step 3 BUILT: a portal credential now names a
   party.** 611 backend tests green (was 588), both portal apps build, portal suite green.
 
