@@ -10,7 +10,9 @@ import com.ie.evalos.security.EvalOsUserDetailsService;
 import com.ie.evalos.security.JwtService;
 import com.ie.evalos.security.SecurityConfig;
 import com.ie.evalos.security.StaffPrincipal;
+import com.ie.evalos.integration.GhlCalendarClient;
 import com.ie.evalos.service.SalesDeskService;
+import com.ie.evalos.service.SalesMeetingService;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -37,10 +39,14 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 /**
  * Who may work the sales desk, and the routes that deliberately do not exist.
  *
- * <p>{@link #thereIsNoRouteToMoveADealBetweenPipelines} and {@link #thereIsNoRouteToBookAMeeting}
- * both assert an absence. The first is a design boundary — promotion is GHL's workflow; the
- * second is an ungranted scope, and saying so in a test is how the gap stays visible instead of
- * being rediscovered as "why can't I book a meeting".
+ * <p>{@link #thereIsNoRouteToMoveADealBetweenPipelines} asserts an absence, and it is a design
+ * boundary rather than a gap: promotion between pipelines is GHL's workflow, not a button here.
+ *
+ * <p><strong>{@code thereIsNoRouteToBookAMeeting} was the other one, and it is gone because the
+ * route now exists.</strong> It asserted a 404 on the grounds that the calendar scopes were
+ * ungranted — which was never re-probed and turned out to be false for the read scopes. Deleting
+ * a deliberate-absence test is the correct move once the absence ends; leaving it would have
+ * failed the build, which is exactly what such a test is for.
  */
 @WebMvcTest(controllers = SalesDeskController.class)
 @Import({ SecurityConfig.class, JwtService.class, ApiErrors.class })
@@ -53,6 +59,10 @@ class SalesDeskControllerTest {
 	private static final SalesDeskService.Deal DEAL = new SalesDeskService.Deal(OPPORTUNITY, "c1",
 			"Acme Corp", "s2", "open", new BigDecimal("1200"));
 
+	private static final GhlCalendarClient.Meeting MEETING = new GhlCalendarClient.Meeting("appt_1",
+			"cal_1", "c1", "Discovery call", "2026-10-01T14:00:00Z", "2026-10-01T14:30:00Z",
+			"confirmed");
+
 	@Autowired
 	MockMvc mockMvc;
 
@@ -61,6 +71,9 @@ class SalesDeskControllerTest {
 
 	@MockitoBean
 	SalesDeskService desk;
+
+	@MockitoBean
+	SalesMeetingService meetings;
 
 	@MockitoBean
 	EvalOsUserDetailsService userDetailsService;
@@ -129,20 +142,67 @@ class SalesDeskControllerTest {
 				.andExpect(status().isNotFound());
 	}
 
-	/**
-	 * <strong>Meetings are the one thing this unit could not build.</strong>
-	 *
-	 * <p>{@code POST /calendars/events/appointments} needs {@code calendars/events.write} and
-	 * {@code calendars.readonly}, neither of which is granted. Follow-ups shipped because a GHL
-	 * task needs only {@code contacts.write}. This test is here so the gap is a stated absence
-	 * rather than something discovered by a salesperson looking for the button.
-	 */
 	@Test
-	void thereIsNoRouteToBookAMeeting() throws Exception {
+	void aSalespersonBooksAMeeting() throws Exception {
+		given(meetings.book(any(), any(), any(), any(), any(), any())).willReturn(MEETING);
+
 		mockMvc.perform(post("/api/sales/opportunities/{id}/meetings", OPPORTUNITY)
 				.header(HttpHeaders.AUTHORIZATION, bearer(Role.SALES))
-				.contentType(MediaType.APPLICATION_JSON).content("{}"))
-				.andExpect(status().isNotFound());
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+						{"calendarId":"cal_1","contactId":"c1","title":"Discovery call",
+						 "startTime":"2026-10-01T14:00:00Z","endTime":"2026-10-01T14:30:00Z"}"""))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.data.id").value("appt_1"))
+				.andExpect(jsonPath("$.data.status").value("confirmed"));
+	}
+
+	/**
+	 * Bean validation refuses an incomplete booking before the service is reached — so a request
+	 * missing a time never becomes a GHL call, and never becomes a zero-length appointment in
+	 * somebody's calendar.
+	 */
+	@Test
+	void aBookingWithNoTimesIsRejectedBeforeTheServiceIsReached() throws Exception {
+		mockMvc.perform(post("/api/sales/opportunities/{id}/meetings", OPPORTUNITY)
+				.header(HttpHeaders.AUTHORIZATION, bearer(Role.SALES))
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+						{"calendarId":"cal_1","contactId":"c1","title":"Discovery call"}"""))
+				.andExpect(status().isBadRequest());
+
+		then(meetings).should(never()).book(any(), any(), any(), any(), any(), any());
+	}
+
+	@Test
+	void aSalespersonReschedulesAMeeting() throws Exception {
+		given(meetings.reschedule(any(), any(), any(), any())).willReturn(MEETING);
+
+		mockMvc.perform(put("/api/sales/opportunities/{id}/meetings/{appt}", OPPORTUNITY, "appt_1")
+				.header(HttpHeaders.AUTHORIZATION, bearer(Role.SALES))
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+						{"startTime":"2026-10-02T14:00:00Z","endTime":"2026-10-02T14:30:00Z"}"""))
+				.andExpect(status().isOk());
+	}
+
+	/**
+	 * A deal in somebody else's pipeline is refused, and the refusal comes from the same
+	 * {@code PipelineScope.requireMine} every other route on this desk starts at — so meetings
+	 * inherit the access model rather than restating it.
+	 */
+	@Test
+	void aSalespersonCannotBookAgainstSomebodyElsesDeal() throws Exception {
+		willThrow(new ForbiddenException("Not your pipeline"))
+				.given(meetings).book(any(), any(), any(), any(), any(), any());
+
+		mockMvc.perform(post("/api/sales/opportunities/{id}/meetings", OPPORTUNITY)
+				.header(HttpHeaders.AUTHORIZATION, bearer(Role.SALES))
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+						{"calendarId":"cal_1","contactId":"c1","title":"Discovery call",
+						 "startTime":"2026-10-01T14:00:00Z","endTime":"2026-10-01T14:30:00Z"}"""))
+				.andExpect(status().isForbidden());
 	}
 
 	/**

@@ -182,3 +182,41 @@ export function setFollowUp(
     api.post(`/sales/opportunities/${opportunityId}/follow-ups`, followUp),
   )
 }
+
+/** A calendar a meeting can be booked into. Id and name — a picker needs nothing else. */
+export type Calendar = { id: string; name: string }
+
+export function fetchCalendars(signal?: AbortSignal): Promise<readonly Calendar[]> {
+  return unwrap<readonly Calendar[]>(api.get('/sales/calendars', { signal }))
+}
+
+export type Meeting = {
+  id: string
+  calendarId: string
+  contactId: string
+  title: string
+  startTime: string
+  endTime: string
+  status: string
+}
+
+/**
+ * Books a meeting in GHL with the deal's contact.
+ *
+ * **Booking runs GHL's automations**, which is how the client actually receives the invitation
+ * — EvalOS sends nothing itself. And **pressing it twice books two meetings**: GHL offers no
+ * upsert for appointments, so there is no idempotency behind this call and the UI has to be the
+ * thing that stops a double-submit.
+ */
+export function bookMeeting(
+  opportunityId: string,
+  meeting: {
+    calendarId: string
+    contactId: string
+    title: string
+    startTime: string
+    endTime: string
+  },
+): Promise<Meeting> {
+  return unwrap<Meeting>(api.post(`/sales/opportunities/${opportunityId}/meetings`, meeting))
+}

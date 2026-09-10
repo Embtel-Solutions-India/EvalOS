@@ -4,6 +4,46 @@ Update this file after every meaningful implementation change.
 
 ## Current Phase
 
+- **2026-09-11 — meetings shipped; Unit 40 is now complete.** Backend 906 tests green including
+  the DB suite; staff frontend green.
+
+  **They were never scope-blocked.** Held back on "the calendar scopes are not granted", which
+  was false for the two read scopes and untested for the write one — see the entry below. Probing
+  first turned a blocker into an afternoon.
+
+  `integration/GhlCalendarClient` (list / book / reschedule), `service/SalesMeetingService`,
+  `POST|PUT /api/sales/opportunities/{id}/meetings`, `GET /api/sales/calendars` on its own
+  controller, and a calendar picker in `DealActions`.
+
+  **Two wire rules that are invisible in review and expensive live**, both pinned by tests that
+  assert an *absence* from the request body:
+  - **`toNotify` is never sent false.** GHL's default of true runs the automations that actually
+    invite the client. EvalOS has no channel (invariant 14), so suppressing GHL's would book a
+    meeting nobody is told about — the same shape as G15's unsent expert links.
+  - **`ignoreFreeSlotValidation` is never sent.** With validation on GHL refuses a collision and
+    the salesperson sees it; with it off a double-booking succeeds quietly.
+
+  **A meeting is audited against the OPPORTUNITY**, using the same derived `auditKey` as
+  `GhlWriteClient`, so it lands in the deal's history beside its stage moves rather than under an
+  appointment id nothing else mentions.
+
+  **⚠ No idempotency, and none is available.** GHL offers no upsert for appointments, so pressing
+  Book twice books two meetings. Said in the client, the service, the API module and the UI
+  rather than hidden — the fix would be an EvalOS appointment row, which is exactly the local
+  mirror the programme's truth model refuses.
+
+  **The `thereIsNoRouteToBookAMeeting` guard is deleted, not skipped.** It asserted a 404 to keep
+  the gap visible; once the route existed it failed the build, which is what such a test is for.
+  Its sibling `thereIsNoRouteToMoveADealBetweenPipelines` stays — that one is a design boundary,
+  not a gap.
+
+  **`SalesDeskControllerTest` needed a fourth `@MockitoBean`** for the new constructor arg. Fifth
+  time a `@WebMvcTest` slice has broken this way; still only a full `verify` catches it.
+
+  **Still open on the client-portal side:** a client sees invoices (live) but nothing of a
+  meeting yet. Decision taken 2026-09-11: the portal shows **invoices and meetings only** — no
+  stage, no deal value, no sales notes. Stage names like "Warm"/"Cold" are written for staff.
+
 - **2026-09-11 — two of the three "blocked on a GHL scope" items were never blocked.** Probed
   every scope against the app's own token before building anything. No code changed.
 

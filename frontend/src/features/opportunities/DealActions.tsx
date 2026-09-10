@@ -1,5 +1,13 @@
-import { useState } from 'react'
-import { closeDeal, moveStage, setFollowUp, type CloseStatus } from './opportunityApi'
+import { useEffect, useState } from 'react'
+import {
+  bookMeeting,
+  closeDeal,
+  fetchCalendars,
+  moveStage,
+  setFollowUp,
+  type Calendar,
+  type CloseStatus,
+} from './opportunityApi'
 
 /**
  * What a salesperson can do to a deal without opening GHL.
@@ -12,9 +20,15 @@ import { closeDeal, moveStage, setFollowUp, type CloseStatus } from './opportuni
  * **There is no "move to another pipeline".** Promotion from marketing to sales is GHL's
  * workflow; a button here would race the automation the business already owns.
  *
- * **And no "book a meeting".** Not an omission: `calendars/events.write` and
- * `calendars.readonly` are not granted. Follow-ups are here because a GHL task needs only
- * `contacts.write`, which is.
+ * **Booking a meeting is not the same as setting a follow-up, and both are here.** A follow-up
+ * is a GHL *task* — a private reminder for the salesperson. A meeting is a real appointment on a
+ * real calendar, and **booking it runs GHL's automations**, which is how the client is actually
+ * invited. EvalOS still sends nothing itself.
+ *
+ * **The meeting form guards against a double-submit harder than the others**, because it is the
+ * one action with no idempotency behind it: GHL has no upsert for appointments, so two presses
+ * are two meetings in somebody's diary. The button disables on `busy` like the rest, and the
+ * form clears on success so a second press has nothing to send.
  */
 export default function DealActions({
   opportunityId,
@@ -33,6 +47,26 @@ export default function DealActions({
   const [followUpTitle, setFollowUpTitle] = useState('')
   const [followUpDue, setFollowUpDue] = useState('')
   const [followUpSet, setFollowUpSet] = useState<string | null>(null)
+  const [calendars, setCalendars] = useState<readonly Calendar[]>([])
+  const [calendarId, setCalendarId] = useState('')
+  const [meetingTitle, setMeetingTitle] = useState('')
+  const [meetingStart, setMeetingStart] = useState('')
+  const [meetingMinutes, setMeetingMinutes] = useState(30)
+  const [meetingBooked, setMeetingBooked] = useState<string | null>(null)
+
+  /*
+    Loaded once per card rather than per keystroke. The list is small and changes rarely, and a
+    failure here is deliberately silent: `calendars/events.write` is the one grant in this
+    programme never verified, so an empty list disables the form rather than putting a scary
+    error on a card whose other four actions work.
+  */
+  useEffect(() => {
+    const abort = new AbortController()
+    fetchCalendars(abort.signal)
+      .then(setCalendars)
+      .catch(() => setCalendars([]))
+    return () => abort.abort()
+  }, [])
 
   async function run(action: () => Promise<unknown>, after?: () => void) {
     if (busy) return
@@ -153,6 +187,97 @@ export default function DealActions({
       {followUpSet && (
         <p className="text-xs text-emerald-700">
           Follow-up “{followUpSet}” added as a task in GHL.
+        </p>
+      )}
+
+      {calendars.length > 0 && (
+        <form
+          onSubmit={(event) => {
+            event.preventDefault()
+            if (!calendarId || !meetingTitle.trim() || !meetingStart) return
+            const start = new Date(meetingStart)
+            const end = new Date(start.getTime() + meetingMinutes * 60_000)
+            run(
+              () =>
+                bookMeeting(opportunityId, {
+                  calendarId,
+                  contactId,
+                  title: meetingTitle.trim(),
+                  startTime: start.toISOString(),
+                  endTime: end.toISOString(),
+                }),
+              () => {
+                setMeetingBooked(meetingTitle.trim())
+                setMeetingTitle('')
+                setMeetingStart('')
+              },
+            )
+          }}
+          className="space-y-1 border-t border-slate-200 pt-2"
+        >
+          <select
+            value={calendarId}
+            onChange={(event) => setCalendarId(event.target.value)}
+            className="w-full rounded border border-slate-300 px-2 py-1 text-xs"
+          >
+            <option value="">Book a meeting…</option>
+            {calendars.map((calendar) => (
+              <option key={calendar.id} value={calendar.id}>
+                {calendar.name}
+              </option>
+            ))}
+          </select>
+          {calendarId && (
+            <>
+              <input
+                value={meetingTitle}
+                onChange={(event) => setMeetingTitle(event.target.value)}
+                placeholder="Meeting about…"
+                className="w-full rounded border border-slate-300 px-2 py-1 text-xs"
+              />
+              <div className="flex gap-1">
+                <input
+                  type="datetime-local"
+                  value={meetingStart}
+                  onChange={(event) => setMeetingStart(event.target.value)}
+                  className="flex-1 rounded border border-slate-300 px-2 py-1 text-xs"
+                />
+                {/*
+                  A duration rather than a second datetime: every meeting on this desk is 15-60
+                  minutes, and picking an end date invites the end-before-start mistake the
+                  server then has to refuse.
+                */}
+                <select
+                  value={meetingMinutes}
+                  onChange={(event) => setMeetingMinutes(Number(event.target.value))}
+                  className="rounded border border-slate-300 px-1 py-1 text-xs"
+                >
+                  {[15, 30, 45, 60].map((minutes) => (
+                    <option key={minutes} value={minutes}>
+                      {minutes}m
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="submit"
+                  disabled={busy || !meetingTitle.trim() || !meetingStart}
+                  className="rounded bg-slate-900 px-2 py-1 text-xs text-white disabled:opacity-40"
+                >
+                  Book
+                </button>
+              </div>
+            </>
+          )}
+        </form>
+      )}
+
+      {meetingBooked && (
+        <p className="text-xs text-emerald-700">
+          {/*
+            Said explicitly, because it is the one action here that reaches the client. A
+            salesperson who does not know GHL sent the invite will send a second one by hand.
+          */}
+          “{meetingBooked}” booked. GHL sends the invitation.
         </p>
       )}
       {error && <p className="text-xs text-rose-600">{error}</p>}

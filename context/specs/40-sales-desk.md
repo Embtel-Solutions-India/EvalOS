@@ -1,6 +1,7 @@
 # Unit 40 — The sales desk
 
-> **Status: BUILT 2026-09-11, except meetings.** Programme decisions:
+> **Status: BUILT 2026-09-11, meetings included** (added the same day, once the calendar
+> scopes were probed rather than assumed). Programme decisions:
 > `00b-ghl-operational-programme.md`.
 >
 > **Scoped, not detailed** — same reasoning as Unit 39's header. The contract is fixed here;
@@ -70,10 +71,20 @@ new one, notes do **not** follow, and this unit needs a note-migration step keye
 > EvalOS: `GhlWriteClient.createFollowUp` writes a GHL *task* (`contacts.write`), which is a
 > different thing and was always specced as such.
 
-**This unit cannot be built until those two scopes are granted.** They belong in
-`00-build-plan.md`'s Step 0 table. Everything else in this unit — opportunity CRUD, stage moves,
-notes — needs only what is already granted, so **the desk ships without meetings if the grant is
-slow**, and meetings land as a follow-on.
+~~**This unit cannot be built until those two scopes are granted.**~~ **Wrong, and it cost the
+unit a day.** Both read scopes were already granted; nobody probed. Meetings shipped as the
+follow-on this paragraph predicted, on 2026-09-11:
+
+- `integration/GhlCalendarClient` — list calendars, book, reschedule. Audits against the
+  **opportunity**, so a meeting lands in the same history as that deal's stage moves.
+- `service/SalesMeetingService` — `PipelineScope.requireMine` first, then the refusals GHL would
+  not make for you.
+- `POST|PUT /api/sales/opportunities/{id}/meetings`, `GET /api/sales/calendars`.
+- `DealActions` gains a calendar picker, a title, a start and a duration.
+
+**`calendars/events.write` remains unverified** and a booking may answer 502 naming it. The two
+read scopes are proven, so the picker works either way and the form hides itself when the
+calendar list comes back empty.
 
 **A follow-up is a GHL task, not an EvalOS reminder.** GHL has tasks and its automation can act on
 them; an EvalOS-side reminder would need `job`, would duplicate a thing GHL already does, and
@@ -104,7 +115,7 @@ the opportunity screen" request is exactly the thing that ruling exists to answe
 - [x] The screen shows a pending state between "won" and the case appearing (§2).
 - [x] **Verified before build:** GHL's marketing→sales automation preserves `ghl_opportunity_id`
       (§3). If it does not, this spec is amended before code.
-- [ ] **Meetings are NOT built** — `calendars/events.write` and `calendars.readonly` are still
+- [x] **Meetings ARE built** (2026-09-11). Was: `calendars/events.write` and `calendars.readonly` are still
       ungranted. Their absence blocked nothing else, which is what this criterion asked.
 - [x] `./mvnw verify` green; frontend builds.
 

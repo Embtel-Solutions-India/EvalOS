@@ -3,7 +3,9 @@ package com.ie.evalos.web;
 import java.math.BigDecimal;
 
 import com.ie.evalos.common.ApiResponse;
+import com.ie.evalos.integration.GhlCalendarClient;
 import com.ie.evalos.service.SalesDeskService;
+import com.ie.evalos.service.SalesMeetingService;
 
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
@@ -28,9 +30,12 @@ import org.springframework.web.bind.annotation.RestController;
  * marketing-to-sales promotion and it belongs to GHL's workflow. A button here would be a second
  * promotion path racing automation the business already owns.
  *
- * <p><strong>And no route to schedule a meeting.</strong> Not an omission:
- * {@code calendars/events.write} and {@code calendars.readonly} are not granted. Follow-ups are
- * here because a GHL task needs only {@code contacts.write}, which is.
+ * <p><strong>Meetings landed 2026-09-11</strong>, as a follow-on rather than with the rest of the
+ * desk. They were held back on "the calendar scopes are not granted" — which turned out to be
+ * false for the two read scopes, and untested for the write one. {@code calendars/events.write}
+ * is still unverified, so a booking may answer 502 naming that scope; everything else here works
+ * on grants that were already in place. A follow-up remains a GHL <em>task</em>
+ * ({@code contacts.write}), which is a different thing from a meeting and always was.
  */
 @RestController
 @RequestMapping("/api/sales/opportunities/{opportunityId}")
@@ -51,10 +56,20 @@ public class SalesDeskController {
 			@NotBlank String dueAt) {
 	}
 
-	private final SalesDeskService desk;
+	/** ISO-8601 instants. The service refuses a past start and an end that is not after it. */
+	public record BookMeetingRequest(@NotBlank String calendarId, @NotBlank String contactId,
+			@NotBlank String title, @NotBlank String startTime, @NotBlank String endTime) {
+	}
 
-	SalesDeskController(SalesDeskService desk) {
+	public record RescheduleMeetingRequest(@NotBlank String startTime, @NotBlank String endTime) {
+	}
+
+	private final SalesDeskService desk;
+	private final SalesMeetingService meetings;
+
+	SalesDeskController(SalesDeskService desk, SalesMeetingService meetings) {
 		this.desk = desk;
+		this.meetings = meetings;
 	}
 
 	@PutMapping
@@ -96,5 +111,30 @@ public class SalesDeskController {
 			@RequestBody @Valid FollowUpRequest request) {
 		return ApiResponse.ok(new FollowUpCreated(desk.followUp(opportunityId, request.contactId(),
 				request.title(), request.dueAt())));
+	}
+
+	/**
+	 * Books a meeting with the deal's contact.
+	 *
+	 * <p><strong>Booking runs GHL's automations</strong>, which is how the client actually
+	 * receives the invitation — EvalOS still sends nothing itself (invariant 14). Pressing this
+	 * twice books two meetings: GHL offers no upsert for appointments, so there is no
+	 * idempotency to lean on, and the honest answer is to say so rather than to mirror the
+	 * appointment locally.
+	 */
+	@PostMapping("/meetings")
+	@PreAuthorize("hasRole('SALES')")
+	public ApiResponse<GhlCalendarClient.Meeting> bookMeeting(@PathVariable String opportunityId,
+			@RequestBody @Valid BookMeetingRequest request) {
+		return ApiResponse.ok(meetings.book(opportunityId, request.calendarId(), request.contactId(),
+				request.title(), request.startTime(), request.endTime()));
+	}
+
+	@PutMapping("/meetings/{appointmentId}")
+	@PreAuthorize("hasRole('SALES')")
+	public ApiResponse<GhlCalendarClient.Meeting> rescheduleMeeting(@PathVariable String opportunityId,
+			@PathVariable String appointmentId, @RequestBody @Valid RescheduleMeetingRequest request) {
+		return ApiResponse.ok(meetings.reschedule(opportunityId, appointmentId, request.startTime(),
+				request.endTime()));
 	}
 }

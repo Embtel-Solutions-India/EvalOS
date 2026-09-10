@@ -427,6 +427,40 @@ not be reachable as anyone else by a later job, webhook handler or service.
   property would pass the whole build and fail in production. It scans the source for
   `implements Sweep`, a `@Scheduled` tick, and a matching yaml key equal to `JOB_TYPE`.
 
+## GHL clients — four, and the split is deliberate
+
+`GhlHttp` is the transport door (Unit 37: a closed verb list, no retry on writes, no audit —
+it cannot know what a write *means*). Four clients sit on it:
+
+- **`GhlPipelineClient`** — funnel aggregates for the three GM screens. Matches pipelines by
+  NAME, so a rename breaks a dashboard loudly.
+- **`GhlOpportunityClient`** — board reads, feeding `ghl_opportunity_cache`.
+- **`GhlWriteClient`** — contacts and opportunities. Creates go through **upsert**, never POST:
+  GHL demands idempotency and offers no key, and upsert is the only thing that makes a
+  double-submit safe.
+- **`GhlCalendarClient`** (Unit 40's meetings, 2026-09-11) — calendars, book, reschedule.
+
+**Any class holding a `GhlHttp` and calling a write verb must reach `AuditService`** —
+`GhlHttpTest` scans the source for it. The write and calendar clients satisfy it; a new one must.
+
+**Two calendar rules that are invisible in review and expensive live**, both pinned by
+`GhlCalendarClientHttpTest`:
+- **Never send `toNotify: false`.** GHL's default of true is what runs the automations that
+  actually invite the client. EvalOS has no channel of its own (invariant 14), so suppressing
+  GHL's books a meeting nobody hears about.
+- **Never send `ignoreFreeSlotValidation`.** With validation on, GHL refuses a collision and the
+  salesperson sees it; with it off a double-booking succeeds silently.
+
+**Appointments have no upsert**, unlike contacts and opportunities — so a double-submit books two
+meetings and there is nothing behind the call to prevent it. Stated rather than papered over: the
+fix would be an EvalOS appointment row, which is the local mirror the truth model refuses.
+
+**Scope status, probed live 2026-09-11 and not to be re-assumed:** `invoices.readonly`,
+`calendars.readonly` and `calendars/events.readonly` are **granted**; `calendars/events.write` is
+**unverified** because confirming it means booking on a live calendar. Every doc that said the
+first three were ungranted was wrong for a day — **probe the grant before writing "blocked"**, and
+read the status code: a **422 is auth passing with bad params**, not a refusal.
+
 ## Response envelope — non-negotiable
 
 `common/ApiResponse<T>` (`success`, `data`, `error{code,message}`, `@JsonInclude(NON_NULL)`) is
