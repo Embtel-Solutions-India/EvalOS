@@ -17,10 +17,12 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 /** Staff identity: exchange a password for a token, and read back who you are. */
 @RestController
+@RequestMapping("/api")
 public class AuthController {
 
 	public record LoginRequest(@Email @NotBlank String email, @NotBlank String password) {
@@ -47,7 +49,7 @@ public class AuthController {
 		this.brands = brands;
 	}
 
-	@PostMapping("/api/auth/login")
+	@PostMapping("/auth/login")
 	public ApiResponse<LoginResponse> login(@Valid @RequestBody LoginRequest request) {
 		AuthService.Session session = authService.login(request.email(), request.password());
 		return ApiResponse.ok(new LoginResponse(
@@ -55,7 +57,7 @@ public class AuthController {
 	}
 
 	/** Reads the authenticated principal only — nothing here touches the request. */
-	@GetMapping("/api/me")
+	@GetMapping("/me")
 	public ApiResponse<StaffIdentity> me(@AuthenticationPrincipal StaffPrincipal principal) {
 		// findById rather than a scoped read: the id comes from the caller's own authenticated
 		// principal, so there is nothing here they did not already hold. Not a pattern to copy

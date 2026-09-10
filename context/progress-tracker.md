@@ -4,6 +4,168 @@ Update this file after every meaningful implementation change.
 
 ## Current Phase
 
+- **2026-09-10 — D2–D4's screens parked, and Unit 35 step 3 BUILT: a portal credential now names a
+  party.** 611 backend tests green (was 588), both portal apps build, portal suite green.
+
+  **The parking came first, because it is a deletion.** Eleven routes left `client-expert/client`
+  and five left `client-expert/expert` — unregistered, not deleted, with the pages and services
+  still on disk under a dated note in each `App.tsx`. The client's were D2–D4's: the seven-step
+  intake funnel (invariant 8), `/payments` + `/invoices` (invariant 2), `/messages` + `/tickets`
+  (invariant 14). The expert's were its whole **account shell**, which is the alternative D1
+  *refused* rather than deferred — a password store needs the mail channel invariant 14 says does
+  not exist. All sixteen ran on mocks, and all sixteen were reachable in a shipping app.
+
+  Parking a route is not deleting a `<Route>`: ten CTAs pointed into those screens from pages that
+  stay (`Requests`, `Dashboard`, `Analytics`, the sidebar's "New Request", `Login`'s only signup
+  path), plus `SUPPORT_NAV` and two nav entries, plus both intake guards. All went, or the app
+  ships buttons that 404. **`intakeService` deliberately stayed** — it is misnamed, and also backs
+  `listRequests` for the live `/requests` and `/dashboard`, which are 34d's targets, not D2's.
+
+  **The asymmetry is deliberate and is not finished work.** The client's account shell — `/login`,
+  `/forgot-password`, `/verify-email` and everything behind `AuthenticatedRoute` — is *still
+  registered*, because `/dashboard` and `/requests` are exactly what 34d rewires onto a party
+  token. Parking them would delete the thing 34d builds into. So the client app carries a refused
+  auth model until 34d lands; the expert app no longer does.
+
+  **Then D1, D5 and D6.** `V38` makes `case_id` nullable and adds `ghl_contact_id`, so a row names
+  a case, a client party or an expert party. Three things in that migration are worth knowing:
+  the CHECK that V37 could not have (V37's would have blocked the very UPDATE that revokes a
+  pre-column row; this one only sees rows written from here on); **both party uniqueness indexes
+  lead with `brand_id`**, because V16 already treats a contact as per-brand and without it minting
+  one brand's link would revoke another's; and `idx_case_brand_contact`, which is new because
+  V15's is **partial on open cases** and a client's list must include the delivered case they came
+  back for.
+
+  Five routes: `/client/cases`, `/client/cases/{id}`, `/expert/cases`, `/expert/cases/{id}`,
+  `/expert/payouts`. The path variable is safe for the reason Unit 34c's document filter is —
+  matched against the credential before anything is read — and a case that is not yours answers
+  **403, never 404**, which would be an oracle for counting the brand's cases. Minting is
+  `?party=true` on the existing route, deriving the party **from the case**: there is deliberately
+  no `mintForContact(id)`, which would be an enumeration surface. A party token lives **7 days**
+  to the case token's 30, and the two revoke independently — issuing a party link does not kill a
+  case link already sent.
+
+  **Two departures from the spec, recorded rather than hidden.** The 409 got its own code,
+  `SAY_WHICH_CASE`, instead of reusing `ILLEGAL_TRANSITION`: a portal that cannot tell "not
+  allowed" from "which one" shows the client the wrong sentence. And `PortalStep` carries
+  `actionRequired` as a **boolean field** rather than the spec's literal "Upload — action
+  required" string, so the flag that highlights a row is not a substring search that breaks on the
+  first rewording.
+
+  D6 is a named whitelist with a serialization test, like Unit 14's and Unit 15's: case reference,
+  amount, currency, status, settlement date. **Never `payment_detail`** (invariant 4) — asserted on
+  the JSON, not the field list, because a nested DTO would pass a field-name check.
+
+  **One acceptance criterion is knowingly unmet** and is 34b/34d's: the SPA still holds four
+  lifecycle enums. The server half is done — `PortalStageProjection` is the only mapping, and both
+  list payloads carry the word — but the enums come out when the screens reading them are rewired.
+  Three of the four now sit behind parked routes.
+
+- **2026-09-09 — Spring Boot 3.5.x is past OSS EOL, and staying there is now a decision rather
+  than a default.** 588 backend tests green. Two cleanups shipped and the framework question was
+  answered — not by upgrading.
+
+  **Shipped:** ten unused imports across six files, and `/api` hoisted to a class-level
+  `@RequestMapping` on `AuthController` and `ChecklistController`. The routes are byte-identical;
+  `SecurityFlowTest` and the controller tests are the proof. `ChecklistController`'s javadoc
+  previously explained why it carried *no* class-level mapping — that reason was about
+  `/checklists/board` and `/cases/{id}/checklist` being two branches, which a shared `/api` prefix
+  does not touch, so the note was corrected rather than deleted.
+
+  **The EOL finding.** OSS support for 3.5.x ended 2026-06-30. **There is no 3.6** — the line runs
+  3.5.16 straight to 4.x, so clearing the warning is a major migration, not a version bump. Boot 4
+  was already a deliberate downgrade in Unit 01; this is the same choice re-taken against a
+  different fact.
+
+  **Decision: stay on 3.5.16.** Commercially supported to 2032-06-30. The blocker is not effort but
+  *where* the effort lands — the migration was taken to the point where **89 tests fail, every one
+  of them a 401**: the bearer token is on the wire and `JwtFilter` no longer authenticates it under
+  Spring Security 7. One root cause on the staff auth path, which is the wrong thing to resolve by
+  guessing. This is **"not yet", not "never"** — an EOL framework with no free security patches is
+  the weaker position for a system holding payment details and PII, so the upgrade wants a session
+  of its own, opened on that 401.
+
+  **The work is not lost.** Branch `chore/spring-boot-4-wip` (commit `72141b9`), which compiles
+  clean and carries the four mechanical passes: Jackson 2 → 3 (`com.fasterxml.jackson.{databind,core}`
+  → `tools.jackson.*`, `JsonProcessingException` → the now-unchecked `JacksonException`,
+  `JavaTimeModule` deleted because java.time is in databind core — the *annotations* package does
+  not move); the Boot 4 relocations (`JacksonAutoConfiguration` → `boot.jackson.autoconfigure`,
+  `WebMvcTest` → `boot.webmvc.test.autoconfigure`, which is no longer on `spring-boot-starter-test`
+  and needs `spring-boot-starter-webmvc-test`); Spring Framework 7 splitting
+  `MockMultipartHttpServletRequestBuilder` off `MockHttpServletRequestBuilder`; and
+  `@EnableWebSecurity` moving onto `SecurityConfig` because `@WebMvcTest` no longer supplies the
+  `HttpSecurity` prototype.
+
+  One trap worth keeping, and it cuts both ways: the VS Code Java extension compiles into the same
+  `target/` Maven does. Its **stale** classes masked a real `testCompile` error behind 137 phantom
+  "class path resource ... cannot be opened" failures — so an incremental run can hide a break. But
+  `clean` is not the cure: the extension races to repopulate the emptied `target/`, and the run
+  immediately after a `clean` produced 116 errors of the same phantom shape on a tree that is
+  **588 green**. Rule: `clean` when you suspect staleness, then **re-run plain `mvnw test` and
+  believe the second number.**
+
+  **Separately, the backend memories were lying about Unit 30.** `backend/{core,persistence,security}.md`
+  each carried an identical *"⚠ PIVOT ... SPECCED 2026-09-02, NOT BUILT"* banner asserting that
+  "everything below about Drive still describes the code as it stands today" — Drive has been gone
+  from `pom.xml`, the `config` package and (via `V34`) the schema since Unit 30 shipped. Rewritten to
+  a BUILT banner stating what `DocumentStore` actually is, with the Drive prose kept and marked as
+  history. The inline claims that were wrong, not merely dated, went with it: the `evalos.drive.*`
+  config block (→ `evalos.s3.*`, and **naming the posture change** — Drive's `required` made a
+  missing key a boot failure, S3 only 502s the document routes), `DriveUnavailableException` (→
+  `DocumentStoreUnavailableException`/`DOCUMENT_STORE_UNAVAILABLE`), the `EXPORTED` audit snapshot
+  (→ object keys and the three presign issuers), `CaseController.seesCaseContent` (→
+  `Role.seesCaseContent()`, and `driveLink` is no longer one of the withheld fields), a `config`
+  package that no longer exists, and `event`'s "outbound dispatcher is next" (it was built and
+  removed). **The security one mattered most:** `security.md` still read "antivirus is open — Drive
+  scans on ingest", which was true when written and stopped being true twice over — Drive left, then
+  G14 landed magic-byte sniffing and `Content-Disposition: attachment`. It now records the posture
+  that exists and names the part still owed (bucket-side scanning).
+
+  **Then the unit-status audit, done properly against the code.** `core.md`'s status paragraph was
+  worse than dated — it called **Unit 13 "code-complete"** when `V33__drop_unit_13_18_20.sql` had
+  dropped it, said "Unit 15 is next" after 15 shipped, and stopped at Unit 14. Replaced with an
+  audited index: built (01–12, **05b superseding 05a**, 14, 15, 16+16b, 17, 21, 23, 24/26/27, 28,
+  30, 31, 32, 33, and the backend halves of 34a/34c/34e); removed by migration (13, 18, 20) or by
+  decision (29/29a); and **specced-not-built (19, 25, 35's D1/D5/D6)**, each with the check that
+  proves it — `job/` is a bare `.gitkeep` and **nothing in the tree carries `@Scheduled`**, there is
+  no `ghl_connection` table, and `portal_access.case_id` is still `NOT NULL`. Schema head is `V37`.
+  The package prose went with it: `event` no longer advertises the dispatcher Unit 18 took away.
+
+  **`00-build-plan.md` was stale too, and its Unit 34 heading is now corrected** from "SPECCED, NOT
+  BUILT" to "PARTLY BUILT (34a, 34c, 34e)", naming 34b and 34d as the two that are not and D1 as
+  what gates 34d.
+
+  **Then the schedule itself, which had rotted further than the status list.** Every one of the old
+  Track A items was dead: **A1** called the missing `qc.approved` route "a live operational hole in
+  shipped code — do it first" when `NotificationListeners` has routed `QC_APPROVED` since
+  (line 111); **A2**'s Unit 05b has shipped; **A3** was already marked built; and **A4/A5** were
+  split from each other *only* to stop the charting-library decision holding up eleven widgets — a
+  decision taken in Unit 22 slice 1 in favour of Recharts. Track A is now **A1–A6** and matches
+  `Next Up`: 35 (D1/D5/D6) → 34b → 34d → 17a → 19 → 17b, with 17b last because it is one widget
+  rather than because anything gates it.
+
+  Track B lost two of four rows. **Unit 19 is not a Track B item any more** — its prerequisites are
+  met, so it moved into Track A. The **AWS credential no longer blocks code**, only the live
+  exercise of code already built, which is a materially weaker claim than the row used to make.
+  Step 0's "five external things" is now two, and the preamble said "five wait on somebody outside
+  this repo" while listing four. **Unit 25 is called out as unscheduled** rather than left absent —
+  it needs GHL OAuth app credentials and it gates the deferred `PaymentDetailConverter` extraction.
+
+  **Four places still described Unit 18 as real**, which mattered because one of them is inside
+  Unit 19 — now the fifth thing to build. Unit 19's sweep list included "the outbox sender absorbed
+  from Unit 18" and its `Depends on:` named 18, so a session picking it up would have built a
+  drain for a channel that does not exist. It is **four sweeps, not five**, and the two that left
+  did so for different reasons — retention to GHL, the outbox to Unit 18's removal. Also fixed:
+  Unit 04's "publishes a domain event for the outbound dispatcher" (the events survive, the second
+  subscriber does not), the cross-cutting "webhook subsystem" note, and an open-questions entry
+  still asking for an outbound subscriber URL. The `18 before 19` dependency is struck; the live
+  one is **D1 before 34b and 34d**.
+
+  **`tech_stack.md`'s chart row is fixed too** — it read "Charts (Unit 17 cycle-time p90) —
+  **undecided**" while the `frontend/` section three screens down recorded Recharts as installed,
+  in use, and drawing from the `--chart-1..5` ramp. `ui-context.md` had it settled in Unit 22
+  slice 1. 17b is unbuilt but **not blocked on a library**, and the row now says so.
+
 - **2026-09-04 — Four decisions taken, Unit 20 struck, planning sections rewritten, and
   **D8 + G14 BUILT**.** 588 backend tests green (was 581); both portal apps build. D1/D5/D6 are
   decided and **specced, not built** — that is Unit 35's larger half, deliberately left as the

@@ -9,7 +9,6 @@ import java.util.List;
 import java.util.UUID;
 
 import com.ie.evalos.domain.Case;
-import com.ie.evalos.domain.ClientApprovalStatus;
 import com.ie.evalos.domain.SlaStatus;
 import com.ie.evalos.domain.Stage;
 

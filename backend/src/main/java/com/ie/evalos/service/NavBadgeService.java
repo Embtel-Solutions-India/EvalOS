@@ -6,7 +6,6 @@ import java.util.UUID;
 
 import com.ie.evalos.domain.Case;
 import com.ie.evalos.domain.DeadlineRisk;
-import com.ie.evalos.domain.PmApprovalStatus;
 import com.ie.evalos.domain.PoolStatus;
 import com.ie.evalos.domain.SlaStatus;
 import com.ie.evalos.domain.Stage;

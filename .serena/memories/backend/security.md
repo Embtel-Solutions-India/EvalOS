@@ -16,24 +16,42 @@
 > to `/api/portal/**`, with **`X-Portal-Token` in the allowed headers**; **never `*`**, because
 > the chain is credentialed. Filed in `context/specs/30-s3-document-store.md`, open question (h).
 
-> ## ⚠ PIVOT: Google Drive → S3 document store (Unit 30, SPECCED 2026-09-02, NOT BUILT)
+> ## Google Drive → S3 document store (Unit 30, BUILT)
 >
-> **Read `context/specs/30-s3-document-store.md` before touching any document path.**
-> Everything below about Drive still describes the **code as it stands today** — the client,
-> the config, the columns are all still there. It no longer describes the **decision**.
+> **The Drive prose further down this file is history, not the code.** It is left because it
+> records why the decision went the way it did; nothing it describes still exists. `pom.xml` has
+> no Google dependency, there is no `config/` package, and `V34__drop_drive_link.sql` dropped the
+> column. Spec: `context/specs/30-s3-document-store.md`.
 >
-> - Documents move to an **S3 bucket**. Google Drive leaves entirely: client, config,
->   service account, dependency, `drive_link` column.
+> - **`integration/DocumentStore` is the one door**, and it has exactly two capabilities: `put` an
+>   object and `presignedUrl` a read. **No delete, no list** — deliberately, so the store cannot be
+>   used as a mutable filesystem.
 > - **A separate Client Portal application writes client uploads**; EvalOS's credential is
 >   **read-only** on `client/{clientId}/`. EvalOS writes only under `case/{caseId}/`.
 > - `{clientId}` is **GHL's contact id** — one client across GHL, the Client Portal and
 >   EvalOS, no mapping table. **Email stays a fallback key (V27), never the identity.**
-> - Reads are **5-minute presigned URLs**, minted after the scope check, never stored.
-> - **Invariant 14 is amended and "No object storage" is deleted** from `architecture.md`.
-> - This **unblocks Units 13, 15 and 21**, which were all waiting on the Google service
->   account. Unit 21 is reshaped: the upload leaves EvalOS.
->
-> **Do not build new Drive work, and do not cite the Drive notes below as settled.**
+> - Reads are **5-minute presigned URLs** (`DocumentStore.READ_WINDOW`), minted after the scope
+>   check and **never stored** — a presigned URL in a column is a credential in a column. Every one
+>   is minted `Content-Disposition: attachment`, which closes the *path* rather than the file: an
+>   HTML or SVG that beat the sniffer has no browser origin to execute in.
+> - **Uploads are sniffed, not trusted.** `common/UploadedFileType` reads magic bytes on both
+>   surfaces (the client's document and the signed letter). Its ceiling is stated where it lives:
+>   `.docx` is a ZIP and `.doc` an OLE2, so this proves the container, not the document —
+>   **scanning is the bucket's job**, and that is infra work still owed.
+> - **Configuration fails loud but late, and that is the one real change from Drive.**
+>   `evalos.s3.bucket` / `evalos.s3.region` (`EVALOS_S3_BUCKET` / `EVALOS_S3_REGION`) have **no
+>   defaults**; absent, document routes answer **502** and the boot log names the missing variable.
+>   Drive's `evalos.drive.required` made the same omission a **boot failure** — S3 does not, so a
+>   misconfigured deploy starts and serves every non-document screen.
+> - **The credential is not a property at all.** The AWS SDK's default provider chain reads the
+>   environment, the shared profile or the instance role, so no key can reach a committed yaml —
+>   `ConfigSecretsTest` fails the build if one does.
+> - **Invariant 14 is amended and "No object storage" is deleted** from `architecture.md`. What
+>   survives is "EvalOS holds keys, never bytes".
+> - **Unit 30 also closed the PDF question by removal**: the redacted profile was the only document
+>   EvalOS generated, and Drive's HTML → Doc → PDF export was the only reason a PDF library was ever
+>   considered. Nothing generates documents now — they arrive as uploads. **Do not add PDFBox or
+>   openhtmltopdf.**
 
 Built in Unit 02; the link-based portal chain added in Unit 14. Two chains, stateless and
 token-only in both cases; nothing here is session- or cookie-based.
@@ -168,7 +186,7 @@ highest-risk surface in the system. The rules are requirements, not preferences:
 - **Per-token rate limit, which is new work.** `PortalTokenFilter` already rate-limits, but on
   **`getRemoteAddr()`** — and behind a proxy without `forward-headers-strategy=framework` every caller
   shares one budget. An upload limit must key on the `portal_access` id, because what is being
-  protected is one case's Drive folder. Extend that limiter with a second key; do not assume the IP one
+  protected is one case's S3 prefix. Extend that limiter with a second key; do not assume the IP one
   covers it, and do not add a parallel limiter.
 - **The token is the `X-Portal-Token` header — never a path segment or query parameter.** The filter
   refuses a query parameter because it lands in access logs, `Referer` headers and browser history, and
@@ -184,8 +202,14 @@ highest-risk surface in the system. The rules are requirements, not preferences:
   only upload EvalOS accepts at all, since client uploads moved to the separate Client Portal.
   See `mem:core`.
 - **One audit row per upload**, `actor_type = CLIENT`.
-- Open, and deliberately not hand-waved: **antivirus.** Drive scans on ingest; that is not the same as
-  EvalOS having a posture on files accepted from a public link.
+- **Antivirus, and this is no longer open in the way it was.** Drive used to scan on ingest, and
+  losing that in Unit 30 left a real gap; **G14 closed the EvalOS half** (2026-09-04).
+  `common/UploadedFileType` sniffs magic bytes for one of five kinds on **both** upload surfaces —
+  the client's document and the signed letter — so a declared content type is never trusted, and
+  every presigned read is minted `Content-Disposition: attachment`, which closes the *path* rather
+  than the file. **The stated ceiling:** `.docx` is a ZIP and `.doc` an OLE2, so sniffing proves the
+  container, not the document. **Real scanning is the bucket's job and is still owed** — an infra
+  control, not a code one.
 
 **The same boundary carries the signed letter (Unit 15).** There is **no e-signature provider**: the
 expert downloads the letter and uploads the signed PDF back through their own `EXPERT`-audience token,
@@ -237,9 +261,12 @@ become a way for a non-GM to trigger client-facing messages.
 - **`SUPPLY` is a field tier, not a row tier, and this is the one that surprises people.** At the
   row level it is identical to `BRAND` — `ScopePredicate` handles both under `default -> {}` and
   adds no predicate — because the ENM's three signing transitions must load the case. What makes
-  it supply-side is `CaseController.seesCaseContent(role)`, which withholds `clientName`,
-  `driveLink` and `draftLink` from that tier on **both** case payloads (`CaseController.CaseDetail`
-  and `CaseBoardController.BoardCard`). Added 2026-08-25 after the tier was found to be declared,
+  it supply-side is `Role.seesCaseContent()` (`tier != SUPPLY`), which withholds `clientName` and
+  `draftLink` from that tier on **both** case payloads (`CaseController.CaseDetail` and
+  `CaseBoardController.BoardCard`). `driveLink` was the third field it withheld and is gone with
+  Unit 30. The predicate moved from `CaseController` onto `Role` when the presigned-URL route needed
+  it from the service layer — a service reaching into a controller for an authorisation rule is how
+  you end up with two copies of it. Added 2026-08-25 after the tier was found to be declared,
   documented as "not case content", and **referenced nowhere** — so `GET /api/cases/board`, which
   has no `@PreAuthorize` by design, returned every client name in the brand to an ENM.
   - Deliberately a **predicate over the tier**, not a `Set<Role>` like `SEES_DEAL_VALUE` /

@@ -24,6 +24,7 @@ import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -31,8 +32,8 @@ import org.springframework.web.bind.annotation.RestController;
  * The document checklist: the Coordinator's board over it, and the four things they do to
  * one case's items.
  *
- * <p>No class-level {@code @RequestMapping}, because these paths live in two places by
- * design — the board is its own screen at {@code /api/checklists/board} while the items
+ * <p>The class-level mapping is only {@code /api}, because these paths live in two places
+ * by design — the board is its own screen at {@code /api/checklists/board} while the items
  * belong to a case at {@code /api/cases/{id}/checklist}. One controller rather than two,
  * since it is one concern with one service behind it.
  *
@@ -42,6 +43,7 @@ import org.springframework.web.bind.annotation.RestController;
  * {@link ChecklistView#checklistSatisfied()} for what this screen does and does not claim.
  */
 @RestController
+@RequestMapping("/api")
 public class ChecklistController {
 
 	/**
@@ -144,7 +146,7 @@ public class ChecklistController {
 	 *                board: it is applied after the scoped read, so naming a brand the caller
 	 *                cannot read yields an empty board rather than that brand's cases.
 	 */
-	@GetMapping("/api/checklists/board")
+	@GetMapping("/checklists/board")
 	@PreAuthorize(COORDINATION)
 	public ApiResponse<List<ChecklistCard>> board(@RequestParam(required = false) UUID brandId) {
 		return ApiResponse.ok(checklists.board(brandId).stream().map(ChecklistCard::of).toList());
@@ -156,12 +158,12 @@ public class ChecklistController {
 	 * same reasoning as the timeline and the notification centre — a role gate here would
 	 * refuse the PM whose case it is.
 	 */
-	@GetMapping("/api/cases/{id}/checklist")
+	@GetMapping("/cases/{id}/checklist")
 	public ApiResponse<ChecklistView> checklist(@PathVariable UUID id) {
 		return ApiResponse.ok(view(id));
 	}
 
-	@PatchMapping("/api/cases/{id}/checklist/{itemId}")
+	@PatchMapping("/cases/{id}/checklist/{itemId}")
 	@PreAuthorize(COORDINATION)
 	public ApiResponse<ChecklistView> setStatus(@PathVariable UUID id, @PathVariable UUID itemId,
 			@Valid @RequestBody SetStatusRequest request) {
@@ -169,7 +171,7 @@ public class ChecklistController {
 		return ApiResponse.ok(view(id));
 	}
 
-	@PostMapping("/api/cases/{id}/checklist/items")
+	@PostMapping("/cases/{id}/checklist/items")
 	@PreAuthorize(COORDINATION)
 	public ApiResponse<ChecklistView> addItem(@PathVariable UUID id, @Valid @RequestBody AddItemRequest request) {
 		checklists.addItem(id, request.label().trim());
@@ -186,7 +188,7 @@ public class ChecklistController {
 	 * and the client showing its own clock instead was the drift this sentence claimed to have
 	 * prevented.
 	 */
-	@PostMapping("/api/cases/{id}/chase")
+	@PostMapping("/cases/{id}/chase")
 	@PreAuthorize(COORDINATION)
 	public ApiResponse<ChecklistView> chase(@PathVariable UUID id) {
 		checklists.chase(id);

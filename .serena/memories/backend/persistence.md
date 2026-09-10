@@ -18,24 +18,42 @@
 > and narrow the CHECK. If no — audit, or any append-only table — keep the value and mark it
 > retired in the javadoc. Same question, opposite answers, one session apart.
 
-> ## ⚠ PIVOT: Google Drive → S3 document store (Unit 30, SPECCED 2026-09-02, NOT BUILT)
+> ## Google Drive → S3 document store (Unit 30, BUILT)
 >
-> **Read `context/specs/30-s3-document-store.md` before touching any document path.**
-> Everything below about Drive still describes the **code as it stands today** — the client,
-> the config, the columns are all still there. It no longer describes the **decision**.
+> **The Drive prose further down this file is history, not the code.** It is left because it
+> records why the decision went the way it did; nothing it describes still exists. `pom.xml` has
+> no Google dependency, there is no `config/` package, and `V34__drop_drive_link.sql` dropped the
+> column. Spec: `context/specs/30-s3-document-store.md`.
 >
-> - Documents move to an **S3 bucket**. Google Drive leaves entirely: client, config,
->   service account, dependency, `drive_link` column.
+> - **`integration/DocumentStore` is the one door**, and it has exactly two capabilities: `put` an
+>   object and `presignedUrl` a read. **No delete, no list** — deliberately, so the store cannot be
+>   used as a mutable filesystem.
 > - **A separate Client Portal application writes client uploads**; EvalOS's credential is
 >   **read-only** on `client/{clientId}/`. EvalOS writes only under `case/{caseId}/`.
 > - `{clientId}` is **GHL's contact id** — one client across GHL, the Client Portal and
 >   EvalOS, no mapping table. **Email stays a fallback key (V27), never the identity.**
-> - Reads are **5-minute presigned URLs**, minted after the scope check, never stored.
-> - **Invariant 14 is amended and "No object storage" is deleted** from `architecture.md`.
-> - This **unblocks Units 13, 15 and 21**, which were all waiting on the Google service
->   account. Unit 21 is reshaped: the upload leaves EvalOS.
->
-> **Do not build new Drive work, and do not cite the Drive notes below as settled.**
+> - Reads are **5-minute presigned URLs** (`DocumentStore.READ_WINDOW`), minted after the scope
+>   check and **never stored** — a presigned URL in a column is a credential in a column. Every one
+>   is minted `Content-Disposition: attachment`, which closes the *path* rather than the file: an
+>   HTML or SVG that beat the sniffer has no browser origin to execute in.
+> - **Uploads are sniffed, not trusted.** `common/UploadedFileType` reads magic bytes on both
+>   surfaces (the client's document and the signed letter). Its ceiling is stated where it lives:
+>   `.docx` is a ZIP and `.doc` an OLE2, so this proves the container, not the document —
+>   **scanning is the bucket's job**, and that is infra work still owed.
+> - **Configuration fails loud but late, and that is the one real change from Drive.**
+>   `evalos.s3.bucket` / `evalos.s3.region` (`EVALOS_S3_BUCKET` / `EVALOS_S3_REGION`) have **no
+>   defaults**; absent, document routes answer **502** and the boot log names the missing variable.
+>   Drive's `evalos.drive.required` made the same omission a **boot failure** — S3 does not, so a
+>   misconfigured deploy starts and serves every non-document screen.
+> - **The credential is not a property at all.** The AWS SDK's default provider chain reads the
+>   environment, the shared profile or the instance role, so no key can reach a committed yaml —
+>   `ConfigSecretsTest` fails the build if one does.
+> - **Invariant 14 is amended and "No object storage" is deleted** from `architecture.md`. What
+>   survives is "EvalOS holds keys, never bytes".
+> - **Unit 30 also closed the PDF question by removal**: the redacted profile was the only document
+>   EvalOS generated, and Drive's HTML → Doc → PDF export was the only reason a PDF library was ever
+>   considered. Nothing generates documents now — they arrive as uploads. **Do not add PDFBox or
+>   openhtmltopdf.**
 
 Built in Unit 03 (`V4`–`V10`). Entities: `ContactSnapshot`, `Case` (table **`evalos_case`** — `case`
 is reserved SQL), `DocumentChecklistItem`, `Expert`, `PayoutLedger`, `PayoutPayment`, `Notification`, `AuditEvent`,
@@ -147,7 +165,8 @@ transition and endpoint are deleted, so nothing but `CaseIntakeService` ever wri
 `CaseIntakeService.refresh()` **overwrites** rather than fills, because deleting `markPaid` removed
 its only other writer and the figure feeds revenue recognition.
 
-**⚠ Unit 30 drops `drive_link` and keeps `draft_link` — and the reason is the distinction below.** A
+**Unit 30 dropped `drive_link` (`V34`) and kept `draft_link` — and the reason is the distinction
+below.** A
 client's documents become *derivable* from the contact the case already points at
 (`client/{ghl_contact_id}/`), so storing a link to them is a second copy of a fact the schema holds.
 A draft is **one file among several versions** and is not derivable, so `draft_link` survives — as an
@@ -192,8 +211,10 @@ an expired row would sit in that index forever and block the next mint for that 
   `NotificationType` and `AuditAction` are **open** — their columns carry no CHECK, so later units add
   values without a migration. No CHECK constraints on the other enum columns either (only `V3.role`).
   That openness has been spent three times: `CHASED` (Unit 10), `IMPORTED` (Unit 11) and `EXPORTED`
-  (Unit 13 — a generated document left EvalOS; the snapshot carries the Drive file and folder ids, so
-  the trail answers *which* document and *where it went*). Each is its own action rather than
+  (Unit 13 — a generated document left EvalOS. Unit 30 kept the action and changed what it points at:
+  the row now names the `case_document` and its S3 object key, and the writers are the three
+  presigned-URL issuers in `CaseLifecycleService`, `PortalCaseService` and `ExpertPortalService`, so
+  the trail answers *which* document and *who was handed a link to it*). Each is its own action rather than
   `UPDATED` because in all three nothing about the object itself changed.
 - `text[]` → `String[]` with `@JdbcTypeCode(SqlTypes.ARRAY)`; `jsonb` → `String` with
   `SqlTypes.JSON`. Enum arrays are avoided — they buy nothing and risk `validate` mismatches.
