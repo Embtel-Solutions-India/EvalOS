@@ -68,7 +68,9 @@ surfaced a gap Unit 35 left: **D1 gave party scoping to the reads and not to the
 client with two cases could open either draft and approve neither. Closed with
 `POST /cases/{caseId}/approve` and `.../request-revisions`.
 
-**A3 · 34d — the two case lists**, over Unit 35's party reads and D5's projection.
+**A3 · 34d — the two case lists. BUILT 2026-09-11**, over Unit 35's party reads and D5's
+projection — and it finished the job by deleting the client's account shell, the model D1
+refused. 53 files went; there is no mock left in the client portal.
 
 **A4 · Unit 17a — dashboards without charts**, carrying gaps **G9–G11** and **G16**. This is 17a
 only: **Unit 17's read models are built** (five `*MetricsService` behind seven `MetricsController`

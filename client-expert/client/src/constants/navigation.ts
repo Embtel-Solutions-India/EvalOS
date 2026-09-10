@@ -1,4 +1,4 @@
-import { FileCheck2, LayoutDashboard, Settings, UserRound } from 'lucide-react'
+import { FileCheck2, FileText, LayoutDashboard, Receipt } from 'lucide-react'
 import type { ComponentType } from 'react'
 
 export interface NavItem {
@@ -7,30 +7,29 @@ export interface NavItem {
   icon: ComponentType<{ className?: string }>
 }
 
-// Kept deliberately short — Home and My Requests are the only two things a
-// client should need to think about day to day. Everything else still
-// exists (a client with an active request may well need Payments or
-// Documents) but sits in a quieter, secondary group rather than competing
-// for attention.
+/**
+ * The whole app, in one group (34d).
+ *
+ * **Every entry is a real, EvalOS-backed screen.** Before 34d this list promised a mock account
+ * shell — Home and My Requests over fake data, plus Profile and Settings for an account that is
+ * not coming — while the three screens that actually worked were unreachable from it. That is
+ * inverted now.
+ *
+ * **They can share a sidebar because they share a credential.** The scoped portal token is
+ * lifted out of the URL fragment once and held in the API client, so a client who opens any one
+ * link can walk the rest without another. Before, each real screen stood alone and a nav entry
+ * would have opened it with no token at all.
+ *
+ * **`/reports` is deliberately absent.** Its page is parked, not deleted: EvalOS has no route
+ * that serves the signed letter, because delivery is a decision nobody has taken. A nav entry
+ * is a promise that a route exists.
+ *
+ * **`ACCOUNT_NAV` and `SECONDARY_NAV` are gone**, with the pages behind them. A group is not
+ * worth keeping for the day something might refill it.
+ */
 export const PRIMARY_NAV: NavItem[] = [
   { label: 'Home', to: '/dashboard', icon: LayoutDashboard },
-  { label: 'My Requests', to: '/requests', icon: FileCheck2 },
-]
-
-// **Documents is deliberately not here (Unit 34c).** `/documents` is now the real,
-// EvalOS-backed screen and its credential is a scoped portal link, not this shell's session —
-// so it is reached from that link and not from a sidebar entry that would open it without one.
-// **Payments, Invoices, Analytics and SUPPORT_NAV's two entries all left on 2026-09-10**, with
-// their pages. A nav entry is a promise that a route exists, so an entry outliving its page is a
-// link to a 404 — see the note at the top of App.tsx for which went and why.
-//
-// One entry left, so this group is a single row. If it loses that one too, delete the group and its
-// "More" heading rather than rendering an empty section.
-export const SECONDARY_NAV: NavItem[] = [
-  { label: 'Reports', to: '/reports', icon: FileCheck2 },
-]
-
-export const ACCOUNT_NAV: NavItem[] = [
-  { label: 'Profile', to: '/profile', icon: UserRound },
-  { label: 'Settings', to: '/settings', icon: Settings },
+  { label: 'My cases', to: '/requests', icon: FileCheck2 },
+  { label: 'Documents', to: '/documents', icon: FileText },
+  { label: 'Invoices', to: '/invoices', icon: Receipt },
 ]

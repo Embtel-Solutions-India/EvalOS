@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useParams } from 'react-router-dom'
 import { ExternalLink, FileCheck } from 'lucide-react'
 import { useState } from 'react'
 import { toast } from 'sonner'
@@ -14,10 +15,10 @@ import {
   APPROVAL_STATUS,
   failureMessage,
   NO_TOKEN,
-  tokenFromFragment,
   type ClientCaseSummary,
 } from '@shared/lib/portal'
-import { hasPortalToken, setPortalToken, statusOf } from '@shared/services/apiClient'
+import { usePortalToken } from '@shared/hooks/usePortalToken'
+import { statusOf } from '@shared/services/apiClient'
 import { approve, listCases, readDraftFor, requestRevisions } from '@/services/draftService'
 
 /**
@@ -42,13 +43,11 @@ import { approve, listCases, readDraftFor, requestRevisions } from '@/services/d
 export default function DraftReview() {
   const queryClient = useQueryClient()
 
-  // First render, not an effect: the token must be set before the query fires.
-  const [tokenPresent] = useState(() => {
-    const token = tokenFromFragment(window.location.hash)
-    if (token) setPortalToken(token)
-    return hasPortalToken()
-  })
+  const tokenPresent = usePortalToken()
 
+  // A case named in the path wins over the picker: the case list links here directly, and
+  // making somebody re-choose what they just clicked is a step that exists by accident.
+  const { caseId: fromPath } = useParams<{ caseId: string }>()
   const [chosen, setChosen] = useState<string | null>(null)
 
   const cases = useQuery({
@@ -61,7 +60,7 @@ export default function DraftReview() {
   // A party link with exactly one case needs no picker: choosing from a list of one is a step
   // that exists only because the code could not be bothered to notice.
   const onlyCase = cases.data?.length === 1 ? cases.data[0].caseId : null
-  const caseId = chosen ?? onlyCase
+  const caseId = fromPath ?? chosen ?? onlyCase
 
   const draft = useQuery({
     queryKey: ['portal', 'draft', caseId],
@@ -129,7 +128,8 @@ export default function DraftReview() {
         <EmptyState icon={FileCheck} title="Nothing to review" description="You have no cases yet." />
       )}
 
-      {cases.data && cases.data.length > 1 && (
+      {/* The picker is for a party link with several cases and no case named in the path. */}
+      {!fromPath && cases.data && cases.data.length > 1 && (
         <CasePicker cases={cases.data} chosen={caseId} onChoose={setChosen} />
       )}
 

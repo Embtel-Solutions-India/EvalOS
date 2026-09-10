@@ -19,10 +19,10 @@ import {
   MAX_UPLOAD_MB,
   NO_TOKEN,
   needsClientAction,
-  tokenFromFragment,
   type ChecklistItem,
 } from '@shared/lib/portal'
-import { hasPortalToken, setPortalToken, statusOf } from '@shared/services/apiClient'
+import { usePortalToken } from '@shared/hooks/usePortalToken'
+import { statusOf } from '@shared/services/apiClient'
 import { documentUrl, listDocuments, uploadDocument } from '@/services/documentService'
 import { formatDateShort } from '@shared/utils/formatters'
 
@@ -44,14 +44,7 @@ const ACCEPTED = ['PDF', 'JPG', 'JPEG', 'PNG']
 export default function Documents() {
   const queryClient = useQueryClient()
 
-  // Captured during the first render rather than in an effect: the token has to be on the client
-  // before the query fires, and an effect runs after. Re-running it (StrictMode does) sets the
-  // same value twice, which is a no-op.
-  const [tokenPresent] = useState(() => {
-    const token = tokenFromFragment(window.location.hash)
-    if (token) setPortalToken(token)
-    return hasPortalToken()
-  })
+  const tokenPresent = usePortalToken()
 
   const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['portal', 'documents'],

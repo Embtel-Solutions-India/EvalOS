@@ -3,87 +3,85 @@ import { Navigate, Route, BrowserRouter, Routes } from 'react-router-dom'
 import { Toaster } from '@shared/components/ui/sonner'
 import { AppLoadingScreen } from '@shared/components/common/AppLoadingScreen'
 import { ErrorBoundary } from '@shared/components/common/ErrorBoundary'
-import { AuthProvider } from '@/context/AuthContext'
-import { AuthLayout } from '@/layouts/AuthLayout'
 import { PortalLayout } from '@/layouts/PortalLayout'
-import { AuthenticatedRoute, PublicRoute } from '@/routes/guards'
-
-const Login = lazy(() => import('@/pages/auth/Login'))
-const ForgotPassword = lazy(() => import('@/pages/auth/ForgotPassword'))
-const VerifyEmail = lazy(() => import('@/pages/auth/VerifyEmail'))
 
 /*
  * 2026-09-10 — what left this router, and the two different reasons.
  *
  * **Deleted outright**, because the requirement change of the same day settled that nothing will
- * ever want them: /payments and /invoices (a client pays through a GHL invoice link the
- * salesperson generates — the portal is never a payment surface), /messages and /tickets
- * (invariant 14, no outbound channel), and /analytics (a client-facing analytics page that no
- * flow asks for). Their pages and services are gone from disk; git history holds them.
+ * ever want them: /payments (a client pays through a GHL invoice link the salesperson generates
+ * — the portal is never a payment surface), /messages and /tickets (invariant 14, no outbound
+ * channel), and /analytics (a client-facing analytics page that no flow asks for). Their pages
+ * and services are gone from disk; git history holds them. `/invoices` came back on 2026-09-11
+ * as Unit 41 and is a different screen: read-only, no payment action.
  *
- * **Unregistered but KEPT on disk** — the seven-step intake funnel at /start*. It is unreachable
- * today because it minted its own case-shaped reference outside Handoff A, which invariant 8
- * forbids. It is not deleted because the new client-portal flow puts a questionnaire back, this
- * time feeding a GHL *opportunity* rather than creating a case — so the screens are wanted and
- * the wiring underneath them is not. Re-registering is one line per route once that unit exists.
+ * **Parked on 2026-09-10, then DELETED on 2026-09-11** — the seven-step intake funnel at
+ * /start*. It was unregistered-but-kept because the coming client-portal questionnaire wants
+ * those screens, feeding a GHL *opportunity* rather than minting a case outside Handoff A
+ * (invariant 8, which is why it was unregistered).
  *
- * Until then: do NOT wire /start* to EvalOS as it stands. The invariant is the reason.
+ * **Parking stopped being available when the account shell went.** Every step of that funnel
+ * imported `useAuth` and `authService`, so with the shell deleted it no longer compiled — and
+ * code that cannot compile is not parked, it is broken. Deleting it was the honest reading.
+ * The questionnaire will be rebuilt against a portal token rather than an account anyway, so
+ * what was being preserved was a shape, and git history preserves that just as well.
+ *
+ * ---
+ *
+ * 2026-09-11 (34d) — **the account shell is gone, and this app has one credential.**
+ *
+ * `/login`, `/forgot-password`, `/verify-email`, `AuthProvider`, `AuthenticatedRoute`,
+ * `PublicRoute`, `AuthLayout`, `authService`, `useAuth`, `/profile` and `/settings` are all
+ * DELETED. They implemented an email-and-password account, which is **the alternative D1
+ * refused rather than deferred**: a password store needs a mail channel for verification and
+ * resets, and invariant 14 says EvalOS has none. The expert app shed the same shell on
+ * 2026-09-10; the client's was kept only because `/dashboard` and `/requests` were still mock
+ * screens living inside it, and 34d is what moved them out.
+ *
+ * **The credential is a scoped portal link.** It arrives in the URL fragment, `usePortalToken`
+ * lifts it into the API client on first render, and every screen below reads it from there — so
+ * a client who opens one link can navigate the whole app without opening another. A fragment is
+ * never sent to the server and never lands in an access log.
+ *
+ * **`/reports` is DELETED, and it was the one close call.** They were download screens for the
+ * finished letter, and **EvalOS has no route that serves it** — `PortalCaseService` filters
+ * `SIGNED_LETTER` out of the client's documents deliberately, because delivery is a decision
+ * nobody has taken. Parking them was the first instinct, and the cost of parking turned out to
+ * be four modules kept alive so an unregistered screen could compile (`types/index`,
+ * `constants/evaluation`, `mock/mockData`, `services/reportService`) — all of them mock.
+ *
+ * Unlike the GM funnel screens, which are live and were left alone, nothing here was reachable
+ * by anyone. Deleting unreachable mock code is not a scope cut. **When the delivery decision
+ * lands, this screen is about forty lines against whatever route it produces**, and git history
+ * holds the old one.
  */
 
 const Dashboard = lazy(() => import('@/pages/dashboard/Dashboard'))
 const Requests = lazy(() => import('@/pages/requests/Requests'))
-const RequestDetail = lazy(() => import('@/pages/requests/RequestDetail'))
 const Documents = lazy(() => import('@/pages/documents/Documents'))
 const Invoices = lazy(() => import('@/pages/invoices/Invoices'))
 const DraftReview = lazy(() => import('@/pages/draft/DraftReview'))
-const Reports = lazy(() => import('@/pages/reports/Reports'))
-const ReportDetail = lazy(() => import('@/pages/reports/ReportDetail'))
-const Profile = lazy(() => import('@/pages/profile/Profile'))
-const Settings = lazy(() => import('@/pages/settings/Settings'))
 const NotFound = lazy(() => import('@shared/pages/NotFound'))
 
 function AppRoutes() {
   return (
     <Routes>
-      <Route path="/" element={<Navigate to="/login" replace />} />
+      {/* No login to land on any more: the client arrives on a link that names them. */}
+      <Route path="/" element={<Navigate to="/dashboard" replace />} />
 
-      <Route element={<AuthLayout />}>
-        <Route element={<PublicRoute />}>
-          <Route path="/login" element={<Login />} />
-          <Route path="/forgot-password" element={<ForgotPassword />} />
-        </Route>
-        <Route path="/verify-email" element={<VerifyEmail />} />
-      </Route>
-
-      {/* The one route wired to EvalOS (Unit 34c). It carries a scoped portal token out of the
-          URL fragment and is deliberately OUTSIDE the account shell above: the credential names
-          one case, not an account, and mounting it behind AuthenticatedRoute would answer Unit
-          34's open decision D1 by accident. No layout, no nav — see pages/documents/Documents. */}
-      <Route path="/documents" element={<Documents />} />
-
-      {/* Invoices (Unit 41), outside the account shell for the same reason and one more: this
-          one needs a PARTY-scoped token, because an invoice belongs to the client rather than to
-          one engagement. A case-scoped link answers 403 and the page says so in the client's
-          own terms. Unit 35 settled D1 by making a credential able to name a party, so this is
-          no longer answering an open decision by accident — it is using the answer. */}
-      <Route path="/invoices" element={<Invoices />} />
-
-      {/* The draft review (34b) — the screen the portal existed for and did not have. Read,
-          approve, request changes; the three endpoints have been in EvalOS since Unit 14 with
-          nothing calling them. Outside the account shell for the same reason as its two
-          neighbours: a scoped portal link, not this app's mock session. */}
-      <Route path="/draft" element={<DraftReview />} />
-
-      <Route element={<AuthenticatedRoute />}>
-        <Route element={<PortalLayout />}>
-          <Route path="/dashboard" element={<Dashboard />} />
-          <Route path="/requests" element={<Requests />} />
-          <Route path="/requests/:id" element={<RequestDetail />} />
-          <Route path="/reports" element={<Reports />} />
-          <Route path="/reports/:id" element={<ReportDetail />} />
-          <Route path="/profile" element={<Profile />} />
-          <Route path="/settings" element={<Settings />} />
-        </Route>
+      {/*
+        Every screen shares one credential and one shell now, which is what 34d bought. Before
+        it, the three real screens each stood alone outside a mock account shell because there
+        was nothing to put them in; the shell is gone and the nav is over the real routes.
+      */}
+      <Route element={<PortalLayout />}>
+        <Route path="/dashboard" element={<Dashboard />} />
+        <Route path="/requests" element={<Requests />} />
+        <Route path="/documents" element={<Documents />} />
+        <Route path="/invoices" element={<Invoices />} />
+        {/* Both, so the case list can link straight to one and the picker still has a home. */}
+        <Route path="/draft" element={<DraftReview />} />
+        <Route path="/draft/:caseId" element={<DraftReview />} />
       </Route>
 
       <Route path="*" element={<NotFound />} />
@@ -91,23 +89,15 @@ function AppRoutes() {
   )
 }
 
-function AppShell() {
+export default function App() {
   return (
-    <BrowserRouter>
-      <ErrorBoundary>
+    <ErrorBoundary>
+      <BrowserRouter>
         <Suspense fallback={<AppLoadingScreen />}>
           <AppRoutes />
         </Suspense>
-      </ErrorBoundary>
-    </BrowserRouter>
-  )
-}
-
-export default function App() {
-  return (
-    <AuthProvider>
-      <AppShell />
-      <Toaster />
-    </AuthProvider>
+        <Toaster />
+      </BrowserRouter>
+    </ErrorBoundary>
   )
 }

@@ -4,6 +4,47 @@ Update this file after every meaningful implementation change.
 
 ## Current Phase
 
+- **2026-09-11 — 34d BUILT: the client portal has no mock left in it, and no account.** Both
+  portal apps build, 24 portal tests pass. **53 files deleted, 10 changed.** No backend change.
+
+  **`/dashboard` and `/requests` read real cases** — `GET /client/cases` against D1's party
+  token, showing D5's server-rendered `step` and its `actionRequired` flag. The SPA still holds
+  **no lifecycle enum**, and a case row links to `/draft/:caseId`.
+
+  **The account shell is gone, which is what this slice was really for.** `/login`,
+  `/forgot-password`, `/verify-email`, `AuthProvider`, `AuthenticatedRoute`, `PublicRoute`,
+  `AuthLayout`, `authService`, `useAuth`, `/profile`, `/settings` — all deleted. That shell
+  implemented an email-and-password account, **the alternative D1 refused rather than
+  deferred**: a password store needs a mail channel invariant 14 says EvalOS does not have. The
+  expert app shed its shell on 2026-09-10; the client's survived only because `/dashboard` and
+  `/requests` were mock screens living inside it — which is precisely what this slice replaced.
+  The tracker called that asymmetry "deliberate and not finished work". It is finished.
+
+  **The app now shares one credential and one nav.** `usePortalToken` — extracted at its fifth
+  call site — lifts the scoped token out of the URL fragment on first render, so a client
+  opening any one link can walk the rest. Before this, the three real screens each stood alone
+  *outside* a shell whose sidebar pointed only at mocks. That is inverted.
+
+  **Two deletions were judgement calls, both recorded in `App.tsx`.** The **intake funnel** was
+  parked-not-deleted the day before because its screens are wanted — but every step imported
+  `useAuth`, so with the shell gone it stopped compiling, and **code that cannot compile is not
+  parked, it is broken**. **`/reports`** was closer: parking it meant keeping four mock modules
+  alive so an unregistered screen could build, for a download page whose backend route does not
+  exist (`PortalCaseService` filters `SIGNED_LETTER` out deliberately — delivery is an untaken
+  decision). Unlike the GM funnel screens, which are live and were left alone, **nothing here
+  was reachable by anyone**, and deleting unreachable mock code is not a scope cut. It is ~40
+  lines against whatever route the delivery decision produces.
+
+  **Also gone:** the notification bell (a channel invariant 14 says does not exist) and Logout
+  (there is no session — closing the tab is the whole of it; a button that cleared the token
+  would strand the client on a page they could only return to via the original email).
+
+  **What is left in the client portal: five pages, three services, all EvalOS-backed.**
+
+  **Next in Track A: Unit 17a** — dashboards without charts, carrying gaps G9–G11 and G16. Then
+  Unit 19 (background jobs — `job/` is still a bare `.gitkeep`) and Unit 17b (the cycle-time
+  chart).
+
 - **2026-09-11 — 34b BUILT: the client can finally answer their draft.** Both portal apps build,
   **24 portal tests** (was 22). No migration.
 

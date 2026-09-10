@@ -107,10 +107,37 @@ edit in `expert/src/App.tsx`.
 - `pages/messages`, `pages/tickets` → **invariant 14**, EvalOS has no outbound channel
 
 **That gap is closed as of 2026-09-11.** `pages/draft/DraftReview.tsx` at `/draft` is 34b:
-read, approve, request revisions. `pages/reports` remains download-only and is a different
-screen. See the section below.
+read, approve, request revisions. (`pages/reports` was deleted the same day — see the box
+above.)
 
-## The wired screens: `/documents` (34c), `/invoices` (41), `/draft` (34b)
+> ## ⚠ 2026-09-11 (34d) — THE CLIENT APP HAS NO MOCK AND NO ACCOUNT
+>
+> **Five pages, three services, all EvalOS-backed:** `/dashboard`, `/requests`, `/documents`,
+> `/invoices`, `/draft` (+ `/draft/:caseId`). `documentService`, `draftService`,
+> `invoiceService`. **Anything below describing a mock screen is history.**
+>
+> **The account shell is DELETED** — `/login`, `/forgot-password`, `/verify-email`,
+> `AuthProvider`, `AuthenticatedRoute`, `PublicRoute`, `AuthLayout`, `authService`, `useAuth`,
+> `/profile`, `/settings`. It implemented an email-and-password account, **the alternative D1
+> refused rather than deferred**: a password store needs a mail channel invariant 14 says does
+> not exist. **Do not reintroduce a login.**
+>
+> **One credential for the whole app.** `usePortalToken` (in `shared/src/hooks`) lifts the
+> scoped token out of the URL fragment on first render — a lazy `useState` initializer, never
+> an effect, because the token must be set before the first query fires. Every screen calls it.
+> A client opening any one link can then walk the rest.
+>
+> **No Logout and no notification bell.** There is no session (closing the tab is the whole of
+> it, and clearing the token would strand the client), and no channel to notify through — the
+> portal *is* the notification, which is what D4 settled.
+>
+> **Deleted with it: the intake funnel** (parked the day before; every step imported `useAuth`,
+> so it stopped compiling — code that cannot compile is not parked) **and `/reports`** (parking
+> it meant four mock modules kept alive for an unregistered screen whose backend route does not
+> exist; `SIGNED_LETTER` is filtered out of client documents deliberately because delivery is an
+> untaken decision — it is ~40 lines when that lands).
+
+## The wired screens: `/documents` (34c), `/invoices` (41), `/draft` (34b), and the two lists (34d)
 
 ### `/draft` — the client answers their draft (34b, BUILT 2026-09-11)
 

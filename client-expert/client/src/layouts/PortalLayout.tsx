@@ -5,12 +5,18 @@ import { PageTransition } from '@shared/components/common/PageTransition'
 import { MobileNavDrawer } from '@/components/layout/MobileNavDrawer'
 import { PortalHeader } from '@/components/layout/PortalHeader'
 import { PortalSidebar } from '@/components/layout/PortalSidebar'
-import { ACCOUNT_NAV, PRIMARY_NAV, SECONDARY_NAV } from '@/constants/navigation'
+import { PRIMARY_NAV } from '@/constants/navigation'
 
-const ALL_NAV = [...PRIMARY_NAV, ...SECONDARY_NAV, ...ACCOUNT_NAV]
-
+/**
+ * The title bar's text.
+ *
+ * One nav list now, since 34d left only real screens — the account and "More" groups went with
+ * the shell. `/draft` is deliberately absent from the nav (it is reached from a case, not from
+ * a menu) so it falls through to its own name here rather than to "Home".
+ */
 function getPageTitle(pathname: string): string {
-  const match = ALL_NAV.find((item) => pathname.startsWith(item.to))
+  if (pathname.startsWith('/draft')) return 'Your draft'
+  const match = PRIMARY_NAV.find((item) => pathname.startsWith(item.to))
   return match?.label ?? 'Home'
 }
 

@@ -1,14 +1,14 @@
 import { useQuery } from '@tanstack/react-query'
 import { Receipt } from 'lucide-react'
-import { useState } from 'react'
 import { Badge } from '@shared/components/ui/badge'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@shared/components/ui/table'
 import { EmptyState } from '@shared/components/common/EmptyState'
 import { ErrorState } from '@shared/components/common/ErrorState'
 import { PageHeader } from '@shared/components/common/PageHeader'
 import { TableSkeleton } from '@shared/components/common/LoadingState'
-import { failureMessage, NO_TOKEN, tokenFromFragment, type ClientInvoice } from '@shared/lib/portal'
-import { hasPortalToken, setPortalToken, statusOf } from '@shared/services/apiClient'
+import { failureMessage, NO_TOKEN, type ClientInvoice } from '@shared/lib/portal'
+import { usePortalToken } from '@shared/hooks/usePortalToken'
+import { statusOf } from '@shared/services/apiClient'
 import { listInvoices } from '@/services/invoiceService'
 import { formatDateShort } from '@shared/utils/formatters'
 
@@ -30,13 +30,7 @@ import { formatDateShort } from '@shared/utils/formatters'
  * would be a second opinion about money.
  */
 export default function Invoices() {
-  // Captured during the first render rather than in an effect, for the reason `Documents` gives:
-  // the token has to be on the client before the query fires, and an effect runs after.
-  const [tokenPresent] = useState(() => {
-    const token = tokenFromFragment(window.location.hash)
-    if (token) setPortalToken(token)
-    return hasPortalToken()
-  })
+  const tokenPresent = usePortalToken()
 
   const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['portal', 'invoices'],

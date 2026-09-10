@@ -314,9 +314,36 @@ know where a draft screen lives, and 34d *is* D1.
   from the sidebar — the credential is a scoped link, not this shell's session, and putting it
   behind the account guard would have answered D1 sideways. The orphaned mock surface went with it:
   `MOCK_DOCUMENTS`, `ClientDocument`, `DocumentStatus` and `DocumentStatusBadge` are deleted.
-- **34d · The case list + projection.** D1's party-scoped token, D5's stage projection,
-  the dashboard and requests screens against real cases. **Unblocked 2026-09-04** — both
-  decisions taken; the backend half is Unit 35.
+- **34d · The case list + projection — BUILT 2026-09-11.** `/dashboard` and `/requests` read
+  `GET /client/cases` against D1's party token, showing D5's server-rendered `step` and its
+  `actionRequired` flag. **The SPA still holds no lifecycle enum**; a case row links to
+  `/draft/:caseId`.
+
+  **And it finished the job the slice was really for: the account shell is gone.**
+  `/login`, `/forgot-password`, `/verify-email`, `AuthProvider`, `AuthenticatedRoute`,
+  `PublicRoute`, `AuthLayout`, `authService`, `useAuth`, `/profile` and `/settings` are all
+  deleted. That shell implemented an email-and-password account — **the alternative D1 refused
+  rather than deferred**, since a password store needs a mail channel invariant 14 says EvalOS
+  does not have. The expert app shed its shell on 2026-09-10; the client's was kept only
+  because `/dashboard` and `/requests` were mock screens living inside it, which is exactly
+  what this slice replaced.
+
+  **The whole app now shares one credential and one nav.** `usePortalToken` (extracted here, at
+  its fifth call site) lifts the scoped token out of the URL fragment on first render, so a
+  client opening any one link can walk the rest. Before 34d the three real screens each stood
+  alone *outside* a mock shell whose sidebar pointed only at mocks — that is inverted now.
+
+  **53 files deleted, and two of them were judgement calls worth recording.** The **intake
+  funnel** was parked-not-deleted on 2026-09-10 because its screens are wanted; every step
+  imported `useAuth`, so with the shell gone it no longer compiled, and code that cannot
+  compile is not parked. **`/reports`** was the closer call: parking it meant keeping four mock
+  modules alive so an unregistered screen could build, for a download page whose backend route
+  does not exist — `PortalCaseService` filters `SIGNED_LETTER` out deliberately, because
+  delivery is a decision nobody has taken. Unlike the GM funnel screens, which are live and
+  were left alone, nothing here was reachable by anyone; **deleting unreachable mock code is
+  not a scope cut.** It is ~40 lines against whatever route the delivery decision produces.
+
+  **There is no mock left in the client app.** Three services, all EvalOS-backed.
 - **34e · Expert portal — BUILT 2026-09-03**, against Unit 15's six routes.
   `expert/src/pages/portal/ExpertCasePortal.tsx` at `/case#<token>`, **outside**
   `ExpertAuthenticatedRoute` for the reason 34c stayed outside `AuthenticatedRoute`: the credential
