@@ -23,8 +23,28 @@ public record StaffPrincipal(
 		Role role,
 		UUID brandId,
 		UUID teamId,
+		/**
+		 * The GHL pipeline this member owns, or null for every role that is not pipeline-scoped.
+		 *
+		 * <p>Carried on the principal rather than looked up, for the reason {@code teamId} is: a
+		 * scope predicate that needs a database read to build is a read on every scoped query.
+		 * The cost is that a pipeline reassignment takes effect on the member's next login —
+		 * the same property {@code brandId} and {@code teamId} already have, stated here so
+		 * nobody meets it as a bug.
+		 */
+		String ghlPipelineId,
 		String passwordHash,
 		boolean active) implements UserDetails {
+
+	/**
+	 * A principal for a role that owns no GHL pipeline. Same reasoning as
+	 * {@link TenantContext#TenantContext(UUID, Role, UUID, UUID)}: {@code null} is what the
+	 * column actually holds for these roles, and it fails closed for the ones it does not.
+	 */
+	public StaffPrincipal(UUID memberId, String email, String displayName, Role role, UUID brandId,
+			UUID teamId, String passwordHash, boolean active) {
+		this(memberId, email, displayName, role, brandId, teamId, null, passwordHash, active);
+	}
 
 	public static StaffPrincipal of(TeamMember member) {
 		return new StaffPrincipal(
@@ -34,6 +54,7 @@ public record StaffPrincipal(
 				member.getRole(),
 				member.getBrandId(),
 				member.getTeamId(),
+				member.getGhlPipelineId(),
 				member.getPasswordHash(),
 				member.isActive());
 	}

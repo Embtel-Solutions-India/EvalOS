@@ -4,6 +4,46 @@ Update this file after every meaningful implementation change.
 
 ## Current Phase
 
+- **2026-09-10 — Unit 36 BUILT: the access model the whole GHL programme reads.** `V39`,
+  **659 backend tests green** (was 611), staff frontend builds. No GHL call, no screen, no write —
+  invariant 2 is still enforced by code and `GhlHttpTest` still fails the build on a write verb.
+
+  **What shipped.** `Role` goes to eight with `SALES` and `MARKETING` on a new **`Tier.PIPELINE`**;
+  `team_member` gains `ghl_pipeline_id` (the whole access predicate) and `segment` (display only);
+  the pipeline rides on the JWT beside brand and team; and two GM routes — `GET /api/ghl/pipelines`
+  to pick from, `PUT /api/team-members/{id}/ghl-pipeline` to assign, audited, every refusal a 400.
+
+  **The one real bug, and only a real Postgres could see it.** The segment CHECK as specced was
+  `role IN ('SALES','MARKETING') AND segment IN (...)`. **`NULL IN (...)` evaluates to NULL, and a
+  CHECK that evaluates to NULL passes in Postgres** — so a `MARKETING` row with no segment was
+  accepted by the constraint written to forbid it. Fixed with `segment IS NOT NULL` before the
+  `IN`. The pipeline CHECK escapes the same trap only because `IS NOT NULL`/`IS NULL` never yield
+  NULL, which is luck of phrasing rather than design. **No Java-level test could ever have caught
+  it** — the enum cannot produce a null segment — which is the concrete argument for
+  `LocalPostgresIntegrationTest` existing at all.
+
+  **V39 was edited in place rather than corrected by a V40**, and that is worth defending against
+  invariant 9. It had never been committed or deployed; its only application was to the local
+  `evalos_test` scratch schema, which was dropped and re-migrated. A V40 fixing a V39 nobody else
+  had ever run would be permanent noise in the history. **The rule stands for anything that has
+  shipped.**
+
+  **Four things the build added to the spec.** `Role.isPipelineScoped()`, so the route and the
+  constraint read one predicate instead of two lists of two names. `GhlPipelineClient.pipelines()`,
+  extracted from `pipelineNamed` which now filters it — one HTTP shape, one place the camelCase
+  `locationId` quirk is recorded. **"Owns no pipeline" secondary constructors** on `StaffPrincipal`
+  and `TenantContext` instead of editing ~35 call sites across 25 test files — not a defaulting
+  convenience, since null is what the column holds for the six other roles, and
+  `ScopePredicateTest` pins that the short form still fails closed for the two it does not. And
+  `SegmentIsNotAnAccessKeyTest`, a source scan with two tests proving the scan itself can fail.
+
+  **One deliberate gap.** The **staff frontend still lists six roles**. Adding two would mean empty
+  nav entries or broken exhaustive `Record<Role, …>` maps, for roles with **no screen to reach
+  until Unit 38** — and nothing in the app can create a member in either role, so it is unreachable
+  rather than broken. Unit 38 adds the union and the boards in one change.
+
+  **Next: Unit 37, the write door.** It ships no feature and that is the point.
+
 - **2026-09-10 — the direction changed, and it is SPECCED, not built. EvalOS becomes the interface
   Sales and Marketing work in.** No code changed. Seven documents did.
 

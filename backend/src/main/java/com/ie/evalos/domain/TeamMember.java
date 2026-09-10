@@ -50,6 +50,25 @@ public class TeamMember {
 	@Column(name = "reports_to")
 	private UUID reportsTo;
 
+	/**
+	 * The one GHL pipeline a {@code SALES}/{@code MARKETING} member owns, and NULL for every
+	 * other role — both directions enforced by {@code team_member_pipeline_matches_role}.
+	 *
+	 * <p>Held as the opaque GHL id, never the pipeline's name: this is an access key, and one
+	 * that broke when somebody renamed a pipeline in GHL would lock an employee out of their own
+	 * work.
+	 */
+	@Column(name = "ghl_pipeline_id")
+	private String ghlPipelineId;
+
+	/**
+	 * Which kind of client this member handles. Display and reporting only — see {@link Segment},
+	 * and note that nothing may branch on it.
+	 */
+	@Enumerated(EnumType.STRING)
+	@Column(name = "segment")
+	private Segment segment;
+
 	@Column(nullable = false)
 	private boolean active = true;
 
@@ -90,6 +109,29 @@ public class TeamMember {
 
 	public UUID getReportsTo() {
 		return reportsTo;
+	}
+
+	public String getGhlPipelineId() {
+		return ghlPipelineId;
+	}
+
+	public Segment getSegment() {
+		return segment;
+	}
+
+	/**
+	 * Assigns the GHL pipeline this member owns.
+	 *
+	 * <p>The only mutator on this entity, and it takes no null: clearing a pipeline would
+	 * violate {@code team_member_pipeline_matches_role} on a pipeline-scoped role, and answering
+	 * 500 from a constraint is how a UI acquires an error path nobody can test. Clearing only
+	 * makes sense as part of a role change or a deactivation, which are different operations.
+	 */
+	public void assignPipeline(String ghlPipelineId) {
+		if (ghlPipelineId == null || ghlPipelineId.isBlank()) {
+			throw new IllegalArgumentException("A pipeline id is required; clearing is a role change or a deactivation");
+		}
+		this.ghlPipelineId = ghlPipelineId;
 	}
 
 	public boolean isActive() {

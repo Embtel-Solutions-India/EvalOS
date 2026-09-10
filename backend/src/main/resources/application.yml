@@ -167,6 +167,21 @@ evalos:
     # controller-triggered path, and a bound is what keeps it "one bounded
     # request" rather than long-lived work (invariant 6). The read is paginated, so the bound is
     # per page and not for the whole funnel.
+    # Which brand owns `location-id`. Unit 36's single-brand ceiling, and it is ENFORCED rather
+    # than documented: assigning SALES or MARKETING to a member of any other brand answers 400.
+    #
+    # WHY THIS EXISTS. `location-id` above has no link to a brand, which invariant 1 licenses as
+    # its one stated exception by making every screen over it GM-only. SALES and MARKETING are
+    # brand-LOCKED, so the moment one of them reads that location the exception's argument
+    # ("EvalOS cannot tell whose, so only the cross-brand role may look") stops holding. Naming
+    # the brand here NARROWS the exception rather than widening it.
+    #
+    # ponytail: one GHL location, so one selling brand. Unit 25 (location + token per brand) is
+    # the upgrade path, and the trigger is a business event — a second brand starts selling.
+    #
+    # Blank means no brand may hold a pipeline-scoped role, which is the safe default for an
+    # environment that has not been told which brand sells.
+    sales-brand: ${GHL_SALES_BRAND_ID:}
     timeout: ${GHL_TIMEOUT:10s}
     # How long one funnel read is served from memory before GHL is asked again.
     #

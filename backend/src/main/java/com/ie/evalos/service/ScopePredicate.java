@@ -10,7 +10,7 @@ import jakarta.persistence.criteria.Predicate;
 import org.springframework.data.jpa.domain.Specification;
 
 /**
- * The one place brand/team/assignee predicates are built. Every scoped read
+ * The one place brand/team/assignee/pipeline predicates are built. Every scoped read
  * composes its Specification from here — a repository query that skips it can
  * cross brands, which is a defect, not a feature.
  *
@@ -40,19 +40,36 @@ public final class ScopePredicate {
 	 *                        meaning both is how a scope starts asserting something the
 	 *                        schema never said.
 	 */
-	public record Fields(String brand, String team, List<String> assignees, boolean unteamedVisible) {
+	public record Fields(String brand, String team, List<String> assignees, boolean unteamedVisible,
+			String pipeline) {
 
 		public Fields {
 			assignees = List.copyOf(assignees);
 		}
 
+		public Fields(String brand, String team, List<String> assignees, boolean unteamedVisible) {
+			this(brand, team, assignees, unteamedVisible, null);
+		}
+
 		/** The strict reading: an unteamed row belongs to nobody and is shown to nobody. */
 		public Fields(String brand, String team, List<String> assignees) {
-			this(brand, team, assignees, false);
+			this(brand, team, assignees, false, null);
 		}
 
 		public static Fields brandOnly(String brand) {
 			return new Fields(brand, null, List.of());
+		}
+
+		/**
+		 * A brand-scoped entity that also carries the owning GHL pipeline.
+		 *
+		 * <p><strong>No production entity uses this yet</strong> — the opportunity work product
+		 * is Unit 38's and the note table is Unit 39's. The axis ships now so that those units
+		 * add a table rather than a scoping model, which is the difference between one migration
+		 * and a second argument about how scoping works.
+		 */
+		public static Fields brandAndPipeline(String brand, String pipeline) {
+			return new Fields(brand, null, List.of(), false, pipeline);
 		}
 	}
 
@@ -98,6 +115,18 @@ public final class ScopePredicate {
 					if (mine.length > 0) {
 						predicates.add(cb.or(mine));
 					}
+				}
+				case PIPELINE -> {
+					// Fail closed, and note this returns rather than skipping the arm. A
+					// pipeline-scoped caller whose principal carries no pipeline — a token
+					// minted before Unit 36, a row misconfigured — matches NOTHING, not their
+					// whole brand. That is the same rule the brand check above applies, and
+					// the direction it is safe to be wrong in: an empty board is a support
+					// call, a full one is a breach.
+					if (fields.pipeline() == null || ctx.ghlPipelineId() == null) {
+						return cb.disjunction();
+					}
+					predicates.add(cb.equal(root.get(fields.pipeline()), ctx.ghlPipelineId()));
 				}
 				// BRAND and SUPPLY read their whole brand; ALL returned above.
 				default -> {

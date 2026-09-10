@@ -258,8 +258,8 @@ become a way for a non-GM to trigger client-facing messages.
     `LocalPostgresIntegrationTest` pins both against the real database, which is the only place
     that failure can surface. **The GM is once again the only role that may have no brand**, and
     its NULL means "every brand" — the opposite of what the sales executive's meant.
-  - **⚠ Six becomes eight at Unit 36 (specced 2026-09-10, not built).** `SALES` and `MARKETING`
-    arrive, both on a **new `Tier.PIPELINE`**, keyed on `team_member.ghl_pipeline_id`.
+  - **Eight since Unit 36 (BUILT 2026-09-10, `V39`).** `SALES` and `MARKETING` arrive, both on a
+    **new `Tier.PIPELINE`**, keyed on `team_member.ghl_pipeline_id`.
     Three things about that, decided rather than defaulted:
     - **`PIPELINE` is not a reuse of `SELF`.** `SELF` means "rows naming me in an assignee column"
       and is about `evalos_case`; there is no assignee column on what these roles read.
@@ -270,7 +270,30 @@ become a way for a non-GM to trigger client-facing messages.
     - **`uq_team_member_pipeline` is globally unique and deliberately not brand-scoped** — a GHL
       pipeline belongs to the one location, not to a brand. Partial on `active` so a replacement
       can inherit a leaver's pipeline.
-    - The predicate **fails closed** on a null pipeline, on the same rule as brand. `V39`.
+    - The predicate **fails closed** on a null pipeline, on the same rule as brand — it
+      `return`s rather than skipping the arm, so a pipeline-scoped caller with no pipeline
+      matches NOTHING rather than their whole brand.
+    - **`ghlPipelineId` rides on the JWT** beside brand and team, so scoping still needs no DB
+      hit. Same trade-off: a reassignment takes effect on next login. A token minted before
+      `V39` carries no claim, reads as null, and fails closed.
+    - **`StaffPrincipal` and `TenantContext` have "owns no pipeline" secondary constructors.**
+      Not defaulting convenience — null is what the column holds for the six other roles. Pinned
+      in `ScopePredicateTest` so the short form cannot become permissive.
+    - **`Role.isPipelineScoped()`** is the one predicate the assignment route and the CHECK both
+      read; a third `Tier.PIPELINE` role reaches both by adding an enum constant.
+    - **GM-only routes:** `GET /api/ghl/pipelines` (the picker — the id is opaque, and a wrong
+      one is silent) and `PUT /api/team-members/{id}/ghl-pipeline` (`PipelineAssignmentService`,
+      audited, every refusal a 400 rather than a 500 out of a constraint).
+    - **Single-brand ceiling, enforced:** `evalos.ghl.sales-brand`. A pipeline-scoped member of
+      any other brand is refused 400; a blank property refuses everyone. This NARROWS invariant
+      1's location exception from "GM-only" to "one named brand". Unit 25 closes it.
+    - **⚠ `V39`'s segment CHECK needs `segment IS NOT NULL` before the `IN`.** `NULL IN (...)`
+      is NULL, and **a CHECK evaluating to NULL passes in Postgres** — without it the constraint
+      permitted the exact row it forbids. Caught only by `LocalPostgresIntegrationTest`. Apply
+      the same care to any future biconditional CHECK.
+    - **The staff frontend still lists six roles** (`session.ts`, `navigation.ts`,
+      `boardRules.ts`, `RoleDashboard.tsx`). Deliberate: no screen exists for these roles until
+      Unit 38, which adds the union and the boards together. Unreachable, not broken.
     Spec: `context/specs/36-pipeline-scoped-access.md`, programme: `00b-ghl-operational-programme.md`.
 - **`SUPPLY` is a field tier, not a row tier, and this is the one that surprises people.** At the
   row level it is identical to `BRAND` — `ScopePredicate` handles both under `default -> {}` and

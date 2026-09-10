@@ -94,7 +94,7 @@ Evaluations, XpertsPortal). Takes custody at **`opportunity.won`** in GoHighLeve
 case to signed delivery + expert payout. GHL stays front-of-house (leads, sales, invoicing, review
 campaigns); **EvalOS never does marketing, sales, or invoicing.**
 
-**⚠ THAT LAST CLAUSE IS SCHEDULED TO DIE. Decided 2026-09-10, not yet built.** The **GHL
+**⚠ THAT LAST CLAUSE IS SCHEDULED TO DIE. Decided 2026-09-10; Unit 36 of six is built.** The **GHL
 operational programme (Units 36–41)** makes EvalOS the interface Sales and Marketing *work in*, so
 they never open GHL; GHL stays the CRM, pipeline, automation and invoice/QuickBooks layer
 underneath. Spec: **`context/specs/00b-ghl-operational-programme.md`** — read it before any GHL
@@ -105,7 +105,8 @@ work, it holds the truth model and the invariant ledger.
 | | |
 |---|---|
 | **Decided** | Two roles `SALES`/`MARKETING` (`Tier.PIPELINE`) + a `segment` column, *not* six roles; one personal exclusive pipeline each; **GHL owns the opportunity, EvalOS owns the note stream keyed on `ghl_opportunity_id`**; a droppable non-authoritative opportunity cache; **single selling brand** (`evalos.ghl.sales-brand`) enforced with a 400 until Unit 25 |
-| **Live today** | Everything below this box. Invariant 2 is **still enforced by code** — `GhlHttp` has no write verb and `GhlHttpTest` fails the build if one appears. **Unit 37 is where that changes and nowhere earlier.** |
+| **Live today** | Everything below this box, **plus Unit 36 (BUILT 2026-09-10, `V39`)**: `Role` has eight values, `Tier.PIPELINE` exists and fails closed, `team_member` carries `ghl_pipeline_id` + `segment`, and two GM routes assign a pipeline. Invariant 2 is **still enforced by code** — `GhlHttp` has no write verb and `GhlHttpTest` fails the build if one appears. **Unit 37 is where that changes and nowhere earlier.** |
+| **Next** | **Unit 37, the write door.** It ships no feature: three verbs on `GhlHttp`, invariant 2 rewritten, `GhlHttpTest`'s guard replaced by "the verb list is closed AND every write caller audits". |
 
 **Two things the programme does NOT touch:** invoicing stays GHL's (Unit 41 *reads* invoices,
 raises none), and **invariant 8 is untouched** — a case is still born only of a won opportunity

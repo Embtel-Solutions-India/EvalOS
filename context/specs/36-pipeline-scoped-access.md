@@ -1,6 +1,6 @@
 # Unit 36 — Pipeline-scoped access
 
-> **Status: SPECCED 2026-09-10, not built.** The first unit of the direction change taken on
+> **Status: BUILT 2026-09-10** (`V39`, 659 backend tests green, was 611). The first unit of the direction change taken on
 > 2026-09-10: **EvalOS becomes the primary operational system for sales and marketing**, with GHL
 > as the backend data layer. This unit builds the access model that every later one reads, and
 > **nothing else** — no board, no screen, no GHL write.
@@ -85,9 +85,25 @@ do that routing.
 ALTER TABLE team_member ADD COLUMN segment text;
 
 CONSTRAINT team_member_segment_matches_role CHECK (
-    (role IN ('SALES', 'MARKETING') AND segment IN ('ATTORNEY', 'EMPLOYER_FIRM', 'INDIVIDUAL'))
+    (role IN ('SALES', 'MARKETING')
+        AND segment IS NOT NULL
+        AND segment IN ('ATTORNEY', 'EMPLOYER_FIRM', 'INDIVIDUAL'))
     OR (role NOT IN ('SALES', 'MARKETING') AND segment IS NULL))
 ```
+
+**`AND segment IS NOT NULL` was added during the build, and it is load-bearing.** The spec
+originally wrote this constraint without it, which does not work: `NULL IN ('ATTORNEY', …)`
+evaluates to **NULL**, not FALSE, and **a CHECK that evaluates to NULL passes in Postgres**. For a
+`SALES` row with no segment the whole expression was `NULL OR FALSE` = NULL, so the constraint
+silently permitted the one case it exists to forbid.
+
+The pipeline CHECK in §4 escapes the same trap only because `IS NOT NULL` / `IS NULL` never yield
+NULL — which is luck of phrasing, not design, and is worth knowing before writing the next
+biconditional CHECK.
+
+**Nothing but `LocalPostgresIntegrationTest` could have caught it.** It is invisible in review, and
+invisible to every test that does not run against a real Postgres — the enum cannot produce a null
+segment, so no Java-level test would ever try. This is the concrete payoff of that suite existing.
 
 **Nothing in the codebase branches on `segment`.** It is carried for display and reporting, and
 that is the whole of its meaning. Six roles would have grown every `switch (role)`, the
@@ -308,30 +324,55 @@ is the class of change invariant 13 exists for.
 
 ## 11. Acceptance criteria
 
-- [ ] A `SALES` member whose row has no `ghl_pipeline_id` cannot be inserted — the CHECK refuses
+- [x] A `SALES` member whose row has no `ghl_pipeline_id` cannot be inserted — the CHECK refuses
       it — and a `CASE_MANAGER` with one is refused by the same constraint.
-- [ ] Two active members cannot hold the same pipeline **even in different brands** — the index is
+- [x] Two active members cannot hold the same pipeline **even in different brands** — the index is
       global, and this is the criterion that proves it rather than the one that would pass either
       way. The same pipeline **can** be given to a replacement once the previous holder is
       `active = false`.
-- [ ] A `PIPELINE`-tier principal with a null `ghlPipelineId` matches **nothing**, asserted by
+- [x] A `PIPELINE`-tier principal with a null `ghlPipelineId` matches **nothing**, asserted by
       running a scoped read against the test entity of §5 rather than by inspecting the
       `Specification`.
-- [ ] A `PIPELINE` predicate never replaces the brand predicate — a member of brand A holding a
+- [x] A `PIPELINE` predicate never replaces the brand predicate — a member of brand A holding a
       pipeline id that also exists in brand B reads none of B's rows. Same test entity, two brands.
-- [ ] `PUT .../ghl-pipeline` with a null pipeline answers **400**, not a constraint violation.
-- [ ] `GET /api/ghl/pipelines` is GM-only; every other role answers 403.
-- [ ] `PUT /api/team-members/{id}/ghl-pipeline` is GM-only, writes an audit row, and refuses a
+- [x] `PUT .../ghl-pipeline` with a null pipeline answers **400**, not a constraint violation.
+- [x] `GET /api/ghl/pipelines` is GM-only; every other role answers 403.
+- [x] `PUT /api/team-members/{id}/ghl-pipeline` is GM-only, writes an audit row, and refuses a
       pipeline already held by any active member, in any brand.
-- [ ] Setting a pipeline on a non-sales, non-marketing member answers 400, not 500 — the
+- [x] Setting a pipeline on a non-sales, non-marketing member answers 400, not 500 — the
       constraint is the backstop, not the error message.
-- [ ] A `SALES` or `MARKETING` member of a brand other than `evalos.ghl.sales-brand` is refused at
+- [x] A `SALES` or `MARKETING` member of a brand other than `evalos.ghl.sales-brand` is refused at
       assignment with **400** (§4a) — the ceiling is enforced, not merely written down. A member of
       the configured brand is accepted.
-- [ ] `segment` is refused as NULL on a `SALES`/`MARKETING` row and refused as non-NULL on every
+- [x] `segment` is refused as NULL on a `SALES`/`MARKETING` row and refused as non-NULL on every
       other role, both by the CHECK (§3a).
-- [ ] **No production code branches on `segment`.** Asserted the way the invariant tests assert
+- [x] **No production code branches on `segment`.** Asserted the way the invariant tests assert
       structure: a grep-style structural test, so the first `if (segment == ...)` fails the build
       rather than passing review.
-- [ ] `GhlHttpTest` still passes: **this unit adds no write verb to `GhlHttp`.**
-- [ ] `./mvnw verify` green; both portal apps build.
+- [x] `GhlHttpTest` still passes: **this unit adds no write verb to `GhlHttp`.**
+- [x] `./mvnw verify` green; both portal apps build.
+
+## 12. What the build added to this spec
+
+- **The NULL-in-CHECK correction** (§3a). The only change to the design; everything else shipped
+  as written.
+- **`Role.isPipelineScoped()`** — one predicate the route and the constraint both read, so a third
+  `Tier.PIPELINE` role reaches both by adding an enum constant rather than by remembering two
+  places that list two names.
+- **`GhlPipelineClient.pipelines()`** — extracted from `pipelineNamed`, which now filters it.
+  One HTTP shape, one place the camelCase `locationId` quirk is written down.
+- **"Owns no pipeline" secondary constructors** on `StaffPrincipal` and `TenantContext`, rather
+  than editing ~35 call sites across 25 test files. Not a defaulting convenience: `null` is what
+  the column actually holds for the six non-pipeline roles, and it fails closed for the two it
+  does not — asserted directly in `ScopePredicateTest`, so the short form cannot quietly become
+  permissive.
+- **`SegmentIsNotAnAccessKeyTest`** — a source scan, with two tests proving the scan itself can
+  fail and does not flag legitimate carrying of the value. A guard that cannot fail is decoration.
+
+**One deliberate gap, and it is not an oversight.** The **staff frontend's `Role` union still
+lists six roles**; `SALES` and `MARKETING` are absent from `session.ts`, `navigation.ts`,
+`boardRules.ts` and `RoleDashboard.tsx`. Adding them here would mean either shipping empty nav
+entries or breaking the exhaustive `Record<Role, …>` maps — for two roles that have **no screen
+to reach until Unit 38**. It is unreachable rather than broken: nothing in the app creates a
+member in either role. **Unit 38 adds the roles to the frontend and the boards in the same
+change**, which is the only way the union and the screens land consistent.

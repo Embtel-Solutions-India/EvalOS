@@ -114,18 +114,18 @@ public class GhlPipelineClient {
 	}
 
 	/**
-	 * The pipeline GHL knows by this name.
+	 * Every pipeline on the configured location, id and name.
 	 *
-	 * <p><strong>Looked up by name rather than configured by id</strong>, because the id is a
-	 * 20-character opaque string that means nothing to whoever provisions the environment while
-	 * the name is what they can read in GHL. The trade is that renaming the pipeline over there
-	 * breaks the view — which surfaces as the stated 502 below rather than as a silently empty
-	 * funnel, and that is the direction to fail in.
+	 * <p>Exists for Unit 36's assignment screen: {@code team_member.ghl_pipeline_id} holds an
+	 * opaque 20-character id, and asking a GM to paste one is how the wrong id gets pasted. A
+	 * wrong id there is <em>silent</em> — the employee sees an empty board and no error — so the
+	 * list is the difference between a typo and a choice.
 	 *
-	 * @throws GhlUnavailableException if GHL is not configured here, refused the request, or has
-	 *                                no pipeline by that name
+	 * <p>Read-only, like everything else here. Invariant 2 is untouched by this unit.
+	 *
+	 * @throws GhlUnavailableException if GHL is not configured here or refused the request
 	 */
-	public Pipeline pipelineNamed(String name) {
+	public List<Pipeline> pipelines() {
 		// **`locationId`, camelCase — and it genuinely differs from the search endpoint below,
 		// which demands snake_case.** Not an inconsistency to tidy up: GHL validates the two routes
 		// with different DTOs, confirmed against the live API.
@@ -140,9 +140,24 @@ public class GhlPipelineClient {
 		// is what made the wrong guess look well-evidenced — only a live call settled it.
 		PipelinesResponse response = http.get(PipelinesResponse.class,
 				(uri) -> uri.path("/opportunities/pipelines").queryParam("locationId", http.locationId()).build());
+		return Optional.ofNullable(response.pipelines()).orElse(List.of());
+	}
 
+	/**
+	 * The pipeline GHL knows by this name.
+	 *
+	 * <p><strong>Looked up by name rather than configured by id</strong>, because the id is a
+	 * 20-character opaque string that means nothing to whoever provisions the environment while
+	 * the name is what they can read in GHL. The trade is that renaming the pipeline over there
+	 * breaks the view — which surfaces as the stated 502 below rather than as a silently empty
+	 * funnel, and that is the direction to fail in.
+	 *
+	 * @throws GhlUnavailableException if GHL is not configured here, refused the request, or has
+	 *                                no pipeline by that name
+	 */
+	public Pipeline pipelineNamed(String name) {
 		String wanted = squashed(name);
-		return Optional.ofNullable(response.pipelines()).orElse(List.of()).stream()
+		return pipelines().stream()
 				// Empty `wanted` matches nothing on purpose: a blank or unset name property must
 				// fall through to the 502 below rather than silently bind to a pipeline GHL
 				// happens to have returned without a name.

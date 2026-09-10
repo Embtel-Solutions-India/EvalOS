@@ -93,6 +93,8 @@ evalos:
     location-id: ${GHL_LOCATION_ID:kBumF0uUOmMBB5bneYjx}
     ads-pipeline-name: ${GHL_ADS_PIPELINE_NAME:Google ADS Pipeline}
     email-pipeline-name: ${GHL_EMAIL_PIPELINE_NAME:Shivangi's Email Marketing}
+    # Unit 36's single-brand ceiling; the reasoning is in the base profile.
+    sales-brand: ${GHL_SALES_BRAND_ID:}
     # One space, not the two GHL actually stores — see the base profile. The client normalises it.
     sales-pipeline-name: ${GHL_SALES_PIPELINE_NAME:Aditya's pipeline}
     timeout: ${GHL_TIMEOUT:10s}

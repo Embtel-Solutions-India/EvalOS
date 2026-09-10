@@ -1470,4 +1470,123 @@ class LocalPostgresIntegrationTest {
 				gm, "gm-" + gm + "@evalos.local")).isEqualTo(1);
 		jdbc.update("DELETE FROM team_member WHERE id = ?", gm);
 	}
+
+	// --- Unit 36: pipeline-scoped access, V39 ---------------------------------
+
+	private UUID insertPipelineMember(UUID brandId, String role, String pipelineId, String segment,
+			boolean active) {
+		UUID id = UUID.randomUUID();
+		jdbc.update("INSERT INTO team_member "
+				+ "(id, brand_id, role, email, password_hash, display_name, ghl_pipeline_id, segment, active) "
+				+ "VALUES (?, ?, ?, ?, 'x', 'Desk', ?, ?, ?)",
+				id, brandId, role, role.toLowerCase() + "-" + id + "@evalos.local", pipelineId, segment, active);
+		return id;
+	}
+
+	/**
+	 * <strong>Both halves of both CHECKs, against the real database.</strong>
+	 *
+	 * <p>Each direction matters and for a different reason. A sales row with no pipeline is a
+	 * person who can see nothing and has no error to show for it. A Case Manager <em>with</em> one
+	 * is a column that has started to mean two things — which is precisely the mistake V29 made
+	 * and V30 recorded, and the reason both constraints are written as a biconditional rather than
+	 * a NOT NULL.
+	 */
+	@Test
+	void aPipelineAndASegmentBelongToPipelineScopedRolesAndOnlyThem() {
+		// A pipeline-scoped role must have both.
+		assertThatThrownBy(() -> jdbc.update(
+				"INSERT INTO team_member (id, brand_id, role, email, password_hash, display_name, segment) "
+						+ "VALUES (?, ?, 'SALES', ?, 'x', 'No Pipeline', 'ATTORNEY')",
+				UUID.randomUUID(), BRAND_IE, "nopipe-" + UUID.randomUUID() + "@evalos.local"))
+				.hasMessageContaining("team_member_pipeline_matches_role");
+
+		assertThatThrownBy(() -> jdbc.update(
+				"INSERT INTO team_member "
+						+ "(id, brand_id, role, email, password_hash, display_name, ghl_pipeline_id) "
+						+ "VALUES (?, ?, 'MARKETING', ?, 'x', 'No Segment', ?)",
+				UUID.randomUUID(), BRAND_IE, "noseg-" + UUID.randomUUID() + "@evalos.local",
+				"pipe-" + UUID.randomUUID()))
+				.hasMessageContaining("team_member_segment_matches_role");
+
+		// And a role that is not pipeline-scoped must have neither.
+		assertThatThrownBy(() -> insertPipelineMember(BRAND_IE, "CASE_MANAGER", "pipe-" + UUID.randomUUID(),
+				null, true))
+				.hasMessageContaining("team_member_pipeline_matches_role");
+
+		assertThatThrownBy(() -> jdbc.update(
+				"INSERT INTO team_member (id, brand_id, role, email, password_hash, display_name, segment) "
+						+ "VALUES (?, ?, 'CASE_MANAGER', ?, 'x', 'Segmented CM', 'INDIVIDUAL')",
+				UUID.randomUUID(), BRAND_IE, "segcm-" + UUID.randomUUID() + "@evalos.local"))
+				.hasMessageContaining("team_member_segment_matches_role");
+
+		// An unknown segment is refused too: the CHECK is the writer the enum cannot reach.
+		assertThatThrownBy(() -> insertPipelineMember(BRAND_IE, "SALES", "pipe-" + UUID.randomUUID(),
+				"PARTNER", true))
+				.hasMessageContaining("team_member_segment_matches_role");
+
+		// The happy path, so the constraints are not passing by rejecting everything.
+		UUID sales = insertPipelineMember(BRAND_IE, "SALES", "pipe-" + UUID.randomUUID(), "ATTORNEY", true);
+		assertThat(jdbc.queryForObject("SELECT segment FROM team_member WHERE id = ?", String.class, sales))
+				.isEqualTo("ATTORNEY");
+		jdbc.update("DELETE FROM team_member WHERE id = ?", sales);
+	}
+
+	/**
+	 * <strong>One pipeline, one live owner — across brands, which is the half that could
+	 * silently not be true.</strong>
+	 *
+	 * <p>{@code uq_team_member_pipeline} is deliberately not led by {@code brand_id}, unlike
+	 * every other index here. A GHL pipeline belongs to the single configured location rather
+	 * than to a brand, so the same id under two brands would not be two pipelines — it would be
+	 * one pipeline read by two people who cannot see each other. <strong>Two brands is therefore
+	 * the case worth asserting</strong>: a brand-scoped index would pass a same-brand test and
+	 * still permit exactly the collision that matters.
+	 */
+	@Test
+	void onePipelineHasOneLiveOwnerEvenAcrossBrands() {
+		String pipeline = "pipe-" + UUID.randomUUID();
+		UUID first = insertPipelineMember(BRAND_IE, "SALES", pipeline, "ATTORNEY", true);
+
+		assertThatThrownBy(() -> insertPipelineMember(BRAND_XP, "SALES", pipeline, "INDIVIDUAL", true))
+				.hasMessageContaining("uq_team_member_pipeline");
+
+		// Partial on `active`, so a leaver does not hold their pipeline hostage: the replacement
+		// inherits it the moment the previous holder is deactivated.
+		jdbc.update("UPDATE team_member SET active = false WHERE id = ?", first);
+		UUID replacement = insertPipelineMember(BRAND_IE, "SALES", pipeline, "ATTORNEY", true);
+
+		assertThat(replacement).isNotNull();
+		jdbc.update("DELETE FROM team_member WHERE id IN (?, ?)", first, replacement);
+	}
+
+	/**
+	 * The scope predicate against a real query plan, which is the only way to know Hibernate
+	 * agrees with the {@code Specification} the unit test inspected.
+	 *
+	 * <p>Uses {@code team_member} itself as the carrier: it has a brand and, since V39, a
+	 * pipeline column, so it exercises the exact pair of predicates {@code Tier.PIPELINE} builds
+	 * without inventing a table for the test to own.
+	 */
+	@Test
+	void thePipelinePredicateNarrowsWithinTheBrandAndNeverAcrossIt() {
+		String mine = "pipe-" + UUID.randomUUID();
+		String theirs = "pipe-" + UUID.randomUUID();
+		UUID ieDesk = insertPipelineMember(BRAND_IE, "SALES", mine, "ATTORNEY", true);
+		UUID xpDesk = insertPipelineMember(BRAND_XP, "SALES", theirs, "INDIVIDUAL", true);
+
+		// Mine, in my brand: one row.
+		assertThat(jdbc.queryForObject(
+				"SELECT count(*) FROM team_member WHERE brand_id = ? AND ghl_pipeline_id = ?",
+				Integer.class, BRAND_IE, mine)).isEqualTo(1);
+
+		// **The pipeline predicate never stands in for the brand one.** Asking for another
+		// brand's pipeline while scoped to mine returns nothing even though the row exists and
+		// the id is real — which is what stops a global key becoming a cross-brand read.
+		assertThat(jdbc.queryForObject(
+				"SELECT count(*) FROM team_member WHERE brand_id = ? AND ghl_pipeline_id = ?",
+				Integer.class, BRAND_IE, theirs)).isZero();
+
+		jdbc.update("DELETE FROM team_member WHERE id IN (?, ?)", ieDesk, xpDesk);
+	}
 }
