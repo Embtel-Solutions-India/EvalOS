@@ -1,8 +1,11 @@
 # Unit 43 — Get Started: the client intake funnel
 
-> **Status:** specced 2026-09-11, not built.
+> **Status:** specced 2026-09-11, revised 2026-09-12, not built.
 > **Depends on:** 42 (the account this funnel creates), 30 (S3 uploads), 37 (`GhlWriteClient`).
 > **Restores:** the seven-screen funnel and the conditional questionnaire deleted in `f9f1165`.
+> **Also ships:** the `pipeline` / `pipeline_stage` half of `00c`'s tier-1 mirror (§6a) — this
+> unit cannot move an application to a hot stage without knowing which stage that is, and one
+> `GhlPipelineClient.pipelines()` call fills both tables.
 
 > **This unit reverses `34-portal-frontend-wiring.md` D2**, which recommended cutting the funnel:
 >
@@ -146,15 +149,30 @@ answered every required question and uploaded documents; a salesperson dragging 
 to "hot" is re-deciding something the client already demonstrated. So EvalOS sets the hot stage
 itself, on its own row, and mirrors it to GHL.
 
-**EvalOS mirrors GHL's stage id verbatim — and stores the stage name beside it.** Decided
-2026-09-11. The id is GHL's own, so there is no parallel EvalOS stage vocabulary to drift out of
-step with the real pipeline — the same reasoning that keeps a valuation in GHL's `monetaryValue`
-rather than an EvalOS column. Storing only the id, though, cannot work: an opaque GHL id means
-nothing once GHL is gone, and EvalOS could not tell which stage is hot in order to move
-anything there.
+**EvalOS mirrors GHL's stage id verbatim, against a mirrored stage table.** Decided 2026-09-12,
+and this **supersedes the 2026-09-11 position** in this file, which had a `stage_name` column
+sitting beside the id. That was a workaround for a problem the mirror removes: the argument was
+that an opaque GHL id means nothing once GHL is gone, which is true **only if EvalOS has no
+stage table.** It has one as of this unit, so the id resolves locally and the extra column is
+redundant.
 
-So **both columns, and the name is the one that survives.** `GhlPipelineClient.Stage` already
-carries `(id, name, position)`, so the name costs one field on a call already being made.
+**So this unit carries the pipeline half of `00c`'s tier-1 mirror**, two small tables:
+
+```sql
+pipeline        id uuid pk, brand_id, ghl_id unique, name, position, synced_at
+pipeline_stage  id uuid pk, brand_id, pipeline_id, ghl_id unique, name, position, synced_at
+```
+
+**They are here rather than in Unit 44 because this unit cannot work without them** — "move it
+to the hot stage" requires knowing which stage is hot — and because they are nearly free:
+`GhlPipelineClient.pipelines()` already returns `Pipeline(id, name, List<Stage>)` with
+`Stage(id, name, position)`, so one call that is already being made fills both tables. Adding a
+`stage_name` column here and deleting it at 44 would be more work than doing it once.
+
+**Same ids on both sides, which is the point.** There is no mapping table and no parallel EvalOS
+stage vocabulary — the same reasoning that keeps a valuation in GHL's `monetaryValue` rather than
+an EvalOS column. A stage comparison between the two systems is then an equality check rather
+than a translation, which is what makes a mismatch detectable (`00c` §2a).
 
 ```
 evalos.ghl.intake-pipeline-name    which pipeline a portal application lands in
@@ -218,11 +236,15 @@ client_application
   status text not null,               -- DRAFT | SUBMITTED | QUALIFIED | WITHDRAWN
   answers jsonb not null default '{}',
   ghl_opportunity_id text null,       -- a LINK, filled after submit, nullable forever
-  ghl_pipeline_id text null,          -- ″
-  ghl_stage_id text null,             -- GHL's opaque id, mirrored verbatim, null without GHL
-  stage_name text null,               -- the same stage's NAME — the half that survives GHL
+  pipeline_id uuid null,              -- FK to the mirrored pipeline (§6a), not a GHL id
+  stage_id uuid null,                 -- FK to the mirrored stage — resolves without GHL
   created_at, updated_at, submitted_at
 ```
+
+**`pipeline_id` and `stage_id` are foreign keys into EvalOS's own mirror, not GHL strings.**
+The mirror row carries GHL's id, so the GHL value is one join away and is never duplicated here
+— and the application still reads correctly with GHL switched off, which a bare GHL id column
+would not.
 
 **`client_application` IS the EvalOS-owned opportunity for a portal-born lead**, and there is
 deliberately **no separate `lead` table in this unit.** The client's contact record is
@@ -298,11 +320,11 @@ service.
    check disabled in the test.
 5. A test fails if the server catalog and `serviceCatalog.ts` disagree on service ids, group ids
    or required flags.
-6. With GHL unreachable, submit still returns 200, the application is `SUBMITTED`, `stage_name`
-   reads the configured hot stage, and every `ghl_*` column is null.
+6. With GHL unreachable, submit still returns 200, the application is `SUBMITTED`, `stage_id`
+   points at the mirrored hot stage, and `ghl_opportunity_id` is null.
 7. Submitting twice does not create a second contact or a second opportunity.
-8. A submitted application lands on the **hot** stage in GHL, not the pipeline's default, with
-   `ghl_stage_id` and `stage_name` both stored.
+8. A submitted application lands on the **hot** stage in GHL, not the pipeline's default, and
+   the mirrored `pipeline_stage` row it points at carries the same `ghl_id` GHL reports.
 9. A `hot-stage-name` that does not resolve on the intake pipeline fails the submit with a
    message naming the stage — it does not fall back to a default stage.
 10. `DomainInvariantsTest` still fails the build if `ClientApplicationService` reaches
