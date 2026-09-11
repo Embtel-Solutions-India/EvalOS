@@ -107,8 +107,21 @@ take the case id as a path variable **matched against the party** — which is s
 Unit 34c's kind filter is safe: the id may come from the request precisely because it is checked
 against the credential first. With several cases they answer **409**, never a guess.
 
-**There are no accounts and that was refused, not deferred.** No password store, rotation, lockout
-or session — a reset needs a mail channel invariant 14 says does not exist.
+**Clients HAVE accounts as of Unit 42 (2026-09-11).** This said *"there are no accounts and that
+was refused, not deferred — a reset needs a mail channel invariant 14 says does not exist."* The
+refusal (spec 34 D1) required its reversal to be taken in writing; it was, and invariant 14 is
+amended for authentication mail only.
+
+**There is still NO third security chain, and that is the thing to carry.** A verified password
+mints the *same* party-scoped `PortalAccess` token described above, so `PortalTokenFilter` and
+every screen behind it are untouched. Sign-in is a new way to *obtain* the credential, not a
+second kind of session. The only config change is `permitAll` on `/api/portal/auth/**`, and those
+routes stay behind the same per-IP limiter.
+
+`client_account` holds `(brand_id, lower(email))` unique, a bcrypt hash that is **null when no
+password has been set** (that null IS the state), and a **nullable `ghl_contact_id` link** —
+so a client signs in with no GHL row anywhere. `client_credential_token` is single-use,
+30 minutes, SHA-256 at rest. Spec: `context/specs/42-client-accounts.md`.
 
 ## The portal principal — why it is NOT a TenantContext
 

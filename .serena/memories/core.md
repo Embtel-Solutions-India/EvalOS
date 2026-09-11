@@ -17,8 +17,11 @@
 >   a production decision and there is no AI in the system.** Unit 12's match engine is not
 >   an exception: declared factors, inspectable arithmetic, never auto-assigns, no model.
 >
-> **Consequences to carry:** invariant 14's "sends no email" is settled, not pending —
-> there is no outbound channel at all. Unit 30's PDF question is **closed by removal**: the
+> **Consequences to carry:** invariant 14 was amended on 2026-09-11 (Unit 42) — EvalOS
+> **sends authentication mail only** (`set your password`, `reset your password`), and there
+> is still no outbound channel for anything else: no status, marketing or notification mail,
+> and no outbound queue. `ClientMailer` existing is **not** an argument for using it for a
+> touchpoint; that is a new decision. Unit 30's PDF question is **closed by removal**: the
 > redacted profile was the only document EvalOS generated. And client-facing messages
 > (chases, "draft ready") have **no automated route** — manual in GHL, or they become
 > states in the client portal, which is still open.
@@ -548,8 +551,10 @@ directory**, with its own `package.json` / `pom.xml` and its own lockfile.
 
 **Four portal decisions were taken 2026-09-04 and one unit was struck** (`mem:client-expert/core`
 for what they mean to the apps). **D1: a portal credential names a party, not a case** — one link
-per client or expert, case-scoped links still legal, party tokens 7 days, **and no accounts, which
-was refused rather than deferred**. **D5**: one projected vocabulary. **D6**: an expert reads their
+per client or expert, case-scoped links still legal, party tokens 7 days. **D1 also refused
+accounts — and Unit 42 reversed that on 2026-09-11, in writing, as D1 demanded.** What D1 got
+right and Unit 42 kept is the party-scoped credential: sign-in *mints* one rather than replacing
+it, which is why there is still no third security chain. **D5**: one projected vocabulary. **D6**: an expert reads their
 own payout rows, never `payment_detail`. **D8**: analytics off, by deletion. **G14**: the AV posture
 is implemented — sniff both upload surfaces, serve every presigned read as an `attachment`, and
 scanning is the bucket's job. All of it is `context/specs/35-party-scoped-portal-access.md`, specced
@@ -590,7 +595,8 @@ removed — `V33`, and invariant 15.
   for afterwards.
 - **Flyway owns the schema.** `ddl-auto: validate`. Every change is a new migration; an applied
   migration is never edited.
-- **S3 is the document store; EvalOS still hosts no bytes, and there is no mail server.**
+- **S3 is the document store; EvalOS still hosts no bytes. It gained SMTP in Unit 42, for
+  authentication mail only** — two messages, invariant 14 amended in writing, no outbound queue.
   **Google Drive is gone as of Unit 30** — API client, service account, dependency and the
   `drive_link` column (`V34`). Documents are **S3 object keys**, read through **5-minute presigned
   GET URLs** minted per request *after* the same scope check that guards the case, never stored.

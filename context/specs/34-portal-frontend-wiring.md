@@ -155,6 +155,25 @@ not conclusions already reached.
 
 ### D1 · Auth: what a portal credential names — **DECIDED 2026-09-04: widen the token's scope, no accounts.** Built in Unit 35
 
+> **SUPERSEDED 2026-09-11 by Unit 42 — clients now have accounts.** D1 required that this
+> reversal be *"taken in writing"* rather than drifted into; `context/specs/42-client-accounts.md`
+> is that writing.
+>
+> **The refusal was correct on the evidence it had**, and two of its four objections were right
+> and are answered rather than dismissed: reset genuinely did require a mail channel EvalOS did
+> not have (invariant 14 is now amended for authentication mail only), and it genuinely did
+> reverse four documents (all edited).
+>
+> **Two were wrong.** There is **no third Spring Security chain** — a verified password mints the
+> same party-scoped `PortalAccess` token this very decision built, so `PortalTokenFilter` is
+> untouched and every screen behind it is unchanged. And "lockout" was already built: the per-IP
+> limiter in `PortalTokenFilter` covers `/api/portal/**`, which the new routes sit under.
+>
+> **What this decision got right and Unit 42 kept:** the party-scoped credential. Sign-in
+> produces one rather than replacing it, which is the reason Unit 42 is one unit and not three.
+>
+> The text below is preserved as written.
+
 The delivered app assumes accounts. The built system has tokens. The lazy answer that
 holds is neither "throw the app away" nor "build a credential system":
 

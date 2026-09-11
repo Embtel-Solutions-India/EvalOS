@@ -4606,12 +4606,24 @@ repo — listed so a session does not mistake a provisioning wait for unfinished
   return nothing for pre-cutover clients. Cases, documents, drafts and audit are unaffected —
   they are EvalOS-owned. That split is the opening argument of the `00c` programme.
 
-- **Units 42, 43 and the `00c` programme are specced and awaiting review (2026-09-11).**
-  Nothing is coded. The client portal gains a real sign-in door (42) and the restored Get
-  Started funnel with its conditional questionnaire (43), and `00c` sequences the decision that
-  **EvalOS must work when GHL is removed**. Three invariant amendments are named in those specs
-  and **none has been applied to `architecture.md` yet** — they land when the specs are
-  approved, so the invariants there are still live and enforced as written.
+- **Units 42, 43 and the `00c` mirror programme are specced and APPROVED (2026-09-12). Nothing
+  is coded yet.** The implementation plan for Unit 42 is
+  `docs/superpowers/plans/2026-09-12-unit-42-client-accounts.md`, nine tasks, TDD throughout.
+
+  **The docs are aligned ahead of the code, deliberately** — invariants 7 and 14 in
+  `architecture.md`, the stack table's Notifications row, `CLAUDE.md`, the build plan's
+  now-closed mail decision, `process-automation.md`, spec 34's D1 header, and four Serena
+  memories all now describe the decided state. **So `architecture.md` currently describes mail
+  and client accounts that the code does not yet have.** That is the house rule (a pivot is
+  specced and its docs aligned before it is coded), not drift.
+
+  **One finding from writing the plan, and it is load-bearing.**
+  `V38__portal_access_names_a_party.sql:36-39` constrains a `CLIENT` party token to carry a
+  `ghl_contact_id`. After the CRM replacement **most accounts have none**, so the constraint
+  refuses exactly the row the sign-in door must mint. Unit 42 therefore carries a `V45`
+  widening it with a `client_account_id` scope — and `PortalInvoiceService` /
+  `PortalMeetingService` must answer an empty list rather than throwing on a null contact id.
+  That is `00c` §1c's predicted degradation arriving as code.
 
 - **Unit 15's live round-trip.** A real expert token, a real download, a real signed PDF into a
   real bucket. Blocked on the **AWS credential + bucket**, which is the same thing Unit 30's live

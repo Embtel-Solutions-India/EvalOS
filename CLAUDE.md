@@ -25,6 +25,24 @@ Two things the pivot does **not** touch: **invoicing is still GHL's** (EvalOS
 reads invoices, raises none), and **a case is still born only of a won
 opportunity** through Handoff A.
 
+**A second programme follows it, and it is bigger (decided 2026-09-11/12).**
+`context/specs/00c-ghl-independence-programme.md` (Units 42–49) makes EvalOS
+hold an **id-faithful mirror of GHL** — same pipeline, stage, contact and
+opportunity ids on both sides — sync it both ways, and **keep working when the
+sync is switched off**. Read it before touching the mirror, the sync engine, or
+the client portal's front door.
+
+- **Units 42 and 43 are the client's sign-in and signup**, and they do not wait
+  for the rest of the programme. **The Client Portal now has accounts** — a
+  welcome screen, email-first sign-in, and password set/reset — which reverses
+  `34-portal-frontend-wiring.md` D1 in writing.
+- **EvalOS now sends email**, for authentication only. Invariant 14 is amended,
+  not deleted: two messages, and any other mail is a new decision.
+- **IE's GHL sub-account was replaced on 2026-09-11** — location
+  `WY6bW2xUCI8Tz8gw7aLJ`, fresh, with no contact migration. Every
+  `ghl_contact_id` EvalOS holds names a contact that no longer exists. The
+  checklist, and what that breaks, is `00c` §1.
+
 The authoritative design is the **EvalOS Technical Design Document (v1.1)**. The
 context files below are the working build context and must stay consistent with
 it. Read them in order before implementing or making any architectural decision:

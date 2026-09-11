@@ -238,6 +238,24 @@ an SMTP provider, deliverability, bounce handling, unsubscribe and a suppression
 list. That is a business call about who owns the client relationship, not a
 technical preference. Nothing is built either way.
 
+> **⚠️ EvalOS acquired SMTP on 2026-09-11 (Unit 42), and T1–T8 are STILL pending.**
+>
+> The sentence above treats "EvalOS has no mail channel" as the obstacle. That obstacle is
+> gone — `spring-boot-starter-mail` is in the build and `ClientMailer` sends two messages. **It
+> changes nothing in this table, and that is deliberate.**
+>
+> Invariant 14 was amended to *authentication mail only*: proving control of a client's own
+> address. Every touchpoint here is a **status** message, which is the category the amendment
+> explicitly does not license. The things that made this a business call — deliverability,
+> bounce handling, unsubscribe, a suppression list, and who owns the client relationship — are
+> **all still unpaid**, because a set-password mail needs none of them and a delivery
+> notification needs all of them.
+>
+> **So the existence of `ClientMailer` is not an argument for using it here.** If these
+> touchpoints move to EvalOS, that is a new decision and a new unit, and it re-argues invariant
+> 14 a second time. Written down because this is exactly the shortcut the next reader will
+> reach for.
+
 **A third option exists as of 2026-09-03, and it is not a channel.** The portal frontend
 (`client/`) makes T1, T2, T3, T4, T5, T7 and T8 expressible as **states the client sees
 when they open the portal** — an outstanding checklist item, a draft waiting for review,

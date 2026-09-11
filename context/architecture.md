@@ -12,7 +12,7 @@
 | Frontend         | React + TypeScript (Vite SPA) + Tailwind, with `radix-ui`, `lucide-react`, `recharts` | Internal role-based dashboards, client portal, expert portal. The three UI packages landed in Unit 22 slice 1, each against a screen that needed it; dnd-kit, TanStack Table and Motion stay deferred with written triggers in that spec |
 | Raw documents    | **S3 document store (Unit 30)** — AWS SDK v2 | **EvalOS is the only writer.** Client documents land under `{brandId}/client/{ghlContactId}/{documentId}` when the portal frontend posts them *through* EvalOS, which streams them; its own artefacts sit under `{brandId}/case/{caseId}/{folder}/{documentId}`. **EvalOS holds object keys, never bytes**, and serves them as 5-minute presigned URLs. Replaced Google Drive in Unit 30 |
 | E-signature      | **None — no provider.** The expert signs in their own tool and uploads the signed PDF through their portal | A scanned wet signature is the norm for an expert opinion letter. Provenance is a hash pair + an attestation + an `EXPERT` audit row, not a certificate — see `15-expert-portal-handoff-b.md` |
-| Notifications    | In-app notification center (staff) + GHL (clients) + a portal link (experts) | No EvalOS mail server                                            |
+| Notifications    | In-app notification center (staff) + GHL (clients) + a portal link (experts) | **SMTP for authentication mail only, as of Unit 42** (`spring-boot-starter-mail`): *set your password* and *reset your password*, and nothing else. Invariant 14 amended in writing 2026-09-11. No marketing, status or notification mail, and no outbound queue |
 | Background work  | Spring `@Scheduled` (+ app events) + a `scheduled_job` run ledger + a session-scoped Postgres advisory lock per sweep | SLA timers, reminders, escalations, expert-sign prompts. No outbound outbox — Unit 18 was removed. **No Quartz, no ShedLock, no broker** |
 | Queue            | **None.** `webhook_delivery` went with Unit 18 (removed 2026-09-02) | EvalOS has no cross-process work left. If outbound delivery ever returns, the argument to re-read is Unit 19's: a durable row with backoff, not a broker |
 | Integration seam | Inbound webhook gateway + outbound webhook dispatcher (+ the GHL and S3 clients) | Receive GHL events; emit EvalOS lifecycle events to subscribers. **One inbound source, GHL** — dropping the signature provider removed the second |
@@ -762,6 +762,18 @@ exist because every transition owes exactly one event. They live in
    `ghl_contact_id` first; `email` is a fallback only, used when no GHL id is
    given.
 
+   **Unit 42 amends the first clause a second time, for one entity (2026-09-11).**
+   `client_account` is an **EvalOS-owned record** whose `ghl_contact_id` is a nullable
+   *link*. GHL's contact id remains canonical **in GHL**; what changed is that a client's
+   ability to **sign in** no longer depends on GHL holding a row. A client whose GHL contact
+   is deleted — or whose whole sub-account was replaced, which is what happened to IE on
+   2026-09-11 — still signs in and still sees their cases and documents.
+
+   **This is the second of three edits, and the third is already scheduled.** `00c` Unit 44
+   rewrites this invariant **whole** rather than annotating it a fourth time. Three amendments
+   across three units is how an invariant dies without anyone deciding to kill it, and naming
+   the rewrite here is what stops that.
+
    **Unit 39 leans on that three-identifier rule rather than merely respecting it.**
    `opportunity_note` is keyed on `ghl_opportunity_id` and not on `ghl_contact_id`,
    because a repeat client is one contact and two deals — keying on the contact would
@@ -804,10 +816,30 @@ exist because every transition owes exactly one event. They live in
     surface — `recordEvent`, `recordSystemEvent`, `recordPortalEvent` — and each
     takes its brand from the most authoritative signal it has, never from a
     request body.
-14. EvalOS hosts no files and sends no email. Documents are **objects in the S3 document
-    store, referenced by key**; the expert's signed letter streams into
+14. EvalOS hosts no files, and **sends email for exactly one purpose: proving control of a
+    client's own address** (Unit 42, decided 2026-09-11). Documents are **objects in the S3
+    document store, referenced by key**; the expert's signed letter streams into
     `case/{caseId}/signed/` through their own portal upload, staff alerts are in-app,
     clients are reached through GHL, and experts through a scoped portal link.
+
+    **What the mail amendment licenses, and what it does not.** `ClientMailer` sends two
+    messages: *set your password* and *reset your password*. **Not licensed:** status mail,
+    marketing mail, notification mail, or any message a client did not initiate by trying to
+    sign in. Staff alerts remain in-app and clients are still reached through GHL for
+    everything that is not authentication.
+
+    **Why it was amended rather than worked around.** `34-portal-frontend-wiring.md` D1
+    refused client accounts precisely because *"reset requires a mail channel EvalOS does not
+    have"*, and required the reversal to be taken in writing rather than drifted into. It was
+    taken on 2026-09-11. An emailed OTP was considered and refused as no cheaper — it is the
+    same channel with more typing — and TOTP was refused as the wrong ask of a
+    credential-evaluation client.
+
+    **`00b` §2's ruling is now partly spent, deliberately.** It said *"what would break this is
+    EvalOS composing and dispatching a message itself"*. EvalOS now does, for authentication
+    only, and **the remaining line is drawn exactly there**. The first feature that wants "just
+    a quick status email from the portal" is a new decision and gets argued in its own unit —
+    it is not an extension of this one. See `42-client-accounts.md` §4.
 
     **"Hosts no files" means stores none, not accepts none, and the property is
     unchanged by Unit 30's move from Drive to S3.** An upload through EvalOS's portal

@@ -713,8 +713,12 @@ Depends on: 14, 30, 31, and 15 for slice 34e.
   **EvalOS stores no bytes**, is unchanged and still a test. The one upload EvalOS still
   accepts is the expert's signed letter (Unit 15), which **streams**. Staff alerts are
   in-app (Unit 06); clients are reached through GHL and experts through a scoped portal
-  link. **No mail server** — whether EvalOS ever sends mail is still an **open decision**
-  (`context/process-automation.md`); until it is taken, no mail dependency.
+  link. **Mail: DECIDED 2026-09-11, built in Unit 42.** This line used to say *"no mail server —
+  whether EvalOS ever sends mail is still an open decision; until it is taken, no mail
+  dependency."* The decision was taken: **EvalOS sends authentication mail and nothing else.**
+  `spring-boot-starter-mail`, two messages (*set your password*, *reset your password*),
+  invariant 14 amended in writing rather than drifted past. **Any other mail — status,
+  marketing, notification — is a new decision and a new unit.**
 - **Webhook subsystem is inbound only**: the gateway is built once in Unit 05 and
   **stays single-source (GHL)**. The outbound dispatcher this line used to promise was Unit 18's,
   **built and then removed (2026-09-02)** — EvalOS has no outbound channel, and the domain events

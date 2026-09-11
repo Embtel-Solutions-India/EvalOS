@@ -59,6 +59,9 @@ list screen before it lands, and do not wire anything else ad hoc.
   `pages/*` (dashboard, requests, documents, reports, messages, tickets, intake, …),
   `routes/guards.tsx`, `context/AuthContext`, the ten mock `services/*`, `schemas/`,
   `types/`, `constants/`, `mock/`, `utils/analytics.ts`, `lib/questionnaire.ts`.
+  **`lib/questionnaire.ts`, `constants/questionGroups.ts` and `constants/serviceCatalog.ts` are
+  RESTORED by Unit 43** — the conditional-questionnaire engine and its data, recovered from
+  `f9f1165^` rather than rewritten. Do not re-implement them from scratch.
 - `expert/src` — `components/{expert,layout}`, `layouts/{ExpertAuth,ExpertPortal}`,
   `pages/expert/*`, `routes/expertGuards.tsx`, `context/ExpertAuthContext`,
   `services/{expertAuthService,expertCaseService}`, `types/expert.ts`,
@@ -116,11 +119,24 @@ above.)
 > `/invoices`, `/draft` (+ `/draft/:caseId`). `documentService`, `draftService`,
 > `invoiceService`. **Anything below describing a mock screen is history.**
 >
-> **The account shell is DELETED** — `/login`, `/forgot-password`, `/verify-email`,
-> `AuthProvider`, `AuthenticatedRoute`, `PublicRoute`, `AuthLayout`, `authService`, `useAuth`,
-> `/profile`, `/settings`. It implemented an email-and-password account, **the alternative D1
-> refused rather than deferred**: a password store needs a mail channel invariant 14 says does
-> not exist. **Do not reintroduce a login.**
+> **The 34d account shell was deleted — and Unit 42 (2026-09-11) builds a DIFFERENT one.**
+> This block used to end *"do not reintroduce a login."* That instruction is **withdrawn**: the
+> business took the decision D1 demanded be taken in writing, and clients now sign in.
+>
+> **What 34d deleted stays deleted**, and the distinction matters: `AuthProvider`,
+> `AuthenticatedRoute`, `PublicRoute`, `AuthLayout`, `useAuth`, `/profile`, `/settings` and the
+> mock `authService` were a **localStorage session shell around mock screens**. Unit 42 adds
+> `/welcome`, `/signin`, `/set-password` and a real `authService` against
+> `/api/portal/auth/**` — no AuthProvider, no route guards, no client-side session object.
+>
+> **Sign-in mints the SAME portal token, which is why there is still one credential.** A
+> verified password returns a party-scoped `PortalAccess`, so everything below about
+> `usePortalToken` and the fragment stays exactly true — the token now arrives from a POST
+> response as well as from a link. Spec: `context/specs/42-client-accounts.md`.
+>
+> **`/welcome` must keep saying "Opened a link we sent you?"** Every link already in a client's
+> inbox still works, and a door offering only a password tells those clients their working link
+> is wrong.
 >
 > **One credential for the whole app.** `usePortalToken` (in `shared/src/hooks`) lifts the
 > scoped token out of the URL fragment on first render — a lazy `useState` initializer, never
