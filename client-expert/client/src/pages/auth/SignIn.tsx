@@ -40,6 +40,12 @@ export default function SignIn() {
     setState(null)
     setIdentifyError(undefined)
     setResetSent(false)
+    // And a password typed against one address must not survive into another: without this, a
+    // wrong-password error (or the password itself) from a prior PASSWORD_SET reappears the
+    // moment a new identify() lands on PASSWORD_SET again — reporting a failed attempt that
+    // never happened, against whatever address is now in the box.
+    setSignInError(undefined)
+    setPassword('')
   }
 
   async function onIdentify(event: FormEvent) {
@@ -73,8 +79,11 @@ export default function SignIn() {
     setSendingReset(true)
     try {
       await forgotPassword(email.trim())
+    } catch {
+      // Deliberately swallowed, not just unhandled: the message must not vary between a known
+      // and an unknown email, and that includes not varying when the request itself fails — a
+      // visible error here would be the one signal an enumeration attempt is looking for.
     } finally {
-      // The server answers identically whether or not the address is known — so does this screen.
       setSendingReset(false)
       setResetSent(true)
     }

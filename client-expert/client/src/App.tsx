@@ -70,6 +70,14 @@ import { PortalLayout } from '@/layouts/PortalLayout'
  *
  * **Every `portal_access` link already sent still works, unchanged.** `/welcome` says so — a
  * front door offering only a password would tell a client holding a working link that it broke.
+ *
+ * **34d's mail-channel objection was real, and it was answered, not dropped.** It said EvalOS
+ * has no mail channel (invariant 14) and a password store needs one for verification and resets.
+ * That was true on 2026-09-11. Invariant 14 was amended the same day for exactly this: EvalOS now
+ * has SMTP for authentication mail only, which is what `forgotPassword` sends through. The
+ * amendment is that narrow — it licenses a reset link and a set-password link, nothing else. It
+ * is not a general mail channel, and no other feature gets to point at this paragraph to send a
+ * client something.
  */
 
 const Welcome = lazy(() => import('@/pages/auth/Welcome'))
