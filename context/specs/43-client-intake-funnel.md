@@ -130,14 +130,46 @@ PUT  /api/portal/applications/{id}              save answers     (steps 5–6, a
 POST /api/portal/applications/{id}/submit       the one that writes to GHL
 ```
 
-Submit does four things in this order:
+Submit does five things in this order, and **the first three are EvalOS's own record**:
 
 1. **Re-validate** the answers server-side against the catalog (§3). Refuse incomplete.
-2. **Mark the application `SUBMITTED`** in EvalOS, and commit. This happens *before* GHL is
-   touched, and that ordering is the point of §7.
-3. **`GhlWriteClient.upsertContact`**, storing the returned id on `client_account.ghl_contact_id`.
-4. **`GhlWriteClient.upsertOpportunity`** on the intake pipeline, then file the answers as an
-   `OpportunityNote` so Sales reads them where they work.
+2. **Mark the application `SUBMITTED`** and **move it to the hot stage** (§6a), in EvalOS.
+3. **Commit.** Everything above is durable before GHL is touched — the point of §7.
+4. **`GhlWriteClient.upsertContact`**, storing the returned id on `client_account.ghl_contact_id`.
+5. **`GhlWriteClient.upsertOpportunity`** on the intake pipeline at the hot stage, then file the
+   answers as an `OpportunityNote` so Sales reads them where they work.
+
+### 6a. The stage, and why EvalOS moves it rather than waiting to be told
+
+**Reaching the end of the funnel is the qualification signal.** The client chose a service,
+answered every required question and uploaded documents; a salesperson dragging that from "new"
+to "hot" is re-deciding something the client already demonstrated. So EvalOS sets the hot stage
+itself, on its own row, and mirrors it to GHL.
+
+**EvalOS mirrors GHL's stage id verbatim — and stores the stage name beside it.** Decided
+2026-09-11. The id is GHL's own, so there is no parallel EvalOS stage vocabulary to drift out of
+step with the real pipeline — the same reasoning that keeps a valuation in GHL's `monetaryValue`
+rather than an EvalOS column. Storing only the id, though, cannot work: an opaque GHL id means
+nothing once GHL is gone, and EvalOS could not tell which stage is hot in order to move
+anything there.
+
+So **both columns, and the name is the one that survives.** `GhlPipelineClient.Stage` already
+carries `(id, name, position)`, so the name costs one field on a call already being made.
+
+```
+evalos.ghl.intake-pipeline-name    which pipeline a portal application lands in
+evalos.ghl.hot-stage-name          which stage on it means qualified
+```
+
+Matched **by name**, like the four pipeline settings already are, and for the same reason: the
+id is opaque and the name is what whoever provisions GHL can see. A name that does not resolve
+**fails the submit loudly** rather than filing a qualified lead in whatever stage GHL defaults
+to, where nobody is looking for it.
+
+**With GHL absent, steps 4 and 5 are skipped and step 2 still happened.** The application is
+`SUBMITTED`, the stage name reads `Hot`, and the stage id is null until a contact is created.
+That is what "EvalOS moves it to hot itself" means concretely, and it is the smallest form of
+independence that is actually testable.
 
 **`MarketingLeadService.openLead` is NOT reused, and this is the correction that matters.**
 It looked like the obvious call — it is exactly these two upserts in exactly this order — but
@@ -186,8 +218,22 @@ client_application
   status text not null,               -- DRAFT | SUBMITTED | QUALIFIED | WITHDRAWN
   answers jsonb not null default '{}',
   ghl_opportunity_id text null,       -- a LINK, filled after submit, nullable forever
+  ghl_pipeline_id text null,          -- ″
+  ghl_stage_id text null,             -- GHL's opaque id, mirrored verbatim, null without GHL
+  stage_name text null,               -- the same stage's NAME — the half that survives GHL
   created_at, updated_at, submitted_at
 ```
+
+**`client_application` IS the EvalOS-owned opportunity for a portal-born lead**, and there is
+deliberately **no separate `lead` table in this unit.** The client's contact record is
+`client_account` (Unit 42) and the deal record is this row — together they are the "create a
+contact in EvalOS" half of the 2026-09-11 decision, with the three `ghl_*` columns as links.
+A `lead` table here would hold exactly one row per application and do nothing until Unit 44.
+
+**Unit 44 decides whether GHL-born leads share this table or get their own**, once the inbound
+`contact.created` payload has been read. A GHL lead has no service and no answers, so forcing it
+in here is the likely wrong answer — but that is a decision for the unit that can see the
+payload, not a guess made now.
 
 **`answers` is `jsonb`, not a table per question.** The shape is defined by the catalog and
 changes whenever a service is added; a normalised `application_answer` table would add a join
@@ -252,8 +298,12 @@ service.
    check disabled in the test.
 5. A test fails if the server catalog and `serviceCatalog.ts` disagree on service ids, group ids
    or required flags.
-6. With GHL unreachable, submit still returns 200, the application is `SUBMITTED`, and both GHL
-   id columns are null.
+6. With GHL unreachable, submit still returns 200, the application is `SUBMITTED`, `stage_name`
+   reads the configured hot stage, and every `ghl_*` column is null.
 7. Submitting twice does not create a second contact or a second opportunity.
-8. `DomainInvariantsTest` still fails the build if `ClientApplicationService` reaches
-   `CaseIntakeService`.
+8. A submitted application lands on the **hot** stage in GHL, not the pipeline's default, with
+   `ghl_stage_id` and `stage_name` both stored.
+9. A `hot-stage-name` that does not resolve on the intake pipeline fails the submit with a
+   message naming the stage — it does not fall back to a default stage.
+10. `DomainInvariantsTest` still fails the build if `ClientApplicationService` reaches
+    `CaseIntakeService`.

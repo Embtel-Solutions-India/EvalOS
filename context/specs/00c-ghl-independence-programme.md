@@ -48,6 +48,7 @@ This is operational work, not programme work, and some of it is urgent.
 | `GHL_EMAIL_PIPELINE_NAME` | `Shivangi's Email Marketing` | ″ |
 | `GHL_SALES_PIPELINE_NAME` | `Aditya's pipeline` | ″ |
 | `GHL_INTAKE_PIPELINE_NAME` | — | new, for Unit 43's submit |
+| `GHL_HOT_STAGE_NAME` | — | new, the stage on that pipeline a completed application moves to |
 
 Pipelines are matched **by name** (`GhlPipelineClient.pipelineNamed`) and the client answers
 502 naming the pipeline it could not find. That is the right failure direction and it is
@@ -113,9 +114,9 @@ finance and compliance surface rather than only an engineering one.
 | # | Unit | What it makes EvalOS-owned | Depends on |
 | --- | --- | --- | --- |
 | **42** | Client accounts and sign-in | the client's identity and credential | 34, 35 |
-| **43** | Get Started intake funnel | the application, its answers and its documents | 42, 37 |
-| **44** | Contacts | the client record; `ghl_contact_id` becomes a sync link everywhere | 42 |
-| **45** | Opportunities and pipelines | the deal record; Unit 38's cache is promoted to a record, or replaced | 44 |
+| **43** | Get Started intake funnel | the application, its answers, its documents **and its stage** | 42, 37 |
+| **44** | Inbound lead sync | GHL-born leads get an EvalOS row; `CachedOpportunity` is replaced | 43 |
+| **45** | Contacts as the record | `ghl_contact_id` demoted to a sync link everywhere, not just in the portal | 44 |
 | **46** | Sync engine | one reconciler, both directions, with a conflict rule and a drift report | 44, 45 |
 | **47** | Invoicing | **the expensive one.** Reverses invariant 2's surviving half | 45, and a finance decision |
 
@@ -127,6 +128,23 @@ of independence. Build them first and independently of 44–47.
 cutover is about to produce real evidence about which GHL-keyed surfaces actually hurt when the
 key breaks, and designing the sync engine before reading that evidence is designing against a
 guess.
+
+### Unit 44 is smaller than it looks, and the direction of travel changed
+
+**The inbound door is already built and deferred, not missing.** `WebhookRouter.java:41` lists
+`contact.created` and `contact.updated` in `DEFERRED` — recognized, archived, acked, nothing
+routed. The gateway already brand-resolves, dedupes and archives them (invariant 10). Unit 44
+is a handler on an existing route plus a reconcile sweep, not a new pipeline.
+
+**It carries a reconcile sweep as well as the webhooks**, decided 2026-09-11. Webhooks are lost
+sometimes and EvalOS has no redelivery of its own — the outbound retry machinery left with
+Unit 18. A periodic pull of contacts changed since the last run repairs what a dropped delivery
+missed. It belongs in `job`, under an advisory lock, like every other sweep.
+
+**`CachedOpportunity` is replaced here rather than at 45**, which is question (c) resolved
+early by the shape of the data: its `ghl_opportunity_id`, `ghl_contact_id` and `stage_id` are
+all `NOT NULL`. A row that cannot exist without three GHL ids cannot be the record for a system
+that outlives GHL.
 
 ---
 
@@ -173,7 +191,8 @@ Each gets a recommendation, per house rule, and is resolved before the unit it g
 | # | Question | Recommendation | Gates |
 | --- | --- | --- | --- |
 | a | On conflict, who wins? | **Last-writer-wins per field, with the losing value kept on a drift report a human reads.** Field-level rather than record-level: a name and a phone edited in two places are not one conflict | 46 |
-| b | Does the sync push, pull, or both? | **Push-only until 46.** 42–45 write to GHL and never read a contact back. Adding pull before there is a conflict rule is how the first silent overwrite happens | 44, 45 |
-| c | Does Unit 38's opportunity cache become the record, or get replaced? | **Replaced.** It was built as droppable-without-loss and its columns are GHL's shape; promoting it would carry that framing into a table that must not have it | 45 |
+| b | ~~Does the sync push, pull, or both?~~ | **RESOLVED 2026-09-11: both, and pull arrives at 44.** The earlier recommendation here was push-only until 46, on the reasoning that pulling before a conflict rule exists is how the first silent overwrite happens. **That reasoning still holds and is what constrains 44**: the inbound handler may *create* an EvalOS row and may update a row that has never been edited in EvalOS, and may **not** overwrite a field a human changed on this side. Until 46 gives it a conflict rule, a collision is written to the drift report and the EvalOS value stands | 44 |
+| c | ~~Does Unit 38's opportunity cache become the record, or get replaced?~~ | **RESOLVED 2026-09-11: replaced, at 44 rather than 45.** `CachedOpportunity` has `ghl_opportunity_id`, `ghl_contact_id` and `stage_id` all `NOT NULL` — it cannot hold a lead that has no GHL ids yet, which is exactly the row Unit 43 creates | 44 |
+| f | How is a portal lead's stage held? | **RESOLVED 2026-09-11: GHL's stage id verbatim, plus the stage name beside it.** The id keeps EvalOS faithful to GHL's real pipeline with no parallel vocabulary to drift; the name is the half that still means something when GHL is gone. See `43` §6a — an id alone cannot satisfy "EvalOS moves it to hot itself", because EvalOS would not know which id is hot | 43 |
 | d | Does EvalOS invoicing mean QuickBooks directly, or a payment processor? | **Not answerable by engineering.** It is a finance decision and 47 does not start without it | 47 |
 | e | What happens to XpertsPortal? | **Out of scope until IE is proven.** XP has no GHL location configured at all today; giving it one is Unit 25, and giving it independence is a repeat of this programme, not a widening of it | — |
