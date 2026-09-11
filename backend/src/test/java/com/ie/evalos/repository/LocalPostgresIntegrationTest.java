@@ -34,6 +34,7 @@ import com.ie.evalos.domain.AuditEvent;
 import com.ie.evalos.domain.Brand;
 import com.ie.evalos.domain.Case;
 import com.ie.evalos.domain.ChecklistItemStatus;
+import com.ie.evalos.domain.ClientAccount;
 import com.ie.evalos.domain.ContactSnapshot;
 import com.ie.evalos.domain.DocumentChecklistItem;
 import com.ie.evalos.domain.ExceptionState;
@@ -55,6 +56,7 @@ import com.ie.evalos.domain.WebhookSource;
 import com.ie.evalos.security.TenantContext;
 import com.ie.evalos.service.AuditService;
 import com.ie.evalos.service.ExpertLoadService;
+import com.ie.evalos.service.PortalAccessService;
 
 /**
  * The acceptance evidence for Unit 03 that only a real PostgreSQL can produce:
@@ -235,6 +237,12 @@ class LocalPostgresIntegrationTest {
 
 	@Autowired
 	PortalAccessRepository portalTokens;
+
+	@Autowired
+	ClientAccountRepository clientAccounts;
+
+	@Autowired
+	PortalAccessService portalAccess;
 
 	@Autowired
 	GhlFunnelCacheRepository funnelCache;
@@ -1706,5 +1714,57 @@ class LocalPostgresIntegrationTest {
 		assertThat(jdbc.queryForObject(
 				"SELECT count(*) FROM opportunity_note WHERE brand_id = ? AND ghl_pipeline_id = ?",
 				Integer.class, BRAND_IE, theirs)).isZero();
+	}
+
+	/**
+	 * <strong>V44's widened scope, exercised through the service that writes it (Unit 42).</strong>
+	 *
+	 * <p>Three things a mocked repository cannot show, and every one of them is a 500 in production
+	 * if it is wrong:
+	 *
+	 * <ul>
+	 * <li><strong>The widened CHECK admits an account-scoped row.</strong> V38 required a CLIENT
+	 * party row to carry a {@code ghl_contact_id}; the sign-in door mints one that does not.</li>
+	 * <li><strong>A second sign-in does not collide with V44's partial unique index.</strong> This is
+	 * the ordering question: {@code retire()} dirties the previous row and {@code save()} queues the
+	 * new one in the same transaction, and Hibernate's ActionQueue runs insertions before updates at
+	 * flush. If that ordering bit, the second sign-in of the day would 500 — so the check is a
+	 * <em>second</em> mint, not a first.</li>
+	 * <li><strong>A shape change retires the account row.</strong> Linking a GHL contact moves the
+	 * next mint to the contact shape; the account-scoped credential must not survive it.</li>
+	 * </ul>
+	 *
+	 * <p>And the property V38 was protecting still holds: the last assertion is a row scoped to
+	 * nothing, which the widened constraint still refuses.
+	 */
+	@Test
+	void anAccountScopedPortalTokenIsLegalAndStillOnlyOneLives() {
+		ClientAccount account = clientAccounts.save(
+				new ClientAccount(BRAND_IE, "ana-" + UUID.randomUUID() + "@example.com"));
+
+		portalAccess.mintForClientAccount(account);
+		// The second mint is the one that has to survive the index, and it is the ordinary case:
+		// a client signs in again.
+		portalAccess.mintForClientAccount(account);
+
+		List<PortalAccess> afterTwoSignIns = portalTokens.findByClientAccountIdOrderByCreatedAtDesc(account.getId());
+		assertThat(afterTwoSignIns).hasSize(2);
+		assertThat(afterTwoSignIns).filteredOn(token -> token.getRevokedAt() == null)
+				.as("V44's partial index allows exactly one live token per account").hasSize(1);
+
+		// Unit 43 pushes the client to GHL, so the next sign-in mints the contact shape instead —
+		// and must not leave the account-scoped credential live behind it.
+		account.linkGhlContact("ghl-" + UUID.randomUUID());
+		portalAccess.mintForClientAccount(clientAccounts.save(account));
+
+		assertThat(portalTokens.findByClientAccountIdOrderByCreatedAtDesc(account.getId()))
+				.as("a shape change does not strand the previous shape's credential")
+				.allMatch(token -> token.getRevokedAt() != null);
+
+		// V38's property, unchanged: a party token scoped to nothing is still refused.
+		assertThatThrownBy(() -> portalTokens.saveAndFlush(PortalAccess.forParty(
+				BRAND_IE, PortalAudience.CLIENT, null, null, "hash-" + UUID.randomUUID(),
+				Instant.now().plus(Duration.ofDays(7)))))
+				.hasStackTraceContaining("portal_access_scope_is_one_thing");
 	}
 }

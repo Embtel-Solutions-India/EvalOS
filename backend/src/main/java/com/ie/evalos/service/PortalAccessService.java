@@ -216,27 +216,45 @@ public class PortalAccessService {
 	 * the caller has already passed, so no request body can steer this.
 	 *
 	 * <p><strong>An account with no GHL contact still mints</strong>, scoped to the account id
-	 * instead ({@code V44} widened the scope constraint to admit that row). That is the case after
-	 * the 2026-09-11 CRM replacement and for any client who has not yet been pushed to GHL — and
-	 * it is where "EvalOS works when GHL is removed" stops being a slogan: the client signs in and
-	 * reaches their documents with no GHL row anywhere. The principal that comes back from
+	 * instead ({@code V44} widened the scope constraint to admit that row). That is the minority
+	 * shape — {@code V45} seeds the contact id from {@code contact_snapshot}, so the ordinary
+	 * signed-in client takes the branch above — but it is the one where "EvalOS works when GHL is
+	 * removed" stops being a slogan: a self-signup who is not in GHL yet signs in and reaches
+	 * their documents with no GHL row anywhere. The principal that comes back from
 	 * {@link #resolve} then carries a null contact id, which the portal reads already fail closed
 	 * on ({@code PortalCaseService}) or answer empty for ({@code PortalInvoiceService},
 	 * {@code PortalMeetingService}).
 	 *
-	 * <p><strong>Either shape retires the previous token of its own shape</strong>, because each
-	 * has its own partial unique index — V38's for a contact, V44's for an account — and the
-	 * database, not this method, is what makes "one live token per scope" true.
+	 * <p><strong>The account's previous token is retired whichever shape this mint takes</strong>,
+	 * and that is not symmetry for its own sake. {@code linkGhlContact} is a normal transition —
+	 * Unit 43 pushes a signed-up client to GHL — so a client can sign in contactless on Monday and
+	 * with a contact on Tuesday. Retiring only within the shape being minted would leave Monday's
+	 * account-scoped credential live for the rest of its seven days, and "re-minting revokes the
+	 * previous" would quietly stop being true for exactly the client the shape change describes.
+	 * The contact-scoped row is retired by the contact branch, which is the only shape that can
+	 * collide with V38's index.
+	 *
+	 * <p><strong>A transient account is refused</strong>, the way {@link #contactOf} refuses a case
+	 * with no contact. Its id is assigned at persist ({@code ScopedEntity}), so an unsaved entity
+	 * would mint a row naming nobody — which {@code V44}'s widened constraint rejects at commit
+	 * anyway, but as a 500 rather than as a sentence saying what went wrong. It also makes the
+	 * retirement above safe: a null id there would match no row and silently retire nothing.
 	 *
 	 * <p>Not audited here. The caller audits {@code CLIENT_SIGNED_IN} with the account as the
 	 * subject, because a credential issued <em>as part of</em> a sign-in is one event, not two.
 	 */
 	@Transactional
 	public MintedLink mintForClientAccount(ClientAccount account) {
+		if (account.getId() == null) {
+			throw new IllegalTransitionException(
+					"this account has not been persisted, so a token would name nobody");
+		}
 		Instant now = Instant.now();
 		String token = freshToken();
 		String contact = account.getGhlContactId();
 		PortalAccess minted;
+
+		retire(tokens.findByClientAccountIdOrderByCreatedAtDesc(account.getId()), now);
 
 		if (contact != null && !contact.isBlank()) {
 			retirePreviousClientParty(account.getBrandId(), contact, now);
@@ -244,7 +262,6 @@ public class PortalAccessService {
 					contact, null, hash(token), now.plus(partyTtl)));
 		}
 		else {
-			retire(tokens.findByClientAccountIdOrderByCreatedAtDesc(account.getId()), now);
 			minted = tokens.save(PortalAccess.forAccount(account.getBrandId(), account.getId(),
 					hash(token), now.plus(partyTtl)));
 		}
@@ -302,11 +319,25 @@ public class PortalAccessService {
 				brandId, expertId, PortalAudience.EXPERT), now);
 	}
 
+	/**
+	 * <strong>{@code saveAndFlush}, and the flush is load-bearing.</strong> Hibernate's ActionQueue
+	 * runs insertions before updates at flush, so a plain {@code save} here leaves the revocation
+	 * queued <em>behind</em> the insert the mint is about to make — and the partial unique indexes
+	 * this method exists to satisfy are checked by the database when that insert lands, at which
+	 * point the previous row is still unrevoked. The second mint then fails with a duplicate key on
+	 * the very row it had just superseded.
+	 *
+	 * <p>Not a hypothesis: {@code LocalPostgresIntegrationTest
+	 * .anAccountScopedPortalTokenIsLegalAndStillOnlyOneLives} reproduced it on
+	 * {@code portal_access_one_live_per_account} the first time a client signed in twice. The shape
+	 * is the same for {@code V23}'s and {@code V38}'s indexes, which is why the flush lives here,
+	 * in the one method every mint retires through, rather than at the one call site that caught it.
+	 */
 	private void retire(List<PortalAccess> superseded, Instant now) {
 		for (PortalAccess existing : superseded) {
 			if (existing.getRevokedAt() == null) {
 				existing.revoke(now);
-				tokens.save(existing);
+				tokens.saveAndFlush(existing);
 			}
 		}
 	}

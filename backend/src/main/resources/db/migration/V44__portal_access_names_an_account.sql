@@ -2,9 +2,15 @@
 --
 -- V38's constraint required a CLIENT party row to carry a ghl_contact_id. That was right when
 -- the only way to be a client was to have been a GHL contact first. Unit 42 makes an EvalOS
--- account the thing a client signs in with, and after IE's GHL sub-account was replaced on
--- 2026-09-11 **most accounts have no GHL contact at all** — so the old constraint refuses
--- exactly the row the sign-in door needs to mint.
+-- account the thing a client signs in with, and an account is allowed to have no GHL contact
+-- behind it at all — so the old constraint refuses a row the sign-in door has to be able to mint.
+--
+-- **This is the minority case, not the majority one.** V45 seeds ghl_contact_id from
+-- contact_snapshot rather than NULL, because that id is EvalOS's own join key from a client to
+-- their cases even when the contact no longer exists in GHL, so the normal signed-in client mints
+-- exactly the party token V38 already allowed. What lands here is the client who has no such id:
+-- a self-signup before Unit 43 pushes them to GHL, or a snapshot that never carried one. The
+-- column is nullable forever, so this is a permanent shape and not a cutover workaround.
 --
 -- **The constraint is widened, not dropped.** A token scoped to nothing is still refused, which
 -- is the property V38 was protecting. What changes is that "a client" now has two legal names.

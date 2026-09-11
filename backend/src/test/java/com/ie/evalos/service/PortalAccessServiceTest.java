@@ -25,6 +25,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -141,7 +142,9 @@ class PortalAccessServiceTest {
 
 		assertThat(previous.getRevokedAt()).isNotNull();
 		assertThat(previous.isLive(Instant.now())).isFalse();
-		verify(tokens).save(previous);
+		// saveAndFlush, not save: the revocation must reach the database before the insert the
+		// unique index checks — see PortalAccessService.retire.
+		verify(tokens).saveAndFlush(previous);
 	}
 
 	// --- Unit 35, D1: the party-scoped credential -----------------------------
@@ -241,7 +244,7 @@ class PortalAccessServiceTest {
 		links.mint(CASE_ID, PortalAudience.CLIENT);
 
 		assertThat(expired.getRevokedAt()).as("an expired row must not stay unrevoked").isNotNull();
-		verify(tokens).save(expired);
+		verify(tokens).saveAndFlush(expired);
 	}
 
 	/** A row already retired is left exactly as it was — first revocation wins. */
@@ -257,7 +260,7 @@ class PortalAccessServiceTest {
 		links.mint(CASE_ID, PortalAudience.CLIENT);
 
 		assertThat(retired.getRevokedAt()).isEqualTo(revokedAt);
-		verify(tokens, never()).save(retired);
+		verify(tokens, never()).saveAndFlush(retired);
 	}
 
 	/** Minting is audited, and the row must not carry the credential it issued. */
@@ -376,7 +379,7 @@ class PortalAccessServiceTest {
 	@Test
 	void mintForClientAccountIssuesAPartyTokenAndRetiresThePrevious() {
 		UUID brand = UUID.randomUUID();
-		ClientAccount account = new ClientAccount(brand, "ana@example.com");
+		ClientAccount account = persisted(new ClientAccount(brand, "ana@example.com"));
 		account.linkGhlContact("ghl-contact-1");
 		PortalAccess previous = PortalAccess.forParty(brand, PortalAudience.CLIENT, "ghl-contact-1",
 				null, "old-hash", Instant.now().plus(Duration.ofDays(7)));
@@ -403,7 +406,7 @@ class PortalAccessServiceTest {
 	@Test
 	void mintForClientAccountWithNoGhlContactScopesTheTokenToTheAccount() {
 		UUID brand = UUID.randomUUID();
-		ClientAccount account = new ClientAccount(brand, "ana@example.com");
+		ClientAccount account = persisted(new ClientAccount(brand, "ana@example.com"));
 		PortalAccess previous = PortalAccess.forAccount(brand, account.getId(), "old-hash",
 				Instant.now().plus(Duration.ofDays(7)));
 		given(tokens.findByClientAccountIdOrderByCreatedAtDesc(account.getId()))
@@ -418,7 +421,7 @@ class PortalAccessServiceTest {
 
 		PortalAccess minted = savedAccess();
 		assertThat(minted.getGhlContactId()).isNull();
-		assertThat(minted.getClientAccountId()).isEqualTo(account.getId());
+		assertThat(minted.getClientAccountId()).isNotNull().isEqualTo(account.getId());
 		assertThat(minted.getAudience()).isEqualTo(PortalAudience.CLIENT);
 		assertThat(minted.isPartyScoped()).isTrue();
 	}
@@ -441,6 +444,50 @@ class PortalAccessServiceTest {
 		assertThat(principal.ghlContactId()).isNull();
 		assertThat(principal.audience()).isEqualTo(PortalAudience.CLIENT);
 		assertThat(principal.brandId()).isEqualTo(brand);
+	}
+
+	/**
+	 * <strong>A shape change does not leave the old shape's credential live.</strong> A client who
+	 * signs in before Unit 43 pushes them to GHL holds an account-scoped token; linking the contact
+	 * moves the next mint to the contact shape, and retiring only within that shape would leave the
+	 * first token working for the rest of its seven days. "Re-minting revokes the previous" is
+	 * stated as an invariant of this service in three places, and this is the sequence that would
+	 * have made it false.
+	 */
+	@Test
+	void mintForClientAccountRetiresTheAccountTokenEvenWhenTheShapeChanges() {
+		UUID brand = UUID.randomUUID();
+		ClientAccount account = persisted(new ClientAccount(brand, "ana@example.com"));
+		PortalAccess contactless = PortalAccess.forAccount(brand, account.getId(), "old-hash",
+				Instant.now().plus(Duration.ofDays(7)));
+		given(tokens.findByClientAccountIdOrderByCreatedAtDesc(account.getId()))
+				.willReturn(List.of(contactless));
+
+		account.linkGhlContact("ghl-contact-1");
+		links.mintForClientAccount(account);
+
+		assertThat(contactless.getRevokedAt()).isNotNull();
+		assertThat(savedAccess().getGhlContactId()).isEqualTo("ghl-contact-1");
+	}
+
+	/**
+	 * A transient account names nobody, the way a case with no contact does. The database would
+	 * refuse the row at commit ({@code V44}), but as a 500 — and Task 4's "create the account, then
+	 * mint" flow is one missing flush away from producing one.
+	 */
+	@Test
+	void mintForClientAccountRefusesAnUnsavedAccount() {
+		assertThatThrownBy(() -> links.mintForClientAccount(
+				new ClientAccount(UUID.randomUUID(), "ana@example.com")))
+				.isInstanceOf(IllegalTransitionException.class);
+
+		verify(tokens, never()).save(any());
+	}
+
+	/** The id a persisted entity would carry: Hibernate assigns it at persist, so nothing else does. */
+	private static ClientAccount persisted(ClientAccount account) {
+		ReflectionTestUtils.setField(account, "id", UUID.randomUUID());
+		return account;
 	}
 
 	/** The row this mint wrote, which is the only way to see what was actually scoped. */

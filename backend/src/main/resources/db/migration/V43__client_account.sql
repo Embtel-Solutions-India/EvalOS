@@ -2,12 +2,14 @@
 --
 -- **`password_hash IS NULL` is the "never set a password" state.** There is deliberately no
 -- status column beside it: a second column stating what the first already states is a second
--- thing to keep in step. Every account seeded from contact_snapshot (V44) starts here.
+-- thing to keep in step. Every account seeded from contact_snapshot (V45) starts here.
 --
 -- **`ghl_contact_id` is a LINK, not the identity.** Invariant 7 as amended by this unit: GHL's
 -- contact id stays canonical in GHL, but a client's ability to sign in does not depend on GHL
--- holding a row. It is nullable forever, and V44 seeds it NULL because IE's GHL sub-account was
--- replaced on 2026-09-11 and every id EvalOS holds names a contact that no longer exists.
+-- holding a row. It is nullable forever, and V45 seeds it from contact_snapshot: that id is
+-- EvalOS's own join key from a client to their cases, and it stays useful even though IE's GHL
+-- sub-account was replaced on 2026-09-11 and the contact it names is gone from GHL. An account
+-- with no id at all is legal and normal — a self-signup, or a snapshot that never carried one.
 
 create table client_account (
     id              uuid primary key,
