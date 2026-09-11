@@ -1,10 +1,10 @@
 package com.ie.evalos;
 
-import com.ie.evalos.job.JobProperties;
-
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
+
+import com.ie.evalos.job.JobProperties;
 
 /**
  * <p>{@code JobProperties} is registered explicitly rather than by

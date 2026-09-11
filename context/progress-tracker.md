@@ -4590,6 +4590,29 @@ gained the power to rewrite money, which the spec asked for and then did not fol
 Nothing is half-built. Everything below is code-complete and waiting on somebody outside the
 repo — listed so a session does not mistake a provisioning wait for unfinished work.
 
+- ⚠️ **IE's GoHighLevel sub-account was replaced on 2026-09-11.** New location
+  **`WY6bW2xUCI8Tz8gw7aLJ`**, replacing `kBumF0uUOmMBB5bneYjx`. Fresh CRM, **no contact or
+  opportunity migration — the old account is abandoned.** The checklist is
+  `context/specs/00c-ghl-independence-programme.md` §1 and is not repeated here.
+
+  **The critical item is the `opportunity.won` workflow.** The webhook endpoint token is
+  EvalOS-side and unchanged, but the GHL workflow that calls it lived in the old account.
+  **Until it is recreated in the new one, Handoff A is dead and no case is created by
+  anything.** The three pipeline-name settings will 502 until they match the new account's
+  pipelines, which is the intended failure direction, not a defect.
+
+  **Known and accepted consequence:** every `ghl_contact_id` EvalOS holds names a contact that
+  no longer exists, so `PortalInvoiceService` (Unit 41) and `PortalMeetingService` (Unit 40)
+  return nothing for pre-cutover clients. Cases, documents, drafts and audit are unaffected —
+  they are EvalOS-owned. That split is the opening argument of the `00c` programme.
+
+- **Units 42, 43 and the `00c` programme are specced and awaiting review (2026-09-11).**
+  Nothing is coded. The client portal gains a real sign-in door (42) and the restored Get
+  Started funnel with its conditional questionnaire (43), and `00c` sequences the decision that
+  **EvalOS must work when GHL is removed**. Three invariant amendments are named in those specs
+  and **none has been applied to `architecture.md` yet** — they land when the specs are
+  approved, so the invariants there are still live and enforced as written.
+
 - **Unit 15's live round-trip.** A real expert token, a real download, a real signed PDF into a
   real bucket. Blocked on the **AWS credential + bucket**, which is the same thing Unit 30's live
   path and Unit 21's reconcile wait for. Everything below the transport is verified against a test
