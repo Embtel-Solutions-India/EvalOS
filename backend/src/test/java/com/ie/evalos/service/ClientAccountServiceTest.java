@@ -128,9 +128,18 @@ class ClientAccountServiceTest {
 	void signInToAnAccountWithNoPasswordIsRefusedWithoutComparingAHash() {
 		given(accounts.findByBrandIdAndEmailIgnoreCase(BRAND, "ana@example.com"))
 				.willReturn(Optional.of(new ClientAccount(BRAND, "ana@example.com")));
+		// A real BCryptPasswordEncoder tolerates matches(raw, null) — it returns false rather than
+		// throwing, so it cannot prove hasPassword() is checked first. A hostile encoder that throws
+		// on any call to matches() makes the ordering load-bearing: if signIn ever called matches()
+		// before hasPassword(), this test would see IllegalArgumentException, not the
+		// InvalidRequestException a refusal is supposed to be.
+		PasswordEncoder hostile = mock(PasswordEncoder.class);
+		given(hostile.matches(any(), any())).willThrow(new IllegalArgumentException("must not be called"));
+		ClientAccountService hostileService = new ClientAccountService(accounts, credentials, mailer, links,
+				audit, hostile, BRAND, Duration.ofMinutes(30), "https://portal.example.com");
 
 		org.assertj.core.api.Assertions
-				.assertThatThrownBy(() -> service.signIn("ana@example.com", "anything"))
+				.assertThatThrownBy(() -> hostileService.signIn("ana@example.com", "anything"))
 				.isInstanceOf(com.ie.evalos.common.InvalidRequestException.class);
 	}
 

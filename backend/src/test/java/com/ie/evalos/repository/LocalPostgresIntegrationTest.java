@@ -26,8 +26,10 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.TestPropertySource;
 
+import com.ie.evalos.common.InvalidRequestException;
 import com.ie.evalos.domain.ActorType;
 import com.ie.evalos.domain.AuditAction;
 import com.ie.evalos.domain.AuditEvent;
@@ -55,6 +57,7 @@ import com.ie.evalos.domain.WebhookEvent;
 import com.ie.evalos.domain.WebhookSource;
 import com.ie.evalos.security.TenantContext;
 import com.ie.evalos.service.AuditService;
+import com.ie.evalos.service.ClientAccountService;
 import com.ie.evalos.service.ExpertLoadService;
 import com.ie.evalos.service.PortalAccessService;
 
@@ -255,6 +258,12 @@ class LocalPostgresIntegrationTest {
 
 	@Autowired
 	ExpertLoadService expertLoads;
+
+	@Autowired
+	ClientAccountService clientAccountService;
+
+	@Autowired
+	PasswordEncoder passwordEncoder;
 
 	@Test
 	void everyMigrationApplied() {
@@ -1766,5 +1775,37 @@ class LocalPostgresIntegrationTest {
 				BRAND_IE, PortalAudience.CLIENT, null, null, "hash-" + UUID.randomUUID(),
 				Instant.now().plus(Duration.ofDays(7)))))
 				.hasStackTraceContaining("portal_access_scope_is_one_thing");
+	}
+
+	/**
+	 * Task 5's review Critical, and the reason it needed a real transaction manager to catch:
+	 * {@link ClientAccountService#signIn} writes {@code CLIENT_SIGN_IN_REFUSED} through
+	 * {@link AuditService#recordPortalEvent}, which is {@code @Transactional} and joins the
+	 * caller's transaction by design — its own javadoc says the trail commits with the change it
+	 * describes or not at all. On the refusal path the audit row <em>is</em> the change, and
+	 * {@code refused()} throws an unchecked {@link InvalidRequestException} right after writing it.
+	 * Spring's default rollback rule rolls back on any unchecked exception, so without
+	 * {@code signIn}'s {@code noRollbackFor = InvalidRequestException.class}, this row is inserted
+	 * and then discarded — invisible in production, and invisible to a Mockito-backed unit test,
+	 * which has no transaction to roll back in the first place.
+	 *
+	 * <p>This is why the assertion below reads the row back through the repository in a fresh call
+	 * after {@code signIn} has already returned (thrown, in this case): only a committed row
+	 * survives to be read.
+	 */
+	@Test
+	void aRefusedSignInStillCommitsItsAuditRow() {
+		ClientAccount seeded = clientAccounts.save(
+				new ClientAccount(BRAND_IE, "refused-" + UUID.randomUUID() + "@example.com"));
+		seeded.setPasswordHash(passwordEncoder.encode("Correct!1"));
+		ClientAccount account = clientAccounts.save(seeded);
+
+		assertThatThrownBy(() -> clientAccountService.signIn(account.getEmail(), "Wrong!1"))
+				.isInstanceOf(InvalidRequestException.class);
+
+		assertThat(auditEvents.findByObjectTypeAndObjectIdOrderByCreatedAtAsc("CLIENT_ACCOUNT", account.getId()))
+				.as("the refusal is the whole point of the row — noRollbackFor is what keeps the "
+						+ "throw from undoing the write that precedes it")
+				.anyMatch(event -> event.getAction() == AuditAction.CLIENT_SIGN_IN_REFUSED);
 	}
 }

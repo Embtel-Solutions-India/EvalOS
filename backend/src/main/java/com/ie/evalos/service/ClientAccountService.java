@@ -143,8 +143,17 @@ public class ClientAccountService {
 	 * password and an unknown email all answer identically here — {@code identify} is where the
 	 * difference is told, deliberately and once, so this route does not become a second and
 	 * unthrottled enumeration surface.
+	 *
+	 * <p><strong>{@code noRollbackFor = InvalidRequestException.class}, and this is load-bearing.</strong>
+	 * {@link AuditService#recordPortalEvent} is {@code @Transactional} and joins this method's
+	 * transaction by design (its own javadoc: the trail commits with the change it describes or not
+	 * at all) — but on the refusal path the audit row <em>is</em> the change, and {@code refused()}
+	 * is an unchecked exception. Spring's default rollback rule would roll the whole transaction
+	 * back on that throw, discarding the very row {@code CLIENT_SIGN_IN_REFUSED} exists to
+	 * guarantee. The refusal path mutates nothing else — the account is loaded and never written to
+	 * before the throw — so committing here commits exactly the audit row and nothing more.
 	 */
-	@Transactional
+	@Transactional(noRollbackFor = InvalidRequestException.class)
 	public PortalAccessService.MintedLink signIn(String email, String password) {
 		ClientAccount account = accounts.findByBrandIdAndEmailIgnoreCase(brandId, normalize(email))
 				.orElseThrow(ClientAccountService::refused);
@@ -199,6 +208,11 @@ public class ClientAccountService {
 				.orElseThrow(ClientAccountService::linkRefused);
 
 		credential.markUsed(now);
+		// Explicit, matching every other write in this area (issueCredential's credentials.save,
+		// PortalAccessService.retire's saveAndFlush) rather than relying on dirty checking: single-use
+		// enforcement rides on this row actually being written, and no test would catch it if the
+		// entity ever became detached.
+		credentials.save(credential);
 		account.setPasswordHash(encoder.encode(password));
 		account.recordSignIn(now);
 		audit.recordPortalEvent(account.getBrandId(), PortalAudience.CLIENT, "CLIENT_ACCOUNT",
