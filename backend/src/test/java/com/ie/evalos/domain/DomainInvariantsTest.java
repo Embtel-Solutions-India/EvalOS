@@ -11,6 +11,8 @@ import java.util.stream.Stream;
 import com.ie.evalos.repository.AuditEventRepository;
 import com.ie.evalos.repository.CaseDocumentRepository;
 import com.ie.evalos.repository.CaseRepository;
+import com.ie.evalos.repository.ClientAccountRepository;
+import com.ie.evalos.repository.ClientCredentialTokenRepository;
 import com.ie.evalos.repository.ContactSnapshotRepository;
 import com.ie.evalos.repository.DocumentChecklistItemRepository;
 import com.ie.evalos.repository.ExpertCaseOfferRepository;
@@ -59,7 +61,9 @@ class DomainInvariantsTest {
 				arguments(PayoutLedgerRepository.SCOPE, PayoutLedger.class),
 				arguments(PayoutPaymentRepository.SCOPE, PayoutPayment.class),
 				arguments(PortalAccessRepository.SCOPE, PortalAccess.class),
-				arguments(NotificationRepository.SCOPE, Notification.class));
+				arguments(NotificationRepository.SCOPE, Notification.class),
+				arguments(ClientAccountRepository.SCOPE, ClientAccount.class),
+				arguments(ClientCredentialTokenRepository.SCOPE, ClientCredentialToken.class));
 	}
 
 	@ParameterizedTest
