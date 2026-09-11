@@ -4,9 +4,11 @@ import com.ie.evalos.common.ApiResponse;
 import com.ie.evalos.common.UploadedFileType;
 import com.ie.evalos.domain.PortalAudience;
 import com.ie.evalos.security.PortalPrincipal;
+import com.ie.evalos.integration.GhlCalendarClient;
 import com.ie.evalos.integration.GhlInvoiceClient;
 import com.ie.evalos.service.PortalCaseService;
 import com.ie.evalos.service.PortalInvoiceService;
+import com.ie.evalos.service.PortalMeetingService;
 
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
@@ -45,10 +47,13 @@ public class ClientPortalController {
 
 	private final PortalCaseService portal;
 	private final PortalInvoiceService portalInvoices;
+	private final PortalMeetingService portalMeetings;
 
-	ClientPortalController(PortalCaseService portal, PortalInvoiceService portalInvoices) {
+	ClientPortalController(PortalCaseService portal, PortalInvoiceService portalInvoices,
+			PortalMeetingService portalMeetings) {
 		this.portal = portal;
 		this.portalInvoices = portalInvoices;
+		this.portalMeetings = portalMeetings;
 	}
 
 	private static PortalPrincipal client() {
@@ -74,6 +79,22 @@ public class ClientPortalController {
 	@GetMapping("/invoices")
 	public ApiResponse<List<GhlInvoiceClient.ClientInvoice>> invoices() {
 		return ApiResponse.ok(portalInvoices.forCaller(client()));
+	}
+
+	/**
+	 * The client's meetings, read straight from GHL.
+	 *
+	 * <p>Party-scoped only, like invoices: a meeting belongs to the client, not to one case, and
+	 * a case-scoped link is told which link it is holding rather than given a wide answer.
+	 *
+	 * <p>The times in this payload are <strong>GHL's own strings and not ISO-8601</strong> —
+	 * {@code "2026-09-13 12:30:00"}, no offset. They are not parsed on the way through, because
+	 * with no zone in the payload any parse would invent one. See
+	 * {@code GhlCalendarClient.forContact}.
+	 */
+	@GetMapping("/meetings")
+	public ApiResponse<List<GhlCalendarClient.ClientMeeting>> meetings() {
+		return ApiResponse.ok(portalMeetings.forCaller(client()));
 	}
 
 	/** The whitelisted view, and the first read stamps the receipt. */

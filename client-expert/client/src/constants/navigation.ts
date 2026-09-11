@@ -1,4 +1,4 @@
-import { FileCheck2, FileText, LayoutDashboard, Receipt } from 'lucide-react'
+import { CalendarClock, FileCheck2, FileText, LayoutDashboard, Receipt } from 'lucide-react'
 import type { ComponentType } from 'react'
 
 export interface NavItem {
@@ -32,4 +32,12 @@ export const PRIMARY_NAV: NavItem[] = [
   { label: 'My cases', to: '/requests', icon: FileCheck2 },
   { label: 'Documents', to: '/documents', icon: FileText },
   { label: 'Invoices', to: '/invoices', icon: Receipt },
+  // Added 2026-09-11, the other half of "what a client is owed sight of". Sales books the
+  // meeting from their desk and GHL sends the invitation; this is where the client finds it
+  // again without searching an inbox.
+  //
+  // **Invoices and meetings are the whole of it.** No stage, no deal value, no sales notes —
+  // the decision of 2026-09-11. Stage names are written for staff, and a prospect reading that
+  // they are currently "Cold" is a leak no relabelling makes safe.
+  { label: 'Meetings', to: '/meetings', icon: CalendarClock },
 ]

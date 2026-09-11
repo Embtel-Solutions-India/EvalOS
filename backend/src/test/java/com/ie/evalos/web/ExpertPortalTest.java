@@ -18,6 +18,7 @@ import com.ie.evalos.security.PortalSecurityConfig;
 import com.ie.evalos.security.PortalTokenFilter;
 import com.ie.evalos.service.ExpertPortalService;
 import com.ie.evalos.service.PortalInvoiceService;
+import com.ie.evalos.service.PortalMeetingService;
 import com.ie.evalos.service.PortalAccessService;
 
 import org.junit.jupiter.api.Test;
@@ -79,12 +80,20 @@ class ExpertPortalTest {
 	@MockitoBean
 	PortalAccessService portalAccess;
 
-	// Unit 41 gave ClientPortalController an invoice route, so this slice needs the collaborator
-	// behind it. Mocked rather than imported: nothing here exercises invoices — that is
-	// ClientPortalInvoiceTest's job — and importing the real service would drag GhlHttp and a
+	// Unit 41 gave ClientPortalController an invoice route and the 2026-09-11 follow-on gave it a
+	// meetings route, so this slice needs both collaborators. Mocked rather than imported:
+	// nothing here exercises either — that is ClientPortalInvoiceTest's and
+	// ClientPortalMeetingTest's job — and importing the real services would drag GhlHttp and a
 	// GHL credential into a test about the two chains refusing each other's tokens.
+	//
+	// **This is the sixth time a @WebMvcTest slice has broken on a new constructor argument**,
+	// and only a full `verify` ever catches it. If you are adding a collaborator to a portal
+	// controller, grep for its name in src/test before running anything narrower.
 	@MockitoBean
 	PortalInvoiceService portalInvoices;
+
+	@MockitoBean
+	PortalMeetingService portalMeetings;
 
 	@MockitoBean
 	ExpertPortalService portal;

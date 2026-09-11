@@ -167,3 +167,37 @@ cursor pages; one client's invoices are one page, and `GhlHttp`'s limiter alread
 recognition — that is *paid AND delivered*, read only through `RefundService.isRevenueRecognized`.
 Said on the route, in the shared type, and here, because a later dashboard summing this screen is
 exactly the mistake the invariant exists to prevent.
+
+## 10. The meetings half (2026-09-11)
+
+The portal now answers the other question a client has before a case exists: **when are we
+speaking?** `GET /api/portal/client/meetings`, party-scoped, `PortalMeetingService` over
+`GhlCalendarClient.forContact`.
+
+**The scope decision, and it is the load-bearing one.** The portal shows a client **invoices and
+meetings, and nothing else of the opportunity** — no pipeline stage, no deal value, no sales
+note. Stage names are written for staff ("Warm", "Cold", "Hot"), and showing a prospect that
+they are currently Cold is a leak no relabelling makes safe; deal value is invariant 4's
+neighbourhood; `opportunity_note` is explicitly the Sales-for-Sales stream. If a client-facing
+status is ever wanted it needs a projection with a decision per stage, the way
+`PortalStageProjection` does for cases. `ClientPortalMeetingTest` asserts the absence of all
+four.
+
+**It needs `contacts.readonly`, not a calendar scope.** GHL hangs the read off
+`GET /contacts/{id}/appointments` — keyed on the contact, which is exactly what a party-scoped
+credential holds, the same happy accident that made invoices cheap.
+
+**Three traps in GHL's payload, all pinned by tests:**
+
+1. **The times are not ISO-8601.** `"2026-09-13 12:30:00"` — a space, and **no offset**.
+   `Instant.parse` throws; `new Date()` in a browser is implementation-defined. Neither the
+   server nor the portal parses them: with no zone in the payload any parse invents one, and
+   inventing UTC shows a Pacific client a meeting seven hours out. The *write* side of the same
+   API takes proper ISO with an offset, which is how easy it is to assume symmetry.
+2. **`deleted` must be honoured.** A removed appointment still comes back in the list.
+3. **GHL sends the status twice**, as `appointmentStatus` and as its own typo
+   `appoinmentStatus`. The correct spelling is read and the typo is ignored rather than used as
+   a fallback — a fallback onto a typo is a dependency on GHL never fixing it.
+
+**Verified live 2026-09-11** against contact `IzNmnFe10EoDN8G8bPMv`: one real meeting with its
+Google Meet link, six fields, no `assignedUserId`, no staff `notes`, no `appointmentMeta`.

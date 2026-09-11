@@ -256,3 +256,36 @@ home in it. Unit 34 D7: brand name + palette travel in the portal payload.
   re-exported from a `../src` that was not there, so every `useForm` import failed to
   typecheck). Deleting that one package and re-running `npm install` fixed it, same version.
   Suspect the same shape before blaming a config if types vanish from one package only.
+
+
+## Meetings (2026-09-11) — and the whole of what a client may see
+
+`/meetings` · `pages/meetings/Meetings.tsx` · `services/meetingService.ts` ·
+`ClientMeeting` in `shared/lib/portal.ts`. Party-scoped, like invoices; a case-scoped link
+answers 403 with the same "this link opens one case rather than your account" wording.
+
+**The client portal shows invoices and meetings, and NOTHING else of the opportunity** —
+decided 2026-09-11. No pipeline stage, no deal value, no sales note. Stage names are written
+for staff ("Warm", "Cold", "Hot") and a prospect reading that they are Cold is a leak no
+relabelling fixes; `opportunity_note` is the Sales-for-Sales stream by definition.
+`ClientPortalMeetingTest` asserts those four absences, so adding a field to `ClientMeeting`
+fails a test before it ships.
+
+**⚠ `startsAt`/`endsAt` are NOT ISO-8601 and must never be passed to `new Date()`.** GHL sends
+`"2026-09-13 12:30:00"` with no offset; `new Date()` on that is implementation-defined — some
+browsers read local, some UTC. `Meetings.tsx` formats them by reading the parts with a regex and
+falls back to the raw string. There is no correct instant to compute, because the payload
+carries no zone. Fixing it properly means GHL sending an offset, not the portal guessing one.
+
+**`location` is one field for two things**: a join URL for an online meeting, a street address
+for one in person. Linkified only on an `http(s)` prefix — a street address in an anchor is a
+dead link on a page a client is trusting. `rel="noopener noreferrer"`, and the `noreferrer` half
+matters: the target must not receive this portal's URL, which carries the credential in its
+fragment.
+
+**Five slice tests load `ClientPortalController`** — `ClientPortalTest`,
+`ClientPortalInvoiceTest`, `ClientPortalPerCaseActionTest`, `ClientPortalMeetingTest` and
+`ExpertPortalTest` (which imports it for the cross-chain refusal). **Adding a constructor
+argument breaks all five, and only a full `verify` catches it.** This has now happened eight
+times across the programme. Grep `ClientPortalController.class` in `src/test` before running
+anything narrower than `verify`.

@@ -60,6 +60,7 @@ const Dashboard = lazy(() => import('@/pages/dashboard/Dashboard'))
 const Requests = lazy(() => import('@/pages/requests/Requests'))
 const Documents = lazy(() => import('@/pages/documents/Documents'))
 const Invoices = lazy(() => import('@/pages/invoices/Invoices'))
+const Meetings = lazy(() => import('@/pages/meetings/Meetings'))
 const DraftReview = lazy(() => import('@/pages/draft/DraftReview'))
 const NotFound = lazy(() => import('@shared/pages/NotFound'))
 
@@ -79,6 +80,7 @@ function AppRoutes() {
         <Route path="/requests" element={<Requests />} />
         <Route path="/documents" element={<Documents />} />
         <Route path="/invoices" element={<Invoices />} />
+        <Route path="/meetings" element={<Meetings />} />
         {/* Both, so the case list can link straight to one and the picker still has a home. */}
         <Route path="/draft" element={<DraftReview />} />
         <Route path="/draft/:caseId" element={<DraftReview />} />

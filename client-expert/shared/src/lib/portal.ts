@@ -139,6 +139,33 @@ export type ClientInvoice = {
   dueDate: string | null
 }
 
+/**
+ * A meeting the client has with the business.
+ *
+ * **`startsAt` and `endsAt` are NOT ISO-8601.** GHL sends `"2026-09-13 12:30:00"` — a space
+ * instead of a `T`, and **no timezone offset at all**. `new Date(...)` on that string is
+ * implementation-defined and will silently produce the wrong instant in some browsers, so the
+ * portal formats these as text and does not construct a `Date` from them. Nothing downstream
+ * may assume otherwise; see `GhlCalendarClient.forContact` for why the server does not parse
+ * them either.
+ *
+ * **`location` is a join link for an online meeting and a street address for one in person.**
+ * Named for what it is rather than assumed to be a URL, because the page has to render both.
+ *
+ * **What is deliberately absent:** the stage, the deal value and any sales note. The portal
+ * shows a client their invoices and their meetings and nothing else of the opportunity —
+ * decided 2026-09-11. Stage names are written for staff.
+ */
+export type ClientMeeting = {
+  id: string | null
+  title: string | null
+  startsAt: string | null
+  endsAt: string | null
+  /** GHL's own word: `confirmed`, `cancelled`, `showed`, `noshow`, and whatever else it uses. */
+  status: string | null
+  location: string | null
+}
+
 // --- 34b: the draft the client reviews -------------------------------------
 
 /**

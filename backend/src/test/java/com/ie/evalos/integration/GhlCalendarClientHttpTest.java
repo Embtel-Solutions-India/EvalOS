@@ -208,4 +208,92 @@ class GhlCalendarClientHttpTest {
 				.isInstanceOf(GhlUnavailableException.class);
 		verify(audit, never()).recordEvent(any(), any(), any(), any(), any(), any());
 	}
+
+	// --- the contact-scoped read the Client Portal uses ------------------------------
+
+	/**
+	 * The live payload, trimmed. Every oddity in it is real and was copied from GHL on
+	 * 2026-09-11 — including the misspelled {@code appoinmentStatus}, which GHL sends
+	 * <em>alongside</em> the correct spelling.
+	 */
+	private static final String CONTACT_EVENTS = """
+			{"events":[
+			 {"id":"appt_1","title":"RFE Meeting","startTime":"2026-09-13 12:30:00",
+			  "endTime":"2026-09-13 13:00:00","appointmentStatus":"confirmed",
+			  "appoinmentStatus":"confirmed","address":"https://meet.google.com/osk-fwdz-pty",
+			  "assignedUserId":"UyzVHyoEYr3uTDjRBRUm","notes":"internal only",
+			  "calendarId":"cal_1","contactId":"c1","deleted":false,
+			  "appointmentMeta":{"defaultFormDetails":{"email":"someone@example.com"}}},
+			 {"id":"appt_gone","title":"Cancelled and removed","startTime":"2026-09-14 09:00:00",
+			  "endTime":"2026-09-14 09:30:00","appointmentStatus":"cancelled","deleted":true}
+			]}""";
+
+	@Test
+	void aContactsMeetingsAreReadFromTheContactsEndpoint() {
+		body = CONTACT_EVENTS;
+
+		List<GhlCalendarClient.ClientMeeting> found = client().forContact("c1");
+
+		assertThat(found).hasSize(1);
+		assertThat(found.get(0).title()).isEqualTo("RFE Meeting");
+		assertThat(found.get(0).location()).isEqualTo("https://meet.google.com/osk-fwdz-pty");
+		// `/contacts/{id}/appointments`, not a calendars path — and it needs contacts.readonly,
+		// not a calendar scope. Pinned because the class name suggests otherwise.
+		assertThat(paths).singleElement().asString().isEqualTo("/contacts/c1/appointments");
+	}
+
+	/**
+	 * <strong>A deleted appointment still comes back in the list.</strong> Showing a client a
+	 * meeting that is not happening is worse than showing none, so it is filtered.
+	 */
+	@Test
+	void aDeletedAppointmentIsNotShownToTheClient() {
+		body = CONTACT_EVENTS;
+
+		assertThat(client().forContact("c1"))
+				.extracting(GhlCalendarClient.ClientMeeting::id)
+				.containsExactly("appt_1")
+				.doesNotContain("appt_gone");
+	}
+
+	/**
+	 * <strong>GHL's times are not ISO-8601 and must survive unparsed.</strong> A space instead
+	 * of a {@code T} and no offset at all — {@code Instant.parse} throws on them. Passing them
+	 * through is deliberate: with no zone in the payload, any parse invents one, and inventing
+	 * UTC would show a Pacific client a meeting seven hours out. The write side of the same API
+	 * takes proper ISO with an offset, which is exactly how easy it is to assume symmetry.
+	 */
+	@Test
+	void ghlsNonIsoTimesArePassedThroughRatherThanParsedIntoTheWrongInstant() {
+		body = CONTACT_EVENTS;
+
+		GhlCalendarClient.ClientMeeting meeting = client().forContact("c1").get(0);
+
+		assertThat(meeting.startsAt()).isEqualTo("2026-09-13 12:30:00");
+		assertThatThrownBy(() -> java.time.Instant.parse(meeting.startsAt()))
+				.isInstanceOf(java.time.format.DateTimeParseException.class);
+	}
+
+	/**
+	 * The correctly spelled {@code appointmentStatus} is read. GHL also sends
+	 * {@code appoinmentStatus} — its own typo — and that is ignored rather than used as a
+	 * fallback, because a fallback onto a typo is a dependency on GHL never fixing it.
+	 */
+	@Test
+	void theStatusIsReadFromTheCorrectlySpelledField() {
+		body = """
+				{"events":[{"id":"a","appointmentStatus":"confirmed","appoinmentStatus":"WRONG",
+				 "startTime":"2026-09-13 12:30:00","endTime":"2026-09-13 13:00:00"}]}""";
+
+		assertThat(client().forContact("c1").get(0).status()).isEqualTo("confirmed");
+	}
+
+	/** No meetings is an empty list, not a failure — a client with none is the normal case. */
+	@Test
+	void aContactWithNoMeetingsIsAnEmptyList() {
+		body = """
+				{"events":[]}""";
+
+		assertThat(client().forContact("c1")).isEmpty();
+	}
 }

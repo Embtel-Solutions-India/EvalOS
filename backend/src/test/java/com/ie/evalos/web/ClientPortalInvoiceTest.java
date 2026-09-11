@@ -15,6 +15,7 @@ import com.ie.evalos.security.PortalSecurityConfig;
 import com.ie.evalos.security.PortalTokenFilter;
 import com.ie.evalos.service.PortalAccessService;
 import com.ie.evalos.service.PortalCaseService;
+import com.ie.evalos.service.PortalMeetingService;
 import com.ie.evalos.service.PortalInvoiceService;
 
 import org.junit.jupiter.api.Test;
@@ -66,6 +67,11 @@ class ClientPortalInvoiceTest {
 
 	@MockitoBean
 	PortalCaseService portal;
+
+	// The meetings route (2026-09-11) gave ClientPortalController another collaborator, so this
+	// slice needs it even though nothing here exercises meetings — ClientPortalMeetingTest does.
+	@MockitoBean
+	PortalMeetingService portalMeetings;
 
 	@MockitoBean
 	PortalInvoiceService invoices;

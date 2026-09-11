@@ -4,6 +4,47 @@ Update this file after every meaningful implementation change.
 
 ## Current Phase
 
+- **2026-09-11 — the client portal ↔ sales link is closed. The GHL programme is complete.**
+  Backend 918 tests green including the DB suite; both frontends build.
+
+  `GET /api/portal/client/meetings`, party-scoped, over
+  `GhlCalendarClient.forContact` → `GET /contacts/{id}/appointments`. **It needs
+  `contacts.readonly`, not a calendar scope** — GHL keys that read on the contact, which is
+  exactly what a party-scoped portal credential holds. The same happy accident that made
+  invoices cheap.
+
+  **The scope decision is the load-bearing part.** The portal shows a client **invoices and
+  meetings and nothing else of the opportunity** — no pipeline stage, no deal value, no sales
+  note. Stage names are written for staff ("Warm", "Cold", "Hot") and showing a prospect that
+  they are currently Cold is a leak no relabelling makes safe; deal value is invariant 4's
+  neighbourhood; `opportunity_note` is the Sales-for-Sales stream by definition. Four absences
+  asserted in `ClientPortalMeetingTest`, so adding a field fails a test before it ships.
+
+  **Three traps in GHL's payload, each pinned:**
+  - **The times are not ISO-8601** — `"2026-09-13 12:30:00"`, no offset. `Instant.parse` throws;
+    `new Date()` is implementation-defined. **Neither side parses them**: with no zone in the
+    payload any parse invents one, and inventing UTC shows a Pacific client a meeting seven
+    hours out. The *write* side of the same API takes proper ISO, which is how easy the
+    symmetry assumption is.
+  - **`deleted` must be filtered** — a removed appointment still comes back in the list, and
+    showing a client a meeting that is not happening is worse than showing none.
+  - **GHL sends the status twice**, as `appointmentStatus` and its own typo `appoinmentStatus`.
+    The correct spelling is read; the typo is ignored rather than used as a fallback, because a
+    fallback onto a typo is a dependency on GHL never fixing it.
+
+  **Verified live** against contact `IzNmnFe10EoDN8G8bPMv`: one real meeting with its Google
+  Meet link, six fields, no `assignedUserId`, no staff `notes`, no `appointmentMeta`.
+
+  **⚠ The `@WebMvcTest` slice trap bit twice more, and my own note had said how to avoid it.**
+  `ClientPortalController` is loaded by **five** slices; I patched the two I had been bitten by
+  before and ran those, and `ClientPortalInvoiceTest` + `ClientPortalPerCaseActionTest` failed
+  the full build. Eighth occurrence in this programme. The rule is now in
+  `mem:client-expert/core` with the grep that finds all five.
+
+  **Remaining open, and none of it is code:** `calendars/events.write` is unverified (confirming
+  it means booking on a live calendar — the user's call), G15's expert-link channel, and the
+  board's inline-refill ceiling on Shivangi's 11,718-deal pipeline.
+
 - **2026-09-11 — meetings shipped; Unit 40 is now complete.** Backend 906 tests green including
   the DB suite; staff frontend green.
 
