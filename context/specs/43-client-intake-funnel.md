@@ -22,13 +22,52 @@
 
 ## 1. What changes, in one paragraph
 
-A visitor who clicks **Get started** on the welcome screen works through seven steps: welcome,
-choose a service, state a purpose, give their details (which creates their account), answer a
-questionnaire whose questions depend on what they picked, upload the documents that service
-needs, and review and submit. Submitting writes an EvalOS-owned `client_application`, then
-pushes a contact and an opportunity into GHL and files the answers as a note. Sales picks it up
-from there. **No case is created** — the case is still born only of a won opportunity, which is
-still `opportunity.won` arriving on the webhook.
+A visitor works through seven steps: welcome, choose a service, state a purpose, give their
+details, answer a questionnaire whose questions depend on what they picked, upload the documents
+that service needs, and review and submit. **Giving their details creates three things at once
+— their account, their GHL contact, and a GHL opportunity already at the hot stage** — and the
+questionnaire and documents follow. Sales reviews the answers on a staff screen, contacts the
+client, and raises the invoice. **No case is created** — the case is still born only of a won
+opportunity, which is still `opportunity.won` arriving on the webhook.
+
+## 1a. Two entry points, one flow (decided 2026-09-12)
+
+```
+NEW LEAD        Portal → Get started → About You → create contact + opportunity @ HOT
+                      → questionnaire + docs → sales reviews & contacts → payment → WON → case
+
+EXISTING CLIENT Portal → Sign in     → About You → REUSE contact, new opportunity @ HOT
+                      → questionnaire + docs → sales reviews & contacts → payment → WON → case
+```
+
+**The two paths differ in exactly one thing: whether a GHL contact is created or reused.**
+Everything after that is identical — both land at hot, both get a sales review, both reach a case
+through Handoff A. An earlier draft of this decision had existing clients skipping the hot stage
+and the sales review entirely; **that was rejected on 2026-09-12.** A repeat order can differ in
+scope and price from the first one, so a human still prices it.
+
+**One contact, many opportunities.** A returning client gets a *new* opportunity against their
+existing contact — invariant 7's rule that `ghl_contact_id` is the client and
+`ghl_opportunity_id` is one purchase. EvalOS never creates a second contact for someone it
+already knows.
+
+### How the portal tells them apart
+
+**Both mechanisms, and they cover each other's gap.** The welcome screen asks — *Get started* or
+*I already have an account* — and Unit 42's `identify` verifies the answer by email.
+
+- The **buttons** are the primary route, because a person knows which they are and asking is
+  cheaper than inferring.
+- **`identify` is the safety net**, and it is the half that actually matters: a returning client
+  who clicks *Get started* out of habit is recognised from their email and routed to the existing
+  path instead of being **duplicated as a second contact**. Without it the two buttons are a
+  trust-the-user mechanism on the one decision a user has no reason to get right.
+
+**Caveat, and it is temporary but universal today:** after the 2026-09-11 CRM replacement, every
+seeded client exists in EvalOS with **no GHL contact**. They sign in, are correctly recognised as
+existing, and still take the create-a-contact branch — because there is nothing in the new
+location to reuse. The rule is therefore *reuse `ghl_contact_id` when it is non-null*, not
+*reuse it when the client is known*.
 
 ---
 
@@ -91,7 +130,7 @@ the failure this unit is most likely to ship.
 
 ---
 
-## 4. The account is created at step 4, not at the end
+## 4. The account — and the lead — are created at step 4, not at the end
 
 **About You creates the `client_account`** (Unit 42's table) with email, password and terms —
 the fields `schemas/intake.ts` already validates. Steps 5–7 then run signed in.
@@ -133,21 +172,67 @@ PUT  /api/portal/applications/{id}              save answers     (steps 5–6, a
 POST /api/portal/applications/{id}/submit       the one that writes to GHL
 ```
 
-Submit does five things in this order, and **the first three are EvalOS's own record**:
+**The lead reaches GHL at step 4, not here.** That is the 2026-09-12 correction and it is the
+most important change in this spec.
 
-1. **Re-validate** the answers server-side against the catalog (§3). Refuse incomplete.
-2. **Mark the application `SUBMITTED`** and **move it to the hot stage** (§6a), in EvalOS.
-3. **Commit.** Everything above is durable before GHL is touched — the point of §7.
-4. **`GhlWriteClient.upsertContact`**, storing the returned id on `client_account.ghl_contact_id`.
-5. **`GhlWriteClient.upsertOpportunity`** on the intake pipeline at the hot stage, then file the
-   answers as an `OpportunityNote` so Sales reads them where they work.
+### 6a. The opportunity is created at About You, before the questionnaire
 
-### 6a. The stage, and why EvalOS moves it rather than waiting to be told
+**An earlier draft created the contact and opportunity at submit. That was wrong, and the reason
+is a business one rather than a technical one:** nothing reached GHL until the final screen, so
+**every lead who abandoned mid-questionnaire vanished entirely** — no contact, no opportunity, no
+one to follow up, no record that a real person had tried. The questionnaire is the longest part
+of the funnel and therefore exactly where people stop.
 
-**Reaching the end of the funnel is the qualification signal.** The client chose a service,
-answered every required question and uploaded documents; a salesperson dragging that from "new"
-to "hot" is re-deciding something the client already demonstrated. So EvalOS sets the hot stage
-itself, on its own row, and mirrors it to GHL.
+So `POST /api/portal/applications` — fired when About You is submitted, the same call that creates
+the account — does all of this:
+
+1. Create the `client_account` (Unit 42) if the client is new, or load it if signing in.
+2. **`GhlWriteClient.upsertContact`** — or skip it and reuse `ghl_contact_id` when it is non-null.
+3. **`GhlWriteClient.upsertOpportunity`** on the intake pipeline, **at the hot stage**.
+4. Create the `client_application` row as `DRAFT`, carrying the returned ids.
+
+**Why hot immediately, with no questions answered yet.** Arriving at the portal and starting an
+application *is* the qualification signal — this is inbound, self-selected demand, not a scraped
+list. The earlier draft argued that completing the funnel was the signal; that argument
+described a lead who is already converting, which is too late to be useful to a salesperson.
+
+**The earliest possible moment is About You, and that is a hard floor, not a preference.** GHL's
+contact upsert matches on email then phone, and `MarketingLeadService:49` refuses a lead with
+neither — *"with neither, upsert has nothing to match on and every submission creates another
+contact."* Before About You the funnel holds a service id and a purpose, and no way to identify a
+human. So "create the opportunity first" means *first thing it is possible to do*.
+
+### 6b. What submit does now
+
+Submit is no longer the moment GHL hears about the lead. It:
+
+1. **Re-validates** the answers server-side against the catalog (§3). Refuses incomplete.
+2. Marks the application `SUBMITTED` and commits.
+3. Files the answers and the document list as an **`OpportunityNote`**, so Sales reads them in the
+   stream EvalOS owns.
+
+**The stage does not move on submit.** It is already hot. A submitted application differs from a
+draft one in `status`, and that is what the staff screen (§6c) sorts on.
+
+### 6c. Sales and Production read the answers — the one staff-side screen
+
+**Required by the flow, not an extra.** "Sales reviews and contacts the client" is a step in the
+middle of both paths, and a review step with nowhere to read the thing being reviewed does not
+exist. Decided 2026-09-12: **the questionnaire answers and the uploaded documents are visible to
+Sales *and* to Production team members.**
+
+- **Sales** needs them to price the work and answer the client.
+- **Production** (PM, PC, CM) needs them because they are the same answers the case will be
+  worked from — re-keying them after Handoff A would be a second copy to disagree with the first.
+
+One read-only panel in the staff app: the answers rendered from the same catalog the portal
+renders (§3, one source), and the documents as presigned links through the route Unit 30 already
+built. **No editing.** A staff member correcting a client's answer creates a version of the truth
+the client never gave, and the client is the only authority on what they answered.
+
+**This is the only part of Unit 43 that touches `frontend/`** (the staff app); everything else is
+`client-expert/client/` and the backend. Called out because the unit otherwise reads as
+portal-only, and a reviewer will notice the odd file out.
 
 **EvalOS mirrors GHL's stage id verbatim, against a mirrored stage table.** Decided 2026-09-12,
 and this **supersedes the 2026-09-11 position** in this file, which had a `stage_name` column
@@ -208,10 +293,17 @@ filing the lead somewhere nobody looks.
 
 ## 7. GHL is downstream of the truth, not the truth
 
-**Step 2 commits before steps 3 and 4 run.** If GHL is unreachable, rate-limited, or
-mis-provisioned, the application is still `SUBMITTED` in EvalOS, the client still sees
-"Submitted — under review", and their documents are still in S3. `ghl_contact_id` and
-`ghl_opportunity_id` stay null and a retry fills them in.
+**EvalOS's own rows commit whether or not GHL answers.** If GHL is unreachable,
+rate-limited or mis-provisioned when About You is submitted, the `client_account` and the
+`client_application` still exist, the client still walks the questionnaire, and their documents
+still reach S3. `ghl_contact_id` and `ghl_opportunity_id` stay null and a retry fills them in.
+The same holds at submit: the application reaches `SUBMITTED` and the client sees "under review"
+regardless.
+
+**A lead with null GHL ids is not lost, it is un-pushed** — it is on the staff screen (§6c) with
+every answer intact, and Sales can work it by hand while the ids are backfilled. That is the
+difference this ordering buys, and it is the whole reason §6a moved the GHL calls earlier rather
+than making them mandatory.
 
 This inverts the order every other GHL write in EvalOS uses, and it is deliberate. Elsewhere a
 staff member is at a keyboard and can retry a failed write themselves. Here the client has
@@ -312,6 +404,15 @@ service.
 
 1. A visitor completes all seven steps and the application reaches `SUBMITTED`, with a contact
    and an opportunity visible in GHL location `WY6bW2xUCI8Tz8gw7aLJ` and the answers on a note.
+1b. **A visitor who abandons immediately after About You still leaves a GHL contact and an
+   opportunity at the hot stage.** This is the criterion the 2026-09-12 reordering exists for; if
+   it passes only after the questionnaire, the change was not made.
+1c. A returning client whose `ghl_contact_id` is non-null gets a **second opportunity on the same
+   contact**, never a second contact.
+1d. A returning client whose `ghl_contact_id` is null (every seeded client after the CRM
+   replacement) takes the create-a-contact branch without error.
+1e. A returning client who clicks **Get started** rather than Sign in is recognised by
+   `identify` and does not become a duplicate contact.
 2. Abandoning at step 6 and signing in again from a different browser resumes with the answers
    intact.
 3. Choosing a service whose groups include a conditional one shows those questions only when
@@ -329,3 +430,7 @@ service.
    message naming the stage — it does not fall back to a default stage.
 10. `DomainInvariantsTest` still fails the build if `ClientApplicationService` reaches
     `CaseIntakeService`.
+11. A Sales user and a Production user (PM/PC/CM) can both open a submitted application's answers
+    and documents; neither can edit an answer, and the route offers no write path at all.
+12. The staff panel renders from the **same catalog** the portal renders — the §3 agreement test
+    covers both, so a question added in one appears in the other with no second edit.
