@@ -90,6 +90,25 @@ Every `ghl_contact_id` EvalOS holds names a contact **that no longer exists**.
 Everything EvalOS owned survived a CRM replacement with no migration. Everything keyed on GHL
 went dark.
 
+**One column proves it on its own, and it caught out this spec (corrected 2026-09-12).** Unit 42
+first said to seed `client_account.ghl_contact_id` as NULL, reasoning that the id names a contact
+the new location does not have, and a column that looks authoritative and 404s is worse than an
+absent one.
+
+**That weighs only the id's GHL job.** The same value is also EvalOS's **join key from a client to
+their cases** — `PortalCaseService.authorized()` resolves a party token through it and fails
+closed on a null — so seeding null would let every existing client sign in and then see **no
+cases at all**. Unit 42 copies it forward instead.
+
+| The id's job | Lives | After the swap |
+| --- | --- | --- |
+| join key to a client's cases | entirely inside EvalOS | **works** |
+| lookup key for invoices, meetings | live GHL calls | **404s** |
+
+Two jobs, one column, failing independently — and **only the GHL-facing one broke.** That is this
+programme's argument in miniature, and the reason the fix was to keep the id rather than to keep
+the null.
+
 ---
 
 ## 2. The mirror

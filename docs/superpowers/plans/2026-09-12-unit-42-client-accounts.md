@@ -1705,10 +1705,13 @@ git commit -m "feat(42): four auth routes, and the one permitAll matcher they ne
 --      it is one person with one inbox, and their cases are found through the party link rather
 --      than through the snapshot row.
 --
--- **ghl_contact_id is seeded NULL, not copied forward.** IE replaced its GHL sub-account on
--- 2026-09-11 (WY6bW2xUCI8Tz8gw7aLJ, fresh, no contact migration), so every id EvalOS holds names
--- a contact that does not exist in the new location. A column that looks authoritative and 404s
--- is worse than an absent one. See 00c §1c.
+-- **ghl_contact_id IS copied forward.** An earlier draft seeded it NULL, reasoning that IE's GHL
+-- sub-account was replaced on 2026-09-11 (WY6bW2xUCI8Tz8gw7aLJ, fresh, no contact migration) so
+-- every id EvalOS holds names a contact that no longer exists there. That is true of the column's
+-- GHL job and irrelevant to its EvalOS job: PortalCaseService.authorized() resolves a party token
+-- to its cases THROUGH this id and fails closed when it is null. Seeding null would let every
+-- existing client sign in and then see no cases at all. Invoices and meetings answering empty is
+-- the correct, contained degradation; a blank case list is not.
 
 insert into client_account (id, brand_id, email, password_hash, ghl_contact_id,
                             first_name, last_name, phone, created_at)
@@ -1717,7 +1720,7 @@ select distinct on (c.brand_id, lower(c.email))
        c.brand_id,
        c.email,
        null,
-       null,
+       c.ghl_contact_id,
        split_part(c.full_name, ' ', 1),
        nullif(substring(c.full_name from position(' ' in c.full_name) + 1), c.full_name),
        c.phone,
@@ -1790,7 +1793,7 @@ class ClientAccountSeedTest {
 	}
 
 	@Test
-	void seededAccountsHaveNoPasswordAndNoGhlContact() {
+	void seededAccountsHaveNoPasswordButKeepTheirGhlContactId() {
 		UUID brand = seedBrand();
 		insertSnapshot(brand, "ana@example.com", "Ana Perez");
 
@@ -1799,7 +1802,9 @@ class ClientAccountSeedTest {
 		ClientAccount account = accounts.findByBrandIdAndEmailIgnoreCase(brand, "ana@example.com")
 				.orElseThrow();
 		assertThat(account.hasPassword()).isFalse();
-		assertThat(account.getGhlContactId()).isNull();
+		// Copied, NOT nulled: this id is EvalOS's join key from a client to their cases, and
+		// PortalCaseService.authorized() fails closed without it. See the migration's header.
+		assertThat(account.getGhlContactId()).isEqualTo("ghl-contact-1");
 	}
 
 	// Helpers: seedBrand() inserts a minimal active brand row; insertSnapshot() inserts one

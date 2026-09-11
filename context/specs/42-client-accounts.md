@@ -191,18 +191,34 @@ obvious from the column list:**
   correct: it is one person with one inbox, and the cases are found through the party link,
   not through the snapshot row.
 
-**`ghl_contact_id` is seeded NULL, not copied — because IE's GHL was replaced.** As of
-2026-09-11 IE runs a **fresh sub-account, `WY6bW2xUCI8Tz8gw7aLJ`**, replacing
-`kBumF0uUOmMBB5bneYjx`, and the old CRM is abandoned with no contact migration. Every
-`ghl_contact_id` EvalOS holds names a contact **that does not exist in the new location**.
-Copying them forward would produce a column that looks authoritative and 404s, which is worse
-than a null.
+**`ghl_contact_id` IS copied from `contact_snapshot`. An earlier draft of this spec said to seed
+it NULL, and that was wrong — corrected 2026-09-12, during implementation.**
 
-**What that costs, stated plainly:** `PortalInvoiceService` (Unit 41) and
-`PortalMeetingService` (Unit 40) query GHL *by contact id*. For every pre-cutover client those
-two screens are empty until a new contact is created for them. **Nothing else breaks** — cases,
-documents, drafts and sign-in are all EvalOS-owned. That asymmetry is not a coincidence; it is
-the argument for `00c` arriving as live evidence rather than as a prediction.
+The original reasoning: IE runs a fresh sub-account as of 2026-09-11
+(`WY6bW2xUCI8Tz8gw7aLJ`, replacing `kBumF0uUOmMBB5bneYjx`) with no contact migration, so every
+`ghl_contact_id` EvalOS holds names a contact **that does not exist in the new location** — and a
+column that looks authoritative and 404s is worse than a null.
+
+**That is true of the column's GHL job and irrelevant to its EvalOS job, which is the one that
+matters here.** `PortalCaseService.authorized()` resolves a party token to its cases *through*
+that id, and **fails closed when it is null**. Seeding null would therefore let every existing
+client sign in successfully and then see **no cases at all** — a `ForbiddenException` on every
+one. That is far worse than the degradation the null was avoiding.
+
+**The two jobs fail independently, and only one of them is broken by the CRM swap:**
+
+| The id's job | Where | After the swap |
+| --- | --- | --- |
+| join key from a client to their cases | `contact_snapshot`, entirely inside EvalOS | **works** |
+| lookup key for invoices and meetings | live calls to GHL | **404s** |
+
+So the invoice and meeting screens are empty for pre-cutover clients, and that is correct and
+contained — those are live GHL lookups for a contact GHL no longer has, and they answer empty.
+**Cases, documents, drafts and sign-in all keep working**, because they are EvalOS-owned. That
+asymmetry is the argument for `00c` arriving as live evidence rather than as a prediction.
+
+**No new condition is introduced by copying it forward:** `contact_snapshot` already holds
+exactly these ids, resolving in EvalOS and 404ing in GHL, and has since the cutover.
 
 ---
 
