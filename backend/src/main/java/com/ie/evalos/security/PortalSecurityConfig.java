@@ -93,7 +93,14 @@ public class PortalSecurityConfig {
 				// header the browser does not attach on its own.
 				.csrf(csrf -> csrf.disable())
 				.sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-				.authorizeHttpRequests(auth -> auth.anyRequest().authenticated())
+				.authorizeHttpRequests(auth -> auth
+						// **The only unauthenticated routes on this chain (Unit 42).** They are
+						// how a client obtains the token every other route requires, so they
+						// cannot themselves require one. Still behind the per-IP limiter below,
+						// which is what throttles password guessing and the enumeration
+						// `identify` deliberately allows.
+						.requestMatchers("/api/portal/auth/**").permitAll()
+						.anyRequest().authenticated())
 				.exceptionHandling(handling -> handling
 						.authenticationEntryPoint((request, response, ex) -> apiErrors.write(
 								response, HttpStatus.UNAUTHORIZED, "PORTAL_LINK_INVALID",
