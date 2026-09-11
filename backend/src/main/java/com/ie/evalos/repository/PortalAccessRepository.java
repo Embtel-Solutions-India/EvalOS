@@ -70,4 +70,18 @@ public interface PortalAccessRepository extends ScopedRepository<PortalAccess> {
 
 	List<PortalAccess> findByBrandIdAndExpertIdAndAudienceAndCaseIdIsNullOrderByCreatedAtDesc(
 			UUID brandId, UUID expertId, PortalAudience audience);
+
+	/**
+	 * The third party shape (Unit 42): the tokens minted for one EvalOS account.
+	 *
+	 * <p><strong>Not brand-scoped, and that is not an oversight</strong> — it is the one finder on
+	 * this repository where brand is already carried by the key. An account belongs to exactly one
+	 * brand ({@code V43}) and its id is a UUID unique across all of them, so a brand predicate
+	 * would only restate what the account id already says. The two finders above need it because a
+	 * GHL contact id and an expert are legitimately shared between brands; an account is not.
+	 *
+	 * <p>No {@code caseIdIsNull} clause for the same reason: the column only ever appears on a
+	 * party row, so there is no case-scoped shape for it to sweep up.
+	 */
+	List<PortalAccess> findByClientAccountIdOrderByCreatedAtDesc(UUID clientAccountId);
 }

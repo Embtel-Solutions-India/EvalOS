@@ -514,9 +514,17 @@ public class PortalCaseService {
 	 * The cases behind a client party token: its GHL contact, resolved in the token's own brand.
 	 *
 	 * <p>Empty rather than an error when the contact has no cases — a client whose only case was
-	 * merged away holds a working link to an empty list, which is a truthful answer.
+	 * merged away holds a working link to an empty list, which is a truthful answer. Same answer
+	 * for an account-scoped token with no contact at all (Unit 42): a client who has just signed
+	 * up has no cases, and this is the truthful way to say so. The guard is not decoration —
+	 * without it a null would be matched against a contact row whose own {@code ghl_contact_id} is
+	 * null the day any lookup stops treating {@code = NULL} as unknown, and that contact's cases
+	 * are somebody else's.
 	 */
 	private java.util.List<Case> partyCases(PortalPrincipal principal) {
+		if (principal.ghlContactId() == null) {
+			return java.util.List.of();
+		}
 		return contacts.findByBrandIdAndGhlContactId(principal.brandId(), principal.ghlContactId())
 				.map(contact -> cases.findByBrandIdAndContactIdOrderByCreatedAtDesc(
 						principal.brandId(), contact.getId()))

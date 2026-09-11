@@ -24,7 +24,9 @@ import jakarta.persistence.Table;
  * legal, still 30 days, still the right thing for a link forwarded once and revocable on its own.
  * A <em>party-scoped</em> row leaves {@code caseId} null and names a person instead:
  * {@link #ghlContactId} for a client, {@link #expertId} for an expert. It answers "my cases",
- * which is what the delivered list screens draw and what no case token can say.
+ * which is what the delivered list screens draw and what no case token can say. Unit 42 adds a
+ * third name for a client party — {@link #clientAccountId}, for the client who signs in and has no
+ * GHL contact behind them at all.
  *
  * <p>A party token is the wider credential, so it lives 7 days against the case token's 30 — see
  * {@code evalos.portal.party-link-ttl}. Everything else is identical: 256 bits from
@@ -73,6 +75,18 @@ public class PortalAccess extends ScopedEntity {
 	@Column(name = "ghl_contact_id", updatable = false)
 	private String ghlContactId;
 
+	/**
+	 * The EvalOS account this token admits (Unit 42), and null on every other shape.
+	 *
+	 * <p><strong>The second legal name for a client party</strong>, added by {@code V44} because
+	 * V38's constraint required a {@code CLIENT} party row to carry a GHL contact id — which is a
+	 * row most clients cannot produce since IE's GHL sub-account was replaced on 2026-09-11. A
+	 * client who has signed in but has no GHL contact is scoped to this instead, and the widened
+	 * constraint still refuses a row scoped to nothing.
+	 */
+	@Column(name = "client_account_id", updatable = false)
+	private UUID clientAccountId;
+
 	@Column(name = "expires_at", nullable = false, updatable = false)
 	private Instant expiresAt;
 
@@ -118,6 +132,22 @@ public class PortalAccess extends ScopedEntity {
 		PortalAccess party = new PortalAccess(brandId, null, audience, expertId, tokenHash, expiresAt);
 		party.ghlContactId = ghlContactId;
 		return party;
+	}
+
+	/**
+	 * An <strong>account-scoped</strong> credential (Unit 42): every case this EvalOS account has,
+	 * for a client with no GHL contact behind them.
+	 *
+	 * <p>A third factory rather than a nullable argument on {@link #forParty}, for the reason
+	 * written above it: the shapes are different credentials, and one constructor taking four
+	 * nullable ids is one transposed argument away from minting the wrong one. The audience is not
+	 * a parameter because there is only one answer — an expert has no client account.
+	 */
+	public static PortalAccess forAccount(UUID brandId, UUID clientAccountId, String tokenHash,
+			Instant expiresAt) {
+		PortalAccess account = new PortalAccess(brandId, null, PortalAudience.CLIENT, null, tokenHash, expiresAt);
+		account.clientAccountId = clientAccountId;
+		return account;
 	}
 
 	/**
@@ -179,6 +209,10 @@ public class PortalAccess extends ScopedEntity {
 
 	public String getGhlContactId() {
 		return ghlContactId;
+	}
+
+	public UUID getClientAccountId() {
+		return clientAccountId;
 	}
 
 	public PortalAudience getAudience() {

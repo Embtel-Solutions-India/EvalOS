@@ -50,10 +50,18 @@ public class PortalMeetingService {
 	 * filter that would narrow it to a case. Answering with everything would hand a narrow
 	 * credential a wide reply; answering with nothing would be a silent lie. The refusal says
 	 * which link they are holding.
+	 *
+	 * <p><strong>An account-scoped credential answers empty</strong> (Unit 42), word for word the
+	 * rule {@link PortalInvoiceService} follows: a client who signed in with no GHL contact behind
+	 * them has no appointments in GHL to fetch, and the alternative is a request to
+	 * {@code /contacts/null/appointments}.
 	 */
 	public List<GhlCalendarClient.ClientMeeting> forCaller(PortalPrincipal principal) {
 		if (!principal.isPartyScoped()) {
 			throw new ForbiddenException("This link opens one case rather than your account");
+		}
+		if (principal.ghlContactId() == null) {
+			return List.of();
 		}
 		return calendars.forContact(principal.ghlContactId());
 	}

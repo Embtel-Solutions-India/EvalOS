@@ -44,10 +44,19 @@ public class PortalInvoiceService {
 	 * would hand a narrow credential a wide reply. Same rule, same wording as
 	 * {@code PortalCaseService.clientCases}: the narrow credential does not get the wide one's
 	 * answer.
+	 *
+	 * <p><strong>An account-scoped credential answers empty</strong> (Unit 42). A client who
+	 * signed in but has no GHL contact behind them has no invoices <em>in GHL</em> to fetch — the
+	 * id the API filters by does not exist — so the honest answer is nothing, not a refusal and
+	 * certainly not a call to GHL with a null contact, which asks for every invoice in the
+	 * location. This is {@code 00c} §1c's predicted degradation arriving as code.
 	 */
 	public List<GhlInvoiceClient.ClientInvoice> forCaller(PortalPrincipal principal) {
 		if (!principal.isPartyScoped()) {
 			throw new ForbiddenException("This link admits you to one case, not to your billing");
+		}
+		if (principal.ghlContactId() == null) {
+			return List.of();
 		}
 		return invoices.forContact(principal.ghlContactId());
 	}

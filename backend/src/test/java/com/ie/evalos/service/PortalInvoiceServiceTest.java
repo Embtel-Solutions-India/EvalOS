@@ -95,4 +95,16 @@ class PortalInvoiceServiceTest {
 
 		assertThat(service.forCaller(partyLink(CONTACT))).isEmpty();
 	}
+
+	/**
+	 * <strong>An account-scoped credential answers empty, not a GHL call with a null id</strong>
+	 * (Unit 42). A client who signed in but has no GHL contact behind them has no invoices in GHL;
+	 * passing their null contact through would ask {@code GET /invoices/} for the whole location.
+	 */
+	@Test
+	void anAccountScopedCredentialAnswersEmptyWithoutCallingGhl() {
+		assertThat(service.forCaller(partyLink(null))).isEmpty();
+
+		verify(client, never()).forContact(any());
+	}
 }

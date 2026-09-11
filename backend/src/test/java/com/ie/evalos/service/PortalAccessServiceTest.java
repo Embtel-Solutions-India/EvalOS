@@ -8,6 +8,7 @@ import java.util.UUID;
 
 import com.ie.evalos.domain.AuditAction;
 import com.ie.evalos.domain.Case;
+import com.ie.evalos.domain.ClientAccount;
 import com.ie.evalos.domain.ContactSnapshot;
 import com.ie.evalos.domain.IllegalTransitionException;
 import com.ie.evalos.domain.PortalAccess;
@@ -364,5 +365,89 @@ class PortalAccessServiceTest {
 				.isInstanceOf(com.ie.evalos.domain.IllegalTransitionException.class);
 
 		verify(tokens, never()).save(any());
+	}
+
+	/**
+	 * <strong>Sign-in mints the credential that already exists.</strong> A verified password hands
+	 * back the same party-scoped token the staff mint button issues, so every screen behind
+	 * {@code PortalTokenFilter} keeps working without knowing an account exists — and re-minting
+	 * revokes the previous one, exactly as every other mint on this service does.
+	 */
+	@Test
+	void mintForClientAccountIssuesAPartyTokenAndRetiresThePrevious() {
+		UUID brand = UUID.randomUUID();
+		ClientAccount account = new ClientAccount(brand, "ana@example.com");
+		account.linkGhlContact("ghl-contact-1");
+		PortalAccess previous = PortalAccess.forParty(brand, PortalAudience.CLIENT, "ghl-contact-1",
+				null, "old-hash", Instant.now().plus(Duration.ofDays(7)));
+		given(tokens.findByBrandIdAndGhlContactIdAndAudienceAndCaseIdIsNullOrderByCreatedAtDesc(
+				brand, "ghl-contact-1", PortalAudience.CLIENT)).willReturn(List.of(previous));
+
+		PortalAccessService.MintedLink link = links.mintForClientAccount(account);
+
+		assertThat(link.url()).startsWith("https://portal.evalos.test/portal/client#");
+		assertThat(previous.getRevokedAt()).isNotNull();
+
+		PortalAccess minted = savedAccess();
+		assertThat(minted.getGhlContactId()).isEqualTo("ghl-contact-1");
+		assertThat(minted.getClientAccountId()).isNull();
+		assertThat(minted.isPartyScoped()).isTrue();
+	}
+
+	/**
+	 * <strong>An account with no GHL contact still mints</strong>, scoped to the account instead —
+	 * the normal case after the 2026-09-11 CRM replacement, and the row {@code V44} widened the
+	 * scope constraint to admit. The previous account-scoped token is retired for the same reason
+	 * every other shape's is: V44's partial index allows exactly one live row per account.
+	 */
+	@Test
+	void mintForClientAccountWithNoGhlContactScopesTheTokenToTheAccount() {
+		UUID brand = UUID.randomUUID();
+		ClientAccount account = new ClientAccount(brand, "ana@example.com");
+		PortalAccess previous = PortalAccess.forAccount(brand, account.getId(), "old-hash",
+				Instant.now().plus(Duration.ofDays(7)));
+		given(tokens.findByClientAccountIdOrderByCreatedAtDesc(account.getId()))
+				.willReturn(List.of(previous));
+
+		PortalAccessService.MintedLink link = links.mintForClientAccount(account);
+
+		assertThat(link.url()).startsWith("https://portal.evalos.test/portal/client#");
+		assertThat(previous.getRevokedAt()).isNotNull();
+		verify(tokens, never()).findByBrandIdAndGhlContactIdAndAudienceAndCaseIdIsNullOrderByCreatedAtDesc(
+				any(), any(), any());
+
+		PortalAccess minted = savedAccess();
+		assertThat(minted.getGhlContactId()).isNull();
+		assertThat(minted.getClientAccountId()).isEqualTo(account.getId());
+		assertThat(minted.getAudience()).isEqualTo(PortalAudience.CLIENT);
+		assertThat(minted.isPartyScoped()).isTrue();
+	}
+
+	/**
+	 * An account-scoped row resolves like any other party token: {@code isPartyScoped}, and a null
+	 * contact id. That null is the whole downstream contract — {@code PortalCaseService} fails
+	 * closed on it and the GHL-backed reads answer empty rather than calling GHL with nothing.
+	 */
+	@Test
+	void anAccountScopedTokenResolvesToAPartyPrincipalWithNoContact() {
+		UUID brand = UUID.randomUUID();
+		PortalAccess access = PortalAccess.forAccount(brand, UUID.randomUUID(),
+				PortalAccessService.hash("tok"), Instant.now().plus(Duration.ofDays(7)));
+		given(tokens.findByTokenHash(PortalAccessService.hash("tok"))).willReturn(Optional.of(access));
+
+		PortalPrincipal principal = links.resolve("tok").orElseThrow();
+
+		assertThat(principal.isPartyScoped()).isTrue();
+		assertThat(principal.ghlContactId()).isNull();
+		assertThat(principal.audience()).isEqualTo(PortalAudience.CLIENT);
+		assertThat(principal.brandId()).isEqualTo(brand);
+	}
+
+	/** The row this mint wrote, which is the only way to see what was actually scoped. */
+	private PortalAccess savedAccess() {
+		org.mockito.ArgumentCaptor<PortalAccess> saved =
+				org.mockito.ArgumentCaptor.forClass(PortalAccess.class);
+		verify(tokens, org.mockito.Mockito.atLeastOnce()).save(saved.capture());
+		return saved.getAllValues().get(saved.getAllValues().size() - 1);
 	}
 }

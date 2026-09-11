@@ -14,6 +14,7 @@ import java.util.UUID;
 
 import com.ie.evalos.domain.AuditAction;
 import com.ie.evalos.domain.Case;
+import com.ie.evalos.domain.ClientAccount;
 import com.ie.evalos.domain.ContactSnapshot;
 import com.ie.evalos.domain.IllegalTransitionException;
 import com.ie.evalos.domain.PortalAccess;
@@ -155,12 +156,17 @@ public class PortalAccessService {
 	 * the client's GHL contact, or the assigned expert. It admits every case that party has in
 	 * this brand, not only this one.
 	 *
-	 * <p><strong>The party is derived from a case, never taken from the caller.</strong> There is
-	 * deliberately no {@code mintForContact(ghlContactId)} entry point: an id arriving from a
-	 * request would make this an enumeration surface — type contact ids until one mints — and the
-	 * staff flow does not need it. A Case Manager is looking at a case when they issue a link, and
-	 * the case has already been through a scoped read, so the party it names is one they may
-	 * already see. Same reasoning {@link #mint} relies on for the brand.
+	 * <p><strong>The party is derived from a case here, never taken from the caller</strong> — and
+	 * that remains true of <em>this</em> method. An id arriving from a request would make it an
+	 * enumeration surface: type contact ids until one mints. A Case Manager is looking at a case
+	 * when they issue a link, and the case has already been through a scoped read, so the party it
+	 * names is one they may already see. Same reasoning {@link #mint} relies on for the brand.
+	 *
+	 * <p><strong>Unit 42 adds {@link #mintForClientAccount} anyway, and the refusal above is why
+	 * it looks the way it does.</strong> That method takes a {@link ClientAccount} the caller has
+	 * <em>already authenticated as</em> — a password was verified before it is reached — so there
+	 * is nothing to enumerate: you cannot mint for an account you cannot sign in to. It takes an
+	 * entity rather than an id precisely so that no route can pass one in from a request body.
 	 *
 	 * <p>Seven days rather than thirty, because this opens more than the case in front of you.
 	 */
@@ -193,6 +199,57 @@ public class PortalAccessService {
 						audience.name().toLowerCase(), minted.getExpiresAt())));
 
 		return new MintedLink(urlFor(audience, token), minted.getExpiresAt());
+	}
+
+	/**
+	 * Mints a party-scoped client link for an account whose password has just been verified
+	 * (Unit 42).
+	 *
+	 * <p><strong>This is not a new credential.</strong> It is the same party-scoped
+	 * {@code PortalAccess} Unit 35 built and the staff mint button issues, so every screen behind
+	 * {@code PortalTokenFilter} consumes it without knowing an account exists. Sign-in is a new
+	 * <em>way to obtain</em> the existing credential, not a second kind of session — which is why
+	 * this unit adds no security filter chain.
+	 *
+	 * <p><strong>It takes a {@link ClientAccount}, deliberately, not an email or a contact id.</strong>
+	 * See {@link #mintForParty}'s note on enumeration: an entity can only be produced by a lookup
+	 * the caller has already passed, so no request body can steer this.
+	 *
+	 * <p><strong>An account with no GHL contact still mints</strong>, scoped to the account id
+	 * instead ({@code V44} widened the scope constraint to admit that row). That is the case after
+	 * the 2026-09-11 CRM replacement and for any client who has not yet been pushed to GHL — and
+	 * it is where "EvalOS works when GHL is removed" stops being a slogan: the client signs in and
+	 * reaches their documents with no GHL row anywhere. The principal that comes back from
+	 * {@link #resolve} then carries a null contact id, which the portal reads already fail closed
+	 * on ({@code PortalCaseService}) or answer empty for ({@code PortalInvoiceService},
+	 * {@code PortalMeetingService}).
+	 *
+	 * <p><strong>Either shape retires the previous token of its own shape</strong>, because each
+	 * has its own partial unique index — V38's for a contact, V44's for an account — and the
+	 * database, not this method, is what makes "one live token per scope" true.
+	 *
+	 * <p>Not audited here. The caller audits {@code CLIENT_SIGNED_IN} with the account as the
+	 * subject, because a credential issued <em>as part of</em> a sign-in is one event, not two.
+	 */
+	@Transactional
+	public MintedLink mintForClientAccount(ClientAccount account) {
+		Instant now = Instant.now();
+		String token = freshToken();
+		String contact = account.getGhlContactId();
+		PortalAccess minted;
+
+		if (contact != null && !contact.isBlank()) {
+			retirePreviousClientParty(account.getBrandId(), contact, now);
+			minted = tokens.save(PortalAccess.forParty(account.getBrandId(), PortalAudience.CLIENT,
+					contact, null, hash(token), now.plus(partyTtl)));
+		}
+		else {
+			retire(tokens.findByClientAccountIdOrderByCreatedAtDesc(account.getId()), now);
+			minted = tokens.save(PortalAccess.forAccount(account.getBrandId(), account.getId(),
+					hash(token), now.plus(partyTtl)));
+		}
+
+		return new MintedLink(urlFor(PortalAudience.CLIENT, token), minted.getExpiresAt());
 	}
 
 	/**
@@ -281,6 +338,14 @@ public class PortalAccessService {
 	 * learns nothing from the refusal. The write is why this is not {@code readOnly}: last-seen is
 	 * the field support needs, and it moves on every use, unlike the case's
 	 * {@code client_portal_read_at}, which is stamped once.
+	 *
+	 * <p><strong>Unit 42's account-scoped row needs no branch here, and that is the point.</strong>
+	 * This method never asks what shape the row is — {@link PortalPrincipal#of} copies the columns
+	 * and {@code caseId == null} is what makes it party-scoped — so a token minted by
+	 * {@link #mintForClientAccount} resolves through exactly the path a staff-minted party token
+	 * does. What an account-scoped principal carries is a <em>null</em> contact id, which is the
+	 * whole downstream contract: {@code PortalCaseService} fails closed on it and the two
+	 * GHL-backed reads answer empty. Do not add a shape check here to "fix" that null.
 	 */
 	@Transactional
 	public Optional<PortalPrincipal> resolve(String presented) {
