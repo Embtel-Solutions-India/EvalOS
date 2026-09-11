@@ -1,0 +1,164 @@
+import { type FormEvent, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { Button } from '@shared/components/ui/button'
+import { Card } from '@shared/components/ui/card'
+import { FormField } from '@shared/components/common/FormField'
+import { Input } from '@shared/components/ui/input'
+import { failureMessage } from '@shared/lib/portal'
+import { statusOf } from '@shared/services/apiClient'
+import { forgotPassword, identify, signIn, type IdentifyState } from '@/services/authService'
+
+/**
+ * One email field that decides what the rest of this screen looks like (Unit 42).
+ *
+ * **The password field is revealed in place, never a navigation.** `identify` is the server
+ * answering what this address can do next; routing to a second URL for "you have a password"
+ * would be this screen forming a second opinion about that answer.
+ *
+ * **Editing the email after an answer clears it.** The three branches below are about the address
+ * currently in the box — keeping `NO_PASSWORD` on screen while someone types a different address
+ * would be a stale answer wearing a live-looking form.
+ */
+export default function SignIn() {
+  const navigate = useNavigate()
+
+  const [email, setEmail] = useState('')
+  const [state, setState] = useState<IdentifyState | null>(null)
+  const [identifying, setIdentifying] = useState(false)
+  const [identifyError, setIdentifyError] = useState<string | undefined>()
+
+  const [password, setPassword] = useState('')
+  const [signingIn, setSigningIn] = useState(false)
+  const [signInError, setSignInError] = useState<string | undefined>()
+
+  const [sendingReset, setSendingReset] = useState(false)
+  const [resetSent, setResetSent] = useState(false)
+
+  function onEmailChange(value: string) {
+    setEmail(value)
+    // A changed address invalidates whatever the last identify() answered.
+    setState(null)
+    setIdentifyError(undefined)
+    setResetSent(false)
+  }
+
+  async function onIdentify(event: FormEvent) {
+    event.preventDefault()
+    setIdentifying(true)
+    setIdentifyError(undefined)
+    try {
+      setState(await identify(email.trim()))
+    } catch (error) {
+      setIdentifyError(failureMessage(statusOf(error)))
+    } finally {
+      setIdentifying(false)
+    }
+  }
+
+  async function onSignIn(event: FormEvent) {
+    event.preventDefault()
+    setSigningIn(true)
+    setSignInError(undefined)
+    try {
+      await signIn(email.trim(), password)
+      navigate('/dashboard')
+    } catch (error) {
+      setSignInError(failureMessage(statusOf(error)))
+    } finally {
+      setSigningIn(false)
+    }
+  }
+
+  async function onForgotPassword() {
+    setSendingReset(true)
+    try {
+      await forgotPassword(email.trim())
+    } finally {
+      // The server answers identically whether or not the address is known — so does this screen.
+      setSendingReset(false)
+      setResetSent(true)
+    }
+  }
+
+  return (
+    <div className="flex min-h-dvh flex-col items-center justify-center px-4 py-12">
+      <Card className="w-full max-w-sm space-y-5 p-6">
+        <div>
+          <h1 className="text-xl font-semibold tracking-tight text-foreground">Sign in</h1>
+          <p className="mt-1 text-sm text-muted-foreground">Enter your email to continue.</p>
+        </div>
+
+        <form onSubmit={state === 'PASSWORD_SET' ? onSignIn : onIdentify} className="space-y-4">
+          <FormField label="Email" htmlFor="email" required error={identifyError}>
+            <Input
+              id="email"
+              type="email"
+              autoComplete="email"
+              required
+              value={email}
+              onChange={(event) => onEmailChange(event.target.value)}
+              disabled={identifying || signingIn}
+            />
+          </FormField>
+
+          {state === 'PASSWORD_SET' && (
+            <div className="space-y-2">
+              <FormField label="Password" htmlFor="password" required error={signInError}>
+                <Input
+                  id="password"
+                  type="password"
+                  autoComplete="current-password"
+                  required
+                  autoFocus
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                  disabled={signingIn}
+                />
+              </FormField>
+              <button
+                type="button"
+                onClick={() => void onForgotPassword()}
+                disabled={sendingReset}
+                className="text-xs font-medium text-primary underline-offset-4 hover:underline disabled:opacity-50"
+              >
+                Forgot password?
+              </button>
+              {resetSent && (
+                <p className="text-xs text-muted-foreground">
+                  If that email is in our system, we've sent a reset link.
+                </p>
+              )}
+            </div>
+          )}
+
+          {state === 'NO_PASSWORD' && (
+            <p className="text-sm text-muted-foreground">
+              You're in our system, but haven't set a password yet. We've emailed you a link to set
+              one.
+            </p>
+          )}
+
+          {state === 'UNKNOWN' && (
+            <div className="space-y-3">
+              <p className="text-sm text-muted-foreground">We couldn't find that email.</p>
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full"
+                onClick={() => navigate('/start', { state: { email: email.trim() } })}
+              >
+                Start a new evaluation
+              </Button>
+            </div>
+          )}
+
+          {(state === null || state === 'PASSWORD_SET') && (
+            <Button type="submit" className="w-full" loading={identifying || signingIn}>
+              {state === 'PASSWORD_SET' ? 'Sign in' : 'Continue'}
+            </Button>
+          )}
+        </form>
+      </Card>
+    </div>
+  )
+}

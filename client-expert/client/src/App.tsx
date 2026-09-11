@@ -54,8 +54,27 @@ import { PortalLayout } from '@/layouts/PortalLayout'
  * by anyone. Deleting unreachable mock code is not a scope cut. **When the delivery decision
  * lands, this screen is about forty lines against whatever route it produces**, and git history
  * holds the old one.
+ *
+ * ---
+ *
+ * 2026-09-12 (Unit 42) — **a door came back, deliberately, and it is not the account shell.**
+ *
+ * `/welcome`, `/signin` and `/set-password` are new. Read the 34d entry above before assuming
+ * this reverses it: it does not. There is still exactly one credential — the scoped portal
+ * token — and `authService.signIn` / `authService.setPassword` both mint the *same* token
+ * `usePortalToken` already knows how to hold, through the same `setPortalToken`. What changed
+ * is how someone gets that token into their browser: alongside a link EvalOS sends, they can now
+ * also identify themselves by email and, if they have set one, a password. There is no second
+ * store, no session cookie, and no account record this app reads — the server decides what an
+ * email can do (`PASSWORD_SET` / `NO_PASSWORD` / `UNKNOWN`) and this app only asks.
+ *
+ * **Every `portal_access` link already sent still works, unchanged.** `/welcome` says so — a
+ * front door offering only a password would tell a client holding a working link that it broke.
  */
 
+const Welcome = lazy(() => import('@/pages/auth/Welcome'))
+const SignIn = lazy(() => import('@/pages/auth/SignIn'))
+const SetPassword = lazy(() => import('@/pages/auth/SetPassword'))
 const Dashboard = lazy(() => import('@/pages/dashboard/Dashboard'))
 const Requests = lazy(() => import('@/pages/requests/Requests'))
 const Documents = lazy(() => import('@/pages/documents/Documents'))
@@ -67,8 +86,11 @@ const NotFound = lazy(() => import('@shared/pages/NotFound'))
 function AppRoutes() {
   return (
     <Routes>
-      {/* No login to land on any more: the client arrives on a link that names them. */}
-      <Route path="/" element={<Navigate to="/dashboard" replace />} />
+      {/* A link that names them still works; this is only where an empty visit lands. */}
+      <Route path="/" element={<Navigate to="/welcome" replace />} />
+      <Route path="/welcome" element={<Welcome />} />
+      <Route path="/signin" element={<SignIn />} />
+      <Route path="/set-password" element={<SetPassword />} />
 
       {/*
         Every screen shares one credential and one shell now, which is what 34d bought. Before
