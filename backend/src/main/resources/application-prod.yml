@@ -36,7 +36,7 @@ evalos:
     # expert-facing origin, not the API's.
     base-url: ${PORTAL_BASE_URL}
     client-brand: ${EVALOS_PORTAL_CLIENT_BRAND:}
-    credential-ttl: ${EVALOS_PORTAL_CREDENTIAL_TTL:30m}
+    credential-ttl: ${EVALOS_PORTAL_SIGNIN_LINK_TTL:30m}
   s3:
     # Required in a deployed environment. Absent, every document route answers 502 and the boot log
     # says which variable is missing.

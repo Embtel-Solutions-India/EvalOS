@@ -58,7 +58,7 @@ evalos:
     # `ghl.location-id` below carries one — it is not a credential, and it is the value
     # correct for whoever runs this repo.
     client-brand: ${EVALOS_PORTAL_CLIENT_BRAND:11111111-1111-1111-1111-111111111111}
-    credential-ttl: ${EVALOS_PORTAL_CREDENTIAL_TTL:30m}
+    credential-ttl: ${EVALOS_PORTAL_SIGNIN_LINK_TTL:30m}
   s3:
     # Blank on a laptop, deliberately. The whole app boots with no AWS access and every non-document
     # route works; only the document routes answer 502, naming both variables. Set them to exercise

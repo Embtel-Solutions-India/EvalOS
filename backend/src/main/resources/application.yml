@@ -96,7 +96,7 @@ evalos:
     client-brand: ${EVALOS_PORTAL_CLIENT_BRAND:}
     # How long a set-password or reset-password link lives. Thirty minutes: long enough to walk
     # to another device, short enough that a forwarded mailbox is not a standing credential.
-    credential-ttl: ${EVALOS_PORTAL_CREDENTIAL_TTL:30m}
+    credential-ttl: ${EVALOS_PORTAL_SIGNIN_LINK_TTL:30m}
     # The portal frontend's origin(s), comma-separated. **Empty by default and never `*`** —
     # see PortalSecurityConfig. An environment that forgets this gets a failing preflight, which
     # is loud; a wildcard would be silent and wrong.
