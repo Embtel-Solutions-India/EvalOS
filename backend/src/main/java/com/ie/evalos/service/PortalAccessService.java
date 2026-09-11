@@ -402,6 +402,15 @@ public class PortalAccessService {
 
 	/** 256 bits, base64url, no padding — safe in a URL fragment without escaping. */
 	private static String freshToken() {
+		return freshCredentialToken();
+	}
+
+	/**
+	 * The same generator, promoted for {@code ClientCredentialToken} (Unit 42): a set/reset-password
+	 * link is a credential exactly like a portal link, and there is no reason for the two kinds to
+	 * draw randomness differently. One generator, one place, so they cannot drift in entropy.
+	 */
+	static String freshCredentialToken() {
 		byte[] bytes = new byte[TOKEN_BYTES];
 		RANDOM.nextBytes(bytes);
 		return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
