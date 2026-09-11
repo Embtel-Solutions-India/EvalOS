@@ -60,7 +60,6 @@ class ClientAccountServiceTest {
 
 	@Test
 	void aSeededAccountAnswersNoPasswordAndIsSentASetLink() {
-		given(mailer.isConfigured()).willReturn(true);
 		given(accounts.findByBrandIdAndEmailIgnoreCase(BRAND, "ana@example.com"))
 				.willReturn(Optional.of(new ClientAccount(BRAND, "ana@example.com")));
 		given(credentials.save(any())).willAnswer(call -> call.getArgument(0));
@@ -90,5 +89,83 @@ class ClientAccountServiceTest {
 
 		assertThat(service.identify("  ANA@Example.com  "))
 				.isEqualTo(ClientAccountService.IdentifyState.PASSWORD_SET);
+	}
+
+	@Test
+	void signInWithTheRightPasswordMintsAToken() {
+		ClientAccount account = new ClientAccount(BRAND, "ana@example.com");
+		account.setPasswordHash(encoder.encode("Correct!1"));
+		given(accounts.findByBrandIdAndEmailIgnoreCase(BRAND, "ana@example.com"))
+				.willReturn(Optional.of(account));
+		given(links.mintForClientAccount(account)).willReturn(
+				new PortalAccessService.MintedLink("https://portal.example.com/#tok",
+						java.time.Instant.now().plusSeconds(600)));
+
+		assertThat(service.signIn("ana@example.com", "Correct!1").url()).contains("#tok");
+		// objectId is any(): ScopedEntity generates the id at persist time, so getId() is null on
+		// an entity built with `new`. eq(account.getId()) would silently become eq(null) and pass
+		// for the wrong reason. What is worth pinning is the action and the brand.
+		verify(audit).recordPortalEvent(eq(BRAND), any(), eq("CLIENT_ACCOUNT"), any(),
+				eq(com.ie.evalos.domain.AuditAction.CLIENT_SIGNED_IN), any(), any());
+	}
+
+	@Test
+	void signInWithTheWrongPasswordIsRefusedAndAudited() {
+		ClientAccount account = new ClientAccount(BRAND, "ana@example.com");
+		account.setPasswordHash(encoder.encode("Correct!1"));
+		given(accounts.findByBrandIdAndEmailIgnoreCase(BRAND, "ana@example.com"))
+				.willReturn(Optional.of(account));
+
+		org.assertj.core.api.Assertions
+				.assertThatThrownBy(() -> service.signIn("ana@example.com", "Wrong!1"))
+				.isInstanceOf(com.ie.evalos.common.InvalidRequestException.class);
+		verify(audit).recordPortalEvent(eq(BRAND), any(), eq("CLIENT_ACCOUNT"), any(),
+				eq(com.ie.evalos.domain.AuditAction.CLIENT_SIGN_IN_REFUSED), any(), any());
+		verify(links, never()).mintForClientAccount(any());
+	}
+
+	@Test
+	void signInToAnAccountWithNoPasswordIsRefusedWithoutComparingAHash() {
+		given(accounts.findByBrandIdAndEmailIgnoreCase(BRAND, "ana@example.com"))
+				.willReturn(Optional.of(new ClientAccount(BRAND, "ana@example.com")));
+
+		org.assertj.core.api.Assertions
+				.assertThatThrownBy(() -> service.signIn("ana@example.com", "anything"))
+				.isInstanceOf(com.ie.evalos.common.InvalidRequestException.class);
+	}
+
+	@Test
+	void forgotPasswordForAnUnknownEmailIsSilentAndSendsNothing() {
+		given(accounts.findByBrandIdAndEmailIgnoreCase(BRAND, "nobody@example.com"))
+				.willReturn(Optional.empty());
+
+		service.forgotPassword("nobody@example.com");
+
+		verify(mailer, never()).sendResetPassword(any(), any());
+	}
+
+	@Test
+	void aUsedSetPasswordTokenIsRefusedTheSecondTime() {
+		// An EXPLICIT id, not account.getId(): ScopedEntity generates ids at persist time, so
+		// getId() is null here and both the token's FK and the findById stub would be null —
+		// the test would pass by matching null against null rather than by linking the two.
+		UUID accountId = UUID.randomUUID();
+		ClientAccount account = new ClientAccount(BRAND, "ana@example.com");
+		com.ie.evalos.domain.ClientCredentialToken token = new com.ie.evalos.domain.ClientCredentialToken(
+				BRAND, accountId, PortalAccessService.hash("tok"),
+				com.ie.evalos.domain.CredentialPurpose.SET,
+				java.time.Instant.now().plusSeconds(600));
+		given(credentials.findByTokenHash(PortalAccessService.hash("tok")))
+				.willReturn(Optional.of(token));
+		given(accounts.findById(accountId)).willReturn(Optional.of(account));
+		given(links.mintForClientAccount(account)).willReturn(
+				new PortalAccessService.MintedLink("https://portal.example.com/#tok",
+						java.time.Instant.now().plusSeconds(600)));
+
+		service.setPassword("tok", "Brand!New1");
+
+		org.assertj.core.api.Assertions
+				.assertThatThrownBy(() -> service.setPassword("tok", "Another!1"))
+				.isInstanceOf(com.ie.evalos.common.InvalidRequestException.class);
 	}
 }

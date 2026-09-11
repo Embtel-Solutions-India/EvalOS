@@ -5,9 +5,12 @@ import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
 
+import com.ie.evalos.common.InvalidRequestException;
+import com.ie.evalos.domain.AuditAction;
 import com.ie.evalos.domain.ClientAccount;
 import com.ie.evalos.domain.ClientCredentialToken;
 import com.ie.evalos.domain.CredentialPurpose;
+import com.ie.evalos.domain.PortalAudience;
 import com.ie.evalos.repository.ClientAccountRepository;
 import com.ie.evalos.repository.ClientCredentialTokenRepository;
 
@@ -127,6 +130,91 @@ public class ClientAccountService {
 		else {
 			mailer.sendResetPassword(account.getEmail(), link);
 		}
+	}
+
+	/**
+	 * Verifies a password and hands back the portal credential.
+	 *
+	 * <p><strong>Both outcomes are audited</strong> (invariant 13, {@code actor_type = CLIENT}).
+	 * A failed sign-in is the one event a support conversation actually needs, and an unaudited
+	 * one is invisible forever.
+	 *
+	 * <p><strong>One message for every refusal.</strong> A wrong password, an account with no
+	 * password and an unknown email all answer identically here — {@code identify} is where the
+	 * difference is told, deliberately and once, so this route does not become a second and
+	 * unthrottled enumeration surface.
+	 */
+	@Transactional
+	public PortalAccessService.MintedLink signIn(String email, String password) {
+		ClientAccount account = accounts.findByBrandIdAndEmailIgnoreCase(brandId, normalize(email))
+				.orElseThrow(ClientAccountService::refused);
+
+		// Checked before the hash comparison: encoder.matches against a null stored hash throws
+		// on some encoders and returns false on others, and neither is a decision worth relying on.
+		if (!account.hasPassword() || !encoder.matches(password, account.getPasswordHash())) {
+			audit.recordPortalEvent(account.getBrandId(), PortalAudience.CLIENT, "CLIENT_ACCOUNT",
+					account.getId(), AuditAction.CLIENT_SIGN_IN_REFUSED, null,
+					"sign-in refused for " + account.getEmail());
+			throw refused();
+		}
+
+		account.recordSignIn(Instant.now());
+		audit.recordPortalEvent(account.getBrandId(), PortalAudience.CLIENT, "CLIENT_ACCOUNT",
+				account.getId(), AuditAction.CLIENT_SIGNED_IN, null,
+				"signed in as " + account.getEmail());
+		return links.mintForClientAccount(account);
+	}
+
+	/**
+	 * Sends a reset link if the address is known, and says nothing either way.
+	 *
+	 * <p><strong>Deliberately does not differentiate, unlike {@link #identify}.</strong> The
+	 * three-way answer earns its enumeration on the sign-in screen because it tells a client
+	 * something true and actionable. Here the client already believes they have an account, so
+	 * differentiating buys nothing and the leak is not taken. The controller answers 204
+	 * regardless.
+	 */
+	@Transactional
+	public void forgotPassword(String email) {
+		accounts.findByBrandIdAndEmailIgnoreCase(brandId, normalize(email))
+				.ifPresent(account -> issueCredential(account, CredentialPurpose.RESET));
+	}
+
+	/**
+	 * Spends a single-use link, stores the new password, and signs the client straight in.
+	 *
+	 * <p>Signing in here rather than bouncing to the sign-in screen is the point of returning a
+	 * token: somebody who has just proved control of the mailbox and chosen a password should not
+	 * immediately be asked for that password.
+	 */
+	@Transactional
+	public PortalAccessService.MintedLink setPassword(String token, String password) {
+		ClientCredentialToken credential = credentials.findByTokenHash(PortalAccessService.hash(token))
+				.orElseThrow(ClientAccountService::linkRefused);
+		Instant now = Instant.now();
+		if (!credential.isUsable(now)) {
+			throw linkRefused();
+		}
+		ClientAccount account = accounts.findById(credential.getClientAccountId())
+				.orElseThrow(ClientAccountService::linkRefused);
+
+		credential.markUsed(now);
+		account.setPasswordHash(encoder.encode(password));
+		account.recordSignIn(now);
+		audit.recordPortalEvent(account.getBrandId(), PortalAudience.CLIENT, "CLIENT_ACCOUNT",
+				account.getId(), AuditAction.CLIENT_PASSWORD_SET, null,
+				"password set for " + account.getEmail());
+		return links.mintForClientAccount(account);
+	}
+
+	private static InvalidRequestException refused() {
+		return new InvalidRequestException("That email and password do not match an account.");
+	}
+
+	private static InvalidRequestException linkRefused() {
+		return new InvalidRequestException(
+				"This link is no longer valid. It may have been used already, or it may have expired. "
+						+ "Please request a new one.");
 	}
 
 	private static String normalize(String email) {
