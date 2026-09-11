@@ -7,6 +7,17 @@ spring:
     url: ${DB_URL}
     username: ${DB_USER}
     password: ${DB_PASSWORD}
+  mail:
+    host: ${MAIL_HOST:}
+    port: ${MAIL_PORT:587}
+    username: ${MAIL_USERNAME:}
+    # **Never a value here, not even locally** — ConfigSecretsTest fails the build on a
+    # credential-shaped setting carrying a default in a shared profile. The real value goes in
+    # backend/config/application-local.yml (gitignored) or the environment.
+    password: ${MAIL_PASSWORD:}
+    properties:
+      mail.smtp.auth: true
+      mail.smtp.starttls.enable: true
   jpa:
     hibernate:
       # Flyway owns the schema. Never create/update.
@@ -66,7 +77,26 @@ evalos:
     # (decision 4's shape): the count over expert.date_onboarded was always computable, only the
     # target had nowhere to live.
     monthly-onboarding-target: ${ROSTER_MONTHLY_TARGET:5}
+  mail:
+    # Unit 42 — EvalOS's ONLY outbound mail, and invariant 14 is amended to exactly this much:
+    # proving control of a client's own address. Set-password and reset-password, nothing else.
+    # A status email, a marketing email or a notification email is a different decision and gets
+    # argued in its own unit.
+    #
+    # **Blank degrades rather than failing the boot.** An environment that forgets it serves the
+    # whole app and answers NO_PASSWORD with "please contact us" — the same reasoning that gave
+    # GHL_API_TOKEN an empty default rather than a fatal one. A password reset is recoverable by
+    # a support conversation; a refused boot is not recoverable by anyone.
+    from: ${EVALOS_MAIL_FROM:}
   portal:
+    # Which brand this portal deployment serves. **NOT evalos.ghl.sales-brand** — that one names
+    # which brand's STAFF may hold the SALES and MARKETING roles, a staff-authorization ceiling
+    # on the normal chain. Nothing on the portal chain has roles. A second brand is a second
+    # portal deployment with its own value here.
+    client-brand: ${EVALOS_PORTAL_CLIENT_BRAND:}
+    # How long a set-password or reset-password link lives. Thirty minutes: long enough to walk
+    # to another device, short enough that a forwarded mailbox is not a standing credential.
+    credential-ttl: ${EVALOS_PORTAL_CREDENTIAL_TTL:30m}
     # The portal frontend's origin(s), comma-separated. **Empty by default and never `*`** —
     # see PortalSecurityConfig. An environment that forgets this gets a failing preflight, which
     # is loud; a wildcard would be silent and wrong.

@@ -4,10 +4,20 @@ spring:
     url: ${DB_URL}
     username: ${DB_USER}
     password: ${DB_PASSWORD}
+  mail:
+    host: ${MAIL_HOST:}
+    port: ${MAIL_PORT:587}
+    username: ${MAIL_USERNAME:}
+    password: ${MAIL_PASSWORD:}
+    properties:
+      mail.smtp.auth: true
+      mail.smtp.starttls.enable: true
   jpa:
     show-sql: false
 
 evalos:
+  mail:
+    from: ${EVALOS_MAIL_FROM:}
   portal:
     # Must name the deployed portal origin. **No default, so a missing value fails the boot** —
     # which is what the comment used to claim while the value carried an empty default and booted
@@ -25,6 +35,8 @@ evalos:
     # forgets it must fail to start rather than run on a guess. This is the client- and
     # expert-facing origin, not the API's.
     base-url: ${PORTAL_BASE_URL}
+    client-brand: ${EVALOS_PORTAL_CLIENT_BRAND:}
+    credential-ttl: ${EVALOS_PORTAL_CREDENTIAL_TTL:30m}
   s3:
     # Required in a deployed environment. Absent, every document route answers 502 and the boot log
     # says which variable is missing.

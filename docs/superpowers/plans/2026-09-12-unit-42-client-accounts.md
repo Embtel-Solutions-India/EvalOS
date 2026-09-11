@@ -14,7 +14,7 @@
 
 - **Brand-scoped by default.** Every scoped query filters by `brand_id`. A query without brand scoping is a bug. `client_account`'s unique key is `(brand_id, email)`.
 - **Append-only truth.** Audit rows are never updated or deleted. Use `AuditService.recordPortalEvent` for client-actor events.
-- **Migrations are never edited in place.** The latest applied migration is `V42__scheduled_job.sql`; this unit adds `V43` and `V44`.
+- **Migrations are never edited in place.** The latest applied migration is `V42__scheduled_job.sql`; this unit adds `V43`, `V44` and `V45`.
 - **No credential may carry a default in a shared profile.** `ConfigSecretsTest` fails the build otherwise. `spring.mail.password` and `spring.mail.username` get `${VAR:}` with an empty default and the real value lives in `backend/config/application-local.yml` (gitignored) or the environment.
 - **Tokens are stored as SHA-256, never in plaintext.** Reuse `PortalAccessService.hash(String)` — it is already package-visible `static`.
 - **The portal brand comes from `evalos.portal.client-brand`**, a new setting. It is NOT `evalos.ghl.sales-brand` — see spec §8.
@@ -30,7 +30,8 @@
 | File | Responsibility |
 | --- | --- |
 | `db/migration/V43__client_account.sql` | the two tables |
-| `db/migration/V44__seed_client_accounts.sql` | backfill from `contact_snapshot` |
+| `db/migration/V44__portal_access_names_an_account.sql` | widen `portal_access_scope_is_one_thing` so a client token may name an account |
+| `db/migration/V45__seed_client_accounts.sql` | backfill from `contact_snapshot` |
 | `domain/ClientAccount.java` | the account entity |
 | `domain/ClientCredentialToken.java` | set/reset token entity |
 | `domain/CredentialPurpose.java` | `SET` \| `RESET` |
@@ -913,7 +914,7 @@ Add the import `com.ie.evalos.domain.ClientAccount`.
 
 - [ ] **Step 4b: Widen the scope constraint**
 
-Create `backend/src/main/resources/db/migration/V45__portal_access_names_an_account.sql`:
+Create `backend/src/main/resources/db/migration/V44__portal_access_names_an_account.sql`:
 
 ```sql
 -- Unit 42 — a client party token may now name an EvalOS account instead of a GHL contact.
@@ -1277,7 +1278,10 @@ Append to `ClientAccountServiceTest.java`:
 						java.time.Instant.now().plusSeconds(600)));
 
 		assertThat(service.signIn("ana@example.com", "Correct!1").url()).contains("#tok");
-		verify(audit).recordPortalEvent(eq(BRAND), any(), eq("CLIENT_ACCOUNT"), eq(account.getId()),
+		// objectId is any(): ScopedEntity generates the id at persist time, so getId() is null on
+		// an entity built with `new`. eq(account.getId()) would silently become eq(null) and pass
+		// for the wrong reason. What is worth pinning is the action and the brand.
+		verify(audit).recordPortalEvent(eq(BRAND), any(), eq("CLIENT_ACCOUNT"), any(),
 				eq(com.ie.evalos.domain.AuditAction.CLIENT_SIGNED_IN), any(), any());
 	}
 
@@ -1291,7 +1295,7 @@ Append to `ClientAccountServiceTest.java`:
 		org.assertj.core.api.Assertions
 				.assertThatThrownBy(() -> service.signIn("ana@example.com", "Wrong!1"))
 				.isInstanceOf(com.ie.evalos.common.InvalidRequestException.class);
-		verify(audit).recordPortalEvent(eq(BRAND), any(), eq("CLIENT_ACCOUNT"), eq(account.getId()),
+		verify(audit).recordPortalEvent(eq(BRAND), any(), eq("CLIENT_ACCOUNT"), any(),
 				eq(com.ie.evalos.domain.AuditAction.CLIENT_SIGN_IN_REFUSED), any(), any());
 		verify(links, never()).mintForClientAccount(any());
 	}
@@ -1318,14 +1322,18 @@ Append to `ClientAccountServiceTest.java`:
 
 	@Test
 	void aUsedSetPasswordTokenIsRefusedTheSecondTime() {
+		// An EXPLICIT id, not account.getId(): ScopedEntity generates ids at persist time, so
+		// getId() is null here and both the token's FK and the findById stub would be null —
+		// the test would pass by matching null against null rather than by linking the two.
+		UUID accountId = UUID.randomUUID();
 		ClientAccount account = new ClientAccount(BRAND, "ana@example.com");
 		com.ie.evalos.domain.ClientCredentialToken token = new com.ie.evalos.domain.ClientCredentialToken(
-				BRAND, account.getId(), PortalAccessService.hash("tok"),
+				BRAND, accountId, PortalAccessService.hash("tok"),
 				com.ie.evalos.domain.CredentialPurpose.SET,
 				java.time.Instant.now().plusSeconds(600));
 		given(credentials.findByTokenHash(PortalAccessService.hash("tok")))
 				.willReturn(Optional.of(token));
-		given(accounts.findById(account.getId())).willReturn(Optional.of(account));
+		given(accounts.findById(accountId)).willReturn(Optional.of(account));
 		given(links.mintForClientAccount(account)).willReturn(
 				new PortalAccessService.MintedLink("https://portal.example.com/#tok",
 						java.time.Instant.now().plusSeconds(600)));
@@ -1672,7 +1680,7 @@ git commit -m "feat(42): four auth routes, and the one permitAll matcher they ne
 ## Task 7: Seed the clients you already have
 
 **Files:**
-- Create: `backend/src/main/resources/db/migration/V44__seed_client_accounts.sql`
+- Create: `backend/src/main/resources/db/migration/V45__seed_client_accounts.sql`
 - Test: `backend/src/test/java/com/ie/evalos/repository/ClientAccountSeedTest.java`
 
 **Interfaces:**
@@ -1816,7 +1824,7 @@ class ClientAccountSeedTest {
 - [ ] **Step 3: Fill in the helpers and run the test**
 
 Run: `cd backend && ./mvnw test -Dtest=ClientAccountSeedTest`
-Expected: FAIL first (no `V44`), then PASS once the migration is in place.
+Expected: FAIL first (no `V45`), then PASS once the migration is in place.
 
 - [ ] **Step 4: Run the full suite**
 
@@ -1826,7 +1834,7 @@ Expected: PASS.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add backend/src/main/resources/db/migration/V44__seed_client_accounts.sql \
+git add backend/src/main/resources/db/migration/V45__seed_client_accounts.sql \
         backend/src/test/java/com/ie/evalos/repository/ClientAccountSeedTest.java
 git commit -m "feat(42): every client we already know gets an account, with no password"
 ```
