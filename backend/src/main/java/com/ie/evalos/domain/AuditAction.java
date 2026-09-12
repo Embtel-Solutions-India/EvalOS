@@ -53,6 +53,18 @@ public enum AuditAction {
 	 */
 	PORTAL_LINK_ISSUED,
 	/**
+	 * A client signed in with a password (Unit 42). The actor is {@code CLIENT}, never
+	 * {@code STAFF} — invariant 13's vocabulary already has the distinction.
+	 */
+	CLIENT_SIGNED_IN,
+	/**
+	 * A password sign-in was refused. <strong>Audited deliberately.</strong> A failed sign-in is
+	 * the one event a support conversation actually needs, and an unaudited one is invisible.
+	 */
+	CLIENT_SIGN_IN_REFUSED,
+	/** A client set or reset their own password through an emailed single-use link (Unit 42). */
+	CLIENT_PASSWORD_SET,
+	/**
 	 * A Case Manager raised a blocked case to the Project Managers on its brand (Unit 22, slice 3).
 	 *
 	 * <p>Its own action rather than an {@code UPDATED} row, for the reason {@link #CHASED} is:

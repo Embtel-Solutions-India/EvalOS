@@ -7,6 +7,26 @@ spring:
     url: ${DB_URL}
     username: ${DB_USER}
     password: ${DB_PASSWORD}
+  mail:
+    host: ${MAIL_HOST:}
+    port: ${MAIL_PORT:587}
+    username: ${MAIL_USERNAME:}
+    # **Never a value here, not even locally** — ConfigSecretsTest fails the build on a
+    # credential-shaped setting carrying a default in a shared profile. The real value goes in
+    # backend/config/application-local.yml (gitignored) or the environment.
+    password: ${MAIL_PASSWORD:}
+    properties:
+      mail.smtp.auth: true
+      mail.smtp.starttls.enable: true
+      # **Jakarta Mail defaults all three of these to INFINITE.** Required for the same reason
+      # `evalos.ghl.timeout` below is: this send runs inside a controller-triggered @Transactional,
+      # from a route that is unauthenticated and permits 60 requests/min/IP. A black-holed SMTP
+      # host with no bound parks the request thread AND its Hikari connection forever, and enough
+      # of those take the staff API down with the portal. A bound is what keeps it "one bounded
+      # request" (invariant 6).
+      mail.smtp.connectiontimeout: 5000
+      mail.smtp.timeout: 5000
+      mail.smtp.writetimeout: 5000
   jpa:
     hibernate:
       # Flyway owns the schema. Never create/update.
@@ -66,7 +86,33 @@ evalos:
     # (decision 4's shape): the count over expert.date_onboarded was always computable, only the
     # target had nowhere to live.
     monthly-onboarding-target: ${ROSTER_MONTHLY_TARGET:5}
+  mail:
+    # Unit 42 — EvalOS's ONLY outbound mail, and invariant 14 is amended to exactly this much:
+    # proving control of a client's own address. Set-password and reset-password, nothing else.
+    # A status email, a marketing email or a notification email is a different decision and gets
+    # argued in its own unit.
+    #
+    # **Blank degrades rather than failing the boot.** An environment that forgets it serves the
+    # whole app and answers NO_PASSWORD with "please contact us" — the same reasoning that gave
+    # GHL_API_TOKEN an empty default rather than a fatal one. A password reset is recoverable by
+    # a support conversation; a refused boot is not recoverable by anyone.
+    from: ${EVALOS_MAIL_FROM:}
   portal:
+    # Which brand this portal deployment serves. **NOT evalos.ghl.sales-brand** — that one names
+    # which brand's STAFF may hold the SALES and MARKETING roles, a staff-authorization ceiling
+    # on the normal chain. Nothing on the portal chain has roles. A second brand is a second
+    # portal deployment with its own value here.
+    client-brand: ${EVALOS_PORTAL_CLIENT_BRAND:}
+    # How long a set-password or reset-password link lives. Thirty minutes: long enough to walk
+    # to another device, short enough that a forwarded mailbox is not a standing credential.
+    #
+    # **The key and its variable deliberately do not match, and this is not an oversight.**
+    # ConfigSecretsTest fails the build on any variable whose NAME contains CREDENTIAL and which
+    # carries a non-empty default — a deliberately blunt rule, because guessing secrets from their
+    # values misses short ones. A TTL is not a secret, so the variable is named for what it is to
+    # a deployer (the sign-in link's lifetime) instead. Renaming it to EVALOS_PORTAL_CREDENTIAL_TTL
+    # to "fix" the mismatch reintroduces that build failure.
+    credential-ttl: ${EVALOS_PORTAL_SIGNIN_LINK_TTL:30m}
     # The portal frontend's origin(s), comma-separated. **Empty by default and never `*`** —
     # see PortalSecurityConfig. An environment that forgets this gets a failing preflight, which
     # is loud; a wildcard would be silent and wrong.
@@ -76,10 +122,29 @@ evalos:
     # for every developer, and it must be set to the real origin in any deployed environment or
     # the link mailed to a client points at somebody's laptop.
     base-url: ${PORTAL_BASE_URL:http://localhost:5173}
+    # **The expert portal is a different application on a different origin** (client-expert/expert,
+    # split 2026-09-03), so its links cannot be built from the client's base. Defaults to the
+    # expert Vite dev server. Set it in every deployed environment: an unset value here does not
+    # fail loudly — it mints a link to the wrong host, which looks like a broken link to the one
+    # participant EvalOS cannot train.
+    expert-base-url: ${PORTAL_EXPERT_BASE_URL:http://localhost:5175}
+    # **The client portal app is a third origin, and this is not `base-url`.** `base-url` above
+    # points at whatever serves `/portal/client`, which is the STAFF SPA (port 5173, and its own
+    # default). `/set-password` — the only thing this property builds — exists only in
+    # `client-expert/client` on 5174. Sharing one property meant the set-password mail landed a
+    # client on the staff sign-in page with their credential in the fragment. Same argument as
+    # `expert-base-url` directly above, one app later.
+    client-base-url: ${PORTAL_CLIENT_BASE_URL:http://localhost:5174}
     # How long a link works. A draft-review link that never expired would be a permanent bearer
     # credential sitting in somebody's inbox; re-minting is one click, so a short life costs
     # little. Configurable because "how long does the client have" is a business question.
     link-ttl: ${PORTAL_LINK_TTL:P30D}
+    # A **party**-scoped link (Unit 35, D1) opens every case that person has, so it is the wider
+    # credential of the two and must not live as long. Seven days survives a weekend and a chase;
+    # it is dead before a forwarded link is forgotten. Re-minting is one click, which is what makes
+    # a short life cheap. Deliberately a separate property rather than a fraction of the one above:
+    # they answer different business questions and will drift apart.
+    party-link-ttl: ${PORTAL_PARTY_LINK_TTL:P7D}
     # Requests per minute per caller on the portal chain, refused before the token is looked at.
     # Generous for one client reading one page, and low enough that guessing a 256-bit token is
     # not made cheaper by trying.
@@ -155,6 +220,28 @@ evalos:
     # controller-triggered path, and a bound is what keeps it "one bounded
     # request" rather than long-lived work (invariant 6). The read is paginated, so the bound is
     # per page and not for the whole funnel.
+    # Which brand owns `location-id`. Unit 36's single-brand ceiling, and it is ENFORCED rather
+    # than documented: assigning SALES or MARKETING to a member of any other brand answers 400.
+    #
+    # WHY THIS EXISTS. `location-id` above has no link to a brand, which invariant 1 licenses as
+    # its one stated exception by making every screen over it GM-only. SALES and MARKETING are
+    # brand-LOCKED, so the moment one of them reads that location the exception's argument
+    # ("EvalOS cannot tell whose, so only the cross-brand role may look") stops holding. Naming
+    # the brand here NARROWS the exception rather than widening it.
+    #
+    # ponytail: one GHL location, so one selling brand. Unit 25 (location + token per brand) is
+    # the upgrade path, and the trigger is a business event — a second brand starts selling.
+    #
+    # Blank means no brand may hold a pipeline-scoped role, which is the safe default for an
+    # environment that has not been told which brand sells.
+    sales-brand: ${GHL_SALES_BRAND_ID:}
+    # How long a cached pipeline is considered fresh before the next board read refetches it
+    # (Unit 38). Short, because a board is an operational screen and a salesperson dragging a
+    # card expects to see it move; long enough that a room full of open boards is not a room
+    # full of GHL calls against the 100-per-10-seconds-per-location budget.
+    #
+    # The cache is droppable: raising this trades freshness for requests and nothing else.
+    board-cache-ttl: ${GHL_BOARD_CACHE_TTL:2m}
     timeout: ${GHL_TIMEOUT:10s}
     # How long one funnel read is served from memory before GHL is asked again.
     #
@@ -163,6 +250,34 @@ evalos:
     # minutes on a sales funnel is invisible to a GM reading trend, and the payload carries
     # `readAt` so the screen states how old the figures are rather than implying they are live.
     cache-ttl: ${GHL_CACHE_TTL:PT5M}
+  jobs:
+    # The background sweeps (Unit 19). Off in the integration suite, on everywhere else — see
+    # JobSchedule for why the default points that way.
+    enabled: ${EVALOS_JOBS_ENABLED:true}
+    # Every interval is a fixed DELAY, not a rate: the gap is measured from the end of the last
+    # run, so a slow sweep cannot stack on top of itself. Between the delay and the advisory
+    # lock, a sweep overlapping a sweep is impossible in both directions.
+    #
+    # **Keyed by JOB_TYPE, and that is load-bearing rather than tidy.** Two things read these:
+    # the `@Scheduled` on each sweep, and the staleness check behind the admin panel's "this
+    # sweep has stopped" warning. A separate list of intervals for the second would be a second
+    # number that drifts from the first, and the drift is invisible — the panel would simply
+    # stop warning, which is the exact failure the panel exists to catch.
+    intervals:
+      # 30 minutes on the three that measure a 24h+ clock. A finer interval would not make a
+      # case late any sooner; it would only land the chase nearer the exact hour, which nobody
+      # asked for, and multiply the ledger rows a GM has to read past.
+      DOC_CHASE: ${JOBS_DOC_CHASE_INTERVAL:30m}
+      DOC_ESCALATION: ${JOBS_DOC_ESCALATION_INTERVAL:30m}
+      EXPERT_SIGN: ${JOBS_EXPERT_SIGN_INTERVAL:30m}
+      # 15 minutes: this one refreshes the column the board's RAG rail is painted from, so its
+      # interval is how stale a status light may be. Faster than the chases and for a different
+      # reason — it feeds a screen, not a deadline.
+      STAGE_SLA: ${JOBS_STAGE_SLA_INTERVAL:15m}
+    # How many missed intervals before the panel calls a sweep stopped. Four rather than two so
+    # one slow pass or one restart is not an alarm; low enough that a scheduler that died is
+    # named within a couple of hours rather than the next morning.
+    stale-after-intervals: ${JOBS_STALE_AFTER:4}
 server:
   port: ${SERVER_PORT:8080}
   # Whether to trust X-Forwarded-* and resolve the real client address.
@@ -179,3 +294,10 @@ management:
     web:
       exposure:
         include: health
+  health:
+    # **Off, because /actuator/health is the only exposed endpoint and it is permitAll.** Mail is
+    # blank by default and degrades on purpose (see evalos.mail.from), but Boot's mail indicator
+    # would drag the aggregate to DOWN over it — and a liveness or readiness probe reading that
+    # pulls a healthy instance out of service over a feature that is designed to be optional.
+    mail:
+      enabled: false

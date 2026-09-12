@@ -1,5 +1,55 @@
 # Unit 15 — Expert portal + Handoff B + sign-off
 
+> **STATUS: BUILT 2026-09-03 (backend + staff card). 569 backend tests green (was 536).**
+> What shipped, and the four places it departs from the spec below — each for a reason the
+> spec could not have known:
+>
+> 1. **Four columns, not eight.** `V36` adds `evalos_case.expert_portal_read_at` and
+>    `case_document.{content_sha256, attestation, attested_name}`. `sign_deadline_at` is
+>    `SlaCalculator`'s to compute, `signed_letter_drive_file_id` is a `case_document` row with an
+>    `object_key` (Drive is gone, V34), and `signed_at` is that row's `uploaded_at`. The
+>    provenance lives on the **document** rather than the case because a failed final QC
+>    (`PM_QC_FAIL`, Unit 31) means a case can be signed more than once, and a per-case column
+>    would hold the newest and lose the one a dispute is about.
+> 2. **`letter_sent_hash` is not implemented, and cannot be yet.** The letter the expert is sent
+>    is `draft_link` — free text a Case Manager pastes, to a document EvalOS holds no bytes of —
+>    and `DocumentStore` has no read-bytes capability by design. **Half the hash pair is missing
+>    and this says so rather than storing a value that would prove nothing.** It becomes possible
+>    the day a draft is an object in S3; the code comment on `letterLink` marks the spot.
+> 3. **One mint route, two audiences.** `POST /api/cases/{id}/portal-link?audience=EXPERT` rather
+>    than a second `expert-portal-link` endpoint: the same act, the same gate, the same V23 index.
+>    Minting an `EXPERT` link on a case with no expert is refused — since this unit the link is
+>    the only way the expert is reached.
+> 4. **The 20h/24h events are not declared.** `expert.sign_overdue_warning` /
+>    `expert.sign_overdue` would be constants nothing publishes until Unit 19 owns the clock, and
+>    `SlaCalculator` already answers *at risk* at 0.75 of the budget. Unit 19 declares them when
+>    it has something to fire them from. `EXPERT_TIMED_OUT` and the reassign path were already
+>    built (Unit 31) and are untouched.
+>
+> **Code review (2026-09-03) found four things in this unit; all are fixed.** Recorded here
+> because three of them are about the provenance model this spec argues hardest for:
+>
+> - **A rematch left the outgoing expert's portal link live.** `portal_access` named a case and an
+>   audience and **not an expert**, so A's old link would have accepted, held or *uploaded the
+>   deliverable* on a case that names B. Fixed twice, on purpose:
+>   `CaseLifecycleService.revokeExpertLink` fires on signed / declined / timed out / reassigned,
+>   which closes every path that exists — and **`V37` adds `portal_access.expert_id`**, which
+>   `ExpertPortalService.authorized` checks, so a mismatch is refused whether or not anything
+>   remembered to revoke. The read **fails closed** on a token minted before the column.
+> - **The attestation named whoever the request said.** It was checked against a caller-supplied
+>   name, which any consistent pair satisfied. The signer is now read from the case's expert and
+>   the `attestedName` parameter is gone — a name the caller supplies proves only that the caller
+>   can spell its own claim twice.
+> - **`EXPERT_ACCEPTED` restarted the signing clock**, because `apply` restamps
+>   `stage_entered_at`. An expert accepting seven hours in reset their own budget to green.
+> - **The digest was taken from the store's own read**, which an S3 retry re-reads — hashing the
+>   file twice over. It is now its own streaming pass, so no store behaviour can change it.
+>
+> **The expert-facing SPA is NOT this unit's** — frontend deliverables 1–6 below are Unit 34
+> slice **34e**, in `client-expert/expert/`, which was blocked on this unit and now is not.
+> Deliverable 7 (the staff case card) is built: read receipt, signed-letter list, and the mint
+> control.
+
 > **⚠ The expert portal is a SEPARATE FRONTEND (confirmed 2026-09-02), sharing a deployment
 > with the client portal and calling this backend.** The download-sign-reupload step below is
 > exactly right and is confirmed; further expert functionality is to be specified later.

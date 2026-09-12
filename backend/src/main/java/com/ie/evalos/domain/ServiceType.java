@@ -7,5 +7,8 @@ public enum ServiceType {
 	EXPERT_OPINION_LETTER,
 	PERM,
 	RFE_RESPONSE,
-	TRANSLATION
+	TRANSLATION,
+	/** Unit 33: both already sold, neither previously spellable. */
+	RECOMMENDATION_LETTER,
+	WAGE_LEVEL_LETTER
 }

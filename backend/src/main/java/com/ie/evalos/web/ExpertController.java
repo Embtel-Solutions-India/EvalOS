@@ -7,6 +7,7 @@ import java.util.List;
 import java.util.UUID;
 
 import com.ie.evalos.common.ApiResponse;
+import com.ie.evalos.domain.AffiliationType;
 import com.ie.evalos.domain.AgreementStatus;
 import com.ie.evalos.domain.Availability;
 import com.ie.evalos.domain.Expert;
@@ -15,6 +16,7 @@ import com.ie.evalos.domain.ExpertTier;
 import com.ie.evalos.domain.FieldTag;
 import com.ie.evalos.domain.LetterType;
 import com.ie.evalos.domain.PerformanceFlag;
+import com.ie.evalos.domain.VisaCategory;
 import com.ie.evalos.service.ExpertImportService;
 import com.ie.evalos.service.ExpertImportService.ImportMapping;
 import com.ie.evalos.service.ExpertImportService.ImportReport;
@@ -160,13 +162,68 @@ public class ExpertController {
 			 * read back is a write into a hole.
 			 */
 			List<PerformanceFlag> performanceFlags,
-			Instant createdAt) {
+			Instant createdAt,
+			/**
+			 * Everything the roster sheet carries and the list deliberately does not show
+			 * (Unit 33). Nested rather than twenty-one more components on this record: it is one
+			 * group on the screen, and the client renders it as one.
+			 */
+			Dossier dossier,
+			/**
+			 * When this expert was last approached — derived from the offer table, never stored.
+			 * Null means never offered a case, which the UI must not draw as a date.
+			 */
+			Instant lastActiveAt) {
 
-		static ExpertProfileView of(RosterEntry entry) {
+		static ExpertProfileView of(ExpertService.ProfileEntry profile) {
+			RosterEntry entry = profile.entry();
 			Expert expert = entry.expert();
 			return new ExpertProfileView(RosterRow.of(entry), expert.getNotes(), expert.getRecruitmentSource(),
 					expert.getDateOnboarded(), expert.getAvgResponseHours(), expert.getAgreementStatus(),
-					expert.getPaymentStatus(), expert.getPerformanceFlags(), expert.getCreatedAt());
+					expert.getPaymentStatus(), expert.getPerformanceFlags(), expert.getCreatedAt(),
+					Dossier.of(expert), profile.lastActiveAt());
+		}
+	}
+
+	/**
+	 * The standing dossier: what an expert opinion letter rests on, and what an Expert Network
+	 * Manager actually chooses between two experts on.
+	 *
+	 * <p>Never on {@link RosterRow} — the roster list stays a list. This is read on the profile
+	 * and nowhere else, which is the whole shape of Unit 33's UI rule.
+	 */
+	public record Dossier(
+			String expertCode,
+			String subSpecialization,
+			String highestDegree,
+			String degreeField,
+			String degreeInstitution,
+			String currentPosition,
+			AffiliationType affiliationType,
+			String country,
+			String stateRegion,
+			Integer yearsExperience,
+			String linkedinUrl,
+			List<VisaCategory> visaCategories,
+			Integer publications,
+			Integer citations,
+			Integer hIndex,
+			Integer patents,
+			String notableAwards,
+			String professionalMemberships,
+			String editorialRoles,
+			String languages,
+			boolean rushAvailable,
+			Integer avgTurnaroundDays) {
+
+		static Dossier of(Expert expert) {
+			return new Dossier(expert.getExpertCode(), expert.getSubSpecialization(), expert.getHighestDegree(),
+					expert.getDegreeField(), expert.getDegreeInstitution(), expert.getCurrentPosition(),
+					expert.getAffiliationType(), expert.getCountry(), expert.getStateRegion(),
+					expert.getYearsExperience(), expert.getLinkedinUrl(), expert.getVisaCategories(),
+					expert.getPublications(), expert.getCitations(), expert.getHIndex(), expert.getPatents(),
+					expert.getNotableAwards(), expert.getProfessionalMemberships(), expert.getEditorialRoles(),
+					expert.getLanguages(), expert.isRushAvailable(), expert.getAvgTurnaroundDays());
 		}
 	}
 

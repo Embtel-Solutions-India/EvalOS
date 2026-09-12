@@ -20,6 +20,7 @@ import com.ie.evalos.service.ExpertImportService.ImportReport;
 import com.ie.evalos.service.ExpertLoadService;
 import com.ie.evalos.service.ExpertService;
 import com.ie.evalos.service.ExpertService.AvailabilityGroup;
+import com.ie.evalos.service.ExpertService.ProfileEntry;
 import com.ie.evalos.service.ExpertService.RosterEntry;
 import com.ie.evalos.service.ExpertService.RosterPage;
 
@@ -97,7 +98,7 @@ class ExpertControllerTest {
 				.willReturn(new RosterPage(List.of(entry), 0, 50, 1));
 		given(experts.availabilityBoard(any()))
 				.willReturn(List.of(new AvailabilityGroup(Availability.AVAILABLE, List.of(entry))));
-		given(experts.profile(any())).willReturn(entry);
+		given(experts.profile(any())).willReturn(new ProfileEntry(entry, null));
 		given(experts.create(any(), any())).willReturn(entry.expert());
 		given(experts.update(any(), any())).willReturn(entry.expert());
 		given(experts.setAvailability(any(), any())).willReturn(entry.expert());

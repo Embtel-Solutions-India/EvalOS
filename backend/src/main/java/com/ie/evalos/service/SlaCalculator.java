@@ -4,9 +4,7 @@ import java.time.Duration;
 import java.time.Instant;
 
 import com.ie.evalos.domain.Case;
-import com.ie.evalos.domain.ClientApprovalStatus;
 import com.ie.evalos.domain.ExceptionState;
-import com.ie.evalos.domain.PmApprovalStatus;
 import com.ie.evalos.domain.SlaStatus;
 
 import org.springframework.stereotype.Component;

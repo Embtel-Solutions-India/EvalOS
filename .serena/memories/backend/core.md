@@ -23,51 +23,94 @@
 > (chases, "draft ready") have **no automated route** — manual in GHL, or they become
 > states in the client portal, which is still open.
 
-> ## ⚠ PIVOT: Google Drive → S3 document store (Unit 30, SPECCED 2026-09-02, NOT BUILT)
+> ## Google Drive → S3 document store (Unit 30, BUILT)
 >
-> **Read `context/specs/30-s3-document-store.md` before touching any document path.**
-> Everything below about Drive still describes the **code as it stands today** — the client,
-> the config, the columns are all still there. It no longer describes the **decision**.
+> **The Drive prose further down this file is history, not the code.** It is left because it
+> records why the decision went the way it did; nothing it describes still exists. `pom.xml` has
+> no Google dependency, there is no `config/` package, and `V34__drop_drive_link.sql` dropped the
+> column. Spec: `context/specs/30-s3-document-store.md`.
 >
-> - Documents move to an **S3 bucket**. Google Drive leaves entirely: client, config,
->   service account, dependency, `drive_link` column.
+> - **`integration/DocumentStore` is the one door**, and it has exactly two capabilities: `put` an
+>   object and `presignedUrl` a read. **No delete, no list** — deliberately, so the store cannot be
+>   used as a mutable filesystem.
 > - **A separate Client Portal application writes client uploads**; EvalOS's credential is
 >   **read-only** on `client/{clientId}/`. EvalOS writes only under `case/{caseId}/`.
 > - `{clientId}` is **GHL's contact id** — one client across GHL, the Client Portal and
 >   EvalOS, no mapping table. **Email stays a fallback key (V27), never the identity.**
-> - Reads are **5-minute presigned URLs**, minted after the scope check, never stored.
-> - **Invariant 14 is amended and "No object storage" is deleted** from `architecture.md`.
-> - This **unblocks Units 13, 15 and 21**, which were all waiting on the Google service
->   account. Unit 21 is reshaped: the upload leaves EvalOS.
->
-> **Do not build new Drive work, and do not cite the Drive notes below as settled.**
+> - Reads are **5-minute presigned URLs** (`DocumentStore.READ_WINDOW`), minted after the scope
+>   check and **never stored** — a presigned URL in a column is a credential in a column. Every one
+>   is minted `Content-Disposition: attachment`, which closes the *path* rather than the file: an
+>   HTML or SVG that beat the sniffer has no browser origin to execute in.
+> - **Uploads are sniffed, not trusted.** `common/UploadedFileType` reads magic bytes on both
+>   surfaces (the client's document and the signed letter). Its ceiling is stated where it lives:
+>   `.docx` is a ZIP and `.doc` an OLE2, so this proves the container, not the document —
+>   **scanning is the bucket's job**, and that is infra work still owed.
+> - **Configuration fails loud but late, and that is the one real change from Drive.**
+>   `evalos.s3.bucket` / `evalos.s3.region` (`EVALOS_S3_BUCKET` / `EVALOS_S3_REGION`) have **no
+>   defaults**; absent, document routes answer **502** and the boot log names the missing variable.
+>   Drive's `evalos.drive.required` made the same omission a **boot failure** — S3 does not, so a
+>   misconfigured deploy starts and serves every non-document screen.
+> - **The credential is not a property at all.** The AWS SDK's default provider chain reads the
+>   environment, the shared profile or the instance role, so no key can reach a committed yaml —
+>   `ConfigSecretsTest` fails the build if one does.
+> - **Invariant 14 is amended and "No object storage" is deleted** from `architecture.md`. What
+>   survives is "EvalOS holds keys, never bytes".
+> - **Unit 30 also closed the PDF question by removal**: the redacted profile was the only document
+>   EvalOS generated, and Drive's HTML → Doc → PDF export was the only reason a PDF library was ever
+>   considered. Nothing generates documents now — they arrive as uploads. **Do not add PDFBox or
+>   openhtmltopdf.**
 
-Spring Boot 3.5.16 / Java 21, base package `com.ie.evalos`, Maven Wrapper committed. **Units 01–10 +
-05a (all of Phase 1) and Units 11–12 are built**: config + response envelope, the tenancy/auth/RBAC
-spine, the domain schema, the case state machine + SLA, the inbound webhook gateway with Handoff A,
-the staff notification centre, the board/case-detail/checklist reads behind four frontend surfaces,
-the expert database + sheet upload, and the assist-mode match scorer. **Unit 14 (the client draft-review
-portal — a second filter chain, the first non-staff caller) is built too.** **Unit 13 (redacted expert
-profile + the first outbound Google Drive client) is code-complete, with its manual live upload
-still owed** — see `mem:core`. Unit 15 is next. See `mem:core` for counts and the phase map.
+Spring Boot 3.5.16 / Java 21, base package `com.ie.evalos`, Maven Wrapper committed.
+
+**Backend unit status, audited against the code on 2026-09-09.** `context/progress-tracker.md` is
+still the narrative record; this is the index.
+
+- **Built — 01–12** (config + envelope, the tenancy/auth/RBAC spine, the domain schema, the case
+  state machine + SLA, the inbound gateway with Handoff A, the notification centre, the
+  board/case-detail/checklist reads, the expert database + sheet upload, the assist-mode scorer),
+  **05b** (`opportunity.won` intake, which **superseded 05a** — 05a's "contact created, not payment
+  confirmed" is history), **14** (client draft-review portal — the second filter chain and first
+  non-staff caller), **15** (expert portal + Handoff B + sign-off), **16 + 16b**, **17's read models**
+  (five `*MetricsService` behind seven `MetricsController` routes — but see below: **17a's gap list
+  and 17b's cycle-time chart are not built**, and there is no `p90` anywhere in the tree), **21**, **23**, **24 / 26 / 27** (all three GHL reads behind
+  `MarketingController`), **28** (`DateRange` / `DateWindow`), **30**, **31** (`Stage` carries
+  **twelve** constants), **32**, **33** (`V35`), and the backend halves of **34a / 34c / 34e**.
+- **Removed, and the schema says so — do not resurrect from the specs.** **13** (redacted CV),
+  **18** (outbound dispatcher + Handoff C) and **20** (AI widgets) were dropped by
+  `V33__drop_unit_13_18_20.sql`; **29 / 29a** (sales desk) was built 2026-08-29 and removed
+  2026-09-02. Their spec files still exist, carrying REMOVED banners as the record of a decision.
+- **Specced, not built.** **25** (GHL OAuth — no `ghl_connection` table, no OAuth code; this is
+  what the deferred `PaymentDetailConverter` extraction waits on) and **17b** (the cycle-time
+  chart, the last Track A item). **19 shipped 2026-09-11** and **35**'s D1/D5/D6 shipped with
+  `V38__portal_access_names_a_party.sql`.
+- Schema head is **`V42__scheduled_job.sql`**.
+
+**`context/specs/00-build-plan.md` is stale on one point**: its Unit 34 heading reads "SPECCED, NOT
+BUILT" while 34a, 34c and 34e have shipped. Trust the tracker over the plan on status.
 
 ## Package boundaries (all under `com.ie.evalos`)
 
 `web` (thin controllers + DTOs) · `service` (all business logic + `@Transactional`) · `domain` (JPA
-entities + enums) · `repository` (Spring Data + brand/team/assignee scoping) · `integration` (GHL,
-Google Drive clients) · `webhook` (inbound gateway: verify → resolve brand → dedupe → archive →
-route) · `event` (domain events + outbound HMAC dispatcher) · `job` (`@Scheduled` sweeps) ·
+entities + enums) · `repository` (Spring Data + brand/team/assignee scoping) · `integration` (the GHL
+read client and the S3 `DocumentStore`) · `webhook` (inbound gateway: verify → resolve brand → dedupe → archive →
+route) · `event` (domain events; the outbound HMAC dispatcher it once held was removed with Unit 18) ·
+`job` (`@Scheduled` sweeps, Unit 19) ·
 `notification` (in-app staff center) · `security` · `common` (envelope, encryption converter, error
-types) · `config`.
+types, `UploadedFileType`). **There is no `config` package** — it held `GoogleDriveConfig` and went
+with Drive in Unit 30.
 
-`web`/`service`/`domain`/`repository`/`security`/`common`/`webhook`/`event`/`notification` and — since
-Unit 13 — `integration` are populated; **`job` is still an empty `.gitkeep` placeholder**. Put code in
+`web`/`service`/`domain`/`repository`/`security`/`common`/`webhook`/`event`/`notification`/`integration`
+are populated, and so is `job` as of Unit 19 (2026-09-11): four `@Scheduled` sweeps, an advisory
+lock and a run ledger. (`integration` was first populated by Unit 13's Drive client; that unit
+is gone, and Unit 30's `DocumentStore` holds the slot.) Put code in
 the package that matches the concern — controllers never hold logic, entities never leave the service
-layer (map to DTOs). `notification/NotificationListeners` is the only subscriber to `event` so far;
-the outbound dispatcher (Unit 18) is the next.
+layer (map to DTOs). `notification/NotificationListeners` is the only subscriber to `event`, and now the
+only one there will be: **Unit 18's outbound dispatcher was built and then removed** (2026-09-02),
+so `event` holds `CaseEvents` alone and EvalOS has no outbound channel.
 
-`integration` holds `GoogleDriveClient` + `DriveUnavailableException` (Unit 13), the first outbound
-client, and `GhlPipelineClient` + `GhlUnavailableException` (Unit 24), the first **read** client.
+`integration` holds `DocumentStore` + `DocumentStoreUnavailableException` (Unit 30, which replaced
+Unit 13's `GoogleDriveClient` in the same slot), and `GhlPipelineClient` + `GhlHttp` +
+`GhlUnavailableException` (Unit 24), the first **read** client.
 The pattern both follow: **one narrow
 capability, not an SDK wrapper**; a bounded request with an explicit timeout, because these are called
 from controller-triggered paths and invariant 6 forbids long-lived work there; and a failure that is a
@@ -329,13 +372,20 @@ not be reachable as anyone else by a later job, webhook handler or service.
 
 `expert.total_payments_pending` stays dead and derived, beside `current_active_count`.
 
-## `job`, when it stops being empty (Unit 19)
+## `job` — the sweeps (Unit 19, BUILT 2026-09-11)
 
-Decisions already taken, so the package does not get invented from scratch:
+`Sweep` (interface: `jobType()` + `run()`) · `SweepRunner` · `JobLock` · `JobLedger` ·
+`JobSchedule` · `JobProperties` · `JobAdminService` · four sweeps. Spec:
+`context/specs/19-background-jobs.md`.
 
 - **Spring `@Scheduled` + `@EnableScheduling`.** No Quartz, no ShedLock — both are a dependency and a
-  table for what is already on the classpath. Intervals bind from `evalos.jobs.*`;
-  `evalos.jobs.enabled=false` in the test profile so the suite cannot race a sweep.
+  table for what is already on the classpath. `@EnableScheduling` sits on `JobSchedule`, not on the
+  application class, so it can carry `@ConditionalOnProperty(evalos.jobs.enabled, matchIfMissing=true)`.
+  Off in `LocalPostgresIntegrationTest`; **on by default everywhere else**, because the opposite
+  default is a production instance that quietly chases nobody and looks fine.
+- **Intervals are keyed BY `JOB_TYPE`** — `evalos.jobs.intervals.DOC_CHASE` and so on — because two
+  things read them: `@Scheduled`, and the panel's staleness check via `JobProperties`. A second list
+  for the check would drift, and the drift is silent: the panel just stops warning.
 - **Every sweep claims `pg_try_advisory_lock(hashtext(:jobType))` first** and returns if it loses,
   releasing it in a `finally`. Not for scale-out — because **every rolling deploy runs two instances
   for a few seconds**, and two sweeps ticking together double-chase a client and double-alert staff
@@ -344,17 +394,72 @@ Decisions already taken, so the package does not get invented from scratch:
   runs *one transaction per item* — so it would drop the lock after the first item and leave the rest of
   the run unprotected, which is the exact failure it was added to prevent. Claim it outside the per-item
   transactions.
+- **`JobLedger` is a separate bean from `SweepRunner` and must stay one.** `@Transactional` is
+  proxy-based: a runner calling its own annotated methods gets no transaction, silently. Third time
+  in this codebase (see `OpportunityCache`, Unit 38).
 - **`scheduled_job` records runs, not intentions.** No row-per-future-timer: a sweeper asking "what is
   overdue right now" is correct on the first run after any outage. Idempotency comes from the data the
   action already writes (`CHASED` audit rows for chases, notification rows for thresholds), never from
-  an "already ran" marker — which is why `POST /api/jobs/{type}/run` is safe to press twice.
+  an "already ran" marker — which is why `POST /api/jobs/{type}/run` is safe to press twice. It goes
+  **through** the lock, and answers `started: false` rather than 409 when it is held.
 - **One transaction per item**, so one poisoned case cannot stop the sweep; the run is recorded
-  `FAILED` with the error and the next tick retries.
-- **A sweep prompts and publishes; it never transitions.** No sweep may fire `EXPERT_TIMED_OUT`.
+  `FAILED` with the error and the next tick retries. A throw must leave `JobLedger.actOnOneItem` for
+  `REQUIRES_NEW` to roll the item back — `SweepRunner` absorbs and logs it one frame out.
+- **A sweep prompts and publishes; it never transitions.** No sweep may fire `EXPERT_TIMED_OUT`, and
+  there is no call site for it in the package.
 - Unscoped reads are deliberate (no authenticated caller, so `ScopePredicate` does not apply); every
-  side effect goes through `AuditService.recordSystemEvent` with the brand from the row.
-- **Five sweeps, not six** — retention left the unit; GHL owns it.
-- The **queue is the `webhook_delivery` outbox**, `FOR UPDATE SKIP LOCKED`. See `mem:backend/webhooks`.
+  side effect goes through `AuditService.recordSystemEvent` with the brand from the row. Both finders
+  (`CaseRepository.findAllAtStageForSweep`, `findActiveForSweep`) additionally filter `paid`.
+- **Each sweep owns its notification type.** `DOC_CHASE_DUE`, `DOCS_ESCALATED`,
+  `EXPERT_SIGN_AT_RISK`, `EXPERT_SIGN_OVERDUE`. **Not a naming preference** — idempotency is
+  `alreadyRaised(caseId, type)`, so a shared value lets one sweep silence another: the escalation and
+  the stage sweep both fire on the same `DOC_COLLECTION` case at the same moment, and
+  `EXCEPTION_RAISED` is raised on a case by four unrelated paths. Add a value, never reuse one.
+- **`DocChaseSweep` raises its own prompt rather than relying on a route.** With Unit 18 gone,
+  `checklist.reminder` has no subscriber, so the chase reaches nobody unless the sweep notifies the
+  Coordinator itself — naming which of the two chases is due, with no `alreadyRaised` guard (the
+  `CHASED` rows cap it at two). Neither Unit 19 event is in `NotificationListeners.ROUTES`: a route
+  would also fire on a Coordinator's manual reminder and could not name the chase number.
+- **Four sweeps, not five or six** — retention left the unit (GHL owns it) and `OutboxSender` left
+  with Unit 18 on 2026-09-02. There is no outbox and no `webhook_delivery` table.
+- **`SweepRegistrationTest` is load-bearing**: an unresolvable `${evalos.jobs.…}` only fails the boot
+  under `@EnableScheduling`, which the one full-context test disables — so a new sweep missing its
+  property would pass the whole build and fail in production. It scans the source for
+  `implements Sweep`, a `@Scheduled` tick, and a matching yaml key equal to `JOB_TYPE`.
+
+## GHL clients — four, and the split is deliberate
+
+`GhlHttp` is the transport door (Unit 37: a closed verb list, no retry on writes, no audit —
+it cannot know what a write *means*). Four clients sit on it:
+
+- **`GhlPipelineClient`** — funnel aggregates for the three GM screens. Matches pipelines by
+  NAME, so a rename breaks a dashboard loudly.
+- **`GhlOpportunityClient`** — board reads, feeding `ghl_opportunity_cache`.
+- **`GhlWriteClient`** — contacts and opportunities. Creates go through **upsert**, never POST:
+  GHL demands idempotency and offers no key, and upsert is the only thing that makes a
+  double-submit safe.
+- **`GhlCalendarClient`** (Unit 40's meetings, 2026-09-11) — calendars, book, reschedule.
+
+**Any class holding a `GhlHttp` and calling a write verb must reach `AuditService`** —
+`GhlHttpTest` scans the source for it. The write and calendar clients satisfy it; a new one must.
+
+**Two calendar rules that are invisible in review and expensive live**, both pinned by
+`GhlCalendarClientHttpTest`:
+- **Never send `toNotify: false`.** GHL's default of true is what runs the automations that
+  actually invite the client. EvalOS has no channel of its own (invariant 14), so suppressing
+  GHL's books a meeting nobody hears about.
+- **Never send `ignoreFreeSlotValidation`.** With validation on, GHL refuses a collision and the
+  salesperson sees it; with it off a double-booking succeeds silently.
+
+**Appointments have no upsert**, unlike contacts and opportunities — so a double-submit books two
+meetings and there is nothing behind the call to prevent it. Stated rather than papered over: the
+fix would be an EvalOS appointment row, which is the local mirror the truth model refuses.
+
+**Scope status, probed live 2026-09-11 and not to be re-assumed:** `invoices.readonly`,
+`calendars.readonly` and `calendars/events.readonly` are **granted**; `calendars/events.write` is
+**unverified** because confirming it means booking on a live calendar. Every doc that said the
+first three were ungranted was wrong for a day — **probe the grant before writing "blocked"**, and
+read the status code: a **422 is auth passing with bad params**, not a refusal.
 
 ## Response envelope — non-negotiable
 
@@ -368,10 +473,11 @@ never echoes Jackson's, which quotes the payload and lists every legal value),
 `InvalidRequestException` (400, message returned — same "may not be an existence oracle" rule as
 `IllegalTransitionException`), `MaxUploadSizeExceededException` (400), auth (401), forbidden (403),
 `IllegalTransitionException` (409), webhook rejection (its own status),
-`DriveUnavailableException` (**502** — an upstream fault, so the caller retries rather than reports a
-bug; Unit 13), `GhlUnavailableException` (**502**, same reasoning; Unit 24 — kept as its own handler
-with its own `GHL_UNAVAILABLE` code rather than folded in with Drive, so the code names *which*
-upstream failed), `NoResourceFoundException` (**404** — this advice is a plain `@RestControllerAdvice`
+`DocumentStoreUnavailableException` (**502**, `DOCUMENT_STORE_UNAVAILABLE` — an upstream fault, so
+the caller retries rather than reports a bug; Unit 30, in the slot Unit 13's
+`DriveUnavailableException` held), `GhlUnavailableException` (**502**, same reasoning; Unit 24 —
+kept as its own handler with its own `GHL_UNAVAILABLE` code rather than folded in with the document
+store's, so the code names *which* upstream failed), `NoResourceFoundException` (**404** — this advice is a plain `@RestControllerAdvice`
 and does not inherit `ResponseEntityExceptionHandler`, so Spring's own `ErrorResponseException`s fall
 to the catch-all: **every unmapped URL used to answer 500 and log at error level**. Same class of bug
 as the enum one above; found in Unit 05b while asserting `/mark-paid` was gone. Body carries no
@@ -385,18 +491,16 @@ frontend's typed mirror lives in `frontend/src/lib/api.ts`.
   `EVALOS_FIELD_KEY`. **No secret is ever committed.** `prod` has no defaults at all; `local`
   supplies localhost fallbacks (`postgres`/`1234`@5432, db `evalos`) plus dev-only fallbacks for the
   two keys. `spring.profiles.default: local`.
-- **`evalos.drive.*` (Unit 13).** `key-json` (`GOOGLE_DRIVE_KEY_JSON`, inline JSON) and
-  `credentials-path` (`GOOGLE_APPLICATION_CREDENTIALS`) both default to **empty**, and
-  `required` — true in `application.yml`, restated in `prod`, **false only in `local`** — is what
-  makes a missing key fatal. Deliberately not an unresolvable placeholder like `EVALOS_FIELD_KEY`:
-  that could only ever demand one specific variable, so setting the other would fail the boot.
-  `GoogleDriveConfig`'s **constructor** throws, so the context does not come up, and the key is read
-  at startup so an unreadable path also fails there rather than at the first upload. Also
-  `scope` (defaults to `drive.file`; the `.../auth/drive` fallback is a property, not a code change)
-  and `timeout` (20s). **`local` is the only profile that runs without a key** — every route works
-  and only the Drive write answers 502.
-  A `@WebMvcTest` slice never loads `GoogleDriveConfig`, so **only the gated DB run proves these keys
-  bind**; a typo here is invisible to `verify` alone. **Unit 24 closed that hole for its own config
+- **`evalos.s3.*` (Unit 30, replacing `evalos.drive.*`).** `bucket` (`EVALOS_S3_BUCKET`) and
+  `region` (`EVALOS_S3_REGION`), **no defaults in any profile** — an environment that forgets them
+  gets 502s on the document routes and a warning at boot, never a silent write to the wrong bucket.
+  **The credential is not a property at all**: the AWS SDK's default provider chain reads the
+  environment, the shared profile or the instance role, so no key can reach a committed yaml
+  (`ConfigSecretsTest` fails the build if one does). This is a **weaker** posture than Drive's on
+  purpose and the difference is worth holding: `evalos.drive.required` made a missing key a **boot
+  failure**, whereas a misconfigured S3 deploy **starts** and serves every non-document screen.
+  A `@WebMvcTest` slice never loaded `GoogleDriveConfig`, so **only the gated DB run proved those keys
+  bound**; a typo was invisible to `verify` alone. **Unit 24 closed that hole for its own config
   rather than repeating it** — `GhlPipelineClientTest` binds the bean against the real
   `application.yml` with `ApplicationContextRunner` + `ConfigDataApplicationContextInitializer`,
   which is the pattern to copy for the next `@Value`-with-no-default bean. Note it needs
@@ -404,8 +508,8 @@ frontend's typed mirror lives in `frontend/src/lib/api.ts`.
   a lenient conversion that a real boot installs via `SpringApplication` and a bare context runner
   does not, so without it the harness fails on something production does correctly.
 - **`evalos.ghl.*` (Unit 24).** `token` (`GHL_API_TOKEN`) and `location-id` (`GHL_LOCATION_ID`)
-  default to **empty**, and — unlike `evalos.drive.required` — **there is no `required` flag and a
-  missing token does not fail the boot.** Deliberate difference: `JWT_SECRET` and `EVALOS_FIELD_KEY`
+  default to **empty**, and — as with `evalos.s3.*`, and unlike the `evalos.drive.required` both
+  replaced — **there is no `required` flag and a missing token does not fail the boot.** Deliberate difference: `JWT_SECRET` and `EVALOS_FIELD_KEY`
   must be fatal because signing with a guess or storing plaintext is unrecoverable, while this gates
   **one read-only GM screen**, so the app serves everything else and answers 502 there.
   `GhlPipelineClient` logs a warning at boot so it is not discovered as a surprise. Also
@@ -515,3 +619,34 @@ mechanism; `mem:backend/persistence` for entity, repository, audit and field-enc
 `mem:backend/lifecycle` before touching any case transition, the paid guard, SLA or refund logic;
 `mem:backend/webhooks` before touching the inbound gateway, idempotency or Handoff A.
 Java style and the deliberate absence of Lombok: `mem:conventions`, `mem:tech_stack`.
+
+## Portal-links ledger (G16, Unit 17a, BUILT 2026-09-11)
+
+`PortalLinkLedgerService` + `GET /api/metrics/portal-links`. **A compensating control for a
+channel that does not exist**, not a report: EvalOS sends no mail (invariant 14), so a link
+reaches its recipient because somebody sent it by hand and nothing records that they did. For an
+expert that is **G15** — the 20h/24h signing clock runs regardless, so *a link nobody sent* is
+the likeliest way that SLA is breached.
+
+- **⚠ There is no `sent_at` and there must never be one.** EvalOS cannot witness a staff member
+  pasting a URL into a mail client; a column claiming otherwise would be *reported by this very
+  dashboard* as true. `last_seen_at` is the honest proxy — evidence the link arrived. A test
+  asserts the row carries `openedAt` and never `sentAt`/`mintedBy`.
+- **No migration, no new column.** Everything is already on `portal_access`, and revoked rows
+  are kept so the re-mint history is on disk.
+- **The RAG band is derived from one question** — *is a clock running against a link nobody
+  opened?* — and **reuses the stage SLA** rather than a second threshold, so this and the
+  board's rail cannot disagree about one case.
+- **An absent link is GREEN wherever the stage does not want one.** `needs()` derives that from
+  the stage. A tile that shouted about every case would be ignored by the day it was right.
+- **One row per (case, audience)**, with a re-mint count — never one row per token.
+- **No issuer column.** The mint audits against the *case* with the audience in a free-text
+  note, so matching an issuer to one token means parsing a string. The row links to the case
+  timeline instead. Spec 17 §5 carries the two upgrade paths.
+- **The Expert Network Manager is refused**, unlike on four other metrics routes: `Tier.SUPPLY`
+  reads the roster, not case content, and every row here names a case.
+
+**G9 is closed by derivation (same unit).** `ExpertCaseOfferRepository.resolvedTurnaroundSeconds`
+reads `outcome_at - offered_at`; `ExpertNetworkMetrics.turnaround` reports the **median**.
+**Do not revive `expert.avg_response_hours`** — it is written by nothing. Median not mean (few,
+skewed samples); **null not zero** on no data, because zero reads as "answered instantly".

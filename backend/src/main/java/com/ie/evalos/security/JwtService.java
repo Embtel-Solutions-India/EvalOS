@@ -20,9 +20,9 @@ import org.springframework.stereotype.Service;
 
 /**
  * Issues and verifies the short-lived staff access token. The token carries the
- * whole tenant identity (role, brand, team) so no request needs a database hit
- * to be scoped — the trade-off is that a role or brand change only takes effect
- * on the next login, which the short TTL bounds.
+ * whole tenant identity (role, brand, team, GHL pipeline) so no request needs a
+ * database hit to be scoped — the trade-off is that a role, brand or pipeline
+ * change only takes effect on the next login, which the short TTL bounds.
  */
 @Service
 public class JwtService {
@@ -32,6 +32,7 @@ public class JwtService {
 	private static final String CLAIM_ROLE = "role";
 	private static final String CLAIM_BRAND = "brandId";
 	private static final String CLAIM_TEAM = "teamId";
+	private static final String CLAIM_PIPELINE = "ghlPipelineId";
 
 	private final SecretKey key;
 	private final Duration ttl;
@@ -55,6 +56,7 @@ public class JwtService {
 				.claim(CLAIM_ROLE, principal.role().name())
 				.claim(CLAIM_BRAND, asString(principal.brandId()))
 				.claim(CLAIM_TEAM, asString(principal.teamId()))
+				.claim(CLAIM_PIPELINE, principal.ghlPipelineId())
 				.issuedAt(Date.from(now))
 				.expiration(Date.from(now.plus(ttl)))
 				.signWith(key)
@@ -80,6 +82,10 @@ public class JwtService {
 				Role.valueOf(claims.get(CLAIM_ROLE, String.class)),
 				asUuid(claims.get(CLAIM_BRAND, String.class)),
 				asUuid(claims.get(CLAIM_TEAM, String.class)),
+				// Absent from a token minted before Unit 36, which reads as null and, per
+				// ScopePredicate's PIPELINE arm, matches nothing. One re-login fixes it, and
+				// that is the safe direction for a scope to be wrong in.
+				claims.get(CLAIM_PIPELINE, String.class),
 				null,
 				true);
 	}

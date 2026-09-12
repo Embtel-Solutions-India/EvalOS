@@ -8,13 +8,13 @@
 | Database         | PostgreSQL + Spring Data JPA (Hibernate)           | System of record: brands, cases, experts, payout ledger, contact snapshots, audit |
 | Migrations       | Flyway                                             | Versioned schema — every change is a new migration, never an edited one           |
 | Internal auth    | Spring Security + JWT + role authorities (RBAC/ABAC) | Staff login; per-role + brand/team/assignee authorization (optional SSO later)   |
-| Portal auth      | Separate Spring Security filter chain (scoped, link-based), one chain, two audiences | **Both portals live in one external frontend** calling this backend: the client's document-upload and draft-review surface, and the expert's download-sign-reupload surface. `portal_access.audience` (`CLIENT` / `EXPERT`, V21) is what separates them — isolated from internal auth. **CORS is required and not yet configured** — see `30-s3-document-store.md` |
+| Portal auth      | Separate Spring Security filter chain (scoped, link-based), one chain, two audiences; an `EXPERT` token also **names its expert** (`V37`) and is refused when the case's expert is somebody else | **Both portals live in `client-expert/`, as two separately built apps** (`client/` 5174, `expert/` 5175) calling this backend: the client's document-upload and draft-review surface, and the expert's download-sign-reupload surface. `portal_access.audience` (`CLIENT` / `EXPERT`, V21) is what separates them — isolated from internal auth. **CORS is built** (Unit 30): scoped to `/api/portal/**`, origins from `evalos.portal.allowed-origins` (no default in prod, so a missing value fails the boot), methods `GET/POST/OPTIONS`, headers `Content-Type` + `X-Portal-Token`, and **`allowCredentials(false)`** — the credential is a header, never a cookie. **The delivered app sent `withCredentials: true` and no portal token at all; Unit 34a fixed both** — the token now travels in `X-Portal-Token` out of the URL fragment, held in memory and never persisted |
 | Frontend         | React + TypeScript (Vite SPA) + Tailwind, with `radix-ui`, `lucide-react`, `recharts` | Internal role-based dashboards, client portal, expert portal. The three UI packages landed in Unit 22 slice 1, each against a screen that needed it; dnd-kit, TanStack Table and Motion stay deferred with written triggers in that spec |
-| Raw documents    | **S3 document store (Unit 30)** — AWS SDK v2 | Client documents written by the **separate Client Portal** under `client/{clientId}/` and read by EvalOS; EvalOS's own artefacts (draft, redacted profile, signed letter) under `case/{caseId}/`. **EvalOS holds object keys, never bytes**, and serves them as 5-minute presigned URLs. Replaced Google Drive in Unit 30 |
+| Raw documents    | **S3 document store (Unit 30)** — AWS SDK v2 | **EvalOS is the only writer.** Client documents land under `{brandId}/client/{ghlContactId}/{documentId}` when the portal frontend posts them *through* EvalOS, which streams them; its own artefacts sit under `{brandId}/case/{caseId}/{folder}/{documentId}`. **EvalOS holds object keys, never bytes**, and serves them as 5-minute presigned URLs. Replaced Google Drive in Unit 30 |
 | E-signature      | **None — no provider.** The expert signs in their own tool and uploads the signed PDF through their portal | A scanned wet signature is the norm for an expert opinion letter. Provenance is a hash pair + an attestation + an `EXPERT` audit row, not a certificate — see `15-expert-portal-handoff-b.md` |
-| Notifications    | In-app notification center (staff) + GHL (clients) + a portal link (experts) | No EvalOS mail server                                            |
-| Background work  | Spring `@Scheduled` (+ app events) + a `scheduled_job` run ledger + a Postgres advisory lock per sweep | SLA timers, reminders, escalations, expert-sign prompts, the outbound outbox. **No Quartz, no ShedLock, no broker** |
-| Queue            | The `webhook_delivery` outbox table, claimed `FOR UPDATE SKIP LOCKED` | Outbound delivery with backoff + dead-letter. The only cross-process work is "deliver one webhook and keep trying", which a durable row does |
+| Notifications    | In-app notification center (staff) + GHL (clients) + a portal link (experts) | **SMTP for authentication mail only, as of Unit 42** (`spring-boot-starter-mail`): *set your password* and *reset your password*, and nothing else. Invariant 14 amended in writing 2026-09-11. No marketing, status or notification mail, and no outbound queue |
+| Background work  | Spring `@Scheduled` (+ app events) + a `scheduled_job` run ledger + a session-scoped Postgres advisory lock per sweep | SLA timers, reminders, escalations, expert-sign prompts. No outbound outbox — Unit 18 was removed. **No Quartz, no ShedLock, no broker** |
+| Queue            | **None.** `webhook_delivery` went with Unit 18 (removed 2026-09-02) | EvalOS has no cross-process work left. If outbound delivery ever returns, the argument to re-read is Unit 19's: a durable row with backoff, not a broker |
 | Integration seam | Inbound webhook gateway + outbound webhook dispatcher (+ the GHL and S3 clients) | Receive GHL events; emit EvalOS lifecycle events to subscribers. **One inbound source, GHL** — dropping the signature provider removed the second |
 | GHL read API | `RestClient` against GHL's public API, `opportunities.readonly` (**inbound *pull*, Unit 24**) | The GM's marketing funnel view, and nothing else. **Read-only, and no write method**: two calls and a cached payload. The *aggregate* the screen draws is cached in `ghl_funnel_cache` (it was a heap map until 2026-08-26 — a per-process cache lost a completed background total on restart and could not hand one instance's result to another). **No opportunity rows are stored**: there is no `ghl_opportunity` table and there must not be one, because a stage dragged five seconds ago would already be wrong in it. The table is a cache, not a record — safe to truncate, and not brand-scoped because the figures come from one global GHL location EvalOS cannot attribute to a brand. This is the third direction across the GHL seam — events in, events out, and now one pull — and it is the only one that is not a handoff |
 
@@ -24,13 +24,27 @@ the first half is now false and is gone; the second half is still true and is wh
 invariant 14 carries. EvalOS stores **object keys**, exactly as it stored Drive links, and
 no bytes on disk, on the heap or in a column.
 
-**Two owners, split by prefix, enforced by IAM rather than by convention.** The **Client
-Portal is a separate application**: clients sign in there and upload, and it writes
-`client/{clientId}/…`. EvalOS's credential is **read-only on that prefix** — not "does not
-write", but *cannot*. A client's uploaded document is evidence, and a system able to
-overwrite evidence it did not author will eventually be asked whether it did. EvalOS reads
-and writes `case/{caseId}/…`, which holds the draft, the redacted expert profile and the
-expert's signed letter.
+**One writer, two prefixes, and the prefixes are for humans rather than for IAM.** *(This
+paragraph said the opposite until it was corrected — spec 30's first draft had the Client Portal
+writing to S3 with EvalOS read-only on `client/`. **That is wrong and must not be revived.** The
+portal is a separate **frontend** and holds **no AWS credential at all**; it calls EvalOS, and
+EvalOS streams the bytes.)*
+
+`{brandId}/client/{ghlContactId}/…` is what a client sent us; `{brandId}/case/{caseId}/…` is what
+we produced. **Brand first**, because every other store in EvalOS enforces brand at the row and a
+key prefix is S3's equivalent — and changing that later migrates the objects, not the code. The
+object name is the **document's own id**, never its filename, which closes path traversal,
+collisions and PII-in-the-key at once.
+
+**What replaces the IAM guarantee, since it is a real reduction in defence:** bucket versioning is
+**non-optional**, and **EvalOS never overwrites a `client/` key** — every upload mints a new
+document id and therefore a new key, so a client replacing a rejected transcript adds a version
+rather than destroying the evidence of why it was rejected. That is a code rule with a test behind
+it instead of a policy.
+
+A presigned **PUT** handed to the browser was considered and rejected: it puts the key format —
+the thing that makes a document findable — in the hands of the least controlled party, and skips
+the content-type and size checks that have to happen somewhere.
 
 **`{clientId}` is GHL's contact id** — the same identifier EvalOS keys
 `contact_snapshot.ghl_contact_id` on and the same one the Client Portal uses. One client is
@@ -64,8 +78,28 @@ spools the part to a temp file. Two parsers sit behind it (`commons-csv` for
 `.csv`, `poi-ooxml` for `.xlsx`); only `service/ExpertImportService` touches
 either.
 
-Repository layout is a monorepo: `backend/` (Spring Boot) and `frontend/`
-(React + Vite). Java lives under the base package `com.ie.evalos`.
+Repository layout is a monorepo of **three** applications, and it was two until
+2026-09-03:
+
+- `backend/` — Spring Boot. Java under the base package `com.ie.evalos`.
+- `frontend/` — the **internal staff** SPA (React + Vite, port 5173, `/api` proxied
+  same-origin). It still carries Unit 14's one-screen client portal at `/portal/*`,
+  which **Unit 34 supersedes** when the portal frontend is wired.
+- `client-expert/` — the **external portal frontends** (React + Vite): `client/` on port
+  5174 and `expert/` on port 5175 are **two applications with two builds**, so each can
+  take its own subdomain, over **one** `package.json` and `node_modules` and a `shared/`
+  folder both import as `@shared/*` (split 2026-09-03; they shipped as one app). Neither
+  app imports the other — that is what keeps them deployable apart. Cross-origin
+  against `/api/portal/**`, which is why that chain is the only one with CORS. **One screen
+  is wired** — the client's `/documents`, against the real S3-backed portal API (Unit 34
+  slices 34a + 34c); every other screen is still a `localStorage` mock. The rest of the
+  wiring, and the three invariant conflicts the app arrives with, are
+  `context/specs/34-portal-frontend-wiring.md`.
+
+`client-expert/` is a separate deployment and shares no code, no build and no design tokens
+with `frontend/` — deliberately. An external client-facing surface is not the internal
+operations tool, and a shared component library across that boundary would drag the
+staff app's density and palette onto a client's screen.
 
 ## Multi-Tenancy (brands)
 
@@ -119,11 +153,14 @@ Java packages under `com.ie.evalos`:
   with it the only place in the design that threatened the protected
   brand-resolution step.
 - `event` — internal domain events (Spring `ApplicationEvent`) published on
-  lifecycle transitions, plus the outbound webhook dispatcher (subscriber
-  registry, HMAC signing, retry/backoff, dead-letter, delivery log, replay).
-- `job` — `@Scheduled` sweeps backed by the `scheduled_job` **run ledger**
-  (doc chases, day-3 escalation, stage SLA, expert sign 20h/24h prompts, and the
-  outbox sender). Each sweep takes a **Postgres advisory lock on its job type**, so
+  lifecycle transitions. **`CaseEvents` alone**: the outbound webhook dispatcher went with
+  Unit 18 (2026-09-02), so `notification/NotificationListeners` is the only subscriber there
+  will be, and an event with no route raises nothing by decision rather than by omission.
+- `job` — `@Scheduled` sweeps backed by the `scheduled_job` **run ledger** (BUILT, Unit 19).
+  **Four sweeps**: doc chases, day-3 escalation, stage SLA, expert sign 20h/24h prompts. No
+  outbox sender — it went with Unit 18. Each sweep takes a **session-scoped Postgres advisory
+  lock on its job type** (not `pg_try_advisory_xact_lock`, which would release after the first
+  item since a sweep runs one transaction per item), so
   the seconds of overlap in every rolling deploy cannot double-chase a client. The
   ledger records *runs, not intentions*: idempotency comes from the data the sweep
   reads, never from a queued timer row. Sweeps **prompt and publish; they never
@@ -140,6 +177,18 @@ Java packages under `com.ie.evalos`:
 Frontend under `frontend/src`: `components/ui` (generated primitives),
 `features` (board, case detail, dashboards, client portal, expert portal),
 `lib` (API client, hooks).
+
+Portal frontends under `client-expert/`: `shared/src` holds what both apps use —
+`components/ui` (shadcn-style primitives — the same "generated, do not edit" rule
+applies), `components/common`, `services/apiClient.ts`, `lib/portal.ts`, `styles`;
+`client/src` and `expert/src` each hold their own
+`components`, `layouts` (Auth / Intake / Portal, and ExpertAuth / ExpertPortal),
+`pages` (one folder per route group), `routes` (guards), `context` (`AuthContext`,
+`ExpertAuthContext`),
+**`services` (the entire mock/real boundary — every future HTTP call lives here and
+nowhere else)**, `schemas` (Zod), `types`, `constants`, `mock`, `utils`, `styles`.
+The `services` isolation is the single property that makes Unit 34 tractable; a page that
+reaches past it is the defect that ends it.
 
 ## Storage Model
 
@@ -211,12 +260,26 @@ Frontend under `frontend/src`: `components/ui` (generated primitives),
   pipeline and the people working it hold different slots. This supersedes the note
   that a Coordinator's case scope was not yet expressible; it was the gap that left
   their board empty and answered 403 on cases they owned.)*
-- **Clients** access the draft-review portal via a passwordless link delivered
-  through GHL (a separate, scoped filter chain). They see only their own case's
-  draft, and can approve or request revisions.
-- **Experts** access an assigned case via a scoped portal link shared by the Case
-  Manager (a separate filter chain), download the letter, and upload it back signed.
-  One token names one case, so an expert can only ever see the case that link is for.
+- **Clients** access the portal via a passwordless link delivered through GHL (a separate,
+  scoped filter chain). They see their own case or cases — the draft, the checklist, their own
+  uploads — and can approve or request revisions.
+- **Experts** access their assignments through a scoped portal link the Case Manager sends
+  (the same chain, the other audience), download the letter, and upload it back signed.
+- **A portal credential names a PARTY, and that was decided on 2026-09-04** (`D1` in
+  `34-portal-frontend-wiring.md`, built in `35-party-scoped-portal-access.md`). A `CLIENT` row
+  names a `ghl_contact_id`; an `EXPERT` row names an `expert_id`; `case_id` is nullable, because a
+  **case-scoped link stays legal** for the thing it is better at — one case, forwarded once,
+  revocable on its own. A party token lives **7 days** against the case token's 30, being the
+  wider credential.
+  *Superseded: "one token, one case" as the whole access model.* It could not answer "my cases",
+  which is what both delivered surfaces draw and what a client with two cases needs.
+  **There are still no accounts, and that is the half of D1 that was refused rather than deferred**
+  — no password store, no reset, no lockout, no session. Building them by drift reverses four
+  documents and needs a mail channel invariant 14 says does not exist.
+- **What the widening does not touch**: 256 bits from `SecureRandom`, returned once, stored only as
+  a SHA-256 hash, absolute expiry, one live token per scope, re-mint revokes the previous, and one
+  identical 401 for unknown / expired / revoked. An `EXPERT` token also names its expert (`V37`),
+  so a token that outlived a rematch admits nobody.
 - **The portal token model** (built in Unit 14, one table for both portals). A
   `portal_access` row names one case and one audience (`CLIENT` / `EXPERT`); the
   token is 256 bits from `SecureRandom`, returned **once** at mint time and stored
@@ -366,15 +429,21 @@ unconditional either way, so it widens a tier inside one brand and never across 
   after the first case closed opens a new one. Enforced by a **partial unique
   index** (`V15`), not by the lookup — a lookup followed by an insert is a
   check-then-act that two concurrent deliveries can both win.
-- **Handoff B — internal (trigger: client approves draft).** The case moves to
-  `EXPERT_SIGNING` and appears in the expert portal with draft + evidence + goal.
-  The expert **downloads the letter, signs it in their own tool, and uploads the
-  signed PDF back**, which streams it to `case/{caseId}/signed/` and moves the case to
-  the PM for final QC. There is no signature provider: provenance is a hash of what
-  was sent and what came back, an attestation captured at upload, and an audit row
-  with `actor_type = 'EXPERT'`. Exception paths: request-evidence
-  opens a client task; decline returns the case to `EXPERT_DECLINED_REMATCHING`
-  with the reason logged and the match engine proposing the next expert.
+- **Handoff B — internal (trigger: the CM sends the client-approved letter).** The case is in
+  `EXPERT_SIGNING` and appears in the expert portal with draft + evidence + goal (**built,
+  Unit 15**). The expert **downloads the letter, signs it in their own tool, and uploads the
+  signed PDF back**, which streams it to `{brandId}/case/{caseId}/signed/` and moves the case to
+  the PM for final QC. There is no signature provider: provenance is **the hash of what came
+  back**, an attestation captured at upload with the name it displayed, and an audit row with
+  `actor_type = 'EXPERT'`.
+  **The hash of what was *sent* is not recorded and cannot be** — the letter is `draft_link`, a
+  pasted link to a document EvalOS holds no bytes of, and the document store has no read
+  capability. Half the pair is missing until a draft is an object in S3; **PM final QC is
+  load-bearing** in the meantime, being the only check that the file is the right letter and is
+  actually signed. Exception paths: request-evidence raises `ON_HOLD_AWAITING_CLIENT` and opens a
+  **required checklist item** (never a second task entity), so the expert cannot sign until the
+  Coordinator resumes; decline returns the case to `EXPERT_DECLINED_REMATCHING` with the reason
+  logged and the match engine proposing the next expert.
 - **~~Handoff C — EvalOS → GHL~~ — REMOVED with Unit 18 (2026-09-02). There are two
   handoffs, not three.** EvalOS was to emit a signed outbound `case.delivered` webhook
   on delivery, starting GHL's review and referral track. That dispatcher was never
@@ -523,6 +592,29 @@ exist because every transition owes exactly one event. They live in
 
 ## Invariants
 
+> **Four of these are scheduled to change (decided 2026-09-10), and none has changed yet.**
+> The GHL operational programme (Units 36–41) makes EvalOS the interface Sales and Marketing work
+> in. **`context/specs/00b-ghl-operational-programme.md` §2 is the ledger** — it says which
+> invariant changes, into what, and in which unit. The summary:
+>
+> | Invariant | Fate | Unit |
+> |---|---|---|
+> | **1** brand isolation | **narrowed ✅ (Unit 36 built)** — the GHL-location exception is now "one brand named in `evalos.ghl.sales-brand`", enforced with a 400 | 36 |
+> | **2** EvalOS runs no sales/marketing/invoicing | **DEAD ✅ (Unit 37 built)** — rewritten below. *Invoicing stays GHL's* and *Handoff A stays the only door into custody* | 37 |
+> | **7** contact data never mutated | **first clause amended only** — the three-identifier rule survives verbatim and is load-bearing | 39 |
+> | **14** EvalOS sends no email | **ruled on, not reversed** — EvalOS instructs, GHL delivers | ruled in `00b`, no unit |
+>
+> **Until the named unit ships, the invariant below is live and enforced.** Do not pre-emptively
+> relax any of these because the programme is coming — **7 and 14 have not changed yet.**
+>
+> **Invariants 1 and 2 have now changed and their text below is rewritten, not annotated.**
+> `GhlHttp` writes as of Unit 37. What guards it instead: the verb list is closed, and every
+> caller of a write verb must reach `AuditService` — both build-failing tests in `GhlHttpTest`.
+>
+> **Invariants 5, 8, 13 and 15 are untouched by the programme** and the first three are load-bearing
+> inside it — especially **8**, which keeps a case born only of a won opportunity even though Sales
+> now marks the opportunity won from EvalOS.
+
 1. **Brand isolation.** Every scoped query filters by `brand_id`; no code path
    returns another brand's data. The GM is the only cross-brand role **reader of
    EvalOS rows**.
@@ -552,33 +644,63 @@ exist because every transition owes exactly one event. They live in
    Unit 25a then re-scopes all three screens together.
    **Read the invariant as: every query over EvalOS rows.** An unscoped query over
    EvalOS rows is still a defect, and this exception licenses nothing about them.
-2. A case is in exactly one system's custody at any moment. EvalOS runs no
-   marketing, nurture/cold email, ad attribution, invoicing **or sales** of its own.
+2. **A case is in exactly one system's custody at any moment.** That half stands and is the
+   part worth keeping. **The other half — "EvalOS runs no marketing, invoicing or sales of
+   its own" — died at Unit 37 (2026-09-10), deliberately and in writing.**
 
-   **This reverted, and the round trip is worth keeping.** Unit 29 amended it to allow
-   one narrow exception — a sales executive operating GHL's pipeline from an EvalOS
-   screen, as a client of GHL holding no state. The desk and the role were removed, and
-   with them the amendment: EvalOS reads GHL and writes nothing back to it.
+   **What EvalOS now does.** Sales and Marketing work their leads and opportunities from
+   EvalOS screens; `GhlHttp` has `post`, `put` and `delete`; and Unit 38 stores a cache of
+   GHL opportunities. GHL remains the CRM, the pipeline engine, the automation engine and
+   the invoice/QuickBooks integration underneath. The programme and its reasoning are in
+   `context/specs/00b-ghl-operational-programme.md`, which is amended before this is.
 
-   **What made the reversal cheap is the decision that was never amended.** There is no
-   `ghl_opportunity` table, no sales column on any EvalOS entity, no sales row in any
-   EvalOS table, and there never was — so removing the desk cost one migration and no
-   data reconciliation. **The day EvalOS *stores* a pipeline fact, two systems own it
-   and this invariant is gone**, whatever the direction of the traffic.
+   **What did not die, and must not be quietly taken with it:**
+   - **Invoicing is still GHL's, full stop.** EvalOS raises no invoice and touches no
+     accounting. Unit 41 *reads* invoices for the Client Portal; `Invoice sent` and `Refund`
+     remain stages it acts on neither, and a refund is a payment fact.
+   - **Handoff A is still the only door a case enters custody through.** `opportunity.won`
+     fires from GHL and creates the case (invariant 8, untouched). A salesperson marking an
+     opportunity won from EvalOS **waits for the webhook** — EvalOS never creates the case
+     itself, and `DomainInvariantsTest` refuses the shape.
+   - **EvalOS still sends nothing.** Invariant 14 holds: EvalOS instructs, GHL delivers.
 
-   Units 24, 26 and 27 remain pure reads of three GHL funnels. `Invoice sent` and
-   `Refund` are stages this system reads and acts on neither — invoicing is GHL's, full
-   stop, and a refund is a payment fact.
+   **The round trip, kept because it is the whole reason Unit 37 was its own unit.** Unit 29
+   amended this invariant for a sales desk in August 2026; the desk and the role were removed
+   days later and the amendment reverted with them. **What made that reversal cheap was a
+   decision that was never amended** — no `ghl_opportunity` table, no sales column on any
+   EvalOS entity, so undoing it cost one migration and no data reconciliation.
 
-   **The guarantee is code, not the credential.** `GhlHttp` exposes no `post`, `put` or
-   `delete` — the write capability is *absent from the codebase*, not merely unused.
-   The grant is still `opportunities.write` + `contacts.write`, both of which permit
-   writes and deletes, so this rests on code alone and is a build-failing test in
-   `GhlHttpTest` rather than a convention. If a later unit needs to write to GHL, it
-   adds the verb and answers for it here.
+   **That property is now being spent, knowingly.** Unit 38's cache is the first EvalOS row
+   holding a pipeline fact, so **this reversal is not reversible at the price the last one
+   was.** That, not the code, is the cost of the pivot. The old warning — *the day EvalOS
+   stores a pipeline fact, two systems own it* — was correct, and the answer is that the
+   cache holds **only fields GHL owns**, is **droppable without loss**, and is never the
+   answer to a write. If a column ever appears in it that GHL does not have, that decision is
+   void and gets re-argued here.
 
-   **And Handoff A is still the only door a case enters custody through**:
-   `opportunity.won` fires from GHL and creates the case, exactly as before.
+   **What replaced the old guarantee, because deleting a test is not a decision.**
+   `GhlHttpTest` used to assert that no write verb existed — the capability *absent from the
+   codebase*, not merely unused. That assertion is gone. Two took its place, in the same file:
+
+   - **The verb list is closed.** `GhlHttp` exposes exactly `get`, `post`, `put`, `delete`.
+     A fifth fails the build, so the next capability is also a decision. There is deliberately
+     no `patch`: GHL's API does not use it, and a verb no endpoint accepts is exactly the
+     present-and-unused capability this invariant used to be about.
+   - **Every caller of a write verb reaches `AuditService`.** A structural test over the
+     source. This is invariant 13 for writes that land in another system — **a mutation whose
+     only trace is in GHL is invisible to EvalOS forever**, which is the failure mode of
+     moving the desk over here. The caller audits, not `GhlHttp`: transport does not know what
+     a write *means* (invariant 12's reasoning), so any row it wrote would say nothing useful.
+
+   **The credential was never the guarantee and still is not.** The grant has always been
+   `opportunities.write` + `contacts.write` — it permitted writes throughout the period this
+   invariant forbade them. Code was the only thing holding that line, and code is the only
+   thing holding the new one.
+
+   **Writes do not retry.** Reads do not either, and GHL marks its write operations as
+   needing idempotency while EvalOS has no key scheme yet — so a blind retry is how one
+   opportunity becomes two, with nothing to reconcile them by. Asserted by counting requests
+   against a local server, not by reading configuration.
 3. Role, brand, and ownership are enforced before every mutation. Case Managers,
    clients, and experts never see data outside their assignment.
 4. The optional expert `payment_detail` is encrypted at rest and never appears in
@@ -595,10 +717,11 @@ exist because every transition owes exactly one event. They live in
    exposure), never as earned. A GM-approved refund reverses recognition and voids
    the pending payout.
 6. Controllers stay thin and never run long-lived work. SLA timers, reminders, the
-   day-3 escalation, the expert-sign **prompts** (they never reassign), and the
-   outbound outbox run in `job`. Retention/countdown is **not** on that list — GHL
-   owns it. Each sweep holds an advisory lock on its job type, and no sweep
-   transitions a case.
+   day-3 escalation and the expert-sign **prompts** (they never reassign) run in `job`.
+   Retention/countdown is **not** on that list — GHL owns it, and neither is an outbound
+   outbox, which left with Unit 18. Each sweep holds an advisory lock on its job type, and
+   **no sweep transitions a case** — there is no call site for `EXPERT_TIMED_OUT` in the
+   package, which is what makes that a structure rather than a promise.
 
    **One read-side exception, and it does not weaken the rule.**
    `MarketingPipelineService` totals a GHL window larger than ~1,000 opportunities on
@@ -611,21 +734,66 @@ exist because every transition owes exactly one event. They live in
    a ~13s floor under it — past the browser's 15s timeout. The controller still
    returns immediately; the cache is the handover. A `job` row for a read nobody has
    asked to be durable would be ceremony around a cache miss.
-7. EvalOS is the system of record for cases, experts, and payouts. Contact data
-   is a read-only, brand-tagged snapshot synced from GHL and is never mutated.
+7. EvalOS is the system of record for cases, experts, and payouts.
+
+   **Contact data is GHL's, and since Unit 39 (2026-09-11) EvalOS may ask GHL to change
+   it.** The old clause read *"a read-only, brand-tagged snapshot synced from GHL and
+   never mutated"*. Marketing now opens and edits leads from an EvalOS screen.
+
+   **What "may change it" does and does not license**, because this is the clause most
+   likely to be over-read:
+   - EvalOS **asks GHL** to create or update a contact, and **displays what GHL returns**.
+   - EvalOS still holds **no authoritative contact field of its own**. There is no
+     EvalOS-owned name, email or phone that a screen reads in preference to GHL's.
+   - The snapshot is still a snapshot. Writing through it does not make it a record.
+
+   **The rest of this invariant is unchanged and is load-bearing for the whole GHL
+   programme:**
+
    **`ghl_contact_id` is the canonical external client identity** — everywhere,
-   including any future connected app. EvalOS never mints one, never changes one
-   when a case is created, and never substitutes another identifier for it. Three
-   identifiers, never conflated: `ghl_contact_id` = the client;
+   including any future connected app. **EvalOS never mints one** — it asks GHL to
+   create a contact and GHL returns the id, which is exactly why the amendment above is
+   narrow: the write direction moved, the identity authority did not. EvalOS never
+   changes one when a case is created, and never substitutes another identifier for it.
+   Three identifiers, never conflated: `ghl_contact_id` = the client;
    `ghl_opportunity_id` = one purchase; `evalos_case.id` / `case_code` = one
    service engagement, **internal only**. One contact has many cases, so a case
    identifier is never a client identifier. Contact matching goes by
    `ghl_contact_id` first; `email` is a fallback only, used when no GHL id is
    given.
+
+   **Unit 42 amends the first clause a second time, for one entity (2026-09-11).**
+   `client_account` is an **EvalOS-owned record** whose `ghl_contact_id` is a nullable
+   *link*. GHL's contact id remains canonical **in GHL**; what changed is that a client's
+   ability to **sign in** no longer depends on GHL holding a row. A client whose GHL contact
+   is deleted — or whose whole sub-account was replaced, which is what happened to IE on
+   2026-09-11 — still signs in and still sees their cases and documents.
+
+   **This is the second of three edits, and the third is already scheduled.** `00c` Unit 44
+   rewrites this invariant **whole** rather than annotating it a fourth time. Three amendments
+   across three units is how an invariant dies without anyone deciding to kill it, and naming
+   the rewrite here is what stops that.
+
+   **Unit 39 leans on that three-identifier rule rather than merely respecting it.**
+   `opportunity_note` is keyed on `ghl_opportunity_id` and not on `ghl_contact_id`,
+   because a repeat client is one contact and two deals — keying on the contact would
+   merge two conversations with no way to separate them afterwards. GHL itself cannot
+   express this: its only note endpoints hang off the contact, which is why the note
+   stream is the one thing in this programme EvalOS owns outright.
 8. A case is only ever created through a per-brand GHL webhook endpoint, by a
    **won opportunity** — no other code path and no other event may create one. The
    case is created **paid**, from the opportunity's own amount; **no staff action
    sets `paid`**, and no unpaid case may pass `DOC_COLLECTION`.
+
+   **The first real pressure on this arrived with the portal frontend.** `client-expert/client/`
+   ships a seven-screen guided intake that mints its own reference and submits a
+   request — a case-shaped object created by a client, outside Handoff A. It is
+   mock-backed and reaches nothing, so nothing is breached today; `34-portal-frontend-wiring.md`
+   **D2 recommends cutting it** rather than finding it a backend. `DomainInvariantsTest`
+   is what would refuse it anyway (only `GhlOpportunityHandler` may depend on
+   `CaseIntakeService`, so a `POST /api/cases` breaks the build) — but a structural test
+   is the last line, not the argument. **Intake is front of house and front of house is
+   GHL's.**
 9. Schema changes ship as new Flyway migrations. An applied migration is never
    edited in place.
 10. Every inbound webhook is brand-resolved from its endpoint token (the brand
@@ -648,10 +816,30 @@ exist because every transition owes exactly one event. They live in
     surface — `recordEvent`, `recordSystemEvent`, `recordPortalEvent` — and each
     takes its brand from the most authoritative signal it has, never from a
     request body.
-14. EvalOS hosts no files and sends no email. Documents are **objects in the S3 document
-    store, referenced by key**; the expert's signed letter streams into
+14. EvalOS hosts no files, and **sends email for exactly one purpose: proving control of a
+    client's own address** (Unit 42, decided 2026-09-11). Documents are **objects in the S3
+    document store, referenced by key**; the expert's signed letter streams into
     `case/{caseId}/signed/` through their own portal upload, staff alerts are in-app,
     clients are reached through GHL, and experts through a scoped portal link.
+
+    **What the mail amendment licenses, and what it does not.** `ClientMailer` sends two
+    messages: *set your password* and *reset your password*. **Not licensed:** status mail,
+    marketing mail, notification mail, or any message a client did not initiate by trying to
+    sign in. Staff alerts remain in-app and clients are still reached through GHL for
+    everything that is not authentication.
+
+    **Why it was amended rather than worked around.** `34-portal-frontend-wiring.md` D1
+    refused client accounts precisely because *"reset requires a mail channel EvalOS does not
+    have"*, and required the reversal to be taken in writing rather than drifted into. It was
+    taken on 2026-09-11. An emailed OTP was considered and refused as no cheaper — it is the
+    same channel with more typing — and TOTP was refused as the wrong ask of a
+    credential-evaluation client.
+
+    **`00b` §2's ruling is now partly spent, deliberately.** It said *"what would break this is
+    EvalOS composing and dispatching a message itself"*. EvalOS now does, for authentication
+    only, and **the remaining line is drawn exactly there**. The first feature that wants "just
+    a quick status email from the portal" is a new decision and gets argued in its own unit —
+    it is not an extension of this one. See `42-client-accounts.md` §4.
 
     **"Hosts no files" means stores none, not accepts none, and the property is
     unchanged by Unit 30's move from Drive to S3.** An upload through EvalOS's portal
@@ -680,6 +868,12 @@ exist because every transition owes exactly one event. They live in
     with this backend. That is a product decision still to be taken; what is settled is
     that EvalOS does not send.
 
+    **The portal arrived on 2026-09-03 (`client-expert/`), which makes that decision takeable
+    and does not take it.** `34-portal-frontend-wiring.md` D4 recommends the in-portal
+    route for T1–T8 and states its limit plainly: **a client who never opens the portal
+    is never notified.** So this downgrades the email question from blocking to a reach
+    problem; it does not close it, and it must not be written up as if it had.
+
     The original note, kept because the reasoning still applies to any future proposal:
     every client- and expert-facing touchpoint is listed in
     `context/process-automation.md`. EvalOS sending mail itself would **reverse this
@@ -689,6 +883,10 @@ exist because every transition owes exactly one event. They live in
 
 15. **No AI makes a production decision, and there is no AI in the system at all.**
 
+    **And as of 2026-09-04 it is gone from the schedule too, not only from scope** — the build
+    plan's "request an Anthropic key" row and its "the anomaly half ships anyway" row are struck.
+    The anomaly figure was arithmetic and belongs to Unit 17 as a tile if the business wants it;
+    keeping a unit named for the model is how the model comes back wearing a helpful hat.
     Unit 20 (AI widgets — suggestion and anomaly detection) is **removed from scope**
     (2026-09-02). What was a deferred unit is now a property of the system: **document
     verification, expert selection, drafting, draft review, client approval, expert

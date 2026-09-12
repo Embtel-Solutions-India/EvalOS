@@ -94,6 +94,29 @@ public interface CaseRepository extends ScopedRepository<Case> {
 	 *         completed]}. An expert with no cases is absent, not zero — the caller
 	 *         supplies the zero.
 	 */
+	/**
+	 * Every case this contact has, newest first — the client party read (Unit 35, D1).
+	 *
+	 * <p><strong>Every case, including closed ones</strong>, which is why this is not one of the
+	 * stage-filtered finders: a delivered case is precisely the one a client comes back for, and a
+	 * list that hides it looks like lost work. {@code V38} adds the index this needs — V15's is
+	 * partial on open cases and cannot serve it.
+	 *
+	 * <p>Brand-scoped in the signature rather than through {@code findScoped}, for the same reason
+	 * {@code PortalAccessRepository} explains: a portal caller has no {@code TenantContext}. The
+	 * brand comes off the token, which is the credential itself, so this is scoped by the thing
+	 * that authenticated rather than by an ambient one.
+	 */
+	List<Case> findByBrandIdAndContactIdOrderByCreatedAtDesc(UUID brandId, UUID contactId);
+
+	/**
+	 * Every case this expert is on, newest first — the expert party read (Unit 35, D1).
+	 *
+	 * <p>Covered by {@code V5}'s {@code idx_case_brand_expert}. Same brand-off-the-token reasoning
+	 * as the client finder above.
+	 */
+	List<Case> findByBrandIdAndExpertIdOrderByCreatedAtDesc(UUID brandId, UUID expertId);
+
 	@Query(nativeQuery = true, value = """
 			SELECT expert_id,
 			       count(*) FILTER (WHERE current_stage <> 'CLOSED')                     AS active,
@@ -135,4 +158,31 @@ public interface CaseRepository extends ScopedRepository<Case> {
 		}
 		return findAll(spec);
 	}
+
+	/**
+	 * Every paid, active case at one stage — the finder the sweeps use (Unit 19).
+	 *
+	 * <p><strong>Brand-wide, and that is legitimate here rather than an oversight.</strong> A
+	 * sweep has no authenticated caller, so there is no {@code TenantContext} to scope against —
+	 * the same situation the inbound gateway is in. Saying so in the javadoc is the point: the
+	 * old "do not call this with ids from a request" convention was retired in 2026-08 after a
+	 * review observed that a comment is not a scope. What makes this safe is that a sweep has no
+	 * caller to widen it for, and everything it <em>raises</em> carries the case's own brand.
+	 *
+	 * <p><strong>The {@code paid} predicate is in the query, not assumed.</strong> Case Creation
+	 * v2.0 means every case is born paid, so it matches everything today and costs nothing —
+	 * which is exactly why it is written down rather than left resting on a fact about intake
+	 * that has already changed twice.
+	 */
+	@Query("select c from Case c where c.currentStage = :stage and c.paid = true")
+	List<Case> findAllAtStageForSweep(@Param("stage") Stage stage);
+
+	/**
+	 * Every paid case that is still running — for the SLA sweep, which is not stage-specific.
+	 *
+	 * <p>Delivered and closed cases are excluded: no clock runs against them, and refreshing
+	 * their {@code sla_status} would be rewriting history.
+	 */
+	@Query("select c from Case c where c.paid = true and c.currentStage not in :terminal")
+	List<Case> findActiveForSweep(@Param("terminal") Collection<Stage> terminal);
 }

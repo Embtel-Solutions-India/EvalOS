@@ -6,5 +6,7 @@ public enum ClientType {
 	ATTORNEY,
 	EMPLOYER,
 	INDIVIDUAL,
-	AGENT
+	AGENT,
+	/** A NACES member agency ordering an evaluation. Unit 33. */
+	NACES
 }

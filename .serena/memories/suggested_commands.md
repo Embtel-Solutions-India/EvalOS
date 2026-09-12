@@ -1,7 +1,7 @@
 # Suggested Commands
 
 Dev machine is **Windows / PowerShell**. There is no root-level runner: every command runs from
-inside `frontend/` or `backend/`.
+inside `backend/`, `frontend/` (staff) or `client-expert/` (both portal apps).
 
 PowerShell notes that bite here:
 - `&&` is unavailable in Windows PowerShell 5.1 — use `cd frontend; if ($?) { npm run build }`.
@@ -13,8 +13,30 @@ PowerShell notes that bite here:
   `localhost:8080`.
 - `npm run build` — `tsc -b && vite build`. Also the only typecheck entrypoint (no separate
   `typecheck` script); `tsc -b` uses project references so it checks app + node configs.
+  **Never reach for `npx tsc --noEmit`.** `tsconfig.json` is `files: []` plus references, so a bare
+  `--noEmit` checks **nothing**, prints nothing and exits 0 — it looks exactly like a pass. Cost a
+  real bug in Unit 33 (a form literal missing 22 required fields sailed through). `tsc -b` only.
 - `npm run lint` — oxlint. `npm run test` — vitest, one run (rules modules only). `npm run preview` —
   serve the build (no proxy; needs `VITE_API_BASE_URL`).
+
+## client-expert/ (npm) — the two portal apps
+
+**One `package.json` and one `node_modules` at this level; every command runs from here** and `cd`s
+into the app it builds. Split into two apps 2026-09-03 so each takes its own subdomain.
+
+- `npm run dev:client` — Vite on **5174**; `npm run dev:expert` — **5175**. Both ports are fixed in
+  each app's `vite.config.ts` and both are in `application-local.yml`'s allowed origins. **No `/api`
+  proxy**: calls go cross-origin, which is why `/api/portal/**` is the one chain with CORS.
+- `npm run build` — **both apps** (`build:client` then `build:expert`, each `tsc -b && vite build` in
+  its own folder, output in `client/dist` / `expert/dist`). They share `shared/src`, so build both
+  before calling a change done. `npm run lint` — oxlint over everything.
+- `npm run test` — vitest, one run over all three folders (added Unit 34a). `vitest.config.ts` lives
+  at this level and carries the `@shared` alias, because there is no single `vite.config.ts` any
+  more. Pure rules modules only.
+- `.env` from each app's own `.env.example`, **inside that app's folder** (Vite reads env from the
+  app it is serving): `VITE_API_URL` (empty falls back to a relative `/api`, which is wrong once it
+  is really wired — point it at the backend origin), `VITE_PORTAL_URL`, and the client's two
+  analytics ids, which stay blank pending Unit 34 D8.
 
 ## backend/ (Maven Wrapper)
 

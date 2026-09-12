@@ -17,10 +17,23 @@ import org.springframework.security.core.context.SecurityContextHolder;
  * Security at the end of each request, so this is read straight off it rather
  * than duplicated into a second request-scoped bean.
  */
-public record TenantContext(UUID memberId, Role role, UUID brandId, UUID teamId) {
+public record TenantContext(UUID memberId, Role role, UUID brandId, UUID teamId, String ghlPipelineId) {
+
+	/**
+	 * A caller who owns no GHL pipeline — every role but {@code SALES} and {@code MARKETING}.
+	 *
+	 * <p>Not a defaulting convenience: {@code null} is the <em>correct</em> value for a role
+	 * outside {@code Tier.PIPELINE}, and it is also the fail-closed one. A pipeline-scoped
+	 * caller built through here matches nothing rather than everything, which is asserted in
+	 * {@code ScopePredicateTest} rather than left to be discovered.
+	 */
+	public TenantContext(UUID memberId, Role role, UUID brandId, UUID teamId) {
+		this(memberId, role, brandId, teamId, null);
+	}
 
 	public static TenantContext of(StaffPrincipal principal) {
-		return new TenantContext(principal.memberId(), principal.role(), principal.brandId(), principal.teamId());
+		return new TenantContext(principal.memberId(), principal.role(), principal.brandId(),
+				principal.teamId(), principal.ghlPipelineId());
 	}
 
 	/** The caller for the current request, or empty when unauthenticated. */

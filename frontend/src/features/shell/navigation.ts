@@ -23,17 +23,35 @@ export type NavItem = {
    * so the order of {@link NAV_ITEMS} is the order on screen.
    */
   group: NavGroup
+  /**
+   * Whether this screen reads the one GHL sub-account named by `evalos.ghl.location-id`.
+   *
+   * **This exists so the scoping rule cannot be forgotten by omission.** That location is a
+   * global setting with no link to a brand (architecture.md invariant 1's one stated
+   * exception), so a screen over it is GM-only unless something else bounds the brand. The
+   * rule used to be enforced by a hardcoded list of three paths in `navigation.test.ts`, which
+   * is a guard that passes for any fourth screen somebody forgets to add to it — and the test's
+   * own comment named that as the way it would leak next. Marking the item instead means the
+   * test derives its own list.
+   *
+   * The one screen where the answer is legitimately *not* GM-only is the opportunity board:
+   * `evalos.ghl.sales-brand` names the brand that owns the location (Unit 36 §4a), so a
+   * brand-locked SALES or MARKETING member can be scoped to it. That is an exception the test
+   * states explicitly rather than one it fails to notice.
+   */
+  readsGhlLocation?: true
 }
 
 export type NavGroup = 'Overview' | 'Marketing' | 'Sales' | 'Pipeline' | 'Records' | 'Admin'
 
 /**
- * Every role that works EvalOS's own cases — which, with the sales desk removed, is every role.
+ * Every role that works EvalOS's own cases — which is **no longer every role**.
  *
- * **Kept as `PRODUCTION_ROLES` rather than renamed back to `ALL_ROLES`.** The two were the same
- * list before Unit 29 and are the same list again now, but the name that states the *reason* a
- * role is on it survives the next role that is not. A constant named "all" is the one that goes
- * quietly wrong when somebody adds a seventh role that reads no cases.
+ * **The name has just earned itself.** This was kept as `PRODUCTION_ROLES` rather than renamed
+ * back to `ALL_ROLES` on the argument that "a constant named *all* is the one that goes quietly
+ * wrong when somebody adds a role that reads no cases". Unit 36 added two: `SALES` and
+ * `MARKETING` act on GHL opportunities and are assigned no case, so they are absent here and
+ * every entry using this list correctly excludes them without anyone editing it.
  */
 const PRODUCTION_ROLES: readonly Role[] = [
   'GM',
@@ -66,6 +84,7 @@ export const NAV_ITEMS: readonly NavItem[] = [
   // consecutive runs and marketing is not production work.
   {
     path: '/marketing/google-ads',
+    readsGhlLocation: true,
     label: 'Google Ads pipeline',
     roles: ['GM'],
     becomes: 'GHL Google Ads funnel by stage',
@@ -80,6 +99,7 @@ export const NAV_ITEMS: readonly NavItem[] = [
   // by separate people, and a nav entry is what makes the second one findable.
   {
     path: '/marketing/email',
+    readsGhlLocation: true,
     label: 'Email marketing',
     roles: ['GM'],
     becomes: 'GHL email marketing funnel by stage',
@@ -107,9 +127,30 @@ export const NAV_ITEMS: readonly NavItem[] = [
   // for all three at once.
   {
     path: '/sales/pipeline',
+    readsGhlLocation: true,
     label: 'Sales pipeline',
     roles: ['GM'],
     becomes: 'GHL sales funnel by stage',
+    group: 'Sales',
+  },
+
+  // The operational board (Unit 38): the deals in the pipeline you own, as cards.
+  //
+  // **The first entry over the GHL location that is not GM-only**, and that is what Unit 36
+  // paid for. The rule above — "one global `location-id`, EvalOS cannot prove whose brand, so
+  // GM-only" — was never about seniority; it was about a location nobody could attribute.
+  // `evalos.ghl.sales-brand` now names the brand, and a SALES or MARKETING member is bound to
+  // that brand and to one pipeline within it. The exception narrowed rather than widened.
+  //
+  // **One entry for both roles.** A salesperson and a marketer ask the same question of the
+  // same data; the server picks the pipeline from their own token. There is no variant to
+  // choose and no parameter to pass.
+  {
+    path: '/opportunities/board',
+    readsGhlLocation: true,
+    label: 'My pipeline',
+    roles: ['SALES', 'MARKETING', 'GM'],
+    becomes: 'GHL opportunities as cards, by stage',
     group: 'Sales',
   },
 
@@ -293,6 +334,24 @@ export const NAV_ITEMS: readonly NavItem[] = [
   },
 
   { path: '/brands', label: 'Brands', roles: ['GM'], becomes: 'Brand administration', group: 'Admin' },
+
+  // Unit 19's sweeps: are they still running?
+  //
+  // **GM-only, and not for the reason the GHL screens are.** Those are gated because the
+  // location cannot be attributed to a brand. This one is gated because the run ledger is
+  // cross-brand by nature — one sweep pass covers every brand's cases — so there is no scoped
+  // view of it to hand a Brand Manager, and a partial one would misstate what ran.
+  //
+  // In Admin rather than Overview deliberately: nobody's day starts here. It is the screen you
+  // open when a chase did not happen, which is exactly the failure a background job produces
+  // — silence, with nothing on any dashboard to show for it.
+  {
+    path: '/admin/jobs',
+    label: 'Background jobs',
+    roles: ['GM'],
+    becomes: 'Sweep status and run ledger',
+    group: 'Admin',
+  },
 ]
 
 /**
@@ -374,7 +433,10 @@ export function navSectionsFor(role: Role): readonly { group: NavGroup; items: r
  * that answers 403.
  */
 export function boardPathFor(role: Role): { path: string; label: string } {
-  for (const path of ['/board', '/my-cases']) {
+  // `/opportunities/board` is last because it is the narrowest: only Sales and Marketing land
+  // there, and only because they reach neither case board nor a dashboard. A role that has a
+  // production board should still be sent to it.
+  for (const path of ['/board', '/my-cases', '/opportunities/board']) {
     const item = itemFor(path)
     if (item && mayReach(role, path)) return { path, label: `Go to ${item.label.toLowerCase()}` }
   }
@@ -384,10 +446,10 @@ export function boardPathFor(role: Role): { path: string; label: string } {
 /**
  * Where a role lands after signing in, and where `/` sends them.
  *
- * **Every role has a dashboard again**, now that the sales desk is gone, so this resolves to
- * `/dashboard` for all of them. Kept rather than inlined back into `App.tsx`: it was added because
- * a hardcoded landing path in two places was wrong the moment one role could not reach it, and
- * that is a property of hardcoding it, not of the role that exposed it.
+ * **Not every role has a dashboard**, and that is why this function exists rather than a
+ * hardcoded `/dashboard`. Unit 36's `SALES` and `MARKETING` are not in `PRODUCTION_ROLES`, so
+ * they fall through to {@link boardPathFor} and land on their opportunity board — the screen
+ * that is, for them, both board and dashboard.
  */
 export function homePathFor(role: Role): string {
   return mayReach(role, '/dashboard') ? '/dashboard' : boardPathFor(role).path

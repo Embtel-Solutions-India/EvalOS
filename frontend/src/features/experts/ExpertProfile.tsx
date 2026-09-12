@@ -6,6 +6,7 @@ import { formatMoney } from '../../lib/money'
 import { useFilters } from '../shell/filtersContext'
 import { createExpert, fetchExpert, putPaymentDetail, setAvailability, updateExpert } from './expertApi'
 import {
+  AFFILIATION_TYPES,
   AVAILABILITIES,
   AVAILABILITY_TOKEN,
   FIELD_TAGS,
@@ -13,11 +14,15 @@ import {
   TIERS,
   initials,
   label,
+  VISA_CATEGORIES,
+  type AffiliationType,
   type Availability,
+  type Dossier,
   type ExpertForm,
   type ExpertProfile as Profile,
   type FieldTag,
   type LetterType,
+  type VisaCategory,
 } from './expertRules'
 
 /**
@@ -180,6 +185,7 @@ export default function ExpertProfile({
   const editing = mode === 'edit' && mayWrite
   const brandMissing = creating && me.role === 'GM' && !activeBrandId
   const expert = profile?.expert
+  const dossier = profile?.dossier
 
   return (
     <SheetRoot
@@ -302,7 +308,50 @@ export default function ExpertProfile({
                 <Facts>
                   <Fact term="Email" value={expert.email ?? '—'} />
                   <Fact term="Phone" value={expert.phone ?? '—'} />
+                  {/* US-based is preferred for USCIS letters, so where they are is a fact the
+                      ENM reads, not a footnote. */}
+                  <Fact term="Location" value={place(dossier)} />
+                  <Fact term="Languages" value={dossier?.languages ?? '—'} />
+                  <Fact term="LinkedIn" value={dossier?.linkedinUrl ?? '—'} />
                 </Facts>
+              </Section>
+
+              {/* Unit 33. Everything below is on the profile and on no list: the roster table
+                  stays a table, and this is what somebody opens an expert to read. */}
+              <Section title="Credentials">
+                <Facts>
+                  <Fact term="Expert ID" value={dossier?.expertCode ?? '—'} />
+                  <Fact term="Highest degree" value={dossier?.highestDegree ?? '—'} />
+                  <Fact term="Degree field" value={dossier?.degreeField ?? '—'} />
+                  {/* Not `institution` — that is where they work now. */}
+                  <Fact term="Degree from" value={dossier?.degreeInstitution ?? '—'} />
+                  <Fact term="Current position" value={dossier?.currentPosition ?? '—'} />
+                  <Fact term="Affiliation" value={label(dossier?.affiliationType ?? null)} />
+                  <Fact term="Experience" value={years(dossier?.yearsExperience ?? null)} numeric />
+                  <Fact term="Sub-specialisation" value={dossier?.subSpecialization ?? '—'} />
+                </Facts>
+              </Section>
+
+              <Section
+                title="Standing"
+                note="What an expert opinion letter rests on. Entered from the expert’s CV — EvalOS does not compute these."
+              >
+                <Facts>
+                  <Fact term="Publications" value={count(dossier?.publications ?? null)} numeric />
+                  <Fact term="Citations" value={count(dossier?.citations ?? null)} numeric />
+                  <Fact term="h-index" value={count(dossier?.hIndex ?? null)} numeric />
+                  <Fact term="Patents" value={count(dossier?.patents ?? null)} numeric />
+                </Facts>
+                <div className="mt-3 flex flex-col gap-2.5">
+                  {/* The petitions they will write for, which is not the same list as the
+                      letter types they will sign. */}
+                  <TagRow term="Visa categories" values={dossier?.visaCategories ?? []} />
+                </div>
+                <div className="mt-3 flex flex-col gap-2.5">
+                  <Prose term="Notable awards" value={dossier?.notableAwards ?? null} />
+                  <Prose term="Memberships" value={dossier?.professionalMemberships ?? null} />
+                  <Prose term="Editorial roles" value={dossier?.editorialRoles ?? null} />
+                </div>
               </Section>
 
               <Section title="Professional">
@@ -340,6 +389,12 @@ export default function ExpertProfile({
                     value={profile?.avgResponseHours == null ? '—' : `${profile.avgResponseHours} h`}
                     numeric
                   />
+                  {/* Not the same figure as avg response: one is how fast they answer an
+                      offer, the other how long the letter takes. */}
+                  <Fact term="Avg turnaround" value={days(dossier?.avgTurnaroundDays ?? null)} numeric />
+                  {/* Derived from the offer table, never stored. Null is "never approached",
+                      which is not a date and must not be drawn as one. */}
+                  <Fact term="Last approached" value={profile?.lastActiveAt?.slice(0, 10) ?? 'Never'} numeric />
                   <Fact term="Agreement" value={label(profile?.agreementStatus ?? null)} />
                   <Fact term="Payment status" value={label(profile?.paymentStatus ?? null)} />
                 </Facts>
@@ -349,6 +404,12 @@ export default function ExpertProfile({
                 title="Availability"
                 note="Only an available expert can be put on a case, so anything else takes them out of the assignment picker."
               >
+                <p className="mb-2.5 text-sm">
+                  <span className="text-[10px] font-medium tracking-[0.06em] text-(--text-muted) uppercase">
+                    Rush work
+                  </span>{' '}
+                  {dossier?.rushAvailable ? 'Takes 48-hour rush cases' : 'No rush work'}
+                </p>
                 {mayWrite ? (
                   <div className="flex flex-wrap gap-1.5">
                     {AVAILABILITIES.map((availability) => {
@@ -516,6 +577,150 @@ export default function ExpertProfile({
                 onChange={(v) => setForm((c) => ({ ...c, letterTypes: v as LetterType[] }))}
               />
 
+              {/* Unit 33. Behind a <details> rather than another twenty rows always open: the
+                  fifteen fields above are what an ENM edits weekly, and the CV is transcribed
+                  once. Native disclosure, no accordion component. */}
+              <details className="rounded-lg border border-(--border-default) px-3 py-2">
+                <summary className="cursor-pointer text-xs font-medium">Credentials and standing</summary>
+                <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                  <Text
+                    label="Expert ID"
+                    value={form.expertCode ?? ''}
+                    onChange={(v) => set(setForm, 'expertCode', v)}
+                  />
+                  <Text
+                    label="Sub-specialisation"
+                    value={form.subSpecialization ?? ''}
+                    onChange={(v) => set(setForm, 'subSpecialization', v)}
+                  />
+                  <Text
+                    label="Highest degree"
+                    value={form.highestDegree ?? ''}
+                    onChange={(v) => set(setForm, 'highestDegree', v)}
+                  />
+                  <Text
+                    label="Degree field"
+                    value={form.degreeField ?? ''}
+                    onChange={(v) => set(setForm, 'degreeField', v)}
+                  />
+                  <Text
+                    label="Degree institution"
+                    value={form.degreeInstitution ?? ''}
+                    onChange={(v) => set(setForm, 'degreeInstitution', v)}
+                  />
+                  <Text
+                    label="Current position"
+                    value={form.currentPosition ?? ''}
+                    onChange={(v) => set(setForm, 'currentPosition', v)}
+                  />
+                  <Choice
+                    label="Affiliation type"
+                    options={AFFILIATION_TYPES}
+                    value={form.affiliationType ?? ''}
+                    onChange={(v) =>
+                      setForm((c) => ({ ...c, affiliationType: v === '' ? null : (v as AffiliationType) }))
+                    }
+                  />
+                  <Text
+                    label="Years of experience"
+                    type="number"
+                    min="0"
+                    max="80"
+                    value={form.yearsExperience == null ? '' : String(form.yearsExperience)}
+                    onChange={(v) => setForm((c) => ({ ...c, yearsExperience: v === '' ? null : Number(v) }))}
+                  />
+                  <Text label="Country" value={form.country ?? ''} onChange={(v) => set(setForm, 'country', v)} />
+                  <Text
+                    label="State / region"
+                    value={form.stateRegion ?? ''}
+                    onChange={(v) => set(setForm, 'stateRegion', v)}
+                  />
+                  <Text
+                    label="LinkedIn"
+                    value={form.linkedinUrl ?? ''}
+                    onChange={(v) => set(setForm, 'linkedinUrl', v)}
+                  />
+                  <Text
+                    label="Languages"
+                    value={form.languages ?? ''}
+                    onChange={(v) => set(setForm, 'languages', v)}
+                  />
+                  <Text
+                    label="Publications"
+                    type="number"
+                    min="0"
+                    value={form.publications == null ? '' : String(form.publications)}
+                    onChange={(v) => setForm((c) => ({ ...c, publications: v === '' ? null : Number(v) }))}
+                  />
+                  <Text
+                    label="Citations"
+                    type="number"
+                    min="0"
+                    value={form.citations == null ? '' : String(form.citations)}
+                    onChange={(v) => setForm((c) => ({ ...c, citations: v === '' ? null : Number(v) }))}
+                  />
+                  <Text
+                    label="h-index"
+                    type="number"
+                    min="0"
+                    value={form.hIndex == null ? '' : String(form.hIndex)}
+                    onChange={(v) => setForm((c) => ({ ...c, hIndex: v === '' ? null : Number(v) }))}
+                  />
+                  <Text
+                    label="Patents"
+                    type="number"
+                    min="0"
+                    value={form.patents == null ? '' : String(form.patents)}
+                    onChange={(v) => setForm((c) => ({ ...c, patents: v === '' ? null : Number(v) }))}
+                  />
+                  <Text
+                    label="Avg turnaround (days)"
+                    type="number"
+                    min="0"
+                    max="365"
+                    value={form.avgTurnaroundDays == null ? '' : String(form.avgTurnaroundDays)}
+                    onChange={(v) => setForm((c) => ({ ...c, avgTurnaroundDays: v === '' ? null : Number(v) }))}
+                  />
+                  <label className="flex items-end gap-2 text-xs font-medium">
+                    <input
+                      type="checkbox"
+                      checked={form.rushAvailable}
+                      onChange={(event) => setForm((c) => ({ ...c, rushAvailable: event.target.checked }))}
+                    />
+                    Takes 48-hour rush cases
+                  </label>
+                </div>
+
+                {/* The petitions they will write for. A separate list from letter types on
+                    purpose — one is the deliverable, the other what it supports. */}
+                <div className="mt-3">
+                  <Tags
+                    label="Visa categories supported"
+                    options={VISA_CATEGORIES}
+                    value={form.visaCategories}
+                    onChange={(v) => setForm((c) => ({ ...c, visaCategories: v as VisaCategory[] }))}
+                  />
+                </div>
+
+                <div className="mt-3 grid gap-3">
+                  <Text
+                    label="Notable awards"
+                    value={form.notableAwards ?? ''}
+                    onChange={(v) => set(setForm, 'notableAwards', v)}
+                  />
+                  <Text
+                    label="Professional memberships"
+                    value={form.professionalMemberships ?? ''}
+                    onChange={(v) => set(setForm, 'professionalMemberships', v)}
+                  />
+                  <Text
+                    label="Editorial roles"
+                    value={form.editorialRoles ?? ''}
+                    onChange={(v) => set(setForm, 'editorialRoles', v)}
+                  />
+                </div>
+              </details>
+
               <div>
                 <label className="block text-xs font-medium" htmlFor="expert-notes">
                   Notes
@@ -547,6 +752,38 @@ const FORM_ID = 'expert-profile-form'
 
 const INPUT_STYLE = { background: 'var(--bg-base)', borderColor: 'var(--border-default)' }
 
+/**
+ * Unit 33's fields, blank.
+ *
+ * <p>Shared between the new-expert form and {@link formOf} so the two cannot drift: the form
+ * is sent whole and the server applies every field, so a dossier field missing from either
+ * literal would not be "left alone" — it would arrive as undefined and blank the column.
+ */
+const EMPTY_DOSSIER = {
+  expertCode: null,
+  subSpecialization: null,
+  highestDegree: null,
+  degreeField: null,
+  degreeInstitution: null,
+  currentPosition: null,
+  affiliationType: null,
+  country: null,
+  stateRegion: null,
+  yearsExperience: null,
+  linkedinUrl: null,
+  visaCategories: [],
+  publications: null,
+  citations: null,
+  hIndex: null,
+  patents: null,
+  notableAwards: null,
+  professionalMemberships: null,
+  editorialRoles: null,
+  languages: null,
+  rushAvailable: false,
+  avgTurnaroundDays: null,
+} satisfies Partial<ExpertForm>
+
 const EMPTY_FORM: ExpertForm = {
   fullName: '',
   email: null,
@@ -565,7 +802,9 @@ const EMPTY_FORM: ExpertForm = {
   recruitmentSource: null,
   dateOnboarded: null,
   notes: null,
+  ...EMPTY_DOSSIER,
 }
+
 
 function formOf(profile: Profile): ExpertForm {
   return {
@@ -584,13 +823,39 @@ function formOf(profile: Profile): ExpertForm {
     recruitmentSource: profile.recruitmentSource,
     dateOnboarded: profile.dateOnboarded,
     notes: profile.notes,
+    // Spread whole: an edit sends the form as it stands, so a dossier field the form did not
+    // carry back would be saved as null and quietly erase a transcribed CV.
+    ...profile.dossier,
   }
 }
 
 /** Blank means "nothing on file", which the server stores as null rather than an empty string. */
 function set(
   setForm: React.Dispatch<React.SetStateAction<ExpertForm>>,
-  field: 'fullName' | 'email' | 'phone' | 'title' | 'institution' | 'recruitmentSource' | 'dateOnboarded' | 'notes',
+  field:
+    | 'fullName'
+    | 'email'
+    | 'phone'
+    | 'title'
+    | 'institution'
+    | 'recruitmentSource'
+    | 'dateOnboarded'
+    | 'notes'
+    // Unit 33's free-text dossier fields. The numbers and the two closed vocabularies are set
+    // directly instead, because "" -> null is not the right coercion for either.
+    | 'expertCode'
+    | 'subSpecialization'
+    | 'highestDegree'
+    | 'degreeField'
+    | 'degreeInstitution'
+    | 'currentPosition'
+    | 'country'
+    | 'stateRegion'
+    | 'linkedinUrl'
+    | 'notableAwards'
+    | 'professionalMemberships'
+    | 'editorialRoles'
+    | 'languages',
   value: string,
 ) {
   setForm((current) => ({ ...current, [field]: field === 'fullName' ? value : value || null }))
@@ -669,6 +934,33 @@ function Section({ title, note, children }: { title: string; note?: string; chil
     </section>
   )
 }
+
+/**
+ * A dossier value that is a sentence rather than a term: awards, memberships, editorial
+ * roles. Full width and wrapping, because truncating "IEEE Fellow (2019)" to fit a
+ * two-column grid loses the year that makes it evidence.
+ */
+function Prose({ term, value }: { term: string; value: string | null }) {
+  return (
+    <div>
+      <p className="text-[10px] font-medium tracking-[0.06em] text-(--text-muted) uppercase">{term}</p>
+      <p className={`text-sm ${value ? '' : 'text-(--text-muted)'}`}>{value ?? 'None recorded'}</p>
+    </div>
+  )
+}
+
+/** Country and state as one line, because either alone reads as half an address. */
+function place(dossier: Dossier | undefined): string {
+  if (!dossier) return '—'
+  const parts = [dossier.stateRegion, dossier.country].filter(Boolean)
+  return parts.length === 0 ? '—' : parts.join(', ')
+}
+
+// A missing count is not zero: nobody has transcribed the CV yet, and rendering 0 would be a
+// claim about the expert rather than about our record of them.
+const count = (value: number | null): string => (value == null ? '—' : String(value))
+const years = (value: number | null): string => (value == null ? '—' : `${value} yrs`)
+const days = (value: number | null): string => (value == null ? '—' : `${value} d`)
 
 function Facts({ children }: { children: React.ReactNode }) {
   return <dl className="grid grid-cols-2 gap-x-4 gap-y-3">{children}</dl>

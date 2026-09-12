@@ -4,6 +4,18 @@ spring:
     url: ${DB_URL:jdbc:postgresql://localhost:5432/evalos}
     username: ${DB_USER:postgres}
     password: ${DB_PASSWORD:1234}
+  mail:
+    host: ${MAIL_HOST:}
+    port: ${MAIL_PORT:587}
+    username: ${MAIL_USERNAME:}
+    password: ${MAIL_PASSWORD:}
+    properties:
+      mail.smtp.auth: true
+      mail.smtp.starttls.enable: true
+      # Bounded, for the reason application.yml states at length.
+      mail.smtp.connectiontimeout: 5000
+      mail.smtp.timeout: 5000
+      mail.smtp.writetimeout: 5000
   jpa:
     show-sql: true
   flyway:
@@ -39,9 +51,18 @@ evalos:
     # base64('local-dev-field-key-not-for-prod'). Throwaway: rows encrypted with
     # it are local rows, and a real key never appears in this file.
     field-key: ${EVALOS_FIELD_KEY:bG9jYWwtZGV2LWZpZWxkLWtleS1ub3QtZm9yLXByb2Q=}
+  mail:
+    from: ${EVALOS_MAIL_FROM:}
   portal:
-    # The portal dev server. Vite's default; change it if yours differs.
-    allowed-origins: ${EVALOS_PORTAL_ORIGINS:http://localhost:5174}
+    # The two portal dev servers: client on 5174, expert on 5175. They are separate
+    # apps under client-expert/ so they can be deployed to separate subdomains, and a
+    # missing origin here fails at the preflight looking exactly like a bad token.
+    allowed-origins: ${EVALOS_PORTAL_ORIGINS:http://localhost:5174,http://localhost:5175}
+    # CHANGED from base (empty there): the seeded IE brand id, for the same reason
+    # `ghl.location-id` below carries one — it is not a credential, and it is the value
+    # correct for whoever runs this repo.
+    client-brand: ${EVALOS_PORTAL_CLIENT_BRAND:11111111-1111-1111-1111-111111111111}
+    credential-ttl: ${EVALOS_PORTAL_SIGNIN_LINK_TTL:30m}
   s3:
     # Blank on a laptop, deliberately. The whole app boots with no AWS access and every non-document
     # route works; only the document routes answer 502, naming both variables. Set them to exercise
@@ -91,8 +112,21 @@ evalos:
     location-id: ${GHL_LOCATION_ID:kBumF0uUOmMBB5bneYjx}
     ads-pipeline-name: ${GHL_ADS_PIPELINE_NAME:Google ADS Pipeline}
     email-pipeline-name: ${GHL_EMAIL_PIPELINE_NAME:Shivangi's Email Marketing}
+    # Unit 36's single-brand ceiling; the reasoning is in the base profile.
+    #
+    # **Defaulted to International Evaluations, which is the brand that owns `location-id` above.**
+    # Blank — what this line used to be — means no member of ANY brand may hold SALES or MARKETING,
+    # so the desks Units 36-41 built were unreachable on every laptop. Naming IE means only IE's
+    # members may, and `PipelineAssignmentService` answers 400 for anybody else; XpertsPortal gets a
+    # sales desk the day it gets its own GHL location, which is Unit 25.
+    #
+    # A brand id is not a credential — it is the seeded UUID present in every local database — so it
+    # carries a default here for the same reason `location-id` and the three pipeline names do.
+    # `db/seed-local/V908` seeds the five logins that depend on this being set.
+    sales-brand: ${GHL_SALES_BRAND_ID:11111111-1111-1111-1111-111111111111}
     # One space, not the two GHL actually stores — see the base profile. The client normalises it.
     sales-pipeline-name: ${GHL_SALES_PIPELINE_NAME:Aditya's pipeline}
+    board-cache-ttl: ${GHL_BOARD_CACHE_TTL:2m}
     timeout: ${GHL_TIMEOUT:10s}
     # CHANGED from base (PT5M). That cache is a rate limiter, and a laptop is not what it
     # protects GHL from — one developer refreshing one screen is nothing next to a room of open

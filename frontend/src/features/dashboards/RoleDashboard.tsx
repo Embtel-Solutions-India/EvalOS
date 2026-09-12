@@ -4,6 +4,7 @@ import type { Role } from '../../lib/session'
 import CaseManagerDashboard from './CaseManagerDashboard'
 import CoordinatorDashboard from './CoordinatorDashboard'
 import ExpertNetworkDashboard from './ExpertNetworkDashboard'
+import OpportunityBoardPage from '../opportunities/OpportunityBoardPage'
 import PmDashboard from './PmDashboard'
 import RevenueDashboard from './RevenueDashboard'
 
@@ -28,6 +29,19 @@ const DASHBOARDS: Record<Role, ReactNode> = {
   PROJECT_COORDINATOR: <CoordinatorDashboard />,
   CASE_MANAGER: <CaseManagerDashboard />,
   EXPERT_NETWORK_MANAGER: <ExpertNetworkDashboard />,
+  // **Their board is their dashboard, and that is a decision rather than a gap.** Every other
+  // role lands on a summary of work that lives in EvalOS. Sales and Marketing have no EvalOS
+  // work — the opportunity is GHL's until it is won — so a tile page would be a summary of one
+  // screen, sitting in front of that screen. They land on the thing itself, via
+  // `homePathFor` → `boardPathFor` → `/opportunities/board`.
+  //
+  // These two entries are therefore not the route they arrive by: `/dashboard` is gated to
+  // `PRODUCTION_ROLES` and they are not in it. They are here because the map is exhaustive by
+  // design — `Record<Role, …>` is what made the compiler list every place Unit 38 had to
+  // touch — and because the honest answer to "what would they see" is their board, not a
+  // crash. If `/dashboard` is ever opened to them, this is already right.
+  SALES: <OpportunityBoardPage />,
+  MARKETING: <OpportunityBoardPage />,
 }
 
 export default function RoleDashboard() {

@@ -20,6 +20,8 @@ import com.ie.evalos.service.CaseDetailService;
 import com.ie.evalos.service.CaseLifecycleService;
 import com.ie.evalos.service.PortalAccessService;
 import com.ie.evalos.service.PortalCaseService;
+import com.ie.evalos.service.PortalInvoiceService;
+import com.ie.evalos.service.PortalMeetingService;
 import com.ie.evalos.service.RefundService;
 
 import org.junit.jupiter.api.Test;
@@ -77,6 +79,21 @@ class ClientPortalTest {
 	@MockitoBean
 	PortalCaseService portal;
 
+	// Unit 41 gave ClientPortalController an invoice route and the 2026-09-11 follow-on gave it a
+	// meetings route, so this slice needs both collaborators. Mocked rather than imported:
+	// nothing here exercises either — that is ClientPortalInvoiceTest's and
+	// ClientPortalMeetingTest's job — and importing the real services would drag GhlHttp and a
+	// GHL credential into a test about the two chains refusing each other's tokens.
+	//
+	// **This is the sixth time a @WebMvcTest slice has broken on a new constructor argument**,
+	// and only a full `verify` ever catches it. If you are adding a collaborator to a portal
+	// controller, grep for its name in src/test before running anything narrower.
+	@MockitoBean
+	PortalInvoiceService portalInvoices;
+
+	@MockitoBean
+	PortalMeetingService portalMeetings;
+
 	@MockitoBean
 	CaseLifecycleService lifecycle;
 
@@ -99,9 +116,9 @@ class ClientPortalTest {
 
 	private void givenTwoLiveLinks() {
 		given(portalAccess.resolve(IE_TOKEN)).willReturn(Optional.of(
-				new PortalPrincipal(UUID.randomUUID(), BRAND_IE, IE_CASE, PortalAudience.CLIENT)));
+				new PortalPrincipal(UUID.randomUUID(), BRAND_IE, IE_CASE, PortalAudience.CLIENT, null)));
 		given(portalAccess.resolve(XP_TOKEN)).willReturn(Optional.of(
-				new PortalPrincipal(UUID.randomUUID(), BRAND_XP, XP_CASE, PortalAudience.CLIENT)));
+				new PortalPrincipal(UUID.randomUUID(), BRAND_XP, XP_CASE, PortalAudience.CLIENT, null)));
 		given(portal.clientView(any())).willAnswer(call -> {
 			PortalPrincipal principal = call.getArgument(0);
 			return view(principal.caseId() == IE_CASE ? "IE-2026-0001" : "XP-2026-0002");
@@ -217,7 +234,7 @@ class ClientPortalTest {
 	@Test
 	void anExpertTokenIsRefusedOnAClientRoute() throws Exception {
 		given(portalAccess.resolve("expert-token")).willReturn(Optional.of(
-				new PortalPrincipal(UUID.randomUUID(), BRAND_IE, IE_CASE, PortalAudience.EXPERT)));
+				new PortalPrincipal(UUID.randomUUID(), BRAND_IE, IE_CASE, PortalAudience.EXPERT, UUID.randomUUID())));
 
 		mockMvc.perform(get("/api/portal/client/case").header(PortalTokenFilter.HEADER, "expert-token"))
 				.andExpect(status().isForbidden());
@@ -246,5 +263,49 @@ class ClientPortalTest {
 				.contentType(MediaType.APPLICATION_JSON)
 				.content("{\"notes\":\"   \"}"))
 				.andExpect(status().isBadRequest());
+	}
+
+	/**
+	 * <strong>The client's upload is sniffed too, as of Unit 35 (gap G14).</strong>
+	 *
+	 * <p>This endpoint shipped in Unit 30 recording the declared content type, with "a declared type
+	 * is recorded, not trusted" written down as an owed item — so a renamed executable reached S3
+	 * and then a Coordinator's screen. The check that Unit 15 gave the signed letter now guards both
+	 * surfaces from one place.
+	 */
+	@Test
+	void aRenamedExecutableIsNotADocument() throws Exception {
+		givenTwoLiveLinks();
+
+		mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+				.multipart("/api/portal/client/documents")
+				.file(new org.springframework.mock.web.MockMultipartFile("file", "transcript.pdf",
+						MediaType.APPLICATION_PDF_VALUE, new byte[] { 'M', 'Z', (byte) 0x90, 0, 3, 0, 0, 0 }))
+				.param("checklistItemId", UUID.randomUUID().toString())
+				.header(PortalTokenFilter.HEADER, IE_TOKEN))
+				.andExpect(status().isBadRequest());
+
+		// Refused at the edge: nothing was streamed, so no object and no row.
+		verifyNoInteractions(portal);
+	}
+
+	/** And a real document still goes through, so the guard is a filter and not a wall. */
+	@Test
+	void aRealPdfIsStillAccepted() throws Exception {
+		givenTwoLiveLinks();
+		UUID itemId = UUID.randomUUID();
+		com.ie.evalos.domain.CaseDocument saved = new com.ie.evalos.domain.CaseDocument(BRAND_IE, IE_CASE,
+				com.ie.evalos.domain.DocumentKind.CLIENT_UPLOAD, 1, null,
+				com.ie.evalos.domain.ActorType.CLIENT, "Passport");
+		given(portal.upload(any(), any(), any(), any(), org.mockito.ArgumentMatchers.anyLong(), any()))
+				.willReturn(saved);
+
+		mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+				.multipart("/api/portal/client/documents")
+				.file(new org.springframework.mock.web.MockMultipartFile("file", "transcript.pdf",
+						MediaType.APPLICATION_PDF_VALUE, "%PDF-1.7 real".getBytes(java.nio.charset.StandardCharsets.UTF_8)))
+				.param("checklistItemId", itemId.toString())
+				.header(PortalTokenFilter.HEADER, IE_TOKEN))
+				.andExpect(status().isOk());
 	}
 }

@@ -7,6 +7,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.annotation.Order;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
@@ -93,7 +94,22 @@ public class PortalSecurityConfig {
 				// header the browser does not attach on its own.
 				.csrf(csrf -> csrf.disable())
 				.sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-				.authorizeHttpRequests(auth -> auth.anyRequest().authenticated())
+				.authorizeHttpRequests(auth -> auth
+						// **The only unauthenticated routes on this chain (Unit 42).** They are
+						// how a client obtains the token every other route requires, so they
+						// cannot themselves require one. Still behind the per-IP limiter below,
+						// which is what throttles password guessing and the enumeration
+						// `identify` deliberately allows.
+						//
+						// **Named one by one, and by method, rather than `/auth/**`.** A wildcard
+						// here means the next route anyone adds under that prefix is open the
+						// moment it is written, silently — this list makes it arrive as a 401 in
+						// that route's own test instead, which is a question rather than a hole.
+						// POST-only for the same reason: none of the four reads.
+						.requestMatchers(HttpMethod.POST, "/api/portal/auth/identify",
+								"/api/portal/auth/sign-in", "/api/portal/auth/forgot-password",
+								"/api/portal/auth/set-password").permitAll()
+						.anyRequest().authenticated())
 				.exceptionHandling(handling -> handling
 						.authenticationEntryPoint((request, response, ex) -> apiErrors.write(
 								response, HttpStatus.UNAUTHORIZED, "PORTAL_LINK_INVALID",

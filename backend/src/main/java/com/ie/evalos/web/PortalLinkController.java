@@ -12,10 +12,17 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * The staff side of the client portal link: mint one, and see whether one is live.
+ * The staff side of a portal link: mint one, and see whether one is live.
+ *
+ * <p><strong>Two audiences, one route (Unit 15).</strong> {@code ?audience=EXPERT} mints the
+ * expert's link instead of the client's — the same act, the same gate, the same one-live-token
+ * index (V23), and the same "the token exists exactly once, in the response" rule. A second
+ * controller for the expert would have been the same forty lines with one enum constant changed,
+ * and two places for the mint to drift apart.
  *
  * <p>On the <strong>normal</strong> chain, unlike {@code ClientPortalController} — minting is a
  * staff act, gated by role here and by the scoped case load in the service. Everyone who works a
@@ -69,16 +76,32 @@ public class PortalLinkController {
 	 */
 	@GetMapping
 	@PreAuthorize(MAY_MINT)
-	public ApiResponse<LinkStatusView> status(@PathVariable UUID id) {
-		PortalAccessService.LinkStatus status = links.status(id, PortalAudience.CLIENT);
+	public ApiResponse<LinkStatusView> status(@PathVariable UUID id,
+			@RequestParam(defaultValue = "CLIENT") PortalAudience audience) {
+		PortalAccessService.LinkStatus status = links.status(id, audience);
 		return ApiResponse.ok(new LinkStatusView(status.live(), status.expiresAt(), status.lastSeenAt()));
 	}
 
-	/** Mints, or re-mints — which revokes the previous link immediately. Audited. */
+	/**
+	 * Mints, or re-mints — which revokes the previous link immediately. Audited.
+	 *
+	 * <p>For {@code EXPERT} this is now the <strong>only</strong> way the expert is reached, so it
+	 * is the main path rather than a fallback: there is no signature provider sending anything, and
+	 * EvalOS sends no mail (invariant 14). The Case Manager copies the link to the expert.
+	 *
+	 * <p><strong>{@code ?party=true} mints the wider credential (Unit 35, D1)</strong>: every case
+	 * that person has, rather than this one. It lives <strong>7 days</strong> against the case
+	 * link's 30, because it opens more. A flag on this route rather than a route of its own,
+	 * because the staff act is identical — you are on a case, you issue a link to the person it
+	 * names — and the party is derived from that case, never typed. The two shapes revoke
+	 * independently: minting a party link does not kill a case link already sent.
+	 */
 	@PostMapping
 	@PreAuthorize(MAY_MINT)
-	public ApiResponse<MintedLinkView> mint(@PathVariable UUID id) {
-		PortalAccessService.MintedLink minted = links.mint(id, PortalAudience.CLIENT);
+	public ApiResponse<MintedLinkView> mint(@PathVariable UUID id,
+			@RequestParam(defaultValue = "CLIENT") PortalAudience audience,
+			@RequestParam(defaultValue = "false") boolean party) {
+		PortalAccessService.MintedLink minted = party ? links.mintForParty(id, audience) : links.mint(id, audience);
 		return ApiResponse.ok(new MintedLinkView(minted.url(), minted.expiresAt()));
 	}
 }

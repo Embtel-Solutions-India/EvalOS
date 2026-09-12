@@ -74,6 +74,25 @@ public final class CaseEvents {
 		EXPERT_SIGNED("expert.signed"),
 		EXPERT_DECLINED("expert.declined"),
 		/**
+		 * The expert took the case (Unit 15). Published by the portal's accept action, which is
+		 * the first act in EvalOS an expert performs first-hand.
+		 *
+		 * <p>Distinct from {@link #EXPERT_SIGNED}, which is the same person finishing the job:
+		 * accepting is "I will sign this", signing is "here it is". A case can sit between the
+		 * two for most of a business day, and the Case Manager chasing needs to know which side
+		 * of the gap it is on.
+		 */
+		EXPERT_ACCEPTED("expert.accepted"),
+		/**
+		 * The expert will not sign until the client sends something more (Unit 15).
+		 *
+		 * <p>The case goes {@code ON_HOLD_AWAITING_CLIENT} and a <strong>required checklist
+		 * item</strong> carries what is missing — Unit 10's own vocabulary, not a second task
+		 * table. The event is what a Coordinator is alerted by, and what Unit 18 would turn into
+		 * a client message if a channel is ever agreed.
+		 */
+		EXPERT_EVIDENCE_REQUESTED("expert.evidence_requested"),
+		/**
 		 * The 24h sign budget ran out and a human said so (Unit 15).
 		 *
 		 * <p>Its own wire name rather than reusing {@code expert.declined}, because the two are

@@ -24,7 +24,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.BDDMockito.then;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 
 /**
  * {@code expert.availability} is nullable (V7) and the sheet import need not set it, so a real
@@ -101,6 +103,57 @@ class ExpertNetworkMetricsServiceTest {
 		// Unscored is unassessed, not low quality; undated is not onboarded this month.
 		assertThat(result.lowQuality()).isEmpty();
 		assertThat(result.onboarding().thisMonth()).isZero();
+	}
+
+	// --- G9: turnaround, derived from the offer ledger -------------------------
+
+	/**
+	 * The median, not the mean — and this case is why.
+	 *
+	 * <p>Four offers answered in 1, 2, 3 hours and one after a fortnight. The mean is about 70
+	 * hours, which describes nobody; the median is 3, which is what the room would recognise.
+	 * These samples are always few and always skewed that way.
+	 */
+	@Test
+	void turnaroundIsTheMedianSoOneSlowExpertDoesNotMoveIt() {
+		given(experts.findScoped(any())).willReturn(List.of(expert("Dr Ada", Availability.AVAILABLE)));
+		given(offers.resolvedTurnaroundSeconds(any(), anyCollection()))
+				.willReturn(List.of(3600.0, 7200.0, 10_800.0, 1_209_600.0));
+
+		ExpertNetworkMetricsService.Turnaround turnaround = metrics.forCaller().turnaround();
+
+		// Even-length list, so the middle pair averages: (2h + 3h) / 2 = 2.5h, reported as 3.
+		// The mean of the same four is about 70 hours, dragged there by the single fortnight —
+		// which is the whole reason this is a median.
+		assertThat(turnaround.medianHours()).isEqualTo(3L);
+		assertThat(turnaround.resolved()).isEqualTo(4);
+	}
+
+	/**
+	 * No resolved offers reads as null, never zero.
+	 *
+	 * <p>Zero would say "answered instantly", which is the opposite of "we do not know yet" —
+	 * and this is precisely the sort of figure somebody is asked to justify in a meeting.
+	 */
+	@Test
+	void noResolvedOffersIsNullRatherThanZero() {
+		given(experts.findScoped(any())).willReturn(List.of(expert("Dr Ada", Availability.AVAILABLE)));
+		given(offers.resolvedTurnaroundSeconds(any(), anyCollection())).willReturn(List.of());
+
+		ExpertNetworkMetricsService.Turnaround turnaround = metrics.forCaller().turnaround();
+
+		assertThat(turnaround.medianHours()).isNull();
+		assertThat(turnaround.resolved()).isZero();
+	}
+
+	/** An empty roster asks the ledger nothing — there are no expert ids to ask about. */
+	@Test
+	void anEmptyRosterDoesNotQueryTheLedger() {
+		given(experts.findScoped(any())).willReturn(List.of());
+
+		assertThat(metrics.forCaller().turnaround().medianHours()).isNull();
+
+		then(offers).should(never()).resolvedTurnaroundSeconds(any(), anyCollection());
 	}
 
 	private static Expert expert(String name, Availability availability) {

@@ -13,6 +13,7 @@ import com.ie.evalos.security.JwtService;
 import com.ie.evalos.security.SecurityConfig;
 import com.ie.evalos.security.StaffPrincipal;
 import com.ie.evalos.service.AuthService;
+import com.ie.evalos.service.PipelineAssignmentService;
 import com.ie.evalos.service.TeamMemberQueryService;
 
 import org.hamcrest.Matchers;
@@ -77,6 +78,13 @@ class SecurityFlowTest {
 
 	@MockitoBean
 	EvalOsUserDetailsService userDetailsService;
+
+	// TeamMemberController gained Unit 36's pipeline-assignment route, so this slice needs the
+	// collaborator behind it. Mocked rather than imported: nothing here exercises the assignment,
+	// and importing the real service would drag its repository and the audit trail into a test
+	// about authentication.
+	@MockitoBean
+	PipelineAssignmentService pipelineAssignment;
 
 	@MockitoBean
 	TeamMemberRepository teamMembers;

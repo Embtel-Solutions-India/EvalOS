@@ -1,5 +1,9 @@
 # Unit 19 — Background jobs consolidation
 
+> **Status: BUILT 2026-09-11.** Four sweeps, not five: `OutboxSender` is gone with Unit 18.
+> See §*What the build found* for every place the spec below was written against a system
+> that no longer exists.
+
 **Phase:** 3 — Close the loop
 **Depends on:** 05 (intake starts the doc clock), 10 (the reminder/escalation hooks
 and `docs.escalation.day3`), 15 (the sign-SLA logic and the reassign operation), 18
@@ -35,7 +39,9 @@ visible in a run log.
 - Doc-collection reminders (24h / 48h) and the day-3 escalation.
 - Stage-SLA escalation across every stage.
 - Expert sign 20h / 24h alerts and the reassignment prompt.
-- **Absorbing Unit 18's `WebhookSender`** into this package.
+- ~~**Absorbing Unit 18's `WebhookSender`** into this package.~~ **Struck.** Unit 18 was
+  removed from scope on 2026-09-02, so there is no sender to absorb and no
+  `webhook_delivery` table to drain.
 
 ## Out of scope
 
@@ -151,23 +157,15 @@ buys immunity to that, and to the day someone scales out without reading this fi
 ShedLock is the named alternative and is refused: another dependency and another
 table for what `pg_try_advisory_lock` already does.
 
-**Queue: the outbox that Unit 18 already specced. No broker.** `webhook_delivery`
-*is* the queue — rows written in the same transaction as the domain change (so a
-committed case change can never lose its outbound event), drained by `OutboxSender`
-claiming with `FOR UPDATE SKIP LOCKED`, retried on wall-clock backoff via
-`next_attempt_at`, dead-lettered after the attempt ceiling, every attempt logged.
-
-The reason that is sufficient, recorded so nobody proposes Kafka later: the only
-cross-process work EvalOS has is **"deliver one webhook to one subscriber, and keep
-trying"**. That is retry-with-backoff over a durable row. There is no fan-out, no
-ordering requirement across cases, no consumer group, and no second consumer. A
-broker would add an operational dependency that can be down while adding nothing
-the table does not already do — and it would move the outbox *out* of the
-transaction that guarantees it exists.
-
-**Client uploads do not go through any of this.** Unit 21 is synchronous on purpose:
-a human is waiting on the response and needs to know the file landed. The outbox is
-for machine-to-machine delivery, not for a request someone is watching.
+**Queue: ~~the outbox that Unit 18 already specced~~ — there is no queue.** This section
+described `webhook_delivery` as the durable queue, drained by `OutboxSender` with
+`FOR UPDATE SKIP LOCKED` and wall-clock backoff. **Unit 18 was removed from scope on
+2026-09-02**, taking the table, the sender and the only cross-process work EvalOS had. The
+conclusion it reached still holds and is worth keeping: a broker was refused because the only
+work was "deliver one webhook to one subscriber, and keep trying" — retry-with-backoff over a
+durable row, with no fan-out, no ordering across cases and no second consumer. That argument
+is now moot rather than wrong, and if outbound delivery ever returns it is the argument to
+re-read first.
 
 ## The calendar, and the one place it does not apply
 
@@ -214,9 +212,9 @@ could change again. It has already changed twice. See the closing note on paymen
 | `DocEscalationSweep` | 1 h | `DOC_COLLECTION`, incomplete once the stage's SLA budget is spent — **ask `SlaCalculator`, do not hardcode "3 business days"** | publishes `docs.escalation.day3` → in-app to the **PM + GM**, and flags the board | the Unit 06 notification rows |
 | `StageSlaSweep` | 30 min | any active case whose `SlaCalculator` status is `AT_RISK` or `OVERDUE` and whose stored `sla_status` is stale | refreshes `sla_status`, notifies the stage's owner on a transition into breach | the stored `sla_status` — it only notifies on a change |
 | `ExpertSignSweep` | 30 min | `EXPERT_SIGNING`, unsigned, ≥20h and ≥24h business | 20h warning to CM + PM; at 24h `expert.sign_overdue` + the reassignment prompt with Unit 12's shortlist. **The prompt asks a human to fire Unit 15's `EXPERT_TIMED_OUT`; this sweep never fires it** | notification rows per threshold |
-| `OutboxSender` | 1 min | `PENDING`/`FAILED` deliveries with `next_attempt_at <= now()` | signs and posts (Unit 18's logic, moved not rewritten) | the delivery row's `status`/`attempts`, claimed `FOR UPDATE SKIP LOCKED` |
 
-**Five sweeps, not six — `RetentionSweep` is deleted from this spec.** GHL owns the
+**Four sweeps, not five — `OutboxSender` went with Unit 18** (removed 2026-09-02), and not six
+— `RetentionSweep` was already deleted from this spec. GHL owns the
 post-delivery review request and the 30/90/180/365 sequence end to end, off the
 `case.delivered` webhook. The consequence for the schema: the four
 `retention_*_sent_at` columns are **permanently unwritten**, no longer "reserved for
@@ -291,7 +289,7 @@ having-not-run-yet, so after an outage somebody can catch up deliberately instea
 waiting for the next tick.
 
 Scheduling is `@Scheduled` with the intervals in `application.yml`, and
-**`evalos.jobs.enabled` defaults to false in the test profile** — a suite that
+**`evalos.jobs.enabled` is false in the integration suite** — a suite that
 starts sweeps races its own fixtures.
 
 ## Frontend deliverables
@@ -342,8 +340,6 @@ starts sweeps races its own fixtures.
       sweep from being processed, and the run is recorded `FAILED` with the error.
 - [ ] Every event and notification a sweep raises carries the **case's** brand, and a
       sweep spanning two brands never mixes them. Proved DB-gated in real SQL.
-- [ ] The outbox sender behaves exactly as Unit 18 specified after the move — its
-      tests move with it and still pass unchanged.
 - [ ] Jobs are **disabled in the test profile** and the suite does not depend on
       them being off by luck.
 - [ ] `npm run build` green; `./mvnw verify` green.
@@ -364,23 +360,25 @@ domain event for GHL, or a portal link an expert opens (14).
 
 ## Files touched
 
-**Created.** Backend: `job/DocChaseSweep.java`, `job/DocEscalationSweep.java`,
-`job/StageSlaSweep.java`, `job/ExpertSignSweep.java`, `job/JobRunLedger.java`,
-`job/JobScheduleConfig.java` (`@EnableScheduling` + the advisory-lock helper),
-`domain/ScheduledJob.java`, `domain/JobStatus.java`,
-`repository/ScheduledJobRepository.java`, `web/JobAdminController.java`. Migration
-`V<next>__scheduled_job.sql`. Frontend: `frontend/src/features/admin/JobRuns.tsx` +
-`jobApi`.
+**Created, as built.** Backend: `job/Sweep.java` (the interface the admin panel dispatches
+through), `job/DocChaseSweep.java`, `job/DocEscalationSweep.java`, `job/StageSlaSweep.java`,
+`job/ExpertSignSweep.java`, `job/SweepRunner.java`, `job/JobLock.java`, `job/JobLedger.java`,
+`job/JobSchedule.java` (`@EnableScheduling`, conditional), `job/JobProperties.java`,
+`job/JobAdminService.java`, `domain/ScheduledJob.java` (with `Status` nested, not a separate
+`JobStatus`), `repository/ScheduledJobRepository.java`, `web/JobAdminController.java`.
+Migration `V42__scheduled_job.sql`. Frontend: `frontend/src/features/jobs/JobRunsPage.tsx` +
+`jobsApi.ts` — `features/jobs` rather than the specced `features/admin`, because Unit 18's
+delivery log that the "same Integrations area" argument rested on does not exist.
 
-No `RetentionSweep` — see the sweep table.
+No `RetentionSweep` and no `OutboxSender` — see the sweep table.
 
-**Moved.** `webhook/outbound/WebhookSender.java` → `job/OutboxSender.java`, with its
-tests. Moved, not rewritten — Unit 18's retry, backoff, dead-letter and
-`SKIP LOCKED` behaviour is already specified and tested, and re-deriving it here
-would be a second implementation of the same rules.
-
-**Modified.** `application.yml` + profiles (intervals, `evalos.jobs.enabled`).
-`frontend/src/features/shell/navigation.ts`.
+**Modified.** `application.yml` (`evalos.jobs.*`), `EvalOsApplication.java`
+(`@EnableConfigurationProperties`), `domain/NotificationType.java` (four values),
+`repository/DocumentChecklistItemRepository.java` (`isChecklistComplete`),
+`repository/CaseRepository.java` (two sweep finders),
+`notification/NotificationListeners.java` (a comment, no route),
+`frontend/src/features/shell/navigation.ts`, `frontend/src/App.tsx`,
+`LocalPostgresIntegrationTest` (`evalos.jobs.enabled=false`).
 
 **Deliberately not modified.** `domain/Case.java`'s four `retention_*_sent_at`
 columns get **no accessors** — an earlier draft of this spec added them. Retention is
@@ -391,3 +389,75 @@ giving them accessors would advertise a capability EvalOS no longer has.
 `BusinessCalendar`, `ChecklistService`, `ExpertSignService`, `RefundService`. This
 unit calls them and changes none of them. `service/ScopePredicate.java`, the inbound
 gateway, every applied migration.
+
+## What the build found
+
+**Four notification types were added, and three of them are collision fixes rather than
+labels.** `DocEscalationSweep` and `StageSlaSweep` ask `SlaCalculator` the *same question* about
+the same `DOC_COLLECTION` case at the same moment, and both were specced to raise
+`SLA_OVERDUE`. Since each guards itself with `alreadyRaised(caseId, type)`, sharing the value
+meant whichever swept first silently suppressed the other — so **which message a PM received
+depended on scheduler order**. `ExpertSignSweep` had the same defect against a wider set:
+`EXCEPTION_RAISED` is raised on a case by four other paths (a refund request, a CM's flag, an
+expert declining, an evidence request), any one of which would have silenced the signing prompt
+for the life of the case. `DOCS_ESCALATED`, `EXPERT_SIGN_AT_RISK` and `EXPERT_SIGN_OVERDUE`
+give each sweep its own idempotency key. `DOC_CHASE_DUE` is the fourth and is different — see
+the next paragraph.
+
+**The doc chase reaches nobody, so the sweep now raises the prompt itself.** The spec has it
+publishing `checklist.reminder` "→ GHL chases the client". With Unit 18 gone there is no
+subscriber at all, so the chase was a no-op that looked like a feature. It is now **a
+notification to the Coordinator naming which of the two chases is due**, and it deliberately
+carries *no* `alreadyRaised` guard: both chases must be seen, and the `CHASED` audit rows
+already cap it at two. The event is still published, unchanged, so a future channel needs no
+edit here.
+
+**Neither of Unit 19's two events is routed in `NotificationListeners`, and that is a
+decision.** A route there would fire on the Coordinator's *manual* reminder too — telling them
+what they just did — and could not name the chase number, which is the only useful thing the
+message says.
+
+**`isChecklistComplete` moved onto `DocumentChecklistItemRepository`.** Two sweeps asked the
+same question and had the same nine lines; a second copy is a second answer waiting to drift.
+The rule that matters travelled with it: **an empty checklist is not a complete one** — nothing
+has been asked for, so there is nothing the client is late with.
+
+**The advisory lock had to be session-scoped, and the reason is structural rather than
+stylistic.** `pg_try_advisory_xact_lock` releases on commit, and these sweeps run **one
+transaction per item** so a single bad case cannot abort the pass — so an xact lock would be
+dropped after the *first* item and leave the whole remainder unprotected. That is exactly the
+rolling-deploy double-chase it exists to prevent.
+
+**`JobLedger` is a separate bean from `SweepRunner`, and must stay one.** Spring's
+`@Transactional` is proxy-based: a runner calling its own annotated methods through `this`
+bypasses the proxy, so the annotations would sit there looking correct and open no transaction.
+Same trap as Unit 38's `OpportunityCache`, third time in this programme.
+
+**The stale-job warning is computed server-side, from the interval the scheduler actually
+uses.** `evalos.jobs.intervals` is keyed **by `JOB_TYPE`** so `@Scheduled` and the staleness
+check read one number; a separate list for the check would drift, and the drift is invisible —
+the panel would simply stop warning, which is the precise failure the panel exists to catch.
+`SweepRegistrationTest` pins the key to the job type. Staleness is suppressed when
+`evalos.jobs.enabled` is false, because an alarm that is right every time it fires in a
+configuration somebody chose is an alarm people learn to close.
+
+**`SweepRegistrationTest` is load-bearing, not decorative.** An unresolvable
+`${evalos.jobs.…}` placeholder normally fails the boot — but only when `@EnableScheduling` is
+active, and the one test that starts a full context sets `evalos.jobs.enabled=false`. So a
+fifth sweep whose interval nobody added would pass the entire build and fail in production.
+The test scans the source for the three omissions that produce a silently dead sweep: no
+`implements Sweep`, no `@Scheduled` tick, no matching property.
+
+**`ExpertSignSweep` was written against two methods that do not exist** — `BusinessCalendar`
+exposes `elapsedBusinessTime`, not `businessDurationBetween`, and `RecipientResolver` has
+`assignedCm` and `assignedPm` but no `assignedCmAndPm`. The CM+PM list is composed at the call
+site rather than by adding a third resolver whose only caller would be here.
+
+**Acceptance criteria not met, and why.** The holiday-ordering criterion (chase, chase,
+escalate across a Monday holiday) is asserted as *thresholds* in `DocChaseSweepTest` and
+`DocEscalationSweepTest`'s calendar dependency rather than as one end-to-end scenario over a
+real holiday calendar; the wall-clock/business-hours asymmetry that produces the ordering is
+pinned, the calendar walk is not. The DB-gated **cross-brand isolation** test for the sweep
+finders is also not written: both finders are brand-wide by design and every side effect takes
+the brand off the case row, which the unit tests pin, but there is no SQL-level proof that two
+brands' cases cannot mix in one pass.

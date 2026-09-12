@@ -9,6 +9,8 @@ import com.ie.evalos.domain.TeamMember;
 
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 /**
  * Reads go through {@link JpaSpecificationExecutor} with a scope Specification —
@@ -27,6 +29,39 @@ public interface TeamMemberRepository extends JpaRepository<TeamMember, UUID>, J
 	 * exist, and that difference is only invisible if the row never comes back.
 	 */
 	Optional<TeamMember> findByIdAndBrandIdAndRoleAndActiveTrue(UUID id, UUID brandId, Role role);
+
+	/**
+	 * Whoever currently holds this GHL pipeline, if anyone.
+	 *
+	 * <p><strong>Deliberately not brand-filtered, and this is the one query here that should
+	 * not be.</strong> {@code uq_team_member_pipeline} is globally unique because a GHL pipeline
+	 * belongs to the single configured location rather than to a brand — so the uniqueness check
+	 * in front of it has to look across every brand or it would let one brand's assignment
+	 * silently collide with another's and answer 500 from the index.
+	 *
+	 * <p>It leaks nothing: the caller is GM-only, and the only thing done with the result is to
+	 * refuse the assignment.
+	 */
+	Optional<TeamMember> findByGhlPipelineIdAndActiveTrue(String ghlPipelineId);
+
+	/**
+	 * Every pipeline owned by an active member of one brand — the GM's board union (Unit 38).
+	 *
+	 * <p><strong>Brand-scoped, and that is open question P1's answer.</strong> The GM is the one
+	 * cross-brand reader, so "every sales pipeline" could have meant every brand's. It means the
+	 * selected brand's, because every other screen in the app follows the brand switcher and a
+	 * board that silently spanned brands would be the one exception nobody was told about. Moot
+	 * while the single-brand ceiling holds; defined anyway, because a screen undefined for a
+	 * state the UI can reach is a bug waiting for the second selling brand.
+	 *
+	 * <p>Only {@code SALES} and {@code MARKETING} rows can have a pipeline at all — the
+	 * {@code team_member_pipeline_matches_role} CHECK guarantees it — so the {@code IS NOT NULL}
+	 * is the role filter, and adding an explicit role list here would be a second copy of the
+	 * constraint that could disagree with it.
+	 */
+	@Query("select m.ghlPipelineId from TeamMember m "
+			+ "where m.brandId = :brandId and m.active = true and m.ghlPipelineId is not null")
+	List<String> findPipelinesOfActiveMembers(@Param("brandId") UUID brandId);
 
 	/**
 	 * The GM pool. Deliberately not brand-filtered — the GM is the one brand-less

@@ -16,24 +16,42 @@
 > to `/api/portal/**`, with **`X-Portal-Token` in the allowed headers**; **never `*`**, because
 > the chain is credentialed. Filed in `context/specs/30-s3-document-store.md`, open question (h).
 
-> ## ⚠ PIVOT: Google Drive → S3 document store (Unit 30, SPECCED 2026-09-02, NOT BUILT)
+> ## Google Drive → S3 document store (Unit 30, BUILT)
 >
-> **Read `context/specs/30-s3-document-store.md` before touching any document path.**
-> Everything below about Drive still describes the **code as it stands today** — the client,
-> the config, the columns are all still there. It no longer describes the **decision**.
+> **The Drive prose further down this file is history, not the code.** It is left because it
+> records why the decision went the way it did; nothing it describes still exists. `pom.xml` has
+> no Google dependency, there is no `config/` package, and `V34__drop_drive_link.sql` dropped the
+> column. Spec: `context/specs/30-s3-document-store.md`.
 >
-> - Documents move to an **S3 bucket**. Google Drive leaves entirely: client, config,
->   service account, dependency, `drive_link` column.
+> - **`integration/DocumentStore` is the one door**, and it has exactly two capabilities: `put` an
+>   object and `presignedUrl` a read. **No delete, no list** — deliberately, so the store cannot be
+>   used as a mutable filesystem.
 > - **A separate Client Portal application writes client uploads**; EvalOS's credential is
 >   **read-only** on `client/{clientId}/`. EvalOS writes only under `case/{caseId}/`.
 > - `{clientId}` is **GHL's contact id** — one client across GHL, the Client Portal and
 >   EvalOS, no mapping table. **Email stays a fallback key (V27), never the identity.**
-> - Reads are **5-minute presigned URLs**, minted after the scope check, never stored.
-> - **Invariant 14 is amended and "No object storage" is deleted** from `architecture.md`.
-> - This **unblocks Units 13, 15 and 21**, which were all waiting on the Google service
->   account. Unit 21 is reshaped: the upload leaves EvalOS.
->
-> **Do not build new Drive work, and do not cite the Drive notes below as settled.**
+> - Reads are **5-minute presigned URLs** (`DocumentStore.READ_WINDOW`), minted after the scope
+>   check and **never stored** — a presigned URL in a column is a credential in a column. Every one
+>   is minted `Content-Disposition: attachment`, which closes the *path* rather than the file: an
+>   HTML or SVG that beat the sniffer has no browser origin to execute in.
+> - **Uploads are sniffed, not trusted.** `common/UploadedFileType` reads magic bytes on both
+>   surfaces (the client's document and the signed letter). Its ceiling is stated where it lives:
+>   `.docx` is a ZIP and `.doc` an OLE2, so this proves the container, not the document —
+>   **scanning is the bucket's job**, and that is infra work still owed.
+> - **Configuration fails loud but late, and that is the one real change from Drive.**
+>   `evalos.s3.bucket` / `evalos.s3.region` (`EVALOS_S3_BUCKET` / `EVALOS_S3_REGION`) have **no
+>   defaults**; absent, document routes answer **502** and the boot log names the missing variable.
+>   Drive's `evalos.drive.required` made the same omission a **boot failure** — S3 does not, so a
+>   misconfigured deploy starts and serves every non-document screen.
+> - **The credential is not a property at all.** The AWS SDK's default provider chain reads the
+>   environment, the shared profile or the instance role, so no key can reach a committed yaml —
+>   `ConfigSecretsTest` fails the build if one does.
+> - **Invariant 14 is amended and "No object storage" is deleted** from `architecture.md`. What
+>   survives is "EvalOS holds keys, never bytes".
+> - **Unit 30 also closed the PDF question by removal**: the redacted profile was the only document
+>   EvalOS generated, and Drive's HTML → Doc → PDF export was the only reason a PDF library was ever
+>   considered. Nothing generates documents now — they arrive as uploads. **Do not add PDFBox or
+>   openhtmltopdf.**
 
 Built in Unit 02; the link-based portal chain added in Unit 14. Two chains, stateless and
 token-only in both cases; nothing here is session- or cookie-based.
@@ -73,9 +91,121 @@ second bean beside the staff chain for two reasons: the surfaces are separate, a
   back to only the *live* rows: an unrevoked expired row would sit in the index and block the next
   mint. See `mem:backend/persistence`. Resolving stamps `last_seen_at`.
 
+## What a portal credential will name (decided 2026-09-04, NOT yet built)
+
+**`portal_access` is becoming party-scoped** (`D1`, built in
+`context/specs/35-party-scoped-portal-access.md`): a `CLIENT` row will name a `ghl_contact_id`, an
+`EXPERT` row its `expert_id` (already there since `V37`), and `case_id` becomes **nullable**. A
+case-scoped row stays legal and keeps exactly today's behaviour — including `V37`'s expert check —
+so nothing below regresses. What the widening must not touch: the 256-bit token, the
+SHA-256-at-rest, one live token per scope, the absolute expiry, re-mint revoking the previous, and
+one identical 401 for unknown/expired/revoked.
+
+Two properties, because a party token is the wider credential: `evalos.portal.link-ttl` stays
+`P30D` and `evalos.portal.party-link-ttl` is **`P7D`**. On a party token, the single-case routes
+take the case id as a path variable **matched against the party** — which is safe for the reason
+Unit 34c's kind filter is safe: the id may come from the request precisely because it is checked
+against the credential first. With several cases they answer **409**, never a guess.
+
+**Clients HAVE accounts as of Unit 42 (2026-09-11).** This said *"there are no accounts and that
+was refused, not deferred — a reset needs a mail channel invariant 14 says does not exist."* The
+refusal (spec 34 D1) required its reversal to be taken in writing; it was, and invariant 14 is
+amended for authentication mail only.
+
+**There is still NO third security chain, and that is the thing to carry.** A verified password
+mints the *same* party-scoped `PortalAccess` token described above, so `PortalTokenFilter` and
+every screen behind it are untouched. Sign-in is a new way to *obtain* the credential, not a
+second kind of session. The only config change is `permitAll` on the four auth routes, and those
+routes stay behind the same per-IP limiter.
+
+**Those four are named one by one and by method** — `POST` on `identify`, `sign-in`,
+`forgot-password`, `set-password` — **never `/api/portal/auth/**`.** A wildcard opens the next
+route added under that prefix the moment it is written, silently; the list makes it arrive as a
+401 in that route's own test instead.
+
+**`JwtFilter` is deregistered from the global servlet chain** (`SecurityConfig.jwtFilterIsChainOnly`,
+a `FilterRegistrationBean` with `setEnabled(false)`). Boot auto-registers every `Filter` bean for
+`/*`, which had a staff `Bearer` token being read on `/api/portal/**`. `PortalTokenFilter` avoids
+this by not being a bean at all; `JwtFilter` cannot, because test slices inject it by type. Two
+chains that accept each other's credentials are one chain, and the drift starts as documentation.
+
+`client_account` holds `(brand_id, lower(email))` unique, a bcrypt hash that is **null when no
+password has been set** (that null IS the state), and a **nullable `ghl_contact_id` link** —
+so a client signs in with no GHL row anywhere. The sign-in lookup is a spelled-out
+`@Query ... lower(a.email) = lower(:email)`, **not** Spring Data's `IgnoreCase`, which generates
+`upper(email) = upper(?)` and cannot use V43's `lower(email)` functional index — a sequential
+scan on the one query every sign-in makes. `client_credential_token` is single-use, 30 minutes,
+SHA-256 at rest. Spec: `context/specs/42-client-accounts.md`.
+
+**Four things bound the two unauthenticated mailing routes, and all four were added in review.**
+`identify` and `forgot-password` are reachable at 60 req/min/IP and `client_credential_token` has
+no cleanup job, so minting per call was both unlimited mail to a named inbox and unbounded table
+growth.
+- An **outstanding unspent token short-circuits the send**
+  (`findFirstByClientAccountIdAndPurposeAndUsedAtIsNullAndExpiresAtAfter`): one mail per
+  `credential-ttl`, per account, per purpose. Still answers `NO_PASSWORD` — a working link *is*
+  in that inbox.
+- **`ClientMailer.isConfigured()` is asked first**, and `issueCredential` mints nothing when the
+  answer is no. The caller turns that into **`IdentifyState.MAIL_UNAVAILABLE`**, a fourth state
+  distinct from `NO_PASSWORD` because the two differ in what the client should do next: wait for
+  an inbox, or stop waiting and call.
+- **A FAILING send reports `false` rather than throwing**, and this is the same rule as the line
+  above rather than a new one. `JavaMailSender.send` throws the unchecked `MailException`; it
+  propagated out of `forgotPassword`, so a mail outage answered **500 for a known address and 204
+  for an unknown one** — an enumeration oracle in the one method written not to leak, appearing
+  exactly when somebody is probing. Both `ClientMailer` send methods return whether the message
+  left. **The general rule: a route that must not differentiate must not differentiate on its
+  dependencies' failures either.**
+- **The send happens BEFORE the token row is written**, which is deliberate and counter-intuitive.
+  Save-then-send leaves an unspent row when the send fails, and the cooldown above then reads it
+  as "a link is on its way" — so the client is told to check an inbox nothing reached, for a full
+  TTL, with their retry suppressed by the failure they are retrying. The mirror risk (mail lands,
+  insert fails) is a database outage, which is already 500ing everything.
+- **Jakarta Mail's `connectiontimeout`/`timeout`/`writetimeout` default to INFINITE** and are set
+  to 5s in all three profiles (invariant 6).
+- **`identify` and `forgotPassword` are deliberately NOT `@Transactional`; every other method here
+  is.** Their work is a read, a read and at most one insert with no invariant spanning them — a
+  lost race mints two usable tokens, which is not a defect. A transaction would hold a **Hikari
+  connection across the SMTP conversation**, up to 15s, on a route anyone may call 60×/min/IP.
+  Bounding the send still exhausts the pool; taking the connection out of its way does not.
+- **`setPassword` checks the brand explicitly.** It is the only path that reaches an account
+  through the token's own FK rather than a brand-scoped finder, so without it a deployment
+  serving brand A sets a password on a brand-B account and mints a party token for it. It answers
+  the same refusal as a spent link.
+
+**Three portal origins, three properties, and the set-password link uses the third.**
+`evalos.portal.base-url` is what `PortalAccessService.urlFor` appends `/portal/client` to — a
+route that lives in `frontend/`, the **staff** SPA, which is also that property's dev default
+(5173). `expert-base-url` is the expert app (5175). **`client-base-url` (`PORTAL_CLIENT_BASE_URL`,
+no prod default) is the client portal app (5174)**, and it is the only one that may build a
+`/set-password` link: on `base-url` that mail landed a client on the staff sign-in page with their
+credential in the fragment. `base-url` stopped naming a single app when the portals split on
+2026-09-03 and was never renamed — treat it as "whatever serves `/portal/client`", nothing more.
+
+**`evalos.portal.client-brand` has no default in prod, deliberately.** An empty value is not
+"unset" to Spring: it binds as a null UUID and boots into a portal where every `identify` answers
+`UNKNOWN` and every sign-in is refused, for every client, with no log line to find. Related:
+`credential-ttl` reads `EVALOS_PORTAL_SIGNIN_LINK_TTL` — the name mismatch is deliberate,
+because `ConfigSecretsTest` fails the build on any variable whose *name* contains CREDENTIAL and
+which carries a non-empty default.
+
+**V46 is the fix-forward for V45's padded seeds.** V45 guarded on `trim(c.email)` and inserted
+`c.email`, seeding accounts that `ClientAccountService.normalize()` (which trims) can never find.
+V45 is applied and is not edited; V46 deletes the padded duplicate and trims the survivor. Rule
+that generalises: **a seed that normalises in its predicate must normalise in its projection.**
+
 ## The portal principal — why it is NOT a TenantContext
 
-`security/PortalPrincipal` (`portalAccessId`, `brandId`, `caseId`, `audience`). The token **is** the
+`security/PortalPrincipal` (`portalAccessId`, `brandId`, `caseId`, `audience`, `expertId`).
+
+**`expertId` is `V37` and it is the second half of the scope on the expert surface** — null for a
+client, whose identity is the case's own contact. A case-scoped token said *which case* and not
+*which person*, so one expert's token was indistinguishable from another's on the same case: after a
+rematch the previous expert's month-long link still admitted them, up to uploading the deliverable
+in their own name. `ExpertPortalService.authorized` compares it with the case's expert and refuses a
+mismatch, and **fails closed on a null** — a pre-V37 token is refused, not waved through. Do not
+weaken that to a fallback: "the column is not set yet" and "this is the wrong expert" are
+indistinguishable from the row, and only one of them is safe to allow. The token **is** the
 scope: it names one case, so no predicate is built, nothing can fail open, and `ScopePredicate` is
 not involved. Manufacturing a synthetic `TenantContext` would put a non-staff caller into the staff
 scoping path, where a later widening of a role tier silently widens what a client can read.
@@ -84,13 +214,42 @@ that is what keeps the surfaces apart, and it means any staff-path code reached 
 throws rather than attributing the act to whoever was last in the context.
 
 The audience is checked in exactly one place, `PortalPrincipal.current(expected)`; Unit 15's expert
-routes inherit it by asking for `EXPERT`. No authorities are granted, deliberately — a role name in
+routes (built 2026-09-03) inherit it by asking for `EXPERT`, and `ExpertPortalTest` asserts the refusal
+in **both** directions — a `CLIENT` token on `/api/portal/expert/**` and an `EXPERT` token on
+`/api/portal/client/**`. No authorities are granted, deliberately — a role name in
 the filter would be a second statement of the same rule.
 
 `service/PortalCaseService` is the client's own narrow read: a **whitelist**, not a widened
 `CaseDetailService`, and it loads by the token's `case_id` with `findById` (the one deliberate
 exception to the `findScoped` rule — there is nothing to scope *by*) plus an explicit
 token-brand-equals-case-brand check.
+
+`service/ExpertPortalService` (Unit 15) is the expert's, **beside it and never merged with it**. The
+two whitelists differ in both directions — the expert sees the goal, the applicant and the supplied
+evidence; the client sees the approval state — and one record serving both audiences is one record
+somebody widens for one of them. Same `findById`-plus-brand-check shape, same reason.
+
+**The signed-letter upload is the second outside-party write surface, and it is narrower than the
+client's**: PDF **by content sniffing** (the first five bytes, in `ExpertPortalController` — a
+`.pdf`-named JPEG is refused), and the attestation is required by the API and must equal the wording
+the server composed, because the wording *is* the evidence and a sentence the uploader wrote about
+themselves proves nothing.
+
+**The name on the attestation comes off the case, never off the request** (review fix, 2026-09-03).
+The first version compared the sentence against a caller-supplied `attestedName`, which any
+consistent pair satisfied — so the evidence row could name somebody who was never on the case. The
+parameter is gone; `expert.full_name` for the case's own expert is the signer, and a case with no
+expert cannot be signed at all. **The hash is its own streaming pass** over the part rather than a
+digest wrapped around the store's read: the S3 SDK re-reads a mark-supporting stream on a retry, and
+a reset resets neither a digest nor a counter, so a retry hashed the file twice over. The transition is checked before the object is written, so a case that
+cannot legally be signed leaves no orphan behind.
+
+**One mint route, two audiences**: `POST /api/cases/{id}/portal-link?audience=EXPERT` (GM · Brand
+Manager · PM · CM), refused when the case has no expert — since Unit 15 the link is the only way an
+expert is reached at all. **The two audiences' links point at different origins** (34e):
+`evalos.portal.base-url` + `/portal/client#…` and `evalos.portal.expert-base-url` + `/case#…`,
+because the portals are two deployments. A blank expert base falls back to the client's, so a
+single-deployment environment needs no new setting.
 
 ## The upload trust boundary (Unit 21)
 
@@ -111,7 +270,7 @@ highest-risk surface in the system. The rules are requirements, not preferences:
 - **Per-token rate limit, which is new work.** `PortalTokenFilter` already rate-limits, but on
   **`getRemoteAddr()`** — and behind a proxy without `forward-headers-strategy=framework` every caller
   shares one budget. An upload limit must key on the `portal_access` id, because what is being
-  protected is one case's Drive folder. Extend that limiter with a second key; do not assume the IP one
+  protected is one case's S3 prefix. Extend that limiter with a second key; do not assume the IP one
   covers it, and do not add a parallel limiter.
 - **The token is the `X-Portal-Token` header — never a path segment or query parameter.** The filter
   refuses a query parameter because it lands in access logs, `Referer` headers and browser history, and
@@ -127,8 +286,14 @@ highest-risk surface in the system. The rules are requirements, not preferences:
   only upload EvalOS accepts at all, since client uploads moved to the separate Client Portal.
   See `mem:core`.
 - **One audit row per upload**, `actor_type = CLIENT`.
-- Open, and deliberately not hand-waved: **antivirus.** Drive scans on ingest; that is not the same as
-  EvalOS having a posture on files accepted from a public link.
+- **Antivirus, and this is no longer open in the way it was.** Drive used to scan on ingest, and
+  losing that in Unit 30 left a real gap; **G14 closed the EvalOS half** (2026-09-04).
+  `common/UploadedFileType` sniffs magic bytes for one of five kinds on **both** upload surfaces —
+  the client's document and the signed letter — so a declared content type is never trusted, and
+  every presigned read is minted `Content-Disposition: attachment`, which closes the *path* rather
+  than the file. **The stated ceiling:** `.docx` is a ZIP and `.doc` an OLE2, so sniffing proves the
+  container, not the document. **Real scanning is the bucket's job and is still owed** — an infra
+  control, not a code one.
 
 **The same boundary carries the signed letter (Unit 15).** There is **no e-signature provider**: the
 expert downloads the letter and uploads the signed PDF back through their own `EXPERT`-audience token,
@@ -177,12 +342,59 @@ become a way for a non-GM to trigger client-facing messages.
     `LocalPostgresIntegrationTest` pins both against the real database, which is the only place
     that failure can surface. **The GM is once again the only role that may have no brand**, and
     its NULL means "every brand" — the opposite of what the sales executive's meant.
+  - **Eight since Unit 36 (BUILT 2026-09-10, `V39`).** `SALES` and `MARKETING` arrive, both on a
+    **new `Tier.PIPELINE`**, keyed on `team_member.ghl_pipeline_id`.
+    Three things about that, decided rather than defaulted:
+    - **`PIPELINE` is not a reuse of `SELF`.** `SELF` means "rows naming me in an assignee column"
+      and is about `evalos_case`; there is no assignee column on what these roles read.
+    - **The three business kinds of each role (Attorney / Employer-Firm / Individual) are a
+      `segment` column, NOT six enum values** — identical permissions, so encoding them as roles
+      would grow every `switch (role)`, the role CHECK and the nav tests to express nothing.
+      **Nothing may branch on `segment`**; a structural test enforces that.
+    - **`uq_team_member_pipeline` is globally unique and deliberately not brand-scoped** — a GHL
+      pipeline belongs to the one location, not to a brand. Partial on `active` so a replacement
+      can inherit a leaver's pipeline.
+    - The predicate **fails closed** on a null pipeline, on the same rule as brand — it
+      `return`s rather than skipping the arm, so a pipeline-scoped caller with no pipeline
+      matches NOTHING rather than their whole brand.
+    - **`ghlPipelineId` rides on the JWT** beside brand and team, so scoping still needs no DB
+      hit. Same trade-off: a reassignment takes effect on next login. A token minted before
+      `V39` carries no claim, reads as null, and fails closed.
+    - **`StaffPrincipal` and `TenantContext` have "owns no pipeline" secondary constructors.**
+      Not defaulting convenience — null is what the column holds for the six other roles. Pinned
+      in `ScopePredicateTest` so the short form cannot become permissive.
+    - **`Role.isPipelineScoped()`** is the one predicate the assignment route and the CHECK both
+      read; a third `Tier.PIPELINE` role reaches both by adding an enum constant.
+    - **GM-only routes:** `GET /api/ghl/pipelines` (the picker — the id is opaque, and a wrong
+      one is silent) and `PUT /api/team-members/{id}/ghl-pipeline` (`PipelineAssignmentService`,
+      audited, every refusal a 400 rather than a 500 out of a constraint).
+    - **Single-brand ceiling, enforced:** `evalos.ghl.sales-brand`. A pipeline-scoped member of
+      any other brand is refused 400; a blank property refuses everyone. This NARROWS invariant
+      1's location exception from "GM-only" to "one named brand". Unit 25 closes it.
+      **The named brand is International Evaluations** — `application-local.yml` defaults it to
+      IE's seeded brand id (2026-09-11), because IE owns the one GHL location
+      (`kBumF0uUOmMBB5bneYjx`). It was blank until then, which meant the desks Units 36-41 built
+      were unreachable on every laptop: built, tested, and impossible to log into.
+      `db/seed-local/V908` seeds the five IE logins — three SALES (Aditya / Alex / Junaid
+      pipelines, one per segment) and two MARKETING (Google Ads, Shivangi's Email). Deployed
+      environments must still set `GHL_SALES_BRAND_ID`; the default is local only.
+    - **⚠ `V39`'s segment CHECK needs `segment IS NOT NULL` before the `IN`.** `NULL IN (...)`
+      is NULL, and **a CHECK evaluating to NULL passes in Postgres** — without it the constraint
+      permitted the exact row it forbids. Caught only by `LocalPostgresIntegrationTest`. Apply
+      the same care to any future biconditional CHECK.
+    - **The staff frontend still lists six roles** (`session.ts`, `navigation.ts`,
+      `boardRules.ts`, `RoleDashboard.tsx`). Deliberate: no screen exists for these roles until
+      Unit 38, which adds the union and the boards together. Unreachable, not broken.
+    Spec: `context/specs/36-pipeline-scoped-access.md`, programme: `00b-ghl-operational-programme.md`.
 - **`SUPPLY` is a field tier, not a row tier, and this is the one that surprises people.** At the
   row level it is identical to `BRAND` — `ScopePredicate` handles both under `default -> {}` and
   adds no predicate — because the ENM's three signing transitions must load the case. What makes
-  it supply-side is `CaseController.seesCaseContent(role)`, which withholds `clientName`,
-  `driveLink` and `draftLink` from that tier on **both** case payloads (`CaseController.CaseDetail`
-  and `CaseBoardController.BoardCard`). Added 2026-08-25 after the tier was found to be declared,
+  it supply-side is `Role.seesCaseContent()` (`tier != SUPPLY`), which withholds `clientName` and
+  `draftLink` from that tier on **both** case payloads (`CaseController.CaseDetail` and
+  `CaseBoardController.BoardCard`). `driveLink` was the third field it withheld and is gone with
+  Unit 30. The predicate moved from `CaseController` onto `Role` when the presigned-URL route needed
+  it from the service layer — a service reaching into a controller for an authorisation rule is how
+  you end up with two copies of it. Added 2026-08-25 after the tier was found to be declared,
   documented as "not case content", and **referenced nowhere** — so `GET /api/cases/board`, which
   has no `@PreAuthorize` by design, returned every client name in the brand to an ENM.
   - Deliberately a **predicate over the tier**, not a `Set<Role>` like `SEES_DEAL_VALUE` /
@@ -218,7 +430,18 @@ become a way for a non-GM to trigger client-facing messages.
 
 Portal (no role gate, no case id on any route — the token names the case):
 `GET /api/portal/client/case` (whitelisted view; stamps `client_portal_read_at` once) ·
-`POST /api/portal/client/approve` (Handoff B) · `POST /api/portal/client/request-revisions`.
+`POST /api/portal/client/approve` (Handoff B) · `POST /api/portal/client/request-revisions` ·
+`POST /api/portal/client/documents` (multipart, streams to S3) ·
+**`GET /api/portal/client/documents`** (checklist + the client's own uploads) ·
+**`GET /api/portal/client/documents/{documentId}/url`** (5-minute presign, Unit 34c).
+
+**The last two exist because the upload was uncallable without them.** It takes a
+`checklistItemId` and no portal route revealed one — `ClientDraftView`'s javadoc excludes the
+checklist by design, and correctly: these are a *second* whitelist for a second screen, not a
+widening of the first. Both reads carry **two** filters, and the second is half the
+authorization: the document must be on the token's case **and** be `CLIENT_UPLOAD`. Without the
+kind filter a client could name their own draft — or Unit 15's signed letter — and read it
+outside the flow that decides when they may. No object key crosses the wire on either.
 Staff-side: `GET`/`POST /api/cases/{id}/portal-link` — status and mint, GM · Brand Manager · PM ·
 CM. **No route returns an existing link's URL**; losing it means minting a new one.
 

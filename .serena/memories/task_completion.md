@@ -1,7 +1,7 @@
 # Task Completion
 
-Run the checks for the half/halves touched, from inside that directory. There is no combined root
-command and no formatter to run. See `mem:suggested_commands` for the PowerShell forms.
+Run the checks for the part(s) touched, from inside that directory. **Three apps, no combined
+root command, no formatter.** See `mem:suggested_commands` for the PowerShell forms.
 
 ## frontend/ changes
 
@@ -11,6 +11,20 @@ command and no formatter to run. See `mem:suggested_commands` for the PowerShell
 3. `npm run test` (vitest, one run) — **rules modules only**. Components are not render-tested
    (no jsdom, no Testing Library), so a `.tsx` change catches nothing here: if behavior matters,
    verify by running `npm run dev` alongside the backend.
+
+## client-expert/ changes (the portal frontends)
+
+All commands run from `client-expert/`, which holds the one `package.json` for both apps.
+
+1. `npm run lint` (oxlint)
+2. `npm run build` — **both apps** (`build:client` then `build:expert`, each `tsc -b && vite
+   build` in its own folder; the only typecheck). Build just one with `npm run build:client` /
+   `npm run build:expert`, but **run both before calling a change done**: they share
+   `shared/src`, so a change there can break the app you did not build.
+3. `npm run test` (vitest, one run, all three folders) — **pure rules modules only**
+   (`shared/src/lib/portal`), same discipline as `frontend/`: no jsdom, no Testing Library, so a
+   `.tsx` change catches nothing here. Verify a component by running `npm run dev:client` (5174)
+   or `npm run dev:expert` (5175) against the backend.
 
 ## backend/ changes
 
@@ -38,5 +52,12 @@ Before moving to the next unit:
 5. The memories this unit invalidated are updated — see `mem:memory_maintenance` for the
    add/update threshold and the routing rules.
 
-Full-stack slices: run both suites, then `npm run dev` (5173) + `.\mvnw.cmd spring-boot:run` (8080)
-and exercise the flow through the Vite `/api` proxy.
+Full-stack **staff** slices: run both suites, then `npm run dev` (5173) + `.\mvnw.cmd
+spring-boot:run` (8080) and exercise the flow through the Vite `/api` proxy.
+
+Full-stack **portal** slices: `client-expert/` `npm run dev:client` (5174) or `npm run
+dev:expert` (5175) + the backend on 8080. **There is no proxy here — the call is genuinely
+cross-origin**, so `evalos.portal.allowed-origins` must name that origin (`local` defaults to
+both) and a failure shows up as a
+preflight rejection in the browser while the same call passes a curl test. Check the Network
+tab's OPTIONS request before blaming the token.

@@ -43,6 +43,20 @@ export const FIELD_TAGS = [
   'HOSPITALITY_MANAGEMENT',
   'SUPPLY_CHAIN',
   'HUMAN_RESOURCES',
+  // Unit 33. The list above was drawn for credential-evaluation degree fields; these are the
+  // disciplines an expert-opinion-letter roster recruits into. Mirrors `domain/FieldTag` and
+  // V35's widened CHECK — all three move together.
+  'AEROSPACE_ENGINEERING',
+  'ARTIFICIAL_INTELLIGENCE',
+  'BIOMEDICAL_ENGINEERING',
+  'BIOTECHNOLOGY',
+  'CYBERSECURITY',
+  'ENVIRONMENTAL_ENGINEERING',
+  'MATERIALS_SCIENCE',
+  'NEUROSCIENCE',
+  'PHARMACOLOGY',
+  'RENEWABLE_ENERGY_ENGINEERING',
+  'SOFTWARE_ENGINEERING',
 ] as const
 
 export const LETTER_TYPES = [
@@ -51,11 +65,73 @@ export const LETTER_TYPES = [
   'RFE_RESPONSE',
   'PERM_LETTER',
   'TRANSLATION_CERTIFICATION',
+  'RECOMMENDATION_LETTER',
+  'WAGE_LEVEL_LETTER',
 ] as const
 
 export const AVAILABILITIES = ['AVAILABLE', 'AT_CAPACITY', 'ON_LEAVE', 'INACTIVE'] as const
 
 export const TIERS = ['TIER_1', 'TIER_2', 'TIER_3'] as const
+
+/** Unit 33. Mirrors `domain/AffiliationType` and V35's `expert_affiliation_type_known`. */
+export const AFFILIATION_TYPES = [
+  'UNIVERSITY',
+  'INDUSTRY',
+  'NATIONAL_LAB',
+  'GOVERNMENT',
+  'INDEPENDENT',
+] as const
+
+/**
+ * Unit 33. Mirrors `domain/VisaCategory`. **Not the same list as LETTER_TYPES** — a letter
+ * type is what the expert signs, a visa category is the petition it supports.
+ */
+export const VISA_CATEGORIES = [
+  'H1B',
+  'EB1A',
+  'EB2_NIW',
+  'O1',
+  'TN',
+  'PERM',
+  'L1A',
+  'EDUCATION',
+  'EMPLOYMENT',
+  'ADMISSION',
+  'OTHER',
+] as const
+
+export type AffiliationType = (typeof AFFILIATION_TYPES)[number]
+export type VisaCategory = (typeof VISA_CATEGORIES)[number]
+
+/**
+ * Everything the roster sheet carries and the roster list deliberately does not show
+ * (Unit 33): the standing an expert opinion letter rests on, and what an ENM actually
+ * chooses between two experts on. Read on the profile and nowhere else.
+ */
+export type Dossier = {
+  expertCode: string | null
+  subSpecialization: string | null
+  highestDegree: string | null
+  degreeField: string | null
+  degreeInstitution: string | null
+  currentPosition: string | null
+  affiliationType: AffiliationType | null
+  country: string | null
+  stateRegion: string | null
+  yearsExperience: number | null
+  linkedinUrl: string | null
+  visaCategories: VisaCategory[]
+  publications: number | null
+  citations: number | null
+  hIndex: number | null
+  patents: number | null
+  notableAwards: string | null
+  professionalMemberships: string | null
+  editorialRoles: string | null
+  languages: string | null
+  rushAvailable: boolean
+  avgTurnaroundDays: number | null
+}
 
 export type RosterRow = {
   id: string
@@ -97,6 +173,12 @@ export type ExpertProfile = {
   agreementStatus: string | null
   paymentStatus: string | null
   createdAt: string | null
+  dossier: Dossier
+  /**
+   * Last approached, derived from the offer table rather than stored. **Null means never
+   * offered a case, which is not dormancy** — render it as "never", never as a date.
+   */
+  lastActiveAt: string | null
 }
 
 export type AvailabilityColumn = { availability: Availability; count: number; experts: RosterRow[] }
@@ -118,6 +200,30 @@ export type ExpertForm = {
   recruitmentSource: string | null
   dateOnboarded: string | null
   notes: string | null
+  // Unit 33's dossier, flat on the form because that is the shape the API takes and the shape
+  // a sheet column maps onto. It is grouped only on the way to the screen.
+  expertCode: string | null
+  subSpecialization: string | null
+  highestDegree: string | null
+  degreeField: string | null
+  degreeInstitution: string | null
+  currentPosition: string | null
+  affiliationType: AffiliationType | null
+  country: string | null
+  stateRegion: string | null
+  yearsExperience: number | null
+  linkedinUrl: string | null
+  visaCategories: VisaCategory[]
+  publications: number | null
+  citations: number | null
+  hIndex: number | null
+  patents: number | null
+  notableAwards: string | null
+  professionalMemberships: string | null
+  editorialRoles: string | null
+  languages: string | null
+  rushAvailable: boolean
+  avgTurnaroundDays: number | null
 }
 
 export type RowProblem = { row: number; column: string; reason: string }
@@ -236,6 +342,30 @@ export const MAPPABLE_FIELDS: readonly { field: keyof ExpertForm; label: string 
   { field: 'recruitmentSource', label: 'Recruitment source' },
   { field: 'dateOnboarded', label: 'Date onboarded' },
   { field: 'notes', label: 'Notes' },
+  // Unit 33 — every dossier field is mappable, which is what lets a real roster sheet import
+  // with no column left over.
+  { field: 'expertCode', label: 'Expert ID' },
+  { field: 'subSpecialization', label: 'Sub-specialisation' },
+  { field: 'highestDegree', label: 'Highest degree' },
+  { field: 'degreeField', label: 'Degree field' },
+  { field: 'degreeInstitution', label: 'Degree institution' },
+  { field: 'currentPosition', label: 'Current position' },
+  { field: 'affiliationType', label: 'Affiliation type' },
+  { field: 'country', label: 'Country' },
+  { field: 'stateRegion', label: 'State / region' },
+  { field: 'yearsExperience', label: 'Years of experience' },
+  { field: 'linkedinUrl', label: 'LinkedIn' },
+  { field: 'visaCategories', label: 'Visa categories supported' },
+  { field: 'publications', label: 'Publications' },
+  { field: 'citations', label: 'Citations' },
+  { field: 'hIndex', label: 'h-index' },
+  { field: 'patents', label: 'Patents' },
+  { field: 'notableAwards', label: 'Notable awards' },
+  { field: 'professionalMemberships', label: 'Professional memberships' },
+  { field: 'editorialRoles', label: 'Editorial roles' },
+  { field: 'languages', label: 'Languages' },
+  { field: 'rushAvailable', label: 'Rush available' },
+  { field: 'avgTurnaroundDays', label: 'Average turnaround (days)' },
 ]
 
 /** Header spellings that mean a given field, matched after stripping everything but letters. */
@@ -255,6 +385,29 @@ const HEADER_HINTS: readonly { field: keyof ExpertForm; hints: readonly string[]
   { field: 'recruitmentSource', hints: ['recruitmentsource', 'source', 'howfound'] },
   { field: 'dateOnboarded', hints: ['dateonboarded', 'onboarded', 'startdate', 'joined'] },
   { field: 'notes', hints: ['notes', 'note', 'comments', 'remarks'] },
+  // Unit 33. The spellings a real roster sheet uses, so a 36-column workbook maps itself.
+  { field: 'expertCode', hints: ['expertid', 'expertcode', 'evaluatorid'] },
+  { field: 'subSpecialization', hints: ['subspecialization', 'subspecialisation', 'niche', 'subfield'] },
+  { field: 'highestDegree', hints: ['highestdegree', 'degree', 'terminaldegree', 'qualification'] },
+  { field: 'degreeField', hints: ['degreefield', 'fieldofdegree'] },
+  { field: 'degreeInstitution', hints: ['degreeinstitution', 'almamater', 'degreeuniversity'] },
+  { field: 'currentPosition', hints: ['currentposition', 'jobtitletoday'] },
+  { field: 'affiliationType', hints: ['affiliationtype', 'employertype', 'sector'] },
+  { field: 'country', hints: ['country', 'nation'] },
+  { field: 'stateRegion', hints: ['stateregion', 'state', 'region', 'province'] },
+  { field: 'yearsExperience', hints: ['yearsexperience', 'yearsofexperience', 'experience', 'years'] },
+  { field: 'linkedinUrl', hints: ['linkedinurl', 'linkedin', 'profileurl'] },
+  { field: 'visaCategories', hints: ['visacategoriessupported', 'visacategories', 'visas', 'petitions', 'visatypes'] },
+  { field: 'publications', hints: ['publications', 'papers', 'pubs'] },
+  { field: 'citations', hints: ['citations', 'citationcount'] },
+  { field: 'hIndex', hints: ['hindex'] },
+  { field: 'patents', hints: ['patents', 'patentcount'] },
+  { field: 'notableAwards', hints: ['notableawards', 'awards', 'honours', 'honors'] },
+  { field: 'professionalMemberships', hints: ['professionalmemberships', 'memberships', 'societies'] },
+  { field: 'editorialRoles', hints: ['editorialroles', 'editorships', 'reviewerroles'] },
+  { field: 'languages', hints: ['languages', 'language', 'spokenlanguages'] },
+  { field: 'rushAvailable', hints: ['rushavailable', 'rush', 'rushcapable'] },
+  { field: 'avgTurnaroundDays', hints: ['avgturnarounddays', 'turnaround', 'turnarounddays', 'avgturnaround'] },
 ]
 
 /**

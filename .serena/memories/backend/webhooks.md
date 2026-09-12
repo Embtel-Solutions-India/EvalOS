@@ -167,9 +167,14 @@ Unknown keys (`location`, `workflow`, `tags`, `contact_type`, `date_created`, `f
   would fail Handoff A over a nicety.
 
   **`deal_value` AND `ghl_opportunity_id` are what a refresh OVERWRITES, and they move together —
-  but only when the delivery carries at least one of them.** GHL sends neither unless the workflow
-  author added it, and overwriting with nulls would blank a figure that feeds revenue recognition
-  plus the id Unit 18 closes on, from a delivery that never claimed anything about either.
+  but only when the delivery carries BOTH of them.** GHL sends neither unless the workflow author
+  added it, and each half is optional on its own, so a delivery naming one of the two names no deal
+  the refresh can write: writing the pair off a single non-null half blanks the other, which costs
+  revenue recognition the amount or costs Unit 18 the id it closes on, from a delivery that never
+  claimed anything about that half. A half-carried delivery is **ignored, not merged** with what the
+  case already holds (`ponytail:` — merge it if a workflow turns up that really does send the two
+  in separate deliveries). Both-or-neither also has to be the guard rather than "at least one",
+  which is what shipped first and blanked the missing half.
   The overwrite has to exist: deleting `markPaid` removed the only other writer, so fill-only would
   freeze the first figure forever with nothing able to correct it — and that figure feeds revenue
   recognition. GHL owns the amount, so the latest won figure wins. They move as a **pair** because
@@ -178,8 +183,10 @@ Unknown keys (`location`, `workflow`, `tags`, `contact_type`, `date_created`, `f
   a stale id closes the wrong deal in GHL and leaves the paid one open. `V24` catches nothing here —
   no second case is created on the refresh path. `paid` / `paid_at` stay write-once; one value,
   never a running total, so a correction cannot double-count.
-  **An amount correction is stated in the audit note and never quantified in it** — "deal value
-  corrected", and only when the figure actually changed. `CaseSnapshot` omits `deal_value` (it is
+  **An amount change is stated in the audit note and never quantified in it** — "deal value
+  recorded" the first time a figure arrives on a case that had none (`deal_value` starts null now
+  that `amount` is optional, so money would otherwise appear from nowhere), "deal value corrected"
+  when it replaces a different figure, and nothing when it is unchanged. `CaseSnapshot` omits `deal_value` (it is
   role-restricted), so without the note the row's before and after are byte-identical and a money
   rewrite reads as a no-op edit; putting the figure in would leak it, because `CaseTimelineService`
   shows the note to every role that may read the case, Case Managers included. The figures live in

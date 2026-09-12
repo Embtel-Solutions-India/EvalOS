@@ -202,6 +202,16 @@ replaced the old `gmOnly` boolean and has three states — absent = GM-also (the
 re-deriving it, because a second copy is how "the GM sees everything" survives a decision against
 it.
 
+**`/admin/jobs` is GM-only for a third, different reason** (Unit 19, BUILT 2026-09-11).
+Not because the GHL location is unattributable and not because a worklist belongs to one role —
+because the **sweep run ledger is cross-brand by nature**: one pass covers every brand's cases, so
+there is no scoped view of it to hand a Brand Manager and a partial one would misstate what ran.
+`features/jobs/JobRunsPage.tsx` + `jobsApi.ts`, in the **Admin** group deliberately: nobody's day
+starts here. It is the screen you open when a chase did not happen — which is exactly the failure
+a background job produces, silence with nothing on any dashboard to show for it. The staleness
+verdict is a **string computed on the server** against the sweep's own configured interval; do not
+re-derive it here from a threshold this file would have to guess.
+
 **One path per screen.** `/cases` beside `/board`, `/delivery` with no screen behind it, and
 `/experts` beside `/expert-database` were all deleted for the same reason, and the test asserts their
 absence so they are not re-added.
@@ -406,9 +416,31 @@ carries a vitest file; components are not render-tested (no jsdom, no Testing Li
 `AbortController` because `StrictMode` double-invokes effects in dev.
 
 Where a rules module mirrors a backend vocabulary (`QUICK_ACTIONS` ↔ the transitions, `FIELD_TAGS` /
-`LETTER_TYPES` ↔ `domain/FieldTag` + `V18`'s CHECKs) the duplication is deliberate — the UI has to
-offer the closed list rather than let it be typed — and **the two move together or the API starts
-rejecting what the screen offered**.
+`LETTER_TYPES` / `AFFILIATION_TYPES` / `VISA_CATEGORIES` ↔ their enums + `V18`/`V35`'s CHECKs) the
+duplication is deliberate — the UI has to offer the closed list rather than let it be typed — and
+**the two move together or the API starts rejecting what the screen offered**. Unit 33 widened five
+of these at once and the rule held; there is now a worked example of what "moved together" means.
+
+## The list is lean, the detail shows everything (Unit 33, 2026-09-03)
+
+The rule for both record screens, and the answer to "where does a new field go":
+
+- **Nothing new is ever added to a roster row or a board card.** Unit 33 added 22 expert fields and
+  the roster table gained no column. They live in two new `<Section>`s on `ExpertProfile` —
+  **Credentials** and **Standing** — with location and languages folded into Contact and rush work
+  into Availability.
+- **In edit mode the dossier is behind a native `<details>`**, not twenty more rows always open: the
+  fifteen fields above it are edited weekly, a CV is transcribed once. No accordion component.
+- **`formOf` spreads `profile.dossier` whole and `EMPTY_FORM` spreads `EMPTY_DOSSIER`.** The form is
+  sent whole and the server applies every field, so a dossier field missing from either literal would
+  not be "left alone" — it would arrive undefined and blank a transcribed CV. Add a field to
+  `ExpertForm` and you must add it to both, which is why they share one constant.
+- **`features/case/CaseFacts.tsx`** is the case-side counterpart: applicant, contact, discipline and
+  RFE deadline in one panel, above `ExpertCard`. The applicant and the contact are drawn one above
+  the other **and labelled**, because confusing them is the failure the field exists to prevent, and
+  both follow the header's rule that *withheld* and *unset* never share a label. Discipline is
+  read-only here — it is written at assignment, and a second place to type it would be a second
+  answer to the same question.
 
 `boardRules` has **no `mark-paid` action** since Case Creation v2.0 (spec `05b`): the case arrives paid
 from the won GHL opportunity, and the endpoint behind that button is deleted. Do not re-add a "Record

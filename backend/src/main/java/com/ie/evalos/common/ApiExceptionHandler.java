@@ -112,6 +112,19 @@ public class ApiExceptionHandler {
 	 * never whether an id outside their scope exists. Two messages that differ on
 	 * that point turn this 409 into an existence oracle.
 	 */
+	/**
+	 * A party token on a single-case route, with more than one case behind it (Unit 35, D1).
+	 *
+	 * <p>Shares the 409 with {@code IllegalTransitionException} and deliberately not its code: this
+	 * one asks the caller to name a case, and a portal that cannot tell the two apart tells a
+	 * client "not allowed" when the answer is "which one".
+	 */
+	@ExceptionHandler(AmbiguousCaseException.class)
+	public ResponseEntity<ApiResponse<Void>> onAmbiguousCase(AmbiguousCaseException ex) {
+		return ResponseEntity.status(HttpStatus.CONFLICT)
+				.body(ApiResponse.error("SAY_WHICH_CASE", ex.getMessage()));
+	}
+
 	@ExceptionHandler(IllegalTransitionException.class)
 	public ResponseEntity<ApiResponse<Void>> onIllegalTransition(IllegalTransitionException ex) {
 		return ResponseEntity.status(HttpStatus.CONFLICT)

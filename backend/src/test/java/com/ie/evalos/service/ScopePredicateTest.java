@@ -34,6 +34,12 @@ class ScopePredicateTest {
 	private static final ScopePredicate.Fields FIELDS =
 			new ScopePredicate.Fields("brandId", "teamId", List.of("assignedTo", "assignedAlso"));
 
+	/** Unit 36: a brand-scoped entity that also carries the owning GHL pipeline. */
+	private static final ScopePredicate.Fields PIPELINE_FIELDS =
+			ScopePredicate.Fields.brandAndPipeline("brandId", "ghlPipelineId");
+
+	private static final String PIPELINE = "pipe_aditya_01";
+
 	private static final UUID MEMBER = UUID.randomUUID();
 	private static final UUID BRAND = UUID.randomUUID();
 	private static final UUID TEAM = UUID.randomUUID();
@@ -45,6 +51,7 @@ class ScopePredicateTest {
 	private final Path<Object> teamPath = pathMock();
 	private final Path<Object> assigneePath = pathMock();
 	private final Path<Object> otherAssigneePath = pathMock();
+	private final Path<Object> pipelinePath = pathMock();
 
 	@SuppressWarnings("unchecked")
 	private static Path<Object> pathMock() {
@@ -57,6 +64,7 @@ class ScopePredicateTest {
 		doReturn(teamPath).when(root).get("teamId");
 		doReturn(assigneePath).when(root).get("assignedTo");
 		doReturn(otherAssigneePath).when(root).get("assignedAlso");
+		doReturn(pipelinePath).when(root).get("ghlPipelineId");
 		doReturn(mock(Predicate.class)).when(cb).equal(any(), any(Object.class));
 		// The unteamed branch composes `equal(...) OR isNull(...)`; both have to answer a
 		// Predicate rather than the mock default of null, or the composition below builds an
@@ -231,5 +239,106 @@ class ScopePredicateTest {
 
 		verify(cb).disjunction();
 		verify(cb, never()).conjunction();
+	}
+
+	// --- Unit 36: Tier.PIPELINE ------------------------------------------------
+
+	private void applyPipelineTier(Role role, UUID brandId, String pipelineId) {
+		ScopePredicate.<Object>of(new TenantContext(MEMBER, role, brandId, null, pipelineId), PIPELINE_FIELDS)
+				.toPredicate(root, null, cb);
+	}
+
+	/**
+	 * The predicate is added <em>beside</em> the brand one, never instead of it.
+	 *
+	 * <p>This is the assertion that matters most: a pipeline id is global (one GHL location, one
+	 * namespace) while an EvalOS row is not, so a pipeline predicate that replaced the brand one
+	 * would let the same id read another brand's rows.
+	 */
+	@Test
+	void salesReadsOwnBrandAndOwnPipeline() {
+		applyPipelineTier(Role.SALES, BRAND, PIPELINE);
+
+		verify(cb).equal(brandPath, BRAND);
+		verify(cb).equal(pipelinePath, PIPELINE);
+	}
+
+	@Test
+	void marketingIsScopedTheSameWay() {
+		applyPipelineTier(Role.MARKETING, BRAND, PIPELINE);
+
+		verify(cb).equal(brandPath, BRAND);
+		verify(cb).equal(pipelinePath, PIPELINE);
+	}
+
+	/**
+	 * Fail closed on a principal minted before {@code ghl_pipeline_id} existed, or on a row that
+	 * was never given one.
+	 *
+	 * <p><strong>Nothing, not the whole brand</strong> — and the second half of the assertion is
+	 * the one with teeth. Skipping the arm instead of returning would have left the brand
+	 * predicate standing alone, which is a salesperson reading every opportunity in their brand:
+	 * an empty board is a support call, a full one is a breach.
+	 */
+	@Test
+	void aPipelineTierRoleWithNoPipelineMatchesNothing() {
+		applyPipelineTier(Role.SALES, BRAND, null);
+
+		verify(cb).disjunction();
+		verify(cb, never()).conjunction();
+		verify(cb, never()).equal(pipelinePath, PIPELINE);
+	}
+
+	/** The same, when the entity has no pipeline column to filter on. */
+	@Test
+	void aPipelineTierRoleMatchesNothingOnAnEntityWithNoPipelineColumn() {
+		ScopePredicate.<Object>of(new TenantContext(MEMBER, Role.SALES, BRAND, null, PIPELINE),
+				ScopePredicate.Fields.brandOnly("brandId")).toPredicate(root, null, cb);
+
+		verify(cb).disjunction();
+		verify(cb, never()).conjunction();
+	}
+
+	/** And the brand rule still comes first: no brand, nothing read, pipeline or not. */
+	@Test
+	void aPipelineTierRoleWithNoBrandMatchesNothing() {
+		applyPipelineTier(Role.SALES, null, PIPELINE);
+
+		verify(cb).disjunction();
+		verify(cb, never()).equal(pipelinePath, PIPELINE);
+	}
+
+	/**
+	 * The convenience constructor means "owns no pipeline", and for a pipeline-scoped role that
+	 * has to fail closed rather than read the brand. Pinned because the short form is what most
+	 * of the suite builds, so a change that made it default to something permissive would slip
+	 * through every other test in this file.
+	 */
+	@Test
+	void theNoPipelineConstructorFailsClosedForAPipelineScopedRole() {
+		ScopePredicate.<Object>of(new TenantContext(MEMBER, Role.SALES, BRAND, null), PIPELINE_FIELDS)
+				.toPredicate(root, null, cb);
+
+		verify(cb).disjunction();
+		verify(cb, never()).conjunction();
+	}
+
+	/** A non-pipeline role is unaffected by the new axis: brand only, as before. */
+	@Test
+	void aBrandTierRoleIgnoresThePipelineColumn() {
+		ScopePredicate.<Object>of(new TenantContext(MEMBER, Role.BRAND_MANAGER, BRAND, null), PIPELINE_FIELDS)
+				.toPredicate(root, null, cb);
+
+		verify(cb).equal(brandPath, BRAND);
+		verify(cb, never()).equal(pipelinePath, PIPELINE);
+	}
+
+	/** The GM still short-circuits: the union is a query Unit 38 writes, not a predicate. */
+	@Test
+	void gmIsNotNarrowedByAPipeline() {
+		applyPipelineTier(Role.GM, null, null);
+
+		verify(cb).conjunction();
+		verify(cb, never()).equal(any(), any(Object.class));
 	}
 }

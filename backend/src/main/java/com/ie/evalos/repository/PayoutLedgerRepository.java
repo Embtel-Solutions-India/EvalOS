@@ -32,6 +32,17 @@ public interface PayoutLedgerRepository extends ScopedRepository<PayoutLedger> {
 	 */
 	List<PayoutLedger> findByCaseIdAndStatus(UUID caseId, PayoutStatus status);
 
+	/**
+	 * Every ledger row for one expert in one brand, newest first — the expert's own read of their
+	 * payouts (Unit 35, D6). Covered by {@code V8}'s {@code idx_payout_brand_expert}.
+	 *
+	 * <p>Brand-scoped in the signature rather than through {@code findScoped}: the caller is a
+	 * portal token, which has no {@code TenantContext}, and the brand comes off the credential
+	 * itself. An expert on two brands' panels holds two tokens and sees two ledgers, which is the
+	 * correct answer — a payout is a brand's obligation, not the platform's.
+	 */
+	List<PayoutLedger> findByBrandIdAndExpertIdOrderByCreatedAtDesc(UUID brandId, UUID expertId);
+
 	/** One expert's pending total. Derived; {@code expert.total_payments_pending} stays dead. */
 	interface ExpertPendingTotal {
 

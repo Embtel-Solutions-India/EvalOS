@@ -1,8 +1,15 @@
 # EvalOS
 
 Back-of-house production CRM for a multi-brand credential-evaluation business.
-Monorepo: `backend/` (Java 21 + Spring Boot + PostgreSQL) and `frontend/`
-(React + TypeScript + Vite + Tailwind).
+Monorepo of three applications:
+
+- `backend/` — Java 21 + Spring Boot + PostgreSQL
+- `frontend/` — the internal staff app (React + TypeScript + Vite + Tailwind), port 5173,
+  `/api` proxied same-origin
+- `client/` — the external **portal frontend**, port 5174: the client portal and the
+  expert portal in one deployment, cross-origin against `/api/portal/**`. **Mock-backed
+  today** — wiring it to this backend is Unit 34
+  (`context/specs/34-portal-frontend-wiring.md`), and it is not started.
 
 Design context lives in `context/` — read `CLAUDE.md` first.
 
@@ -99,7 +106,7 @@ curl -s localhost:8080/api/team-members -H "Authorization: Bearer $TOKEN"
 Swap the GM token for `bm.ie@evalos.local`'s and `/api/team-members` returns only
 that brand's three members. A Case Manager token gets `403`.
 
-**3. Frontend** (port 5173; `/api` is proxied to 8080):
+**3. Staff frontend** (port 5173; `/api` is proxied to 8080):
 
 ```bash
 cd frontend
@@ -107,12 +114,30 @@ npm install
 npm run dev
 ```
 
+**4. Portal frontend** (port 5174; **no proxy — cross-origin**):
+
+```bash
+cd client
+npm install
+npm run dev
+```
+
+Every call it makes is preflighted, so the backend's `evalos.portal.allowed-origins` must
+name `http://localhost:5174` — it does by default under the `local` profile. A CORS
+refusal looks exactly like a bad portal token in the browser, so check the OPTIONS
+request first. Today the app calls nothing at all: every service module is a
+`localStorage` mock.
+
 ## Verify
 
 ```bash
 cd backend  && ./mvnw verify
 cd frontend && npm run build
+cd client   && npm run build
 ```
+
+`client/` has no test runner yet (Unit 34 adds one), so `npm run build` — which is
+`tsc -b && vite build` — is the whole gate there.
 
 `./mvnw verify` needs no database. The persistence checks that do — migrations
 apply, `ddl-auto=validate` agrees with every entity, `payment_detail` is

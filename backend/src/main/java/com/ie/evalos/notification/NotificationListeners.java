@@ -81,6 +81,27 @@ public class NotificationListeners {
 					(c, r) -> r.assignedCm(c),
 					"The client asked for revisions on %s."),
 
+			// Unit 15. The expert took the case but has not signed yet — a real state a case can
+			// sit in for most of a business day, and the one the CM chases from. Their own event
+			// rather than folding into `expert.signed`: "I will sign this" and "here it is" are
+			// different facts, and only the second moves the case.
+			route(CaseEvents.Type.EXPERT_ACCEPTED, NotificationType.STAGE_CHANGED,
+					(c, r) -> r.assignedCm(c),
+					"The expert accepted %s and is signing it."),
+
+			// Unit 15. Goes to the Coordinators rather than the CM: the expert's request became a
+			// required checklist item, and the checklist and the client chase are theirs.
+			route(CaseEvents.Type.EXPERT_EVIDENCE_REQUESTED, NotificationType.EXCEPTION_RAISED,
+					(c, r) -> r.coordinators(c.getBrandId()),
+					"The expert on %s needs more evidence before signing — the case is on hold."),
+
+			// Unit 15. Nothing routes `expert.declined` or `expert.timed_out`, and that is still
+			// deliberate: staff fire those and already know. An expert declining in their own
+			// portal is new, and it is the one nobody is watching for — so it is routed.
+			route(CaseEvents.Type.EXPERT_DECLINED, NotificationType.EXCEPTION_RAISED,
+					(c, r) -> r.assignedCm(c),
+					"The expert declined %s — it needs a rematch."),
+
 			route(CaseEvents.Type.EXPERT_SIGNED, NotificationType.STAGE_CHANGED,
 					(c, r) -> r.assignedPm(c),
 					"The expert signed %s — it is ready for QC."),
@@ -132,6 +153,13 @@ public class NotificationListeners {
 		// client-facing (`checklist.requested`, `draft.ready_for_client`, `case.delivered`
 		// go to GHL via Unit 18 and are never a staff alert — invariant 14), or the spec
 		// writes no rule for it. Both are decisions; neither needs its own branch.
+		//
+		// Unit 19's two events are absent for a THIRD reason, and it is worth stating so nobody
+		// "fixes" it by adding rows. `checklist.reminder` and `docs.escalation.day3` do raise a
+		// staff alert — but the sweeps raise it themselves, because the message depends on
+		// something the event does not carry (which of the two chases is due) and because the
+		// same events are also published by a Coordinator acting by hand, who does not need to
+		// be told what they just did. A route here would fire on both paths with one wording.
 		Route route = ROUTES.get(event.type());
 		if (route == null) {
 			return;

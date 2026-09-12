@@ -61,6 +61,29 @@ export type CaseDetail = {
    * false about a client the caller simply may not see.
    */
   maySeeCaseContent: boolean
+  /**
+   * The beneficiary the deliverable is about (Unit 33), which is only the contact when the
+   * client is an individual.
+   *
+   * **Gated with `clientName` behind `maySeeCaseContent`** — it is client identity, so a
+   * supply-side role that may not see who the client is must not see who the letter is for
+   * either. Null when withheld and null when nobody has typed it, so read the flag.
+   */
+  applicantName: string | null
+  /** The discipline the case was matched on (Unit 33). A production fact, so never withheld. */
+  fieldOfExpertise: string | null
+  /**
+   * The filing deadline USCIS imposed, which is **not** `summary.deadline` — that is the date
+   * the client was promised. Shown side by side because the gap between them is the point.
+   */
+  rfeDate: string | null
+  /**
+   * When the expert first opened their portal link (Unit 15), or null if they never have.
+   *
+   * The answer before chasing a signature: "they have not looked at it" and "they have looked and
+   * not signed" are different problems with different next moves.
+   */
+  expertPortalReadAt: string | null
 }
 
 export type AuditAction =
@@ -129,29 +152,6 @@ export async function saveStrategyNotes(caseId: string, pmStrategyNotes: string)
   return unwrap<CaseDetail>(api.patch(`/cases/${caseId}/strategy-notes`, { pmStrategyNotes }))
 }
 
-/**
- * The client portal link (Unit 14).
- *
- * `openedAt` is the token's own last-seen and **moves on every visit** — it answers "when did they
- * last look", which is what support needs. The separate `evalos_case.client_portal_read_at` is the
- * first read and is stamped once; it is not exposed here. Do not read this field as first-open.
- *
- * There is deliberately no read that returns the URL of an existing link: the token exists once, in
- * the response to `mintPortalLink`. Losing it means minting a new one, which revokes the old.
- */
-export type PortalLinkStatus = { live: boolean; expiresAt: string | null; openedAt: string | null }
-
-export type MintedLink = { url: string; expiresAt: string }
-
-export async function fetchPortalLink(caseId: string, signal?: AbortSignal): Promise<PortalLinkStatus> {
-  return unwrap<PortalLinkStatus>(api.get(`/cases/${caseId}/portal-link`, { signal }))
-}
-
-/** Re-minting revokes the previous link immediately, which the panel warns about first. */
-export async function mintPortalLink(caseId: string): Promise<MintedLink> {
-  return unwrap<MintedLink>(api.post(`/cases/${caseId}/portal-link`))
-}
-
 /** One version on the draft history (Unit 32). */
 export type DraftVersion = {
   id: string
@@ -165,6 +165,21 @@ export type DraftVersion = {
   reviewComment: string | null
   /** As uploaded. Null for a draft submitted before Unit 30, which carried a link and no file. */
   filename: string | null
+}
+
+/**
+ * The two facts a Case Manager reads off the intake documents (Unit 33).
+ *
+ * One call for both, because they come off the same paperwork in the same sitting — and one
+ * audit row for one act. Sending `null` clears a field; unlike the deadline, both are
+ * clearable, since a name typed against the wrong case has to be removable.
+ */
+export async function saveIntakeFacts(
+  caseId: string,
+  applicantName: string | null,
+  rfeDate: string | null,
+): Promise<void> {
+  await unwrap(api.patch(`/cases/${caseId}/intake-facts`, { applicantName, rfeDate }))
 }
 
 export async function fetchDraftVersions(caseId: string, signal?: AbortSignal): Promise<DraftVersion[]> {
@@ -213,4 +228,23 @@ export type CaseNotes = {
  */
 export async function fetchPmNotes(brandId: string | null, signal?: AbortSignal): Promise<CaseNotes[]> {
   return unwrap<CaseNotes[]>(api.get('/cases/pm-notes', { params: brandId ? { brandId } : {}, signal }))
+}
+
+/**
+ * Mint (or re-mint) a portal link for this case (Units 14 and 15).
+ *
+ * **The token exists exactly once, in this response.** Nothing reads it back — a staff member who
+ * loses it re-mints, which revokes the previous one immediately. So the URL is shown, copied, and
+ * never stored by this app.
+ *
+ * `audience` picks which portal: the client's draft-review link, or the expert's sign-and-upload
+ * link, which since Unit 15 is the only way the expert is reached at all.
+ */
+export async function mintPortalLink(
+  caseId: string,
+  audience: 'CLIENT' | 'EXPERT',
+): Promise<{ url: string; expiresAt: string }> {
+  return unwrap<{ url: string; expiresAt: string }>(
+    api.post(`/cases/${caseId}/portal-link`, null, { params: { audience } }),
+  )
 }

@@ -76,8 +76,9 @@ pipeline generate no EvalOS automation.** Everything below covers stages 3–7.
 
 **Human review, not AI.** The build spec's "AI reviews uploads and flags missing or
 incorrect items" is **out of scope by decision** — the Coordinator does the review.
-See Unit 20, which records the same exclusion so it is not read as a natural
-extension.
+It is `architecture.md` **invariant 15**, not a deferral: Unit 20 was removed from scope
+(2026-09-02) and struck from the schedule too (2026-09-04), so there is no unit for this to
+arrive as an extension of.
 
 ### 05 · Expert evaluation & assignment — PM assigns, ENM advises on availability
 
@@ -146,7 +147,7 @@ resolved by `RecipientResolver`.
 |---|---|---|---|---|---|
 | **A07** | Client uploads via the checklist link → flags raised, client notified, Coordinator alerted | *none yet* | Coordinator | **21** | **gap** |
 | **A08** | All documents marked complete → case pushed to the PM inbox, PM notified | `documents.completed` | `STAGE_CHANGED` → assigned PM | 04/10 | **built** |
-| **A09** | Docs not complete by day 3 → escalation to PM, flagged on the GM dashboard | `docs.escalation.day3` | *(new)* → **PM + GM** | **19** | **specced** |
+| **A09** | Docs not complete by day 3 → escalation to PM, flagged on the GM dashboard | `docs.escalation.day3` | `DOCS_ESCALATED` → **assigned PM + Brand Managers** | **19** | **built 2026-09-11** — `DocEscalationSweep`, once per case ever. **Threshold read from `SlaCalculator`, not restated**: day 3 and the `DOC_COLLECTION` budget are the same number. Recipients are the PM + Brand Managers rather than "PM + GM", matching `RecipientResolver.assignedPmAndBrandManagers` which every other brand-level escalation uses. **Its own notification type** because `StageSlaSweep` raises `SLA_OVERDUE` on the same case at the same moment and `alreadyRaised` would let one silence the other |
 | **A10** | PM assigns case to CM → CM notified with PM notes, case in their queue | `expert.assigned` | `CASE_ASSIGNED` → assigned CM | 04 | **built** |
 | **A11** | CM submits draft → PM notified, draft at the top of the review queue | `draft.submitted` | `STAGE_CHANGED` → assigned PM | 04 | **built** *(queue view: Unit 17)* |
 | **A12** | PM returns draft with comments → CM notified, comments inline | `draft.returned` | `STAGE_CHANGED` → assigned CM | 04, 32 | **partly**. Notification and return reason: **built**. Comments **per draft version**, stamped on `case_document.review_comment` and shown in the version history: **Unit 32**. Comments **positioned inside the document** (Drive's own feature, gone with Unit 30): **not covered and not planned** — anchors need a viewer that understands the file, which is a product rather than a migration |
@@ -154,8 +155,8 @@ resolved by `RecipientResolver`.
 | **A14** | Client approves draft → CM notified to send to the expert | `draft.client_approved` | `STAGE_CHANGED` → assigned CM | 04/14 | **built** |
 | **A15** | Client requests revisions → CM notified, revision logged with a version number | `draft.revision_requested` | `STAGE_CHANGED` → assigned CM | 04/14 | **built** — `draft_version_count` |
 | **A16** | CM sends letter to expert → expert notified, 20h countdown begins | *(Unit 15)* | expert, ENM | **15** | **specced** |
-| **A17** | Expert unsigned at 20h → alert to CM, reassign prompt shown | `expert.sign_overdue_warning` | → CM + PM | **15/19** | **specced** |
-| **A18** | Expert unsigned at 24h → rematch prompted, ENM notified, CM confirms next expert | `expert.sign_overdue` | → CM + PM + ENM | **15/19** | **specced** |
+| **A17** | Expert unsigned at 20h → alert to CM, reassign prompt shown | *(no event; the sweep notifies)* | `EXPERT_SIGN_AT_RISK` → CM + PM | **15/19** | **built 2026-09-11** — `ExpertSignSweep`, on **business** hours. 20h is written as ⅚ of the 24h budget so the two cannot drift into a warning that fires after the deadline. The reassign *prompt* is the notification; there is no screen action beyond the ones Unit 15 already gives |
+| **A18** | Expert unsigned at 24h → rematch prompted, ENM notified, CM confirms next expert | *(no event; the sweep notifies)* | `EXPERT_SIGN_OVERDUE` → CM + PM | **15/19** | **built 2026-09-11, narrower than specced.** The sweep raises a prompt and **never fires `EXPERT_TIMED_OUT`** — reassigning an expert is a production decision and stays a human's. **The ENM is not notified**: they own the roster, not the case, and every other case-level escalation goes to the people holding it. No event is published either — nothing subscribes, and a wire name nobody consumes is a contract that has not been agreed |
 | **A19** | Expert signs → PM notified for QC, signed letter attached to the case | `expert.signed` | `STAGE_CHANGED` → assigned PM | 04/15 | **built** |
 | **A20** | PM completes QC → case in the delivery queue, Coordinator notified | `qc.approved` | `STAGE_CHANGED` → Coordinators | 04 → **17** | **built** *(delivery queue view: Unit 17)* |
 | **A21** | Case delivered and closed → review queued at 7d, retention 30/90/180/365, revenue confirmed | `case.delivered`, `case.closed` | — | **GHL** + 17 | **GHL's** |
@@ -170,8 +171,14 @@ resolved by `RecipientResolver`.
   list it points at does not exist yet.
 
 Statuses that are **built** are built as of Unit 05b (plus the A20 route). Where a
-row names a unit above 14, that unit is specced and unbuilt — the whole timed half
-of this register waits on Unit 19, which is the clock.
+row names a unit above 14 without a build date, that unit is specced and unbuilt.
+
+**The timed half of this register is no longer waiting: Unit 19 shipped 2026-09-11.** A09, A17
+and A18 are built, and the 24h/48h chases behind the process table's `DocChaseSweep` reference
+fire. **What they cannot do is reach the client** — with Unit 18 gone EvalOS has no outbound
+channel (invariant 14), so the chase is a `DOC_CHASE_DUE` notification asking the **Coordinator**
+to chase by hand, naming which of the two chases is due. `checklist.reminder` is still published
+and still has no subscriber; T2 and T3 below are the decision that would give it one.
 
 ---
 
@@ -201,10 +208,9 @@ therefore 24 clock-counted working hours, which is why the constant reads 24. A 
 in any exception state has **no clock** — `SlaCalculator` returns null, and the
 sweeps skip it.
 
-**Known defect to fix when Unit 19 is built:** its spec tells `StageSlaSweep` to
-match cases whose status is `AT_RISK` or `BREACHED`, but `SlaStatus` defines only
-`ON_TRACK`, `AT_RISK`, `OVERDUE`. Read it as `AT_RISK` / `OVERDUE`; do not add a
-fourth enum value.
+**That defect was fixed in the build (2026-09-11).** Unit 19's spec told `StageSlaSweep` to match
+`AT_RISK` or `BREACHED`; `SlaStatus` has only `ON_TRACK`, `AT_RISK`, `OVERDUE`, and the sweep uses
+those. No fourth enum value was added, and none should be.
 
 ---
 
@@ -216,9 +222,9 @@ today**, and whether it ever should is undecided.
 | # | Touchpoint | Trigger event | To | Channel |
 |---|---|---|---|---|
 | T1 | Checklist + upload link | `checklist.requested` | client | **DECISION PENDING** |
-| T2 | 24h chase | `checklist.reminder` (Unit 19) | client | **DECISION PENDING** |
-| T3 | 48h chase | `checklist.reminder` (Unit 19) | client | **DECISION PENDING** |
-| T4 | Upload flagged incomplete/incorrect (A07) | *(Unit 21)* | client | **DECISION PENDING** |
+| T2 | 24h chase | `checklist.reminder` (Unit 19, **fires**) | client | **DECISION PENDING** — the timer is built and nothing subscribes, so today it lands as a `DOC_CHASE_DUE` prompt to the Coordinator to chase by hand |
+| T3 | 48h chase | `checklist.reminder` (Unit 19, **fires**) | client | **DECISION PENDING** — as T2, and then never again: two chases, capped by the `CHASED` audit rows |
+| T4 | Upload flagged incomplete/incorrect (A07) | *(Unit 21)* | client | **IN-PORTAL, BUILT** (Unit 34c) — the Coordinator's `MISSING` / `INCORRECT` is shown on the client's document screen. Still no *message*: see the reach limit below |
 | T5 | Draft ready to review | `draft.ready_for_client` | client | **DECISION PENDING** |
 | T6 | Signing link (A16) | *(Unit 15)* | expert | **DECISION PENDING** — see below |
 | T7 | Evidence requested | `expert.evidence_requested` | client | **DECISION PENDING** |
@@ -231,6 +237,38 @@ exists), or EvalOS sends mail itself — which **reverses invariant 14** and bri
 an SMTP provider, deliverability, bounce handling, unsubscribe and a suppression
 list. That is a business call about who owns the client relationship, not a
 technical preference. Nothing is built either way.
+
+> **⚠️ EvalOS acquired SMTP on 2026-09-11 (Unit 42), and T1–T8 are STILL pending.**
+>
+> The sentence above treats "EvalOS has no mail channel" as the obstacle. That obstacle is
+> gone — `spring-boot-starter-mail` is in the build and `ClientMailer` sends two messages. **It
+> changes nothing in this table, and that is deliberate.**
+>
+> Invariant 14 was amended to *authentication mail only*: proving control of a client's own
+> address. Every touchpoint here is a **status** message, which is the category the amendment
+> explicitly does not license. The things that made this a business call — deliverability,
+> bounce handling, unsubscribe, a suppression list, and who owns the client relationship — are
+> **all still unpaid**, because a set-password mail needs none of them and a delivery
+> notification needs all of them.
+>
+> **So the existence of `ClientMailer` is not an argument for using it here.** If these
+> touchpoints move to EvalOS, that is a new decision and a new unit, and it re-argues invariant
+> 14 a second time. Written down because this is exactly the shortcut the next reader will
+> reach for.
+
+**A third option exists as of 2026-09-03, and it is not a channel.** The portal frontend
+(`client/`) makes T1, T2, T3, T4, T5, T7 and T8 expressible as **states the client sees
+when they open the portal** — an outstanding checklist item, a draft waiting for review,
+an evidence request, a delivered letter ready to download. Nothing is sent, so invariant
+14 is untouched and no dependency is added. Unit 34 **D4** recommends it.
+
+**Its limit is the whole reason it does not close the question:** a message *reaches* the
+client; a state *waits* for them. A client who never opens the portal is never notified,
+and the stage clock runs regardless — the same failure T6 has with the expert. So the
+portal downgrades this from blocking to a reach problem and **is not an answer to it**.
+The compensating control is the same one below: `portal_access.last_seen_at` is honest
+evidence a link was opened, and a live-but-never-opened link against a running clock is
+the shape the failure takes.
 
 **T9 is settled — GHL owns retention and reviews.** **T6 moved back into the open**
 when the signature provider was dropped: Dropbox Sign used to email the expert its own

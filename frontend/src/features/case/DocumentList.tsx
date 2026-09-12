@@ -2,7 +2,12 @@ import { useEffect, useState } from 'react'
 import { fetchCaseDocuments, fetchDocumentUrl, type DraftVersion } from './caseApi'
 
 /**
- * The client's uploaded documents, each opening through a short-lived URL.
+ * A case's documents of one kind, each opening through a short-lived URL.
+ *
+ * `kind` defaults to the client's uploads, which is what the Documents panel draws; the expert
+ * card passes `SIGNED_LETTER` (Unit 15). One component rather than two because "list documents,
+ * open one through a URL minted at the click" is the same job either way — only the empty-state
+ * sentence differs, and that is a prop.
  *
  * **Nothing here holds a URL.** One is fetched at the moment of the click and used immediately —
  * a presigned link kept in state expires while the page sits open, and a user clicking a dead link
@@ -12,7 +17,17 @@ import { fetchCaseDocuments, fetchDocumentUrl, type DraftVersion } from './caseA
  * blocker rejects a window opened from an async continuation, which would look like the button
  * doing nothing at all.
  */
-export default function DocumentList({ caseId, maySee }: { caseId: string; maySee: boolean }) {
+export default function DocumentList({
+  caseId,
+  maySee,
+  kind = 'CLIENT_UPLOAD',
+  emptyMessage = 'The client has not uploaded anything yet.',
+}: {
+  caseId: string
+  maySee: boolean
+  kind?: 'DRAFT' | 'CLIENT_UPLOAD' | 'SIGNED_LETTER'
+  emptyMessage?: string
+}) {
   const [state, setState] = useState<
     { status: 'loading' } | { status: 'ready'; docs: DraftVersion[] } | { status: 'failed' }
   >({ status: 'loading' })
@@ -21,13 +36,13 @@ export default function DocumentList({ caseId, maySee }: { caseId: string; maySe
   useEffect(() => {
     if (!maySee) return
     const controller = new AbortController()
-    fetchCaseDocuments(caseId, 'CLIENT_UPLOAD', controller.signal)
+    fetchCaseDocuments(caseId, kind, controller.signal)
       .then((docs) => setState({ status: 'ready', docs }))
       .catch(() => {
         if (!controller.signal.aborted) setState({ status: 'failed' })
       })
     return () => controller.abort()
-  }, [caseId, maySee])
+  }, [caseId, maySee, kind])
 
   const open = async (documentId: string) => {
     // **The tab is opened synchronously and WITHOUT `noopener`, and both halves matter.**
@@ -73,7 +88,7 @@ export default function DocumentList({ caseId, maySee }: { caseId: string; maySe
       {state.docs.length === 0 ? (
         // Operational copy: an empty list is a statement about the case, not about the screen.
         <p className="mt-2 text-sm" style={{ color: 'var(--text-muted)' }}>
-          The client has not uploaded anything yet.
+          {emptyMessage}
         </p>
       ) : (
         <ul className="mt-2 flex flex-col gap-1">

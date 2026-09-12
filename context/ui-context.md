@@ -41,6 +41,42 @@ EvalOS has three surfaces:
   plainly that a scanned wet signature is expected, so nobody hunts for an
   e-signature button that does not exist.
 
+  **⚠ "Minimal chrome, no navigation" and "one case at a time" describe Unit 14's
+  one-screen portal, which is what is shipped.** The portal frontend that arrived in
+  `client-expert/` draws a full navigated shell — sidebar, header, notification centre, mobile
+  drawer, a *list* of cases for both audiences. Whether that is the design depends on
+  Unit 34 **D1** (does a portal token name a case, or a party?), which is recommended and
+  undecided. Until it is taken, these two bullets are the design and the shell is a
+  proposal. See `context/specs/34-portal-frontend-wiring.md`.
+
+**The two external surfaces now have a real home, and it has its own design system.**
+Both live in `client-expert/` (2026-09-03) — **two separately built apps**, `client/` (5174)
+and `expert/` (5175), sharing `shared/src` and one dependency set, so each can take its own
+subdomain (split 2026-09-03). A separate deployment either way, not a mode of the staff app. Everything below about colors, typography, density and layout
+describes the **internal app** and stops at that boundary. The portal frontend's tokens
+are its own:
+
+| | Internal app (`frontend/`) | Portal frontends (`client-expert/`) |
+|---|---|---|
+| Tokens | `frontend/src/styles/tokens.css` | `client-expert/shared/src/styles/globals.css` |
+| Shape | hex custom properties, Tailwind 4 | HSL triples behind shadcn names, Tailwind 3 |
+| Type | Inter + IBM Plex Mono | DM Sans + DM Serif Display |
+| Accent | `#2563EB` | IE navy `#003152`, crimson `#c8102e` |
+| Radius | see *Border Radius* below | `0.625rem` |
+| Dark mode | none | `.dark` class, full palette |
+
+**This divergence is correct and should not be "unified".** A client reviewing a letter
+once is not a coordinator on a nine-hour shift; the density, the palette and the serif
+display face are all answering the external audience. What is **not** correct is that the
+portal's palette is hard-coded to one brand — EvalOS is multi-brand and XpertsPortal has
+no home in it. That is a real gap, tracked as Unit 34 **D7**: the brand's name and palette
+travel in the portal payload, and the SPA reads its tokens from there.
+
+**Two rules do cross the boundary**, because they are semantic rather than stylistic:
+**RAG is status-only and never decorative**, and **tabular figures on every column of
+money, dates, deadlines and counts.** A portal that paints a due date amber for emphasis
+has broken the same rule the board would have.
+
 EvalOS is an internal operations tool: data-dense, fast, and legible over long
 shifts. Light workspace — a calm neutral base with layered surfaces and a single
 strong accent for interactive elements.

@@ -18,24 +18,42 @@
 > and narrow the CHECK. If no — audit, or any append-only table — keep the value and mark it
 > retired in the javadoc. Same question, opposite answers, one session apart.
 
-> ## ⚠ PIVOT: Google Drive → S3 document store (Unit 30, SPECCED 2026-09-02, NOT BUILT)
+> ## Google Drive → S3 document store (Unit 30, BUILT)
 >
-> **Read `context/specs/30-s3-document-store.md` before touching any document path.**
-> Everything below about Drive still describes the **code as it stands today** — the client,
-> the config, the columns are all still there. It no longer describes the **decision**.
+> **The Drive prose further down this file is history, not the code.** It is left because it
+> records why the decision went the way it did; nothing it describes still exists. `pom.xml` has
+> no Google dependency, there is no `config/` package, and `V34__drop_drive_link.sql` dropped the
+> column. Spec: `context/specs/30-s3-document-store.md`.
 >
-> - Documents move to an **S3 bucket**. Google Drive leaves entirely: client, config,
->   service account, dependency, `drive_link` column.
+> - **`integration/DocumentStore` is the one door**, and it has exactly two capabilities: `put` an
+>   object and `presignedUrl` a read. **No delete, no list** — deliberately, so the store cannot be
+>   used as a mutable filesystem.
 > - **A separate Client Portal application writes client uploads**; EvalOS's credential is
 >   **read-only** on `client/{clientId}/`. EvalOS writes only under `case/{caseId}/`.
 > - `{clientId}` is **GHL's contact id** — one client across GHL, the Client Portal and
 >   EvalOS, no mapping table. **Email stays a fallback key (V27), never the identity.**
-> - Reads are **5-minute presigned URLs**, minted after the scope check, never stored.
-> - **Invariant 14 is amended and "No object storage" is deleted** from `architecture.md`.
-> - This **unblocks Units 13, 15 and 21**, which were all waiting on the Google service
->   account. Unit 21 is reshaped: the upload leaves EvalOS.
->
-> **Do not build new Drive work, and do not cite the Drive notes below as settled.**
+> - Reads are **5-minute presigned URLs** (`DocumentStore.READ_WINDOW`), minted after the scope
+>   check and **never stored** — a presigned URL in a column is a credential in a column. Every one
+>   is minted `Content-Disposition: attachment`, which closes the *path* rather than the file: an
+>   HTML or SVG that beat the sniffer has no browser origin to execute in.
+> - **Uploads are sniffed, not trusted.** `common/UploadedFileType` reads magic bytes on both
+>   surfaces (the client's document and the signed letter). Its ceiling is stated where it lives:
+>   `.docx` is a ZIP and `.doc` an OLE2, so this proves the container, not the document —
+>   **scanning is the bucket's job**, and that is infra work still owed.
+> - **Configuration fails loud but late, and that is the one real change from Drive.**
+>   `evalos.s3.bucket` / `evalos.s3.region` (`EVALOS_S3_BUCKET` / `EVALOS_S3_REGION`) have **no
+>   defaults**; absent, document routes answer **502** and the boot log names the missing variable.
+>   Drive's `evalos.drive.required` made the same omission a **boot failure** — S3 does not, so a
+>   misconfigured deploy starts and serves every non-document screen.
+> - **The credential is not a property at all.** The AWS SDK's default provider chain reads the
+>   environment, the shared profile or the instance role, so no key can reach a committed yaml —
+>   `ConfigSecretsTest` fails the build if one does.
+> - **Invariant 14 is amended and "No object storage" is deleted** from `architecture.md`. What
+>   survives is "EvalOS holds keys, never bytes".
+> - **Unit 30 also closed the PDF question by removal**: the redacted profile was the only document
+>   EvalOS generated, and Drive's HTML → Doc → PDF export was the only reason a PDF library was ever
+>   considered. Nothing generates documents now — they arrive as uploads. **Do not add PDFBox or
+>   openhtmltopdf.**
 
 Built in Unit 03 (`V4`–`V10`). Entities: `ContactSnapshot`, `Case` (table **`evalos_case`** — `case`
 is reserved SQL), `DocumentChecklistItem`, `Expert`, `PayoutLedger`, `PayoutPayment`, `Notification`, `AuditEvent`,
@@ -90,6 +108,70 @@ Still-dead-and-should-stay-dead, for the same derive-don't-store reason as the t
 `expert.avg_response_hours`. Unit 17 derives turnaround from `expert_case_offer`; reviving the column
 would be a second, staler answer.
 
+**`V41` adds `opportunity_note` — the one thing in the GHL programme EvalOS genuinely owns.**
+GHL has nowhere to put it: its only note endpoints hang off the **contact**, so a repeat client's
+two deals would share one stream. **Keyed on `ghl_opportunity_id`, never `ghl_contact_id`**
+(invariant 7's three-identifier rule). **No FK to `ghl_opportunity_cache`** — that table is
+droppable, and a FK into it would make truncating a cache delete real notes. `brand_id` and
+`ghl_pipeline_id` are **denormalised onto the row** so `ScopePredicate` can scope a note without
+joining the droppable cache; a scope that depends on a droppable table fails *open* when it is
+empty. **Append-only by trigger**, same mechanism and same reasoning as `audit_event`.
+
+**⚠ `V40` adds `ghl_opportunity_cache` — the first table holding another system's records.**
+Every column is a field GHL owns; it is **droppable without loss**; a pipeline is **replaced
+wholesale, never upserted** (a departed opportunity has no fresh row to update, so an upsert
+strands it on the board forever). **No `brand_id`, deliberately** — an opportunity belongs to a
+GHL *location*, and with one selling brand the column would hold one value while looking like a
+scope. Unit 25 is when it gains one, and that migration rewrites `V40`'s comment rather than
+adding one beside it.
+
+**It is not scoped by `ScopePredicate` and cannot be** (no brand column). Instead every finder on
+`CachedOpportunityRepository` *requires* the pipeline id, which comes from the caller's principal —
+`CachedOpportunityRepositoryScopeTest` fails the build on an unscoped finder. **Do not add
+`findAll`-shaped reads there.**
+
+**`V37` adds `portal_access.expert_id`** (nullable, `updatable = false`), which binds an expert's
+credential to the expert rather than only to the case — see `mem:backend/security` for what that
+closes. **No CHECK tying it to `audience = 'EXPERT'`, and the reason is worth keeping**: a plain
+CHECK fails the migration against any existing EXPERT row, and a `NOT VALID` one is still enforced on
+UPDATE — so it would refuse the very revoke that retires such a row, blocking the cleanup it exists
+to force. `PortalAccessService.mint` is the only writer and the read fails closed instead. That is a
+deliberate exception to the V15/V16 "put the invariant in the database" rule, not an oversight.
+
+**`V36` (Unit 15) is four columns and the count is the decision.** `evalos_case.expert_portal_read_at`
+mirrors `client_portal_read_at` exactly (stamped **once**, on first read; "when did they last look" is
+`portal_access.last_seen_at`), and `case_document` gains `content_sha256`, `attestation` and
+`attested_name`. The spec drafted eight; the other four state facts the system already holds —
+`SlaCalculator` computes the sign deadline, the document row carries the key and `uploaded_at`, and
+`letter_sent_hash` **cannot be computed at all** because the draft is a pasted link and `DocumentStore`
+has no read capability. **The provenance is on `case_document`, not `evalos_case`, because a failed
+final QC means a case can be signed twice** and a per-case column would keep the newest and lose the
+one a dispute is about.
+
+**`V35` (Unit 33) adds `expert.avg_turnaround_days` beside it, and that is not a reversal — read the
+two names.** `avg_response_hours` is how fast an expert *answers an offer*, which the offer table
+already knows; `avg_turnaround_days` is how long they take to *write the letter*, which EvalOS cannot
+derive today (no path attributes draft time to an expert, and Unit 15 has not accumulated signed
+letters to measure). It is the ENM's own figure, transcribed from the roster. **If a later unit does
+derive letter turnaround, this column is the one to kill** — the derive-don't-store rule applies to it
+the moment the data exists. A fast replier can be a slow writer, which is why one is not the other.
+
+**`V35` also widened `V18`'s taxonomy, which is the first time that has happened.** `V18` shipped an
+unsigned-off starter list drawn for *credential-evaluation degree fields*; the roster is an
+*expert-opinion-letter* roster, and **10 of the 22 disciplines on a real sheet had no tag at all** —
+which `ExpertMatchService` reports as a zero on a 40-point factor rather than as an error, so it was
+a silent wrong answer. `FieldTag` gained 11 values, `LetterType` 2, `ServiceType` 2, `ClientType` 1,
+`VisaCategory` 4, and a new `AffiliationType`. The CHECKs were dropped and re-added in the same
+migration, per `V18`'s own header: **widening is a new migration, never an edit to the applied one**,
+and the enum and the constraint move together or the app writes rows the database rejects.
+
+Also in `V35`: nineteen dossier columns on `expert` (**one wide table, no `expert_credentials` child —
+1:1, no history, no second implementation**), `evalos_case.applicant_name` / `field_of_expertise` /
+`rfe_date`, `uq_expert_per_brand_code` shaped like `V18`'s email key, and two roster indexes. The
+sheet's `last_active_date` **is deliberately not a column**: it is `max(offered_at)` over
+`expert_case_offer` (`ExpertCaseOfferRepository.lastOfferedAt`), the same fact with no writer to
+forget. Null there means *never approached*, which is not dormancy.
+
 **Case Creation v2.0 (Unit 05b)** added `V24` `evalos_case.ghl_opportunity_id` + the per-brand
 `uq_case_open_per_opportunity`, so a re-fired GHL workflow cannot open a second case for one
 opportunity — the `V15`/`V16` index-not-lookup rule again. It is partial on **`WHERE
@@ -105,7 +187,8 @@ transition and endpoint are deleted, so nothing but `CaseIntakeService` ever wri
 `CaseIntakeService.refresh()` **overwrites** rather than fills, because deleting `markPaid` removed
 its only other writer and the figure feeds revenue recognition.
 
-**⚠ Unit 30 drops `drive_link` and keeps `draft_link` — and the reason is the distinction below.** A
+**Unit 30 dropped `drive_link` (`V34`) and kept `draft_link` — and the reason is the distinction
+below.** A
 client's documents become *derivable* from the contact the case already points at
 (`client/{ghl_contact_id}/`), so storing a link to them is a second copy of a fact the schema holds.
 A draft is **one file among several versions** and is not derivable, so `draft_link` survives — as an
@@ -150,14 +233,23 @@ an expired row would sit in that index forever and block the next mint for that 
   `NotificationType` and `AuditAction` are **open** — their columns carry no CHECK, so later units add
   values without a migration. No CHECK constraints on the other enum columns either (only `V3.role`).
   That openness has been spent three times: `CHASED` (Unit 10), `IMPORTED` (Unit 11) and `EXPORTED`
-  (Unit 13 — a generated document left EvalOS; the snapshot carries the Drive file and folder ids, so
-  the trail answers *which* document and *where it went*). Each is its own action rather than
+  (Unit 13 — a generated document left EvalOS. Unit 30 kept the action and changed what it points at:
+  the row now names the `case_document` and its S3 object key, and the writers are the three
+  presigned-URL issuers in `CaseLifecycleService`, `PortalCaseService` and `ExpertPortalService`, so
+  the trail answers *which* document and *who was handed a link to it*). Each is its own action rather than
   `UPDATED` because in all three nothing about the object itself changed.
 - `text[]` → `String[]` with `@JdbcTypeCode(SqlTypes.ARRAY)`; `jsonb` → `String` with
   `SqlTypes.JSON`. Enum arrays are avoided — they buy nothing and risk `validate` mismatches.
 - Contact snapshots: GHL is the only writer (invariant 7). Columns stay physically updatable so the
   `contact.updated` sync can refresh them; the rule is enforced by "only the sync writes", not by
   `updatable = false`.
+  **`syncFromGhl` is wholesale for the contact's own details and fill-only for attribution.**
+  `full_name` / `email` / `phone` / `company` are current state, so an omitted one means GHL says it
+  is gone. `client_type`, `source_channel` and the three `utm_*` are capture-time facts that cannot
+  change, only be missing from a payload that never carried them — and GHL's Custom Webhook is
+  exactly that payload (contact + deal, nothing about attribution), so a wholesale write blanked all
+  five on every `opportunity.won` with this being their only writer and nothing able to restore
+  them. Null therefore means "not carried" for those five, and only those five.
 
 ## No optimistic locking — guard uniqueness in the database
 
@@ -267,7 +359,32 @@ column breaks the build. Unit 12 reuses the service; Unit 16 owes `total_payment
 treatment.
 
 Same trap, different shape: `Case.retention_30_sent_at` … `retention_365_sent_at` and
-`google_review_requested` exist and are unwritten, reserved for the jobs/outbound units.
+`google_review_requested` exist and are unwritten. **They are not "reserved" any more** — Unit 19
+shipped without a `RetentionSweep` (GHL owns retention) and Unit 18's dispatcher was removed, so
+nothing is coming to write them. Give them no accessors.
+
+## `scheduled_job` (`V42`, Unit 19) — the one table with no `brand_id`, deliberately
+
+The sweep run ledger: `job_type`, `started_at`, `finished_at`, `status` (`RUNNING`/`OK`/`FAILED`),
+`items_seen`, `items_acted`, `error`. Index on `(job_type, started_at DESC)`.
+
+- **No `brand_id`, and `ScheduledJobRepository` is not a `ScopedRepository`.** A run spans every
+  brand's cases by nature, so there is no brand to record and a scoped read of it would misstate
+  what ran. It is gated at the route instead (`/api/jobs/**`, GM-only), which is where cross-brand
+  infrastructure is gated everywhere else. **This is the exception, not a precedent**: everything
+  that names a case still carries a brand, and the sweeps' own notifications and audit rows take
+  it off the case row.
+- **Rows, not timers.** No row-per-future-reminder — a sweeper asks "what is overdue now", which is
+  correct on the first run after any outage. Every sweep's idempotency already lives in the data it
+  reads (`CHASED` audit rows, notification rows, the stored `sla_status`), so a job row asserting
+  "the chase fired" would be a second record of a fact the system already holds.
+- **The row is written before the work.** A row left `RUNNING` with no `finished_at` is how a JVM
+  killed mid-sweep announces itself, and the panel colours it amber for that reason.
+- `error` is truncated to 1000 chars in `ScheduledJob.finish` — a stack trace in a ledger column is
+  a row nobody can scan past. The full one is in the log.
+- **Nothing prunes it.** At four sweeps on 15–30 minute ticks that is ~250 rows a day; the panel
+  reads `findTop50ByOrderByStartedAtDesc`. A retention policy is a later decision, not an omission
+  — say so before adding one, because "the ledger stopped gaining rows" is a diagnostic.
 
 ## Scoped repositories
 

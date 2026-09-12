@@ -26,14 +26,17 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.TestPropertySource;
 
+import com.ie.evalos.common.InvalidRequestException;
 import com.ie.evalos.domain.ActorType;
 import com.ie.evalos.domain.AuditAction;
 import com.ie.evalos.domain.AuditEvent;
 import com.ie.evalos.domain.Brand;
 import com.ie.evalos.domain.Case;
 import com.ie.evalos.domain.ChecklistItemStatus;
+import com.ie.evalos.domain.ClientAccount;
 import com.ie.evalos.domain.ContactSnapshot;
 import com.ie.evalos.domain.DocumentChecklistItem;
 import com.ie.evalos.domain.ExceptionState;
@@ -54,7 +57,9 @@ import com.ie.evalos.domain.WebhookEvent;
 import com.ie.evalos.domain.WebhookSource;
 import com.ie.evalos.security.TenantContext;
 import com.ie.evalos.service.AuditService;
+import com.ie.evalos.service.ClientAccountService;
 import com.ie.evalos.service.ExpertLoadService;
+import com.ie.evalos.service.PortalAccessService;
 
 /**
  * The acceptance evidence for Unit 03 that only a real PostgreSQL can produce:
@@ -126,6 +131,10 @@ import com.ie.evalos.service.ExpertLoadService;
 		"spring.flyway.ignore-migration-patterns=*:missing",
 		"spring.jpa.properties.hibernate.default_schema=evalos_test",
 		"spring.jpa.show-sql=false",
+		// The sweeps stay asleep here. They would otherwise tick against the very rows these
+		// tests are asserting on, and a job that fires mid-assertion is a flake nobody
+		// reproduces. Their logic is tested directly, not by waiting for a clock.
+		"evalos.jobs.enabled=false",
 })
 class LocalPostgresIntegrationTest {
 
@@ -152,10 +161,22 @@ class LocalPostgresIntegrationTest {
 		Properties credentials = new Properties();
 		credentials.setProperty("user", envOr("DB_USER", "postgres"));
 		credentials.setProperty("password", envOr("DB_PASSWORD", "1234"));
-		// Seconds. Short on purpose: this runs on every build, so an unreachable host must cost
-		// a moment and not a stalled pipeline.
-		credentials.setProperty("connectTimeout", "2");
-		credentials.setProperty("loginTimeout", "2");
+		// Seconds. Short, so an unreachable host costs a moment rather than a stalled pipeline —
+		// but **not 2, which this suite silently skipped on.**
+		//
+		// **Raised from 2 during Unit 38, and the failure it fixes is the nasty kind.** Run on
+		// its own, all 36 tests passed. Run inside a full `./mvnw verify`, with a dozen Spring
+		// contexts starting around it, the probe lost the race and every one of them SKIPPED —
+		// and a skip is not a failure, so the build reported SUCCESS with the only tests that
+		// can see a real schema quietly not run. That is exactly how the `V39` NULL-in-CHECK bug
+		// would have shipped.
+		//
+		// 10 seconds keeps the original intent (a machine with no Postgres is not punished for
+		// it) while making the skip mean "absent" rather than "busy". If this ever needs to be
+		// higher, the honest fix is not a bigger number: it is `-Devalos.db.test=true` in CI,
+		// which forces the suite on so a broken database fails loudly instead of vanishing.
+		credentials.setProperty("connectTimeout", "10");
+		credentials.setProperty("loginTimeout", "10");
 
 		try (Connection probe = DriverManager.getConnection(envOr("DB_TEST_URL", TEST_URL), credentials)) {
 			return probe.isValid(2);
@@ -221,6 +242,12 @@ class LocalPostgresIntegrationTest {
 	PortalAccessRepository portalTokens;
 
 	@Autowired
+	ClientAccountRepository clientAccounts;
+
+	@Autowired
+	PortalAccessService portalAccess;
+
+	@Autowired
 	GhlFunnelCacheRepository funnelCache;
 
 	@Autowired
@@ -231,6 +258,12 @@ class LocalPostgresIntegrationTest {
 
 	@Autowired
 	ExpertLoadService expertLoads;
+
+	@Autowired
+	ClientAccountService clientAccountService;
+
+	@Autowired
+	PasswordEncoder passwordEncoder;
 
 	@Test
 	void everyMigrationApplied() {
@@ -973,17 +1006,17 @@ class LocalPostgresIntegrationTest {
 		Instant expires = Instant.now().plus(Duration.ofDays(30));
 
 		PortalAccess first = portalTokens.saveAndFlush(
-				new PortalAccess(BRAND_IE, caseId, PortalAudience.CLIENT, hash, expires));
+				new PortalAccess(BRAND_IE, caseId, PortalAudience.CLIENT, null, hash, expires));
 
 		assertThatThrownBy(() -> portalTokens.saveAndFlush(
-				new PortalAccess(BRAND_IE, otherCaseId, PortalAudience.CLIENT, hash, expires)))
+				new PortalAccess(BRAND_IE, otherCaseId, PortalAudience.CLIENT, null, hash, expires)))
 				.hasStackTraceContaining("uq_portal_access_token_hash");
 
 		// V23: a second UNREVOKED token on the same case and audience is refused by the database.
 		// This is what makes two concurrent mints impossible rather than merely unlikely — the loser
 		// rolls back. Until V23 both inserts succeeded and the case had two live credentials.
 		assertThatThrownBy(() -> portalTokens.saveAndFlush(new PortalAccess(
-				BRAND_IE, caseId, PortalAudience.CLIENT, "hash-" + UUID.randomUUID(), expires)))
+				BRAND_IE, caseId, PortalAudience.CLIENT, null, "hash-" + UUID.randomUUID(), expires)))
 				.hasStackTraceContaining("uq_portal_access_one_unrevoked");
 
 		// Retiring the previous row is what makes the re-mint legal, which is exactly the order
@@ -991,7 +1024,7 @@ class LocalPostgresIntegrationTest {
 		first.revoke(Instant.now());
 		portalTokens.saveAndFlush(first);
 		UUID second = portalTokens.saveAndFlush(new PortalAccess(
-				BRAND_IE, caseId, PortalAudience.CLIENT, "hash-" + UUID.randomUUID(), expires)).getId();
+				BRAND_IE, caseId, PortalAudience.CLIENT, null, "hash-" + UUID.randomUUID(), expires)).getId();
 
 		assertThat(portalTokens.findByCaseIdAndAudienceOrderByCreatedAtDesc(caseId, PortalAudience.CLIENT))
 				.extracting(PortalAccess::getId).contains(first.getId(), second);
@@ -1001,13 +1034,13 @@ class LocalPostgresIntegrationTest {
 		retired.revoke(Instant.now());
 		portalTokens.saveAndFlush(retired);
 		assertThat(portalTokens.saveAndFlush(new PortalAccess(
-				BRAND_IE, caseId, PortalAudience.CLIENT, "hash-" + UUID.randomUUID(), expires)).getId()).isNotNull();
+				BRAND_IE, caseId, PortalAudience.CLIENT, null, "hash-" + UUID.randomUUID(), expires)).getId()).isNotNull();
 
 		// And the other audience is a different slot: Unit 15 can hold its own live token per case.
 		assertThat(portalTokens.findByCaseIdAndAudienceOrderByCreatedAtDesc(caseId, PortalAudience.EXPERT))
 				.as("Unit 15's audience shares the table and not the rows").isEmpty();
 		assertThat(portalTokens.saveAndFlush(new PortalAccess(
-				BRAND_IE, caseId, PortalAudience.EXPERT, "hash-" + UUID.randomUUID(), expires)).getId()).isNotNull();
+				BRAND_IE, caseId, PortalAudience.EXPERT, UUID.randomUUID(), "hash-" + UUID.randomUUID(), expires)).getId()).isNotNull();
 		assertThat(portalTokens.findByTokenHash(hash)).get()
 				.extracting(PortalAccess::getId).isEqualTo(first.getId());
 
@@ -1469,5 +1502,310 @@ class LocalPostgresIntegrationTest {
 				+ "VALUES (?, NULL, 'GM', ?, 'x', 'Second GM')",
 				gm, "gm-" + gm + "@evalos.local")).isEqualTo(1);
 		jdbc.update("DELETE FROM team_member WHERE id = ?", gm);
+	}
+
+	// --- Unit 36: pipeline-scoped access, V39 ---------------------------------
+
+	private UUID insertPipelineMember(UUID brandId, String role, String pipelineId, String segment,
+			boolean active) {
+		UUID id = UUID.randomUUID();
+		jdbc.update("INSERT INTO team_member "
+				+ "(id, brand_id, role, email, password_hash, display_name, ghl_pipeline_id, segment, active) "
+				+ "VALUES (?, ?, ?, ?, 'x', 'Desk', ?, ?, ?)",
+				id, brandId, role, role.toLowerCase() + "-" + id + "@evalos.local", pipelineId, segment, active);
+		return id;
+	}
+
+	/**
+	 * <strong>Both halves of both CHECKs, against the real database.</strong>
+	 *
+	 * <p>Each direction matters and for a different reason. A sales row with no pipeline is a
+	 * person who can see nothing and has no error to show for it. A Case Manager <em>with</em> one
+	 * is a column that has started to mean two things — which is precisely the mistake V29 made
+	 * and V30 recorded, and the reason both constraints are written as a biconditional rather than
+	 * a NOT NULL.
+	 */
+	@Test
+	void aPipelineAndASegmentBelongToPipelineScopedRolesAndOnlyThem() {
+		// A pipeline-scoped role must have both.
+		assertThatThrownBy(() -> jdbc.update(
+				"INSERT INTO team_member (id, brand_id, role, email, password_hash, display_name, segment) "
+						+ "VALUES (?, ?, 'SALES', ?, 'x', 'No Pipeline', 'ATTORNEY')",
+				UUID.randomUUID(), BRAND_IE, "nopipe-" + UUID.randomUUID() + "@evalos.local"))
+				.hasMessageContaining("team_member_pipeline_matches_role");
+
+		assertThatThrownBy(() -> jdbc.update(
+				"INSERT INTO team_member "
+						+ "(id, brand_id, role, email, password_hash, display_name, ghl_pipeline_id) "
+						+ "VALUES (?, ?, 'MARKETING', ?, 'x', 'No Segment', ?)",
+				UUID.randomUUID(), BRAND_IE, "noseg-" + UUID.randomUUID() + "@evalos.local",
+				"pipe-" + UUID.randomUUID()))
+				.hasMessageContaining("team_member_segment_matches_role");
+
+		// And a role that is not pipeline-scoped must have neither.
+		assertThatThrownBy(() -> insertPipelineMember(BRAND_IE, "CASE_MANAGER", "pipe-" + UUID.randomUUID(),
+				null, true))
+				.hasMessageContaining("team_member_pipeline_matches_role");
+
+		assertThatThrownBy(() -> jdbc.update(
+				"INSERT INTO team_member (id, brand_id, role, email, password_hash, display_name, segment) "
+						+ "VALUES (?, ?, 'CASE_MANAGER', ?, 'x', 'Segmented CM', 'INDIVIDUAL')",
+				UUID.randomUUID(), BRAND_IE, "segcm-" + UUID.randomUUID() + "@evalos.local"))
+				.hasMessageContaining("team_member_segment_matches_role");
+
+		// An unknown segment is refused too: the CHECK is the writer the enum cannot reach.
+		assertThatThrownBy(() -> insertPipelineMember(BRAND_IE, "SALES", "pipe-" + UUID.randomUUID(),
+				"PARTNER", true))
+				.hasMessageContaining("team_member_segment_matches_role");
+
+		// The happy path, so the constraints are not passing by rejecting everything.
+		UUID sales = insertPipelineMember(BRAND_IE, "SALES", "pipe-" + UUID.randomUUID(), "ATTORNEY", true);
+		assertThat(jdbc.queryForObject("SELECT segment FROM team_member WHERE id = ?", String.class, sales))
+				.isEqualTo("ATTORNEY");
+		jdbc.update("DELETE FROM team_member WHERE id = ?", sales);
+	}
+
+	/**
+	 * <strong>One pipeline, one live owner — across brands, which is the half that could
+	 * silently not be true.</strong>
+	 *
+	 * <p>{@code uq_team_member_pipeline} is deliberately not led by {@code brand_id}, unlike
+	 * every other index here. A GHL pipeline belongs to the single configured location rather
+	 * than to a brand, so the same id under two brands would not be two pipelines — it would be
+	 * one pipeline read by two people who cannot see each other. <strong>Two brands is therefore
+	 * the case worth asserting</strong>: a brand-scoped index would pass a same-brand test and
+	 * still permit exactly the collision that matters.
+	 */
+	@Test
+	void onePipelineHasOneLiveOwnerEvenAcrossBrands() {
+		String pipeline = "pipe-" + UUID.randomUUID();
+		UUID first = insertPipelineMember(BRAND_IE, "SALES", pipeline, "ATTORNEY", true);
+
+		assertThatThrownBy(() -> insertPipelineMember(BRAND_XP, "SALES", pipeline, "INDIVIDUAL", true))
+				.hasMessageContaining("uq_team_member_pipeline");
+
+		// Partial on `active`, so a leaver does not hold their pipeline hostage: the replacement
+		// inherits it the moment the previous holder is deactivated.
+		jdbc.update("UPDATE team_member SET active = false WHERE id = ?", first);
+		UUID replacement = insertPipelineMember(BRAND_IE, "SALES", pipeline, "ATTORNEY", true);
+
+		assertThat(replacement).isNotNull();
+		jdbc.update("DELETE FROM team_member WHERE id IN (?, ?)", first, replacement);
+	}
+
+	/**
+	 * The scope predicate against a real query plan, which is the only way to know Hibernate
+	 * agrees with the {@code Specification} the unit test inspected.
+	 *
+	 * <p>Uses {@code team_member} itself as the carrier: it has a brand and, since V39, a
+	 * pipeline column, so it exercises the exact pair of predicates {@code Tier.PIPELINE} builds
+	 * without inventing a table for the test to own.
+	 */
+	@Test
+	void thePipelinePredicateNarrowsWithinTheBrandAndNeverAcrossIt() {
+		String mine = "pipe-" + UUID.randomUUID();
+		String theirs = "pipe-" + UUID.randomUUID();
+		UUID ieDesk = insertPipelineMember(BRAND_IE, "SALES", mine, "ATTORNEY", true);
+		UUID xpDesk = insertPipelineMember(BRAND_XP, "SALES", theirs, "INDIVIDUAL", true);
+
+		// Mine, in my brand: one row.
+		assertThat(jdbc.queryForObject(
+				"SELECT count(*) FROM team_member WHERE brand_id = ? AND ghl_pipeline_id = ?",
+				Integer.class, BRAND_IE, mine)).isEqualTo(1);
+
+		// **The pipeline predicate never stands in for the brand one.** Asking for another
+		// brand's pipeline while scoped to mine returns nothing even though the row exists and
+		// the id is real — which is what stops a global key becoming a cross-brand read.
+		assertThat(jdbc.queryForObject(
+				"SELECT count(*) FROM team_member WHERE brand_id = ? AND ghl_pipeline_id = ?",
+				Integer.class, BRAND_IE, theirs)).isZero();
+
+		jdbc.update("DELETE FROM team_member WHERE id IN (?, ?)", ieDesk, xpDesk);
+	}
+
+	// --- Unit 39: the note stream, V41 ----------------------------------------
+
+	/**
+	 * <strong>Every note test uses ids unique to its own run, and it has to.</strong>
+	 *
+	 * <p>{@code opportunity_note} is append-only by trigger, so a test row can never be cleaned
+	 * up — and {@code evalos_test} persists between runs on a developer machine. A test that
+	 * asserted "count is 1" over a fixed pipeline id therefore passed once and then counted every
+	 * previous run's rows. That is not a flake to retry; it is the append-only property working
+	 * exactly as designed, and the tests are what had to change.
+	 */
+	private static String uniqueId(String prefix) {
+		return prefix + "-" + UUID.randomUUID();
+	}
+
+	private UUID insertNote(UUID brandId, String opportunityId, String pipelineId, String body) {
+		UUID id = UUID.randomUUID();
+		jdbc.update("INSERT INTO opportunity_note "
+				+ "(id, ghl_opportunity_id, brand_id, ghl_pipeline_id, author_id, body) "
+				+ "VALUES (?, ?, ?, ?, ?, ?)", id, opportunityId, brandId, pipelineId, GM, body);
+		return id;
+	}
+
+	/**
+	 * <strong>Append-only, against the real database.</strong>
+	 *
+	 * <p>No Java test can prove this: the entity has no setters and the repository exposes no
+	 * delete, so every unit test passes whether or not the trigger exists. A seed script, a
+	 * hand-run UPDATE or a future repository method would all get through. The trigger is the
+	 * only thing that holds for every writer — including the application, which connects as the
+	 * table owner and is therefore immune to {@code REVOKE}.
+	 */
+	@Test
+	void anOpportunityNoteCannotBeEditedOrDeleted() {
+		UUID note = insertNote(BRAND_IE, uniqueId("opp"), uniqueId("pipe"), "Spoke to the client");
+
+		assertThatThrownBy(() -> jdbc.update("UPDATE opportunity_note SET body = ? WHERE id = ?",
+				"rewritten", note))
+				.hasMessageContaining("append-only");
+
+		assertThatThrownBy(() -> jdbc.update("DELETE FROM opportunity_note WHERE id = ?", note))
+				.hasMessageContaining("append-only");
+
+		// Still there, and still saying what it said.
+		assertThat(jdbc.queryForObject("SELECT body FROM opportunity_note WHERE id = ?", String.class,
+				note)).isEqualTo("Spoke to the client");
+	}
+
+	/** A blank note is refused by the database as well as by the service. */
+	@Test
+	void anOpportunityNoteNeedsABody() {
+		assertThatThrownBy(() -> insertNote(BRAND_IE, uniqueId("opp"), uniqueId("pipe"), "   "))
+				.hasMessageContaining("opportunity_note_body_not_blank");
+	}
+
+	/**
+	 * <strong>P3: a note outlives the opportunity it describes.</strong>
+	 *
+	 * <p>There is deliberately no foreign key to {@code ghl_opportunity_cache} — that table is
+	 * droppable (V40), and a FK into it would make truncating a cache delete real notes. This
+	 * asserts the property directly: wipe the cache, the notes are untouched. Append-only truth
+	 * outranks tidiness, and a vanished opportunity is exactly when the history matters.
+	 */
+	@Test
+	void aNoteSurvivesItsOpportunityVanishingFromTheCache() {
+		String doomed = uniqueId("opp-doomed");
+		jdbc.update("INSERT INTO ghl_opportunity_cache "
+				+ "(ghl_opportunity_id, ghl_pipeline_id, ghl_contact_id, stage_id, status, fetched_at) "
+				+ "VALUES (?, ?, 'contact-1', 's1', 'open', now())", doomed, uniqueId("pipe"));
+		UUID note = insertNote(BRAND_IE, doomed, uniqueId("pipe"), "The deal we lost");
+
+		jdbc.update("DELETE FROM ghl_opportunity_cache WHERE ghl_opportunity_id = ?", doomed);
+
+		assertThat(jdbc.queryForObject("SELECT body FROM opportunity_note WHERE id = ?", String.class,
+				note)).isEqualTo("The deal we lost");
+	}
+
+	/**
+	 * The note carries its own brand and pipeline so a scoped read never has to join the cache.
+	 *
+	 * <p>That denormalisation is the point: the cache is droppable, and a scope predicate that
+	 * depends on a droppable table fails <em>open</em> the moment the table is empty.
+	 */
+	@Test
+	void notesAreScopedWithoutTouchingTheCache() {
+		String mine = uniqueId("pipe-mine");
+		String theirs = uniqueId("pipe-theirs");
+		insertNote(BRAND_IE, uniqueId("opp"), mine, "mine");
+		insertNote(BRAND_XP, uniqueId("opp"), theirs, "theirs");
+		jdbc.update("TRUNCATE ghl_opportunity_cache");
+
+		// The cache is empty and the scope still answers — which is the whole reason
+		// `ghl_pipeline_id` is denormalised onto the note rather than joined from the cache.
+		assertThat(jdbc.queryForObject(
+				"SELECT count(*) FROM opportunity_note WHERE brand_id = ? AND ghl_pipeline_id = ?",
+				Integer.class, BRAND_IE, mine)).isEqualTo(1);
+		// The brand predicate is what refuses the other desk's note, not the pipeline alone.
+		assertThat(jdbc.queryForObject(
+				"SELECT count(*) FROM opportunity_note WHERE brand_id = ? AND ghl_pipeline_id = ?",
+				Integer.class, BRAND_IE, theirs)).isZero();
+	}
+
+	/**
+	 * <strong>V44's widened scope, exercised through the service that writes it (Unit 42).</strong>
+	 *
+	 * <p>Three things a mocked repository cannot show, and every one of them is a 500 in production
+	 * if it is wrong:
+	 *
+	 * <ul>
+	 * <li><strong>The widened CHECK admits an account-scoped row.</strong> V38 required a CLIENT
+	 * party row to carry a {@code ghl_contact_id}; the sign-in door mints one that does not.</li>
+	 * <li><strong>A second sign-in does not collide with V44's partial unique index.</strong> This is
+	 * the ordering question: {@code retire()} dirties the previous row and {@code save()} queues the
+	 * new one in the same transaction, and Hibernate's ActionQueue runs insertions before updates at
+	 * flush. If that ordering bit, the second sign-in of the day would 500 — so the check is a
+	 * <em>second</em> mint, not a first.</li>
+	 * <li><strong>A shape change retires the account row.</strong> Linking a GHL contact moves the
+	 * next mint to the contact shape; the account-scoped credential must not survive it.</li>
+	 * </ul>
+	 *
+	 * <p>And the property V38 was protecting still holds: the last assertion is a row scoped to
+	 * nothing, which the widened constraint still refuses.
+	 */
+	@Test
+	void anAccountScopedPortalTokenIsLegalAndStillOnlyOneLives() {
+		ClientAccount account = clientAccounts.save(
+				new ClientAccount(BRAND_IE, "ana-" + UUID.randomUUID() + "@example.com"));
+
+		portalAccess.mintForClientAccount(account);
+		// The second mint is the one that has to survive the index, and it is the ordinary case:
+		// a client signs in again.
+		portalAccess.mintForClientAccount(account);
+
+		List<PortalAccess> afterTwoSignIns = portalTokens.findByClientAccountIdOrderByCreatedAtDesc(account.getId());
+		assertThat(afterTwoSignIns).hasSize(2);
+		assertThat(afterTwoSignIns).filteredOn(token -> token.getRevokedAt() == null)
+				.as("V44's partial index allows exactly one live token per account").hasSize(1);
+
+		// Unit 43 pushes the client to GHL, so the next sign-in mints the contact shape instead —
+		// and must not leave the account-scoped credential live behind it.
+		account.linkGhlContact("ghl-" + UUID.randomUUID());
+		portalAccess.mintForClientAccount(clientAccounts.save(account));
+
+		assertThat(portalTokens.findByClientAccountIdOrderByCreatedAtDesc(account.getId()))
+				.as("a shape change does not strand the previous shape's credential")
+				.allMatch(token -> token.getRevokedAt() != null);
+
+		// V38's property, unchanged: a party token scoped to nothing is still refused.
+		assertThatThrownBy(() -> portalTokens.saveAndFlush(PortalAccess.forParty(
+				BRAND_IE, PortalAudience.CLIENT, null, null, "hash-" + UUID.randomUUID(),
+				Instant.now().plus(Duration.ofDays(7)))))
+				.hasStackTraceContaining("portal_access_scope_is_one_thing");
+	}
+
+	/**
+	 * Task 5's review Critical, and the reason it needed a real transaction manager to catch:
+	 * {@link ClientAccountService#signIn} writes {@code CLIENT_SIGN_IN_REFUSED} through
+	 * {@link AuditService#recordPortalEvent}, which is {@code @Transactional} and joins the
+	 * caller's transaction by design — its own javadoc says the trail commits with the change it
+	 * describes or not at all. On the refusal path the audit row <em>is</em> the change, and
+	 * {@code refused()} throws an unchecked {@link InvalidRequestException} right after writing it.
+	 * Spring's default rollback rule rolls back on any unchecked exception, so without
+	 * {@code signIn}'s {@code noRollbackFor = InvalidRequestException.class}, this row is inserted
+	 * and then discarded — invisible in production, and invisible to a Mockito-backed unit test,
+	 * which has no transaction to roll back in the first place.
+	 *
+	 * <p>This is why the assertion below reads the row back through the repository in a fresh call
+	 * after {@code signIn} has already returned (thrown, in this case): only a committed row
+	 * survives to be read.
+	 */
+	@Test
+	void aRefusedSignInStillCommitsItsAuditRow() {
+		ClientAccount seeded = clientAccounts.save(
+				new ClientAccount(BRAND_IE, "refused-" + UUID.randomUUID() + "@example.com"));
+		seeded.setPasswordHash(passwordEncoder.encode("Correct!1"));
+		ClientAccount account = clientAccounts.save(seeded);
+
+		assertThatThrownBy(() -> clientAccountService.signIn(account.getEmail(), "Wrong!1"))
+				.isInstanceOf(InvalidRequestException.class);
+
+		assertThat(auditEvents.findByObjectTypeAndObjectIdOrderByCreatedAtAsc("CLIENT_ACCOUNT", account.getId()))
+				.as("the refusal is the whole point of the row — noRollbackFor is what keeps the "
+						+ "throw from undoing the write that precedes it")
+				.anyMatch(event -> event.getAction() == AuditAction.CLIENT_SIGN_IN_REFUSED);
 	}
 }

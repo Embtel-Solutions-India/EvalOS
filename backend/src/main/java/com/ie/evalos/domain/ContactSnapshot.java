@@ -95,10 +95,19 @@ public class ContactSnapshot extends ScopedEntity {
 	}
 
 	/**
-	 * Replaces the snapshot wholesale from GHL and restamps {@code synced_at}. The
-	 * <em>only</em> writer of these fields: invariant 7 means no EvalOS business rule
+	 * Replaces the contact's own details wholesale from GHL and restamps {@code synced_at}.
+	 * The <em>only</em> writer of these fields: invariant 7 means no EvalOS business rule
 	 * mutates a synced contact, and this is the sync, not a business rule. Called at
 	 * Handoff A and, later, by GHL's {@code contact.updated}.
+	 *
+	 * <p><strong>Attribution is fill-only, and that is not an inconsistency.</strong> Name,
+	 * email, phone and company are current state, so a delivery that omits one is GHL saying
+	 * it is gone. The five attribution fields are capture-time facts about how this person
+	 * first arrived — they cannot change, only be absent from a payload that never carried
+	 * them. GHL's Custom Webhook is exactly that payload: it sends the contact record and
+	 * the deal and nothing about attribution, so a wholesale write here would blank every
+	 * one of them on every won opportunity, and this being their only writer, nothing could
+	 * put them back.
 	 */
 	public void syncFromGhl(String fullName, String email, String phone, String company, ClientType clientType,
 			SourceChannel sourceChannel, String utmSource, String utmMedium, String utmCampaign) {
@@ -106,11 +115,21 @@ public class ContactSnapshot extends ScopedEntity {
 		this.email = email;
 		this.phone = phone;
 		this.company = company;
-		this.clientType = clientType;
-		this.sourceChannel = sourceChannel;
-		this.utmSource = utmSource;
-		this.utmMedium = utmMedium;
-		this.utmCampaign = utmCampaign;
+		if (clientType != null) {
+			this.clientType = clientType;
+		}
+		if (sourceChannel != null) {
+			this.sourceChannel = sourceChannel;
+		}
+		if (utmSource != null) {
+			this.utmSource = utmSource;
+		}
+		if (utmMedium != null) {
+			this.utmMedium = utmMedium;
+		}
+		if (utmCampaign != null) {
+			this.utmCampaign = utmCampaign;
+		}
 		this.syncedAt = Instant.now();
 	}
 

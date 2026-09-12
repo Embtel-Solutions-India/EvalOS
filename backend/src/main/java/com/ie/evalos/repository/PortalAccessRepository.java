@@ -50,4 +50,38 @@ public interface PortalAccessRepository extends ScopedRepository<PortalAccess> {
 	 * from a request.
 	 */
 	List<PortalAccess> findByCaseIdAndAudienceOrderByCreatedAtDesc(UUID caseId, PortalAudience audience);
+
+	/**
+	 * The party-scoped equivalents of the finder above, one per audience (Unit 35, D1).
+	 *
+	 * <p>Two methods rather than one, because the column that carries the scope differs: a client
+	 * party is a {@code ghl_contact_id} and an expert party is an {@code expert_id}. Both filter
+	 * {@code caseId IS NULL}, which is what distinguishes a party row from a case row — an expert
+	 * carries {@code expertId} in <em>both</em> shapes, so without that clause the expert finder
+	 * would also sweep up every case-scoped token {@code V37} stamped.
+	 *
+	 * <p><strong>Brand-scoped, unlike the case finder above</strong>, and the asymmetry is
+	 * deliberate: a case id is unique across brands so scoping adds nothing there, while the same
+	 * GHL contact may be a client of two brands ({@code V16}) and the same expert may sit on two
+	 * panels. Minting one brand's party link must not revoke the other's.
+	 */
+	List<PortalAccess> findByBrandIdAndGhlContactIdAndAudienceAndCaseIdIsNullOrderByCreatedAtDesc(
+			UUID brandId, String ghlContactId, PortalAudience audience);
+
+	List<PortalAccess> findByBrandIdAndExpertIdAndAudienceAndCaseIdIsNullOrderByCreatedAtDesc(
+			UUID brandId, UUID expertId, PortalAudience audience);
+
+	/**
+	 * The third party shape (Unit 42): the tokens minted for one EvalOS account.
+	 *
+	 * <p><strong>Not brand-scoped, and that is not an oversight</strong> — it is the one finder on
+	 * this repository where brand is already carried by the key. An account belongs to exactly one
+	 * brand ({@code V43}) and its id is a UUID unique across all of them, so a brand predicate
+	 * would only restate what the account id already says. The two finders above need it because a
+	 * GHL contact id and an expert are legitimately shared between brands; an account is not.
+	 *
+	 * <p>No {@code caseIdIsNull} clause for the same reason: the column only ever appears on a
+	 * party row, so there is no case-scoped shape for it to sweep up.
+	 */
+	List<PortalAccess> findByClientAccountIdOrderByCreatedAtDesc(UUID clientAccountId);
 }

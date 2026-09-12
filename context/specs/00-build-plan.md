@@ -27,66 +27,128 @@ Generate a `specs/NN-name.md` for a unit just before building it.
 
 The phase order above is the *dependency* order and is still correct. This section is
 the **schedule**, and it differs, because the remaining units are not equally
-blocked. Five of them wait on somebody outside this repo; four do not.
+blocked. **As of the 2026-09-09 audit only two of the four external asks are still live**, and
+Track A below is six items deep with nothing outside this repo in its way.
 
-### Step 0 — ask for the five external things now, in parallel
+### Step 0 — the external asks, two of four still live
 
-None of these is code, all have lead time, and everything else queues behind them.
-Requesting them is the highest-value action available and costs a day of somebody's
-attention:
+None of these is code, all have lead time. **Neither remaining one blocks Track A** — the AWS
+credential gates *exercising* built code rather than writing it, so chasing it is valuable but no
+longer the thing everything queues behind. Two rows are struck and kept as the record of why:
 
 | Needed | Blocks | Note |
 |---|---|---|
-| ~~Google service account for Drive~~ **AWS credential + bucket for the S3 document store** | **Unit 13's last criterion, Unit 21, Unit 15** | **Unit 30 replaced the blocker rather than working around it.** One credential, three units — still the most valuable thing to chase, but it is now an AWS one the business already controls rather than a Google service account that never arrived. See `30-s3-document-store.md`; its open questions (b) key format, (d) PDF, (f) the portal contract should be answered before code starts |
-| GHL outbound contract — subscriber URL, signing secret, and *whether GHL can send a client-facing transactional message on an EvalOS event* | **Unit 18**, and the whole email decision | That last clause is the one that decides invariant 14 |
-| The real `opportunity.won` payload, signature header name, HMAC encoding | **Unit 05b's live run** — not its code | Build and unit-test 05b without it; only the end-to-end firing needs it |
-| Anthropic key **plus a decision to send case data to a third party at all** | Unit 20's AI half | A compliance call, not a technical one. The anomaly half needs neither |
+| ~~Google service account for Drive~~ **AWS credential + bucket for the S3 document store** | **Unit 15's and Unit 30's live paths, Unit 21's remaining half** | **Unit 30 replaced the blocker rather than working around it**, and has since been **built** — so this no longer gates any code, only its live exercise. Unit 13's criterion left the list with the unit. Still the most valuable thing to chase, and it is an AWS credential the business already controls rather than a Google service account that never arrived. `30-s3-document-store.md`'s open questions (b) key format and (f) the portal contract were answered by the build; **(d) PDF is closed by removal** — nothing generates documents |
+| ~~GHL outbound contract~~ | ~~**Unit 18**~~ | **Struck 2026-09-09. Unit 18 was removed on 2026-09-02**, so there is no subscriber to register and no signing secret to hold. Invariant 14 is settled, not pending. What survives is not a contract but a question — *who reaches the client at all* — tracked as **G15** in `process-automation.md`, not here |
+| The real `opportunity.won` payload, signature header name, HMAC encoding | **Unit 05b's live run** — not its code, which is **built** | Always true and now demonstrated: 05b shipped with unit tests and never needed this. Only the end-to-end firing does |
+| ~~Anthropic key + a compliance decision~~ | ~~Unit 20's AI half~~ | **Struck 2026-09-04. There is no AI half and no Unit 20.** The unit was removed from scope on 2026-09-02 and is now `architecture.md` invariant 15; leaving its key in the "things to request" table kept the door open. **Nothing in EvalOS needs an LLM.** The anomaly figure it also proposed is arithmetic, not AI — if the business wants it, it is a Unit 17 tile over stored metrics, and it does not need a unit whose name invites the model back |
+| ~~**`invoices.readonly` on the GHL token**~~ | ~~Unit 41's live use~~ | **STRUCK 2026-09-11 — it was already granted.** Probed with the app's own token: HTTP 200, 212 real invoices. Unit 41 was verified end to end against live GHL the same day and no code changed. It had been listed as blocked since 2026-09-10 on an assumption nobody re-tested |
+| **`calendars/events.write` + `calendars.readonly`** | **Unit 40's meetings half only — still outstanding** | **Added 2026-09-10; still the only thing Unit 40 is missing.** The desk shipped 2026-09-11 without meetings, exactly as predicted. **Follow-ups turned out NOT to need this** — a GHL task is `POST /contacts/{contactId}/tasks`, which needs only `contacts.write`. Checking the scope per *endpoint* rather than per *feature* is what found that |
+
+**All three are scopes on the existing token, not new credentials.** The current grant is
+`opportunities.write` + `contacts.write`. Verified against the live GHL API surface 2026-09-10;
+the endpoints and their filters are tabulated in `00b-ghl-operational-programme.md` §3.
 
 ### Track A — buildable today, nothing external. Do these in order.
 
-**A1 · The missing QC notification.** Gap **G2** in the register: `qc.approved` is
-published and `qc-approve` is built, but `NotificationListeners.ROUTES` has no entry
-for it, so a Coordinator learns a case is ready to deliver by looking at the board.
-This is a **live operational hole in shipped code**, it is one route plus a test, and
-it needs no spec. Highest value per line in the whole plan — do it first.
+**Rewritten 2026-09-09 after an audit against the code.** The previous A1–A5 had rotted: A1 named a
+notification gap that is closed, A2 named a unit that has shipped, A3 was already marked built, and
+A4/A5 were split apart by a charting decision that has since been taken. **`progress-tracker.md` →
+"Next Up" is kept in step with this list** — that section names only what is immediately next, this
+one carries the reasoning.
 
-**A2 · Unit 05b — Case Creation v2.0.** Already specced. Until it lands, the context
-docs describe a trigger the code does not implement, and that divergence is recorded
-as deliberate but costs more the longer it stands. Code and tests need no external
-input; the live hand-fired run waits on the payload confirmation from Step 0.
-Re-read `05b` first — it gained two corrections after review (the `V24` index must be
-scoped to open cases, and `refresh()` must overwrite `deal_value`).
+**A1 · Unit 35 — party-scoped portal access (D1, D5, D6).** The remaining half; **D8 and G14 shipped
+2026-09-04**. D1 is the load-bearing one — `portal_access` gains `ghl_contact_id` and `case_id`
+becomes nullable, so a credential names a *party* and a client with two cases has one link. Do it
+first because **two later items wait on it and nothing waits on them**.
 
-**A3 · Unit 16 + 16b — payout ledger and weekly settlement.** The only substantial unit
-with **zero** external dependency: a manual ledger, its own endpoints, no integration.
-It also unblocks Unit 17's money-out tiles, so it comes before dashboards rather than
-after. **Read `16b-weekly-settlement.md` alongside `16`** — the business charges per
-draft and settles weekly, so a payment is its own table and 16's per-row form is
-superseded. 16b also carries two things 16 assumed but that do not exist: `brand.currency`
-and a payout term. Build them as one unit; splitting them would ship a payment model
-that is already known to be wrong.
+**A2 · 34b — the client's draft review screen. BUILT 2026-09-11.** Read, approve and
+request-revisions had been in EvalOS since Unit 14 with no screen calling them. Building it
+surfaced a gap Unit 35 left: **D1 gave party scoping to the reads and not to the writes**, so a
+client with two cases could open either draft and approve neither. Closed with
+`POST /cases/{caseId}/approve` and `.../request-revisions`.
 
-**A4 · Unit 17a — dashboards without charts.** The biggest remaining unit, and it
-grew: it now carries the per-role operational contract and gaps **G3–G12** (delivery
-queue, CM workload, deadline view, draft-review queue, coverage-gap alert,
-onboarded-vs-target, the two dead-column traps, and the two missing quick actions).
-Split it: **17a is every tile and view that needs no chart.**
+**A3 · 34d — the two case lists. BUILT 2026-09-11**, over Unit 35's party reads and D5's
+projection — and it finished the job by deleting the client's account shell, the model D1
+refused. 53 files went; there is no mock left in the client portal.
 
-**A5 · Unit 17b — the cycle-time chart.** Split out because it is the only part
-blocked on the charting-library decision (`ui-context.md`), and that decision should
-not hold up the other eleven widgets.
+**A4 · Unit 17a — BUILT 2026-09-11.** G16's portal-links ledger shipped (the tile that makes "a link nobody sent" visible), G9 closed by derivation, G10 accepted as a limitation, G11 reopened with a real answer and left as a scope decision. Was: dashboards without charts, carrying gaps **G9–G11** and **G16**. This is 17a
+only: **Unit 17's read models are built** (five `*MetricsService` behind seven `MetricsController`
+routes), so what remains is the per-role operational contract and the gap list, not the data layer.
+**G16 is the one to read twice** — nothing shows which portal links exist or whether anyone opened
+them, so "a link nobody sent", the likeliest way to breach the 24h signing SLA, is invisible today.
 
-That is a lot of runway with no waiting. Track A is the default: **work A1→A5 and
-interleave Track B as blockers clear**, rather than idling on a credential.
+**A5 · Unit 19 — BUILT 2026-09-11.** V42's `scheduled_job` ledger, four sweeps, the advisory lock
+and a GM panel at `/admin/jobs`. Every re-read note held: the lock is **session-scoped** (an
+xact-scoped one would release after the first item, since a sweep runs one transaction per item),
+chases are **wall-clock** against a business-hours escalation so the order is chase→chase→escalate,
+and **no sweep calls a transition** — the 24h sign deadline raises a prompt and there is no call
+site for `EXPERT_TIMED_OUT` in the package. Two things the build changed: three notification types
+were added because two sweeps would otherwise have silenced each other through
+`alreadyRaised`, and `DocChaseSweep` now raises its own Coordinator prompt because
+`checklist.reminder` has had no subscriber since Unit 18 left.
+
+**A6 · Unit 17b — the cycle-time chart. The last Track A item.** No longer blocked: **Recharts was settled in Unit 22
+slice 1** and is installed. Last because it is one widget, not because anything gates it.
+
+That is a lot of runway with no waiting. Track A is the default: **work A1→A6 and interleave Track B
+as blockers clear**, rather than idling on a credential.
 
 ### Track B — slot in the moment its blocker clears
 
 | When this arrives | Build |
 |---|---|
-| AWS credential + bucket | **Unit 30 first** (the S3 client, the key format, the presigned read), then **Unit 13's last criterion**, then **Unit 15** (expert portal + signed-letter upload). **Unit 21 changed shape**: the client upload now happens in the separate Client Portal, so what remains for EvalOS is *reading* a prefix and reconciling it against the checklist. This chain can interrupt Track A at any point |
-| GHL outbound contract | **Unit 18** (outbound dispatcher, Handoff C) — and the email-channel decision resolves here |
-| 10, 15 and 18 all done | **Unit 19** (background jobs) — genuinely last, because it is the clock behind hooks those units install. Re-read it: the advisory lock must be **session-scoped**, and the client chases are **wall-clock** while the escalation is business hours |
-| 17 done | **Unit 20's anomaly half** (no AI needed). The AI half only if the compliance decision says yes |
+| **AWS credential + bucket** — the only external blocker with code behind it | **Unit 30 is built**, and Unit 13's criterion died with the unit, so nothing here is *code* waiting any more. What waits is exercise plus one remaining half: **Unit 15's live round-trip**, **Unit 30's live path**, and **Unit 21's remainder** — the upload moved to the separate Client Portal, so EvalOS owes *reading* the `client/{ghl_contact_id}/` prefix and reconciling it against the checklist. Also **G14's infrastructure half**: bucket-side malware scanning, the scanning EvalOS deliberately does not do in code |
+| ~~GHL outbound contract~~ | ~~**Unit 18**~~ — **struck: removed from scope 2026-09-02.** No outbound channel, so no contract to wait for. The live question is **G15** — how an expert's link actually reaches them, hand-sent today, and an expert who never gets theirs cannot sign while the clock runs (`process-automation.md`) |
+| ~~10, 15 and 18 all done~~ | ~~**Unit 19**~~ — **no longer a Track B item.** Its prerequisites are met, so it moved to **A5** |
+| ~~17 done~~ | ~~**Unit 20's anomaly half**~~ — **struck 2026-09-04.** See the Step 0 note: no Unit 20, and the anomaly arithmetic is a Unit 17 tile if it is wanted at all |
+
+**Not scheduled, and deliberately:** **Unit 25** (GHL OAuth per brand) is specced and unbuilt — no
+`ghl_connection` table, no OAuth code — and it needs GHL OAuth app credentials, so it is a Track B
+item with no arrival date. It is also what the deferred `PaymentDetailConverter` extraction waits
+on; **do not write that abstraction before its second caller exists.**
+
+**Unit 25 acquired a second dependant on 2026-09-10** and it is worth knowing which: the GHL
+operational programme runs **single-brand** until Unit 25 lands
+(`00b-ghl-operational-programme.md` §1.5). That is a ceiling enforced in code, not a hope — but
+the trigger for Unit 25 is now **"a second brand starts selling"**, which is a business event
+rather than a credential arriving.
+
+### Track C — the GHL operational programme (Units 36–41)
+
+**Added 2026-09-10.** EvalOS becomes the interface Sales and Marketing work in; GHL stays the CRM,
+pipeline, automation and invoice layer underneath. **Read
+`00b-ghl-operational-programme.md` before any of these** — it carries the truth model, the
+single-brand ceiling and the invariant ledger, and a unit spec that disagrees with it is wrong.
+
+| # | Unit | Depends on | State |
+|---|---|---|---|
+| **36** | Pipeline-scoped access | 02, 03 | **BUILT** 2026-09-10, `V39` |
+| **37** | The GHL write door | 36 | **BUILT** 2026-09-10. Invariant 2 died here |
+| **38** | Opportunity reads and the board | 36 | **BUILT** 2026-09-11, `V40`. **Past the point of cheap return** |
+| **39** | Marketing lead desk | 38 | **BUILT** 2026-09-11, `V41`. Amended invariant 7; first caller of the write door; idempotency answered with **upsert** |
+| **40** | Sales desk | 38, 39 | **BUILT** 2026-09-11 **except meetings**, which alone need the `calendars/*` grant. Follow-ups shipped — a GHL task needs only `contacts.write` |
+| **41** | Client Portal invoices | **35 ✅** | **BUILT and exercised live** 2026-09-11. `invoices.readonly` was already granted; two real paid invoices returned through the portal for a genuine GHL contact |
+
+**Track C does not queue behind Track A**, and two of its rows are the reason to say so:
+
+- **Unit 41 is independent of 36–40 entirely.** It reads `GET /invoices/?contactId=…` using the
+  credential Unit 35 already ships. The moment the scope lands it can be built beside anything.
+- **Unit 36 is buildable today** with no external anything.
+
+**The ordering rule inside Track C is strict, unlike Track A's.** 37 before 38 before 39/40 is not
+a preference: 37 is where the write capability is *decided on* and 38 is where the pivot stops
+being cheaply reversible. Skipping 37 into 38 deletes a build-failing guard as a side effect of a
+feature, which is the specific thing 37 exists to prevent.
+
+**Two corrections the build made to this table.** Unit 38 does **not** depend on 37 — it reads
+only, and Unit 37 §4's claim that 38 was "the first caller" of the write door was wrong; **Unit 39
+is**, and owns the idempotency decision. And Unit 38 did **not** delete
+`/api/marketing/sales-pipeline` or the three `evalos.ghl.*-pipeline-name` properties, contrary to
+what specs 36 and 38 both said: those screens are analytics funnels over a date window, the board
+is an operational card list with none, and they answer different questions. **That cut is still
+available, on its own, if the business wants the funnels retired** — it would remove Units 24, 26
+and 27's screens, not just their config.
 
 ### Why not simply follow the phase order
 
@@ -103,9 +165,11 @@ account — and changed what Unit 21 still owes: the upload moved to the separat
 Portal, so 15 no longer "reuses 21's upload path wholesale". It streams to
 `case/{caseId}/signed/` through the S3 client that Unit 30 builds.
 
-Dependencies still constrain: 16 before 17, 21 before 15, 18 before 19. Nothing here
-reorders a real dependency; it only stops the schedule being decided by whichever unit
-happens to be numbered next.
+Dependencies still constrain, though two of the three named here have since resolved: 16 before 17
+(both built), 21 before 15 (both built, and Unit 30 rewrote what 21 owes), and **~~18 before 19~~ —
+18 was removed, so 19 waits on nothing.** The remaining live constraint is **D1 before 34b and
+34d**. Nothing here reorders a real dependency; it only stops the schedule being decided by
+whichever unit happens to be numbered next.
 
 **Units 01–10 followed that rule; Units 11–20 did not.** All ten remaining specs
 were written in one pass at the start of Phase 2, by decision, so the whole
@@ -163,7 +227,9 @@ transition methods; an audit entry on every transition; the pool→PM→CM
 assignment model; SLA-status computation on the Pacific business calendar; the
 GM-only refund transition (revenue reversal + pending-payout void + GHL signal);
 and the brand-scoped case REST controller. Each transition publishes an internal
-domain event for the outbound dispatcher (Unit 18).
+domain event. Those events are still published and still consumed in-process by
+`NotificationListeners`; the **outbound dispatcher that was their second subscriber left with
+Unit 18**, so `event` now has exactly one consumer.
 Depends on: 02, 03.
 
 ### Unit 05 — Inbound webhook gateway + GHL opportunity handler (Handoff A)
@@ -272,6 +338,11 @@ actions, and read-receipt tracking. Draft-review only — no source-doc upload.
 Depends on: 02 (separate auth surface), 04.
 
 ### Unit 15 — Expert portal + Handoff B + sign-off
+**BUILT 2026-09-03 (backend + the staff case card).** Six portal routes, two new transitions
+(`EXPERT_ACCEPTED` guarded on the offer, `EXPERT_REQUEST_EVIDENCE`), the signed-letter upload with
+content sniffing and a required attestation, `V36`. Two knowing departures: **the hash of the letter
+as sent is not recorded** (the draft is a pasted link EvalOS holds no bytes of) and **the 20h/24h
+events are Unit 19's to declare**. The expert-facing SPA is Unit 34 slice 34e.
 Builds: the separate scoped filter chain for expert access (CM-shared link), the
 single-column assigned-case view (draft + evidence + goal), the accept /
 request-evidence (opens client task) / decline (→ `EXPERT_DECLINED_REMATCHING`)
@@ -327,11 +398,15 @@ architecture: there is no outbound channel to argue about.
 Builds: the full `job` package backed by the `scheduled_job` **run ledger** —
 `@EnableScheduling`, a Postgres advisory lock per sweep so two instances cannot
 double-fire, doc-collection reminders (24h/48h), the day-3 escalation, stage-SLA
-escalations, expert sign 20h/24h alerts (which **prompt**, never reassign), and the
-outbox sender absorbed from Unit 18 — on the Pacific business calendar.
-Depends on: 05, 10, 15, 18.
-**Five sweeps, not six**: retention/countdown timers left this unit — GHL owns
-retention and the post-delivery review end to end.
+escalations, and expert sign 20h/24h alerts (which **prompt**, never reassign) — on the Pacific
+business calendar.
+Depends on: 05, 10, 15. **All met.** **BUILT 2026-09-11** — see the spec's *What the build found*.
+**Four sweeps, not six.** Two left this unit and for different reasons: retention/countdown timers
+because **GHL owns** retention and the post-delivery review end to end, and the **outbox sender
+because Unit 18 was removed (2026-09-02)** — there is no outbound channel, so there is no outbox to
+drain. Re-read the spec before building: the advisory lock must be **session-scoped**, client chases
+are **wall-clock** while escalation is business hours, and **no sweep may call a transition** — every
+one of them prompts.
 
 ### Unit 20 — AI widgets — **REMOVED (2026-09-02)**
 Never built. Removed rather than deferred, and the difference matters: a deferred unit
@@ -559,10 +634,61 @@ Unit 26's and Unit 27's**: `brandId` becomes legal, the Brand Manager is admitte
 in 25 — a credential's lifecycle and a screen's role list are different boundaries.
 Depends on: 02, 24.
 
+### Unit 33 — The full record: applicant, case discipline, expert dossier — BUILT
+Builds: the record EvalOS holds becomes the record the business holds. An audit of
+`IE_Case_Sample_Data.xlsx` and `IE_Expert_Sample_Data.xlsx` against V1–V34 found
+**19 of 36 expert facts absent** — degree, position, affiliation type, location,
+LinkedIn, supported visa categories, publications, citations, h-index, patents,
+awards, memberships, editorial roles, languages, rush capability, `IE-EXP-###`,
+turnaround — and **no applicant name on any case**, which is a correctness gap the
+moment a client is a law firm rather than an individual. Nineteen columns widen
+`expert` (**no child table** — 1:1, no history, no second implementation);
+`evalos_case` gains `applicant_name`, `field_of_expertise` and `rfe_date`.
+**It reverses Unit 12's documented omission** of a case field tag: the objection was
+to an *intake source*, not to persistence, and the tag the PM types at match time is
+now stored by the assignment. `FieldTag` gains 11 values — its 28 were drawn for
+credential-evaluation degree fields and **10 of the 22 disciplines in the expert
+sheet cannot be spelled**, so those experts score zero on a 40-point factor.
+`ServiceType`, `LetterType`, `ClientType`, `VisaCategory` gain the values the sheets
+use; **the V18 CHECKs move with the enums** or the app writes rows the database
+rejects. `last_active_date` is **derived** from `expert_case_offer`, never stored.
+List stays lean, detail shows everything. Still no payment column, ever.
+See `33-case-and-expert-dossier.md`.
+Depends on: 11, 12, 31.
+
+### Unit 34 — The portal frontend, and wiring it to EvalOS — **PARTLY BUILT (34a, 34c, 34e)**
+Builds: the external SPA that arrived in `client/` on 2026-09-03 — **both portals, one
+deployment, port 5174, the origin the backend already allows** — becomes a real client of
+this backend. It is a **pivot spec**, because the app was built against a different auth
+model (email+password accounts in `localStorage`), a different case model (a *list* of
+cases per user, which no case-scoped token can answer) and **four duplicate lifecycle
+vocabularies**. Three invariants are in its path: a guided intake funnel that mints its
+own case reference (**8**), payments and invoices pages (**2**), and client messaging plus
+support tickets (**14** — EvalOS has had no outbound channel since Unit 18 was removed).
+And the one thing the backend already implements — **draft review, approve, request
+revisions** — has **no screen in the app at all**.
+
+Five decisions gate it, each with a recommendation: **D1** widen `portal_access` to name a
+*party* rather than a case (rather than building an account system, whose password reset
+needs a mail channel invariant 14 forbids); **D2–D4** cut intake, invoicing and messaging;
+**D5** one lifecycle vocabulary, EvalOS's, projected into the payload so the SPA holds no
+enum. Slices **34a** seam → **34b** draft review → **34c** documents → **34d** case list +
+projection → **34e** expert portal. **34a, 34c and 34e are BUILT (2026-09-03)**; 34e went in against
+Unit 15's six routes — the one case the token names, at `/case#<token>` outside the account shell.
+**34b and 34d are not built**, and 34d cannot be until D1 lands: D1 still gates the assignments
+*list*, D6 still gates payments.
+See `34-portal-frontend-wiring.md`.
+Depends on: 14, 30, 31, and 15 for slice 34e.
+
 ---
 
 ## Notes
 
+- **The monorepo is three applications as of 2026-09-03**, not two: `backend/`,
+  `frontend/` (staff, 5173, same-origin `/api` proxy) and `client/` (the external portal
+  frontend, 5174, cross-origin against `/api/portal/**`). The stack line at the top of
+  this file predates the third and is corrected here rather than there, because the line
+  is quoting the roadmap. `client/` is mock-backed and calls nothing until Unit 34.
 - Automation rules from the CRM spec are covered across Units 04–21, and
   **`context/process-automation.md` is the register** — it maps every A-number to
   the event, the recipients, the owning unit and whether it is built yet. Read that
@@ -587,14 +713,19 @@ Depends on: 02, 24.
   **EvalOS stores no bytes**, is unchanged and still a test. The one upload EvalOS still
   accepts is the expert's signed letter (Unit 15), which **streams**. Staff alerts are
   in-app (Unit 06); clients are reached through GHL and experts through a scoped portal
-  link. **No mail server** — whether EvalOS ever sends mail is still an **open decision**
-  (`context/process-automation.md`); until it is taken, no mail dependency.
-- **Webhook subsystem spans units**: inbound gateway built once in Unit 05 and
-  **stays single-source (GHL)**; outbound dispatcher built once in Unit 18
-  and delivers domain events published from Unit 04 onward.
+  link. **Mail: DECIDED 2026-09-11, built in Unit 42.** This line used to say *"no mail server —
+  whether EvalOS ever sends mail is still an open decision; until it is taken, no mail
+  dependency."* The decision was taken: **EvalOS sends authentication mail and nothing else.**
+  `spring-boot-starter-mail`, two messages (*set your password*, *reset your password*),
+  invariant 14 amended in writing rather than drifted past. **Any other mail — status,
+  marketing, notification — is a new decision and a new unit.**
+- **Webhook subsystem is inbound only**: the gateway is built once in Unit 05 and
+  **stays single-source (GHL)**. The outbound dispatcher this line used to promise was Unit 18's,
+  **built and then removed (2026-09-02)** — EvalOS has no outbound channel, and the domain events
+  Unit 04 onward publishes are consumed in-process.
 - Open questions gate specific units (see `progress-tracker.md`): the **full
-  brand list**, **StatCommand**, the **GHL webhook/API contract** (per-brand inbound
-  secret + payload for Unit 05; outbound subscriber URL + secret and client-
-  message capability for Unit 18), and **staff SSO** (optional/later). Resolve each
+  brand list**, **StatCommand**, the **GHL inbound contract** (per-brand secret + payload for
+  Unit 05 — the *outbound* subscriber URL, secret and client-message capability went with Unit 18
+  and are no longer asks), and **staff SSO** (optional/later). Resolve each
   before starting the gated unit. *(The Dropbox Sign callback secret was on this list
   until the signature provider was dropped; Unit 15 no longer has a gating question.)*

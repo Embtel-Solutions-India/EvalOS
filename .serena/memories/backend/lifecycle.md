@@ -99,6 +99,36 @@ another.
   `reassignExpert` open one, `expertDeclined` stamps `DECLINED` with the reason, `expertTimedOut`
   stamps `TIMED_OUT` with none, `expertSigned` stamps `ACCEPTED`, and a rematch closes the previous
   row `SUPERSEDED` so no permanently-open row survives.
+- **The expert's portal link is revoked at all four ends of their involvement** — signed,
+  declined, timed out, reassigned (`CaseLifecycleService.revokeExpertLink`, added by review
+  2026-09-03). **The reason is that `portal_access` names a case and an audience and NOT an
+  expert**, so nothing downstream can tell one expert's token from another's and the TTL is thirty
+  days: without this, a rematch left the outgoing expert able to accept, hold, decline or *upload
+  the deliverable* on a case that now names somebody else. The stronger fix is an `expert_id`
+  column on `portal_access`; that is a migration, and this is the whole of it until then. The
+  repository is injected rather than `PortalAccessService`, which would be a constructor cycle
+  (that service loads the case through `CaseLifecycleService.load`).
+- **`apply` restamps `stage_entered_at` on every action EXCEPT those in `KEEPS_STAGE_CLOCK`** —
+  `EXPERT_ACCEPTED`, `ASSIGN_PM`, `ASSIGN_COORDINATOR`. `stage_entered_at` is what `SlaCalculator`
+  measures a stage budget from, so restamping restarts the clock: right when the stage changes,
+  wrong for an acceptance *inside* the signing budget (it reset an expert's own clock to green
+  seven hours in) and wrong for re-staffing, because **a stage budget is owed by the case, not by
+  whoever holds it** — a Coordinator put on a case forty hours into a client's forty-eight-hour
+  review was restarting that review. Dropping the restamp on assignment is only safe because
+  `CaseIntakeService` stamps `stage_entered_at` at creation; without that, the first `ASSIGN_PM`
+  would be what started the clock at all. **The exception-state actions still restamp on purpose**:
+  no clock runs while on hold or refund-requested, and resume/deny restart the budget from when
+  work could resume rather than charging a team for the client's silence.
+- **Unit 15's two portal transitions, both `EXPERT_SIGNING`-only and stage-preserving.**
+  `EXPERT_ACCEPTED` is **guarded on the offer, not the stage** — a stage-preserving action is legal
+  again the instant it finishes, so a second Accept from a refreshed page would re-stamp the offer and
+  fire every listener twice. Already `ACCEPTED` → the case unchanged (200, no event, no audit row);
+  `DECLINED` / `TIMED_OUT` / `SUPERSEDED` → 409, because accepting a dead offer resurrects a case
+  somebody has rematched. `EXPERT_REQUEST_EVIDENCE` sets `ON_HOLD_AWAITING_CLIENT` and writes a
+  **required `document_checklist_item`** (Unit 10's table, never a second task entity) — which means
+  the expert cannot sign until the Coordinator resumes, and `SlaCalculator` runs no clock while held.
+  Written straight to the repository rather than through `ChecklistService.addItem`, which needs a
+  `TenantContext` a portal caller does not have.
 - **`EXPERT_TIMED_OUT` is the human answer to the 24h sign prompt, and a human fires it — never a
   job.** Stage-preserving from `EXPERT_SIGNING` and a mirror of `EXPERT_DECLINED`: both land in
   `EXPERT_DECLINED_REMATCHING`, which is the *only* state `REASSIGN_EXPERT` is declared from, so a
@@ -266,16 +296,28 @@ Three imports that must not become re-derivations:
 Do not add a `BREACHED` value to `SlaStatus` either — Unit 19's spec once implied one; the statuses are
 `ON_TRACK`, `AT_RISK`, `OVERDUE`.
 
-**`EXPERT_SIGNED` is fired by the expert's own upload, not by a provider callback.** There is no
-e-signature provider (decision, Production Process v2.0): the expert downloads the letter from their
-portal, signs it however they already do, and uploads the signed PDF, which files it into the case's
-Drive folder and fires the transition. The offer's first-write-wins rule matters here — pressing Accept
-and then uploading are two acts that both mean accepted, on the happy path.
+**`EXPERT_SIGNED` is fired by the expert's own upload, not by a provider callback — BUILT, Unit 15.**
+There is no e-signature provider (decision, Production Process v2.0): the expert downloads the letter
+from their portal, signs it however they already do, and uploads the signed PDF, which streams to
+**S3** at `{brandId}/case/{caseId}/signed/{id}` and fires the transition. The offer's first-write-wins
+rule matters here — pressing Accept and then uploading are two acts that both mean accepted, on the
+happy path, and the second stamp is a no-op rather than an error.
 
-Because nothing issues a certificate, the transition must also record the provenance: hash of the letter
-as sent, hash of the file received, the attestation text and name, and `actor_type = 'EXPERT'`. **PM
-final QC is therefore load-bearing**, not a formality — it is the only check that the uploaded file is
-the right letter, actually signed.
+Because nothing issues a certificate, the upload records the provenance: the **SHA-256 of what came
+back** (`case_document.content_sha256`, digested as the bytes stream past — the upload fails loudly if
+the store did not read the whole file), the attestation verbatim with the name it displayed
+(`attestation` / `attested_name`), and `actor_type = 'EXPERT'`. **PM final QC is therefore
+load-bearing**, not a formality — it is the only check that the uploaded file is the right letter,
+actually signed.
+
+**The hash of the letter *as sent* is NOT recorded and cannot be yet.** The letter is `draft_link`,
+free text a CM pastes to a document EvalOS holds no bytes of, and `DocumentStore` has no read-bytes
+capability by design. Half the pair is missing and is recorded as missing rather than faked; it
+becomes possible when a draft is an S3 object. Do not add a column for it before then.
+
+**The provenance lives on `case_document`, not on `evalos_case`.** A failed final QC (`PM_QC_FAIL`)
+sends the letter back, so a case can be signed more than once — a per-case column would hold the
+newest and lose the one a dispute is about.
 
 **Timers live in `job` (Unit 19) and only ever prompt.** A sweep publishes an event or raises a
 notification; it never calls a transition and never writes `current_stage`. The one that would matter

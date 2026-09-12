@@ -8,10 +8,14 @@ import java.util.UUID;
 
 import com.ie.evalos.domain.AuditAction;
 import com.ie.evalos.domain.Case;
+import com.ie.evalos.domain.ClientAccount;
+import com.ie.evalos.domain.ContactSnapshot;
+import com.ie.evalos.domain.IllegalTransitionException;
 import com.ie.evalos.domain.PortalAccess;
 import com.ie.evalos.domain.PortalAudience;
 import com.ie.evalos.domain.Role;
 import com.ie.evalos.domain.Stage;
+import com.ie.evalos.repository.ContactSnapshotRepository;
 import com.ie.evalos.repository.PortalAccessRepository;
 import com.ie.evalos.security.PortalPrincipal;
 import com.ie.evalos.security.StaffPrincipal;
@@ -21,8 +25,10 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
@@ -46,9 +52,11 @@ class PortalAccessServiceTest {
 	private final PortalAccessRepository tokens = mock(PortalAccessRepository.class);
 	private final CaseLifecycleService lifecycle = mock(CaseLifecycleService.class);
 	private final AuditService audit = mock(AuditService.class);
+	private final ContactSnapshotRepository contacts = mock(ContactSnapshotRepository.class);
 
 	private final PortalAccessService links = new PortalAccessService(
-			tokens, lifecycle, audit, Duration.ofDays(30), "https://portal.evalos.test/");
+			tokens, lifecycle, contacts, audit, Duration.ofDays(30), Duration.ofDays(7),
+			"https://portal.evalos.test/", "https://experts.evalos.test");
 
 	private Case subject;
 
@@ -125,7 +133,7 @@ class PortalAccessServiceTest {
 	 */
 	@Test
 	void reMintingRevokesTheLinkItSupersedes() {
-		PortalAccess previous = new PortalAccess(BRAND, CASE_ID, PortalAudience.CLIENT, "old-hash",
+		PortalAccess previous = new PortalAccess(BRAND, CASE_ID, PortalAudience.CLIENT, null, "old-hash",
 				Instant.now().plus(Duration.ofDays(10)));
 		given(tokens.findByCaseIdAndAudienceOrderByCreatedAtDesc(any(), eq(PortalAudience.CLIENT)))
 				.willReturn(List.of(previous));
@@ -134,7 +142,88 @@ class PortalAccessServiceTest {
 
 		assertThat(previous.getRevokedAt()).isNotNull();
 		assertThat(previous.isLive(Instant.now())).isFalse();
-		verify(tokens).save(previous);
+		// saveAndFlush, not save: the revocation must reach the database before the insert the
+		// unique index checks — see PortalAccessService.retire.
+		verify(tokens).saveAndFlush(previous);
+	}
+
+	// --- Unit 35, D1: the party-scoped credential -----------------------------
+
+	/**
+	 * A party link lives <strong>7 days</strong>, not 30.
+	 *
+	 * <p>It opens every case that person has, so it is the wider of the two credentials and must
+	 * not outlive the narrow one by four times. Asserted against both bounds rather than just the
+	 * lower one: a party TTL that silently picked up {@code link-ttl} would still be "after 6 days"
+	 * and would be exactly the bug this exists to catch.
+	 */
+	@Test
+	void aPartyLinkLivesSevenDaysAndNotThirty() {
+		given(contacts.findById(any())).willReturn(java.util.Optional.of(contactRow()));
+		subject.setContactId(java.util.UUID.randomUUID());
+
+		links.mintForParty(CASE_ID, PortalAudience.CLIENT);
+
+		PortalAccess row = savedRow();
+		assertThat(row.getExpiresAt()).isAfter(Instant.now().plus(Duration.ofDays(6)));
+		assertThat(row.getExpiresAt()).isBefore(Instant.now().plus(Duration.ofDays(8)));
+		assertThat(row.isPartyScoped()).isTrue();
+		assertThat(row.getGhlContactId()).isEqualTo("ghl-contact-1");
+		assertThat(row.getCaseId()).isNull();
+	}
+
+	/**
+	 * Re-minting a party link revokes the previous <em>party</em> link — and leaves a case link
+	 * alone.
+	 *
+	 * <p>The two shapes are separate credentials with separate indexes ({@code V38}), so issuing a
+	 * party link must not kill a case link the Case Manager already sent. The finder this asserts
+	 * is the brand-scoped, {@code caseId IS NULL} one, which is what keeps the two apart.
+	 */
+	@Test
+	void reMintingAPartyLinkRevokesOnlyThePreviousPartyLink() {
+		given(contacts.findById(any())).willReturn(java.util.Optional.of(contactRow()));
+		subject.setContactId(java.util.UUID.randomUUID());
+
+		PortalAccess previousParty = PortalAccess.forParty(BRAND, PortalAudience.CLIENT, "ghl-contact-1", null,
+				"old-party-hash", Instant.now().plus(Duration.ofDays(3)));
+		given(tokens.findByBrandIdAndGhlContactIdAndAudienceAndCaseIdIsNullOrderByCreatedAtDesc(
+				eq(BRAND), eq("ghl-contact-1"), eq(PortalAudience.CLIENT)))
+				.willReturn(List.of(previousParty));
+
+		links.mintForParty(CASE_ID, PortalAudience.CLIENT);
+
+		assertThat(previousParty.getRevokedAt()).isNotNull();
+		// The case-scoped finder is never consulted on this path: a case link already in somebody's
+		// inbox keeps working.
+		verify(tokens, never()).findByCaseIdAndAudienceOrderByCreatedAtDesc(any(), any());
+	}
+
+	/**
+	 * A case with no GHL contact cannot have a client party link.
+	 *
+	 * <p>The scope would name nobody, and {@code V27} settled that email is a fallback *matching*
+	 * key and never an identity — so there is nothing to fall back to (invariant 7). Refusing beats
+	 * minting a credential whose reach is undefined.
+	 */
+	@Test
+	void aCaseWithNoContactCannotMintAClientPartyLink() {
+		subject.setContactId(null);
+
+		assertThatThrownBy(() -> links.mintForParty(CASE_ID, PortalAudience.CLIENT))
+				.isInstanceOf(IllegalTransitionException.class)
+				.hasMessageContaining("no GHL contact");
+	}
+
+	private static ContactSnapshot contactRow() {
+		return new ContactSnapshot(BRAND, "ghl-contact-1");
+	}
+
+	/** The row handed to {@code save}, which is where the minted credential's shape is visible. */
+	private PortalAccess savedRow() {
+		org.mockito.ArgumentCaptor<PortalAccess> saved = org.mockito.ArgumentCaptor.forClass(PortalAccess.class);
+		verify(tokens).save(saved.capture());
+		return saved.getValue();
 	}
 
 	/**
@@ -147,7 +236,7 @@ class PortalAccessServiceTest {
 	 */
 	@Test
 	void anExpiredLinkIsRetiredSoTheNextMintDoesNotCollideWithTheIndex() {
-		PortalAccess expired = new PortalAccess(BRAND, CASE_ID, PortalAudience.CLIENT, "stale-hash",
+		PortalAccess expired = new PortalAccess(BRAND, CASE_ID, PortalAudience.CLIENT, null, "stale-hash",
 				Instant.now().minus(Duration.ofDays(1)));
 		given(tokens.findByCaseIdAndAudienceOrderByCreatedAtDesc(any(), eq(PortalAudience.CLIENT)))
 				.willReturn(List.of(expired));
@@ -155,13 +244,13 @@ class PortalAccessServiceTest {
 		links.mint(CASE_ID, PortalAudience.CLIENT);
 
 		assertThat(expired.getRevokedAt()).as("an expired row must not stay unrevoked").isNotNull();
-		verify(tokens).save(expired);
+		verify(tokens).saveAndFlush(expired);
 	}
 
 	/** A row already retired is left exactly as it was — first revocation wins. */
 	@Test
 	void anAlreadyRetiredLinkIsNotRestamped() {
-		PortalAccess retired = new PortalAccess(BRAND, CASE_ID, PortalAudience.CLIENT, "older-hash",
+		PortalAccess retired = new PortalAccess(BRAND, CASE_ID, PortalAudience.CLIENT, null, "older-hash",
 				Instant.now().plus(Duration.ofDays(10)));
 		Instant revokedAt = Instant.now().minus(Duration.ofHours(3));
 		retired.revoke(revokedAt);
@@ -171,7 +260,7 @@ class PortalAccessServiceTest {
 		links.mint(CASE_ID, PortalAudience.CLIENT);
 
 		assertThat(retired.getRevokedAt()).isEqualTo(revokedAt);
-		verify(tokens, never()).save(retired);
+		verify(tokens, never()).saveAndFlush(retired);
 	}
 
 	/** Minting is audited, and the row must not carry the credential it issued. */
@@ -194,9 +283,9 @@ class PortalAccessServiceTest {
 	@Test
 	void everyKindOfBadTokenResolvesToTheSameNothing() {
 		String token = "a-token-somebody-was-given";
-		PortalAccess expired = new PortalAccess(BRAND, CASE_ID, PortalAudience.CLIENT,
+		PortalAccess expired = new PortalAccess(BRAND, CASE_ID, PortalAudience.CLIENT, null,
 				PortalAccessService.hash(token), Instant.now().minus(Duration.ofDays(1)));
-		PortalAccess revoked = new PortalAccess(BRAND, CASE_ID, PortalAudience.CLIENT,
+		PortalAccess revoked = new PortalAccess(BRAND, CASE_ID, PortalAudience.CLIENT, null,
 				PortalAccessService.hash(token), Instant.now().plus(Duration.ofDays(1)));
 		revoked.revoke(Instant.now());
 
@@ -216,7 +305,7 @@ class PortalAccessServiceTest {
 	@Test
 	void aLiveTokenResolvesToItsOwnCaseAndStampsLastSeen() {
 		String token = "a-live-token";
-		PortalAccess live = new PortalAccess(BRAND, CASE_ID, PortalAudience.CLIENT,
+		PortalAccess live = new PortalAccess(BRAND, CASE_ID, PortalAudience.CLIENT, null,
 				PortalAccessService.hash(token), Instant.now().plus(Duration.ofDays(1)));
 		given(tokens.findByTokenHash(PortalAccessService.hash(token))).willReturn(Optional.of(live));
 
@@ -239,7 +328,7 @@ class PortalAccessServiceTest {
 	 */
 	@Test
 	void theStatusReadCannotLeakTheToken() {
-		PortalAccess live = new PortalAccess(BRAND, CASE_ID, PortalAudience.CLIENT, "hash",
+		PortalAccess live = new PortalAccess(BRAND, CASE_ID, PortalAudience.CLIENT, null, "hash",
 				Instant.now().plus(Duration.ofDays(5)));
 		given(tokens.findByCaseIdAndAudienceOrderByCreatedAtDesc(any(), eq(PortalAudience.CLIENT)))
 				.willReturn(List.of(live));
@@ -254,5 +343,158 @@ class PortalAccessServiceTest {
 		assertThat(PortalAccessService.LinkStatus.class.getRecordComponents())
 				.extracting(java.lang.reflect.RecordComponent::getName)
 				.containsExactly("live", "expiresAt", "lastSeenAt");
+	}
+
+	/**
+	 * <strong>Two apps, two origins (Unit 34e).</strong> The expert portal is its own deployment,
+	 * so its link cannot be built from the client's base — a link to the wrong host reads to its
+	 * holder exactly like a revoked token, and the holder here is the participant EvalOS cannot
+	 * train.
+	 */
+	@Test
+	void theExpertsLinkPointsAtTheExpertsOwnApp() {
+		subject.setExpertId(UUID.randomUUID());
+
+		assertThat(links.mint(CASE_ID, PortalAudience.EXPERT).url())
+				.startsWith("https://experts.evalos.test/case#");
+		assertThat(links.mint(CASE_ID, PortalAudience.CLIENT).url())
+				.startsWith("https://portal.evalos.test/portal/client#");
+	}
+
+	/** An expert link with no expert on the case is a credential naming nobody. */
+	@Test
+	void anExpertLinkIsRefusedWhenNoExpertIsAssigned() {
+		assertThatThrownBy(() -> links.mint(CASE_ID, PortalAudience.EXPERT))
+				.isInstanceOf(com.ie.evalos.domain.IllegalTransitionException.class);
+
+		verify(tokens, never()).save(any());
+	}
+
+	/**
+	 * <strong>Sign-in mints the credential that already exists.</strong> A verified password hands
+	 * back the same party-scoped token the staff mint button issues, so every screen behind
+	 * {@code PortalTokenFilter} keeps working without knowing an account exists — and re-minting
+	 * revokes the previous one, exactly as every other mint on this service does.
+	 */
+	@Test
+	void mintForClientAccountIssuesAPartyTokenAndRetiresThePrevious() {
+		UUID brand = UUID.randomUUID();
+		ClientAccount account = persisted(new ClientAccount(brand, "ana@example.com"));
+		account.linkGhlContact("ghl-contact-1");
+		PortalAccess previous = PortalAccess.forParty(brand, PortalAudience.CLIENT, "ghl-contact-1",
+				null, "old-hash", Instant.now().plus(Duration.ofDays(7)));
+		given(tokens.findByBrandIdAndGhlContactIdAndAudienceAndCaseIdIsNullOrderByCreatedAtDesc(
+				brand, "ghl-contact-1", PortalAudience.CLIENT)).willReturn(List.of(previous));
+
+		PortalAccessService.MintedLink link = links.mintForClientAccount(account);
+
+		assertThat(link.url()).startsWith("https://portal.evalos.test/portal/client#");
+		assertThat(previous.getRevokedAt()).isNotNull();
+
+		PortalAccess minted = savedAccess();
+		assertThat(minted.getGhlContactId()).isEqualTo("ghl-contact-1");
+		assertThat(minted.getClientAccountId()).isNull();
+		assertThat(minted.isPartyScoped()).isTrue();
+	}
+
+	/**
+	 * <strong>An account with no GHL contact still mints</strong>, scoped to the account instead —
+	 * the normal case after the 2026-09-11 CRM replacement, and the row {@code V44} widened the
+	 * scope constraint to admit. The previous account-scoped token is retired for the same reason
+	 * every other shape's is: V44's partial index allows exactly one live row per account.
+	 */
+	@Test
+	void mintForClientAccountWithNoGhlContactScopesTheTokenToTheAccount() {
+		UUID brand = UUID.randomUUID();
+		ClientAccount account = persisted(new ClientAccount(brand, "ana@example.com"));
+		PortalAccess previous = PortalAccess.forAccount(brand, account.getId(), "old-hash",
+				Instant.now().plus(Duration.ofDays(7)));
+		given(tokens.findByClientAccountIdOrderByCreatedAtDesc(account.getId()))
+				.willReturn(List.of(previous));
+
+		PortalAccessService.MintedLink link = links.mintForClientAccount(account);
+
+		assertThat(link.url()).startsWith("https://portal.evalos.test/portal/client#");
+		assertThat(previous.getRevokedAt()).isNotNull();
+		verify(tokens, never()).findByBrandIdAndGhlContactIdAndAudienceAndCaseIdIsNullOrderByCreatedAtDesc(
+				any(), any(), any());
+
+		PortalAccess minted = savedAccess();
+		assertThat(minted.getGhlContactId()).isNull();
+		assertThat(minted.getClientAccountId()).isNotNull().isEqualTo(account.getId());
+		assertThat(minted.getAudience()).isEqualTo(PortalAudience.CLIENT);
+		assertThat(minted.isPartyScoped()).isTrue();
+	}
+
+	/**
+	 * An account-scoped row resolves like any other party token: {@code isPartyScoped}, and a null
+	 * contact id. That null is the whole downstream contract — {@code PortalCaseService} fails
+	 * closed on it and the GHL-backed reads answer empty rather than calling GHL with nothing.
+	 */
+	@Test
+	void anAccountScopedTokenResolvesToAPartyPrincipalWithNoContact() {
+		UUID brand = UUID.randomUUID();
+		PortalAccess access = PortalAccess.forAccount(brand, UUID.randomUUID(),
+				PortalAccessService.hash("tok"), Instant.now().plus(Duration.ofDays(7)));
+		given(tokens.findByTokenHash(PortalAccessService.hash("tok"))).willReturn(Optional.of(access));
+
+		PortalPrincipal principal = links.resolve("tok").orElseThrow();
+
+		assertThat(principal.isPartyScoped()).isTrue();
+		assertThat(principal.ghlContactId()).isNull();
+		assertThat(principal.audience()).isEqualTo(PortalAudience.CLIENT);
+		assertThat(principal.brandId()).isEqualTo(brand);
+	}
+
+	/**
+	 * <strong>A shape change does not leave the old shape's credential live.</strong> A client who
+	 * signs in before Unit 43 pushes them to GHL holds an account-scoped token; linking the contact
+	 * moves the next mint to the contact shape, and retiring only within that shape would leave the
+	 * first token working for the rest of its seven days. "Re-minting revokes the previous" is
+	 * stated as an invariant of this service in three places, and this is the sequence that would
+	 * have made it false.
+	 */
+	@Test
+	void mintForClientAccountRetiresTheAccountTokenEvenWhenTheShapeChanges() {
+		UUID brand = UUID.randomUUID();
+		ClientAccount account = persisted(new ClientAccount(brand, "ana@example.com"));
+		PortalAccess contactless = PortalAccess.forAccount(brand, account.getId(), "old-hash",
+				Instant.now().plus(Duration.ofDays(7)));
+		given(tokens.findByClientAccountIdOrderByCreatedAtDesc(account.getId()))
+				.willReturn(List.of(contactless));
+
+		account.linkGhlContact("ghl-contact-1");
+		links.mintForClientAccount(account);
+
+		assertThat(contactless.getRevokedAt()).isNotNull();
+		assertThat(savedAccess().getGhlContactId()).isEqualTo("ghl-contact-1");
+	}
+
+	/**
+	 * A transient account names nobody, the way a case with no contact does. The database would
+	 * refuse the row at commit ({@code V44}), but as a 500 — and Task 4's "create the account, then
+	 * mint" flow is one missing flush away from producing one.
+	 */
+	@Test
+	void mintForClientAccountRefusesAnUnsavedAccount() {
+		assertThatThrownBy(() -> links.mintForClientAccount(
+				new ClientAccount(UUID.randomUUID(), "ana@example.com")))
+				.isInstanceOf(IllegalTransitionException.class);
+
+		verify(tokens, never()).save(any());
+	}
+
+	/** The id a persisted entity would carry: Hibernate assigns it at persist, so nothing else does. */
+	private static ClientAccount persisted(ClientAccount account) {
+		ReflectionTestUtils.setField(account, "id", UUID.randomUUID());
+		return account;
+	}
+
+	/** The row this mint wrote, which is the only way to see what was actually scoped. */
+	private PortalAccess savedAccess() {
+		org.mockito.ArgumentCaptor<PortalAccess> saved =
+				org.mockito.ArgumentCaptor.forClass(PortalAccess.class);
+		verify(tokens, org.mockito.Mockito.atLeastOnce()).save(saved.capture());
+		return saved.getAllValues().get(saved.getAllValues().size() - 1);
 	}
 }

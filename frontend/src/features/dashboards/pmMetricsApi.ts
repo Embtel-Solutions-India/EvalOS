@@ -149,6 +149,18 @@ export type ExpertNetworkMetrics = {
   coverage: FieldCoverage[]
   onboarding: { thisMonth: number; target: number }
   acceptance: { ratePct: number | null; resolved: number }
+  /**
+   * How long the roster takes to answer an offer (gap **G9**).
+   *
+   * **The median, and derived from the offer ledger.** `expert.avg_response_hours` existed,
+   * was written by nothing and read as permanently null; G9's instruction was to derive rather
+   * than revive it. Median because these samples are few and skewed — one expert who answers
+   * after a fortnight drags a mean somewhere nobody recognises.
+   *
+   * `null` means nothing has resolved yet. It is never zero, which would read as "answered
+   * instantly".
+   */
+  turnaround: { medianHours: number | null; resolved: number }
   declining: { expertId: string; name: string; declines: number }[]
   lowQuality: LowQualityExpert[]
   activeCases: number
@@ -195,4 +207,50 @@ export async function fetchRevenueMetrics(
   return unwrap<RevenueMetrics>(
     api.get('/metrics/revenue', { params: brandId ? { brandId } : {}, signal }),
   )
+}
+
+// --- G16: the portal links ledger -------------------------------------------
+
+/** `ui-context.md`'s RAG vocabulary. The server bands the row; this app never re-derives it. */
+export type LinkState = 'RED' | 'AMBER' | 'GREEN'
+
+/**
+ * One (case, audience) pair.
+ *
+ * **There is no `sentAt` and there must never be one.** EvalOS cannot observe a staff member
+ * pasting a URL into somebody else's mail client, and a field claiming otherwise would be
+ * reported by this very screen as if it were true. `openedAt` is the honest proxy: it is
+ * evidence the link *arrived*, which is the thing worth knowing.
+ */
+export type PortalLinkRow = {
+  caseId: string
+  caseCode: string | null
+  stage: string
+  audience: 'CLIENT' | 'EXPERT'
+  state: LinkState
+  live: boolean
+  /** When the recipient first opened it, or null for never. */
+  openedAt: string | null
+  expiresAt: string | null
+  reMints: number
+  /** Whether this stage wants this audience at all — the server derives it from the stage. */
+  needed: boolean
+}
+
+export type PortalLinkLedger = {
+  red: number
+  amber: number
+  rows: readonly PortalLinkRow[]
+}
+
+/**
+ * Which portal links exist and whether anyone opened them (gap G16).
+ *
+ * **A safety net for a channel that does not exist.** EvalOS sends no mail, so a link reaches
+ * its recipient because somebody sent it by hand — and nothing records that they did. The
+ * 20h/24h expert signing clock runs regardless, which makes "a link nobody sent" the likeliest
+ * way that SLA is breached.
+ */
+export async function fetchPortalLinkLedger(signal?: AbortSignal): Promise<PortalLinkLedger> {
+  return unwrap<PortalLinkLedger>(api.get('/metrics/portal-links', { signal }))
 }

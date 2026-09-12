@@ -4,6 +4,7 @@ import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
 
+import com.ie.evalos.common.AmbiguousCaseException;
 import com.ie.evalos.common.ForbiddenException;
 import com.ie.evalos.domain.ActorType;
 import com.ie.evalos.domain.PortalAudience;
@@ -22,7 +23,6 @@ import com.ie.evalos.domain.ContactSnapshot;
 import com.ie.evalos.domain.ServiceType;
 import com.ie.evalos.repository.CaseRepository;
 import com.ie.evalos.repository.ContactSnapshotRepository;
-import com.ie.evalos.repository.ExpertRepository;
 import com.ie.evalos.security.PortalPrincipal;
 
 import org.springframework.stereotype.Service;
@@ -79,6 +79,28 @@ public class PortalCaseService {
 			boolean awaitingAnswer) {
 	}
 
+	/**
+	 * One row of "my cases" (Unit 35, D1 + D5).
+	 *
+	 * <p><strong>Narrower than {@link ClientDraftView} on purpose.</strong> A list is read by
+	 * anyone the link was forwarded to before they pick a case, so it carries the least that still
+	 * lets someone recognise their own work: the reference, the service, the step, and whether the
+	 * step is theirs. No client name — the reader is the client, and echoing the name back into a
+	 * list turns a forwarded link into a way to confirm who it belongs to. No draft link: that is
+	 * the detail read, behind a case id.
+	 *
+	 * @param step           D5's projected label, EvalOS's word for the stage
+	 * @param actionRequired whether this case is waiting on the client, so the SPA can mark it
+	 *                       without parsing {@code step}
+	 */
+	public record ClientCaseSummary(
+			UUID caseId,
+			String caseReference,
+			ServiceType serviceType,
+			String step,
+			boolean actionRequired) {
+	}
+
 	private final CaseRepository cases;
 	private final ContactSnapshotRepository contacts;
 	private final CaseLifecycleService lifecycle;
@@ -127,6 +149,49 @@ public class PortalCaseService {
 		return view(subject);
 	}
 
+	/**
+	 * Every case this client party has, newest first (Unit 35, D1) — the read no case-scoped token
+	 * could answer, and the reason D1 was worth taking.
+	 *
+	 * <p>Refused outright for a case-scoped token rather than answering a one-element list. The two
+	 * credentials are different things and a caller that holds the narrow one should not be able to
+	 * discover the shape of the wide one's reply; a client holding a case link asks the case route.
+	 *
+	 * <p>{@code readOnly}, unlike {@link #clientView}: there is no case here to stamp
+	 * {@code client_portal_read_at} on. Opening a list is not reading a draft, and treating it as
+	 * one would tell a Case Manager the client had seen something they have not.
+	 */
+	@Transactional(readOnly = true)
+	public java.util.List<ClientCaseSummary> clientCases(PortalPrincipal principal) {
+		if (!principal.isPartyScoped()) {
+			throw new ForbiddenException("This link admits you to one case, not a list");
+		}
+		return partyCases(principal).stream().map(subject -> {
+			PortalStageProjection.PortalStep step = PortalStageProjection.forClient(subject.getCurrentStage());
+			return new ClientCaseSummary(subject.getId(), subject.getCaseCode(), subject.getServiceType(),
+					step.label(), step.actionRequired());
+		}).toList();
+	}
+
+	/**
+	 * One of the party's cases, named by the caller (Unit 35, D1).
+	 *
+	 * <p>The id arrives from the request, which is only safe because it is matched against the
+	 * credential before anything is read — the same shape Unit 34c's document-kind filter uses. A
+	 * case that is not this party's answers <strong>403, not 404</strong>: 404 would confirm the
+	 * difference between "no such case" and "not yours", which is the oracle a client with one link
+	 * would use to count the brand's cases.
+	 */
+	@Transactional
+	public ClientDraftView clientView(PortalPrincipal principal, UUID caseId) {
+		Case subject = authorized(principal, caseId);
+		if (subject.getClientPortalReadAt() == null) {
+			subject.setClientPortalReadAt(Instant.now());
+			cases.save(subject);
+		}
+		return view(subject);
+	}
+
 	/** The projection itself, shared with the two writes so they answer the page's new state. */
 	private ClientDraftView view(Case subject) {
 		// Both lookups are by an id that came off the authorized case, which is the same
@@ -145,6 +210,108 @@ public class PortalCaseService {
 				subject.getDraftVersionCount(),
 				subject.getClientApprovalStatus(),
 				subject.getClientApprovalStatus() == ClientApprovalStatus.PENDING);
+	}
+
+	/**
+	 * What the client must send, and what they have sent (Unit 34c).
+	 *
+	 * <p><strong>Why this exists at all:</strong> {@link #upload} takes a {@code checklistItemId}
+	 * and there was no way for a client to learn one. The upload endpoint shipped in Unit 30
+	 * unreachable — not insecure, just uncallable — and this is the read that closes it.
+	 *
+	 * <p><strong>Not a widening of {@link ClientDraftView}.</strong> That record's javadoc says the
+	 * checklist and the client's own documents are excluded, and it stays that way: the draft view
+	 * is one screen's whitelist and this is another's. Keeping them apart means a field added to
+	 * either does not silently appear on the other, which is the same argument that made
+	 * {@code ClientDraftView} a projection rather than a narrowed staff DTO.
+	 *
+	 * <p><strong>Only the client's own uploads.</strong> {@code DocumentKind.DRAFT} and
+	 * {@code SIGNED_LETTER} are filtered out here and again in {@link #documentUrl}. A draft
+	 * reaches the client through {@code draftLink} on the other screen, under the approval guard
+	 * that belongs to it; the signed letter is Unit 15's and delivery is a decision nobody has
+	 * taken. Widening this filter is how either of those leaks early.
+	 */
+	public record ClientDocumentsView(java.util.List<ChecklistItemView> checklist,
+			java.util.List<UploadedDocumentView> uploaded) {
+	}
+
+	/**
+	 * One required document.
+	 *
+	 * <p>The status is <strong>Unit 10's own vocabulary, unmapped</strong> — {@code REQUIRED},
+	 * {@code UPLOADED}, {@code APPROVED}, {@code MISSING}, {@code INCORRECT}. No portal-specific
+	 * status enum is invented, because a second vocabulary for the same fact is a second thing that
+	 * can disagree with the Coordinator's screen. {@code MISSING} and {@code INCORRECT} reaching
+	 * the client is the point rather than a leak: it is touchpoint T4 — "your upload was flagged" —
+	 * arriving as a state the client can see instead of a message EvalOS has no way to send.
+	 */
+	public record ChecklistItemView(UUID id, String label, ChecklistItemStatus status) {
+	}
+
+	/**
+	 * One document the client sent.
+	 *
+	 * <p><strong>No object key</strong>, for the reason {@code CaseController.DocumentVersion}
+	 * gives: a key is an internal address, and a client-side copy of one is a pointer somebody
+	 * eventually tries to turn into a URL. The bytes are reached through {@link #documentUrl},
+	 * which mints a five-minute capability per request.
+	 *
+	 * @param checklistLabel which requirement this answered, so a client can tell two PDFs apart
+	 */
+	public record UploadedDocumentView(UUID id, String filename, int version, Instant uploadedAt,
+			String checklistLabel) {
+	}
+
+	/** Both lists for the client's document screen. Read-only: no receipt is stamped here. */
+	@Transactional(readOnly = true)
+	public ClientDocumentsView documents(PortalPrincipal principal) {
+		Case subject = authorized(principal);
+
+		java.util.List<ChecklistItemView> checklist = checklistItems.findByCaseId(subject.getId()).stream()
+				.map(item -> new ChecklistItemView(item.getId(), item.getLabel(), item.getStatus()))
+				.toList();
+
+		java.util.List<UploadedDocumentView> uploaded = documents
+				.findByCaseIdAndKindOrderByVersionDesc(subject.getId(), DocumentKind.CLIENT_UPLOAD).stream()
+				.map(row -> new UploadedDocumentView(row.getId(), row.getFilename(), row.getVersion(),
+						row.getUploadedAt(), row.getNotes()))
+				.toList();
+
+		return new ClientDocumentsView(checklist, uploaded);
+	}
+
+	/**
+	 * A five-minute URL for one document the client themselves uploaded (Unit 34c).
+	 *
+	 * <p><strong>The token's case is the authorization and the kind filter is the second half of
+	 * it.</strong> {@link #authorized} proves which case this caller holds; the document is then
+	 * matched against that case <em>and</em> against {@code CLIENT_UPLOAD}. Without the case match
+	 * a client could name any document id in the system; without the kind match they could name the
+	 * draft or the expert's signed letter on their own case and read it outside the approval flow.
+	 *
+	 * <p>The URL is minted <strong>after</strong> both checks, never before — a presigned URL
+	 * created ahead of the check is a URL that leaked ahead of the check. It is never stored.
+	 *
+	 * <p>Every issue writes an {@code EXPORTED} row with {@code actor_type = CLIENT}, which is what
+	 * makes "the client opened their own passport scan on the 4th" a fact the trail holds rather
+	 * than an inference from a web log.
+	 */
+	@Transactional
+	public String documentUrl(PortalPrincipal principal, UUID documentId) {
+		Case subject = authorized(principal);
+
+		CaseDocument document = documents.findById(documentId)
+				.filter(row -> row.getCaseId().equals(subject.getId()))
+				.filter(row -> row.getKind() == DocumentKind.CLIENT_UPLOAD)
+				.orElseThrow(() -> new ForbiddenException("That document is not one of yours"));
+
+		requireState(document.getObjectKey() != null,
+				"that document predates the document store and has no file behind it");
+
+		audit.recordPortalEvent(subject.getBrandId(), PortalAudience.CLIENT, "CASE_DOCUMENT",
+				document.getId(), AuditAction.EXPORTED, null,
+				java.util.Map.of("opened", String.valueOf(document.getFilename())));
+		return store.presignedUrl(document.getObjectKey());
 	}
 
 	/**
@@ -248,10 +415,34 @@ public class PortalCaseService {
 		return view(lifecycle.clientApproveDraftFromPortal(authorized(principal)));
 	}
 
+	/**
+	 * Approves one named case (34b).
+	 *
+	 * <p><strong>This closes a gap Unit 35 left, and it is worth naming.</strong> D1 made a
+	 * credential able to name a <em>party</em> and gave the reads a case id —
+	 * {@code GET /cases/{'{'}caseId{'}'}} — but left the two <em>writes</em> resolving the case from
+	 * the token alone. So a client with two cases could read either draft and approve neither:
+	 * both actions answered 409 {@code SAY_WHICH_CASE} with no way to say which. The read half of
+	 * party scoping shipped and the write half did not.
+	 *
+	 * <p>{@link #approve(PortalPrincipal)} stays for the case-scoped token, which has no id to
+	 * pass and must not be made to invent one.
+	 */
+	@Transactional
+	public ClientDraftView approve(PortalPrincipal principal, UUID caseId) {
+		return view(lifecycle.clientApproveDraftFromPortal(authorized(principal, caseId)));
+	}
+
 	/** Revisions carry the client's own words, which is what the Case Manager works from. */
 	@Transactional
 	public ClientDraftView requestRevisions(PortalPrincipal principal, String notes) {
 		return view(lifecycle.clientRequestRevisionsFromPortal(authorized(principal), notes));
+	}
+
+	/** Revisions on one named case — see {@link #approve(PortalPrincipal, UUID)}. */
+	@Transactional
+	public ClientDraftView requestRevisions(PortalPrincipal principal, UUID caseId, String notes) {
+		return view(lifecycle.clientRequestRevisionsFromPortal(authorized(principal, caseId), notes));
 	}
 
 	/**
@@ -266,12 +457,77 @@ public class PortalCaseService {
 	 * stopped being true.
 	 */
 	private Case authorized(PortalPrincipal principal) {
-		UUID caseId = principal.caseId();
+		if (principal.isPartyScoped()) {
+			// A party token on a route that acts on one case. Resolve it only when there is no
+			// choice to get wrong — see AmbiguousCaseException for why this refuses rather than
+			// picking the newest.
+			java.util.List<Case> mine = partyCases(principal);
+			if (mine.size() == 1) {
+				return mine.get(0);
+			}
+			throw new AmbiguousCaseException(mine.isEmpty()
+					? "This link has no cases behind it"
+					: "You have several cases — say which one");
+		}
+		return byId(principal, principal.caseId());
+	}
+
+	/**
+	 * The same check for a case the caller named, which is the party-scoped routes' whole
+	 * authorization.
+	 *
+	 * <p>A case-scoped token may also reach here, and must be pinned to its own case: without the
+	 * equality check, the narrow credential would gain the wide one's reach the moment a path
+	 * variable existed to carry another id.
+	 */
+	private Case authorized(PortalPrincipal principal, UUID caseId) {
+		Case subject = byId(principal, caseId);
+		if (principal.isPartyScoped()) {
+			String mine = principal.ghlContactId();
+			String theirs = Optional.ofNullable(subject.getContactId())
+					.flatMap(contacts::findById)
+					.map(ContactSnapshot::getGhlContactId)
+					.orElse(null);
+			if (mine == null || !mine.equals(theirs)) {
+				throw new ForbiddenException("This link does not admit you to that case");
+			}
+		} else if (!caseId.equals(principal.caseId())) {
+			throw new ForbiddenException("This link does not admit you to that case");
+		}
+		return subject;
+	}
+
+	/**
+	 * The brand check both shapes share. Refuses with the same sentence a missing case gets, so
+	 * the two are one answer.
+	 */
+	private Case byId(PortalPrincipal principal, UUID caseId) {
 		Case subject = cases.findById(caseId)
 				.orElseThrow(() -> new ForbiddenException("This link no longer points at a case"));
 		if (!subject.getBrandId().equals(principal.brandId())) {
 			throw new ForbiddenException("This link no longer points at a case");
 		}
 		return subject;
+	}
+
+	/**
+	 * The cases behind a client party token: its GHL contact, resolved in the token's own brand.
+	 *
+	 * <p>Empty rather than an error when the contact has no cases — a client whose only case was
+	 * merged away holds a working link to an empty list, which is a truthful answer. Same answer
+	 * for an account-scoped token with no contact at all (Unit 42): a client who has just signed
+	 * up has no cases, and this is the truthful way to say so. The guard is not decoration —
+	 * without it a null would be matched against a contact row whose own {@code ghl_contact_id} is
+	 * null the day any lookup stops treating {@code = NULL} as unknown, and that contact's cases
+	 * are somebody else's.
+	 */
+	private java.util.List<Case> partyCases(PortalPrincipal principal) {
+		if (principal.ghlContactId() == null) {
+			return java.util.List.of();
+		}
+		return contacts.findByBrandIdAndGhlContactId(principal.brandId(), principal.ghlContactId())
+				.map(contact -> cases.findByBrandIdAndContactIdOrderByCreatedAtDesc(
+						principal.brandId(), contact.getId()))
+				.orElseGet(java.util.List::of);
 	}
 }

@@ -4,10 +4,25 @@ spring:
     url: ${DB_URL}
     username: ${DB_USER}
     password: ${DB_PASSWORD}
+  mail:
+    host: ${MAIL_HOST:}
+    port: ${MAIL_PORT:587}
+    username: ${MAIL_USERNAME:}
+    password: ${MAIL_PASSWORD:}
+    properties:
+      mail.smtp.auth: true
+      mail.smtp.starttls.enable: true
+      # Bounded, for the reason application.yml states at length. This is the profile where an
+      # unbounded send actually takes the API down.
+      mail.smtp.connectiontimeout: 5000
+      mail.smtp.timeout: 5000
+      mail.smtp.writetimeout: 5000
   jpa:
     show-sql: false
 
 evalos:
+  mail:
+    from: ${EVALOS_MAIL_FROM:}
   portal:
     # Must name the deployed portal origin. **No default, so a missing value fails the boot** —
     # which is what the comment used to claim while the value carried an empty default and booted
@@ -25,6 +40,16 @@ evalos:
     # forgets it must fail to start rather than run on a guess. This is the client- and
     # expert-facing origin, not the API's.
     base-url: ${PORTAL_BASE_URL}
+    # No default here either, and for a sharper reason than its neighbour: an unset value falls
+    # back to the dev default, so a deployment that forgets it mails production clients a link to
+    # localhost. The failure is silent at boot and visible only in somebody's inbox.
+    client-base-url: ${PORTAL_CLIENT_BASE_URL}
+    # No default, for the same reason as its two neighbours above. An empty value is not "unset"
+    # to Spring — it binds as a null UUID, which boots happily into a portal where every identify
+    # answers UNKNOWN and every sign-in is refused, for every client, permanently and silently.
+    # There is no log line and no failing request to find; it just looks like nobody has an account.
+    client-brand: ${EVALOS_PORTAL_CLIENT_BRAND}
+    credential-ttl: ${EVALOS_PORTAL_SIGNIN_LINK_TTL:30m}
   s3:
     # Required in a deployed environment. Absent, every document route answers 502 and the boot log
     # says which variable is missing.
@@ -67,6 +92,9 @@ evalos:
     # The email marketing funnel, by name for the same reason. All three defaults are the names the
     # live location actually uses today, so a deployment sets none of them unless GHL renames one.
     email-pipeline-name: ${GHL_EMAIL_PIPELINE_NAME:Shivangi's Email Marketing}
+    # Unit 36's single-brand ceiling; the reasoning is in the base profile.
+    sales-brand: ${GHL_SALES_BRAND_ID:}
+    board-cache-ttl: ${GHL_BOARD_CACHE_TTL:2m}
     # The sales funnel. Written with ONE space where GHL stores two — the client collapses
     # whitespace before matching, so this is correct as written; see the base profile.
     sales-pipeline-name: ${GHL_SALES_PIPELINE_NAME:Aditya's pipeline}

@@ -8,13 +8,16 @@ import java.util.Optional;
 import java.util.UUID;
 
 import com.ie.evalos.common.InvalidRequestException;
+import com.ie.evalos.domain.AffiliationType;
 import com.ie.evalos.domain.Availability;
 import com.ie.evalos.domain.Expert;
 import com.ie.evalos.domain.ExpertTier;
 import com.ie.evalos.domain.FieldTag;
 import com.ie.evalos.domain.LetterType;
 import com.ie.evalos.domain.Role;
+import com.ie.evalos.domain.VisaCategory;
 import com.ie.evalos.repository.BrandRepository;
+import com.ie.evalos.repository.ExpertCaseOfferRepository;
 import com.ie.evalos.repository.ExpertRepository;
 import com.ie.evalos.security.StaffPrincipal;
 import com.ie.evalos.service.ExpertImportService.ImportMapping;
@@ -75,10 +78,11 @@ class ExpertImportServiceTest {
 	private final PayoutService payouts = mock(PayoutService.class);
 	private final OwnershipGuard ownership = mock(OwnershipGuard.class);
 	private final AuditService audit = mock(AuditService.class);
+	private final ExpertCaseOfferRepository offers = mock(ExpertCaseOfferRepository.class);
 	private final Validator validator = Validation.buildDefaultValidatorFactory().getValidator();
 
 	private final ExpertService expertService =
-			new ExpertService(experts, brands, loads, payouts, ownership, audit);
+			new ExpertService(experts, brands, loads, payouts, ownership, audit, offers);
 
 	private final ExpertImportService imports =
 			new ExpertImportService(experts, expertService, ownership, audit, validator);
@@ -307,6 +311,90 @@ class ExpertImportServiceTest {
 		// And the per-expert row, so the expert's own trail says where they came from.
 		verify(audit).recordEvent(eq("EXPERT"), any(), eq(com.ie.evalos.domain.AuditAction.CREATED), any(),
 				eq(null), any());
+	}
+
+	// --- Unit 33: the dossier columns -----------------------------------------
+
+	private static final String DOSSIER_HEADER =
+			"Name,Email,Code,Degree,Affiliation type,Country,Citations,H-index,Visas,Rush,Turnaround\n";
+
+	private static final ImportMapping DOSSIER_MAPPING = new ImportMapping(Map.ofEntries(
+			Map.entry("Name", "fullName"),
+			Map.entry("Email", "email"),
+			Map.entry("Code", "expertCode"),
+			Map.entry("Degree", "highestDegree"),
+			Map.entry("Affiliation type", "affiliationType"),
+			Map.entry("Country", "country"),
+			Map.entry("Citations", "citations"),
+			Map.entry("H-index", "hIndex"),
+			Map.entry("Visas", "visaCategories"),
+			Map.entry("Rush", "rushAvailable"),
+			Map.entry("Turnaround", "avgTurnaroundDays")));
+
+	private static MultipartFile dossierCsv(String body) {
+		return new MockMultipartFile("file", "roster.csv", "text/csv",
+				(DOSSIER_HEADER + body).getBytes(StandardCharsets.UTF_8));
+	}
+
+	@Test
+	void theDossierColumnsImportWithTheSpreadsheetsOwnFormatting() {
+		anEnmUploading();
+
+		// "6,100" is what a spreadsheet's own thousands formatting produces, and "Yes" is how
+		// a roster sheet writes a boolean. Neither is a problem to report.
+		ImportReport report = imports.importSheet(null,
+				dossierCsv("Prof Adaeze Nwosu,a.nwosu@rowanstate.test,IE-EXP-014,PhD,University,USA,\"6,100\",38,EB1A;O1,Yes,8\n"),
+				DOSSIER_MAPPING);
+
+		assertThat(report.problems()).isEmpty();
+		assertThat(report.created()).isEqualTo(1);
+
+		ArgumentCaptor<Expert> saved = ArgumentCaptor.forClass(Expert.class);
+		verify(experts).saveAndFlush(saved.capture());
+		Expert imported = saved.getValue();
+		assertThat(imported.getExpertCode()).isEqualTo("IE-EXP-014");
+		assertThat(imported.getHighestDegree()).isEqualTo("PhD");
+		assertThat(imported.getAffiliationType()).isEqualTo(AffiliationType.UNIVERSITY);
+		assertThat(imported.getCountry()).isEqualTo("USA");
+		assertThat(imported.getCitations()).isEqualTo(6100);
+		assertThat(imported.getHIndex()).isEqualTo(38);
+		assertThat(imported.getVisaCategories()).containsExactly(VisaCategory.EB1A, VisaCategory.O1);
+		assertThat(imported.isRushAvailable()).isTrue();
+		assertThat(imported.getAvgTurnaroundDays()).isEqualTo(8);
+	}
+
+	@Test
+	void aRushCellThatIsNeitherYesNorNoIsReportedRatherThanReadAsNo() {
+		anEnmUploading();
+
+		// The failure this guards: a typo silently meaning "takes no rush work" shrinks the
+		// pool an urgent case can be offered to, and nothing anywhere would say so.
+		ImportReport report = imports.importSheet(null,
+				dossierCsv("Prof Adaeze Nwosu,a.nwosu@rowanstate.test,IE-EXP-014,PhD,University,USA,6100,38,EB1A,Sometimes,8\n"),
+				DOSSIER_MAPPING);
+
+		assertThat(report.imported()).isFalse();
+		assertThat(report.problems()).singleElement()
+				.satisfies(problem -> {
+					assertThat(problem.column()).isEqualTo("Rush");
+					assertThat(problem.reason()).contains("Sometimes");
+				});
+		verify(experts, never()).saveAndFlush(any());
+	}
+
+	@Test
+	void aDecimalInAWholeNumberColumnIsReportedRatherThanTruncated() {
+		anEnmUploading();
+
+		// 4.9 in a publications column is the quality-score column mapped by mistake. Reading
+		// it as 49 would be a plausible-looking wrong answer nobody would go back and check.
+		ImportReport report = imports.importSheet(null,
+				dossierCsv("Prof Adaeze Nwosu,a.nwosu@rowanstate.test,IE-EXP-014,PhD,University,USA,6100,4.9,EB1A,No,8\n"),
+				DOSSIER_MAPPING);
+
+		assertThat(report.imported()).isFalse();
+		assertThat(report.problems()).singleElement()
+				.satisfies(problem -> assertThat(problem.column()).isEqualTo("H-index"));
 	}
 
 	private static MultipartFile csv(String body) {

@@ -1,6 +1,7 @@
 package com.ie.evalos.service;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -13,6 +14,7 @@ import java.util.UUID;
 
 import com.ie.evalos.common.ForbiddenException;
 import com.ie.evalos.common.InvalidRequestException;
+import com.ie.evalos.domain.AffiliationType;
 import com.ie.evalos.domain.AuditAction;
 import com.ie.evalos.domain.Availability;
 import com.ie.evalos.domain.Expert;
@@ -20,7 +22,9 @@ import com.ie.evalos.domain.ExpertTier;
 import com.ie.evalos.domain.FieldTag;
 import com.ie.evalos.domain.LetterType;
 import com.ie.evalos.domain.PerformanceFlag;
+import com.ie.evalos.domain.VisaCategory;
 import com.ie.evalos.repository.BrandRepository;
+import com.ie.evalos.repository.ExpertCaseOfferRepository;
 import com.ie.evalos.repository.ExpertRepository;
 import com.ie.evalos.security.TenantContext;
 import com.ie.evalos.service.ExpertLoadService.Load;
@@ -29,6 +33,8 @@ import jakarta.validation.constraints.DecimalMax;
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.Digits;
 import jakarta.validation.constraints.Email;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 
@@ -89,7 +95,31 @@ public class ExpertService {
 			@DecimalMin("0.0") @Digits(integer = 10, fraction = 2) BigDecimal standardFee,
 			@Size(max = 200) String recruitmentSource,
 			LocalDate dateOnboarded,
-			@Size(max = 4000) String notes) {
+			@Size(max = 4000) String notes,
+			// --- Unit 33: the standing dossier. Every component here is also an import
+			// target for free — ExpertImportService derives TARGET_FIELDS from this record.
+			@Size(max = 40) String expertCode,
+			@Size(max = 200) String subSpecialization,
+			@Size(max = 100) String highestDegree,
+			@Size(max = 200) String degreeField,
+			@Size(max = 200) String degreeInstitution,
+			@Size(max = 200) String currentPosition,
+			AffiliationType affiliationType,
+			@Size(max = 100) String country,
+			@Size(max = 100) String stateRegion,
+			@Min(0) @Max(80) Integer yearsExperience,
+			@Size(max = 300) String linkedinUrl,
+			List<VisaCategory> visaCategories,
+			@Min(0) Integer publications,
+			@Min(0) Integer citations,
+			@Min(0) Integer hIndex,
+			@Min(0) Integer patents,
+			@Size(max = 2000) String notableAwards,
+			@Size(max = 2000) String professionalMemberships,
+			@Size(max = 2000) String editorialRoles,
+			@Size(max = 500) String languages,
+			boolean rushAvailable,
+			@Min(0) @Max(365) Integer avgTurnaroundDays) {
 	}
 
 	/**
@@ -98,6 +128,18 @@ public class ExpertService {
 	 * which nothing has ever written (Unit 16).
 	 */
 	public record RosterEntry(Expert expert, Load load, BigDecimal pendingTotal) {
+	}
+
+	/**
+	 * One expert's profile: the roster entry, plus the one fact only the profile needs.
+	 *
+	 * <p>{@code lastActiveAt} is <strong>not</strong> a fourth component on {@link RosterEntry}
+	 * (Unit 33). That record is built per row by the roster listing and the availability board,
+	 * and a derived last-active on it would be one query per expert on every page — the profile
+	 * is the only screen that shows it, so it is fetched only here. Null means never offered a
+	 * case, which is not dormancy and must not be drawn as a date.
+	 */
+	public record ProfileEntry(RosterEntry entry, Instant lastActiveAt) {
 	}
 
 	/** One page of the roster. {@code total} is the filtered count, not the brand's. */
@@ -157,15 +199,17 @@ public class ExpertService {
 	private final PayoutService payouts;
 	private final OwnershipGuard ownership;
 	private final AuditService audit;
+	private final ExpertCaseOfferRepository offers;
 
 	ExpertService(ExpertRepository experts, BrandRepository brands, ExpertLoadService loads, PayoutService payouts,
-			OwnershipGuard ownership, AuditService audit) {
+			OwnershipGuard ownership, AuditService audit, ExpertCaseOfferRepository offers) {
 		this.experts = experts;
 		this.brands = brands;
 		this.loads = loads;
 		this.payouts = payouts;
 		this.ownership = ownership;
 		this.audit = audit;
+		this.offers = offers;
 	}
 
 	// --- reads ---------------------------------------------------------------
@@ -201,11 +245,12 @@ public class ExpertService {
 	}
 
 	@Transactional(readOnly = true)
-	public RosterEntry profile(UUID id) {
+	public ProfileEntry profile(UUID id) {
 		Expert expert = read(id);
 		BigDecimal pendingTotal = payouts.pendingByExpert(expert.getBrandId())
 				.getOrDefault(expert.getId(), BigDecimal.ZERO);
-		return new RosterEntry(expert, loads.forExpert(expert.getId()), pendingTotal);
+		RosterEntry entry = new RosterEntry(expert, loads.forExpert(expert.getId()), pendingTotal);
+		return new ProfileEntry(entry, offers.lastOfferedAt(expert.getBrandId(), expert.getId()));
 	}
 
 	/**
@@ -388,6 +433,31 @@ public class ExpertService {
 		expert.setRecruitmentSource(trimmed(form.recruitmentSource()));
 		expert.setDateOnboarded(form.dateOnboarded());
 		expert.setNotes(trimmed(form.notes()));
+
+		// Unit 33. No coercion here, unlike availability above: a blank dossier field is an
+		// expert whose CV has not been transcribed yet, which is a real and readable state.
+		expert.setExpertCode(trimmed(form.expertCode()));
+		expert.setSubSpecialization(trimmed(form.subSpecialization()));
+		expert.setHighestDegree(trimmed(form.highestDegree()));
+		expert.setDegreeField(trimmed(form.degreeField()));
+		expert.setDegreeInstitution(trimmed(form.degreeInstitution()));
+		expert.setCurrentPosition(trimmed(form.currentPosition()));
+		expert.setAffiliationType(form.affiliationType());
+		expert.setCountry(trimmed(form.country()));
+		expert.setStateRegion(trimmed(form.stateRegion()));
+		expert.setYearsExperience(form.yearsExperience());
+		expert.setLinkedinUrl(trimmed(form.linkedinUrl()));
+		expert.setVisaCategories(form.visaCategories());
+		expert.setPublications(form.publications());
+		expert.setCitations(form.citations());
+		expert.setHIndex(form.hIndex());
+		expert.setPatents(form.patents());
+		expert.setNotableAwards(trimmed(form.notableAwards()));
+		expert.setProfessionalMemberships(trimmed(form.professionalMemberships()));
+		expert.setEditorialRoles(trimmed(form.editorialRoles()));
+		expert.setLanguages(trimmed(form.languages()));
+		expert.setRushAvailable(form.rushAvailable());
+		expert.setAvgTurnaroundDays(form.avgTurnaroundDays());
 	}
 
 	/** One expert this caller may read, or a 403 that cannot distinguish "not yours" from "no such row". */

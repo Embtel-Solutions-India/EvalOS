@@ -6,10 +6,14 @@ Build EvalOS incrementally, spec-driven. The context files define what to build,
 how to build it, and the current state; the EvalOS Technical Design Document
 (v1.1) is the authoritative design behind them. Implement against the unit spec
 in `context/specs/NN-name.md` — do not infer or invent behavior from scratch.
-The stack is Java 21 + Spring Boot + PostgreSQL (Spring Data JPA) on the backend
-and a React/Vite + Tailwind client. Do not introduce a Node backend, a different
-database, an object store, a mail server, or a different auth model than Spring
-Security + JWT (staff) + scoped link-based portal chains (client/expert).
+The stack is Java 21 + Spring Boot + PostgreSQL (Spring Data JPA) on the backend and
+**two** React/Vite + Tailwind frontends: `frontend/` (staff, same-origin) and `client/`
+(the external portal frontend carrying both portals, cross-origin against
+`/api/portal/**`). Do not introduce a Node backend, a different database, a mail server,
+or a different auth model than Spring Security + JWT (staff) + scoped link-based portal
+chains (client/expert). **The object store is no longer on that list** — Unit 30 put
+documents in S3 and EvalOS still stores no bytes; what stays forbidden is a blob column,
+a temp file or a byte array on the way through.
 
 ## Non-negotiable properties (apply to every unit)
 
@@ -17,16 +21,19 @@ Security + JWT (staff) + scoped link-based portal chains (client/expert).
   write a finder that can cross brands except for the GM's explicit cross-brand
   reads.
 - **Append-only audit** on every object; no update/delete path.
-- **No files, no email.** Drive links and file ids for every artifact including the
-  signed letter; in-app notifications for staff; GHL for client messages; a scoped
-  portal link for experts.
-  - *No files* means **stores none, not accepts none.** Unit 21 accepts a client
-    upload and streams it through to Drive; EvalOS keeps the file id and nothing
-    else. Do not read this rule as forbidding that unit — read it as forbidding the
-    temp file, the upload directory and the blob column.
-  - *No email* is **true today and under review.** The touchpoints and the open
-    channel decision are in `context/process-automation.md`. Until it is decided,
-    still do not add a mail dependency.
+- **No files, no email.** S3 **object keys** for every artefact including the signed
+  letter, read through 5-minute presigned URLs minted after the scope check; in-app
+  notifications for staff; GHL for client messages; a scoped portal link for experts.
+  (This said "Drive links and file ids" until Unit 30; Drive is gone.)
+  - *No files* means **stores none, not accepts none.** An upload **streams** through to
+    S3 and EvalOS keeps the key. Do not read this rule as forbidding an upload endpoint —
+    read it as forbidding the temp file, the upload directory, the byte array and the blob
+    column.
+  - *No email* is **settled, not under review.** Unit 18's outbound dispatcher was
+    removed, so EvalOS has no outbound channel of any kind and there is nothing to add
+    mail to. What is still open is who reaches the client —
+    `context/process-automation.md`, where in-portal state is now a third option. Do not
+    add a mail dependency.
 - **One home per fact.** SLA budgets live in `SlaCalculator`, transitions in
   `CaseTransitions`, recipients in `NotificationListeners.ROUTES`, scope in
   `ScopePredicate`. Docs cite them; they never restate a threshold as an authority.
@@ -76,7 +83,8 @@ write back to GHL, and no stored copy of GHL's pipeline; invariant 2 is unchange
 ## Protected Files
 
 Do not modify these unless explicitly instructed:
-- `frontend/src/components/ui/*` — generated headless UI components.
+- `frontend/src/components/ui/*` and `client/src/components/ui/*` — generated headless UI
+  components, in both frontends.
 - Any third-party library internals.
 - The audit-trail entity and its write path — append-only; never add update/delete.
 - The field-level encryption `AttributeConverter` in `common` and any code
@@ -96,7 +104,9 @@ Update the relevant context file whenever implementation changes:
 - Architecture, boundaries, tenancy, or handoff contracts → `architecture.md`
 - Storage model or data ownership → `architecture.md` / `code-standards.md`
 - Code conventions → `code-standards.md`
-- Visual tokens or layout patterns → `ui-context.md`
+- Visual tokens or layout patterns → `ui-context.md`. **Two token sets, one per frontend** —
+  `frontend/src/styles/tokens.css` and `client/src/styles/globals.css`. They diverge on
+  purpose; only RAG-is-status-only and tabular figures cross the boundary.
 - Feature scope → `project-overview.md`
 - **A trigger, its recipients, an SLA, or a client/expert touchpoint →
   `process-automation.md`** (the A-register). Moving an automation from *gap* to
@@ -106,7 +116,8 @@ Update the relevant context file whenever implementation changes:
 Also update the **Serena memories** (`.serena/memories/`) in the same step, so the
 next session starts from the current picture instead of rediscovering it:
 - Backend domain, lifecycle, persistence, security, webhooks → `backend/*`
-- Frontend structure and conventions → `frontend/core`
+- Staff frontend structure and conventions → `frontend/core`
+- Portal frontend (`client/`) structure, contract conflicts, tokens → `client/core`
 - Stack or tooling change → `tech_stack` / `suggested_commands`
 - Convention change → `conventions`; verification-step change → `task_completion`
 - New domain worth its own memory → add it and link it from `core`
@@ -124,7 +135,10 @@ memory: durable, non-obvious conventions only, never task-local notes.
    exposed, audit entry on every transition, thin handlers, GHL-only payment path,
    no files, no email.
 3. `progress-tracker.md` reflects the completed work.
-4. Backend `./mvnw verify` passes and the app starts cleanly; frontend
-   `npm run build` passes with no TypeScript or console errors.
+4. Backend `./mvnw verify` passes and the app starts cleanly; `frontend/`
+   `npm run build` passes with no TypeScript or console errors — and, for any unit
+   touching `client/`, that app's `npm run build` too. **Use `tsc -b`, never a bare
+   `tsc --noEmit`**: `frontend/tsconfig.json` is `files: []` with project references, so
+   `--noEmit` typechecks nothing and exits 0.
 5. The Serena memories affected by the unit are updated (see *Keeping Docs in
    Sync*), and none of them still describes the old behavior.
