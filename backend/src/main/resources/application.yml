@@ -18,6 +18,15 @@ spring:
     properties:
       mail.smtp.auth: true
       mail.smtp.starttls.enable: true
+      # **Jakarta Mail defaults all three of these to INFINITE.** Required for the same reason
+      # `evalos.ghl.timeout` below is: this send runs inside a controller-triggered @Transactional,
+      # from a route that is unauthenticated and permits 60 requests/min/IP. A black-holed SMTP
+      # host with no bound parks the request thread AND its Hikari connection forever, and enough
+      # of those take the staff API down with the portal. A bound is what keeps it "one bounded
+      # request" (invariant 6).
+      mail.smtp.connectiontimeout: 5000
+      mail.smtp.timeout: 5000
+      mail.smtp.writetimeout: 5000
   jpa:
     hibernate:
       # Flyway owns the schema. Never create/update.
@@ -96,6 +105,13 @@ evalos:
     client-brand: ${EVALOS_PORTAL_CLIENT_BRAND:}
     # How long a set-password or reset-password link lives. Thirty minutes: long enough to walk
     # to another device, short enough that a forwarded mailbox is not a standing credential.
+    #
+    # **The key and its variable deliberately do not match, and this is not an oversight.**
+    # ConfigSecretsTest fails the build on any variable whose NAME contains CREDENTIAL and which
+    # carries a non-empty default — a deliberately blunt rule, because guessing secrets from their
+    # values misses short ones. A TTL is not a secret, so the variable is named for what it is to
+    # a deployer (the sign-in link's lifetime) instead. Renaming it to EVALOS_PORTAL_CREDENTIAL_TTL
+    # to "fix" the mismatch reintroduces that build failure.
     credential-ttl: ${EVALOS_PORTAL_SIGNIN_LINK_TTL:30m}
     # The portal frontend's origin(s), comma-separated. **Empty by default and never `*`** —
     # see PortalSecurityConfig. An environment that forgets this gets a failing preflight, which
@@ -271,3 +287,10 @@ management:
     web:
       exposure:
         include: health
+  health:
+    # **Off, because /actuator/health is the only exposed endpoint and it is permitAll.** Mail is
+    # blank by default and degrades on purpose (see evalos.mail.from), but Boot's mail indicator
+    # would drag the aggregate to DOWN over it — and a liveness or readiness probe reading that
+    # pulls a healthy instance out of service over a feature that is designed to be optional.
+    mail:
+      enabled: false

@@ -1,14 +1,18 @@
 package com.ie.evalos.service;
 
 import java.time.Duration;
+import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
 
 import com.ie.evalos.domain.ClientAccount;
+import com.ie.evalos.domain.ClientCredentialToken;
+import com.ie.evalos.domain.CredentialPurpose;
 import com.ie.evalos.repository.ClientAccountRepository;
 import com.ie.evalos.repository.ClientCredentialTokenRepository;
 
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
@@ -21,11 +25,20 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
 /**
- * The three answers the sign-in screen branches on, and what each one sends.
+ * The four answers the sign-in screen branches on, and what each one sends.
  *
  * <p>The one worth reading is {@link #unknownEmailSendsNothing()}: {@code identify} reveals
  * whether an email is known, which is email enumeration and is an accepted decision (spec §3) —
  * but it must not also become a way to make EvalOS send mail to an arbitrary address.
+ *
+ * <p>{@link #anOutstandingLinkIsNotReissued()} is the other half of that: an email that IS known
+ * must not become one either. Both auth routes are unauthenticated, so "known address, unlimited
+ * mail" is the same hole at a named inbox.
+ *
+ * <p><strong>{@code mailer.isConfigured()} is stubbed true wherever mail is expected</strong>, and
+ * that is not boilerplate: {@code issueCredential} asks it first and mints nothing when the answer
+ * is no, so a mock left at its default {@code false} is the {@code MAIL_UNAVAILABLE} path rather
+ * than the {@code NO_PASSWORD} one.
  */
 class ClientAccountServiceTest {
 
@@ -60,6 +73,7 @@ class ClientAccountServiceTest {
 
 	@Test
 	void aSeededAccountAnswersNoPasswordAndIsSentASetLink() {
+		given(mailer.isConfigured()).willReturn(true);
 		given(accounts.findByBrandIdAndEmailIgnoreCase(BRAND, "ana@example.com"))
 				.willReturn(Optional.of(new ClientAccount(BRAND, "ana@example.com")));
 		given(credentials.save(any())).willAnswer(call -> call.getArgument(0));
@@ -151,6 +165,83 @@ class ClientAccountServiceTest {
 		service.forgotPassword("nobody@example.com");
 
 		verify(mailer, never()).sendResetPassword(any(), any());
+	}
+
+	@Test
+	void withMailUnconfiguredASeededAccountIsToldToContactUsAndNoTokenIsMinted() {
+		// isConfigured() is left at the mock's default false.
+		given(accounts.findByBrandIdAndEmailIgnoreCase(BRAND, "ana@example.com"))
+				.willReturn(Optional.of(new ClientAccount(BRAND, "ana@example.com")));
+
+		assertThat(service.identify("ana@example.com"))
+				.isEqualTo(ClientAccountService.IdentifyState.MAIL_UNAVAILABLE);
+		// NO_PASSWORD would put "we've emailed you a link" on screen with nothing sent, and the
+		// client would wait forever. The row is not minted either: a link with no way of reaching
+		// anybody is a row that can only expire.
+		verify(credentials, never()).save(any());
+		verify(mailer, never()).sendSetPassword(any(), any());
+	}
+
+	@Test
+	void anOutstandingLinkIsNotReissued() {
+		given(mailer.isConfigured()).willReturn(true);
+		given(accounts.findByBrandIdAndEmailIgnoreCase(BRAND, "ana@example.com"))
+				.willReturn(Optional.of(new ClientAccount(BRAND, "ana@example.com")));
+		given(credentials.findFirstByClientAccountIdAndPurposeAndUsedAtIsNullAndExpiresAtAfter(
+				any(), eq(CredentialPurpose.SET), any()))
+				.willReturn(Optional.of(new ClientCredentialToken(BRAND, UUID.randomUUID(),
+						PortalAccessService.hash("already-sent"), CredentialPurpose.SET,
+						Instant.now().plusSeconds(600))));
+
+		// Still NO_PASSWORD: a working link IS in that inbox, which is what the copy says.
+		assertThat(service.identify("ana@example.com"))
+				.isEqualTo(ClientAccountService.IdentifyState.NO_PASSWORD);
+		verify(credentials, never()).save(any());
+		verify(mailer, never()).sendSetPassword(any(), any());
+	}
+
+	@Test
+	void forgotPasswordForAKnownEmailMintsAResetTokenAndMailsTheLink() {
+		given(mailer.isConfigured()).willReturn(true);
+		ClientAccount account = new ClientAccount(BRAND, "ana@example.com");
+		account.setPasswordHash(encoder.encode("Correct!1"));
+		given(accounts.findByBrandIdAndEmailIgnoreCase(BRAND, "ana@example.com"))
+				.willReturn(Optional.of(account));
+		given(credentials.save(any())).willAnswer(call -> call.getArgument(0));
+
+		service.forgotPassword("ana@example.com");
+
+		ArgumentCaptor<ClientCredentialToken> saved = ArgumentCaptor.forClass(ClientCredentialToken.class);
+		verify(credentials).save(saved.capture());
+		// RESET, not SET. The two purposes are what the cooldown finder partitions on and what
+		// decides which of the two mails is sent; a token minted as SET here would let a reset
+		// request consume the set-password allowance and arrive with the wrong words in it.
+		assertThat(saved.getValue().getPurpose()).isEqualTo(CredentialPurpose.RESET);
+
+		ArgumentCaptor<String> link = ArgumentCaptor.forClass(String.class);
+		verify(mailer).sendResetPassword(eq("ana@example.com"), link.capture());
+		verify(mailer, never()).sendSetPassword(any(), any());
+		// The token rides in the FRAGMENT of the set-password route, like every other portal
+		// credential — never a query parameter, which lands in access logs and Referer headers.
+		assertThat(link.getValue()).startsWith("https://portal.example.com/set-password#");
+	}
+
+	@Test
+	void aSetPasswordLinkForAnotherBrandsAccountIsRefused() {
+		UUID accountId = UUID.randomUUID();
+		UUID otherBrand = UUID.fromString("22222222-2222-2222-2222-222222222222");
+		ClientCredentialToken token = new ClientCredentialToken(otherBrand, accountId,
+				PortalAccessService.hash("tok"), CredentialPurpose.SET, Instant.now().plusSeconds(600));
+		given(credentials.findByTokenHash(PortalAccessService.hash("tok"))).willReturn(Optional.of(token));
+		given(accounts.findById(accountId))
+				.willReturn(Optional.of(new ClientAccount(otherBrand, "ana@example.com")));
+
+		// setPassword is the only path that reaches an account through the token's own FK rather
+		// than through a brand-scoped finder, so the check has to be explicit here.
+		org.assertj.core.api.Assertions
+				.assertThatThrownBy(() -> service.setPassword("tok", "Brand!New1"))
+				.isInstanceOf(com.ie.evalos.common.InvalidRequestException.class);
+		verify(links, never()).mintForClientAccount(any());
 	}
 
 	@Test

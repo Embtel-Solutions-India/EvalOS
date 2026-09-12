@@ -49,7 +49,12 @@ public class ClientAuthController {
 	public record SetPasswordRequest(@NotBlank String token, @NotBlank @Size(min = 8) String password) {
 	}
 
-	/** @param state one of {@code PASSWORD_SET}, {@code NO_PASSWORD}, {@code UNKNOWN} */
+	/**
+	 * @param state one of {@code PASSWORD_SET}, {@code NO_PASSWORD}, {@code MAIL_UNAVAILABLE},
+	 *              {@code UNKNOWN} — {@code ClientAccountService.IdentifyState}, spelled by the
+	 *              enum itself rather than mapped here, so a fifth value cannot be silently
+	 *              flattened into a fourth
+	 */
 	public record IdentifyView(String state) {
 	}
 

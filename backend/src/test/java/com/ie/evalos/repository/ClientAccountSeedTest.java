@@ -123,6 +123,47 @@ class ClientAccountSeedTest {
 		assertThat(account.getGhlContactId()).isEqualTo("ghl-contact-1");
 	}
 
+	/**
+	 * V45 guards on {@code trim(c.email)} and inserts {@code c.email}, so a padded snapshot address
+	 * seeds an account {@code ClientAccountService.normalize()} — which trims — can never find.
+	 * V46 is the fix-forward; V45 is applied and is not edited.
+	 */
+	@Test
+	void v46TrimsASeededAddressThatV45LeftPadded() {
+		UUID brand = seedBrand();
+		insertSnapshot(brand, "  padded@example.com  ", "Ana Padded");
+
+		runSeed();
+		assertThat(accounts.findByBrandIdAndEmailIgnoreCase(brand, "padded@example.com")).isEmpty();
+
+		runTrim();
+
+		assertThat(accounts.findByBrandIdAndEmailIgnoreCase(brand, "padded@example.com")).isPresent();
+		assertThat(jdbc.queryForObject(
+				"select count(*) from client_account where brand_id = ?", Integer.class, brand))
+				.isEqualTo(1);
+	}
+
+	/**
+	 * A padded and an unpadded copy of one address are two rows after V45 (its DISTINCT ON groups
+	 * on {@code lower(c.email)}, which does not see them as one key), and trimming alone would put
+	 * them both on {@code client_account_brand_email_key}. V46 drops the padded one first.
+	 */
+	@Test
+	void v46CollapsesAPaddedDuplicateOntoTheAddressThatAlreadyWorks() {
+		UUID brand = seedBrand();
+		insertSnapshot(brand, "dup@example.com", "Ana Clean");
+		insertSnapshot(brand, " dup@example.com ", "Ana Padded");
+
+		runSeed();
+		runTrim();
+
+		assertThat(jdbc.queryForObject(
+				"select count(*) from client_account where brand_id = ?", Integer.class, brand))
+				.isEqualTo(1);
+		assertThat(accounts.findByBrandIdAndEmailIgnoreCase(brand, "dup@example.com")).isPresent();
+	}
+
 	// Helpers: seedBrand() inserts a minimal active brand row; insertSnapshot() inserts one
 	// contact_snapshot; runSeed() executes the body of V45 against the test database. Read the
 	// column lists off V43 and the contact_snapshot migration rather than guessing them.
@@ -169,6 +210,26 @@ class ClientAccountSeedTest {
 						"V45's ORDER BY line changed shape; update the scoping replace() above to match");
 			}
 			jdbc.update(scoped, testBrand);
+		}
+		catch (IOException e) {
+			throw new UncheckedIOException(e);
+		}
+	}
+
+	/**
+	 * Runs V46's own SQL file, for the same reason {@link #runSeed()} runs V45's.
+	 *
+	 * <p>Unscoped, unlike {@code runSeed()}: V46 is a repair over the whole table and has no
+	 * {@code brand_id} predicate to narrow. Safe here because it is idempotent — Flyway already
+	 * applied it on context start, so there is nothing left to trim outside this test's own rows —
+	 * and because the class rolls back. {@code execute} rather than {@code update}: the file is two
+	 * statements.
+	 */
+	private void runTrim() {
+		try {
+			jdbc.execute(StreamUtils.copyToString(
+					new ClassPathResource("db/migration/V46__trim_seeded_client_emails.sql").getInputStream(),
+					StandardCharsets.UTF_8));
 		}
 		catch (IOException e) {
 			throw new UncheckedIOException(e);

@@ -17,6 +17,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
@@ -65,10 +66,29 @@ class ClientAuthControllerTest {
 		assertThat(body.expiresAt()).isEqualTo(Instant.parse("2026-09-19T10:00:00Z"));
 	}
 
+	/**
+	 * <strong>Byte-for-byte identical for a known and an unknown address.</strong> Asserted over
+	 * MockMvc rather than by calling the method, because the thing that must not differ is the
+	 * HTTP response — a {@code void} return tells you nothing about the status line or the body,
+	 * and a 204-versus-200 or an envelope that appears on only one of the two paths hands an
+	 * enumeration attempt exactly the signal the non-differentiating service exists to deny.
+	 */
 	@Test
-	void forgotPasswordIsAlwaysNoContent() {
-		controller.forgotPassword(new ClientAuthController.EmailRequest("nobody@example.com"));
+	void forgotPasswordIsAlwaysNoContent() throws Exception {
+		// The service does the same for both; the controller must not undo it.
+		mockMvc.perform(post("/api/portal/auth/forgot-password")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("{\"email\":\"ana@example.com\"}"))
+				.andExpect(status().isNoContent())
+				.andExpect(content().string(""));
 
+		mockMvc.perform(post("/api/portal/auth/forgot-password")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("{\"email\":\"nobody@example.com\"}"))
+				.andExpect(status().isNoContent())
+				.andExpect(content().string(""));
+
+		verify(service).forgotPassword("ana@example.com");
 		verify(service).forgotPassword("nobody@example.com");
 	}
 

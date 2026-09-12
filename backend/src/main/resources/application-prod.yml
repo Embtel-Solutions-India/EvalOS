@@ -12,6 +12,11 @@ spring:
     properties:
       mail.smtp.auth: true
       mail.smtp.starttls.enable: true
+      # Bounded, for the reason application.yml states at length. This is the profile where an
+      # unbounded send actually takes the API down.
+      mail.smtp.connectiontimeout: 5000
+      mail.smtp.timeout: 5000
+      mail.smtp.writetimeout: 5000
   jpa:
     show-sql: false
 
@@ -35,7 +40,11 @@ evalos:
     # forgets it must fail to start rather than run on a guess. This is the client- and
     # expert-facing origin, not the API's.
     base-url: ${PORTAL_BASE_URL}
-    client-brand: ${EVALOS_PORTAL_CLIENT_BRAND:}
+    # No default, for the same reason as its two neighbours above. An empty value is not "unset"
+    # to Spring — it binds as a null UUID, which boots happily into a portal where every identify
+    # answers UNKNOWN and every sign-in is refused, for every client, permanently and silently.
+    # There is no log line and no failing request to find; it just looks like nobody has an account.
+    client-brand: ${EVALOS_PORTAL_CLIENT_BRAND}
     credential-ttl: ${EVALOS_PORTAL_SIGNIN_LINK_TTL:30m}
   s3:
     # Required in a deployed environment. Absent, every document route answers 502 and the boot log

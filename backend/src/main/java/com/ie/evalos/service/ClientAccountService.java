@@ -47,6 +47,16 @@ public class ClientAccountService {
 		/** Known to EvalOS, never set a password. A set-password mail has just been sent. */
 		NO_PASSWORD,
 
+		/**
+		 * Known to EvalOS, no password, and <strong>no mail was sent because none can be</strong>.
+		 *
+		 * <p>Split from {@link #NO_PASSWORD} because the two differ in exactly what the client is
+		 * supposed to do next: wait for an inbox, or stop waiting and call. Answering
+		 * {@code NO_PASSWORD} with mail unconfigured tells a client a link is coming that nobody
+		 * sent, and the only thing they can do with that is wait forever.
+		 */
+		MAIL_UNAVAILABLE,
+
 		/** No account. Offer Get Started, carrying the email forward. */
 		UNKNOWN
 	}
@@ -108,18 +118,34 @@ public class ClientAccountService {
 		if (account.hasPassword()) {
 			return IdentifyState.PASSWORD_SET;
 		}
-		issueCredential(account, CredentialPurpose.SET);
-		return IdentifyState.NO_PASSWORD;
+		return issueCredential(account, CredentialPurpose.SET)
+				? IdentifyState.NO_PASSWORD : IdentifyState.MAIL_UNAVAILABLE;
 	}
 
 	/**
-	 * Mints a single-use link and mails it.
+	 * Mints a single-use link and mails it, unless one is already on its way.
 	 *
-	 * <p>Returns quietly when mail is unconfigured: {@link ClientMailer} has already logged it,
-	 * and the screen's copy tells the client to contact support. A throw here would turn a
-	 * configuration gap into a 500 on a sign-in attempt.
+	 * <p><strong>Returns false rather than throwing when mail is unconfigured</strong>, and mints
+	 * nothing in that case: a token whose link has no way of reaching the client is a row that can
+	 * only ever expire. The caller turns that into {@link IdentifyState#MAIL_UNAVAILABLE} so the
+	 * screen can say something true. A throw would turn a configuration gap into a 500 on a
+	 * sign-in attempt.
+	 *
+	 * <p><strong>An outstanding unspent token short-circuits the send</strong>, and that is the
+	 * only thing bounding this. Both callers are reachable unauthenticated at 60 requests/min/IP,
+	 * so minting on every call is a way to make EvalOS mail a named address without limit — and
+	 * {@code client_credential_token} has no cleanup job, so it is also unbounded table growth.
+	 * Reusing the outstanding one caps it at one mail per {@code credential-ttl} per account and
+	 * per purpose. Returning true is correct there: a working link <em>is</em> in that inbox.
 	 */
-	private void issueCredential(ClientAccount account, CredentialPurpose purpose) {
+	private boolean issueCredential(ClientAccount account, CredentialPurpose purpose) {
+		if (!mailer.isConfigured()) {
+			return false;
+		}
+		if (credentials.findFirstByClientAccountIdAndPurposeAndUsedAtIsNullAndExpiresAtAfter(
+				account.getId(), purpose, Instant.now()).isPresent()) {
+			return true;
+		}
 		String token = PortalAccessService.freshCredentialToken();
 		credentials.save(new ClientCredentialToken(account.getBrandId(), account.getId(),
 				PortalAccessService.hash(token), purpose, Instant.now().plus(credentialTtl)));
@@ -130,6 +156,7 @@ public class ClientAccountService {
 		else {
 			mailer.sendResetPassword(account.getEmail(), link);
 		}
+		return true;
 	}
 
 	/**
@@ -206,6 +233,15 @@ public class ClientAccountService {
 		}
 		ClientAccount account = accounts.findById(credential.getClientAccountId())
 				.orElseThrow(ClientAccountService::linkRefused);
+		// The configured brand, checked here too. Every other method reaches the account through a
+		// brand-scoped finder; this one reaches it through the token's own foreign key, which is
+		// not scoped by anything. Without this line a deployment serving brand A would set a
+		// password on a brand-B account from a link minted before its own `client-brand` changed —
+		// and then mint a party token for it. Answers the same refusal as a spent link: which of
+		// the reasons a link does not work is not the client's business.
+		if (!brandId.equals(account.getBrandId())) {
+			throw linkRefused();
+		}
 
 		credential.markUsed(now);
 		// Explicit, matching every other write in this area (issueCredential's credentials.save,

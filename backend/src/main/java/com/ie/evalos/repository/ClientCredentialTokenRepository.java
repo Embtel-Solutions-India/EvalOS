@@ -1,8 +1,11 @@
 package com.ie.evalos.repository;
 
+import java.time.Instant;
 import java.util.Optional;
+import java.util.UUID;
 
 import com.ie.evalos.domain.ClientCredentialToken;
+import com.ie.evalos.domain.CredentialPurpose;
 import com.ie.evalos.service.ScopePredicate;
 
 /**
@@ -27,4 +30,20 @@ public interface ClientCredentialTokenRepository extends ScopedRepository<Client
 	 * lookup. The brand is then read off the row that comes back.
 	 */
 	Optional<ClientCredentialToken> findByTokenHash(String tokenHash);
+
+	/**
+	 * An outstanding link for this account and purpose, if one is still good.
+	 *
+	 * <p><strong>This is a rate limit, not a convenience.</strong> {@code identify} and
+	 * {@code forgot-password} are unauthenticated, so without it anyone who knows a client's
+	 * address can make EvalOS mail that inbox at the per-IP ceiling indefinitely and grow this
+	 * table without bound — there is no cleanup job. The predicate is exactly
+	 * {@link ClientCredentialToken#isUsable}, expressed where the database can answer it.
+	 *
+	 * <p>Account-scoped rather than brand-scoped for the same reason {@link #findByTokenHash} is:
+	 * the account id has already been resolved through a brand-scoped finder, and the brand is
+	 * read off the row rather than supplied by a caller.
+	 */
+	Optional<ClientCredentialToken> findFirstByClientAccountIdAndPurposeAndUsedAtIsNullAndExpiresAtAfter(
+			UUID clientAccountId, CredentialPurpose purpose, Instant now);
 }

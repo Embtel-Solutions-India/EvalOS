@@ -18,9 +18,12 @@ import org.springframework.stereotype.Service;
  * itself as an obvious extension of this class. It is not.
  *
  * <p><strong>A blank sender degrades, it does not throw.</strong> An environment with no mail
- * configured still serves every screen; {@code ClientAccountService} asks {@link #isConfigured()}
- * and tells the client to contact support instead. A password reset is recoverable by a human; a
- * refused boot is not.
+ * configured still serves every screen. {@code ClientAccountService.issueCredential} asks
+ * {@link #isConfigured()} first and, when the answer is no, mints nothing and answers
+ * {@code MAIL_UNAVAILABLE} — which is the screen telling the client to contact us rather than to
+ * wait for a link nobody sent. {@link #send} keeps its own guard anyway: this class must never be
+ * the thing that turns a configuration gap into a 500, whatever a future caller forgets to ask.
+ * A password reset is recoverable by a human; a refused boot is not.
  */
 @Service
 public class ClientMailer {

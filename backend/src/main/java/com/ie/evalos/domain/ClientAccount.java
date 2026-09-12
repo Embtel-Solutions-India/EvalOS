@@ -16,8 +16,16 @@ import jakarta.persistence.Table;
  *
  * <p><strong>{@code ghlContactId} is a link, not the identity.</strong> Invariant 7 as amended by
  * this unit — GHL's contact id remains canonical <em>in GHL</em>, but a client's ability to sign
- * in no longer depends on GHL holding a row. It is null on every seeded account, because IE's GHL
- * sub-account was replaced on 2026-09-11 and every id EvalOS held names a contact that is gone.
+ * in no longer depends on GHL holding a row.
+ *
+ * <p><strong>V45 copies it forward from {@code contact_snapshot}, and an earlier draft that
+ * seeded it null was reversed.</strong> The argument for null was that IE's GHL sub-account was
+ * replaced on 2026-09-11, so every id EvalOS holds names a contact GHL no longer has. True of the
+ * column's GHL job, irrelevant to its EvalOS one: {@code PortalCaseService.authorized()} resolves
+ * a party token to its cases <em>through</em> this id and fails closed when it is null, so a null
+ * here would let every existing client sign in and then see no cases at all. Null is still legal
+ * and normal — a self-signup, or a snapshot that never carried one — it is simply not what the
+ * seed writes.
  */
 @Entity
 @Table(name = "client_account")
