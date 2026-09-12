@@ -78,21 +78,20 @@ public class ClientAccountService {
 	private final Duration credentialTtl;
 
 	/**
-	 * The <strong>client portal app's</strong> origin — {@code evalos.portal.client-base-url},
-	 * <em>not</em> {@code base-url}.
+	 * The client portal's origin — {@code evalos.portal.client-base-url}, and the one place a
+	 * client-facing URL is still built.
 	 *
-	 * <p><strong>They are different deployments, and using the wrong one mails a client to the
-	 * staff login page.</strong> {@code base-url} is what {@code PortalAccessService.urlFor}
-	 * appends {@code /portal/client} to, and that route lives in {@code frontend/} — the staff
-	 * SPA, which is also the property's dev default. {@code /set-password} lives only in
-	 * {@code client-expert/client}, a separate build on a separate origin. One property could
-	 * only ever be right for one of them: pointed at the staff app, a client clicking their
-	 * set-password mail lands on a path the staff SPA does not recognise as a portal route, so it
-	 * renders the staff sign-in — with the credential sitting in the fragment.
+	 * <p><strong>It began as a fix and ended as the only survivor.</strong> The set-password link
+	 * was originally built from {@code evalos.portal.base-url}, which named whatever served
+	 * {@code /portal/client} — a second copy of the client portal inside the <em>staff</em> SPA,
+	 * and that property's dev default. A client clicking their mail landed on the staff sign-in
+	 * page with their credential in the fragment. This property was added to separate them;
+	 * {@code base-url} and the screen it pointed at have since been deleted outright, because the
+	 * client portal is one deployment clients navigate to themselves.
 	 *
-	 * <p>Third of its kind, and deliberately shaped like the second: {@code expert-base-url}
-	 * exists for exactly this reason (the expert portal split out on 2026-09-03) and its comment
-	 * in {@code application.yml} makes the same argument. Three apps, three origins.
+	 * <p>Two origins remain, one per app that a person is ever sent to: this, and
+	 * {@code expert-base-url}. Nothing mints a client <em>link</em> any more — a set-password mail
+	 * is the only client URL EvalOS composes.
 	 */
 	private final String clientAppBaseUrl;
 
@@ -216,7 +215,7 @@ public class ClientAccountService {
 	 * before the throw — so committing here commits exactly the audit row and nothing more.
 	 */
 	@Transactional(noRollbackFor = InvalidRequestException.class)
-	public PortalAccessService.MintedLink signIn(String email, String password) {
+	public PortalAccessService.MintedToken signIn(String email, String password) {
 		ClientAccount account = accounts.findByBrandIdAndEmailIgnoreCase(brandId, normalize(email))
 				.orElseThrow(ClientAccountService::refused);
 
@@ -265,7 +264,7 @@ public class ClientAccountService {
 	 * immediately be asked for that password.
 	 */
 	@Transactional
-	public PortalAccessService.MintedLink setPassword(String token, String password) {
+	public PortalAccessService.MintedToken setPassword(String token, String password) {
 		ClientCredentialToken credential = credentials.findByTokenHash(PortalAccessService.hash(token))
 				.orElseThrow(ClientAccountService::linkRefused);
 		Instant now = Instant.now();

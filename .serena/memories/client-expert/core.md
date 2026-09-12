@@ -134,9 +134,18 @@ above.)
 > `usePortalToken` and the fragment stays exactly true — the token now arrives from a POST
 > response as well as from a link. Spec: `context/specs/42-client-accounts.md`.
 >
-> **`/welcome` must keep saying "Opened a link we sent you?"** Every link already in a client's
-> inbox still works, and a door offering only a password tells those clients their working link
-> is wrong.
+> **~~`/welcome` must keep saying "Opened a link we sent you?"~~ REVERSED 2026-09-12, and the note
+> is deleted from the screen.** It was right while a mailed link was how a client reached anything:
+> signing in instead of opening it would have lost them their only credential. **Nothing mints a
+> client link any more** — the business hosts the portal at one origin, clients arrive from a button
+> on the website, and sign-in is the route to everything — so the advice pointed away from the front
+> door. Links already in inboxes are unaffected: `resolve` still admits them, and a link works by
+> being opened, which no copy on this page changes.
+>
+> **The staff SPA's copy of the client portal is gone too** (`frontend/src/features/client-portal/`
+> and the `/portal/` branch in its `App.tsx`). Slice 34b moved the draft review into this app and
+> the minted link was never repointed, so it was a second, unmaintained client portal that only a
+> stale URL could reach. There is now exactly one client portal.
 >
 > **`identify` answers FOUR states, not three** — `PASSWORD_SET`, `NO_PASSWORD`, `UNKNOWN` and
 > **`MAIL_UNAVAILABLE`** (known client, but no mail could be sent, so nothing was sent and nothing

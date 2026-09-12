@@ -115,10 +115,11 @@ class ClientAccountServiceTest {
 		given(accounts.findByBrandIdAndEmailIgnoreCase(BRAND, "ana@example.com"))
 				.willReturn(Optional.of(account));
 		given(links.mintForClientAccount(account)).willReturn(
-				new PortalAccessService.MintedLink("https://portal.example.com/#tok",
+				new PortalAccessService.MintedToken("tok",
 						java.time.Instant.now().plusSeconds(600)));
 
-		assertThat(service.signIn("ana@example.com", "Correct!1").url()).contains("#tok");
+		// The bare token, not a URL with the token buried in its fragment.
+		assertThat(service.signIn("ana@example.com", "Correct!1").token()).isEqualTo("tok");
 		// objectId is any(): ScopedEntity generates the id at persist time, so getId() is null on
 		// an entity built with `new`. eq(account.getId()) would silently become eq(null) and pass
 		// for the wrong reason. What is worth pinning is the action and the brand.
@@ -273,9 +274,9 @@ class ClientAccountServiceTest {
 		verify(mailer, never()).sendSetPassword(any(), any());
 		// The token rides in the FRAGMENT of the set-password route, like every other portal
 		// credential — never a query parameter, which lands in access logs and Referer headers.
-		// The CLIENT PORTAL app's origin (`evalos.portal.client-base-url`), not `base-url` — that
-		// one serves `/portal/client` from the STAFF SPA, and a set-password link built on it puts
-		// a client on the staff sign-in page with their credential in the fragment.
+		// On the CLIENT PORTAL's own origin (`evalos.portal.client-base-url`). This is now the only
+		// client-facing URL EvalOS composes: the property it used to be built from, `base-url`,
+		// pointed at the staff SPA and has since been deleted along with the screen it served.
 		assertThat(link.getValue()).startsWith("https://client.example.com/set-password#");
 	}
 
@@ -312,7 +313,7 @@ class ClientAccountServiceTest {
 				.willReturn(Optional.of(token));
 		given(accounts.findById(accountId)).willReturn(Optional.of(account));
 		given(links.mintForClientAccount(account)).willReturn(
-				new PortalAccessService.MintedLink("https://portal.example.com/#tok",
+				new PortalAccessService.MintedToken("tok",
 						java.time.Instant.now().plusSeconds(600)));
 
 		service.setPassword("tok", "Brand!New1");

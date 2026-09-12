@@ -1,4 +1,4 @@
-import { Navigate, Route, Routes, useLocation } from 'react-router-dom'
+import { Navigate, Route, Routes } from 'react-router-dom'
 import Forbidden from './components/Forbidden'
 import BoardView from './features/board/BoardView'
 import InboxPage from './features/queues/InboxPage'
@@ -8,7 +8,6 @@ import PmNotesPage from './features/queues/PmNotesPage'
 import ExpertAssignmentPage from './features/queues/ExpertAssignmentPage'
 import DeliveryQueuePage from './features/queues/DeliveryQueuePage'
 import ChecklistBoard from './features/checklist/ChecklistBoard'
-import PortalRoot from './features/client-portal/PortalRoot'
 import ExpertRoster from './features/experts/ExpertRoster'
 import MarketingPipelinePage from './features/marketing/MarketingPipelinePage'
 import OpportunityBoardPage from './features/opportunities/OpportunityBoardPage'
@@ -74,27 +73,16 @@ const SCREENS: Record<string, React.ReactNode> = {
   '/opportunities/board': <OpportunityBoardPage />,
 }
 
-/** The client portal's path prefix. `/portal/expert` joins it in Unit 15. */
-const PORTAL_PREFIX = '/portal/'
-
 /**
- * Two surfaces, and the split is here rather than in `main.tsx` so the whole route table stays in
- * one file.
- *
- * **The portal is answered before any staff-session code runs, and outside `AuthProvider`** — which
- * is mounted below, around the staff surface only. That is the point of the branch, not an
- * optimization: a client is not a staff user with fewer links, and mounting the provider on their
- * page would read the staff token out of `sessionStorage` and call `/api/me` for somebody who has no
- * account. It gets no `AppShell`, no nav and no brand switcher either — a portal token admits one
- * case, so there is one screen and nowhere to navigate.
+ * One surface. **This file used to branch on a `/portal/` prefix and render a client portal of its
+ * own**, outside `AuthProvider`, because there was a time when the staff SPA was the only thing
+ * deployed and the client's draft-review screen had to live somewhere. It has not been that for a
+ * while: the client portal is its own app (`client-expert/client`), slice 34b moved the draft
+ * review into it, and since Unit 42 clients reach it from a button on the website and sign in.
+ * Nothing mints a link to `/portal/client` any more, so the branch was a second, unmaintained
+ * client portal that only a stale URL could reach. Deleted with the five files behind it.
  */
 export default function App() {
-  const { pathname } = useLocation()
-
-  if (pathname.startsWith(PORTAL_PREFIX)) {
-    return <PortalRoot />
-  }
-
   return (
     <AuthProvider>
       <StaffApp />

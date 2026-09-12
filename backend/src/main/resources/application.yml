@@ -117,23 +117,18 @@ evalos:
     # see PortalSecurityConfig. An environment that forgets this gets a failing preflight, which
     # is loud; a wildcard would be silent and wrong.
     allowed-origins: ${EVALOS_PORTAL_ORIGINS:}
-    # Where a minted portal link points. The SPA serves /portal/client, so this is the client
-    # app's own origin — defaulted to the Vite dev server because that is where it is correct
-    # for every developer, and it must be set to the real origin in any deployed environment or
-    # the link mailed to a client points at somebody's laptop.
-    base-url: ${PORTAL_BASE_URL:http://localhost:5173}
-    # **The expert portal is a different application on a different origin** (client-expert/expert,
-    # split 2026-09-03), so its links cannot be built from the client's base. Defaults to the
-    # expert Vite dev server. Set it in every deployed environment: an unset value here does not
-    # fail loudly — it mints a link to the wrong host, which looks like a broken link to the one
-    # participant EvalOS cannot train.
+    # **Two origins, one per app a person is ever sent to.** `base-url` was a third and is DELETED:
+    # it named whatever served `/portal/client`, a second copy of the client portal that lived
+    # inside the STAFF SPA and was superseded by slice 34b. Nothing mints a client link any more —
+    # clients reach the portal from a button on the website and sign in — so there is no base to
+    # hold, and the expert base no longer falls back to it (an unset expert base used to mint
+    # expert links onto the client's origin).
+    #
+    # The expert portal (client-expert/expert, split 2026-09-03). This link is the ONLY way an
+    # expert is reached, so an unset value here does not fail loudly — it mints a link to the
+    # wrong host, which looks like a broken link to the one participant EvalOS cannot train.
     expert-base-url: ${PORTAL_EXPERT_BASE_URL:http://localhost:5175}
-    # **The client portal app is a third origin, and this is not `base-url`.** `base-url` above
-    # points at whatever serves `/portal/client`, which is the STAFF SPA (port 5173, and its own
-    # default). `/set-password` — the only thing this property builds — exists only in
-    # `client-expert/client` on 5174. Sharing one property meant the set-password mail landed a
-    # client on the staff sign-in page with their credential in the fragment. Same argument as
-    # `expert-base-url` directly above, one app later.
+    # The client portal (client-expert/client). Builds one URL and only one: the set-password mail.
     client-base-url: ${PORTAL_CLIENT_BASE_URL:http://localhost:5174}
     # How long a link works. A draft-review link that never expired would be a permanent bearer
     # credential sitting in somebody's inbox; re-minting is one click, so a short life costs

@@ -53,9 +53,9 @@ class ClientAuthRoutesTest {
 	void allFourRoutesAreReachableWithNoPortalToken() throws Exception {
 		given(accounts.identify("ana@example.com")).willReturn(ClientAccountService.IdentifyState.UNKNOWN);
 		given(accounts.signIn("ana@example.com", "Correct!1")).willReturn(
-				new PortalAccessService.MintedLink("https://portal.example.com/#abc", Instant.now()));
+				new PortalAccessService.MintedToken("abc", Instant.now()));
 		given(accounts.setPassword("a-token", "Correct!1")).willReturn(
-				new PortalAccessService.MintedLink("https://portal.example.com/#def", Instant.now()));
+				new PortalAccessService.MintedToken("def", Instant.now()));
 
 		mockMvc.perform(post("/api/portal/auth/identify")
 				.contentType(MediaType.APPLICATION_JSON)

@@ -29,20 +29,22 @@ evalos:
     # happily into a portal where every cross-origin call was rejected. A CORS refusal surfaces in
     # the browser as something that looks like an auth problem, so "loud" has to mean at startup.
     allowed-origins: ${EVALOS_PORTAL_ORIGINS}
-    # No default, on purpose, and this is a change: the base profile defaults this to the
-    # Vite dev server because that is correct on every developer's laptop, which makes it
-    # actively dangerous in production. An unset value there does not fail — it mints
-    # links pointing at localhost:5173 and hands them to clients and experts, who get a
-    # dead page. Since dropping the signature provider, an expert's *only* route to the
-    # letter is one of these links, so a wrong origin now blocks signing too.
+    # **Both app origins, both without a default, and the second one is new here.** The base
+    # profile defaults each to a Vite dev server because that is correct on every developer's
+    # laptop, which is exactly what makes it dangerous in production: an unset value does not
+    # fail, it hands somebody a link to localhost. So they follow the JWT_SECRET /
+    # EVALOS_FIELD_KEY rule — an environment that forgets one must fail to start rather than run
+    # on a guess.
     #
-    # So it follows the JWT_SECRET / EVALOS_FIELD_KEY rule instead: an environment that
-    # forgets it must fail to start rather than run on a guess. This is the client- and
-    # expert-facing origin, not the API's.
-    base-url: ${PORTAL_BASE_URL}
-    # No default here either, and for a sharper reason than its neighbour: an unset value falls
+    # `PORTAL_EXPERT_BASE_URL` was NOT listed here before, and that was a live hole rather than an
+    # omission: `expert-base-url` used to fall back to `base-url` when blank, so prod happened to
+    # mint expert links onto the client origin and nobody noticed. That fallback is deleted with
+    # `base-url` itself. An expert's *only* route to the letter is one of these links, so a wrong
+    # origin blocks signing.
+    expert-base-url: ${PORTAL_EXPERT_BASE_URL}
+    # The client portal. Builds one URL and only one: the set-password mail. An unset value falls
     # back to the dev default, so a deployment that forgets it mails production clients a link to
-    # localhost. The failure is silent at boot and visible only in somebody's inbox.
+    # localhost — silent at boot and visible only in somebody's inbox.
     client-base-url: ${PORTAL_CLIENT_BASE_URL}
     # No default, for the same reason as its two neighbours above. An empty value is not "unset"
     # to Spring — it binds as a null UUID, which boots happily into a portal where every identify
@@ -64,7 +66,7 @@ evalos:
     # **The one place this profile deliberately does NOT follow "an environment that forgets it
     # must fail to start."** Stated because it otherwise reads as an oversight.
     #
-    # `JWT_SECRET`, `EVALOS_FIELD_KEY`, `DRIVE_REQUIRED` and `PORTAL_BASE_URL` are fatal because
+    # `JWT_SECRET`, `EVALOS_FIELD_KEY`, `DRIVE_REQUIRED` and the two portal origins are fatal because
     # getting them wrong is either unrecoverable or reaches an outsider: a guessed signing key,
     # plaintext at rest, an upload failing in front of a waiting client, a portal link pointing
     # at somebody's laptop. A missing GHL token is neither — it gates ONE read-only GM screen,

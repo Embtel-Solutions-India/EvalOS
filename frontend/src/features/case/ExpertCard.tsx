@@ -38,7 +38,7 @@ export default function ExpertCard({ detail }: { detail: CaseDetail }) {
     setMinting(true)
     setError(null)
     try {
-      const minted = await mintPortalLink(detail.summary.id, 'EXPERT')
+      const minted = await mintPortalLink(detail.summary.id)
       setLink(minted.url)
     } catch {
       setError('That link could not be minted. The case may have no expert on it yet.')

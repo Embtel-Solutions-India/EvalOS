@@ -48,10 +48,15 @@ export default function Welcome() {
           </Card>
         </Link>
 
-        <p className="px-1 pt-2 text-center text-xs text-muted-foreground">
-          Opened a link we sent you? That link still works on its own — please go back and open it
-          from the original email or text rather than signing in here.
-        </p>
+        {/*
+          **The "opened a link we sent you?" note is deleted, reversing a rule this file used to
+          state.** It was right while a mailed link was how a client reached anything: signing in
+          instead of opening it would have lost them their only credential. Nothing mints a client
+          link any more — clients arrive here from a button on the website and sign in for
+          everything — so the advice now points away from the front door. Links already in inboxes
+          are unaffected: `resolve` still admits them and they work by being opened, which no copy
+          on this page changes.
+        */}
       </div>
     </div>
   )

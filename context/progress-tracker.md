@@ -4,6 +4,62 @@ Update this file after every meaningful implementation change.
 
 ## Current Phase
 
+- **2026-09-12 — the client portal has ONE home, and the client link system is deleted.**
+  Business decision, taken this day: **the portal is hosted at `client.<domain>` only**, the main
+  website links to it with a button, and the client does everything there behind sign-in. 966
+  backend tests green including the DB suite; all three apps build; 127 staff and 26 portal
+  frontend tests pass.
+
+  **The instruction was "remove unnecessary implementation and overhead of staff", and the
+  overhead turned out to be almost entirely dead already.** The staff app never minted a client
+  link: `mintPortalLink` was only ever called from `ExpertCard` with `'EXPERT'`, while the route
+  it calls *defaulted* to `CLIENT`. So the client half was an API surface, a URL builder and a
+  whole second client portal that no staff workflow used.
+
+  **What went, and why each one could:**
+  - **`evalos.portal.base-url` — the property itself, not just a usage.** It named whatever
+    served `/portal/client`, a **second copy of the client portal inside the staff SPA**. Slice
+    34b moved the draft review into the real portal app on 2026-09-11 and the minted link was
+    never repointed, so it was an unmaintained duplicate reachable only by a stale URL.
+    `frontend/src/features/client-portal/` (five files) and the `/portal/` branch in the staff
+    `App.tsx` are deleted with it.
+  - **`?audience` on `POST /api/cases/{id}/portal-link`.** A parameter with one legal value is
+    not a parameter. `?party=true` stays.
+  - **`mint`/`mintForParty`/`status` → `mintForExpert`/`mintPartyForExpert`/`statusForExpert`**,
+    no audience argument. `PortalAccessService` **no longer depends on
+    `ContactSnapshotRepository` at all**: `contactOf`, which resolved a case's GHL contact so a
+    client party link could name somebody, has no caller left.
+  - **The URL-then-strip ceremony on sign-in.** `mintForClientAccount` built a URL from a
+    configured base so `ClientAuthController` could find the `#` and throw the URL away. It now
+    returns a **`MintedToken`** — a bare token — and the controller's `session()` helper is three
+    lines shorter than the comment that used to explain it. The expert keeps `MintedLink`,
+    because a staff member really does copy that URL somewhere.
+  - **`/welcome`'s "Opened a link we sent you?" note**, which **reverses a rule written into
+    `client-expert/core` in Unit 42**. It was right while a mailed link was a client's only
+    credential; with sign-in as the route to everything it pointed away from the front door.
+
+  **A live hole surfaced by the deletion, and it is the best argument for doing it.**
+  `expert-base-url` fell back to `base-url` when blank — and **`application-prod.yml` never set
+  it**. So production was minting *expert* links onto the *client* origin, silently, and had been
+  since the portals split on 2026-09-03. The fallback is deleted and prod now lists
+  `PORTAL_EXPERT_BASE_URL` with no default, so a missing value fails the boot. Two origins remain,
+  one per app a person is ever sent to, both required in prod.
+
+  **What deliberately did NOT change, and must not be generalised:**
+  - **The expert's link is untouched.** An expert has no account, the link is their whole
+    credential, and G15 — how it actually reaches them — is still open. The client's deletion is
+    possible *only* because the client has a password.
+  - **`resolve` still admits `CLIENT` rows.** Links already in inboxes keep working until they
+    expire; only minting stopped. Several `PortalAccessServiceTest` cases now exercise a legacy
+    CLIENT row on purpose, so the day someone narrows `resolve` too, they fail.
+  - **The G16 portal-links ledger is left alone.** It is audience-agnostic and self-correcting:
+    no new client rows appear, and the existing ones age out.
+
+  **⚠ One capability is genuinely gone: staff can no longer hand a client a way in.** Before, a
+  client who could not receive mail could be given a minted link. Now `MAIL_UNAVAILABLE` tells
+  them to contact us and the recovery is a person. That is one `audience` value away if it is ever
+  wanted back — but it is a decision to re-take, not an oversight.
+
 - **2026-09-12 — review round 3 on Unit 42, from the PR pass. Five findings, and two of them
   meant no client could get in at all.** Backend 966 tests green including the DB suite; both
   portal apps build and their 26 tests pass. PR #22 (`development` → `main`).

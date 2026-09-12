@@ -173,14 +173,18 @@ growth.
   serving brand A sets a password on a brand-B account and mints a party token for it. It answers
   the same refusal as a spent link.
 
-**Three portal origins, three properties, and the set-password link uses the third.**
-`evalos.portal.base-url` is what `PortalAccessService.urlFor` appends `/portal/client` to — a
-route that lives in `frontend/`, the **staff** SPA, which is also that property's dev default
-(5173). `expert-base-url` is the expert app (5175). **`client-base-url` (`PORTAL_CLIENT_BASE_URL`,
-no prod default) is the client portal app (5174)**, and it is the only one that may build a
-`/set-password` link: on `base-url` that mail landed a client on the staff sign-in page with their
-credential in the fragment. `base-url` stopped naming a single app when the portals split on
-2026-09-03 and was never renamed — treat it as "whatever serves `/portal/client`", nothing more.
+**TWO portal origins, and `evalos.portal.base-url` is DELETED (2026-09-12).** It named whatever
+served `/portal/client` — a second copy of the client portal that lived inside the **staff** SPA,
+superseded by slice 34b and reachable only by a link nothing minted. The staff copy
+(`frontend/src/features/client-portal/`, five files) and the `/portal/` branch in the staff
+`App.tsx` went with it.
+
+What remains, one per app a person is ever sent to, both **required in prod with no default**:
+- **`expert-base-url`** (`PORTAL_EXPERT_BASE_URL`, dev 5175) — the expert's `/case#…` link.
+  **It used to fall back to `base-url` when blank and prod never set it**, so prod was minting
+  expert links onto the client origin. The fallback is gone and prod now lists it explicitly.
+- **`client-base-url`** (`PORTAL_CLIENT_BASE_URL`, dev 5174) — builds exactly one URL, the
+  set-password mail. The only client-facing URL EvalOS composes at all.
 
 **`evalos.portal.client-brand` has no default in prod, deliberately.** An empty value is not
 "unset" to Spring: it binds as a null UUID and boots into a portal where every `identify` answers
@@ -244,12 +248,30 @@ digest wrapped around the store's read: the S3 SDK re-reads a mark-supporting st
 a reset resets neither a digest nor a counter, so a retry hashed the file twice over. The transition is checked before the object is written, so a case that
 cannot legally be signed leaves no orphan behind.
 
-**One mint route, two audiences**: `POST /api/cases/{id}/portal-link?audience=EXPERT` (GM · Brand
-Manager · PM · CM), refused when the case has no expert — since Unit 15 the link is the only way an
-expert is reached at all. **The two audiences' links point at different origins** (34e):
-`evalos.portal.base-url` + `/portal/client#…` and `evalos.portal.expert-base-url` + `/case#…`,
-because the portals are two deployments. A blank expert base falls back to the client's, so a
-single-deployment environment needs no new setting.
+**One mint route, ONE audience (narrowed 2026-09-12)**: `POST /api/cases/{id}/portal-link`
+(GM · Brand Manager · PM · CM), refused when the case has no expert — since Unit 15 the link is the
+only way an expert is reached at all. `?party=true` still picks the 7-day party shape.
+
+**The `?audience` parameter is gone, and it defaulted to `CLIENT`.** Nothing ever called it that
+way: the staff app's only caller is `ExpertCard`, always `EXPERT`. Clients reach the portal from a
+button on the website and sign in (Unit 42), so **nothing mints a client link.** The service
+methods went with it — `mint`/`mintForParty`/`status` are now
+`mintForExpert`/`mintPartyForExpert`/`statusForExpert` with no audience argument, and
+`PortalAccessService` no longer depends on `ContactSnapshotRepository` at all (`contactOf`, which
+resolved a case's GHL contact for a client party link, is deleted).
+
+**Do NOT generalise this onto the expert.** An expert has no account; the link is their whole
+credential and G15 — how it reaches them — is still open. The client's deletion is possible only
+because the client has a password.
+
+**`resolve` is untouched and still admits `CLIENT` rows.** Links already in inboxes keep working
+until they expire; only minting stopped. Several `PortalAccessServiceTest` cases exercise a legacy
+CLIENT row on purpose.
+
+**Sign-in returns a `MintedToken`, not a `MintedLink`.** `mintForClientAccount` used to build a URL
+from a configured base so that `ClientAuthController` could find the `#` and throw the URL away —
+two halves of one ceremony for a caller that is a browser already on the portal. The expert path
+keeps `MintedLink` because a staff member really does copy that URL somewhere.
 
 ## The upload trust boundary (Unit 21)
 
