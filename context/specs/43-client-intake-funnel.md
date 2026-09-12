@@ -1,6 +1,13 @@
 # Unit 43 — Get Started: the client intake funnel
 
 > **Status:** specced 2026-09-11, revised 2026-09-12, not built.
+>
+> **⚠ `/start` now exists as a PLACEHOLDER** (`client-expert/client/src/pages/auth/Start.tsx`,
+> added 2026-09-12). It was a 404 while `/welcome` and `SignIn`'s `UNKNOWN` branch both linked to
+> it — the second of those offers the button to somebody who has just been told their email is
+> unknown. The placeholder says we cannot take evaluations through the portal yet and to contact
+> us, names no contact details, and has no form, no state and no service call. **This unit deletes
+> that file**; do not grow the funnel inside it.
 > **Depends on:** 42 (the account this funnel creates), 30 (S3 uploads), 37 (`GhlWriteClient`).
 > **Restores:** the seven-screen funnel and the conditional questionnaire deleted in `f9f1165`.
 > **Also ships:** the `pipeline` / `pipeline_stage` half of `00c`'s tier-1 mirror (§6a) — this

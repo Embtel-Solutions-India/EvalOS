@@ -171,7 +171,23 @@ above.)
 > layout rather than in six pages: every authenticated route is already inside it, and
 > `usePortalToken` lifts the fragment on the layout's first render, before any child. The pages
 > keep their `NO_TOKEN` copy for a direct render; nothing reaches it through the router.
+>>
+> **Two error-copy rules, and they are not interchangeable** (found in a browser pass, 2026-09-12).
+> `failureMessage` (`@shared/lib/portal`) is for screens reached **by opening a link**; the auth
+> screens use **`authFailureMessage(status, refused)`** from the client app's own `authService`.
+> Every auth screen used `failureMessage` at first, so a wrong password — a **400**, which that
+> function has no branch for — answered *"We could not load your documents… contact whoever sent
+> you this link."* `portal.test.ts` forbids widening it to mention passwords, and that ban is
+> still right: its stated reason ("the client has no account") died with Unit 42, but the real one
+> is that its readers all arrived by link. **Rule: when a shared helper's justification expires,
+> restate the rule in terms of who is reading — do not delete the rule and do not reuse the
+> helper.**
 >
+> **`/start` is a PLACEHOLDER** (`client/src/pages/auth/Start.tsx`), not the funnel. It was a 404
+> while `/welcome` and `SignIn`'s `UNKNOWN` branch both linked to it. It names no contact details
+> on purpose and has no form, no state and no service call, so **Unit 43 deletes the file** rather
+> than merging into it.
+
 > **Changing the email clears `signInError` and the password field** (review round 1). Without
 > it a wrong-password error raised against one address reappears against the next one typed,
 > which reads as "this account is wrong" about an account that was never tried.

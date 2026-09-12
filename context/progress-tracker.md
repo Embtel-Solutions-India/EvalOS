@@ -4,6 +4,60 @@ Update this file after every meaningful implementation change.
 
 ## Current Phase
 
+- **2026-09-12 — Unit 42 exercised in a real browser against a real SMTP host. Two bugs found
+  and fixed; everything else passed.** Backend on 8080, client portal on 5174, a throwaway SMTP
+  sink capturing the actual mail, seeded client `amara.okafor@northlightlaw.test`.
+
+  **What passed, end to end and for real:** `identify` on an unknown address; `identify` on a
+  seeded client → `NO_PASSWORD` + a *"Set your password"* mail; the emailed link → password set →
+  signed straight in with the case `IE-2026-4801` on screen; sign-in with that password; *Forgot
+  password?* → a distinct *"Reset your password"* mail with its own token; reset → **the old
+  password refused and the new one accepted**; a spent token and a garbage token answering the
+  same 400 with the same words; `forgot-password` answering 204 for a known and an unknown
+  address alike.
+
+  **Three of this session's own fixes verified live rather than by test:** the mail link points at
+  **5174, the client portal**, not the staff app; refreshing `/dashboard` with no token redirects
+  to `/signin` instead of the "open the link we sent you" dead end; and clicking *Forgot
+  password?* twice more sent **zero** extra mail — the round-2 cooldown holds. The dashboard
+  showing a real case also proves V45's `ghl_contact_id` seed, because `PortalCaseService`
+  resolves cases through it.
+
+  **Bug 1 — `/start` was a 404, and two shipped screens walked clients into it.** `/welcome`'s
+  "Start a new evaluation" card and, worse, `SignIn`'s `UNKNOWN` branch — the button offered to
+  somebody who has just been told their email is not in our system. Unit 43 is the funnel and is
+  not built; the screens shipped ahead of it and `Welcome.tsx`'s own javadoc admitted the link
+  "does not exist yet". **Fixed with a placeholder route**, `client/src/pages/auth/Start.tsx`:
+  says we cannot take evaluations through the portal yet and to contact us, **names no phone
+  number or mailbox** (a wrong contact detail on the page a new client lands on is a lost client),
+  and matches `MAIL_UNAVAILABLE`'s existing "contact us" wording so the two screens do not
+  contradict each other. No form, no state, no service call — **Unit 43 deletes the file.**
+
+  **Bug 2 — a wrong password said *"We could not load your documents… contact whoever sent you
+  this link."*** All three auth screens passed their errors to `failureMessage`, which is written
+  for a reader who arrived by opening a link. A refused sign-in is **400**, that function has no
+  400 branch, and its fallback is the documents sentence. Wrong subject, and it sends someone
+  typing a password off to find a link that does not exist — the same class of falsehood this
+  session spent the day removing.
+
+  **It could not be fixed by widening `failureMessage`, and that is the interesting part.**
+  `portal.test.ts` pins that function to never say "password" or "log in". The *reason* had
+  expired — it was "the client has no EvalOS account", which Unit 42 made false — but the *rule*
+  had not: everyone who reaches it got there by opening a link, and telling them to try their
+  password sends them looking for one they may never have set. So the rule survived the
+  justification, and the auth screens got a sibling instead: **`authFailureMessage(status,
+  refused)`** in the client app's own `authService`. One parameter, because the 400 copy is the
+  only thing that differs per screen (wrong password / invalid email / spent link); 429 gets its
+  own words because waiting is the only thing that fixes it; anything else blames us rather than
+  the client. Four tests, one of which asserts the message never contains "link" or "document".
+
+  **The lesson is about the comment, not the code.** `failureMessage`'s javadoc explained itself
+  with a fact that stopped being true, and the next reader reused it on a screen it was never
+  written for. Its header now states the rule in terms of *who is reading*, and says outright that
+  the auth screens must not use it.
+
+  Portal frontend tests 26 → 30; both portal apps build.
+
 - **2026-09-12 — the client portal has ONE home, and the client link system is deleted.**
   Business decision, taken this day: **the portal is hosted at `client.<domain>` only**, the main
   website links to it with a button, and the client does everything there behind sign-in. 966

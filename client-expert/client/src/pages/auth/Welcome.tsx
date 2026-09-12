@@ -4,17 +4,19 @@ import { Card } from '@shared/components/ui/card'
 import { Logo } from '@shared/components/common/Logo'
 
 /**
- * The client portal's front door (Unit 42).
+ * The client portal's front door (Unit 42), and since 2026-09-12 the only one.
  *
- * **A door, not the only door.** Every `portal_access` link EvalOS has already sent — one naming
- * a case, one naming a client — still works exactly as it did before this screen existed; the
- * server decides that, this screen only avoids implying otherwise. The line below is why: a
- * welcome screen offering just a password would tell someone holding a working link that their
- * link is broken, which is a worse bug than never having built the screen.
+ * **This used to say "a door, not the only door".** While staff could mint a client link, a
+ * welcome screen offering only a password would have told someone holding a working link that
+ * their link was broken — so this file carried a note sending them back to their inbox. Nothing
+ * mints a client link any more: the portal is hosted at one origin, the website links to it, and
+ * sign-in is the route to everything. The note is gone. `resolve` still admits links already
+ * issued, so anyone still holding one reaches their case by opening it, which this screen neither
+ * helps nor hinders.
  *
- * **"Start a new evaluation" links to `/start`, which does not exist yet.** That funnel is
- * Unit 43. The link is real anyway — this screen is what a case gets born from later, and there
- * is nowhere else for it to point.
+ * **"Start a new evaluation" points at `/start`, which is a PLACEHOLDER.** That funnel is Unit 43.
+ * Until it ships the route exists and explains itself — it was a 404 for a while, which this
+ * screen and `SignIn`'s UNKNOWN branch were both walking clients into.
  */
 export default function Welcome() {
   return (

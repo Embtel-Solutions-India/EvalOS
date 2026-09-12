@@ -83,6 +83,7 @@ import { PortalLayout } from '@/layouts/PortalLayout'
 const Welcome = lazy(() => import('@/pages/auth/Welcome'))
 const SignIn = lazy(() => import('@/pages/auth/SignIn'))
 const SetPassword = lazy(() => import('@/pages/auth/SetPassword'))
+const Start = lazy(() => import('@/pages/auth/Start'))
 const Dashboard = lazy(() => import('@/pages/dashboard/Dashboard'))
 const Requests = lazy(() => import('@/pages/requests/Requests'))
 const Documents = lazy(() => import('@/pages/documents/Documents'))
@@ -99,6 +100,12 @@ function AppRoutes() {
       <Route path="/welcome" element={<Welcome />} />
       <Route path="/signin" element={<SignIn />} />
       <Route path="/set-password" element={<SetPassword />} />
+      {/*
+        `/start` was a 404 while two shipped screens linked to it — `/welcome`'s card and
+        `SignIn`'s UNKNOWN branch. The route is a placeholder, not the funnel; Unit 43 replaces
+        the file behind it.
+      */}
+      <Route path="/start" element={<Start />} />
 
       {/*
         Every screen shares one credential and one shell now, which is what 34d bought. Before
