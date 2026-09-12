@@ -1,0 +1,88 @@
+services:
+
+  postgres:
+    image: postgres:16
+    container_name: evalos-postgres
+    restart: unless-stopped
+
+    environment:
+      POSTGRES_DB: evalos
+      POSTGRES_USER: evalos
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+    networks:
+      - evalos-network
+
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+
+    container_name: evalos-backend
+    restart: unless-stopped
+
+    depends_on:
+      - postgres
+
+    environment:
+      SPRING_PROFILES_ACTIVE: prod,testprod
+
+      DB_URL: jdbc:postgresql://postgres:5432/evalos
+      DB_USER: evalos
+      DB_PASSWORD: ${DB_PASSWORD}
+
+      JWT_SECRET: ${JWT_SECRET}
+      EVALOS_FIELD_KEY: ${EVALOS_FIELD_KEY}
+      SEED_PASSWORD_HASH: ${SEED_PASSWORD_HASH}
+
+      PORTAL_BASE_URL: ${PORTAL_BASE_URL}
+      EVALOS_PORTAL_ORIGINS: ${EVALOS_PORTAL_ORIGINS}
+
+      EVALOS_S3_BUCKET: ${EVALOS_S3_BUCKET}
+      EVALOS_S3_REGION: ${EVALOS_S3_REGION}
+
+      DRIVE_REQUIRED: ${DRIVE_REQUIRED:-true}
+      GOOGLE_DRIVE_KEY_JSON: ${GOOGLE_DRIVE_KEY_JSON:-}
+
+      GHL_API_TOKEN: ${GHL_API_TOKEN:-}
+      GHL_LOCATION_ID: ${GHL_LOCATION_ID:-}
+
+      FORWARD_HEADERS_STRATEGY: framework
+
+    expose:
+      - "8080"
+
+    networks:
+      - evalos-network
+
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+
+    container_name: evalos-frontend
+    restart: unless-stopped
+
+    depends_on:
+      - backend
+
+    ports:
+      - "80:80"
+      - "443:443"
+
+    networks:
+      - evalos-network
+
+
+volumes:
+  postgres_data:
+
+
+networks:
+  evalos-network:
+    driver: bridge
