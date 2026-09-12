@@ -149,13 +149,38 @@ growth.
   answer is no. The caller turns that into **`IdentifyState.MAIL_UNAVAILABLE`**, a fourth state
   distinct from `NO_PASSWORD` because the two differ in what the client should do next: wait for
   an inbox, or stop waiting and call.
+- **A FAILING send reports `false` rather than throwing**, and this is the same rule as the line
+  above rather than a new one. `JavaMailSender.send` throws the unchecked `MailException`; it
+  propagated out of `forgotPassword`, so a mail outage answered **500 for a known address and 204
+  for an unknown one** — an enumeration oracle in the one method written not to leak, appearing
+  exactly when somebody is probing. Both `ClientMailer` send methods return whether the message
+  left. **The general rule: a route that must not differentiate must not differentiate on its
+  dependencies' failures either.**
+- **The send happens BEFORE the token row is written**, which is deliberate and counter-intuitive.
+  Save-then-send leaves an unspent row when the send fails, and the cooldown above then reads it
+  as "a link is on its way" — so the client is told to check an inbox nothing reached, for a full
+  TTL, with their retry suppressed by the failure they are retrying. The mirror risk (mail lands,
+  insert fails) is a database outage, which is already 500ing everything.
 - **Jakarta Mail's `connectiontimeout`/`timeout`/`writetimeout` default to INFINITE** and are set
-  to 5s in all three profiles. The send runs inside a controller-triggered `@Transactional`; a
-  black-holed SMTP host parks the request thread *and* its Hikari connection forever (invariant 6).
+  to 5s in all three profiles (invariant 6).
+- **`identify` and `forgotPassword` are deliberately NOT `@Transactional`; every other method here
+  is.** Their work is a read, a read and at most one insert with no invariant spanning them — a
+  lost race mints two usable tokens, which is not a defect. A transaction would hold a **Hikari
+  connection across the SMTP conversation**, up to 15s, on a route anyone may call 60×/min/IP.
+  Bounding the send still exhausts the pool; taking the connection out of its way does not.
 - **`setPassword` checks the brand explicitly.** It is the only path that reaches an account
   through the token's own FK rather than a brand-scoped finder, so without it a deployment
   serving brand A sets a password on a brand-B account and mints a party token for it. It answers
   the same refusal as a spent link.
+
+**Three portal origins, three properties, and the set-password link uses the third.**
+`evalos.portal.base-url` is what `PortalAccessService.urlFor` appends `/portal/client` to — a
+route that lives in `frontend/`, the **staff** SPA, which is also that property's dev default
+(5173). `expert-base-url` is the expert app (5175). **`client-base-url` (`PORTAL_CLIENT_BASE_URL`,
+no prod default) is the client portal app (5174)**, and it is the only one that may build a
+`/set-password` link: on `base-url` that mail landed a client on the staff sign-in page with their
+credential in the fragment. `base-url` stopped naming a single app when the portals split on
+2026-09-03 and was never renamed — treat it as "whatever serves `/portal/client`", nothing more.
 
 **`evalos.portal.client-brand` has no default in prod, deliberately.** An empty value is not
 "unset" to Spring: it binds as a null UUID and boots into a portal where every `identify` answers

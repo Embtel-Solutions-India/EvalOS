@@ -139,11 +139,29 @@ above.)
 > is wrong.
 >
 > **`identify` answers FOUR states, not three** — `PASSWORD_SET`, `NO_PASSWORD`, `UNKNOWN` and
-> **`MAIL_UNAVAILABLE`** (known client, but mail is unconfigured, so nothing was sent and nothing
+> **`MAIL_UNAVAILABLE`** (known client, but no mail could be sent, so nothing was sent and nothing
 > was minted). The screen must not fold that into `NO_PASSWORD`: the two differ in what the
 > client does next, wait for an inbox or stop waiting and call. The controller passes the enum
 > name through rather than mapping it, so a fifth value cannot be silently flattened into a
 > fourth.
+>
+> **The copy lives in `SignIn.tsx`'s `Record<IdentifyState, string | null>`, and that shape is the
+> point.** `MAIL_UNAVAILABLE` shipped on the server while the TS union still had three values, so
+> the state rendered an email box with **no message and no submit button** — the button shows only
+> for `null` and `PASSWORD_SET`. A comment above the union had claimed a new value would "fail
+> loudly"; it could not, because nothing read the union exhaustively. `null` in that record means
+> "renders its own block below" — an opt-out that is still an entry, so a fifth state will not
+> compile until somebody decides which kind it is. **Carry the rule, not the incident: when a
+> union's values drive UI, make the exhaustiveness a type, not a comment.**
+>
+> **No token now means the door, not an explanation.** `PortalLayout` answers
+> `<Navigate to="/signin" replace />` when `usePortalToken()` is false. The token is still
+> memory-only and **is not going to `localStorage`** — but `signIn` navigates to `/dashboard` with
+> no fragment, so the first refresh used to render `NO_TOKEN` ("open it again from the original
+> message"), which is simply false for someone who signed in with a password. Guarded once in the
+> layout rather than in six pages: every authenticated route is already inside it, and
+> `usePortalToken` lifts the fragment on the layout's first render, before any child. The pages
+> keep their `NO_TOKEN` copy for a direct render; nothing reaches it through the router.
 >
 > **Changing the email clears `signInError` and the password field** (review round 1). Without
 > it a wrong-password error raised against one address reappears against the next one typed,

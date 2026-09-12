@@ -4,6 +4,69 @@ Update this file after every meaningful implementation change.
 
 ## Current Phase
 
+- **2026-09-12 — review round 3 on Unit 42, from the PR pass. Five findings, and two of them
+  meant no client could get in at all.** Backend 966 tests green including the DB suite; both
+  portal apps build and their 26 tests pass. PR #22 (`development` → `main`).
+
+  **The set-password mail pointed at the staff app.** The link was built from
+  `evalos.portal.base-url` — the property `PortalAccessService.urlFor` appends `/portal/client`
+  to, a route that lives in `frontend/`, the **staff** SPA, which is also that property's dev
+  default (5173). `/set-password` exists only in `client-expert/client` (5174). One property,
+  two deployments: whichever origin it holds, one of the two links 404s. On the default, a
+  client clicking their set-password mail landed on the **staff sign-in page** with their
+  credential sitting in the fragment. Fixed with a third property, `client-base-url`
+  (`PORTAL_CLIENT_BASE_URL`, no prod default), shaped exactly like `expert-base-url` — which
+  exists for this same reason, one app earlier. **Three apps, three origins, and the lesson is
+  that `base-url` stopped being a single thing on 2026-09-03 without being renamed.**
+
+  **`MAIL_UNAVAILABLE` existed on the server and not in the client's type.** The TS union
+  declared three states, `SignIn.tsx` had branches for three, and the submit button renders only
+  for `null` and `PASSWORD_SET` — so the fourth state drew an email box with no message and no
+  button. Not a corner: `evalos.mail.from` is blank by default and `ClientMailer` degrades
+  rather than failing, so **every seeded client in a mail-less environment hit exactly that dead
+  end**. The comment above the union claimed a new value would "fail loudly rather than falling
+  into a default branch"; it could not, because nothing read the union exhaustively. The copy
+  now lives in a `Record<IdentifyState, string | null>`, where `null` means "renders its own
+  block" — an opt-out that is still an entry, so a fifth state does not compile until somebody
+  decides which kind it is. **A comment cannot fail the build; a `Record` can.** That swap also
+  deleted a branch.
+
+  **An SMTP failure was an enumeration oracle.** `ClientMailer.send` guarded a blank `from` and
+  nothing else, and `JavaMailSender.send` throws the unchecked `MailException` on an error or on
+  any of the three five-second timeouts. It propagated out of `forgotPassword` — so on a mail
+  outage a **known** address answered 500 while an unknown one still answered 204, which is the
+  single difference that method exists to hide, appearing on precisely the day somebody is
+  probing. It also made `identify` answer 500 instead of `MAIL_UNAVAILABLE`, against this
+  class's own written promise never to turn a mail problem into one. Both send methods now
+  **report whether the message left** instead of throwing.
+
+  **The send moved BEFORE the insert, which is the opposite of the obvious order.** Save-then-
+  send leaves an unspent token behind when the send fails, and the cooldown added in round 2
+  then reads that row as "a link is already on its way" — so the client is told to check an
+  inbox nothing reached, told it again for a full `credential-ttl`, and has the retry suppressed
+  by the very failure they are retrying. The cost is the mirror case (mail lands, insert fails,
+  link refuses), which is a database outage already answering 500 to everything. **The SMTP
+  outage is the one that happens on its own.**
+
+  **`identify` and `forgotPassword` are now deliberately NOT `@Transactional`**, and every other
+  method here still is. Their work is a read, a read and at most one insert with no invariant
+  spanning them — losing a race mints two usable tokens, which is not a defect. What the
+  transaction added was a **Hikari connection held across the SMTP conversation**, up to fifteen
+  seconds of it, on a route anyone may call sixty times a minute per IP. Round 2 bounded the
+  send; bounding it still exhausts the pool. Taking the connection out of the send's way does
+  not.
+
+  **A refresh after a password sign-in told the client to go find an email they never got.** The
+  portal token is memory-only by design (module scope in `apiClient`, never `localStorage`), and
+  `usePortalToken` recovers it only from the URL fragment — which was complete while a mailed
+  link was the *only* way to hold one. `signIn` navigates to `/dashboard` with no fragment, so
+  the first reload or bookmark rendered `NO_TOKEN`: *"open it again from the original message"*.
+  Fixed in `PortalLayout` with one `<Navigate to="/signin" replace />`, not in the six pages:
+  every authenticated route is already inside that layout, and `usePortalToken` lifts the
+  fragment on its first render, before any child. **The credential did not change and is not
+  going to localStorage** — what changed is that "no token" now means "the door", because since
+  Unit 42 there is one.
+
 - **2026-09-12 — Unit 42 is built: the Client Portal has a front door.** Backend 963 tests
   green including the DB suite; both frontends build.
 

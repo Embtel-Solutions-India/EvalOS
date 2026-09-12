@@ -77,13 +77,30 @@ public class ClientAccountService {
 
 	private final Duration credentialTtl;
 
-	private final String portalBaseUrl;
+	/**
+	 * The <strong>client portal app's</strong> origin — {@code evalos.portal.client-base-url},
+	 * <em>not</em> {@code base-url}.
+	 *
+	 * <p><strong>They are different deployments, and using the wrong one mails a client to the
+	 * staff login page.</strong> {@code base-url} is what {@code PortalAccessService.urlFor}
+	 * appends {@code /portal/client} to, and that route lives in {@code frontend/} — the staff
+	 * SPA, which is also the property's dev default. {@code /set-password} lives only in
+	 * {@code client-expert/client}, a separate build on a separate origin. One property could
+	 * only ever be right for one of them: pointed at the staff app, a client clicking their
+	 * set-password mail lands on a path the staff SPA does not recognise as a portal route, so it
+	 * renders the staff sign-in — with the credential sitting in the fragment.
+	 *
+	 * <p>Third of its kind, and deliberately shaped like the second: {@code expert-base-url}
+	 * exists for exactly this reason (the expert portal split out on 2026-09-03) and its comment
+	 * in {@code application.yml} makes the same argument. Three apps, three origins.
+	 */
+	private final String clientAppBaseUrl;
 
 	ClientAccountService(ClientAccountRepository accounts, ClientCredentialTokenRepository credentials,
 			ClientMailer mailer, PortalAccessService links, AuditService audit, PasswordEncoder encoder,
 			@Value("${evalos.portal.client-brand}") UUID brandId,
 			@Value("${evalos.portal.credential-ttl}") Duration credentialTtl,
-			@Value("${evalos.portal.base-url}") String portalBaseUrl) {
+			@Value("${evalos.portal.client-base-url}") String clientAppBaseUrl) {
 		this.accounts = accounts;
 		this.credentials = credentials;
 		this.mailer = mailer;
@@ -92,8 +109,8 @@ public class ClientAccountService {
 		this.encoder = encoder;
 		this.brandId = brandId;
 		this.credentialTtl = credentialTtl;
-		this.portalBaseUrl = portalBaseUrl.endsWith("/")
-				? portalBaseUrl.substring(0, portalBaseUrl.length() - 1) : portalBaseUrl;
+		this.clientAppBaseUrl = clientAppBaseUrl.endsWith("/")
+				? clientAppBaseUrl.substring(0, clientAppBaseUrl.length() - 1) : clientAppBaseUrl;
 	}
 
 	/**
@@ -107,8 +124,17 @@ public class ClientAccountService {
 	 *
 	 * <p><strong>An unknown email sends nothing.</strong> Otherwise this route is a way to make
 	 * EvalOS mail an arbitrary address, which is a different and worse hole than enumeration.
+	 *
+	 * <p><strong>Deliberately NOT {@code @Transactional}</strong>, and this is the one method
+	 * where that is a decision rather than an omission — {@link #forgotPassword} is the other.
+	 * The work is a read, a read and at most one insert, with no invariant spanning them: losing
+	 * a race mints two usable tokens, which is not a defect. What a transaction <em>would</em>
+	 * add is a Hikari connection held across the SMTP conversation — up to fifteen seconds of it
+	 * on the configured timeouts, on a route anyone may call sixty times a minute per IP. Bound
+	 * the send and you still exhaust the pool; take the connection out of the send's way and you
+	 * do not. Every other method here keeps its transaction, because every other method writes
+	 * more than one row.
 	 */
-	@Transactional
 	public IdentifyState identify(String email) {
 		Optional<ClientAccount> found = accounts.findByBrandIdAndEmailIgnoreCase(brandId, normalize(email));
 		if (found.isEmpty()) {
@@ -125,11 +151,20 @@ public class ClientAccountService {
 	/**
 	 * Mints a single-use link and mails it, unless one is already on its way.
 	 *
-	 * <p><strong>Returns false rather than throwing when mail is unconfigured</strong>, and mints
-	 * nothing in that case: a token whose link has no way of reaching the client is a row that can
-	 * only ever expire. The caller turns that into {@link IdentifyState#MAIL_UNAVAILABLE} so the
-	 * screen can say something true. A throw would turn a configuration gap into a 500 on a
-	 * sign-in attempt.
+	 * <p><strong>Returns false rather than throwing when mail cannot be sent</strong> — whether
+	 * because none is configured or because the send failed — and in neither case does a row
+	 * survive: a token whose link has no way of reaching the client can only ever expire. The
+	 * caller turns that into {@link IdentifyState#MAIL_UNAVAILABLE} so the screen can say
+	 * something true. A throw would turn a mail outage into a 500 on a sign-in attempt.
+	 *
+	 * <p><strong>The mail goes out BEFORE the row is written, which is the opposite of the
+	 * obvious order and is the point.</strong> Save-then-send leaves an unspent token behind when
+	 * the send fails, and the cooldown below then reads that row as "a link is already on its
+	 * way" — so the client is told to check an inbox nothing was ever delivered to, and told it
+	 * again for a full {@code credential-ttl}, with the retry they would otherwise get suppressed
+	 * by the failure itself. The cost of this order is the mirror case: mail lands and the insert
+	 * fails, giving a link that refuses. That is a database outage, which is already answering
+	 * 500 to everything; the SMTP outage is the one that happens on its own.
 	 *
 	 * <p><strong>An outstanding unspent token short-circuits the send</strong>, and that is the
 	 * only thing bounding this. Both callers are reachable unauthenticated at 60 requests/min/IP,
@@ -147,15 +182,15 @@ public class ClientAccountService {
 			return true;
 		}
 		String token = PortalAccessService.freshCredentialToken();
+		String link = clientAppBaseUrl + "/set-password#" + token;
+		boolean sent = purpose == CredentialPurpose.SET
+				? mailer.sendSetPassword(account.getEmail(), link)
+				: mailer.sendResetPassword(account.getEmail(), link);
+		if (!sent) {
+			return false;
+		}
 		credentials.save(new ClientCredentialToken(account.getBrandId(), account.getId(),
 				PortalAccessService.hash(token), purpose, Instant.now().plus(credentialTtl)));
-		String link = portalBaseUrl + "/set-password#" + token;
-		if (purpose == CredentialPurpose.SET) {
-			mailer.sendSetPassword(account.getEmail(), link);
-		}
-		else {
-			mailer.sendResetPassword(account.getEmail(), link);
-		}
 		return true;
 	}
 
@@ -209,8 +244,14 @@ public class ClientAccountService {
 	 * something true and actionable. Here the client already believes they have an account, so
 	 * differentiating buys nothing and the leak is not taken. The controller answers 204
 	 * regardless.
+	 *
+	 * <p><strong>"Regardless" now includes a mail outage, and it did not.</strong> The send used
+	 * to throw a {@code MailException} out of here, so a known address answered 500 while an
+	 * unknown one answered 204 — the difference this method exists to hide, appearing on exactly
+	 * the day somebody is probing. {@link ClientMailer} reports failure instead of throwing.
+	 *
+	 * <p>Not {@code @Transactional}, for the reason {@link #identify} states at length.
 	 */
-	@Transactional
 	public void forgotPassword(String email) {
 		accounts.findByBrandIdAndEmailIgnoreCase(brandId, normalize(email))
 				.ifPresent(account -> issueCredential(account, CredentialPurpose.RESET));

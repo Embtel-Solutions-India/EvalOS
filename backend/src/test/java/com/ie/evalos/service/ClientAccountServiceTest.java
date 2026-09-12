@@ -35,10 +35,12 @@ import static org.mockito.Mockito.verify;
  * must not become one either. Both auth routes are unauthenticated, so "known address, unlimited
  * mail" is the same hole at a named inbox.
  *
- * <p><strong>{@code mailer.isConfigured()} is stubbed true wherever mail is expected</strong>, and
- * that is not boilerplate: {@code issueCredential} asks it first and mints nothing when the answer
- * is no, so a mock left at its default {@code false} is the {@code MAIL_UNAVAILABLE} path rather
- * than the {@code NO_PASSWORD} one.
+ * <p><strong>{@code mailer.isConfigured()} AND the send itself are stubbed true wherever mail is
+ * expected</strong>, and neither is boilerplate. {@code issueCredential} asks {@code isConfigured}
+ * first and mints nothing when the answer is no; it then treats the send's own {@code false} —
+ * which is what a failing SMTP host now returns instead of throwing — the same way. A mock left at
+ * its default on either is the {@code MAIL_UNAVAILABLE} path rather than the {@code NO_PASSWORD}
+ * one, which is the point: an undelivered link is not a link.
  */
 class ClientAccountServiceTest {
 
@@ -57,7 +59,7 @@ class ClientAccountServiceTest {
 	private final PasswordEncoder encoder = new BCryptPasswordEncoder();
 
 	private final ClientAccountService service = new ClientAccountService(accounts, credentials,
-			mailer, links, audit, encoder, BRAND, Duration.ofMinutes(30), "https://portal.example.com");
+			mailer, links, audit, encoder, BRAND, Duration.ofMinutes(30), "https://client.example.com");
 
 	@Test
 	void anAccountWithAPasswordAnswersPasswordSet() {
@@ -74,6 +76,7 @@ class ClientAccountServiceTest {
 	@Test
 	void aSeededAccountAnswersNoPasswordAndIsSentASetLink() {
 		given(mailer.isConfigured()).willReturn(true);
+		given(mailer.sendSetPassword(any(), any())).willReturn(true);
 		given(accounts.findByBrandIdAndEmailIgnoreCase(BRAND, "ana@example.com"))
 				.willReturn(Optional.of(new ClientAccount(BRAND, "ana@example.com")));
 		given(credentials.save(any())).willAnswer(call -> call.getArgument(0));
@@ -150,7 +153,7 @@ class ClientAccountServiceTest {
 		PasswordEncoder hostile = mock(PasswordEncoder.class);
 		given(hostile.matches(any(), any())).willThrow(new IllegalArgumentException("must not be called"));
 		ClientAccountService hostileService = new ClientAccountService(accounts, credentials, mailer, links,
-				audit, hostile, BRAND, Duration.ofMinutes(30), "https://portal.example.com");
+				audit, hostile, BRAND, Duration.ofMinutes(30), "https://client.example.com");
 
 		org.assertj.core.api.Assertions
 				.assertThatThrownBy(() -> hostileService.signIn("ana@example.com", "anything"))
@@ -182,6 +185,52 @@ class ClientAccountServiceTest {
 		verify(mailer, never()).sendSetPassword(any(), any());
 	}
 
+	/**
+	 * A configured mailer whose send fails answers {@code MAIL_UNAVAILABLE} and leaves no row.
+	 *
+	 * <p><strong>The absent {@code credentials.save} is the assertion that matters</strong>, and it
+	 * is why the send happens before the write rather than after. Save-then-send would leave an
+	 * unspent token behind, and {@link #anOutstandingLinkIsNotReissued()} above would then read it
+	 * as "a link is already on its way" — so the client would be told to check an inbox nothing
+	 * ever reached, told it again for a full TTL, and have their retry suppressed by the very
+	 * failure they are retrying.
+	 */
+	@Test
+	void aFailedSendAnswersMailUnavailableAndLeavesNoTokenToPoisonTheCooldown() {
+		given(mailer.isConfigured()).willReturn(true);
+		given(mailer.sendSetPassword(any(), any())).willReturn(false);
+		given(accounts.findByBrandIdAndEmailIgnoreCase(BRAND, "ana@example.com"))
+				.willReturn(Optional.of(new ClientAccount(BRAND, "ana@example.com")));
+
+		assertThat(service.identify("ana@example.com"))
+				.isEqualTo(ClientAccountService.IdentifyState.MAIL_UNAVAILABLE);
+		verify(mailer).sendSetPassword(eq("ana@example.com"), any());
+		verify(credentials, never()).save(any());
+	}
+
+	/**
+	 * A failing mail host must not make {@code forgotPassword} differentiate.
+	 *
+	 * <p>It used to: {@code MailException} is unchecked, so a <strong>known</strong> address threw
+	 * its way to a 500 while an unknown one still answered 204 — turning the one method written
+	 * not to leak into an enumeration oracle, on exactly the day somebody is probing. The
+	 * assertion is that this does not throw; {@code ClientAuthControllerTest} holds the other half
+	 * (both addresses, byte-for-byte the same 204).
+	 */
+	@Test
+	void forgotPasswordDoesNotDifferentiateWhenTheMailHostIsDown() {
+		given(mailer.isConfigured()).willReturn(true);
+		given(mailer.sendResetPassword(any(), any())).willReturn(false);
+		ClientAccount account = new ClientAccount(BRAND, "ana@example.com");
+		account.setPasswordHash(encoder.encode("Correct!1"));
+		given(accounts.findByBrandIdAndEmailIgnoreCase(BRAND, "ana@example.com"))
+				.willReturn(Optional.of(account));
+
+		service.forgotPassword("ana@example.com");
+
+		verify(credentials, never()).save(any());
+	}
+
 	@Test
 	void anOutstandingLinkIsNotReissued() {
 		given(mailer.isConfigured()).willReturn(true);
@@ -203,6 +252,7 @@ class ClientAccountServiceTest {
 	@Test
 	void forgotPasswordForAKnownEmailMintsAResetTokenAndMailsTheLink() {
 		given(mailer.isConfigured()).willReturn(true);
+		given(mailer.sendResetPassword(any(), any())).willReturn(true);
 		ClientAccount account = new ClientAccount(BRAND, "ana@example.com");
 		account.setPasswordHash(encoder.encode("Correct!1"));
 		given(accounts.findByBrandIdAndEmailIgnoreCase(BRAND, "ana@example.com"))
@@ -223,7 +273,10 @@ class ClientAccountServiceTest {
 		verify(mailer, never()).sendSetPassword(any(), any());
 		// The token rides in the FRAGMENT of the set-password route, like every other portal
 		// credential — never a query parameter, which lands in access logs and Referer headers.
-		assertThat(link.getValue()).startsWith("https://portal.example.com/set-password#");
+		// The CLIENT PORTAL app's origin (`evalos.portal.client-base-url`), not `base-url` — that
+		// one serves `/portal/client` from the STAFF SPA, and a set-password link built on it puts
+		// a client on the staff sign-in page with their credential in the fragment.
+		assertThat(link.getValue()).startsWith("https://client.example.com/set-password#");
 	}
 
 	@Test

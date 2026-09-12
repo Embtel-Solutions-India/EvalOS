@@ -40,9 +40,30 @@ class ClientMailerTest {
 
 		assertThat(mailer.isConfigured()).isFalse();
 
-		mailer.sendSetPassword("ana@example.com", "https://portal.example.com/set-password#tok");
+		assertThat(mailer.sendSetPassword("ana@example.com", "https://portal.example.com/set-password#tok"))
+				.isFalse();
 
 		verify(sender, never()).send(any(SimpleMailMessage.class));
+	}
+
+	/**
+	 * A configured-but-failing sender reports false, exactly like an unconfigured one.
+	 *
+	 * <p><strong>The throw this replaces was an enumeration oracle.</strong> {@code MailException}
+	 * is unchecked and propagated out of {@code ClientAccountService.forgotPassword}, so on an SMTP
+	 * outage a <em>known</em> address answered 500 and an unknown one still answered 204 — the one
+	 * difference that method exists to hide, appearing on precisely the day somebody is probing.
+	 * It also turned {@code identify} into a 500 rather than {@code MAIL_UNAVAILABLE}, against
+	 * this class's own promise never to make a mail problem a 500.
+	 */
+	@Test
+	void aFailingSenderReportsFalseRatherThanThrowing() {
+		ClientMailer mailer = new ClientMailer(sender, "noreply@internationalevaluations.com");
+		org.mockito.Mockito.doThrow(new org.springframework.mail.MailSendException("smtp is down"))
+				.when(sender).send(any(SimpleMailMessage.class));
+
+		assertThat(mailer.sendSetPassword("ana@example.com", "https://x/#a")).isFalse();
+		assertThat(mailer.sendResetPassword("ana@example.com", "https://x/#b")).isFalse();
 	}
 
 	@Test

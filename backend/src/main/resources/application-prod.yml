@@ -40,6 +40,10 @@ evalos:
     # forgets it must fail to start rather than run on a guess. This is the client- and
     # expert-facing origin, not the API's.
     base-url: ${PORTAL_BASE_URL}
+    # No default here either, and for a sharper reason than its neighbour: an unset value falls
+    # back to the dev default, so a deployment that forgets it mails production clients a link to
+    # localhost. The failure is silent at boot and visible only in somebody's inbox.
+    client-base-url: ${PORTAL_CLIENT_BASE_URL}
     # No default, for the same reason as its two neighbours above. An empty value is not "unset"
     # to Spring — it binds as a null UUID, which boots happily into a portal where every identify
     # answers UNKNOWN and every sign-in is refused, for every client, permanently and silently.

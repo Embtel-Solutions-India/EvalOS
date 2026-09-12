@@ -128,6 +128,13 @@ evalos:
     # fail loudly — it mints a link to the wrong host, which looks like a broken link to the one
     # participant EvalOS cannot train.
     expert-base-url: ${PORTAL_EXPERT_BASE_URL:http://localhost:5175}
+    # **The client portal app is a third origin, and this is not `base-url`.** `base-url` above
+    # points at whatever serves `/portal/client`, which is the STAFF SPA (port 5173, and its own
+    # default). `/set-password` — the only thing this property builds — exists only in
+    # `client-expert/client` on 5174. Sharing one property meant the set-password mail landed a
+    # client on the staff sign-in page with their credential in the fragment. Same argument as
+    # `expert-base-url` directly above, one app later.
+    client-base-url: ${PORTAL_CLIENT_BASE_URL:http://localhost:5174}
     # How long a link works. A draft-review link that never expired would be a permanent bearer
     # credential sitting in somebody's inbox; re-minting is one click, so a short life costs
     # little. Configurable because "how long does the client have" is a business question.

@@ -10,11 +10,18 @@ import { apiClient, setPortalToken, unwrap, type ApiResponse } from '@shared/ser
  */
 
 /**
- * The three answers the sign-in screen branches on. The server's vocabulary, unmapped — the same
- * rule `CHECKLIST_STATUS` and `APPROVAL_STATUS` already follow, so a fourth value fails loudly
+ * The four answers the sign-in screen branches on. The server's vocabulary, unmapped — the same
+ * rule `CHECKLIST_STATUS` and `APPROVAL_STATUS` already follow, so a fifth value fails loudly
  * rather than falling into a default branch.
+ *
+ * **`MAIL_UNAVAILABLE` was missing here while the server already sent it**, which is the failure
+ * that rule is supposed to prevent and did not, because a union is only as loud as the switch
+ * reading it. The screen had branches for the other three and gated its submit button on
+ * `PASSWORD_SET`, so this state rendered an email box with no message and no button — a dead end,
+ * and not a rare one: `evalos.mail.from` is blank by default and `ClientMailer` degrades rather
+ * than failing, so every seeded client in a mail-less environment lands exactly here.
  */
-export type IdentifyState = 'PASSWORD_SET' | 'NO_PASSWORD' | 'UNKNOWN'
+export type IdentifyState = 'PASSWORD_SET' | 'NO_PASSWORD' | 'MAIL_UNAVAILABLE' | 'UNKNOWN'
 
 export type Session = { token: string; expiresAt: string }
 

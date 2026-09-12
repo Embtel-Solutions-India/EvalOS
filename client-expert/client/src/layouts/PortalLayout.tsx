@@ -1,5 +1,6 @@
 import { useState } from 'react'
-import { useLocation } from 'react-router-dom'
+import { Navigate, useLocation } from 'react-router-dom'
+import { usePortalToken } from '@shared/hooks/usePortalToken'
 import { LiquidBackground } from '@shared/components/common/LiquidBackground'
 import { PageTransition } from '@shared/components/common/PageTransition'
 import { MobileNavDrawer } from '@/components/layout/MobileNavDrawer'
@@ -20,9 +21,29 @@ function getPageTitle(pathname: string): string {
   return match?.label ?? 'Home'
 }
 
+/**
+ * With no credential, the door — not a page explaining a link.
+ *
+ * **The token is memory-only and that is not changing.** It lives in `apiClient`'s module scope,
+ * never `localStorage`, so a reload or a bookmark loses it by design. Before Unit 42 the only way
+ * to have one was a mailed link, so every screen's "open the full link we sent you" was true.
+ * It stopped being true the moment a password could mint one: `signIn` navigates to `/dashboard`
+ * with no fragment, so the first refresh dropped the client onto a page telling them to go find
+ * an email that, for them, does not exist.
+ *
+ * **Guarded here rather than in six pages**, because every authenticated route is already inside
+ * this layout and `usePortalToken` lifts the fragment on first render — which happens here,
+ * before any child. The pages keep their own `NO_TOKEN` copy for a direct render; nothing reaches
+ * it through the router.
+ */
 export function PortalLayout() {
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
   const location = useLocation()
+  const tokenPresent = usePortalToken()
+
+  if (!tokenPresent) {
+    return <Navigate to="/signin" replace />
+  }
 
   return (
     <div className="min-h-dvh bg-muted/30 lg:grid lg:grid-cols-[16rem_1fr]">

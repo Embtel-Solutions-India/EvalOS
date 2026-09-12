@@ -15,10 +15,33 @@ import { forgotPassword, identify, signIn, type IdentifyState } from '@/services
  * answering what this address can do next; routing to a second URL for "you have a password"
  * would be this screen forming a second opinion about that answer.
  *
- * **Editing the email after an answer clears it.** The three branches below are about the address
+ * **Editing the email after an answer clears it.** The four branches below are about the address
  * currently in the box — keeping `NO_PASSWORD` on screen while someone types a different address
  * would be a stale answer wearing a live-looking form.
+ *
+ * **Every `IdentifyState` must be accounted for, and `STATE_MESSAGE` is what enforces it.** The
+ * submit button renders only for `null` and `PASSWORD_SET`, so a state nothing handles is not a
+ * missing sentence — it is a screen with no message and no way forward. `MAIL_UNAVAILABLE` was
+ * exactly that until review found it, past a comment saying a new state would "fail loudly".
+ * A comment cannot fail; a `Record<IdentifyState, …>` can, so the rule is a type now.
  */
+
+/**
+ * The states whose entire answer is a sentence. `null` means "this one renders its own block
+ * below" — a deliberate opt-out, which is still an entry, which is the point: a fifth
+ * `IdentifyState` will not compile until somebody decides which of the two it is.
+ */
+const STATE_MESSAGE: Record<IdentifyState, string | null> = {
+  PASSWORD_SET: null,
+  UNKNOWN: null,
+  NO_PASSWORD: "You're in our system, but haven't set a password yet. We've emailed you a link to set one.",
+  // Known client, nothing sent, and nothing minted — so no link is coming and there is no action
+  // this screen can offer. Separate copy from NO_PASSWORD precisely because the two differ in what
+  // the client should do next: wait for an inbox, or stop waiting. "Wait" is the one answer that
+  // never recovers on its own.
+  MAIL_UNAVAILABLE:
+    "You're in our system, but we can't send you a set-password link right now. Please contact us and we'll get you in.",
+}
 export default function SignIn() {
   const navigate = useNavigate()
 
@@ -140,11 +163,8 @@ export default function SignIn() {
             </div>
           )}
 
-          {state === 'NO_PASSWORD' && (
-            <p className="text-sm text-muted-foreground">
-              You're in our system, but haven't set a password yet. We've emailed you a link to set
-              one.
-            </p>
+          {state && STATE_MESSAGE[state] && (
+            <p className="text-sm text-muted-foreground">{STATE_MESSAGE[state]}</p>
           )}
 
           {state === 'UNKNOWN' && (
