@@ -167,7 +167,7 @@ Sequenced by whether a consumer exists today (§3) — that is ordering, not sco
 
 | # | Unit | Ships | Depends on |
 | --- | --- | --- | --- |
-| **42** | Client accounts and sign-in | the client's identity and credential | 34, 35 |
+| **42** | Client accounts and sign-in — **BUILT 2026-09-12** | the client's identity and credential | 34, 35 |
 | **43** | Get Started intake funnel | the application, its answers, documents and stage | 42, 37 |
 | **44** | The tier-1 mirror | `pipeline`, `pipeline_stage`, `contact`, `opportunity`; replaces `CachedOpportunity` | 43 |
 | **45** | The sync engine | webhooks + delta sweep + nightly audit + outbox + drift report | 44 |

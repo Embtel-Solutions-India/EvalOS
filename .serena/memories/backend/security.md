@@ -115,13 +115,59 @@ amended for authentication mail only.
 **There is still NO third security chain, and that is the thing to carry.** A verified password
 mints the *same* party-scoped `PortalAccess` token described above, so `PortalTokenFilter` and
 every screen behind it are untouched. Sign-in is a new way to *obtain* the credential, not a
-second kind of session. The only config change is `permitAll` on `/api/portal/auth/**`, and those
+second kind of session. The only config change is `permitAll` on the four auth routes, and those
 routes stay behind the same per-IP limiter.
+
+**Those four are named one by one and by method** — `POST` on `identify`, `sign-in`,
+`forgot-password`, `set-password` — **never `/api/portal/auth/**`.** A wildcard opens the next
+route added under that prefix the moment it is written, silently; the list makes it arrive as a
+401 in that route's own test instead.
+
+**`JwtFilter` is deregistered from the global servlet chain** (`SecurityConfig.jwtFilterIsChainOnly`,
+a `FilterRegistrationBean` with `setEnabled(false)`). Boot auto-registers every `Filter` bean for
+`/*`, which had a staff `Bearer` token being read on `/api/portal/**`. `PortalTokenFilter` avoids
+this by not being a bean at all; `JwtFilter` cannot, because test slices inject it by type. Two
+chains that accept each other's credentials are one chain, and the drift starts as documentation.
 
 `client_account` holds `(brand_id, lower(email))` unique, a bcrypt hash that is **null when no
 password has been set** (that null IS the state), and a **nullable `ghl_contact_id` link** —
-so a client signs in with no GHL row anywhere. `client_credential_token` is single-use,
-30 minutes, SHA-256 at rest. Spec: `context/specs/42-client-accounts.md`.
+so a client signs in with no GHL row anywhere. The sign-in lookup is a spelled-out
+`@Query ... lower(a.email) = lower(:email)`, **not** Spring Data's `IgnoreCase`, which generates
+`upper(email) = upper(?)` and cannot use V43's `lower(email)` functional index — a sequential
+scan on the one query every sign-in makes. `client_credential_token` is single-use, 30 minutes,
+SHA-256 at rest. Spec: `context/specs/42-client-accounts.md`.
+
+**Four things bound the two unauthenticated mailing routes, and all four were added in review.**
+`identify` and `forgot-password` are reachable at 60 req/min/IP and `client_credential_token` has
+no cleanup job, so minting per call was both unlimited mail to a named inbox and unbounded table
+growth.
+- An **outstanding unspent token short-circuits the send**
+  (`findFirstByClientAccountIdAndPurposeAndUsedAtIsNullAndExpiresAtAfter`): one mail per
+  `credential-ttl`, per account, per purpose. Still answers `NO_PASSWORD` — a working link *is*
+  in that inbox.
+- **`ClientMailer.isConfigured()` is asked first**, and `issueCredential` mints nothing when the
+  answer is no. The caller turns that into **`IdentifyState.MAIL_UNAVAILABLE`**, a fourth state
+  distinct from `NO_PASSWORD` because the two differ in what the client should do next: wait for
+  an inbox, or stop waiting and call.
+- **Jakarta Mail's `connectiontimeout`/`timeout`/`writetimeout` default to INFINITE** and are set
+  to 5s in all three profiles. The send runs inside a controller-triggered `@Transactional`; a
+  black-holed SMTP host parks the request thread *and* its Hikari connection forever (invariant 6).
+- **`setPassword` checks the brand explicitly.** It is the only path that reaches an account
+  through the token's own FK rather than a brand-scoped finder, so without it a deployment
+  serving brand A sets a password on a brand-B account and mints a party token for it. It answers
+  the same refusal as a spent link.
+
+**`evalos.portal.client-brand` has no default in prod, deliberately.** An empty value is not
+"unset" to Spring: it binds as a null UUID and boots into a portal where every `identify` answers
+`UNKNOWN` and every sign-in is refused, for every client, with no log line to find. Related:
+`credential-ttl` reads `EVALOS_PORTAL_SIGNIN_LINK_TTL` — the name mismatch is deliberate,
+because `ConfigSecretsTest` fails the build on any variable whose *name* contains CREDENTIAL and
+which carries a non-empty default.
+
+**V46 is the fix-forward for V45's padded seeds.** V45 guarded on `trim(c.email)` and inserted
+`c.email`, seeding accounts that `ClientAccountService.normalize()` (which trims) can never find.
+V45 is applied and is not edited; V46 deletes the padded duplicate and trims the survivor. Rule
+that generalises: **a seed that normalises in its predicate must normalise in its projection.**
 
 ## The portal principal — why it is NOT a TenantContext
 

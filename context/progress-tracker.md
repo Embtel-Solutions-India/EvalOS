@@ -4,6 +4,107 @@ Update this file after every meaningful implementation change.
 
 ## Current Phase
 
+- **2026-09-12 — Unit 42 is built: the Client Portal has a front door.** Backend 963 tests
+  green including the DB suite; both frontends build.
+
+  A client arriving from the website lands on `/welcome` and chooses **Sign in** or **Get
+  started**, instead of a dashboard that only opened if somebody pasted a link into their inbox.
+  `POST /api/portal/auth/{identify,sign-in,forgot-password,set-password}`, `client_account`
+  (V43) with a bcrypt hash that is **null when no password has been set** — that null *is* the
+  state — V45 seeding an account for every client EvalOS already knows from `contact_snapshot`,
+  and `ClientMailer` over SMTP, which is the first mail EvalOS has ever sent.
+
+  **There is still no third security chain, and that is the part to carry.** A verified password
+  calls `PortalAccessService.mintForParty` and returns the *same* party-scoped `PortalAccess`
+  token Unit 35 built. `PortalTokenFilter` and every screen behind the door are untouched.
+  Sign-in is a new way to *obtain* the credential, not a new credential — which is why spec 34
+  D1's "a third Spring Security chain, credential storage, rotation, reset, lockout" estimate
+  was wrong and this is one unit rather than three.
+
+  **`identify` answers four ways, and the fourth was found in review.** `PASSWORD_SET`,
+  `NO_PASSWORD`, `UNKNOWN` — and `MAIL_UNAVAILABLE`, split out because answering `NO_PASSWORD`
+  with mail unconfigured tells a client a link is coming that nobody sent, and the only thing
+  they can do with that is wait forever. `identify` reveals whether an email is known, which is
+  email enumeration and an **accepted decision** (spec §3); what it must never also become is a
+  way to make EvalOS mail an arbitrary address, which is what `unknownEmailSendsNothing` pins.
+
+  **Invariant 14 is amended, not deleted.** *"EvalOS hosts no files and sends no email"* becomes
+  *"hosts no files, and sends email for exactly one purpose: proving control of a client's own
+  address."* Two messages. Status, marketing or notification mail is a new decision, and
+  `ClientMailer` existing is not an argument for one. **Invariant 7's first clause is amended a
+  second time**: `client_account` is EvalOS-owned and its `ghl_contact_id` is a nullable *link*,
+  so a client's ability to sign in no longer depends on GHL holding a row.
+
+  **The seed writes `ghl_contact_id`, and an earlier draft that wrote null was reversed.** The
+  argument for null was that IE's GHL sub-account was replaced on 2026-09-11, so every id EvalOS
+  holds names a contact GHL no longer has. True of the column's GHL job, irrelevant to its
+  EvalOS one: `PortalCaseService.authorized()` resolves a party token to its cases **through**
+  this id and fails closed when it is null — so a null there would have let every existing
+  client sign in and then see no cases at all. Caught by reading what else consumes the column,
+  not by a test.
+
+- **2026-09-12 — two review rounds on Unit 42, and what each one actually caught.**
+  Worth keeping because the pattern repeats: **round 1 was the frontend's state machine, round 2
+  was every bound nobody had put on an unauthenticated route.**
+
+  Round 1 (`d54de9f`): a wrong-password error from one address survived an email change and
+  reappeared against another; `forgot-password` had an unhandled rejection; and `App.tsx`'s
+  comment implied 34 D1's mail objection had been dropped rather than answered by a narrow
+  amendment.
+
+  Round 2 (`55b3f57`), nine findings and a migration:
+
+  - **V46, fix-forward for V45's padded seeds.** V45 guards on `length(trim(c.email)) > 0` and
+    inserts `c.email`, so a snapshot address stored as `' ana@example.com '` seeded an account
+    that `ClientAccountService.normalize()` — which trims what the client types — can never
+    find. The client is told "we couldn't find that email" forever, which is the exact falsehood
+    V45 exists to remove. **V45 is applied and is not edited.** V46 *deletes* the padded
+    duplicate rather than merging (a seeded account has a null password and nothing references
+    it), and ranks with a window function rather than a correlated `EXISTS`, because two
+    *differently* padded copies of one address are possible — V45's `DISTINCT ON` groups on
+    `lower(c.email)`, which does not see them as one key — and an `EXISTS` would keep both and
+    then put them on the unique index.
+  - **Mail is bounded three ways, and none of the three existed.** Both mailing routes are
+    unauthenticated at 60 req/min/IP, and `client_credential_token` has no cleanup job — so
+    minting on every call was both "make EvalOS mail a named inbox without limit" and unbounded
+    table growth. Now: an outstanding unspent token short-circuits the send (one mail per
+    `credential-ttl` per account per purpose); `isConfigured()` is asked *first* so nothing is
+    minted that can never be delivered; and **Jakarta Mail's three timeouts, which default to
+    INFINITE**, are set in all three profiles — this send runs inside a controller-triggered
+    `@Transactional`, and a black-holed SMTP host parks the request thread *and* its Hikari
+    connection forever, which is invariant 6 with enough of them to take the staff API down.
+  - **`setPassword` now checks the brand.** It is the only path that reaches an account through
+    the token's own foreign key rather than a brand-scoped finder. Without it, a deployment
+    serving brand A would set a password on a brand-B account from a link minted before its own
+    `client-brand` moved — and then mint a party token for it.
+  - **The portal chain names its four routes, by method, instead of a wildcard under
+    `/api/portal/auth/`.** A wildcard means the next route added under that prefix is open the
+    moment it is written, silently; the list makes it arrive as a 401 in that route's own test,
+    which is a question rather than a hole.
+  - **`JwtFilter` is deregistered from the global servlet chain** (`FilterRegistrationBean`,
+    `setEnabled(false)`). Boot auto-registers any `Filter` bean for `/*`, so a staff `Bearer`
+    token was being read on `/api/portal/**`. It changed nothing today and falsified what both
+    `PortalSecurityConfig` and `PortalTokenFilter` say in writing. `PortalTokenFilter` avoids
+    this by not being a bean at all; `JwtFilter` cannot, because test slices inject it by type.
+  - **The sign-in lookup is spelled `lower(email)`.** Spring Data's `IgnoreCase` generates
+    `upper(email) = upper(?)`; V43's unique index is on `lower(email)`, a functional index
+    Postgres can only use for the expression it was built on. The derived form was a sequential
+    scan of every client account on the one query every sign-in attempt makes.
+  - **`client-brand` loses its empty prod default.** An empty value is not "unset" to Spring —
+    it binds as a null UUID and boots happily into a portal where every `identify` answers
+    `UNKNOWN` and every sign-in is refused, for every client, permanently, with no log line and
+    no failing request to find.
+  - **Boot's mail health indicator is off.** `/actuator/health` is the only exposed endpoint and
+    is `permitAll`; mail is blank by default and degrades on purpose, so the indicator would
+    drag the aggregate to DOWN and a readiness probe would pull a healthy instance out of
+    service over a feature designed to be optional.
+
+  **`credential-ttl` reads from `EVALOS_PORTAL_SIGNIN_LINK_TTL`, and the mismatch is
+  deliberate.** `ConfigSecretsTest` fails the build on any variable whose *name* contains
+  CREDENTIAL carrying a non-empty default — deliberately blunt, because guessing secrets from
+  their values misses short ones. A TTL is not a secret, so the variable is named for what it is
+  to a deployer. Renaming it to "fix" the mismatch reintroduces that build failure.
+
 - **2026-09-11 — the client portal ↔ sales link is closed. The GHL programme is complete.**
   Backend 918 tests green including the DB suite; both frontends build.
 

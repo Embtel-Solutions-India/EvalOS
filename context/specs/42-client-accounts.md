@@ -1,6 +1,8 @@
 # Unit 42 — Client accounts and the sign-in door
 
-> **Status:** specced 2026-09-11, not built.
+> **Status:** **BUILT 2026-09-12.** Specced 2026-09-11. 963 backend tests green including the
+> DB suite; both frontends build. Two review rounds landed after the feature commits — see
+> `progress-tracker.md` for what they changed and why each one was not visible at review time.
 > **Depends on:** 34 (the portal frontend and its token), 35 (the party-scoped credential), 30 (S3).
 > **Followed by:** Unit 43, which is the Get Started funnel that creates these accounts.
 

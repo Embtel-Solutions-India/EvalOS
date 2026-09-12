@@ -138,6 +138,17 @@ above.)
 > inbox still works, and a door offering only a password tells those clients their working link
 > is wrong.
 >
+> **`identify` answers FOUR states, not three** — `PASSWORD_SET`, `NO_PASSWORD`, `UNKNOWN` and
+> **`MAIL_UNAVAILABLE`** (known client, but mail is unconfigured, so nothing was sent and nothing
+> was minted). The screen must not fold that into `NO_PASSWORD`: the two differ in what the
+> client does next, wait for an inbox or stop waiting and call. The controller passes the enum
+> name through rather than mapping it, so a fifth value cannot be silently flattened into a
+> fourth.
+>
+> **Changing the email clears `signInError` and the password field** (review round 1). Without
+> it a wrong-password error raised against one address reappears against the next one typed,
+> which reads as "this account is wrong" about an account that was never tried.
+>
 > **One credential for the whole app.** `usePortalToken` (in `shared/src/hooks`) lifts the
 > scoped token out of the URL fragment on first render — a lazy `useState` initializer, never
 > an effect, because the token must be set before the first query fires. Every screen calls it.
