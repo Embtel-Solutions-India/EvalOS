@@ -34,7 +34,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  *
  * <p>{@code architecture.md} invariant 1 says a fourth screen over this location inherits all of
  * the exception's terms — GM-only, no brand parameter — so the assertion worth making here is
- * the role gate, not the payload. Modelled on {@code MarketingControllerTest} for that reason.
+ * the role gate, not the payload.
  */
 @WebMvcTest(controllers = GhlPipelineController.class)
 @Import({ SecurityConfig.class, JwtService.class, ApiErrors.class })

@@ -188,17 +188,35 @@ public class DocumentStore {
 	 * what lets a lifecycle rule, an access policy or a per-brand export ever be written. Adding it
 	 * later is not a code change — it is a migration of the objects themselves.
 	 *
-	 * <p><strong>The client segment is the GHL contact id</strong>, which the Client Portal knows
-	 * too, so a key resolves in both systems with no mapping table between them (invariant 7).
-	 * <strong>No email appears in any key</strong>: an address in a key is PII in a log line, in a
-	 * bucket listing, and in every access record that names it.
+	 * <p><strong>The client segment is EvalOS's own {@code contact_snapshot.id}, and that changed
+	 * on 2026-09-14.</strong> It used to be the GHL contact id, on the reasoning that the key would
+	 * then resolve in both systems with no mapping table. IE replaced its GHL sub-account on
+	 * 2026-09-11 with no contact migration, which falsified that reasoning twice over: every
+	 * existing value names a contact that no longer exists, and a client created after the swap has
+	 * no GHL contact id at all — so the key could not be built and {@code upload} threw. A key
+	 * namespaced by an identifier a third party can revoke is not a namespace.
+	 *
+	 * <p><strong>Existing objects do not move, and do not need to.</strong> Reads resolve through
+	 * the stored {@code case_document.object_key}, which is authoritative; only new writes take
+	 * this shape. A bulk re-key would be an S3 object copy, not a migration, and is not required
+	 * for correctness.
+	 *
+	 * <p><strong>No email appears in any key</strong>: an address in a key is PII in a log line, in
+	 * a bucket listing, and in every access record that names it.
 	 *
 	 * <p><strong>The object name is the document's own id, not its filename.</strong> That closes
 	 * path traversal, collisions and PII-in-the-key in one move. The real filename lives in
 	 * {@code case_document.filename}, where it is data rather than a path.
+	 *
+	 * <pre>
+	 * // ponytail: the contact is the client here because a case always has one. Unit 43's funnel
+	 * // uploads a step earlier, before any case or contact exists, and keys on client_account.id
+	 * // (43 §5). Unit 44 merges contact_snapshot and client_account, and the two prefixes become
+	 * // one id at that point — not before.
+	 * </pre>
 	 */
-	public static String clientKey(UUID brandId, String ghlContactId, UUID documentId) {
-		return "%s/client/%s/%s".formatted(brandId, ghlContactId, documentId);
+	public static String clientKey(UUID brandId, UUID clientId, UUID documentId) {
+		return "%s/client/%s/%s".formatted(brandId, clientId, documentId);
 	}
 
 	/**

@@ -80,6 +80,27 @@ evalos:
     # Add `team_member.capacity` the day part-time or junior loads actually diverge — the bands
     # and the display do not change when it does.
     cases-per-cm: ${WORKLOAD_CASES_PER_CM:12}
+  sales:
+    # The GM overview's denominator: how much won business the month is aiming at. One number for
+    # the selling brand, on the same shape as `workload.cases-per-cm` and
+    # `roster.monthly-onboarding-target` — the figure was always computable, only the target had
+    # nowhere to live.
+    #
+    # **Zero means "no goal", and the tile then shows the amount alone** rather than a percentage
+    # of nothing. That is also why the percentage is suppressed on any window that is not a
+    # calendar month: a monthly target against a week is arithmetic dressed as a business figure.
+    monthly-goal: ${SALES_MONTHLY_GOAL:0}
+    # How far back "won this month" looks for deals to bucket.
+    #
+    # **This is not a tuning knob, it is a correctness bound.** GHL's opportunity search filters
+    # on `createdAt` and offers no filter on `lastStatusChangeAt`, so the only way to find a deal
+    # WON in September that was OPENED in July is to read the wins over a window wide enough to
+    # contain the sales cycle and bucket them in EvalOS. Set this shorter than the real sales
+    # cycle and the won figure is silently low; set it much longer and the read gets slower for
+    # nothing. 180 days is a comfortable multiple of a credential-evaluation sale.
+    #
+    # ponytail: goes away at Unit 44 — a mirrored `opportunity` table makes this one WHERE clause.
+    won-lookback-days: ${SALES_WON_LOOKBACK_DAYS:180}
   roster:
     # How many experts the network aims to onboard each month. The denominator behind the ENM's
     # "onboarded vs target" tile. One number per brand for the same reason cases-per-cm is
@@ -182,39 +203,30 @@ evalos:
     # funnel — not a cross-brand total. EvalOS has no mapping from a location to a brand, so it
     # cannot say which brand, cannot label it, and cannot filter by it.
     #
-    # That is why the endpoint is GM-only and takes no brandId — see MarketingPipelineService. An
-    # unattributable figure must not be shown to a role locked to one brand, because neither they
-    # nor the server can tell whether it is theirs. Do NOT add a brandId parameter to make it look
-    # scoped, and do not add a second global location here: Unit 25 puts the location on `brand`,
-    # which is the only thing that makes a second brand configurable.
+    # That is why every screen over it is GM-only — see GmOverviewService and the nav's
+    # `readsGhlLocation` marker. An unattributable figure must not be shown to a role locked to one
+    # brand, because neither they nor the server can tell whether it is theirs. Do NOT widen a gate
+    # to make a screen useful to its audience: that was the trade offered for the two funnel
+    # screens on 2026-09-16, and the business removed the screens instead. Do not add a second
+    # global location here either: Unit 25 puts the location on `brand`, which is the only thing
+    # that makes a second brand — or a Marketing-readable funnel — configurable.
     location-id: ${GHL_LOCATION_ID:}
-    # Which pipeline the marketing view draws. Looked up by NAME rather than by id, because the
-    # id is opaque and the name is what whoever provisions this can see in GHL. Renaming the
-    # pipeline over there makes this view answer 502 saying so, which is the right direction to
-    # fail in — the alternative is an empty funnel that looks like a bad month.
-    ads-pipeline-name: ${GHL_ADS_PIPELINE_NAME:Google ADS Pipeline}
-    # The second funnel on the same location: the email marketing pipeline. Same rules as the
-    # line above — matched by name, breaks loudly on a rename.
+    # **Unit 43's intake funnel, by name for the same reason as every other pipeline here.**
+    # A client picking a service opens an opportunity on this pipeline at the stage below, which
+    # is what puts a self-service lead on a salesperson's board the moment they start rather than
+    # when they finish.
     #
-    # THREE NAMES, NOT A LIST. A list would need a slug per entry to route and label it, and the
-    # slug is what the enum in MarketingPipelineService already is. The third funnel below was the
-    # test of that instruction and it held: a property and a constant, no new code path. Keep
-    # doing that; do not turn this into a map keyed by whatever GHL happens to call a pipeline
-    # this quarter.
-    email-pipeline-name: ${GHL_EMAIL_PIPELINE_NAME:Shivangi's Email Marketing}
-    # The sales team's own funnel — same location, same rules, and NOT a marketing campaign. It is
-    # here because the property is a GHL pipeline name like the two above; the screen it feeds
-    # sits under the Sales nav heading rather than Marketing.
+    # **Blank by default, and that is the safe direction.** `GhlPipelineClient.pipelineNamed`
+    # matches nothing on an empty name and answers 502 — so an unconfigured environment refuses
+    # to open a request and says why, instead of filing every client's application into whichever
+    # pipeline GHL happened to return first.
     #
-    # THE NAME IN GHL HAS TWO SPACES IN IT ("Aditya's<space><space>pipeline"). This default has
-    # one, deliberately, and it still matches: GhlPipelineClient collapses whitespace runs before
-    # comparing, precisely so nobody has to notice or preserve an invisible character here. Do not
-    # "correct" this line by pasting the double space back in — read that method's comment first.
-    sales-pipeline-name: ${GHL_SALES_PIPELINE_NAME:Aditya's pipeline}
-    # Connect and read timeout on each GHL request. Required because this runs in a
-    # controller-triggered path, and a bound is what keeps it "one bounded
-    # request" rather than long-lived work (invariant 6). The read is paginated, so the bound is
-    # per page and not for the whole funnel.
+    # **There is no stage property beside this, and that is a decision.** EvalOS puts the
+    # opportunity on this pipeline and stops: which stage it lands in, and who it is assigned to,
+    # are GHL's automation's job. A `hot-stage-name` existed here briefly and was removed — it made
+    # EvalOS hold a second opinion about pipeline placement, which goes stale the first time
+    # somebody reworks the workflow in GHL.
+    intake-pipeline-name: ${GHL_INTAKE_PIPELINE_NAME:}
     # Which brand owns `location-id`. Unit 36's single-brand ceiling, and it is ENFORCED rather
     # than documented: assigning SALES or MARKETING to a member of any other brand answers 400.
     #
@@ -237,14 +249,11 @@ evalos:
     #
     # The cache is droppable: raising this trades freshness for requests and nothing else.
     board-cache-ttl: ${GHL_BOARD_CACHE_TTL:2m}
+    # Connect and read timeout on each GHL request. Required because this runs in a
+    # controller-triggered path, and a bound is what keeps it "one bounded request" rather than
+    # long-lived work (invariant 6). The read is paginated, so the bound is per page and not for
+    # the whole read.
     timeout: ${GHL_TIMEOUT:10s}
-    # How long one funnel read is served from memory before GHL is asked again.
-    #
-    # This is not a performance tweak, it is the rate limiter. Without it, N open dashboards are
-    # N multi-page GHL reads per refresh and GHL's own rate limit becomes an EvalOS outage. Five
-    # minutes on a sales funnel is invisible to a GM reading trend, and the payload carries
-    # `readAt` so the screen states how old the figures are rather than implying they are live.
-    cache-ttl: ${GHL_CACHE_TTL:PT5M}
   jobs:
     # The background sweeps (Unit 19). Off in the integration suite, on everywhere else — see
     # JobSchedule for why the default points that way.

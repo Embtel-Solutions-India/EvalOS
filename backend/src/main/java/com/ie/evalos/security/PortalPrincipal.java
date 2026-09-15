@@ -31,7 +31,7 @@ import org.springframework.security.core.context.SecurityContextHolder;
  * {@code ExpertPortalService} compares it against the case's own expert and refuses a mismatch.
  */
 public record PortalPrincipal(UUID portalAccessId, UUID brandId, UUID caseId, PortalAudience audience,
-		UUID expertId, String ghlContactId) {
+		UUID expertId, String ghlContactId, UUID clientAccountId) {
 
 	/**
 	 * A <strong>case-scoped</strong> principal — the original five-field shape, with no party.
@@ -43,12 +43,21 @@ public record PortalPrincipal(UUID portalAccessId, UUID brandId, UUID caseId, Po
 	 */
 	public PortalPrincipal(UUID portalAccessId, UUID brandId, UUID caseId, PortalAudience audience,
 			UUID expertId) {
-		this(portalAccessId, brandId, caseId, audience, expertId, null);
+		this(portalAccessId, brandId, caseId, audience, expertId, null, null);
+	}
+
+	/**
+	 * A party-scoped principal without an account, which is every shape that existed before
+	 * Unit 43 needed one.
+	 */
+	public PortalPrincipal(UUID portalAccessId, UUID brandId, UUID caseId, PortalAudience audience,
+			UUID expertId, String ghlContactId) {
+		this(portalAccessId, brandId, caseId, audience, expertId, ghlContactId, null);
 	}
 
 	public static PortalPrincipal of(PortalAccess access) {
 		return new PortalPrincipal(access.getId(), access.getBrandId(), access.getCaseId(), access.getAudience(),
-				access.getExpertId(), access.getGhlContactId());
+				access.getExpertId(), access.getGhlContactId(), access.getClientAccountId());
 	}
 
 	/**
@@ -60,6 +69,21 @@ public record PortalPrincipal(UUID portalAccessId, UUID brandId, UUID caseId, Po
 	 */
 	public boolean isPartyScoped() {
 		return caseId == null;
+	}
+
+	/**
+	 * <strong>{@code clientAccountId} is populated for one of a client's two legal token shapes,
+	 * never both</strong> — which is V44's constraint, not an accident here.
+	 *
+	 * <p>{@code mintForClientAccount} writes a {@code ghl_contact_id} row when the account has a
+	 * contact and a {@code client_account_id} row when it does not, because the first is what
+	 * resolves the client's *cases* and the second is all there is when there are none. So a
+	 * caller needing the account — Unit 43's funnel — reads this when it is set and looks the
+	 * account up by contact when it is not. Two arms, both real, and neither is a fallback for a
+	 * bug.
+	 */
+	public boolean namesAnAccountDirectly() {
+		return clientAccountId != null;
 	}
 
 	/**

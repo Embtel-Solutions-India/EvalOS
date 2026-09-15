@@ -66,6 +66,8 @@ class PortalCaseServiceTest {
 
 	private Case subject;
 
+	private ContactSnapshot theContact;
+
 	private static PortalPrincipal tokenFor(UUID brandId, UUID caseId) {
 		return new PortalPrincipal(UUID.randomUUID(), brandId, caseId, PortalAudience.CLIENT, null);
 	}
@@ -92,12 +94,15 @@ class PortalCaseServiceTest {
 		subject.setAssignedCm(UUID.randomUUID());
 		subject.setAssignedCoordinator(UUID.randomUUID());
 
-		ContactSnapshot contact = new ContactSnapshot(BRAND, "ghl-1");
-		contact.syncFromGhl("Anita Rao", "anita@example.test", null, null, null, null, null, null, null);
+		theContact = new ContactSnapshot(BRAND, "ghl-1");
+		theContact.syncFromGhl("Anita Rao", "anita@example.test", null, null, null, null, null, null, null);
+		// The upload key is built from this id, so an unsaved entity's null would make the
+		// assertion pass on a null-vs-null comparison rather than on the real value.
+		ReflectionTestUtils.setField(theContact, "id", CONTACT_ID);
 
 		given(cases.findById(CASE_ID)).willReturn(Optional.of(subject));
 		given(cases.save(any(Case.class))).willAnswer(call -> call.getArgument(0));
-		given(contacts.findById(CONTACT_ID)).willReturn(Optional.of(contact));
+		given(contacts.findById(CONTACT_ID)).willReturn(Optional.of(theContact));
 	}
 
 	/**
@@ -116,6 +121,90 @@ class PortalCaseServiceTest {
 		catch (Exception ex) {
 			throw new IllegalStateException(ex);
 		}
+	}
+
+	/**
+	 * A party-scoped token — the only shape Unit 42's sign-in mints for a client who has a GHL
+	 * contact. {@code caseId} is null by construction, which is what {@code isPartyScoped()} means.
+	 */
+	private static PortalPrincipal partyTokenFor(UUID brandId, String ghlContactId) {
+		return new PortalPrincipal(UUID.randomUUID(), brandId, null, PortalAudience.CLIENT, null,
+				ghlContactId);
+	}
+
+	/** The checklist item an upload lands on, pinned to this test's case. */
+	private DocumentChecklistItem anItemOnThisCase() {
+		DocumentChecklistItem item = new DocumentChecklistItem(BRAND, CASE_ID, "Transcript",
+				ChecklistItemStatus.REQUIRED);
+		UUID itemId = UUID.randomUUID();
+		ReflectionTestUtils.setField(item, "id", itemId);
+		given(checklistItems.findById(itemId)).willReturn(Optional.of(item));
+		given(documents.findFirstByCaseIdAndKindOrderByVersionDesc(CASE_ID, DocumentKind.CLIENT_UPLOAD))
+				.willReturn(Optional.empty());
+		given(documents.save(any(CaseDocument.class))).willAnswer(call -> call.getArgument(0));
+		given(contacts.findByBrandIdAndGhlContactId(BRAND, "ghl-1"))
+				.willReturn(Optional.of(theContact));
+		given(cases.findByBrandIdAndContactIdOrderByCreatedAtDesc(BRAND, CONTACT_ID))
+				.willReturn(java.util.List.of(subject));
+		return item;
+	}
+
+	/**
+	 * <strong>The regression this class did not have.</strong> {@code upload} resolved its case as
+	 * {@code cases.findById(principal.caseId())} while every other method on the class went through
+	 * {@code authorized}. A party-scoped token's {@code caseId} is null <em>by definition</em>, so
+	 * that call threw and every signed-in client's upload answered 500. It survived because
+	 * {@code ClientPortalTest} stubs this service with Mockito and this class had no upload test at
+	 * all — so the controller proved the wiring and nothing proved the service.
+	 */
+	@Test
+	void aSignedInClientCanUploadWithAPartyScopedToken() {
+		DocumentChecklistItem item = anItemOnThisCase();
+
+		CaseDocument written = portal.upload(partyTokenFor(BRAND, "ghl-1"), item.getId(),
+				"transcript.pdf", "application/pdf", 1024L,
+				new java.io.ByteArrayInputStream(new byte[] { 1 }));
+
+		assertThat(written.getCaseId()).isEqualTo(CASE_ID);
+		assertThat(written.getKind()).isEqualTo(DocumentKind.CLIENT_UPLOAD);
+		assertThat(item.getStatus()).isEqualTo(ChecklistItemStatus.UPLOADED);
+	}
+
+	/**
+	 * The key is namespaced by EvalOS's own {@code contact_snapshot.id}, never by the GHL contact
+	 * id. IE replaced its GHL sub-account with no contact migration on 2026-09-11: every stored GHL
+	 * id names a contact that no longer exists, and a client created after the swap has none at
+	 * all — so a key built from one could not be built. An identifier a third party can revoke is
+	 * not a namespace.
+	 */
+	@Test
+	void theObjectKeyIsNamespacedByEvalOsContactIdNotTheGhlOne() {
+		DocumentChecklistItem item = anItemOnThisCase();
+
+		CaseDocument written = portal.upload(partyTokenFor(BRAND, "ghl-1"), item.getId(),
+				"transcript.pdf", "application/pdf", 1024L,
+				new java.io.ByteArrayInputStream(new byte[] { 1 }));
+
+		assertThat(written.getObjectKey())
+				.startsWith(BRAND + "/client/" + CONTACT_ID + "/")
+				.doesNotContain("ghl-1");
+	}
+
+	/**
+	 * <strong>A client who has just signed up sees an empty document screen, not a refusal.</strong>
+	 * Self-signup (2026-09-15) made this the ordinary first minute of an account's life: there is no
+	 * case yet, and {@code authorized} answers a party token with no case by throwing
+	 * {@code AmbiguousCaseException} — <em>"This link has no cases behind it"</em> — which is wrong
+	 * twice over on the portal's own front screen. They followed no link, and a list of nothing is
+	 * the truthful answer to "what have you sent us".
+	 */
+	@Test
+	void aClientWithNoCasesSeesAnEmptyDocumentScreen() {
+		PortalCaseService.ClientDocumentsView view =
+				portal.documents(partyTokenFor(BRAND, "ghl-nobody"));
+
+		assertThat(view.checklist()).isEmpty();
+		assertThat(view.uploaded()).isEmpty();
 	}
 
 	@Test

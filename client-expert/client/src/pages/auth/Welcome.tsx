@@ -14,9 +14,11 @@ import { Logo } from '@shared/components/common/Logo'
  * issued, so anyone still holding one reaches their case by opening it, which this screen neither
  * helps nor hinders.
  *
- * **"Start a new evaluation" points at `/start`, which is a PLACEHOLDER.** That funnel is Unit 43.
- * Until it ships the route exists and explains itself — it was a 404 for a while, which this
- * screen and `SignIn`'s UNKNOWN branch were both walking clients into.
+ * **The two doors are sign up and sign in**, which is what the client flow asks for. The first
+ * pointed at `/start` — a placeholder saying we could not take a new client — until 2026-09-15,
+ * because nothing created a `client_account` at runtime. It creates one now, along with the GHL
+ * contact. **Requesting an evaluation is a separate step** reached from the dashboard, and is
+ * Unit 43; this card must not promise it.
  */
 export default function Welcome() {
   return (
@@ -24,14 +26,14 @@ export default function Welcome() {
       <Logo size="lg" showTagline />
 
       <div className="w-full max-w-md space-y-4">
-        <Link to="/start" className="block">
+        <Link to="/signup" className="block">
           <Card className="p-5 transition-colors hover:bg-accent">
             <div className="flex items-center gap-4">
               <UserPlus className="h-6 w-6 shrink-0 text-primary" aria-hidden="true" />
               <div>
-                <p className="text-sm font-semibold text-foreground">Start a new evaluation</p>
+                <p className="text-sm font-semibold text-foreground">Create an account</p>
                 <p className="text-sm text-muted-foreground">
-                  Tell us about yourself and what you need evaluated.
+                  New here? Set up an account and request your evaluation from inside.
                 </p>
               </div>
             </div>

@@ -1,7 +1,8 @@
 import { useQuery } from '@tanstack/react-query'
-import { FileCheck2 } from 'lucide-react'
+import { FileCheck2, Plus } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { Badge } from '@shared/components/ui/badge'
+import { Button } from '@shared/components/ui/button'
 import { Card } from '@shared/components/ui/card'
 import { EmptyState } from '@shared/components/common/EmptyState'
 import { ErrorState } from '@shared/components/common/ErrorState'
@@ -10,19 +11,23 @@ import { PageHeader } from '@shared/components/common/PageHeader'
 import { usePortalToken } from '@shared/hooks/usePortalToken'
 import { failureMessage, NO_TOKEN, type ClientCaseSummary } from '@shared/lib/portal'
 import { statusOf } from '@shared/services/apiClient'
+import { listApplications, type ClientApplication } from '@/services/applicationService'
 import { listCases } from '@/services/draftService'
+import { formatDateShort } from '@shared/utils/formatters'
 
 /**
- * Every case behind the client's link, and where each one stands (34d).
+ * Everything the client has asked us for, and everything we are doing (34d, extended Unit 43).
  *
- * **Real cases, against `GET /api/portal/client/cases`.** This screen read a mock
- * `intakeService.listRequests` until 34d; the read it needed did not exist until Unit 35's D1
- * made a portal credential name a *party* rather than a case.
+ * **Two lists, because they are two different things and the client experiences both.** A
+ * *request* is what they sent us and Sales has not yet priced; a *case* is work in progress, born
+ * of a won opportunity through Handoff A. Merging them into one list would need this app to
+ * invent a combined status vocabulary spanning both, which is exactly what D5 forbids — every
+ * word about state here is the server's.
  *
- * **Every word about state is the server's.** `step` is a phrase EvalOS renders from
- * `PortalStageProjection`, and `actionRequired` is its flag. This app holds **no lifecycle
- * enum** — that was D5's rule, and it is why the twelve production stages do not appear here in
- * any form.
+ * **A request does not become a case on this screen.** It disappears from the top list and a case
+ * appears in the lower one, days later, when the client has paid. Nothing in the portal links the
+ * two, because EvalOS itself does not: the case is created by the webhook from the opportunity,
+ * and `client_application` holds the opportunity id, not a case id.
  *
  * **Needs a party-scoped link.** A case-scoped one names a single case and is refused (403); the
  * message says which link to use rather than showing a generic failure.
@@ -30,9 +35,16 @@ import { listCases } from '@/services/draftService'
 export default function Requests() {
   const tokenPresent = usePortalToken()
 
-  const { data, isLoading, isError, error, refetch } = useQuery({
+  const cases = useQuery({
     queryKey: ['portal', 'cases'],
     queryFn: ({ signal }) => listCases(signal),
+    enabled: tokenPresent,
+    retry: false,
+  })
+
+  const applications = useQuery({
+    queryKey: ['portal', 'applications'],
+    queryFn: ({ signal }) => listApplications(signal),
     enabled: tokenPresent,
     retry: false,
   })
@@ -40,44 +52,110 @@ export default function Requests() {
   if (!tokenPresent) {
     return (
       <div>
-        <PageHeader title="My cases" description={NO_TOKEN} />
+        <PageHeader title="My requests" description={NO_TOKEN} />
       </div>
     )
   }
 
+  const draft = applications.data?.find((item) => item.status === 'DRAFT')
+  const nothingAtAll =
+    !cases.isLoading &&
+    !applications.isLoading &&
+    cases.data?.length === 0 &&
+    applications.data?.length === 0
+
   return (
-    <div>
-      <PageHeader title="My cases" description="Everything of yours, and where it stands." />
+    <div className="space-y-8">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <PageHeader title="My requests" description="Everything of yours, and where it stands." />
+        <Button asChild>
+          <Link to="/requests/new">
+            <Plus className="mr-2 h-4 w-4" aria-hidden="true" />
+            {/* The one in progress is resumed rather than duplicated — the server returns the
+                open draft instead of opening a second, so this button is honest either way. */}
+            {draft ? 'Continue your request' : 'Request a service'}
+          </Link>
+        </Button>
+      </div>
 
-      {isLoading && <ListSkeleton />}
+      {(cases.isLoading || applications.isLoading) && <ListSkeleton />}
 
-      {isError && (
+      {cases.isError && (
         <ErrorState
           description={
             // A case-scoped link cannot list cases — it names one. A different link fixes it,
             // so saying so beats sending the client to support.
-            statusOf(error) === 403
+            statusOf(cases.error) === 403
               ? 'This link opens a single case rather than your account. Use the link we sent for that case.'
-              : failureMessage(statusOf(error))
+              : failureMessage(statusOf(cases.error))
           }
-          onRetry={() => void refetch()}
+          onRetry={() => void cases.refetch()}
         />
       )}
 
-      {!isLoading && !isError && data && data.length === 0 && (
+      {nothingAtAll && (
         <EmptyState
           icon={FileCheck2}
           title="Nothing here yet"
-          description="When a case of yours is opened, it will appear here."
+          description="Tell us what you need evaluated and we'll come back to you with a price."
         />
       )}
 
-      {data && data.length > 0 && (
-        <div className="mt-4 grid gap-3">
-          {data.map((item) => <CaseRow key={item.caseId} item={item} />)}
-        </div>
+      {applications.data && applications.data.length > 0 && (
+        <section>
+          <h2 className="text-sm font-semibold text-foreground">Requests with us</h2>
+          <div className="mt-3 grid gap-3">
+            {applications.data.map((item) => (
+              <ApplicationRow key={item.id} item={item} />
+            ))}
+          </div>
+        </section>
+      )}
+
+      {cases.data && cases.data.length > 0 && (
+        <section>
+          <h2 className="text-sm font-semibold text-foreground">Work in progress</h2>
+          <div className="mt-3 grid gap-3">
+            {cases.data.map((item) => (
+              <CaseRow key={item.caseId} item={item} />
+            ))}
+          </div>
+        </section>
       )}
     </div>
+  )
+}
+
+/**
+ * A request, before it is a case.
+ *
+ * **Two words about state and both are the server's `status`**, mapped to a sentence here rather
+ * than rendered raw, because `DRAFT` and `SUBMITTED` are EvalOS's vocabulary and not a client's.
+ * That is the narrowest possible exception to D5 — a label for a two-valued enum this app itself
+ * writes by calling submit — and it is not a lifecycle: no stage, no progress bar, no ordering.
+ */
+function ApplicationRow({ item }: { item: ClientApplication }) {
+  const unfinished = item.status === 'DRAFT'
+  const row = (
+    <Card className="flex flex-wrap items-center justify-between gap-2 p-4">
+      <div>
+        <p className="text-sm font-medium text-foreground">{item.serviceName}</p>
+        <p className="text-xs text-muted-foreground">
+          {unfinished
+            ? 'Not sent yet — pick up where you left off.'
+            : `Sent ${formatDateShort(item.submittedAt ?? item.updatedAt)}. We'll be in touch.`}
+        </p>
+      </div>
+      {unfinished && <Badge>Unfinished</Badge>}
+    </Card>
+  )
+
+  return unfinished ? (
+    <Link to="/requests/new" className="block [&>*]:hover:bg-accent">
+      {row}
+    </Link>
+  ) : (
+    row
   )
 }
 

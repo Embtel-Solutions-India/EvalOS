@@ -1,12 +1,12 @@
 # `db/seed-local` — local dev seed, and why it lives here
 
-These scripts seed a laptop: two brands, **twelve** staff logins sharing one committed
+These scripts seed a laptop: two brands, **thirteen** staff logins sharing one committed
 BCrypt hash (`DevPassw0rd!`), throwaway per-brand webhook secrets, and a handful of
 experts. They must never reach a real environment.
 
 ## The logins
 
-All twelve share the password **`DevPassw0rd!`**.
+All thirteen share the password **`DevPassw0rd!`**.
 
 | Email | Role | Brand | Notes |
 |---|---|---|---|
@@ -17,22 +17,34 @@ All twelve share the password **`DevPassw0rd!`**.
 | `cm.ie@evalos.local` | Case Manager | IE | |
 | `pc.ie@evalos.local` | Project Coordinator | IE | |
 | `enm.ie@evalos.local` | Expert Network Manager | IE | |
-| `sales.attorney.ie@evalos.local` | Sales · `ATTORNEY` | IE | Aditya's pipeline (`tj2agZ90S1LQgCpDAoKi`) |
-| `sales.employer.ie@evalos.local` | Sales · `EMPLOYER_FIRM` | IE | Alex Pipeline (`QKoDuXSh1EMEeDgOvcub`) |
-| `sales.individual.ie@evalos.local` | Sales · `INDIVIDUAL` | IE | Junaid Pipeline (`3TWonApNvGEp1f7TmRfd`) |
-| `marketing.individual.ie@evalos.local` | Marketing · `INDIVIDUAL` | IE | Google ADS Pipeline (`g6lo50r9Wn0qZvmp2bMP`) |
-| `marketing.attorney.ie@evalos.local` | Marketing · `ATTORNEY` | IE | Shivangi's Email Marketing (`LHoIRjpypwhswqO8Ayn0`) |
+| `sales.attorney.ie@evalos.local` | Sales · `ATTORNEY` | IE | Evaluation & Translational (`Eu5LMyN0ioAVXJgW1JGT`) |
+| `sales.employer.ie@evalos.local` | Sales · `EMPLOYER_FIRM` | IE | PERM + IBP + Prefiling (`0kT0EC0zVKdP1fklmrFC`) |
+| `sales.individual.ie@evalos.local` | Sales · `INDIVIDUAL` | IE | Expert Opinion Letter + RFE (`EoVInfnvXguEkg7wWktg`) |
+| `marketing.individual.ie@evalos.local` | Marketing · `INDIVIDUAL` | IE | BDE-1 (`CYcHdfPovQpxxNlIIto8`) |
+| `marketing.attorney.ie@evalos.local` | Marketing · `ATTORNEY` | IE | BDE-2 (`q9z45efXKXM3VjhtBnwZ`) |
+| `marketing.bde3.ie@evalos.local` | Marketing · `EMPLOYER_FIRM` | IE | BDE-3 (`ih8dMuHEiFfzSi2rVBrN`) — added by `V909` |
 
-**The five pipeline-scoped logins are IE-only and cannot be given to XpertsPortal.**
+**Repointed on 2026-09-14 by `V909`.** The ids above were read from the sub-account IE abandoned
+on 2026-09-11, so every one of them named a pipeline that no longer exists — and because
+`ghl_pipeline_id` is an *access key*, the symptom was a desk drawing zero columns with no error
+at all. The current ids are from the live location `WY6bW2xUCI8Tz8gw7aLJ`.
+
+**The sales split changed shape, not just ids.** The live account splits sales by **service line**,
+not by client segment, so the three sales desks now point at Evaluation & Translation, PERM + IBP
+and Expert Opinion Letter + RFE. The `segment` column is left as it was: `00b` §1.1 makes it
+display-and-reporting only with no access meaning, so it is free to disagree with the pipeline name.
+
+**The six pipeline-scoped logins are IE-only and cannot be given to XpertsPortal.**
 `evalos.ghl.sales-brand` names International Evaluations, and `PipelineAssignmentService`
 answers 400 for a pipeline-scoped role on any other brand — Unit 36's single-brand ceiling,
 which lifts when XpertsPortal gets its own GHL location (Unit 25). The pipeline ids are real,
 read from the live location on 2026-09-11; ids rather than names, because the id is the access
 key and a rename must not lock a salesperson out of their own desk.
 
-**There is no `EMPLOYER_FIRM` marketing login**, because the live location has two marketing
-pipelines and not three. Two people pointed at one pipeline would see an identical board, and
-`uq_team_member_pipeline` refuses it anyway. Seed the third the day the pipeline exists.
+**There is now an `EMPLOYER_FIRM` marketing login**, which reverses what this section used to say.
+It read: "there is no `EMPLOYER_FIRM` marketing login, because the live location has two marketing
+pipelines and not three… seed the third the day the pipeline exists." That day arrived — the new
+location has BDE-1, BDE-2 and BDE-3 — so `V909` seeded it.
 
 **The GM's NULL brand means *every* brand** (`Tier.ALL` skips the predicate). It is the
 only brand-less row the database allows — `team_member_brand_required` says so, restored

@@ -53,8 +53,21 @@ public class OpportunityBoardService {
 	}
 
 	/** One card. Deliberately not the cache row: no {@code fetchedAt}, no internal bookkeeping. */
+	/**
+	 * One card.
+	 *
+	 * <p>{@code updatedAt} is <strong>GHL's</strong> last-modified stamp, not ours: the cache also
+	 * holds {@code fetched_at}, which is when EvalOS last read the row and would make every deal
+	 * look touched on every refill. It is nullable because GHL does not always send it — a card
+	 * with no stamp is "age unknown", which the reader must be shown rather than have guessed as
+	 * "fresh".
+	 *
+	 * <p>Added 2026-09-14 for the Sales and Marketing desks: without it a board can draw deals but
+	 * cannot answer "which of these has nobody touched", which is the question a pipeline screen
+	 * exists to answer. The column was already in the cache and simply was not on the payload.
+	 */
 	public record Deal(String opportunityId, String name, String contactId, String status,
-			BigDecimal amount) {
+			BigDecimal amount, java.time.Instant updatedAt) {
 	}
 
 	/**
@@ -164,7 +177,8 @@ public class OpportunityBoardService {
 	 *
 	 * <pre>
 	 * ponytail: inline refill, whole-pipeline replace. If one pipeline ever grows past a few
-	 * pages, the upgrade is the off-thread refill MarketingPipelineService already implements —
+	 * pages, the upgrade is an off-thread refill (MarketingPipelineService implemented one until the
+	 * funnel screens were removed on 2026-09-16; `git show` it rather than redesigning it) —
 	 * not a bigger cache, and not a delta sync before there is a complaint to justify it.
 	 * </pre>
 	 */
@@ -199,7 +213,8 @@ public class OpportunityBoardService {
 					GhlPipelineClient.Pipeline.Stage stage = stages.get(entry.getKey());
 					List<Deal> deals = entry.getValue().stream()
 							.map((row) -> new Deal(row.getGhlOpportunityId(), row.getName(),
-									row.getGhlContactId(), row.getStatus(), row.getAmount()))
+									row.getGhlContactId(), row.getStatus(), row.getAmount(),
+									row.getUpdatedInGhlAt()))
 							.toList();
 					return new BoardColumn(entry.getKey(),
 							// A stage GHL no longer lists still holds cards until the next

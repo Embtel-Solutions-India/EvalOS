@@ -83,9 +83,10 @@ import { PortalLayout } from '@/layouts/PortalLayout'
 const Welcome = lazy(() => import('@/pages/auth/Welcome'))
 const SignIn = lazy(() => import('@/pages/auth/SignIn'))
 const SetPassword = lazy(() => import('@/pages/auth/SetPassword'))
-const Start = lazy(() => import('@/pages/auth/Start'))
+const SignUp = lazy(() => import('@/pages/auth/SignUp'))
 const Dashboard = lazy(() => import('@/pages/dashboard/Dashboard'))
 const Requests = lazy(() => import('@/pages/requests/Requests'))
+const NewRequest = lazy(() => import('@/pages/requests/NewRequest'))
 const Documents = lazy(() => import('@/pages/documents/Documents'))
 const Invoices = lazy(() => import('@/pages/invoices/Invoices'))
 const Meetings = lazy(() => import('@/pages/meetings/Meetings'))
@@ -101,11 +102,15 @@ function AppRoutes() {
       <Route path="/signin" element={<SignIn />} />
       <Route path="/set-password" element={<SetPassword />} />
       {/*
-        `/start` was a 404 while two shipped screens linked to it — `/welcome`'s card and
-        `SignIn`'s UNKNOWN branch. The route is a placeholder, not the funnel; Unit 43 replaces
-        the file behind it.
+        `/signup` is the real second door (2026-09-15). It was `/start`, a placeholder apologising
+        that we could not take a new client at all — accurate at the time, because nothing created
+        a `client_account` outside V45's one-shot backfill. It creates the account and the GHL
+        contact; choosing a service and answering the questionnaire are Unit 43 and happen from
+        the dashboard afterwards.
       */}
-      <Route path="/start" element={<Start />} />
+      <Route path="/signup" element={<SignUp />} />
+      {/* One release of grace for a link already typed or bookmarked. */}
+      <Route path="/start" element={<Navigate to="/signup" replace />} />
 
       {/*
         Every screen shares one credential and one shell now, which is what 34d bought. Before
@@ -115,6 +120,12 @@ function AppRoutes() {
       <Route element={<PortalLayout />}>
         <Route path="/dashboard" element={<Dashboard />} />
         <Route path="/requests" element={<Requests />} />
+        {/*
+          Unit 43's funnel, and it is one route rather than the seven the deleted version had:
+          the client is signed in before it opens, so no step needs its own URL to survive a
+          sign-up, and resumption is a server row rather than a browser.
+        */}
+        <Route path="/requests/new" element={<NewRequest />} />
         <Route path="/documents" element={<Documents />} />
         <Route path="/invoices" element={<Invoices />} />
         <Route path="/meetings" element={<Meetings />} />

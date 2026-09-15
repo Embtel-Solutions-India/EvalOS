@@ -452,7 +452,16 @@ than added to it, because approving a Case Manager's draft is the judgement of t
 PM who assigned it.
 Depends on: 04, 08, 09, 22.
 
-### Unit 24 — Marketing: the Google Ads funnel (GM)
+### Unit 24 — Marketing: the Google Ads funnel (GM) — **SCREEN REMOVED 2026-09-14**
+> The screen this unit built is gone: the GHL sub-account IE moved to on 2026-09-11 has no
+> paid-search funnel, so `evalos.ghl.ads-pipeline-name` matched nothing and the route could only
+> ever answer 502 — and a screen that cannot succeed is worse than an absent one. Removed rather
+> than repointed because nobody named a replacement funnel. **What the unit introduced survives**:
+> `GhlPipelineClient`, the five-minute cache, `MarketingPipelinePage` (still serving two funnels)
+> and the GM-only scoping argument all stand, and Unit 26 rests on them. Reinstating the screen is
+> a property, a route, a nav entry and an icon. The rest of this entry is the record of what was
+> built and why.
+
 Builds: the GM's one view of GHL's front of house — the **Google ADS Pipeline** as
 a chevron funnel (deals and value per stage, share of pipeline) with the sources
 behind it. First **read** integration against GHL's public API: two calls, a
@@ -470,6 +479,11 @@ the process note that this spec was written **after** the code.
 Depends on: 07, 17, 22.
 
 ### Unit 26 — Marketing: the email funnel (GM)
+**REMOVED 2026-09-16.** GM-only under the one-location scoping exception, which meant the
+audience for a marketing funnel could not open it. The business removed the screen rather than
+widen the gate; a funnel screen returns only as a NEW screen after Unit 25. See
+`26-marketing-email-funnel.md` for the full banner.
+
 Builds: a second GM screen over the same GHL location — **Shivangi's Email
 Marketing**, the email acquisition channel — through Unit 24's client, service,
 cache and card system. A `Funnel` enum (`ADS`, `EMAIL`) keys into configured
@@ -487,6 +501,11 @@ See `26-marketing-email-funnel.md`.
 Depends on: 24.
 
 ### Unit 27 — Sales: the sales pipeline (GM)
+**REMOVED 2026-09-16.** GM-only under the one-location scoping exception, which meant the
+audience for a marketing funnel could not open it. The business removed the screen rather than
+widen the gate; a funnel screen returns only as a NEW screen after Unit 25. See
+`27-sales-pipeline.md` for the full banner.
+
 Builds: the third GHL pipeline read — the sales team's own working funnel
 (*Aditya's pipeline*) — under a **new `Sales` nav group**, GM-only.
 `GET /api/marketing/sales-pipeline`, `evalos.ghl.sales-pipeline-name`, and
@@ -656,7 +675,10 @@ List stays lean, detail shows everything. Still no payment column, ever.
 See `33-case-and-expert-dossier.md`.
 Depends on: 11, 12, 31.
 
-### Unit 34 — The portal frontend, and wiring it to EvalOS — **PARTLY BUILT (34a, 34c, 34e)**
+### Unit 34 — The portal frontend, and wiring it to EvalOS — **ALL SLICES BUILT**
+> **2026-09-15:** this heading said *"PARTLY BUILT (34a, 34c, 34e)"*; 34b and 34d landed
+> 2026-09-11 and `34-portal-frontend-wiring.md` has said so since. **This file ends at Unit 34 —
+> Units 35–43 live in the programme documents** (`00b`, `00c`) and 44–50 have no spec files yet.
 Builds: the external SPA that arrived in `client/` on 2026-09-03 — **both portals, one
 deployment, port 5174, the origin the backend already allows** — becomes a real client of
 this backend. It is a **pivot spec**, because the app was built against a different auth
@@ -679,6 +701,29 @@ Unit 15's six routes — the one case the token names, at `/case#<token>` outsid
 *list*, D6 still gates payments.
 See `34-portal-frontend-wiring.md`.
 Depends on: 14, 30, 31, and 15 for slice 34e.
+
+---
+
+## Unit 51 — GM dashboard
+
+**BUILT 2026-09-15.** The business's own `IE_GM_Dashboard.pdf` laid out as the GM's landing
+screen: THE NUMBER (won money vs the month's goal, by source, by service), SALES, MARKETING,
+EXPERT MANAGEMENT and EVALUATION DEPARTMENT. One new route (`GET /api/metrics/gm`, `hasRole('GM')`
+and nothing wider), one new service, one new screen, two properties, **no migration** — the other
+four reads behind the screen already existed.
+
+**The GM and Brand Manager stop sharing `RevenueDashboard`**: half of this screen reads the GHL
+location, which is invariant 1's stated exception and holds only for the cross-brand reader.
+
+**2026-09-16:** its "Funnels" card is gone with the screen it linked to — see Units 26 and 27,
+removed the same day.
+
+`51-gm-dashboard.md` §3 is the **widget-by-widget mapping**, and it is the file to read before
+promising anything on that PDF to the business — it marks what is built, what needs a business
+decision (the monthly goal, the *Hot* and *Invoice sent* stage names) and what **cannot be
+computed at all** (email-campaign stats without a wider PIT scope, social reach at all, the expert
+recruitment funnel before Unit 50).
+Depends on: 17, 28, 36, 38.
 
 ---
 

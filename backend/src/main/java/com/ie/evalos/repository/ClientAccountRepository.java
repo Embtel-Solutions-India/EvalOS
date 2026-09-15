@@ -37,4 +37,19 @@ public interface ClientAccountRepository extends ScopedRepository<ClientAccount>
 	@Query("select a from ClientAccount a where a.brandId = :brandId and lower(a.email) = lower(:email)")
 	Optional<ClientAccount> findByBrandIdAndEmailIgnoreCase(@Param("brandId") UUID brandId,
 			@Param("email") String email);
+
+	/**
+	 * The account behind a party-scoped portal token (Unit 43).
+	 *
+	 * <p><strong>Why this is needed at all:</strong> {@code mintForClientAccount} writes a
+	 * {@code ghl_contact_id} row when the account has a contact, and that row does not also carry
+	 * the account id — so the common signed-in client arrives holding a contact and nothing else.
+	 * Matches V43's `client_account_ghl_contact_idx`.
+	 *
+	 * <p><strong>Brand-scoped, and that is load-bearing rather than habitual.</strong> A GHL
+	 * contact id is a *foreign* key: the same person can legitimately hold one in two brands, so
+	 * a lookup without the brand is a cross-brand read of a credential's owner. V38's party index
+	 * carries the brand for the same reason.
+	 */
+	Optional<ClientAccount> findByBrandIdAndGhlContactId(UUID brandId, String ghlContactId);
 }

@@ -59,7 +59,37 @@ public class GhlCalendarClient {
 	public static final String CONTACT_READ_SCOPE = "contacts.readonly";
 
 	/** A calendar a meeting can be booked into: a label and the id the booking needs. */
-	public record CalendarOption(String id, String name) {
+	/**
+	 * One calendar, as the booking form needs it.
+	 *
+	 * <p><strong>This used to be id and name only</strong>, on the reasoning that "a picker needs
+	 * a label and a value, and carrying GHL's full calendar configuration would be the beginning
+	 * of EvalOS holding a view of it". The narrowing was right and the field list was too narrow:
+	 * GHL's own booking form is driven by three of these, so omitting them did not avoid holding a
+	 * view of the calendar — it produced a form that could not behave like one.
+	 *
+	 * @param active       the location has twelve calendars and five are active. Booking on an
+	 *                     inactive one is refused by GHL with "Calendar is inactive", so a picker
+	 *                     that offers them is offering a guaranteed failure.
+	 * @param slotMinutes  every calendar here defines 30. It is the reason the form picks a slot
+	 *                     rather than asking for a duration — the duration is the calendar's.
+	 * @param titleTemplate GHL's {@code eventTitle}, e.g. {@code {{contact.name}}}. Shown as the
+	 *                     title's default exactly as GHL's form does, rather than EvalOS inventing
+	 *                     one that would disagree with a booking made in GHL.
+	 */
+	public record CalendarOption(String id, String name, boolean active, Integer slotMinutes,
+			String titleTemplate) {
+	}
+
+	/**
+	 * A bookable slot, as GHL computes it.
+	 *
+	 * <p><strong>Passed through as GHL's own offset-bearing string</strong> ({@code
+	 * 2026-09-15T15:00:00-07:00}) and never re-zoned here. The slot exists in the calendar's
+	 * timezone, and converting it would move the meeting — the same discipline
+	 * {@link ClientMeeting} applies for the opposite reason.
+	 */
+	public record FreeSlots(String timezone, java.util.Map<String, List<String>> byDate) {
 	}
 
 	/**
@@ -116,8 +146,50 @@ public class GhlCalendarClient {
 							.build());
 			return Optional.ofNullable(response == null ? null : response.calendars()).orElse(List.of())
 					.stream()
-					.map((row) -> new CalendarOption(row.id(), row.name()))
+					.map((row) -> new CalendarOption(row.id(), row.name(),
+							Boolean.TRUE.equals(row.isActive()), row.slotDuration(), row.eventTitle()))
 					.toList();
+		}
+		catch (GhlUnavailableException refused) {
+			throw missingScopeHint(refused, READ_SCOPE);
+		}
+	}
+
+	/**
+	 * The calendar's own free slots, which is what makes this a booking form rather than a time
+	 * entry box.
+	 *
+	 * <p><strong>GHL computes availability; EvalOS must not.</strong> A slot depends on the
+	 * calendar's open hours, its buffers, its per-day and per-slot caps, the team member's other
+	 * appointments and its minimum notice — all configuration that lives in GHL and changes there.
+	 * Any EvalOS-side calculation would be a second answer that is wrong the moment somebody edits
+	 * the calendar.
+	 *
+	 * <p><strong>The response is keyed by date</strong> ({@code "2026-09-15": [...]}) with a
+	 * {@code traceId} alongside it, which is why the dates are filtered out of the map rather than
+	 * bound to a record — GHL's keys are data, not a fixed shape.
+	 *
+	 * @param timezone an IANA zone; GHL renders the slots in it. The form shows the account
+	 *                 timezone by default, exactly as GHL's does.
+	 */
+	public FreeSlots freeSlots(String calendarId, long fromEpochMs, long toEpochMs, String timezone) {
+		try {
+			java.util.Map<String, Object> raw = http.get(java.util.Map.class,
+					(uri) -> uri.path("/calendars/{id}/free-slots")
+							.queryParam("startDate", fromEpochMs)
+							.queryParam("endDate", toEpochMs)
+							.queryParam("timezone", timezone)
+							.build(calendarId));
+
+			java.util.Map<String, List<String>> byDate = new java.util.LinkedHashMap<>();
+			Optional.ofNullable(raw).orElseGet(java.util.Map::of).forEach((key, value) -> {
+				// Every date key carries {"slots": [...]}; `traceId` is a bare string and is the
+				// reason this cannot simply take every entry.
+				if (value instanceof java.util.Map<?, ?> day && day.get("slots") instanceof List<?> slots) {
+					byDate.put(key, slots.stream().map(String::valueOf).toList());
+				}
+			});
+			return new FreeSlots(timezone, byDate);
 		}
 		catch (GhlUnavailableException refused) {
 			throw missingScopeHint(refused, READ_SCOPE);
@@ -151,17 +223,30 @@ public class GhlCalendarClient {
 	 *                                 {@link #WRITE_SCOPE}
 	 */
 	public Meeting book(String calendarId, String contactId, String opportunityId, String pipelineId,
-			String title, String startTime, String endTime) {
+			String title, String startTime, String endTime, String description, String assignedUserId,
+			String meetingLocationType, String address, boolean ignoreFreeSlotValidation) {
 		Map<String, Object> body = new LinkedHashMap<>();
 		body.put("calendarId", calendarId);
 		body.put("contactId", contactId);
 		body.put("startTime", startTime);
 		putIfPresent(body, "endTime", endTime);
 		putIfPresent(body, "title", title);
+		putIfPresent(body, "description", description);
+		// Absent means "Calendar Default", which is what GHL's own picker shows first — the
+		// calendar's assigned member takes it. Sending a blank would not mean the same thing.
+		putIfPresent(body, "assignedUserId", assignedUserId);
+		putIfPresent(body, "meetingLocationType", meetingLocationType);
+		putIfPresent(body, "address", address);
 		// `confirmed` rather than `new`: a salesperson booking from the desk has already agreed
 		// the time with the client. `new` would leave it looking unconfirmed in GHL to everyone
 		// who did not make the call.
 		body.put("appointmentStatus", "confirmed");
+		// GHL's form calls this Default vs Custom. Off by default: GHL then refuses a booking that
+		// collides or falls outside availability, and a visible refusal beats a silent
+		// double-booking. On only when the salesperson has deliberately chosen a custom time.
+		if (ignoreFreeSlotValidation) {
+			body.put("ignoreFreeSlotValidation", true);
+		}
 
 		AppointmentRow row;
 		try {
@@ -183,6 +268,32 @@ public class GhlCalendarClient {
 						"startTime", String.valueOf(booked.startTime())));
 
 		return toMeeting(booked);
+	}
+
+	/**
+	 * An internal note on an appointment — GHL's "Add internal note".
+	 *
+	 * <p><strong>A second call, because GHL makes it one.</strong> The appointment body carries no
+	 * note field; the note hangs off an appointment that already exists. That ordering is why
+	 * {@code SalesMeetingService} treats a failed note as a warning rather than a failed booking:
+	 * the meeting is already in the client's calendar by the time this runs, and throwing would
+	 * report a success as a failure.
+	 *
+	 * <p><strong>Internal means internal.</strong> GHL does not surface these to the contact, and
+	 * neither does EvalOS — nothing in the client portal reads appointment notes. Same rule as
+	 * {@code opportunity_note}.
+	 *
+	 * @param body up to 5000 characters, which is GHL's limit and is enforced by GHL
+	 */
+	public void addNote(String appointmentId, String body) {
+		try {
+			http.post(Object.class,
+					(uri) -> uri.path("/calendars/appointments/{id}/notes").build(appointmentId),
+					Map.of("body", body));
+		}
+		catch (GhlUnavailableException refused) {
+			throw missingScopeHint(refused, WRITE_SCOPE);
+		}
 	}
 
 	/**
@@ -331,7 +442,8 @@ public class GhlCalendarClient {
 			String appointmentStatus, String address, Boolean deleted) {
 	}
 
-	record CalendarRow(String id, String name) {
+	record CalendarRow(String id, String name, Boolean isActive, Integer slotDuration,
+			String eventTitle) {
 	}
 
 	/**

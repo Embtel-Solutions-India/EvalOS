@@ -33,7 +33,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class GhlOpportunityClientHttpTest {
 
 	private static final String TOKEN = "pit-test-token-not-a-real-one";
-	private static final String LOCATION = "kBumF0uUOmMBB5bneYjx";
+	private static final String LOCATION = "WY6bW2xUCI8Tz8gw7aLJ";
 	private static final String PIPELINE = "tj2agZ90S1LQgCpDAoKi";
 
 	private HttpServer server;
@@ -80,7 +80,7 @@ class GhlOpportunityClientHttpTest {
 				 "pipelineId":"tj2agZ90S1LQgCpDAoKi","pipelineStageId":"%s",
 				 "assignedTo":null,"status":"open",
 				 "createdAt":"2026-05-05T18:09:32.849Z","updatedAt":"2026-06-01T10:00:00.000Z",
-				 "contactId":"contact-%s","locationId":"kBumF0uUOmMBB5bneYjx","customFields":[],
+				 "contactId":"contact-%s","locationId":"WY6bW2xUCI8Tz8gw7aLJ","customFields":[],
 				 "contact":{"id":"contact-%s","name":"Test Person",
 				            "email":"test.person@example.invalid","phone":"+15550000000",
 				            "tags":["es_lead"],"score":[]}}"""

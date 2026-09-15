@@ -87,30 +87,32 @@ evalos:
     # The screen says "one GHL location" rather than naming a brand, because EvalOS has no
     # mapping from a location to a brand yet and must not imply one.
     location-id: ${GHL_LOCATION_ID:}
-    # Matched by NAME, not by id. A rename in GHL therefore breaks this screen with a stated 502
-    # rather than an empty funnel that reads as a bad month — and the fix is an environment
-    # change, not a deploy.
-    ads-pipeline-name: ${GHL_ADS_PIPELINE_NAME:Google ADS Pipeline}
-    # The email marketing funnel, by name for the same reason. All three defaults are the names the
-    # live location actually uses today, so a deployment sets none of them unless GHL renames one.
-    email-pipeline-name: ${GHL_EMAIL_PIPELINE_NAME:Shivangi's Email Marketing}
+    # **Unit 43's intake funnel, by name for the same reason as every other pipeline here.**
+    # A client picking a service opens an opportunity on this pipeline at the stage below, which
+    # is what puts a self-service lead on a salesperson's board the moment they start rather than
+    # when they finish.
+    #
+    # **Blank by default, and that is the safe direction.** `GhlPipelineClient.pipelineNamed`
+    # matches nothing on an empty name and answers 502 — so an unconfigured environment refuses
+    # to open a request and says why, instead of filing every client's application into whichever
+    # pipeline GHL happened to return first.
+    #
+    # **There is no stage property beside this, and that is a decision.** EvalOS puts the
+    # opportunity on this pipeline and stops: which stage it lands in, and who it is assigned to,
+    # are GHL's automation's job. A `hot-stage-name` existed here briefly and was removed — it made
+    # EvalOS hold a second opinion about pipeline placement, which goes stale the first time
+    # somebody reworks the workflow in GHL.
+    intake-pipeline-name: ${GHL_INTAKE_PIPELINE_NAME:}
     # Unit 36's single-brand ceiling; the reasoning is in the base profile.
     sales-brand: ${GHL_SALES_BRAND_ID:}
     board-cache-ttl: ${GHL_BOARD_CACHE_TTL:2m}
-    # The sales funnel. Written with ONE space where GHL stores two — the client collapses
-    # whitespace before matching, so this is correct as written; see the base profile.
-    sales-pipeline-name: ${GHL_SALES_PIPELINE_NAME:Aditya's pipeline}
     # Per page, not for the whole paginated read. This runs on a request path, so the bound is
     # what keeps it inside invariant 6's "one bounded request".
+    # Connect and read timeout on each GHL request. Required because this runs in a
+    # controller-triggered path, and a bound is what keeps it "one bounded request" rather than
+    # long-lived work (invariant 6). The read is paginated, so the bound is per page and not for
+    # the whole read.
     timeout: ${GHL_TIMEOUT:10s}
-    # A WRITE's bound, and deliberately more generous than the read's. A read that times out costs
-    # a stale screen; a write that times out leaves the outcome UNKNOWN - GHL may have applied it -
-    # and there is no safe automatic retry. Waiting longer for the truth beats telling a sales
-    # executive their stage move failed when it did not. Unit 29.
-    # The rate limiter, not a speed-up: without it, N open dashboards are N multi-page GHL reads
-    # per refresh and GHL's own limit becomes an EvalOS outage. Do not shorten it in a deployed
-    # environment — the local profile does, and says why.
-    cache-ttl: ${GHL_CACHE_TTL:PT5M}
 
 server:
   # MUST be `framework` if anything terminates the connection in front of the app — a

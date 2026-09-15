@@ -36,7 +36,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * well-evidenced. The mixed casing in this client is not a typo — it is the live answer, and this is
  * the test that keeps it honest. The same goes for the {@code Version} header, the {@code MM-dd-yyyy}
  * date format, and {@code meta.total} being present on a {@code limit=1} search, which is the whole
- * basis of {@code countIn}.
+ * basis of the paged read.
  *
  * <p><strong>Opt-in, and it must stay opt-in.</strong> Skipped unless {@code GHL_LIVE_TEST=true},
  * so {@code mvnw test} and CI never reach the network and never need a credential. Gating on the
@@ -79,12 +79,15 @@ class GhlPipelineClientLiveTest {
 	 * without the token, which is why {@code application-local.yml} defaults it too. The token is
 	 * the credential, and that one has no default anywhere.
 	 */
-	private static final String LOCATION = setting("GHL_LOCATION_ID", "location-id", "kBumF0uUOmMBB5bneYjx");
+	private static final String LOCATION = setting("GHL_LOCATION_ID", "location-id", "WY6bW2xUCI8Tz8gw7aLJ");
 
-	/** The names the live location uses, matching the profile defaults. */
-	private static final String ADS_PIPELINE = setting("GHL_ADS_PIPELINE_NAME", "ads-pipeline-name",
-			"Google ADS Pipeline");
-
+	/**
+	 * The names the live location uses, matching the profile defaults.
+	 *
+	 * <p>{@code ADS_PIPELINE} sat here until 2026-09-14 and went with the paid-search funnel: the
+	 * GHL sub-account IE abandoned on 2026-09-11 owned that pipeline, and the replacement has no
+	 * equivalent.
+	 */
 	private static final String EMAIL_PIPELINE = setting("GHL_EMAIL_PIPELINE_NAME", "email-pipeline-name",
 			"Shivangi's Email Marketing");
 
@@ -168,7 +171,7 @@ class GhlPipelineClientLiveTest {
 	void resolvesEveryConfiguredPipelineWithItsStages() {
 		GhlPipelineClient ghl = client();
 
-		for (String name : List.of(ADS_PIPELINE, EMAIL_PIPELINE, SALES_PIPELINE)) {
+		for (String name : List.of(EMAIL_PIPELINE, SALES_PIPELINE)) {
 			GhlPipelineClient.Pipeline pipeline = ghl.pipelineNamed(name);
 
 			assertThat(pipeline.id()).describedAs("%s must have an id", name).isNotBlank();
@@ -187,39 +190,6 @@ class GhlPipelineClientLiveTest {
 	}
 
 	/**
-	 * {@code countIn} really does come back from GHL's own {@code meta.total}.
-	 *
-	 * <p><strong>The load-bearing assertion of the whole marketing unit.</strong> Counting by
-	 * pagination cost 115 sequential requests on the email funnel and blew the frontend's 15s
-	 * timeout; the fix was to trust {@code meta.total} on a {@code limit=1} search. That only works
-	 * if GHL returns the total with {@code pipeline_stage_id} (snake_case) applied — so this proves
-	 * both the casing and the premise. A year is used because the email pipeline's newest deal is
-	 * months old.
-	 */
-	@Test
-	void countsStagesFromGhlsOwnTotalWithoutReadingRows() {
-		GhlPipelineClient ghl = client();
-		LocalDate to = LocalDate.now();
-		LocalDate from = to.minusDays(364);
-
-		GhlPipelineClient.Pipeline pipeline = ghl.pipelineNamed(EMAIL_PIPELINE);
-		int total = 0;
-		for (GhlPipelineClient.Pipeline.Stage stage : pipeline.stages()) {
-			int count = ghl.countIn(pipeline.id(), stage.id(), from, to);
-			// Never negative, and never null-collapsed-to-something-odd: a window with no matches
-			// returns a null total, which countIn maps to 0.
-			assertThat(count).describedAs("count for stage %s", stage.name()).isGreaterThanOrEqualTo(0);
-			total += count;
-			System.out.printf("[live] %s / %s -> %d deals%n", EMAIL_PIPELINE, stage.name(), count);
-		}
-
-		System.out.printf("[live] %s total over %s..%s -> %d deals%n", EMAIL_PIPELINE, from, to, total);
-		// The email funnel is the five-figure one; if this is zero the window or the id is wrong,
-		// not the pipeline.
-		assertThat(total).describedAs("the email funnel should hold deals over a year").isPositive();
-	}
-
-	/**
 	 * A row read terminates and returns the three fields the screen uses.
 	 *
 	 * <p>Deliberately a <strong>narrow</strong> window: this exercises the cursor pagination and the
@@ -231,10 +201,10 @@ class GhlPipelineClientLiveTest {
 		GhlPipelineClient ghl = client();
 		LocalDate to = LocalDate.now();
 
-		GhlPipelineClient.Pipeline pipeline = ghl.pipelineNamed(ADS_PIPELINE);
+		GhlPipelineClient.Pipeline pipeline = ghl.pipelineNamed(EMAIL_PIPELINE);
 		List<GhlPipelineClient.Opportunity> rows = ghl.opportunitiesIn(pipeline.id(), to.minusDays(29), to);
 
-		System.out.printf("[live] %s -> %d rows over the last 30 days%n", ADS_PIPELINE, rows.size());
+		System.out.printf("[live] %s -> %d rows over the last 30 days%n", EMAIL_PIPELINE, rows.size());
 
 		// An empty month is a legitimate answer, so the shape is asserted only on what came back.
 		assertThat(rows).allSatisfy((row) -> {

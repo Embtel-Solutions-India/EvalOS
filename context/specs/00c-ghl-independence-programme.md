@@ -53,7 +53,7 @@ opportunity migration — the old account is abandoned.**
 | `GHL_EMAIL_PIPELINE_NAME` | `Shivangi's Email Marketing` | ″ |
 | `GHL_SALES_PIPELINE_NAME` | `Aditya's pipeline` | ″ |
 | `GHL_INTAKE_PIPELINE_NAME` | — | new, where a portal application lands |
-| `GHL_HOT_STAGE_NAME` | — | new, the stage a completed application moves to |
+| ~~`GHL_HOT_STAGE_NAME`~~ | — | **dropped 2026-09-15, never shipped.** EvalOS creates the opportunity and sends no stage; where it lands and who it is assigned to are GHL's automation's, which is what this programme keeps GHL for |
 
 Pipelines are matched **by name** and the client answers 502 naming what it could not find. That
 is the intended failure direction, and it is what a fresh account will produce until the names
@@ -168,7 +168,7 @@ Sequenced by whether a consumer exists today (§3) — that is ordering, not sco
 | # | Unit | Ships | Depends on |
 | --- | --- | --- | --- |
 | **42** | Client accounts and sign-in — **BUILT 2026-09-12** | the client's identity and credential | 34, 35 |
-| **43** | Get Started intake funnel | the application, its answers, documents and stage | 42, 37 |
+| **43** | Get Started intake funnel — **BUILT 2026-09-15** | the application and its answers (`V49`), and a GHL opportunity on the intake pipeline **with no stage and no assignee**. **Not** documents, and **not** `pipeline`/`pipeline_stage` — see below | 42, 37 |
 | **44** | The tier-1 mirror | `pipeline`, `pipeline_stage`, `contact`, `opportunity`; replaces `CachedOpportunity` | 43 |
 | **45** | The sync engine | webhooks + delta sweep + nightly audit + outbox + drift report | 44 |
 | **46** | The desks move onto the mirror | Sales and Marketing boards read EvalOS rows, never GHL | 45 |
@@ -178,6 +178,14 @@ Sequenced by whether a consumer exists today (§3) — that is ordering, not sco
 
 **42 and 43 have a customer waiting** — they are the client login and signup the business asked
 for — and are also the first two bricks of the mirror. Build them first and independently.
+
+**Unit 44 inherits two things 43 was expected to hand it, and does not get them.**
+`pipeline`/`pipeline_stage` were listed as 43's because it "cannot move an application to a hot
+stage without knowing which stage that is". **That premise is gone twice over**: 43 resolves the
+pipeline id live behind a five-minute cache, and as of 2026-09-15 it moves nothing to any stage at
+all — GHL's automation places the deal. **44 owes both tables, unconditionally.** Funnel *document* upload also did not ship: every upload route EvalOS has takes a
+checklist item on a **case**, so a pre-case upload needs its own table, routes and S3 prefix —
+a unit, not a step (`43` §5).
 
 **44 does not start until 42 and 43 are in use.** The cutover is about to produce real evidence
 about which GHL-keyed surfaces actually hurt when the key breaks; designing the mirror before

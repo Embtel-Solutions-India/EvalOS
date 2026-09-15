@@ -3,6 +3,7 @@ package com.ie.evalos.service;
 import java.math.BigDecimal;
 import java.util.UUID;
 
+import com.ie.evalos.common.DuplicateDealException;
 import com.ie.evalos.common.ForbiddenException;
 import com.ie.evalos.common.InvalidRequestException;
 import com.ie.evalos.domain.Role;
@@ -39,7 +40,9 @@ class SalesDeskServiceTest {
 
 	private final GhlWriteClient ghl = mock(GhlWriteClient.class);
 	private final OpportunityCache cache = mock(OpportunityCache.class);
-	private final SalesDeskService desk = new SalesDeskService(ghl, new PipelineScope(cache));
+	private final com.ie.evalos.repository.FollowUpRepository followUps =
+			mock(com.ie.evalos.repository.FollowUpRepository.class);
+	private final SalesDeskService desk = new SalesDeskService(ghl, new PipelineScope(cache), cache, followUps);
 
 	private void authenticateAsSales(String pipelineId) {
 		StaffPrincipal principal = new StaffPrincipal(UUID.randomUUID(), "sales@ie.test", "Desk",
@@ -60,6 +63,87 @@ class SalesDeskServiceTest {
 	private static GhlWriteClient.UpsertedOpportunity answer(String status) {
 		return new GhlWriteClient.UpsertedOpportunity(OPPORTUNITY, "c1", MINE, "s2", status, "Acme",
 				new BigDecimal("1200"), false);
+	}
+
+	/**
+	 * Opening a deal creates rather than upserts, and that is the whole point of the route.
+	 *
+	 * <p>Unit 39 §3a: upsert keys on (contact, pipeline), so using it for a genuine second deal
+	 * would silently overwrite the first one's name and value instead of opening a second. This
+	 * asserts the verb, because the two calls are one word apart and the wrong one loses a deal
+	 * with no error anywhere.
+	 */
+	@Test
+	void openingADealCreatesRatherThanUpserts() {
+		authenticateAsSales(MINE);
+		when(ghl.upsertContact(any(), any(), any(), any()))
+				.thenReturn(new GhlWriteClient.UpsertedContact("c1", "Acme", "a@b.test", null));
+		when(ghl.createOpportunity(any(), any(), any(), any(), any(), any(), any()))
+				.thenReturn(answer("open"));
+
+		desk.createDeal("A", "Client", "a@b.test", null, "Acme evaluation",
+				new BigDecimal("1200"), null, null, null, false);
+
+		verify(ghl).createOpportunity(eq(MINE), eq("c1"), eq("Acme evaluation"),
+				eq(new BigDecimal("1200")), any(), any(), any());
+		verify(ghl, never()).upsertOpportunity(any(), any(), any(), any());
+	}
+
+	/**
+	 * The duplicate protection upsert used to give for free, replaced by asking.
+	 *
+	 * <p>A repeat client is legitimate, so this is a 409-with-a-question rather than a refusal —
+	 * but it must fire, because the create path has nothing else stopping a salesperson opening a
+	 * third copy of a deal they could not see.
+	 */
+	@Test
+	void aSecondOpenDealForTheSameContactIsRefusedUntilItIsConfirmed() {
+		authenticateAsSales(MINE);
+		when(ghl.upsertContact(any(), any(), any(), any()))
+				.thenReturn(new GhlWriteClient.UpsertedContact("c1", "Acme", "a@b.test", null));
+		com.ie.evalos.domain.CachedOpportunity existing = mock(com.ie.evalos.domain.CachedOpportunity.class);
+		when(existing.getGhlContactId()).thenReturn("c1");
+		when(existing.getStatus()).thenReturn("open");
+		when(existing.getGhlOpportunityId()).thenReturn("opp_existing");
+		when(cache.forPipelines(any())).thenReturn(java.util.List.of(existing));
+
+		assertThatThrownBy(() -> desk.createDeal("A", "Client", "a@b.test", null, "Second deal",
+				null, null, null, null, false))
+				.isInstanceOf(DuplicateDealException.class)
+				.hasMessageContaining("already has an open deal");
+
+		verify(ghl, never()).createOpportunity(any(), any(), any(), any(), any(), any(), any());
+	}
+
+	@Test
+	void theSameSecondDealGoesThroughOnceConfirmed() {
+		authenticateAsSales(MINE);
+		when(ghl.upsertContact(any(), any(), any(), any()))
+				.thenReturn(new GhlWriteClient.UpsertedContact("c1", "Acme", "a@b.test", null));
+		when(ghl.createOpportunity(any(), any(), any(), any(), any(), any(), any()))
+				.thenReturn(answer("open"));
+
+		desk.createDeal("A", "Client", "a@b.test", null, "Second deal", null, null, null, null, true);
+
+		// The cache is not even consulted once the caller has confirmed.
+		verify(cache, never()).forPipelines(any());
+		verify(ghl).createOpportunity(eq(MINE), eq("c1"), eq("Second deal"), any(), any(), any(), any());
+	}
+
+	/**
+	 * Without an email or a phone GHL has nothing to match on, so every save mints another
+	 * contact — the same rule {@code MarketingLeadService} enforces, for the same reason.
+	 */
+	@Test
+	void aDealWithNoEmailAndNoPhoneIsRefusedBeforeAnythingIsWritten() {
+		authenticateAsSales(MINE);
+
+		assertThatThrownBy(() -> desk.createDeal("A", "Client", null, null, "Acme", null, null,
+				null, null, false))
+				.isInstanceOf(InvalidRequestException.class);
+
+		verify(ghl, never()).upsertContact(any(), any(), any(), any());
+		verify(ghl, never()).createOpportunity(any(), any(), any(), any(), any(), any(), any());
 	}
 
 	@Test
@@ -172,12 +256,12 @@ class SalesDeskServiceTest {
 	void setsAFollowUpAsAGhlTask() {
 		authenticateAsSales(MINE);
 		givenItIsMine();
-		when(ghl.createFollowUp(any(), any(), any(), any(), any())).thenReturn("task_1");
+		when(ghl.createFollowUp(any(), any(), any(), any(), any(), any(), any())).thenReturn("task_1");
 
-		assertThat(desk.followUp(OPPORTUNITY, "c1", "Call back", "2026-09-18T09:00:00Z"))
+		assertThat(desk.followUp(OPPORTUNITY, "c1", "Call back", "2026-09-18T09:00:00Z", null, null))
 				.isEqualTo("task_1");
 
-		verify(ghl).createFollowUp("c1", OPPORTUNITY, MINE, "Call back", "2026-09-18T09:00:00Z");
+		verify(ghl).createFollowUp("c1", OPPORTUNITY, MINE, "Call back", "2026-09-18T09:00:00Z", null, null);
 	}
 
 	/** A follow-up with no date is a note, and notes have their own route. */
@@ -186,12 +270,12 @@ class SalesDeskServiceTest {
 		authenticateAsSales(MINE);
 		givenItIsMine();
 
-		assertThatThrownBy(() -> desk.followUp(OPPORTUNITY, "c1", "  ", "2026-09-18T09:00:00Z"))
+		assertThatThrownBy(() -> desk.followUp(OPPORTUNITY, "c1", "  ", "2026-09-18T09:00:00Z", null, null))
 				.isInstanceOf(InvalidRequestException.class);
-		assertThatThrownBy(() -> desk.followUp(OPPORTUNITY, "c1", "Call back", null))
+		assertThatThrownBy(() -> desk.followUp(OPPORTUNITY, "c1", "Call back", null, null, null))
 				.isInstanceOf(InvalidRequestException.class);
 
-		verify(ghl, never()).createFollowUp(any(), any(), any(), any(), any());
+		verify(ghl, never()).createFollowUp(any(), any(), any(), any(), any(), any(), any());
 	}
 
 	/** Every action refuses an opportunity outside the caller's pipeline, with 403 not 404. */
@@ -206,12 +290,12 @@ class SalesDeskServiceTest {
 				.isInstanceOf(ForbiddenException.class);
 		assertThatThrownBy(() -> desk.close("opp_theirs", "won"))
 				.isInstanceOf(ForbiddenException.class);
-		assertThatThrownBy(() -> desk.followUp("opp_theirs", "c1", "Call", "2026-09-18T09:00:00Z"))
+		assertThatThrownBy(() -> desk.followUp("opp_theirs", "c1", "Call", "2026-09-18T09:00:00Z", null, null))
 				.isInstanceOf(ForbiddenException.class);
 
 		verify(ghl, never()).updateOpportunity(any(), any(), any(), any(), any());
 		verify(ghl, never()).setStatus(any(), any(), any());
-		verify(ghl, never()).createFollowUp(any(), any(), any(), any(), any());
+		verify(ghl, never()).createFollowUp(any(), any(), any(), any(), any(), any(), any());
 	}
 
 	@Test

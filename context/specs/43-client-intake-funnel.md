@@ -1,18 +1,58 @@
 # Unit 43 — Get Started: the client intake funnel
 
-> **Status:** specced 2026-09-11, revised 2026-09-12, not built.
+> **Status: BUILT 2026-09-15.** Specced 2026-09-11, revised 2026-09-12, amended and built
+> 2026-09-15. Four things differ from the spec below and each is recorded where it belongs:
 >
-> **⚠ `/start` now exists as a PLACEHOLDER** (`client-expert/client/src/pages/auth/Start.tsx`,
-> added 2026-09-12). It was a 404 while `/welcome` and `SignIn`'s `UNKNOWN` branch both linked to
-> it — the second of those offers the button to somebody who has just been told their email is
-> unknown. The placeholder says we cannot take evaluations through the portal yet and to contact
-> us, names no contact details, and has no form, no state and no service call. **This unit deletes
-> that file**; do not grow the funnel inside it.
+> 1. **The account and the GHL contact are created at sign-up, not at About You** — because
+>    nothing created a `client_account` at runtime at all, so that gap was wider than this unit.
+>    *About You* is no longer a step. §1, §1a and §4.
+> 2. **The opportunity is created when the client picks a service** — the first funnel screen, not
+>    the last. §6a's argument survives intact; only the screen it was pinned to is gone. §4.
+> 3. **Documents are not a funnel step.** There is nowhere to put a file before a case exists:
+>    every upload route EvalOS has takes a checklist item on a case, and building an
+>    application-scoped document store is a second table, second routes and a second S3 prefix
+>    for a step §5 itself says is not a wall. Sales chases them, which §5's own posture already
+>    allows, and the client uploads from the Documents screen once a case is open. §5.
+> 4. **The answers are NOT filed as an `OpportunityNote`.** `opportunity_note.author_id`
+>    references `team_member`, and a client is not one — filing them there would mean making that
+>    column nullable so a client's answers could pretend to be staff prose. Sales reads the
+>    application itself through `GET /api/opportunities/{id}/application`, which §6c requires
+>    anyway. §6b.
+>
+> 5. **THE HOT STAGE IS GONE — removed 2026-09-15 on the business's instruction, and it is the
+>    largest single reversal in this spec.** EvalOS creates the opportunity on the intake pipeline
+>    and **sends no stage and no assignee**. Where the deal lands, how it is routed and whose it
+>    becomes are **GHL's automation's**, which is exactly what `00b` keeps GHL for — "the pipeline
+>    engine and the automation engine underneath". `evalos.ghl.hot-stage-name` /
+>    `GHL_HOT_STAGE_NAME` **never shipped to any environment** and is deleted from all three
+>    profiles. Everywhere below that says *"at the hot stage"*, *"@ HOT"* or *"move it to the hot
+>    stage"* is superseded by this line. **What survives untouched is the timing argument** —
+>    the opportunity is created when the client picks a service, because a lead who abandons the
+>    questionnaire must already be visible; only the claim about *where it lands* is withdrawn.
+>
+> **Also not built, and deliberately:** the `pipeline` / `pipeline_stage` tables. This unit needs
+> to know which stage is hot, and `GhlPipelineClient.pipelineNamed` answers that live behind its
+> five-minute cache. Persisting the mirror is Unit 44's job and nothing here is waiting on it.
+>
+> **Shipped:** `V49__client_application.sql`, `ClientApplication`, `ClientApplicationService`,
+> `ClientApplicationController` (4 portal routes), `ApplicationReviewController` (1 staff route),
+> the recovered catalog/question-groups/engine, `NewRequest.tsx`, and `DealApplication.tsx` on the
+> sales board.
+>
+> **⚠ `/start` is gone and `/signup` is real (2026-09-15).** The placeholder added on 2026-09-12
+> (`Start.tsx`) said we could not take a new client at all — which was accurate, because **nothing
+> created a `client_account` at runtime**: every row came from `V45`, a one-shot backfill, so a
+> client acquired after it was told *"we couldn't find that email"* for ever. `POST
+> /api/portal/auth/sign-up` now creates the account and, through `upsertContact`, the GHL contact;
+> `SignUp.tsx` replaces `Start.tsx` and `/start` redirects. **This unit no longer creates the
+> account** (§4 and §6a step 1 are amended accordingly — see the note there): it starts from a
+> client who is already signed in, and its first step is *choose a service*.
 > **Depends on:** 42 (the account this funnel creates), 30 (S3 uploads), 37 (`GhlWriteClient`).
 > **Restores:** the seven-screen funnel and the conditional questionnaire deleted in `f9f1165`.
 > **Also ships:** the `pipeline` / `pipeline_stage` half of `00c`'s tier-1 mirror (§6a) — this
 > unit cannot move an application to a hot stage without knowing which stage that is, and one
-> `GhlPipelineClient.pipelines()` call fills both tables.
+> `GhlPipelineClient.pipelines()` call fills both tables. **⚠ That premise is void as of
+> 2026-09-15: this unit moves nothing to any stage.** The tables are Unit 44's, unconditionally.
 
 > **This unit reverses `34-portal-frontend-wiring.md` D2**, which recommended cutting the funnel:
 >
@@ -33,11 +73,23 @@ A visitor works through seven steps: welcome, choose a service, state a purpose,
 details, answer a questionnaire whose questions depend on what they picked, upload the documents
 that service needs, and review and submit. **Giving their details creates three things at once
 — their account, their GHL contact, and a GHL opportunity already at the hot stage** — and the
-questionnaire and documents follow. Sales reviews the answers on a staff screen, contacts the
+questionnaire and documents follow.
+
+> **⚠ 2026-09-15: the first two of those three are built and happen at sign-up, before this
+> funnel.** A client reaching it is already signed in and already has a GHL contact, so the steps
+> are six, not seven, and *About You* is gone. The opportunity is what is left, and when it fires
+> is the open question §4 carries. Nothing else in this paragraph changes. Sales reviews the answers on a staff screen, contacts the
 client, and raises the invoice. **No case is created** — the case is still born only of a won
 opportunity, which is still `opportunity.won` arriving on the webhook.
 
 ## 1a. Two entry points, one flow (decided 2026-09-12)
+
+> **⚠ SUPERSEDED IN PART, 2026-09-15 — read §4's amendment first.** Both entry points now run
+> through the portal's own front doors, which are built: `/signup` creates the account *and* the
+> GHL contact, `/signin` recognises the client who already has one. So **every client reaching
+> this funnel is signed in**, and the create-or-reuse-contact branch below is `upsertContact`'s
+> to make at sign-up rather than this unit's to make at About You. Everything the two paths share
+> — hot stage, sales review, payment, `opportunity.won`, case — is unchanged.
 
 ```
 NEW LEAD        Portal → Get started → About You → create contact + opportunity @ HOT
@@ -139,6 +191,31 @@ the failure this unit is most likely to ship.
 
 ## 4. The account — and the lead — are created at step 4, not at the end
 
+> **⚠ AMENDED 2026-09-15: the account half of this section is built and has moved OUT of the
+> funnel.** `POST /api/portal/auth/sign-up` creates the `client_account` *and* the GHL contact
+> before the funnel starts, because the funnel was not the only thing that needed them — **nothing
+> in EvalOS created a `client_account` at runtime at all**, so every client acquired after `V45`'s
+> backfill was locked out of the portal regardless of this unit. The client flow the business
+> drew has sign-up and sign-in as the two front doors, and requesting a service as something you
+> do *from the dashboard*, already signed in.
+>
+> **What this changes here:** *About You* is no longer a funnel step and no longer creates
+> anything — name, email and phone are already held. §1a's two entry points collapse into one:
+> **every client reaching this funnel is signed in**, whether they signed up a minute ago or two
+> years ago, and the create-or-reuse-contact branch is `upsertContact`'s to make at sign-up.
+> **The resumption argument below survives untouched and is now satisfied earlier** — the answers
+> live on a server row from the first screen, because there is an account from before the first
+> screen.
+>
+> **What this does NOT settle: when the opportunity is created.** §6a says *at About You*, which
+> no longer exists; the business flow diagram says *at Submit*. They differ by exactly one
+> abandoned questionnaire. **Recommendation, and what was built: create it when the client picks a service and
+> states a purpose — the funnel's first step — not at submit.** That is the earliest moment there is
+> something to sell, it keeps §6a's point that a lead who stops mid-questionnaire is still a lead
+> a salesperson can ring, and it costs nothing the submit-time version saves. Under the new
+> arrangement an abandoned lead already leaves a GHL *contact* behind either way, so the question
+> is narrower than it was: whether they also appear on a pipeline board. Decide before building.
+
 **About You creates the `client_account`** (Unit 42's table) with email, password and terms —
 the fields `schemas/intake.ts` already validates. Steps 5–7 then run signed in.
 
@@ -159,15 +236,40 @@ signed-in client with a `DRAFT` application and no case sees that instead of an 
 Uploads go through the route Unit 30 already built, streaming to
 `{brandId}/client/{clientAccountId}/{documentId}`.
 
-**Keyed on the EvalOS account id, not on `ghl_contact_id`** — which is the prefix Unit 30
-documents. At this point in the funnel there is no GHL contact yet: it is created at submit,
-one step later. Keying the prefix on an id that does not exist until after the files are
-written is not possible, and keying it on the account is also what keeps the documents readable
-if the contact is later deleted or the CRM replaced. `00c` inherits this as the pattern.
+**Keyed on an EvalOS id, never on `ghl_contact_id`** — which is the prefix Unit 30 documented.
+
+> **⚠ Two corrections, 2026-09-15.**
+>
+> **The reason stated here was stale and is replaced.** It read: *"At this point in the funnel
+> there is no GHL contact yet: it is created at submit, one step later"* — which §6a reversed on
+> 2026-09-12. The contact now exists from About You onward, and since 2026-09-15 it exists from
+> **sign-up**, before the funnel starts. The conclusion survives on the reason that was always the
+> load-bearing one: **an identifier a third party can revoke is not a namespace.** IE's sub-account
+> was replaced on 2026-09-11 with no contact migration, which turned every stored `ghl_contact_id`
+> into a name for a contact that does not exist. Keying on an EvalOS id keeps the documents
+> readable when the contact is deleted or the CRM replaced again. `00c` inherits this as the
+> pattern.
+>
+> **Which EvalOS id differs from what the code now writes, and deliberately so.**
+> `DocumentStore.clientKey` was re-keyed on 2026-09-14 to `contact_snapshot.id`, because its one
+> caller — `PortalCaseService.upload` — uploads against a **case**, and a case always has a
+> contact snapshot. This unit uploads a step earlier, where there is a `client_account` and not
+> yet a case, so it keys on `client_account.id`. **Two prefixes, both EvalOS-owned, for two
+> moments in a client's life.** They converge at Unit 44, which merges the two tables; do not
+> unify them before it. `case_document.object_key` is authoritative on read either way, so neither
+> re-keying moves an object.
 
 Which documents are asked for comes from the service's `documentTemplates`. Nothing is
 mandatory to submit: a missing document is a thing Sales chases, not a wall the funnel puts in
 front of a lead.
+
+> **⚠ NOT BUILT 2026-09-15, and the sentence above is why it was affordable to cut.** There is
+> nowhere to put a file before a case exists — every upload route EvalOS has takes a *checklist
+> item on a case* — so a funnel upload needs an application-scoped document table, three more
+> routes and a third S3 prefix. That is a unit, not a step. Since a missing document is already
+> "a thing Sales chases", the funnel sends the request without files and the client uploads from
+> the Documents screen once their case is open. Build it when Sales says the chasing costs more
+> than the table.
 
 ---
 
@@ -195,8 +297,19 @@ the account — does all of this:
 
 1. Create the `client_account` (Unit 42) if the client is new, or load it if signing in.
 2. **`GhlWriteClient.upsertContact`** — or skip it and reuse `ghl_contact_id` when it is non-null.
-3. **`GhlWriteClient.upsertOpportunity`** on the intake pipeline, **at the hot stage**.
+3. ~~**`GhlWriteClient.upsertOpportunity`** on the intake pipeline, **at the hot stage**.~~
+   **BUILT AS: `createOpportunity` on the intake pipeline, with NO stage and NO assignee**
+   (2026-09-15). `createOpportunity` because a repeat client's second evaluation is a genuine
+   second deal and upsert would overwrite the first (`39` §3a's escape hatch). No stage because
+   placement is GHL's automation's call, not EvalOS's — see the status block, point 5.
 4. Create the `client_application` row as `DRAFT`, carrying the returned ids.
+
+> **⚠ AMENDED 2026-09-15. Steps 1 and 2 are done, and are not done here.** Sign-up creates the
+> account and lets `upsertContact` resolve create-or-reuse, before this unit is entered — see §4.
+> **Steps 3 and 4 are what is left of this call**, and *when* it fires is now an open question,
+> because the About You screen it was pinned to no longer exists. §4 carries the recommendation
+> (the first funnel screen, not submit) and the reasoning. The argument below — that a lead who
+> abandons mid-questionnaire must not vanish — is why it is not simply moved to submit.
 
 **Why hot immediately, with no questions answered yet.** Arriving at the portal and starting an
 application *is* the qualification signal — this is inbound, self-selected demand, not a scraped
@@ -215,8 +328,15 @@ Submit is no longer the moment GHL hears about the lead. It:
 
 1. **Re-validates** the answers server-side against the catalog (§3). Refuses incomplete.
 2. Marks the application `SUBMITTED` and commits.
-3. Files the answers and the document list as an **`OpportunityNote`**, so Sales reads them in the
-   stream EvalOS owns.
+3. ~~Files the answers and the document list as an **`OpportunityNote`**, so Sales reads them in
+   the stream EvalOS owns.~~
+   **⚠ NOT BUILT, reversed 2026-09-15.** `opportunity_note.author_id` is `NOT NULL REFERENCES
+   team_member (id)` and a client is not a team member, so this would mean making that column
+   nullable — weakening a constraint so a client's answers could sit in the stream looking like a
+   salesperson's prose. A questionnaire flattened into note text also reads far worse than the
+   same answers rendered against their questions. **Sales reads the application itself**, through
+   `GET /api/opportunities/{opportunityId}/application` and the `DealApplication` panel — which
+   §6c requires anyway. The note stream stays what a salesperson wrote.
 
 **The stage does not move on submit.** It is already hot. A submitted application differs from a
 draft one in `status`, and that is what the staff screen (§6c) sorts on.
@@ -268,7 +388,7 @@ than a translation, which is what makes a mismatch detectable (`00c` §2a).
 
 ```
 evalos.ghl.intake-pipeline-name    which pipeline a portal application lands in
-evalos.ghl.hot-stage-name          which stage on it means qualified
+evalos.ghl.hot-stage-name          [DELETED 2026-09-15 — never shipped. EvalOS sends no stage]
 ```
 
 Matched **by name**, like the four pipeline settings already are, and for the same reason: the
@@ -409,11 +529,15 @@ service.
 
 ## 11. Acceptance criteria
 
-1. A visitor completes all seven steps and the application reaches `SUBMITTED`, with a contact
-   and an opportunity visible in GHL location `WY6bW2xUCI8Tz8gw7aLJ` and the answers on a note.
-1b. **A visitor who abandons immediately after About You still leaves a GHL contact and an
-   opportunity at the hot stage.** This is the criterion the 2026-09-12 reordering exists for; if
-   it passes only after the questionnaire, the change was not made.
+1. A visitor completes the funnel and the application reaches `SUBMITTED`, with a contact and an
+   opportunity visible in GHL location `WY6bW2xUCI8Tz8gw7aLJ`. *(Amended 2026-09-15: six steps,
+   not seven — About You is sign-up's — and the answers are read on the deal card rather than
+   "on a note"; see the status block, point 4.)*
+1b. **A client who abandons immediately after picking a service still leaves a GHL contact and an
+   opportunity.** This is the criterion the 2026-09-12 reordering exists for; if it passes only
+   after the questionnaire, the change was not made. *(Amended 2026-09-15: the contact now comes
+   from sign-up, earlier still, and the opportunity carries no stage — GHL's automation places
+   it.)*
 1c. A returning client whose `ghl_contact_id` is non-null gets a **second opportunity on the same
    contact**, never a second contact.
 1d. A returning client whose `ghl_contact_id` is null (every seeded client after the CRM
@@ -433,8 +557,11 @@ service.
 7. Submitting twice does not create a second contact or a second opportunity.
 8. A submitted application lands on the **hot** stage in GHL, not the pipeline's default, and
    the mirrored `pipeline_stage` row it points at carries the same `ghl_id` GHL reports.
-9. A `hot-stage-name` that does not resolve on the intake pipeline fails the submit with a
-   message naming the stage — it does not fall back to a default stage.
+9. ~~A `hot-stage-name` that does not resolve on the intake pipeline fails the submit with a
+   message naming the stage — it does not fall back to a default stage.~~ **VOID 2026-09-15** —
+   there is no stage property and EvalOS sends no stage. What replaces it: an
+   `intake-pipeline-name` that resolves to nothing answers **502** and creates no opportunity,
+   which the blank default makes the out-of-the-box state deliberately.
 10. `DomainInvariantsTest` still fails the build if `ClientApplicationService` reaches
     `CaseIntakeService`.
 11. A Sales user and a Production user (PM/PC/CM) can both open a submitted application's answers

@@ -24,7 +24,8 @@ import org.springframework.web.bind.annotation.RestController;
  * every such path is GM-only in one loop — so this route is gated for the same reason Units 24,
  * 26 and 27 are, not for a new one.
  *
- * <p><strong>Its own controller rather than a method on {@code MarketingController}</strong>,
+ * <p><strong>Its own controller rather than a method on the funnel controller</strong> (which was
+ * {@code MarketingController}, removed with its two screens on 2026-09-16),
  * which owns the three funnel <em>windows</em>. This is neither marketing nor a window: it is
  * administration of who may see what, and folding it in would make that controller's name a lie
  * the next reader has to discover.

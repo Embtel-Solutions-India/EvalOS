@@ -9,7 +9,7 @@ import ExpertAssignmentPage from './features/queues/ExpertAssignmentPage'
 import DeliveryQueuePage from './features/queues/DeliveryQueuePage'
 import ChecklistBoard from './features/checklist/ChecklistBoard'
 import ExpertRoster from './features/experts/ExpertRoster'
-import MarketingPipelinePage from './features/marketing/MarketingPipelinePage'
+import MeetingsPage from './features/meetings/MeetingsPage'
 import OpportunityBoardPage from './features/opportunities/OpportunityBoardPage'
 import PayoutBatch from './features/payouts/PayoutBatch'
 import ExpertPayouts from './features/payouts/ExpertPayouts'
@@ -52,24 +52,19 @@ const SCREENS: Record<string, React.ReactNode> = {
   '/experts': <ExpertRoster />,
   '/payouts': <PayoutBatch />,
   '/admin/jobs': <JobRunsPage />,
-  // Three funnels, one component: same stage shape, same question, different GHL pipeline. The
-  // heading each carries is only a placeholder — GHL's own pipeline name replaces it on load.
+  // The diary. Its own screen rather than a panel on the board: a meeting booked from a deal card
+  // was invisible the moment the card scrolled away, and EvalOS kept no record of it at all until
+  // `V47__meeting.sql`.
+  '/meetings': <MeetingsPage />,
+  // **The last screen over a GHL pipeline.** Three funnel screens sat above this one until
+  // 2026-09-16; they drew an aggregate over a date window and asked "how is the funnel
+  // converting", and all three are gone (`/marketing/google-ads` on 2026-09-14 because its
+  // pipeline no longer existed, `/marketing/email` and `/sales/pipeline` on 2026-09-16 because
+  // they were GM-only and their audience was Marketing — see `navigation.ts`).
   //
-  // `/sales/pipeline` is under its own nav heading rather than Marketing (see `navigation.ts`),
-  // but it is the same screen and deliberately not a copy of it: three route entries pointing at
-  // one component is the whole cost of the third funnel.
-  '/marketing/google-ads': (
-    <MarketingPipelinePage funnel="ads" title="Google Ads pipeline" />
-  ),
-  '/marketing/email': (
-    <MarketingPipelinePage funnel="email" title="Email marketing pipeline" />
-  ),
-  '/sales/pipeline': <MarketingPipelinePage funnel="sales" title="Sales pipeline" />,
-  // **The opportunity board is not a fourth funnel** and shares nothing with the three above.
-  // Those draw an aggregate over a date window and ask "how is the funnel converting"; this
-  // draws individual deals with the contact on them and asks "what is on my desk". Same
-  // pipelines underneath, different question — which is exactly why `/sales/pipeline` was NOT
-  // deleted when this arrived, contrary to what Unit 38's spec first said.
+  // This one is not a funnel and never was: it draws individual deals with the contact on them
+  // and asks "what is on my desk". Same pipelines underneath, different question — which is why
+  // it survives them, and why SALES and MARKETING can reach it when they could not reach those.
   '/opportunities/board': <OpportunityBoardPage />,
 }
 

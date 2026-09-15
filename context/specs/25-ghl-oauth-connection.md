@@ -1,6 +1,21 @@
 # Unit 25 — GHL OAuth connection (per brand)
 
-> **Status: specced, DEFERRED — not scheduled.** Spec first this time (Unit 24 was
+> **Status: specced, DEFERRED — and as written it is now DANGEROUS. Re-spec before building.**
+>
+> ⚠ **Added 2026-09-15 from `00d` §2/§11, which this file had no note of.** Everything below was
+> written when EvalOS *read* one GHL location on `opportunities.readonly`. Since then Units 37–43
+> put **six live features** on the Private Integration Token — the write door, the opportunity
+> boards, the marketing lead desk, the sales desk (meetings and follow-ups included), portal
+> invoices, and the client intake funnel — across `opportunities.write`, `contacts.write`,
+> `invoices.readonly`, `calendars.readonly` and `calendars/events.write`. **This unit as specced
+> grants one read scope and replaces the PIT**, so building it from this file breaks all six. It
+> also waits on a GHL Marketplace app **nobody has created**.
+>
+> **What to do instead, per `00d`:** take `brand.ghl_location_id` + a per-brand `GhlHttp` — which
+> is the multi-brand half everyone actually wants — and re-spec OAuth separately, scope-complete,
+> when a Marketplace app exists.
+>
+> Original status: **specced, DEFERRED — not scheduled.** Spec first this time (Unit 24 was
 > written the wrong way round and said so), and then parked by decision: only
 > International Evaluations is being set up for now, and IE works on the Unit 24
 > Private Integration Token without any of this.

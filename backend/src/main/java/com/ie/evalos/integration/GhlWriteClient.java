@@ -3,6 +3,7 @@ package com.ie.evalos.integration;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -135,6 +136,92 @@ public class GhlWriteClient {
 	}
 
 	/**
+	 * Opens a <strong>genuinely new</strong> opportunity, duplicate risk included.
+	 *
+	 * <p><strong>This is the escape hatch Unit 39 §3a named, and taking it is the decision that
+	 * spec said would have to be taken knowingly.</strong> Its words: "Opportunity upsert means
+	 * one open opportunity per contact per pipeline. That is correct for a *marketing* pipeline —
+	 * a lead is a lead. It is **not** correct for a repeat client buying a second evaluation…
+	 * Unit 40 must not reuse this path for a genuine second deal; the escape hatch is
+	 * {@code POST /opportunities/}, and taking it **brings the duplicate risk back, knowingly**."
+	 *
+	 * <p>A salesperson opening a deal for a client who already bought is exactly that case, so
+	 * {@link #upsertOpportunity} is the wrong verb here: it would silently overwrite the first
+	 * deal's name and value rather than create the second. The duplicate risk is managed one layer
+	 * up — {@code SalesDeskService} refuses a second open deal for the same contact unless the
+	 * caller confirms — because that is where the caller's own pipeline cache can answer it
+	 * without another GHL round trip.
+	 *
+	 * <p><strong>{@code status} is forced to {@code open} and is not a parameter.</strong> GHL
+	 * accepts {@code won} on create, and a won opportunity fires the {@code opportunity.won}
+	 * workflow — which is Handoff A, which mints a <em>paid</em> case. A form field that can
+	 * conjure a paid case with no payment is not a field this method offers. Closing a deal is
+	 * {@link #setStatus}, which is a separate, deliberate act.
+	 */
+	public UpsertedOpportunity createOpportunity(String pipelineId, String contactId, String name,
+			BigDecimal monetaryValue, String stageId, String expectedCloseDate,
+			Map<String, String> customFields) {
+		Map<String, Object> body = new LinkedHashMap<>();
+		body.put("pipelineId", pipelineId);
+		body.put("contactId", contactId);
+		body.put("status", "open");
+		body.put("name", name);
+		if (monetaryValue != null) {
+			body.put("monetaryValue", monetaryValue);
+		}
+		putIfPresent(body, "pipelineStageId", stageId);
+		putIfPresent(body, "forecastExpectedCloseDate", expectedCloseDate);
+
+		// GHL takes custom fields as a list of {id, fieldValue}, keyed by the LOCATION's own field
+		// ids. Nothing here knows or hardcodes them — `GhlCustomFieldClient` reads the definitions
+		// and the caller passes back ids it got from that read, so a location that renames or adds
+		// a field needs no change here. Blank values are dropped rather than sent: GHL stores an
+		// empty string as an answer, and "not asked" and "answered with nothing" are different.
+		if (customFields != null && !customFields.isEmpty()) {
+			List<Map<String, String>> fields = customFields.entrySet().stream()
+					.filter((entry) -> entry.getValue() != null && !entry.getValue().isBlank())
+					.map((entry) -> Map.of("id", entry.getKey(), "fieldValue", entry.getValue()))
+					.toList();
+			if (!fields.isEmpty()) {
+				body.put("customFields", fields);
+			}
+		}
+
+		OpportunityEnvelope response = http.post(OpportunityEnvelope.class,
+				(uri) -> uri.path("/opportunities/").build(), body);
+		OpportunityRow row = require(response == null ? null : response.opportunity(), "opportunity");
+
+		// Always CREATED: unlike upsert there is no `new` flag to read, because a create that
+		// returned an existing row would be an upsert.
+		audit.recordEvent("GHL_OPPORTUNITY", auditKey("GHL_OPPORTUNITY", row.id()),
+				AuditAction.CREATED, actor(), null,
+				Map.of("ghlOpportunityId", row.id(), "ghlPipelineId", pipelineId));
+
+		return new UpsertedOpportunity(row.id(), row.contactId(), pipelineId, row.pipelineStageId(),
+				row.status(), row.name(), row.monetaryValue(), true);
+	}
+
+	/**
+	 * Marks a follow-up done in GHL.
+	 *
+	 * <p>Its own endpoint rather than a field on the task update, which is GHL's shape and worth
+	 * following: completing is the common act and it takes one call rather than a read-modify-write
+	 * that could clobber a title somebody edited in GHL meanwhile.
+	 */
+	public void completeFollowUp(String contactId, String taskId, String opportunityId,
+			String pipelineId) {
+		http.put(Object.class,
+				(uri) -> uri.path("/contacts/{contactId}/tasks/{taskId}/completed")
+						.build(contactId, taskId),
+				Map.of("completed", true));
+
+		audit.recordEvent("GHL_OPPORTUNITY", auditKey("GHL_OPPORTUNITY", opportunityId),
+				AuditAction.UPDATED, actor(), null,
+				Map.of("ghlOpportunityId", opportunityId, "ghlPipelineId", pipelineId,
+						"ghlTaskId", taskId, "followUp", "completed"));
+	}
+
+	/**
 	 * Changes an opportunity's own fields — the valuation, the name, the stage.
 	 *
 	 * <p>{@code PUT}, not upsert: this names an opportunity that already exists, so there is
@@ -212,11 +299,17 @@ public class GhlWriteClient {
 	 * on the EvalOS side: GHL's task has nowhere to record which deal it belongs to.
 	 */
 	public String createFollowUp(String contactId, String opportunityId, String pipelineId, String title,
-			String dueAt) {
+			String dueAt, String note, String assignedUserId) {
 		Map<String, Object> body = new LinkedHashMap<>();
 		body.put("title", title);
 		body.put("dueDate", dueAt);
 		body.put("completed", false);
+		// GHL calls it `body`; the desk calls it a note. Optional, and absent rather than blank —
+		// an empty string is an answer and "not written" is not.
+		putIfPresent(body, "body", note);
+		// Absent means GHL's own default assignment. A guess would put the reminder on the wrong
+		// person's list, which is worse than leaving it where GHL puts it.
+		putIfPresent(body, "assignedTo", assignedUserId);
 
 		TaskEnvelope response = http.post(TaskEnvelope.class,
 				(uri) -> uri.path("/contacts/{contactId}/tasks").build(contactId), body);

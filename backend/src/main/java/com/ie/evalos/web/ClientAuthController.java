@@ -22,7 +22,7 @@ import org.springframework.web.bind.annotation.RestController;
  * The client's front door (Unit 42).
  *
  * <p><strong>The only unauthenticated routes on the portal chain.</strong> Everything else under
- * {@code /api/portal/**} requires a token; these four are how a client obtains one. They are
+ * {@code /api/portal/**} requires a token; these five are how a client obtains one. They are
  * {@code permitAll} in {@code PortalSecurityConfig} and are still covered by that chain's per-IP
  * limiter, which is what throttles both password guessing and the enumeration {@code identify}
  * deliberately allows.
@@ -39,6 +39,22 @@ public class ClientAuthController {
 	}
 
 	public record SignInRequest(@NotBlank @Email String email, @NotBlank String password) {
+	}
+
+	/**
+	 * What a stranger tells us about themselves.
+	 *
+	 * <p><strong>Only the email is required, and that is GHL's rule rather than a kindness.</strong>
+	 * {@code /contacts/upsert} matches on email then phone, so a submission carrying neither has
+	 * nothing to match on and creates another contact every time — the refusal
+	 * {@code MarketingLeadService} already states. Email is mandatory here anyway, because it is
+	 * also the account's login and where the set-password link goes.
+	 *
+	 * <p>A name and a phone are worth asking for and not worth refusing over: a salesperson would
+	 * rather ring a lead called "unknown" than not have the lead.
+	 */
+	public record SignUpRequest(@NotBlank @Email String email, String firstName, String lastName,
+			String phone) {
 	}
 
 	/**
@@ -70,6 +86,22 @@ public class ClientAuthController {
 	@PostMapping("/identify")
 	public ApiResponse<IdentifyView> identify(@Valid @RequestBody EmailRequest request) {
 		return ApiResponse.ok(new IdentifyView(accounts.identify(request.email()).name()));
+	}
+
+	/**
+	 * <strong>Answers an {@link IdentifyView}, never a session.</strong> Signing up does not sign
+	 * you in: the address may be one GHL already holds, and handing out a token for an unproven
+	 * mailbox would be account takeover by typing a stranger's email. The set-password link is
+	 * what proves it, which is the same door every seeded client comes through.
+	 *
+	 * <p>So the screen's three answers are the sign-in screen's three answers, which is also why
+	 * this shares that view rather than inventing a fourth vocabulary. {@code UNKNOWN} is the one
+	 * value it cannot return.
+	 */
+	@PostMapping("/sign-up")
+	public ApiResponse<IdentifyView> signUp(@Valid @RequestBody SignUpRequest request) {
+		return ApiResponse.ok(new IdentifyView(accounts.signUp(request.email(), request.firstName(),
+				request.lastName(), request.phone()).name()));
 	}
 
 	@PostMapping("/sign-in")

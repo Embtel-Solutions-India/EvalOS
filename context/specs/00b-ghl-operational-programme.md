@@ -1,8 +1,19 @@
 # Programme — EvalOS as the operational system over GHL
 
-> **Status: SPECCED 2026-09-10, not built.** This is a **programme document**, not a unit. It sits
-> beside `00-build-plan.md` and carries the decisions that Units 36–41 all read. A unit spec that
-> contradicts this file is wrong; this file is amended first.
+> **Status: BUILT. Units 36–41 all shipped 2026-09-10/11**, and the desk gained meetings,
+> follow-ups and deal creation on 2026-09-14. This line said *"SPECCED 2026-09-10, not built"*
+> until 2026-09-15, while every unit it names had shipped and said so in its own spec — a
+> programme header contradicting its own units is the worst place for this to be wrong, because
+> this file is the one a reader is told to trust over them.
+>
+> **What is live:** `36` pipeline-scoped access (`V39`), `37` the write door, `38` opportunity
+> reads and boards (`V40`), `39` the marketing lead desk (`V41`), `40` the sales desk, `41` client
+> portal invoices. **Invariant 2's read-only half is dead** — `GhlHttp` has `post`, `put` and
+> `delete`, behind `GhlWriteClient` and `GhlCalendarClient`.
+>
+> This is a **programme document**, not a unit. It sits beside `00-build-plan.md` and carries the
+> decisions that Units 36–41 all read. A unit spec that contradicts this file is wrong; this file
+> is amended first.
 
 **Direction change, stated plainly.** `CLAUDE.md` opens with *"EvalOS never does marketing, sales,
 or invoicing"* and `architecture.md` invariant 2 says the same at length. **That sentence dies

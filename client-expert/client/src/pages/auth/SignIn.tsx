@@ -190,9 +190,9 @@ export default function SignIn() {
                 type="button"
                 variant="outline"
                 className="w-full"
-                onClick={() => navigate('/start', { state: { email: email.trim() } })}
+                onClick={() => navigate('/signup', { state: { email: email.trim() } })}
               >
-                Start a new evaluation
+                Create an account
               </Button>
             </div>
           )}

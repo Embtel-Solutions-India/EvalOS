@@ -6,6 +6,7 @@ import java.math.BigDecimal;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -48,7 +49,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class GhlPipelineClientHttpTest {
 
 	private static final String TOKEN = "pit-test-token-not-a-real-one";
-	private static final String LOCATION = "kBumF0uUOmMBB5bneYjx";
+	private static final String LOCATION = "WY6bW2xUCI8Tz8gw7aLJ";
 	private static final String ADS_PIPELINE = "g6lo50r9Wn0qZvmp2bMP";
 
 	/** A fixed window, so the mm-dd-yyyy formatting is asserted rather than whatever today is. */
@@ -68,7 +69,7 @@ class GhlPipelineClientHttpTest {
 			   "dateAdded":"2024-08-12T23:45:20.379Z","dateUpdated":"2026-07-30T06:11:59.805Z",
 			   "stages":[{"id":"m-1","name":"New Lead","showInFunnel":true,"position":0,
 			              "stageWinProbability":20}],
-			   "locationId":"kBumF0uUOmMBB5bneYjx"},
+			   "locationId":"WY6bW2xUCI8Tz8gw7aLJ"},
 			  {"id":"g6lo50r9Wn0qZvmp2bMP","name":"Google ADS Pipeline","showInFunnel":true,
 			   "showInPieChart":true,"useOpportunityProbability":false,
 			   "dateAdded":"2025-10-07T19:54:06.684Z","dateUpdated":"2026-04-23T22:32:53.205Z",
@@ -85,13 +86,13 @@ class GhlPipelineClientHttpTest {
 			      "position":3,"stageWinProbability":57.14},
 			     {"id":"s-cold","name":"Cold","showInFunnel":true,"showInPieChart":true,
 			      "position":4,"stageWinProbability":71.43}],
-			   "locationId":"kBumF0uUOmMBB5bneYjx"},
+			   "locationId":"WY6bW2xUCI8Tz8gw7aLJ"},
 			  {"id":"tj2agZ90S1LQgCpDAoKi","name":"Aditya's  pipeline","showInFunnel":true,
 			   "showInPieChart":true,"useOpportunityProbability":false,
 			   "dateAdded":"2025-02-27T21:04:41.498Z","dateUpdated":"2026-08-13T00:14:58.176Z",
 			   "stages":[{"id":"a-new","name":"New Lead","showInFunnel":true,"position":1,
 			              "stageWinProbability":22.22}],
-			   "locationId":"kBumF0uUOmMBB5bneYjx"}]}
+			   "locationId":"WY6bW2xUCI8Tz8gw7aLJ"}]}
 			""";
 
 	private HttpServer server;
@@ -147,7 +148,7 @@ class GhlPipelineClientHttpTest {
 				 "lastStageChangeAt":"2026-05-05T18:09:32.849Z",
 				 "createdAt":"2026-05-05T18:09:32.849Z","updatedAt":"2026-05-05T18:09:32.849Z",
 				 "forecastProbability":null,"effectiveProbability":14.29,
-				 "contactId":"contact-1","locationId":"kBumF0uUOmMBB5bneYjx","customFields":[],
+				 "contactId":"contact-1","locationId":"WY6bW2xUCI8Tz8gw7aLJ","customFields":[],
 				 "lostReasonId":null,"followers":[],
 				 "relations":[{"associationId":"OPPORTUNITIES_CONTACTS_ASSOCIATION",
 				               "relationId":"opp-1","primary":true,"objectKey":"contact",
@@ -264,57 +265,21 @@ class GhlPipelineClientHttpTest {
 	}
 
 	/**
-	 * <strong>A stage is counted in one request, not one per hundred deals.</strong>
+	 * <strong>Binds what it needs and ignores the rest of GHL's row.</strong>
 	 *
-	 * <p>This pins the fix for a live failure: counting by pagination cost 115 sequential requests
-	 * on the email marketing pipeline's year (11,432 opportunities) and the browser timed out at
-	 * 15s. GHL reports the match count in {@code meta.total} on any search, so a one-row request
-	 * with the stage filter applied returns the exact figure immediately.
+	 * <p>The fixture carries the full shape — {@code relations}, {@code contact},
+	 * {@code attributions}, {@code customFields} — so the assertion that the record has no
+	 * contact name, email, phone or tag on it is made against a payload that supplies all four.
+	 * That is what keeps marketing PII out of an EvalOS response by construction rather than by a
+	 * projection somebody has to remember.
 	 *
-	 * <p><strong>The parameter name is asserted because getting it wrong shipped a 422.</strong>
-	 * It is {@code pipeline_stage_id}, snake_case, matching {@code location_id} and
-	 * {@code pipeline_id} beside it and not the camelCase {@code date}/{@code endDate} on the same
-	 * route. The camelCase spelling was shipped first on the strength of a check made through a
-	 * tool that normalises parameter names before sending — so the evidence was for a request the
-	 * app never makes. GHL's answer was {@code 422 "property pipelineStageId should not exist"}.
-	 * This is the assertion that stops that coming back.
+	 * <p>It was three fields until Unit 51 and is now ten. The timestamps are the additions worth
+	 * pinning: {@code lastStatusChangeAt} is the only thing that can place a win in time, because
+	 * GHL's {@code date}/{@code endDate} filter on {@code createdAt} and nothing filters on the
+	 * status change.
 	 */
 	@Test
-	void countsAStageFromGhlsMatchTotalWithoutPagingTheRows() {
-		responses.add("""
-				{"opportunities":[],"meta":{"total":11364,"startAfter":null,"startAfterId":null}}
-				""");
-
-		assertThat(client().countIn(ADS_PIPELINE, "s-new", FROM, TO)).isEqualTo(11364);
-
-		// One request, whatever the count says. That is the whole point.
-		assertThat(requestLines).hasSize(1);
-		assertThat(requestLines.getFirst())
-				.startsWith("/opportunities/search?")
-				.contains("pipeline_stage_id=s-new")
-				.doesNotContain("pipelineStageId=")
-				// One row, because GHL does not accept a zero limit and the count is in the meta
-				// block regardless.
-				.contains("limit=1")
-				// Still the same window, and still the same two snake_case names beside it.
-				.contains("location_id=" + LOCATION)
-				.contains("pipeline_id=" + ADS_PIPELINE)
-				.contains("date=07-27-2026")
-				.contains("endDate=08-26-2026");
-	}
-
-	/** An empty window returns meta with no total at all, which is zero rather than a failure. */
-	@Test
-	void treatsAMissingTotalAsZeroRatherThanFailing() {
-		responses.add("""
-				{"opportunities":[],"meta":{"total":null,"startAfter":null,"startAfterId":null}}
-				""");
-
-		assertThat(client().countIn(ADS_PIPELINE, "s-warm", FROM, TO)).isZero();
-	}
-
-	@Test
-	void bindsOnlyTheThreeFieldsItNeedsOutOfGhlsFullRow() {
+	void bindsTheFieldsItNeedsAndNoneOfGhlsContactBlock() {
 		responses.add(searchPage(
 				opportunity("s-new", "1000", "Call Back Form-----ADS") + ","
 						+ opportunity("s-warm", "null", null),
@@ -323,13 +288,42 @@ class GhlPipelineClientHttpTest {
 		List<GhlPipelineClient.Opportunity> found = client().opportunitiesIn(ADS_PIPELINE, FROM, TO);
 
 		assertThat(found).hasSize(2);
-		assertThat(found.getFirst().pipelineStageId()).isEqualTo("s-new");
-		assertThat(found.getFirst().monetaryValue()).isEqualByComparingTo(new BigDecimal("1000"));
-		assertThat(found.getFirst().source()).isEqualTo("Call Back Form-----ADS");
+		GhlPipelineClient.Opportunity first = found.getFirst();
+		assertThat(first.id()).isEqualTo("opp-s-new");
+		assertThat(first.pipelineId()).isEqualTo(ADS_PIPELINE);
+		assertThat(first.pipelineStageId()).isEqualTo("s-new");
+		assertThat(first.status()).isEqualTo("open");
+		assertThat(first.monetaryValue()).isEqualByComparingTo(new BigDecimal("1000"));
+		assertThat(first.source()).isEqualTo("Call Back Form-----ADS");
+		assertThat(first.createdAt()).isEqualTo(Instant.parse("2026-05-05T18:09:32.849Z"));
+		assertThat(first.lastStatusChangeAt()).isEqualTo(Instant.parse("2026-05-05T18:09:32.849Z"));
+		assertThat(first.lastStageChangeAt()).isEqualTo(Instant.parse("2026-05-05T18:09:32.849Z"));
+		// The fixture supplies a name, an email, a phone and a tag on every row. The record has
+		// nowhere to put any of them, which is the point of this assertion.
+		assertThat(first.toString()).doesNotContain("test.person@example.invalid", "+15550000000",
+				"es_lead", "Test Person");
 		// GHL really does send both of these as null on rows nobody priced or attributed. The
 		// service turns the money into zero; the client's job is only to not fall over.
 		assertThat(found.get(1).monetaryValue()).isNull();
 		assertThat(found.get(1).source()).isNull();
+	}
+
+	/**
+	 * The status filter goes on the wire, and only when asked for.
+	 *
+	 * <p>The three-arg overload must stay unfiltered: the funnel screens count every status, and a
+	 * filter leaking onto them would silently drop the Lost and Abandoned columns.
+	 */
+	@Test
+	void sendsTheStatusOnlyWhenTheCallerNamesOne() {
+		responses.add(searchPage(opportunity("s-won", "1200", "Referral"), LAST_PAGE_META));
+		client().opportunitiesIn(ADS_PIPELINE, FROM, TO, "won");
+		assertThat(requestLines.getFirst()).contains("status=won");
+
+		requestLines.clear();
+		responses.add(searchPage(opportunity("s-new", "1000", "Referral"), LAST_PAGE_META));
+		client().opportunitiesIn(ADS_PIPELINE, FROM, TO);
+		assertThat(requestLines.getFirst()).doesNotContain("status=");
 	}
 
 	/**

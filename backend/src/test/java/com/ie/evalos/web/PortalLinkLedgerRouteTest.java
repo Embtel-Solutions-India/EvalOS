@@ -16,6 +16,7 @@ import com.ie.evalos.service.CaseManagerMetricsService;
 import com.ie.evalos.service.CoordinatorMetricsService;
 import com.ie.evalos.service.DraftReviewService;
 import com.ie.evalos.service.ExpertNetworkMetricsService;
+import com.ie.evalos.service.GmOverviewService;
 import com.ie.evalos.service.NavBadgeService;
 import com.ie.evalos.service.PmMetricsService;
 import com.ie.evalos.service.PortalLinkLedgerService;
@@ -67,6 +68,9 @@ class PortalLinkLedgerRouteTest {
 
 	@MockitoBean
 	PortalLinkLedgerService ledger;
+
+	@MockitoBean
+	GmOverviewService gmOverview;
 
 	@MockitoBean
 	PmMetricsService pm;

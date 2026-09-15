@@ -42,7 +42,6 @@ import com.ie.evalos.domain.DocumentChecklistItem;
 import com.ie.evalos.domain.ExceptionState;
 import com.ie.evalos.domain.Expert;
 import com.ie.evalos.domain.ExpertCaseOffer;
-import com.ie.evalos.domain.GhlFunnelCache;
 import com.ie.evalos.domain.Notification;
 import com.ie.evalos.domain.NotificationType;
 import com.ie.evalos.domain.OfferOutcome;
@@ -246,9 +245,6 @@ class LocalPostgresIntegrationTest {
 
 	@Autowired
 	PortalAccessService portalAccess;
-
-	@Autowired
-	GhlFunnelCacheRepository funnelCache;
 
 	@Autowired
 	AuditEventRepository auditEvents;
@@ -1133,93 +1129,6 @@ class LocalPostgresIntegrationTest {
 				.hasMessageContaining("append-only");
 		assertThatThrownBy(() -> jdbc.update("DELETE FROM audit_event WHERE id = ?", recorded.getId()))
 				.hasMessageContaining("append-only");
-	}
-
-	/**
-	 * The marketing funnel cache is a real table, and the three things only Postgres can prove.
-	 *
-	 * <p>These are exactly the guarantees {@code MarketingPipelineServiceTest} cannot make: its
-	 * in-memory fake is last-write-wins by construction, so asserting a unique key or an optimistic
-	 * lock there would only assert the fake. This is where the cache stopped being heap memory, so
-	 * this is where those claims have to be checked.
-	 */
-	@Test
-	void theFunnelCacheRoundTripsJsonbAndEnforcesOneRowPerWindow() {
-		// Cleared first, and this is not boilerplate. Every other test here stays re-runnable by
-		// inserting a random id; these keys are fixed strings, so the second run would collide on
-		// the very constraint the test is asserting. Safe to wipe: it is a cache, in the
-		// `evalos_test` schema.
-		funnelCache.deleteAll();
-
-		Instant readAt = Instant.now().truncatedTo(ChronoUnit.MILLIS);
-		// **A window key, not a range name — the V26 shape.** `2026-01-01..2026-12-31` rather than
-		// "YEAR", because every custom period is named `custom` and name-keyed rows would collide.
-		GhlFunnelCache stored = funnelCache.saveAndFlush(new GhlFunnelCache("ADS", "2026-01-01..2026-12-31",
-				"{\"pipelineName\":\"Google ADS Pipeline\",\"totalDeals\":93}", "READY", readAt, null));
-
-		assertThat(stored.getId()).isNotNull();
-		// jsonb survives the trip, which is what makes storing the payload as one document viable.
-		assertThat(funnelCache.findByFunnelAndWindowKey("ADS", "2026-01-01..2026-12-31")).get().satisfies((row) -> {
-			assertThat(row.getPayload()).contains("Google ADS Pipeline").contains("93");
-			assertThat(row.getDetail()).isEqualTo("READY");
-			assertThat(row.getReadAt()).isEqualTo(readAt);
-			assertThat(row.getTotallingSince()).isNull();
-		});
-
-		// The same funnel and a DIFFERENT window is a different row — the key is both halves.
-		funnelCache.saveAndFlush(new GhlFunnelCache("ADS", "2026-08-01..2026-08-26", "{}", "READY", readAt, null));
-		assertThat(funnelCache.findByFunnelAndWindowKey("ADS", "2026-08-01..2026-08-26")).isPresent();
-
-		// **Two custom windows, which is what V26 exists for.** Under the old range-name key both
-		// of these were "CUSTOM" and the second insert would have been refused by the unique
-		// constraint — or worse, an upsert would have served one period's figures for the other.
-		funnelCache.saveAndFlush(new GhlFunnelCache("ADS", "2026-02-01..2026-02-28", "{}", "READY", readAt, null));
-		funnelCache.saveAndFlush(new GhlFunnelCache("ADS", "2026-04-01..2026-04-30", "{}", "READY", readAt, null));
-		assertThat(funnelCache.findByFunnelAndWindowKey("ADS", "2026-02-01..2026-02-28")).isPresent();
-		assertThat(funnelCache.findByFunnelAndWindowKey("ADS", "2026-04-01..2026-04-30")).isPresent();
-
-		// A second row for the SAME window is refused by the database rather than by a check-then-
-		// insert, which two concurrent cold-cache callers would both pass.
-		assertThatThrownBy(() -> funnelCache.saveAndFlush(
-				new GhlFunnelCache("ADS", "2026-01-01..2026-12-31", "{}", "READY", readAt, null)))
-				.hasStackTraceContaining("uq_ghl_funnel_cache_window");
-	}
-
-	/**
-	 * The optimistic lock that stops a slow reader clobbering a completed background total.
-	 *
-	 * <p>The failure this prevents is specific: a caller whose inline count read finishes *after*
-	 * the totaller wrote {@code READY} must not overwrite those figures with {@code TOTALLING}.
-	 * Simulated the only way that race can be simulated deterministically — two entity instances
-	 * loaded at the same version, written one after the other.
-	 */
-	@Test
-	void aStaleWriterLosesToTheOneThatGotThereFirst() {
-		// Same reason as above: a fixed window key needs a clean slate to stay re-runnable.
-		funnelCache.deleteAll();
-
-		Instant readAt = Instant.now().truncatedTo(ChronoUnit.MILLIS);
-		UUID id = funnelCache.saveAndFlush(
-				new GhlFunnelCache("EMAIL", "YEAR", "{}", "TOTALLING", readAt, readAt)).getId();
-
-		// Two readers of the same version. `getReferenceById` would share the persistence context,
-		// so both are fetched detached via a fresh find after a clear.
-		GhlFunnelCache first = funnelCache.findById(id).orElseThrow();
-		long versionBothSaw = first.getVersion();
-		GhlFunnelCache second = new GhlFunnelCache("EMAIL", "YEAR", "{}", "TOTALLING", readAt, readAt);
-
-		first.refresh("{\"totalValue\":3000}", "READY", Instant.now(), null);
-		funnelCache.saveAndFlush(first);
-
-		// The winner's figures stand, and the version moved.
-		assertThat(funnelCache.findById(id)).get().satisfies((row) -> {
-			assertThat(row.getDetail()).isEqualTo("READY");
-			assertThat(row.getVersion()).isGreaterThan(versionBothSaw);
-		});
-		// And the loser cannot insert over the top of it: same window, so the unique key holds even
-		// though it never saw the winner's version.
-		assertThatThrownBy(() -> funnelCache.saveAndFlush(second))
-				.hasStackTraceContaining("uq_ghl_funnel_cache_window");
 	}
 
 	private static List<UUID> ids(List<Case> found) {

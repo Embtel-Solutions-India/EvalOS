@@ -265,6 +265,23 @@ public class PortalCaseService {
 	/** Both lists for the client's document screen. Read-only: no receipt is stamped here. */
 	@Transactional(readOnly = true)
 	public ClientDocumentsView documents(PortalPrincipal principal) {
+		// **A client with no cases sees an empty screen, not a refusal** — and this is the one
+		// caller of `authorized` where that is true, which is why the branch is here and not
+		// inside it. `approve` and `request-revisions` must still refuse, because there is no
+		// case to act on; a list of nothing is a truthful answer to "what have you sent us".
+		//
+		// It stopped being hypothetical when self-signup landed (2026-09-15): a client who has
+		// just created an account has no case by definition, and `AmbiguousCaseException`'s
+		// "This link has no cases behind it" is both wrong — they did not follow a link — and
+		// the first thing the portal would have said to them. `partyCases` already gives the
+		// same reasoning for the case list.
+		//
+		// **Two or more cases still refuses**, and still needs the picker `DraftReview` has:
+		// `00d` §2b item 3 is the route that closes it.
+		if (principal.isPartyScoped() && partyCases(principal).isEmpty()) {
+			return new ClientDocumentsView(java.util.List.of(), java.util.List.of());
+		}
+
 		Case subject = authorized(principal);
 
 		java.util.List<ChecklistItemView> checklist = checklistItems.findByCaseId(subject.getId()).stream()
@@ -342,8 +359,12 @@ public class PortalCaseService {
 	public CaseDocument upload(PortalPrincipal principal, UUID checklistItemId, String filename,
 			String contentType, long size, java.io.InputStream body) {
 
-		Case subject = cases.findById(principal.caseId())
-				.orElseThrow(() -> new java.util.NoSuchElementException("No case " + principal.caseId()));
+		// **Authorize the way every other method on this class does.** This read used to be
+		// `cases.findById(principal.caseId())`, which is null by construction for every token
+		// Unit 42 mints — `isPartyScoped()` *is defined as* `caseId == null` — so `findById(null)`
+		// threw and every signed-in client's upload answered 500. `authorized` also applies the
+		// brand check this path was skipping.
+		Case subject = authorized(principal);
 
 		DocumentChecklistItem item = checklistItems.findById(checklistItemId)
 				.filter(row -> row.getCaseId() != null && row.getCaseId().equals(subject.getId()))
@@ -352,15 +373,17 @@ public class PortalCaseService {
 
 		// **The client id comes off the case's contact, never off the request.** A key built from
 		// anything the caller sent would let one client write into another's prefix.
-		String ghlContactId = Optional.ofNullable(subject.getContactId())
-				.flatMap(contacts::findById)
-				.map(ContactSnapshot::getGhlContactId)
-				.orElse(null);
-		requireState(ghlContactId != null,
-				"this case has no linked GHL contact, so there is nowhere to file the document");
+		//
+		// It is `contact_snapshot.id` — an EvalOS UUID — and not the GHL contact id it used to be.
+		// The sub-account swap left every stored GHL id naming a contact that no longer exists, and
+		// left post-swap clients with none at all, so the old key could not be built and this
+		// method threw. See DocumentStore.clientKey.
+		UUID clientId = subject.getContactId();
+		requireState(clientId != null,
+				"this case has no linked contact, so there is nowhere to file the document");
 
 		UUID documentId = UUID.randomUUID();
-		String key = DocumentStore.clientKey(subject.getBrandId(), ghlContactId, documentId);
+		String key = DocumentStore.clientKey(subject.getBrandId(), clientId, documentId);
 		store.put(key, body, size, contentType);
 
 		CaseDocument document = new CaseDocument(subject.getBrandId(), subject.getId(),

@@ -1,0 +1,7305 @@
+# Progress Tracker
+
+Update this file after every meaningful implementation change.
+
+## Current Phase
+
+- **2026-09-15 — Unit 51 BUILT: the GM has the dashboard the business drew, and a written
+  mapping for every widget on it.** Backend **1006 tests, 0 failures, 4 skipped**; frontend
+  typechecks, lints and its 127 vitest tests pass. **No migration** — the whole unit is one route,
+  one service, one screen and two properties.
+
+  **Source:** `IE_GM_Dashboard.pdf`, five blocks (THE NUMBER · SALES · MARKETING · EXPERT
+  MANAGEMENT · EVALUATION DEPARTMENT). The widget-by-widget mapping, including every figure that
+  **cannot** be computed and what each would take, is `context/specs/51-gm-dashboard.md` §3. Read
+  that before promising any of them to the business.
+
+  **The GM and Brand Manager stopped sharing a screen, and the reason is data rather than taste.**
+  They shared `RevenueDashboard` on the argument that the difference was a filter, which held while
+  every figure on it was brand-scoped. Half of the new screen reads the **GHL location**, which is
+  invariant 1's one stated exception and is licensed *only* while the reader is the cross-brand
+  role — a Brand Manager shown a pipeline figure cannot tell, and neither can the server, whether
+  it is theirs. `GM → GmDashboard`, `BRAND_MANAGER → RevenueDashboard`, and `GmOverviewRouteTest`
+  fails the build if `/api/metrics/gm` is ever widened past `hasRole('GM')`.
+
+  **One new endpoint out of five reads.** `/metrics/revenue`, `/metrics/pm`,
+  `/metrics/expert-network` and `/opportunities/board` were all already reachable by the GM, and
+  every figure taken from them is *taken*, not recomputed — a second copy of "at risk" or
+  "onboarded this month" is a second number to keep in step with the first. Each read carries its
+  own card state, so GHL being down cannot blank the evaluation department.
+
+  **The GHL fact this unit is shaped around, verified against the live API rather than inferred:**
+  `GET /opportunities/search`'s `date`/`endDate` filter on **`createdAt`**, and nothing filters on
+  `lastStatusChangeAt`. So *"won this month"* is **not a query** — a deal opened in July and won in
+  September is a September win and a July creation. `GmOverviewService` reads `status=won` over
+  `evalos.sales.won-lookback-days` (180) of creations and buckets them in EvalOS.
+  **That property is a correctness bound, not a tuning knob**: set it shorter than the real sales
+  cycle and the won figure is silently low with no mark on it. Unit 44's mirror deletes the whole
+  problem rather than caching it.
+
+  **`/api/metrics/gm` answers 200 when GHL is down.** The production half is EvalOS's own rows and
+  is still true; `pipelineUnavailable` carries the reason and the screen paints it as an `error`
+  on exactly the tiles it invalidates. A 502 would take four working tiles down with the four that
+  broke, and an `ok` state would print `$0` won for a month that may have gone well.
+
+  **Three things the PDF asks for that nothing can answer today**, recorded in `51` §3 rather than
+  drawn as empty tiles: **email-campaign sends/replies/bookings** (GHL *does* expose
+  `/emails/.../campaigns/stats`, but this deployment's PIT carries `opportunities.readonly` and
+  nothing wider — it needs `emails/stats.readonly` added, which is an operational decision to
+  widen what one leaked token can read); **social reach** (GHL's Social Planner publishes posts
+  and reports **no** analytics at all — reach lives in Meta/LinkedIn's own APIs, a new integration
+  and not a widget); and the **expert recruitment funnel** — *new interested* and *meeting done*
+  have nowhere to come from until **Unit 50** builds `expert_application`. Two more are blocked on
+  a business decision rather than on data: **Hot leads** and **Invoice sent** are stage names, and
+  EvalOS deliberately holds no opinion about pipeline placement — a `hot-stage-name` property was
+  removed from Unit 43 **on the business's instruction** and this unit did not bring it back.
+
+  **One setting the business owes this unit:** `SALES_MONTHLY_GOAL`. It defaults to `0`, and until
+  it is set the headline tile shows the won amount alone with *"No monthly goal set"* rather than a
+  percentage of nothing. The percentage is also suppressed on any window that is not a calendar
+  month — a monthly target against a week is arithmetic dressed as a business figure.
+
+  **ponytail: `GmOverviewService` has no cache.** Two GHL searches per desk, ~8 paced requests, for
+  a screen one person opens. The upgrade path is a `"GM"` row in the existing `ghl_funnel_cache`
+  — keyed `(funnel, window_key)`, no migration — and the trigger is this screen polling, the team
+  growing, or a desk's month no longer fitting in a page or two.
+
+- **2026-09-15 — Unit 43 is built. A client can ask EvalOS for a service, and Sales can read what
+  they asked for.** The left column of the client flow is now real end to end: sign up → sign in →
+  dashboard → request a service → choose → questionnaire → review → send → track.
+
+  `./mvnw test`: **991 tests, 0 failures, 4 skipped**. `frontend` 127 vitest tests, `client-expert`
+  30, all three frontends build. Migrations run to **`V49`**.
+
+  **`DomainInvariantsTest` caught the one thing it exists to catch** — a new `ScopedEntity` with no
+  repository listed in `scopedRepositories()`. Forgetting an axis widens reads silently, which is
+  the one direction `ScopePredicate` cannot fail closed on, so the registry is a build gate rather
+  than a convention.
+
+  **`V49__client_application.sql`** is the one new table, and what it is *not* is the important
+  half: **not a case** — a case is still born only of a won opportunity through Handoff A — and
+  **not a copy of a GHL opportunity**. Every column is something GHL has nowhere to put: a service
+  id from EvalOS's own catalog, and a questionnaire whose questions depend on it.
+
+  **EvalOS creates the opportunity and stops there — no stage, no assignee.** Where the deal
+  lands, how it is routed and whose it becomes are **GHL's automation's**, which is what `00b`
+  keeps GHL for. A `hot-stage-name` property lived here for one afternoon and was removed on the
+  business's instruction the same day: it put EvalOS in the business of deciding pipeline
+  placement, which is a second opinion about a thing GHL owns and goes stale the first time
+  somebody reworks the workflow over there. It **never shipped to any environment** and is gone
+  from all three profiles; `43` §6a's *"at the hot stage"*, §1a's *"@ HOT"* and the acceptance
+  criterion that named it are all struck through in the spec. `assignedTo` was never sent, for
+  the reason `SalesOpportunityController` gives — nothing links a GHL user to an EvalOS
+  `team_member`, so a guess assigns the deal to the wrong person. **`pipeline`/`pipeline_stage`
+  went from "43 owes them" to "44 owes them, unconditionally"**, because the only argument for
+  giving them to 43 was that moving something to the hot stage needs to know which stage is hot.
+
+  **The opportunity is created when the client picks a service, not when they submit.** That is
+  `43` §6a's decision resurfacing after its screen disappeared — *About You* went to sign-up, so
+  the moment it was pinned to no longer exists — and the argument is unchanged: the questionnaire
+  is the longest part of the funnel and therefore exactly where people stop, so a lead who
+  abandons halfway must already be on a salesperson's board. Picking a service is also the first
+  moment there is anything to sell. `createOpportunity`, never `upsertOpportunity`: a repeat
+  client's second evaluation is a genuine second deal, and upsert means one open opportunity per
+  contact per pipeline — it would overwrite the first rather than open the second. This is `39`
+  §3a's escape hatch, taken for the case that spec named, and **the duplicate risk it brings back
+  is contained by `client_application_one_draft_idx`** — a partial unique index, so a client
+  cannot hold two unfinished requests — rather than by a confirmation dialog.
+
+  **The row is written before GHL is called, and the asymmetry after that is the design.** A GHL
+  outage on *start* or *save* is swallowed and retried on the next write, because the alternative
+  is losing a half-typed questionnaire to somebody else's outage. On *submit* it refuses with a
+  502: an application Sales cannot see reads to the client as "sent" and to the business as
+  nothing at all, which is the one failure this flow must not have.
+
+  **`answers` is a jsonb ARRAY of `{id, label, value}`, not a map of id → value, and the label is
+  the reason.** The question text lives in the client portal's catalog and the **staff app is a
+  separate build that cannot import it** — a map would leave a salesperson holding
+  `degreeCountry: "Nigeria"` with no question beside it. Storing the wording *as asked* also
+  survives the catalog being reworded, which a lookup would not, and an array keeps the order a
+  questionnaire is read in.
+
+  **The catalog stays frontend data and is deliberately not mirrored in Java.** Adding a service
+  is one entry in `serviceCatalog.ts` pointing at question-group ids, with no migration and no
+  component change; copying 400 lines of it server-side to re-check completeness would create a
+  second definition that drifts, and the drift would surface as a client refused for an answer the
+  form never asked. **Submit therefore validates shape and size, not completeness** — a marked
+  `ponytail:` ceiling, whose blast radius is a salesperson reading a thin application and ringing
+  the client, which §5 already accepts as the posture.
+
+  **Three things the spec asked for and this unit does not do, each recorded in `43` itself.**
+  *Documents are not a funnel step*: every upload route EvalOS has takes a checklist item on a
+  **case**, so a funnel upload needs another table, three more routes and a third S3 prefix — a
+  unit, not a step — and §5's own "a missing document is a thing Sales chases" is what makes
+  cutting it affordable. *The answers are not filed as an `OpportunityNote`*: `author_id` is
+  `NOT NULL REFERENCES team_member`, and making it nullable so a client's answers could sit in the
+  stream looking like staff prose is a weakened constraint bought for a worse rendering — Sales
+  reads the application itself. *The `pipeline`/`pipeline_stage` mirror is not built*:
+  `GhlPipelineClient.pipelineNamed` answers "which stage is hot" live behind its five-minute
+  cache, and persisting the mirror is Unit 44's job with nothing here waiting on it.
+
+  **`GET /api/opportunities/{id}/application` answers 200 with a null payload for a deal that did
+  not come from the portal**, which is most of the board — a 404 for the ordinary case teaches the
+  panel to treat errors as normal, and then a real failure looks the same as a phoned-in deal.
+  **Sales AND Production can read it** (`43` §6c), brand-scoped and deliberately *not*
+  pipeline-scoped: `PipelineScope.requireMine` would refuse Production outright, who hold no
+  pipeline, and buys nothing against a colleague in the same brand. It is its own controller
+  rather than a route on `SalesDeskController`, which is `hasRole('SALES')` throughout — a PM
+  reaching an application through a class called the sales desk is what gets "tidied" back to
+  SALES-only by the next reader.
+
+  **The frontend is a recovery, not a rewrite** — `serviceCatalog.ts`, `questionGroups.ts`,
+  `lib/questionnaire.ts`, `types/intake.ts` and four `components/intake/*` come back from
+  `f9f1165^` needing no new dependency. What did not come back: `AboutYou` (sign-up owns it),
+  `intakeService` (the draft is a server row, not `localStorage`), and the mock `ClientRequest` /
+  `RequestStatus` types, because the SPA still holds no lifecycle enum. **One screen with three
+  steps replaces seven routes**: the deleted funnel was a public pre-account journey where each
+  step needed a URL to survive a sign-up, and the client is signed in throughout now.
+
+  **`PortalPrincipal` gained `clientAccountId`**, additively — both older constructors still
+  compile, so no call site moved. It is populated for one of a client's two legal token shapes and
+  never both: `mintForClientAccount` writes a `ghl_contact_id` row when the account has a contact
+  and a `client_account_id` row when it does not, so the funnel resolves the account by whichever
+  name the token carries. Neither arm is a fallback for a bug.
+
+  **`/requests` shows two lists and does not merge them.** A *request* is what the client sent and
+  Sales has not priced; a *case* is work in progress. One list would need the SPA to invent a
+  status vocabulary spanning both, which is exactly what 34d's D5 forbids. The dashboard gains the
+  one state `43` §4 asked for — an unfinished request with a *Continue* button — because a client
+  mid-questionnaire with no case used to land on "nothing here yet", which was false and a dead
+  end.
+
+
+- **2026-09-15 — Unit 43 is built. A client can ask EvalOS for a service, and Sales can read what
+  they asked for.** The left column of the client flow is now real end to end: sign up → sign in →
+  dashboard → request a service → choose → questionnaire → review → send → track.
+
+  `./mvnw test`: **991 tests, 0 failures, 4 skipped**. `frontend` 127 vitest tests, `client-expert`
+  30, all three frontends build. Migrations run to **`V49`**.
+
+  **`DomainInvariantsTest` caught the one thing it exists to catch** — a new `ScopedEntity` with no
+  repository listed in `scopedRepositories()`. Forgetting an axis widens reads silently, which is
+  the one direction `ScopePredicate` cannot fail closed on, so the registry is a build gate rather
+  than a convention.
+
+  **`V49__client_application.sql`** is the one new table, and what it is *not* is the important
+  half: **not a case** — a case is still born only of a won opportunity through Handoff A — and
+  **not a copy of a GHL opportunity**. Every column is something GHL has nowhere to put: a service
+  id from EvalOS's own catalog, and a questionnaire whose questions depend on it.
+
+  **The opportunity is created when the client picks a service, not when they submit.** That is
+  `43` §6a's decision resurfacing after its screen disappeared — *About You* went to sign-up, so
+  the moment it was pinned to no longer exists — and the argument is unchanged: the questionnaire
+  is the longest part of the funnel and therefore exactly where people stop, so a lead who
+  abandons halfway must already be on a salesperson's board. Picking a service is also the first
+  moment there is anything to sell. `createOpportunity`, never `upsertOpportunity`: a repeat
+  client's second evaluation is a genuine second deal, and upsert means one open opportunity per
+  contact per pipeline — it would overwrite the first rather than open the second. This is `39`
+  §3a's escape hatch, taken for the case that spec named, and **the duplicate risk it brings back
+  is contained by `client_application_one_draft_idx`** — a partial unique index, so a client
+  cannot hold two unfinished requests — rather than by a confirmation dialog.
+
+  **The row is written before GHL is called, and the asymmetry after that is the design.** A GHL
+  outage on *start* or *save* is swallowed and retried on the next write, because the alternative
+  is losing a half-typed questionnaire to somebody else's outage. On *submit* it refuses with a
+  502: an application Sales cannot see reads to the client as "sent" and to the business as
+  nothing at all, which is the one failure this flow must not have.
+
+  **`answers` is a jsonb ARRAY of `{id, label, value}`, not a map of id → value, and the label is
+  the reason.** The question text lives in the client portal's catalog and the **staff app is a
+  separate build that cannot import it** — a map would leave a salesperson holding
+  `degreeCountry: "Nigeria"` with no question beside it. Storing the wording *as asked* also
+  survives the catalog being reworded, which a lookup would not, and an array keeps the order a
+  questionnaire is read in.
+
+  **The catalog stays frontend data and is deliberately not mirrored in Java.** Adding a service
+  is one entry in `serviceCatalog.ts` pointing at question-group ids, with no migration and no
+  component change; copying 400 lines of it server-side to re-check completeness would create a
+  second definition that drifts, and the drift would surface as a client refused for an answer the
+  form never asked. **Submit therefore validates shape and size, not completeness** — a marked
+  `ponytail:` ceiling, whose blast radius is a salesperson reading a thin application and ringing
+  the client, which §5 already accepts as the posture.
+
+  **Three things the spec asked for and this unit does not do, each recorded in `43` itself.**
+  *Documents are not a funnel step*: every upload route EvalOS has takes a checklist item on a
+  **case**, so a funnel upload needs another table, three more routes and a third S3 prefix — a
+  unit, not a step — and §5's own "a missing document is a thing Sales chases" is what makes
+  cutting it affordable. *The answers are not filed as an `OpportunityNote`*: `author_id` is
+  `NOT NULL REFERENCES team_member`, and making it nullable so a client's answers could sit in the
+  stream looking like staff prose is a weakened constraint bought for a worse rendering — Sales
+  reads the application itself. *The `pipeline`/`pipeline_stage` mirror is not built*:
+  `GhlPipelineClient.pipelineNamed` answers "which stage is hot" live behind its five-minute
+  cache, and persisting the mirror is Unit 44's job with nothing here waiting on it.
+
+  **`GET /api/opportunities/{id}/application` answers 200 with a null payload for a deal that did
+  not come from the portal**, which is most of the board — a 404 for the ordinary case teaches the
+  panel to treat errors as normal, and then a real failure looks the same as a phoned-in deal.
+  **Sales AND Production can read it** (`43` §6c), brand-scoped and deliberately *not*
+  pipeline-scoped: `PipelineScope.requireMine` would refuse Production outright, who hold no
+  pipeline, and buys nothing against a colleague in the same brand. It is its own controller
+  rather than a route on `SalesDeskController`, which is `hasRole('SALES')` throughout — a PM
+  reaching an application through a class called the sales desk is what gets "tidied" back to
+  SALES-only by the next reader.
+
+  **The frontend is a recovery, not a rewrite** — `serviceCatalog.ts`, `questionGroups.ts`,
+  `lib/questionnaire.ts`, `types/intake.ts` and four `components/intake/*` come back from
+  `f9f1165^` needing no new dependency. What did not come back: `AboutYou` (sign-up owns it),
+  `intakeService` (the draft is a server row, not `localStorage`), and the mock `ClientRequest` /
+  `RequestStatus` types, because the SPA still holds no lifecycle enum. **One screen with three
+  steps replaces seven routes**: the deleted funnel was a public pre-account journey where each
+  step needed a URL to survive a sign-up, and the client is signed in throughout now.
+
+  **`PortalPrincipal` gained `clientAccountId`**, additively — both older constructors still
+  compile, so no call site moved. It is populated for one of a client's two legal token shapes and
+  never both: `mintForClientAccount` writes a `ghl_contact_id` row when the account has a contact
+  and a `client_account_id` row when it does not, so the funnel resolves the account by whichever
+  name the token carries. Neither arm is a fallback for a bug.
+
+  **`/requests` shows two lists and does not merge them.** A *request* is what the client sent and
+  Sales has not priced; a *case* is work in progress. One list would need the SPA to invent a
+  status vocabulary spanning both, which is exactly what 34d's D5 forbids. The dashboard gains the
+  one state `43` §4 asked for — an unfinished request with a *Continue* button — because a client
+  mid-questionnaire with no case used to land on "nothing here yet", which was false and a dead
+  end.
+
+
+- **2026-09-15 — The client flow diagram audited against the code, and the front door it needs
+  built. `client_account` had no runtime writer at all.**
+
+  Verified after: `./mvnw test` **979 tests, 0 failures, 4 skipped**; `frontend` 127 vitest tests;
+  `client-expert` 30 vitest tests; all three frontends build.
+
+  The business flow was supplied as two diagrams — the Client Portal (sign in / sign up →
+  dashboard → requests + documents) and the Overall Flow of a Request (client → request → EvalOS
+  request → GHL contact + opportunity → sales desk → proposal → payment → won → case →
+  production → delivery). Every box was checked against the code rather than against the docs.
+
+  **The finding that made the rest moot: nothing in EvalOS created a `client_account`.** Not a
+  signup route, not a staff route, not Handoff A. Every row in the table came from `V45`, a
+  one-shot backfill of the clients EvalOS already knew on 2026-09-12 — and `new ClientAccount(...)`
+  appeared nowhere in `src/main`. So **every client acquired since then was permanently locked out
+  of the portal**: Handoff A writes a case and a `contact_snapshot` and no account, `identify`
+  answers `UNKNOWN`, and the *"Start a new evaluation"* button both shipped screens offer landed
+  on `Start.tsx` — a placeholder saying we cannot take evaluations through the portal. That
+  placeholder was accurate, which is the part worth noticing: Unit 42 shipped a front door, and
+  the audit of 2026-09-13 read it as working, because the missing piece is a *write that does not
+  exist* rather than a route that fails.
+
+  **`POST /api/portal/auth/sign-up` is the fix, and it is the diagram's SIGN UP column exactly.**
+  The diagram draws *enter email → search GHL contact → found / not found → create GHL contact →
+  create EvalOS client account*. `GhlWriteClient.upsertContact` **is** that whole branch in one
+  call — GHL matches on email then phone and returns either the contact it had or the one it just
+  made — so the fork is resolved where the identity authority lives (invariant 7) and EvalOS never
+  decides it. The fifth `permitAll` matcher is the only security surface added; a stranger has no
+  token by definition, so a signup behind `anyRequest().authenticated()` would be unreachable by
+  exactly the people it is for, and `ClientAuthRoutesTest` now proves that for five routes.
+
+  **An address we already hold creates nothing and touches GHL not at all** — it falls through to
+  `identify`, which is the answer the sign-in screen would have given. Signing up twice is the
+  most ordinary thing a person does, and the wrong answer is two contacts for one client.
+
+  **Signing up does not sign you in, and that is the security property rather than a UX
+  preference.** The address may be one GHL already holds — a client Sales logged last week, whose
+  cases sit behind it — so returning a token for an unproven mailbox is account takeover by
+  typing a stranger's email. Every path ends at the emailed set-password link, which is the door
+  every `V45` client already comes through. **This is the one place the build deviates from the
+  diagram**, which draws signup landing straight on the dashboard.
+
+  **GHL unreachable refuses the signup (502) and writes nothing.** A local-only account is a lead
+  no salesperson can see — the failure that looks like success. A raced second submission is the
+  opposite call: `client_account_brand_email_key` is caught and answered with the winner's row,
+  because a double-click must not 500 the front door.
+
+  **`Start.tsx` is deleted and `/start` redirects to `/signup`.** The new screen creates an
+  account, not an evaluation, and says so — choosing a service and answering the questionnaire are
+  Unit 43 and are reached from the dashboard afterwards. `SignIn`'s `UNKNOWN` branch forwards the
+  address already typed, so nobody retypes it to be told the same thing.
+
+  **Second fix: a client with no cases saw a refusal on the portal's own document screen.**
+  `PortalCaseService.documents` went through `authorized(principal)`, which throws
+  `AmbiguousCaseException` — *"This link has no cases behind it"* — for a party token with none.
+  That is now the ordinary first minute of an account's life, and the message is wrong twice over:
+  they followed no link, and a list of nothing is the truthful answer to *"what have you sent
+  us"*. The branch is in `documents` and **not** in `authorized`, because `approve` and
+  `request-revisions` must still refuse — there is no case to act on. **Two or more cases still
+  refuses** and still needs the picker `DraftReview` has (`00d` §2b item 3).
+
+  **What the diagram asks for and EvalOS still does not have** — all of it Unit 43, none of it
+  started: *Requests → request services → select service → fills questionnaire → submit request →
+  create new GHL opportunity (same contact) → request created → client can track request.*
+  `/requests` is a read-only list of **cases**; there is no service catalog, no questionnaire, no
+  `client_application` table, and no client-facing caller of `upsertOpportunity`. On the right-hand
+  diagram the same gap reads as **EVALOS REQUEST**, which is an entity that does not exist. Sales
+  desk, payment, `opportunity.won`, case, document collection, PM/CM/expert, production and
+  delivery are all built; **Handoff A is still dead in the new sub-account**, so the won→case arrow
+  does not fire for anyone.
+
+  **Five documents were stating things the code contradicts, and all five are edited rather than
+  annotated.** `43` §1/§1a/§4/§5/§6a (About You created the account and the contact — it no longer
+  exists, and §5 still justified its key by *"there is no GHL contact yet: it is created at
+  submit"*, which §6a had reversed on 2026-09-12); `00d` §2 and the runbook §2b item 2 (both name
+  `client_account.id` as the document key, where the code writes `contact_snapshot.id` — two
+  EvalOS-owned prefixes for two moments in a client's life, converging at Unit 44, and the
+  divergence is now written down); `Dashboard.tsx` (*"There is no account"*); `Documents.tsx`
+  (*"D1 … is not taken"* — it was taken, in favour of the party, in Unit 35); and the client
+  `navigation.ts` (*"`/reports` is parked, not deleted"* — `App.tsx` recorded the deletion in the
+  same commit).
+
+  **One decision is deliberately left open rather than settled by implication.** `43` §6a puts the
+  opportunity at *About You*, which no longer exists; the diagram puts it at *Submit*. They differ
+  by exactly one abandoned questionnaire. §4 now carries the question and a recommendation — the
+  funnel's **first** screen, when the client picks a service, because that is the earliest moment
+  there is something to sell and it keeps §6a's point that a lead who stops halfway is still a
+  lead. The question is narrower than it was: with sign-up creating the contact, an abandoned lead
+  leaves a GHL contact behind either way, so what is at stake is only whether they also appear on
+  a pipeline board.
+
+- **2026-09-14/15 — Phase 0 started, and the Sales desk gained the half it never had.**
+  `./mvnw test`: **974 tests, 0 failures, 4 skipped**. `frontend`: 127 vitest tests, build clean.
+  `client` and `expert` both build. Nothing is committed yet.
+
+  **The cutover items that are code are done; the ones that are environment are not.**
+  `application-local.yml`'s `location-id` default came off `kBumF0uUOmMBB5bneYjx` — the
+  sub-account IE abandoned on 2026-09-11 — and onto `WY6bW2xUCI8Tz8gw7aLJ`. A default pointing at
+  a dead account is worse than no default: every GHL-backed screen renders empty and reads as a
+  bug rather than as a misconfiguration. `V909__repoint_desks_to_new_ghl_location.sql` does the
+  same for the seeded desks, as **a new file rather than an edit to V908**, because the local
+  profile relaxes `*:missing` and not `*:checksum` — an edited applied migration still refuses the
+  boot, which is the check that actually protects the schema. The live desks are still cutover
+  item **C4** and still a curl: `PUT /api/team-members/{id}/ghl-pipeline` has no UI.
+
+  **The live account's sales pipelines are split by service line, not by client segment**, which
+  V908 did not know: `Evaluation & Translational`, `PERM + Immigration business plan + Pre filing`,
+  `Expert Opinion Letter + RFE`. Only the display names move with them — `segment` stays as it is,
+  because `00b` §1.1 makes it display-and-reporting only and nothing in the codebase branches on
+  it. Marketing gains a third desk, because the live account has three BDE pipelines and V908
+  seeded two logins, so one pipeline had no owner and `uq_team_member_pipeline` had nothing to
+  enforce.
+
+  **The Google Ads funnel was removed by decision, not repointed.** The new account has no
+  paid-search pipeline, so `evalos.ghl.ads-pipeline-name` named nothing and the screen would have
+  answered 502 forever — and a screen that cannot succeed is worse than an absent one. The route,
+  the nav entry and the property left all three profiles; **`MarketingPipelinePage` still serves
+  two funnels**, so reinstating it is a property, a route, a nav entry and an icon. Nobody named a
+  replacement funnel, which is why it was not simply pointed at one.
+
+  **Two of the audit's P0s are fixed, with the tests that would have caught them.**
+  `PortalCaseService.upload` resolved its case by `cases.findById(principal.caseId())`, and
+  `isPartyScoped()` *is defined as* `caseId == null` — so every token Unit 42 mints made that
+  `findById(null)` and every signed-in client's upload answered 500. It now calls
+  `authorized(principal)` like every other method on the class, which also applies the brand check
+  this one path was skipping. **The client document key changed with it**: the client segment is
+  EvalOS's own `contact_snapshot.id`, not the GHL contact id. The old key resolved in both systems
+  with no mapping table, which was a real benefit — and the sub-account swap falsified it twice
+  over, because every stored value names a contact that no longer exists and a post-swap client
+  has no GHL contact id at all. **Existing objects do not move**: reads resolve through the stored
+  `case_document.object_key`, which is authoritative, and only writes take the new shape. A bulk
+  re-key would be an S3 object copy, not a migration, and is not needed for correctness.
+
+  **Sales could not open a deal at all until now, and that was deliberate rather than an
+  omission.** Unit 40 shipped a desk where every route was a `PUT` on a deal that already existed,
+  because Marketing opened leads and GHL's automation promoted them. `SalesOpportunityController`
+  is the other door — an inbound call for a client nobody has logged, or a repeat client buying a
+  second service. **Its own controller**, because `SalesDeskController` is mapped at
+  `/api/sales/opportunities/{opportunityId}` and a create has no id to hang off. `upsertContact`
+  is right for a lead and wrong for a repeat client, so `GhlWriteClient.createDeal` takes
+  `POST /opportunities/` and **brings the duplicate risk back knowingly**; `DuplicateDealException`
+  answers 409 through `ApiExceptionHandler` rather than a stack trace.
+
+  **The form offers the intake fields and refuses the production ones.** The location defines
+  twenty custom fields and they split cleanly: what the client is asking for (service, visa
+  category, turnaround, language, page count, the client's own description) is known at the point
+  of sale and is exactly what `GhlOpportunityHandler` currently calls "a PM's to fill in" — the
+  re-interview this form exists to prevent. Assigned Expert, Draft Link, SLA Status, Docs Received
+  and Actual Won Date are GHL's shadow copy of facts **EvalOS owns**, so a salesperson typing into
+  them would create a second answer that goes stale the moment production moves. Matched on
+  `fieldKey`, never on id or label: the id is location-scoped and would break on the next
+  sub-account swap, and a label is renameable in the GHL UI. `assignedTo` is not sent at all —
+  there is no column linking a GHL user to an EvalOS `team_member`, and a guess assigns the deal
+  to the wrong person.
+
+  **Meetings and follow-ups are mirrored, and that is a new shape here.** `V47__meeting.sql` and
+  `V48__follow_up.sql` hold what EvalOS booked, copied from GHL's own response. GHL owns both; the
+  rows exist so the desk stops being write-only — `SalesMeetingService` used to hand the booking
+  response to the caller and keep nothing, so no screen could show a meeting it had itself
+  created. `status` is GHL's word stored verbatim as a `String` and not an enum, because a remote
+  vocabulary can gain a value tomorrow and an enum turns that into a deserialization failure on a
+  screen that only wanted to print it. Everything is `updatable = false` except what a reschedule
+  moves and the sync stamp. `GhlCalendarClient` gained calendars, free slots and appointment
+  notes; **a failed note does not fail the booking**. `GhlUserClient` is names and emails only —
+  carrying a colleague's `roles`, `scopes` and `permissions` into EvalOS would be a second copy of
+  GHL's access model. `/meetings` is its own screen rather than a panel on the board, because a
+  meeting booked from a deal card was invisible the moment the card scrolled away; **SALES only**,
+  because `39` §5 gives Marketing no booking action and the button would be one the server
+  refuses.
+
+  **SALES and MARKETING have a dashboard for the first time**, and the old argument was narrowed
+  rather than thrown away. "Their board is their dashboard" holds for anything derived by counting
+  cards, and it does not hold for **age** — a Kanban groups by stage in GHL's order and never
+  shows how long a deal has sat there. `PipelineDashboard` reads GHL opportunities and no case at
+  all, which is why the two roles join the `/dashboard` nav entry and **no other**:
+  `PRODUCTION_ROLES` earned its name by excluding them from every case-reading screen and is not
+  the place to widen. `BoardView`'s `reloads` counter-in-the-deps bug — `00d` §2b(6)'s first
+  interaction defect — went with it, replaced by the hook's own `reload`.
+
+  **Still open in Phase 0:** the `opportunity.won` workflow (step 1, the one nothing else is
+  testable without), the new PIT (step 2), C4 for the live desks (step 4),
+  `TRUNCATE ghl_opportunity_cache` (step 5), *Allow Duplicate Contact* (step 6), the boot-time
+  `(pipeline name → id)` log, the three
+  per-case document routes and the client `CasePicker` (§2b item 3), `WebhookReplaySweep` (item 4),
+  `GET /api/admin/ghl/status` (item 5), the remaining two interaction defects (item 6), and the
+  four stale `unavailable` cards (item 7).
+
+- **2026-09-13 — System-wide platform audit. Six independent senior audits (architecture,
+  backend, frontend, UX, product, integration) read the code, not the docs. Consolidated into
+  `context/specs/00d-platform-audit-and-alignment.md`; the six full reports are preserved at
+  `context/audit/2026-09-13/`. Nothing is built from it yet.**
+
+  **The build is real and green** — `./mvnw test`: 966 tests, 0 failures, 93 classes. No IDOR,
+  no unscoped read that is a bug, no mock-backed routed screen, no residue from the removed
+  units, no `any` in 190 frontend files.
+
+  **Four things the audit found that no document records:**
+  1. **Handoff A is dead.** The `opportunity.won` workflow lived in the sub-account abandoned on
+     2026-09-11 and was never recreated, so **no case is created by anything**. Four further
+     cutover breaks compound it — notably `team_member.ghl_pipeline_id` holding dead ids, which
+     leaves every Sales/Marketing desk silently empty **with no error**.
+  2. **Client document upload is broken three ways in one method** (`PortalCaseService.upload`):
+     it resolves the case by `findById(principal.caseId())` — null for every token Unit 42 mints
+     — it then requires a live `ghl_contact_id` no post-cutover client has, and it has no
+     per-case variant. Verified in code. It survived because the controller test stubs the
+     service with Mockito and `PortalCaseServiceTest` has no upload test.
+  3. **The status loop is architecturally prevented and the fix is nearly free.** `Case` has no
+     pipeline column, so `ScopePredicate`'s PIPELINE arm returns `cb.disjunction()` — SALES
+     matches nothing by design. Meanwhile `Case.ghl_opportunity_id` and
+     `OpportunityNote.ghl_opportunity_id` have held the same value, unjoined, since 2026-09-11,
+     and `PortalStageProjection` already has `forClient`/`forExpert` and no `forSales`.
+  4. **`00c` needs six amendments before Unit 44 starts**, the load-bearing one being that
+     at-least-once outbox delivery over a non-idempotent `upsert` create produces exactly the
+     duplicates the programme forbids — which needs one tier-2 custom field at 44, not 47.
+
+  **The audit was itself audited, same day, and it was wrong in five places.** The integration
+  agent's delegated spec-reading task failed, so it reached its findings without reading Units 05,
+  05b, 19, 25, 37, 38, 39, 40, 41 or 43. A seventh pass read those ten specs against every finding
+  (`context/audit/2026-09-13/verification-unit-specs.md`): **11 confirmed, 6 already answered, 5
+  contradicted, 9 refined**, and eight corrections are applied to `00d`. The three that mattered:
+  the proposed `contact.created` handler **failed the build** (`DomainInvariantsTest` permits one
+  injector of `CaseIntakeService`, which is invariant 8 working); "switch `upsertOpportunity` to
+  `POST /opportunities/`" reversed `39` §3a and broke `43` §7's retry model; and "sequence Unit 25
+  before 44" named a unit that grants one read scope, deletes the PIT six live features depend on,
+  and waits on a GHL Marketplace app nobody has created. **The P0 diagnosis survived all ten specs
+  untouched.**
+
+  **Completed against the commissioning brief, after a coverage check found three gaps.**
+  (i) **Questionnaires do not exist in the backend at all** — no entity, table, route or service;
+  the conditional engine was deleted in `f9f1165` and lives only in `43`'s spec. `43` §6c covers
+  the client, Sales and Production halves; **the expert half is in no spec** and is now `00d`
+  §12(g2), recommending a curated subset. (ii) The interaction patterns and ENM widgets the brief
+  named — saved views, bulk actions, calendar, preview, version history, pagination, sorting,
+  My Tasks/Action Required, specialisation, inactive experts, payout totals — were audited but
+  never carried into the consolidated doc; now `00d` §8.5 with a decision per row.
+  (iii) The gap analysis was per-module only; the per-screen and per-API decisions are now
+  `context/specs/00d-appendix-screen-and-api-decisions.md`.
+
+  **Route-count correction:** the API inventory is **129 routes across 28 controllers**, not the
+  "105 across 27" the backend report's summary line claimed. The table was always complete; the
+  summary undercounted, and `00d` had repeated it. Verified by annotation count. Both fixed.
+
+  **One P0 has no tool to execute it:** cutover item C4 (reassign every SALES/MARKETING member's
+  pipeline id) needs `PUT /api/team-members/{id}/ghl-pipeline`, which has **zero frontend
+  callers** — so it is a curl or a DB write until the team-administration screen exists.
+
+  **Largest unscheduled gap: ENM.** Sales and Marketing got four units; ENM got a table and a
+  dashboard. No candidate entity, no hiring stages, no assignee axis — and Unit 22 slice 4
+  refused the pipeline *in writing*, so Unit 50 must reverse that before it is coded.
+
+- **2026-09-12 — Unit 42 exercised in a real browser against a real SMTP host. Two bugs found
+  and fixed; everything else passed.** Backend on 8080, client portal on 5174, a throwaway SMTP
+  sink capturing the actual mail, seeded client `amara.okafor@northlightlaw.test`.
+
+  **What passed, end to end and for real:** `identify` on an unknown address; `identify` on a
+  seeded client → `NO_PASSWORD` + a *"Set your password"* mail; the emailed link → password set →
+  signed straight in with the case `IE-2026-4801` on screen; sign-in with that password; *Forgot
+  password?* → a distinct *"Reset your password"* mail with its own token; reset → **the old
+  password refused and the new one accepted**; a spent token and a garbage token answering the
+  same 400 with the same words; `forgot-password` answering 204 for a known and an unknown
+  address alike.
+
+  **Three of this session's own fixes verified live rather than by test:** the mail link points at
+  **5174, the client portal**, not the staff app; refreshing `/dashboard` with no token redirects
+  to `/signin` instead of the "open the link we sent you" dead end; and clicking *Forgot
+  password?* twice more sent **zero** extra mail — the round-2 cooldown holds. The dashboard
+  showing a real case also proves V45's `ghl_contact_id` seed, because `PortalCaseService`
+  resolves cases through it.
+
+  **Bug 1 — `/start` was a 404, and two shipped screens walked clients into it.** `/welcome`'s
+  "Start a new evaluation" card and, worse, `SignIn`'s `UNKNOWN` branch — the button offered to
+  somebody who has just been told their email is not in our system. Unit 43 is the funnel and is
+  not built; the screens shipped ahead of it and `Welcome.tsx`'s own javadoc admitted the link
+  "does not exist yet". **Fixed with a placeholder route**, `client/src/pages/auth/Start.tsx`:
+  says we cannot take evaluations through the portal yet and to contact us, **names no phone
+  number or mailbox** (a wrong contact detail on the page a new client lands on is a lost client),
+  and matches `MAIL_UNAVAILABLE`'s existing "contact us" wording so the two screens do not
+  contradict each other. No form, no state, no service call — **Unit 43 deletes the file.**
+
+  **Bug 2 — a wrong password said *"We could not load your documents… contact whoever sent you
+  this link."*** All three auth screens passed their errors to `failureMessage`, which is written
+  for a reader who arrived by opening a link. A refused sign-in is **400**, that function has no
+  400 branch, and its fallback is the documents sentence. Wrong subject, and it sends someone
+  typing a password off to find a link that does not exist — the same class of falsehood this
+  session spent the day removing.
+
+  **It could not be fixed by widening `failureMessage`, and that is the interesting part.**
+  `portal.test.ts` pins that function to never say "password" or "log in". The *reason* had
+  expired — it was "the client has no EvalOS account", which Unit 42 made false — but the *rule*
+  had not: everyone who reaches it got there by opening a link, and telling them to try their
+  password sends them looking for one they may never have set. So the rule survived the
+  justification, and the auth screens got a sibling instead: **`authFailureMessage(status,
+  refused)`** in the client app's own `authService`. One parameter, because the 400 copy is the
+  only thing that differs per screen (wrong password / invalid email / spent link); 429 gets its
+  own words because waiting is the only thing that fixes it; anything else blames us rather than
+  the client. Four tests, one of which asserts the message never contains "link" or "document".
+
+  **The lesson is about the comment, not the code.** `failureMessage`'s javadoc explained itself
+  with a fact that stopped being true, and the next reader reused it on a screen it was never
+  written for. Its header now states the rule in terms of *who is reading*, and says outright that
+  the auth screens must not use it.
+
+  Portal frontend tests 26 → 30; both portal apps build.
+
+- **2026-09-12 — the client portal has ONE home, and the client link system is deleted.**
+  Business decision, taken this day: **the portal is hosted at `client.<domain>` only**, the main
+  website links to it with a button, and the client does everything there behind sign-in. 966
+  backend tests green including the DB suite; all three apps build; 127 staff and 26 portal
+  frontend tests pass.
+
+  **The instruction was "remove unnecessary implementation and overhead of staff", and the
+  overhead turned out to be almost entirely dead already.** The staff app never minted a client
+  link: `mintPortalLink` was only ever called from `ExpertCard` with `'EXPERT'`, while the route
+  it calls *defaulted* to `CLIENT`. So the client half was an API surface, a URL builder and a
+  whole second client portal that no staff workflow used.
+
+  **What went, and why each one could:**
+  - **`evalos.portal.base-url` — the property itself, not just a usage.** It named whatever
+    served `/portal/client`, a **second copy of the client portal inside the staff SPA**. Slice
+    34b moved the draft review into the real portal app on 2026-09-11 and the minted link was
+    never repointed, so it was an unmaintained duplicate reachable only by a stale URL.
+    `frontend/src/features/client-portal/` (five files) and the `/portal/` branch in the staff
+    `App.tsx` are deleted with it.
+  - **`?audience` on `POST /api/cases/{id}/portal-link`.** A parameter with one legal value is
+    not a parameter. `?party=true` stays.
+  - **`mint`/`mintForParty`/`status` → `mintForExpert`/`mintPartyForExpert`/`statusForExpert`**,
+    no audience argument. `PortalAccessService` **no longer depends on
+    `ContactSnapshotRepository` at all**: `contactOf`, which resolved a case's GHL contact so a
+    client party link could name somebody, has no caller left.
+  - **The URL-then-strip ceremony on sign-in.** `mintForClientAccount` built a URL from a
+    configured base so `ClientAuthController` could find the `#` and throw the URL away. It now
+    returns a **`MintedToken`** — a bare token — and the controller's `session()` helper is three
+    lines shorter than the comment that used to explain it. The expert keeps `MintedLink`,
+    because a staff member really does copy that URL somewhere.
+  - **`/welcome`'s "Opened a link we sent you?" note**, which **reverses a rule written into
+    `client-expert/core` in Unit 42**. It was right while a mailed link was a client's only
+    credential; with sign-in as the route to everything it pointed away from the front door.
+
+  **A live hole surfaced by the deletion, and it is the best argument for doing it.**
+  `expert-base-url` fell back to `base-url` when blank — and **`application-prod.yml` never set
+  it**. So production was minting *expert* links onto the *client* origin, silently, and had been
+  since the portals split on 2026-09-03. The fallback is deleted and prod now lists
+  `PORTAL_EXPERT_BASE_URL` with no default, so a missing value fails the boot. Two origins remain,
+  one per app a person is ever sent to, both required in prod.
+
+  **What deliberately did NOT change, and must not be generalised:**
+  - **The expert's link is untouched.** An expert has no account, the link is their whole
+    credential, and G15 — how it actually reaches them — is still open. The client's deletion is
+    possible *only* because the client has a password.
+  - **`resolve` still admits `CLIENT` rows.** Links already in inboxes keep working until they
+    expire; only minting stopped. Several `PortalAccessServiceTest` cases now exercise a legacy
+    CLIENT row on purpose, so the day someone narrows `resolve` too, they fail.
+  - **The G16 portal-links ledger is left alone.** It is audience-agnostic and self-correcting:
+    no new client rows appear, and the existing ones age out.
+
+  **⚠ One capability is genuinely gone: staff can no longer hand a client a way in.** Before, a
+  client who could not receive mail could be given a minted link. Now `MAIL_UNAVAILABLE` tells
+  them to contact us and the recovery is a person. That is one `audience` value away if it is ever
+  wanted back — but it is a decision to re-take, not an oversight.
+
+- **2026-09-12 — review round 3 on Unit 42, from the PR pass. Five findings, and two of them
+  meant no client could get in at all.** Backend 966 tests green including the DB suite; both
+  portal apps build and their 26 tests pass. PR #22 (`development` → `main`).
+
+  **The set-password mail pointed at the staff app.** The link was built from
+  `evalos.portal.base-url` — the property `PortalAccessService.urlFor` appends `/portal/client`
+  to, a route that lives in `frontend/`, the **staff** SPA, which is also that property's dev
+  default (5173). `/set-password` exists only in `client-expert/client` (5174). One property,
+  two deployments: whichever origin it holds, one of the two links 404s. On the default, a
+  client clicking their set-password mail landed on the **staff sign-in page** with their
+  credential sitting in the fragment. Fixed with a third property, `client-base-url`
+  (`PORTAL_CLIENT_BASE_URL`, no prod default), shaped exactly like `expert-base-url` — which
+  exists for this same reason, one app earlier. **Three apps, three origins, and the lesson is
+  that `base-url` stopped being a single thing on 2026-09-03 without being renamed.**
+
+  **`MAIL_UNAVAILABLE` existed on the server and not in the client's type.** The TS union
+  declared three states, `SignIn.tsx` had branches for three, and the submit button renders only
+  for `null` and `PASSWORD_SET` — so the fourth state drew an email box with no message and no
+  button. Not a corner: `evalos.mail.from` is blank by default and `ClientMailer` degrades
+  rather than failing, so **every seeded client in a mail-less environment hit exactly that dead
+  end**. The comment above the union claimed a new value would "fail loudly rather than falling
+  into a default branch"; it could not, because nothing read the union exhaustively. The copy
+  now lives in a `Record<IdentifyState, string | null>`, where `null` means "renders its own
+  block" — an opt-out that is still an entry, so a fifth state does not compile until somebody
+  decides which kind it is. **A comment cannot fail the build; a `Record` can.** That swap also
+  deleted a branch.
+
+  **An SMTP failure was an enumeration oracle.** `ClientMailer.send` guarded a blank `from` and
+  nothing else, and `JavaMailSender.send` throws the unchecked `MailException` on an error or on
+  any of the three five-second timeouts. It propagated out of `forgotPassword` — so on a mail
+  outage a **known** address answered 500 while an unknown one still answered 204, which is the
+  single difference that method exists to hide, appearing on precisely the day somebody is
+  probing. It also made `identify` answer 500 instead of `MAIL_UNAVAILABLE`, against this
+  class's own written promise never to turn a mail problem into one. Both send methods now
+  **report whether the message left** instead of throwing.
+
+  **The send moved BEFORE the insert, which is the opposite of the obvious order.** Save-then-
+  send leaves an unspent token behind when the send fails, and the cooldown added in round 2
+  then reads that row as "a link is already on its way" — so the client is told to check an
+  inbox nothing reached, told it again for a full `credential-ttl`, and has the retry suppressed
+  by the very failure they are retrying. The cost is the mirror case (mail lands, insert fails,
+  link refuses), which is a database outage already answering 500 to everything. **The SMTP
+  outage is the one that happens on its own.**
+
+  **`identify` and `forgotPassword` are now deliberately NOT `@Transactional`**, and every other
+  method here still is. Their work is a read, a read and at most one insert with no invariant
+  spanning them — losing a race mints two usable tokens, which is not a defect. What the
+  transaction added was a **Hikari connection held across the SMTP conversation**, up to fifteen
+  seconds of it, on a route anyone may call sixty times a minute per IP. Round 2 bounded the
+  send; bounding it still exhausts the pool. Taking the connection out of the send's way does
+  not.
+
+  **A refresh after a password sign-in told the client to go find an email they never got.** The
+  portal token is memory-only by design (module scope in `apiClient`, never `localStorage`), and
+  `usePortalToken` recovers it only from the URL fragment — which was complete while a mailed
+  link was the *only* way to hold one. `signIn` navigates to `/dashboard` with no fragment, so
+  the first reload or bookmark rendered `NO_TOKEN`: *"open it again from the original message"*.
+  Fixed in `PortalLayout` with one `<Navigate to="/signin" replace />`, not in the six pages:
+  every authenticated route is already inside that layout, and `usePortalToken` lifts the
+  fragment on its first render, before any child. **The credential did not change and is not
+  going to localStorage** — what changed is that "no token" now means "the door", because since
+  Unit 42 there is one.
+
+- **2026-09-12 — Unit 42 is built: the Client Portal has a front door.** Backend 963 tests
+  green including the DB suite; both frontends build.
+
+  A client arriving from the website lands on `/welcome` and chooses **Sign in** or **Get
+  started**, instead of a dashboard that only opened if somebody pasted a link into their inbox.
+  `POST /api/portal/auth/{identify,sign-in,forgot-password,set-password}`, `client_account`
+  (V43) with a bcrypt hash that is **null when no password has been set** — that null *is* the
+  state — V45 seeding an account for every client EvalOS already knows from `contact_snapshot`,
+  and `ClientMailer` over SMTP, which is the first mail EvalOS has ever sent.
+
+  **There is still no third security chain, and that is the part to carry.** A verified password
+  calls `PortalAccessService.mintForParty` and returns the *same* party-scoped `PortalAccess`
+  token Unit 35 built. `PortalTokenFilter` and every screen behind the door are untouched.
+  Sign-in is a new way to *obtain* the credential, not a new credential — which is why spec 34
+  D1's "a third Spring Security chain, credential storage, rotation, reset, lockout" estimate
+  was wrong and this is one unit rather than three.
+
+  **`identify` answers four ways, and the fourth was found in review.** `PASSWORD_SET`,
+  `NO_PASSWORD`, `UNKNOWN` — and `MAIL_UNAVAILABLE`, split out because answering `NO_PASSWORD`
+  with mail unconfigured tells a client a link is coming that nobody sent, and the only thing
+  they can do with that is wait forever. `identify` reveals whether an email is known, which is
+  email enumeration and an **accepted decision** (spec §3); what it must never also become is a
+  way to make EvalOS mail an arbitrary address, which is what `unknownEmailSendsNothing` pins.
+
+  **Invariant 14 is amended, not deleted.** *"EvalOS hosts no files and sends no email"* becomes
+  *"hosts no files, and sends email for exactly one purpose: proving control of a client's own
+  address."* Two messages. Status, marketing or notification mail is a new decision, and
+  `ClientMailer` existing is not an argument for one. **Invariant 7's first clause is amended a
+  second time**: `client_account` is EvalOS-owned and its `ghl_contact_id` is a nullable *link*,
+  so a client's ability to sign in no longer depends on GHL holding a row.
+
+  **The seed writes `ghl_contact_id`, and an earlier draft that wrote null was reversed.** The
+  argument for null was that IE's GHL sub-account was replaced on 2026-09-11, so every id EvalOS
+  holds names a contact GHL no longer has. True of the column's GHL job, irrelevant to its
+  EvalOS one: `PortalCaseService.authorized()` resolves a party token to its cases **through**
+  this id and fails closed when it is null — so a null there would have let every existing
+  client sign in and then see no cases at all. Caught by reading what else consumes the column,
+  not by a test.
+
+- **2026-09-12 — two review rounds on Unit 42, and what each one actually caught.**
+  Worth keeping because the pattern repeats: **round 1 was the frontend's state machine, round 2
+  was every bound nobody had put on an unauthenticated route.**
+
+  Round 1 (`d54de9f`): a wrong-password error from one address survived an email change and
+  reappeared against another; `forgot-password` had an unhandled rejection; and `App.tsx`'s
+  comment implied 34 D1's mail objection had been dropped rather than answered by a narrow
+  amendment.
+
+  Round 2 (`55b3f57`), nine findings and a migration:
+
+  - **V46, fix-forward for V45's padded seeds.** V45 guards on `length(trim(c.email)) > 0` and
+    inserts `c.email`, so a snapshot address stored as `' ana@example.com '` seeded an account
+    that `ClientAccountService.normalize()` — which trims what the client types — can never
+    find. The client is told "we couldn't find that email" forever, which is the exact falsehood
+    V45 exists to remove. **V45 is applied and is not edited.** V46 *deletes* the padded
+    duplicate rather than merging (a seeded account has a null password and nothing references
+    it), and ranks with a window function rather than a correlated `EXISTS`, because two
+    *differently* padded copies of one address are possible — V45's `DISTINCT ON` groups on
+    `lower(c.email)`, which does not see them as one key — and an `EXISTS` would keep both and
+    then put them on the unique index.
+  - **Mail is bounded three ways, and none of the three existed.** Both mailing routes are
+    unauthenticated at 60 req/min/IP, and `client_credential_token` has no cleanup job — so
+    minting on every call was both "make EvalOS mail a named inbox without limit" and unbounded
+    table growth. Now: an outstanding unspent token short-circuits the send (one mail per
+    `credential-ttl` per account per purpose); `isConfigured()` is asked *first* so nothing is
+    minted that can never be delivered; and **Jakarta Mail's three timeouts, which default to
+    INFINITE**, are set in all three profiles — this send runs inside a controller-triggered
+    `@Transactional`, and a black-holed SMTP host parks the request thread *and* its Hikari
+    connection forever, which is invariant 6 with enough of them to take the staff API down.
+  - **`setPassword` now checks the brand.** It is the only path that reaches an account through
+    the token's own foreign key rather than a brand-scoped finder. Without it, a deployment
+    serving brand A would set a password on a brand-B account from a link minted before its own
+    `client-brand` moved — and then mint a party token for it.
+  - **The portal chain names its four routes, by method, instead of a wildcard under
+    `/api/portal/auth/`.** A wildcard means the next route added under that prefix is open the
+    moment it is written, silently; the list makes it arrive as a 401 in that route's own test,
+    which is a question rather than a hole.
+  - **`JwtFilter` is deregistered from the global servlet chain** (`FilterRegistrationBean`,
+    `setEnabled(false)`). Boot auto-registers any `Filter` bean for `/*`, so a staff `Bearer`
+    token was being read on `/api/portal/**`. It changed nothing today and falsified what both
+    `PortalSecurityConfig` and `PortalTokenFilter` say in writing. `PortalTokenFilter` avoids
+    this by not being a bean at all; `JwtFilter` cannot, because test slices inject it by type.
+  - **The sign-in lookup is spelled `lower(email)`.** Spring Data's `IgnoreCase` generates
+    `upper(email) = upper(?)`; V43's unique index is on `lower(email)`, a functional index
+    Postgres can only use for the expression it was built on. The derived form was a sequential
+    scan of every client account on the one query every sign-in attempt makes.
+  - **`client-brand` loses its empty prod default.** An empty value is not "unset" to Spring —
+    it binds as a null UUID and boots happily into a portal where every `identify` answers
+    `UNKNOWN` and every sign-in is refused, for every client, permanently, with no log line and
+    no failing request to find.
+  - **Boot's mail health indicator is off.** `/actuator/health` is the only exposed endpoint and
+    is `permitAll`; mail is blank by default and degrades on purpose, so the indicator would
+    drag the aggregate to DOWN and a readiness probe would pull a healthy instance out of
+    service over a feature designed to be optional.
+
+  **`credential-ttl` reads from `EVALOS_PORTAL_SIGNIN_LINK_TTL`, and the mismatch is
+  deliberate.** `ConfigSecretsTest` fails the build on any variable whose *name* contains
+  CREDENTIAL carrying a non-empty default — deliberately blunt, because guessing secrets from
+  their values misses short ones. A TTL is not a secret, so the variable is named for what it is
+  to a deployer. Renaming it to "fix" the mismatch reintroduces that build failure.
+
+- **2026-09-11 — the client portal ↔ sales link is closed. The GHL programme is complete.**
+  Backend 918 tests green including the DB suite; both frontends build.
+
+  `GET /api/portal/client/meetings`, party-scoped, over
+  `GhlCalendarClient.forContact` → `GET /contacts/{id}/appointments`. **It needs
+  `contacts.readonly`, not a calendar scope** — GHL keys that read on the contact, which is
+  exactly what a party-scoped portal credential holds. The same happy accident that made
+  invoices cheap.
+
+  **The scope decision is the load-bearing part.** The portal shows a client **invoices and
+  meetings and nothing else of the opportunity** — no pipeline stage, no deal value, no sales
+  note. Stage names are written for staff ("Warm", "Cold", "Hot") and showing a prospect that
+  they are currently Cold is a leak no relabelling makes safe; deal value is invariant 4's
+  neighbourhood; `opportunity_note` is the Sales-for-Sales stream by definition. Four absences
+  asserted in `ClientPortalMeetingTest`, so adding a field fails a test before it ships.
+
+  **Three traps in GHL's payload, each pinned:**
+  - **The times are not ISO-8601** — `"2026-09-13 12:30:00"`, no offset. `Instant.parse` throws;
+    `new Date()` is implementation-defined. **Neither side parses them**: with no zone in the
+    payload any parse invents one, and inventing UTC shows a Pacific client a meeting seven
+    hours out. The *write* side of the same API takes proper ISO, which is how easy the
+    symmetry assumption is.
+  - **`deleted` must be filtered** — a removed appointment still comes back in the list, and
+    showing a client a meeting that is not happening is worse than showing none.
+  - **GHL sends the status twice**, as `appointmentStatus` and its own typo `appoinmentStatus`.
+    The correct spelling is read; the typo is ignored rather than used as a fallback, because a
+    fallback onto a typo is a dependency on GHL never fixing it.
+
+  **Verified live** against contact `IzNmnFe10EoDN8G8bPMv`: one real meeting with its Google
+  Meet link, six fields, no `assignedUserId`, no staff `notes`, no `appointmentMeta`.
+
+  **⚠ The `@WebMvcTest` slice trap bit twice more, and my own note had said how to avoid it.**
+  `ClientPortalController` is loaded by **five** slices; I patched the two I had been bitten by
+  before and ran those, and `ClientPortalInvoiceTest` + `ClientPortalPerCaseActionTest` failed
+  the full build. Eighth occurrence in this programme. The rule is now in
+  `mem:client-expert/core` with the grep that finds all five.
+
+  **Remaining open, and none of it is code:** `calendars/events.write` is unverified (confirming
+  it means booking on a live calendar — the user's call), G15's expert-link channel, and the
+  board's inline-refill ceiling on Shivangi's 11,718-deal pipeline.
+
+- **2026-09-11 — meetings shipped; Unit 40 is now complete.** Backend 906 tests green including
+  the DB suite; staff frontend green.
+
+  **They were never scope-blocked.** Held back on "the calendar scopes are not granted", which
+  was false for the two read scopes and untested for the write one — see the entry below. Probing
+  first turned a blocker into an afternoon.
+
+  `integration/GhlCalendarClient` (list / book / reschedule), `service/SalesMeetingService`,
+  `POST|PUT /api/sales/opportunities/{id}/meetings`, `GET /api/sales/calendars` on its own
+  controller, and a calendar picker in `DealActions`.
+
+  **Two wire rules that are invisible in review and expensive live**, both pinned by tests that
+  assert an *absence* from the request body:
+  - **`toNotify` is never sent false.** GHL's default of true runs the automations that actually
+    invite the client. EvalOS has no channel (invariant 14), so suppressing GHL's would book a
+    meeting nobody is told about — the same shape as G15's unsent expert links.
+  - **`ignoreFreeSlotValidation` is never sent.** With validation on GHL refuses a collision and
+    the salesperson sees it; with it off a double-booking succeeds quietly.
+
+  **A meeting is audited against the OPPORTUNITY**, using the same derived `auditKey` as
+  `GhlWriteClient`, so it lands in the deal's history beside its stage moves rather than under an
+  appointment id nothing else mentions.
+
+  **⚠ No idempotency, and none is available.** GHL offers no upsert for appointments, so pressing
+  Book twice books two meetings. Said in the client, the service, the API module and the UI
+  rather than hidden — the fix would be an EvalOS appointment row, which is exactly the local
+  mirror the programme's truth model refuses.
+
+  **The `thereIsNoRouteToBookAMeeting` guard is deleted, not skipped.** It asserted a 404 to keep
+  the gap visible; once the route existed it failed the build, which is what such a test is for.
+  Its sibling `thereIsNoRouteToMoveADealBetweenPipelines` stays — that one is a design boundary,
+  not a gap.
+
+  **`SalesDeskControllerTest` needed a fourth `@MockitoBean`** for the new constructor arg. Fifth
+  time a `@WebMvcTest` slice has broken this way; still only a full `verify` catches it.
+
+  **Still open on the client-portal side:** a client sees invoices (live) but nothing of a
+  meeting yet. Decision taken 2026-09-11: the portal shows **invoices and meetings only** — no
+  stage, no deal value, no sales notes. Stage names like "Warm"/"Cold" are written for staff.
+
+- **2026-09-11 — two of the three "blocked on a GHL scope" items were never blocked.** Probed
+  every scope against the app's own token before building anything. No code changed.
+
+  | Scope | Recorded as | Actually |
+  |---|---|---|
+  | `invoices.readonly` | ❌ ask, "chase it first" | ✅ **granted** — HTTP 200, 212 real invoices |
+  | `calendars.readonly` | ❌ not granted | ✅ **granted** — HTTP 200 |
+  | `calendars/events.readonly` | not listed | ✅ **granted** — HTTP 200 |
+  | `calendars/events.write` | ❌ not granted | **unverified** — confirming it means booking a real appointment on a live calendar |
+
+  **Unit 41 is exercised live.** A party-scoped portal credential for GHL contact
+  `lF6a5leuKo7GMBLGz60F` returned two genuine paid invoices — INV-1220 ($700) and INV-1127
+  ($1,648) — through `GET /api/portal/client/invoices`. The unit was correct all along.
+
+  **How the false claim survived.** The scopes were recorded as asks when Units 40/41 were
+  specced on 2026-09-10 and never re-probed after the build. A 401/403 was assumed and never
+  observed. **The rule worth keeping: probe the grant before writing "blocked" in a doc, and read
+  the status code** — my own first probe of `/invoices/` returned **422**, which is auth passing
+  and params missing (`limit` and `offset` are required), not a refusal. `GhlInvoiceClient` was
+  already sending both.
+
+  **Meetings are therefore not scope-blocked; they are unbuilt.** There is no calendar client, no
+  endpoint and no UI. `GhlWriteClient.createFollowUp` writes a GHL *task* over `contacts.write`,
+  which is a different thing and was always specced as such.
+
+  Corrected: `41`, `40`, `37`, `00b`, `00-build-plan` and two older entries in this file.
+
+- **2026-09-11 — IE's sales and marketing desks are reachable, on live GHL data.** Not a unit:
+  Units 36–41 were built, tested and **impossible to log into**, because `evalos.ghl.sales-brand`
+  was blank (so no member of any brand could hold a pipeline-scoped role) and no seeded login
+  carried `SALES` or `MARKETING`. Both closed.
+
+  **`sales-brand` now defaults to International Evaluations** in `application-local.yml`. IE owns
+  the one GHL location (`kBumF0uUOmMBB5bneYjx`), so IE is the selling brand; XpertsPortal is
+  refused 400 by `PipelineAssignmentService` until Unit 25 gives it its own location. That is the
+  single-brand ceiling doing its job, not a workaround. Deployed environments still set
+  `GHL_SALES_BRAND_ID` — the default is local only.
+
+  **`V908` seeds five IE logins**, mapped to the real pipelines read live from GHL on 2026-09-11:
+  SALES `ATTORNEY` → Aditya's, `EMPLOYER_FIRM` → Alex, `INDIVIDUAL` → Junaid; MARKETING
+  `INDIVIDUAL` → Google ADS, `ATTORNEY` → Shivangi's Email. **Two marketing users, not three** —
+  the location has two marketing funnels, and `uq_team_member_pipeline` would refuse a second
+  person on one pipeline anyway. `Ayush's Professors Pipeline` (expert recruitment) and
+  `Master Pipeline` are deliberately unassigned; assigning one is a GM decision, not a seed guess.
+
+  **Verified end to end against live GHL**, five desks, five distinct boards:
+
+  | Desk | Pipeline | Stages | Live deals |
+  |---|---|---|---|
+  | sales · attorney | Aditya's | 9 | 768 |
+  | sales · employer/firm | Alex | 7 | 6 |
+  | sales · individual | Junaid | 7 | 43 |
+  | marketing · individual | Google ADS | 6 | 93 |
+  | marketing · attorney | Shivangi's Email | 6 | **11,718** |
+
+  **⚠ The board's inline-refill assumption is already false, on day one.**
+  `OpportunityBoardService.refillIfStale` carries a `ponytail:` note justifying an inline
+  (on-request) refill because "one person's live pipeline is one or two pages" — and names the
+  upgrade trigger as "if one pipeline ever grows past a few pages". Shivangi's Email Marketing is
+  **11,718 opportunities ≈ 117 pages**, which is the ~13s figure §4 of the spec used to justify
+  the cache in the first place. With `board-cache-ttl` at 2m that is a ~117-page GHL fetch every
+  two minutes for as long as that board is open, against a 100-req/10s per-location budget shared
+  with every other screen. **Not fixed here**: the trigger is met and the upgrade path is named
+  (the off-thread refill `MarketingPipelineService` already implements), but it is a change to a
+  built unit and its own decision. A warm read is 0.6s; it is the cold refill that is the problem.
+
+  **Also corrected:** `application-local.yml` already declared `sales-brand`, so the fix is an
+  edit to that line rather than a second key — a duplicate YAML key would have been silently
+  overridden by the later one.
+
+  Nothing else changed. Backend 885 tests green including the DB suite.
+
+- **2026-09-11 — Unit 19 BUILT: EvalOS does something on its own for the first time.** V42
+  (`scheduled_job`), four sweeps, an advisory lock, a run ledger and a GM panel. Backend 885
+  tests green including the DB suite; staff frontend green.
+
+  **Four sweeps, not five.** `OutboxSender` went with Unit 18 on 2026-09-02, so there is no
+  outbox to drain and no `webhook_delivery` table. `DocChaseSweep` (24h/48h wall-clock),
+  `DocEscalationSweep` (business hours, threshold read from `SlaCalculator`), `StageSlaSweep`
+  (refreshes `sla_status`, notifies only on the transition into breach) and `ExpertSignSweep`
+  (20h warning derived as ⅚ of the 24h budget, prompt at the deadline).
+
+  **No sweep fires a transition, and there is no call site for one in the package.** The
+  signing deadline raises a prompt asking a human to decide; it never calls Unit 15's
+  `EXPERT_TIMED_OUT`. A job reassigning an expert at 3am would be a production decision nobody
+  asked a person about, and `ExpertSignSweepTest.theDeadlineNeverTimesTheExpertOut` is the
+  guard rather than a comment.
+
+  **Three notification types exist because two sweeps were about to silence each other.**
+  `DocEscalationSweep` and `StageSlaSweep` ask `SlaCalculator` the same question about the same
+  `DOC_COLLECTION` case at the same moment, and both were specced to raise `SLA_OVERDUE` under
+  an `alreadyRaised` guard — so **which message a PM got depended on scheduler order**. The
+  sign sweep had the same defect against `EXCEPTION_RAISED`, which four other paths raise on a
+  case. `DOCS_ESCALATED`, `EXPERT_SIGN_AT_RISK` and `EXPERT_SIGN_OVERDUE` give each its own key.
+
+  **The doc chase now prompts a Coordinator instead of doing nothing.** It was specced to
+  publish `checklist.reminder` "→ GHL chases the client"; with Unit 18 gone, nothing subscribes,
+  so the chase was a no-op that looked like a feature. It raises `DOC_CHASE_DUE` naming which
+  of the two chases is due, with **no** `alreadyRaised` guard — both chases must be seen, and
+  the `CHASED` audit rows already cap it at two. The event is still published unchanged.
+
+  **The lock is session-scoped and must not become `pg_try_advisory_xact_lock`.** These sweeps
+  run one transaction per item so one bad case cannot abort the pass — an xact-scoped lock would
+  release after the *first* item and leave the rest unprotected, which is the rolling-deploy
+  double-chase it exists to prevent.
+
+  **The panel exists because a stopped sweep has no symptom.** Nobody is chased, nothing
+  escalates, no error appears; the first sign is a client asking why nobody followed up. So
+  `evalos.jobs.intervals` is keyed **by `JOB_TYPE`** and both the scheduler and the staleness
+  check read that one number — a second list for the check would drift, and the drift is
+  invisible: the panel would simply stop warning.
+
+  **`SweepRegistrationTest` is load-bearing.** An unresolvable `${evalos.jobs.…}` normally
+  fails the boot, but only under `@EnableScheduling` — and the one full-context test sets
+  `evalos.jobs.enabled=false`. A fifth sweep whose interval nobody added would otherwise pass
+  the whole build and fail in production.
+
+  **Two acceptance criteria are not met and are named in the spec**: the holiday-ordering walk
+  is asserted as thresholds rather than end to end over a real calendar, and the DB-gated
+  cross-brand isolation test for the two sweep finders is not written.
+
+  **Next in Track A: Unit 17b** (the cycle-time chart) — the last item.
+
+- **2026-09-11 — Unit 17a BUILT: "a link nobody sent" is visible for the first time.** Backend
+  and staff frontend both green. No migration, no new column.
+
+  **G16, the portal-links ledger, is the substance.** It answers four questions per (case,
+  audience): is there a live link, was it ever opened, when does it die, and is a clock running
+  against an unopened one. `GET /api/metrics/portal-links` plus a tile on the Coordinator, PM
+  and Case Manager dashboards.
+
+  **This is a compensating control for a channel that does not exist.** EvalOS sends no mail
+  (invariant 14), so a link reaches its recipient because a staff member copied it out and sent
+  it by hand — and nothing records that they did. Survivable for a client, who waits. For an
+  expert it is **G15**: the 20h/24h signing clock runs regardless, which makes **a link nobody
+  sent the likeliest way EvalOS breaches that SLA**, and no screen showed it until now.
+
+  **No `sent_at`, and that is the load-bearing decision.** EvalOS cannot observe a staff member
+  pasting a URL into someone else's mail client, and a column recording a fact the system cannot
+  witness is worse than an absent one — because this very dashboard would then report it as
+  true. `last_seen_at` is the honest proxy: evidence the link *arrived*. A test asserts the row
+  carries `openedAt` and never `sentAt`.
+
+  **The band is derived, never invented**, from one question: *is a clock running against a link
+  nobody opened?* It reuses the stage SLA rather than inventing a second threshold, so this tile
+  and the board's rail cannot disagree about one case. And **an absent link reads green wherever
+  the stage does not want one** — a tile that showed red for every case not yet at signing would
+  be ignored within a week, and then ignored on the day it was right.
+
+  **One row per (case, audience), not per token**: six superseded links are one line with a
+  re-mint count. Green rows are hidden — most rows are green, and a ledger nobody scrolls is one
+  that missed the red row.
+
+  **The Expert Network Manager is refused, and it is not an oversight.** They are on four other
+  metrics routes; `Tier.SUPPLY` reads the roster, not case content, and every row here names a
+  case. Asserted rather than left to look like a slip.
+
+  **G9 closed by derivation, exactly as its note instructed.** Turnaround now comes from
+  `expert_case_offer`'s own `outcome_at - offered_at`; the dead `avg_response_hours` column
+  stays dead. **Median, not mean** — one expert answering after a fortnight drags a mean
+  somewhere nobody recognises — and **null, not zero**, on no data, because zero reads as
+  "answered instantly".
+
+  **G10 accepted as a limitation, not built.** A quality-score trend needs history that a single
+  human-entered column does not have. The tile shows the score and no direction arrow. Faking it
+  was the one thing the gap forbade.
+
+  **G11 has a real answer now and I deliberately did not take it.** When the gap was written,
+  "no field carries GHL's sales notes" was true. **Unit 39 changed that** — `opportunity_note` is
+  keyed on `ghl_opportunity_id`, and `evalos_case` carries that id from Handoff A, so the join
+  exists. Not built because it is a scope decision, not a gap: those notes are written by Sales
+  for Sales, and putting them on a production widget shows a Case Manager a conversation nobody
+  wrote for them. **The data is no longer the obstacle — say the word and it is a small change.**
+
+  **Next in Track A: Unit 19** (background jobs — `job/` is still a bare `.gitkeep` and nothing
+  carries `@Scheduled`), then Unit 17b (the cycle-time chart).
+
+- **2026-09-11 — 34d BUILT: the client portal has no mock left in it, and no account.** Both
+  portal apps build, 24 portal tests pass. **53 files deleted, 10 changed.** No backend change.
+
+  **`/dashboard` and `/requests` read real cases** — `GET /client/cases` against D1's party
+  token, showing D5's server-rendered `step` and its `actionRequired` flag. The SPA still holds
+  **no lifecycle enum**, and a case row links to `/draft/:caseId`.
+
+  **The account shell is gone, which is what this slice was really for.** `/login`,
+  `/forgot-password`, `/verify-email`, `AuthProvider`, `AuthenticatedRoute`, `PublicRoute`,
+  `AuthLayout`, `authService`, `useAuth`, `/profile`, `/settings` — all deleted. That shell
+  implemented an email-and-password account, **the alternative D1 refused rather than
+  deferred**: a password store needs a mail channel invariant 14 says EvalOS does not have. The
+  expert app shed its shell on 2026-09-10; the client's survived only because `/dashboard` and
+  `/requests` were mock screens living inside it — which is precisely what this slice replaced.
+  The tracker called that asymmetry "deliberate and not finished work". It is finished.
+
+  **The app now shares one credential and one nav.** `usePortalToken` — extracted at its fifth
+  call site — lifts the scoped token out of the URL fragment on first render, so a client
+  opening any one link can walk the rest. Before this, the three real screens each stood alone
+  *outside* a shell whose sidebar pointed only at mocks. That is inverted.
+
+  **Two deletions were judgement calls, both recorded in `App.tsx`.** The **intake funnel** was
+  parked-not-deleted the day before because its screens are wanted — but every step imported
+  `useAuth`, so with the shell gone it stopped compiling, and **code that cannot compile is not
+  parked, it is broken**. **`/reports`** was closer: parking it meant keeping four mock modules
+  alive so an unregistered screen could build, for a download page whose backend route does not
+  exist (`PortalCaseService` filters `SIGNED_LETTER` out deliberately — delivery is an untaken
+  decision). Unlike the GM funnel screens, which are live and were left alone, **nothing here
+  was reachable by anyone**, and deleting unreachable mock code is not a scope cut. It is ~40
+  lines against whatever route the delivery decision produces.
+
+  **Also gone:** the notification bell (a channel invariant 14 says does not exist) and Logout
+  (there is no session — closing the tab is the whole of it; a button that cleared the token
+  would strand the client on a page they could only return to via the original email).
+
+  **What is left in the client portal: five pages, three services, all EvalOS-backed.**
+
+  **Next in Track A: Unit 17a** — dashboards without charts, carrying gaps G9–G11 and G16. Then
+  Unit 19 (background jobs — `job/` is still a bare `.gitkeep`) and Unit 17b (the cycle-time
+  chart).
+
+- **2026-09-11 — 34b BUILT: the client can finally answer their draft.** Both portal apps build,
+  **24 portal tests** (was 22). No migration.
+
+  **The screen the portal existed for and did not have.** `read`, `approve` and
+  `request-revisions` have been in EvalOS **since Unit 14** with nothing calling them — which is
+  why the build plan called this the highest-value work left anywhere.
+
+  **It could not be built as specced, and that is the finding.** Unit 35's D1 gave party scoping
+  to the **reads** (`GET /cases/{caseId}`) and left the two **writes** resolving the case from
+  the token alone. A client whose link covered two cases could open either draft and **approve
+  neither**: both answered 409 `SAY_WHICH_CASE` with nowhere to say which. The read half of
+  party scoping shipped and the write half did not — invisible until a screen tried to use it.
+
+  **Closed with `POST /cases/{caseId}/approve` and `POST /cases/{caseId}/request-revisions`**,
+  mirroring the read route and reusing its party check. **The tokenless routes stay and still
+  refuse to guess:** approving is Handoff B — it sends a letter to an expert to sign, with no
+  undo that reaches the client — so a route that picked the newest case would be guessing about
+  an irreversible act. The new route lets the client *answer* the ambiguity rather than removing
+  the refusal.
+
+  **The screen holds no lifecycle vocabulary.** `APPROVAL_STATUS` maps the three values EvalOS
+  can send, with a test that fails on a fourth (the rule `CHECKLIST_STATUS` already follows), and
+  `awaitingAnswer` is the server's flag, not something the page infers. The case picker appears
+  only for more than one case.
+
+  **Two things said plainly on screen rather than left to be discovered:** approving "sends it to
+  the expert to sign — it cannot be undone from here", and a case-scoped link that cannot list
+  cases gets "use the link we sent for that case" instead of a generic failure.
+
+  **`draftLink` is still a pasted link, not an S3 key** — only client uploads have object keys —
+  so it renders as an external link and says so when empty. That was flagged in spec 34's
+  caveats before 34b started, and held.
+
+  **Next in Track A: 34d** — the two case lists, over Unit 35's party reads and D5's projection.
+  The remaining Track A items after that are Unit 17a (dashboards), Unit 19 (background jobs)
+  and Unit 17b (the cycle-time chart).
+
+- **2026-09-11 — Unit 41 BUILT: the programme is code-complete.** Both portal apps build, 22
+  portal tests pass. ~~**Not yet exercised live**~~ — **exercised live 2026-09-11**; the scope was
+  already granted. Was: `invoices.readonly` is still ungranted, so
+  every invoice call answers 502 until it lands. No migration.
+
+  **A client with a party-scoped link now sees their invoices and what has been paid.** EvalOS
+  reads `GET /invoices/` per request and stores **nothing**: Sales raises invoices in GHL, GHL's
+  QuickBooks integration does the accounting, and this is a window onto the result.
+
+  **The block was on exercising the code, not on writing it** — the same distinction the build
+  plan draws for the AWS credential. Every acceptance criterion is met against a stub GHL, and
+  the unit was specced from the start to answer **502 naming the missing scope** in exactly this
+  state.
+
+  **Unit 35 is why this was the cheapest unit in the programme.** It made a portal credential
+  name a `ghl_contact_id`, and `GET /invoices/` filters by exactly that — the key the portal
+  already held is the key the invoice API wanted. No mapping, no new identity, no lookup.
+
+  **The missing-grant diagnostic earns its place.** Every *other* GHL screen works on the current
+  token, so a 401 here reads as "the token is broken" when it means "missing one scope nothing
+  else uses". The client decorates 401 and 403 with the grant name — **and only those two**,
+  because a hint that fires on timeouts too teaches the reader to ignore it.
+
+  **One API inconsistency worth knowing:** the invoice endpoint addresses the sub-account with
+  **`altId` + `altType=location`**, not `locationId` like the opportunity endpoints. Pinned in a
+  wire test, because getting it wrong is a 422 and nothing else — the same class of mistake that
+  cost a live afternoon on `pipeline_stage_id`.
+
+  **The 403 is explained rather than left generic.** A case-scoped link cannot show billing, and
+  "something went wrong" would send the client to support for something a different link fixes.
+  The page says: *"This link opens one case rather than your account."*
+
+  **Two portal slices needed a mock bean** — `ClientPortalTest` and `ExpertPortalTest`, both of
+  which import the controller that gained a collaborator. Caught by the full `verify` and by no
+  per-class run. **Third time this programme**, which is a pattern worth naming: adding a
+  constructor argument to a controller breaks every `@WebMvcTest` importing it, and only a full
+  verify sees it.
+
+  **Invariant 5 is the trap this unit sits closest to.** A GHL invoice marked paid is **not**
+  revenue recognition — that is *paid AND delivered*, read only through
+  `RefundService.isRevenueRecognized`. Said on the route, in the shared type and in the spec,
+  because a later dashboard summing this screen is exactly what that invariant exists to prevent.
+
+  **The programme (Units 36–41) is now code-complete.** What remains is not code:
+  **`invoices.readonly`** to exercise this unit, and **`calendars/events.write` +
+  `calendars.readonly`** for Unit 40's meetings.
+
+- **2026-09-11 — Unit 40 BUILT (except meetings): the sales desk, and the operating half of the
+  programme is done.** 797 backend tests green (was 749), frontend builds, 141 frontend tests
+  pass. No migration.
+
+  **A `SALES` employee now works a deal to a close from EvalOS**: rename it, re-price it, move it
+  between stages, mark it won/lost/abandoned, set a follow-up, and read and write the same note
+  stream Marketing uses.
+
+  **The gating check passed, and the evidence is concrete.** Spec 40 said to verify *before
+  building* that GHL's marketing→sales promotion preserves `ghl_opportunity_id` — notes are keyed
+  on it and would not follow a re-created deal. **`PUT /opportunities/{id}` accepts a
+  `pipelineId`**, so GHL treats the pipeline as a mutable field rather than as identity: a move
+  is an update in place, the id survives, and the history comes with it. No migration step.
+  **The limit, stated:** that verifies GHL's *API*, not this business's particular workflow. The
+  definitive check is watching one real lead get promoted, and that has not been done.
+
+  **Follow-ups shipped; only meetings are actually blocked.** Both were listed as waiting on the
+  `calendars/*` grant. A follow-up is a GHL **task** (`POST /contacts/{contactId}/tasks`) and
+  needs only `contacts.write`, granted all along — so the desk ships with follow-ups working
+  instead of that half deferred too. **Checking the scope per endpoint rather than per feature is
+  what found it.**
+
+  **The refactor Unit 39 set up.** Unit 39 left notes on `MarketingLeadService` with a note that
+  Sales would share the table — and sharing a table through a class named for the other desk is
+  how the second caller ends up with a copy. So: **`OpportunityNoteService` +
+  `OpportunityNoteController` at `/api/opportunities/{id}/notes`**, under neither desk's URL
+  because the conversation belongs to the *deal*; **`PipelineScope`**, extracted because three
+  desks were about to hold three copies of one security check (three copies is three places for
+  one to drift permissive, invisibly, since each looks right alone); and **`GhlLeadClient` →
+  `GhlWriteClient`**, since Sales now writes through it too.
+
+  **Two absences asserted as tests.** `thereIsNoRouteToMoveADealBetweenPipelines` — promotion is
+  GHL's workflow, and a second path would race the automation the business owns. And
+  `thereIsNoRouteToBookAMeeting` — an ungranted scope, written as a test so the gap stays visible
+  rather than being rediscovered as "why is there no meeting button".
+
+  **`open` is not a closable status.** Re-opening a won deal would not un-create the case its
+  webhook already made, so it is a correction with a case-side answer, not a sales action. Case
+  matters too: GHL's enum is lowercase, and `WON` is refused.
+
+  **Winning still does not create a case.** EvalOS tells GHL and waits for the webhook
+  (invariant 8, Handoff A). The screen says so — "the case appears once GHL confirms it" —
+  because a button that goes quiet is a button pressed twice.
+
+  **Next: Unit 41** — Client Portal invoices, the last unit of the programme. **Blocked only on
+  `invoices.readonly`**, and independent of everything above: Unit 35 already ships a portal
+  credential naming a `ghl_contact_id`, which is exactly the key `GET /invoices/` takes.
+
+- **2026-09-11 — Unit 39 BUILT: EvalOS writes to GHL for the first time, and invariant 7 is
+  amended.** `V41`. Backend green (40 Postgres tests included), frontend builds, 141 frontend
+  tests pass.
+
+  **A `MARKETING` member now opens a lead, values it and writes notes on it without opening GHL.**
+  Contacts and opportunities go **to GHL** and display what GHL returns; the note stream is
+  EvalOS's own.
+
+  **Unit 37's tripwire caught its first caller, exactly as designed.** `GhlLeadClient` holds
+  `GhlHttp`, calls write verbs, and therefore had to reach `AuditService` — the structural test
+  whose expected set was empty now has a member that satisfies it rather than a rule that was
+  quietly waived.
+
+  **The idempotency decision Unit 37 deferred is made, and GHL made it easier than expected.**
+  Every GHL write is marked `idempotencyRequired`, but **no key exists to send** — no header, no
+  client token. What GHL offers instead is **upsert**, keyed on data it already owns:
+  `POST /contacts/upsert` (email then phone, per the location's duplicate setting) and
+  `POST /opportunities/upsert` (`contactId` + `pipelineId`, returning a **`new`** flag). So
+  creates go through upsert and a double-submit yields one lead. **Two limits stated in the
+  spec:** upsert means one open opportunity per contact per pipeline — right for a marketing
+  lead, **wrong for a repeat client's second deal, which Unit 40 must not route this way** — and
+  contact dedupe depends on a GHL setting EvalOS does not control.
+
+  **Invariant 7 is amended in one clause and the rest is load-bearing.** Contact data stops being
+  "never mutated"; **EvalOS still mints no `ghl_contact_id`** — it asks GHL and GHL returns the
+  id, which is why the amendment is narrow: the write direction moved, the identity authority did
+  not. And Unit 39 *leans on* the three-identifier rule rather than merely respecting it:
+  `opportunity_note` is keyed on `ghl_opportunity_id`, because a repeat client is one contact and
+  two deals and GHL's own notes hang off the contact.
+
+  **Two bugs the tests caught, both of which would have shipped silently.** The audit keys
+  **collided**: the first version hashed `"ghl:" + id` for contacts and opportunities alike, so
+  the same id in both merged their histories — **and the javadoc claimed the prefix prevented
+  exactly that.** And GHL's `new` flag **never bound**, because the JSON key is a Java keyword and
+  Jackson needs `@JsonProperty("new")`; every upsert would have reported "already open" whatever
+  GHL said, with nothing failing.
+
+  **And a lesson about testing an append-only table.** A note test passed on its first run and
+  failed on its second. Nothing was flaky: notes cannot be deleted (that is the trigger doing its
+  job) and `evalos_test` persists, so a count over a fixed id grew every run. The tests now
+  generate per-run ids, verified by running the suite twice.
+
+  **Screens:** a New lead form for `MARKETING` above the board, and notes on each card, loaded on
+  expand rather than eagerly. Opening a lead **refetches** rather than inserting a card locally —
+  the deal lives in GHL now, and reading it back is the only honest confirmation.
+
+  **Next: Unit 40** — the sales desk. Opportunity CRUD, stage moves, notes (shared table), and
+  meetings. **Its meetings half is blocked** on `calendars/events.write` + `calendars.readonly`;
+  everything else needs only the existing grant.
+
+- **2026-09-11 — Unit 38 BUILT: opportunities are readable, and the pivot is now expensive to
+  reverse.** `V40`. Backend green; frontend builds and its 141 tests pass.
+
+  **This is the unit the whole programme was warned about.** Unit 29's sales desk was removed in
+  one migration with no data reconciliation *because no EvalOS row held a pipeline fact*.
+  `ghl_opportunity_cache` is that row. From here the pivot cannot be undone at Unit 29's price,
+  and that — not the code — is what it cost.
+
+  **What shipped.** `GhlOpportunityClient` reads `GET /opportunities/search` scoped by pipeline;
+  a droppable cache holds the result; one route, `GET /api/opportunities/board`, serves Sales,
+  Marketing and the GM; and the staff SPA gains the two roles Unit 36 deliberately left out,
+  together with the board they reach.
+
+  **What keeps the cache from becoming a second CRM**, all three checkable: every column is a
+  field GHL owns, `TRUNCATE` costs a refill and nothing else, and a pipeline is replaced
+  **wholesale** rather than upserted — an opportunity that has left has no fresh row to update,
+  so an upsert would strand it on the board forever.
+
+  **A bug of my own, caught in self-review before commit: a GHL call inside a database
+  transaction.** `forCaller()` was `@Transactional` and fetched from GHL within it, holding a
+  pooled connection open across a network round trip — a handful of concurrent board loads would
+  surface as pool exhaustion somewhere unrelated. Split into `OpportunityCache`, which owns the
+  writes; the board calls GHL outside any transaction. **It had to be a separate bean**, because
+  Spring's `@Transactional` is proxy-based and a self-call gets no transaction at all — the
+  annotation would sit there looking correct and do nothing.
+
+  **Six departures from the spec, all recorded in it.** *One* board rather than two (same
+  question, same data, only the asker differs). Scoping is **structural** rather than a
+  predicate — `ScopePredicate` needs a brand column and the cache deliberately has none, so every
+  finder *requires* the pipeline and it comes from the principal; a predicate is something a query
+  can forget, a required parameter is not. The refill is **inline**, because §4's ~13s floor is a
+  *year of one marketing funnel*, not one person's two-page pipeline. **No webhook eviction** —
+  the `opportunity.updated` subscription it needs does not exist, and TTL is 2 minutes. And
+  **nothing was deleted**: see below.
+
+  **The reversal worth arguing with.** Specs 36 and 38 both said this unit would delete
+  `/api/marketing/sales-pipeline` and the three `*-pipeline-name` properties as superseded. Reading
+  the code says they are not: those screens are **analytics funnels** over a date window, and this
+  is an **operational list of cards** with no date window at all. *"How is the funnel converting"*
+  and *"what is on my desk"* are different questions. The naming redundancy is real but **fails
+  loudly** (a rename gives a 502 saying so), and deleting three live GM screens to tidy it is a
+  scope cut inside a unit scoped to add one. **Left standing; the cut is available to take on its
+  own if the business wants it.**
+
+  **Open question P1 is decided and tested: the GM's union is the configured selling brand's**,
+  not every brand's — every other screen follows the brand switcher, and a board that silently
+  spanned brands would be the one exception nobody was told about. Moot while the single-brand
+  ceiling holds; defined anyway, because a screen undefined for a state the UI can reach is a bug
+  waiting for brand two.
+
+  **A spec contradiction found and fixed before coding:** Unit 37 §4 deferred the idempotency
+  decision to "Unit 38, the first caller". Unit 38 writes nothing — **Unit 39 is the first
+  caller**, and both specs now say so. Two specs disagreeing about who owns a decision is how it
+  ends up owned by nobody.
+
+  **Two stale guards, and the second is the one to read.** `navigation.test.ts`'s `ALL_ROLES` was
+  a hardcoded six, so every "no role may reach X" assertion silently excluded the new roles. And
+  the GM-only guard over the GHL location was a **hardcoded list of three paths** whose own
+  comment warned that *"a screen added without the same door is the way this leaks next"* — then
+  this unit added a fourth screen over that location and **the test passed, because the path was
+  simply not in the list.** Now derived: `NavItem` carries `readsGhlLocation`, the test walks
+  every marked item, and `/opportunities/board` is asserted as the one **explicit** exception
+  (legitimate — `evalos.ghl.sales-brand` names the brand, so the exception narrowed). Proved by
+  injecting a leak and watching it fail.
+
+  **And a harness flaw worth more than this unit.** `LocalPostgresIntegrationTest` skipped **all
+  36 tests** inside a full `verify` while passing when run alone: its connection probe had a
+  **2-second** timeout and lost the race against a dozen Spring contexts starting. A skip is not
+  a failure, so **the build reported SUCCESS with the only tests that can see a real schema
+  quietly not run** — which is exactly how `V39`'s NULL-in-CHECK bug would have shipped. Raised to
+  10s. The real fix is `-Devalos.db.test=true` in CI, which forces the suite on so a broken
+  database fails loudly instead of vanishing.
+
+  **Next: Unit 39** — the marketing lead desk (`V41`). It amends invariant 7, introduces
+  `opportunity_note`, and is **the first caller of Unit 37's write door**, so it owns the
+  idempotency decision.
+
+- **2026-09-10 — Unit 37 BUILT: the write door is open, and invariant 2 is dead.** 665 backend
+  tests green (was 659). No migration, **no caller**, no screen.
+
+  **`GhlHttp` has `post`, `put` and `delete`.** That is the whole feature, and the unit existed
+  separately for exactly that reason: the class previously guaranteed the *absence* of those
+  verbs, backed by a build-failing test, and deleting a deliberate guard as step four of a feature
+  ticket is how a constraint disappears with nobody deciding to remove it.
+
+  **What replaced the guard, because deleting a test is not a decision.** Two assertions, same
+  file. **The verb list is closed** — exactly `get`/`post`/`put`/`delete`, a fifth fails the
+  build, and there is no `patch` because GHL's API does not use it. And **every caller of a write
+  verb must reach `AuditService`**, a source scan: invariant 13 for writes that land in another
+  system, because *a mutation whose only trace is in GHL is invisible to EvalOS forever*.
+
+  **That second test currently asserts an empty set, and that is the design rather than a
+  weakness.** This unit ships no caller. Enforcing a transitive "reaches audit eventually" across
+  a call graph that does not exist would have been a scheme invented for nobody, which the first
+  caller would then work around. As written, Unit 38 must come to this file and add itself — and
+  meets the requirement before shipping instead of after an incident.
+
+  **Invariant 2 is rewritten in `architecture.md`, not annotated.** Three things it earned are
+  kept explicitly, because they are the ones most likely to be swept along: **invoicing is still
+  GHL's** (EvalOS raises none), **Handoff A is still the only door into custody** — a salesperson
+  marking an opportunity won waits for the webhook — and the **Unit 29 round trip**, which is what
+  makes the real cost legible: that reversal was cheap only because no EvalOS row held a pipeline
+  fact, and **Unit 38 spends that property**. This pivot will not be undoable at Unit 29's price.
+
+  **Three collateral corrections, each because a true statement had become false.**
+  `GhlHttp.reads` is renamed `http` — a field name asserting a property the class no longer has
+  outlives every comment correcting it. The failure messages drop "read" ("GHL refused the read
+  with HTTP 500" points an operator at the wrong place on a write). And **`DocumentStore`'s
+  javadoc cited `GhlHttp`'s read-only stance as the precedent for having no `delete`** — now
+  false, and precisely the stale cross-reference someone later uses to argue the opposite, so it
+  now says why Unit 37 is *not* a precedent there: a desk that moved is a different argument from
+  evidence that must not vanish.
+
+  **`writesDoNotRetry` runs a real server** — a JDK `com.sun.net.httpserver.HttpServer` on an
+  ephemeral port, counting requests and answering 500. Asserting "exactly one POST" is the only
+  way to see a retry, which can arrive from the `RestClient` builder, an interceptor, or a Spring
+  default; reading configuration would miss two of the three. No dependency, no Docker.
+
+  **Still deliberately absent:** any caller, any idempotency scheme (deferred to Unit 38, the
+  first caller — a scheme invented without one is a scheme the caller works around), and any new
+  OAuth scope.
+
+  **Next: Unit 38** — opportunity reads and the two boards (`V40`). It stores the first EvalOS row
+  holding a pipeline fact, must decide open question **P1** (whose pipelines the GM's union
+  spans), and removes all three `evalos.ghl.*-pipeline-name` properties.
+
+- **2026-09-10 — Unit 36 BUILT: the access model the whole GHL programme reads.** `V39`,
+  **659 backend tests green** (was 611), staff frontend builds. No GHL call, no screen, no write —
+  invariant 2 is still enforced by code and `GhlHttpTest` still fails the build on a write verb.
+
+  **What shipped.** `Role` goes to eight with `SALES` and `MARKETING` on a new **`Tier.PIPELINE`**;
+  `team_member` gains `ghl_pipeline_id` (the whole access predicate) and `segment` (display only);
+  the pipeline rides on the JWT beside brand and team; and two GM routes — `GET /api/ghl/pipelines`
+  to pick from, `PUT /api/team-members/{id}/ghl-pipeline` to assign, audited, every refusal a 400.
+
+  **The one real bug, and only a real Postgres could see it.** The segment CHECK as specced was
+  `role IN ('SALES','MARKETING') AND segment IN (...)`. **`NULL IN (...)` evaluates to NULL, and a
+  CHECK that evaluates to NULL passes in Postgres** — so a `MARKETING` row with no segment was
+  accepted by the constraint written to forbid it. Fixed with `segment IS NOT NULL` before the
+  `IN`. The pipeline CHECK escapes the same trap only because `IS NOT NULL`/`IS NULL` never yield
+  NULL, which is luck of phrasing rather than design. **No Java-level test could ever have caught
+  it** — the enum cannot produce a null segment — which is the concrete argument for
+  `LocalPostgresIntegrationTest` existing at all.
+
+  **V39 was edited in place rather than corrected by a V40**, and that is worth defending against
+  invariant 9. It had never been committed or deployed; its only application was to the local
+  `evalos_test` scratch schema, which was dropped and re-migrated. A V40 fixing a V39 nobody else
+  had ever run would be permanent noise in the history. **The rule stands for anything that has
+  shipped.**
+
+  **Four things the build added to the spec.** `Role.isPipelineScoped()`, so the route and the
+  constraint read one predicate instead of two lists of two names. `GhlPipelineClient.pipelines()`,
+  extracted from `pipelineNamed` which now filters it — one HTTP shape, one place the camelCase
+  `locationId` quirk is recorded. **"Owns no pipeline" secondary constructors** on `StaffPrincipal`
+  and `TenantContext` instead of editing ~35 call sites across 25 test files — not a defaulting
+  convenience, since null is what the column holds for the six other roles, and
+  `ScopePredicateTest` pins that the short form still fails closed for the two it does not. And
+  `SegmentIsNotAnAccessKeyTest`, a source scan with two tests proving the scan itself can fail.
+
+  **One deliberate gap.** The **staff frontend still lists six roles**. Adding two would mean empty
+  nav entries or broken exhaustive `Record<Role, …>` maps, for roles with **no screen to reach
+  until Unit 38** — and nothing in the app can create a member in either role, so it is unreachable
+  rather than broken. Unit 38 adds the union and the boards in one change.
+
+  **Next: Unit 37, the write door.** It ships no feature and that is the point.
+
+- **2026-09-10 — the direction changed, and it is SPECCED, not built. EvalOS becomes the interface
+  Sales and Marketing work in.** No code changed. Seven documents did.
+
+  **The ask.** Three kinds of Sales employee (Attorney, Employer/Firm, Individual) and three
+  Marketing counterparts work leads and opportunities **from EvalOS instead of GHL**. Marketing
+  creates and nurtures; GHL's own workflows promote a qualified opportunity into the right Sales
+  pipeline; Sales works it with full CRUD, notes, meetings and follow-ups; Sales raises invoices
+  **in GHL**, GHL's QuickBooks integration does the accounting, and the Client Portal *displays*
+  the result. **GHL stays the CRM, pipeline, automation and invoice layer underneath.**
+
+  **Six decisions, each taken against an alternative rather than by default:**
+
+  1. **Two roles, not six.** The three kinds carry identical permissions, so they are a `segment`
+     column and **nothing branches on it**. Six enum values would have grown every
+     `switch (role)`, the role CHECK, the nav tests and the permission matrix to express a
+     distinction that changes no permission — an org chart in a security enum.
+  2. **One personal, exclusive pipeline per employee.** `uq_team_member_pipeline` survives as
+     Unit 36 specced it.
+  3. **GHL is truth; the cache is droppable.** Every write goes to GHL and EvalOS displays GHL's
+     answer — no optimistic local state. A cache exists only because a board is ~115
+     un-parallelisable cursor pages against a 100-req/10s limit: a ~13s floor, past the browser's
+     15s timeout. **A pass-through board does not load.** It holds only fields GHL owns.
+  4. **EvalOS owns the note stream, keyed on `ghl_opportunity_id`.** **GHL has no opportunity
+     notes** — verified against the live API, notes hang off the *contact*. The business said "an
+     opportunity is itself a contact", which is true of every contact today and is exactly the
+     conflation invariant 7 forbids: a repeat client is one contact and two opportunities.
+     Keying on the opportunity costs nothing now and survives that. **The cost, named: a note
+     written in GHL never reaches EvalOS** — acceptable only because nobody is supposed to work
+     in GHL, and wrong the day somebody does.
+  5. **One selling brand, enforced with a 400, not documented.** EvalOS is multi-brand and points
+     at **one** GHL location that invariant 1 calls unattributable. Brand-locked sales roles break
+     that exception on contact. `evalos.ghl.sales-brand` names the brand; any other brand is
+     refused at assignment. **This narrows invariant 1's exception rather than widening it.**
+     Unit 25 is the upgrade path and the trigger is now a business event — *brand two sells*.
+  6. **Unit 37 exists as a unit that ships no feature.** It adds three methods to `GhlHttp`.
+     It is separate because `GhlHttpTest` currently *fails the build* if `post` appears, and
+     deleting a deliberate guard as step four of a feature ticket is how constraints vanish with
+     nobody deciding.
+
+  **The invariant ledger, because three reversals are not one.** **1** narrows (Unit 36); **2**
+  dies (Unit 37, *not* 36 — that unit reads nothing); **7**'s first clause is amended while its
+  three-identifier rule survives verbatim and load-bearing (Unit 39); **14** is *ruled on, not
+  reversed* — EvalOS instructs, GHL delivers, and composing a message itself is still refused.
+  **8 is untouched across the whole programme**: Sales marks an opportunity won and **waits for
+  the webhook**; EvalOS never creates the case.
+
+  **Verified against the live GHL API rather than assumed.** Opportunity CRUD and a server-side
+  `pipelineId` search parameter exist; `GET /invoices/` filters by `contactId` + `status`;
+  appointments exist. ~~**Three scopes are not granted**~~ — **wrong, corrected 2026-09-11.**
+  `invoices.readonly`, `calendars.readonly` and `calendars/events.readonly` were all probed
+  against the app's own token and all answer HTTP 200. The grants were never re-tested after this
+  entry was written; only `calendars/events.write` is still unverified.
+
+  **Unit 41 does not queue behind the programme.** It needs Unit 35 (shipped: a portal credential
+  naming a `ghl_contact_id` — exactly the key `GET /invoices/` takes) and the one scope. ~~Chase
+  `invoices.readonly` first~~ — **it was already granted**; Unit 41 was exercised live on
+  2026-09-11 with no code change.
+
+  **Verification pass done first**, because `0d88f0c` exists: `V38` is latest so the programme
+  starts at `V39`; `SALES_EXECUTIVE` and `GoogleDrive` survive only in applied migrations and
+  historical comments; Unit 18 and Unit 20 residue is genuinely **zero files**.
+
+  **Written:** `00b-ghl-operational-programme.md` (new, programme-level), specs `37`–`41` (new),
+  spec `36` amended (segment, brand ceiling, `V39`, Unit 39→37 renumbering), `CLAUDE.md`,
+  `architecture.md` (a ledger above the invariants — none is relaxed yet), `00-build-plan.md`
+  (Step 0 scopes + Track C), and the two Serena memories that stated the old direction
+  (`core`, `backend/security`) **edited, not appended to**.
+
+  **Still open:** P1 the GM's cross-brand union (moot while one brand sells, Unit 38 must still
+  decide it), P2 PM/PC/CM pre-case visibility (recommend no), P3 an orphaned note (recommend it
+  survives), P4 the three `*-pipeline-name` properties become duplicated truth and leave in
+  Unit 38. **And one thing to verify before Unit 40 is built:** that GHL's marketing→sales
+  automation *preserves* `ghl_opportunity_id`. If it mints a new opportunity, notes do not follow
+  and Unit 40 needs a migration step.
+
+- **2026-09-10 — D2–D4's screens parked, and Unit 35 step 3 BUILT: a portal credential now names a
+  party.** 611 backend tests green (was 588), both portal apps build, portal suite green.
+
+  **The parking came first, because it is a deletion.** Eleven routes left `client-expert/client`
+  and five left `client-expert/expert` — unregistered, not deleted, with the pages and services
+  still on disk under a dated note in each `App.tsx`. The client's were D2–D4's: the seven-step
+  intake funnel (invariant 8), `/payments` + `/invoices` (invariant 2), `/messages` + `/tickets`
+  (invariant 14). The expert's were its whole **account shell**, which is the alternative D1
+  *refused* rather than deferred — a password store needs the mail channel invariant 14 says does
+  not exist. All sixteen ran on mocks, and all sixteen were reachable in a shipping app.
+
+  Parking a route is not deleting a `<Route>`: ten CTAs pointed into those screens from pages that
+  stay (`Requests`, `Dashboard`, `Analytics`, the sidebar's "New Request", `Login`'s only signup
+  path), plus `SUPPORT_NAV` and two nav entries, plus both intake guards. All went, or the app
+  ships buttons that 404. **`intakeService` deliberately stayed** — it is misnamed, and also backs
+  `listRequests` for the live `/requests` and `/dashboard`, which are 34d's targets, not D2's.
+
+  **The asymmetry is deliberate and is not finished work.** The client's account shell — `/login`,
+  `/forgot-password`, `/verify-email` and everything behind `AuthenticatedRoute` — is *still
+  registered*, because `/dashboard` and `/requests` are exactly what 34d rewires onto a party
+  token. Parking them would delete the thing 34d builds into. So the client app carries a refused
+  auth model until 34d lands; the expert app no longer does.
+
+  **Then D1, D5 and D6.** `V38` makes `case_id` nullable and adds `ghl_contact_id`, so a row names
+  a case, a client party or an expert party. Three things in that migration are worth knowing:
+  the CHECK that V37 could not have (V37's would have blocked the very UPDATE that revokes a
+  pre-column row; this one only sees rows written from here on); **both party uniqueness indexes
+  lead with `brand_id`**, because V16 already treats a contact as per-brand and without it minting
+  one brand's link would revoke another's; and `idx_case_brand_contact`, which is new because
+  V15's is **partial on open cases** and a client's list must include the delivered case they came
+  back for.
+
+  Five routes: `/client/cases`, `/client/cases/{id}`, `/expert/cases`, `/expert/cases/{id}`,
+  `/expert/payouts`. The path variable is safe for the reason Unit 34c's document filter is —
+  matched against the credential before anything is read — and a case that is not yours answers
+  **403, never 404**, which would be an oracle for counting the brand's cases. Minting is
+  `?party=true` on the existing route, deriving the party **from the case**: there is deliberately
+  no `mintForContact(id)`, which would be an enumeration surface. A party token lives **7 days**
+  to the case token's 30, and the two revoke independently — issuing a party link does not kill a
+  case link already sent.
+
+  **Two departures from the spec, recorded rather than hidden.** The 409 got its own code,
+  `SAY_WHICH_CASE`, instead of reusing `ILLEGAL_TRANSITION`: a portal that cannot tell "not
+  allowed" from "which one" shows the client the wrong sentence. And `PortalStep` carries
+  `actionRequired` as a **boolean field** rather than the spec's literal "Upload — action
+  required" string, so the flag that highlights a row is not a substring search that breaks on the
+  first rewording.
+
+  D6 is a named whitelist with a serialization test, like Unit 14's and Unit 15's: case reference,
+  amount, currency, status, settlement date. **Never `payment_detail`** (invariant 4) — asserted on
+  the JSON, not the field list, because a nested DTO would pass a field-name check.
+
+  **One acceptance criterion is knowingly unmet** and is 34b/34d's: the SPA still holds four
+  lifecycle enums. The server half is done — `PortalStageProjection` is the only mapping, and both
+  list payloads carry the word — but the enums come out when the screens reading them are rewired.
+  Three of the four now sit behind parked routes.
+
+- **2026-09-09 — Spring Boot 3.5.x is past OSS EOL, and staying there is now a decision rather
+  than a default.** 588 backend tests green. Two cleanups shipped and the framework question was
+  answered — not by upgrading.
+
+  **Shipped:** ten unused imports across six files, and `/api` hoisted to a class-level
+  `@RequestMapping` on `AuthController` and `ChecklistController`. The routes are byte-identical;
+  `SecurityFlowTest` and the controller tests are the proof. `ChecklistController`'s javadoc
+  previously explained why it carried *no* class-level mapping — that reason was about
+  `/checklists/board` and `/cases/{id}/checklist` being two branches, which a shared `/api` prefix
+  does not touch, so the note was corrected rather than deleted.
+
+  **The EOL finding.** OSS support for 3.5.x ended 2026-06-30. **There is no 3.6** — the line runs
+  3.5.16 straight to 4.x, so clearing the warning is a major migration, not a version bump. Boot 4
+  was already a deliberate downgrade in Unit 01; this is the same choice re-taken against a
+  different fact.
+
+  **Decision: stay on 3.5.16.** Commercially supported to 2032-06-30. The blocker is not effort but
+  *where* the effort lands — the migration was taken to the point where **89 tests fail, every one
+  of them a 401**: the bearer token is on the wire and `JwtFilter` no longer authenticates it under
+  Spring Security 7. One root cause on the staff auth path, which is the wrong thing to resolve by
+  guessing. This is **"not yet", not "never"** — an EOL framework with no free security patches is
+  the weaker position for a system holding payment details and PII, so the upgrade wants a session
+  of its own, opened on that 401.
+
+  **The work is not lost.** Branch `chore/spring-boot-4-wip` (commit `72141b9`), which compiles
+  clean and carries the four mechanical passes: Jackson 2 → 3 (`com.fasterxml.jackson.{databind,core}`
+  → `tools.jackson.*`, `JsonProcessingException` → the now-unchecked `JacksonException`,
+  `JavaTimeModule` deleted because java.time is in databind core — the *annotations* package does
+  not move); the Boot 4 relocations (`JacksonAutoConfiguration` → `boot.jackson.autoconfigure`,
+  `WebMvcTest` → `boot.webmvc.test.autoconfigure`, which is no longer on `spring-boot-starter-test`
+  and needs `spring-boot-starter-webmvc-test`); Spring Framework 7 splitting
+  `MockMultipartHttpServletRequestBuilder` off `MockHttpServletRequestBuilder`; and
+  `@EnableWebSecurity` moving onto `SecurityConfig` because `@WebMvcTest` no longer supplies the
+  `HttpSecurity` prototype.
+
+  One trap worth keeping, and it cuts both ways: the VS Code Java extension compiles into the same
+  `target/` Maven does. Its **stale** classes masked a real `testCompile` error behind 137 phantom
+  "class path resource ... cannot be opened" failures — so an incremental run can hide a break. But
+  `clean` is not the cure: the extension races to repopulate the emptied `target/`, and the run
+  immediately after a `clean` produced 116 errors of the same phantom shape on a tree that is
+  **588 green**. Rule: `clean` when you suspect staleness, then **re-run plain `mvnw test` and
+  believe the second number.**
+
+  **Separately, the backend memories were lying about Unit 30.** `backend/{core,persistence,security}.md`
+  each carried an identical *"⚠ PIVOT ... SPECCED 2026-09-02, NOT BUILT"* banner asserting that
+  "everything below about Drive still describes the code as it stands today" — Drive has been gone
+  from `pom.xml`, the `config` package and (via `V34`) the schema since Unit 30 shipped. Rewritten to
+  a BUILT banner stating what `DocumentStore` actually is, with the Drive prose kept and marked as
+  history. The inline claims that were wrong, not merely dated, went with it: the `evalos.drive.*`
+  config block (→ `evalos.s3.*`, and **naming the posture change** — Drive's `required` made a
+  missing key a boot failure, S3 only 502s the document routes), `DriveUnavailableException` (→
+  `DocumentStoreUnavailableException`/`DOCUMENT_STORE_UNAVAILABLE`), the `EXPORTED` audit snapshot
+  (→ object keys and the three presign issuers), `CaseController.seesCaseContent` (→
+  `Role.seesCaseContent()`, and `driveLink` is no longer one of the withheld fields), a `config`
+  package that no longer exists, and `event`'s "outbound dispatcher is next" (it was built and
+  removed). **The security one mattered most:** `security.md` still read "antivirus is open — Drive
+  scans on ingest", which was true when written and stopped being true twice over — Drive left, then
+  G14 landed magic-byte sniffing and `Content-Disposition: attachment`. It now records the posture
+  that exists and names the part still owed (bucket-side scanning).
+
+  **Then the unit-status audit, done properly against the code.** `core.md`'s status paragraph was
+  worse than dated — it called **Unit 13 "code-complete"** when `V33__drop_unit_13_18_20.sql` had
+  dropped it, said "Unit 15 is next" after 15 shipped, and stopped at Unit 14. Replaced with an
+  audited index: built (01–12, **05b superseding 05a**, 14, 15, 16+16b, 17, 21, 23, 24/26/27, 28,
+  30, 31, 32, 33, and the backend halves of 34a/34c/34e); removed by migration (13, 18, 20) or by
+  decision (29/29a); and **specced-not-built (19, 25, 35's D1/D5/D6)**, each with the check that
+  proves it — `job/` is a bare `.gitkeep` and **nothing in the tree carries `@Scheduled`**, there is
+  no `ghl_connection` table, and `portal_access.case_id` is still `NOT NULL`. Schema head is `V37`.
+  The package prose went with it: `event` no longer advertises the dispatcher Unit 18 took away.
+
+  **`00-build-plan.md` was stale too, and its Unit 34 heading is now corrected** from "SPECCED, NOT
+  BUILT" to "PARTLY BUILT (34a, 34c, 34e)", naming 34b and 34d as the two that are not and D1 as
+  what gates 34d.
+
+  **Then the schedule itself, which had rotted further than the status list.** Every one of the old
+  Track A items was dead: **A1** called the missing `qc.approved` route "a live operational hole in
+  shipped code — do it first" when `NotificationListeners` has routed `QC_APPROVED` since
+  (line 111); **A2**'s Unit 05b has shipped; **A3** was already marked built; and **A4/A5** were
+  split from each other *only* to stop the charting-library decision holding up eleven widgets — a
+  decision taken in Unit 22 slice 1 in favour of Recharts. Track A is now **A1–A6** and matches
+  `Next Up`: 35 (D1/D5/D6) → 34b → 34d → 17a → 19 → 17b, with 17b last because it is one widget
+  rather than because anything gates it.
+
+  Track B lost two of four rows. **Unit 19 is not a Track B item any more** — its prerequisites are
+  met, so it moved into Track A. The **AWS credential no longer blocks code**, only the live
+  exercise of code already built, which is a materially weaker claim than the row used to make.
+  Step 0's "five external things" is now two, and the preamble said "five wait on somebody outside
+  this repo" while listing four. **Unit 25 is called out as unscheduled** rather than left absent —
+  it needs GHL OAuth app credentials and it gates the deferred `PaymentDetailConverter` extraction.
+
+  **Four places still described Unit 18 as real**, which mattered because one of them is inside
+  Unit 19 — now the fifth thing to build. Unit 19's sweep list included "the outbox sender absorbed
+  from Unit 18" and its `Depends on:` named 18, so a session picking it up would have built a
+  drain for a channel that does not exist. It is **four sweeps, not five**, and the two that left
+  did so for different reasons — retention to GHL, the outbox to Unit 18's removal. Also fixed:
+  Unit 04's "publishes a domain event for the outbound dispatcher" (the events survive, the second
+  subscriber does not), the cross-cutting "webhook subsystem" note, and an open-questions entry
+  still asking for an outbound subscriber URL. The `18 before 19` dependency is struck; the live
+  one is **D1 before 34b and 34d**.
+
+  **`tech_stack.md`'s chart row is fixed too** — it read "Charts (Unit 17 cycle-time p90) —
+  **undecided**" while the `frontend/` section three screens down recorded Recharts as installed,
+  in use, and drawing from the `--chart-1..5` ramp. `ui-context.md` had it settled in Unit 22
+  slice 1. 17b is unbuilt but **not blocked on a library**, and the row now says so.
+
+- **2026-09-04 — Four decisions taken, Unit 20 struck, planning sections rewritten, and
+  **D8 + G14 BUILT**.** 588 backend tests green (was 581); both portal apps build. D1/D5/D6 are
+  decided and **specced, not built** — that is Unit 35's larger half, deliberately left as the
+  next piece of work rather than started in the same sitting as the docs.
+
+  **What shipped today, in the order Unit 35 §6 asks for:**
+  - **D8 — analytics deleted.** Seven `trackEvent` call sites, `utils/analytics.ts`,
+    `VITE_GTM_ID` and `VITE_GA4_ID` are gone from `client-expert/client`. Pages that show a
+    client's passport scan now send nothing to anybody, and there is no variable left to turn a
+    tag back on by configuration.
+  - **G14 — the AV posture, implemented.** `common/UploadedFileType` sniffs magic bytes for one
+    of five kinds and **both** upload surfaces call it: the client's document (Unit 30's owed
+    item — that endpoint recorded a declared content type and trusted it, so a renamed executable
+    reached S3 and then a Coordinator's screen) and the signed letter, whose own five-byte check
+    moved into it. `DocumentStore.presignedUrl` now mints every read as
+    **`Content-Disposition: attachment`**, which is the control that closes the *path* rather than
+    the file: an HTML page or SVG that got past the sniffer has no browser origin to execute in.
+    12 new tests. The limit is stated in the class and the spec: `.docx` is a ZIP and `.doc` an
+    OLE2, so sniffing proves the container, not the document — **scanning is the bucket's job**,
+    an infra control that now sits beside the AWS credential in Next Up.
+  - **D1 — a portal credential names a PARTY, no accounts.** `portal_access` gains
+    `ghl_contact_id`, `case_id` becomes nullable, and `expert_id` (`V37`) gets a second job. A
+    client with two cases has one link and sees both; a **case-scoped link stays legal** for one
+    case sent once. The accounts alternative was **refused, not deferred** — a password store needs
+    a mail channel invariant 14 says does not exist. Open question (a) answered in the same breath:
+    a party token lives **7 days** against the case token's unchanged 30, being the wider
+    credential.
+  - **D5 — one lifecycle vocabulary, EvalOS's, projected** into the payload. The SPA renders the
+    label it is given and holds no enum, which is what lets the *list* screens keep the line 34c
+    and 34e already hold.
+  - **D6 — an expert may read their own payout rows**: case reference, amount, currency, status,
+    settlement date. **Never `payment_detail`** — no read path exists for that field anywhere,
+    not even for the ENM who typed it (invariant 4), and this does not become the first one.
+  - **D8 — analytics off.** `VITE_GTM_ID`, `VITE_GA4_ID` and `utils/analytics.ts` come out.
+    Deleted rather than stubbed: a no-op module is one somebody re-points at a provider.
+  - **G14 — the antivirus posture gets implemented rather than declared.** Three controls, no new
+    infrastructure: content sniffing on the *client's* upload too (Unit 30's owed item, and Unit
+    15 already wrote the helper), every presigned read minted as an **attachment** so a malicious
+    HTML or SVG cannot execute in the browser origin, and the stance written down —
+    **scanning is the bucket's job**, an infra control the business enables, not code EvalOS ships.
+    That ask now sits beside the credential.
+  - **Unit 20 is gone from the schedule, not only from scope.** It was removed 2026-09-02 and is
+    invariant 15, but the build plan still had a row asking for an **Anthropic key** and another
+    promising "the anomaly half ships anyway". Both struck. The anomaly figure is arithmetic and is
+    a **Unit 17 tile** if the business wants it; a unit named for the model is how the model comes
+    back wearing a helpful hat.
+  - **New spec: `35-party-scoped-portal-access.md`** — D1 + D5 + D6 + D8 + G14, with the build
+    order (deletions and hardening first, then the migration, then the screens), the acceptance
+    criteria and the invariant impact. **It unblocks 34b and 34d**, and 34b is the highest-value
+    screen left in the portal: three endpoints EvalOS has implemented since Unit 14 that no screen
+    calls.
+  - **Also corrected here, because it had rotted**: `Next Up` was still chasing a Google service
+    account (Unit 30 replaced it with AWS), still called Unit 15 "next" and blocked on Unit 21, and
+    still called Unit 16 next though 16b shipped 2026-08-27. `In Progress` still listed Unit 13's
+    live Drive check — Unit 13 and Drive are both gone (`V33`, `V34`) — and a
+    `UI_MIGRATION_GUIDE.md` that has been deleted. The build plan still scheduled Unit 18, removed
+    2026-09-02. **Unit 19's prerequisites are now met** (10 and 15 built, 18 gone), which the old
+    table hid behind a dependency on a deleted unit.
+
+- **2026-09-04 — The two things the review left deferred are done.** 581 backend tests green
+  (was 578). Both were "fixed the symptom, recorded the root cause" — now the root causes are fixed.
+  - **`V37`: `portal_access.expert_id`, and the read fails closed on it.** Revoking the expert's
+    link at the four ends of their involvement (yesterday's fix) closes every path that exists
+    *today*; a token that names a case and an audience but **not a person** still could not tell one
+    expert from another, so the guard was four remembered calls rather than a property. The column
+    binds the credential to the expert it was minted for and
+    `ExpertPortalService.authorized` refuses a mismatch — so a fifth path written in some later unit
+    inherits the guard instead of having to know about it. A pre-V37 token carries no expert and is
+    **refused**, not waved through; it is re-minted in one click.
+    No CHECK constraint tying it to `audience = 'EXPERT'`, and the migration says why: a plain one
+    fails against an existing EXPERT row and a `NOT VALID` one then refuses the very UPDATE that
+    revokes such a row — the constraint would block the cleanup it exists to force. `mint` is the
+    only writer and the read fails closed, which is the same guarantee by a different route.
+    `PortalPrincipal` gained a fifth component (null for a client), so every construction site moved
+    with it.
+  - **Re-staffing no longer restarts a stage clock.** `ASSIGN_PM` and `ASSIGN_COORDINATOR` joined
+    `KEEPS_STAGE_CLOCK`: a stage budget is owed by the case, not by whoever holds it, so putting a
+    Coordinator on a case forty hours into a client's forty-eight-hour review was restarting that
+    review, and the first PM assignment was restarting the document clock `CaseIntakeService` starts
+    at creation. **Safe only because intake stamps `stage_entered_at` on create** — checked before
+    changing it, because without that the first assignment is what started the clock at all. The
+    exception-state actions still restamp, deliberately: on-hold and refund-requested run no clock,
+    and resume/deny restart the budget from when work could resume, which is the reading that does
+    not charge a team for the client's silence.
+  - Also: dropped an unused `List` import from `CaseTransitions`.
+  - Amends: `15-expert-portal-handoff-b.md`, `architecture.md`. Serena: `mem:backend/security`,
+    `mem:backend/persistence`, `mem:backend/lifecycle`.
+
+- **2026-09-03 — Code review of Units 15 + 34e: six findings, all fixed.** 578 backend tests green
+  (was 571). The one that mattered was a **security hole nobody had asked the right question about**.
+  - **A rematch left the outgoing expert holding a live link (high).** `portal_access` is keyed on
+    `(case_id, audience)` and carries **no expert identity**, so nothing downstream can tell one
+    expert's token from another's — and the TTL is thirty days. Expert A declines, the case is
+    reassigned to B and sent, and A's old link would still accept, hold the case, decline again, or
+    **upload the deliverable** with A's name on the attestation while the case names B. Fixed with
+    `CaseLifecycleService.revokeExpertLink`, called at all four ends of an expert's involvement —
+    signed, declined, timed out, reassigned. That is what makes "one token, one case" also mean one
+    token, one expert. The alternative (an `expert_id` column on `portal_access`) is the stronger
+    fix and is a migration; revoking is the whole of it for now.
+  - **`EXPERT_ACCEPTED` reset the signing clock (medium).** `apply` restamps `stage_entered_at`,
+    which is what `SlaCalculator` measures the one-business-day sign budget from — so an expert
+    pressing "I will sign this" seven hours in reset their own clock to green and dropped the case
+    off the CM's overdue list, on the happy path of every signed case. New `KEEPS_STAGE_CLOCK` set,
+    one member. `ASSIGN_PM`/`ASSIGN_COORDINATOR` restamp too and were left alone: that is the same
+    shape of defect, rare, and needs a decision about what a re-staffed case's budget should be.
+  - **The attestation was self-referential (medium).** It compared the sentence against a name the
+    *request* supplied, so any consistent pair passed and the row the code calls "the evidence"
+    could name somebody who was never on the case. The name is now read from the case's expert and
+    `attestedName` is **gone from the API**.
+  - **The digest could be corrupted by an S3 retry (low, but it is the evidence).** The SDK resets
+    and re-reads a mark-supporting stream, and a reset resets neither a `DigestInputStream` nor a
+    byte counter — so one transient retry hashed the file twice over, and the guard added for it
+    turned a successful upload into a 500. The hash is now **its own pass** over the part
+    (`InputStreamSource`, 8 KB chunks, nothing accumulated), so no store behaviour can change it.
+  - **Two blocked-popup bugs (medium).** `window.open` after an `await` is rejected by Safari and
+    Firefox: the expert's "Open the letter" and the client's document download both minted a URL,
+    wrote the audit row, and then opened nothing with no error. Both now open the tab synchronously
+    and navigate it — the pattern the staff app's `DocumentList` already documented. **The client's
+    was pre-existing (34c)**; fixed here because it is one root cause in two places.
+  - Amends: `15-expert-portal-handoff-b.md`, `34-portal-frontend-wiring.md`. Serena:
+    `mem:backend/lifecycle`, `mem:backend/security`, `mem:client-expert/core`.
+
+- **2026-09-03 — Unit 34 slice 34e BUILT: the expert portal calls EvalOS.** 571 backend tests green
+  (was 569); both portal apps build, 22 portal tests pass (was 10).
+  - `expert/src/pages/portal/ExpertCasePortal.tsx` at **`/case#<token>`, outside
+    `ExpertAuthenticatedRoute`** — the same placement 34c used and for the same reason: the
+    credential names one case, not an account, and mounting it behind the shell would answer D1 by
+    accident. One column: goal → the letter → the evidence it rests on → the three answers, with
+    the sign panel between them.
+  - **The sign step reads as what it is**: open the letter, sign it in your own tool (a scanned wet
+    signature is stated as expected and accepted), upload the PDF back. The attestation is part of
+    the upload — the dropzone is disabled until it is ticked, and the API refuses it absent
+    regardless. The wording is the server's, returned unedited, because it is the evidence.
+  - `expert/src/lib/expertCase.ts` — wire types + display rules, **12 tests**. It holds no
+    lifecycle: `stateOf` reads booleans EvalOS sent, and the two label tables have a test that
+    fails if EvalOS gains a fifth `ExpertSignStatus` or a fourth `SlaStatus` (D5's rule in
+    practice). `serviceType`/`visaCategory` are prettified generically rather than tabled — an open
+    vocabulary would go stale.
+  - **Two seam changes it forced.** `apiClient`'s base is now `/api/portal` and each service names
+    its own half (`/client/…`, `/expert/…`). And **EvalOS mints expert links at a separate origin**:
+    new `evalos.portal.expert-base-url` (default `http://localhost:5175`), path `/case#<token>`,
+    because the portals are two deployments now — a link to the wrong host reads to its holder
+    exactly like a revoked token. Blank falls back to the client base, so single-deployment
+    environments and every older test are unaffected.
+  - **Still mock in `expert/`**: the assignments list (needs **D1** — one token names one case), the
+    login, payments (needs **D6**) and profile. The mock screens are still routed, untouched.
+  - Amends: `34-portal-frontend-wiring.md` (§5 slice 34e, status block), `00-build-plan.md`,
+    `application.yml`. Serena: `mem:client-expert/core`, `mem:backend/security`.
+
+- **2026-09-03 — Unit 15 BUILT: the expert portal, Handoff B's far side, and the signature.**
+  569 backend tests green (was 536); `frontend/` builds, 141 tests pass. The expert is now a
+  first-hand actor in EvalOS rather than somebody a staff member records claims about.
+  - **Six portal routes** on Unit 14's chain, `X-Portal-Token`, audience `EXPERT`:
+    `GET /case` (whitelisted view + read receipt), `POST /accept`, `POST /request-evidence`,
+    `POST /decline`, `GET /letter`, `POST /signed-letter`. A `CLIENT` token is refused on all
+    six and an `EXPERT` token on the client's — one line, `PortalPrincipal.current`.
+  - **Two new transitions**, both `EXPERT_SIGNING`-only and stage-preserving: `EXPERT_ACCEPTED`
+    (**guarded on the offer, not the stage** — a second Accept answers 200 unchanged, an offer
+    that is `DECLINED`/`TIMED_OUT`/`SUPERSEDED` answers 409) and `EXPERT_REQUEST_EVIDENCE`
+    (`ON_HOLD_AWAITING_CLIENT` + a required checklist item, so the expert cannot then sign until
+    the Coordinator resumes and no sign clock runs while held).
+  - **The signature**: multipart, **PDF by content sniffing** (a `.pdf`-named JPEG is refused),
+    attestation required by the API and refused unless it is the exact server-composed wording,
+    streamed to `{brandId}/case/{caseId}/signed/{id}` and **hashed as it streams**. Object first,
+    row second, transition last — a store failure answers 503 with the case unchanged.
+  - **The provenance model, with no signature provider**: the SHA-256 of what came back, the
+    attestation verbatim with the name it displayed, and an audit row whose `actor_type` is
+    `EXPERT`. Stated plainly in the spec: EvalOS cannot cryptographically prove a signature, and
+    **PM final QC is now load-bearing** rather than a formality.
+  - **`letter_sent_hash` is deliberately not implemented** — the letter is `draft_link`, free
+    text to a document EvalOS holds no bytes of, and `DocumentStore` has no read capability. Half
+    the hash pair is missing and is recorded as missing rather than faked. It becomes possible
+    when a draft is an S3 object.
+  - **`V36` adds four columns, not the spec's eight** — the other four state facts the system
+    already holds (`SlaCalculator`'s deadline, the document row's `uploaded_at`, its `object_key`).
+    Provenance sits on `case_document` because a failed QC means a case can be signed twice.
+  - **Staff side**: `POST /api/cases/{id}/portal-link?audience=EXPERT` (one route, two audiences;
+    refused when no expert is assigned), and the case detail's expert card gained the read
+    receipt, the signed-letter list and the mint control. `expertPortalReadAt` is on the detail
+    payload.
+  - **Notifications**: `expert.accepted` and `expert.declined` → the Case Manager;
+    `expert.evidence_requested` → the **Coordinators**, because it became a checklist item and
+    the checklist is theirs. `expert.timed_out` stays unrouted — a human fires it.
+  - **Not this unit**: the expert-facing SPA is Unit 34 slice **34e** (`client-expert/expert/`),
+    which was blocked on this and now is not. The 20h/24h timers remain Unit 19's.
+  - Amends: `15-expert-portal-handoff-b.md` (status block), `architecture.md`,
+    `00-build-plan.md`, `34-portal-frontend-wiring.md`. Serena: `mem:core`,
+    `mem:backend/lifecycle`, `mem:backend/persistence`, `mem:backend/security`,
+    `mem:client-expert/core`.
+
+- **2026-09-03 — The portal frontend split into two apps: `client-expert/{client,expert}`.**
+  Directed, not specced first: one deployment carrying both portals became **two builds** so
+  each can take its own subdomain. `client/` (5174) and `expert/` (5175) each own their
+  `vite.config.ts`, `index.html`, `tsconfig`, Tailwind/PostCSS config, `.env` and `dist`;
+  what both use moved to `shared/src` and is imported as `@shared/*`. **Dependencies stayed
+  single** — one `package.json`, one `node_modules`, one lockfile at `client-expert/`, no
+  workspaces; the root scripts `cd` into the app they build, which is what makes each app's
+  Tailwind config resolve. Neither app imports the other, and that is the rule that keeps
+  them deployable apart.
+  - Both apps `tsc -b` and `vite build` clean; the 10 Vitest tests still pass (now run from
+    `client-expert/` via its own `vitest.config.ts`, since there is no single `vite.config.ts`).
+  - `application-local.yml` now allows **both** dev origins (5174 + 5175); a deployment must
+    name both in `EVALOS_PORTAL_ORIGINS` or the expert app fails at the preflight.
+  - Found on the way: `node_modules/react-hook-form` was a **corrupted extraction** — its
+    `dist/index.d.ts` re-exported from a `../src` the package does not ship, so every
+    `useForm` import failed to typecheck. Deleting that one package and re-installing the
+    same version fixed it; nothing about the split caused it.
+  - Amends: `architecture.md` (repo layout, portal auth row, the frontend structure list),
+    `ui-context.md` (the portal surface table), `34-portal-frontend-wiring.md` (§1 and §5e),
+    `client-expert/README.md`, `application-local.yml`. Serena: `mem:client/core` renamed to
+    `mem:client-expert/core` and rewritten, `mem:core`, `mem:task_completion`,
+    `mem:memory_maintenance`.
+
+- **2026-09-03 — Unit 34 slices 34a + 34c BUILT: the portal frontend now calls EvalOS, and S3 is
+  wired end to end for the client.** 536 backend tests green (was 532), `client/` builds clean and
+  its new Vitest suite passes 10. **D1 is still open and this build deliberately does not answer
+  it.**
+  - **The finding that justified the slice: `POST /api/portal/client/documents` was uncallable.**
+    It has taken a `checklistItemId` since Unit 30 and **no portal route ever revealed one.** Not
+    insecure — unreachable. A backend review sees a tested endpoint; a frontend review sees a
+    parameter it cannot source; only wiring the two together finds it. Closed with **two new
+    reads**, `GET /api/portal/client/documents` (checklist + the client's own uploads) and
+    `GET /api/portal/client/documents/{documentId}/url` (5-minute presign).
+  - **A second whitelist, not a widening of the first.** `ClientDraftView`'s javadoc excludes the
+    checklist and the client's documents, and that is right — so the answer was a separate
+    projection for a separate screen. A field added to either does not now appear on the other.
+  - **The kind filter is half the authorization.** Both new reads match the document against the
+    token's case **and** against `CLIENT_UPLOAD`. The obvious version — "any document on this
+    case" — hands a client their own draft outside the approval flow and, once Unit 15 lands, the
+    expert's signed letter. `theDraftAndTheSignedLetterAreNotReachableThroughTheDocumentRoute`
+    asserts both refusals **and that nothing was minted**: a presigned URL created ahead of a check
+    has already leaked. No object key is in either payload.
+  - **`withCredentials: true` vs `allowCredentials(false)` confirmed, not just predicted.** P8 was
+    right: every cross-origin portal call would have died at the preflight with an error that reads
+    like a token problem. `apiClient` now sends `X-Portal-Token` from the URL fragment, holds it in
+    a module variable, **persists nothing**, and sets no default `Content-Type` — so a `FormData`
+    body keeps the browser's multipart boundary, which the chain accepts because the allowed
+    *header name* is `Content-Type`.
+  - **The wired screen sits OUTSIDE `AuthenticatedRoute` and is off the sidebar.** Its credential
+    is a scoped link naming one case, not the mock account session. Mounting it inside the shell
+    would have answered D1 by accident, which is exactly the drift the spec warns about.
+  - **`MISSING` / `INCORRECT` now reach the client, and that is D4 working.** Touchpoint **T4** —
+    "your upload was flagged" — arrives as a state the client sees rather than a message EvalOS has
+    no channel to send. Unit 10's vocabulary passes through unmapped; `lib/portal.ts` holds a
+    label-and-colour table for the five values with a test that **fails if the server can send a
+    sixth**. The SPA holds no lifecycle enum and derives no status. That is D5 in practice.
+  - **Two stale decisions were corrected in place while working through them, both load-bearing
+    here.** `architecture.md` and `mem:core` still said *"a separate Client Portal application
+    writes to S3, EvalOS read-only on `client/`"* — **spec 30 corrected that the same day it was
+    written.** The portal holds **no AWS credential**; it calls EvalOS, and **EvalOS is the only
+    writer**. `mem:core` also still described Drive as live and told the reader not to introduce
+    CORS, which Unit 30 built. Both rewritten, not annotated beside.
+  - **Recorded because 34b will assume otherwise: `draft_link` is still a free-text link the CM
+    pastes.** A `DRAFT` `case_document` is created with no `object_key`, so **S3 holds client
+    uploads and nothing else today.**
+  - Deleted with the slice: `MOCK_DOCUMENTS`, `ClientDocument`, `DocumentStatus`,
+    `DocumentStatusBadge`. `simulateUpload` moved to `mock/` — a mock beside real calls in one
+    module is how somebody ships the mock.
+  - **Owed:** no content sniffing on upload (Unit 30's own open item — the declared content type is
+    recorded, not trusted); the two `Link to="/documents"` buttons on mock screens now land on a
+    "needs your link" page, and go when those screens do; `frontend/`'s `portalRules.ts` still
+    declares `expertProfile`/`expertReference`, removed from the server with Unit 13.
+  - Docs and memories amended in the same step: spec 34 (§2, §5, and a new §9 *What building 34a +
+    34c found*), `architecture.md`, `process-automation.md` (T4), `client/README.md`,
+    `mem:client/core`, `mem:core`, `mem:backend/security` (the endpoint list), `mem:task_completion`,
+    `mem:suggested_commands`, `mem:tech_stack`.
+
+- **2026-09-03 — The portal frontend landed in `client/`, and Unit 34 is SPECCED against it.
+  Not built, and deliberately not wired.** A third application joined the monorepo: a Vite 8 /
+  React 19 SPA, ~9.5k lines over 130 files, **both portals in one deployment**, served on port
+  **5174** — which is the origin `application-local.yml` has allowed since Unit 30. The shape is
+  exactly what Unit 30 §1 predicted. The contract is not.
+  - **The single most important finding: the app has no draft review screen at all.** A search
+    for `approve` or `revision` across `client/src` returns nothing. The three endpoints EvalOS
+    *actually implements* — `GET /api/portal/client/case`, `/approve`, `/request-revisions` —
+    have no caller and no UI. The `/reports` page is download-only. **The portal's whole reason
+    for existing is the one thing missing from it.**
+  - **Three invariants are in its path, and none is breached yet because nothing calls anything.**
+    A seven-screen intake funnel mints `IE-{year}-{6 digits}` and writes a case-shaped record
+    (**invariant 8** — only `opportunity.won` creates a case, and `DomainInvariantsTest` enforces
+    it structurally); Payments and Invoices pages (**invariant 2** — invoicing is GHL's); Messages
+    and Tickets (**invariant 14** — EvalOS has had no outbound channel of any kind since Unit 18
+    was removed). Unit 34 D2–D4 recommend cutting all three rather than finding them a backend.
+  - **The fork everything hangs off is auth.** The app has email+password accounts in
+    `localStorage` for *both* audiences and draws a **list** of cases for each. A `portal_access`
+    row names exactly one case, so no case-scoped token can answer "my cases" — a client with two
+    cases needs two links today. **D1 recommends widening the token to name a *party*** (`ghl_contact_id`
+    for `CLIENT`, `expert_id` for `EXPERT`) rather than building an account system, because every
+    other property of the token model carries over untouched **and a password reset needs a mail
+    channel invariant 14 says does not exist.** It also fixes a problem Unit 15 already had: one
+    hand-sent link per expert instead of one per case. The cost is stated, not buried — a
+    party-scoped token is a wider credential, so its expiry must be shorter than 30 days.
+  - **Four duplicate lifecycle vocabularies** (`RequestStatus`, `SigningStatus`, `DocumentStatus`,
+    `IntakeDocumentStatus`) against Unit 31's twelve stages. **This is where "no duplicate
+    workflow" fails first.** D5: EvalOS serves the client's step and the expert's step in the
+    payload; the SPA holds no lifecycle enum and derives nothing.
+  - **One concrete runtime failure, found by reading the two configs against each other:**
+    `client/src/services/apiClient.ts` sets `withCredentials: true`, and `PortalSecurityConfig`
+    sets `allowCredentials(false)`. The chain also allows only `GET/POST/OPTIONS` and only
+    `Content-Type` + `X-Portal-Token`. The Axios instance sends no portal token and **is imported
+    by nothing** — every one of the 12 service modules is a `localStorage` mock.
+  - **It ships zero tests and no test runner** (`frontend/` has 141). `task_completion`'s frontend
+    gate does not reach `client/`, so a third gate is owed.
+  - **`services/*` is the entire mock/real boundary and that is the one property making this
+    tractable.** A page that reaches past it ends the tractability; that is a code-review rule now.
+  - Docs amended in the same step: `architecture.md` (repo layout is **three** apps, the *Portal
+    auth* row now records that CORS is **built** rather than missing, the one-token-one-case bullet
+    is marked under challenge, invariants 8 and 14 gain the portal's pressure), `project-overview.md`
+    (a portal-frontend section, and intake/invoicing/messaging/ticketing added to Out of Scope),
+    `ui-context.md` (a token-set comparison, and the note that "minimal chrome, no navigation" now
+    describes only what is shipped), `process-automation.md` (in-portal state as a third option for
+    T1–T8, with its reach limit stated), `00-build-plan.md` (Unit 34 + the three-app note),
+    `client/README.md` (its "no backend exists" claims corrected). Serena: new `mem:client/core`,
+    linked from `mem:core`, whose stale Drive/no-object-storage/no-CORS paragraph was rewritten in
+    place rather than contradicted beside.
+
+- **2026-09-03 — Unit 33 BUILT: `V35`, the dossier, the applicant, the discipline.** Migration,
+  entities, form, importer, both record screens and the two sample workbooks. **532 backend tests
+  and 141 frontend tests green**, `ddl-auto=validate` passing against a real Postgres — which is
+  what proves the 22 new columns match the entities, since a mismatch fails the context boot.
+  - **The importer's number parser had to be NARROWED, not widened.** The first cut stripped every
+    non-digit (`[^0-9\-]`), which turns `"4.9"` into `49` — so mapping the quality-score column
+    onto `h_index` would have imported a plausible number nobody would go back and check. It now
+    strips only the separators a spreadsheet adds (`,` and whitespace) and lets a decimal throw, so
+    the row is reported. The test that caught it is `aDecimalInAWholeNumberColumnIsReportedRatherThanTruncated`.
+  - **The edit form would have blanked the whole dossier on the first save.** `ExpertForm` is sent
+    whole and `ExpertService.apply` writes every field, so the 22 fields missing from `formOf` would
+    have arrived as undefined and erased a transcribed CV on any unrelated edit. `formOf` now
+    spreads `profile.dossier` and `EMPTY_FORM` spreads a shared `EMPTY_DOSSIER`. **`tsc --noEmit`
+    did not catch this and cannot**: `frontend/tsconfig.json` is `files: []` with project
+    references, so a bare `--noEmit` typechecks *nothing* and exits 0. **Use `tsc -b`.**
+  - **`avg_turnaround_days` is stored, beside a memory that says turnaround is derived — and both
+    are right.** `avg_response_hours` is how fast an expert answers an offer; this is how long they
+    take to write the letter, which EvalOS cannot derive today. Recorded in `mem:backend/persistence`
+    with the condition for killing it: the day a unit really does derive letter turnaround.
+  - **Acceptance run against the real workbooks, not a fixture.** All 25 case rows resolve —
+    every `customer_type`, `service_type` (including the `"AE & Translations"` and `"EOL (2)"`
+    spellings) and `purpose_visa`; all 36 expert columns have a home, all 22 disciplines a
+    `FieldTag`, every affiliation type and visa category a constant.
+  - **The workbooks were edited, and only where a decision says not to store**: `drive_link`,
+    `priority` and `urgency` are out of `IE_Case_Sample_Data.xlsx` (25 columns now), with the reason
+    written into its Field guide tab. `IE_Expert_Sample_Data.xlsx` is unchanged at 36 columns —
+    every one of them now has somewhere to go.
+  - Serena memories amended in the same step: `backend/persistence` (V35, the two turnaround facts,
+    the first taxonomy widening), `core` (Unit 12's omission is closed **on its own stated terms** —
+    edited in place, not contradicted beside), `frontend/core` (the list-lean / detail-complete rule).
+
+- **2026-09-03 — Unit 33 specced: the record EvalOS holds is not the record the business
+  holds.** Both sample workbooks (`IE_Case_Sample_Data.xlsx`, 28 columns;
+  `IE_Expert_Sample_Data.xlsx`, 36) were checked column by column against V1–V34, the
+  entities, `ExpertForm`, `ExpertImportService` and `ExpertMatchService`. Specced, **not
+  built** — a pivot spec, because it widens two tables every other unit reads.
+  - **`drive_link` is the one sheet column correctly ignored.** V34 dropped it and Unit 30
+    put documents in S3, so it comes out of the *sheet*, not into the schema. It was the
+    only Drive-shaped thing left to check, and there was nothing to do.
+  - **19 of 36 expert facts have no column, no entity field and no import target** — degree,
+    degree field, degree institution, current position, affiliation type, country,
+    state/region, years of experience, LinkedIn, supported visa categories, publications,
+    citations, h-index, patents, awards, memberships, editorial roles, languages, rush
+    capability, `IE-EXP-###`, turnaround. That is the evidence an expert opinion letter
+    rests on and the whole basis on which the ENM prefers one expert to another; `ExpertForm`
+    has 14 fields against the sheet's 36.
+  - **No case stores the applicant's name.** `contact_snapshot` holds the person GHL sent —
+    the attorney, the agent, the HR contact. For every `client_type` except `INDIVIDUAL` that
+    is not the beneficiary the letter is *about*. `applicant_name` goes on `evalos_case`, not
+    on the snapshot: invariant 7 makes the snapshot read-only GHL truth and Handoff A's
+    confirmed payload carries no beneficiary.
+  - **Unit 12's field-tag omission is reversed, on its own stated terms.** `ExpertMatchService`
+    refused a case field tag because the only *source* would be an intake webhook that carries
+    no such thing — and closed with "if a later unit finds a second consumer, the column can be
+    added then, with a real source". The consumer is the case record; the source is the tag the
+    PM already types at match time and which is discarded today, so a delivered case cannot say
+    what discipline it was. The assignment writes it; the engine still takes it as an argument.
+  - **`priority` and `urgency` stay out**, holding Unit 32's decision 5 — both sheet columns are
+    readings of a deadline, and the sheets lose them rather than the schema gaining them.
+    `rfe_date` **does** get a column: the SLA deadline EvalOS promised and the filing deadline
+    USCIS imposed are two dates that diverge on exactly the cases that matter.
+  - **`FieldTag`'s 28 values were drawn for credential-evaluation degree fields, and the roster
+    is an expert-opinion-letter roster.** 10 of the 22 disciplines in the expert sheet cannot be
+    spelled at all (Aerospace, AI, Biomedical, Biotechnology, Cybersecurity, Environmental,
+    Materials Science, Neuroscience, Renewable Energy, Software Engineering) — an expert whose
+    field has no tag scores zero on a 40-point factor. `ServiceType` is missing
+    `RECOMMENDATION_LETTER` and `WAGE_LEVEL_LETTER`, `ClientType` is missing `NACES`,
+    `VisaCategory` is missing `L1A` and the three NACES purposes. **The V18 CHECKs move in the
+    same migration as the enums**, or the application writes rows the database rejects.
+  - **Two sheet facts are refused as columns**: `last_active_date` is `max(offered_at)` over
+    `expert_case_offer` — the same fact with no writer to forget — and there is still no payment
+    column, which `ExpertImportService` already refuses as a mapping target. Milestone dates
+    (docs complete, sent for review, sent for signature) stay derived from `audit_event`
+    `STAGE_CHANGED` rows; the work there is confirming `Timeline` renders them.
+  - **Sheets change too, and only where a decision says not to store**: `drive_link`, `priority`,
+    `urgency` come out, with the reason written into the Field guide tab.
+  - Serena memories are **not** amended yet — nothing has changed in the code. `backend/core`,
+    `backend/persistence` and `frontend/core` are updated in the build step.
+
+- **2026-09-02 — Handoff A's payload contract is CONFIRMED, and it was wrong. The open question
+  the design has carried since Unit 05 is now closed.** A live GHL delivery was captured. The
+  nested `opportunity` / `contact` envelope every spec assumed does not exist, and every real
+  delivery had been dying at the gateway with `400 MISSING_EVENT_TYPE` before reaching the handler.
+  **The Custom Webhook action is wired to GHL's Contact lookup, so the body is a contact record —
+  the person, and nothing else.**
+  - **The contact is flat at the top level** — `contact_id`, `first_name`, `last_name`, `full_name`,
+    `email`, `phone`. There *is* a `contact` key and it is **not the contact**: it holds attribution
+    data (`attributionSource.sessionSource` / `.medium`). Nothing reads it.
+  - **`customData` is the only part GHL does not write** — camelCase, unlike every other key — and
+    that is where `event_type` and `event_id` live. Missing that is what killed every delivery.
+  - GHL's own envelope keys ride alongside and are all ignored: `location`, `workflow`, `tags`,
+    `date_created`, `full_address`, `contact_type`, `triggerData`, `attributionSource`.
+  - **GHL writes no deal.** No amount, no opportunity id, no service, no delivery id — a contact
+    record carries none of it, and `event_id` arrives as `""`. **The deal now arrives via
+    `customData`**, wired up in the GHL workflow UI the same day, which is the only place it can
+    come from.
+  - **Three refusals had to go, because each rejected a paid case over a field GHL was never asked
+    to send.** A won opportunity is already paid for, so the only unacceptable outcome is losing it:
+    1. **`400 MISSING_EXTERNAL_ID` is deleted.** GHL mints no delivery id, so the refusal rejected
+       100% of real traffic. The key falls back to `sha256:<hex of the raw body>` — a retry replays
+       the same bytes and still dedupes; a different contact differs and gets its own row. Ceiling
+       (marked `ponytail:`): two byte-identical distinct deliveries. Fix is a real `event_id` in the
+       workflow, not a wider fallback list.
+    2. **`service_type` is optional, defaulting to `CREDENTIAL_EVALUATION`.** It must stay non-null
+       or `V15`'s `(brand_id, contact_id, service_type)` partial index stops constraining. An
+       unreadable value is still `400 MALFORMED_PAYLOAD` — silently defaulting a typo would make a
+       wrong case look deliberate.
+    3. **`amount` and `opportunity_id` are optional**, not required. They are the workflow
+       author's, so either can be deleted in the GHL UI without EvalOS hearing about it, and a
+       missing one must leave `deal_value = null` rather than lose a paid case. `amount` keeps
+       `@Positive` wherever present — a zero or a negative is a data error, not a free case.
+  - **`CustomData` models exactly three fields, and each earns its place.** `service_type` is half
+    of `V15`'s key, so on the default alone **a client can only ever hold one open case at a time**
+    and a second purchase refreshes the first; `amount` is `deal_value`, which feeds revenue
+    recognition; `opportunity_id` is what **Unit 18 closes back in GHL**. Everything else a case
+    wants — visa category, subtype, deadline, invoice ref, expert, intake note — is **not sent and
+    not modelled as if it were**; `toCommand` passes a visible run of nulls to state the gap rather
+    than hide it, and a PM fills them in. Add a field when the workflow starts sending it.
+  - **The intermediate state is worth recording**, because it was briefly the shipped one: after
+    confirming the contact-only payload the deal fields were **deleted** from the transport record
+    entirely. That was right for a payload with no deal in it, and stopped being right the same day
+    when the workflow author added them in GHL. Re-added as optional — which is the shape that
+    survives someone editing that workflow again.
+  - **`refresh()` gained a guard that matters more than it looks.** `deal_value` and
+    `ghl_opportunity_id` still move together, and only a delivery carrying **both** writes them.
+    Without a guard every redelivery would blank both from a delivery that claimed nothing about
+    either. The guard shipped first as "at least one", which was the same bug one level down: the
+    two `customData` fields are independently optional, so an `opportunity_id` with no `amount`
+    entered the block and wrote `deal_value = null` (dropping the case out of `RevenueMetricsService`,
+    which filters on non-null), and an `amount` with no id blanked the id Unit 18 closes on. A
+    half-carried delivery is now ignored rather than merged — `ponytail:` noted, merge it if a
+    workflow really does split the two across deliveries.
+  - **Two smaller fixes from the same review pass.** The audit note now says "deal value recorded"
+    the first time a figure lands on a case that had none — `deal_value` starts null now that
+    `amount` is optional, and `CaseSnapshot` omits `deal_value`, so that first figure used to arrive
+    as an UPDATED row identical on both sides. And `ContactSnapshot.syncFromGhl` is **fill-only for
+    the five attribution columns** (`client_type`, `source_channel`, `utm_*`): `toCommand` passes
+    nulls for them because GHL's Custom Webhook carries no attribution, and a wholesale write was
+    blanking them on every won opportunity with the sync being their only writer.
+  - **`contact_id` is the client id**, `@NotBlank`, and is what `syncContact` upserts the snapshot
+    on — so the same client's second delivery **updates their contact** and opens a case rather than
+    duplicating either. That behaviour already existed; it was simply unreachable while nothing
+    parsed. `full_name` is rebuilt from `first_name` + `last_name` when GHL sends it blank (it sends
+    `""` rather than omitting, as `full_address` shows), so `@NotBlank` now refuses only a delivery
+    that genuinely names nobody.
+  - **Changed:** `GhlOpportunityHandler.OpportunityWon` (rewritten around the contact record, with a
+    single-field `CustomData`), `WebhookGateway` (`customData` fallback on field lookup, digest
+    fallback on the idempotency key, `MISSING_EXTERNAL_ID` removed), `CaseIntakeService.refresh`.
+    Nothing else in `service` — the transport-record / `NewCase` split is what kept a wrong payload
+    shape from reaching the domain, and it earned itself here. Do not collapse it.
+  - **Docs and memories realigned in the same step:** `specs/05b` payload contract rewritten as
+    confirmed rather than assumed, `architecture.md` gateway step 3, `mem:backend/webhooks` (the old
+    `MISSING_EXTERNAL_ID` and nested-shape paragraphs **edited, not appended to**), and
+    `mem:suggested_commands`' hand-fire payload replaced with the real one.
+  - **Gates:** `./mvnw verify` green — 523 backend tests. `InboundWebhookTest` rewritten around the
+    captured body (21 tests); `CaseIntakeServiceTest` gained
+    `aDeliveryCarryingNoDealLeavesTheOneAlreadyOnTheCase`.
+
+- **2026-08-29 — Unit 29a BUILT: the sales desk writes to GHL.** Backend, frontend, migration,
+  tests and docs landed together. Gates green: **589 backend** (`./mvnw verify`), **152 frontend**,
+  `tsc -b` and `npm run build` clean, and `LocalPostgresIntegrationTest` ran against real Postgres
+  (33 tests) so **V29 actually applied**.
+  - **Shipped:** `GhlHttp` (shared pacer + one HTTP door), `GhlSalesClient`, `SalesBoardService`,
+    `SalesController` (`GET /api/sales/board`, `PUT …/stage`, `PUT …/status`),
+    `Role.SALES_EXECUTIVE`, `team_member.ghl_user_id` + `PUT /api/team-members/{id}/ghl-user`,
+    V29, `features/sales/` (board + api), nav entry, `boardPathFor` fallback.
+  - **Four things the build found that the spec did not.** Recorded because each is the kind that
+    only surfaces against real code:
+    1. **`team_member_brand_required` had to be rewritten.** V3 read `role = 'GM' OR brand_id IS
+       NOT NULL`, so a `SALES_EXECUTIVE` with the NULL brand the design requires was **unstorable
+       by the database** while the enum, entity, service and every unit test stayed happy. No
+       unit test could catch it; `LocalPostgresIntegrationTest` now does, and also asserts the
+       other half of V3 was *not* weakened (a brand-less BRAND_MANAGER is still refused).
+    2. **`GhlHttp`'s empty-response guard is wrong for a write.** `body == null` is a failed read
+       and a perfectly good write — GHL answers most writes empty. Left as-is it would have
+       reported every successful stage move as an error, the worst direction: the write *did*
+       happen and the user is told to retry. Now conditioned on `type != Void.class`.
+    3. **`ALL_ROLES` in the frontend became `PRODUCTION_ROLES`.** A constant named "all" that
+       excludes a role is how a nav entry ends up 403-ing somebody. `STAGE_ACCESS` and
+       `DASHBOARDS` are `Record<Role, …>`, so the new role was a **compile error** until it
+       declared board access (all `none`) and a dashboard node — that totality did its job.
+    4. **`npx tsc --noEmit` checks nothing here** — the root tsconfig is `files: []` with project
+       references, so it exits 0 on a broken tree. Four real errors hid behind it. `mem:core`
+       already warned about this and it was run anyway; the gate is `npm run build` / `tsc -b`.
+  - **The pacer test was verified to discriminate**, not just to pass: with a pacer per client the
+    same six calls finish in **309ms against the 550ms floor**, so
+    `GhlHttpTest.pacerIsSharedAcrossClients` genuinely fails if the pacer is ever un-shared.
+  - **Deliberately not built in 29a:** notes (29b), opportunity CRUD (29c), tasks and appointments
+    (29d). Spec §7's recommendation stands — **ship 29a and see whether the exec actually works in
+    EvalOS** before building a second sales UI nobody opens.
+  - **Post-build fix: the landing screen was hardcoded.** `App.tsx` sent every role to
+    `/dashboard` in two places (the post-login redirect and `/`), which was correct while every
+    route was reachable by every role and stopped being correct the moment 29a added one that
+    reads no EvalOS rows. A sales executive signed in and landed on a screen whose every figure
+    they are refused, showing the signpost that tells them to go elsewhere — a redirect wearing a
+    page's clothes. `navigation.homePathFor(role)` now decides: dashboard-first for everyone who
+    has one (so no other role's landing screen moved), `boardPathFor` otherwise. Guarded by two
+    assertions in `navigation.test.ts`, one of which pins that the other six still land on
+    `/dashboard`.
+    **Found from a console error that was not the bug** — a Chrome extension's "listener indicated
+    an asynchronous response… message channel closed", which is unrelated to this app; the URL in
+    it was the real signal.
+  - **Seed: `V906__seed_local_sales_executive.sql`** — `sales@evalos.local` / `DevPassw0rd!`,
+    NULL brand, `ghl_user_id` deliberately NULL so the first login shows the fail-closed
+    *unmapped* state rather than a working board. `db/seed-local/README.md` now carries a table of
+    all seven logins, which did not exist before.
+  - **Still outstanding: the supervised first write.** Spec §9 rules out a live write test, so the
+    request *bodies* are unproven until one real deal is moved in daylight with the audit row and
+    GHL's record checked. 29a is not "done" until that happens.
+
+- **2026-08-29 — Unit 29 specced: the sales desk, and the first amendment to an
+  invariant.** Spec only — **no code written.** `context/specs/29-sales-desk.md`.
+  - **What was asked for:** a sales executive dashboard operating *Aditya's pipeline*
+    from EvalOS, syncing with GHL. What that turned out to be: **"sync" is zero code**,
+    because the chosen model stores nothing. Unit 27 already reads that pipeline; the
+    new part is writing to it.
+  - **Invariant 2 was amended, not worked around.** "EvalOS never runs sales" is gone;
+    "a case is in exactly one system's custody" is untouched, because GHL stays the sole
+    record. **The boundary moved from read-vs-write to custody** — the question to ask a
+    future proposal is *"does this make EvalOS store a pipeline fact?"*, not *"does this
+    write?"*. The `opportunities.readonly` grant made the old rule free and total; that
+    is spent, and bought back in code as **one door** (`GhlSalesClient`, build-failing
+    test) plus **an audit row per write** (Unit 23's precedent: the trail is the store).
+  - **The design's proof:** marking a deal Won from EvalOS still creates the case
+    through **Handoff A**, because GHL fires `opportunity.won` either way. Remote
+    control adds no second door into custody.
+  - **A rate-limit defect was found before it was written.** `GhlPipelineClient.pace()`
+    synchronizes per bean; GHL's 100-req/10s is per **location**. A second client bean
+    would put two pacers on one location — each under the limit, the pair over it. So
+    `GhlHttp` is extracted first to hold one shared pacer. Same class of bug the
+    existing comment warns about ("a per-thread limiter would let two concurrent reads
+    each stay under the limit while together being over it"), one scope out.
+  - **A cache-eviction design was proposed and then dropped, which is the better
+    answer.** A stage moved through EvalOS must behave like one moved in GHL's own UI,
+    and that evicts nothing. So no eviction, no `deleteByFunnel`, and no race against
+    the background totaller; the GM's funnel lags by its 5-minute TTL and already states
+    its own `readAt` on screen.
+  - **Two schema conflicts resolved without migrations.** `audit_event.object_id` is
+    `uuid NOT NULL` and a GHL opportunity id is a 20-char string → deterministic
+    `UUID.nameUUIDFromBytes` with the real id in the snapshot. `AuditAction` needed no
+    new constants for 29a–29c: it is open vocabulary and `STAGE_CHANGED` / `CREATED` /
+    `UPDATED` / `NOTE_ADDED` already fit.
+  - **`SALES_EXECUTIVE` is `Tier.SELF`, and that is not a compromise** — a sales
+    executive is never assigned a case, expert or payout, so SELF returns zero EvalOS
+    rows with no new tier and no new predicate. `brand_id` NULL; Unit 25a's re-scoping
+    sweep now covers four screens.
+  - **Deliberately reversed:** the three-field projection keeping marketing PII out of
+    EvalOS payloads. A sales board needs contact name/email/phone; confined to
+    `/api/sales/**`, funnel screens unchanged.
+  - **Phased 29a–29d, and the recommendation is to ship 29a and stop** until the exec
+    actually works in EvalOS — otherwise 29c/29d are a second sales UI nobody opens and
+    the invariant was spent for nothing.
+  - **Decided the same day — read and write only, no delete anywhere (§10).** `GhlHttp`
+    gets **no `delete` method**: the capability is absent from the codebase, not unused.
+    Unlike the old read-only guarantee this one is **not** backed by the credential —
+    `opportunities.write` and `contacts.write` both permit deletes — so it is a
+    build-failing test rather than a convention. Marking a deal lost, completing a task
+    and closing a status are all writes; a deal created in error is cleaned up in GHL,
+    which is the stated cost of a zero destructive surface.
+  - **That decision closed §9 too, in the opposite direction from the recommendation.**
+    The proposed live test was create → move → delete; with no delete, anything it creates
+    is permanent litter in the sales team's real pipeline. And the conservative-looking
+    substitute is the most dangerous option available: **a stage change fires that
+    pipeline's GHL automations**, and a move into `Won` fires `opportunity.won`, which
+    manufactures a real case through Handoff A. So **there is no `GhlSalesClientLiveTest`**
+    — fixtures pin the wire format, `GhlPipelineClientLiveTest` is untouched because reads
+    are safe, and 29a's acceptance gains a **supervised first write**: one real deal, moved
+    once, in daylight, audit row and GHL record checked. Residual risk recorded in §9: the
+    request *bodies* are the one surface no read exercises, so a wrong spelling surfaces
+    there rather than in CI.
+  - **No open questions remain on this unit.**
+  - Amended in the same step: `architecture.md` (invariants 1 and 2, the custody table
+    and the paragraph under it, the roles list, the scope tiers),
+    `project-overview.md` (roles, out-of-scope), `ui-context.md` (the new surface),
+    `00-build-plan.md` (Unit 29 entry, the tenancy note, 25a's scope).
+
+- **2026-08-28 — Demo data for test-production (`db/seed-testprod/V951__seed_testprod_demo_data.sql`).**
+  V950 gets you a login and an empty product: an empty board, an empty roster and an empty
+  payouts week cannot be told apart from a broken query. V951 adds a small, internally
+  consistent slice so the portal can be walked end to end.
+  - **A new file, not an edit to V950.** V950 has been applied, and Flyway checksums an applied
+    migration (invariant 9), so editing it — even its comments — would fail the next migrate
+    everywhere it has already run. `application-testprod.yml` lists the _directory_, so V951 is
+    picked up with no config change. On a fresh database the two run back to back.
+  - **What it seeds.** 5 experts (3 IE / 2 XP), 7 contacts, 8 cases — one per interesting
+    position in the lifecycle: in the pool, on hold awaiting the client, draft v2 pending PM
+    approval, delivered, closed-and-settled, awaiting an expert signature (XP), freshly assigned
+    (XP), and one at EXPERT_ASSIGNMENT with an offer still unanswered. Plus 6 expert offers (one
+    OFFERED, one DECLINED-then-rematched, so acceptance rate is not uniformly 100%), 2 payouts
+    (one PENDING, one PAID by a single `payout_payment` with `confirmed_at` left NULL so the
+    confirm step is still clickable), 6 notifications, and a checklist and audit timeline on
+    every case.
+  - **The derived rows are generated, not typed.** Checklists come from an `INSERT … SELECT`
+    over a VALUES table of `ChecklistTemplates` labels joined on `service_type`, with status
+    driven by the case's own stage; the timeline is four `INSERT … SELECT`s over `evalos_case`.
+    Both are scoped `WHERE id::text LIKE '66666666-%'` so they cannot reach a real case that
+    arrived through Handoff A.
+  - **Still no credential, and still not a substitute for the real paths.** No `portal_access`
+    row is minted (the token behind the hash would have to be committed to be useful, which is a
+    live bearer credential); `expert.payment_detail` stays NULL because only
+    PaymentDetailConverter can write that ciphertext; `ghl_funnel_cache` is left empty because
+    seeding a cache of an API we can call is fiction. Handoff A still creates real cases and
+    Unit 11's upload still upserts the roster over these experts on `lower(email)`.
+  - Ids are range-partitioned (`ffffffff…` experts, `55555555…` contacts, `66666666…` cases,
+    `77777777…` payouts, `88888888…` payments, `99999999…` offers) so the demo can be deleted
+    without touching real data. Times are `now() - INTERVAL …`, so the slice reads as current
+    whenever the environment is built.
+  - Verified structurally (statement arity, every referenced id declared, array values inside
+    V18's CHECK vocabularies, V19's `outcome_at` rule) — **not** yet applied to a Postgres:
+    this machine has a server but no credentials in the repo. Apply it before trusting it.
+
+- **2026-08-28 — Expert profile redesigned: row click, sheet, view/edit split.** A visual and
+  interaction pass over `features/experts`, inside the UI scope rule — no API, route, rules
+  module or role gate changed, and `ExpertController` is untouched.
+  - **The whole row opens the expert.** It was a text link on the name inside the first cell:
+    the target for the roster's primary action was a few characters wide in a row the width of
+    the screen. `ui-context.md` has said "row click opens the record" for data tables since
+    Unit 10 and no screen had done it; this is the first.
+  - **`<tr onClick>` with the name left as a real `<button>`, deliberately.** The row carries
+    `cursor-pointer` + `hover:bg-(--bg-raised)` for the mouse and `focus-within:` the same
+    highlight for the keyboard; the button keeps the accessible name and the focus. `role`
+    plus `tabIndex` on the `<tr>` would have been fewer lines and would have stopped it being
+    a row to the table semantics. Nothing else in a roster row is interactive, so there is no
+    click to swallow — the name button's own click bubbling to the row is one idempotent
+    `setOpen(id)` twice.
+  - **The profile is a `Sheet` now, not an `<aside>` under the table.** The existing
+    `components/ui/dialog.tsx` sheet, which brings the focus trap, Escape, the overlay and the
+    entry animation. The list is never unmounted, so **search, filters, page and scroll
+    position survive open-and-back with no state added for them** — the requirement was free
+    once the panel stopped being part of the list's own layout.
+  - **View mode first, form behind _Edit profile_.** The nine facts and the fifteen-field form
+    used to be stacked on one screen, so every reader scrolled past the form. `view` renders
+    grouped fact cards (Contact · Professional · Assignment and workload · Availability ·
+    Payment detail · Notes); a save returns to `view` with a green confirmation rather than
+    closing. **Adding an expert no longer closes the sheet either** — it lands on the new
+    expert's profile, which needs the created id kept in state so the next Save updates rather
+    than POSTing a second copy.
+  - **Two marks extracted rather than copied**: `Avatar` (initials, honorifics dropped, one
+    `--accent-soft` treatment — the roster stores no photo and is not getting one) and
+    `AvailabilityBadge`, both exported from `ExpertProfile` and used by the roster row, which
+    had its own token lookup and its own wording for the empty case. `initials()` is pure, in
+    `expertRules.ts`, with tests.
+  - **`components/ui/dialog.tsx` was not touched** — protected path. The footer's Save reaches
+    the body's form through a native `form="expert-profile-form"` attribute, which is also
+    what keeps the primary action in one place in both modes.
+  - Known ceiling: the sheet has no exit animation, because the component only mounts while an
+    expert is open. Radix `forceMount` plus retaining the last id would fix it — state carried
+    for an animation, worth it only if the missing slide-out is noticed.
+  - Verified: `npm run build` (`tsc -b` + vite) clean, `npx vitest run` 150 tests green
+    including 4 new for `initials`. **Not rendered in a browser** — no backend up on this
+    machine (no Docker daemon, no Postgres credentials in the repo), so the sheet, the hover
+    state and the save flow are unexercised against a live roster.
+
+- **2026-08-27 — Test-production seed added (`db/seed-testprod/V950`, `application-testprod.yml`).**
+  Deployment plumbing, not a unit. There is no user-creation API (`TeamMemberController` is
+  read-only) and no `team` table, so a real environment has to be seeded or nobody can log in.
+  - **Activate as `SPRING_PROFILES_ACTIVE=prod,testprod`, both, never `testprod` alone.** `prod`
+    supplies the whole configuration; `testprod` adds only `classpath:db/seed-testprod`,
+    `out-of-order: true` (V950 outranks every migration, same reason `local` needs it), and three
+    Flyway placeholders. Real production lists neither, so it never sees the seed.
+  - **No credential is committed, because this seeds a real database.** `ie-webhook-token`,
+    `xp-webhook-token` and `seed-password-hash` resolve from `IE_WEBHOOK_TOKEN`,
+    `XP_WEBHOOK_TOKEN`, `SEED_PASSWORD_HASH` — no defaults, so a forgotten one fails the migrate
+    rather than seeding a brand whose token is the literal `${...}`. `brand.webhook_endpoint_token`
+    is the _entire_ webhook credential (no signature step — GHL's Custom Webhook cannot compute
+    one), on an unauthenticated public endpoint, so it is treated like the GHL token.
+  - **None of `seed-local`'s rows are reused**, and that is the point: those ids, logins and the
+    one BCrypt hash behind them are in this repository. New brand ids (`3333…`/`4444…`), new member
+    ids (`eeee…`), new `@testprod.evalos.local` logins, one per role on **both** brands plus the
+    single brand-less GM — 11 rows, so brand scoping has something to be wrong about.
+  - **V950 seeds nothing else** — brands and logins only. `currency` is set inline (V904 exists
+    only because the local seed predates the column); `ghl_webhook_secret` is left NULL — no Java
+    reads it, and NULL fails closed. Demo rows arrived later, in `V951` (below).
+  - `ConfigSecretsTest` now scans `application-testprod.yml` like every other profile, and
+    `MigrationTreeTest`'s seed-tree check is parameterized over both seed directories — the
+    sibling-not-child layout is the only thing keeping a seed out of production.
+  - Verified: all 28 migrations + V950 applied to a scratch Postgres 18 database (2 brands,
+    11 logins, roles and brand scoping as intended); `ConfigSecretsTest` + `MigrationTreeTest`
+    10 tests green.
+
+- **2026-08-27 — Unit 16b built: the expert charges per draft and is paid weekly.** Units 16 and 16b
+  shipped together on `unit-16-payout-ledger`. 551 backend tests, 146 frontend, `npm run build` and
+  `npm run lint` green, and the DB-gated suite **ran** rather than skipping.
+  - **What the requirement actually is.** The expert is owed a fee per delivered draft, but the
+    money leaves once a week: three drafts, one Zelle transfer, **one reference**. Spec 16 assumed
+    the unit of payment is the unit of work and gave each payout row its own
+    `method`/`reference`/`paid_date` and its own `confirm` — which would record one transfer as
+    three rows carrying the same string typed three times, with no object anywhere corresponding
+    to what left the bank.
+  - **The fix is one idea: a payment is its own record.** New `payout_payment` table; `payout_ledger`
+    gains `payment_id` and loses those three columns. `CONFIRMED` moves to the payment and cascades
+    — one transfer, one acknowledgement.
+  - **The rule that keeps it honest: `sum(row amounts) == payment.amount`, exactly.** A payment whose
+    amount is not what it settled disagrees with the bank _silently_ — both numbers look reasonable
+    alone — and would make the finance dashboard's money-out figure ambiguous, since the sum of
+    payments and the sum of settled rows would be two different answers to one question. If the
+    number is wrong the row amounts are corrected first; they are editable while `PENDING`.
+  - **Settlement is one conditional `UPDATE ... WHERE status = 'PENDING'` with an affected-count
+    assertion**, not read-then-save. Two ENMs settling overlapping selections is the same
+    check-then-act shape spec 16 wrote its partial unique index for. No `@Version`, no explicit
+    lock — the database decides and cannot decide twice.
+  - **Decision taken: the ENM records payouts**, with the GM and Brand Manager. Spec 16 restricted
+    writes to GM/Brand Manager and said in as many words that this was the business's call, not an
+    assumption to make in a spec. The ENM sends the transfer, so the ENM records it. The guard stays
+    in `PayoutService` _and_ `@PreAuthorize`, because it is a money path.
+  - **Retainers were considered and rejected.** An earlier reading had experts on a standing weekly
+    rate per expert-to-client assignment. The business does not pay one — and it would have forced
+    client identity onto ENM screens and required amending the supply-side-axis rule. **The ENM stays
+    client-blind and `project-overview.md`'s _Roles_ section needs no amendment**, which is the main
+    thing the corrected reading bought.
+  - **Two holes in spec 16 found by checking it against the schema.** It reads "the brand's configured
+    currency" and "the configured payout term"; `V2__brand.sql` has neither. Both land in 16b's
+    migration — `currency` `NOT NULL` **with no column default** (guessing USD for a GBP agreement is
+    the one guess here that spends real money), `payout_term_days` defaulted to 7 because a wrong due
+    date is a visible annoyance, not a wrong payment.
+  - **`payout_ledger.method`/`reference`/`paid_date` are dropped, departing from the HMAC precedent**
+    that left dead columns in place. That decision turned on not writing a migration at all; here one
+    is written regardless, and these three sit on a _money_ table where they read as load-bearing. A
+    convincing trap on the payout path is worse than two inert columns on a webhook archive. Nothing
+    ever wrote them — Unit 16 was never built — so no data is lost, and `V8` is not edited.
+  - **Deliberately not in 16b:** reports and CSV export (real, wanted, in no unit — its own decision,
+    not smuggled in), a `PAY-000124` payment code (the typed reference is already the handle), and the
+    ENM dashboard tiles (Unit 17's, fed by these queries).
+  - Files: `context/specs/16b-weekly-settlement.md` (new), `16-payout-ledger.md` (supersession
+    banner), `00-build-plan.md` (A3), `project-overview.md`, `architecture.md`,
+    `.serena/memories/backend/persistence.md`.
+
+  - **Four things the build changed about the spec, all recorded in it:**
+    1. **`brand.currency` could not be `NOT NULL`.** Flyway orders by version across every
+       configured location, so `V28` runs before `db/seed-local/V900`, which inserts brands with no
+       currency — the constraint fails on any fresh database, which is what CI builds every run.
+       `V900` cannot be edited (invariant 9) and `MigrationTreeTest` forbids a ≥900 script under
+       `db/migration`, so no `SET NOT NULL` can be ordered after it. **`payout_ledger.currency
+NOT NULL` is what actually keeps a null out of the ledger** — which is what spec 16 asked
+       for — and `openForDelivery` refuses a brand with no currency, rolling the delivery back.
+    2. **A delivery for a currency-less brand rolls back rather than notifying.** Spec 16's wording
+       was ambiguous. A delivered case with no payout row is an expert who never gets paid, and it
+       is silent; a blocked delivery is loud and is fixed by setting one column.
+    3. **`GET /api/payouts` is a real filterable list**, not the batch view. It is what the expert
+       payouts screen reads to answer "this expert's pending drafts" — `batch` is week-scoped and
+       `history` returns payments, so nothing else does.
+    4. **`PayoutService.MAY_RECORD` is public**, so `PayoutControllerTest` can assert by reflection
+       that the controllers' `@PreAuthorize` names exactly those three roles. Spec 16b asked for
+       that test by name; it could not be written across packages otherwise.
+
+  - **What review caught that a green suite did not.** Every defect below passed its own build:
+    a migration that would have failed CI on the first fresh database; a brand-scoping fix whose
+    proof test passed identically against the unfixed code; `weekStart` tested against three
+    deliberately-pinned timezone boundaries while **having no production caller**, the real week
+    logic sitting untested inline; `BatchView.paid` counting `VOIDED` drafts as money sent; a
+    role-agreement test that asserted nothing when a method was un-annotated; and two of four list
+    filters deletable without turning the suite red. The pattern is one thing — the code was
+    usually right and the proof was hollow — and it is why the two concurrency properties are
+    proved against real Postgres with genuinely interleaved transactions rather than asserted.
+
+  - **Deferred, deliberately.** `list`/`batch`/`history` each load a brand's ledger and filter in
+    memory with no pagination — the existing house shape, and the flat list is where growth bites
+    first. The lost-race rollback is proved end-to-end in `LocalPostgresIntegrationTest`, not in the
+    unit suite, where `PayoutService` is built with `new` and `@Transactional` is unproxied. The
+    DB test's SQL is a hand-kept mirror of `attachToPayment`'s JPQL: it pins the semantics
+    production relies on, not that production still writes them, and its javadoc says so.
+
+- **2026-08-27 — `ghl_contact_id` outranks email in contact matching (`V27`).** Confirmed as policy:
+  the GHL contact id is the canonical external client identity everywhere, and the three identifiers
+  stay separate — `ghl_contact_id` = the client, `ghl_opportunity_id` = one purchase,
+  `evalos_case.id`/`case_code` = one internal engagement. Written into **invariant 7**.
+  - **Most of it was already true and is now asserted rather than assumed.** One contact, many cases
+    (`V15` keys on _service_, not client); `linkGhlContact` is write-once so EvalOS never mints or
+    changes an id; the two GHL ids live on different tables and nothing reads one for the other.
+  - **One real defect found and fixed.** `existingContact` fell back to email even when the payload
+    supplied a `ghl_contact_id` that had not matched. If that email hit a row bearing a _different_
+    id — two GHL contacts sharing a firm's office inbox, which `V16`'s own comment flagged as
+    plausible — intake adopted the other client's row, could not backfill its own id over the one
+    already there, and **attached a paid case to the wrong client** while overwriting their name and
+    phone with this client's. A wrong merge is worse than a duplicate: the duplicate is visible and
+    fixable, the merge reads as an ordinary case.
+  - **The fix is two halves and neither works alone.** `CaseIntakeService.contradicts` refuses an
+    email match only on a genuine conflict — both ids present and different — and `V27` narrows
+    `uq_contact_per_brand_email` to `WHERE email IS NOT NULL AND ghl_contact_id IS NULL` so the insert
+    that refusal forces can actually land. **Refusing without the migration would have turned the
+    wrong-client merge into a 5xx retry storm**, which is worse again: a paid case that never opens.
+  - **What deliberately did not change.** The fall-through itself stays: it fixes a real bug (a first
+    delivery with no GHL id leaves an id-less row that a later, id-carrying delivery must find by
+    email and backfill). Only a _conflict_ is refused, so both of the cases it exists for still match.
+    The race `V16` closed also survives — two concurrent id-less rows are still both in scope.
+  - `V27` is strictly weaker than the index it replaces, so it cannot fail on existing data. It also
+    cleared a latent 5xx: a contact changing their GHL email to one an id-less row already held used
+    to fail the sync on this constraint.
+  - Four tests added (`anIdlessRowFoundByEmailIsAdoptedAndBackfilled`,
+    `anEmailMatchNamingADifferentGhlContactIsRefused`, `aDeliveryWithNoGhlIdStillMatchesARowThatHasOne`,
+    `emailIsUniqueOnlyAmongContactsWithNoGhlId`); `aContactIsUniquePerBrandByGhlIdAndByEmail` split,
+    since its email half asserted exactly the behaviour that was wrong. 504 backend green, `V27`
+    applied against live Postgres.
+
+- **2026-08-27 — The inbound GHL webhook no longer requires an HMAC signature.** Handoff A is now
+  reachable from GHL's own Custom Webhook action with nothing but a URL and a JSON body.
+  - **Why, and it is not a relaxation of a working control.** GHL's Custom Webhook action cannot
+    compute an HMAC over the body it posts. So the signature step was not a guard that had yet to be
+    confirmed against a real sub-account (that was **G17**) — it was a guard nothing on the far end
+    could ever satisfy, which made Handoff A impossible to wire up from GHL at all. Removing it
+    closes G17 by answering the question rather than by deferring it.
+  - **What authenticates a delivery now:** `brand.webhook_endpoint_token` in the path, resolved by
+    `findByWebhookEndpointTokenAndActiveTrue`. **That token is a credential** — unguessable, never in
+    a DTO, never logged, and rotating it revokes the endpoint. The `AndActiveTrue` is load-bearing:
+    it is what makes deactivating a brand stop its webhook. An unknown token and an inactive brand's
+    real token are the same `404 UNKNOWN_ENDPOINT` with the same message.
+  - **Removed:** `WebhookVerifier` (deleted), the `signature` parameter through
+    `InboundWebhookController` → `WebhookGateway.accept`, `evalos.webhook.signature-header` /
+    `WEBHOOK_SIGNATURE_HEADER` from `application.yml`, `Brand.ghlWebhookSecret` (field and getter),
+    and the now-dead `signatureVerified` constructor argument on `WebhookEvent` — the gateway only
+    ever passed a literal `true`, and after this change no row can honestly claim a signature was
+    checked, so new rows are `false` and the `true` rows are exactly the pre-change ones.
+  - **Deliberately not removed: no migration was written.** `brand.ghl_webhook_secret` (`V11`) and
+    `webhook_event.signature_verified` (`V12`) stay in the schema, unread. An applied migration is
+    never edited (invariant 9), and a new one to drop two columns nothing queries would be schema
+    churn for no behaviour. The local seed `V901` still sets the secret and is likewise harmless.
+  - **Nothing else about Handoff A moved.** The payload contract is unchanged and still required in
+    full (`event_type` = `opportunity.won`, `event_id`/`webhook_id`, `service_type`,
+    `opportunity.ghl_opportunity_id`, `opportunity.amount > 0`, `contact.full_name`); `event_id` is
+    still the brand-scoped idempotency key; case creation, open-case refresh, stage, assignment,
+    paid, checklist, contact matching, audit rows and the response envelope are untouched.
+  - **The body stays `byte[]` to the gateway**, decoded as UTF-8 there. That began as an HMAC
+    requirement and outlives it as the right way to read a JSON body: the archive holds exactly the
+    text that was parsed and routed, whatever charset the sender declared.
+  - `InboundWebhookTest` rewritten around the token: 23 tests, including the inactive-brand `404`,
+    an explicit no-signature-header acceptance, a "a signature header, if sent, is ignored" case, and
+    a parameterized malformed enum/date/UUID → `400 MALFORMED_PAYLOAD`. 500 backend tests green,
+    including the live-Postgres suite, so the migration tree is unchanged and still checksum-clean.
+
+- **2026-08-27 — Review of PR #18, resolved.** Self-review of the three units found four things;
+  all four fixed before merge.
+  - **The top bar overflowed on the 1366px laptop with a custom range open.** The date inputs were
+    ~250px of inline row, and the bar cannot wrap — so the overflow went sideways. Measured: the
+    search bottoms out at **54px and stops shrinking**, after which `Sign out` was pushed 25px past
+    the edge at a 1100px bar (225px at 900, 365px at 760). **The claim in the original commit
+    message — that overflow was recoverable because search "gives up width first" — was only half
+    true and is corrected here.** The inputs now live in a Popover (`components/ui/menu.tsx`, no new
+    dependency) behind a chip that doubles as the readout of the active range. Re-measured: spill 0
+    at 1100 and 900, 87px at 760 — a width well below the documented target and with five controls
+    in the row.
+  - **Dead code from designs abandoned mid-implementation, deleted.** `asDeadlineWindow` (written
+    for a URL-param board filter, then dropped for local state to match its three sibling filters);
+    `DateWindow.of(DateRange, Clock)`, which had **no callers and a Javadoc describing one that does
+    not exist** — it claimed the background totaller "re-resolves the window it was handed", when
+    `startTotalling` carries the resolved window across the thread boundary; and a stray
+    `export type { DateRange }` from `DateFilter`. The test over `asDeadlineWindow` was retargeted
+    at a real invariant — that the forward and backward vocabularies stay disjoint where it matters
+    — rather than deleted with it. **A test over dead code makes the dead code look load-bearing.**
+  - **`DateWindow`'s half-open contract was not honoured by its consumer.** `endInstant()` is
+    exclusive and documented as "the only bound that cannot drop a row", but `PmMetricsService`'s
+    `tally` and `completionByService` filtered with `date.isAfter(to)` — inclusive. Harmless while
+    `to` was `Instant.now()` and never a round number; not harmless once `to` is exactly midnight,
+    which put the boundary instant in two adjacent windows and `from` in both the current period and
+    its previous-period comparison. Now `!date.isBefore(to)` in both.
+  - **The "More…" select snapped back while the picker was open** — choosing Custom set `editing`
+    but not `dateRange`, so the select re-rendered as "More…" beside an open picker, reading as a
+    click that did not register. `menuValue` now accounts for `editing`.
+  - 494 backend, 130 frontend, `npm run build` green; the popover re-measured in a browser.
+
+- **2026-08-27 — Fixed: the top bar was painting over the case detail header.** Reported from a
+  screenshot — the case code and its SLA badge were clipped on `/cases/:id`.
+  - **Root cause: two sticky elements pinned to the same `top: 0`.** `TopBar` is
+    `sticky top-0 z-20`; `StageActions` was `sticky top-0 z-10`. Same offset, and the bar wins on
+    z-index — so on scroll the case header slid underneath and disappeared entirely. It now sticks
+    at `top: var(--header-height)`, taking its offset from the bar's own height so the two cannot
+    drift apart. **Two sticky elements at the same `top` is not a layering problem to fix with
+    z-index: whichever loses is simply hidden.**
+  - **A second cause made it visible even unscrolled: a phantom `-mt-6`.** It existed to cancel the
+    content area's top padding so the band could bleed to the edge — but `AppShell`'s main is
+    `padding: 0 gutter gutter`, with **no top padding**. So it cancelled nothing and pulled the
+    header 24px up into the bar's space. That is the clipping in the screenshot, on a page that had
+    not been scrolled.
+  - Also corrected the horizontal bleed: `-mx-6`/`px-6` is 1.5rem against a `--shell-gutter` of
+    1.25rem, so the band overhung the content column by 4px a side. Now driven off the variable.
+  - **Pre-existing, not caused by Unit 28** — `StageActions.tsx` was last touched in `89ae6cd` and
+    is not in that unit's diff. But Unit 28 _had_ introduced a way to make it worse, now closed:
+    `DateFilter`'s root was `flex-wrap`, so opening the custom range on a narrow viewport wrapped
+    to a second row and grew the bar past 72px — which silently invalidates every offset measured
+    from `--header-height`. `styles` states the contract ("The header stays 72px: enough for a 36px
+    control row"), so the wrap is gone; overflowing sideways is recoverable because the top bar's
+    search is `min-w-0 flex-1` and gives up width first.
+  - **Verified in a browser against the running app**, which is the only thing that can verify a
+    layout claim: at rest the case header's top is 72 and the bar's bottom is 72; scrolled 270px it
+    still pins at 72 with `overlapPx: 0`; and with the custom range open both date inputs render
+    while the bar measures exactly 72. 130 frontend tests and `npm run build` green.
+
+- **2026-08-26 — Unit 28: the date filter gains calendar periods, completed periods and a custom
+  range — and the board's filter is split out of it.**
+  - **What was asked:** this week / this month / this year as buttons, with last month, last year
+    and a date-to-date range behind a dropdown.
+  - **What it actually required, and this is the unit:** that one value was read in **two opposite
+    directions** — backwards by the dashboards and the three GHL screens, forwards by `BoardView`
+    through `dueBeforeFor`. `ui-context.md` had recorded the collision for two units and it had
+    already cost a defect (the default set to `year` for a marketing screen left the production
+    board effectively unfiltered). **Every new option breaks the sharing outright**: `last-month`
+    as a "due before" cutoff returns every open case, and a date-to-date interval is two edges
+    where a cutoff needs one. So the board now owns `DeadlineWindow` (`week|month|year`, forward)
+    and the shell owns `DateRange` (seven periods, backward) — **enforced by the type**: passing
+    one where the other belongs does not compile.
+  - **`DateRange` stopped being a day count.** It carried `int days`; a to-date period has no fixed
+    width (this month is 1 day wide on the 1st) and `last-month` does not end today, so no
+    subtraction from now produces it. `DateWindow` resolves a name into inclusive days and is the
+    only place that arithmetic lives. Days are the primitive and instants are derived — the old
+    code had it the other way round and shipped a bug for it.
+  - **A `custom` cache collision, caught before it shipped.** `ghl_funnel_cache` was keyed
+    `(funnel, range_name)`, which was correct only while a name meant one window. Every custom
+    period is _named_ `custom`, so two different windows would have shared a row and served each
+    other's figures for a whole TTL — invisible on screen, because the payloads are identical in
+    shape. **V26 keys on the resolved window** (`window_key`, `2026-08-01..2026-08-26`) and also
+    fixes a smaller existing fault free: a `month` row used to keep answering after midnight, when
+    "this month" had become a different window. Existing rows are **deleted, not translated** —
+    which window a row covered depends on the day it was written, which the row never recorded.
+  - **Behaviour change on screens that already worked, stated because it will be noticed:** every
+    dashboard figure moves. `today` was the last 24 hours and is now today in the business's zone;
+    `month` was the last 30 days and is now since the 1st. On the 3rd of a month the PM and revenue
+    dashboards report far smaller numbers than the day before. Correct — the labels were the half
+    that was already lying. `PmMetricsService`'s period-over-period comparison needed no change: it
+    measures a window against the equal-length span before it, which stays like-for-like.
+  - **Two things found on the way.** `InboxPage` was refetching on a filter it deliberately ignores
+    (it passes `dueBefore: null`, but the shell period was still in its effect deps). And
+    `MarketingController`'s `year` default claimed to "match the shell's own initial selection"
+    when the shell's default is `month` — the comment was the only thing keeping them apart. Both
+    fixed.
+  - **A verification lesson worth more than the feature.** `npx tsc --noEmit` in `frontend/`
+    **checks nothing**: the root `tsconfig.json` is `{"files": [], "references": [...]}`, so plain
+    `tsc` has no inputs. Only `tsc -b` — which `npm run build` runs — checks the referenced
+    projects. **Three real errors were hiding behind that no-op**, including a production call site
+    in `AssignPopover.tsx` passing a bare string where the union was now required. Earlier entries
+    in this tracker citing "`tsc --noEmit` clean" as evidence were citing a command that inspected
+    no files; the project's own gate (`npm run build`) was always correct. **Use `npm run build`.**
+  - **Verified:** `DateWindowTest` 27 cases on a fixed clock (boundaries, ISO Monday weeks
+    including the Sunday case that distinguishes the convention, `last-month` from the 31st and in
+    January, leap-year `last-year`, a 22:00-local zone crossing, every custom rejection); the
+    two-custom-windows cache test asserted _through the service_; 400s at the HTTP boundary with
+    nothing reaching the service; V26 applied against real PostgreSQL with four windows coexisting.
+    **494 backend, 130 frontend, `npm run build` green.**
+  - **Not done:** the screens were not driven in a browser. The window arithmetic is covered on a
+    fixed clock and the wire contract at the HTTP boundary, but the picker's own interaction — the
+    draft-until-both-edges behaviour — has unit coverage only.
+
+- **2026-08-26 — Unit 27: the GM can see the sales pipeline, under its own `Sales` heading.**
+  The third GHL pipeline read — _Aditya's pipeline_, the sales team's own working funnel — on the
+  machinery Units 24 and 26 built.
+  - **The whole feature cost a property, an enum constant (`Funnel.SALES`), a controller method, a
+    nav entry, a route-table line and one union member.** No new class on either side, no new
+    component, no new service. That was the explicit prediction left in `application.yml` at the
+    time ("if a third funnel is ever asked for, add a third property and a third constant") and it
+    held; the comment now records that it was tested.
+  - **Under `Sales`, not `Marketing`, and that is the one real decision in the unit.** The other
+    two are campaign funnels — leads a channel produced. This is a salesperson's pipeline, with
+    stages they do not have (`Meeting booked`, `Invoice sent`, `Refund`), and one heading over all
+    three would present them as comparable channel results. It sits between Marketing and Pipeline
+    because that is the order of the business. **The API route deliberately did _not_ follow the
+    heading**: it stays `/api/marketing/sales-pipeline` on `MarketingController`, because a
+    `SalesController` holding one delegating method splits one integration across two doors to fix
+    a word. Stated so it reads as a decision, not an oversight.
+  - **The substantive finding: GHL stores the pipeline's name with TWO spaces** —
+    `Aditya's··pipeline`. `pipelineNamed` matched with `equalsIgnoreCase`, so the single-space
+    spelling any human types into config did not match and the screen answered 502. That 502 is the
+    _right_ failure direction (Unit 24 chose name-matching precisely so a rename breaks loudly) but
+    its cause is **invisible in both places anybody would look** — the two strings render
+    identically, and no message could say "these differ by a space you cannot see".
+    - Pasting the double space into the three yml profiles was **rejected**: correct only until an
+      editor, linter, shell, deployment template or reviewer normalises whitespace, and then it
+      fails as an unexplained 502.
+    - Fixed instead in the **shared client**: whitespace runs collapsed and edges trimmed before
+      comparing, so all three funnels benefit and the next stray space costs nobody an afternoon.
+    - **Nothing else is normalised** — no punctuation stripping, no fuzzy matching. A name
+      differing by a real character _is_ a different pipeline and must still fail loudly, which is
+      the entire reason matching is by name. `Adityas pipeline` (no apostrophe) is asserted to
+      still fail, as the guard on that boundary.
+  - **Three new stage names, zero special cases.** `Meeting booked`, `Invoice sent` and `Refund`
+    are all `OPEN`: `Outcome` reads stage _names_ and knows only GHL's status words, exactly as
+    `Cold` already was. **`Refund` was declined as an outcome constant** — it is a money event
+    belonging to the payment record, and a constant for it would put a vocabulary in EvalOS that
+    the pipeline's owner can rename in GHL tomorrow. If refund reporting is wanted, it is a
+    question about payments, not about this screen.
+  - **GM-only, and this was the unit most likely to drop that rule** — "sales is not marketing"
+    invites the assumption that the marketing scoping exception does not reach it. It does: same
+    global `location-id`, same unattributable brand, same door. `navigation.test.ts` now loops all
+    three paths in one assertion with the reasoning inline, so a fourth screen added without its
+    gate fails a test rather than shipping. **Unit 25a now re-scopes three screens, not two.**
+  - **Verified live.** `GhlPipelineClientLiveTest` ran green against the real API: the
+    single-space configured name resolved to `tj2agZ90S1LQgCpDAoKi` with all nine stages. That is
+    the assertion that mattered — the unit test proves the normalisation against a fixture _we_
+    wrote, and only a real call proves the fixture matches what GHL returns. Full suites also
+    green: **468 backend, 118 frontend, `tsc --noEmit` clean.**
+  - **The endpoint was then driven end to end against live GHL from a running app**, after a
+    "no such endpoint" report: `GET /api/marketing/sales-pipeline?range=year` as the GM returned
+    **642 deals · $202,494.94 · `detail: READY`** over `2025-08-27..2026-08-26`, all nine stages in
+    position order (Won 273 / 43% / $108,807.94 · Cold 157 · Lost 117 · Warm 71 · Hot 13 ·
+    Meeting booked 7 · Invoice sent 4 · New Lead 0 · Refund 0) with `Won`→`WON`, `Lost`→`LOST` and
+    the other seven `OPEN` as designed, and 13 sources led by `Unattributed 241` and `ADS 112`.
+    **`pipelineName` came back as `Aditya's··pipeline` — with GHL's two spaces** — which is the
+    live proof that the single-space configured name resolved through the client's whitespace
+    normalisation.
+  - **The "no such endpoint" report was a stale JVM, not a defect.** The running backend had been
+    started _before_ the code existed, so Spring had no mapping and `ApiExceptionHandler` answered
+    its `NoResourceFoundException` 404. Diagnosed by comparing siblings on that same process with a
+    GM token — `/email-pipeline` 200, `/sales-pipeline` 404 — which is the check to reach for first
+    when a brand-new route 404s. **Anonymous requests cannot show this**: security intercepts before
+    handler lookup, so both routes answer 401 and look identical.
+  - **Not done:** the screen itself was not re-rendered in a browser. It is the same component the
+    previous entry verified end to end, differing only in which pipeline the server resolves, and
+    the payload above is now confirmed live. If it renders wrong for this pipeline specifically,
+    the nine-stage shape is where to look first.
+
+- **2026-08-26 — the last marketing flag is closed: the screen was driven in a browser against
+  live GHL.** This was the one item carried from Unit 24 that no test could close, and it needed a
+  running app with a real database — which is why it waited until the DB work above was done.
+  - **What was verified on screen**, as the GM at `/marketing/email`: **Month** renders the empty
+    state naming its own window (`Jul 27 – Aug 25`, 30 days inclusive) and telling the reader to
+    widen the period. **Year** renders `Aug 26, 2025 – Aug 25, 2026` — 365 days inclusive, the
+    fixed arithmetic visible on screen — with **11,432 deals · 48 won · 0 lost · $34,301**, all six
+    stages as rows including the empty ones (New Lead 11,364 · Hot 20 · Won 48), and the sources
+    table showing `Unattributed 11,300 / $23,801`, `Application Form 36 / $5,450` and
+    `LCA 35 / $0` — an unpriced source counting as nothing, exactly as the card claims.
+  - **The poll-until-`READY` handover was watched end to end**: the first call answered
+    `TOTALLING` with exact counts immediately, and the fifteenth poll (~75s) answered `READY` with
+    `totalValue 34301` and 13 sources. One URL, no job id, no second endpoint.
+  - **The Postgres cache was proven cross-process, which is the claim the move was made for.** A
+    _third_ JVM was started with an empty heap after the figures had been computed by another
+    instance; it answered in **0.14s** with `READY`, `$34,301`, 13 sources and a **byte-identical
+    `readAt`** — so it served the other instance's row out of the table rather than calling GHL.
+    That single test covers both defects the heap map had: a total lost on restart, and one
+    instance unable to hand its result to another. The row also showed `version 5` with
+    `totalling_since` released to NULL, so the claim was taken and given back as designed.
+  - **Also confirmed incidentally:** the shell's date filter defaults to **Month** in the running
+    app, which is the `filters.tsx` revert working — it had been flipped to `year` and was leaving
+    the production board effectively unfiltered.
+  - **How it was run, because it is not obvious.** The dev login is `gm@evalos.local` /
+    `DevPassw0rd!`, seeded by `V900` — and **the seed is not in the app's default Flyway
+    locations**, so a dev database only has it if it was seeded deliberately. A backend and Vite
+    dev server were already running on 8080/5173 from an older commit, so rather than restarting
+    somebody else's process this ran on **8081/8082** with a throwaway Vite config on **5175**
+    pointing at them; all three were stopped and the config deleted afterwards, leaving 8080/5173
+    untouched.
+  - **What is still open on the marketing units: only brand scoping (Unit 25a).** Both screens
+    remain GM-only and unattributable, for the reason stated there. Nothing else is unverified.
+    _(Unit 27 later added a third screen on the same terms — so 25a re-scopes three, not two.)_
+
+- **2026-08-26 — the funnel cache is in Postgres, and the DB test suite no longer skips itself.**
+  Both came out of one report ("I already have a DB, don't use heap memory to store data — I think
+  something went wrong with the DB configuration"). **The DB configuration was not broken**, and
+  that was worth establishing before changing anything: 27/27 integration tests pass against real
+  PostgreSQL 18.1, 29 migrations validated, `ddl-auto=validate` agreeing with every entity, and
+  there is no H2/HSQLDB/Derby anywhere in the project — the datasource is Postgres in all three
+  profiles. What looked like a misconfiguration was two real but different things.
+  - **`LocalPostgresIntegrationTest` was skipping 27 tests on a machine that had a database.** It
+    was gated on `-Devalos.db.test=true`, which nothing set locally, so a green `mvnw test` said
+    nothing whatsoever about the schema, the migrations or the encryption. The file's own Javadoc
+    already warned "a flag nobody sets is the same as a test nobody wrote" — it was still true.
+    - The gate is now a **connection probe** (`postgresIsUsable`): run if a Postgres answers.
+      `-Devalos.db.test` still wins when set, in **both** directions — `true` forces it on so CI
+      fails loudly on a broken provisioned database instead of skipping and reporting success,
+      `false` forces it off for a fast offline run. **CI is unaffected**: it already passes `true`.
+    - Every connection failure is a _skip_, not a _fail_ — no Postgres, wrong credentials and no
+      `evalos` database all mean "this machine is not set up", and failing a fresh checkout for
+      that is what pushes people back to disabling the suite. The reason is printed as `[db] …`.
+    - **Result: skipped went 31 → 4** (only the opt-in live-GHL tests). `Skipped: 4` is now the
+      healthy number, and anything higher means the DB tests silently did not run —
+      `mem:task_completion` says so, because that is the failure mode this change re-introduces if
+      nobody looks.
+  - **The marketing funnel cache moved from a `ConcurrentHashMap` to `ghl_funnel_cache` (V25).**
+    The old note defended a per-instance map on the grounds that "a few seconds of skew between two
+    instances on a funnel count is invisible". That reasoning was about the **counts**, and it
+    missed what the map had since become: **the handover for the background total.** Three
+    consequences, all one defect — the handover state was private to a process:
+    1. A completed total was **lost on restart**, so the next reader paid the whole 11,000-row read
+       again.
+    2. With more than one instance, a screen polling a `TOTALLING` window could land on an instance
+       that had never heard of it and **wait forever**, or flip between `READY` and `TOTALLING`
+       depending on who answered.
+    3. The rate-limit protection was per instance, so **N instances meant N times GHL's budget** —
+       precisely the outage the cache exists to prevent.
+    - **Shape:** one row per `(funnel, range_name)` (both halves — the two payloads are identical
+      in shape, so a key missing `funnel` serves the ads figures under the email heading for a
+      whole TTL with nothing to contradict it). Payload as one `jsonb` document because nothing
+      queries inside it; `detail` and `read_at` lifted out as columns so a claim needs no JSON
+      parse; `version` for optimistic locking.
+    - **`totalling_since` replaces the in-heap `totalling` set, and it is a timestamp rather than a
+      flag so the claim can EXPIRE.** The heap set died with the process that held it; a row does
+      not, so an instance killed mid-total would otherwise wedge the window at `TOTALLING` with
+      every later caller politely declining to retry. `TOTALLING_CLAIM_TTL` is 10 minutes.
+    - **Winning the row write IS winning the claim**, atomically, because the claim is a column in
+      that same versioned write — so the compare-and-set added earlier this branch survives the
+      move, one layer down. A first draft had a separate `claimTotalling` step that would always
+      have declined its own claim; it was cut.
+    - **A payload this version cannot deserialise is a cache miss, never an error**, so a record
+      that gained a field does not 500 the first request after a rollout.
+    - **Still NOT stored: opportunity rows.** There is no `ghl_opportunity` table and there must not
+      be one — a stage dragged five seconds ago would already be wrong in it. Only the aggregate the
+      screen draws is cached. `architecture.md`'s "nothing persisted" claim was corrected rather
+      than left standing.
+    - **Not brand-scoped, and stated as a decision** rather than left to look like an oversight: the
+      figures come from one global GHL location EvalOS cannot attribute to a brand, so a `brand_id`
+      would be a column nobody could fill in correctly. Unit 25 adds it with the location move.
+      Not append-only either — it is a cache, safe to truncate.
+    - The unit tests keep an **in-memory fake** of the table, which is the right level for TTL and
+      handover logic; the unique key and the optimistic lock are **database** guarantees, so they
+      are asserted in `LocalPostgresIntegrationTest` (2 new tests) where they are real rather than
+      simulated. Those now actually run, which is how the entity/schema agreement got verified.
+
+- **2026-08-26 — both standing flags on the marketing branch are resolved.** They were the two
+  things repeatedly called out as not-done: an open sign-off, and an unexercised integration.
+  - **The live GHL exercise is DONE, and it is a real run, not a plan.**
+    `GhlPipelineClientLiveTest` calls the production API from EvalOS's own client code and passes.
+    Observed: `Google ADS Pipeline` -> `g6lo50r9Wn0qZvmp2bMP`, `Shivangi's Email Marketing` ->
+    `LHoIRjpypwhswqO8Ayn0`, both six stages (New Lead, Warm, Hot, Won, Cold, Lost); email funnel
+    over `2025-08-27..2026-08-26` = **New Lead 11,349 · Hot 20 · Won 48 · total 11,417**, every
+    figure from GHL's own `meta.total`; ads pipeline **0 rows in the last 30 days**; an unknown
+    pipeline name raised `GhlUnavailableException` live.
+    - **What it settled that no stub could.** GHL's two endpoints genuinely disagree on casing —
+      `locationId` (camelCase) on `/opportunities/pipelines`, `location_id` and
+      `pipeline_stage_id` (snake_case) on `/opportunities/search`. The client's mixed casing is
+      the live answer, not a typo, and a wrong spelling returns a 422 that reads like a scope
+      problem. It also confirmed the `Version` header, the `MM-dd-yyyy` date format, and
+      `meta.total` on a `limit=1` search — the entire basis of `countIn`.
+    - **It independently confirmed the date-window fix**: the year window resolved to
+      `2025-08-27..2026-08-26`, exactly 365 days with both edges inclusive.
+    - **Opt-in and it must stay so**: skipped unless `GHL_LIVE_TEST=true`, so `mvnw test` and CI
+      never reach the network or need a credential. Gating on `GHL_API_TOKEN` alone would be
+      worse — anyone exporting a token to run the app would silently start hitting a live
+      third-party account from their test runs. The token is read from
+      `backend/config/application-local.yml`, the same gitignored file Spring Boot reads, so
+      **no credential passes through a shell command, process listing or CI variable**.
+    - Safe to point at production because **everything it does is a GET**: no write method on the
+      client, token scoped `opportunities.readonly`, invariant 2 unchanged.
+    - **Stale figure corrected:** the previously recorded "expected first load, 93 deals (New Lead
+      7 / Warm 26 / Won 14)" was a hand check, never a live observation. It does not match live
+      and must not be used as an expected result.
+  - **The Unit 25 encryption sign-off is GIVEN: option 1.** One shared
+    `common/EncryptedStringConverter`, `PaymentDetailConverter` left a thin subclass — one crypto
+    implementation, one key, expert path unchanged. Recorded in `code-standards.md` (whose "only
+    encrypted field" sentence is now a fact about today rather than a rule),
+    `ai-workflow-rules.md` (a **named, narrow** protected-file exception for that extraction and
+    nothing else), the Unit 25 spec, and `mem:core` / `mem:backend/persistence`.
+    - **Unit 25 is now _unscheduled_, not _blocked_** — picking it up is a scheduling call. It
+      still waits on XpertsPortal actually needing its funnel.
+    - **The extraction is deliberately not written yet.** Nothing needs a generic converter until
+      there is a second column to put in it, and a shared abstraction with one implementation is
+      what this codebase deletes. The decision is unblocked; the code is not owed.
+    - The rule that did **not** move: a credential that never has to be replayed is **hashed, not
+      encrypted** (portal tokens). Encryption is only for what must be recovered — which is
+      exactly why a refresh token cannot be hashed.
+  - **What remains genuinely open on the marketing units**, stated so the closures above are not
+    read as more than they are: **the screen is now verified too (see the entry above for
+    2026-08-26)** — what remains open on the marketing units is only that both screens are still
+    GM-only and not brand-scoped, which is Unit 25a.
+
+- **2026-08-26 — review fixes on the Unit 24/26 branch, before merge.** Code review of the
+  marketing branch found three behavioural bugs and a set of doc/test defects. All fixed on the
+  branch; backend 458 tests and frontend 118 pass.
+  - **The window was one day too wide in every range, and `today` was wrong by 100%.**
+    `MarketingPipelineService` took `DateRange.startFrom` — a _half-open instant_ window, correct
+    for the metrics dashboards — converted it to a `LocalDate`, and handed it to GHL, whose filter
+    is **date-only with both edges inclusive**. So `today` spanned _yesterday and today_: a screen
+    headed "today" reported roughly double GHL's own figure, and `month` was 31 days, `year` 366.
+    Fixed by `DateRange.startDateFrom(LocalDate)`, which owns the inclusive arithmetic and states
+    why the two methods are not the same subtraction; `DateRangeTest` pins both shapes.
+    **The old test pinned the bug** (`minusDays(30)`/`minusDays(365)`) and moved with the fix.
+  - **The shell's global date default had been flipped `month` → `year`**, which is not a
+    marketing-only value: the board reads the same filter _forwards_ through `dueBeforeFor`, so
+    `year` moved the default deadline window from one month out to twelve and left the production
+    board effectively unfiltered for every role on first load. Reverted to `month`. **No per-screen
+    default was added** — that is a second source of truth for a control the user can already see,
+    and the marketing empty state already names the window it searched and says to widen it.
+  - **`pipeline.stages()` was the one unguarded field off the GHL wire** (`pipelines()`,
+    `opportunities()` and `meta()` are all guarded). An NPE there escapes `GhlUnavailableException`
+    and becomes a 500 telling the GM to report a bug, instead of the 502 telling them the upstream
+    is misconfigured — the only one of the two they can act on. Guarded, and an empty stage list
+    now gives the same 502 a renamed pipeline does.
+  - **Two unguarded cache writes could discard or downgrade a `READY` payload.** A blind `put` let
+    a slow inline reader overwrite the background totaller's completed figures with `TOTALLING`
+    (and start a second background read for work just finished), and a failed background read
+    could blank real money figures to `UNAVAILABLE` for the rest of the TTL. Both are now
+    compare-and-set. Two callers racing past a stale entry is still unguarded and still fine.
+  - **`sources` was accessed unguarded in the marketing page** while `stages` had a guard — a
+    payload missing it would white-screen the page during render.
+  - **`ConfigSecretsTest` had a guard that could not fail**: `contains("${NAME:")` matches
+    `${JWT_SECRET:}` as happily as `${JWT_SECRET:dev-secret}`, so removing a local default would
+    have left a dead exemption in place. It now asserts a _non-empty_ default using the same
+    pattern the offender scan runs on. Its `URL.getPath()` also broke on any build path containing
+    a space (`My%20Projects`); now `toURI()`.
+  - **`money.test.ts` asserted the opposite of the behaviour** — "drops cents rather than rounding
+    up" over `Intl.NumberFormat` with `maximumFractionDigits: 0`, which rounds half-up. It passed
+    only because `.4` rounds down. Now asserts rounding in both directions, with the reason
+    truncation is _not_ wanted (it would understate a summed column systematically).
+  - **A third money formatter survived the consolidation `money.ts` claims to have finished.**
+    `ExpertProfile` rendered Standard fee as `1,250.00` (no symbol, two decimals, default locale)
+    while the board and Revenue dashboard rendered `$1,250`. Folded onto `formatMoney`, keeping
+    only the `null` → `—` distinction the shared formatter cannot know.
+  - **`countsAHugePeriodWithoutReadingASingleRow` was a race it happened to win**: it asserted
+    `never()).opportunitiesIn(...)` on a window that returns `TOTALLING` and therefore _starts a
+    background reader which legitimately reads rows_. Replaced with a stronger deterministic
+    claim — rows stubbed empty, counts still exact — since a row-derived figure would come back 0.
+  - **Docs corrected rather than appended to:** `application.yml` was the last place still
+    asserting the withdrawn "one location shared by every brand, so the figures are cross-brand"
+    claim, which the service, controller and nav all retract (each brand has its own sub-account,
+    so the figure is _one_ brand's and merely unattributable). `WebhookSource.DROPBOX_SIGN` was
+    deleted in this branch but `.serena/memories/backend/webhooks.md` still said to leave the enum
+    value in place and spec 05 still documented `GHL | DROPBOX_SIGN`; both updated. **No cleanup
+    migration for existing `DROPBOX_SIGN` rows, and that is now stated as a decision** — the only
+    query on the column is always called with `GHL`, so such rows are excluded by the `WHERE`
+    clause and never converted back to the enum. The review's claim that they would fail a read
+    does not hold.
+  - Also corrected: `card.tsx` and `money.ts` credited the `money` opt-in to an unconditional `$`
+    the card "used to print", which is not in the history — it rendered a bare value with no
+    currency symbol at all. A fix credited to a bug that never happened is one somebody later
+    deletes as dead caution.
+
+- **Unit 26 — Marketing: the email funnel (GM) — is BUILT.** See
+  `context/specs/26-marketing-email-funnel.md`. The GM now has a second GHL funnel beside
+  the Google Ads one: **Shivangi's Email Marketing**, in the same location, through the same
+  client, service, cache and cards. `GET /api/marketing/email-pipeline` (GM-only) and
+  `/marketing/email` in the nav.
+  - **This answers the question Unit 24 left open below** — "a second marketing screen is a
+    new question". The answer: _yes for a second **reading** of a pipeline in the location
+    EvalOS already reads, on the same terms._ Everything Unit 24 refused is still refused —
+    no write back, no persistence, no campaign/spend/audience/attribution feature, no
+    sending. Invariant 2 is intact.
+  - **What generalised and what deliberately did not.** A `Funnel` enum (`ADS`, `EMAIL`)
+    keys into two configured pipeline names; **there is no pipeline-name parameter**, because
+    the location holds seven pipelines and five are other teams'. The cache key became
+    `(funnel, range)` — load-bearing, since both payloads have the identical shape and an
+    unkeyed slot would serve the ads funnel under the email heading for a whole TTL with
+    nothing to contradict it. One React component serves both screens.
+  - **The volume broke the Unit 24 read, and fixing it is the substantive part of this unit.**
+    The email pipeline holds **~11,432 opportunities a year**. Counting them the Unit 24 way —
+    paging every row — was 115 sequential GHL requests, and the **Year view timed out at the
+    frontend's 15s axios limit** and rendered nothing. **Counts now come from GHL's own
+    `meta.total`**: a `limit=1` search with `pipelineStageId` applied returns an exact stage
+    count in one request, so the funnel costs one request per stage regardless of size and is
+    **exact — nothing capped, truncated or estimated**. (An interim `truncated` flag that
+    reported a capped 5,000-row read is gone; it was the honest version of the wrong approach.)
+  - **What still needs rows, and what happens when there are too many.** A _sum_ and a
+    _group-by_ — pipeline value, per-stage value, the sources table — cannot come from a count,
+    and GHL aggregates neither. Those are read inline only when the period holds
+    `<= INLINE_ROW_BUDGET` (1,000) deals.
+  - **2026-08-26 — the large window is now totalled, not refused.** It used to answer "too many
+    to total one by one" and stop there. Now the payload carries
+    `detail: READY | TOTALLING | UNAVAILABLE`: above the inline budget it returns `TOTALLING`
+    immediately with **exact counts**, a single daemon thread (`ghl-totaller`) reads the rows,
+    and the screen polls the same URL every 5s until the existing `(funnel, range)` cache entry
+    turns `READY`. **The cache is the handover** — no job id, no second endpoint, survives a
+    refresh. Why it had to leave the request thread is arithmetic, not taste: 11,443
+    opportunities is 115 **cursor** pages (each cursor comes from the previous page, so they
+    cannot be parallelised) and GHL allows **100 requests per 10s per location**, a ~13s floor
+    against the frontend's 15s axios timeout. `GhlPipelineClient` now paces requests 110ms apart
+    against that limit, shared across threads because the limit is per location.
+    `MAX_PAGES` went 50 → 1,500: at 50 it would have silently returned the first 5,000 of 11,443
+    rows. `DETAIL_ROW_CEILING` (100,000) still refuses outright as `UNAVAILABLE`, and a failed
+    background read lands there too so a poller stops rather than spinning forever. Recorded as a
+    read-side exception to invariant 6 in `architecture.md` — it writes no EvalOS row, so there is
+    no side effect to lose. **Never a partial total** in any state — a sum over whichever rows
+    arrived looks exactly like a real one.
+  - **Two matching rules, both case-insensitive, both funnels.** (1) **A stage named for an
+    outcome IS that outcome** — 144 deals sit in the stage named _Won_ against **3** carrying
+    `status: "won"`, so GHL's status field is not used and `Outcome.ofStageNamed` matches the
+    stage name against GHL's status words ignoring case and space; the tile now reads "N won ·
+    N lost". `Cold` is not a status word and stays `OPEN`. (2) **Source rows group
+    case-insensitively** (`Locale.ROOT`), keeping the first spelling seen as the label — two
+    rows for one hand-typed source halves a figure for a reason nothing on screen explains.
+  - **Its newest opportunity is dated 2026-05-06**, so Today/Week/Month render the empty state
+    and **Year is the only window with data today**. Expect exact stage counts there (New Lead
+    ~11,364, Hot 20, the rest single digits) with the value and sources cards standing down.
+  - Still **GM-only and not brand-scoped**, for Unit 24's reason unchanged. **Unit 25a now
+    re-scopes both screens together**, not just the ads one.
+  - **CLOSED 2026-08-26 — Unit 24's last open item, the live GHL exercise.** `GhlPipelineClientLiveTest` (opt-in, `GHL_LIVE_TEST=true`) now makes real calls and passes.
+    Observed 2026-08-26 against the IE location: **`Google ADS Pipeline` -> id `g6lo50r9Wn0qZvmp2bMP`**
+    and **`Shivangi's Email Marketing` -> id `LHoIRjpypwhswqO8Ayn0`**, both with the same six stages
+    (New Lead, Warm, Hot, Won, Cold, Lost). Email funnel counts over `2025-08-27..2026-08-26`:
+    **New Lead 11,349 · Hot 20 · Won 48 · Warm/Cold/Lost 0 · total 11,417**, all from GHL's own
+    `meta.total`. Ads pipeline returned **0 rows over the last 30 days**, which matches the known data
+    (its newest opportunity predates the window). A name GHL does not have raised
+    `GhlUnavailableException` live, as designed. - **What this settled that no stub could:** GHL's two endpoints really do disagree on
+    casing — `/opportunities/pipelines` wants `locationId` (camelCase) while
+    `/opportunities/search` wants `location_id` and `pipeline_stage_id` (snake_case). The
+    mixed casing in the client is the live answer, not a typo. It also confirmed the
+    `Version` header, the `MM-dd-yyyy` date format, and `meta.total` being present on a
+    `limit=1` search — which is the entire basis of `countIn`. - It also **confirmed the date-window fix live**: the year window resolved to
+    `2025-08-27..2026-08-26`, exactly 365 days inclusive. - The test is **skipped unless `GHL_LIVE_TEST=true`**, so `mvnw test` and CI never touch
+    the network or need a credential. Gating on `GHL_API_TOKEN` alone would have been worse:
+    anyone exporting a token to run the app would silently start hitting a live third-party
+    account from their test runs. It reads the token from `backend/config/application-local.yml`
+    — the same gitignored file Spring Boot reads — so **no credential goes on a command line**. - **The screen was verified in a browser on 2026-08-26**, closing the last part of this
+    item. Verified in a browser 2026-08-26 as the GM against live GHL: **Month** renders the empty state
+    naming its window (`Jul 27 – Aug 25`, 30 days inclusive) and saying to widen the period; **Year**
+    renders `Aug 26, 2025 – Aug 25, 2026` (365 days inclusive — the fixed arithmetic on screen),
+    **11,432 deals · 48 won · 0 lost · $34,301**, all six stages as rows including the empty ones
+    (New Lead 11,364 · Hot 20 · Won 48), and the sources table with `Unattributed 11,300 / $23,801`,
+    `Application Form 36 / $5,450` and `LCA 35 / $0` — an unpriced source counting as nothing, exactly
+    as the card claims. The header carries "one GHL location · year · … · read 09:55 AM".
+
+- **Unit 25 — GHL OAuth connection — is SPECCED and DEFERRED by decision.** Only
+  International Evaluations is being set up for now; IE runs on Unit 24's Private Integration
+  Token and needs none of Unit 25. **The cost of deferring, stated so it is not rediscovered:
+  a second brand cannot be configured at all until this lands** — `GHL_LOCATION_ID` is one
+  global value, so XpertsPortal has nowhere to go. Adding it is this unit, not another variable.
+  **The encryption sign-off is now GIVEN (2026-08-26), so this unit is _unscheduled_, not
+  _blocked_** — picking it up is a scheduling decision, not another approval.
+  _(Noted because it was misread once: that decision is about AES-GCM encryption at rest, not
+  currency conversion — `AttributeConverter` is a JPA type mapper.)_
+
+- \*\*Unit 25 detail — see
+  `context/specs/25-ghl-oauth-connection.md`. Spec before code, deliberately: Unit 24 was
+  written the other way round and recorded that as debt, so this one gates its own
+  implementation.
+  - **It replaces Unit 24's Private Integration Token with a per-brand OAuth grant**, which
+    is what turns the GHL credential from global configuration into a brand-scoped row —
+    the move `architecture.md` already anticipated ("if the brands are ever split across two
+    GHL locations, `location-id` becomes a column on `brand`").
+  - **The second encrypted column: SIGNED OFF 2026-08-26, option 1.** A refresh token has to
+    be recoverable (we replay it to GHL), so unlike a portal token it cannot be hashed — which
+    makes it EvalOS's second encrypted field, against what `code-standards.md` and
+    `mem:backend/persistence` both used to state as a rule. **Approved:** extract the AES-GCM
+    from `PaymentDetailConverter` into one `common/EncryptedStringConverter`, leaving
+    `PaymentDetailConverter` a thin subclass — one crypto implementation, one key, expert path
+    unchanged. This carries a **named, narrow exception** to the protected-file rule (that
+    extraction only; every other change to that file still needs its own sign-off), now
+    recorded in `ai-workflow-rules.md`.
+    - **The extraction is deliberately NOT written yet.** Nothing needs a generic converter
+      until there is a second column to put in it, and a shared abstraction with one
+      implementation is what this codebase deletes. The decision is unblocked; the code is
+      not owed until Unit 25 is built.
+    - Rejected, and why: a second converter duplicating ~60 lines of AES-GCM means two crypto
+      implementations and the second is the one nobody re-reads; a separate OAuth key buys
+      blast-radius isolation at the cost of one more secret every environment must not forget;
+      not encrypting is refused outright for a live third-party credential.
+    - The rule that did **not** move: a credential that never has to be replayed is **hashed,
+      not encrypted** (portal tokens). Encryption is only for what must be recovered.
+  - **The correctness trap the spec exists to prevent:** GHL rotates the refresh token on
+    every refresh. Two instances — which exist during every rolling deploy — both noticing an
+    expired access token and both refreshing means the loser replays a retired token, gets a
+    4xx, and a naive implementation marks a perfectly good connection dead. Refresh must hold
+    `SELECT … FOR UPDATE` on the row and **re-read after acquiring the lock**.
+  - **No dual path: the PIT is deleted rather than kept as a fallback.** That is free only
+    because Unit 24 has never run live (`GHL_API_TOKEN` defaults to empty and the screen
+    502s), so there is no working configuration to migrate. **That window closes the moment
+    somebody sets the variable** — build this before the PIT is used in anger.
+  - Its live connection **also closes Unit 24's one outstanding acceptance item**, the live
+    GHL read, which moves to this unit.
+  - **Unit 25a, deliberately separate:** once credentials are per brand, Unit 24's scoping
+    argument expires — `brandId` becomes legal on the funnel, the Brand Manager can be
+    admitted, and invariant 1's stated exception comes out of `architecture.md`. Kept out of
+    25 because a credential's lifecycle and a screen's role list are different boundaries.
+  - Two things in the spec are **unverified and flagged as such**: the exact `expires_in` and
+    the refresh-token lifetime. The GHL MCP's operation registry does not expose the auth
+    endpoints, so they could not be checked while writing — confirm against GHL's docs before
+    implementing. The four token-exchange field names are high-confidence.
+
+- **Unit 24 — Marketing: the Google Ads funnel (GM) — is built; one acceptance item is
+  outstanding.** See `context/specs/24-marketing-google-ads-funnel.md`. The GM can now see
+  the top of the funnel from inside EvalOS: GHL's **Google ADS Pipeline** as a chevron strip
+  (deals, value and share per stage) with the sources behind it.
+  - **This resolves an open question this tracker has carried since Unit 17** — whether
+    EvalOS builds the sales/marketing dashboards, defaulted to _no, they stay in GHL_. The
+    answer is **one read-only GM screen here, everything else in GHL**. Moved out of Open
+    Questions below rather than left to contradict this entry.
+  - **The first _pull_ across the GHL seam.** Until now that seam was events in (Handoff A)
+    and events out (Handoff C). `GhlPipelineClient` adds a third direction: two read calls
+    against GHL's public API on an `opportunities.readonly` token, with **no write method on
+    the client at all** — read-only by grant as well as by code.
+  - **Invariant 2 is intact, and the wording now says why.** EvalOS reads the funnel; it does
+    not run marketing. Nothing is created, moved, priced, sent, or written back. **Nothing is
+    persisted either** — no `ghl_opportunity` table, by decision: a stage a salesperson
+    dragged five seconds ago is already wrong in a copy.
+  - **The one screen in EvalOS that is not brand-scoped, and it is an exception with a stated
+    reason.** It reads one GHL location that the brands share, so no `brand_id` predicate
+    exists that could narrow it — hence GM-only, hence **no `brandId` parameter** (one would
+    narrow nothing while implying it had), hence the Brand Manager is excluded: they are
+    single-brand on every other screen and this is the one figure that could not honour that.
+    `navigation.test.ts` pins the GM-only list. Invariant 1 in `architecture.md` now carries
+    the exception in writing, and says it licenses nothing about queries over EvalOS rows.
+  - **The cache is the rate limiter, not a speed-up.** One payload, one TTL (`GHL_CACHE_TTL`,
+    5m), shared by every caller — without it, N open dashboards are N multi-page GHL reads per
+    refresh and GHL's rate limit becomes an EvalOS outage. Two consequences, both tested: a
+    **failed refresh is never served from the previous value** (it propagates; the screen shows
+    the error), and the payload carries `readAt` which the header prints, so the screen states
+    its own age instead of implying it is live.
+  - **`status` is deliberately not read**, and the live data is why: opportunities sitting in
+    the **Won** stage still report `status: "open"`. Two axes that disagree is two places for
+    one fact to be wrong, so the stage is the only axis.
+  - **No stage name is special-cased anywhere.** Order, labels and membership all come from
+    GHL. This pipeline ends Won / Cold / Lost today; hard-coding that would make a rename in
+    GHL a silent hole in the screen.
+  - **The one place the UI departs from the reference design it was drawn from:** it shows
+    _share of pipeline_ under each chevron, not step-to-step conversion. Conversion only means
+    something when the next stage is downstream, and Won / Cold / Lost are parallel outcomes —
+    a percentage between Won and Cold is arithmetic over unrelated buckets. New funnel-strip
+    rules (the `color-mix` ramp, the contrast ceiling, never red→green) are in `ui-context.md`.
+  - **Process note, recorded rather than glossed: the spec was written _after_ the code.** This
+    unit resolves a known-open question, which is exactly the kind of change the
+    spec-first rule exists to gate. The spec's own header says so.
+  - **A second pass added three test classes to cover what the first one took on trust**, and
+    one of them closed a gap that was structurally invisible. `GhlPipelineClient`'s
+    `base-url` / `api-version` / `timeout` have **no defaults**, so a typo in any of those
+    keys is a _boot failure_ — and no `@WebMvcTest` slice instantiates the bean, while the
+    only full-context test is gated behind `-Devalos.db.test=true`. **The same hole
+    `mem:backend/core` already records for `GoogleDriveConfig`**, which is why repeating it
+    was not acceptable. `GhlPipelineClientTest` now binds the bean against the real
+    `application.yml` via `ApplicationContextRunner` + `ConfigDataApplicationContextInitializer`.
+  - `GhlPipelineClientHttpTest` runs the client against a **real JDK `HttpServer` serving
+    GHL's actual response shapes** — the closest reachable stand-in for the live criterion:
+    header names, the **camelCase** query params taken from GHL's own `nextPageUrl`, the
+    cursor followed to a second page and stopped by a short one, only three fields bound out
+    of GHL's full row, null money/source tolerated, and a 401 becoming a 502 with the token
+    absent from the message. Its fixtures keep GHL's field-for-field shape with **invented
+    contact values** — real ones were on hand and deliberately not committed, because a
+    fixture is source control and marketing PII does not belong there.
+  - `MarketingControllerTest` pins the route: GM 200, **every other role including the Brand
+    Manager 403**, unauthenticated 401, `GhlUnavailableException` → 502 `GHL_UNAVAILABLE`,
+    and a `brandId` on the query string narrowing nothing (asserted through the service call,
+    so adding such a parameter later fails the test).
+  - Verified: `./mvnw -Devalos.db.test=true test` → **430 tests, 0 failures, 0 skipped**.
+    **Zero skipped is the headline** — it means the gated `@SpringBootTest` context ran, so
+    the whole application boots with this bean in it, which was the largest unknown after the
+    first pass. `npm test` **113 passed**, `npm run build` clean.
+  - **This acceptance item is CLOSED (2026-08-26).** `GhlPipelineClientLiveTest` exercises the
+    real API and passes — see the Unit 26 entry above for the observed ids, stage lists and
+    counts. It settled the one thing the `HttpServer` fixture above could not: GHL's endpoints
+    really do disagree on parameter casing, so the client's mixed casing is the live answer and
+    not a typo. - **The expected-first-load figures recorded here (93 deals, New Lead 7 / Warm 26 / Won 14)
+    are stale and were never a live observation** — they came from a hand check of the ads
+    pipeline at the time. Live, the ads pipeline returns **0 rows over the last 30 days**
+    (its newest opportunity predates that window), and the email funnel is where the volume
+    is. Do not treat the old numbers as an expected result. - **Closed 2026-08-26: the screen was opened in a browser against live GHL.** Verified in a browser 2026-08-26 as the GM against live GHL: **Month** renders the empty state
+    naming its window (`Jul 27 – Aug 25`, 30 days inclusive) and saying to widen the period; **Year**
+    renders `Aug 26, 2025 – Aug 25, 2026` (365 days inclusive — the fixed arithmetic on screen),
+    **11,432 deals · 48 won · 0 lost · $34,301**, all six stages as rows including the empty ones
+    (New Lead 11,364 · Hot 20 · Won 48), and the sources table with `Unattributed 11,300 / $23,801`,
+    `Application Form 36 / $5,450` and `LCA 35 / $0` — an unpriced source counting as nothing, exactly
+    as the card claims. The header carries "one GHL location · year · … · read 09:55 AM".
+
+- **Unit 23 — Case notes, and routing intake to the PM — is complete and verified.**
+  See `context/specs/23-case-notes-and-pm-routing.md`. Two changes that are one decision:
+  the case's front door is the Project Manager, and the case carries its own conversation.
+  - **The GM stopped working the queue.** The pool lane left their board (`SEES_POOL` is
+    `['BRAND_MANAGER']`), and `/inbox` and `/checklists` left their sidebar. **Nav only —
+    no backend gate was narrowed**, `GM_OR` still prefixes every transition those screens
+    drive, so a GM can still unblock anything from the board or the case page.
+  - **`assign-pm` now admits the Project Manager**, who claims a pooled case from their
+    inbox with a _Take this case_ button that posts their own member id. Routing to a
+    _different_ PM is still possible from the case page.
+  - **The scope change that made it possible, stated plainly:** `ScopePredicate.Fields`
+    gained `unteamedVisible`, and a `TEAM` caller now matches `team = mine OR team IS NULL`
+    when it is set. It is set on **cases and nowhere else** — `TeamMemberQueryService` keeps
+    the strict predicate, because an unteamed _person_ is not unclaimed work. Before this a
+    PM could not read a pooled case at all, so the inbox's _Unassigned_ preset had been
+    filtering a permanently empty set for the only role that could reach the screen.
+  - **Notes are audit rows, not a table.** `AuditAction.NOTE_ADDED`, written through the
+    same `AuditService.recordEvent` that `flagToPm` uses. `POST /cases/{id}/notes` carries
+    **no `@PreAuthorize` and that is the design**: the scoped load is the gate, so "everyone
+    on the case" is exactly the set the scope admits rather than a role list that would
+    drift. Consequence accepted: a note can never be edited or deleted.
+  - **23a, the one gate that _was_ narrowed: draft review is PM-only, GM included.**
+    `draft/pm-approve` and `draft/pm-return` dropped `GM_OR`, `/drafts` became
+    `['PROJECT_MANAGER']`, and `boardRules` marks both `gm: 'never'` so the buttons do not render
+    for a GM on the case page. Approving a Case Manager's draft is the judgement of the PM who
+    assigned it; a superuser path around the reviewer makes "who approved this" ambiguous on the
+    artefact the client pays for. `QuickAction.gmOnly` became `gm: 'only' | 'never'` and the rule
+    moved into an exported `admits()` that the test now calls instead of re-deriving.
+    `Route.gmMayAct` asserts the 403, so restoring `GM_OR` fails a test.
+  - `Timeline` became **Notes & timeline** with a composer at its foot. One panel, not two
+    tabs — a note is usually about the transition beside it.
+  - The GHL `opportunity.won` payload gained an optional `notes`, carried onto the `CREATED`
+    audit row so the case arrives with what sales wrote on it.
+  - **Deliberately not built, so it is not read as an oversight:** no notification fires on
+    a note (the people on a case open the case); notes are not addressed to a person; no
+    notes on experts or payouts.
+  - Verified: `./mvnw verify` **406 tests, 0 failures, 27 skipped**; `npx vitest run`
+    **112 passed**; `npm run build` clean.
+
+- **Phase 1 — Structure the data (the spine) is complete.** Units 01–10, plus 05a. Per
+  `context/specs/00-build-plan.md` the phase boundaries are 01–10 / 11–17 / 18–20, so Units 06
+  (notification centre), 07 (app shell), 08 (production board), 09 (case detail) and 10 (doc
+  checklist) are all Phase 1 — this tracker had been calling 06 onward "Phase 2" since Unit 06,
+  which the build plan does not say. Corrected here rather than left to compound.
+- **Phase 2 — Connect the seams is under way.** It is Units 11–17. \*\*Units 11 (expert database
+  - sheet upload), 12 (match scoring engine) and 14 (client draft-review portal) are complete and
+    verified. Unit 13 (redacted CV generation) is code-complete with one acceptance criterion
+    outstanding\*\* — the manual live Drive upload, blocked on credentials that do not exist yet; see its
+    entry in Completed. Unit 15 is next.
+    The build plan's `## Phase 3`
+    heading used to sit above Unit 17 and contradict its own roadmap line; the heading moved to
+    Unit 18, so Dashboards is Phase 2 wherever you read it.
+- **Verified, not just written.** All **358** backend tests execute with none skipped — the
+  27 DB-backed ones included — plus 102 frontend tests, and CI runs the DB suite against a real
+  Postgres on every push. (It was 183 backend / 44 frontend at the end of Phase 1, 229/61
+  after Unit 11, 260/73 after Unit 12, 305/81 after Unit 13, 336/101 when Unit 14 landed,
+  343 after its code review, 346 after Unit 05b, 354 after 05b's review, and 358 after the
+  2026-08-06 security fixes.)
+- **EvalOS now has a second authenticated surface.** Unit 14 added the link-based portal filter chain
+  beside the staff one, so "a caller" is no longer always a `StaffPrincipal` and
+  `TenantContext.find()` is legitimately empty on some requests. Read `architecture.md`'s auth section
+  before touching anything that assumes otherwise.
+- **Google Drive is now an outbound integration, not just a URL column** (Unit 13). That changed
+  `architecture.md`'s stack table and its `integration` package description, and it makes Drive
+  the **only** external dependency left in Phase 2 — the signature provider that used to be the other
+  one is gone, and Units 13, 15 and 21 all now need this same Google service account.
+- **Handoff A has been re-pointed again, and this time in code: Case Creation v2.0 is built.**
+  The trigger is the GHL **opportunity marked Won**, the case is created **paid**, and the manual
+  "Record payment" path is gone — GHL invoices and collects, so it is the only source of that
+  fact. Specced in **`context/specs/05b-opportunity-won-intake.md`**; see the Unit 05b entry in
+  Completed for what shipped. The docs and repo no longer disagree. Read 05b, not spec 05 and not
+  the 05a entries below, for what Handoff A does.
+
+- **Three security findings from a CodeRabbit pass, fixed 2026-08-06.** Two were live, one was
+  latent-by-convention:
+  1. **The local seed ran in production.** `db/migration/local` was a _child_ of the location prod
+     lists (`classpath:db/migration`), and Flyway scans recursively — so a prod boot applied `V900`
+     through `V903`: two seed brands, six logins sharing one committed BCrypt hash (`DevPassw0rd!`,
+     GM included), and the throwaway per-brand webhook secrets. Two code comments asserted the
+     opposite. The tree moved to the sibling `db/seed-local`; Flyway has no exclude filter, so
+     separation is the whole mechanism and `config/MigrationTreeTest` now guards it.
+  2. **The webhook HMAC was taken over re-encoded text.** The controller bound `@RequestBody String`
+     and the verifier re-encoded UTF-8 to hash, while its javadoc claimed "the exact bytes
+     received". Now `byte[]` end to end, decoded only after the signature check. Narrower than it
+     first looked — Boot hands the String converter UTF-8, so plain UTF-8 bodies round-tripped
+     fine — but a delivery declaring any other charset was rejected 401. Both cases are now
+     asserted; the ISO-8859-1 one fails against the old code.
+  3. **The two batch reads rested on a javadoc, not a predicate.** Both now take the brands too.
+     See `mem:backend/persistence` for why the audit one joins `evalos_case` rather than filtering
+     `audit_event.brand_id` (that column is null for every action the GM takes).
+     Two consequences worth knowing before pulling this:
+  - **Existing databases fail Flyway validation until their history is realigned.** They recorded
+    the seeds as `local/V9xx__…sql`, a path that no longer resolves. The four files are
+    byte-identical to what was applied, so a path rename is the whole fix — the SQL is in
+    `backend/src/main/resources/db/seed-local/README.md`. On a stock dev box two schemas need it:
+    `public` in `evalos`, and `evalos_test`.
+  - **`LocalPostgresIntegrationTest` had been riding on the same bug.** Its brand and staff
+    constants _are_ the seeded rows, and it never listed the seed location — it inherited it
+    through the recursion. It now declares
+    `spring.flyway.locations=classpath:db/migration,classpath:db/seed-local` explicitly.
+    All 27 DB-gated tests were run for real against a fresh database, not just compiled: the native
+    chase query is new SQL and would not have been proven by the mocked suite.
+- **The rest of that CodeRabbit pass, worked through 2026-08-07.** Roughly thirty
+  findings. Four were about shipped code and **three did not survive checking**:
+  `updateStrategyNotes` is guarded at `CaseController` (`GM_OR PROJECT_MANAGER`) and the
+  `markPaid` it was compared against no longer exists; `CaseDetail`'s "back to the board"
+  link was already routed through the nav table by the Unit 14 browser pass; and
+  `ExpertCard`'s `.replace('_', ' ')` is correct because every `ExpertTier` value
+  (`TIER_1..3`) holds exactly one underscore. The fourth — the unverified GHL signing
+  scheme — was already an Open Question and is now **G17**, promoted because the
+  _encoding_ is hardcoded hex while only the header name is configurable.
+  Three documents contradicted themselves and were fixed at source rather than annotated:
+  the Unit 05 entry still named `contact.created` as the current trigger two pivots later,
+  `00-build-plan.md` counted "two" specs carrying corrections when six do, and
+  `17-dashboards.md` told the PM they get no money tiles in a table and the opposite in
+  the paragraph under it.
+  The remaining ~23 were **spec hardening across Units 11–20**, all of it before the code
+  exists, which is the cheapest place for it. The ones that would have become real
+  defects: no HTML escaping in Unit 13's template (the unit having deliberately refused
+  the template engine that would have escaped by default, over roster data that arrives
+  by spreadsheet import); no host check on the Drive link before writing to it; a
+  non-idempotent Drive write behind a button; Unit 12 writing offer rows off
+  `ASSIGN_CASE_MANAGER`, which G12's "reassign CM mid-draft" would turn into phantom
+  offers against experts nobody contacted; a roster mean that is 0/0 on a fresh brand;
+  negative payouts and a silent USD default in Unit 16; plaintext subscriber HMAC secrets
+  and `SKIP LOCKED` described as exactly-once in Unit 18; Unit 19's **Run now** button
+  racing the scheduled tick that the advisory lock exists to prevent; and Unit 20's
+  anomaly detector dividing by a zero baseline, comparing a partial week against four
+  whole ones, and contradicting its own acceptance criteria on a missing API key.
+  Unit 14's spec also still claimed the one-live-token index was impossible; `V23` shipped
+  it, and the spec now says so.
+
+- **The supply-side tier excluded nothing, fixed 2026-08-25.** Found while specifying Unit 22's
+  ENM slice, not by a review pass. `Role.Tier.SUPPLY`'s javadoc read "own brand's expert/roster
+  supply side — not case content"; `ScopePredicate` handled it under `default -> {}` beside
+  `BRAND`, and **`SUPPLY` was referenced nowhere else in the codebase**. The tier that existed to
+  exclude case content added no predicate and excluded nothing.
+  Two consequences, the second worse than the first:
+  1. **`CaseController.CaseDetail` returned `clientName`, `driveLink` and `draftLink`
+     unconditionally.** `pmStrategyNotes` was the only projected field, under a javadoc stating
+     the principle it did not apply — "a field the caller may not see is absent from the payload".
+  2. **`CaseBoardController` was the wider hole.** It has no `@PreAuthorize` by design, sound only
+     if the scope narrows, and it gated `dealValue` by role while passing `clientName` through on
+     the adjacent line. An authenticated Expert Network Manager could `GET /api/cases/board` and
+     receive **every client name in their brand in one request**.
+     Bounded: authenticated ENM, own brand only, no cross-tenant reach — an internal role-boundary
+     breach, not a public vulnerability.
+     **Fixed by field projection derived from the tier** (`CaseController.seesCaseContent`), not by
+     narrowing the row scope: the ENM's three signing transitions must still load the case. A
+     `Set<Role>` was deliberately not used — the tier already holds this fact and a second copy is
+     what goes stale. `maySeeCaseContent` ships on the payload because `clientName` is _already_
+     legitimately null when no contact is linked, and `StageActions` rendered that as "Unnamed
+     contact" — a withheld client would have been drawn as a claim that was not true.
+     **The suite had been asserting the access.** `CaseControllerTest` looped the ENM through
+     `GET /api/cases/{id}` expecting `isOk()` and never asked what came back; that test is extended
+     rather than replaced. The board test was verified to fail against the unfixed code before the
+     fix was restored, and `withNotes()` now sets a `draftLink` — without it the absence assertion
+     passed vacuously and would have proved nothing.
+
+- **Unit 22 slice 1 (Project Manager) is built, 2026-08-25.** The unit supersedes and re-cuts
+  Unit 17 — same metric definitions, delivered role by role instead of layer by layer. See
+  `context/specs/22-role-operations-ui.md` for the ten decisions and the eleven brief features
+  refused with authority cited.
+  What shipped:
+  - **`DeadlineRisk` beside `SlaStatus`, not replacing it.** The finding that shaped the slice:
+    `SlaCalculator` measures _stage budgets_ and never reads `case.deadline`, so the board's rail
+    and "will we miss the promised date" are different questions that disagree routinely. Both are
+    now on every board card and labelled distinctly. Thresholds are `ui-context.md`'s existing
+    24h/48h business-hour bands — none invented.
+  - `PmMetricsService` + `GET /api/metrics/pm`, computed live off `CaseLifecycleService.list` so a
+    dashboard cannot see further than the board. Six figures; expert response time renders
+    `unavailable` naming Unit 15 rather than zero.
+  - Two non-transitions: `PATCH /cases/{id}/case-manager` and `PATCH /cases/{id}/deadline`.
+    **Closes G12.**
+  - `/inbox` and `/drafts`, both reading `/api/cases/board` rather than adding endpoints — no
+    second scope predicate to drift. **Closes G4 and G5**; deadline view is a preset on `/inbox`.
+  - `components/ui/` created and now protected: Radix-backed dialog/sheet/tabs/popover/tooltip/
+    dropdown, plus the card system with its `loading · ok · warning · error · empty · unavailable`
+    union. Three deps added (`radix-ui`, `lucide-react`, `recharts`); dnd-kit, TanStack Table and
+    Motion deferred with triggers.
+    Three corrections to the spec, found while building it and fixed at source:
+  1. **"Widen `assign-cm` to `DRAFT_GENERATION`" was wrong.** That action also picks the expert
+     and writes an `ExpertCaseOffer`, so reassigning a CM through it would mint phantom offers
+     against experts nobody contacted — the exact risk G12's own note warned about. Reassignment
+     is a stage-preserving field update instead, asserted by
+     `reassigningTheCaseManagerDoesNotMintAnExpertOffer`.
+  2. **"Assign a Case Manager from the inbox row" is only reassignment.** A pooled case needs a CM
+     _and_ an expert in one call; a popover collecting just a name would be refused 409. Pooled
+     rows link to the case, with the reason on screen.
+  3. **Completion by service type is end-to-end** (`created_at` → `delivery_date`, median business
+     hours), not the paired-`STAGE_CHANGED` per-stage family the spec cited. That family is a
+     different tile; this one is what "average case completion by product" means.
+     `npm audit` was clean afterwards: the install surfaced two **pre-existing** advisories
+     (`nanoid`, `react-router` RSC CSRF — EvalOS is a Vite SPA and uses no RSC mode), both closed by
+     a semver-compatible `npm audit fix`.
+
+- **Second visual pass, 2026-08-25: the Protend language is replaced.** A business-supplied
+  reference image drove a token-level change with **no functional change** — the scope rule in
+  `UI_MIGRATION_GUIDE.md` held exactly (colour, type, spacing, radius, shadow, iconography,
+  presentational markup in; logic, APIs, routing, state, gates out). That guide now carries a
+  SUPERSEDED banner rather than sitting beside `ui-context.md` contradicting it, because it called
+  the floating rounded rail "the defining move" and this pass reverses it.
+  - **Nav rail: dark navy, flush, full height.** New `--sidebar-*` token group; the only dark
+    surface in the app. Contrast measured (13.5:1 / 5.4:1 / 11.1:1), not assumed.
+  - **`--radius-xl` 30px → 12px**, and controls moved from `xl` to `md` across seven files — at
+    30px every 36px control was a pill.
+  - Accent violet → blue; canvas cooled; elevation is border-first rather than a 50px bloom.
+  - KPI figures are large and **semantically coloured**, with delta chips carrying arrow + sign +
+    `sr-only` direction. Thresholds live at the call site, not inside the card.
+  - **Sparklines were deliberately not copied.** The reference shows one per KPI; EvalOS has no
+    trend _series_ behind these figures, only a single delta. Add when an endpoint returns a
+    series — never from invented data.
+  - RAG semantics, thresholds and every `--status-*` value are **untouched**; `ui-context.md`
+    remains the authority where the two ever appear to disagree.
+
+- **Unit 22 slices 2–5 are built, 2026-08-25. Every role now reads live figures**; the
+  placeholder tile table in `RoleDashboard` is gone. One `MetricsController` at `/api/metrics`
+  with five routes and a separate service behind each — folding them into one payload would send
+  every reader everybody's numbers and then trust the client to hide what it should never have
+  received.
+  - **Slice 2, Coordinator.** `CoordinatorMetricsService`; documents outstanding and aging against
+    **decision 6's stage SLA** (one clock, so the tile and the board rail cannot disagree); median
+    _current_ wait rather than completed-collection time, which would need paired audit rows;
+    client-review counts split by `client_portal_read_at` (unopened is evidence, not a guess).
+    **`/delivery` is back and closes G3** — `deliver`/`close` have been Coordinator-gated since
+    Unit 04, so it is genuinely only a screen. Delivery confirms in a dialog; it reaches a client
+    and cannot be undone.
+  - **Slice 3, Case Manager.** `CaseManagerMetricsService`, keyed on `TenantContext.memberId()`
+    with no `brandId` parameter — a brand filter would be a way to ask "my work" about somebody
+    else. **Flag-to-PM built (decision 7):** `POST /cases/{id}/flag`, new `AuditAction.FLAGGED`
+    and `CaseEvents.Type.CASE_FLAGGED_TO_PM`, routed through `NotificationListeners.ROUTES` to the
+    case's **own** PM rather than every PM on the brand — an alert that is everyone's job is
+    nobody's. No stage change, no column, no migration.
+  - **Slice 4, ENM.** `ExpertNetworkMetricsService`: roster health, coverage per **primary** field
+    with the <5 alert (**closes G6**), onboarding against a configured target (**closes G7**),
+    fleet acceptance rate built from `countOutcomesPerExpert` + `OfferOutcome.countsTowardAcceptanceRate`
+    — **`ExpertMatchService`'s own expressions, imported not re-derived**. **Performance-flag writer
+    built (decision 9, closes G8):** `PATCH /experts/{id}/performance-flags`, ENM-gated, new
+    `AuditAction.PERFORMANCE_FLAGGED`. The list **replaces rather than appends** — the column holds
+    what is true now, the trail holds the history. `ExpertProfileView` now returns
+    `performanceFlags`, which it did not: a flag the ENM could set and never read back was a write
+    into a hole.
+  - **Slice 5, GM/BM.** `RevenueMetricsService`, **importing `RefundService.isRefunded` and
+    `isRevenueRecognized`** rather than re-expressing them. Largest tile is open liability, not
+    collected. `Collected = Recognised + Open liability` is **asserted in a test and on screen** —
+    if the three stop reconciling the page says so instead of showing them. Per-brand breakdown
+    only when more than one brand is in scope. Money out `unavailable` (Unit 16).
+  - Two config values, both taking decision 4's shape: `evalos.workload.cases-per-cm` and
+    `evalos.roster.monthly-onboarding-target`.
+  - `PmMetricsController` became `MetricsController` at `/api/metrics` — the sub-routes were
+    landing at `/api/metrics/pm/coordinator`.
+
+- **Unit 22 reconciled against the CRM build spec's own dashboard pages, 2026-08-25.** The
+  business supplied the spec's Case Manager and Expert Network Manager pages; the slices were
+  checked line by line against them. Five real gaps, all now closed:
+  1. **The revision-rate flag was 30% in the spec and 40% in the code.** Ours would have stayed
+     quiet through a rate the business considers worth a conversation. Now `REVISION_RATE_FLAG_PCT
+= 30`, and it only fires once the sample supports it — the spec says "consistently >30%", and
+     the minimum case count is what makes "consistently" mean anything.
+  2. **`CLIENT_REQUEST_REVISIONS` had no audit action of its own** — it shared `UPDATED` with
+     strategy-note edits, deadline changes, draft submission and most of the draft loop. The
+     spec's _client revision request rate_ and _client feedback log_ were therefore not
+     computable, and the slice-3 spec line claiming otherwise was wrong the same way the
+     `DRAFT_RETURNED` claim was. Added `AuditAction.CLIENT_REVISION_REQUESTED` and repointed the
+     transition. **Rows written earlier stay `UPDATED`**, so the rate is forward-looking — the
+     alternative was rewriting history, which the append-only rule forbids.
+  3. **The CM dashboard shipped counts where the spec asks for lists.** It now sends the docket
+     itself — client, product, deadline + RAG, stage, expert, PM strategy notes — deadline-ordered
+     server-side, so _the priority queue is that list_ rather than a second one that could
+     disagree. Plus the draft status board, the client feedback log, and expert signing with the
+     spec's overdue prompt.
+  4. **The spec's "reassign prompt" is not the CM's to press.** Reassignment is PM/ENM-gated, so an
+     overdue signing offers the flag-to-PM instead — the escalation they actually hold. A reassign
+     button there would render a control the server refuses.
+  5. **The ENM availability board reported available/total**, where the spec asks for available vs
+     at-capacity vs **inactive** per field. Now all three, with on-leave folded into inactive
+     because for staffing the next case they are the same answer. Added the spec's low-quality-score
+     list; an _unscored_ expert is not low quality, so nulls are excluded rather than read as zero.
+     **A bug of mine this surfaced:** `FLAGGED` and `PERFORMANCE_FLAGGED` went into the backend enum
+     in slices 3–4 but never into the frontend `AuditAction` union or the timeline's label map. No
+     crash — the map falls back — but the union was lying about the wire and the timeline would have
+     rendered `performance_flagged` raw. All three new actions are now in both.
+
+- **Navigation rail reconciled against the reference design, 2026-08-25.** Verified first: every
+  `NAV_ITEMS` path resolves. `/payouts` and `/brands` land on `PlaceholderPage`, which reads the
+  label and `becomes` off the nav table — _"Not built yet — Payout ledger (Unit 16)"_ plus a way
+  out. **That is correct, not a label over a placeholder**, and the slice-4 spec line asking for a
+  different card there was over-specified; the line is fixed rather than the code.
+  What the rail gained:
+  - **Live badge counts** (`GET /api/metrics/nav`, `NavBadgeService`) — unassigned, drafts awaiting
+    review, ready to deliver, docs aging, own critical cases. One scoped read; a role sees only
+    what it could open. **Zero renders nothing** — the opposite of the dashboard rule, because on
+    a rail a row of noughts trains people to stop reading it, while on a tile the zero _is_ the
+    answer. Red only where zero is genuinely the target (unassigned, own overdue); work-in-progress
+    counts stay neutral or the colour stops meaning anything.
+  - **The brand you are actually in**, not the product name. `GET /api/brands` is GM-only, so a
+    Brand Manager holding a `brandId` had no way to resolve it; `/api/me` now carries `brandName`.
+    **Refused, with the reason:** the reference rail also lists Deadlines, Workload, Reports, Strategy
+    Notes, Activity Log and a Quick Actions block. Deadlines and Workload are already decided —
+    a preset on `/inbox` and a section on the PM dashboard — and the rest have no screen. Adding
+    them would rebuild the exact "label over a placeholder" bug `navigation.ts` documents having
+    deleted twice. The Quick Actions block is refused on the spec's own rule that actions attach to
+    a record: a global "Approve Draft" with no draft selected cannot work.
+
+- **Draft review workspace rebuilt to the supplied design, 2026-08-25.** `/drafts` was a flat
+  list; it is now the reference's split view — six KPI tiles, status tabs, a dense table and an
+  inspector panel — backed by `DraftReviewService` and `GET /api/metrics/drafts`.
+  **Everything on it is derived; no column was added.** Two things look like stored fields and are
+  not, which matters before someone adds storage for them:
+  - **`status`** (pending review / revisions requested / ready for QC / approved) comes from
+    `pm_approval_status` **plus the stage**. Approved means _past the QC gate_, not merely
+    PM-approved — a case can be PM-approved and several steps from done, and the test pins that.
+  - **`priority`** (high / medium / low) is the `DeadlineRisk` band relabelled for this one screen.
+    **Decision 5 refused an urgency column** and that still holds; High is red, not a flag.
+  - The **progress checklist** is eight observable milestones — documents collected, expert
+    assigned, draft submitted, PM approved, sent to client, client approved, expert signed, QC
+    approved — each read off the case. The reference's "Academic Assessment" / "Professional
+    Assessment" steps have no equivalent: EvalOS does not model the evaluation's internals, and a
+    tick it cannot observe is a progress bar that means nothing.
+    **The bar is deliberately not monotonic**: `submitDraft` nulls `client_approval_status`, so a
+    resubmitted draft correctly _loses_ the client step rather than keeping a tick for a version
+    the client never saw.
+  - **Recent activity is the real audit trail**, fetched per inspected draft rather than for every
+    row.
+    **Refused from the design, with the reason:** the _Export_ button — `17-dashboards.md` puts CSV
+    export out of scope — and _Columns_ visibility, which is TanStack Table's, deferred with its
+    written trigger. Row checkboxes are absent for the same reason: there is no bulk draft action on
+    the server, so they would select things nothing can act on.
+    Approve and Return render **only while the draft is actually with the PM**; on any other status
+    they would offer an action the server answers 409 to.
+
+## Gap Register — Production Process v2.0
+
+The CRM build spec's A08–A21 automations, stage SLAs and role dashboards were
+reconciled against the code. **The SLA budgets already matched `SlaCalculator`
+exactly** and 9 of the 14 automations were already live, so most of this was
+confirmation. What is genuinely outstanding, with its owner:
+
+| # | Gap | Owner | Note |
+|---|---|---|---|
+| G1 | **A07** — client uploads documents against the checklist | **Unit 21** (specced) | New spec. Portal upload streamed to Drive |
+| ~~G2~~ | **A20** — Coordinator is not told when QC passes | **closed** | One `ROUTES` entry: `QC_APPROVED` → `STAGE_CHANGED` → that brand's Coordinators. The event and the transition had shipped in Unit 04; only the route was missing. The delivery *queue screen* landed in Unit 22 slice 2, so the alert and the list it points at now both exist |
+| ~~G3~~ | **CLOSED** Unit 22 slice 2 — `/delivery` shipped with the screen behind it — was: Delivery queue screen | Unit 08/17 | `/delivery` reinstated — reverses the Unit 10 deletion, and `navigation.test.ts` flips with it |
+| ~~G4~~ | **CLOSED** Unit 22 slice 1 — CM workload on the PM dashboard, capacity from config — was: CM workload / capacity widget | Unit 17 | Grouped count by `assigned_cm`; RAG bands already fixed at 70/90 in `ui-context.md` |
+| ~~G5~~ | **CLOSED** Unit 22 slice 1 — deadline presets on `/inbox`, `/drafts` for the review queue — was: Deadline view, draft-review queue, priority queue | Unit 17 | Three views over data already loaded |
+| ~~G6~~ | **CLOSED** Unit 22 slice 4 — coverage per primary field, <5 alert — was: Coverage-gap alert per field (<5 available) | Unit 17 | Threshold is the business's |
+| ~~G7~~ | **CLOSED** Unit 22 slice 4 — count over `date_onboarded` vs `evalos.roster.monthly-onboarding-target` — was: "New experts onboarded vs target" | Unit 17 | One count over `expert.date_onboarded`; the *target* needs a config home |
+| ~~G8~~ | **CLOSED** Unit 22 slice 4 — ENM-gated writer + `PERFORMANCE_FLAGGED`; declines still read from the offer ledger — was: `performance_flags` has no writer | Unit 11/17 | Column and display exist; nothing sets it. Declines are better read from `expert_case_offer` |
+| ~~G9~~ | **CLOSED 2026-09-11 (17a) by derivation, exactly as instructed.** `ExpertCaseOfferRepository.resolvedTurnaroundSeconds` reads `outcome_at - offered_at` off the ledger, and `ExpertNetworkMetrics.turnaround` reports the **median**. The dead `avg_response_hours` column is still not revived. Two decisions inside it: **median not mean** (few, skewed samples — one expert answering after a fortnight drags a mean somewhere nobody recognises) and **null not zero** on no data (zero reads as "answered instantly"). Only resolved offers count; an open one has no turnaround yet — was: `avg_response_hours` is permanently null | Unit 17 | **Do not revive the column** — derive turnaround from `expert_case_offer` |
+| G10 | **ACCEPTED AS A LIMITATION 2026-09-11 (17a). Not built, and not owed.** A trend needs history and `quality_score` is a single human-entered column with none — so the only honest options were to add versioning or to say plainly that there is no trend. **The tile shows the current score and no direction arrow**, which is what "do not fake it" means in practice. If the business wants the trend, it wants a `quality_score_history` row per change, and that is a unit with a migration | Unit 17 | `quality_score` is human-entered and unversioned, so a month-over-month trend needs history or an accepted limitation. Do not fake it |
+| G11 | **REOPENED WITH A REAL ANSWER 2026-09-11 (17a) — and deliberately not taken here.** When this gap was written, "no field carries GHL's sales notes" was simply true. **Unit 39 changed that**: `opportunity_note` now holds the sales and marketing conversation, keyed on `ghl_opportunity_id` — and `evalos_case` carries that id from Handoff A, so the join a cases-inbox column would need **now exists**. It is not built because it is a scope decision rather than a gap: those notes are written by Sales for Sales, and putting them on a production widget shows a Case Manager a conversation nobody wrote for them. **Take it as its own change if the business wants it; the data is no longer the obstacle** | Unit 05b/17/39 | No field carries GHL's sales notes. Either intake starts carrying one or the column comes out |
+| ~~G12~~ | **CLOSED (partly, deliberately)** Unit 22 slice 1 — change deadline and reassign CM shipped, both stage-preserving. **Mark urgent was refused, not missed** (decision 5): the deadline already expresses urgency and drives `DeadlineRisk`, so a second flag is a second truth that can disagree with it. Note the reassign is a *new* field update, **not** `assign-cm` widened — that action also writes an `ExpertCaseOffer` and would have minted phantom offers, exactly as this row's own note warned. Was: Mark case urgent / change deadline; reassign CM mid-draft | Unit 04/17 | Two quick actions with no transition behind them (`assign-cm` is declared on `EXPERT_ASSIGNMENT` only) |
+| G13 | Client communication log | **not scoped** | Architecturally GHL's. A threaded per-case log would be a new *inbound* integration pulling GHL conversations. Recorded, not planned |
+| G14 | Antivirus posture for accepted uploads | **decided 2026-09-04 → Unit 35** | Drive scanned on ingest and Drive is gone, so EvalOS owed a stance of its own on files arriving from a public link. **Implemented rather than declared**: content sniffing on *both* upload surfaces, every presigned read served as an **attachment** so nothing executes in the browser origin, and the written position that **scanning is the bucket's job** — S3 malware protection is an infrastructure control the business enables, not code EvalOS ships. That infra ask sits with the credential |
+| G15 | Getting the expert's portal link to the expert | **decision (T6)** | Dropping the signature provider removed what used to email it. Hand-sent by the CM until the email channel is decided — and unlike the client link, an expert who never gets theirs cannot sign while the 20h/24h clock runs |
+| G16 | **No screen shows which portal links exist, or whether anyone opened them** | **Unit 17** (specced) | The compensating control for G15 and T1/T5/T6: because delivery is a human copy-paste, the *only* evidence a link arrived is `portal_access.last_seen_at`, and nothing reads it in aggregate. So the likeliest way to breach the 24h signing SLA — a link nobody sent — is currently invisible. Specced as metric 5 in `17-dashboards.md`; **needs no migration**, all four facts are already stored |
+| ~~G17~~ | **CLOSED 2026-08-27 — by removing the inbound signature, not by confirming it.** The answer to "which encoding does GHL sign with" turned out to be *none*: GHL's Custom Webhook action posts a URL, a content type and a JSON body and cannot compute an HMAC at all, so the check was not merely unverified, it was unsatisfiable. `WebhookVerifier`, `X-Evalos-Signature`, `evalos.webhook.signature-header` and `Brand.ghlWebhookSecret` are deleted; the per-brand endpoint token against an **active** brand is the whole credential. Was: The GHL signature scheme is unverified, and only its header name is configurable | ~~release blocker~~ | The outbound half (Unit 18) is untouched and still HMAC-signs — EvalOS *can* sign what it sends |
+
+**Explicitly not gaps — decided out:**
+
+- AI review of uploaded documents → the Coordinator reviews. Recorded in Units 10,
+  20 and 21 so it is not re-adopted.
+- Retention (30/90/180/365) and the 7-day review request → **GHL's, end to end.**
+  `RetentionSweep` was deleted from Unit 19 and the four `retention_*_sent_at`
+  columns are now permanently unwritten. `google_review_requested` still _is_
+  written, by Unit 18 — it records that GHL was told.
+- Expert recruitment pipeline and outreach tracking → **GHL's**, by the custody
+  symmetry now recorded in `architecture.md`.
+- Head of Eval → **read as GM**. Intern tier → deferred, see Open Questions.
+- An eight-value `Stage` enum → the business's 8 board columns are a derived view.
+
+## Current Goal
+
+**A1 and A2 are done — the current goal is A3, Unit 16 (payout ledger).** It is the only
+substantial unit with **zero** external dependency, and it unblocks Unit 17's money-out
+tiles, so it comes before dashboards. `00-build-plan.md`'s execution sequence is the
+schedule; re-read spec 16 first, it is a Phase 2 draft like the rest. The paragraph below
+describes Unit 15, which is **not** next: it waits on Unit 21 and on the Google service
+account. What it says about Unit 15 still holds except the Dropbox Sign integration it
+names — there is no signature provider.
+
+- Unit 15 — per `context/specs/00-build-plan.md`. As with every Phase 2 spec, it was written in
+  the Phase 2 batch and is **a draft to re-read and revise at the start of the unit**, not a
+  settled contract. It **builds on Unit 14's foundations**: the `portal_access` token model
+  (`audience = 'EXPERT'`), `PortalPrincipal`, `PortalSecurityConfig`'s chain, and
+  `AuditService.recordPortalEvent` are all in place and were built to be reused — an expert route
+  asks `PortalPrincipal.current(EXPERT)` and inherits the audience check. What Unit 15 adds that
+  Unit 14 did not need is the **sign step: download the letter, upload it back signed**, which is
+  Unit 21's upload path with `audience = 'EXPERT'`. **Its two open questions are both closed** — they
+  were the signature provider's callback secret and account structure, and there is no provider. That
+  also removed the only thing in the design that threatened the protected brand-resolution step.
+- **Unit 13's live Drive upload is still owed** and is tracked under In Progress. It did not
+  block Unit 14 — the portal reads the served-on-demand profile, which is verified, and the live run
+  confirmed the client receives it. It still blocks calling Unit 13 finished.
+- Carried forward from Unit 11 and now actually load-bearing, unfinished business rather than a
+  blocker: **the `FieldTag` value list is still unsigned by an ENM.** It shipped on instruction,
+  and Unit 12 now **scores** against it — a shortlist is only as good as the vocabulary its
+  match factor compares on, so a mismatch with what an ENM really recruits into shows up as
+  "no available expert carries that tag" rather than as an obvious defect. Changing it remains a
+  migration widening `V18`'s CHECK plus the enum plus the frontend list, together.
+- Two things Unit 12 deliberately left for their owning units, so neither reads as an oversight:
+  `OfferOutcome.TIMED_OUT` is declared and written by nobody until Unit 15, and no case column
+  records which discipline a case needs — the PM supplies it per shortlist, on purpose.
+
+## Completed
+
+- Six context files + `CLAUDE.md` entry point, aligned to the EvalOS Technical
+  Design Document v1.1 (multi-brand, 8-stage, no object storage, no mail, manual
+  payout ledger, roles GM/Brand-Mgr/PM/Coordinator/CM/ENM).
+- `context/specs/00-build-plan.md` (20 units across 3 phases).
+- **Unit 01 — Project scaffold & config.** Monorepo skeleton on the ground both
+  halves stand on:
+  - `backend/` re-based from the Initializr default (`com.evalos.server`, Boot
+    4.1.0, Security + Lombok + Testcontainers) to the spec's `com.ie.evalos`,
+    Spring Boot 3.5.16, Java 21. Deps: web, data-jpa, validation, actuator,
+    flyway-core + flyway-database-postgresql, postgresql (runtime),
+    spring-boot-starter-test. Empty package skeleton for the 12 boundaries.
+  - `application.yml` + `local`/`prod` profiles, all env-backed
+    (`DB_URL`/`DB_USER`/`DB_PASSWORD`), `ddl-auto: validate`,
+    `open-in-view: false`, Flyway on, actuator exposing `health` only.
+    `spring.profiles.default: local`.
+  - `V1__baseline.sql` — `pgcrypto` only, no domain tables.
+  - `common/ApiResponse` envelope (`success`/`data`/`error`) + thin
+    `web/HealthController` → `GET /api/health`.
+  - `frontend/`: tokens from `ui-context.md` as CSS custom properties in
+    `src/styles/tokens.css` (imported by `index.css`), fonts + radius scale via
+    Tailwind v4 `@theme`, API client moved to `src/lib/api.ts` with the typed
+    envelope, dashboard page renders backend health with a RAG dot.
+  - Root `README.md` with run + verify steps.
+  - Verified: `./mvnw clean verify` BUILD SUCCESS (1 test), `npm run build`
+    clean.
+- **Unit 02 — Multi-tenancy + Auth & RBAC/ABAC.** The guard rails everything
+  scoped now depends on:
+  - `Brand` + `TeamMember` entities and `V2`/`V3` migrations. `team_member`
+    carries a CHECK that only a GM row may have a NULL `brand_id`, so a
+    mis-seeded row cannot silently become cross-brand.
+  - `Role` enum carries its own ABAC `Tier` (`ALL/BRAND/TEAM/SELF/SUPPLY`), so
+    no query re-derives scope from the role name.
+  - `security/`: stateless bearer-only `SecurityFilterChain`, BCrypt,
+    `EvalOsUserDetailsService`, `JwtService` (HS256, claims carry
+    member/role/brand/team so scoping needs no DB hit), `JwtFilter`,
+    `StaffPrincipal`, `TenantContext` (read off the security context — brand
+    never comes from a body, query, or header).
+  - `ScopePredicate` — the one place brand/team/assignee predicates are built;
+    **fails closed** (a brand-locked role with no brand matches nothing, not
+    everything). `OwnershipGuard` is its write-side counterpart.
+  - Endpoints: `POST /api/auth/login`, `GET /api/me`,
+    `GET /api/team-members` (`@PreAuthorize` GM/Brand-Manager, scoped in the
+    service). `ApiErrors` writes the envelope for filter-chain 401/403s, which
+    never reach `@RestControllerAdvice`.
+  - Local-only seed `db/seed-local/V900__seed_local.sql` (2 brands,
+    5 logins, password `DevPassw0rd!`). It lived at `db/migration/local` until
+    2026-08-06 on the belief that only the profile naming that path applied it;
+    Flyway recurses, so prod applied it too. See the Current Phase entry.
+  - Verified: `./mvnw clean verify` BUILD SUCCESS, 17 tests
+    (`SecurityFlowTest` 10, `ScopePredicateTest` 6, `HealthControllerTest` 1),
+    **plus a live run against local Postgres** — V1–V3 + V900 seed applied,
+    `ddl-auto=validate` passed, and the acceptance flow verified end-to-end
+    (GM all 5, Brand-Mgr IE only 3, Case-Mgr 403, no/garbage/flipped-sig token
+    401, login-body `brandId` ignored). The DB half is no longer a gap.
+- **Unit 03 — Domain model & migrations.** The system-of-record schema:
+  - Entities + `V4`–`V10`: `ContactSnapshot`, `Case` (table `evalos_case`),
+    `DocumentChecklistItem`, `Expert`, `PayoutLedger`, `Notification`,
+    `AuditEvent` — every foreign key a raw UUID rather than an association, as in
+    Unit 02, so scoping stays a plain column predicate.
+  - The 21 vocabulary enums in `domain/`. `NotificationType` and `AuditAction`
+    are open: their columns carry no CHECK, so later units add values without a
+    migration.
+  - `domain/ScopedEntity` (`@MappedSuperclass`) — the `id`/`brand_id`/`created_at`
+    every scoped row shares, with a `@PrePersist` hook that stamps `created_at`
+    and **refuses a row with no brand**. `brand_id` is `updatable = false`: a row
+    never changes brand.
+  - `common/PaymentDetailConverter` — AES-256-GCM, fresh 12-byte IV per write,
+    stored as `base64(iv || ciphertext||tag)`, key from `EVALOS_FIELD_KEY` via
+    `evalos.security.field-key` (no prod default, local dev default only). GCM is
+    authenticated, so an edited column fails to decrypt rather than returning
+    plausible plaintext. The cost is that the column is not searchable.
+  - `repository/ScopedRepository` — `findScoped(ctx)` and `findScoped(ctx, id)`
+    built on the Unit 02 `ScopePredicate`; each repository declares only which of
+    its columns carry brand / team / assignee. `Case` is the one type using all
+    three axes (`brandId`, `teamId`, `assignedCm`); `Notification` scopes by
+    recipient; the rest are brand-only.
+  - Append-only audit, enforced three times over: `AuditEventRepository` extends
+    the bare `Repository` marker (so no `delete*` exists to call), every
+    `AuditEvent` column is mapped `updatable = false`, and a
+    `BEFORE UPDATE OR DELETE` trigger raises. `AuditService.recordEvent(...)`
+    joins the caller's transaction, so the trail commits with the change it
+    describes or not at all.
+  - Verified: `./mvnw clean verify` BUILD SUCCESS, 37 tests (31 run —
+    `SecurityFlowTest` 10, `DomainInvariantsTest` 9, `ScopePredicateTest` 6,
+    `PaymentDetailConverterTest` 5, `HealthControllerTest` 1 — plus 6 DB-gated),
+    **and live against local Postgres 18**: on a fresh `evalos_unit03` database
+    all 11 migrations applied in order, the next boot was a no-op,
+    `ddl-auto=validate` passed (so `text[]` and `jsonb` map correctly),
+    `payment_detail` is base64 ciphertext in raw SQL and plaintext through the
+    entity, a Brand Manager's `findScoped` returned only their brand's expert
+    while the GM saw both, a brand-less row was refused before insert, and raw
+    `UPDATE`/`DELETE` on `audit_event` both raised. The dev `evalos` database was
+    then migrated forward and re-verified.
+- **Unit 04 — Case lifecycle service (state machine).** The spine now moves:
+  - `service/CaseTransitions` — the declared table as a whitelist: `(from, action)
+→ to`, plus the four actions that are legal _only_ while a case holds a
+    specific exception state. An exception state is not an extra stage: the case
+    keeps its stage and accepts nothing but its way out, which is how "exception ↔
+    prior stage" works with no column remembering the prior stage — it never left
+    it. Each `Action` carries its own event type and audit action, so a transition
+    cannot be logged as one thing and published as another.
+  - `service/CaseLifecycleService` — 18 transition methods, all funnelling through
+    one `apply(...)`: set stage → restamp the clock → refresh SLA → save → one
+    `AuditService.recordEvent` → one `CaseEvent`, inside the caller's transaction.
+    Reads go through `findScoped`, so another brand's case (or another CM's) is
+    simply absent.
+  - `service/BusinessCalendar` — 09:00–17:00 America/Los_Angeles, weekends and the
+    eleven US federal holidays, including the Sat→Fri / Sun→Mon observance shift
+    and the New-Year shift that falls back into the previous December.
+    `elapsedBusinessTime` and `plusBusinessTime` (negative amount subtracts).
+  - `service/SlaCalculator` — per-stage business-hour budgets (doc collection 24h =
+    3 days, expert assignment 4h, first draft 48h, PM review 12h, client review
+    48h, expert sign 24h, QC 2h), `AT_RISK` at 75% spent, null when no clock runs
+    (closed, or in an exception state).
+  - `service/RefundService` — GM-only, checked at the endpoint _and_ in the service
+    because it is the one path that touches money. Voids every `PENDING` payout,
+    closes the case flagged refunded, publishes `case.refunded`.
+  - `event/CaseEvents` — 19 event types with their wire names, and one `CaseEvent`
+    payload carrying brand/case/contact/attribution/stage and nothing else.
+  - `web/CaseController` — 20 endpoints, one per transition, `@PreAuthorize` per the
+    spec's actor table; `deal_value` projected only for GM / Brand Mgr / PM.
+    `domain/IllegalTransitionException` → 409 `ILLEGAL_TRANSITION`.
+  - Verified: `./mvnw clean verify` BUILD SUCCESS, 60 tests (52 run —
+    `CaseLifecycleServiceTest` 11, `SecurityFlowTest` 10, `DomainInvariantsTest`
+    10, `ScopePredicateTest` 6, `CaseControllerTest` 6, `PaymentDetailConverterTest`
+    5, `BusinessCalendarTest` 3, `HealthControllerTest` 1 — plus 8 DB-gated), **and
+    the 8 DB-gated checks green against local Postgres 18**: the context boots with
+    the new derived finders, `ddl-auto=validate` still passes after the accessors
+    were added, and the board filters generate real SQL on top of the scope
+    predicate (a Criteria attribute name that no mocked repository would ever
+    catch).
+
+- **Unit 05 — Inbound webhook gateway + GHL payment handler (Handoff A).** The
+  door the business actually comes through. _(The payment-handler half is superseded
+  **twice**: Unit 05a moved the trigger to `contact.created`, and Unit 05b moved it
+  again to the won opportunity, which is what runs today. This note used to stop at
+  05a and so named a trigger that has not been current since. Everything about the
+  gateway itself still stands.)_
+  - `webhook/WebhookGateway` — resolve brand → verify → dedupe → archive → route →
+    ack. Deliberately **not** `@Transactional`: each step commits on its own, which
+    is what lets the archive row outlive a failed handler and record why. Brand
+    resolution runs before verification (the spec lists it second) because the HMAC
+    secret belongs to the brand — a lookup is not a side effect, so the rule it
+    protects still holds.
+  - ~~`webhook/WebhookVerifier`~~ — **deleted 2026-08-27 (G17)**; was HMAC-SHA256 over the exact
+    bytes received. GHL's Custom Webhook action cannot sign, so the endpoint token against an
+    active brand is the whole credential now. The gateway line above loses its verify step with it.
+  - `webhook/{InboundWebhookController, WebhookRouter, GhlPaymentHandler,
+WebhookRejected}` — one public endpoint per brand, the event-type vocabulary
+    (`payment.confirmed` live _as of this unit_; `refund.requested`/`contact.updated`
+    recognized and logged no-ops), and parse-then-trust validation of the payload.
+    **`GhlPaymentHandler` and the `payment.confirmed` route no longer exist** — Unit 05a
+    replaced both. Nothing in the running system handles `payment.confirmed` today.
+  - `service/CaseIntakeService` — the one thing that creates a case: contact sync,
+    case in the pool, checklist from `ChecklistTemplates`, GM + Brand-Manager pool
+    notification, audit row, `case.created` + `checklist.requested`. All in one
+    transaction, so a failed delivery leaves nothing behind.
+  - `domain/WebhookEvent` + `V12`, narrowed by `V13` to
+    `UNIQUE NULLS NOT DISTINCT (source, brand_id, external_id)`; `V11` for the
+    per-brand secret, `V901` local seed. `AuditService.recordSystemEvent` so a
+    webhook's audit row carries the brand it resolved rather than a null.
+  - `DomainInvariantsTest` now enforces invariant 8 structurally: only
+    `GhlPaymentHandler` may take `CaseIntakeService`, so adding a
+    `POST /api/cases` that creates a case breaks the build. (The test now names
+    `GhlContactHandler`; the guarantee is unchanged.)
+  - Verified: `./mvnw clean verify` BUILD SUCCESS, 87 tests (76 run — new:
+    `InboundWebhookTest` 13, `CaseIntakeServiceTest` 7 — plus 11 DB-gated), the 11
+    DB-gated checks green against local Postgres 18 (`V11`–`V13` + `V901` applied,
+    `validate` passes, the brand-scoped unique key refuses a second archive per brand
+    while allowing the same invoice ref from another brand, and two brand-less rows
+    still deduplicate).
+  - **The `payment.confirmed` live-run evidence that used to sit here has been removed, not
+    re-dated.** It recorded a signed `payment.confirmed` creating `IE-2026-375863`, and that
+    handler was deleted in Unit 05a — so it was evidence for code that no longer exists, which
+    is worse than no evidence: it read as a current guarantee about the live intake path.
+    The gateway behaviour it also demonstrated (replay → `duplicate`, wrong signature → 401,
+    unknown token → 404) is re-proved against `contact.created` in the Unit 05/05a live-run
+    entry below, which is the only live evidence for Handoff A that still describes the
+    running system.
+
+- **Unit 05a — Handoff A re-pointed from payment to contact.** A design correction,
+  not a new unit: the business does not want to wait for money to start a case, so
+  the trigger moved and payment became a fact recorded on the case.
+  - `webhook/GhlContactHandler` replaces `GhlPaymentHandler`; the router's live
+    event type is `contact.created`. `contact.updated` deliberately stays a
+    recognized no-op — intake is create-or-update so routing it there would
+    technically work, but an edit in GHL is not a reason to open a case.
+  - The gateway's idempotency-key candidates are now `event_id`, `webhook_id`,
+    `id` — a contact has no invoice, and keying on the contact id would make a
+    returning client's second order look like a duplicate.
+  - `V14__case_paid.sql` — `paid boolean NOT NULL DEFAULT false` + `paid_at`, and
+    `(brand_id, paid)`. Defaulting false is the safe direction. No `paid_by`: the
+    audit trail already records who, and a second record of one fact can disagree.
+  - `CaseLifecycleService.markPaid` + `POST /api/cases/{id}/mark-paid`, GM or Brand
+    Manager (same gate as assigning a PM — both are the brand's commercial call).
+    Declared on every active stage, because payment clearing late is bookkeeping
+    reality, not an illegal state.
+  - **The guard that matters is one line, in one place:** `markDocsComplete`
+    refuses an unpaid case. Every later stage is only reachable through that
+    transition, so guarding there covers all of them. Doc collection against an
+    unpaid case is deliberately allowed — it costs EvalOS nothing.
+  - `RefundService.isRevenueRecognized` is now `paid && delivered && !refunded`
+    (invariant 5 restated). Delivery alone no longer implies earned.
+  - `CaseIntakeService.intake` became create-**or-update**: one open case per
+    contact per service. A refresh only fills blanks and can never move the case —
+    a re-firing GHL workflow must not reset a stage, drop an assignment, or un-pay
+    a case. It publishes no lifecycle event, because nothing in the lifecycle
+    happened. `NewCase.paid` lets intake skip straight to paid when GHL already
+    knows.
+  - `service/PoolNotifier` — the recipient rule (GM + that brand's Brand Managers)
+    extracted from intake because two callers now need it: `NEW_LEAD` on creation,
+    `NEW_CASE_IN_POOL` on payment. Unit 06 replaces it with event listeners.
+  - Verified: `./mvnw verify` BUILD SUCCESS, 92 tests (81 run — new
+    `anUnpaidCaseGetsNoFurtherThanDocCollection`, `/mark-paid` added to
+    `CaseControllerTest`'s route table so the GM-superuser guarantee still covers
+    every route), **and the 11 DB-gated checks green against local Postgres 18** —
+    `V14` applied and `ddl-auto=validate` passed, so `paid`/`paid_at` match the
+    entity.
+
+- **Unit 05a review pass — six findings, all fixed.** A five-lens review of `b28b0f5`
+  (CLAUDE.md/invariants, bug scan, git history, prior review feedback, comment
+  contracts). Two were real defects on the money path:
+  (a) **`"id"` had come back into the webhook idempotency-key fallback**, having been
+  deliberately cut in `f65b2f1`. In most envelopes `id` is the _resource's_ id, so a
+  returning client's second order would carry the first one's key and be answered
+  `duplicate` — the very failure moving off `invoice_ref` was meant to avoid. The list
+  is now `{ event_id, webhook_id }` and a payload with neither is refused. If GHL
+  turns out to send only a resource id, the answer is a delivery-id header, not this
+  list.
+  (b) **A case GHL reported as already paid could never have its amount corrected.**
+  Intake set `deal_value` from `quote_amount` — a quote is all the contact webhook
+  knows — and `markPaid` refused an already-paid case, so the quote became the
+  permanent revenue figure. `markPaid` is now callable on a paid case: the amount and
+  invoice ref are correctable, while `paid` / `paid_at` stay write-once (the moment the
+  money landed does not change) and the pool alert fires only on the first payment.
+  Only ever one value, never a running total, so correcting it cannot double-count.
+  (c) **`markPaid` had no service-layer role check.** Unit 04 note (g) established that
+  a money path re-checks in the service, not only at the endpoint —
+  `RefundService.requireGm` does. `markPaid` now has its own GM-or-Brand-Manager guard,
+  with `onlyTheGmOrABrandManagerMayRecordAPayment` covering it.
+  (d) **`V15__one_open_case_per_contact_service.sql`** — "one open case per contact per
+  service" was a check-then-act with nothing behind it: two `contact.created`
+  deliveries with different event ids are not deduplicated by the gateway (they are
+  genuinely different deliveries), so both could pass the lookup and both create a
+  case. A partial unique index on `(brand_id, contact_id, service_type)
+WHERE current_stage <> 'CLOSED'` cannot race; the loser's transaction rolls back, the
+  gateway answers a retriable 5xx, and the redelivery refreshes the committed row —
+  which is what intake wanted anyway. Partial because a contact returning after their
+  first case closed is new business, not a duplicate.
+  (e) **Two "sole revenue-recognition" javadocs were left false** by 05a's change to
+  invariant 5 — `deliverToClient` and the new `CASE_PAID`. Both now say paid _and_
+  delivered, and point at `isRevenueRecognized` as the only reader of the pair.
+  (f) **The `NEW_CASE_IN_POOL` comment contract was false.** Intake's comment said
+  `markPaid` raises that alert; intake raises it eight lines later, for a
+  contact that arrived paid. `PoolNotifier`'s javadoc claimed two callers where there
+  are three. Both corrected — the paid-at-intake double alert is intended behaviour,
+  only the comments were wrong.
+  - Also cut: a dead `java.util.stream.Stream` import left behind when `PoolNotifier`
+    was extracted.
+  - Verified: `./mvnw verify` BUILD SUCCESS, 95 tests (83 run), and **12 DB-gated green
+    against local Postgres 18** — `V15` applied out-of-order on the dev database
+    without conflict, and `oneOpenCasePerContactPerServiceIsEnforcedByTheDatabase`
+    proves the index refuses the second open case while still allowing another service
+    and a repeat purchase after close.
+
+- **Unit 05/05a live end-to-end run — acceptance criterion 1 closed for the current
+  handler.** The previous live evidence (`IE-2026-375863`) was a signed
+  `payment.confirmed` recorded before the pivot, so nothing had exercised
+  `contact.created` over real HTTP + HMAC + Postgres. Now it has, against the running
+  app on the `local` profile:
+  - A signed `contact.created` → `200 accepted`; the replay of the same `event_id` →
+    `200 duplicate` and no second case. Wrong signature → `401 SIGNATURE_INVALID`;
+    unknown token → `404 UNKNOWN_ENDPOINT`. **A payload carrying only a resource `id`
+    → `400 MISSING_EXTERNAL_ID`**, which is the review fix behaving as intended: it
+    fails loudly rather than deduplicating on a contact id.
+  - The created case (`IE-2026-5DFC40`) is `DOC_COLLECTION` / `IN_POOL` / `ON_TRACK`,
+    **`paid = false`**, `deal_value = 900.00` (the quote), `revenueRecognized = false`,
+    with a 4-item `REQUIRED` checklist, a contact snapshot, and
+    `NEW_LEAD` ×2 (GM + that brand's manager only).
+  - `assign-pm` succeeds while unpaid — doc collection is deliberately allowed to
+    proceed — and then **`docs-complete` answers `409 ILLEGAL_TRANSITION` "the case has
+    not been paid"**. After `mark-paid` it answers `409 "not every checklist item is
+uploaded or approved"`, i.e. the paid guard clears and the next precondition takes
+    over, in that order. `NEW_CASE_IN_POOL` ×2 is raised at payment, not creation.
+  - `mark-paid` corrected `950.00 → 1600.00 → 1725.50` with `paid_at` unchanged across
+    both corrections, and a `CASE_MANAGER` bearer got `403` from the service-layer
+    guard.
+  - `webhook_event` holds exactly one processed, verified row per valid delivery and
+    **nothing at all** for the rejected attempts — an unverified body is logged, never
+    archived. Audit shows `CREATED actor=SYSTEM brand=<IE>` for the webhook and a null
+    brand for the GM's action, both as designed.
+  - Gap noted, not a defect: **the seed has no `PROJECT_COORDINATOR` login**, so the
+    four Coordinator-gated transitions can only be driven as GM locally. That is the
+    same Coordinator-scope open question below, now visible in the seed as well as the
+    schema.
+
+- **Unit 06 — In-app notification centre.** The events Units 04/05 published to nobody
+  now reach somebody. No migration: the `notification` table is Unit 03's.
+  - `notification/NotificationListeners` — the spec's event → recipient table as a
+    literal table (`EnumMap` of event → recipient function + heading + message), so a
+    mis-wired row is a data diff rather than a buried branch. Synchronous, so it runs
+    inside the transition's transaction: a rolled-back transition cannot leave an alert
+    claiming it happened.
+  - `notification/RecipientResolver` — the one place role → member lookup lives. Every
+    lookup names the brand except the GM's, which is brand-less by definition. Returns
+    **empty rather than a fallback** when no PM/CM is assigned: an alert addressed to
+    "whoever" is how a queue nobody reads gets built.
+  - `notification/NotificationService` — the only writer of the table, and the only
+    reader the endpoints use. Writes join the caller's transaction.
+  - `web/NotificationController` — the four spec routes. **No `@PreAuthorize` and no
+    recipient parameter**, deliberately: every staff role has a bell and none may read
+    another's, so identity narrows every route and a role gate would be the wrong tool.
+  - `service/PoolNotifier` **deleted** — its two call sites are the `case.created` and
+    `case.paid` listeners now, which is what the spec's "event-driven, no manual
+    triggers" asks for. `CaseIntakeService` and `CaseLifecycleService` each lost a
+    dependency.
+  - Verified: `./mvnw verify` BUILD SUCCESS, **126 tests** (113 run — new
+    `NotificationListenersTest` 14, `NotificationServiceTest` 10,
+    `NotificationControllerTest` 6), and **13 DB-gated green against local Postgres 18**.
+
+- **Unit 07 — App shell + role/brand-scoped routing.** The frontend stops being a
+  health-check page. **First unit since 01 to touch `frontend/`.**
+  - Backend: `web/BrandController` + `service/BrandQueryService` +
+    `BrandRepository.findByActiveTrueOrderByNameAsc`. `GET /api/brands` is **GM-only,
+    gated twice** (route and service) because it is the one deliberately cross-brand
+    read in the app — knowing the shape of the business is itself cross-brand
+    information. `BrandOption` projects `id`/`name`/`slug` only: the webhook token and
+    signing secret live on the same entity and must never leave it.
+  - `lib/session.ts` — token in a module variable mirrored to **sessionStorage** (dies
+    with the tab). `lib/api.ts` gained a request interceptor that attaches the bearer
+    and a response interceptor that drops the token on **401 only** — a 403 means
+    "signed in, not allowed", which is a screen, not a logout.
+  - `lib/auth.tsx` — `AuthProvider` with a three-state discriminated union
+    (`loading`/`anonymous`/`authenticated`). **Role and brand come from `/api/me`, never
+    from the login response**, so there is one source of identity rather than two that
+    can disagree.
+  - `features/shell/navigation.ts` — **the nav and the route allow-list are one table.**
+    Two tables is how a screen ends up deep-linkable but unlisted, or listed and then 403. `navFor(role)` filters it; `mayReach(role, path)` guards the router against the
+    same field.
+  - `features/shell/{AppShell, LeftNav, TopBar, BrandSwitcher, DateFilter,
+NotificationBell, PlaceholderPage, filters}` — the shell from `ui-context.md`.
+    `filters.tsx` holds `activeBrandId` (null = all brands, GM only) and `dateRange`.
+  - `features/auth/LoginPage`, `components/Forbidden`, `features/dashboards/RoleDashboard`.
+    403 is a **screen, not a redirect**, so the refused URL stays visible.
+  - Deleted `components/Layout.tsx` and `pages/Dashboard.tsx` — the shell supersedes
+    both; the Unit 01 health-check page had no remaining caller.
+  - `V902` local seed adds the **Project Coordinator and Expert Network Manager logins
+    V900 never had** (`pc.ie@`, `enm.ie@`), because acceptance criterion 1 is "each of
+    the six roles" and four of six is not that.
+  - Verified: `npm run build` clean (tsc + vite), `npm run lint` no errors,
+    `./mvnw verify` BUILD SUCCESS **126 tests** (new `BrandControllerTest` 3), and
+    **live against the running stack**: all six roles authenticate, `/api/me` returns
+    the right role and brand for each, `/api/brands` is 200 for the GM and **403 for
+    all five other roles**, the brand payload carries only `id`/`name`/`slug`, the
+    notification list/read-all/count round-trip works through the bell's endpoints, a
+    garbage token is 401, and the Vite `/api` proxy plus SPA deep-links serve.
+
+- **Contact identity — the two duplicate-case defects the Unit 06 review found, fixed.**
+  Both let intake create a second contact and therefore a second case for one piece of
+  work. Neither was in Unit 06's own code; the review just found them there.
+  - **`V16__contact_identity.sql`.** `contact_snapshot` had **no unique key at all**, so
+    `V15`'s `(brand_id, contact_id, service_type)` index was only unique once a snapshot
+    existed — for a contact EvalOS had never seen, two concurrent deliveries each
+    inserted their own snapshot, got different `contact_id`s, and both sailed through.
+    `V16` adds partial unique indexes on `(brand_id, ghl_contact_id)` and
+    `(brand_id, lower(email))`. `lower(...)` because the lookup is
+    `findByBrandIdAndEmailIgnoreCase` — a capitalised address must not become a second
+    person. Verified no duplicates existed in the dev database first.
+    **`V15`'s comment claiming the race "cannot race" stays wrong on disk**: it is
+    applied, and an applied migration is never edited (invariant 9). `V16`'s header
+    corrects the record instead.
+  - **`CaseIntakeService.existingContact` needed no race at all.** Its two lookups were
+    exclusive `return`s, so a delivery carrying a GHL id that missed the id lookup never
+    tried email — and since the payload has no `@NotBlank` on that id, a first delivery
+    could store a snapshot without one. Second snapshot, second case, no concurrency
+    required. Now falls through with `.or(...)`, and `ContactSnapshot.linkGhlContact`
+    backfills the id onto an email-matched row so it stops depending on the email
+    forever. **Write-once**: an id already present is never replaced, because two GHL
+    contacts sharing an email would otherwise let the second take over the first's
+    snapshot and every case pointing at it.
+  - Verified: `./mvnw verify` BUILD SUCCESS **129 tests** (new: the sequential-duplicate
+    case and the write-once guard), and **14 DB-gated green** — `V16` applied and
+    `aContactIsUniquePerBrandByGhlIdAndByEmail` proves both indexes refuse a duplicate
+    while the other brand keeps its own contact with the same id and email.
+  - Decision worth confirming: **one email per contact per brand is now enforced**, not
+    just assumed. An `ATTORNEY` contact may be a firm, so a shared office inbox across
+    several applicants would now be refused rather than silently merged. Refusing is the
+    safer half — a wrong merge attaches a case to the wrong person — but if it fires in
+    practice the fix is a real contact key from GHL, not dropping the index.
+
+- **Unit 08 — Production Kanban board.** The first screen with real data in it, and the
+  first consumer of the shell's brand and date filters.
+  - **The scope defect it had to fix first.** `ScopePredicate.Fields` carried one
+    `assignee` attribute and `CaseRepository` declared `assignedCm`, so "assigned to me"
+    only ever meant the Case Manager. A case is one pipeline worked by several people in
+    different slots, so a Coordinator (also `Tier.SELF`) matched **no case at all**: empty
+    board, and 403 on the four transitions the design makes them the actor for. The axis
+    is now a **set** of attributes and a SELF caller matches when _any_ of them names them
+    (`assignedCm` OR `assignedCoordinator`). Fixed in the one place all callers route
+    through, not per-query. `V17__case_assigned_coordinator.sql` adds the missing column +
+    `(brand_id, assigned_coordinator, current_stage)`, mirroring the CM's board index.
+    **Closed by giving the axis its column, not by widening the predicate** — an entity
+    with no assignment column (expert, payout) is still deliberately brand-wide for a SELF
+    caller, and that is now asserted rather than implied.
+  - `POST /api/cases/{id}/assign-coordinator` (+ `ASSIGN_COORDINATOR` action and
+    `case.coordinator_assigned`), because a column nothing populates is the same bug with
+    an extra migration. GM / Brand Manager / PM — all three are staffing decisions.
+    Declared on every active stage and **re-assignable**, unlike `assignPm`: coordination
+    changes hands mid-pipeline and there is no pool to leave. `CaseSnapshot` gained the
+    field too, or the audit row for the assignment would show a before/after that look
+    identical.
+  - `service/CaseBoardService` + `web/CaseBoardController` → `GET /api/cases/board`,
+    grouped into the five stage columns and three exception lanes. **Calls
+    `CaseLifecycleService.list` rather than building a second scoped query** — a board that
+    filtered its own way could disagree with every other read about what the caller may
+    see, and it inherits the SLA recompute for free. One batched query for the client
+    names, not one per card.
+  - **A case appears exactly once**: in its exception lane if it holds one, in its stage
+    column otherwise — a case on hold is not also sitting in Doc Collection. `CLOSED` is
+    not a column, so a settled refund drops out of the lane and the lane stays a queue of
+    things still needing a decision.
+  - **`brandId` is accepted on this one endpoint** (the GM's switcher, which Unit 07 note
+    (d) deferred to here) and applied **after** the scoped read. It can only ever narrow:
+    a Brand Manager naming another brand gets an empty board, not that brand's cases.
+    `CaseBoardServiceTest.theBrandFilterOnlyEverNarrows` is what holds that.
+  - `CaseController.SEES_DEAL_VALUE` went package-private so the board projects through
+    the _same_ list. Two copies is how a Case Manager ends up seeing the deal value on one
+    screen; the board test asserts all six roles.
+  - Frontend `features/board/*` (`BoardView`, `StageColumn`, `CaseCard`, `PoolLane`,
+    `QuickActionDialog`, `boardApi`). `/board` for GM / Brand Manager / PM / Coordinator
+    and `/my-cases` for the Case Manager are **the same component** — the spec's per-role
+    wording describes scope, which the server applies.
+  - **Defect caught by its own test, before it ever ran live:** `Map.of()` throws on a
+    `null` key rather than answering null, and `contact_id` is nullable — so a board
+    holding one contactless case NPE'd. The null check in `forCaller` is load-bearing.
+  - **Assignment picks a person, it does not ask for a UUID.** The first pass left
+    `assign-pm` / `assign-cm` / `assign-coordinator` / `reassign-expert` collecting ids by
+    hand, because no roster read existed that a PM could call. Two narrow endpoints close it:
+    `GET /api/team-members/assignable?role=` (GM / Brand Manager / **PM**) and
+    `GET /api/experts` (GM / Brand Manager / PM / ENM, `AVAILABLE` only).
+    - **Both are deliberately separate, narrower projections**, not widened versions of
+      existing routes. `assignable` returns `{id, displayName}` and nothing else, so a PM can
+      staff a case while still being refused the staff directory (`/api/team-members` stays
+      GM/Brand-Manager, asserted in the same test). `/api/experts` returns `{id, fullName}`:
+      the encrypted `payment_detail` is on that entity and must never leave it, and the
+      quality/performance fields are Unit 11's with their own audience.
+    - **The picker cannot offer what the write side would refuse.** `assignable` applies the
+      same scope predicate, so a PM sees their team — which is the rule
+      `assignCaseManager` enforces ("case manager is not on this case's team"). `/api/experts`
+      filters to `AVAILABLE` because `availableExpert` rejects anything else. An empty list
+      says why rather than rendering an empty dropdown.
+    - **No `uuid` package.** Nothing in the frontend mints an id — Postgres does
+      (`gen_random_uuid()`), and a generated one would just fail the `team_member` lookup.
+      The blocker was a missing read, not a missing generator.
+  - **`STAGE_ACCESS` — how much of each stage a role works.** `full` (drives it) / `status`
+    (watches it) / `none` (not drawn). A `status` role keeps the stage-_preserving_ actions —
+    a Coordinator watching a draft can still put the case on hold — and loses only the ones
+    declared _from_ that stage. PM full through signing, status on delivery; Coordinator full
+    on the two ends and status through the middle; Case Manager full on draft + signing only;
+    ENM full on signing, status on assignment and delivery. GM and Brand Manager see all five.
+    **Convenience, not enforcement** (principle 7) — the server still gates every transition
+    and every read, and several `none` cells were already empty by scope alone (a case naming
+    a CM has long left Doc Collection). Held as **one table** rather than a context file, for
+    the reason `navigation.ts` gives: a second copy is a copy that drifts.
+  - Verified: `./mvnw verify` BUILD SUCCESS **148 tests**, and **all 148 green with zero
+    skipped against local Postgres 18** (`-Devalos.db.test=true`): `V17` applied on top of
+    20 existing migrations, `ddl-auto=validate` passed. `npm test` **18 tests** green
+    (`vitest run`, mutation-checked). And
+    `aSelfCallerReadsCasesAssignedToThemInEitherSlot` proves in real SQL that a Coordinator
+    reads the case naming them and not the CM's, the CM reads theirs and not the
+    Coordinator's, neither sees the unassigned pool row, and another brand's case stays out
+    even when it names the same Coordinator. `npm run build` clean, `npm run lint` clean.
+
+- **Visual pass over the shell and the board.** No unit, no backend change, no new dependency —
+  the frontend built across Units 07–09 read as a wireframe, and three of its stated design
+  intentions were not actually reaching the screen.
+  - **The fonts were never loaded.** `ui-context.md` asks for tabular figures on every column
+    of dates, counts and case IDs; `tokens.css` declared Inter / IBM Plex Mono as font _stacks_
+    with system fallbacks and Unit 01 note (b) recorded that the webfonts were not bundled. No
+    system fallback has `tabular-nums`, so **every `tabular-nums` class in the app — 15 files —
+    was a no-op for three units.** Now linked in `index.html` (`preconnect` + one `css2`
+    request, `display=swap`), with a `.font-num`/`.font-mono`/`.tabular-nums` rule in
+    `index.css` so the feature applies rather than being requested per element.
+  - **`tokens.css` gained three derived tokens, no new colours**: `--shadow-card`,
+    `--shadow-pop` (both the primary text colour at low alpha, so a surface never picks up a
+    hue outside the system) and `--ring-focus` (the accent). `index.css` spends them on one
+    app-wide `:focus-visible` ring — keyboard operation of a board is not optional — plus a
+    `prefers-reduced-motion` block and `.scroll-slim` for the board's horizontal scroller.
+  - **`/cases` is deleted from the nav, and no unit ever builds it.** It was a placeholder
+    labelled "Case table (Unit 08)" — which is what Unit 08 _did_ ship, as the board. So four
+    roles had the app's one screen with live data listed _second_, under a page that could only
+    ever say "not built yet". Unit 08 note (h) chose not to alias the two; the right fix was
+    one entry, not two. `/board` is now labelled "Production board" and nothing links to
+    `/cases` (`/cases/:id` is untouched — it is the detail route, not a nav item).
+  - **The nav is grouped** — Overview / Pipeline / Records / Admin — via a `group` field on the
+    same `NAV_ITEMS` table, built into sections by **consecutive runs** rather than by
+    filtering per group, so the table's order is the screen's order and a heading cannot appear
+    twice. This also fixes the Unit 07 browser pass's "cosmetic deviation": three roles had
+    their primary screen listed last because `NAV_ITEMS` was one flat global order. Grouping
+    gave the ordering a home without adding a per-role order field.
+  - **`boardPathFor(role)` — the placeholder now offers the way out.** A dead end is a design
+    failure, but a hardcoded escape link is a 403 with extra steps, so it walks `/board` then
+    `/my-cases` **through `mayReach`** and falls back to the dashboard for the one role that can
+    reach neither today (the ENM). Same table, same gate as the router.
+  - **`SlaRail` — the board's one instrument.** Each column is capped by a 3px bar split by its
+    cases' SLA mix, red-first, so the five columns side by side read as a single line: where the
+    risk has collected, not just how much work there is. `slaMix` keeps **`unknown` as a fourth
+    band** rather than folding it into `onTrack` — `SlaCalculator` returns null for a closed case
+    and for one holding an exception state, and colouring those green would report a stalled
+    column as healthy. Empty columns keep a hairline so the rail stays continuous, and the bar
+    carries an `aria-label` naming the counts, since a colour-only instrument is not one.
+  - **Columns are numbered by their place in the whole pipeline**, so a Case Manager's first
+    column is 2 of 5. Numbering their subset from 1 would say the work starts with them. Lanes
+    get no number: an exception is not a step. The lanes also moved under a "Off the pipeline"
+    heading with a held count, and `readOnly` became a "watching" chip instead of the word
+    "status" tucked beside a number.
+  - **The board header states the risk, not the volume**: scope + owner filter as an eyebrow,
+    then "N cases in view" with overdue / at-risk counts, or "all inside SLA" when there are
+    none. It counts **only what is drawn** (this role's columns plus the lanes), so the number
+    always matches what the reader can count on screen. `isMine` was extracted from the owner
+    filter and is now also passed to every card, so "mine" is visible without filtering to it.
+  - The read-failure panel says **"Nothing was changed"** and names the likely cause. A retry
+    button with no reassurance about a _read_ failure invites the user to wonder what it half-did.
+  - Verified: `npm test` **29 tests** (3 new, and **mutation-checked** — folding `unknown` into
+    `onTrack` fails the SLA-band test, and numbering the columns after the `none` cells are
+    filtered fails the step test; each failed exactly one test and the file was restored
+    byte-identically, confirmed by an unchanged bundle hash). `npm run build` clean,
+    `npm run lint` clean. Backend untouched.
+- **Visual-pass browser verification — confirmed, and it found four defects.** Driven through
+  Chrome against the running stack (Postgres 18 + `mvnw spring-boot:run` on `local` + Vite),
+  signed in as all six seeded roles.
+  - **The webfonts load and the tabular figures are real, measured rather than assumed.**
+    `document.fonts.check` is true for Inter and IBM Plex Mono (faces 400/500/600/700), and a
+    probe span carrying the app's own classes measures `111111` and `000000` at **exactly the
+    same width (54.475px)** with `font-variant-numeric: tabular-nums` computed. That is the
+    Unit 01 gap closed with evidence, not a link tag that might be doing nothing.
+  - **The SLA rail reads correctly per column** and carries the counts in its `aria-label`
+    ("Doc Collection: 4 on track, 103 no clock running"), so the instrument is not colour-only.
+  - **Defect 1, in this pass's own header: "all inside SLA" over a board that was mostly
+    unknown.** The GM's board showed _150 cases in view · all inside SLA_ while the rails
+    directly beneath it reported **127 of the 150 with no clock running** — the headline branched
+    on `overdue === 0 && atRisk === 0`, which is exactly the overstatement `slaMix` keeps a
+    separate `unknown` band to prevent. The header and the instrument disagreed about the same
+    data, on screen, at the same time. The predicate moved into `boardRules.allInsideSla` (a
+    display branch that wrong is a display branch worth testing) and now also requires
+    `unknown === 0` and `onTrack > 0`, so an empty board claims nothing. The board reads
+    _150 cases in view · 127 with no clock running_.
+  - **Defect 2: the case detail page's "Manage the checklist" link answered 403 for every role
+    but one.** `/checklists` is the Coordinator's screen, and the client nav table has no
+    superuser row the way the backend's `@PreAuthorize` does — so a **Project Manager clicking
+    it landed on the 403 screen, and so would the GM**. Pre-existing from Unit 09 note (g),
+    found by clicking it. Now gated on `mayReach`, the same table the router guards against, and
+    pinned by a test asserting the Coordinator is the _only_ role that may reach that path.
+  - **Defect 3: the case detail failure state sent a Case Manager and an ENM to a 403.** It
+    hardcoded `/board`; `/cases/:id` is open to every role, so the escape hatch on the error
+    screen was itself refused for the two roles without `/board`. Now `boardPathFor`, verified
+    live: the ENM gets "Back to your dashboard" and the Case Manager "Go to my cases".
+    **This is the second and third instance of one bug** — a link offered without checking the
+    reader's allow-list — which is why `boardPathFor` exists at all. Worth grepping for a fourth
+    before adding any new cross-screen link. (`components/Forbidden` is fine: `/dashboard` is
+    reachable by every role.)
+  - **Defect 4: two sentences ran together on the placeholder** ("Document checklist tracking
+    (Unit 10) Everything else in your scope is already live") because the nav table's `becomes`
+    strings are labels with no trailing punctuation. Two elements now.
+  - Per-role confirmations: the grouped nav renders the right set and headings for all six
+    roles; the **Case Manager's columns are numbered 2, 3, 4** — whole-pipeline numbering working
+    as designed rather than renumbering their subset from 1 — with the "watching" chip on Expert
+    Assignment and a "Yours" badge on their cards; the Coordinator's placeholder offers "Go to
+    production board" and the **ENM correctly falls back to the dashboard**, being the one role
+    with no board; the ENM's Expert database now precedes Payouts, and a PM's board sits directly
+    under Dashboard, which was the Unit 07 ordering deviation.
+  - **The heading now comes from the nav table**, so `/my-cases` is headed "My cases" rather than
+    "Production board" — and the eyebrow's owner half is drawn only when the filter narrows,
+    because "everyone" is false for a Case Manager whose board the server has already scoped to
+    them.
+  - **The focus ring fires**, confirmed on a keyboard-focused nav link: `:focus-visible` matched
+    and the computed `box-shadow` was exactly `--ring-focus`
+    (`rgb(255,255,255) 0 0 0 2px, rgb(53,82,224) 0 0 0 4px`). **Partial:** I could not get the
+    automation to land real Tab focus on a `<button>` — CDP `.focus()` never sets
+    `:focus-visible`, and after a navigation the Tab keys went to the browser UI. The rule covers
+    buttons by the same selector, but the button case is unobserved; worth one manual Tab when
+    somebody is at the keyboard.
+  - Console is clean on a fresh load of the board and of a case detail (Vite + React DevTools
+    notices only). The exceptions seen mid-pass were HMR firing between two of my own sequential
+    edits, where a symbol was used a moment before its import landed — not a live defect, but a
+    reminder that in this app HMR runs the half-edited file.
+  - Verified after the fixes: `npm test` **31**, `npm run build` clean, `npm run lint` clean.
+
+- **Unit 10 — Document checklist board + Coordinator flow. Phase 1 is closed.** The screen
+  `DocumentsPanel` has linked to since Unit 09, and the last piece of the intake→production
+  handoff. **No migration** — the `document_checklist_item` table is Unit 03's and nothing
+  needed a new column.
+  - `service/ChecklistService` — the board, the two item writes, and the chase. **Nothing here
+    moves a case**: `docs-complete` stays Unit 04's transition on `CaseController`, so this unit
+    maintains the rows that guard reads rather than owning a second copy of the rule. Every read
+    starts from `CaseLifecycleService.read`, so scope is decided where the rest of the system
+    decides it.
+  - **The board is built on `CaseBoardService.forCaller`, not a second scoped query** — the same
+    reasoning that service gives for building on `CaseLifecycleService.list`. It inherits the
+    scope, the SLA recompute, the batched client names, and the rule that `brandId` can only ever
+    narrow. Filtered to `DOC_COLLECTION`; **a case holding an exception state stays listed**,
+    which is the opposite of the production board on purpose — "on hold awaiting client" is
+    exactly the case whose documents have not arrived, and dropping it would hide the queue this
+    screen exists to show.
+  - **"Last chased" is derived from the append-only trail, not a column on the case.** New
+    `AuditAction.CHASED` (open vocabulary, no CHECK, no migration) plus one batched finder,
+    `AuditEventRepository.findByObjectTypeAndActionAndObjectIdIn`. The chase had to be recorded
+    regardless, so a second copy of the fact would only be a second thing that can disagree —
+    and Unit 19's timers inherit the answer for free. The finder is a **read**: the whitelist in
+    `DomainInvariantsTest.theAuditRepositoryCannotChangeHistory` was widened by one name, which is
+    what that test is for, and nothing there can still change a row.
+  - Checklist audit rows are written against the **case**, not the item, with the change stated
+    in `CaseSnapshot.note` ("Passport: REQUIRED → UPLOADED"). The Coordinator's work therefore
+    appears on the Unit 09 timeline with no change to `CaseTimelineService` — a trail is only
+    useful if one screen shows all of it.
+  - `web/ChecklistController` — five routes, no class-level `@RequestMapping` because the board
+    is its own screen (`/api/checklists/board`) while the items belong to a case
+    (`/api/cases/{id}/checklist…`). The per-case **read has no role gate**, like the timeline:
+    every role that can open a case can see what it is waiting for, and the scoped load decides
+    which cases those are. The four writes are gated to GM / Brand Manager / Coordinator.
+  - **`ChecklistItemStatus.isComplete()` — one predicate where there were two, about to be three.**
+    `markDocsComplete`, the case-detail summary chip and now the board all have to agree on "this
+    document is in", and `CaseDetailService` was keeping its copy in step by comment. A chip
+    reading "6 of 6" over a transition that then refuses is the failure; one enum method is the fix.
+  - **`checklistSatisfied`, deliberately not `mayMarkComplete`.** The transition also requires the
+    case to be paid and to have a PM. Restating those in the client would be the copy that goes
+    stale, so the button is enabled on the checklist alone and the server answers 409 naming
+    whichever precondition failed — which the panel shows. Same reason an empty checklist is
+    **not** satisfied: `markDocsComplete` refuses one, so a full bar would say the opposite.
+  - `event/CaseEvents` gained `checklist.reminder` (published by the chase) and
+    `docs.escalation.day3`. **The second is declared and published by nothing** — Unit 19 owns the
+    timer, Unit 10 owns the contract it fires against, which is what the spec's "SLA / reminder
+    hooks" section asks for.
+  - A chase outside `DOC_COLLECTION` is refused (409). Not a formality: it reaches a real client
+    through GHL, so it is a mistake made _outwardly_. No cool-off between chases — a Coordinator
+    sending two is answering a phone call, and the trail records both.
+  - Frontend `features/checklist/*` (`ChecklistBoard`, `CaseChecklist`, `checklistApi`,
+    `checklistRules` + its test). A **list, not a Kanban**: one column, and what varies between
+    these cases is how complete and how old they are, which reads better in rows.
+    **Aging is not the SLA** — `SlaCalculator` measures business hours against a stage budget;
+    the spec's 24h/48h bands are wall-clock, which is what a client experiences, so
+    `checklistRules` computes them client-side from `stageEnteredAt` and they stay live between
+    reloads. An untimed case is `unknown`, never green, for the reason `slaMix` keeps that band.
+  - **The pending-docs queue is a split, not a re-sort**, so the server's longest-wait-first order
+    survives in both halves. A case is due a chase when the documents are short, the wait is past
+    24h, **and** nothing was sent in the last 24h — the third condition is what makes the queue
+    empty when the Coordinator works it rather than nagging about a client contacted an hour ago.
+  - `markDocsComplete` on the panel goes through the board's own `performAction` and the
+    `docs-complete` entry in `QUICK_ACTIONS`, not a second POST: pressing it on a board card and
+    pressing it here have to be the same operation.
+  - `App.tsx`'s `BOARD_ROUTES` set became a `SCREENS` map, so a unit landing its screen is one
+    entry rather than another branch.
+  - Verified: `./mvnw verify` BUILD SUCCESS **180 tests** (16 DB-gated skipped) — new
+    `ChecklistServiceTest` 12, `ChecklistControllerTest` 8. `npm test` **44 tests** (13 new),
+    `npm run build` clean.
+
+- **Decision taken, closing the Unit 09 open question: the GM and Brand Manager reach
+  `/checklists` and `/delivery`.** Both were `PROJECT_COORDINATOR`-only, so the GM — a superuser
+  on every backend transition — could not open the screen that drives one. That is an
+  inconsistency rather than a safeguard, and "the GM sees everything" is the rule everywhere else.
+  All three roles get the **writes** as well as the read: a screen a Brand Manager can watch but
+  not touch would need a second permission concept for no stated need, and every write names its
+  actor in the trail. **The Project Manager is deliberately still out**, even though they may call
+  `docs-complete` — they act on the outcome, not the chase, and the per-case read is open to them.
+  The nav table and the backend `@PreAuthorize` now carry the same three roles, and
+  `navigation.test.ts` says so explicitly, because a client offering a screen the server refuses
+  is the exact failure that table exists to prevent.
+
+### Unit 10 code review — four Important findings fixed, and the drift they exposed
+
+A review of `a3d3770..74bcacb` (the visual pass plus Unit 10) found **no Critical issues**: brand
+scoping and append-only both held under tracing, "no new migration" was correct, and "Phase 1
+closes" was substantiated. What it did find was two defects sitting in the exact flow Unit 10 was
+built to serve, and both were the same shape — a client offering something the server or the data
+would not back.
+
+- **A Brand Manager got an enabled "Mark docs complete" button the backend answered 403 on.**
+  Unit 10 widened `/checklists` and its three writes to the Brand Manager but left
+  `CaseController.docsComplete` on `GM · PROJECT_COORDINATOR · PROJECT_MANAGER`, and
+  `CaseChecklist` gates that button on `checklistSatisfied` alone rather than on
+  `QUICK_ACTIONS.roles`. **Resolved by widening the backend, not by hiding the button**
+  (confirmed decision): a role that can add a required document, approve one, and chase the
+  client, but not say the collection is finished, has the screen without its purpose. The gate is
+  now `GM · BRAND_MANAGER · PROJECT_COORDINATOR · PROJECT_MANAGER`, and both halves are pinned —
+  `CaseControllerTest.docsCompleteAdmitsEveryRoleThatWorksTheChecklistScreen` walks the four
+  admitted roles and the two refused, and `boardRules.test.ts` asserts the client's role list
+  equals it. This is the same assertion `navigation.test.ts` makes for the screen; the seam that
+  leaked was one layer down, on the action.
+- **The pending-docs queue did not empty when the Coordinator worked it.** `needsChase` reads
+  `card.lastChasedAt`, but `CaseChecklist.onChase` only updated its own local state, so a chased
+  row stayed under "Due a chase" and the "N due a chase" count stayed stale until a full reload —
+  precisely the nagging the 24-hour condition exists to prevent. `ChecklistBoard` now patches the
+  one card with the server's timestamp (patched, not reloaded: a reload would re-sort every row
+  underneath somebody mid-triage).
+- **The chase response contradicted its own comment.** `ChecklistController.chase` claimed it
+  answers the refreshed checklist "instead of holding a value the trail would have to agree
+  with", but `ChecklistView` had no `lastChasedAt`, so the panel stamped `new Date()` and
+  displayed the browser's clock. `lastChasedAt` is now on both `ChecklistService.CaseChecklist`
+  and `ChecklistView`, read through the same batched trail query the board uses; the panel's
+  local `chasedAt` state and its `lastChasedAt` prop are gone. That also fixed the
+  reset-on-collapse bug, where reopening a panel after a chase showed "Never chased" again.
+- **The two deliberately-unscoped finders had no real-SQL brand-isolation test.**
+  `DocumentChecklistItemRepository.findByCaseIdIn` and
+  `AuditEventRepository.findByObjectTypeAndActionAndObjectIdIn` carried no brand predicate by
+  design, protected by a javadoc convention ("do not call it with ids that came from a
+  request"). Two tests added to `LocalPostgresIntegrationTest`: `findScoped` keeps two brands'
+  checklist items apart while the batched finder answers for whatever ids it is handed, and the
+  chase finder returns every chase, only chases, and only for the ids given. **Both are
+  DB-gated and did not execute** — see the honesty note below.
+  **Superseded 2026-08-06:** the convention was the wrong answer. Both finders now carry brand
+  predicates and both tests were rewritten to assert that a foreign case id returns nothing.
+
+Minors from the same review, applied: the unused `--shadow-pop` token deleted; `border-radius`
+dropped from the global `:focus-visible` rule, which had been re-cornering every focused card
+(`rounded-lg`) and modal (`rounded-xl`) to the badge radius; the header's "N ready for the PM"
+relabelled **"N with all documents in"**, because it counted unpaid cases that the row two lines
+down chips as "Unpaid" for exactly the reason docs-complete would refuse them — the same
+header-contradicts-instrument class as the `allInsideSla` defect the visual pass fixed;
+`aria-controls` added to the Open/Hide-checklist button; `ChecklistService.setStatus`/`addItem`
+now return `void`, since every caller re-reads the whole checklist and discarded the row.
+
+**Test state, stated plainly.** Backend **183 passed, 0 failed, 18 skipped**; frontend **45
+passed**; `tsc -b`, `vite build`, and `oxlint` clean. All 18 skips are
+`LocalPostgresIntegrationTest`, which now includes the two new brand-isolation tests — so the
+finders they cover are still **unproven against real SQL on this machine**. "18 DB-gated skipped"
+is not "18 passed", and the reviewer's recommendation stands: get a Postgres (or Testcontainers)
+into the loop before Unit 11, which adds the expert roster and the encrypted `payment_detail`.
+That is Unit 01 note (a), still open since the scaffold.
+
+**One spec correction, one plan correction, one standards correction.** All three were drift
+between a context file and the code, which `CLAUDE.md` requires closing rather than carrying:
+
+- `specs/10-doc-checklist-coordinator.md` acceptance criterion 1 said "the Coordinator's **brand**
+  cases in DOC_COLLECTION". `PROJECT_COORDINATOR` is `Tier.SELF`, so the scoped read matches on
+  `assigned_coordinator` — the implementation is right and the sentence was wrong. Corrected, with
+  the consequence stated: an intake case with no coordinator assigned appears on no Coordinator's
+  board, is visible to the GM and Brand Manager, and is staffed from the production board.
+- `specs/00-build-plan.md` still described Unit 05 as the GHL **`payment.confirmed`** handler with
+  idempotency on the invoice id. Handoff A is `contact.created` deduped on the source event id,
+  which is what `WebhookRouter.CONTACT_CREATED` and `architecture.md` both say. Corrected — the
+  commit that moved this file and fixed the phase count missed it.
+- `ui-context.md` mandated Lucide React and a shadcn/Radix set in `frontend/src/components/ui/`.
+  Neither exists, neither is in `package.json`, and `LeftNav.tsx` explicitly declines both and
+  draws inline SVG paths. The standard now records what the code does and when to revisit it:
+  Radix stays the intended source for the first component with real focus-trapping or ARIA
+  behaviour, and Lucide for when the glyph count outgrows inline paths. The "data tables" surface
+  is marked as unused now that `/cases` is deleted.
+
+### PR #7 review — two findings the Unit 10 review had missed
+
+A second review pass over the same range, run on the open PR. It surfaced two real defects that
+the first pass did not, and both are the same failure the first pass thought it had closed —
+applied to one caller and not its siblings.
+
+- **Only the chase told the board anything.** The Unit 10 review fix made a chase patch the
+  board's copy of the case, but a status change and an item add still refreshed the open panel
+  only. The board draws four things from its own copy — the completeness bar, the "all documents
+  in" chip, the header counts, and `needsChase` — so marking the last document APPROVED enabled
+  the panel's own complete button while the row sat under "Due a chase" with a stale fraction
+  until the next full reload. Fixed at the root rather than per caller: all three writes already
+  funnel through `CaseChecklist.run`, so the notification lives there and no future write can
+  forget it. The patch itself is now a pure function, `applyChecklistToCard`, with three tests —
+  including the exact scenario, that a finished case leaves the queue.
+- **`/delivery`'s nav entry outran its own backend gate.** Unit 10 widened it to
+  `GM · BRAND_MANAGER · PROJECT_COORDINATOR` under a comment claiming "the backend gate on these
+  routes says the same three roles". True for `/checklists`; false for `/delivery`, whose only
+  transitions (`CaseController.deliver`, `.close`) are `GM_OR + hasRole('PROJECT_COORDINATOR')`.
+  Narrowed to match the gate. No Brand Manager ever hit a 403 because the route still renders a
+  placeholder — but that is a reason it went unnoticed, not a reason it was safe.
+
+**The test was part of the defect, not the safety net.** `navigation.test.ts` asserted
+`['/checklists', '/delivery']` against one shared role list, so it read as though it had checked
+both gates while pinning the wrong answer for one of them. It now asserts each path separately
+against its own gate, and names why. Worth remembering when writing the next table-driven test:
+looping two subjects against one expectation asserts the _intersection_ of what you meant.
+
+**And then the `/delivery` entry was deleted outright** — the open question it had been carrying
+since Unit 07 is now closed by decision rather than narrowed again. The reasoning is the one that
+deleted `/cases` during the visual pass: it promised a "final delivery queue (Unit 13)" that
+Unit 13 is not (Unit 13 is _Redacted CV generation_), **no unit anywhere in the build plan builds
+a final delivery queue**, and `deliver`/`close` are Unit 04 transitions the Coordinator already
+drives from the production board. So it was a label over a placeholder that also spent a unit
+claiming a gate it did not have. Nothing is lost: both transitions stay reachable exactly where
+they were.
+
+Routes are generated from `NAV_ITEMS`, so deleting the entry deleted the route with it and
+`/delivery` now falls through to the not-found view. Its absence is asserted, not assumed —
+re-adding it without a screen behind it fails `navigation.test.ts`. Whoever builds the real
+screen sets the role list from what the screen does; the build plan is unchanged, because the
+missing unit is the honest state of it.
+
+Frontend 48 passed; `tsc -b`, `vite build`, `oxlint` clean. Backend untouched by any of this.
+
+### Phase 1's last gap closed: the DB-backed suite actually runs, and CI runs it
+
+**All 183 backend tests now execute. Zero skipped.**
+
+`LocalPostgresIntegrationTest`'s 18 tests were the ones putting brand-scoping predicates,
+`ddl-auto=validate`, the payment-detail ciphertext and the append-only trigger in front of real
+SQL — and they had never run in the ten units since Unit 03 wrote them. They pass. That includes
+the two brand-isolation tests added for Unit 10's unscoped-by-design finders, so those finders are
+now proven rather than promised.
+
+**A number this tracker kept getting wrong.** It has been reporting "183 passed, 18 skipped".
+Surefire's `Tests run: 183 ... Skipped: 18` counts skips _inside_ the 183, so the real figure was
+**165 executing and 18 not**. "183 passed / 18 skipped" added up to more tests than exist and read
+as though the skips were extra. Now it is genuinely 183 executing.
+
+Three things were in the way, and all three are fixed:
+
+- **The suite wrote into the dev database.** It now runs in its own `evalos_test` schema, pinned by
+  `currentSchema`, so a misconfiguration fails outright instead of quietly writing next door. A
+  schema rather than a second database because Flyway can create a schema and cannot create a
+  database — no setup step a fresh checkout could skip. The URL comes from `DB_TEST_URL` and
+  deliberately not `DB_URL`: a developer with `DB_URL` exported at their dev database would
+  otherwise have these inserts follow it straight back into `public`.
+- **Nothing ever set the gate.** The suite is gated on `-Devalos.db.test=true` so `./mvnw test`
+  stays green on a machine with no Postgres, and for ten units nobody passed it. A flag nobody
+  sets is the same as a test nobody wrote. **There was no CI in this repo at all** — no
+  `.github/` directory. `.github/workflows/ci.yml` now runs the backend against a `postgres:16`
+  service container with the flag on, plus a frontend job (`npm test`, `npm run build` which is
+  also the typecheck, `oxlint`), on every push to `main`/`Development` and every PR.
+- **`backend/mvnw` was mode 100644 in git.** Not executable, so `./mvnw` would have failed on any
+  Linux or macOS checkout, CI included. Fixed with `git update-index --chmod=+x`.
+
+Not Testcontainers: it needs a running Docker daemon (Docker Desktop is installed on this machine
+but its daemon is down), and the point of the suite is to run against whatever Postgres is already
+there. The CI service container gives the same isolation without the dependency.
+
+The stale claim in the test's own javadoc — "this machine has no Docker" — is corrected too.
+
+**Verified in CI, not just locally.** Run 30586327885: backend `Tests run: 183, Failures: 0,
+Errors: 0, Skipped: 0` against a `postgres:16` service container, frontend 3 files / 48 tests
+passed with a clean build and lint. Both jobs green.
+
+**One known limitation, and it is CI's, not the suite's.** The frontend job runs `npm install`
+rather than `npm ci`. `package-lock.json` is written on Windows, where npm records
+`@rolldown/binding-wasm32-wasi` and `@tailwindcss/oxide-wasm32-wasi` but not their `@emnapi/*`
+dependencies — this host never needs the wasm fallback, so it never resolves them — and `npm ci`
+on Linux rejects the lockfile as out of sync. Neither `--package-lock-only` nor
+`--os=linux --cpu=x64` materialises the entries from here, so the lockfile cannot be made
+installable off-Windows by the machine that writes it. **The cost is that CI resolves within
+semver ranges instead of pinning**, so a bad upstream patch release can reach it. Regenerating the
+lockfile once on Linux restores `npm ci`; the reason and that exit condition are written into
+`ci.yml` rather than left as folklore. CI caught this on its first run, which is most of the
+argument for having it — `npm ci` would have failed the same way for any Linux or macOS
+contributor.
+
+- **Specs 11–20 written in one pass, and the three decisions that shaped them.** Documentation only
+  — no backend or frontend change, so `./mvnw verify` and `npm run build` were not re-run.
+  `context/specs/` now holds a spec for every remaining unit, in the format Units 01–10 established.
+  - **A deviation from the build plan, recorded in the build plan.** It says "generate a
+    `specs/NN-name.md` for a unit just before building it", and this wrote ten at once. The rule is
+    right and stays as written; specs 11–20 are therefore **drafts to be re-read and revised at the
+    start of their own unit**, and 18–20 carry that warning in their own headers. The rule earned its
+    keep immediately: two real defects surfaced only because a later spec looked back at an earlier
+    one (Unit 11's dead load counters, Unit 16's payout race), which is the failure a just-in-time
+    spec avoids by not existing yet.
+  - **Decision 1 — the expert field-tag taxonomy is a closed enum**, unknown tags rejected. Exact
+    matching for Unit 12, at the cost of a migration per new discipline and a strict sheet import.
+  - **Decision 2 — the redacted CV is written to Drive as well as served on demand.** Adds the first
+    Google Drive API integration, its credentials, and a per-brand access requirement. Both costs are
+    now open questions above rather than assumptions inside a spec.
+  - **Decision 3 — all ten specs now, not Phase 2's seven.** Which is what produced the deviation
+    above.
+  - Two design calls inside the specs are **deviations from the plan's wording rather than from its
+    intent**, both argued in Phase 2 readiness above and both reversible without touching anything
+    else in their spec: Unit 17 recommends **live aggregates** over event-refreshed read models at
+    this scale, and Unit 19 reads the `scheduled_job` table as a **run ledger** with sweepers, rather
+    than a queue of one row per future timer — so a missed run self-heals and idempotency keeps coming
+    from the data (the `CHASED` audit rows, the `retention_*_sent_at` columns) rather than from a
+    second record of the same fact.
+  - Verified by consistency check, not by tests: every spec's **Depends on** matches the build plan,
+    no spec depends on a higher-numbered unit, every symbol named either exists in
+    `backend/src/main/java/com/ie/evalos` today or is listed in that spec's "Files touched
+    (created)", no spec proposes editing an applied migration or a protected file, and none carries a
+    `TBD`/`TODO`.
+
+- **Specs 11–20 review pass — six findings, all fixed, plus one stale line in
+  `architecture.md`.** Documentation only; no backend or frontend change, so `./mvnw verify` and
+  `npm run build` were not re-run. Every code claim the ten specs make was re-checked against the
+  tree and held (the dead `V7` counters, the missing `draft_link` behind `DraftPanel`'s "Open the
+  current draft", `RefundService` voiding only `PENDING`, `SEES_DEAL_VALUE` including the PM). What
+  the previous entry's consistency check could not catch was **semantics across specs** — it
+  verified that every named symbol exists and no unit depends on a higher-numbered one, which is
+  exactly the class of check that passes while two specs disagree about what a column means.
+  - **A timed-out expert could never be rematched, and `TIMED_OUT` was unreachable.**
+    `CaseTransitions.REQUIRES_EXCEPTION` pins `REASSIGN_EXPERT` to `EXPERT_DECLINED_REMATCHING`,
+    which only `EXPERT_DECLINED` sets — so a 24h timeout had no legal path to a rematch, while
+    Unit 15 said `TIMED_OUT` is stamped "when the case is actually reassigned after a timeout" and
+    Unit 19 pinned that the timer must not move the case. **Decision: a fourth declared action,
+    `EXPERT_TIMED_OUT`** (GM · Brand Manager · PM), mirroring `EXPERT_DECLINED`'s stage-preserving
+    shape and setting the same exception state. Rejected the two alternatives: recording silence as
+    a decline corrupts the trail this unit exists to keep straight, and widening `REASSIGN_EXPERT`
+    removes the guard against pulling a case off an expert mid-signature. `TIMED_OUT` is now
+    written by Unit 15, by a person, prompted by Unit 19's clock — the clock never fires it.
+  - **Unit 17's money tiles did not add up once a refund existed.** `Collected` was
+    `SUM(deal_value) where paid` with no refund filter, while `Recognized` and `Open liability`
+    both excluded refunds — so refunded money read as still collected, against invariant 5's
+    "a refund reverses recognition". **Decision: refunds out of `Collected`, and a `Refunded`
+    figure of its own**, so `Collected = Recognized + Open liability` exactly and the money that
+    moved is still visible rather than hidden. A new acceptance criterion asserts the arithmetic.
+  - **Unit 18 would have shipped the outbound HMAC secret in a migration.** The inbound half
+    settled this in `V11__brand_ghl_secret.sql`: nullable, because that fails closed, real value
+    from the environment, literals only in `local/V901`. The outbound `webhook_subscriber.secret`
+    now inherits that verbatim, plus the rule that **a subscriber with no secret is never delivered
+    to** — an unsigned outbound payload would breach invariant 11.
+  - **Unit 19's chase guard did not implement its own acceptance criterion.** "Nothing fires within
+    24h of the last chase" chases a stuck case every 24h forever; the criterion says once per
+    threshold, and Unit 10 defined two reminders. **Decision: the guard is per threshold**, keyed on
+    the count of `CHASED` rows — 24h, then 48h, then nothing, with the day-3 escalation carrying it
+    after that.
+  - **Units 12 and 15 disagreed about the offer `outcome`.** Unit 12 says it leaves `OFFERED`
+    exactly once; Unit 15 stamped `ACCEPTED` on both the portal Accept and the Dropbox Sign
+    callback, which both fire on the happy path. **Decision: first write wins, later writes of the
+    same outcome are no-ops**, and the guard lives in Unit 12 with the column rather than in each
+    caller.
+  - **Unit 20 described `claude-opus-5`'s thinking config wrongly.** Adaptive is not "the only
+    supported mode" — it is the _default_, `ThinkingConfigDisabled` is legal at effort `high` or
+    below, and only a fixed `budgetTokens` is rejected outright. Corrected, with the consequence
+    that matters added: thinking counts against `maxTokens`, so that has to be sized for the
+    reasoning plus the note. The rest of that block verified clean — model id, $5/$25 pricing,
+    `output_config.effort`, and `.outputConfig(Suggestion.class)` for record-derived structured
+    output.
+  - Also: **Unit 13's `Depends on` omitted 04 and 09** (it reads cases through
+    `CaseLifecycleService.read` and mounts a panel into `CaseDetail.tsx`), and a note was added to
+    Unit 12 that `ASSIGN_CASE_MANAGER` legitimately carries the expert —
+    `assignCaseManager(caseId, cmId, expertId)` publishing `EXPERT_ASSIGNED`. The method name reads
+    as staff-only and is not, which is worth one line in the spec to save the next reader the same
+    double-take.
+  - **`architecture.md` corrected, not just a spec.** Its scope-tiers note still said
+    `evalos_case` has no `assigned_coordinator` and a Coordinator's case scope "is not yet
+    expressible". `V17` added that column and widened `ScopePredicate.Fields` to a set of
+    assignment attributes; several of the 11–20 specs reason about Self-tier scoping, so the stale
+    line was the one thing here that could mislead a build rather than merely a reader.
+
+### Unit 11 — Expert database (ENM) + sheet upload · complete and verified
+
+The first unit of Phase 2, built against `context/specs/11-expert-database.md`. The ENM's
+Google Sheet is replaced: a brand-scoped roster with search and filters, an availability
+board, a profile they can edit, and a bulk sheet upload that validates before it writes.
+
+**Two build-time confirmations, taken before any code** because the spec asked for both
+rather than defaulting them:
+
+- **The `FieldTag` / `LetterType` values are the spec's starter list, shipped _without_ the
+  ENM's sign-off.** Instructed. The mechanism was already decided (closed enum + database
+  CHECK), so only the vocabulary is unconfirmed, and widening it is a new migration that
+  widens the CHECK — never an edit to `V18` (invariant 9). **The gating open question stays
+  open**, and the migration, the enum and `frontend/.../expertRules.ts` say so in their own
+  headers. Expect the list to disagree with what an ENM actually recruits into; that is not
+  a defect, it is the unsigned decision showing.
+- **The import accepts CSV _and_ XLSX.** Instructed, against the spec's own recommendation
+  of CSV-only: `poi-ooxml` is ~10 MB with transitives against `commons-csv`'s ~50 KB. Bought
+  so an ENM can upload straight out of Excel with no File → Download → CSV step. The cost
+  stops at the edge — both parsers produce one row shape, so there is one validator and one
+  importer, and `ExpertImportService` is the only class that touches either library.
+
+**Shipped.** `V18` (`email`, `phone`, `letter_types`, `standard_fee`; three vocabulary
+CHECKs; the partial unique index `uq_expert_per_brand_email` on `(brand_id, lower(email))`;
+a GIN index on `primary_fields` **for Unit 12**, not for this unit's filter).
+`domain/FieldTag` + `domain/LetterType`. `service/ExpertService` (roster, board, CRUD,
+availability, the write-only payment detail), `service/ExpertImportService`,
+`service/ExpertLoadService`. `web/ExpertController` — 9 endpoints, all under `/api/experts`
+beside the untouched Unit 08 picker. Frontend `features/experts/*`: roster table,
+availability board, profile/edit panel, and the pick → map → report → confirm upload flow.
+`V903` seeds six experts across the two brands with legal tags.
+
+**Decisions worth knowing before the next unit:**
+
+- **Load is derived, and the two `V7` counters stay dead.** `ExpertLoadService` answers from
+  one batched `count(*) FILTER (WHERE …)` over `evalos_case`, keyed by expert id, one query
+  per roster page. `current_active_count` / `total_cases_completed` are still never written
+  and are never read. The DB-gated test asserts an expert with two open cases reports a load
+  of **2 while the column beside it is still 0** — so "fixing" the derivation by starting to
+  increment the counter fails the build. Unit 12 reuses this service rather than counting
+  again.
+- **The roster filters run in memory over the scoped page, and no new query was added.**
+  `ExpertRepository` gained exactly one finder (`findByBrandIdAndEmailIgnoreCase`, the
+  import's upsert key). Search/tag/letter/availability/tier narrow the list `findScoped`
+  already returned, so scope stays decided in one place. A brand's roster is tens of rows;
+  the GIN index is for Unit 12's per-case containment query, which is a different shape.
+- **A request may name a brand, in one place, and it is not a scope.** This is the first
+  unit where staff create a scoped row, and a GM has no brand of their own. `brandId` on
+  create/import says _where the row goes_; `OwnershipGuard` decides whether the caller may
+  act there. Recorded in `architecture.md` under Multi-Tenancy so it stays an exception
+  rather than becoming a habit.
+- **A rejected import answers 200 with a report whose `imported` is false.** The envelope
+  carries one code and one message on failure, and a rejection has one reason per bad row.
+  The report is the response either way and the screen reads `imported`; there is no
+  "import anyway" button.
+- **`ApiExceptionHandler` gained three handlers**, one of which was a real gap: an unknown
+  enum in a request body used to fall through to the catch-all and answer **500** for what
+  is squarely a bad request. It now answers 400 naming the value it did not recognise —
+  `MECHANICAL ENGG is not a known FieldTag` — without echoing Jackson's message, which
+  quotes the payload and enumerates every legal value. Plus `InvalidRequestException` (400)
+  and an upload-too-large 400.
+- **`/experts` and `/expert-database` were two nav paths for one screen** — one given to the
+  GM/BM/PM, the other to the ENM — so which URL a role bookmarked for the same page depended
+  on their role. Merged into one `/experts` entry whose role list equals
+  `ExpertController.ROSTER_READ`, and `navigation.test.ts` now pins that equality and
+  asserts the old path is gone, exactly as it does for `/delivery`.
+
+**Verified, not just written.**
+
+- `./mvnw verify -Devalos.db.test=true`: **229 backend tests, 0 failures, none skipped**
+  (was 183). The 4 new DB-gated ones prove what only real SQL can: the three CHECKs refuse
+  `'mechanical engg'` from a raw `UPDATE` while accepting legal tags and NULL, the partial
+  unique index refuses a second row for one email in a brand and allows the other brand's,
+  the derived load reads 2 against a stored 0, and the new aggregate is brand-blind by
+  design (a javadoc convention, asserted — and since 2026-08-06 `countCasesPerExpert` is the
+  only finder left relying on one).
+- Frontend: **61 vitest tests**, `npm run lint` clean, `npm run build` clean.
+- `ExpertControllerTest` walks **every** route with a service returning an expert whose
+  `payment_detail` is set and greps each serialized body — the spec's acceptance criterion as
+  a test. It asserts on `"paymentDetail"` _quoted_, because `paymentDetailOnFile` is a
+  legitimate member and the bare substring would forbid the boolean the screens need.
+- **Ran against the real app and the real database** (`V18` + `V903` applied to the dev
+  schema out of order, as the local profile intends). Walked as the IE ENM: roster
+  brand-scoped with no payment detail anywhere; the XP expert 403 for the ENM and 200 for
+  the GM; an unknown tag 400 with the value named; create, then payment-detail write, then a
+  profile read containing **zero** occurrences of the secret; PM read 200 / write 403;
+  setting `ON_LEAVE` removes the expert from the Unit 08 picker; a 4-row sheet with three bad
+  rows imports **nothing** and reports all three with row number, column and reason
+  (including _"did you mean MECHANICAL_ENGINEERING?"_); a clean sheet validates writing
+  nothing, imports 2, and **re-uploads as 2 updated with the roster total unchanged**; a
+  mapping naming `paymentDetail` is refused outright.
+- Browser pass over the four screens as the ENM. Two things it caught and fixed:
+  `RFE_RESPONSE` rendered as "Rfe response" (a term of art spelled wrong), and the roster's
+  filtered count sat in the header on the availability and upload tabs, describing a screen
+  it had not counted — the same failure class as the three stale headers Phase 1 recorded.
+
+**One dev-data note, not a defect of this unit.** The dev `public` schema holds ~46 junk
+experts (`Dr Ada Verify`, `IE Roster <uuid>`) from integration-test runs that predate the
+`evalos_test` schema — the same pollution `LocalPostgresIntegrationTest`'s own comment
+describes for ~150 junk cases. They now dominate the roster screen and show as 46
+`INACTIVE` on the availability board. They are historical rows in a dev database, so they
+have been left alone rather than deleted on somebody's behalf; clearing them is one
+`DELETE` whenever that is wanted.
+
+### Unit 11 code review — three defects fixed, and the one it keeps catching
+
+Five independent reviewers over `main...development` (CLAUDE.md compliance, a shallow bug scan,
+git history, prior PR feedback, and the guidance written in the code's own comments). Two came back
+clean; three findings were confirmed by reading the source and fixed, plus one comment inaccuracy.
+
+1. **A Project Manager was shown write controls the server refuses — for the third unit running.**
+   `ExpertRoster` computed `mayWrite` and used it to hide "Add an expert" and the upload tab, then
+   never passed it to `ExpertProfile`, where the actual writes live. A PM opening any profile got a
+   live edit form, four availability buttons and a payment-detail Save, all answered 403 —
+   `ExpertControllerTest.aProjectManagerReadsTheRosterAndDoesNotEditIt` was asserting that 403 the
+   whole time. Worse than a cosmetic affordance: the PM fills in the form, saves, and loses the
+   edit. **This is the same defect Unit 09 and Unit 10 were each reviewed for** ("a client offering
+   something the server or the data would not back", and then "applied to one caller and not its
+   siblings"). The gate is now a required prop on the panel rather than something each component
+   re-derives, and a reader gets the availability _state_ instead of buttons.
+2. **`ExpertService.apply` claimed a default it did not apply.** The comment said an expert with
+   nothing said about availability is `AVAILABLE`; the code passed the null straight through. The
+   UI never showed it (its empty form defaults to `AVAILABLE`) but the import did: a legacy sheet
+   with no availability column — and only `fullName` is a required mapping — would import fifty
+   experts as null, none of which the assignment picker can offer, and report success. Now coerced
+   in `apply`, so an edit cannot clear it back to "not set" either, and the profile form no longer
+   offers a blank the server would overwrite. A new import test covers the missing-column sheet.
+3. **`filters === NO_FILTERS` was an identity check.** Every filter change makes a new object, so
+   typing one character into the search box and deleting it left the header saying "N experts
+   matching" and an empty roster blaming filters that were not applied — permanently. Replaced with
+   `hasFilters()`, compared by value, treating an all-spaces search as no filter because the server
+   trims before searching. Three tests.
+4. **Two javadocs called the create endpoint "the one place a request may name a brand"** while the
+   same file accepted `brandId` on both import endpoints for the same reason. Reworded to name all
+   three and to point at `architecture.md`, which already had the policy right — the list to audit
+   should be in one place, and it is not a javadoc.
+
+Verified after the fixes: **230 backend tests** (DB-gated included, none skipped) and **64 frontend
+tests**, lint and build clean.
+
+The lesson worth carrying into Unit 12: the recurring bug in this codebase is a client offering an
+action the server will refuse, and it recurs because each screen re-derives its own gate. Where a
+screen has more than one component that writes, the gate belongs to the screen and is passed down.
+
+### Unit 12 — Match scoring engine (assist mode) · complete and verified
+
+The roster Unit 11 made real is now ranked for the PM at the moment of assignment. **One new
+migration, `V19`; `V7`/`V18` untouched.**
+
+- **`domain/ExpertCaseOffer` + `domain/OfferOutcome` + `V19__expert_case_offer.sql` — the record
+  that makes acceptance rate computable at all.** It did not exist anywhere queryable:
+  `expert.performance_flags` carries a `DECLINED_CASES` marker, which is a flag and not a rate;
+  `evalos_case.expert_id` is overwritten by `reassignExpert`, so the case row does not remember who
+  declined it; and the decline itself is in the audit trail inside a `before_snapshot` jsonb blob —
+  derivable in principle, and a query no scorer should be built on. So the fact got its own row,
+  whose whole purpose is to be _aggregated_. Not a second history: the trail still records each
+  transition.
+  - **Append-only in spirit, one mutable field in fact.** `outcome` moves off `OFFERED` exactly
+    once through `ExpertCaseOffer.resolve`; every other column is `updatable = false`. **First
+    write wins and a second act is a no-op rather than an error** — Unit 15 has two acts that both
+    mean accepted (the expert pressing Accept, then Dropbox Sign's `signed` callback) and on the
+    ordinary happy path both fire, so throwing would turn a normal sequence into a failed
+    transition. A _different_ later outcome is swallowed too, not just a repeat: staff recording a
+    timeout and the signature landing afterwards is the same race. The guard is on the entity — the
+    one place that owns the column — not in each of the four callers.
+  - **Written by the transitions that already exist, inside their transactions**, so an offer and
+    the transition that caused it commit together or not at all. `assignCaseManager` and
+    `reassignExpert` open one; `expertDeclined` stamps `DECLINED` with the reason; `expertSigned`
+    stamps `ACCEPTED`. `SUPERSEDED` on a rematch, so a rematched case leaves **no permanently-open
+    row** — an `OFFERED` row no transition can ever reach is the shape of data that eventually gets
+    counted as something.
+  - `TIMED_OUT` is declared and **written by nobody until Unit 15's `EXPERT_TIMED_OUT`** — a staff
+    act, prompted by Unit 19's 24h timer but never fired by it, because reaching `TIMED_OUT` also
+    opens a rematch and `REASSIGN_EXPERT` is gated on an exception state only a declared transition
+    can set.
+  - **`resolveOpenOffer` is tolerant on both edges, deliberately.** A case with no open offer (one
+    assigned before `V19` existed) is left alone rather than failing the transition: this table
+    serves a _ranking_, and refusing a legitimate decline because its offer row is missing would let
+    a reporting concern block the pipeline.
+  - Two CHECKs, for the reason `V18` gives: `outcome IN (...)` because the scorer divides by a count
+    of these values and one unrecognised spelling would drop out of the numerator and the
+    denominator at once; and `(outcome = 'OFFERED') = (outcome_at IS NULL)` because an open offer
+    with a resolution date and a resolved one without are the same fact stated twice, and letting
+    them disagree is how a row reads `OFFERED` forever with an outcome nobody can date. Indexes
+    `(brand_id, expert_id, outcome)` for the aggregate and a partial one on `(case_id) WHERE
+outcome = 'OFFERED'` for the lookup the three resolving transitions do.
+- **`service/ExpertMatchService` — the four factors as one weighted table**, for the reason
+  `NotificationListeners` and `navigation.ts` give: a weight in a literal table is a data diff when
+  the business changes its mind. Field match 40 (primary full, secondary half), letter-type
+  experience 25, acceptance rate 20, current load 15. Each row returns a fraction and earns
+  `round(weight × fraction)`, and **the score is the sum of those** — so the breakdown the PM is
+  shown adds up to the score they are shown by construction, not by coincidence.
+  - **The required field comes from the PM, not from the case.** A case has `service_type`,
+    `service_subtype` and `visa_category` and **no field tag**; nothing records that a case is a
+    mechanical-engineering matter. `fieldTag` is a required query parameter because the PM has just
+    read the documents and written the strategy notes — they are the only person who knows, and they
+    know it at exactly this moment. A column would have to be filled at intake by a GHL webhook
+    that carries no such thing and would then be a stale guess worked around. **Recorded as a
+    deliberate omission**; if a later unit finds a second consumer, add the column then, with a real
+    source.
+  - `ServiceType → LetterType` is a **declared map**, not a `valueOf`: `TRANSLATION` and
+    `TRANSLATION_CERTIFICATION` are the same matter under two names, so a name-based conversion
+    would throw on exactly the pair that does not line up.
+  - **Eligibility is a filter, not a low score.** Only `AVAILABLE` experts are scored, and not the
+    expert already on the case — `availableExpert` refuses the first and `reassignExpert` refuses
+    the second, so a shortlist offering either would be offering what the write side rejects (the
+    Unit 08 picker rule).
+  - **Cold start:** below 3 resolved offers an expert scores **the roster's mean**, not zero.
+    A zero would put a new expert permanently last, and being last is what stops them ever getting
+    the case that would give them a record. The mean is taken over the experts who _have_ a record —
+    averaging in the newcomers' own placeholder would drag it toward the placeholder and make it
+    drift as the roster grows. With nobody above the threshold it is a neutral 0.5, which is
+    constant across the shortlist and so cannot change any ranking.
+  - **Load is the derived count from `ExpertLoadService`**, never `current_active_count` — that
+    column has never been written and would hand the scorer a constant. `1/(1+n)`, carrying a
+    `ponytail:` note that it has no notion of capacity and becomes `1 - n/cap` if brands ever record
+    one.
+  - **`quality_score` is a tie-break, not a fifth factor** — it is a human judgement already
+    reflected in tier and in whether the ENM keeps the expert available, and weighting it would
+    count the same opinion twice. **The performance flags are shown, not scored**, `DECLINED_CASES`
+    excluded because the acceptance-rate factor two rows up counts the declines rather than noting
+    that some happened.
+  - **Where the spec had two readings, stated rather than silently resolved.** The weight table says
+    a missing field tag scores _zero_, while the empty state must be able to say "no available
+    expert carries the Mechanical Engineering tag" — which only happens if the tag can empty the
+    list. Resolved by scoring everyone available and then **dropping a zero on the 40-point field
+    factor from the shortlist**: proposing a physicist for a nursing matter is noise, not a
+    suggestion. They are not forbidden — the full picker sits directly underneath and assigns
+    anybody available.
+- **`web/ExpertShortlistController` — one route**, `GET /api/cases/{id}/expert-shortlist?fieldTag=`,
+  GM · Brand Manager · PM. Case Managers, Coordinators and **the ENM** are refused: the ENM owns the
+  roster but does not staff cases, and a shortlist necessarily reveals which case needs which
+  discipline — supply-side access does not extend to case content. No new scoped query: the case
+  comes through `CaseLifecycleService.read` and the roster through `ExpertRepository.findScoped`.
+  `payment_detail`, email and fee are **not members** of the card DTO.
+- **Assist mode is enforced structurally, not just intended.** `DomainInvariantsTest.theMatchEngine
+IsNeverAPreconditionForAnAssignment` fails the build if `CaseLifecycleService` ever takes
+  `ExpertMatchService` — the failure mode is somebody making the shortlist a precondition, which
+  would compile, would look like a safeguard, and would take the decision away from the PM who read
+  the documents. `assign-cm`, `reassign-expert` and `GET /api/experts` are unchanged.
+- **A prediction Unit 11 made that this unit did not keep: `idx_expert_primary_fields` is unused.**
+  `V18` built a GIN index on `primary_fields` explicitly "for Unit 12", on the expectation that the
+  scorer would ask the database _which experts carry this tag_ per case. It does not — the roster is
+  read once through `findScoped` and matched in memory, because the spec's rule is **no new scoped
+  query and no second scoping path**, and a brand's roster is tens of rows. The index is harmless
+  and stays: dropping it would be a migration that buys nothing. Recorded because `V18`'s comment
+  and the Unit 11 entry both still describe a query that was never written, and an index justified
+  by a caller that does not exist is exactly the kind of claim that gets copied forward.
+- **A 500 on a bad query parameter, fixed at the root.** `ApiExceptionHandler` had no handler for
+  `MissingServletRequestParameterException` or `MethodArgumentTypeMismatchException`, so
+  `?tier=platinum` and `?page=first` on the **existing** roster route already answered 500 for what
+  is squarely a bad request. The shortlist's required typed `fieldTag` made it impossible to ignore.
+  One handler where every route's parameter binding already routes through, echoing only the
+  parameter's name — Spring's own message for a failed enum conversion enumerates every accepted
+  value.
+- Frontend `features/experts/{ShortlistPanel.tsx, shortlistRules.ts + test}` and the panel wired
+  into `features/board/QuickActionDialog` for `assign-cm` (both call sites now pass `caseId`).
+  - **The shortlist sits above the dropdown and fills it in**, rather than replacing it. Picking a
+    card sets the same `expertId` the `/api/experts` select reads, so the two are one choice with two
+    ways in — and the shortlisted expert is in that list either way, since both endpoints filter to
+    `AVAILABLE`. "Choose someone else" is not a link; it is the field directly below.
+  - **No scoring in the browser.** The ranking is the server's, and a second implementation is a
+    second answer to "why did this expert come first". `breakdownAddsUp` is the exception and is not
+    a re-implementation: it checks the rows against the total and **says so on the card** if they
+    ever disagree, because a ranking whose arithmetic does not add up gets distrusted, which is the
+    same outcome as no ranking.
+  - The field tag is a **select over the closed vocabulary**, starting unset — guessing the
+    discipline is the one thing the panel must not do, and a prefilled wrong answer is worse than a
+    prompt. `factorShare` guards a zero weight, because a `NaN` width is a bar CSS silently drops:
+    it would vanish rather than look wrong, which is the kind of failure nobody reports.
+  - The dialog gained `max-h-[85vh]` + scroll and a wider form for this action only — a modal whose
+    Assign button is below the fold cannot be completed.
+- Verified: **`./mvnw verify` BUILD SUCCESS, 255 backend tests** (new: `ExpertMatchServiceTest` 10,
+  `ExpertShortlistControllerTest` 9, plus 3 in `CaseLifecycleServiceTest`, 1 in
+  `DomainInvariantsTest` and 1 DB-gated), and **all 255 green with zero skipped against local
+  Postgres 18** — `V19` applied on top of 18 existing migrations and `ddl-auto=validate` passed, so
+  the entity matches the table. `npm test` **73 frontend tests**, `npm run build` and
+  `npm run lint` clean.
+- **`theOfferAggregateIsGroupedByOutcomeAndBrandIsolated` is the DB-gated one, and it earned its
+  place twice.** The aggregate returns `[UUID, OfferOutcome, Long]` positionally and the scorer casts
+  each slot, which no stub would ever get wrong; the `brand_id` predicate is a real predicate rather
+  than a calling convention, so an acceptance rate cannot be computed across brands. **It also
+  caught its own bad assertion:** `UPDATE ... outcome = 'MAYBE'` breaks _both_ CHECKs at once, and
+  Postgres reports whichever it evaluated first — so the test had been passing on the wrong
+  constraint until each was provoked on its own.
+
+#### Five review findings on PR #9, fixed before merge
+
+- **An acceptance could be credited to an expert who was never shown the case.** `resolveOpenOffer`
+  stamped _every_ open row on the case, and nothing stops there being two: V19's partial index on
+  `(case_id) WHERE outcome = 'OFFERED'` is **not unique**, and `Case` carries no `@Version`, so two
+  concurrent `assign-cm` calls can each read a case with no offer and each open one. `expertSigned`
+  then wrote `ACCEPTED` to both. The rate this table exists to compute would have been built on an
+  offer its subject never saw. Now only the row whose `expert_id` matches the case's own expert takes
+  the real outcome; a stray is closed **`SUPERSEDED`** — already the outcome meaning "never had the
+  chance to answer", already excluded from the rate — rather than left `OFFERED` forever, which is the
+  state the rematch path is written to avoid. Fixed in the one shared helper all four writers route
+  through, not per caller. The repository javadoc claimed "at most one" open row; it now says what is
+  actually guaranteed and names who resolves the ambiguity.
+- **The acceptance-rate explanation stated the roster mean as the expert's own record.** The `why`
+  string rendered `"%.0f%% of resolved offers accepted"` unconditionally, including for the newcomers
+  the cold-start rule deliberately scores at the mean — so an expert with no resolved offers was shown
+  "50% of resolved offers accepted", and one with two declines was shown the seasoned roster's rate.
+  The breakdown exists so a PM can _disagree_ with the ranking, and this was the one row asserting a
+  fact the data does not support. `Evidence` now carries whether the rate is the expert's own, and the
+  cold-start branch says so instead.
+- **The shortlist gate was positional on `FACTORS`, not on the field factor.** `factors().getFirst()
+.earned() > 0` only dropped no-tag experts because "Field match" happens to sit at index 0 — and the
+  whole argument for holding the weights as data is that its rows can be reordered in a data diff.
+  Put "Current load" first and the gate silently becomes a no-op (load is never 0): physicists start
+  appearing for nursing matters and the tag-naming empty state stops being reachable, with nothing
+  failing to say so. It now asks `fieldMatch` directly.
+- **The rematch shortlist led with the expert who had just declined.** They are still `AVAILABLE` and
+  still carry the tag, so nothing filtered them, while `reassignExpert` refuses "the expert who
+  declined" — the top suggestion on an `EXPERT_DECLINED_REMATCHING` case was a 409. Same principle as
+  the availability filter, one more predicate. The empty reason widened to "available **for this
+  case**", which is true in both branches.
+- **`ExpertCaseOffer.resolve` accepted `OFFERED` as a resolution**, dating an outcome that is still
+  open — exactly the disagreement `expert_case_offer_outcome_dated` forbids, surfacing at flush as a
+  500 rolling back an otherwise valid transition. No caller does it, but the method is positioned as
+  the one place that owns the column, so the entity guard and the CHECK now state the same rule.
+- Verified: `./mvnw test` **260 backend tests, 0 failures** (new: 3 in `CaseLifecycleServiceTest`,
+  2 in `ExpertMatchServiceTest`), with the 23 DB-gated ones skipped on this machine and run by CI
+  against real Postgres. No migration, no frontend change — the reworded empty reason is
+  server-supplied text the panel only renders.
+
+### Unit 13 — Redacted CV generation · code complete, **one acceptance criterion cannot be met here**
+
+The document a client approves the expert from, and the **first outbound Google Drive
+integration in EvalOS**. **No migration** — nothing this unit produces is persisted.
+
+**Read this entry's last bullet before calling the unit done.** Everything is built and tested;
+the spec's own gating open question is still open, so the unit is code-complete rather than
+closed.
+
+- **`service/RedactedProfileService` — one renderer, two profiles, two destinations.**
+  - **Redaction is a whitelist, and the test is a search rather than a checklist.** `credentials`
+    names every value that may appear, so a field added to `Expert` in a later unit does not
+    appear by default — a blacklist is how such a field leaks, because the person adding it has
+    to remember a rule in a file they are not editing.
+    `theRedactedProfileCarriesNoIdentifyingFieldAndNoFreeText` seeds every excluded field with a
+    distinctive token (`ZZQNAMEZZQ` and friends) and searches the rendered HTML for each. The
+    weaker test — asserting that the fields we remembered to exclude are excluded — passes
+    forever while the leak happens.
+  - **`notes` and `recruitment_source` are excluded because they are free text**, not because of
+    what they are nominally for: any free-text field can contain the very name being redacted.
+    `title` is the one that survives, because an academic rank _is_ the credential — it is
+    escaped, and `aTitleCarryingMarkupIsEscapedRatherThanRendered` holds that.
+  - **`total cases completed` is `ExpertLoadService`'s derived count, never
+    `expert.total_cases_completed`.** That column has never been written (Unit 11's finding), so
+    reading it would print "0 cases completed" on the profile of the brand's busiest expert.
+    This is also why **`domain/Expert.java` was not touched**, as the spec's files-touched list
+    requires: the count it lacks a getter for is the one that would have been wrong.
+  - The **full profile excludes the internal assessments too** — `quality_score`,
+    `performance_flags`, `avg_response_hours` — and both profiles exclude `payment_detail`
+    (invariant 4). "Full" means identity and credentials; this document goes to a client, not to
+    the ENM.
+- **The reference label — `Expert AK`, from a SHA-256 of the case and expert ids.** Stable per
+  case because the PM and client discuss "Expert AK" across days, and a label that changed
+  between two generations would read as two people. Derived from **both** ids so the same expert
+  proposed on two cases is a different label on each — a client with two of their own cases must
+  not be able to match the expert across them. **No digits anywhere**, asserted: a sequential
+  "Expert 1" would tell the client they were the first choice, or the fourth. Carries a
+  `ponytail:` note that two letters is 676 labels.
+  - The two label criteria are tested on **fixed** UUIDs, deliberately. A two-letter digest means
+    two random ids collide about once in 676 runs, and a test that fails one morning in 676 gets
+    deleted rather than investigated.
+- **`integration/GoogleDriveClient` — one file into one folder that already exists.** No folder
+  creation, no permissions management, no reading documents back out, no listing. The HTML is
+  uploaded with a target mime type of `application/vnd.google-apps.document`, so Drive converts
+  it to a Doc on the way in — **which is why no PDF library was added**: Drive's own export
+  produces a PDF from the created Doc, so `openhtmltopdf`/PDFBox would duplicate a feature of an
+  integration this unit already has. `setSupportsAllDrives(true)`, without which a Shared Drive
+  parent answers 404 — and a Shared Drive is one of the two access models the spec names.
+- **The folder-id wrinkle, and the refusal that matters.** `evalos_case.drive_link` is a URL, not
+  a folder id; `folderIdOf` accepts the `/folders/<id>` and `?id=<id>` shapes and **refuses
+  everything else rather than falling back**. No default folder, no Drive root, no service
+  account's own space: the file would silently land somewhere nobody looks, or somewhere another
+  brand can see it — a cross-brand leak _outside_ the database, which no `brand_id` predicate can
+  close. `anUnusableDriveLinkIsRefusedAndNothingIsUploaded` asserts the 409 **and** that the
+  Drive client and the audit service are never called.
+- **`web/ExpertProfileController` — three routes, and one asymmetry worth a test.** The Case
+  Manager reads both profiles (they draft the letter and need to know who is signing it) and is
+  **off the Drive write**, because publishing toward the client is the PM's call. That is exactly
+  the shape a client copy flattens by accident, so it is asserted on both sides —
+  `onlyTheCommercialRolesAndThePmMayFileToDrive` and, in the browser,
+  `redactionRules.test.ts`'s assertion on the whole role list.
+- **`config/GoogleDriveConfig` — the app refuses to start without credentials.** Checked in the
+  `@Configuration` constructor, so the context does not come up; `evalos.drive.required` is true
+  in `application.yml`, restated in `application-prod.yml`, and false **only** in
+  `application-local.yml`. Two sources (`GOOGLE_DRIVE_KEY_JSON` inline, or a path in
+  `GOOGLE_APPLICATION_CREDENTIALS`), both defaulting to empty rather than being absent — an
+  unresolvable placeholder could only ever demand one specific variable, which would make setting
+  the other one a boot failure. The key is read **at startup**, so an unreadable path fails there
+  too rather than at the first upload.
+  - `local` is the one profile that runs without a key: the whole app starts, both profiles
+    generate, and only the Drive write answers 502 saying it is not configured.
+  - The scope is a **property** defaulting to `drive.file` (least privilege). If the live upload
+    ever 403s on a correctly-shared folder the answer is `.../auth/drive`, and the person
+    debugging that has an environment and not a build.
+- **A 502 rather than a 500 on a Drive failure**, via `integration/DriveUnavailableException` and
+  one new handler. The fault is upstream and the distinction tells the PM to retry rather than
+  report a bug. **Nothing in EvalOS changes**: the profile is regenerable, so there is nothing to
+  roll back and no retry queue is warranted, and the audit row is written only _after_ a
+  successful upload — `aDriveFailureLeavesNoTrailClaimingTheDocumentExists`.
+  - `writeRedactedToDrive` is **deliberately not `@Transactional`**: it makes an outbound HTTP
+    request, and holding a database transaction across it would tie a connection to a remote
+    service's latency. Each step commits on its own, the same reasoning `WebhookGateway` is built
+    on, and the ordering carries the guarantee.
+- **`AuditAction.EXPORTED`** — open vocabulary, so no migration, as with `CHASED`. Its own action
+  rather than `UPDATED` because nothing about the case changed; a document was published. The
+  frontend's `AuditAction` union and `Timeline`'s label map **already carried this value** before
+  anything wrote it.
+- **The template is plain HTML with `{{placeholder}}` substitution and no template engine.** A
+  fixed structure and a dozen fields is not worth Thymeleaf. **One template serves both
+  profiles** — the spec says one, and its files-touched list names only
+  `redacted-profile.html` — via an `{{identity}}` block that is **empty on the redacted path**.
+  That block is the one placeholder not escaped, because it is markup assembled here from
+  already-escaped parts, and it is the only route through which markup may ever pass.
+  Escaping uses Spring's `HtmlUtils` — already on the classpath, so no new dependency.
+- Frontend `features/case/{RedactedProfilePanel.tsx, redactionRules.ts + test}`, mounted under
+  `ExpertCard` in `CaseDetail.tsx` so the internal view and the client's sit side by side.
+  - **The preview is an iframe with an empty `sandbox`, never `dangerouslySetInnerHTML`.** Empty
+    is the strongest value — it withholds every capability — and it is asserted in a test
+    precisely because it looks like an oversight somebody would "fix" by adding `allow-scripts`.
+    `srcDoc` rather than a blob URL, so nothing is written anywhere (invariant 14).
+  - **Unpaid disables the full-profile control and says why** rather than hiding it, the same
+    reasoning as the checklist's unpaid chip: a missing button is indistinguishable from a
+    permission you do not have, and nobody can act on absence.
+  - **No redaction in the browser, and no pre-check of the Drive link.** The document arrives
+    rendered; a second opinion about "is this anonymous" is a second answer, and the one that
+    loses is the one that leaked. The link is left to the server's 409, because restating a
+    server rule in the client is the copy that goes stale (the Unit 10 lesson).
+  - Nothing is generated on mount. The profile is built from the roster row on every request, so
+    fetching it unasked is work for a panel nobody opened.
+- **Two deliberate deviations from the spec, both recorded rather than quietly resolved:**
+  1. **403, not the 404 the acceptance criteria name**, for a case outside the caller's scope.
+     Every case route in EvalOS answers a scoped-read miss with `ForbiddenException` (Unit 04's
+     `CaseLifecycleService.load`), and Unit 09 recorded that as deliberate. It is uniform across
+     "no such case" and "not your case", so it is not an existence oracle either way — making
+     these three routes alone answer 404 would be the inconsistency, and changing all of them is
+     not this unit's scope. Pinned by `aCaseOutsideTheCallersScopeIsRefusedOnAllThreeRoutes`,
+     which states the reasoning at the test.
+  2. **The HTML travels inside the `ApiResponse` envelope**, not as a `text/html` body. The spec
+     calls these routes "HTML"; the envelope is returned by every endpoint in EvalOS without
+     exception, and a raw-HTML route would also have nowhere to carry the `reference` label or to
+     report a refusal in the shape every other route uses. The panel renders it via `srcDoc`,
+     which is printable — what the spec asks the client to do with it.
+- Verified: **`./mvnw verify -Devalos.db.test=true` BUILD SUCCESS, 305 backend tests, 0
+  skipped** against local Postgres 18 (new: `RedactedProfileServiceTest` 23,
+  `ExpertProfileControllerTest` 19, `GoogleDriveConfigTest` 3 — up from 260 with 23 skipped). The
+  DB-gated run matters here for one specific reason beyond the usual: it boots a **real Spring
+  context** with the new `GoogleDriveConfig` bean, which is what proves the four new
+  `evalos.drive.*` keys actually bind — a `@WebMvcTest` slice never loads that class, so a typo
+  in `application.yml` would have been invisible until the first real start. `npm test` **81
+  frontend tests** (8 new), `npm run build` and `npm run lint` clean.
+- **THE UNIT IS NOT CLOSED, and this is the spec's own gating open question, not a surprise.**
+  _"A mocked Drive client proves the mapping, not the credentials."_ The acceptance criteria
+  require **one manual live upload against a real folder**, and it has not happened because
+  none of what it needs exists yet:
+  - a **Google Cloud service account** with the Drive API enabled,
+  - its **JSON key**, and
+  - **write access per brand folder tree** — a Shared Drive with the service account as a
+    member, or domain-wide delegation. **Per brand**, because one account with blanket access to
+    both brands' Drives is the cross-brand hole described above.
+    Until that upload is done and recorded here, three things are proven only against a double:
+    that the credentials work, that the `drive.file` scope is sufficient for a create into a
+    shared folder (the `.../auth/drive` fallback is one property away if not), and that Drive's
+    HTML → Google Doc conversion produces a document worth sending to a client. Everything that
+    does not depend on Google — the redaction, the whitelist, the label, the paid gate, the
+    refusals, the audit row, the panel — is verified.
+
+### Unit 14 — Client draft-review portal · complete and verified
+
+> **2026-09-03 — the staff-side link panel is gone.** `PortalLinkPanel` and the
+> `mint`/`fetch` client calls were deleted from the frontend: the client will sign in to a
+> client portal rather than be handed a one-shot URL, so there is nothing for a case manager
+> to copy and send. **The backend is untouched** — `/api/cases/{id}/portal-link`,
+> `portal_access`, and the portal filter chain all still exist and still work; replacing
+> magic links with client login is a pivot that gets its own spec before any of that moves.
+
+The first non-staff caller in EvalOS, and Handoff B is now something the client performs
+themselves. **Three migrations** (`V20`–`V22`) and a **second Spring Security filter chain**.
+
+**Both gating questions were answered before any code was written**, which is what the spec asked
+for:
+
+- **Sign-off given to add `actor_type` to `audit_event`.** `ai-workflow-rules.md` protects that
+  entity and its write path and asks for instruction rather than an argument; it was asked for and
+  given. Append-only is not weakened — no update or delete path was added,
+  `AuditEventRepository` still extends the bare `Repository` marker, every column stays
+  `updatable = false`, and the `V10` trigger is untouched.
+- **Link delivery stays open question (b).** Whether GHL can send a client-facing transactional
+  message on an EvalOS event trigger is still unknown, so this unit ships the **staff stopgap**:
+  it mints the link and shows it on the case for somebody to send by hand. Unit 18 dispatches it on
+  an event if the answer turns out to be yes, and nothing here changes when it does.
+
+- **The defect it had to close first, and it was a real one.** `DraftPanel` had rendered "Open the
+  current draft ↗" pointing at `detail.driveLink` since Unit 09, and there was no `draft_link`
+  anywhere in the stack. `drive_link` is the client's **own document folder** — passport scans,
+  transcripts — so internally that was a mislabel, and it would have become a leak the moment a
+  client-facing screen used the same field: the portal would have handed the client a link to a
+  folder whose contents and sharing EvalOS does not control, presented as "your draft".
+  `V20__case_draft_link` gives the draft its own column, written by
+  `submitDraft(caseId, draftLink)`, and `DraftPanel` is re-pointed at it. **`drive_link` is not sent
+  to the portal at all** — not renamed, not aliased, not defaulted to — and a case with no
+  `draft_link` shows an honest "not ready". Two tests hold it, one on the projection and one against
+  real SQL.
+  - The link is **optional on submit and only overwritten when non-blank**: a second version filed
+    in the same place needs no new link, and blanking it by omission would take the draft away from
+    a client mid-review. The quick-action field is labelled "(optional)", which is what
+    `QuickActionDialog` reads to decide `required` — the label is the rule there.
+- **`V21__portal_access` — one table for both portals** (`audience` = `CLIENT` · `EXPERT`, and Unit
+  15 uses the second). What matters about it:
+  - **A portal link is a credential, so it is stored like one.** 256 bits from `SecureRandom`,
+    base64url, returned **exactly once** at mint time and stored only as a hex SHA-256 — a backup, a
+    support query or a leaked dump yields no working link. `PortalAccess.matches` compares with
+    `MessageDigest.isEqual`, in the entity so the one secret comparison on this surface has one home
+    and the stored hash needs no getter.
+  - **The token travels in an `X-Portal-Token` header, and in the URL _fragment_ on the way to the
+    browser.** A fragment is never sent to a server, so it stays out of access logs, `Referer`
+    headers and redirect chains; a query parameter would be in all three.
+  - **Expiry is absolute** (30 days, configurable) and **re-minting revokes the previous token
+    inside the same transaction**. That is also where "one live token per case per audience" is
+    enforced, because it cannot be an index: a partial unique predicate would need `now()`, which is
+    not immutable. The read tolerates more than one row anyway — it matches on the hash, not the case.
+  - Unknown, expired, revoked **and absent** are one identical 401 `PORTAL_LINK_INVALID`. The
+    service answers empty for the first three and the chain turns every empty into the same body, so
+    "is that link known?" is unanswerable. Proved by comparing response bodies byte for byte.
+- **Two chains, and the test asserts both directions.** `security/PortalSecurityConfig` matches
+  `/api/portal/**` and is ordered first; `SecurityConfig` keeps everything else. **A staff JWT on a
+  portal route is 401 and a portal token on a staff route is 401** — asserted both ways, because two
+  chains that accept each other's credentials are one chain.
+  - **`PortalTokenFilter` is constructed in the config rather than annotated `@Component`.** That is
+    the load-bearing detail: Boot auto-registers a `Filter` bean as a global servlet filter, which
+    would have let a portal token be resolved on a staff route. Recorded in the class comment so it
+    is not "tidied up" later.
+  - **The portal chain lives in its own `@Configuration`, not beside the staff chain.** A dozen
+    `@WebMvcTest` slices import `SecurityConfig` for the real filter chain, and none of them should
+    need a portal service and a portal property to start. `ClientPortalTest` imports **both**,
+    because asserting one chain alone proves nothing about the direction that leaks.
+  - **The chain is rate-limited** (`evalos.portal.rate-limit-per-minute`, default 60): a per-caller
+    fixed window in memory, refused _before_ the token is looked at, so a flood of guesses costs no
+    database read. Tested as what it is — a counter and a window roll — rather than through sixty
+    HTTP requests. `ponytail:` per-instance; Redis or a gateway limit if EvalOS is ever run
+    multi-instance.
+- **`security/PortalPrincipal` — the reason none of this reuses `TenantContext`.** It carries
+  `(portalAccessId, brandId, caseId, audience)`. **The token is the scope**: it names one case, so
+  there is no predicate to build and nothing that can fail open, and `ScopePredicate` is neither used
+  nor modified. Manufacturing a synthetic tenant context would have put a non-staff caller into the
+  staff scoping path, where a later widening of a role tier silently widens what a client can read.
+  `TenantContext.find()` matches on `StaffPrincipal`, so it returns **empty** on a portal request —
+  which also means any staff-path code reached from one throws instead of attributing the act to
+  whoever was last in the context. `theClientsOwnApprovalIsTheSameTransitionButAuditedAsTheirs`
+  clears the security context before approving, on purpose.
+  - The audience is checked in **one** place, `PortalPrincipal.current(expected)`, and no authorities
+    are granted — a role name in the filter would be a second statement of the same rule. Unit 15's
+    expert routes inherit the check by asking for `EXPERT`.
+- **`service/PortalCaseService` — a whitelist, not a widened `CaseDetailService`.** That DTO carries
+  the deal value, the strategy notes, the expert's identity, every assignment slot and the audit
+  timeline. The client's view is nine fields, and the criterion is asserted the way it is written:
+  **serialize the response and grep for each excluded field**, with every one of them populated on
+  the case first so an accidental widening has something real to leak rather than a null that would
+  pass by luck.
+- **The transitions are still Unit 04's.** `clientApproveDraft` / `clientRequestRevisions` gained a
+  second entry point taking an **already-authorized `Case`** rather than an id, and both share the
+  id-taking version's guards. `apply(...)` gained one nullable `PortalAudience` and branches on it in
+  exactly one place — the audit writer. So a client approving twice gets the same 409 a staff member
+  would, from the same line, and the stage change, the clock, the SLA, the event and the transaction
+  are all shared. **The state machine is not duplicated for this surface**, which is what acceptance
+  criterion 7 asks.
+- **`V22__audit_actor_type` — the append-only guarantee showing its teeth.** `actor_id` is nullable
+  and a null meant _the system_; a client is neither staff nor the system, and it is their approval
+  that sends a letter to an expert to sign. So: `actor_type` (`STAFF`/`SYSTEM`/`CLIENT`/`EXPERT`),
+  `AuditService.recordPortalEvent` as a third writer taking its brand from the **token's own row**
+  (the same argument `recordSystemEvent` makes for the endpoint token), and `actor_type` on the two
+  existing writers.
+  - **Nullable, no default, no backfill — forced, not lazy.** `V10`'s `BEFORE UPDATE OR DELETE`
+    trigger means no `UPDATE` can ever touch a historical row, so `NOT NULL DEFAULT 'STAFF'` would
+    have stamped the Unit 05 webhook rows `STAFF` when they are genuinely `SYSTEM`, **permanently and
+    unfixably**. Null means "written before this column existed"; readers infer `SYSTEM` from a null
+    `actor_id` and `STAFF` otherwise.
+  - **No CHECK on it**, unlike `V18`/`V19`/`V21`'s closed vocabularies, and that is a decision: a
+    constraint on this table is a way for an _audit write_ to fail, and that is the one write that
+    must never be what rolls a transition back. `action` carries no CHECK either.
+  - **The trail is only useful if the screen says it too.** `CaseTimelineService` now draws a
+    `CLIENT` row as "The client" and a `SYSTEM` one as "System" — before this, a client approving
+    their own draft would have appeared on the staff timeline indistinguishable from an inbound
+    webhook. **The null check there is load-bearing**: `Map.of()` throws on a null key rather than
+    answering the default, and `actor_type` is null on every pre-Unit-14 row. Three existing tests
+    caught it immediately — the same trap the board hit in Unit 08 with a contactless case.
+  - New `AuditAction.PORTAL_LINK_ISSUED` (open vocabulary, no migration) rather than reusing
+    `EXPORTED`: no document left EvalOS, a _credential_ was issued to somebody outside the company,
+    and re-minting one revokes the last. The snapshot records the audience and the expiry and
+    **never the token**.
+- **Frontend: a second entry point inside `App.tsx`, which is where the spec's file list puts it.**
+  The first pass mounted it in `main.tsx` and recorded that as a deviation; it was then **resolved
+  properly** by moving `AuthProvider` _down_ out of `main.tsx` into `App`, wrapping the staff surface
+  only. `App` now answers `/portal/*` before any staff-session code runs and mounts the provider
+  around `StaffApp` below it — so the route table stays in one file, `main.tsx` is a plain root
+  again, and a client still gets **no `AppShell`, no nav, no brand switcher and no `AuthProvider`**.
+  That last one is the point rather than an optimization: mounting the provider on a client's page
+  would read the staff token out of `sessionStorage` and call `/api/me` for somebody who has no
+  account. No router inside the portal either — one case, one screen, nowhere to navigate.
+  - `features/client-portal/*`: `PortalRoot` (token out of the fragment, three states, honest
+    failure copy), `ClientDraftView` (the draft link, the redacted profile in a sandboxed iframe,
+    approve / ask-for-changes, **both confirming inline first**), `portalApi`, `portalRules` + 17
+    tests.
+  - **`portalApi` has its own axios instance**, which is the one exception to "always import the
+    shared `api`". The shared one attaches the staff bearer from `lib/session`, and importing it
+    would pull the module that reads and writes the staff token into a page whose whole point is
+    holding no staff session. Only a `type` crosses the boundary, which the build erases. The token
+    lives in a module variable and is **never persisted** — deliberately unlike Unit 07's
+    `sessionStorage`, because a link forwarded to a shared machine is a different risk.
+  - **The failure copy is tested, because it is the product here.** No message on any status
+    mentions signing in — a client has no account, and offering one sends them hunting for a password
+    that does not exist — and the post-approval message says what happens _next_ rather than just
+    "approved". `mayAct` reads the server's own `awaitingAnswer` instead of re-deriving it from the
+    status, and additionally refuses when there is no draft link: approving a document you were never
+    shown is not a decision.
+  - Staff side: `case/PortalLinkPanel` shows whether a link is live, when it expires and when the
+    client last opened it, and re-mints **behind a warning that the old link stops working**. The URL
+    is shown once, in the response to the mint. `MAY_MINT_PORTAL_LINK` must equal
+    `PortalLinkController.MAY_MINT` and — unlike `MAY_PUBLISH_TO_DRIVE` — **includes the Case
+    Manager**, who wrote the draft and is the person a client emails when a link stops working. The
+    Coordinator is deliberately out even though they run `draft/send-to-client`: Unit 18 owns that
+    dispatch, so the manual mint is a stopgap, not their workflow.
+- **Deviations from the spec, in full — three remain, and one was resolved rather than argued for.**
+  1. **Resolved:** the portal entry point is in `App.tsx` as the spec's file list says (see above).
+     The first pass put it in `main.tsx`; moving `AuthProvider` down fixed the cause instead.
+  2. **One route beyond the spec's table:** `GET /api/cases/{id}/portal-link`. The spec lists the
+     mint alone, and frontend deliverable 6 asks the case page to say whether a live link exists, when
+     it expires and whether it has been opened — a panel that could only mint would have to mint to
+     find out. It returns `{live, expiresAt, openedAt}` and **never the token**; that absence is
+     asserted structurally, on the record's components, so no later edit can start returning one
+     without changing the type. The alternative — folding the status into `CaseDetail` — would put a
+     portal concern in the general case DTO and query for it on every case-detail load for every role.
+  3. **The portal chain is its own `@Configuration`** (`PortalSecurityConfig`), where the spec's
+     files-touched list said "Modified: `SecurityConfig.java` — the second chain beside `staffApi`".
+     Same two chains, same order, same behaviour; the file boundary is what keeps a dozen
+     `@WebMvcTest` slices that import `SecurityConfig` from needing a portal service and a portal
+     property to start, and it matches the spec's own words that "the chains are fully separate".
+  4. **A new `AuditAction` value**, `PORTAL_LINK_ISSUED`, where the spec only said the mint is
+     "audited". `AuditAction` is an open vocabulary by design (no CHECK, no migration), and reusing
+     `EXPORTED` would have labelled a credential issuance as a document export on the timeline.
+- **Two read fields, two questions, and they are not interchangeable.**
+  `evalos_case.client_portal_read_at` is stamped **once**, on first read — "has the client seen this
+  at all", which is what a Case Manager needs before chasing. `portal_access.last_seen_at` moves on
+  **every** request — "when did they last look", which is what support needs. One field doing both
+  would answer neither.
+- Verified: **`./mvnw test "-Devalos.db.test=true"` → 336 backend tests, 0 failures, 0 skipped**
+  against local Postgres 18 (up from 305; new: `PortalAccessServiceTest` 7, `PortalCaseServiceTest`
+  8, `ClientPortalTest` 7, `PortalTokenFilterTest` 2, plus 2 in `CaseLifecycleServiceTest`, 1 in
+  `CaseTimelineServiceTest`, 3 DB-gated). `npm test` **101 frontend tests** (20 new),
+  `npm run build` and `npm run lint` clean.
+- **Live end-to-end run against the running stack** (Postgres 18 + `spring-boot:run` on `local`),
+  driven as GM over real HTTP, with the rows then read straight out of Postgres:
+  - A case walked to "draft with the client" carries `draft_link` and `drive_link` **separately**;
+    the minted URL is `…/portal/client#<43-char base64url>`; the portal payload contains the client's
+    name, the draft link and the anonymous profile, and **none** of the deal value, the invoice ref,
+    `drive.google.com`, `assignedPm`, `dealValue`, `pmStrategyNotes`, or the expert's real name.
+  - **Both chains refuse each other**: a GM bearer on `/api/portal/client/case` → 401
+    `PORTAL_LINK_INVALID`; the portal token on `/api/cases/{id}` → 401 `UNAUTHENTICATED`. An unknown
+    token and no token at all produce **the identical body**.
+  - **Re-minting revoked the previous link immediately** — the old token 401s and the new one reads
+    the same case. In raw SQL the superseded row has `revoked_at` set, both rows carry a 64-character
+    hash and nothing token-shaped.
+  - Revisions with a blank reason → 400. **Approving moved the case to `EXPERT_SIGNING` /
+    `APPROVED` / expert `PENDING`, and approving twice → 409** through the existing guard.
+  - The audit row for that approval is `STAGE_CHANGED`, `actor_id IS NULL`, **`actor_type = CLIENT`**,
+    sitting beside `PORTAL_LINK_ISSUED` rows that are `STAFF` — and the staff timeline reads
+    "**The client** moved stage" under "John M sent a portal link".
+  - `client_portal_read_at` stayed at the first read while the token's `last_seen_at` moved on the
+    second, confirmed in the table rather than inferred.
+- **The intake gap in that first run is closed, and it was a harness mistake rather than a defect.**
+  The `contact.created` delivery I hand-wrote was rejected `400 MISSING_EVENT_TYPE`: the gateway
+  routes on a top-level **`event_type`**, which my payload omitted (the body shape was otherwise
+  right — `service_type` is top-level and the contact carries `full_name` / `ghl_contact_id`). With
+  that field added, the whole thing runs from Handoff A:
+  - A signed `contact.created` → `200 accepted`, and the **replay of the same `event_id` → `200
+duplicate`** with no second case. The case arrives `DOC_COLLECTION`, **unpaid**, with a
+    **6-item checklist opened by intake**, a `drive_link` from the payload and **`draftLink` empty** —
+    which is the two-column distinction visible at the moment of creation.
+  - Walked to draft-with-the-client, minted, and **the client approved a case that had not existed a
+    minute earlier**: `EXPERT_SIGNING` / `APPROVED` / expert `PENDING`, with `The client
+STAGE_CHANGED` on the timeline. Two fresh cases were driven this way (`IE-2026-C09171` approved
+    by API, `IE-2026-E64323` kept for the browser pass).
+- **Browser pass — the frontend, which nothing had exercised until now.** Chrome against the running
+  stack, on the second freshly-intaken case:
+  - `/portal/client#<token>` renders the client's screen: case reference, "Bela Osei, your draft is
+    here", service + version, the status line, "Read the draft ↗", and the **redacted profile in its
+    sandboxed iframe** — "Expert LT", rank, tier, fields, **and no name**. (The first screenshot
+    caught the sandboxed frame before it painted; it renders.)
+  - **"Ask for changes" → notes → send** works end to end from the browser: the actions disappear and
+    the page says _"Your revision request has been sent. The case manager is working on a new
+    version…"_. Server-side the case is `REVISION_REQUESTED`, and the audit row is **`actor_type =
+CLIENT`, `actor_id` null, with the client's own words as the note** — em-dash intact as U+2014,
+    checked in the database because the Windows console mangles it on the way out.
+  - **`PortalLinkPanel`**: a green **live** chip, the expiry, "Opened by the client 8/5/2026,
+    2:41:03 AM" (the receipt from that same browser session), and "Replace the link" → _"Create a new
+    link? The one the client already has will stop working immediately."_ Confirming it showed the new
+    URL **once** in an amber "shown once and cannot be retrieved" panel, reset "Opened by the client"
+    to **never** (the status reads the newest row), and **the token the browser had been using
+    401'd** immediately afterwards.
+  - **The staff app survives the entry-point restructure**: anonymous `/board` redirects to `/login`,
+    signing in as the GM lands on `/dashboard` with the shell, nav, brand switcher and bell, and the
+    case detail renders with the new panel in place. Console clean on the portal load and on the case
+    detail.
+
+### Unit 14 code review — five findings fixed, and the one that was a false alarm
+
+A five-lens review of PR #12 (CLAUDE.md adherence, bug scan, git history, prior-PR feedback, comment
+contracts). Two findings scored high enough to be posted on the PR; three more were raised below the
+reporting bar and are fixed here anyway, because all five are real. **No finding touched brand
+scoping, the whitelist, the two chains or append-only** — those held under tracing.
+
+Three were the same defect class this repo keeps finding: **a comment stating something the code does
+not do.**
+
+- **`context/ui-context.md` and `PortalRoot.tsx` both said the portal is "mounted from `main.tsx`".**
+  It is mounted in `App.tsx`; that was fixed while the unit was still open, and two descriptions of
+  the old design survived — including one in a context file, which `CLAUDE.md` requires to "stay
+  consistent". `progress-tracker.md` and `.serena/memories/frontend/core.md` had the right story, so
+  the repo contradicted itself in three places about one line of code. Both corrected.
+- **`caseApi.ts` documented `openedAt` as "when the client **first** opened it".** It is the token's
+  `last_seen_at`, which moves on every visit — `PortalLinkController`'s own `@param` says "last", and
+  `PortalLinkPanel`'s inline comment says "moves on every visit". So one frontend comment contradicted
+  the backend _and_ its sibling in the same PR. **The user-facing label was wrong too, which is the
+  half that actually matters**: the panel row said "Opened by the client", which a Case Manager reads
+  as first contact when deciding whether to chase. Now "Last opened by the client", with the reason
+  written above it. First-open is the case's own `client_portal_read_at` and is deliberately not on
+  that panel.
+- **`CaseController`'s class javadoc still said the portal routes "will call the same service
+  methods" and that the staff stand-ins exist "until the portal is built".** Both false as of this
+  unit: the portal is its own controller and calls the portal-safe entry points. Rewritten to say
+  where the portal actually is and why the staff-recorded equivalents are **not** a stopgap — somebody
+  phones in an approval, and the difference is the trail (staff member vs `actor_type = CLIENT`).
+
+Two were behaviour, and one of them was a genuine race:
+
+- **`V23__portal_access_one_unrevoked.sql` — "one live token per case per audience" is now a
+  constraint.** `mint` did SELECT-live → revoke → INSERT with no lock, so two concurrent mints (two
+  staff, or one double-click) could both see the same previous row, both revoke it, and both insert,
+  leaving **two live credentials for one case** — precisely what the service javadoc promised could not
+  happen, and the same shape as the duplicate-case defect `V15`/`V16` fixed. This codebase's rule for
+  that shape is a constraint, not a smarter lookup.
+  - **`V21`'s header reasoned itself into the wrong conclusion and stays wrong on disk** (an applied
+    migration is never edited — invariant 9; `V23`'s header corrects the record, as `V16` did for
+    `V15`). Its premise was right: a predicate on `expires_at > now()` cannot sit in an index. What did
+    not follow is that the invariant needs a clock — stated as **at most one unrevoked row per
+    `(case_id, audience)`** it needs none.
+  - The one behaviour change that buys: `mint` now retires **every** unrevoked row it supersedes, not
+    only the live ones. An expired row was already dead (`isLive` checks both fields), but leaving it
+    unrevoked would have kept it in the partial index, so a client who let their link expire could
+    never have been issued another. Two tests pin that, and a third pins first-revocation-wins.
+  - The migration retires pre-existing duplicates (newest kept) before creating the index, so it
+    applies to a database that already has them. An `UPDATE` is legitimate here: unlike `audit_event`,
+    `portal_access` is not append-only.
+- **`AuditService.recordEvent` hardcoded `ActorType.STAFF`.** Its own contract allows a null
+  `actorId` "for a system action", so it could have written `STAFF` beside a null actor — contradicting
+  the rule `V22` states and `CaseTimelineService` applies, **permanently**, since no `UPDATE` can reach
+  an audit row. Now derived (`actorId == null ? SYSTEM : STAFF`). No caller passes null today, which is
+  exactly why it was worth pinning rather than leaving to chance; new `AuditServiceTest` covers all
+  three writers and both branches.
+
+And one was **not** a code defect, recorded because the reasoning matters:
+
+- **The portal rate limit is keyed on `getRemoteAddr()`**, so behind a reverse proxy every client
+  resolves to the proxy and the whole budget is shared. The fix is a deployment setting, not a code
+  change: `server.forward-headers-strategy` is now env-bound (`FORWARD_HEADERS_STRATEGY`) and
+  **defaults to `none` on purpose** — with nothing in front of the app, trusting `X-Forwarded-For`
+  would let any caller present a fresh address per request and bypass the limit entirely. A proxied
+  environment must set it to `framework`. Named as the filter's second ceiling beside the
+  per-instance one.
+
+- Verified: **`./mvnw verify "-Devalos.db.test=true"` → 343 tests, 0 failures, 0 skipped** against
+  local Postgres 18 (up from 336; new: `AuditServiceTest` 5, plus 2 in `PortalAccessServiceTest`), with
+  `V23` applied on top of `V22` and `uq_portal_access_one_unrevoked` proved to refuse a second
+  unrevoked row while still allowing a retired pile-up and the other audience's own live token.
+  `npm test` 101, `npm run build` and `npm run lint` clean.
+
+### A1 — the missing QC notification (gap G2) · closed
+
+One row in `NotificationListeners.ROUTES`: `QC_APPROVED` → `STAGE_CHANGED` → that brand's
+Coordinators, "%s passed QC and is ready to deliver." The event and the `qc-approve` transition
+had shipped in Unit 04; only the route was missing, so a Coordinator learned a case was
+deliverable by watching the board. `theCoordinatorIsToldWhenQcPasses` holds it, and
+`anUnmappedEventRaisesNothing` gave up `QC_APPROVED` for `CASE_RESUMED` — silence there is still
+a decision, just not this one. A20 is **built** in `process-automation.md`. The delivery _queue
+screen_ stays Unit 17's (G3): the alert now arrives, the list it points at does not exist yet.
+
+### Unit 05b — Case Creation v2.0: the won opportunity is the trigger · complete
+
+Handoff A's third and, on the money argument, final trigger. GHL captures the lead, opens the
+opportunity, invoices and **collects** — so by the time a salesperson drags it to Won, the money
+is in, and the webhook carries both facts at once. There is nothing left for a human to record.
+
+- `webhook/GhlOpportunityHandler` replaces `GhlContactHandler`, same three-step shape
+  (`parse` → `validated` → `toCommand`) and the same reason for it. The payload gains an
+  `opportunity` block (`ghl_opportunity_id` `@NotBlank`, `amount` `@NotNull @Positive` — a won
+  deal with no money on it is a data error in GHL, not a free case) and **loses `quote_amount`
+  and `paid`**: won _is_ paid, so it is not the payload's to assert.
+- `WebhookRouter` — `opportunity.won` is the live type; **`contact.created` moved into
+  `DEFERRED`** beside `contact.updated` and `refund.requested`. A lead is front-of-house work now.
+  Its javadoc also stopped promising the Dropbox Sign types: one inbound source, GHL.
+- `V24__case_ghl_opportunity.sql` — `ghl_opportunity_id text`, plus
+  `uq_case_open_per_opportunity` on `(brand_id, ghl_opportunity_id)`
+  **`WHERE … IS NOT NULL AND current_stage <> 'CLOSED'`**. That clause is load-bearing, exactly as
+  the spec's review found: the open-case lookup ignores closed cases, so a client returning on a
+  re-used opportunity id takes the _create_ path — and an unscoped index would turn legitimate
+  repeat business into a constraint violation, i.e. a 5xx GHL retries forever and no case for a
+  deal that was paid for. It guards a **different** thing from the gateway's `event_id` dedupe
+  (that stops a redelivered webhook; this stops a second case), and the id is still never an
+  idempotency key.
+- `CaseIntakeService` — `NewCase` carries `ghlOpportunityId`, drops `paid`; `newCase()` always
+  sets `paid = true` and `paidAt = now()`.
+- **`refresh()` now _overwrites_ `dealValue` — the one deliberate exception to fill-only.**
+  Deleting `markPaid` removed the only other writer of that column, so left alone a case whose
+  amount changed in GHL would keep the first figure forever with nothing able to fix it, and
+  `deal_value` feeds revenue recognition. GHL owns the amount, so the latest won figure wins.
+  `paid` / `paid_at` stay write-once; still one value and never a running total, so a correction
+  cannot double-count. Everything else about `refresh()` is unchanged: never resets a stage,
+  never drops an assignment, never un-pays, publishes no lifecycle event.
+- **The manual payment path is deleted, all five sites**: `POST /{id}/mark-paid` and
+  `MarkPaidRequest`, `CaseLifecycleService.markPaid` and `requirePaymentRole`, the `MARK_PAID`
+  rows _and_ the `Action` constant (confirmed safe — the audit trail persists `AuditAction`, not
+  `Action`, so historical rows stay readable), and `boardRules.ts`'s `mark-paid` entry. Each of
+  the three code sites left a comment saying why there is nothing there, so the absence reads as
+  a decision.
+- **The pool alert moved to the PM/Coordinator pool.** `CASE_CREATED` → `NEW_CASE_IN_POOL` via
+  the new `RecipientResolver.pmsAndCoordinators` (union pattern, no new repository method). The
+  `CASE_PAID` route is gone and `NEW_LEAD` is emitted by nothing — but **both enum constants
+  stay**, because they are persisted as text on rows already written. `case.created` is the pool
+  arrival again, which is what the spec always said; the lead/paid split went with the manual
+  path. The `alreadyRaised` guard stays, now belt-and-braces rather than the only protection.
+- `paid` / `paid_at` and the unpaid guard on `markDocsComplete` **stay**, deliberately. Every case
+  is born paid so the guard is normally satisfied on arrival, but it is one line in one place,
+  `RefundService.isRevenueRecognized` and Unit 13's full-profile 409 both read `paid`, and a
+  GM-approved refund still has to be able to make a paid case not-earned.
+  `anUnpaidCaseGetsNoFurtherThanDocCollection` now says in its own name that it covers a state
+  no live path produces, which is why the guard is worth keeping covered.
+- `DomainInvariantsTest.onlyTheGhlOpportunityHandlerCanCreateACase` — invariant 8's structural
+  lock re-pointed. The handler behind that door has changed three times; this test is what has
+  kept there being exactly one of them.
+- **One defect found while asserting criterion 7, and fixed at the root.** `POST /mark-paid`
+  answered **500 INTERNAL_ERROR**, not 404: `ApiExceptionHandler` is a plain
+  `@RestControllerAdvice`, so it does not inherit `ResponseEntityExceptionHandler`'s handling of
+  Spring's own `ErrorResponseException`s, and `NoResourceFoundException` fell to the catch-all.
+  **Every typo'd URL in the app was an alertable server error** — the same class of bug as the
+  unknown-enum-value one the Unit 10 review found. Now a `NoResourceFoundException` handler
+  returning 404 with no detail in the body: whether a path exists is not information a caller is
+  owed. One handler, one place, all routes.
+- Verified: **`./mvnw verify "-Devalos.db.test=true"` → 346 tests, 0 failures, 0 skipped** against
+  local Postgres 18 (up from 343), with **`V24` applied and `ddl-auto=validate` passing** — so
+  `ghl_opportunity_id` matches the entity — and
+  `oneOpenCasePerWonOpportunityIsEnforcedByTheDatabase` proving in real SQL that the index refuses
+  a second open case for one opportunity, while still allowing the other brand's own opportunity of
+  the same id, a repeat purchase once the first case closed, and a null id (which is every row
+  written before `V24`). `npm test` 101, `npm run build` and `npm run lint` clean.
+- **Still owed: the live hand-fired run.** Criteria 1–9 are green in the suite; nothing has yet
+  fired a signed `opportunity.won` over real HTTP, because the payload contract is an assumption
+  (field names, the signature header, the HMAC encoding). It is confined to
+  `GhlOpportunityHandler.OpportunityWon` so a correction is one file. Tracked under In Progress.
+
+### Unit 05b code review — five findings, all fixed. Three were one change's unfinished half
+
+A five-lens review of the working diff (CLAUDE.md adherence, bug scan, git history, prior review
+feedback, comment contracts). Findings (a)–(c) are all consequences of the same thing: `refresh()`
+gained the power to rewrite money, which the spec asked for and then did not follow through on.
+
+- (a) **`refresh()` overwrote `deal_value` and never `ghl_opportunity_id`.** A second won
+  opportunity for the same contact and service takes the refresh path, so `V24`'s index never
+  fires — no second case is created. The amount became opp-B's while the id stayed opp-A, and
+  since **Unit 18 closes whichever opportunity that column names**, the wrong deal would be
+  closed in GHL and the paid one left open against recognised revenue. The two are halves of one
+  fact — _this deal, for this money_ — arriving in one delivery, so they now move together. If the
+  incoming id is already on another open case in the brand, `V24` refuses the write, which is
+  correct: one opportunity is one case.
+- (b) **A corrected amount left no before/after in the trail.** `CaseSnapshot` omits `deal_value`
+  by design, so an amount correction produced an `UPDATED` row whose before and after were
+  byte-identical — a money rewrite that reads as a no-op edit — and deleting `markPaid` removed
+  the actor-attributed row that used to accompany one. **The obvious fix was unsafe**: the note is
+  surfaced by `CaseTimelineService` to every role that may read the case, including the Case
+  Manager, who is excluded from `SEES_DEAL_VALUE`. So the note records _that_ the figure moved and
+  never what to — "deal value corrected", and only when it actually changed. The figures stay
+  recoverable from the append-only `webhook_event` archive, which holds every delivery's raw body.
+- (c) **A brand with no active PM or Coordinator was told nothing at all.** Moving the arrival
+  alert off `gmAndBrandManagers` removed the only recipient set that can never be empty — the GM is
+  brand-less — and the listener raises nothing when recipients resolve empty. A brand whose webhook
+  is live before its first PM or Coordinator is (onboarding, or both deactivated) would take the
+  money and announce it to nobody. `pmsAndCoordinators` now **escalates to the GM and that brand's
+  managers when the pool is empty**. A fallback, not an addition: the GM was moved off this route
+  precisely so they do not hear about every case, only one that would otherwise be unheard.
+  **This is the one recipient set with a fallback**, and the reason is recorded on the method:
+  `RecipientResolver`'s no-fallback rule is about _assignee_ lookups, where empty means the work
+  has an owner who is not this person. The pool arrival is the opposite — nobody owning it is the
+  point. `anAssigneeLookupStillHasNoFallback` pins that the rule did not leak.
+- (d) **`CaseEvents.Type`'s javadoc was left false**, in the file Unit 18 reads to learn the event
+  vocabulary. `CASE_CREATED` still said "this is a lead arriving, not a paid case — `CASE_PAID` is
+  the pool arrival"; every clause was wrong. `CASE_PAID` is now marked **dead — published by
+  nothing, and Unit 18 must not wire it as the payment signal**, with the distinction the old
+  comment blurred spelled out: the _event_ is gone, the `paid` _flag_ is still half of invariant 5.
+  `NotificationType.NEW_LEAD` likewise now says it is retained only because old rows persist it.
+  Same defect class as the Unit 05a review's (e) and (f) — the routes table and `Case.paid` were
+  updated and the catalog was missed.
+- (e) **The money-path validation had no check behind it.** `amount` is `@NotNull @Positive` and
+  nothing exercised it, while the payload contract is still unconfirmed and expected to change —
+  so a rename or a dropped annotation would create a paid case worth nothing, feeding
+  `isRevenueRecognized` and Unit 16's payout, with a green suite.
+  `aWonOpportunityCarryingNoRealMoneyIsRefused` covers `0` / `-1` / `0.00` / absent `amount`,
+  a missing `ghl_opportunity_id`, and the whole `opportunity` block absent (a refusal, not an NPE
+  in the mapper).
+- Verified: **354 tests, 0 failures, 0 skipped** with the DB gate on (up from 346), plus 102 frontend, and **(a) and
+  (c) are mutation-checked** — reverting `setGhlOpportunityId` fails only
+  `theAmountAndTheOpportunityItCameFromMoveTogether`, and reverting the empty-pool escalation fails
+  only `aPoolWithNobodyInItEscalatesRatherThanGoingQuiet`. Both files were then restored and
+  re-verified.
+- **Acceptance criteria re-checked one by one afterwards, not assumed from a green suite.** Seven
+  of the nine had a named test already; two did not, and both were the _second sentence_ of a
+  criterion — the easy half to skip. Criterion 3's "no `NEW_LEAD` is raised by anything" is now
+  `thePoolArrivalIsTheAlertAndNoEventRaisesARetiredLeadAlert`, which fires **every**
+  `CaseEvents.Type` and checks the whole output, because a kept-for-old-rows constant is exactly
+  the kind that gets re-adopted by accident; and criterion 7's "no board action offers to record
+  payment" is now `offers no way to record a payment` in `boardRules.test.ts`, which also refuses
+  any surviving `dealValue` field. Also mutation-checked: **deleting the A20 route fails only
+  `theCoordinatorIsToldWhenQcPasses`**, so A1's test is not vacuous.
+- **Assumption worth confirming, recorded rather than buried:** (a) is fixed by keeping the pair
+  consistent, so a second won opportunity **refreshes** the open case and re-points it. The other
+  reading is that a different opportunity id is a _different deal_ and should open a second case —
+  which would mean widening `V15`'s one-open-case-per-contact-per-service index, since it would
+  refuse that second case today. Not done, because it is a business call about what a case _is_.
+
+## In Progress
+
+Nothing is half-built. Everything below is code-complete and waiting on somebody outside the
+repo — listed so a session does not mistake a provisioning wait for unfinished work.
+
+- ⚠️ **IE's GoHighLevel sub-account was replaced on 2026-09-11.** New location
+  **`WY6bW2xUCI8Tz8gw7aLJ`**, replacing `kBumF0uUOmMBB5bneYjx`. Fresh CRM, **no contact or
+  opportunity migration — the old account is abandoned.** The checklist is
+  `context/specs/00c-ghl-independence-programme.md` §1 and is not repeated here.
+
+  **The critical item is the `opportunity.won` workflow.** The webhook endpoint token is
+  EvalOS-side and unchanged, but the GHL workflow that calls it lived in the old account.
+  **Until it is recreated in the new one, Handoff A is dead and no case is created by
+  anything.** The three pipeline-name settings will 502 until they match the new account's
+  pipelines, which is the intended failure direction, not a defect.
+
+  **Known and accepted consequence:** every `ghl_contact_id` EvalOS holds names a contact that
+  no longer exists, so `PortalInvoiceService` (Unit 41) and `PortalMeetingService` (Unit 40)
+  return nothing for pre-cutover clients. Cases, documents, drafts and audit are unaffected —
+  they are EvalOS-owned. That split is the opening argument of the `00c` programme.
+
+- **Units 42, 43 and the `00c` mirror programme are specced and APPROVED (2026-09-12).**
+  *(Unit 42 has since been built — see the 2026-09-12 entries at the top. This entry is kept as
+  the record of the approval, so "nothing is coded yet" was true when written and is not now.)*
+  The implementation plan for Unit 42 is
+  `docs/superpowers/plans/2026-09-12-unit-42-client-accounts.md`, nine tasks, TDD throughout.
+
+  **The docs are aligned ahead of the code, deliberately** — invariants 7 and 14 in
+  `architecture.md`, the stack table's Notifications row, `CLAUDE.md`, the build plan's
+  now-closed mail decision, `process-automation.md`, spec 34's D1 header, and four Serena
+  memories all now describe the decided state. **So `architecture.md` currently describes mail
+  and client accounts that the code does not yet have.** That is the house rule (a pivot is
+  specced and its docs aligned before it is coded), not drift.
+
+  **One finding from writing the plan, and it is load-bearing.**
+  `V38__portal_access_names_a_party.sql:36-39` constrains a `CLIENT` party token to carry a
+  `ghl_contact_id`. After the CRM replacement **most accounts have none**, so the constraint
+  refuses exactly the row the sign-in door must mint. Unit 42 therefore carries a `V45`
+  widening it with a `client_account_id` scope — and `PortalInvoiceService` /
+  `PortalMeetingService` must answer an empty list rather than throwing on a null contact id.
+  That is `00c` §1c's predicted degradation arriving as code.
+
+- **Unit 15's live round-trip.** A real expert token, a real download, a real signed PDF into a
+  real bucket. Blocked on the **AWS credential + bucket**, which is the same thing Unit 30's live
+  path and Unit 21's reconcile wait for. Everything below the transport is verified against a test
+  double.
+- **Unit 05b's live run.** A real `opportunity.won` over HTTP + Postgres, which is what closed the
+  previous trigger's criterion 1. Blocked on **confirmation of what GHL actually sends on Won** —
+  the transport is verified; the field names are not.
+- **The visual refresh, in the staff app.** Tokens, `AppShell`, the nav and `features/board/*` are
+  in the adopted language (240px sidebar / 72px header / 36px controls / 288px board column, the
+  density recorded in `ui-context.md`); the other screens still render the pre-migration one, so
+  the app is mid-flight by design. **`UI_MIGRATION_GUIDE.md` has been deleted** — the density
+  section in `ui-context.md` is what survives it, and the colour table there still lists the
+  pre-migration hexes while `tokens.css` ships the adopted ones. Restate that table when the last
+  screen lands. **Not yet checked in a browser at 1366×768**, which is the check that was owed.
+
+## Next Up
+
+**The schedule lives in `context/specs/00-build-plan.md` → "Execution sequence for v2.0".**
+Read it there rather than here; this section names only what is immediately next, so the two
+cannot drift. **Rewritten 2026-09-04** — the previous version chased a Google service account
+Unit 30 had already replaced, called a built unit next, and called Unit 15 blocked on Unit 21.
+
+**Buildable now, in this order:**
+
+1. **Unit 35 — party-scoped portal access.** D1/D5/D6/D8 + G14, specced 2026-09-04. Start with the
+   deletions (D8) and the upload hardening (G14): both are small, self-contained and improve a
+   surface that is already live. Then the migration and the two party reads.
+2. **34b — the client's draft review screen.** The highest-value screen left in the portal: read,
+   approve, request revisions are **built and tested in EvalOS since Unit 14 and no screen calls
+   them.** Unblocked by D1, which is what tells it which case it is showing.
+3. **34d — the two case lists**, over Unit 35's party reads and D5's projection.
+4. **Unit 17a — dashboards without charts**, carrying gaps **G9–G11** and **G16**. G16 is the one
+   to read twice: nothing shows which portal links exist or whether anyone opened them, so "a link
+   nobody sent" — the likeliest way to breach the 24h signing SLA — is invisible today.
+5. **Unit 19 — background jobs.** **Its prerequisites are met**: Unit 10 and Unit 15 are built and
+   Unit 18 is gone. Unit 15 left it the 20h/24h sign prompts to fire, and it must only ever
+   *prompt* — no sweep calls a transition.
+6. **Unit 17b — the cycle-time chart**, once the charting library is chosen (`ui-context.md`).
+
+**Waiting on somebody outside the repo:**
+
+- **AWS credential + bucket** → Unit 15's live round-trip, Unit 30's live path, Unit 21's
+  remaining half (read the `client/` prefix, reconcile against the checklist). **Now also carries
+  G14's infrastructure half**: S3 malware protection on the bucket, which is the scanning EvalOS
+  deliberately does not do in code.
+- **The real `opportunity.won` payload** → Unit 05b's live run.
+- **Decisions still open**: **G15** — how an expert's link actually reaches them (hand-sent today,
+  and an expert who never gets theirs cannot sign while the clock runs); and who reaches the client
+  at all, which the portal downgrades from blocking to a reach problem (`process-automation.md`).
+
+**Struck, so nothing waits on them:** Unit 13 (redacted CV), Unit 18 (outbound dispatcher) and
+Unit 20 (AI widgets) are **removed from scope** — `V33`, and invariant 15. There is no Anthropic
+key to request and no anomaly *unit*; that arithmetic is a Unit 17 tile if it is wanted.
+
+### Phase 2 readiness — which open questions block which unit
+
+Checked before starting Phase 2, so a unit is not begun against an assumption. **Nothing blocks
+Unit 11's start**, but two items bite inside it, and each later unit has a named external
+dependency that is not yet confirmed. Phase 2 is Units 11–17 (see the boundary note in the build
+plan — the `## Phase 3` heading had been contradicting that).
+
+**Unit 11 — Expert database. BUILT — see the Unit 11 entry at the end of Completed.** What
+follows is the readiness note written before it, kept because the two items it flagged both
+played out: the field-tag list shipped unsigned (still an open question), and the dead `V7`
+counters were derived rather than maintained. `EVALOS_FIELD_KEY` is now genuinely load-bearing
+outside local — this unit writes `payment_detail` from a screen.
+
+~~The field-tag taxonomy is undefined.~~ **Closed by decision: a
+closed `FieldTag` enum, unknown tags rejected**, enforced both as a Java enum and as a database
+`CHECK` on `primary_fields` / `secondary_fields` / `letter_types` (the `team_member` brand-CHECK
+pattern from Unit 02). Unit 12 matches on these tags and "Mechanical Engineering" would never have
+matched "mechanical engg", so exact matching was worth the cost — which is a **migration per new
+discipline** and a strict sheet import. What remains is not a question about the mechanism but
+about the values: **the starter list in the spec needs the ENM's sign-off before the migration
+lands** (now an open question below).
+
+- **`payment_detail` needs a real `EVALOS_FIELD_KEY` outside local.** No default by design — an
+  environment that forgets it fails to start rather than writing plaintext. Fine for dev; a
+  deployment blocker whenever one happens, and this is the unit that first writes the field.
+- **Two defects found while writing the specs, both fixed in the specs rather than at build time.**
+  `expert.current_active_count` and `total_cases_completed` are `NOT NULL DEFAULT 0` from `V7` and
+  **nothing has ever written either** — so Unit 11's roster would have shown every expert as free
+  and Unit 12's load factor would have been a constant. Both are now **derived** with one batched
+  count over `evalos_case` (`ExpertLoadService`), and the columns are left dead rather than
+  starting to maintain a counter that has to be adjusted on assign, close, refund, reassign and
+  decline. `total_payments_pending` gets the same treatment in Unit 16. Separately, the build plan
+  lists a **fee** among Unit 11's expert fields and `V7` has no fee column — `standard_fee` is
+  added, and it is what Unit 16 prefills a payout with.
+
+**Unit 13 — Redacted CV generation.** ~~Serve on demand, or also write to Drive?~~ **Closed by
+decision: both.** Served on demand _and_ written into the case's Drive folder.
+
+This adds the **first Google Drive API integration in EvalOS** and is the more expensive of the two
+readings, so what it costs is on the record: a Google Cloud **service account**, its **JSON key**
+env-bound with no non-local default, and **per-brand write access** on each brand's case-folder
+tree (a service account with blanket access to both brands' Drives is a cross-brand hole outside
+the database that no `brand_id` predicate can close). `google-api-services-drive` +
+`google-auth-library-oauth2-http` land in that unit. `architecture.md`'s stack table describes
+Drive as "link stored on the case, not re-hosted" and needs updating with the unit — Drive becomes
+an outbound client, not just a URL column. **None of it exists**, which is why Unit 13 now has a
+gating open question where the serve-on-demand-only reading would have had none.
+
+No PDF library is needed: the generated HTML is uploaded with a Google-Doc target mime type and
+Drive converts on the way in, and Drive's own export produces a PDF if one is ever wanted.
+
+**Unit 14 — Client draft-review portal. BUILT — see the Unit 14 entry in Completed.** What follows
+is the readiness note written before it, kept because all three items played out exactly as written:
+the `draft_link` mislabel was real and was closed first, `actor_type` shipped nullable-and-unbackfilled
+on instruction, and the link still has no automatic delivery.
+
+~~A defect it must close first.~~ `frontend/src/features/case/DraftPanel.tsx` rendered
+"Open the current draft ↗" pointing at `detail.driveLink`, and there was no `draft_link` anywhere
+in the backend or the frontend. `drive_link` is the client's _own document folder_. Internally
+that is a mislabel; put a client-facing portal on top of it and it is a leak — the portal would
+hand the client a link to a folder whose contents and sharing EvalOS does not control, labelled as
+"your draft". **Closed by `V20` + `submitDraft(caseId, draftLink)`**; `drive_link` is never
+sent to the portal, not even as a fallback, and two tests hold that.
+
+~~A consequence of append-only, worth knowing before it surprises somebody.~~ The portal
+needs the audit trail to say _the client_ approved the draft, and `audit_event.actor_id` previously
+meant "staff member, or null for the system". **`V22` added `actor_type` nullable with no default and
+no backfill** — `V10` installs a `BEFORE UPDATE OR DELETE` trigger that raises, so no `UPDATE` can
+ever touch the existing rows. A `NOT NULL DEFAULT 'STAFF'` would have stamped the Unit 05 webhook rows
+`STAFF` when they are genuinely `SYSTEM`, permanently and unfixably. First unit to feel that the
+append-only guarantee has teeth, and the pattern to copy for any future column on that table.
+
+**The portal link still reaches the client only by hand.** That is open question (b) below — whether
+GHL can send a client-facing transactional message on an EvalOS event trigger. It is **still
+unanswered**, so Unit 14 shipped the stopgap it planned for: staff copy the URL off the case page.
+The portal is built and reachable; it is the _delivery_ that is manual.
+
+**Unit 15 — Expert portal + Handoff B. ~~The heaviest external dependency in the phase~~ — no
+longer.** Both of its blockers were the signature provider's, and there is no provider: the expert
+downloads the letter, signs it in their own tool, and **uploads the signed PDF back** through their
+portal (see the E-signature decision in Architecture Decisions). What it needs now is the **Google
+service account** — the same credential Units 13 and 21 need — and Unit 21's upload path, which it
+reuses with `audience = 'EXPERT'`. Staff-recorded stand-ins remain as the manual path.
+
+~~**Unit 15 — one thing to answer before any code.**~~ **Closed by the same decision, and this is
+the best outcome available for it.** The question was that the gateway resolves `brand_id` from the
+per-brand endpoint token — a protected step — and one Dropbox Sign account would have meant one
+callback URL that could not tell the brands apart, forcing either an account per brand or a change to
+the protected step. **Dropping the provider removes the question rather than answering it**: there is
+no callback, the gateway keeps one source, and the protected step is untouched. This was the only
+place in the whole design that threatened it.
+
+Also settled while writing the spec: the build plan's "auto-reassign" is read as **auto-prompt**,
+matching `project-overview.md`'s "the case auto-prompts reassignment". `REASSIGN_EXPERT` requires
+`EXPERT_DECLINED_REMATCHING` and an expert who has not answered has not declined — silently pulling
+a case off an expert who was about to sign, and mailing a second expert the same letter, is worse
+than a late case. Where the two documents differ the narrower reading wins.
+
+**Unit 16 — Payout ledger.** Self-contained. `payout_ledger` exists from Unit 03 and the plan is
+explicit that there is no disbursement rail. No blocking question.
+
+One finding from writing the spec: `deliverToClient` guards `deliveryDate == null`, but `Case` has
+no `@Version`, so two concurrent deliveries can both read null, both save, and **both create a
+payout row** — the same check-then-act shape `V15` was written for. A partial unique index on
+`payout_ledger (case_id) WHERE status <> 'VOIDED'` cannot race. Also decided: payout **writes** are
+GM / Brand Manager (recording that money left is a commercial act, same gate as `mark-paid`, and
+re-checked in the service like `RefundService`), **reads** include the ENM. If the business says the
+ENM records payouts in practice that is a one-line widening of two guards — worth taking as a
+decision rather than assuming here.
+
+**Unit 17 — Dashboards.** Two open questions attached directly. The first — whether
+sales/marketing dashboards are GHL-native — **is now answered by Unit 24**: one read-only GM
+funnel view in EvalOS, everything else in GHL. The second, **StatCommand**, is still
+undefined — the standing instruction is not to build an integration for it until it is
+specified.
+
+A third item is a **deviation from the build plan's wording, recorded rather than taken quietly**.
+The plan and `architecture.md` both say "precomputed read models refreshed on events". At the NFR's
+stated scale — 50–100 cases per brand per month, two brands — every metric is a `GROUP BY` over a
+few thousand indexed rows, which Postgres answers in single-digit milliseconds. An event-refreshed
+read model buys latency nobody needs and costs a **second source of truth for the open-liability
+figure**, plus exactly the staleness class this project already has three instances of (the
+`allInsideSla` header, the checklist chip, the "N ready for the PM" count — each a cached or derived
+display disagreeing with the instrument beside it). **The spec recommends computing live**, with
+aggregates pushed into SQL, and adding a materialized layer only when a measurement shows it is
+needed — and if added, as a cache in front of the same functions so the live query stays the
+definition. The metric definitions, the API and the UI are identical either way; only the source of
+the numbers changes. **Confirm at build time**; if the answer is "build the read models anyway",
+nothing else in the spec moves.
+
+Also decided: the **review-capture metric cannot be fully computed inside EvalOS.** EvalOS knows how
+many review requests it fired (`google_review_requested`); the reviews themselves land on Google and
+the campaign runs in GHL. So the tile is labelled **"review requests sent"** and claims nothing about
+captures — a tile naming a metric it cannot compute is the same failure as a header contradicting its
+instrument. Whether GHL should report captures back is now an open question below.
+
+**Cross-cutting, not unit-specific.** The GHL contract (payload shape, and which event actually
+fires on Won) is the largest risk to code already shipped rather than to Phase 2, since Handoff A
+runs on assumptions today. _The signature-header and HMAC-encoding half of that risk was removed
+on 2026-08-27 with the inbound signature itself — see G17._ The full brand list matters
+whenever a third brand is seeded. Staff SSO stays deferred.
+
+## Open Questions
+
+- ~~**Does a portal token name a case or a party? (Unit 34 D1.)**~~ **ANSWERED 2026-09-04: a
+  party.** `ghl_contact_id` for `CLIENT`, `expert_id` for `EXPERT`, `case_id` nullable — one
+  column plus a nullable one, keeping the 256-bit token, the SHA-256-at-rest, the single-live-token
+  index, the absolute expiry and the one indistinguishable 401 exactly as they are. **A
+  case-scoped link stays legal** for one case sent once. **The account system was refused, not
+  deferred**: credential storage, rotation, lockout and a password-reset mail channel
+  **invariant 14 says does not exist**. Sub-question answered with it: a party token lives
+  **7 days**, the case token keeps 30. Built in `35-party-scoped-portal-access.md`; the four
+  documents it touches are amended.
+- **Do intake, invoicing, client messaging and support ticketing get cut? (Unit 34 D2–D4.)**
+  Recommended: **yes, all four.** Each breaches an invariant if wired (8, 2, 14, 14) and each
+  has a home in GHL, which is where the front of house is. The residual question is not
+  *whether* but *what happens to the code* — the intake funnel is ~2k lines of working work,
+  and the recommendation is to park it behind an unregistered route with a dated note rather
+  than delete work whose owner has not been asked.
+- ~~**May an expert see their payout rows? (Unit 34 D6.)**~~ **ANSWERED 2026-09-04: yes — rows
+  only** (case reference, amount, currency, status, settlement date), for their own `expert_id`.
+  **Never `payment_detail`**, which has no read path anywhere in EvalOS, not even for the ENM who
+  typed it (invariant 4) — and this does not become the first one. A new whitelist, so it ships
+  with the named field list and the serialization test Unit 14's and Unit 15's got. Built in
+  Unit 35. **D5** (one projected vocabulary) and **D8** (analytics off, by deletion) were taken in
+  the same sitting.
+- **Where is the portal deployed, and how does its origin reach `EVALOS_PORTAL_ORIGINS`?**
+  Not a code question — `application-prod.yml` has no default, so a missing value fails the
+  boot by design. It is a deployment prerequisite that will otherwise be discovered at the
+  worst moment.
+- **Who delivers client- and expert-facing messages — GHL or EvalOS?** Every
+  touchpoint is listed in `context/process-automation.md` with its channel marked
+  _decision pending_. GHL delivering them off the outbound event is the current
+  architecture; EvalOS sending mail itself would **reverse invariant 14** and bring
+  in an SMTP provider, deliverability, bounce handling, unsubscribe and a suppression
+  list. That is a business call about who owns the client relationship. Nothing is
+  built either way, and the `// email:` marker convention exists so the decision is
+  greppable when it lands. One touchpoint is settled — retention and reviews (GHL).
+  **The expert's signing link reopened** when the signature provider was dropped, and it
+  is the sharper case: an expert who never receives their link cannot sign, and the
+  20h/24h clock runs anyway. Hand-sent by the CM meanwhile.
+- **Intern tier — deferred, and the rules are recorded so they are not lost.** The
+  CRM build spec attaches two restrictions to roles EvalOS does not have. Verbatim:
+  - _Coordinator intern_: "Can message clients and update document status. Cannot
+    mark docs complete or push to production without Coordinator approval."
+  - _Case Manager intern_: "Intern drafts go to Case Manager for review BEFORE going
+    to PM. Intern submits to CM, CM approves, then PM. Intern sees only their
+    assigned cases."
+
+  Both are approval gates on existing transitions rather than a new scope tier, which
+  is worth knowing if it is ever built. The decision stands: **no intern role**, four
+  documents say so, and nothing is designed for it.
+
+- **Antivirus for accepted uploads** (G14). Drive scans on ingest; EvalOS accepting
+  files from a link is a separate posture question. Does not block Unit 21.
+- **Charting library** for Unit 17's cycle-time p90 chart — none is installed, and
+  the component-library rule says do not install one to render nothing. Small library
+  vs hand-rolled SVG, decided at the start of Unit 17.
+- **A target for "new experts onboarded"** (G7) needs a home. Config, not a table —
+  it is one number per brand per month at most.
+
+- ~~**`/delivery` is labelled "Final delivery queue (Unit 13)" and Unit 13 is not that.**~~ —
+  **closed by decision: the nav entry is deleted.** See the PR #7 review entry above.
+- **The dev `evalos` database still holds ~150 junk cases** in `public`, written by
+  `LocalPostgresIntegrationTest` before it was moved to its own schema (`EV-<uuid>` case codes,
+  "Unnamed contact", "SERVICE NOT SET") — the Unit 07 hygiene note grown into a board that is
+  103/107 test rows in its first column. **The cause is fixed** (the suite writes to
+  `evalos_test` now, so the pile cannot grow), but the existing rows are still there and the
+  database needs a reset before any demo. Not cleaned up here: deleting rows from somebody's
+  database is not a drive-by, and `public` also holds whatever real dev data exists. A targeted
+  `DELETE FROM evalos_case WHERE case_code LIKE 'EV-%'` would do it — on request, not unasked.
+
+- **GHL contract still unconfirmed** (was already open, now load-bearing): the
+  **`opportunity.won`** payload shape, the signature header name, and the HMAC
+  encoding are all assumptions. Everything else about Handoff A is verified; these
+  three are what a real GHL sub-account has to agree with. **Case Creation v2.0 narrowed
+  one half of this and widened the other:** "which GHL event actually fires" is now answered
+  at the business level — _the opportunity being marked Won_ — but what GHL calls that event
+  on the wire, and what it names the opportunity's amount and id, is still unverified.
+  **How far a correction reaches, honestly** — the earlier claim that the payload shape is
+  "confined to one file" was too optimistic and only ever held for one of three cases:
+  - a **renamed or re-typed** field is one file: `GhlOpportunityHandler.OpportunityWon` and its
+    `@JsonProperty`, because the record is transport-only;
+  - a **new field that has to reach the case** is at least three: the transport record, the
+    mapper to `CaseIntakeService.NewCase`, and `NewCase`/`ContactDetails` themselves — that
+    split is deliberate (Unit 05 note (h) kept an unconfirmed shape out of `service`), but it
+    means the shape is _isolated_, not _confined_;
+  - a **field that turns out not to exist** may also touch `CaseIntakeService` where it is
+    applied to the entity, and the intake tests.
+
+  ~~The signature header is genuinely one knob (`evalos.webhook.signature-header`, config, no
+  code change).~~ **Overtaken 2026-08-27: there is no inbound signature, so there is no header to
+  re-point and no knob left to be right about.** The event **name** is likewise a single constant in `WebhookRouter`
+  (`OPPORTUNITY_WON`), so if GHL calls it `OpportunityStatusUpdate` with a `status` field rather
+  than a distinct won event, the routing change is one line plus a status check in the handler.
+
+- **Full brand list** — International Evaluations and XpertsPortal confirmed;
+  confirm any others before seeding brands / webhook endpoints.
+- ~~**Sales/Marketing dashboards**~~ — **RESOLVED by Unit 24, and extended once by Unit 26.**
+  EvalOS builds **read-only GM screens** over funnels in the one configured GHL location —
+  the Google Ads pipeline (Unit 24) and the email marketing pipeline (Unit 26); every other
+  sales/marketing dashboard stays in GHL. Read the answer as written: a _reading_, not a
+  marketing function — no campaign, spend, audience or attribution feature, no write back
+  into a GHL pipeline, and no stored copy of GHL's data.
+  **What Unit 26 settled and what it did not.** Unit 24 said "a second marketing screen is a
+  new question"; that question was asked and answered _yes_ for another \*_pipeline in the
+  same location, read on identical terms_. It is not licence for a marketing module: a
+  feature that creates, sends, prices or attributes anything is still a different question
+  with the same default (no). See `context/specs/24-marketing-google-ads-funnel.md` and
+  `context/specs/26-marketing-email-funnel.md`.
+- **StatCommand** — internal module or external BI, and the "six operating
+  conditions" the dashboards feed. Undefined; do not build a StatCommand
+  integration until specified.
+- **GHL webhook/API contract** — (a) per-brand inbound `opportunity.won`
+  payload + signing secret (Unit 05 / 05b), including which GHL workflow action fires it and
+  what it names the opportunity's amount and id; (b) outbound subscriber URL + secret for
+  `case.delivered` and the ability to send client-facing transactional messages
+  on EvalOS event triggers (Unit 18); (c) which extra inbound GHL events to
+  handle now vs later (`refund.requested`, `contact.updated`, `contact.created` — all
+  recognized no-ops today).
+  **(b) is now load-bearing rather than theoretical.** Unit 14 shipped a working portal whose link
+  reaches nobody unless somebody delivers it, so until (b) is answered the client link is **copied
+  out of the case page by staff**. That is a deliberate stopgap, recorded in
+  `PortalLinkController` and on the panel itself, and the answer changes nothing in Unit 14's code —
+  Unit 18 dispatches on the event if the answer is yes. Also note `PORTAL_BASE_URL` must be set in
+  any deployed environment: it defaults to the Vite dev server, so a link minted with the default
+  points at somebody's laptop.
+- **`FieldTag` value list still needs the ENM's sign-off** (Unit 11) — the _mechanism_ is settled
+  (a closed enum + database CHECK); the vocabulary is not. ~~Confirm before the migration lands.~~
+  **The migration landed first, on instruction**: `V18` ships the spec's 28-entry starter list plus
+  5 letter types, unreviewed, and `domain/FieldTag`, the migration header and the frontend's
+  `expertRules.ts` all say so where somebody will read them. So this is no longer "confirm before
+  building" but **confirm and then widen**: a tag the ENM actually recruits into and this list does
+  not have needs a new migration widening the CHECK, the enum, and the frontend list, moved
+  together — never an edit to `V18` (invariant 9). Unit 12 scores on these tags, so the sooner it
+  is confirmed the less there is to re-check. Note what the closed vocabulary already bought: a
+  sheet row saying "MECHANICAL ENGG" is rejected with the closest legal tag named, instead of
+  quietly becoming an expert Unit 12 could never match.
+- **Google Drive credentials + service account** (Unit 13) — new, and gating. The decision to write
+  the redacted CV into the case's Drive folder means a Google Cloud service account, its JSON key
+  (env-bound, no non-local default), the Drive API enabled, and **per-brand write access** on each
+  brand's folder tree. None of it exists. This was not a question before, because the build plan's
+  "or written to the case's Drive folder" wording let Unit 13 avoid Drive entirely.
+- ~~**Dropbox Sign callback secret**~~ and ~~**which Dropbox Sign account structure**~~ (Unit 15) —
+  **both closed, not answered: there is no signature provider.** The expert signs in their own tool and
+  uploads the signed PDF through their portal, so there is no callback to sign and no account structure
+  to choose. See the E-signature decision in Architecture Decisions. What replaced them is the Google
+  service account, which was already open above and now blocks three units.
+- **How the expert receives their portal link** (Unit 15, touchpoint T6) — _newly open_, and a direct
+  consequence of the above: Dropbox Sign used to email the expert its own signing link. Hand-sent by
+  the Case Manager until the email-channel decision is taken. Sharper than the client-link version of
+  this problem, because an expert who never gets their link cannot sign while the 20h/24h clock runs.
+- ~~**Sign-off to add `actor_type` to the audit trail** (Unit 14)~~ — **closed: instruction given,
+  and the column shipped as `V22`.** Nullable, no default, no backfill; three writers now
+  (`recordEvent` / `recordSystemEvent` / `recordPortalEvent`); no update or delete path added and the
+  `V10` trigger untouched. See the Unit 14 entry. The precedent worth keeping: a protected file is
+  changed on instruction, asked for **before** the code exists, not justified afterwards.
+- **Whether GHL reports review captures back** (Unit 17) — EvalOS can only count review _requests
+  sent_. Actual captures live on Google and in GHL's campaign; reading them back would be a new
+  inbound integration nobody has specified. Until then the tile is labelled for what it measures.
+- **Whether EvalOS may send case data to an external AI API at all** (Unit 20) — a product and
+  compliance decision, not an implementation one. It would be the first outbound flow of internal
+  case content to a third party (Drive holds documents and signed letters EvalOS links to but does not
+  read; GHL is the front office EvalOS serves). The spec's whitelist excludes
+  `payment_detail`, all client and expert identity, and every free-text field — which leaves
+  anonymous tag-level data, and is also the honest argument that the layer's value is limited. Note
+  the **anomaly-detection half of Unit 20 needs no AI at all** (>15% vs a 4-week mean is arithmetic)
+  and ships regardless of how this is answered.
+- **Staff SSO** — optional/later; JWT password login for v1.
+- **FO-2026-CRM-01** — full credential-handling rules (disclaimer text captured
+  per brand; remaining rules assumed satisfied by encryption + RBAC + audit).
+
+## Architecture Decisions
+
+- **Scope**: EvalOS is back-of-house only. GHL owns marketing, sales, invoicing,
+  and review/retention delivery. **Unit 24 refines _ownership_ into _visibility_ without
+  moving it**: EvalOS now _reads_ GHL's Google Ads funnel onto a GM screen and owns none
+  of it — no write back, nothing persisted. "Back-of-house only" is a statement about what
+  EvalOS _runs_, not about what it may look at.
+- **Custody symmetry** (Production Process v2.0): **GHL owns every pipeline until the
+  thing at the end of it is real; EvalOS takes custody at that moment.** A case at
+  `opportunity.won`; an expert when the ENM adds them to the roster; retention never.
+  This is why there is **no expert-recruitment pipeline** in EvalOS — a prospect
+  moving through Identified → Contacted → Agreement Sent is the same object as a sales
+  opportunity, and GHL already runs pipelines and outreach reporting.
+  `expert.agreement_status` is therefore GHL's fact; if it ever needs to be live here
+  the shape is an inbound `expert.agreement_signed` event mirroring `opportunity.won`.
+- **Head of Eval = GM.** The CRM build spec's Head-of-Eval instructions (day-3
+  escalation, unassigned-after-4h alert, revenue confirmation, "Head of Eval
+  dashboard") all resolve to the GM. No seventh role; `Role` stays six values.
+- **Background jobs**: Spring `@Scheduled` with a **Postgres advisory lock per job
+  type** — not Quartz, not ShedLock. The lock is not for scale-out; it is because
+  every rolling deploy runs two instances for a few seconds and a double-fired sweep
+  double-messages a client silently. `scheduled_job` records **runs, not intentions**;
+  idempotency comes from the data each sweep reads. Sweeps prompt and publish, and
+  **never transition a case**.
+- **Queue**: the `webhook_delivery` outbox, claimed `FOR UPDATE SKIP LOCKED`, with
+  wall-clock backoff and dead-lettering. **No message broker** — the only
+  cross-process work is "deliver one webhook and keep trying", and a broker would move
+  the outbox out of the transaction that guarantees it exists.
+- **Client documents**: the client uploads through the portal and the bytes **stream
+  through to Drive** (Unit 21). EvalOS keeps the Drive file id — no temp file, no
+  upload directory, no blob column, so "hosts no files" survives. Content-sniffed
+  allowlist, size cap, per-token rate limit, generated filenames.
+- **No AI review of uploaded documents** — ruled out, not deferred. The Coordinator
+  reviews, using the `MISSING` / `INCORRECT` statuses that already exist.
+- **Retention and the post-delivery review are GHL's end to end.** `RetentionSweep` is
+  deleted from Unit 19; the four `retention_*_sent_at` columns stay unwritten.
+- **The eight board columns the business asked for are a derived view** over
+  `pm_approval_status` / `client_approval_status` and the signature state — the
+  `Stage` enum stays six values, because splitting `DRAFT_GENERATION` would break the
+  sub-loop design and invalidate the per-stage SLA budgets.
+- **`/delivery` is reinstated** — reverses the Unit 10-era deletion. It was cut as an
+  empty nav entry with no screen, not as a rejected idea, and the business asked for
+  it twice. `navigation.test.ts`'s absence assertion changes with it.
+- **One home per fact.** SLA budgets in `SlaCalculator`, transitions in
+  `CaseTransitions`, recipients in `NotificationListeners.ROUTES`, scope in
+  `ScopePredicate`, RAG in `ui-context.md`. `context/process-automation.md` is the
+  A-register and **cites** those; it is never a second authority. Where a doc and the
+  code disagree, the code wins.
+- **Multi-brand tenancy**: shared PostgreSQL, row-level tenancy by `brand_id`,
+  brand + team + assignee scoping enforced at the query layer. GM is the only
+  cross-brand role. Brand resolved at Handoff A by per-brand webhook endpoint
+  (each brand is a separate GHL sub-account).
+- **Stack**: Java 21 + Spring Boot + PostgreSQL (Spring Data JPA), Flyway, Spring
+  Security + JWT; React + Vite + Tailwind; monorepo, base package `com.ie.evalos`.
+  (Overrides the original Node/Express/MongoDB reuse idea.)
+- **Roles**: GM, Brand Manager, Project Manager, Project Coordinator, Case
+  Manager, Expert Network Manager. No Head-of-Evals, no interns. Sales/marketing
+  roles stay in GHL. Client and expert portals are separate scoped, link-based
+  auth surfaces.
+- **Pipeline**: 8-stage canonical model; EvalOS owns stages 3–7 via the internal
+  state machine `DOC_COLLECTION → EXPERT_ASSIGNMENT → DRAFT_GENERATION →
+EXPERT_SIGNING → FINAL_DELIVERY → CLOSED` + exception states. Draft/PM/client
+  loops live inside `DRAFT_GENERATION`. Pool → PM → CM assignment.
+- **Refund**: GM-only approval; reverses revenue recognition, voids the pending
+  payout, signals GHL.
+- **No object storage**: documents are Google Drive links and file ids; the signed letter
+  is filed into the case's own Drive folder by the expert's upload; redacted CV generated
+  on demand. Uploads stream through and are never stored by EvalOS.
+- **No mail server**: staff in-app notification center; client messages via GHL;
+  experts reached by a scoped portal link, hand-sent by the Case Manager until the
+  email-channel decision is taken (portal-only nudges thereafter).
+- **Payouts**: manual ledger form, no payment-platform/disbursement rail. Single
+  optional encrypted `payment_detail` field — **write-only from Unit 11 on**: one
+  `PUT` sets it, no endpoint reads it back, no DTO declares it, and the sheet import
+  refuses a column mapped to it. Screens get a derived "on file" boolean.
+- **Expert taxonomy** (Unit 11): `FieldTag` and `LetterType` are **closed** vocabularies,
+  enforced as Java enums _and_ as database CHECKs (`V18`), because neither covers the
+  other's writer. Exact matching for Unit 12 at the cost of a migration per new
+  discipline. The shipped values are the spec's starter list and are **not ENM-signed**.
+- **Expert load and payouts-pending are derived, never counted into a column.**
+  `expert.current_active_count`, `total_cases_completed` and `total_payments_pending`
+  exist from `V7`, have never been written, and stay that way: `ExpertLoadService` answers
+  from one batched grouped count over `evalos_case` per page, and Unit 16 does the same
+  over `payout_ledger`. A counter would need adjusting on assign, close, refund, reassign
+  and decline.
+- **Roster maintenance is a sheet upload** (CSV _and_ XLSX), validated in a dry run, then
+  imported all-or-nothing in one transaction, upserting on `(brand_id, lower(email))` —
+  the partial unique index, not the lookup, is what makes a concurrent re-upload lose.
+  Rows are never deleted by an import. The file is parsed in memory and never stored.
+- **A request may name a brand only when creating a row, never to scope a read.** `brandId`
+  on `POST /api/experts` and the imports exists because a GM has no brand of their own;
+  `OwnershipGuard` decides whether the caller may act in it.
+- **Handoff A — Case Creation v2.0** (spec `05b`, supersedes 05a): GHL fires the per-brand
+  **won-opportunity** webhook; EvalOS creates the case idempotently and already **paid**,
+  carrying the opportunity's amount into `deal_value` and its id into `ghl_opportunity_id`.
+  GHL invoices and collects before an opportunity is marked Won, so that event is the payment
+  record — **there is no `mark-paid` endpoint or transition, and no staff action sets `paid`.**
+  The pool alert goes to the PM/Coordinator pool; `NEW_LEAD` is gone with the unpaid window,
+  and `contact.created` is a recognized no-op. No unpaid case may leave `DOC_COLLECTION`, and
+  revenue recognition is still paid **and** delivered (a refund can take `paid` back). No direct
+  payment-processor integration.
+  _Superseded readings:_ Unit 05 created the case on `payment.confirmed`; Unit 05a created it
+  **unpaid** on `contact.created` with payment recorded by a GM or Brand Manager afterwards.
+- **E-signature: none — no provider** (decision, Production Process v2.0; reverses
+  "Dropbox Sign" as the stack's e-signature answer). The expert downloads the letter
+  from their portal, signs it in whatever tool they already use, and **uploads the
+  signed PDF back**, which files it into the case's Drive folder. Reasons, in order of
+  weight: a scanned wet signature is the norm for an expert opinion letter attached to
+  an immigration filing; Unit 21 already built the upload path, so this costs almost no
+  new code where the provider wanted an account, API key, template, callback secret, a
+  second inbound source and an answer to the brand-resolution problem; and the expert
+  roster is the participant the business cannot train, so not asking 400 people to
+  learn a tool removes real friction.
+  **What it costs, recorded honestly:** no tamper-evident certificate, so EvalOS
+  cannot cryptographically prove an expert signed. Compensated by three measures, not
+  ignored — a hash of the letter as sent _and_ as received, a required attestation
+  captured at upload ("I, {name}, confirm this is my signature"), and an audit row with
+  `actor_type = 'EXPERT'`. PM final QC becomes load-bearing rather than a formality. If
+  a certificate is ever genuinely required, add a provider back behind the same portal
+  step; do not hand-roll signing.
+  **Knock-on effects:** the inbound gateway stays single-source (GHL), the protected
+  brand-resolution step is no longer threatened, Unit 15 loses both its gating
+  questions and moves to needing only the Google service account, and **touchpoint T6
+  reopened** — Dropbox Sign used to email the expert its own link, so until the email
+  decision is taken the Case Manager sends the portal link by hand.
+- **Contacts**: GHL is the owner; EvalOS keeps a read-only, brand-tagged snapshot.
+- **NFR**: 50–100 cases/brand/month; ~99% availability, single region; nightly
+  backups; SLA calendar America/Los_Angeles (9–5 PT, US federal holidays); UTC
+  storage. GDPR/CCPA-specific handling out of scope for v1.
+
+## Session Notes
+
+- **Unit 01 deviations / gaps to close.** (a) The spec's `./mvnw verify` covers
+  compile + the health-endpoint test only — a full context-load test needs a
+  Postgres, and this machine has neither Docker nor a local Postgres, so
+  "app starts, Flyway applies V1 once" is **unverified**; add a Testcontainers
+  `@SpringBootTest` in Unit 03 when entities make it worth it. (b) ~~Inter /
+  IBM Plex Mono are declared as font stacks with system fallbacks; the actual
+  webfonts are not bundled.~~ — **closed by the visual pass above**, and it was not
+  cosmetic: no system fallback carries `tabular-nums`, so every tabular-figure class
+  added in Units 07–09 was inert until the faces loaded. (c) Boot 3.5.16 chosen over the Initializr's 4.1.0
+  to match the spec's "Spring Boot 3.x". (d) Stale `backend/target/` from the
+  old scaffold breaks surefire discovery — run `./mvnw clean verify` once.
+
+- **Unit 02 deviations / gaps to close.** (a) ~~DB half unverified~~ —
+  **closed**: verified live against local Postgres (postgres/1234, db `evalos`
+  created this session). Unit 03 should still add a Testcontainers
+  `@SpringBootTest` so the DB path is covered in CI, not just by a manual local
+  run (and to re-add the testcontainers deps dropped when the scaffold was
+  re-based). (b) `/api/me`
+  lives in `AuthController`, not the spec's separate `MeController` — same
+  concern (staff identity), one fewer file. (c) `@WebMvcTest` slices must
+  `@Import` the security stack and set `evalos.security.jwt.secret`, because
+  `JwtFilter` is picked up as a `Filter` bean while `JwtService` is not — that
+  is what broke Unit 01's `HealthControllerTest`; it now imports the real
+  `SecurityConfig` and so also asserts health stays public. (d) The IDE flags
+  `evalos.*` as an unknown property — expected, those values are read with
+  `@Value`, not `@ConfigurationProperties`. (e) The JWT carries role/brand/team,
+  so a role or brand change only takes effect on the next login; the 8h TTL
+  bounds it. Revisit if instant revocation is ever required.
+
+- **Unit 03 deviations / gaps to close.**
+  (a) **Flyway out-of-order, local only.** The `V900` local seed sits above every
+  real migration, so on a dev database that had already run it, `V4`–`V10` looked
+  out of order and Flyway refused them — a latent Unit 02 defect that Unit 03's
+  first new migration surfaced. Fixed with `spring.flyway.out-of-order: true` in
+  the `local` profile, the only profile that applies the seed; `prod` keeps the
+  strict default. Fresh databases were never affected.
+  (b) **Accessors are added when a consumer appears.** Entities carry their mapped
+  fields, a creation constructor for the required columns, and nothing else;
+  Hibernate uses field access, so getters are not needed to persist or validate.
+  `ScopedEntity` exposes `id`/`brandId`/`createdAt`, `Expert` exposes
+  `payment_detail`, and `AuditEvent` has full getters because its finders return
+  rows to be read. Unit 04 adds the stage/SLA accessors the state machine needs
+  rather than 400 lines of speculative boilerplate now.
+  (c) **`created_at` added to three tables** the spec's per-table lists omitted
+  (`contact_snapshot`, `document_checklist_item`, `expert`) — the spec's blanket
+  "every table has `brand_id` and timestamps" plus deliverable 6's `created_at`
+  stamp both call for it.
+  (d) **Columns with a spec default are NOT NULL** (`draft_version_count`,
+  `google_review_requested`, `total_cases_completed`, `current_active_count`,
+  `total_payments_pending`) because the Java fields are primitives / never null.
+  (e) **`evalos_case.expert_id`'s foreign key is added in `V7`**, not `V5`: the
+  `expert` table does not exist yet at `V5`. The column and its
+  `(brand_id, expert_id)` index are in `V5` as specified.
+  (f) **Audit brand is derived, not passed.** `recordEvent(...)` has no `brandId`
+  parameter, so the brand comes from `TenantContext` — never from an argument a
+  caller could get wrong. A system action outside a request records a null brand,
+  which the nullable column allows; so does a GM action, since a GM has no brand.
+  (g) **`object_type` stays a `String`**, matching the spec's signature. No
+  `AuditObjectType` enum is defined anywhere in the design; add one if Unit 04
+  finds the loose strings drifting.
+  (h) **`text[]` columns map as `String[]`**, not enum arrays — `PerformanceFlag`
+  is the vocabulary, applied at the service layer. Enum-array mapping buys
+  nothing here and risks `ddl-auto=validate` mismatches.
+  (i) **No CHECK constraints on the enum columns.** The spec does not ask for
+  them; `V3`'s `role` CHECK was Unit 02's own call. Cheap to add later if a
+  hand-written row ever needs guarding.
+  (j) `ScopePredicate` still lives in `service` (Unit 02 put it there) and
+  `repository` now imports it — inverted layering, but it is a static helper with
+  no dependencies, so there is no cycle and moving it would touch Unit 02 code for
+  no behavioural gain.
+  (k) **Contact snapshot columns stay updatable.** Invariant 7 means EvalOS
+  business rules never mutate them, not that the column is physically read-only —
+  `architecture.md` has GHL's `contact.updated` refreshing the snapshot, and
+  `updatable = false` would block that writer too. The rule is documented on the
+  entity instead.
+  (l) **Testcontainers gap still open.** The DB checks live in
+  `LocalPostgresIntegrationTest`, gated on `-Devalos.db.test=true`, because this
+  machine has no Docker; `./mvnw verify` therefore stays green anywhere and skips
+  those 6. Convert it to Testcontainers when CI (or Docker) exists — the test
+  bodies will not need to change, only how the database is provided.
+  (m) Fixed in passing: `README.md` said a Brand Manager sees "four" seeded team
+  members; the seed gives them three.
+
+- **Unit 03 review pass — three data-contract ambiguities closed** (all verified
+  by `verify` + the DB suite; no schema change, so no new migration):
+  (a) **One clock for every timestamp.** `AuditEvent.created_at` was
+  database-stamped (`insertable = false`) while every `ScopedEntity` stamps in
+  `@PrePersist`. Two clocks in one schema means a timeline interleaving a row's
+  `created_at` with its audit rows can order wrongly once app and DB sit on
+  different hosts. Audit now stamps in Java like everything else; the column keeps
+  `DEFAULT now()` as the raw-SQL backstop.
+  (b) **No column name is derived.** Roughly 20 single-word columns (plus both
+  `id`s) relied on `CamelCaseToUnderscoresNamingStrategy` to guess their name.
+  Every column is now spelled out with `@Column(name = ...)`, matching Unit 02's
+  `TeamMember`. This is deliberately _more_ code: the column name is a contract
+  shared with the migrations, and the strategy does not always agree with it —
+  `retention30SentAt` derives to `retention30_sent_at`, not the real
+  `retention_30_sent_at`.
+  (c) **The scope axis can no longer be forgotten.** `scopeFields()` stays
+  abstract (a brand-only default would fail _open_), and `DomainInvariantsTest`
+  now also asserts that an entity declaring `teamId` scopes by it, and that every
+  `ScopedEntity` subclass on the classpath appears in the repository scope table —
+  so adding an entity without declaring its scope breaks the build.
+  Also cut in the same pass: 44 lines of accessors and creation constructors with
+  no caller (4 entity constructors, `Notification.isRead`/`markRead`,
+  `AuditEvent.getObjectType`/`getObjectId`).
+
+- **Unit 04 deviations / decisions to confirm.**
+  (a) **`PROJECT_COORDINATOR` stays `Tier.SELF`** — decided, and the runtime gap it left
+  is **closed by Unit 08**, by the route this note called for: `V17` adds
+  `assigned_coordinator` and the assignee axis became a _set_ of columns, so a SELF caller
+  matches a case naming them in any slot. Briefly moved to `Tier.TEAM` during the Unit 04
+  build, then reverted on instruction — and reverting was right: the fix was the missing
+  column, **not** a widened predicate, which would have failed open. The warning that lived
+  on the enum constant is now a record of what was fixed.
+  (b) **`assignPm` stamps `team_id` from the PM's row.** Nothing else populated it,
+  so PM/Coordinator team scoping would never have matched either. Pool → PM is the
+  moment a case acquires a team.
+  (c) **`stage_entered_at` means "when the current wait began"**, restamped by every
+  transition rather than only the ones that change stage. Without it a second PM
+  review round would inherit the first round's spent clock, and there is no column
+  for a sub-loop timestamp (Unit 04 adds no migration). The stage timeline is still
+  reconstructable from the audit trail.
+  (d) **"Flagged refunded" is `CLOSED` + `exception_state = REFUND_REQUESTED`** —
+  confirmed as the reading of the requirement. No
+  refunded column exists and no migration was in scope. `RefundService.isRefunded`
+  / `isRevenueRecognized` are the single reading of that pair — Unit 17's dashboards
+  must sum through them, not through `delivery_date` alone. A _requested_ refund is
+  deliberately not a reversal.
+  (e) **An out-of-scope case answers 403, not 404**, because it reuses
+  `ForbiddenException`: whether a case id exists is itself another brand's
+  information, and this needed no new exception type or handler branch.
+  (f) **Four event types added to the catalog** beyond the spec's list —
+  `case.pm_assigned`, `expert.declined`, `case.resumed`, `case.refund_denied` —
+  because the acceptance criterion is exactly one event per transition and those
+  four had none. `checklist.requested` and `case.delivered_to_client` are _not_
+  defined yet: Units 05/06 add them when something publishes them.
+  (g) **The GM is a superuser on every transition** — decided. Each gate is the
+  spec's actor column _plus_ the GM, applied as one `GM_OR` constant prefixed onto
+  every `@PreAuthorize` rather than eighteen hand-maintained role lists, so a new
+  route cannot forget it. The two refund rulings stay GM-**only** (GM-also would be
+  meaningless there), and `RefundService` re-checks the role in the service because
+  it is the one path that touches money. The route table in `CaseControllerTest`
+  asserts the GM gets through all twenty.
+  (h) **One exception state at a time.** A case on hold must be resumed before a
+  refund can be requested. Simplest correct reading of the schema (there is one
+  `exception_state` column); revisit if a client on hold asking for a refund turns
+  out to be common.
+  (i) **Client/expert transitions are staff-recorded for now.**
+  `clientApproveDraft`, `clientRequestRevisions`, `expertSigned` and
+  `expertDeclined` have staff endpoints so a case is not stuck before Units 14/15
+  exist. Those units call the same service methods behind their own filter chains —
+  and will need a principal, since `apply(...)` reads the actor from
+  `TenantContext.current()`.
+  (j) **Testcontainers gap still open** (carried from Unit 03). The two new DB
+  checks live in the same `-Devalos.db.test=true` gated class.
+
+- **Unit 05 deviations / decisions to confirm.**
+  (a) ~~**A rejected signature is logged, not archived.**~~ **Moot since 2026-08-27:
+  there is no signature to reject.** What the rule protected — nothing archived until
+  the caller is established — still holds, one step earlier: a delivery whose endpoint
+  token resolves to no active brand is logged and 404'd, and writes nothing. The
+  `signature_verified` column survives as a `V12` artifact nothing sets; new rows are
+  `false`, and the `true` rows are exactly the pre-change ones.
+  (b) **Audit records `CASE` + `AuditAction.CREATED`**, not a literal `CASE_CREATED`
+  action, matching Unit 04's object-type + action convention. The pair reads the
+  same and needs no new enum value.
+  (c) **`AuditService.recordSystemEvent` takes the brand explicitly.** Unit 03 note
+  (f) refused a `brandId` parameter on `recordEvent`; a webhook has no authenticated
+  caller, so without this every case creation would audit against a null brand and
+  drop out of that brand's trail. Separately named so no request-scoped caller can
+  reach it, and the argument is only trustworthy because the endpoint token is the
+  most authoritative brand signal there is (invariant 8).
+  (d) **`case_code` is `<initials>-<year>-<6 hex>`** (`IE-2026-375863`). Random
+  rather than a per-brand sequence, which would need a counter table and a lock; a
+  collision hits the unique constraint and returns a retriable 5xx.
+  (e) ~~**The signature header name is configuration**
+  (`evalos.webhook.signature-header`, default `X-Evalos-Signature`) because GHL's
+  real header is unconfirmed. The one knob this unit needs to be re-pointed without
+  a code change — and it is the only claim in this note that survived.~~ **Now stale too, as of
+  2026-08-27: the property and the whole inbound signature step are deleted (G17). Nothing in
+  this note survives.** The **payload shape is
+  also assumed**, and was isolated in `GhlPaymentHandler.PaymentConfirmed`. **Both halves of
+  that are now stale**: `GhlPaymentHandler` was deleted in Unit 05a (the shape moved to
+  `GhlContactHandler.ContactCreated`), and "a correction is one file" was never true for a
+  field that has to reach the case — see the open question below for what a correction actually
+  touches.
+  (f) **The idempotency key is scoped by brand (`V13`), replacing the spec's
+  `UNIQUE (source, external_id)`.** Closed, was an open question. The spec's key is
+  brand-agnostic while each brand is a separate GHL sub-account numbering its own
+  invoices; reached live, XpertsPortal posting its own `INV-LIVE-0001` was swallowed
+  as International Evaluations' duplicate, created no case for a paid deal, and
+  handed the caller the _other brand's_ event id. `V13` makes it
+  `UNIQUE NULLS NOT DISTINCT (source, brand_id, external_id)` and the lookup became
+  `findBySourceAndBrandIdAndExternalId`, so each brand's key is its own; the interim
+  409 guard is deleted. `NULLS NOT DISTINCT` because `brand_id` is nullable and
+  Postgres would otherwise treat two brand-less rows as distinct, losing exactly the
+  deduplication the constraint exists for.
+  (g0) **Defect found by the post-commit spec audit and fixed: a failed delivery
+  could never be retried.** The dedupe check short-circuited on _any_ archived row,
+  so after a handler failure (which archives the row unprocessed and returns a
+  retriable 5xx) the redelivery was answered `duplicate` and the handler never ran
+  again — the paid case was lost for good. "Already seen" is not "already done": the
+  gateway now only treats a row as a duplicate when `processed` is true, and reuses
+  the unprocessed row as the retry, so a redelivery succeeds without creating a
+  second case. This was acceptance criterion 7's second clause, and it survived
+  because the original test asserted only the 5xx and the recorded error, never the
+  recovery. `InboundWebhookTest.aRedeliveryAfterAFailureRetriesInsteadOfLooking\
+LikeADuplicate` now covers it (written failing first, to prove the defect).
+  (g) **`ChecklistTemplates` is a static map, and it is the source of truth only for a case
+  that does not exist yet.** It is read exactly once — by `CaseIntakeService`, to create the
+  `document_checklist_item` rows. **From that moment the rows are authoritative and the map is
+  not.** Nothing re-reads it for an existing case, so editing a template can never change a
+  case already in flight.
+  **This is the fact Unit 10 rests on**: the checklist board edits rows, and there is no
+  template to keep in step with them. `CaseDetailService.ChecklistSummary` counts rows for the
+  same reason, and its "complete" test is `markDocsComplete`'s, not the template's.
+  It moves into the database the first time a Brand Manager needs to edit a template without a
+  deploy, and the seed for that table would be this map — but that would only change where
+  _new_ checklists come from. It would still not reach a case in flight.
+  (h) **A `ponytail-review` pass found ~35 lines of cruft, now cut**: a truncation
+  guard on an unbounded `text` column, a redundant `processed = false`, two unused
+  `ContactSnapshot` getters, two `Ack` factory methods, a redundant `List.copyOf`
+  around `toList()`, a speculative `"id"` idempotency-key candidate, and a
+  `reduce("", String::concat)` that is `Collectors.joining()`. **Not** cut, by
+  decision: the transport record and the intake command record declare the same 21
+  fields with a mapper between them — that split is what keeps an unconfirmed payload
+  shape out of `service`, and the payload shape is the thing most likely to change.
+
+- **Unit 06 deviations / decisions to confirm.**
+  (a) **The spec's `case.created` row is split in two.** The spec maps
+  `case.created (pool arrival)` to GM + Brand Manager, but Unit 05a moved the ground
+  under that: `case.created` is now a _lead_, and `case.paid` is the pool arrival. Both
+  are mapped — `NEW_LEAD` ("somebody is asking") and `NEW_CASE_IN_POOL` ("assign a
+  project manager") — to the same recipients the spec names. This is the spec's intent,
+  not its letter.
+  **Re-pointed by Case Creation v2.0, and now in code:** the split has closed again. There
+  is no lead and no unpaid case, so `case.created` _is_ the pool arrival, `NEW_LEAD` is
+  emitted by nothing, and the recipients are the **PM/Coordinator** pool rather than GM +
+  Brand Manager. The paragraph above is history — read it only to understand old rows.
+  (b) **The pool arrival is announced once per case.** `apply(...)` publishes one event
+  per transition _including_ a `mark-paid` that only corrects the amount, so the listener
+  checks `existsByCaseIdAndType` before raising `NEW_CASE_IN_POOL`. The guard lives here
+  rather than in `markPaid` because "announce once" is a property of the notification,
+  not of the transition — and it also holds if anything later re-publishes the event.
+  **Keep this guard in v2.0** even though the `mark-paid` amount-correction that motivated
+  it is gone: "announce once" is still a property of the notification, and a redelivered
+  webhook must not produce a second alert.
+  (c) **The centre deliberately does not use `findScoped`.** That applies the caller's
+  _tier_, and the GM's tier is ALL — a GM's scoped read would return every member's
+  notifications in every brand. "My notifications" is an identity question, not a scope
+  one, so every finder names `recipientId` explicitly and no tier can widen it. The
+  `SCOPE` constant stays declared because `DomainInvariantsTest` requires one.
+  (d) **Three mapped events are not implemented, because their event types do not
+  exist yet.** `sla.breached` / `sla.escalation` (Unit 19) and `kpi.threshold_breached`
+  (Unit 17/19) are in the spec's table; nothing publishes them, and inventing
+  `CaseEvents.Type` entries with no publisher would be scaffolding. `SLA_AT_RISK`,
+  `SLA_OVERDUE` and the recipient rule (assigned PM + Brand Manager / Brand Manager +
+  GM) are the only parts still to add when those units land.
+  (e) **`case.delivered_to_client` is `CASE_DELIVERED`** — the spec's third
+  client-facing name; the catalog has had `case.delivered` since Unit 04. All three
+  client-facing events are listed explicitly in `CLIENT_FACING` rather than left to fall
+  through the unmapped default, so "no staff alert" reads as a decision.
+  (f) **Notification bodies no longer name the brand or the contact.** `PoolNotifier`
+  built "New International Evaluations lead IE-2026-0001 from Anita Rao"; the listener
+  builds "New lead IE-2026-0001." The event payload carries neither name, the case code
+  already encodes the brand, and the row is brand-tagged — so this avoids loading a
+  `Brand` and a `ContactSnapshot` per alert to restate what the reader already has.
+  (g) **`markAllReadFor` carries its own `@Transactional`.** A `@Modifying` bulk update
+  throws `TransactionRequiredException` without one. Found by the DB test calling the
+  repository directly; the annotation means a future caller who forgets cannot break it.
+  (h) **Accessors added per the consumer-appeared rule** (Unit 03 note b):
+  `Notification.getCaseId`/`isRead`/`markRead`. `markRead` is one-way — the centre has
+  no unread button, so there is no setter to flip it back.
+  (i) **Coordinator recipients resolve by role across the brand**, plural, because the
+  spec's table names the role rather than a member — and because no `evalos_case` column
+  names a coordinator (the open question below). This is the one route whose recipients
+  are not derived from the case itself.
+  (j) **Not verified live.** Unit 06 has no live-run acceptance criterion and all six of
+  its criteria are covered by tests, but the four endpoints have not been exercised over
+  real HTTP, and the listeners have not been observed firing end to end from a webhook.
+
+- **Unit 07 deviations / decisions to confirm.**
+  (a) **No `components/ui/` primitives were generated.** `ui-context.md` calls for a
+  shadcn/Radix set there and `ai-workflow-rules.md` marks it protected, but the
+  directory has never existed and nothing in this unit needed it: the brand switcher is
+  a native `<select>` and the bell dropdown a native `<details>`. Both ship keyboard
+  handling, focus and a11y semantics a hand-rolled version would have to reimplement.
+  Generate the set when a table, dialog or tabs is actually required (Unit 08).
+  (b) **Lucide is not installed; the one icon is inline SVG.** One bell does not earn a
+  dependency. Add Lucide when a screen needs a dozen.
+  (c) **`sessionStorage`, and there is no refresh strategy** — the spec asks for
+  "in-memory + refresh strategy", but no refresh endpoint exists (the JWT is issued once
+  for 8h). Token in memory, mirrored to sessionStorage so a reload does not bounce the
+  user to login; the 401 interceptor is the whole expiry story. Revisit if a refresh
+  route is ever added. Note this is XSS-exposed in a way an httpOnly cookie would not
+  be — accepted for a staff-only internal tool, and worth reconsidering before any
+  external surface (Units 14/15) reuses this code.
+  (d) ~~The brand filter is state, not yet a parameter~~ — **superseded by Unit 08.**
+  `GET /api/cases/board` takes `brandId`, applied after the scoped read so it can only ever
+  narrow. Holding it in `filters.tsx` first is what let Unit 08 be purely additive.
+  (e) **Six dashboards are one component plus a table**, not six files. The spec says
+  "one page per role"; this is one page per role, driven by data.
+  **The PRIMARY KPI names are slot labels, not agreed metrics** — Unit 17 owns the real
+  ones. Every tile is a skeleton bar, never a number: a plausible fake figure on an
+  operations dashboard is worse than a blank one.
+  (f) ~~Three `oxlint` warnings accepted~~ — **superseded, and the note was wrong.** It
+  dismissed `react/only-export-components` as a dev-ergonomics concern; the browser pass below
+  found the consequence (HMR threw `useAuth must be used inside AuthProvider`). The providers
+  were split into `lib/authContext.ts` and `features/shell/filtersContext.ts` and lint is
+  completely clean. Recorded because the reasoning is the lesson: a lint rule dismissed as
+  cosmetic was describing a real defect.
+  (g) **`/cases` is shared by four roles** (GM, Brand Manager, PM, Coordinator) rather
+  than being four routes, since the spec's per-role labels ("all brands" / "team" /
+  "own") describe _scope_, which the server applies — not different screens.
+  (h) ~~No frontend test suite~~ — **superseded by Unit 08** (Vitest) **and Unit 09**, which
+  added `navigation.test.ts`. The prediction in this note held exactly: the gap was worth
+  closing "before the nav table grows past one screen", and by Unit 09 the table had grown a
+  parameterized route that needed its own gate. `navFor`/`mayReach` now have assertions
+  instead of a browser pass.
+
+- **Unit 07 browser pass — all six acceptance criteria confirmed, two defects found and
+  fixed.** Driven through Chrome against the running stack.
+  - **Criterion 1** — all six roles land on their own dashboard with exactly the spec's
+    nav set: GM `Dashboard|Cases|Experts|Payouts|Brands`, Brand Manager the same minus
+    Brands, PM `Dashboard|Cases|Experts|Board`, Coordinator
+    `Dashboard|Cases|Doc Checklists|Delivery`, Case Manager `Dashboard|My Cases`, ENM
+    `Dashboard|Payouts|Expert Database`. Each shows its own PRIMARY KPI tile.
+  - **Criterion 2** — the GM's switcher lists "All brands" plus both brands from
+    `/api/brands`, and selecting one flips the dashboard label from "all brands" to
+    "one brand". Every other role gets the static "Your brand" label and **no
+    `<select>` in the DOM at all**.
+  - **Criterion 3** — the bell lists live rows, the empty state reads correctly for a
+    recipient with none, and mark-all-read repaints the badge.
+  - **Criterion 4** — deep-linking a Case Manager to `/brands` renders the 403 view
+    inside the shell with the URL preserved.
+  - **Criterion 5** — sign out returns to login and clears the session; navigating to
+    `/login` while signed in redirects to the dashboard.
+  - **Criterion 6** — `npm run build` clean, and after the two fixes below a hard reload
+    plus a bell open produces **zero console output**.
+  - **Defect 1, fixed: the dev API logger reported aborted requests as errors.**
+    StrictMode double-invokes effects and the cleanup aborts the first request, so the
+    console filled with `[api] GET /notifications/unread-count -> network error` for
+    calls that were merely superseded. Now skipped via `axios.isCancel`.
+  - **Defect 2, fixed: HMR crashed the app, and the lint warning was right.** Note (f)
+    dismissed three `react/only-export-components` warnings as a Fast-Refresh
+    ergonomics concern. The browser pass caught the consequence: editing any module in
+    the auth import graph threw `useAuth must be used inside AuthProvider` from `App`
+    via `performReactRefresh`, needing a manual reload. Split into `lib/authContext.ts`
+    and `features/shell/filtersContext.ts` (context + hooks) with the providers left as
+    the only export of their files. **`npm run lint` is now completely clean** and the
+    three warnings in note (f) no longer apply.
+  - ~~Cosmetic deviation left as-is: **nav item _order_ differs from the spec's per-role
+    prose** for three roles (the spec puts Board second for a PM and Expert Database
+    before Payouts for an ENM; `NAV_ITEMS` is one globally-ordered table, so shared
+    items come first). Every _set_ is correct. Fixing it needs a per-role order field —
+    worth doing if a role's primary screen being last actually bothers anyone.~~ —
+    **closed by the visual pass above, and it did not need the per-role order field.**
+    Grouping the one table (Overview / Pipeline / Records / Admin) puts each role's
+    pipeline screen directly under the dashboard, which is what the spec's prose was
+    describing. The deviation was real, not cosmetic: a PM's board was listed under a
+    placeholder.
+  - Hygiene note: `LocalPostgresIntegrationTest` writes rows into the **dev** `evalos`
+    database and leaves them behind — the bell shows notifications with bodies `"old"`
+    and `"fresh"` from `theNotificationCentreFindersRunAgainstRealSql`. Harmless, but
+    the dev database now needs a reset before any demo.
+
+- **Unit 08 deviations / decisions to confirm.**
+  (a) **The move is not optimistic.** The spec asks for "optimistic move with rollback on
+  error". The board posts the transition and re-reads instead. The server decides the target
+  stage from its own table, so an optimistic move means _guessing_ where the card lands and
+  being wrong on every guard (unpaid, checklist incomplete, wrong exception state) — the
+  refusal is the common case, not the exception. A refused action shows its reason on the
+  card and nothing moves. Revisit if the ~200ms settle is ever felt.
+  (b) ~~Member and expert ids are text inputs~~ — **closed in the same unit**: both are
+  `<select>`s over the two scoped picker endpoints above. `GET /api/experts` is a **partial
+  pre-empt of Unit 11** and named `ExpertPickerController` to say so: no search, no taxonomy
+  matching, no quality scores, no sheet upload. Unit 11 supersedes the screen; the endpoint
+  can stay as the picker's read.
+  (c) **The client quick-action table duplicates Unit 04's transition table.** Unavoidable
+  given the spec asks for legal-actions-per-card, and deliberately kept as _one_ table in
+  `boardApi.ts` with the server as the authority — every action surfaces its 409 inline
+  rather than assuming success. If the two drift, the server wins and the user sees why.
+  (d) **No drag-and-drop.** The spec puts free drag out of scope (moves are constrained to
+  legal transitions), so actions are buttons. A drag that can only ever drop in one place is
+  a button with extra steps.
+  (e) **The pool is a lane over the stage data, not a separate query.** A case in the pool is
+  in `DOC_COLLECTION` like any other and appears in that column too — the lane is the same
+  work seen through "what has nobody picked up". GM / Brand Manager / PM only; a Case Manager
+  has no pool because nothing in it is theirs yet.
+  (f) **`GET /api/cases/board` has no `@PreAuthorize`.** Every staff role has a board and
+  none can widen it; a role with nothing assigned gets empty columns, which is a screen, not
+  a refusal. Only `dealValue` is role-dependent.
+  (g) **Still no `components/ui/` primitives** (carried from Unit 07 note (a)). The dialog is
+  a native `<dialog>` and the filters native `<select>`s — Escape, focus trapping, the
+  backdrop and keyboard handling all come from the platform. Unit 09's case detail is the
+  first screen likely to actually need the generated set (tabs, a real table).
+  (h) **`/cases` is still a placeholder.** Spec 08's deliverables are all board; the dense
+  sortable case _table_ `ui-context.md` describes is not among them, so `/cases` was left
+  pointing at the placeholder rather than quietly aliasing it to the board.
+  (i) ~~Frontend has no test suite~~ — **closed** (the gap Unit 07 note (h) opened).
+  **Vitest, one dev dependency, no jsdom.** The board's decision logic was split into
+  `features/board/boardRules.ts` — types, `STAGE_COLUMNS`, `STAGE_ACCESS`, `QUICK_ACTIONS`,
+  `actionsFor`, `columnsFor`, `dueBeforeFor` — which imports nothing but a type, so it tests
+  in the node environment with no DOM and no server. `boardApi.ts` keeps the four HTTP calls.
+  The split was worth doing on its own terms: `session.ts` reads `sessionStorage` at module
+  load, so anything importing the old combined module needed a browser to be tested at all.
+  `dueBeforeFor` moved out of `BoardView` and now takes an injectable `now`, because date
+  window arithmetic is exactly what breaks silently.
+  **17 tests, and they were mutation-checked** — flipping one `STAGE_ACCESS` cell from
+  `status` to `full` failed two of them, so they are not vacuous. They cover: every
+  role×stage cell is defined, every role can work at least one stage (a table typo would
+  otherwise leave somebody a board they can only stare at), the Case Manager's two hidden
+  columns, the Coordinator's watch-the-middle row, a watching role keeps hold/refund but
+  loses the stage actions, **no action is ever offered to a role its route would refuse**
+  (the whole point of the client table), one-exception-at-a-time, refund rulings GM-only not
+  GM-also, and the date window widening monotonically.
+  (j) **A Case Manager loses sight of a case at delivery — confirmed intended, no change.**
+  `STAGE_ACCESS.CASE_MANAGER.FINAL_DELIVERY` is `none`, so a case they drafted leaves their
+  board once QC passes, even though `assigned_cm` still names them. That is the matrix's `—`
+  cell and the intended hand-off: delivery is the Coordinator's stage, and a CM's board is the
+  work in front of them rather than everything they have ever touched.
+  **It is not lost, only off the board** — the case stays in the CM's scope, so it still appears
+  in an exception lane if one is raised, and the Unit 09 detail page opens by direct link. Worth
+  keeping in mind if a CM ever needs a "delivered" view; that would be a filter, not this cell.
+  (k) **`Head/Vert Mgr`'s KPI column is not modelled as a stage access.** GM and Brand
+  Manager get `full` on all five columns instead. A KPI roll-up is a dashboard, not a board
+  column — Unit 17 owns it.
+
+- **Unit 07 note (g) is what Unit 08 leaned on.** "Scope, not different screens" is the reason
+  `/board` and `/my-cases` are one component. Still current, unlike (d), (f) and (h), which are
+  struck through above.
+
+- **Unit 09 deviations / decisions to confirm.**
+  (a) **The spec's deliverables 3 and 5 contradict each other on strategy notes** — 3 says
+  "visible to PM + CM", 5 says "any PM-only note hidden from Case Manager / Coordinator". Read as:
+  3 is the specific rule for this field and 5's wording is loose.
+  **Confirmed, no change: the Brand Manager does not see strategy notes.** The rule as built and
+  now agreed —
+  - read (`SEES_STRATEGY_NOTES`): **GM, Project Manager, Case Manager**
+  - write (`MAY_EDIT_STRATEGY_NOTES`): **GM, Project Manager**
+  - no read, no write: **Brand Manager, Project Coordinator, Expert Network Manager**
+
+  The reasoning that stands: these are working notes between the two named people on one case,
+  not commercial information the brand's management needs. A Brand Manager keeps `deal_value`,
+  which is the field their role actually turns on.
+  (b) **`CaseDetailService` is a fourth backend file the spec's list does not name.** The spec has
+  `GET /api/cases/{id}` returning a "full case DTO" but lists only the timeline service and
+  controller; assembling client + expert + checklist is multi-repository work that does not belong
+  in a controller.
+  (c) **`CaseDetail` nests the summary** rather than flattening 21 fields into it, so the board
+  and the detail page share one shape. Costs the client a `detail.summary.x` hop; the alternative
+  is two definitions of the same case that can drift.
+  (d) **The timeline shows the `note` to every role that can open the case.** It carries hold
+  reasons, decline reasons, revision notes and — from `markPaid` — an invoice reference. Only
+  `deal_value` is restricted by invariant 3, and an invoice ref is not it. Flagging because it is
+  the one adjacent-to-money field a Case Manager can now see; say so and it becomes a projection
+  like the others.
+  (e) **`AuditAction` has no dedicated value for a notes edit** — it records `UPDATED`, matching
+  Unit 05 note (b)'s object-type + action convention. The timeline reads "updated" for both a
+  notes edit and a payment correction; the snapshot distinguishes them, the label does not.
+  (f) **No expert _link_ on the expert card.** Unit 11 owns the expert screen; a card that named
+  a destination which does not exist would be worse than one that does not.
+  (g) **`DocumentsPanel` links to `/checklists`, not to this case's checklist.** Unit 10 defines
+  that route's shape; the link goes to the board it will own rather than inventing a URL now.
+  (h) **The page reloads both reads after every action** instead of patching state. A transition
+  writes an audit row, so the timeline is stale the moment the case changes — and a timeline that
+  lags the case it describes is worse than a slightly slower page.
+
+- **Unit 09 review pass — 1 reported defect and 2 scoping cleanups, all fixed.** A five-lens
+  review of `773bf0a` produced six candidates; two were pre-existing, three scored below the
+  reporting bar, and one was a real bug. Fixed all three that were worth fixing.
+  (a) **Read access to the strategy notes was inferred from write access, and the Case Manager is
+  the one role where that is wrong.** `StrategyNotes` computed
+  `withheld = pmStrategyNotes === null && !mayEditStrategyNotes`. A CM reads without writing, and
+  a null value means _either_ "withheld" _or_ "not written yet" — so on every case before the PM
+  wrote anything, a Case Manager was shown "Visible to the project manager and case manager on
+  this case", naming their own role while denying them the field. The DTO now states
+  **`maySeeStrategyNotes`** alongside `mayEditStrategyNotes` and the client reads it directly;
+  neither flag implies the other, and the value implies neither. Covered by
+  `readAccessToStrategyNotesIsStatedSeparatelyFromWriteAccess`, which asserts the CM's two flags
+  _disagree_ — the case the old backend test missed by always supplying a non-null string.
+  (b) **`CaseTimelineService` resolved actor names through the unscoped `findAllById`.**
+  `TeamMemberRepository`'s javadoc forbids unscoped reads across brands and CLAUDE.md's first rule
+  says a query without brand scoping is a bug. Now a `Specification` narrowing to the **case's**
+  brand. **Deliberately not `ScopePredicate`** — that applies the _caller's_ tier, and a CM is
+  `Tier.SELF`, so a tier-scoped lookup would resolve only their own name and render every
+  colleague as "System". Null `brand_id` is included because the GM is the one brand-less member
+  and a GM who acted is a real actor. `aReadOnlyCallerStillSeesTheirColleaguesNames` pins exactly
+  that.
+  (c) **`CaseDetailService` read the contact through the inherited `findById`.** `ScopedRepository`
+  calls a scoped read that skips `findScoped` a defect, and `ContactSnapshotRepository` grants no
+  carve-out for `findById` the way the checklist finder does for itself. Nothing was reachable —
+  the id comes off an already-scoped case — but `contact_id` has no brand in its foreign key, so
+  the safety rested on provenance rather than on the query. Now `findScoped`, which is brand-only
+  for every role (a Self caller with no assignment column is deliberately not narrowed), so it
+  returns the same rows for anyone who could already open the case.
+  - **Not fixed, and why**: the `apply()` "one place a case is written" javadoc was already false
+    before this unit (`CaseIntakeService` writes too) — pre-existing, and worth its own pass over
+    all four call sites rather than a drive-by. The `navigation.ts` "same table" wording is
+    imprecise now that `PARAMETERIZED` is a second array; the design is right and the test pins
+    it, so this is a comment to reword, not a defect to fix.
+  - Verified: `./mvnw verify -Devalos.db.test=true` **160 tests, 0 skipped**; `npm test` 24;
+    build and lint clean.
+
+- **Unit 08 review pass — 8 findings, 7 fixed, 1 left as a product decision.** A medium-effort
+  review of `026427e`. Two were reachable defects that hid or misreported real work:
+  (a) **Every case with no deadline was invisible on the board, permanently.** The board always
+  sends a window (`dueBeforeFor` has no "all" range) and the predicate was
+  `deadline <= :dueBefore`, so SQL's `NULL <= x` being _unknown_ dropped every undated row from
+  every column and lane, with no setting that revealed it. Intake leaves the column null
+  whenever GHL sends no date — there is no `@NotNull` on it — so this was the normal path.
+  The rest of the stack was written as though undated cards arrived (`Comparator.nullsLast`
+  "undated last", `Due —` on the card); both were unreachable. Fixed in the predicate, not the
+  caller, so `GET /api/cases?dueBefore=` gets it too:
+  `deadline IS NULL OR deadline <= :dueBefore`. Undated work is unbounded-risk work; it belongs
+  in "what needs attention by then", never hidden by it.
+  `aCaseWithNoDeadlineSurvivesTheDeadlineFilter` is DB-gated because only real SQL has NULL
+  semantics to get wrong.
+  (b) **No refusal reason ever reached the user.** `unwrap` reads the envelope only on a 2xx,
+  and every deliberate refusal is a non-2xx — a 409 carries "the case has not been paid" in the
+  body while axios sets `message` to "Request failed with status code 409". So the reason was
+  fetched, parsed and thrown away, and `boardRules.ts`'s own comment claiming actions "surface
+  the reason inline" was false. Fixed in the `api.ts` response interceptor, which lifts
+  `error.error.message` onto the Error — one place, so **every** caller in the app gets it, not
+  just the board.
+  (c) **`<dialog open>` is not modal**, so none of the platform behaviour the comment claimed
+  actually happened: Escape did nothing, `onCancel` never fired, `::backdrop` was never
+  generated (the `backdrop:` class was inert) and focus was not trapped — cards behind the
+  dialog stayed tabbable. Now opened with `showModal()` via a ref.
+  (d) **The pool lane's "Assign PM" was inert for a PM**, and the lane was always empty for
+  them anyway: `assign-pm` is what stamps `team_id`, so a pool case has no team and a PM's TEAM
+  scope never matches it — and the route is gated to GM / Brand Manager regardless. `SEES_POOL`
+  is now the two commercial roles. Deviates from the spec, which names the PM; the spec's
+  version cannot work.
+  (e) **`setMonth` overflow widened the window by up to 3 days** (31 Jan + 1 month = 3 March;
+  29 Feb + 1 year = 1 March). The existing test asserted only "later than now", which 3 March
+  satisfies, so it passed while the bug was live — now clamped, and pinned by two tests that
+  name the month.
+  (f) **An inactive member could still be assigned.** `member()` queried brand + role but not
+  `active`, so a departed member was staffable by direct POST or by a dialog left open across a
+  deactivation — while `assignable` filtered them out, making the picker's "cannot offer
+  somebody the transition would refuse" guarantee one-directional. Fixed in the shared lookup,
+  so assign-pm and assign-cm are covered too, not just the reviewed one.
+  (g) **On-hold unassigned cases were missing from the pool count.** The server puts an
+  exception-holding case in its lane _instead of_ its stage column, and the lane read only
+  `stages` — understating exactly the cases most likely to be both unassigned and held
+  (awaiting client documents).
+  - **Left as-is, deliberately:** the Case Manager losing sight of a case at `FINAL_DELIVERY`.
+    That is the matrix's own `—` cell, already recorded as note (j) and raised with the user;
+    changing it to `status` is a one-cell product decision, not a defect fix.
+  - Verified: `./mvnw verify -Devalos.db.test=true` **148 tests, 0 skipped**, `npm test` 18,
+    build and lint clean.
+
+- **Unit 09 — Case detail page.** The first unit that reads the audit trail back out.
+  - `service/CaseTimelineService` + `web/CaseTimelineController` → `GET /api/cases/{id}/timeline`,
+    oldest first. **The scoped load runs before a single audit row is fetched**, so an
+    out-of-scope case answers 403 rather than becoming a way to read another brand's history by
+    guessing an id. No `@PreAuthorize`: every role that can open a case can read what happened
+    to it, and opening it is what the scope decides.
+  - **The restricted-field rule is satisfied structurally, not by filtering.** The spec asks the
+    timeline not to surface fields the caller may not see (e.g. deal value to a CM). Each stored
+    snapshot is parsed into the typed `CaseSnapshot` and only three components are projected, so
+    a field added to the snapshot later cannot arrive by accident — and `CaseSnapshot` has never
+    carried `deal_value`. `DomainInvariantsTest.theAuditSnapshotCarriesNoRoleRestrictedField`
+    fails the build if `dealValue`, `invoiceRef` or `pmStrategyNotes` is ever added to it, because
+    adding one would leak through a screen nobody would re-check.
+  - **An unparseable snapshot still becomes a timeline entry.** Audit rows are permanent while the
+    snapshot shape moves (`assignedCoordinator` was added in Unit 08, and a notes edit stores a
+    different record entirely). Letting one bad row throw would take out the whole history —
+    the opposite of what an append-only trail is for. Action, actor and timestamp live in real
+    columns, so they survive regardless.
+  - `service/CaseDetailService` joins the three things a single case needs that the row does not
+    carry — client name, expert, checklist counts. The case itself comes from
+    `CaseLifecycleService.read`, so **scope is decided in one place** and this service cannot
+    disagree with the rest of the system about what the caller may see. The checklist's
+    "complete" definition is deliberately the same one `markDocsComplete` gates on.
+  - `PATCH /api/cases/{id}/strategy-notes` + `CaseLifecycleService.updateStrategyNotes`.
+    **Deliberately not routed through `apply(...)`**: it is not a transition, and reusing `apply`
+    would restamp `stage_entered_at` and so silently reset the SLA clock — editing a note would
+    buy the case a fresh budget — and publish a lifecycle event for something that did not
+    happen. It still writes an audit row, because invariant 13 is about every change, not every
+    transition. A PATCH rather than a POST for the same reason.
+  - **Two role gates on the detail DTO, both projections rather than client-side hiding**:
+    `deal_value` keeps its GM/BM/PM rule, and `pm_strategy_notes` is narrower — GM, PM, CM only
+    (the PM who writes them and the CM they are for). Writing is PM + GM. The DTO also answers
+    `mayEditStrategyNotes` so the client does not re-derive the rule.
+  - Frontend `features/case/*` (`CaseDetail`, `DocumentsPanel`, `DraftPanel`, `ExpertCard`,
+    `Timeline`, `StageActions`, `StrategyNotes`, `caseApi`). **The stage-action header reuses
+    `boardRules.actionsFor` and the board's dialog and POST** — which transitions are legal does
+    not depend on which screen you are on, and two tables would be two answers.
+  - `/cases/:id` is gated by the _same_ nav table via a `PARAMETERIZED` list, even though it has
+    no nav entry (you arrive from a board card). A gate declared elsewhere is how a screen ends
+    up deep-linkable but unguarded. Board cards now link to it — a real `<Link>`, so middle-click
+    and open-in-new-tab work.
+  - Two of my own test-authoring bugs, caught by the suite: a `verify` with no call before it,
+    and a mock stubbed _inside_ a `willReturn` argument — the exact trap `CaseLifecycleServiceTest`
+    already documents.
+  - Verified: `./mvnw verify -Devalos.db.test=true` **160 tests, 0 skipped** against local
+    Postgres 18; `npm test` **24** (new `navigation.test.ts` 6); build and lint clean.
+
+- **`npm audit`: 2 high findings, assessed as not exposed, deliberately not "fixed".**
+  `GHSA-qwww-vcr4-c8h2` — react-router **7.12.0 – 8.2.0**, an **RSC-mode** CSRF bypass
+  (actions executing before a 400). Installed is react-router 7.18.1 via
+  react-router-dom 7.18.1, so the version range matches.
+  - **Not reachable here.** EvalOS uses react-router declaratively and only:
+    `BrowserRouter`, `Routes`, `Route`, `Navigate`, `Link`, `NavLink`, `Outlet`,
+    `useLocation`. No `createBrowserRouter`/`RouterProvider` (data mode), no route
+    `loader`/`action`, no `useFetcher`/`useSubmit`, no react-router `<Form>`, no
+    framework mode, no `react-router.config.ts`. RSC mode requires an RSC-capable server;
+    this is a static Vite bundle talking to Spring Boot over `/api`. The vulnerable code
+    path does not exist in the build.
+  - **`npm audit fix --force` would make things worse.** It downgrades react-router-dom to
+    **7.11.0** — backwards across seven minors of real fixes, and still a breaking change.
+    Do not run it.
+  - **The actual fix is react-router 8.3.0** (the first version above the range). That is a
+    major bump, and in v8 `react-router-dom` is gone — imports move to `react-router`. For
+    this app that is mostly an import-specifier change across 7 files, but it is a
+    deliberate upgrade with its own browser pass, not a drive-by inside a feature unit.
+  - Decision: **accept and revisit when a v8 bump is scheduled.** Re-assess immediately if
+    EvalOS ever adopts data mode, framework mode, or RSC — at that point the finding
+    becomes live rather than theoretical.
+
+- **Local database reset and reseeded for demo (`V905__seed_local_demo_data.sql`).**
+  The dev database held 69 experts, 165 cases and 33 contacts written into `public` by
+  `LocalPostgresIntegrationTest` before it was moved to the `evalos_test` schema, plus a handful
+  of hand-made probe rows. That residue is what produced the NULL availability above: those rows
+  go through `ExpertRepository.save` directly and so never reach the null-to-AVAILABLE coercion in
+  `ExpertService.apply`. **No production write path can create one** — which is also why the
+  backfill migration is now worth doing rather than deferring.
+  `V905` clears every transactional table (keeping `brand` and `team_member`) and seeds a coherent
+  world: 13 experts covering all four availability states with two onboarded in the current month
+  and one deliberately unscored, 29 cases with every stage occupied and a mix of on-track /
+  at-risk / overdue, nine months of closed work with revenue, an offer ledger giving a 73%
+  acceptance rate, and a payout ledger with both settled and outstanding money. Dates are relative
+  to `now()` so it does not age. Verified by applying it twice: still 29 cases, so Flyway
+  re-applying it on boot is safe.
+  A full `pg_dump` was taken first. `evalos_test` was left alone — it is where test writes are
+  supposed to land and the app never reads it.
+
+- **Expert-network metrics 500 on an unset availability, fixed — and the convention behind it
+  made one method.**
+  The endpoint threw `NullPointerException` from `ExpertNetworkMetricsService.health` for any brand
+  whose roster held an expert with `availability` NULL — legal, since V7 declares the column plain
+  `text` with no default and the sheet import need not set it. `EnumMap.merge` rejects a null key,
+  and `coverage`'s arrow `switch` on the same field was the identical bug one reader over.
+  Code review then found the rule was only half applied: `ExpertService.availabilityBoard` filed an
+  unset expert under INACTIVE while the roster list's availability filter compared the raw column
+  and returned nothing, so an ENM saw the row in one tab and not the other. The coalesce now lives
+  once, on `Expert.availabilityOrInactive()`, with the boundary stated on it: aggregations,
+  groupings and filters normalise; a single expert's own record, the `AVAILABLE`-only guards and
+  the audit's before-value read the raw getter and are right to. Guarded by
+  `ExpertNetworkMetricsServiceTest` and `ExpertServiceTest`, both verified to fail without the fix.
+  Left alone deliberately: no migration to backfill and `SET NOT NULL`. That is the stronger fix
+  and worth doing when a schema change is already in flight, but it is a data change to a live
+  column and the app-side convention now has one home.
+
+- **Board density pass: the card is one link and the column is 240px.**
+  `CaseCard` lost its stacked `Due` / `Value` definition list for a single inline line and the chip
+  row now renders only when it has chips, which took roughly a third off the card height; the column
+  went `w-72` → `w-60` and `--board-column-max` reclaimed the 2rem of chrome the shorter column
+  header gave back. Same data on the card, more cases and more stages on a 1366-wide screen.
+  The whole card is now the click target — a `<Link>` at `absolute inset-0` with the text over it
+  `pointer-events-none`, so the quick action buttons are the only things that keep their own events.
+  Density table in `context/ui-context.md` and `mem:frontend/core` updated to match.
+  The quick actions then came off the card entirely — first to a hover overlay, then removed. The
+  card is now `card` + `mine` and nothing else: no actions, no busy state, no per-card error. Both
+  card-mounted versions spent the board's two scarcest resources, vertical room and a layout that
+  holds still under the pointer, on controls that are one click away — the transitions already live
+  on the case (`StageActions`, off the same `boardRules.actionsFor` table, so there is still only
+  one rule table) and in the draft and delivery queues, which is where somebody working a batch of
+  them is anyway. **Spec 08 §4 amended** to record that the card is read-only; its acceptance list
+  gains "a card carries no controls: clicking anywhere on it opens the case". The board keeps one
+  action, the pool's Assign PM, which is the decision this screen actually asks for; `BoardView`'s
+  `cardErrors` map collapsed to a single `actionError` rendered above the pool, since the pool can
+  only be assigning one case at a time. Fixed alongside: `CaseCard`'s inline `background` had been
+  outranking its own `hover:bg-*` class since the card was written, so the hover lift never fired;
+  the background moved into classes.
+
+- **The PM's expert assignment board (`/expert-assignment`), and the Unit 15 transition it needed.**
+  `17-dashboards.md` had asked for one screen carrying three things — cases waiting for an expert,
+  expert availability, and responses overdue past 24h flagged red with a reassign prompt — and
+  listed it **partly** built: the availability half and the Unit 12 shortlist existed, the two case
+  lists and the flag did not. Built now as a composition over what already ships: both lists are
+  pure selections in `queueRules.ts` over `/api/cases/board` (no fourth scope predicate), the
+  availability half is Unit 11's `AvailabilityBoard` unchanged, and the two actions go through the
+  board's `QuickActionDialog`, which brings the shortlist with them.
+
+  Two selection rules are worth keeping in view. **Waiting** is the `EXPERT_ASSIGNMENT` stage
+  bucket *plus* the `EXPERT_DECLINED_REMATCHING` lane, because `CaseBoardController` files a case
+  in a stage bucket only while its exception state is `NONE` — reading the stage alone would show
+  the cases nobody has picked an expert for and silently drop the ones whose expert walked away,
+  which are the more urgent half. **Overdue** is `slaStatus === 'OVERDUE'` on `EXPERT_SIGNING`,
+  which *is* `SlaCalculator`'s 24h `EXPERT_SIGN` budget measured on `BusinessCalendar` — the
+  brief's ">24h" restated as a client-side hour count would give the board and the SLA rail two
+  clocks that disagree over a weekend.
+
+  **The prompt needed somewhere to lead, so Unit 15's `EXPERT_TIMED_OUT` was built with it.**
+  `REASSIGN_EXPERT` is declared only from `EXPERT_DECLINED_REMATCHING`, and the only door to that
+  state was `EXPERT_DECLINED` — so without this transition the red row's only "fix" was recording
+  a decline that never happened, in an append-only trail. It mirrors `expertDeclined` exactly:
+  stage-preserving, sets the rematch exception, stamps the open offer `TIMED_OUT` (not `DECLINED`
+  — the expert never answered) and takes no reason. `POST /cases/{id}/expert/timed-out` is gated
+  **GM · Brand Manager · PM**, per spec 15: the ENM holds the two sign callbacks beside it but does
+  not take a case off an expert. Still no job fires it — Unit 19's sweep raises the prompt, a human
+  answers it. `ExpertSignStatus.OVERDUE` is left without a writer on purpose; the SLA already
+  answers that question and a column beside it is a second place for it to be wrong.
+
+  Nav entry is `['PROJECT_MANAGER']` — the `/inbox` reasoning, not the `/drafts` one: the GM does
+  hold both gates behind it and is left out because staffing an expert is the PM's day. The ENM is
+  out for the opposite reason, that the server would refuse them. Spec 17's status line, the two
+  `boardRules` / `navigation` tables and `mem:backend/lifecycle` + `mem:frontend/core` updated.
+
+- **32b: `/pm-notes` as its own CM sidebar entry.** 524 backend, 144 frontend, builds clean.
+  32a folded the PM notes into `/my-drafts` on the grounds that two entries over the same cases is
+  the `/cases`-beside-`/board` mistake this nav file warns about. **That was the wrong call and the
+  symptom proved it**: asked where the option was, the honest answer was "expand a row inside
+  another screen" — which is the invisibility the request was about.
+
+  **The warning is about two entries for one *screen*; these are two screens.** "What did the PM ask
+  for" is read once before drafting starts; "where did my work get to" is read repeatedly after.
+  Same cases, opposite questions, no shared component — and `/pm-notes` has **nothing to expand**,
+  because a notes screen that hides the notes repeats the problem it fixes.
+
+  **One request, and deliberately not a board field.** The obvious move was `pmStrategyNotes`
+  beside `dealValue`, which is already role-gated on the board card — rejected because the board is
+  the most-loaded screen in EvalOS and notes are a paragraph each: a hundred cases would put tens of
+  kilobytes of prose on every board load for three roles, to serve one screen that is not the board.
+  `GET /api/cases/pm-notes` instead, **reusing `CaseBoardService.forCaller`** so it is a second
+  projection and not a second scope rule — what a CM sees here cannot diverge from their board.
+
+  Notes withheld outside `SEES_STRATEGY_NOTES` with the flag stated, so "not yours to read" and
+  "nobody has written it" never look alike — one is a permission, the other is a prompt to go and
+  ask the PM.
+
+  **Cost of the new controller dependency:** two `@WebMvcTest` slices had to mock `CaseBoardService`,
+  which is the slice tax on giving a controller another collaborator. Worth it here; worth noticing
+  before doing it again.
+
+- **32a: `/my-drafts` in the Case Manager's sidebar.** 144 frontend tests, build clean.
+  Unit 32 put the PM notes and the draft history on the **case page**, which is right for somebody
+  already looking at one case and wrong for the person the comments are addressed to — a CM chasing
+  a returned draft had to open cases one at a time hunting for the reason.
+
+  One CM-only screen, two sections per row: the PM's strategy notes, and the version history with
+  the PM's comment on each. **Returned drafts sort first**, ahead of deadline order — the grouping
+  is the point, and the test pins it by giving the returned row the *latest* deadline.
+
+  **Three stages feed it, not one.** `DRAFT_IN_PROGRESS` is obvious; `DRAFT_REVIEW` is the version
+  the CM just submitted and is waiting on, and `EXPERT_DECLINED_REMATCHING` is still their case.
+  Listing only the first would empty the screen at exactly the moment the CM wants to know where
+  their work went — asserted, because it is the failure a narrower filter produces silently.
+
+  **Detail loads on expand.** Notes live on the case payload and history on its documents route, so
+  eager rendering is two requests per row for rows nobody opened. The list is one `/api/cases/board`
+  call, the same read every other queue makes, so scope cannot drift from the board's.
+
+  **Not merged with `/drafts`**: that is the PM's queue of other people's drafts awaiting review,
+  this is a status board of your own. Same subject, opposite question — pinned in `navigation.test`.
+
+- **Unit 30 code review: nine findings, all fixed. 524 backend tests, 142 frontend, clean builds.**
+  Two were serious and both were mine.
+
+  **1. The yaml-stripping script ate `server:` from `application.yml`.** Removing the `evalos.drive`
+  block, my loop deleted lines until it found the next **2-space** key — and the next top-level key
+  (`server:`, at column 0) did not match, so it kept going and consumed the header. `port:` and
+  `forward-headers-strategy:` were left dangling under `evalos:`, binding as `evalos.port` and
+  binding nowhere. **Silent**: `@Value` lookups, so no boot error — `SERVER_PORT` was simply ignored
+  everywhere and `forward-headers-strategy` was unset outside prod, which is the setting the portal
+  rate limiter depends on. *A regex that deletes by indentation has to know what ends the block.*
+
+  **2. An authorization regression on the document routes.** `readUrl` and the version listing ran
+  only the scoped load — and `Tier.SUPPLY` reads its **whole brand**, so an Expert Network Manager
+  passed it on every case. They could have downloaded the client's passport scan: the exact bytes
+  behind the fields the detail payload nulls out for that tier. **Row access and content access are
+  different questions**, and this conflated them.
+
+  Fixed by moving `seesCaseContent` off `CaseController` and onto **`Role`**, where it now has one
+  home for the field projection and the document routes alike — a service reaching into a controller
+  for an authorisation rule is the direction that produces two copies. **The listing is gated as
+  well as the download**, because a filename alone leaks identity (`Ravi_Kumar_Passport.pdf`). Test
+  added.
+
+  **3. The document list never worked.** `window.open('', '_blank', 'noopener,noreferrer')` returns
+  **null** whenever `noopener` is present, per spec — so the handle needed to navigate the tab never
+  existed and clicking a document opened a blank tab and did nothing, silently, with no error path
+  either. Now opened without `noopener` and the opener reference severed on the next line, which is
+  the same protection by a different route; a blocked popup reports itself.
+
+  **4. Prod would have booted into a broken portal.** `allowed-origins` carried an empty default
+  under a comment claiming "no default: a missing value fails loudly". It booted, then rejected
+  every cross-origin portal call — surfacing in the browser as something that looks like an auth
+  problem, which is precisely what the CORS javadoc says it exists to prevent. Now genuinely no
+  default: `${EVALOS_PORTAL_ORIGINS}` fails the boot.
+
+  **5. The multipart trade came due and was settled.** That block's own comment deferred it to
+  "Unit 21, not before" — Unit 30 is that upload. `max-file-size` 5 MB → 15 MB (a scanned transcript
+  is not a roster sheet), `threshold` still equal to it so nothing spools to disk, and
+  **`max-request-size` now larger than `max-file-size`**: they were equal, so a file at exactly the
+  cap plus its form field was rejected by a limit the user was never told about.
+
+  **6–9.** `nextVersion`'s javadoc promised a retry that does not exist — the claim is corrected and
+  the real behaviour (500, orphaned object, client retries) is stated with the condition under which
+  to add one. A `{@link}` to the deleted `DriveUnavailableException`, and orphaned Drive
+  documentation across six files that had come to assert the opposite of the code, all corrected.
+
+  **Also corrected: my own "bytes stream and are never held" claim on the upload.** With
+  `threshold == max-file-size` the container buffers the part in heap, so `getInputStream()` reads a
+  byte array. No file on disk and no blob column remain true; "never held" did not.
+
+- **Unit 30 BUILT (core): Google Drive out, S3 in.** 523 backend tests, 142 frontend, clean builds.
+
+  **Drive is gone entirely** — `GoogleDriveConfig`, `GoogleDriveClient`, `DriveUnavailableException`,
+  their test, the 502 handler, both Google dependencies with their version properties, 77 lines of
+  yaml across three profiles, and `evalos_case.drive_link` (`V34`). The audit flagged it as dead
+  the moment Unit 13 went, and it was: nothing injected the client any more.
+
+  **`DocumentStore` has two capabilities and no more: put an object, presign a read.** No delete,
+  no list, no copy — absent from the codebase rather than present-and-unused, the position
+  `GhlHttp` holds about writing to GHL. It is worth more here: these objects are a client's
+  identity documents and an expert's signed letter, and a system that can quietly delete evidence
+  will be asked whether it did.
+
+  **Key format answers open question (b): brand first.**
+  `{brandId}/client/{ghlContactId}/{documentId}`. Every other store enforces brand at the row and a
+  prefix is S3's equivalent — and deciding it later would migrate *objects*, not code. **The object
+  name is the document's id, not its filename**, which closes path traversal, collisions and
+  PII-in-a-key in one move; the filename lives in the column, where it is data rather than a path.
+  **No email appears in any key.**
+
+  **Object first, row second — and the ordering is the design.** The reverse leaves a row pointing
+  at an object that does not exist: a broken link the Coordinator cannot fix. This order can leave
+  an orphan, which is invisible and swept by a lifecycle rule. **Prefer the orphan to the dangling
+  pointer.**
+
+  **The scope check runs before the URL is minted**, never after — a presigned URL created ahead of
+  the check is one that leaked ahead of it, and no later refusal takes it back. The document is
+  then matched to the case: the object key is not the authorisation, the case is. Five minutes,
+  never stored, and **every issue writes an audit row** — which gave `AuditAction.EXPORTED` a
+  writer again. It was retired with Unit 13 and kept only so historical rows stayed readable, and
+  "a document left EvalOS" turns out to describe a presigned read exactly.
+
+  **CORS exists now**, scoped to `/api/portal/**` and nowhere else, with named origins per
+  environment, **never `*`** (the chain is credentialed), and `X-Portal-Token` in the allowed
+  headers — omit it and the preflight passes while the real request arrives stripped, a 401 that
+  looks exactly like a bad token. Empty by default: a forgotten origin fails loudly rather than
+  opening quietly.
+
+  **One SDK artifact, not two.** `s3-presigner` does not exist in SDK v2 — `S3Presigner` ships
+  inside `s3`, and asking for the separate artifact fails at pom parse.
+
+  **Not built:** the expert's signed-letter upload (Unit 15's endpoint, the same `put` path), and
+  content sniffing on upload — the declared type is recorded, not trusted, and that gap is named in
+  the spec rather than implied.
+
+- **SCOPE CUT: Units 13, 18 and 20 removed (2026-09-02).** 526 backend tests, 142 frontend,
+  builds clean.
+
+  **13 — Redacted CV (was built, now deleted).** `RedactedProfileService`,
+  `ExpertProfileController`, `RedactedProfilePanel`, `redactionRules`, the
+  `REDACTED_PROFILE` document kind and the portal's `expertProfile` / `expertReference`.
+  **The client is now told nothing about the expert at all**, which is the stronger
+  position: nothing to redact means no redaction rule to leak through. The portal test
+  asserts it by putting a very identifiable name on the case and grepping the wire.
+
+  **It cancelled a debt rather than paying one.** Unit 30 owed a PDF library because Drive's
+  export had been giving one away; the redacted profile was the only document EvalOS
+  generated, so removing it **closed Unit 30's open question (d)** outright. *The cheapest
+  way to pay for a capability is sometimes to stop needing it.*
+
+  **Two things rescued from the deletion.** `mayMintPortalLink` was Unit 14's rule that only
+  *shared a file* with Unit 13 — moved to `client-portal/portalRules.ts` with its assertion
+  carried across, because coverage should not evaporate because a neighbour was deleted.
+  And **`AuditAction.EXPORTED` is deliberately kept**: the audit trail is append-only and its
+  rows can never be rewritten, so an enum that cannot read a value some historical row
+  carries would fail on read. `REDACTED_PROFILE` could go because *nothing ever wrote one*
+  — same question, opposite answers, recorded in `mem:backend/persistence`.
+
+  **18 — Outbound dispatcher + Handoff C (never built).** **Two handoffs now, not three, and
+  EvalOS emits nothing outbound at all** — inbound GHL webhooks and read-only funnel pulls
+  are the whole integration surface. The payout entry on delivery survives; that was always
+  Unit 16's, inside `deliverToClient`'s transaction.
+
+  **What is genuinely lost, stated rather than buried:** nothing tells GHL a case was
+  delivered, so the review sequence, referral track and suppression sync are **manual**. The
+  document chase and "your draft is ready" have no automated route to the client either —
+  manual in GHL, or they become states in the client portal, which is a product decision
+  still open. **Invariant 14's "sends no email" stops being pending and becomes the
+  architecture**: there is no outbound channel left to argue about.
+
+  **20 — AI widgets (never built).** Removed rather than deferred, because a deferred unit
+  invites "we were going to do this anyway" and this is the proposal most likely to return
+  wearing a helpful hat. Promoted to **invariant 15**: no AI makes a production decision and
+  there is no AI in the system. **Unit 12's match engine is not an exception** — declared
+  factors, inspectable arithmetic, never auto-assigns, no model.
+
+  `V33` narrows the `case_document` kind CHECK. Aligned: `architecture.md` (handoffs,
+  invariant 14, new invariant 15), `project-overview.md`, `00-build-plan.md`, spec banners on
+  13/18/20, Unit 30's question (d) closed, and the scope-cut notice on `mem:core`,
+  `mem:backend/core`, `mem:frontend/core`.
+
+- **Unit 32 BUILT. 568 backend tests, 153 frontend, builds clean.** All three open questions taken
+  on their defaults: the Brand Manager reads the rationale, the comment is optional on approve and
+  required on return, and it never reaches the redacted profile.
+
+  **`expert_selection_rationale` has its own projection set, and the two swap a role each way** —
+  which is the visible proof it was worth its own column rather than more prose in the notes.
+  `SEES_EXPERT_RATIONALE` = GM · Brand Manager · PM · **ENM**; `SEES_STRATEGY_NOTES` = GM · PM ·
+  **CM**. The CM is out (why one expert was preferred is not guidance for writing a draft), the ENM
+  is in (the roster is theirs and they are asked to explain a choice), and the Brand Manager is in
+  where they are absent from the notes, because this is oversight rather than production guidance.
+  One column could not have been projected to two different role sets.
+
+  **Optional on both write paths, and a null on reassignment leaves the previous text.** Erasing a
+  recorded reason because somebody reassigned in a hurry is worse than a stale one; a required
+  field is how "n/a" becomes a column's most common value. Written in the `assign-cm` and
+  `reassign-expert` dialogs where the choice is made — the case panel is **read-only**, because a
+  reason written after the fact is the one kind worth nothing.
+
+  **`case_document` got its code** (Unit 31 created the table and left it empty): entity,
+  `DocumentKind`, `DocumentStatus`, repository, and version rows written by `submitDraft` /
+  `pmApproveDraft` / `pmReturnDraft`. **The version number comes off the case's own counter, not
+  from counting rows** — counting is a read-then-write with no lock, and V31's
+  `uq_case_document_version` is what actually refuses a race. A previous version nobody ruled on is
+  stamped `SUPERSEDED` rather than left `SUBMITTED` forever, the same permanently-open-row problem
+  `expert_case_offer` closes.
+
+  **Three things the build surfaced.**
+  1. **`DomainInvariantsTest` caught the new entity** — every `ScopedEntity` must have a repository
+     declaring its scope, and `CaseDocument` was not registered. Exactly what that test is for.
+  2. **`scopeFields()` is not optional in any sense that matters.** Without the `default` override,
+     Spring Data treats it as a derived query and **the application fails to boot** — a missing
+     scope declaration stops the app rather than quietly reading every brand.
+  3. **`uploadedByName` would have been permanently null.** Resolved server-side instead, in one
+     lookup for the whole list: an id alone would make the case page join against a roster endpoint
+     several of the roles reading that page may not call. A field that is always null is worse than
+     an absent one.
+
+  **`filename` dropped its NOT NULL** (V32) and this is temporary honesty, not a relaxation: V31
+  assumed a row names an uploaded file, and until Unit 30 there is no upload — `submitDraft`
+  carries a link. A NOT NULL column filled with a placeholder looks like a filename and is not one.
+  Unit 30 restores it.
+
+- **Unit 32 specced: PM notes panel + draft status board** — `32-pm-notes-and-draft-status.md`.
+  Small. Both surfaces already exist in part, so most of it is reaching rather than building:
+  `pm_strategy_notes` + `StrategyNotes.tsx` are live, `/drafts` is live, and Unit 31's
+  `case_document` already holds one row per version with a status and an uploader. **Two gaps.**
+
+  **The expert selection rationale becomes its own column**, and it is the one real design decision
+  here. Angle and key points stay a single field — they are one act of writing, and two boxes for
+  one paragraph is a form that gets one box filled. The rationale is different on three counts: a
+  **different lifetime** (rewritten per expert, and Unit 31 made reassignment a normal path, so
+  folding it in means a reassignment either overwrites the strategy or never records why), a
+  **different audience** (the ENM reads it, the CM does not), and it is **evidence** — "why this
+  expert" is the question asked after something goes wrong, and an answer buried in a paragraph
+  about case strategy is one nobody finds. Optional on `assign-cm` and `reassign-expert`: a
+  required field is how "n/a" becomes a column's most common value.
+
+  **The return comment moves onto the version.** Today it lives only in the audit trail as the
+  transition's reason, so the version history cannot show it. `case_document.review_comment`,
+  written by the transition in the same transaction. **Explicitly not a timestamp join against the
+  audit trail** — time is not an identity, and two rapid review rounds would attach the wrong
+  comment to the wrong version, silently and plausibly. The audit row stays; this is a projection
+  onto the artefact, the same relationship `expert_case_offer` has to the trail.
+
+  **A12 moves from OPEN to partly covered, with the line drawn explicitly.** Comments *per draft
+  version* — yes, that is what this unit builds and what a CM actually needs ("what must change
+  before I resubmit"). Comments *positioned inside the document* — no: that was Drive's own
+  feature, it left with Unit 30, and anchors need a viewer that understands the file, which is a
+  product rather than a migration. `process-automation.md` now says "partly" and says which half.
+
+  `/drafts` keeps its own job — drafts awaiting this PM, oldest first. A review queue that also
+  lists finished work is a queue you cannot work from; the version history lives on the case, where
+  somebody asking "what happened to this letter" is already looking.
+
+- **The expert portal shares the client portal's frontend (confirmed 2026-09-02).**
+  One external frontend deployment, two portals, this backend. The expert downloads the
+  client-approved letter, signs it in their own tool, and uploads it back; further expert
+  functionality is to be specified later.
+
+  **Checked rather than assumed, and the auth model already covers it.** `portal_access.audience`
+  admits `CLIENT` and `EXPERT` with a CHECK (V21), `PortalAudience` maps each to its `ActorType`,
+  and one filter chain matches `/api/portal/**`. Unit 14 built the token model for exactly two
+  audiences and Unit 15 planned to be the second; a separate frontend consuming it is a deployment
+  fact, not a new auth surface. Nothing to build there.
+
+  The signed upload stays **EvalOS's own** — `case/{caseId}/signed/`, not under `client/`; an
+  expert's letter is not a client document. Unit 31 already gave it a home as `case_document`
+  with `kind = 'SIGNED_LETTER'`, and Unit 15's provenance model (hash pair, attestation, `EXPERT`
+  audit row) is untouched.
+
+  **⚠ The finding: there is no CORS configuration anywhere in this codebase.** That was correct
+  while every caller was same-origin and is wrong the moment a portal lives on another origin.
+  Without it **every browser call from either portal fails at preflight — while passing a curl
+  test**, which is exactly how this gets found late and blamed on tokens. Filed as Unit 30's open
+  question (h) rather than in Unit 15, because it is one configuration serving both portals and
+  deciding it twice is worse than deciding it once. Constraints recorded: allow the one portal
+  origin **per environment**, scope it to `/api/portal/**` (the staff API is same-origin and has
+  no reason to answer a preflight), put **`X-Portal-Token` in the allowed headers** or the
+  preflight passes and the real request arrives unauthenticated, and **never `*`** — the chain is
+  credentialed.
+
+  Recorded in specs 30 and 15, `architecture.md`'s portal-auth row, and `mem:backend/security`.
+  No code: the functionality discussion is still to come.
+
+- **Unit 31 BUILT (backend + board). 565 backend tests, 153 frontend, builds clean.**
+  The twelve stages are live: `Stage` enum, `CaseTransitions` table, `V31` (stage migration +
+  `case_document`), `V907` (seed re-map), `SlaCalculator` per-stage budgets, the two new
+  transitions, four widened gates, and the board's eight columns with owner-per-stage on the card.
+
+  **The two transitions that did not exist.** `qc-fail` — `PM_QC_APPROVE` had no counterpart, so a
+  failed final QC had nowhere to go. `send-to-expert` — nobody sent anything; the case entered
+  signing on client approval. Both are new endpoints with gates matching their twins.
+
+  **`EXPERT_SIGN` is now 8 business hours, not 24** (one business day, not three), and the clock
+  starts at the send because the send is the stage boundary — no `sent_to_expert_at` column.
+
+  **Three things the build surfaced that the spec had not.**
+  1. **A duplicate signature would have 500'd.** `EXPERT_SIGNED` used to be stage-preserving, so a
+     repeat was harmless by construction; it now advances to `FINAL_QC`, and Unit 15 documents
+     *two* acts that both mean signed and both fire on the happy path. `expertSigned` is now a
+     no-op when the case is already signed — the same first-write-wins rule
+     `ExpertCaseOffer.resolve` applies to the offer row, applied to the transition.
+  2. **A rematch returns to `CLIENT_APPROVAL`, not to assignment.** The letter is written,
+     client-approved and locked; nothing about it changed because an expert walked away. Sending it
+     back through PM review would ask somebody to re-approve untouched work. The CM re-sends, and
+     that send restarts the signing clock for free.
+  3. **`DELIVERED` had to be `full`, not `status`, for the GM and BM.** It *looks* terminal, but
+     `close` is declared from it, and `actionsFor` withholds every action declared from a stage the
+     role only watches — so marking it `status` silently took Close away while the server still
+     allowed it. **A stage is `status` only when the role drives nothing out of it.** Caught by the
+     existing GM-superuser test, which is what that test is for.
+
+  **Migration care.** `V31` maps `DRAFT_GENERATION` three ways from the two sub-status columns,
+  most-specific-first (a row can satisfy more than one condition, so the last write would otherwise
+  win), with a catch-all to `DRAFT_IN_PROGRESS` and a `DO` block that fails the migration loudly if
+  any row is left unmapped. **`V907` exists because `V905` seeds old stage names and runs *after*
+  `V31` on a fresh database** — editing an applied seed would break its checksum. It also moves one
+  case each into `READY_TO_SEND` and `CLIENT_APPROVAL`, or the two new columns would be the two
+  nobody can see working.
+
+  `ROLE_LABELS` moved from `LeftNav` to `lib/session.ts` beside `Role` — the card names an owner
+  now, and two copies of six strings is how a sidebar and a card come to call the same person
+  different things.
+
+  **Not built:** Unit 30 (S3, Drive removal) — still blocked on its three open questions, and
+  `case_document.object_key` is nullable until it lands. The draft is still `draft_link`.
+
+- **Unit 31's last three answers, and the twelfth stage they produced.**
+  **Stage entry is the *act*, not the approval.** Client Review is entered when the
+  Coordinator presses **Send**, not when the PM approves. That leaves a real gap — the case
+  is PM-approved but not yet with the client, and the Coordinator has to act — so it becomes
+  a stage: **Ready to Send**. Twelve stages, not eleven.
+
+  **It mirrors *Ready to Deliver*, which is the argument for it.** The end of the pipeline
+  already had this shape: PM approves QC → Coordinator holds it → presses Deliver →
+  Delivered. The draft half now reads identically. The same applies at *Client Approval*,
+  whose action is the CM's **Send to Expert** — so all three hand-offs are drawn the same way
+  instead of one being drawn three ways.
+
+  **This deleted a column I had specced.** §7 proposed `sent_to_expert_at` because the 24h
+  clock started at stage entry rather than at the send. **Making the send the boundary fixes
+  it structurally — `stage_entered_at` *is* the send time** — and fixes the identical latent
+  defect on the client side, where a draft approved Friday and sent Monday would have charged
+  the client for the wait. **The rule worth keeping: when a clock starts at an act, make the
+  act a transition.** A timestamp beside a stage is a second answer to "when did this begin",
+  and two answers drift — the same argument `V20` makes about `draft_link`.
+
+  **Eight board columns**, with the mapping in §10: two stages share a column **only where
+  they share an owner** (05+06 Coordinator, 07+08 CM), so a column still answers "whose turn
+  is it" and the chip says only *what next*. That is the opposite of the arrangement §2
+  rejects, where one column held three owners. Delivered and Closed are a filter, not columns
+  that grow forever.
+
+  **The client sees the signed letter only after delivery**, not when the expert signs —
+  §11's matrix stands.
+
+  **All six of Unit 31's open questions are now closed.** Nothing in it is blocked on a
+  decision. **Unit 30's three remain** (per-brand key format, PDF generation, whether the
+  Client Portal frontend exists yet) and Unit 31 depends on them for the draft-as-a-file model.
+
+- **Owner is not the exclusive actor — settled, and it governs the whole twelve-stage table.**
+  Unit 31's first draft read "the Coordinator owns document collection" as "narrow the gate to
+  the Coordinator" and proposed dropping the Brand Manager and PM from `docs-complete`.
+  **Answered: no.** The Coordinator owns it; both keep the gate. Oversight unblocking a
+  stalled case is not the same act as working it.
+
+  So the implementation rule for §3 and §6: **owner → queue placement, card label,
+  notification routing; gate → who the server permits, unchanged unless a row says
+  otherwise.** **Unit 31 now narrows no gate at all** — every remaining change is a widening
+  (the Case Manager gaining the expert-signing transitions they are accountable for), which
+  is the reversible direction. A gate narrowed by mistake is discovered when somebody
+  legitimate is refused mid-case, which is the worst moment to find out.
+
+  **This codebase already drew that line and named it.** Unit 23 removed `/inbox` and
+  `/checklists` from roles' navigation while leaving `GM_OR` on the backend gates — *"a
+  listing decision and not a capability one."* The twelve-stage owner table is that same
+  decision at a larger scale.
+
+- **Expert-sign SLA: two answers recorded, and the second exposed a defect.**
+  Open questions (c) and (d) of Unit 31 are answered. **(c) yes** — a QC failure whose
+  correction changes the content goes back through the client for approval.
+
+  **(d) was the wrong question.** It asked whether the 24-hour expert SLA is business hours
+  or wall clock. `SlaCalculator` runs every budget on `BusinessCalendar`, whose own comment
+  defines the unit — *"three business days, and a business day is eight hours"* — so
+  **`EXPERT_SIGN = Duration.ofHours(24)` is three working days**, and the 20-hour warning
+  lands two and a half working days in. The business says 24 hours and means one day.
+  Whichever clock you pick, **the number is wrong for the intent**.
+
+  **Decision: keep the business calendar, set the budget to 8 business hours — one business
+  day.** Wall clock is the worse option for a reason that is not comfort: a letter sent
+  Friday 16:00 would be overdue Saturday 16:00, and `expert_case_offer` counts `TIMED_OUT`
+  into the acceptance rate `ExpertMatchService` ranks on — so a wall clock would
+  **systematically demote good experts for EvalOS's own sending time**, a scoring defect
+  dressed as a deadline. Eight business hours gives Tuesday 10:00 → Wednesday 10:00, exactly
+  what wall-clock "24 hours" gives on a working day, while Friday 16:00 falls due Monday
+  afternoon rather than demanding a weekend signature.
+
+  **The separate 20-hour warning is dropped.** `AT_RISK_FRACTION` is already 0.75 and
+  0.75 × 8 = 6 business hours, leaving two hours' notice; the business's 20/24 ratio is 0.83,
+  near enough that reusing the existing fraction gives **one** threshold instead of two that
+  can drift. **And the label is renamed to "one business day"** everywhere — "24 hours" on a
+  screen next to a clock meaning something else is how this survived unnoticed.
+
+  **Scope held deliberately narrow:** this budget only. `DOC_COLLECTION`'s three-business-days
+  reading is commented as intentional; `EXPERT_SIGN` carries no such comment, which is the
+  evidence it was written meaning hours. `FIRST_DRAFT` and `CLIENT_REVIEW` are both 48 (six
+  working days) and may be equally intentional or equally accidental — **not audited here**,
+  and named as a separate review rather than folded in.
+
+  Combined with Unit 31 §7 the expert's clock changes twice: it starts at `sent_to_expert_at`
+  rather than stage entry, and runs one business day rather than three.
+
+- **PIVOT: production lifecycle v2 — twelve stages, one owner each, eight board columns.**
+  **Specced 2026-09-02, not built** — `context/specs/31-production-lifecycle-v2.md`, from
+  the business's full production workflow. Five active stages with sub-status chips become
+  **twelve explicit stages** (eleven at first — the twelfth followed from settling that a
+  stage is entered by the act that starts its clock), each with **one owner, one primary
+  action, one event and one
+  next owner**. Manual by decision: **no AI in any production call** — verification, expert
+  selection, drafting, review, approval, reassignment, QC. Automation is limited to
+  notifications, transitions, timestamps, versioning and audit.
+
+  **This reverses spec 08's derived-grouping decision, and the reason is worth keeping.**
+  That spec argued the eight-column reading was a *derived grouping* of five stages plus
+  chips. Right for a board, wrong for a workflow: **a chip says what state work is in, not
+  whose turn it is.** `DRAFT_GENERATION` is today the CM's stage *and* the PM's review *and*
+  the client's review, told apart only by two nullable columns a reader has to combine
+  correctly — and the answer is wrong whenever they disagree.
+
+  **Two transitions the workflow needs and the state machine does not have.** **`qc-fail`**:
+  `CaseTransitions` has `PM_QC_APPROVE` and no counterpart, so a failed final QC has nowhere
+  to go — the one transition that catches a bad letter before a client sees it.
+  **`send-to-expert`**: nobody presses send today; the case enters signing automatically on
+  client approval, and `SlaCalculator` runs the 24h budget from `stage_entered_at`. **So an
+  expert who receives the letter two hours late is charged for those two hours** and can be
+  "overdue" having had 22. The clock moves to `sent_to_expert_at`. That is a correctness fix,
+  not a relabelling — and it also corrects the `/expert-assignment` board built this
+  session, which flags overdue off the right source with the wrong start.
+
+  **Gates move, and each contradicts one that exists today** (§6 lists all eight). The
+  **Case Manager** takes expert signing, `expert/timed-out` and reassignment — including
+  the `expert/timed-out` gate set to GM·BM·PM earlier in this same session, because the
+  role that gets the 20h/24h alert must be the role that can act on it. ENM is notified and
+  supports. `docs-complete` narrows to the Coordinator. **Three things deliberately do not
+  move**, checked rather than assumed: `draft/pm-approve`/`pm-return` stay PM-only with no
+  GM override (Unit 23a), the ENM still edits no case content, and the expert still sees
+  only their own case's letter.
+
+  **The draft becomes a versioned file.** `draft_link` (one link) plus
+  `draft_version_count` (an integer) cannot say who uploaded V2, when, what the PM said, or
+  which version the client approved — **a count is not a history**. New `case_document`
+  table; `(case_id, kind, version)` unique in the database, because two concurrent uploads
+  racing for V3 is exactly what a service check misses. A draft cannot be submitted without
+  a file, enforced server-side. **Stage 06 Client Approval is separate from 05 Client
+  Review** and locks the approved version — "looking at V3" and "accepted V3" are different
+  facts, and the second is what the expert signs.
+
+  **Blast radius is wide and §12 inventories it**: the `Stage` enum, `CaseTransitions.TABLE`,
+  `SlaCalculator`'s per-stage budgets, `STAGE_COLUMNS`/`STAGE_ACCESS` (where
+  `Record<Role, Record<Stage, …>>` failing to compile is the feature), all four queue
+  screens, Unit 17's stage-keyed figures, and a **stage migration that splits
+  `DRAFT_GENERATION` three ways** using the two sub-status columns — including rows where
+  they disagree, which is the ambiguity this unit exists to remove and therefore must have a
+  defined answer.
+
+  **The board draws eight columns, not twelve**: at 50–100 cases/brand/month, twelve is
+  twelve narrow strips at 1366px. Two stages share a column **only where they share an
+  owner**, so the column still answers "whose turn is it". Delivered/Closed are a filter, and
+  every card states **current owner and next action** — derived from the stage in one table,
+  the same lesson `navigation.ts` records about the nav and the route guard being one table.
+
+  Aligned: `architecture.md` (state machine), `project-overview.md`, `ui-context.md` (board
+  columns), `00-build-plan.md` (Units 30 and 31 registered), `process-automation.md`
+  (§30/§35's matrix supersedes the A-numbers where they differ; two notifications have no
+  event behind them today), banners on specs 04/08/09/10/17/22, and a pivot notice on
+  `mem:core`, `mem:backend/lifecycle`, `mem:frontend/core`. **Six open questions in §13.**
+
+- **Unit 30 corrected the same day: the Client Portal's backend is EvalOS.**
+  The first draft of `30-s3-document-store.md` had the Client Portal as a *separate
+  application writing to S3*, with EvalOS read-only on `client/` and reconciling by
+  listing. Wrong. It is a **separate frontend whose backend is EvalOS**: it holds no AWS
+  credential and uploads by calling EvalOS's portal API, which streams to S3.
+
+  **That simplifies three things and weakens one, and the weakening is recorded rather than
+  glossed.** Simpler: no polling or reconciliation sweep (EvalOS writes the object, so it
+  writes the checklist row and the audit row in the same transaction); no "arrived but
+  unnoticed" window; open question (c) closed outright. Weaker: the first draft could say a
+  client's evidence was safe from EvalOS overwriting it **because IAM forbade it**, and with
+  one writer there is nothing for IAM to separate. What replaces it — **bucket versioning is
+  now non-optional**, and never overwriting a `client/` key becomes a code rule with a test
+  behind it rather than a permission boundary.
+
+  **Write ordering has one correct answer:** stream to S3 first, then commit the row. The
+  other order leaves a row pointing at an object that does not exist — a broken link on the
+  Coordinator's screen. This order can leave an orphaned object, which is invisible and
+  cleaned up by a lifecycle rule. **Prefer the orphan to the dangling pointer.** A presigned
+  PUT to the browser was rejected: it puts the key format in the hands of the least
+  controlled party and skips the content-type and size checks.
+
+- **PIVOT: Google Drive → S3 document store, and one client identity across three systems.**
+  **Specced 2026-09-02, not built** — `context/specs/30-s3-document-store.md`. Docs first,
+  code second, deliberately: this replaces a decision already in the codebase, and a pivot
+  coded before it is agreed is a pivot nobody can review.
+
+  **What changed.** Documents move to an S3 bucket. A **separate Client Portal
+  application** — not EvalOS — takes client uploads and writes them under
+  `client/{clientId}/`; EvalOS **reads** that prefix and cannot write to it, enforced by
+  IAM rather than by convention. EvalOS's own artefacts (draft, redacted profile, the
+  expert's signed letter) live under `case/{caseId}/`. Reads are **5-minute presigned
+  URLs** minted after the case's scope check and never stored — strictly safer than the
+  permanent Drive link in a column that they replace.
+
+  **`{clientId}` is GHL's contact id**, shared verbatim by GHL, the Client Portal and
+  EvalOS, so a key written by the portal resolves here with **no mapping table**. This is
+  invariant 7 extended across a system boundary, not a new identity model. **Email stays a
+  fallback (V27) and is deliberately not in any key** — the requirement says the Client ID
+  *and* email are consistent, and consistent is not co-equal: two GHL contacts can share an
+  inbox, and treating email as identity once attached a case to the wrong client.
+
+  **The practical win.** Units 13, 15 and 21 have all been blocked on one Google service
+  account that never arrived — `00-build-plan.md` called it "the single most valuable thing
+  to chase", and Unit 13 has been code-complete and stuck for weeks. The pivot **deletes
+  the blocker** rather than working around it.
+
+  **Two capabilities Drive was quietly providing, found by audit rather than by
+  assumption.** Drive's export produced the redacted profile's PDF for free, which is why
+  EvalOS has no PDF library — S3 converts nothing (open question (d)). And Drive's own
+  commenting was the *entire* mechanism behind **A12's "comments inline on the draft"**;
+  S3 has no commenting, so `process-automation.md` now records A12's inline half as **OPEN**
+  rather than covered (open question (g)). An integration is not only its API surface.
+
+  **Invariant 14 amended and "No object storage" deleted** from `architecture.md`. The
+  testable property is unchanged and that is the point: "hosts no files" always meant
+  *stores none*, not *accepts none*, so the same no-bytes assertion now guards a different
+  backing store. Invariant 13 (audit) is untouched and is what the presigned-URL access
+  rows are written under. Invariant 7 is reinforced.
+
+  **Answered before writing** (the two forks that would have made the spec useless if
+  guessed): the Client Portal is a **separate application** that writes while EvalOS reads,
+  and **every** document flow leaves Drive — not only client uploads.
+
+  **Open before code:** (b) per-brand key isolation, since changing a key format after
+  objects exist migrates data rather than code; (d) PDF; (f) whether the Client Portal
+  exists yet, because §3 is a **contract** and both sides must agree it before either
+  builds to it. **The upload trust boundary moves with the upload** — allowlist, size cap,
+  rate limit, generated filenames are now that portal's to enforce, which is a transfer of
+  responsibility to confirm, not to assume.
+
+  Aligned: `architecture.md` (stack row, storage model, externals, invariant 14, retention),
+  `project-overview.md`, `ui-context.md`, `00-build-plan.md` (the blocked-on table, the
+  credential order, Units 09/10/13/21), `process-automation.md` (A12), amendment banners on
+  specs 10/13/14/15/21, and a pivot notice on all four affected memories. **The memories say
+  the code still has Drive**, because it does — they record the decision and the current
+  state as two different things.
+
+  **No code changed.** The removal inventory is in §10 of the spec and is mechanical once
+  the three open questions are answered.
+
+- **Unit 29's sales desk and the `SALES_EXECUTIVE` role: removed.**
+  Built 2026-08-29, removed 2026-09-02. Deleted: `SalesController`, `SalesBoardService`,
+  `GhlSalesClient`, `features/sales/`, the `/sales/board` nav entry, `Role.SALES_EXECUTIVE`,
+  `team_member.ghl_user_id` with its GM-only mapping endpoint, and the V906 seed login.
+  `V30__drop_sales_executive.sql` deletes any surviving row, drops the column and its partial
+  unique index, and restores both constraints V29 rewrote — `team_member_role_valid` to the six
+  names and `team_member_brand_required` to `role = 'GM' OR brand_id IS NOT NULL`. V29 itself
+  stays: an applied migration is never edited or deleted, so a reversal is a migration of its own.
+
+  **Order matters inside V30 and is the reason it is one file rather than four statements in any
+  order:** the rows go before the CHECK returns, or restoring it fails on every database that ever
+  ran the seed. `LocalPostgresIntegrationTest` now pins the reversal against the real Postgres —
+  and the first version of that test asserted the *wrong constraint*, because a `SALES_EXECUTIVE`
+  row with a NULL brand violates both restored checks and Postgres names whichever it evaluates
+  first. Giving the row a valid brand leaves exactly one reason to refuse it.
+
+  **`GhlHttp` is read-only again.** `post` and `put` existed only for this desk and went with it,
+  so the write capability is absent from the codebase rather than present-and-unused, and
+  `write-timeout` left all three profiles. `GhlHttpTest`'s "no delete" assertion widens to "no
+  write verb". **`GhlHttp` itself stays extracted** with one client again: it holds the shared
+  rate-limit pacer, that limit is a property of the GHL location rather than of whoever is
+  reading, and re-merging it into `GhlPipelineClient` is how the next client silently gets a pacer
+  of its own — so the shared-pacer test now runs two instances of the one remaining client.
+
+  **Invariant 2 reverts.** Unit 29 is the only unit that has ever cost an invariant: "EvalOS never
+  runs sales" died and the boundary moved from read-vs-write to custody. Both come back. What made
+  the reversal cost one migration and no data reconciliation is the decision that was never
+  amended — **nothing was ever stored here**, no `ghl_opportunity` table and no sales column
+  anywhere. That test outlives the unit: *"does this make EvalOS store a pipeline fact?"* is still
+  the question for any GHL proposal, whichever way the traffic runs.
+
+  **`/sales/pipeline` (Unit 27) is untouched** — the GM's *read* of the same funnel is a different
+  screen from the desk, and only the desk was asked for.
+
+  **The V906 seed was deleted, which needed a Flyway decision.** A database that applied it carries
+  version 906 with no file behind it, and default validation then refuses to migrate at all. So
+  `application-local.yml` and `LocalPostgresIntegrationTest` — the only two configs that list the
+  disposable seed tree — set `ignore-migration-patterns: "*:missing"`. Scoped to `missing` alone, so
+  a **checksum** mismatch still fails the boot; and never in `application.yml` or a deployed
+  profile, where nothing is ever deleted and a missing migration is a real defect.
+
+  Three frontend names deliberately kept rather than reverted: `PRODUCTION_ROLES` in
+  `navigation.ts`, and `CASE_ROLES` in both role tests. All three now equal every role again, but
+  the name states *why* a role is on the list, which survives the next role that is not — a
+  constant named "all" is the one that goes quietly wrong. `architecture.md` (invariants 1 and 2,
+  the GHL boundary table, the role and tier lists), `project-overview.md`, `ui-context.md`,
+  `00-build-plan.md`, the seed README, and all four memories updated; `29-sales-desk.md` is kept
+  with a REMOVED banner as the record of a decision made, shipped and undone.
+
+- **The assignment picker offered the one expert the transition refuses.**
+  Found in a browser pass on the new board: reassigning after a decline returned
+  `409 "that is the expert who declined"`, because `ExpertPickerController` filtered on
+  `AVAILABLE` and nothing else — while its own javadoc says the class exists so that "offering one
+  the transition would then reject is a worse experience than not offering it". `reassignExpert`
+  refuses two things; the picker knew about one. `ExpertMatchService.shortlist` had already
+  applied the missing filter, with a comment naming the same 409, so the assist above the dropdown
+  was correct and the full picker beneath it was not.
+
+  Fixed at the picker, not at the client: `GET /api/experts` takes an optional `forCase` and drops
+  that case's current expert. The client cannot do this — `CaseBoardController.BoardCard` carries
+  no `expertId` on purpose, and widening every card in the app so one dialog can drop one row is
+  the wrong end. The case is read through `findScoped`, so an id outside the caller's scope narrows
+  nothing and reveals nothing (treated as no case, not refused — the parameter is a convenience and
+  its absence is already legal). `QuickActionDialog` passes it unconditionally: on `assign-cm` the
+  case has no expert yet, so the filter is a no-op, and there is nothing to branch on.
+
+  Two tests pin it, plus the null-safety the first attempt got wrong: the comparison puts the
+  nullable `onCase` on the left, because an unsaved `Expert` has a null id and the other order
+  NPEs. Also on that screen: a refused action now names what failed and on which case — the
+  server's messages are sentence fragments, and "that is the expert who declined" alone above three
+  tables says neither — and it is dismissible in its own slot, so a stale refusal no longer sits
+  through every later success.
+
+- **Unit 02 latent test bug, surfaced and fixed.**
+  `SecurityFlowTest.tamperedTokenIsUnauthenticated` flipped the **last** character
+  of the JWT signature. base64url of a 32-byte HMAC is 43 characters, so the final
+  one carries only four meaningful bits — flipping it can decode to the same
+  signature, and the tampered token then verifies (the test returned 200, not 401).
+  It had been passing on the luck of what the signature ended with. It now flips
+  the first, fully significant, signature character.
+
+- Reconciled from three source documents (`IE_CRM_Spec_v2`, the Hybrid Platform
+  Architecture, and the Feature Inventory FRD) into the EvalOS Technical Design
+  Document v1.1, which is the source of truth. Where the original context files
+  conflicted with v1.1, v1.1 wins (multi-brand, 8-stage, no object storage, no
+  mail, manual payouts, GM/Brand-Manager roles).
+- CRM spec automation rules A05–A24 (production/expert/delivery/KPI) are in scope
+  across Units 04–19; A01–A04/A06 (lead/sales/marketing) are GHL's job.

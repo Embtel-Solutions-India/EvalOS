@@ -1,0 +1,275 @@
+package com.ie.evalos.service;
+
+import java.math.BigDecimal;
+import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
+
+import com.ie.evalos.common.ForbiddenException;
+import com.ie.evalos.common.InvalidRequestException;
+import com.ie.evalos.domain.ClientAccount;
+import com.ie.evalos.domain.ClientApplication;
+import com.ie.evalos.domain.PortalAudience;
+import com.ie.evalos.integration.GhlPipelineClient;
+import com.ie.evalos.integration.GhlUnavailableException;
+import com.ie.evalos.integration.GhlWriteClient;
+import com.ie.evalos.repository.ClientAccountRepository;
+import com.ie.evalos.repository.ClientApplicationRepository;
+import com.ie.evalos.security.PortalPrincipal;
+
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+
+/**
+ * The funnel's one decision that cost an argument: <strong>the opportunity is opened when the
+ * client picks a service, not when they submit</strong> (`43` §6a, resolved 2026-09-15). The
+ * questionnaire is the longest part of the funnel and therefore where people stop, so a lead who
+ * abandons halfway must already be on a salesperson's board. Two tests pin it:
+ * {@link #pickingAServiceOpensTheDeal()} and {@link #aSecondStartReturnsTheDraftAndOpensNoSecondDeal()}.
+ *
+ * <p>{@link #noStageAndNoAssigneeAreSent()} pins the other half of the boundary: EvalOS puts the
+ * opportunity on the intake pipeline and stops. Placement and routing are GHL's automation's, and
+ * a "hot stage" property that briefly lived here made EvalOS hold a second opinion about them.
+ *
+ * <p>The second is the other half. {@code createOpportunity} is <strong>not</strong> an upsert —
+ * `39` §3a's escape hatch, taken deliberately because a repeat client's second evaluation is a
+ * genuine second deal — so nothing in GHL prevents a double-submit making two. The
+ * `ghl_opportunity_id` column is the only thing that does.
+ */
+class ClientApplicationServiceTest {
+
+	private static final UUID BRAND = UUID.fromString("11111111-1111-1111-1111-111111111111");
+
+	private static final UUID ACCOUNT = UUID.fromString("22222222-2222-2222-2222-222222222222");
+
+	private static final String CONTACT = "ghl-contact-1";
+
+	private final ClientApplicationRepository applications = mock(ClientApplicationRepository.class);
+
+	private final ClientAccountRepository accounts = mock(ClientAccountRepository.class);
+
+	private final GhlWriteClient ghl = mock(GhlWriteClient.class);
+
+	private final GhlPipelineClient pipelines = mock(GhlPipelineClient.class);
+
+	private final ClientApplicationService service = new ClientApplicationService(applications, accounts,
+			ghl, pipelines, "Client Intake");
+
+	private ClientAccount client;
+
+	@BeforeEach
+	void signedInClient() {
+		client = new ClientAccount(BRAND, "ana@example.com");
+		client.linkGhlContact(CONTACT);
+		client.setFirstName("Ana");
+		client.setLastName("Okafor");
+		given(accounts.findByBrandIdAndGhlContactId(BRAND, CONTACT)).willReturn(Optional.of(client));
+		// ScopedEntity assigns ids at persist; the service reads getId() to scope, so the account
+		// needs a real one or every ownership comparison would pass by matching null against null.
+		setId(client, ACCOUNT);
+
+		// The stages are never read — EvalOS resolves the pipeline id and sends no stage — but GHL
+		// returns them, so the fixture does too rather than pretending a shape that never arrives.
+		given(pipelines.pipelineNamed("Client Intake")).willReturn(new GhlPipelineClient.Pipeline(
+				"pipe-1", "Client Intake",
+				List.of(new GhlPipelineClient.Pipeline.Stage("stage-new", "New", 0),
+						new GhlPipelineClient.Pipeline.Stage("stage-qualified", "Qualified", 1))));
+		given(applications.saveAndFlush(any())).willAnswer((call) -> call.getArgument(0));
+	}
+
+	@Test
+	void pickingAServiceOpensTheDeal() {
+		given(ghl.createOpportunity(eq("pipe-1"), eq(CONTACT), anyString(), any(), any(), any(), any()))
+				.willReturn(opened("opp-1"));
+
+		ClientApplicationService.ApplicationView started =
+				service.start(token(), "academic_evaluation", "Academic Evaluation", "immigration");
+
+		assertThat(started.status()).isEqualTo("DRAFT");
+		assertThat(started.serviceName()).isEqualTo("Academic Evaluation");
+
+		// The name a salesperson scans a board for: the person, then what they want.
+		ArgumentCaptor<String> name = ArgumentCaptor.forClass(String.class);
+		verify(ghl).createOpportunity(eq("pipe-1"), eq(CONTACT), name.capture(), any(), any(),
+				any(), any());
+		assertThat(name.getValue()).isEqualTo("Ana Okafor — Academic Evaluation");
+
+		// Never the upsert: it means one open opportunity per contact per pipeline, so a repeat
+		// client's second request would overwrite their first rather than open a second.
+		verify(ghl, never()).upsertOpportunity(any(), any(), any(), any());
+	}
+
+	/**
+	 * <strong>EvalOS places the deal on the pipeline and stops.</strong> Which stage it lands in
+	 * and who it is assigned to are GHL's automation's, which is what `00b` keeps GHL for — so
+	 * both arguments go as null. A configured "hot stage" resolved by name lived here briefly and
+	 * was removed: it was a second opinion about pipeline placement, stale the first time somebody
+	 * reworked the workflow in GHL. `assignedTo` was never sent, for the reason
+	 * `SalesOpportunityController` gives — nothing links a GHL user to an EvalOS team member.
+	 */
+	@Test
+	void noStageAndNoAssigneeAreSent() {
+		given(ghl.createOpportunity(any(), any(), any(), any(), any(), any(), any()))
+				.willReturn(opened("opp-1"));
+
+		service.start(token(), "academic_evaluation", "Academic Evaluation", null);
+
+		ArgumentCaptor<String> stage = ArgumentCaptor.forClass(String.class);
+		ArgumentCaptor<java.util.Map<String, String>> customFields = ArgumentCaptor.forClass(java.util.Map.class);
+		verify(ghl).createOpportunity(eq("pipe-1"), eq(CONTACT), anyString(), any(), stage.capture(),
+				any(), customFields.capture());
+		assertThat(stage.getValue()).isNull();
+		assertThat(customFields.getValue()).isNull();
+	}
+
+	@Test
+	void aSecondStartReturnsTheDraftAndOpensNoSecondDeal() {
+		ClientApplication existing = draft("opp-1");
+		given(applications.findByClientAccountIdAndStatus(ACCOUNT, ClientApplication.Status.DRAFT))
+				.willReturn(Optional.of(existing));
+
+		ClientApplicationService.ApplicationView again =
+				service.start(token(), "academic_evaluation", "Academic Evaluation", null);
+
+		assertThat(again.serviceName()).isEqualTo("Course-by-Course Evaluation");
+		verify(applications, never()).saveAndFlush(any());
+		verify(ghl, never()).createOpportunity(any(), any(), any(), any(), any(), any(), any());
+	}
+
+	/**
+	 * <strong>A GHL outage must not cost the client their questionnaire.</strong> The row is
+	 * written first and the opportunity linked after, so an upstream refusal leaves a usable
+	 * draft; the next save retries. The opposite order trades somebody else's outage for the
+	 * client's typing.
+	 */
+	@Test
+	void aGhlOutageStillLeavesTheClientADraft() {
+		given(ghl.createOpportunity(any(), any(), any(), any(), any(), any(), any()))
+				.willThrow(new GhlUnavailableException("GHL is not configured here"));
+
+		ClientApplicationService.ApplicationView started =
+				service.start(token(), "academic_evaluation", "Academic Evaluation", null);
+
+		assertThat(started.status()).isEqualTo("DRAFT");
+	}
+
+	/**
+	 * <strong>...but submitting one Sales cannot see is refused.</strong> It reads to the client
+	 * as "sent" and to the business as nothing at all, which is the one failure this flow must
+	 * not have.
+	 */
+	@Test
+	void submitWithNoOpportunityIsRefusedAndTheDraftSurvives() {
+		ClientApplication stranded = draft(null);
+		given(applications.findById(stranded.getId())).willReturn(Optional.of(stranded));
+		given(ghl.createOpportunity(any(), any(), any(), any(), any(), any(), any()))
+				.willThrow(new GhlUnavailableException("GHL is not configured here"));
+
+		assertThatThrownBy(() -> service.submit(token(), stranded.getId()))
+				.isInstanceOf(InvalidRequestException.class);
+		assertThat(stranded.isDraft()).isTrue();
+	}
+
+	@Test
+	void submitStampsTheTimeAndTouchesTheOpportunityNotAtAll() {
+		ClientApplication ready = draft("opp-1");
+		given(applications.findById(ready.getId())).willReturn(Optional.of(ready));
+
+		ClientApplicationService.ApplicationView submitted = service.submit(token(), ready.getId());
+
+		assertThat(submitted.status()).isEqualTo("SUBMITTED");
+		assertThat(submitted.submittedAt()).isNotNull();
+		// The deal has existed since `start`, and where it sits is GHL's automation's business.
+		// Moving it from here would be EvalOS overriding a workflow it does not own.
+		verify(ghl, never()).moveStage(any(), any(), any());
+		verify(ghl, never()).updateOpportunity(any(), any(), any(), any(), any());
+	}
+
+	@Test
+	void aSubmittedRequestCannotBeEditedOrSubmittedTwice() {
+		ClientApplication done = draft("opp-1");
+		done.submit();
+		given(applications.findById(done.getId())).willReturn(Optional.of(done));
+
+		assertThatThrownBy(() -> service.save(token(), done.getId(), "{}", null))
+				.isInstanceOf(InvalidRequestException.class);
+		assertThatThrownBy(() -> service.submit(token(), done.getId()))
+				.isInstanceOf(InvalidRequestException.class);
+	}
+
+	/**
+	 * <strong>403, not an empty result.</strong> Reading through a per-account finder would make
+	 * "not yours" and "does not exist" the same answer, and only one of them is honest.
+	 */
+	@Test
+	void anotherClientsRequestIsRefused() {
+		ClientApplication theirs = new ClientApplication(BRAND, UUID.randomUUID(), "academic_evaluation",
+				"Academic Evaluation", null);
+		setId(theirs, UUID.randomUUID());
+		given(applications.findById(theirs.getId())).willReturn(Optional.of(theirs));
+
+		assertThatThrownBy(() -> service.save(token(), theirs.getId(), "{}", null))
+				.isInstanceOf(ForbiddenException.class);
+	}
+
+	/** A token naming nobody we hold reaches no application at all. */
+	@Test
+	void aTokenWhoseContactWeDoNotHoldIsRefused() {
+		PortalPrincipal stranger = new PortalPrincipal(UUID.randomUUID(), BRAND, null,
+				PortalAudience.CLIENT, null, "ghl-somebody-else");
+
+		assertThatThrownBy(() -> service.mine(stranger)).isInstanceOf(ForbiddenException.class);
+	}
+
+	/** The answers ceiling is a trust-boundary check, not a judgement about how much a client types. */
+	@Test
+	void anUnboundedAnswersPayloadIsRefused() {
+		ClientApplication open = draft("opp-1");
+		given(applications.findById(open.getId())).willReturn(Optional.of(open));
+
+		assertThatThrownBy(() -> service.save(token(), open.getId(), "x".repeat(64 * 1024 + 1), null))
+				.isInstanceOf(InvalidRequestException.class);
+	}
+
+	private PortalPrincipal token() {
+		return new PortalPrincipal(UUID.randomUUID(), BRAND, null, PortalAudience.CLIENT, null, CONTACT);
+	}
+
+	private ClientApplication draft(String opportunityId) {
+		ClientApplication row = new ClientApplication(BRAND, ACCOUNT, "course_by_course_evaluation",
+				"Course-by-Course Evaluation", null);
+		setId(row, UUID.randomUUID());
+		if (opportunityId != null) {
+			row.linkOpportunity(opportunityId);
+		}
+		return row;
+	}
+
+	private static GhlWriteClient.UpsertedOpportunity opened(String id) {
+		return new GhlWriteClient.UpsertedOpportunity(id, CONTACT, "pipe-1", "stage-new", "open",
+				"Ana Okafor", BigDecimal.ZERO, true);
+	}
+
+	/** {@code ScopedEntity} assigns ids at persist, and these entities are never persisted here. */
+	private static void setId(Object entity, UUID id) {
+		try {
+			java.lang.reflect.Field field = com.ie.evalos.domain.ScopedEntity.class.getDeclaredField("id");
+			field.setAccessible(true);
+			field.set(entity, id);
+		}
+		catch (ReflectiveOperationException cannotHappen) {
+			throw new IllegalStateException(cannotHappen);
+		}
+	}
+}

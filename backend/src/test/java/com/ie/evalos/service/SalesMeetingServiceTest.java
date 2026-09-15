@@ -12,6 +12,7 @@ import org.junit.jupiter.api.Test;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -31,9 +32,15 @@ class SalesMeetingServiceTest {
 	private static final String OPPORTUNITY = "opp_1";
 	private static final String MY_PIPELINE = "pipe_mine";
 
+	private static final java.util.UUID BRAND = java.util.UUID.randomUUID();
+	private static final java.util.UUID MEMBER = java.util.UUID.randomUUID();
+
 	private final GhlCalendarClient calendars = mock(GhlCalendarClient.class);
 	private final PipelineScope scope = mock(PipelineScope.class);
-	private final SalesMeetingService meetings = new SalesMeetingService(calendars, scope);
+	private final com.ie.evalos.repository.MeetingRepository meetingRows =
+			mock(com.ie.evalos.repository.MeetingRepository.class);
+	private final SalesMeetingService meetings =
+			new SalesMeetingService(calendars, scope, meetingRows);
 
 	private static String inDays(int days) {
 		return Instant.now().plus(days, ChronoUnit.DAYS).toString();
@@ -41,17 +48,48 @@ class SalesMeetingServiceTest {
 
 	SalesMeetingServiceTest() {
 		when(scope.requireMine(OPPORTUNITY)).thenReturn(MY_PIPELINE);
+		// The mirror is written from GHL's answer, so the success paths need one. A null response
+		// here would fail as an NPE inside the service and read like a mirror bug rather than a
+		// missing stub.
+		when(calendars.book(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), anyBoolean()))
+				.thenReturn(new GhlCalendarClient.Meeting("appt_new", "cal_1", "c1", "Discovery call",
+						null, null, "booked"));
+		when(calendars.reschedule(any(), any(), any(), any(), any()))
+				.thenReturn(new GhlCalendarClient.Meeting("appt_1", "cal_1", "c1", "Discovery call",
+						null, null, "booked"));
+		when(meetingRows.findByBrandIdAndGhlAppointmentId(any(), any()))
+				.thenReturn(java.util.Optional.empty());
+	}
+
+	/**
+	 * `TenantContext.current()` reads Spring's security context, and the mirror needs the caller's
+	 * brand and member id. Set per test and cleared after, so one test's principal cannot leak
+	 * into the next through the thread-local.
+	 */
+	@org.junit.jupiter.api.BeforeEach
+	void authenticateAsASalesperson() {
+		com.ie.evalos.security.StaffPrincipal principal = new com.ie.evalos.security.StaffPrincipal(
+				MEMBER, "sales.ie@evalos.local", "Aditya", com.ie.evalos.domain.Role.SALES, BRAND,
+				null, MY_PIPELINE, true);
+		org.springframework.security.core.context.SecurityContextHolder.getContext().setAuthentication(
+				new org.springframework.security.authentication.UsernamePasswordAuthenticationToken(
+						principal, null, principal.getAuthorities()));
+	}
+
+	@org.junit.jupiter.api.AfterEach
+	void clearTheSecurityContext() {
+		org.springframework.security.core.context.SecurityContextHolder.clearContext();
 	}
 
 	@Test
 	void aBookingCarriesTheCallersOwnPipelineToTheAuditTrail() {
 		meetings.book(OPPORTUNITY, "cal_1", "c1", "Discovery call", inDays(1),
-				Instant.now().plus(1, ChronoUnit.DAYS).plus(30, ChronoUnit.MINUTES).toString());
+				Instant.now().plus(1, ChronoUnit.DAYS).plus(30, ChronoUnit.MINUTES).toString(), null, null, null, null, false, null);
 
 		// The pipeline is never taken from the request — it comes from the caller's own row, via
 		// the same requireMine every other route on this desk starts at.
 		verify(calendars).book(eq("cal_1"), eq("c1"), eq(OPPORTUNITY), eq(MY_PIPELINE),
-				eq("Discovery call"), any(), any());
+				eq("Discovery call"), any(), any(), any(), any(), any(), any(), anyBoolean());
 	}
 
 	/**
@@ -62,26 +100,26 @@ class SalesMeetingServiceTest {
 	void somebodyElsesDealIsRefusedBeforeAnythingIsValidated() {
 		when(scope.requireMine("not_mine")).thenThrow(new ForbiddenException("Not your pipeline"));
 
-		assertThatThrownBy(() -> meetings.book("not_mine", "", "", "", "nonsense", "nonsense"))
+		assertThatThrownBy(() -> meetings.book("not_mine", "", "", "", "nonsense", "nonsense", null, null, null, null, false, null))
 				.isInstanceOf(ForbiddenException.class);
 
-		verify(calendars, never()).book(any(), any(), any(), any(), any(), any(), any());
+		verify(calendars, never()).book(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), anyBoolean());
 	}
 
 	@Test
 	void aMeetingInThePastIsRefused() {
 		assertThatThrownBy(() -> meetings.book(OPPORTUNITY, "cal_1", "c1", "Discovery call",
-				inDays(-2), inDays(-1)))
+				inDays(-2), inDays(-1), null, null, null, null, false, null))
 				.isInstanceOf(InvalidRequestException.class)
 				.hasMessageContaining("in the past");
 
-		verify(calendars, never()).book(any(), any(), any(), any(), any(), any(), any());
+		verify(calendars, never()).book(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), anyBoolean());
 	}
 
 	@Test
 	void aMeetingThatEndsBeforeItStartsIsRefused() {
 		assertThatThrownBy(() -> meetings.book(OPPORTUNITY, "cal_1", "c1", "Discovery call",
-				inDays(3), inDays(2)))
+				inDays(3), inDays(2), null, null, null, null, false, null))
 				.isInstanceOf(InvalidRequestException.class)
 				.hasMessageContaining("must end after it starts");
 	}
@@ -93,7 +131,7 @@ class SalesMeetingServiceTest {
 	@Test
 	void aMeetingWithNoEndIsRefusedEvenThoughGhlWouldAcceptIt() {
 		assertThatThrownBy(() -> meetings.book(OPPORTUNITY, "cal_1", "c1", "Discovery call",
-				inDays(1), null))
+				inDays(1), null, null, null, null, null, false, null))
 				.isInstanceOf(InvalidRequestException.class)
 				.hasMessageContaining("end time");
 	}
@@ -102,7 +140,7 @@ class SalesMeetingServiceTest {
 	void aMeetingOfZeroLengthIsRefused() {
 		String sameMoment = inDays(1);
 		assertThatThrownBy(() -> meetings.book(OPPORTUNITY, "cal_1", "c1", "Discovery call",
-				sameMoment, sameMoment))
+				sameMoment, sameMoment, null, null, null, null, false, null))
 				.isInstanceOf(InvalidRequestException.class)
 				.hasMessageContaining("must end after it starts");
 	}
@@ -114,7 +152,7 @@ class SalesMeetingServiceTest {
 	@Test
 	void aDateGhlCannotReadIsRefusedHereWithSomethingReadable() {
 		assertThatThrownBy(() -> meetings.book(OPPORTUNITY, "cal_1", "c1", "Discovery call",
-				"next Tuesday", inDays(2)))
+				"next Tuesday", inDays(2), null, null, null, null, false, null))
 				.isInstanceOf(InvalidRequestException.class)
 				.hasMessageContaining("ISO-8601");
 	}
@@ -134,7 +172,7 @@ class SalesMeetingServiceTest {
 	@Test
 	void theCalendarPickerIsANarrowedList() {
 		when(calendars.calendars()).thenReturn(java.util.List.of(
-				new GhlCalendarClient.CalendarOption("cal_1", "Sales calls")));
+				new GhlCalendarClient.CalendarOption("cal_1", "Sales calls", true, 30, "{{contact.name}}")));
 
 		assertThat(meetings.calendars()).singleElement()
 				.satisfies((calendar) -> {

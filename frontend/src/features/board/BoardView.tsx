@@ -72,7 +72,17 @@ export default function BoardView() {
   // no other screen would read them.
   const [ownerFilter, setOwnerFilter] = useState<'all' | 'mine'>('all')
   const [serviceFilter, setServiceFilter] = useState<ServiceType | 'all'>('all')
-  const [urgentOnly, setUrgentOnly] = useState(false)
+  // **Seeded from `?urgent=1`, and only seeded.** A dashboard tile reading "12 at risk" has to
+  // land somewhere that shows those twelve, or the number is a dead end — which it was for the
+  // GM, whose nav has no `/inbox` to drill into. The initial value is read once and the checkbox
+  // owns it afterwards: writing back on every toggle would fight the Back button, and the link is
+  // an entry point rather than a synced view.
+  //
+  // `urgent` is the same predicate the checkbox applies (AT_RISK or OVERDUE), so the tile and the
+  // board cannot drift into meaning two different things.
+  const [urgentOnly, setUrgentOnly] = useState(
+    () => new URLSearchParams(window.location.search).get('urgent') === '1',
+  )
   // Local state like its three neighbours above, not a URL parameter: every other filter on this
   // screen is held here, and one linkable filter beside three that are not is the inconsistency
   // somebody has to explain later.

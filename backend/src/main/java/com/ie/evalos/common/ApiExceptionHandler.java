@@ -125,6 +125,22 @@ public class ApiExceptionHandler {
 				.body(ApiResponse.error("SAY_WHICH_CASE", ex.getMessage()));
 	}
 
+	/**
+	 * A salesperson opening a second deal for a contact who already has one.
+	 *
+	 * <p>409 rather than 400, and for the same reason {@code SAY_WHICH_CASE} above is: the caller
+	 * has not made a mistake. A repeat client buying a second service is ordinary business — the
+	 * answer is "here is the deal they already have, still want another?", not "no". The code is
+	 * what lets the form draw a confirmation step instead of an error, and the existing deal's id
+	 * rides along so it can link to it.
+	 */
+	@ExceptionHandler(DuplicateDealException.class)
+	public ResponseEntity<ApiResponse<Void>> onDuplicateDeal(DuplicateDealException ex) {
+		return ResponseEntity.status(HttpStatus.CONFLICT)
+				.body(ApiResponse.error("DEAL_ALREADY_OPEN",
+						ex.getMessage() + " (" + ex.existingOpportunityId() + ")"));
+	}
+
 	@ExceptionHandler(IllegalTransitionException.class)
 	public ResponseEntity<ApiResponse<Void>> onIllegalTransition(IllegalTransitionException ex) {
 		return ResponseEntity.status(HttpStatus.CONFLICT)

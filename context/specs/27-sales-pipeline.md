@@ -1,6 +1,24 @@
 # Unit 27 - Sales: the sales pipeline (GM)
 
-> **Status: built.** Backend, frontend, config, tests and docs landed together.
+> **Status: REMOVED 2026-09-16. This spec is kept as the record of a decision made, shipped and
+> undone.** The screen was **GM-only**, because `evalos.ghl.location-id` is a single global setting
+> with no link to a brand and a brand-locked role shown its figures might be reading another
+> brand's numbers. That gate is what killed it: **the audience for a marketing funnel is
+> Marketing, and Marketing could not open it** (`00d` §8.2 — *"the role is named after two screens
+> it cannot open"*). The two ways out were to widen the gate — which voids invariant 1's
+> exception until Unit 25 puts the location on `brand` — or to stop carrying the screen. The
+> business chose the second: *remove it from the GM as well.*
+>
+> **Deleted with it:** `MarketingPipelinePage`, `marketingApi`, `MarketingController`,
+> `MarketingPipelineService`, `GhlFunnelCache`, `GhlFunnelCacheRepository`,
+> `GhlPipelineClient.countIn`, and the `email-pipeline-name` / `sales-pipeline-name` / `cache-ttl`
+> properties from all three profiles. The `ghl_funnel_cache` **table** survives, orphaned — see
+> `GmOverviewService`'s note for why the drop had nowhere to live.
+>
+> **A funnel screen comes back as a NEW screen after Unit 25**, against a per-brand location, and
+> that version can admit Marketing. Do not restore this one from git.
+>
+> _Original status line:_ **Status: built.** Backend, frontend, config, tests and docs landed together.
 >
 > Spec written alongside the code, per the process Unit 26 established. It is
 > short for the same reason Unit 26's was, and more so: Unit 24 built the

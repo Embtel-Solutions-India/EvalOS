@@ -11,10 +11,12 @@ import com.ie.evalos.domain.ClientAccount;
 import com.ie.evalos.domain.ClientCredentialToken;
 import com.ie.evalos.domain.CredentialPurpose;
 import com.ie.evalos.domain.PortalAudience;
+import com.ie.evalos.integration.GhlWriteClient;
 import com.ie.evalos.repository.ClientAccountRepository;
 import com.ie.evalos.repository.ClientCredentialTokenRepository;
 
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -57,7 +59,13 @@ public class ClientAccountService {
 		 */
 		MAIL_UNAVAILABLE,
 
-		/** No account. Offer Get Started, carrying the email forward. */
+		/**
+		 * No account. Offer sign-up, carrying the email forward.
+		 *
+		 * <p>That offer led to a placeholder apologising for itself until 2026-09-15, because
+		 * nothing created a {@code client_account} at runtime. {@link #signUp} is what it reaches
+		 * now, and is the one state that route cannot return.
+		 */
 		UNKNOWN
 	}
 
@@ -66,6 +74,14 @@ public class ClientAccountService {
 	private final ClientCredentialTokenRepository credentials;
 
 	private final ClientMailer mailer;
+
+	/**
+	 * GHL's contact door, for {@link #signUp} and nothing else on this class.
+	 *
+	 * <p>Invariant 7: GHL owns contact identity, so EvalOS asks it whether this email is somebody
+	 * it already has rather than deciding for itself. One call covers both branches.
+	 */
+	private final GhlWriteClient ghlContacts;
 
 	private final PortalAccessService links;
 
@@ -96,13 +112,15 @@ public class ClientAccountService {
 	private final String clientAppBaseUrl;
 
 	ClientAccountService(ClientAccountRepository accounts, ClientCredentialTokenRepository credentials,
-			ClientMailer mailer, PortalAccessService links, AuditService audit, PasswordEncoder encoder,
+			ClientMailer mailer, GhlWriteClient ghlContacts, PortalAccessService links, AuditService audit,
+			PasswordEncoder encoder,
 			@Value("${evalos.portal.client-brand}") UUID brandId,
 			@Value("${evalos.portal.credential-ttl}") Duration credentialTtl,
 			@Value("${evalos.portal.client-base-url}") String clientAppBaseUrl) {
 		this.accounts = accounts;
 		this.credentials = credentials;
 		this.mailer = mailer;
+		this.ghlContacts = ghlContacts;
 		this.links = links;
 		this.audit = audit;
 		this.encoder = encoder;
@@ -145,6 +163,71 @@ public class ClientAccountService {
 		}
 		return issueCredential(account, CredentialPurpose.SET)
 				? IdentifyState.NO_PASSWORD : IdentifyState.MAIL_UNAVAILABLE;
+	}
+
+	/**
+	 * The other half of the front door: a client EvalOS has never heard of, signing themselves up.
+	 *
+	 * <p><strong>Nothing created a {@code client_account} at runtime before this.</strong> Every
+	 * row in that table came from {@code V45}, a one-shot backfill of the clients EvalOS already
+	 * knew on 2026-09-12. Handoff A creates a case and a {@code contact_snapshot} and no account,
+	 * and no staff route mints one — so every client acquired since then was told
+	 * <em>"we couldn't find that email"</em> by a front door with nothing behind it. This is the
+	 * only way in.
+	 *
+	 * <p><strong>GHL decides whether the contact is new; EvalOS does not ask.</strong>
+	 * {@code upsertContact} is one call that matches on email then phone and returns either the
+	 * contact GHL already had or the one it just made — which is the whole *search → found /
+	 * not found → create* branch, resolved where the identity authority lives (invariant 7).
+	 * Doing it here rather than at first purchase is what makes the returning client's second
+	 * order a second <em>opportunity</em> against one contact, instead of a second contact.
+	 *
+	 * <p><strong>An address we already hold is not an error and does not create anything.</strong>
+	 * It falls through to {@link #identify}, which is the same answer the sign-in screen would
+	 * have given — so a returning client who clicks <em>Sign up</em> out of habit is recognised
+	 * rather than duplicated, and signing up cannot be used to overwrite an account.
+	 *
+	 * <p><strong>This never signs anyone in, and that is the security property.</strong> The reply
+	 * is an {@link IdentifyState}, never a token: when GHL already held the address, the account
+	 * minted here reaches that contact's cases, so handing out a session for an unproven mailbox
+	 * would be account takeover by typing a stranger's email. Control of the inbox is proved by
+	 * the set-password link, exactly as it is for every seeded client.
+	 *
+	 * <p><strong>GHL being unreachable refuses the signup (502) rather than creating a local-only
+	 * account.</strong> An account with no contact is a lead no salesperson can see — the failure
+	 * that looks like success, which is the kind this codebase fails loudly on instead.
+	 *
+	 * <p>Not {@code @Transactional}, for the reason {@link #identify} states at length: the tail
+	 * of this method sends mail.
+	 */
+	public IdentifyState signUp(String email, String firstName, String lastName, String phone) {
+		String normalized = normalize(email);
+		if (accounts.findByBrandIdAndEmailIgnoreCase(brandId, normalized).isEmpty()) {
+			GhlWriteClient.UpsertedContact contact =
+					ghlContacts.upsertContact(firstName, lastName, normalized, phone);
+
+			ClientAccount account = new ClientAccount(brandId, normalized);
+			account.linkGhlContact(contact.id());
+			account.setFirstName(firstName);
+			account.setLastName(lastName);
+			account.setPhone(phone);
+			try {
+				// The repository's own transaction, and no method-level one here on purpose: a
+				// @Transactional wrapper would hold a connection across identify()'s SMTP call
+				// below, which is the trap that method's javadoc describes at length.
+				accounts.saveAndFlush(account);
+			}
+			catch (DataIntegrityViolationException duplicate) {
+				// `client_account_brand_email_key`. Two submissions of the same form raced — a
+				// double-click is enough. The row the winner wrote is the row this caller wanted,
+				// so falling through to identify() gives the same answer they would have got a
+				// millisecond later, rather than a 500 on the front door.
+				return identify(normalized);
+			}
+			audit.recordPortalEvent(brandId, PortalAudience.CLIENT, "CLIENT_ACCOUNT", account.getId(),
+					AuditAction.CREATED, null, "signed up as " + normalized);
+		}
+		return identify(normalized);
 	}
 
 	/**

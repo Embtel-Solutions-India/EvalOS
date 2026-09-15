@@ -8,6 +8,7 @@ import java.util.UUID;
 import com.ie.evalos.domain.ClientAccount;
 import com.ie.evalos.domain.ClientCredentialToken;
 import com.ie.evalos.domain.CredentialPurpose;
+import com.ie.evalos.integration.GhlWriteClient;
 import com.ie.evalos.repository.ClientAccountRepository;
 import com.ie.evalos.repository.ClientCredentialTokenRepository;
 
@@ -52,6 +53,8 @@ class ClientAccountServiceTest {
 
 	private final ClientMailer mailer = mock(ClientMailer.class);
 
+	private final GhlWriteClient ghlContacts = mock(GhlWriteClient.class);
+
 	private final PortalAccessService links = mock(PortalAccessService.class);
 
 	private final AuditService audit = mock(AuditService.class);
@@ -59,7 +62,8 @@ class ClientAccountServiceTest {
 	private final PasswordEncoder encoder = new BCryptPasswordEncoder();
 
 	private final ClientAccountService service = new ClientAccountService(accounts, credentials,
-			mailer, links, audit, encoder, BRAND, Duration.ofMinutes(30), "https://client.example.com");
+			mailer, ghlContacts, links, audit, encoder, BRAND, Duration.ofMinutes(30),
+			"https://client.example.com");
 
 	@Test
 	void anAccountWithAPasswordAnswersPasswordSet() {
@@ -153,8 +157,9 @@ class ClientAccountServiceTest {
 		// InvalidRequestException a refusal is supposed to be.
 		PasswordEncoder hostile = mock(PasswordEncoder.class);
 		given(hostile.matches(any(), any())).willThrow(new IllegalArgumentException("must not be called"));
-		ClientAccountService hostileService = new ClientAccountService(accounts, credentials, mailer, links,
-				audit, hostile, BRAND, Duration.ofMinutes(30), "https://client.example.com");
+		ClientAccountService hostileService = new ClientAccountService(accounts, credentials, mailer,
+				ghlContacts, links, audit, hostile, BRAND, Duration.ofMinutes(30),
+				"https://client.example.com");
 
 		org.assertj.core.api.Assertions
 				.assertThatThrownBy(() -> hostileService.signIn("ana@example.com", "anything"))
@@ -321,5 +326,99 @@ class ClientAccountServiceTest {
 		org.assertj.core.api.Assertions
 				.assertThatThrownBy(() -> service.setPassword("tok", "Another!1"))
 				.isInstanceOf(com.ie.evalos.common.InvalidRequestException.class);
+	}
+
+	/**
+	 * The gap this route closes: before 2026-09-15 nothing created a {@code client_account} at
+	 * runtime, so a client acquired after V45's backfill was told "we couldn't find that email"
+	 * for ever. Signing up must therefore actually write the row — and link the contact, because
+	 * an account with none is a lead no salesperson can see.
+	 */
+	@Test
+	void aStrangerGetsAnAccountLinkedToTheContactGhlReturns() {
+		given(mailer.isConfigured()).willReturn(true);
+		given(mailer.sendSetPassword(any(), any())).willReturn(true);
+		given(credentials.save(any())).willAnswer(call -> call.getArgument(0));
+		given(ghlContacts.upsertContact("Ana", "Okafor", "ana@example.com", "+15550100"))
+				.willReturn(new GhlWriteClient.UpsertedContact("ghl-1", "Ana Okafor",
+						"ana@example.com", "+15550100"));
+		// Absent before the insert, present after it — identify() re-reads through the same finder.
+		given(accounts.findByBrandIdAndEmailIgnoreCase(BRAND, "ana@example.com"))
+				.willReturn(Optional.empty())
+				.willReturn(Optional.of(new ClientAccount(BRAND, "ana@example.com")));
+
+		assertThat(service.signUp("ana@example.com", "Ana", "Okafor", "+15550100"))
+				.isEqualTo(ClientAccountService.IdentifyState.NO_PASSWORD);
+
+		ArgumentCaptor<ClientAccount> saved = ArgumentCaptor.forClass(ClientAccount.class);
+		verify(accounts).saveAndFlush(saved.capture());
+		assertThat(saved.getValue().getGhlContactId()).isEqualTo("ghl-1");
+		assertThat(saved.getValue().getEmail()).isEqualTo("ana@example.com");
+		assertThat(saved.getValue().hasPassword()).isFalse();
+		verify(mailer).sendSetPassword(eq("ana@example.com"), any());
+	}
+
+	/**
+	 * <strong>Signing up with an address we already hold must not create a second account, and
+	 * must not touch GHL.</strong> It is the most ordinary mistake a person makes — they cannot
+	 * remember whether they registered — and the wrong answer is two contacts for one client,
+	 * which invariant 7 exists to prevent.
+	 */
+	@Test
+	void anAddressWeAlreadyHoldCreatesNothingAndAnswersLikeSignIn() {
+		ClientAccount existing = new ClientAccount(BRAND, "ana@example.com");
+		existing.setPasswordHash(encoder.encode("Correct!1"));
+		given(accounts.findByBrandIdAndEmailIgnoreCase(BRAND, "ana@example.com"))
+				.willReturn(Optional.of(existing));
+
+		assertThat(service.signUp("ana@example.com", "Ana", "Okafor", null))
+				.isEqualTo(ClientAccountService.IdentifyState.PASSWORD_SET);
+
+		verify(ghlContacts, never()).upsertContact(any(), any(), any(), any());
+		verify(accounts, never()).saveAndFlush(any());
+		verify(mailer, never()).sendSetPassword(any(), any());
+	}
+
+	/**
+	 * <strong>Signing up never returns a session, and this is the test that says why.</strong>
+	 * The address may be one GHL already holds — a client Sales logged last week, whose cases sit
+	 * behind it — so a token here would be account takeover by typing a stranger's email. Control
+	 * of the mailbox is proved by the set-password link and by nothing else.
+	 */
+	@Test
+	void signingUpMintsNoToken() {
+		given(mailer.isConfigured()).willReturn(true);
+		given(mailer.sendSetPassword(any(), any())).willReturn(true);
+		given(credentials.save(any())).willAnswer(call -> call.getArgument(0));
+		given(ghlContacts.upsertContact(any(), any(), any(), any()))
+				.willReturn(new GhlWriteClient.UpsertedContact("ghl-1", null, "ana@example.com", null));
+		given(accounts.findByBrandIdAndEmailIgnoreCase(BRAND, "ana@example.com"))
+				.willReturn(Optional.empty())
+				.willReturn(Optional.of(new ClientAccount(BRAND, "ana@example.com")));
+
+		service.signUp("ana@example.com", null, null, null);
+
+		verify(links, never()).mintForClientAccount(any());
+	}
+
+	/**
+	 * A double-submitted form races on {@code client_account_brand_email_key}. The loser must
+	 * answer what the winner's row says, not 500 on the front door.
+	 */
+	@Test
+	void aRacedSecondSubmissionAnswersRatherThanFailing() {
+		given(mailer.isConfigured()).willReturn(true);
+		given(mailer.sendSetPassword(any(), any())).willReturn(true);
+		given(credentials.save(any())).willAnswer(call -> call.getArgument(0));
+		given(ghlContacts.upsertContact(any(), any(), any(), any()))
+				.willReturn(new GhlWriteClient.UpsertedContact("ghl-1", null, "ana@example.com", null));
+		given(accounts.saveAndFlush(any()))
+				.willThrow(new org.springframework.dao.DataIntegrityViolationException("duplicate key"));
+		given(accounts.findByBrandIdAndEmailIgnoreCase(BRAND, "ana@example.com"))
+				.willReturn(Optional.empty())
+				.willReturn(Optional.of(new ClientAccount(BRAND, "ana@example.com")));
+
+		assertThat(service.signUp("ana@example.com", null, null, null))
+				.isEqualTo(ClientAccountService.IdentifyState.NO_PASSWORD);
 	}
 }

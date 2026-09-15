@@ -1,7 +1,8 @@
 import { useQuery } from '@tanstack/react-query'
-import { FileCheck2, FileText, Receipt } from 'lucide-react'
+import { ArrowRight, FileCheck2, FileText, Receipt } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { Badge } from '@shared/components/ui/badge'
+import { Button } from '@shared/components/ui/button'
 import { Card } from '@shared/components/ui/card'
 import { EmptyState } from '@shared/components/common/EmptyState'
 import { ErrorState } from '@shared/components/common/ErrorState'
@@ -10,15 +11,19 @@ import { PageHeader } from '@shared/components/common/PageHeader'
 import { usePortalToken } from '@shared/hooks/usePortalToken'
 import { failureMessage, NO_TOKEN, type ClientCaseSummary } from '@shared/lib/portal'
 import { statusOf } from '@shared/services/apiClient'
+import { listApplications } from '@/services/applicationService'
 import { listCases } from '@/services/draftService'
 
 /**
  * Where the client lands: what needs them, then everything else (34d).
  *
  * **Real cases, and no greeting by name.** This screen used to open with "Good morning,
- * {firstName}" from a mock account session. There is no account: the credential is a scoped
- * portal link, and EvalOS deliberately does not hand the portal a client's first name for
- * decoration. A greeting that needed one was a greeting built on a login that is not coming.
+ * {firstName}" from a mock account session over mock data. **There is an account now** — Unit 42
+ * brought one back and 2026-09-15 let a client create their own — and `client_account` even holds
+ * a first name. The greeting still does not come back: EvalOS does not hand the portal a client's
+ * name for decoration, and the objection that killed it was never only that the session was fake.
+ * What the credential is has also changed: a scoped portal link *or* a token minted by signing in,
+ * and this screen cannot tell which, by design.
  *
  * **Action first.** `actionRequired` is the server's flag, from `PortalStageProjection` — the
  * one thing a client opening this page wants to know is whether anything is waiting on them,
@@ -33,6 +38,18 @@ export default function Dashboard() {
     enabled: tokenPresent,
     retry: false,
   })
+
+  // **The one state `43` §4 asked this screen to gain.** A client with an unfinished request and
+  // no case used to land on "nothing here yet", which is both false and a dead end — the thing
+  // they were in the middle of was invisible. Its own query rather than a field on the case list:
+  // a request is not a case, and a failure to load one must not blank the other.
+  const applications = useQuery({
+    queryKey: ['portal', 'applications'],
+    queryFn: ({ signal }) => listApplications(signal),
+    enabled: tokenPresent,
+    retry: false,
+  })
+  const unfinished = applications.data?.find((item) => item.status === 'DRAFT')
 
   if (!tokenPresent) {
     return <PageHeader title="Your cases" description={NO_TOKEN} />
@@ -65,11 +82,35 @@ export default function Dashboard() {
         />
       )}
 
-      {!isLoading && !isError && data && data.length === 0 && (
+      {unfinished && (
+        <Card className="flex flex-wrap items-center justify-between gap-3 p-4">
+          <div>
+            <p className="text-sm font-medium text-foreground">
+              Your {unfinished.serviceName} request isn&rsquo;t finished
+            </p>
+            <p className="text-xs text-muted-foreground">
+              Pick up where you left off — your answers are saved.
+            </p>
+          </div>
+          <Button asChild>
+            <Link to="/requests/new">
+              Continue
+              <ArrowRight className="ml-2 h-4 w-4" aria-hidden="true" />
+            </Link>
+          </Button>
+        </Card>
+      )}
+
+      {!isLoading && !isError && data && data.length === 0 && !unfinished && (
         <EmptyState
           icon={FileCheck2}
           title="Nothing here yet"
-          description="When a case of yours is opened, it will appear here."
+          description="Tell us what you need evaluated and we'll come back to you with a price."
+          action={
+            <Button asChild>
+              <Link to="/requests/new">Request a service</Link>
+            </Button>
+          }
         />
       )}
 
