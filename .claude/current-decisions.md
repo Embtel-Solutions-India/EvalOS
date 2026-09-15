@@ -31,9 +31,21 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
   `CaseIntakeService`. (Invariant 8.)
 - **D10.** The opportunity is created at the **first screen** of the funnel (service chosen), not
   at submit — a half-finished request is still a lead Sales can ring.
+  **Reaffirmed 2026-09-16 against a request to move it to submit.** The business asked for the
+  opportunity to be created on submit; that reverses the reason D10 exists, so instead the deal
+  still opens at service-pick and **submitting writes a `SUBMITTED` custom field on it**
+  (`evalos.ghl.opportunity-submitted-field`). GHL gets the signal, no lead is lost.
+- **D10a.** EvalOS sends GHL the **requested service id** as an opportunity custom field
+  (`evalos.ghl.opportunity-service-field`) and nothing else about placement. A GHL workflow routes
+  the deal to a pipeline from it. Mapping services onto pipelines is a business rule and lives in
+  the workflow — the same ruling that deleted `hot-stage-name`. No stage, no assignee, no price.
 - **D11.** EvalOS puts the opportunity on the intake pipeline and **stops**. Stage placement and
   assignee are GHL automation's job. There is deliberately no "hot stage" setting.
-- **D12.** Submit changes `client_application.status` only. It moves no stage and writes no note.
+- **D12.** Submit changes `client_application.status` and **writes the `SUBMITTED` custom field
+  on the GHL opportunity** (amended 2026-09-16, see D10). It still moves no stage, sends no
+  pipeline and writes no note — the call is `GhlWriteClient.setOpportunityFields`, which carries
+  custom fields and nothing else precisely so it cannot undo GHL's own routing. A failure is
+  logged and swallowed: the request is submitted in EvalOS either way.
 - **D13.** Sales reads the questionnaire through `GET /api/opportunities/{id}/application`, which
   answers `null` + 200 for deals that did not come from the portal.
 

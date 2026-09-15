@@ -727,6 +727,29 @@ Depends on: 17, 28, 36, 38.
 
 ---
 
+## Unit 52 — Client Portal ↔ GHL integration
+
+**PARTIALLY BUILT 2026-09-16.** The EvalOS→GHL half of the client flow: sign-up upserts the GHL
+contact and stores its id (already true); picking a service opens the opportunity carrying the
+**service id** as a custom field, which is the one input a GHL workflow needs to route the deal to
+a pipeline; submitting writes `SUBMITTED` to a second custom field through
+`GhlWriteClient.setOpportunityFields` — custom fields only, so it cannot undo the routing GHL just
+did. No stage, no assignee, no price: placement is GHL's and price is Sales'.
+
+Two config properties, both blank by default (`GHL_OPPORTUNITY_SERVICE_FIELD`,
+`GHL_OPPORTUNITY_SUBMITTED_FIELD`), so an environment without the fields still opens the deal.
+
+**The routing workflow itself is UI work in GHL** and is written up as a runbook in `52` §4.3,
+along with the two Phase 0 items this flow is blocked on: a blank `GHL_INTAKE_PIPELINE_NAME` and
+the `opportunity.won` workflow that was never recreated in the new sub-account.
+
+**GHL → EvalOS sync is Units 44–48, decided 2026-09-16** — the mirror programme in `00c` as
+amended by `00d` §6, not a webhook bolted onto this unit. `52` §6 hands it three acceptance
+criteria.
+Depends on: 42, 43. Hands to: 44–48.
+
+---
+
 ## Notes
 
 - **The monorepo is three applications as of 2026-09-03**, not two: `backend/`,

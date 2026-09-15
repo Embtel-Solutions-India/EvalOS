@@ -23,6 +23,15 @@ orphaned: the drop has nowhere to live, because `V905` clears the table and `Mig
 forbids a `db/migration` script numbered 900 or above. A funnel screen returns only as a NEW
 screen after Unit 25 puts the location on `brand`, and that one can admit Marketing.
 
+BUILT 2026-09-16 (Unit 52, partial): the Client Portal ↔ GHL integration is EvalOS→GHL only.
+Sign-up upserts the GHL contact and stores the id; picking a service opens the opportunity carrying
+the SERVICE ID as a custom field so a GHL workflow can route it to a pipeline; submitting writes
+`SUBMITTED` to a second field through `GhlWriteClient.setOpportunityFields` — custom fields only, so
+it structurally cannot undo GHL's routing. Both field ids default BLANK (field omitted, nothing
+breaks); the routing WORKFLOW is UI work in GHL and is not built. GHL→EvalOS sync is Units 44–48,
+decided 2026-09-16 — `opportunity.update` and `contact.*` are still archived-and-acked, not routed.
+Spec: `context/specs/52-client-portal-ghl-integration.md`.
+
 BUILT 2026-09-15 (Unit 51): the GM dashboard — `GmDashboard.tsx` + `GET /api/metrics/gm`
 (`hasRole('GM')`, nothing wider) + `GmOverviewService`. GM and Brand Manager no longer share
 `RevenueDashboard`. `context/specs/51-gm-dashboard.md` §3 maps every widget on the business's PDF

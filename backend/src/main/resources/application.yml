@@ -227,6 +227,49 @@ evalos:
     # EvalOS hold a second opinion about pipeline placement, which goes stale the first time
     # somebody reworks the workflow in GHL.
     intake-pipeline-name: ${GHL_INTAKE_PIPELINE_NAME:}
+    # The GHL opportunity custom field that carries the requested service — the one input GHL's
+    # own workflow needs to route a client's request to the right pipeline.
+    #
+    # **THIS IS WHAT MAKES "assign the pipeline by service" POSSIBLE, and it is the whole of
+    # EvalOS's part in it.** A GHL workflow triggered by opportunity-created can branch on a custom
+    # field; it cannot branch on the free text in the opportunity's NAME, which is the only place
+    # the service appeared before. So EvalOS states the fact it owns — which service was asked for
+    # — and GHL decides which pipeline that belongs on. Mapping eighteen services onto four sales
+    # pipelines is a business rule, and it lives in the workflow for the same reason the stage
+    # does: a copy here goes stale the first time somebody reworks the routing over there.
+    #
+    # **The value sent is the service ID** (`academic_evaluation`, `eb1a_expert_opinion_letter`, …
+    # see the client portal's `serviceCatalog.ts`), not the display name. The name is for a human
+    # reading a board and changes when the catalog is reworded; the id is the stable slug a
+    # workflow condition can be written against.
+    #
+    # **The GHL custom field ID, not its name or key** — an opaque 20-character string, the same
+    # shape as `team_member.ghl_pipeline_id` and for the same reason: a field renamed in GHL must
+    # not silently stop routing. Read it from GHL under Settings → Custom Fields (object:
+    # Opportunity), or from `GET /api/sales/opportunity-fields`, which the sales desk already
+    # calls.
+    #
+    # **Blank omits the field and nothing else changes.** The deal is still opened on the intake
+    # pipeline and still names the person and the service; it simply lands wherever GHL's default
+    # routing puts it. An environment that has not created the field yet must not lose the lead
+    # over it.
+    opportunity-service-field: ${GHL_OPPORTUNITY_SERVICE_FIELD:}
+    # The GHL opportunity custom field that says the client finished the questionnaire.
+    #
+    # **This exists because of D10**: the opportunity is opened when the client PICKS a service, not
+    # when they submit, so that a client who abandons halfway still reaches a salesperson. The cost
+    # of that decision is that a deal on the board says nothing about whether it is somebody
+    # browsing or a finished request. This field is the difference, and it gives GHL a second
+    # workflow trigger — notify, move a stage, start a sequence — without EvalOS holding any opinion
+    # about which.
+    #
+    # The value written is the constant `SUBMITTED`. Deliberately not configurable: a value a
+    # deployer could change is one a GHL workflow condition would have to be kept in step with by
+    # hand, and there is nothing to gain from the two disagreeing.
+    #
+    # A GHL custom field ID, same shape and same sourcing as the line above. Blank skips the call —
+    # the request is still submitted in EvalOS, which is where it lives.
+    opportunity-submitted-field: ${GHL_OPPORTUNITY_SUBMITTED_FIELD:}
     # Which brand owns `location-id`. Unit 36's single-brand ceiling, and it is ENFORCED rather
     # than documented: assigning SALES or MARKETING to a member of any other brand answers 400.
     #

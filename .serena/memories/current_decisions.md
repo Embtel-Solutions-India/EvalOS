@@ -10,6 +10,13 @@ The ones most often violated from memory:
   second contact.
 - **Request is not Case.** `client_application` is the request, `evalos_case` is production work,
   and the GHL opportunity is the commercial process between them.
+- **The opportunity opens when the client PICKS a service, not when they submit** (D10) — a
+  half-finished request is still a lead Sales can ring. Asked on 2026-09-16 to move it to submit;
+  reaffirmed, and submit now writes a `SUBMITTED` custom field on the same opportunity instead.
+- **EvalOS sends GHL the requested SERVICE ID as an opportunity custom field and nothing else about
+  placement** (D10a). A GHL workflow routes the deal to a pipeline from it. Mapping services onto
+  pipelines is a business rule and lives in the workflow — the same ruling that deleted
+  `hot-stage-name`. No stage, no assignee, no price: EvalOS holds no price list.
 - **A case is created only by the `opportunity.won` webhook.** Build-enforced by
   `DomainInvariantsTest`. Never add a second creator.
 - Invoicing is GHL's, full stop. EvalOS reads invoices and raises none.

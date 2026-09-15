@@ -222,6 +222,38 @@ public class GhlWriteClient {
 	}
 
 	/**
+	 * Sets custom fields on an opportunity and <strong>touches nothing else</strong>.
+	 *
+	 * <p><strong>A separate method rather than a parameter on {@link #updateOpportunity}, because
+	 * the narrowness is the safety.</strong> The client portal calls this to tell GHL a request has
+	 * been submitted — and by then a GHL workflow has very probably <em>moved the opportunity to
+	 * another pipeline</em>, which is the whole point of the routing design. {@code PUT
+	 * /opportunities/{id}} accepts a {@code pipelineId} and treats the pipeline as a mutable field
+	 * (see {@link #moveStage}), so any update path that carries one can undo that routing. This one
+	 * structurally cannot: the body holds custom fields and nothing else, so there is no pipeline,
+	 * stage or name for a future edit to smuggle in.
+	 *
+	 * <p>No-ops on an empty map rather than sending an empty body, which GHL answers 422 to.
+	 */
+	public void setOpportunityFields(String opportunityId, Map<String, String> customFields) {
+		List<Map<String, String>> fields = customFields == null ? List.of()
+				: customFields.entrySet().stream()
+						.filter((entry) -> entry.getValue() != null && !entry.getValue().isBlank())
+						.map((entry) -> Map.of("id", entry.getKey(), "fieldValue", entry.getValue()))
+						.toList();
+		if (fields.isEmpty()) {
+			return;
+		}
+
+		http.put(OpportunityEnvelope.class, (uri) -> uri.path("/opportunities/{id}").build(opportunityId),
+				Map.of("customFields", fields));
+
+		audit.recordEvent("GHL_OPPORTUNITY", auditKey("GHL_OPPORTUNITY", opportunityId),
+				AuditAction.UPDATED, actor(), null,
+				Map.of("ghlOpportunityId", opportunityId, "customFields", customFields.keySet()));
+	}
+
+	/**
 	 * Changes an opportunity's own fields — the valuation, the name, the stage.
 	 *
 	 * <p>{@code PUT}, not upsert: this names an opportunity that already exists, so there is

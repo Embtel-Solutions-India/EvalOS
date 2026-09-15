@@ -16,6 +16,8 @@ import com.ie.evalos.repository.ClientApplicationRepository;
 import com.ie.evalos.security.PortalPrincipal;
 import com.ie.evalos.security.TenantContext;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -48,6 +50,8 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class ClientApplicationService {
 
+	private static final Logger log = LoggerFactory.getLogger(ClientApplicationService.class);
+
 	/** What the portal shows for one application. */
 	public record ApplicationView(UUID id, String serviceId, String serviceName, String purpose,
 			String status, String answers, Instant createdAt, Instant updatedAt, Instant submittedAt) {
@@ -73,14 +77,63 @@ public class ClientApplicationService {
 
 	private final String intakePipelineName;
 
+	/**
+	 * The GHL opportunity custom field that carries the requested service, or blank for none.
+	 *
+	 * <p><strong>This is what lets GHL route the deal, and it is deliberately the only routing
+	 * input EvalOS supplies.</strong> A workflow triggered by opportunity-created can branch on a
+	 * custom field; it cannot branch on the free text in the opportunity's <em>name</em>, which is
+	 * the only place the service appeared before. So EvalOS states the fact it owns — which service
+	 * was asked for — and GHL decides which pipeline that belongs on. That division is the same one
+	 * that removed the {@code hot-stage-name} property from this class on the business's
+	 * instruction: placement is GHL's automation's, and a second opinion here goes stale the first
+	 * time somebody reworks the workflow over there.
+	 *
+	 * <p><strong>The service <em>id</em>, not the display name.</strong> The name is for a human
+	 * reading a board and is reworded whenever the catalog is; the id is the stable slug a workflow
+	 * condition can be written against. Grouping eighteen services onto four sales pipelines is a
+	 * business mapping, and it lives in the workflow for the same reason the stage does.
+	 *
+	 * <p><strong>Blank omits the field and nothing else changes.</strong> The deal is still opened
+	 * on the intake pipeline and still names the person and the service; it simply lands wherever
+	 * GHL's default routing puts it. An environment that has not created the field yet must not
+	 * lose the lead over it — which is the whole reason the deal is opened at service-pick.
+	 */
+	private final String serviceFieldId;
+
+	/**
+	 * The GHL opportunity custom field that says the questionnaire is finished, or blank for none.
+	 *
+	 * <p>The companion to {@link #serviceFieldId}, and it exists because of {@code D10}: the deal
+	 * is opened when the client picks a service, so a deal on the board does not distinguish
+	 * somebody browsing from a finished request. This field does, and it is a second workflow
+	 * trigger for GHL to do whatever the business decides with — notify, move a stage, start a
+	 * sequence. EvalOS sets the fact and stops.
+	 *
+	 * <p>Blank skips the call entirely. The request is still submitted in EvalOS, which is where it
+	 * lives.
+	 */
+	private final String submittedFieldId;
+
+	/**
+	 * What gets written into that field. A constant, not a property: a value the deployer could
+	 * change is one a GHL workflow condition would then have to be kept in step with by hand, and
+	 * there is nothing to gain from the two disagreeing.
+	 */
+	private static final String SUBMITTED_FIELD_VALUE = "SUBMITTED";
+
 	ClientApplicationService(ClientApplicationRepository applications, ClientAccountRepository accounts,
 			GhlWriteClient ghl, GhlPipelineClient pipelines,
-			@Value("${evalos.ghl.intake-pipeline-name}") String intakePipelineName) {
+			@Value("${evalos.ghl.intake-pipeline-name}") String intakePipelineName,
+			@Value("${evalos.ghl.opportunity-service-field:}") String serviceFieldId,
+			@Value("${evalos.ghl.opportunity-submitted-field:}") String submittedFieldId) {
 		this.applications = applications;
 		this.accounts = accounts;
 		this.ghl = ghl;
 		this.pipelines = pipelines;
 		this.intakePipelineName = intakePipelineName;
+		this.serviceFieldId = serviceFieldId == null ? "" : serviceFieldId.trim();
+		this.submittedFieldId = submittedFieldId == null ? "" : submittedFieldId.trim();
 	}
 
 	/** Every application this client has, newest first. */
@@ -186,7 +239,49 @@ public class ClientApplicationService {
 				"We could not reach our systems to send this. Please try again in a moment.");
 
 		application.submit();
+		markSubmittedInGhl(application);
 		return view(application);
+	}
+
+	/**
+	 * Tells GHL the questionnaire is finished.
+	 *
+	 * <p><strong>Why a second signal exists at all.</strong> The opportunity is opened when the
+	 * client <em>picks</em> a service, not when they submit — {@code D10}, taken so a client who
+	 * abandons the questionnaire still reaches a salesperson. The cost of that decision is that a
+	 * deal on the board says nothing about whether it is somebody browsing or a finished request,
+	 * and Sales would have to open EvalOS to tell them apart. This field is the difference, and it
+	 * gives GHL a second workflow trigger — notify, move a stage, start a sequence — without EvalOS
+	 * holding any opinion about which.
+	 *
+	 * <p><strong>Custom fields only, and deliberately through
+	 * {@link GhlWriteClient#setOpportunityFields}.</strong> By now GHL's own workflow has very
+	 * probably moved this opportunity onto a service-specific pipeline; an update path carrying a
+	 * {@code pipelineId} could undo that routing, and that method structurally cannot.
+	 *
+	 * <p><strong>A failure here does not fail the submit, which is the opposite of the rule one
+	 * method up.</strong> That rule exists because an application Sales cannot <em>see</em> reads
+	 * to the client as "sent" and to the business as nothing at all. Here Sales can already see the
+	 * deal — only the marker is missing — so refusing would throw away a completed questionnaire
+	 * over a flag. EvalOS is the source of truth for the request either way; the screen and the
+	 * status are right, and GHL is the copy that lags.
+	 *
+	 * <p>ponytail: swallowed and logged, with no retry, so a GHL outage at this exact moment loses
+	 * the marker permanently. The fix is not a retry loop here — it is the outbox in Unit 45, which
+	 * is where every EvalOS→GHL write is meant to end up.
+	 */
+	private void markSubmittedInGhl(ClientApplication application) {
+		if (submittedFieldId.isEmpty()) {
+			return;
+		}
+		try {
+			ghl.setOpportunityFields(application.getGhlOpportunityId(),
+					java.util.Map.of(submittedFieldId, SUBMITTED_FIELD_VALUE));
+		}
+		catch (RuntimeException ghlRefused) {
+			log.warn("Request {} is submitted in EvalOS but GHL was not told: {}", application.getId(),
+					ghlRefused.getMessage());
+		}
 	}
 
 	/**
@@ -241,7 +336,11 @@ public class ClientApplicationService {
 			GhlPipelineClient.Pipeline intake = pipelines.pipelineNamed(intakePipelineName);
 			GhlWriteClient.UpsertedOpportunity opened = ghl.createOpportunity(intake.id(),
 					client.getGhlContactId(), opportunityName(application, client), null,
-					null, null, null);
+					// No stage and no assignee — see `serviceFieldId` and `noStageAndNoAssigneeAreSent`.
+					// No monetaryValue either: EvalOS holds no price list, and what the work is worth
+					// is Sales' to set on the deal. A zero here would be a priced deal worth nothing
+					// rather than an unpriced one.
+					null, null, routingFields(application));
 			application.linkOpportunity(opened.id());
 		}
 		catch (RuntimeException ghlRefused) {
@@ -260,6 +359,20 @@ public class ClientApplicationService {
 	 * second because the same person can have two open requests. Falls back to the email when no
 	 * name was given at sign-up — a deal named after nobody is one a salesperson cannot pick up.
 	 */
+	/**
+	 * What GHL is told about the request, beyond the contact and the name.
+	 *
+	 * <p>Null rather than an empty map when nothing is configured, because
+	 * {@code GhlWriteClient.createOpportunity} already drops empty and blank entries and a caller
+	 * sending {@code {}} reads as "this request has no service", which is never true.
+	 */
+	private java.util.Map<String, String> routingFields(ClientApplication application) {
+		if (serviceFieldId.isEmpty() || application.getServiceId() == null) {
+			return null;
+		}
+		return java.util.Map.of(serviceFieldId, application.getServiceId());
+	}
+
 	private static String opportunityName(ClientApplication application, ClientAccount client) {
 		String person = java.util.stream.Stream.of(client.getFirstName(), client.getLastName())
 				.filter((part) -> part != null && !part.isBlank())

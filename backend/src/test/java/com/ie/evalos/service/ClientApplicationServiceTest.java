@@ -23,6 +23,7 @@ import org.mockito.ArgumentCaptor;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.entry;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -63,8 +64,17 @@ class ClientApplicationServiceTest {
 
 	private final GhlPipelineClient pipelines = mock(GhlPipelineClient.class);
 
+	private static final String SERVICE_FIELD = "ghl-field-service";
+
+	private static final String SUBMITTED_FIELD = "ghl-field-submitted";
+
 	private final ClientApplicationService service = new ClientApplicationService(applications, accounts,
-			ghl, pipelines, "Client Intake");
+			ghl, pipelines, "Client Intake", SERVICE_FIELD, SUBMITTED_FIELD);
+
+	/** The same service with neither custom field configured — the unconfigured environment. */
+	private ClientApplicationService withoutCustomFields() {
+		return new ClientApplicationService(applications, accounts, ghl, pipelines, "Client Intake", "", "");
+	}
 
 	private ClientAccount client;
 
@@ -126,11 +136,130 @@ class ClientApplicationServiceTest {
 		service.start(token(), "academic_evaluation", "Academic Evaluation", null);
 
 		ArgumentCaptor<String> stage = ArgumentCaptor.forClass(String.class);
-		ArgumentCaptor<java.util.Map<String, String>> customFields = ArgumentCaptor.forClass(java.util.Map.class);
 		verify(ghl).createOpportunity(eq("pipe-1"), eq(CONTACT), anyString(), any(), stage.capture(),
-				any(), customFields.capture());
+				any(), any());
 		assertThat(stage.getValue()).isNull();
-		assertThat(customFields.getValue()).isNull();
+	}
+
+	/**
+	 * <strong>The service goes to GHL as a custom field, and that is what lets GHL route it.</strong>
+	 *
+	 * <p>A workflow triggered by opportunity-created can branch on a custom field; it cannot branch
+	 * on the free text in the name, which was the only place the service appeared before. The
+	 * <em>id</em> is sent rather than the display name because the name is written for a human
+	 * reading a board and is reworded whenever the catalog is, while a workflow condition has to
+	 * keep matching.
+	 *
+	 * <p>Sent on <em>create</em> and not on submit, because that is when the trigger fires — and
+	 * the deal is opened when the client picks a service, which {@link #pickingAServiceOpensTheDeal()}
+	 * pins.
+	 */
+	@Test
+	void theRequestedServiceIsSentAsTheRoutingField() {
+		given(ghl.createOpportunity(any(), any(), any(), any(), any(), any(), any()))
+				.willReturn(opened("opp-1"));
+
+		service.start(token(), "eb1a_expert_opinion_letter", "EB-1A Expert Opinion Letter", null);
+
+		ArgumentCaptor<java.util.Map<String, String>> fields = ArgumentCaptor.forClass(java.util.Map.class);
+		verify(ghl).createOpportunity(eq("pipe-1"), eq(CONTACT), anyString(), any(), any(), any(),
+				fields.capture());
+		assertThat(fields.getValue()).containsExactly(entry(SERVICE_FIELD, "eb1a_expert_opinion_letter"));
+	}
+
+	/**
+	 * An environment that has not created the field yet still opens the deal.
+	 *
+	 * <p>Null rather than an empty map, because {@code createOpportunity} drops blank entries
+	 * anyway and a caller sending <code>{}</code> reads as "this request has no service", which is
+	 * never true. **Losing the lead over an unconfigured field would be the worse failure**: the
+	 * whole reason the deal is opened at service-pick is that a client who abandons the
+	 * questionnaire must already be on a salesperson's board.
+	 */
+	@Test
+	void anUnconfiguredFieldStillOpensTheDeal() {
+		given(ghl.createOpportunity(any(), any(), any(), any(), any(), any(), any()))
+				.willReturn(opened("opp-1"));
+
+		withoutCustomFields().start(token(), "academic_evaluation", "Academic Evaluation", null);
+
+		ArgumentCaptor<java.util.Map<String, String>> fields = ArgumentCaptor.forClass(java.util.Map.class);
+		verify(ghl).createOpportunity(eq("pipe-1"), eq(CONTACT), anyString(), any(), any(), any(),
+				fields.capture());
+		assertThat(fields.getValue()).isNull();
+	}
+
+	/**
+	 * <strong>Submitting tells GHL, and it tells it the one way that cannot undo GHL's routing.</strong>
+	 *
+	 * <p>The deal was opened when the client picked a service (D10), so by now GHL's own workflow
+	 * has very probably moved it onto a service-specific pipeline. {@code setOpportunityFields}
+	 * sends custom fields and nothing else — no pipeline, no stage, no name — so there is nothing
+	 * for this call to move back. `moveStage` and `updateOpportunity` both carry a pipeline and are
+	 * asserted absent here for exactly that reason.
+	 */
+	@Test
+	void submittingMarksTheDealSubmittedWithoutTouchingItsPipeline() {
+		ClientApplication existing = draft("opp-1");
+		given(applications.findById(existing.getId())).willReturn(Optional.of(existing));
+
+		service.submit(token(), existing.getId());
+
+		verify(ghl).setOpportunityFields("opp-1", java.util.Map.of(SUBMITTED_FIELD, "SUBMITTED"));
+		verify(ghl, never()).moveStage(any(), any(), any());
+		verify(ghl, never()).updateOpportunity(any(), any(), any(), any(), any());
+	}
+
+	/**
+	 * <strong>A GHL outage at submit does not throw the questionnaire away.</strong>
+	 *
+	 * <p>The opposite of the rule one line up in the service, and the difference is what Sales can
+	 * see. No opportunity at all is a 502, because an application Sales cannot see reads to the
+	 * client as "sent" and to the business as nothing at all. Here the deal is already on the
+	 * board — only the marker is missing — so refusing would lose a completed questionnaire over a
+	 * flag. EvalOS owns the request; GHL is the copy that lags.
+	 */
+	@Test
+	void aFailedSubmitSignalStillSubmitsTheRequest() {
+		ClientApplication existing = draft("opp-1");
+		given(applications.findById(existing.getId())).willReturn(Optional.of(existing));
+		org.mockito.BDDMockito.willThrow(new GhlUnavailableException("GHL did not answer"))
+				.given(ghl).setOpportunityFields(any(), any());
+
+		ClientApplicationService.ApplicationView submitted = service.submit(token(), existing.getId());
+
+		assertThat(submitted.status()).isEqualTo("SUBMITTED");
+	}
+
+	/** No field configured is no call, not an empty one. */
+	@Test
+	void anUnconfiguredSubmittedFieldSendsNothing() {
+		ClientApplication existing = draft("opp-1");
+		given(applications.findById(existing.getId())).willReturn(Optional.of(existing));
+
+		withoutCustomFields().submit(token(), existing.getId());
+
+		verify(ghl, never()).setOpportunityFields(any(), any());
+	}
+
+	/**
+	 * <strong>No price is sent, and that is a decision rather than an omission.</strong> EvalOS
+	 * holds no price list — the catalog carries descriptions and document lists, not amounts — and
+	 * what the work is worth is Sales' to set on the deal. A zero would be a priced deal worth
+	 * nothing rather than an unpriced one, and it would land in the GM dashboard's won figures as
+	 * exactly that.
+	 */
+	@Test
+	void noPriceIsSent() {
+		given(ghl.createOpportunity(any(), any(), any(), any(), any(), any(), any()))
+				.willReturn(opened("opp-1"));
+
+		service.start(token(), "academic_evaluation", "Academic Evaluation", null);
+
+		ArgumentCaptor<BigDecimal> value = ArgumentCaptor.forClass(BigDecimal.class);
+		verify(ghl).createOpportunity(eq("pipe-1"), eq(CONTACT), anyString(), value.capture(), any(),
+				any(), any());
+		assertThat(value.getValue()).isNull();
 	}
 
 	@Test
