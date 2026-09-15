@@ -41,6 +41,12 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
   the workflow — the same ruling that deleted `hot-stage-name`. No stage, no assignee, no price.
 - **D11.** EvalOS puts the opportunity on the intake pipeline and **stops**. Stage placement and
   assignee are GHL automation's job. There is deliberately no "hot stage" setting.
+- **D11a.** GHL's pipelines and stages are **mirrored** as EvalOS rows using GHL's own ids
+  (Unit 44a, `V50`). GHL owns every column except `pipeline.purpose`, which EvalOS owns and a
+  sweep never writes. Rows are upserted and **never deleted** — one GHL stops returning is
+  stamped `missing_since`, because `purpose` is EvalOS's judgement and a pipeline archived for
+  an afternoon must not come back meaning nothing. Nothing infers a purpose from a pipeline's
+  name: a GM sets it, or it stays `UNASSIGNED`.
 - **D12.** Submit changes `client_application.status` and **writes the `SUBMITTED` custom field
   on the GHL opportunity** (amended 2026-09-16, see D10). It still moves no stage, sends no
   pipeline and writes no note — the call is `GhlWriteClient.setOpportunityFields`, which carries

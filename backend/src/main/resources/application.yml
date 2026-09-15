@@ -321,6 +321,11 @@ evalos:
       # interval is how stale a status light may be. Faster than the chases and for a different
       # reason — it feeds a screen, not a deadline.
       STAGE_SLA: ${JOBS_STAGE_SLA_INTERVAL:15m}
+      # The pipeline mirror (Unit 44a). **An hour, and the slowness is the point**: pipelines are
+      # structure, not traffic — a GM adds one every few months. Fifteen minutes would spend the
+      # GHL budget on an answer that has not changed since the last twenty passes, and no screen
+      # needs a stage name the instant it appears.
+      PIPELINE_MIRROR: ${JOBS_PIPELINE_MIRROR_INTERVAL:1h}
     # How many missed intervals before the panel calls a sweep stopped. Four rather than two so
     # one slow pass or one restart is not an alarm; low enough that a scheduler that died is
     # named within a couple of hours rather than the next morning.

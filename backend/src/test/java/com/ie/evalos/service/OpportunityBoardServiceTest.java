@@ -7,16 +7,18 @@ import java.util.List;
 import java.util.UUID;
 
 import com.ie.evalos.domain.CachedOpportunity;
+import com.ie.evalos.domain.Pipeline;
+import com.ie.evalos.domain.PipelineStage;
 import com.ie.evalos.domain.Role;
 import com.ie.evalos.integration.GhlOpportunityClient;
 import com.ie.evalos.integration.GhlOpportunityClient.BoardOpportunity;
-import com.ie.evalos.integration.GhlPipelineClient;
 import com.ie.evalos.repository.TeamMemberRepository;
 import com.ie.evalos.security.StaffPrincipal;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
 
@@ -46,7 +48,7 @@ class OpportunityBoardServiceTest {
 	private static final Duration TTL = Duration.ofMinutes(2);
 
 	private final GhlOpportunityClient opportunities = mock(GhlOpportunityClient.class);
-	private final GhlPipelineClient pipelines = mock(GhlPipelineClient.class);
+	private final PipelineMirrorService pipelines = mock(PipelineMirrorService.class);
 	private final OpportunityCache cache = mock(OpportunityCache.class);
 	private final TeamMemberRepository teamMembers = mock(TeamMemberRepository.class);
 
@@ -62,14 +64,34 @@ class OpportunityBoardServiceTest {
 				new UsernamePasswordAuthenticationToken(principal, null, principal.getAuthorities()));
 	}
 
+	/**
+	 * The stage names come from the MIRROR as of Unit 44a, not from a live GHL read.
+	 *
+	 * <p>The fixture shape changed with it and the assertions did not, which is the point: the
+	 * board draws the same columns from local rows that it used to draw from a network call on
+	 * every render.
+	 */
 	@BeforeEach
 	void stubPipelineStages() {
-		when(pipelines.pipelines()).thenReturn(List.of(
-				new GhlPipelineClient.Pipeline(MINE, "My pipeline", List.of(
-						new GhlPipelineClient.Pipeline.Stage("s1", "New", 0),
-						new GhlPipelineClient.Pipeline.Stage("s2", "Warm", 1))),
-				new GhlPipelineClient.Pipeline(THEIRS, "Their pipeline", List.of(
-						new GhlPipelineClient.Pipeline.Stage("t1", "Theirs", 0)))));
+		Pipeline mine = mirrored(MINE, "My pipeline", 0);
+		Pipeline theirs = mirrored(THEIRS, "Their pipeline", 1);
+		when(pipelines.all()).thenReturn(List.of(mine, theirs));
+		when(pipelines.stagesOf(mine.getId())).thenReturn(List.of(
+				stage(mine, "s1", "New", 0), stage(mine, "s2", "Warm", 1)));
+		when(pipelines.stagesOf(theirs.getId())).thenReturn(List.of(
+				stage(theirs, "t1", "Theirs", 0)));
+	}
+
+	private static Pipeline mirrored(String ghlId, String name, int position) {
+		Pipeline pipeline = new Pipeline(SELLING_BRAND, ghlId, name, position);
+		ReflectionTestUtils.setField(pipeline, "id", UUID.randomUUID());
+		return pipeline;
+	}
+
+	private static PipelineStage stage(Pipeline pipeline, String ghlId, String name, int position) {
+		PipelineStage row = new PipelineStage(SELLING_BRAND, pipeline.getId(), ghlId, name, position);
+		ReflectionTestUtils.setField(row, "id", UUID.randomUUID());
+		return row;
 	}
 
 	@AfterEach
@@ -175,15 +197,12 @@ class OpportunityBoardServiceTest {
 	}
 
 	/**
-	 * <strong>Named for what it actually proves.</strong> A fresh cache means no *opportunity*
-	 * read — it does not mean no GHL call at all: {@code draw} resolves stage names through
-	 * {@code GhlPipelineClient.pipelines()} on every request, uncached.
+	 * <strong>A fresh cache now means no GHL call at all.</strong>
 	 *
-	 * <pre>
-	 * ponytail: one uncached pipeline-metadata request per board load. Cheap (one request, not a
-	 * cursor loop) and it keeps a renamed stage showing renamed immediately. If board loads ever
-	 * dominate the 100-per-10s budget, cache the stage list — not the opportunities again.
-	 * </pre>
+	 * <p>It used to mean no *opportunity* read only: {@code draw} resolved stage names through
+	 * {@code GhlPipelineClient.pipelines()} on every request, uncached, and the old note here said
+	 * to cache the stage list if board loads ever dominated the budget. Unit 44a did better than
+	 * cache it — the stages are mirrored rows now, so the lookup left the network entirely.
 	 */
 	/**
 	 * A typo in `evalos.ghl.sales-brand` fails the boot, not the first GM board load.

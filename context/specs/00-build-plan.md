@@ -750,6 +750,35 @@ Depends on: 42, 43. Hands to: 44–48.
 
 ---
 
+## Unit 44 - The tier-1 GHL mirror
+
+**SLICE A BUILT 2026-09-16; B, C and D specced and unbuilt.** `00c`'s first real unit, amended
+before it started by `00d` §6. Full slice order and reasoning: `44-ghl-tier1-mirror.md`.
+
+**44a** — `pipeline` and `pipeline_stage` (`V50`), holding GHL's ids verbatim; the `PIPELINE_MIRROR`
+sweep (hourly, on Unit 19's machinery); `pipeline.purpose` replacing a config property per pipeline;
+`GET`/`PUT /api/ghl/pipelines`. **First because GHL owns every column in it** (`00d` §6.2), so the
+table can only ever be *behind* GHL, never in conflict — no sync machinery needed to make it
+correct. Rows are upserted and never deleted, which is the exact opposite of the cache it begins to
+replace. A stage GHL recreated under a new id is repointed by `(pipeline, position, name)`, not
+duplicated.
+
+**44b** — `team_member_pipeline`, and `PipelineScope.mine()` from one id to a set. Held back
+deliberately: it is an **authorisation change** across Units 39 and 40, not a schema change.
+Retires `intake-pipeline-name`.
+
+**44c** — `contact`, merging `contact_snapshot` and `client_account`.
+
+**44d** — `opportunity`, replacing `ghl_opportunity_cache`, and the **correlation custom field**
+`00d` §6.1 pulls forward from tier 2 — the single biggest sequencing correction to `00c`, because
+at-least-once outbox delivery over a non-idempotent create is how one opportunity becomes two.
+
+**No sync engine anywhere in Unit 44.** Webhooks, the delta sweep, the nightly paged diff, the
+outbox, `sync_drift` and error classification are Unit 45.
+Depends on: 43. Hands to: 45.
+
+---
+
 ## Notes
 
 - **The monorepo is three applications as of 2026-09-03**, not two: `backend/`,

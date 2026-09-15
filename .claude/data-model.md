@@ -3,14 +3,15 @@
 ## CURRENT DATABASE
 
 Verified 2026-09-16 against the live local Postgres 18 database `evalos` (`pg_dump --schema-only`
-plus `pg_constraint` / `pg_indexes`). **Flyway V1–V49 all applied, `success = true`.** Migrations
+plus `pg_constraint` / `pg_indexes`). **Flyway V1–V50 all applied, `success = true`.** (`V50__pipeline_mirror.sql` is Unit 44a,
+added 2026-09-16 and verified by `LocalPostgresIntegrationTest`.) Migrations
 live in `backend/src/main/resources/db/migration/`.
 
 > No production database was reachable from this workspace. Everything below is the schema the
 > migrations produce, confirmed against a real applied instance. Row counts cited anywhere are the
 > **local seeded** database and say nothing about production.
 
-### Tables (24, including `flyway_schema_history`)
+### Tables (26, including `flyway_schema_history`)
 
 | Table | Purpose | Brand-scoped |
 |---|---|---|
@@ -29,8 +30,10 @@ live in `backend/src/main/resources/db/migration/`.
 | `payout_payment` | one transfer | yes |
 | `portal_access` | opaque tokens for CLIENT / EXPERT, case- or party-scoped | yes |
 | `opportunity_note` | staff prose against a GHL opportunity — **append-only trigger** | yes |
-| `ghl_opportunity_cache` | droppable mirror of GHL opportunity fields | **no** |
-| `ghl_funnel_cache` | cached funnel counts keyed by resolved day window | **no** |
+| `pipeline` | **mirror of a GHL pipeline** (Unit 44a): `ghl_id` verbatim, `name`, `position`, `purpose`, `synced_at`, `missing_since`. Upserted, never deleted | yes |
+| `pipeline_stage` | **mirror of a GHL stage** (Unit 44a): FK to `pipeline`, `ghl_id` verbatim (mutable — see below), natural key `(pipeline_id, position, name)` | yes |
+| `ghl_opportunity_cache` | droppable mirror of GHL opportunity fields — **superseded by `opportunity` at slice 44d**, not yet removed | **no** |
+| `ghl_funnel_cache` | **orphaned 2026-09-16** — its only reader went with the funnel screens; the drop has nowhere to live (see `52`/`51` notes) | **no** |
 | `meeting` | mirror of a GHL appointment booked from the Sales desk | yes |
 | `follow_up` | mirror of a GHL contact task | yes |
 | `notification` | in-app notification to a team member | yes |
@@ -91,7 +94,8 @@ FKs to `evalos_case`. No table, column or route attaches a file to a request.
 | `uq_case_open_per_contact_service` | one non-CLOSED case per brand / contact / service |
 | `uq_contact_per_brand_ghl_id`, `uq_contact_per_brand_email` | ghl id where present; email only as fallback |
 | `uq_portal_access_*` (four) | one unrevoked token per case+audience, per client party, per expert party, per account |
-| `uq_team_member_pipeline` | one active member per GHL pipeline |
+| `uq_team_member_pipeline` | one active member per GHL pipeline — **replaced by `team_member_pipeline` at slice 44b**, which is many-to-many because Case Delivery has no single owner |
+| `uq_pipeline_per_brand_ghl_id`, `uq_pipeline_stage_per_brand_ghl_id` | GHL's id, unique per brand rather than globally: two brands will hold two locations and ids are only unique within one |
 | `uq_webhook_event_source_brand_external` | idempotency, `NULLS NOT DISTINCT` |
 | `uq_payout_per_case` | one non-VOIDED payout per case |
 | `uq_case_document_version` | (case, kind, version) |
@@ -120,19 +124,25 @@ Not present today. Do not write code that assumes any of it exists.
 
 ### From the mirror programme (Units 44–48, `context/specs/00c-ghl-independence-programme.md`)
 
+**`pipeline` and `pipeline_stage` are BUILT** — slice 44a, `V50`, 2026-09-16. They are in CURRENT
+above. What is left:
+
 ```sql
-pipeline       (id uuid pk, brand_id, ghl_id unique, name, position, synced_at)
-pipeline_stage (id uuid pk, brand_id, pipeline_id, ghl_id unique, name, position, synced_at)
-contact        (id uuid pk, brand_id, ghl_id unique null, name, email, phone, ...)
-opportunity    (id uuid pk, brand_id, ghl_id unique null, contact_id, pipeline_id, stage_id,
-                name, amount, status, ghl_updated_at, local_updated_at, sync_state)
-outbox         (partial-unique on entity_id, not payload)
-sync_drift     (the reported mismatches)
+team_member_pipeline (team_member_id, pipeline_id)   -- 44b, replaces team_member.ghl_pipeline_id
+contact              (id uuid pk, brand_id, ghl_id unique null, name, email, phone, ...)  -- 44c
+opportunity          (id uuid pk, brand_id, ghl_id unique null, contact_id, pipeline_id, stage_id,
+                      name, amount, status, ghl_updated_at, local_updated_at, sync_state)  -- 44d
+outbox               (partial-unique on entity_id, not payload)   -- 45
+sync_drift           (the reported mismatches)                    -- 45
 ```
 
-Unit 44 replaces `ghl_opportunity_cache` with `opportunity` and merges `contact_snapshot` into
-`contact` in the same migration. Tier 2 (custom fields, tags) and tier 3 (notes, tasks, calendars
-and appointments) follow in Unit 47.
+Slice 44d replaces `ghl_opportunity_cache` with `opportunity` and carries the **correlation custom
+field** — `00d` §6.1 pulls that one tier-2 item forward into Unit 44, because at-least-once outbox
+delivery over a non-idempotent create is how one opportunity becomes two. Slice 44c merges
+`contact_snapshot` and `client_account`. The rest of tier 2 and all of tier 3 follow in Unit 47,
+scoped to "what 46 reads" rather than to completeness (`00d` §6.6).
+
+Slice order and the reasoning behind it: `context/specs/44-ghl-tier1-mirror.md`.
 
 ### From other approved-but-unbuilt work
 

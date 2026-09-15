@@ -12,9 +12,9 @@ import java.util.UUID;
 import java.util.stream.Stream;
 
 import com.ie.evalos.domain.CachedOpportunity;
+import com.ie.evalos.domain.PipelineStage;
 import com.ie.evalos.domain.Role;
 import com.ie.evalos.integration.GhlOpportunityClient;
-import com.ie.evalos.integration.GhlPipelineClient;
 import com.ie.evalos.repository.TeamMemberRepository;
 import com.ie.evalos.security.TenantContext;
 
@@ -81,7 +81,17 @@ public class OpportunityBoardService {
 	}
 
 	private final GhlOpportunityClient opportunities;
-	private final GhlPipelineClient pipelines;
+
+	/**
+	 * The mirrored pipelines, which is where stage names come from as of Unit 44a.
+	 *
+	 * <p>This was {@code GhlPipelineClient} — a live GHL read on every board render, to turn an
+	 * opaque stage id into a word. The mirror holds GHL's id verbatim, so the same lookup is now
+	 * local and the busiest screen in the app stops spending the location's request budget on
+	 * structure that changes a few times a year.
+	 */
+	private final PipelineMirrorService mirroredPipelines;
+
 	private final OpportunityCache cache;
 	private final TeamMemberRepository teamMembers;
 	private final Duration ttl;
@@ -98,12 +108,12 @@ public class OpportunityBoardService {
 	 */
 	private final UUID sellingBrandId;
 
-	OpportunityBoardService(GhlOpportunityClient opportunities, GhlPipelineClient pipelines,
+	OpportunityBoardService(GhlOpportunityClient opportunities, PipelineMirrorService mirroredPipelines,
 			OpportunityCache cache, TeamMemberRepository teamMembers,
 			@Value("${evalos.ghl.board-cache-ttl}") Duration ttl,
 			@Value("${evalos.ghl.sales-brand:}") String salesBrandId) {
 		this.opportunities = opportunities;
-		this.pipelines = pipelines;
+		this.mirroredPipelines = mirroredPipelines;
 		this.cache = cache;
 		this.teamMembers = teamMembers;
 		this.ttl = ttl;
@@ -192,16 +202,29 @@ public class OpportunityBoardService {
 		cache.replace(pipelineId, opportunities.inPipeline(pipelineId));
 	}
 
-	/** Groups the rows into GHL's own stage order, so the board reads like the pipeline does. */
+	/**
+	 * Groups the rows into GHL's own stage order, so the board reads like the pipeline does.
+	 *
+	 * <p><strong>The stage names come from the mirror now, not from GHL</strong> (Unit 44a). This
+	 * method used to call {@code GET /opportunities/pipelines} on <em>every board render</em> — an
+	 * unpaginated network round trip, against a 100-per-10-seconds budget shared with every other
+	 * desk, to turn an opaque stage id into a word. {@code pipeline_stage} holds GHL's id verbatim
+	 * ({@code 00c} §2b), so the lookup is now a local read and the id resolves without a
+	 * translation that could itself be wrong.
+	 *
+	 * <p>A stage the mirror has not seen still draws its column under the raw id, exactly as
+	 * before: a card that vanishes is a card somebody goes looking for. The difference is that the
+	 * fallback is now reached when the <em>sweep</em> is behind rather than when GHL is slow.
+	 */
 	private Board draw(List<String> pipelineIds, List<CachedOpportunity> rows) {
-		Map<String, GhlPipelineClient.Pipeline.Stage> stages = new LinkedHashMap<>();
-		pipelines.pipelines().stream()
-				.filter((pipeline) -> pipelineIds.contains(pipeline.id()))
-				.flatMap((pipeline) -> pipeline.stages() == null
-						? Stream.<GhlPipelineClient.Pipeline.Stage>empty()
-						: pipeline.stages().stream())
-				.sorted(Comparator.comparingInt(GhlPipelineClient.Pipeline.Stage::position))
-				.forEach((stage) -> stages.putIfAbsent(stage.id(), stage));
+		Map<String, MirroredStage> stages = new LinkedHashMap<>();
+		mirroredPipelines.all().stream()
+				.filter((pipeline) -> pipelineIds.contains(pipeline.getGhlId()))
+				.flatMap((pipeline) -> mirroredPipelines.stagesOf(pipeline.getId()).stream())
+				.filter(PipelineStage::isLive)
+				.sorted(Comparator.comparingInt(PipelineStage::getPosition))
+				.forEach((stage) -> stages.putIfAbsent(stage.getGhlId(),
+						new MirroredStage(stage.getName(), stage.getPosition())));
 
 		Map<String, List<CachedOpportunity>> byStage = new LinkedHashMap<>();
 		stages.keySet().forEach((stageId) -> byStage.put(stageId, new ArrayList<>()));
@@ -210,7 +233,7 @@ public class OpportunityBoardService {
 
 		List<BoardColumn> columns = byStage.entrySet().stream()
 				.map((entry) -> {
-					GhlPipelineClient.Pipeline.Stage stage = stages.get(entry.getKey());
+					MirroredStage stage = stages.get(entry.getKey());
 					List<Deal> deals = entry.getValue().stream()
 							.map((row) -> new Deal(row.getGhlOpportunityId(), row.getName(),
 									row.getGhlContactId(), row.getStatus(), row.getAmount(),
@@ -232,6 +255,10 @@ public class OpportunityBoardService {
 
 		return new Board(columns, rows.size(), sum(rows), readAt,
 				Duration.between(readAt, Instant.now()).compareTo(ttl) >= 0);
+	}
+
+	/** Just the two fields a column header needs, so the board does not carry a whole entity. */
+	private record MirroredStage(String name, int position) {
 	}
 
 	private static BigDecimal sum(List<CachedOpportunity> rows) {

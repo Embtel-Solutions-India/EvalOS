@@ -5,7 +5,8 @@ import java.util.UUID;
 
 import com.ie.evalos.common.ApiErrors;
 import com.ie.evalos.domain.Role;
-import com.ie.evalos.integration.GhlPipelineClient;
+import com.ie.evalos.domain.Pipeline;
+import com.ie.evalos.service.PipelineMirrorService;
 import com.ie.evalos.integration.GhlUnavailableException;
 import com.ie.evalos.security.EvalOsUserDetailsService;
 import com.ie.evalos.security.JwtService;
@@ -21,11 +22,13 @@ import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpHeaders;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
 
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.willThrow;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -43,9 +46,15 @@ class GhlPipelineControllerTest {
 
 	private static final UUID BRAND_IE = UUID.fromString("11111111-1111-1111-1111-111111111111");
 
-	private static final List<GhlPipelineClient.Pipeline> PIPELINES = List.of(
-			new GhlPipelineClient.Pipeline("pipe_aditya_01", "Aditya's  pipeline", List.of()),
-			new GhlPipelineClient.Pipeline("pipe_shivangi_02", "Shivangi's Email Marketing", List.of()));
+	private static final List<Pipeline> PIPELINES = List.of(
+			mirrored("pipe_aditya_01", "Aditya's  pipeline", 0),
+			mirrored("pipe_shivangi_02", "Shivangi's Email Marketing", 1));
+
+	private static Pipeline mirrored(String ghlId, String name, int position) {
+		Pipeline pipeline = new Pipeline(BRAND_IE, ghlId, name, position);
+		ReflectionTestUtils.setField(pipeline, "id", UUID.randomUUID());
+		return pipeline;
+	}
 
 	@Autowired
 	MockMvc mockMvc;
@@ -54,7 +63,7 @@ class GhlPipelineControllerTest {
 	JwtService jwtService;
 
 	@MockitoBean
-	GhlPipelineClient pipelines;
+	PipelineMirrorService pipelines;
 
 	@MockitoBean
 	EvalOsUserDetailsService userDetailsService;
@@ -67,7 +76,7 @@ class GhlPipelineControllerTest {
 
 	@Test
 	void theGmGetsIdAndNameForEveryPipeline() throws Exception {
-		given(pipelines.pipelines()).willReturn(PIPELINES);
+		given(pipelines.all()).willReturn(PIPELINES);
 
 		mockMvc.perform(get("/api/ghl/pipelines").header(HttpHeaders.AUTHORIZATION, bearer(Role.GM)))
 				.andExpect(status().isOk())
@@ -77,16 +86,24 @@ class GhlPipelineControllerTest {
 	}
 
 	/**
-	 * A picker needs a label and a value. Stages are Unit 38's decision to take with its own
-	 * argument, not a field that arrives because GHL put it in the response.
+	 * A picker needs a label and a value, and now also how old the answer is.
+	 *
+	 * <p>Unit 38 decided the payload carries no stage <em>list</em> — that stays true. What Unit
+	 * 44a adds is a <em>count</em> and {@code syncedAt}, because the rows come from a mirror the
+	 * sweep refreshes rather than from a live GHL read: a screen that cannot say how stale its
+	 * options are will present a deleted pipeline as a current choice.
 	 */
 	@Test
-	void thePayloadCarriesNoStages() throws Exception {
-		given(pipelines.pipelines()).willReturn(PIPELINES);
+	void thePayloadCarriesAStageCountAndItsAgeButNoStageList() throws Exception {
+		given(pipelines.all()).willReturn(PIPELINES);
+		given(pipelines.stagesOf(org.mockito.ArgumentMatchers.any())).willReturn(List.of());
 
 		mockMvc.perform(get("/api/ghl/pipelines").header(HttpHeaders.AUTHORIZATION, bearer(Role.GM)))
 				.andExpect(status().isOk())
-				.andExpect(jsonPath("$.data[0].stages").doesNotExist());
+				.andExpect(jsonPath("$.data[0].stages").value(0))
+				.andExpect(jsonPath("$.data[0].syncedAt").exists())
+				.andExpect(jsonPath("$.data[0].purpose").value("UNASSIGNED"))
+				.andExpect(jsonPath("$.data[0].stages[0]").doesNotExist());
 	}
 
 	/**
@@ -109,13 +126,46 @@ class GhlPipelineControllerTest {
 		mockMvc.perform(get("/api/ghl/pipelines")).andExpect(status().isUnauthorized());
 	}
 
-	/** GHL unconfigured or refusing is a 502, as it is everywhere else this location is read. */
+	/**
+	 * <strong>An unfilled mirror is an empty list, not a 502 — and that is a behaviour change worth
+	 * pinning.</strong>
+	 *
+	 * <p>This route used to read GHL live, so an unconfigured or refusing GHL was a bad gateway.
+	 * Unit 44a moved it onto the mirror, and the mirror cannot fail that way: it is a local read
+	 * that either has rows or does not. The recovery is a button rather than a deploy —
+	 * {@code POST /api/jobs/PIPELINE_MIRROR/run} already exists and is GM-only, which is why no
+	 * route was added here for it.
+	 *
+	 * <p>The screen is what must not present the empty case as "this location has no pipelines":
+	 * {@code syncedAt} is on every row it does return precisely so the age is visible.
+	 */
 	@Test
-	void ghlBeingUnavailableIsABadGateway() throws Exception {
-		willThrow(new GhlUnavailableException("GHL is not configured in this environment"))
-				.given(pipelines).pipelines();
+	void anUnfilledMirrorAnswersWithAnEmptyListRatherThanAnError() throws Exception {
+		given(pipelines.all()).willReturn(List.of());
 
 		mockMvc.perform(get("/api/ghl/pipelines").header(HttpHeaders.AUTHORIZATION, bearer(Role.GM)))
-				.andExpect(status().isBadGateway());
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.data.length()").value(0));
+	}
+
+	/** The purpose is EvalOS's own column, and an unknown value is refused by name. */
+	@Test
+	void anUnknownPurposeIsRefusedWithTheAllowedValues() throws Exception {
+		mockMvc.perform(put("/api/ghl/pipelines/" + UUID.randomUUID() + "/purpose")
+				.header(HttpHeaders.AUTHORIZATION, bearer(Role.GM))
+				.contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+				.content("{\"purpose\":\"WHATEVER\"}"))
+				.andExpect(status().isBadRequest());
+	}
+
+	/** Setting a purpose is a GM act: it decides where a client's request is routed. */
+	@ParameterizedTest
+	@EnumSource(value = Role.class, mode = EnumSource.Mode.EXCLUDE, names = "GM")
+	void onlyTheGmMaySetAPurpose(Role role) throws Exception {
+		mockMvc.perform(put("/api/ghl/pipelines/" + UUID.randomUUID() + "/purpose")
+				.header(HttpHeaders.AUTHORIZATION, bearer(role))
+				.contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+				.content("{\"purpose\":\"SALES\"}"))
+				.andExpect(status().isForbidden());
 	}
 }

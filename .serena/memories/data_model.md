@@ -21,3 +21,11 @@ Three facts that catch people out:
 
 The mirror tables (`pipeline`, `pipeline_stage`, `contact`, `opportunity`, `outbox`, `sync_drift`)
 do **not** exist — they are Units 44 to 48.
+
+**Unit 44a added `pipeline` and `pipeline_stage` (`V50`, 2026-09-16)** — mirrors of GHL's own rows,
+keyed on GHL's ids verbatim so a comparison is `a == b` rather than a translation. EvalOS mints its
+own `id` beside `ghl_id` (`00c` §2a) because a portal-born row must exist before GHL has seen it.
+Never deleted: `missing_since` is a soft delete, because `pipeline.purpose` is EvalOS's own
+judgement. `pipeline_stage.ghl_id` is MUTABLE — GHL stage ids are not stable across a
+delete-and-recreate, so the sweep repoints a row by `(pipeline_id, position, name)` rather than
+inserting a second one.

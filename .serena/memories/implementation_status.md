@@ -3,7 +3,7 @@
 **The authoritative file is `.claude/implementation-status.md` — a table with evidence per row.
 Check it before claiming anything exists or is missing.**
 
-Build is green: backend 1006 tests, 0 failures, 4 skipped; staff SPA 127 tests plus clean tsc;
+Build is green: backend 992 tests, 0 failures, 4 skipped; staff SPA 127 tests plus clean tsc;
 portals 30 tests plus clean tsc. All run 2026-09-16.
 
 **The newest work is uncommitted.** Units 40, 43 and 51 and the `00d` audit are 121 changed or
@@ -22,6 +22,17 @@ screens rather than widen the gate. Gone with them: `MarketingPipelinePage`, `ma
 orphaned: the drop has nowhere to live, because `V905` clears the table and `MigrationTreeTest`
 forbids a `db/migration` script numbered 900 or above. A funnel screen returns only as a NEW
 screen after Unit 25 puts the location on `brand`, and that one can admit Marketing.
+
+BUILT 2026-09-16 (Unit 44, SLICE A ONLY): the tier-1 mirror has started. `pipeline` and
+`pipeline_stage` (`V50`) hold GHL's ids verbatim, refreshed hourly by the `PIPELINE_MIRROR` sweep;
+`pipeline.purpose` (MARKETING/SALES/DELIVERY/INTAKE/UNASSIGNED) is the one column EvalOS owns and a
+sweep never writes it. Rows are upserted and NEVER deleted. A stage GHL recreated under a new id is
+REPOINTED by `(pipeline, position, name)`, not duplicated — without that a recreated pipeline reads
+as every opportunity in it having drifted. The opportunity board no longer calls GHL to name a
+column. Slices 44b (`team_member_pipeline` + `PipelineScope.mine()` becoming a SET — an
+authorisation change across Units 39/40), 44c (`contact`) and 44d (`opportunity` + the correlation
+custom field) are specced and unbuilt: `context/specs/44-ghl-tier1-mirror.md`. There is still NO
+sync engine — that is Unit 45.
 
 BUILT 2026-09-16 (Unit 52, partial): the Client Portal ↔ GHL integration is EvalOS→GHL only.
 Sign-up upserts the GHL contact and stores the id; picking a service opens the opportunity carrying
