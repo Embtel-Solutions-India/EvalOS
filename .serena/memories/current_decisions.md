@@ -16,6 +16,12 @@ The ones most often violated from memory:
 - **GHL's pipelines and stages are MIRRORED rows now** (Unit 44a, `V50`), keyed on GHL's own ids.
   GHL owns every column except `pipeline.purpose`, which EvalOS owns and a sweep never writes. Rows
   are never deleted — `missing_since` instead. Nothing guesses a purpose from a pipeline's name.
+- **A SALES/MARKETING member holds a SET of pipelines** (`team_member_pipeline`, Unit 44b), assigned
+  by MIRROR id and never by a pasted GHL string. The one-owner rule is gone — Case Delivery is a
+  pipeline nobody owns. `PipelineScope.mine()` returns a list; a CREATE uses `mineForWrite()`, which
+  refuses rather than guessing when a desk holds several.
+- **The client's request lands on the pipeline marked `INTAKE`**, not one matched by name.
+  `evalos.ghl.intake-pipeline-name` is retired: a rename in GHL used to stop every request silently.
 - **EvalOS sends GHL the requested SERVICE ID as an opportunity custom field and nothing else about
   placement** (D10a). A GHL workflow routes the deal to a pipeline from it. Mapping services onto
   pipelines is a business rule and lives in the workflow — the same ruling that deleted

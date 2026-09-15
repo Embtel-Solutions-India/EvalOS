@@ -1,12 +1,16 @@
 package com.ie.evalos.service;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
 import com.ie.evalos.common.InvalidRequestException;
 import com.ie.evalos.domain.AuditAction;
+import com.ie.evalos.domain.Pipeline;
 import com.ie.evalos.domain.Role;
 import com.ie.evalos.domain.TeamMember;
+import com.ie.evalos.repository.PipelineRepository;
+import com.ie.evalos.repository.TeamMemberPipelineRepository;
 import com.ie.evalos.repository.TeamMemberRepository;
 import com.ie.evalos.security.StaffPrincipal;
 
@@ -29,11 +33,16 @@ import static org.mockito.Mockito.when;
 /**
  * Every refusal is a 400 the caller can act on, and that is what this class is for.
  *
- * <p>Each of these rules is <em>also</em> a database constraint, pinned in
- * {@code LocalPostgresIntegrationTest}. The constraint is the backstop for the writers the enum
- * cannot reach; these tests pin the door humans come through, where the difference between 400
- * and a 500 out of a {@code DataIntegrityViolationException} is the difference between a message
- * a GM can act on and one nobody can.
+ * <p><strong>Rewritten at Unit 44b, and one rule is gone rather than moved.</strong> The old
+ * service refused a pipeline another active member already held — <em>"A pipeline has one
+ * owner."</em> {@code 00d} §6.7 retires it: the target pipeline set includes <strong>Case Delivery,
+ * which no single person owns</strong>, so a member holds a set and a pipeline may have several
+ * members or none. What survives unchanged is the single-brand ceiling and the role gate.
+ *
+ * <p>The other change is what an assignment is addressed by: the <strong>mirror</strong> id, not a
+ * pasted GHL string. {@code 00d} C4 is what the old shape cost — after the sub-account was replaced
+ * every member was scoped to an id that no longer existed, and the board drew zero columns with no
+ * error at all. A foreign key into {@code pipeline} makes that unrepresentable.
  */
 class PipelineAssignmentServiceTest {
 
@@ -41,13 +50,16 @@ class PipelineAssignmentServiceTest {
 	private static final UUID OTHER_BRAND = UUID.randomUUID();
 	private static final UUID MEMBER = UUID.randomUUID();
 	private static final UUID GM = UUID.randomUUID();
-	private static final String PIPELINE = "pipe_aditya_01";
+	private static final UUID PIPELINE = UUID.randomUUID();
+	private static final String GHL_ID = "pipe_aditya_01";
 
 	private final TeamMemberRepository teamMembers = mock(TeamMemberRepository.class);
+	private final TeamMemberPipelineRepository assignments = mock(TeamMemberPipelineRepository.class);
+	private final PipelineRepository pipelines = mock(PipelineRepository.class);
 	private final AuditService audit = mock(AuditService.class);
 
 	private PipelineAssignmentService service(String salesBrand) {
-		return new PipelineAssignmentService(teamMembers, audit, salesBrand);
+		return new PipelineAssignmentService(teamMembers, assignments, pipelines, audit, salesBrand);
 	}
 
 	private PipelineAssignmentService service() {
@@ -59,6 +71,7 @@ class PipelineAssignmentServiceTest {
 		StaffPrincipal principal = new StaffPrincipal(GM, "gm@ie.test", "GM", Role.GM, null, null, null, true);
 		SecurityContextHolder.getContext().setAuthentication(
 				new UsernamePasswordAuthenticationToken(principal, null, principal.getAuthorities()));
+		when(assignments.ghlIdsFor(MEMBER)).thenReturn(List.of(GHL_ID));
 	}
 
 	@AfterEach
@@ -77,46 +90,81 @@ class PipelineAssignmentServiceTest {
 		return member;
 	}
 
+	private static Pipeline mirrored(UUID brandId, boolean live) {
+		Pipeline pipeline = new Pipeline(brandId, GHL_ID, "Aditya's pipeline", 0);
+		ReflectionTestUtils.setField(pipeline, "id", PIPELINE);
+		if (!live) {
+			pipeline.markMissing(java.time.Instant.now());
+		}
+		return pipeline;
+	}
+
 	private void givenMember(Role role, UUID brandId) {
-		TeamMember member = member(role, brandId);
-		when(teamMembers.findById(MEMBER)).thenReturn(Optional.of(member));
-		when(teamMembers.save(any(TeamMember.class))).thenAnswer((call) -> call.getArgument(0));
-		when(teamMembers.findByGhlPipelineIdAndActiveTrue(any())).thenReturn(Optional.empty());
+		when(teamMembers.findById(MEMBER)).thenReturn(Optional.of(member(role, brandId)));
+		when(pipelines.findById(PIPELINE)).thenReturn(Optional.of(mirrored(brandId, true)));
 	}
 
 	@Test
-	void assignsThePipelineAndAuditsIt() {
+	void grantsThePipelineAndAuditsIt() {
 		givenMember(Role.SALES, SELLING_BRAND);
 
-		TeamMember saved = service().assign(MEMBER, PIPELINE);
+		assertThat(service().grant(MEMBER, PIPELINE)).containsExactly(GHL_ID);
 
-		assertThat(saved.getGhlPipelineId()).isEqualTo(PIPELINE);
+		verify(assignments).grant(MEMBER, PIPELINE, GM);
 		// Audited because it changes what a person may see — invariant 13's class of change.
-		verify(audit).recordEvent(eq("TEAM_MEMBER"), eq(MEMBER), eq(AuditAction.UPDATED), eq(GM), eq(null),
-				eq(PIPELINE));
+		verify(audit).recordEvent(eq("TEAM_MEMBER"), eq(MEMBER), eq(AuditAction.UPDATED), eq(GM), any(),
+				any());
 	}
 
 	@Test
-	void marketingIsAssignedTheSameWay() {
+	void marketingIsGrantedTheSameWay() {
 		givenMember(Role.MARKETING, SELLING_BRAND);
 
-		assertThat(service().assign(MEMBER, PIPELINE).getGhlPipelineId()).isEqualTo(PIPELINE);
+		assertThat(service().grant(MEMBER, PIPELINE)).containsExactly(GHL_ID);
 	}
 
-	/** PUT sets; it does not clear. Clearing is a role change or a deactivation. */
+	/**
+	 * <strong>The rule this slice deleted.</strong>
+	 *
+	 * <p>A second member on the same pipeline used to be refused — "A pipeline has one owner."
+	 * {@code 00d} §6.7 retires it, because Case Delivery is a pipeline nobody owns and
+	 * `uq_team_member_pipeline` could not express that. Nothing here asks who else is on it.
+	 */
 	@Test
-	void aBlankPipelineIsRefusedBeforeTheMemberIsEvenLoaded() {
-		assertThatThrownBy(() -> service().assign(MEMBER, "  "))
+	void aSecondMemberOnTheSamePipelineIsAllowed() {
+		givenMember(Role.SALES, SELLING_BRAND);
+		when(assignments.membersOn(PIPELINE)).thenReturn(List.of(UUID.randomUUID()));
+
+		assertThat(service().grant(MEMBER, PIPELINE)).containsExactly(GHL_ID);
+	}
+
+	/**
+	 * A pipeline GHL has stopped returning cannot be worked.
+	 *
+	 * <p>Assigning it would hand somebody a board that is empty for a reason no screen explains —
+	 * {@code 00d} C4's symptom exactly, arrived at from the other direction.
+	 */
+	@Test
+	void aMissingPipelineIsRefused() {
+		when(teamMembers.findById(MEMBER)).thenReturn(Optional.of(member(Role.SALES, SELLING_BRAND)));
+		when(pipelines.findById(PIPELINE)).thenReturn(Optional.of(mirrored(SELLING_BRAND, false)));
+
+		assertThatThrownBy(() -> service().grant(MEMBER, PIPELINE))
 				.isInstanceOf(InvalidRequestException.class)
-				.hasMessageContaining("required");
+				.hasMessageContaining("no longer exists in GHL");
 
-		verify(teamMembers, never()).findById(any());
+		verify(assignments, never()).grant(any(), any(), any());
 	}
 
+	/** An id that names no mirrored pipeline is a 400, which is C4 closed at the door. */
 	@Test
-	void aNullPipelineIsRefused() {
-		assertThatThrownBy(() -> service().assign(MEMBER, null))
-				.isInstanceOf(InvalidRequestException.class);
+	void anUnmirroredPipelineIsRefused() {
+		when(teamMembers.findById(MEMBER)).thenReturn(Optional.of(member(Role.SALES, SELLING_BRAND)));
+		when(pipelines.findById(PIPELINE)).thenReturn(Optional.empty());
+
+		assertThatThrownBy(() -> service().grant(MEMBER, PIPELINE))
+				.isInstanceOf(InvalidRequestException.class)
+				.hasMessageContaining("PIPELINE_MIRROR");
 	}
 
 	/**
@@ -127,11 +175,11 @@ class PipelineAssignmentServiceTest {
 	void aNonPipelineScopedRoleIsRefused() {
 		givenMember(Role.CASE_MANAGER, SELLING_BRAND);
 
-		assertThatThrownBy(() -> service().assign(MEMBER, PIPELINE))
+		assertThatThrownBy(() -> service().grant(MEMBER, PIPELINE))
 				.isInstanceOf(InvalidRequestException.class)
 				.hasMessageContaining("CASE_MANAGER");
 
-		verify(teamMembers, never()).save(any());
+		verify(assignments, never()).grant(any(), any(), any());
 	}
 
 	/** Unit 36 §4a: the single-brand ceiling is enforced, not documented. */
@@ -139,61 +187,52 @@ class PipelineAssignmentServiceTest {
 	void aMemberOfAnotherBrandIsRefused() {
 		givenMember(Role.SALES, OTHER_BRAND);
 
-		assertThatThrownBy(() -> service().assign(MEMBER, PIPELINE))
+		assertThatThrownBy(() -> service().grant(MEMBER, PIPELINE))
 				.isInstanceOf(InvalidRequestException.class)
 				.hasMessageContaining("selling brand");
 
-		verify(teamMembers, never()).save(any());
+		verify(assignments, never()).grant(any(), any(), any());
 	}
 
-	/**
-	 * An environment that has not been told which brand sells refuses everyone.
-	 *
-	 * <p>The safe direction: guessing would put a brand-locked role on a location EvalOS cannot
-	 * attribute, which is exactly the hole invariant 1's exception is held shut by.
-	 */
+	/** No selling brand configured means nobody may hold a pipeline yet. */
 	@Test
-	void noConfiguredSellingBrandRefusesEveryone() {
+	void noSellingBrandMeansNoAssignment() {
 		givenMember(Role.SALES, SELLING_BRAND);
 
-		assertThatThrownBy(() -> service("").assign(MEMBER, PIPELINE))
+		assertThatThrownBy(() -> service("").grant(MEMBER, PIPELINE))
 				.isInstanceOf(InvalidRequestException.class)
 				.hasMessageContaining("evalos.ghl.sales-brand");
 	}
 
 	/**
-	 * One pipeline, one owner — checked across every brand, because
-	 * {@code uq_team_member_pipeline} is global.
+	 * <strong>Revoking may leave a member with none, and that is allowed.</strong>
+	 *
+	 * <p>The old model could not represent it — a pipeline-scoped member with no pipeline violated a
+	 * CHECK. A join table has no such problem, and the empty state is one the code already handles
+	 * correctly: {@code ScopePredicate}'s PIPELINE arm matches nothing and
+	 * {@code PipelineScope.mine()} refuses with a sentence naming the fix. Failing closed is right
+	 * for somebody mid-reassignment.
 	 */
 	@Test
-	void aPipelineAlreadyHeldByAnotherActiveMemberIsRefused() {
+	void revokingTheLastPipelineIsAllowedAndLeavesThemWithNone() {
 		givenMember(Role.SALES, SELLING_BRAND);
-		TeamMember holder = member(Role.SALES, OTHER_BRAND);
-		ReflectionTestUtils.setField(holder, "id", UUID.randomUUID());
-		when(teamMembers.findByGhlPipelineIdAndActiveTrue(PIPELINE)).thenReturn(Optional.of(holder));
+		when(assignments.revoke(MEMBER, PIPELINE)).thenReturn(1);
+		when(assignments.ghlIdsFor(MEMBER)).thenReturn(List.of());
 
-		assertThatThrownBy(() -> service().assign(MEMBER, PIPELINE))
+		assertThat(service().revoke(MEMBER, PIPELINE)).isEmpty();
+		verify(audit).recordEvent(eq("TEAM_MEMBER"), eq(MEMBER), eq(AuditAction.UPDATED), eq(GM), any(),
+				any());
+	}
+
+	/** Revoking something they never had is a 400 rather than a silent success. */
+	@Test
+	void revokingAPipelineTheyAreNotOnIsRefused() {
+		givenMember(Role.SALES, SELLING_BRAND);
+		when(assignments.revoke(MEMBER, PIPELINE)).thenReturn(0);
+
+		assertThatThrownBy(() -> service().revoke(MEMBER, PIPELINE))
 				.isInstanceOf(InvalidRequestException.class)
-				.hasMessageContaining("one owner");
-
-		verify(teamMembers, never()).save(any());
+				.hasMessageContaining("not on that pipeline");
 	}
 
-	/** Re-assigning a member the pipeline they already hold is not a collision with themselves. */
-	@Test
-	void reassigningTheSamePipelineToItsOwnHolderIsAllowed() {
-		givenMember(Role.SALES, SELLING_BRAND);
-		TeamMember self = member(Role.SALES, SELLING_BRAND);
-		when(teamMembers.findByGhlPipelineIdAndActiveTrue(PIPELINE)).thenReturn(Optional.of(self));
-
-		assertThat(service().assign(MEMBER, PIPELINE).getGhlPipelineId()).isEqualTo(PIPELINE);
-	}
-
-	@Test
-	void anUnknownMemberIsRefused() {
-		when(teamMembers.findById(MEMBER)).thenReturn(Optional.empty());
-
-		assertThatThrownBy(() -> service().assign(MEMBER, PIPELINE))
-				.isInstanceOf(InvalidRequestException.class);
-	}
 }

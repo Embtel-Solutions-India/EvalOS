@@ -1,6 +1,6 @@
 # Unit 44 — The tier-1 GHL mirror
 
-**Status: slices A and D BUILT (2026-09-16). B and C are specced and unbuilt.**
+**Status: slices A, B and D BUILT (2026-09-16). C is specced and unbuilt.**
 
 Unit 44 is `00c`'s first real unit: EvalOS stops asking GHL what its structure is on every screen
 render and starts holding it, **using GHL's own ids**, so a mismatch is detectable by comparison
@@ -18,7 +18,7 @@ sequences it.
 | Slice | Ships | Touches authorisation? | Status |
 |---|---|---|---|
 | **44a** | `pipeline`, `pipeline_stage`, the sweep, `purpose` | no | **BUILT** |
-| **44b** | `team_member_pipeline`; `PipelineScope.mine()` becomes a set; retires `intake-pipeline-name` | **yes** | specced |
+| **44b** | `team_member_pipeline`; `PipelineScope.mine()` becomes a set; retires `intake-pipeline-name` | **yes** | **BUILT** |
 | **44c** | `contact` — merges `contact_snapshot` and `client_account` | no | specced |
 | **44d** | `opportunity` + the correlation custom field; replaces `CachedOpportunity` | **yes** (via `PipelineScope`) | **BUILT** |
 
@@ -30,10 +30,11 @@ to be correct — so it is the one slice that is fully useful on its own and can
 **44d was built second, ahead of 44b and 44c, on the business's instruction.** It carries both the
 largest consumer of the sync engine and the correlation key, so it is what unblocks Unit 45.
 
-**44b is held back because it moves authorisation.** `00d` §6.7 is explicit that
+**44b went third, and alone, because it moves authorisation.** `00d` §6.7 is explicit that
 `team_member_pipeline` *"is not only a schema change — it moves `PipelineScope.mine()` from 'one
 id' to 'a set' across every desk that shares it, an amendment to Units 39 and 40's authorisation
-model"*. That is not something to land in the same commit as a new table.
+model"*. Landing it in the same commit as a new table is how a desk silently reads another desk's
+deals.
 
 ---
 
@@ -137,7 +138,7 @@ unfilled mirror is an empty list, not a 502.**
 
 ---
 
-## 3. Slice 44b — `team_member_pipeline` (specced, unbuilt)
+## 3. Slice 44b — `team_member_pipeline` (BUILT)
 
 ```sql
 team_member_pipeline (team_member_id, pipeline_id, primary key (team_member_id, pipeline_id))
@@ -157,11 +158,62 @@ id) cannot read.
   design decision (*"promotion is GHL's workflow, and a second path here would race the automation
   the business owns"*). Mirroring Case Delivery must not create one.
 
-**`intake-pipeline-name` retires here**, replaced by `purpose = INTAKE`, because that needs a screen
-for setting `purpose` and this slice is where the team-administration gap (`00d` §8.6) is closed.
+**`intake-pipeline-name` retired here**, replaced by `purpose = INTAKE`. Zero and two matching
+pipelines are both refusals, and each says which: guessing at either would file a client's request
+onto a pipeline nobody chose. The property matched by *name*, so a rename in GHL silently stopped
+every request reaching Sales — which is the failure mode `00d` §6.7 retires the whole
+`*-pipeline-name` family over.
 
-**Also here, and named so it is not forgotten:** `00d` C4 — every `team_member.ghl_pipeline_id`
-holds a dead id from the abandoned sub-account, and there is no UI to fix it.
+### 3.1 What 44b actually shipped
+
+- **`V54`** — `team_member_pipeline (team_member_id, pipeline_id, granted_at, granted_by)`, with a
+  **real foreign key into `pipeline`**. That is `00d` **C4 closed structurally**: every
+  SALES/MARKETING member was scoped to an opaque GHL id that stopped existing when the sub-account
+  was replaced, and the symptom was *"the board draws zero columns with no error"*. An id that names
+  no mirrored pipeline can no longer be assigned at all.
+- **Backfilled** from `team_member.ghl_pipeline_id`, matching on `pipeline.ghl_id` — so a member
+  whose column holds a dead id simply gets no row, which is the honest outcome: they had no working
+  pipeline before either, they just could not see it.
+- **`V910`** (seed-local) repeats the backfill after `V908`/`V909` set the column, because on a
+  fresh database those run *after* `V54`.
+- **`PipelineScope.mine()` returns a list**; `requireMine(opportunityId)` returns *which* of the
+  caller's pipelines the deal is on; **`mineForWrite()` is new** — a create must land on exactly one
+  pipeline and the caller must not choose it (Unit 40's rule), so a member on several is refused
+  rather than filed onto whichever sorted first.
+- **`ScopePredicate`'s PIPELINE arm is `IN`**, not equality. The empty set still returns nothing, so
+  the fail-closed rule is unchanged; what changed is that "one" is no longer the only legal size.
+- **`PUT /api/team-members/{id}/pipelines`** and `DELETE .../{pipelineId}` replace
+  `PUT /{id}/ghl-pipeline`. GM-only, audited, addressed by the **mirror id**.
+- The follow-up queue and the meetings diary read **every** pipeline the caller works; a queue
+  showing one of three is a queue somebody misses a call from.
+
+### 3.2 Two things it did not do, and why
+
+**`team_member.ghl_pipeline_id` and `uq_team_member_pipeline` survive**, vestigial. Two local seeds
+(`V908`, `V909`) write that column and run *after* any `db/migration` script — seed files are
+numbered 900+, `MigrationTreeTest` forbids a migration in that range, and editing an applied seed is
+a checksum mismatch that refuses the boot. The same trap `ghl_funnel_cache` is in. **Nothing reads
+the column**; drop it in the next change that rebaselines the seed tree.
+
+**`OpportunityRepositoryScopeTest` survives too**, though §5 said to delete it here. The reason is
+concrete: `ScopePredicate`'s pipeline arm compares the **GHL** ids a principal carries, and
+`opportunity` holds EvalOS's `pipeline_id`. Narrowing `OpportunityRepository.SCOPE` would need the
+principal to carry both vocabularies, which is a second axis to keep in step for a table only
+`OpportunityMirrorService` reads — and that narrows by pipeline explicitly at every call. The
+signature guard stays until a second reader appears.
+
+### 3.3 The staleness this leaves, stated rather than discovered
+
+The pipeline set goes **into the token**, read at sign-in from `team_member_pipeline`. A GM adding
+or removing a pipeline therefore takes effect on the member's **next sign-in**, bounded by
+`evalos.security.jwt.ttl` (8h).
+
+**This is unchanged in kind, not new** — the single `ghlPipelineId` claim behaved identically, and
+`JwtService` already documented it. What is new is that reassignment becomes routine once a desk can
+hold several, so the bound matters more. Shorten the TTL if it bites; resolve per request at Unit 46
+when the desks move onto the mirror. Resolving it in `JwtFilter` today would put a database read on
+every authenticated request and a `@MockitoBean` in fifteen `@WebMvcTest` slices, which is a large
+change to buy a bound that was already there.
 
 ---
 
@@ -300,3 +352,20 @@ missing.
 - [x] An unconfigured correlation field omits it and changes nothing else.
 - [x] `opportunity_note` still survives the opportunity it names being deleted — the property
       outlived the table it was written against.
+
+---
+
+## 9. Acceptance — slice 44b
+
+- [x] A member holds a **set** of pipelines; a pipeline may have several members or none.
+- [x] The one-owner rule is gone — a second member on the same pipeline is allowed.
+- [x] Assignment is by **mirror id**; a raw GHL string is a 400, and an unmirrored or missing
+      pipeline is refused with the fix named.
+- [x] `ScopePredicate`'s PIPELINE arm is `IN`, still beside the brand predicate, and still matches
+      nothing on an empty set.
+- [x] A desk on two pipelines reads both, and only its own brand.
+- [x] A create refuses rather than guessing when the caller holds several pipelines.
+- [x] Revoking the last pipeline is allowed; the member then matches nothing and is told why.
+- [x] The follow-up queue and the meetings diary span every pipeline the caller works.
+- [x] The intake pipeline is the one marked `INTAKE`; zero and two are both refusals naming the fix.
+- [x] Only a member of `evalos.ghl.sales-brand` may hold a pipeline — the ceiling is untouched.

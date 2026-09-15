@@ -9,10 +9,10 @@ import com.ie.evalos.common.ForbiddenException;
 import com.ie.evalos.common.InvalidRequestException;
 import com.ie.evalos.domain.ClientAccount;
 import com.ie.evalos.domain.ClientApplication;
-import com.ie.evalos.integration.GhlPipelineClient;
 import com.ie.evalos.integration.GhlWriteClient;
 import com.ie.evalos.repository.ClientAccountRepository;
 import com.ie.evalos.repository.ClientApplicationRepository;
+import com.ie.evalos.repository.PipelineRepository;
 import com.ie.evalos.security.PortalPrincipal;
 import com.ie.evalos.security.TenantContext;
 
@@ -73,9 +73,7 @@ public class ClientApplicationService {
 
 	private final GhlWriteClient ghl;
 
-	private final GhlPipelineClient pipelines;
-
-	private final String intakePipelineName;
+	private final PipelineRepository pipelines;
 
 	/**
 	 * The GHL opportunity custom field that carries the requested service, or blank for none.
@@ -141,8 +139,7 @@ public class ClientApplicationService {
 	private final OpportunityMirrorService deals;
 
 	ClientApplicationService(ClientApplicationRepository applications, ClientAccountRepository accounts,
-			GhlWriteClient ghl, GhlPipelineClient pipelines,
-			@Value("${evalos.ghl.intake-pipeline-name}") String intakePipelineName,
+			GhlWriteClient ghl, PipelineRepository pipelines,
 			@Value("${evalos.ghl.opportunity-service-field:}") String serviceFieldId,
 			@Value("${evalos.ghl.opportunity-submitted-field:}") String submittedFieldId,
 			@Value("${evalos.ghl.opportunity-correlation-field:}") String correlationFieldId,
@@ -151,7 +148,6 @@ public class ClientApplicationService {
 		this.accounts = accounts;
 		this.ghl = ghl;
 		this.pipelines = pipelines;
-		this.intakePipelineName = intakePipelineName;
 		this.serviceFieldId = serviceFieldId == null ? "" : serviceFieldId.trim();
 		this.submittedFieldId = submittedFieldId == null ? "" : submittedFieldId.trim();
 		this.correlationFieldId = correlationFieldId == null ? "" : correlationFieldId.trim();
@@ -355,7 +351,7 @@ public class ClientApplicationService {
 			return application;
 		}
 		try {
-			GhlPipelineClient.Pipeline intake = pipelines.pipelineNamed(intakePipelineName);
+			com.ie.evalos.domain.Pipeline intake = intakePipeline(application.getBrandId());
 			// **The local row first, and the order is the correlation key's whole mechanism.**
 			// EvalOS writes its own opportunity, sends that row's id to GHL in a custom field, and
 			// only then records GHL's id beside it. A create that times out therefore leaves a row
@@ -366,14 +362,14 @@ public class ClientApplicationService {
 				// Empty when the intake pipeline is not mirrored yet. The deal is still created —
 				// losing a client's request because a sweep is behind would be the worse failure —
 				// it simply carries no correlation key, which is today's exposure and not a new one.
-				localId = deals.openLocally(intake.id(), client.getGhlContactId(),
+				localId = deals.openLocally(intake.getGhlId(), client.getGhlContactId(),
 						opportunityName(application, client)).map(com.ie.evalos.domain.Opportunity::getId)
 						.orElse(null);
 				if (localId != null) {
 					application.linkOpportunityRow(localId);
 				}
 			}
-			GhlWriteClient.UpsertedOpportunity opened = ghl.createOpportunity(intake.id(),
+			GhlWriteClient.UpsertedOpportunity opened = ghl.createOpportunity(intake.getGhlId(),
 					client.getGhlContactId(), opportunityName(application, client), null,
 					// No stage and no assignee — see `serviceFieldId` and `noStageAndNoAssigneeAreSent`.
 					// No monetaryValue either: EvalOS holds no price list, and what the work is worth
@@ -401,6 +397,37 @@ public class ClientApplicationService {
 	 * second because the same person can have two open requests. Falls back to the email when no
 	 * name was given at sign-up — a deal named after nobody is one a salesperson cannot pick up.
 	 */
+	/**
+	 * The pipeline a client's request lands on — <strong>the one marked {@code INTAKE}</strong>.
+	 *
+	 * <p><strong>This replaced {@code evalos.ghl.intake-pipeline-name} at Unit 44b.</strong> The
+	 * property matched a pipeline by its name, so renaming it in GHL silently stopped every request
+	 * from reaching Sales; {@code 00d} §6.7 retires that whole family of settings because the
+	 * mirrored table <em>is</em> the list and {@code purpose} is how EvalOS says which row means
+	 * what. Nothing infers it from text any more — a GM sets it, through
+	 * {@code PUT /api/ghl/pipelines/&#123;id&#125;/purpose}.
+	 *
+	 * <p><strong>Zero and two are both refusals, and each says which.</strong> Guessing at either
+	 * would file a client's request onto a pipeline nobody chose. Zero is also the default state of
+	 * a fresh deployment, which is why the message names the fix rather than the fault.
+	 */
+	private com.ie.evalos.domain.Pipeline intakePipeline(java.util.UUID brandId) {
+		List<com.ie.evalos.domain.Pipeline> marked = pipelines
+				.findByBrandIdAndPurposeAndMissingSinceIsNullOrderByPositionAsc(brandId,
+						com.ie.evalos.domain.PipelinePurpose.INTAKE);
+		if (marked.isEmpty()) {
+			throw new com.ie.evalos.integration.GhlUnavailableException(
+					"No pipeline is marked INTAKE for this brand. A GM sets it on the pipelines screen; "
+							+ "run the PIPELINE_MIRROR sweep first if the pipeline is new.");
+		}
+		if (marked.size() > 1) {
+			throw new com.ie.evalos.integration.GhlUnavailableException(
+					"Two pipelines are marked INTAKE for this brand, so a request has nowhere "
+							+ "unambiguous to go. A GM clears one on the pipelines screen.");
+		}
+		return marked.getFirst();
+	}
+
 	/**
 	 * What GHL is told on create: the requested service, and the correlation key.
 	 *

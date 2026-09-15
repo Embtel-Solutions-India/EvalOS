@@ -65,7 +65,8 @@ class ClientApplicationServiceTest {
 
 	private final GhlWriteClient ghl = mock(GhlWriteClient.class);
 
-	private final GhlPipelineClient pipelines = mock(GhlPipelineClient.class);
+	private final com.ie.evalos.repository.PipelineRepository pipelines =
+			mock(com.ie.evalos.repository.PipelineRepository.class);
 
 	private static final String SERVICE_FIELD = "ghl-field-service";
 
@@ -76,12 +77,11 @@ class ClientApplicationServiceTest {
 	private final OpportunityMirrorService deals = mock(OpportunityMirrorService.class);
 
 	private final ClientApplicationService service = new ClientApplicationService(applications, accounts,
-			ghl, pipelines, "Client Intake", SERVICE_FIELD, SUBMITTED_FIELD, CORRELATION_FIELD, deals);
+			ghl, pipelines, SERVICE_FIELD, SUBMITTED_FIELD, CORRELATION_FIELD, deals);
 
 	/** The same service with no custom field configured — the unconfigured environment. */
 	private ClientApplicationService withoutCustomFields() {
-		return new ClientApplicationService(applications, accounts, ghl, pipelines, "Client Intake", "",
-				"", "", deals);
+		return new ClientApplicationService(applications, accounts, ghl, pipelines, "", "", "", deals);
 	}
 
 	private ClientAccount client;
@@ -99,10 +99,14 @@ class ClientApplicationServiceTest {
 
 		// The stages are never read — EvalOS resolves the pipeline id and sends no stage — but GHL
 		// returns them, so the fixture does too rather than pretending a shape that never arrives.
-		given(pipelines.pipelineNamed("Client Intake")).willReturn(new GhlPipelineClient.Pipeline(
-				"pipe-1", "Client Intake",
-				List.of(new GhlPipelineClient.Pipeline.Stage("stage-new", "New", 0),
-						new GhlPipelineClient.Pipeline.Stage("stage-qualified", "Qualified", 1))));
+		// The intake pipeline is the one a GM marked INTAKE, not one matched by name — Unit 44b
+		// retired `evalos.ghl.intake-pipeline-name` because a rename in GHL silently stopped every
+		// request from reaching Sales.
+		com.ie.evalos.domain.Pipeline intake =
+				new com.ie.evalos.domain.Pipeline(BRAND, "pipe-1", "Client Intake", 0);
+		setId(intake, UUID.randomUUID());
+		given(pipelines.findByBrandIdAndPurposeAndMissingSinceIsNullOrderByPositionAsc(BRAND,
+				com.ie.evalos.domain.PipelinePurpose.INTAKE)).willReturn(List.of(intake));
 		given(applications.saveAndFlush(any())).willAnswer((call) -> call.getArgument(0));
 		// The local row EvalOS opens before it calls GHL — the correlation key's whole mechanism.
 		given(deals.openLocally(any(), any(), any())).willAnswer((call) -> {

@@ -173,7 +173,7 @@ public class OpportunityBoardService {
 			return sellingBrandId == null ? List.of()
 					: teamMembers.findPipelinesOfActiveMembers(sellingBrandId);
 		}
-		return caller.ghlPipelineId() == null ? List.of() : List.of(caller.ghlPipelineId());
+		return caller.ghlPipelineIds();
 	}
 
 	/**

@@ -35,6 +35,16 @@ public interface FollowUpRepository
 	List<FollowUp> findByBrandIdAndGhlPipelineIdAndCompletedFalseAndDueAtBeforeOrderByDueAtAsc(
 			UUID brandId, String ghlPipelineId, Instant before);
 
+	/**
+	 * The same queue across every pipeline the caller works — Unit 44b.
+	 *
+	 * <p>A desk holds a <em>set</em> of pipelines now ({@code 00d} §6.7: Case Delivery has no single
+	 * owner), and a follow-up queue showing one of them would be a queue somebody misses a call
+	 * from. The single-pipeline finder above is kept for callers that genuinely mean one.
+	 */
+	List<FollowUp> findByBrandIdAndGhlPipelineIdInAndCompletedFalseAndDueAtBeforeOrderByDueAtAsc(
+			UUID brandId, java.util.Collection<String> ghlPipelineIds, Instant before);
+
 	/** One deal's follow-ups, newest first — for the drawer on a deal card. */
 	List<FollowUp> findByBrandIdAndGhlOpportunityIdOrderByDueAtDesc(UUID brandId,
 			String ghlOpportunityId);

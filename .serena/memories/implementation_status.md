@@ -3,7 +3,7 @@
 **The authoritative file is `.claude/implementation-status.md` — a table with evidence per row.
 Check it before claiming anything exists or is missing.**
 
-Build is green: backend 987 tests, 0 failures, 4 skipped; staff SPA 127 tests plus clean tsc;
+Build is green: backend 990 tests, 0 failures, 4 skipped; staff SPA 127 tests plus clean tsc;
 portals 30 tests plus clean tsc. All run 2026-09-16.
 
 **The newest work is uncommitted.** Units 40, 43 and 51 and the `00d` audit are 121 changed or
@@ -37,6 +37,16 @@ diff and `sync_drift` all reconcile rows that do not exist yet. A drift audit ov
 would report zero by construction, because 44a's sweep overwrites them hourly through the same code
 path. Build 44d next.
 
+BUILT 2026-09-16 (Unit 44, SLICE B): `team_member_pipeline` (`V54`) replaces
+`team_member.ghl_pipeline_id` as the authority — a member holds a SET of pipelines, assigned by
+MIRROR id (a real FK, which closes `00d` C4 structurally: a dead GHL id can no longer be assigned at
+all). `PipelineScope.mine()` returns a list, `mineForWrite()` refuses rather than guessing on a
+create, `ScopePredicate`'s pipeline arm is `IN`. `PUT`/`DELETE /api/team-members/{id}/pipelines`
+replace `PUT /{id}/ghl-pipeline`. `evalos.ghl.intake-pipeline-name` is RETIRED for
+`pipeline.purpose = INTAKE`. The column and `uq_team_member_pipeline` survive VESTIGIAL — seeds
+`V908`/`V909` write the column and a DROP cannot be ordered after them. The pipeline set is carried
+in the TOKEN, so a reassignment takes effect on next sign-in (unchanged in kind; the fix is Unit 46).
+
 BUILT 2026-09-16 (Unit 44, SLICE D): `opportunity` (`V51`) replaces `ghl_opportunity_cache`, which
 is DROPPED (`V52`) along with `CachedOpportunity`, `OpportunityCache` and `GhlOpportunityClient`.
 Two names per row: EvalOS's `id` is stable from creation AND IS THE GHL CORRELATION KEY, `ghl_id` is
@@ -59,9 +69,7 @@ BUILT 2026-09-16 (Unit 44, SLICE A): the tier-1 mirror has started. `pipeline` a
 sweep never writes it. Rows are upserted and NEVER deleted. A stage GHL recreated under a new id is
 REPOINTED by `(pipeline, position, name)`, not duplicated — without that a recreated pipeline reads
 as every opportunity in it having drifted. The opportunity board no longer calls GHL to name a
-column. Slices 44b (`team_member_pipeline` + `PipelineScope.mine()` becoming a SET — an authorisation
-change across Units 39/40, which is why it was held back) and 44c (`contact`, merging
-`contact_snapshot` and `client_account`) are specced and unbuilt:
+column. Slice 44c (`contact`, merging `contact_snapshot` and `client_account`) is specced and unbuilt:
 `context/specs/44-ghl-tier1-mirror.md`. `OpportunityRepository.SCOPE` is `brandOnly` until 44b lines
 the pipeline axis up, so the pipeline scope lives in the finder SIGNATURES and
 `OpportunityRepositoryScopeTest` guards it — delete that test at 44b, not before. There is still NO

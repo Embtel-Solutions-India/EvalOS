@@ -752,7 +752,7 @@ Depends on: 42, 43. Hands to: 44–48.
 
 ## Unit 44 - The tier-1 GHL mirror
 
-**SLICES A AND D BUILT 2026-09-16; B and C specced and unbuilt.** `00c`'s first real unit, amended
+**SLICES A, B AND D BUILT 2026-09-16; C specced and unbuilt.** `00c`'s first real unit, amended
 before it started by `00d` §6. Full slice order and reasoning: `44-ghl-tier1-mirror.md`.
 
 **44a** — `pipeline` and `pipeline_stage` (`V50`), holding GHL's ids verbatim; the `PIPELINE_MIRROR`
@@ -763,9 +763,10 @@ correct. Rows are upserted and never deleted, which is the exact opposite of the
 replace. A stage GHL recreated under a new id is repointed by `(pipeline, position, name)`, not
 duplicated.
 
-**44b** — `team_member_pipeline`, and `PipelineScope.mine()` from one id to a set. Held back
-deliberately: it is an **authorisation change** across Units 39 and 40, not a schema change.
-Retires `intake-pipeline-name`.
+**44b** — `team_member_pipeline` (`V54`), and `PipelineScope.mine()` from one id to a set. Its own
+commit deliberately: it is an **authorisation change** across Units 39 and 40, not a schema change.
+Assignment moves to the **mirror id**, which closes `00d` C4 structurally — a dead GHL id can no
+longer be assigned at all. Retires `intake-pipeline-name` for `purpose = INTAKE`.
 
 **44c** — `contact`, merging `contact_snapshot` and `client_account`.
 

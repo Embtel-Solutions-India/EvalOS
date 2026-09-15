@@ -17,7 +17,12 @@ import org.springframework.security.core.context.SecurityContextHolder;
  * Security at the end of each request, so this is read straight off it rather
  * than duplicated into a second request-scoped bean.
  */
-public record TenantContext(UUID memberId, Role role, UUID brandId, UUID teamId, String ghlPipelineId) {
+public record TenantContext(UUID memberId, Role role, UUID brandId, UUID teamId,
+		java.util.List<String> ghlPipelineIds) {
+
+	public TenantContext {
+		ghlPipelineIds = ghlPipelineIds == null ? java.util.List.of() : java.util.List.copyOf(ghlPipelineIds);
+	}
 
 	/**
 	 * A caller who owns no GHL pipeline — every role but {@code SALES} and {@code MARKETING}.
@@ -27,13 +32,20 @@ public record TenantContext(UUID memberId, Role role, UUID brandId, UUID teamId,
 	 * caller built through here matches nothing rather than everything, which is asserted in
 	 * {@code ScopePredicateTest} rather than left to be discovered.
 	 */
+	/** A caller with no pipelines — every role that is not SALES or MARKETING. */
 	public TenantContext(UUID memberId, Role role, UUID brandId, UUID teamId) {
-		this(memberId, role, brandId, teamId, null);
+		this(memberId, role, brandId, teamId, java.util.List.of());
+	}
+
+	/** One pipeline, as a set of one. Kept so Unit 44b's change of shape stayed a small diff. */
+	public TenantContext(UUID memberId, Role role, UUID brandId, UUID teamId, String ghlPipelineId) {
+		this(memberId, role, brandId, teamId,
+				ghlPipelineId == null ? java.util.List.<String>of() : java.util.List.of(ghlPipelineId));
 	}
 
 	public static TenantContext of(StaffPrincipal principal) {
 		return new TenantContext(principal.memberId(), principal.role(), principal.brandId(),
-				principal.teamId(), principal.ghlPipelineId());
+				principal.teamId(), principal.ghlPipelineIds());
 	}
 
 	/** The caller for the current request, or empty when unauthenticated. */

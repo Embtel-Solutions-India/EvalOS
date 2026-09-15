@@ -41,6 +41,9 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
   the workflow — the same ruling that deleted `hot-stage-name`. No stage, no assignee, no price.
 - **D11.** EvalOS puts the opportunity on the intake pipeline and **stops**. Stage placement and
   assignee are GHL automation's job. There is deliberately no "hot stage" setting.
+- **D10b.** The client's request lands on the pipeline a GM marked `INTAKE`, not on one matched by
+  name. `evalos.ghl.intake-pipeline-name` is retired (Unit 44b) — a rename in GHL silently stopped
+  every request reaching Sales. Zero or two `INTAKE` pipelines are both refusals that name the fix.
 - **D11a.** GHL's pipelines and stages are **mirrored** as EvalOS rows using GHL's own ids
   (Unit 44a, `V50`). GHL owns every column except `pipeline.purpose`, which EvalOS owns and a
   sweep never writes. Rows are upserted and **never deleted** — one GHL stops returning is
@@ -85,6 +88,11 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
 - **D19a.** `/api/opportunities/board` is the one narrowed case: `evalos.ghl.sales-brand` names the
   brand that owns the location and assignment refuses any other brand's member with a 400, so that
   screen's brand *is* provable and SALES/MARKETING reach it.
+- **D19b.** A SALES/MARKETING member holds a **set** of GHL pipelines (`team_member_pipeline`,
+  Unit 44b), not one. The one-owner rule is retired: Case Delivery is a pipeline nobody owns.
+  Assignment is by **mirror id**, never a pasted GHL string — that is `00d` C4 closed structurally.
+  The set is read at sign-in and carried in the token, so a reassignment takes effect on next
+  sign-in; unchanged in kind from the single-claim model it replaced.
 - **D20.** Eight staff roles with ABAC tiers: `GM`(ALL), `BRAND_MANAGER`(BRAND),
   `PROJECT_MANAGER`(TEAM), `PROJECT_COORDINATOR`/`CASE_MANAGER`(SELF),
   `EXPERT_NETWORK_MANAGER`(SUPPLY), `SALES`/`MARKETING`(PIPELINE).

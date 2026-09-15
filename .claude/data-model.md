@@ -3,7 +3,7 @@
 ## CURRENT DATABASE
 
 Verified 2026-09-16 against the live local Postgres 18 database `evalos` (`pg_dump --schema-only`
-plus `pg_constraint` / `pg_indexes`). **Flyway V1–V53 all applied, `success = true`.** (`V50`–`V53` are Unit 44 slices A and D, added
+plus `pg_constraint` / `pg_indexes`). **Flyway V1–V54 all applied, `success = true`.** (`V50`–`V54` are Unit 44 slices A, D and B, added
 2026-09-16 and verified by `LocalPostgresIntegrationTest`.) Migrations
 live in `backend/src/main/resources/db/migration/`.
 
@@ -16,7 +16,8 @@ live in `backend/src/main/resources/db/migration/`.
 | Table | Purpose | Brand-scoped |
 |---|---|---|
 | `brand` | tenant; webhook endpoint token, GHL webhook secret, currency, payout terms | — |
-| `team_member` | staff login, role, optional `ghl_pipeline_id` / `segment` | yes (nullable for GM) |
+| `team_member` | staff login, role, `segment`; `ghl_pipeline_id` is **VESTIGIAL** as of 44b | yes (nullable for GM) |
+| `team_member_pipeline` | **which pipelines a member may work** (44b, `V54`): FK to `pipeline`, many-to-many, `granted_at`/`granted_by` | via the member |
 | `client_account` | **portal identity**: email, password_hash, ghl_contact_id, name, phone | yes |
 | `client_credential_token` | single-use SET / RESET password links | yes |
 | `client_application` | **the client's request**: service, purpose, answers (jsonb), status, ghl_opportunity_id, `opportunity_id` (`V53` — the row it opened, whose id is the GHL correlation key) | yes |
@@ -99,7 +100,7 @@ FKs to `evalos_case`. No table, column or route attaches a file to a request.
 | `uq_case_open_per_contact_service` | one non-CLOSED case per brand / contact / service |
 | `uq_contact_per_brand_ghl_id`, `uq_contact_per_brand_email` | ghl id where present; email only as fallback |
 | `uq_portal_access_*` (four) | one unrevoked token per case+audience, per client party, per expert party, per account |
-| `uq_team_member_pipeline` | one active member per GHL pipeline — **replaced by `team_member_pipeline` at slice 44b**, which is many-to-many because Case Delivery has no single owner |
+| `uq_team_member_pipeline` | **VESTIGIAL** — `team_member_pipeline` is the authority as of 44b. Kept only because seeds `V908`/`V909` write the column it guards and a DROP cannot be ordered after them |
 | `uq_pipeline_per_brand_ghl_id`, `uq_pipeline_stage_per_brand_ghl_id` | GHL's id, unique per brand rather than globally: two brands will hold two locations and ids are only unique within one |
 | `uq_opportunity_per_brand_ghl_id` | **PARTIAL** — `where ghl_id is not null`. Many local-only rows must coexist while every GHL id appears at most once; a plain unique would allow only one |
 | `uq_webhook_event_source_brand_external` | idempotency, `NULLS NOT DISTINCT` |
@@ -130,11 +131,11 @@ Not present today. Do not write code that assumes any of it exists.
 
 ### From the mirror programme (Units 44–48, `context/specs/00c-ghl-independence-programme.md`)
 
-**`pipeline`, `pipeline_stage` and `opportunity` are BUILT** — slices 44a and 44d, `V50`–`V53`,
+**`pipeline`, `pipeline_stage`, `opportunity` and `team_member_pipeline` are BUILT** — slices 44a,
+44d and 44b, `V50`–`V54`,
 2026-09-16. They are in CURRENT above. What is left:
 
 ```sql
-team_member_pipeline (team_member_id, pipeline_id)   -- 44b, replaces team_member.ghl_pipeline_id
 contact              (id uuid pk, brand_id, ghl_id unique null, name, email, phone, ...)  -- 44c
 outbox               (partial-unique on entity_id, not payload)   -- 45
 sync_drift           (the reported mismatches)                    -- 45

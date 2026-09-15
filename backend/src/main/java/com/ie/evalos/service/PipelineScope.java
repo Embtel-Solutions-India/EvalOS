@@ -1,6 +1,9 @@
 package com.ie.evalos.service;
 
+import java.util.List;
+
 import com.ie.evalos.common.ForbiddenException;
+import com.ie.evalos.common.InvalidRequestException;
 import com.ie.evalos.security.TenantContext;
 
 import org.springframework.stereotype.Component;
@@ -48,12 +51,43 @@ public class PipelineScope {
 	 * GM has not finished setting up. The same rule {@code ScopePredicate}'s PIPELINE arm applies,
 	 * and the same safe direction: an empty desk is a support call, somebody else's is a breach.
 	 */
-	public String mine() {
-		String pipelineId = TenantContext.current().ghlPipelineId();
-		if (pipelineId == null) {
+	/**
+	 * Every pipeline this caller may work — Unit 44b turned this from one id into a set.
+	 *
+	 * <p>{@code 00d} §6.7: the target pipeline set is nine, and Case Delivery has no single owner,
+	 * so "exactly one" was never going to survive. An empty set is still a refusal rather than an
+	 * empty answer: a desk with no pipeline cannot do anything here, and saying so is more use than
+	 * a screen that silently shows nothing.
+	 */
+	public List<String> mine() {
+		List<String> pipelineIds = TenantContext.current().ghlPipelineIds();
+		if (pipelineIds.isEmpty()) {
 			throw new ForbiddenException("You have no GHL pipeline assigned. A GM assigns one.");
 		}
-		return pipelineId;
+		return pipelineIds;
+	}
+
+	/**
+	 * The one pipeline a <em>write</em> lands on, when the caller has exactly one.
+	 *
+	 * <p><strong>A create has to name a pipeline and the caller must not choose it</strong> — that
+	 * is Unit 40's rule and the reason no desk route takes a pipeline parameter. With a set, "the
+	 * caller's pipeline" stops being a single answer, so a member on several must say which, and
+	 * this refuses rather than guessing. Picking the first would file a deal on whichever pipeline
+	 * sorted earliest, which is a silent wrong answer.
+	 *
+	 * <p>Nobody is on two pipelines yet, so this is the same behaviour as before for every caller
+	 * that exists. It becomes reachable the day Case Delivery is assigned, and the fix then is a
+	 * pipeline argument on the create route rather than a guess here.
+	 */
+	public String mineForWrite() {
+		List<String> pipelineIds = mine();
+		if (pipelineIds.size() > 1) {
+			throw new InvalidRequestException(
+					"You work " + pipelineIds.size() + " pipelines, so this action has to say which. "
+							+ "Open the deal from the board you want it on.");
+		}
+		return pipelineIds.getFirst();
 	}
 
 	/**
@@ -72,11 +106,19 @@ public class PipelineScope {
 	 * <p><strong>403, never 404.</strong> "No such opportunity" and "not yours" must answer
 	 * identically, or the response becomes an oracle for which ids exist in the location.
 	 */
+	/**
+	 * The caller's pipeline this opportunity is on, or a refusal.
+	 *
+	 * <p>Returns <em>which</em> one rather than a boolean, because every caller then passes it to
+	 * GHL — and with a set, "the caller's pipeline" is no longer a single answer they could have
+	 * worked out themselves.
+	 */
 	public String requireMine(String opportunityId) {
-		String pipelineId = mine();
-		if (!deals.isOnPipeline(opportunityId, pipelineId)) {
-			throw new ForbiddenException("That opportunity is not in your pipeline");
+		for (String pipelineId : mine()) {
+			if (deals.isOnPipeline(opportunityId, pipelineId)) {
+				return pipelineId;
+			}
 		}
-		return pipelineId;
+		throw new ForbiddenException("That opportunity is not in your pipeline");
 	}
 }

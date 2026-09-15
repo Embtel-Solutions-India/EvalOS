@@ -199,7 +199,9 @@ public class SalesMeetingService {
 			throw new InvalidRequestException("The window must end after it starts");
 		}
 		TenantContext caller = TenantContext.current();
-		return meetings.findByBrandIdAndGhlPipelineIdAndStartsAtBetweenOrderByStartsAtAsc(
+		// Every pipeline the caller works — a diary that showed one of three would be a diary
+		// somebody misses a meeting from.
+		return meetings.findByBrandIdAndGhlPipelineIdInAndStartsAtBetweenOrderByStartsAtAsc(
 				caller.brandId(), scope.mine(), from, to);
 	}
 

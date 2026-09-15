@@ -56,6 +56,16 @@ public interface MeetingRepository
 			String ghlPipelineId, Instant from, Instant to);
 
 	/**
+	 * The same diary across every pipeline the caller works — Unit 44b.
+	 *
+	 * <p>Ascending for the same reason as above: the next meeting is the one that matters. Across a
+	 * set because a desk holds one now, and a diary showing one of three is a diary somebody misses
+	 * a meeting from.
+	 */
+	List<Meeting> findByBrandIdAndGhlPipelineIdInAndStartsAtBetweenOrderByStartsAtAsc(UUID brandId,
+			java.util.Collection<String> ghlPipelineIds, Instant from, Instant to);
+
+	/**
 	 * The mirrored row for a GHL appointment, so a reschedule updates rather than inserts.
 	 *
 	 * <p>Brand-scoped because {@code uq_meeting_per_brand_appointment} is: GHL ids are unique

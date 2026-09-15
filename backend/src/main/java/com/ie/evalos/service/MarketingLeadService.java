@@ -46,7 +46,9 @@ public class MarketingLeadService {
 	 */
 	public Lead openLead(String firstName, String lastName, String email, String phone, String name,
 			BigDecimal monetaryValue) {
-		String pipelineId = scope.mine();
+		// A create has to land on exactly one pipeline and the caller must not choose it — see
+		// PipelineScope.mineForWrite, which refuses rather than guessing when a desk holds several.
+		String pipelineId = scope.mineForWrite();
 		if ((email == null || email.isBlank()) && (phone == null || phone.isBlank())) {
 			// GHL dedupes a contact on email then phone. With neither, upsert has nothing to
 			// match on and every submission creates another contact — so the endpoint that was

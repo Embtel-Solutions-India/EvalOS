@@ -78,7 +78,9 @@ public class SalesDeskService {
 	public Deal createDeal(String firstName, String lastName, String email, String phone,
 			String name, BigDecimal monetaryValue, String stageId, String expectedCloseDate,
 			java.util.Map<String, String> customFields, boolean confirmSecondDeal) {
-		String pipelineId = scope.mine();
+		// A create has to land on exactly one pipeline and the caller must not choose it — see
+		// PipelineScope.mineForWrite, which refuses rather than guessing when a desk holds several.
+		String pipelineId = scope.mineForWrite();
 		if ((email == null || email.isBlank()) && (phone == null || phone.isBlank())) {
 			throw new InvalidRequestException(
 					"A deal needs the client's email or phone number: GHL matches an existing "
@@ -237,8 +239,10 @@ public class SalesDeskService {
 	@org.springframework.transaction.annotation.Transactional(readOnly = true)
 	public java.util.List<com.ie.evalos.domain.FollowUp> openFollowUps(java.time.Instant before) {
 		TenantContext caller = TenantContext.current();
+		// Every pipeline the caller works, not one: a desk that holds several has one list of
+		// follow-ups, and showing them a third of it would be worse than showing them none.
 		return followUps
-				.findByBrandIdAndGhlPipelineIdAndCompletedFalseAndDueAtBeforeOrderByDueAtAsc(
+				.findByBrandIdAndGhlPipelineIdInAndCompletedFalseAndDueAtBeforeOrderByDueAtAsc(
 						caller.brandId(), scope.mine(), before);
 	}
 

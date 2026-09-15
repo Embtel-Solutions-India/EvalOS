@@ -124,7 +124,7 @@ evalos:
     # on the normal chain. Nothing on the portal chain has roles. A second brand is a second
     # portal deployment with its own value here.
     client-brand: ${EVALOS_PORTAL_CLIENT_BRAND:}
-    # How long a set-password or reset-password link lives. Thirty minutes: long enough to walk
+    # How long a set-password or reset-password link lives. Ten minutes: long enough to walk
     # to another device, short enough that a forwarded mailbox is not a standing credential.
     #
     # **The key and its variable deliberately do not match, and this is not an oversight.**
@@ -133,7 +133,7 @@ evalos:
     # values misses short ones. A TTL is not a secret, so the variable is named for what it is to
     # a deployer (the sign-in link's lifetime) instead. Renaming it to EVALOS_PORTAL_CREDENTIAL_TTL
     # to "fix" the mismatch reintroduces that build failure.
-    credential-ttl: ${EVALOS_PORTAL_SIGNIN_LINK_TTL:30m}
+    credential-ttl: ${EVALOS_PORTAL_SIGNIN_LINK_TTL:10m}
     # The portal frontend's origin(s), comma-separated. **Empty by default and never `*`** —
     # see PortalSecurityConfig. An environment that forgets this gets a failing preflight, which
     # is loud; a wildcard would be silent and wrong.
@@ -226,8 +226,7 @@ evalos:
     # are GHL's automation's job. A `hot-stage-name` existed here briefly and was removed — it made
     # EvalOS hold a second opinion about pipeline placement, which goes stale the first time
     # somebody reworks the workflow in GHL.
-    intake-pipeline-name: ${GHL_INTAKE_PIPELINE_NAME:}
-    # The GHL opportunity custom field that carries the requested service — the one input GHL's
+     # The GHL opportunity custom field that carries the requested service — the one input GHL's
     # own workflow needs to route a client's request to the right pipeline.
     #
     # **THIS IS WHAT MAKES "assign the pipeline by service" POSSIBLE, and it is the whole of

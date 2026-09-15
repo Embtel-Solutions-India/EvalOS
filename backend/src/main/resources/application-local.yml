@@ -130,8 +130,7 @@ evalos:
     # are GHL's automation's job. A `hot-stage-name` existed here briefly and was removed — it made
     # EvalOS hold a second opinion about pipeline placement, which goes stale the first time
     # somebody reworks the workflow in GHL.
-    intake-pipeline-name: ${GHL_INTAKE_PIPELINE_NAME:}
-    # The GHL opportunity custom field that carries the requested service — the one input GHL's
+     # The GHL opportunity custom field that carries the requested service — the one input GHL's
     # own workflow needs to route a client's request to the right pipeline.
     #
     # **THIS IS WHAT MAKES "assign the pipeline by service" POSSIBLE, and it is the whole of

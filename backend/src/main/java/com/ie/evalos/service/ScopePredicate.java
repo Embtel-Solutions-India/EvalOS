@@ -123,10 +123,16 @@ public final class ScopePredicate {
 					// whole brand. That is the same rule the brand check above applies, and
 					// the direction it is safe to be wrong in: an empty board is a support
 					// call, a full one is a breach.
-					if (fields.pipeline() == null || ctx.ghlPipelineId() == null) {
+					if (fields.pipeline() == null || ctx.ghlPipelineIds().isEmpty()) {
 						return cb.disjunction();
 					}
-					predicates.add(cb.equal(root.get(fields.pipeline()), ctx.ghlPipelineId()));
+					// **IN, not equality, as of Unit 44b.** A desk holds a SET of pipelines now:
+					// `00d` §6.7's target is nine pipelines, one of which — Case Delivery — has no
+					// single owner, which `uq_team_member_pipeline` could not express and a
+					// one-id principal could not read. An empty set still returns nothing above,
+					// so the fail-closed rule is unchanged; what changed is that "one" is no
+					// longer the only legal size.
+					predicates.add(root.get(fields.pipeline()).in(ctx.ghlPipelineIds()));
 				}
 				// BRAND and SUPPLY read their whole brand; ALL returned above.
 				default -> {
