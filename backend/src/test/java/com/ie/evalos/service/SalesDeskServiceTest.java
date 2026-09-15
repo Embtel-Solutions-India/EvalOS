@@ -39,10 +39,10 @@ class SalesDeskServiceTest {
 	private static final String OPPORTUNITY = "opp_1";
 
 	private final GhlWriteClient ghl = mock(GhlWriteClient.class);
-	private final OpportunityCache cache = mock(OpportunityCache.class);
+	private final OpportunityMirrorService deals = mock(OpportunityMirrorService.class);
 	private final com.ie.evalos.repository.FollowUpRepository followUps =
 			mock(com.ie.evalos.repository.FollowUpRepository.class);
-	private final SalesDeskService desk = new SalesDeskService(ghl, new PipelineScope(cache), cache, followUps);
+	private final SalesDeskService desk = new SalesDeskService(ghl, new PipelineScope(deals), deals, followUps);
 
 	private void authenticateAsSales(String pipelineId) {
 		StaffPrincipal principal = new StaffPrincipal(UUID.randomUUID(), "sales@ie.test", "Desk",
@@ -57,7 +57,7 @@ class SalesDeskServiceTest {
 	}
 
 	private void givenItIsMine() {
-		when(cache.isInPipeline(OPPORTUNITY, MINE)).thenReturn(true);
+		when(deals.isOnPipeline(OPPORTUNITY, MINE)).thenReturn(true);
 	}
 
 	private static GhlWriteClient.UpsertedOpportunity answer(String status) {
@@ -101,11 +101,11 @@ class SalesDeskServiceTest {
 		authenticateAsSales(MINE);
 		when(ghl.upsertContact(any(), any(), any(), any()))
 				.thenReturn(new GhlWriteClient.UpsertedContact("c1", "Acme", "a@b.test", null));
-		com.ie.evalos.domain.CachedOpportunity existing = mock(com.ie.evalos.domain.CachedOpportunity.class);
+		com.ie.evalos.domain.Opportunity existing = mock(com.ie.evalos.domain.Opportunity.class);
 		when(existing.getGhlContactId()).thenReturn("c1");
 		when(existing.getStatus()).thenReturn("open");
-		when(existing.getGhlOpportunityId()).thenReturn("opp_existing");
-		when(cache.forPipelines(any())).thenReturn(java.util.List.of(existing));
+		when(existing.getGhlId()).thenReturn("opp_existing");
+		when(deals.onPipelines(any())).thenReturn(java.util.List.of(existing));
 
 		assertThatThrownBy(() -> desk.createDeal("A", "Client", "a@b.test", null, "Second deal",
 				null, null, null, null, false))
@@ -125,8 +125,8 @@ class SalesDeskServiceTest {
 
 		desk.createDeal("A", "Client", "a@b.test", null, "Second deal", null, null, null, null, true);
 
-		// The cache is not even consulted once the caller has confirmed.
-		verify(cache, never()).forPipelines(any());
+		// The mirror is not even consulted once the caller has confirmed.
+		verify(deals, never()).onPipelines(any());
 		verify(ghl).createOpportunity(eq(MINE), eq("c1"), eq("Second deal"), any(), any(), any(), any());
 	}
 
@@ -282,7 +282,7 @@ class SalesDeskServiceTest {
 	@Test
 	void anotherDesksDealIsRefusedByEveryAction() {
 		authenticateAsSales(MINE);
-		when(cache.isInPipeline("opp_theirs", MINE)).thenReturn(false);
+		when(deals.isOnPipeline("opp_theirs", MINE)).thenReturn(false);
 
 		assertThatThrownBy(() -> desk.update("opp_theirs", "x", null))
 				.isInstanceOf(ForbiddenException.class);

@@ -1,6 +1,6 @@
 # Unit 44 — The tier-1 GHL mirror
 
-**Status: slice A BUILT (2026-09-16). B, C and D are specced and unbuilt.**
+**Status: slices A and D BUILT (2026-09-16). B and C are specced and unbuilt.**
 
 Unit 44 is `00c`'s first real unit: EvalOS stops asking GHL what its structure is on every screen
 render and starts holding it, **using GHL's own ids**, so a mismatch is detectable by comparison
@@ -20,14 +20,17 @@ sequences it.
 | **44a** | `pipeline`, `pipeline_stage`, the sweep, `purpose` | no | **BUILT** |
 | **44b** | `team_member_pipeline`; `PipelineScope.mine()` becomes a set; retires `intake-pipeline-name` | **yes** | specced |
 | **44c** | `contact` — merges `contact_snapshot` and `client_account` | no | specced |
-| **44d** | `opportunity` + the correlation custom field; replaces `CachedOpportunity` | **yes** (via `PipelineScope`) | specced |
+| **44d** | `opportunity` + the correlation custom field; replaces `CachedOpportunity` | **yes** (via `PipelineScope`) | **BUILT** |
 
 **44a first because GHL owns every column in it.** `00d` §6.2 puts `pipeline.*` and
 `pipeline_stage.*` under *"GHL, read-only; GHL always wins; EvalOS never pushes"*. A table that can
 only ever be **behind** GHL, never in conflict with it, needs none of Unit 45's conflict machinery
 to be correct — so it is the one slice that is fully useful on its own and cannot break a desk.
 
-**44b and 44d are held back because they move authorisation.** `00d` §6.7 is explicit that
+**44d was built second, ahead of 44b and 44c, on the business's instruction.** It carries both the
+largest consumer of the sync engine and the correlation key, so it is what unblocks Unit 45.
+
+**44b is held back because it moves authorisation.** `00d` §6.7 is explicit that
 `team_member_pipeline` *"is not only a schema change — it moves `PipelineScope.mine()` from 'one
 id' to 'a set' across every desk that shares it, an amendment to Units 39 and 40's authorisation
 model"*. That is not something to land in the same commit as a new table.
@@ -177,7 +180,7 @@ would fail the build (correctly — that is invariant 8 working).
 
 ---
 
-## 5. Slice 44d — `opportunity` (specced, unbuilt)
+## 5. Slice 44d — `opportunity` (BUILT)
 
 ```sql
 opportunity (id uuid pk, brand_id, ghl_id unique null, contact_id, pipeline_id, stage_id,
@@ -201,10 +204,49 @@ the requested service through one. This slice adds a second field and the search
 **Do not switch the create path to `POST /opportunities/`** — `00d` §6.1 is explicit that it
 reverses `39` §3a against its own reasoning and breaks `43` §7.
 
-**And do not refactor `PipelineScope` before this lands.** `00d` §6.5 records that it authorises
-every Sales and Marketing write against the droppable cache — access control with a TTL — and
-rules that the mirror is the fix, not a `GET /opportunities/{id}` fall-through (`39` §7 considered
-and rejected exactly that).
+**`PipelineScope` moved onto the mirror here, which is what `00d` §6.5 ruled.** It authorised every
+Sales and Marketing write against the droppable cache — *access control with a TTL*, so "a newly
+opened lead is immediately unauthorised until the next refill". A mirror that is upserted rather
+than replaced closes that half by construction. The other half — a deal moved to another rep's
+pipeline staying authorised until something refreshes — is a staleness bound, and Unit 45's delta
+sweep is its fix. No `GET /opportunities/{id}` fall-through was added; `39` §7 considered and
+rejected exactly that.
+
+### 5.1 Two corrections to `00d` §6.1, found in the building
+
+**GHL offers no filter on a custom field.** §6.1 says to "search that field before creating".
+Verified against the API: neither `GET /opportunities/search` nor the advanced `POST` accepts one —
+the advanced body takes a full-text `query` (75 chars) and nothing else. The implementable form is
+to ask GHL for the **contact's** opportunities (`contactId` *is* a supported filter) and match the
+correlation value locally. One contact has a handful of deals and a retry-after-timeout is rare, so
+this is cheaper than it sounds and needs no assumption about what GHL full-text-indexes.
+
+**The key must be persisted before the call, which costs a column.** A key minted in memory, sent,
+and lost to a timeout is a key no retry can search for. So `client_application.opportunity_id`
+(`V53`) holds the row the request opened, and the create path writes the local row *first*. That
+column is also one step of the `client_application` → case join `.claude/data-model.md` lists as
+missing.
+
+### 5.2 What 44d actually shipped
+
+- **`V51`** — `opportunity`. Two names per row (`00c` §2a): EvalOS's `id`, stable from creation and
+  serving as the correlation key; `ghl_id`, null until GHL answers, unique per brand *where present*
+  via a partial index.
+- **`V52`** — `ghl_opportunity_cache` dropped. The ordering worked here where `ghl_funnel_cache`'s
+  did not: nothing in either seed tree mentions it.
+- **`V53`** — `client_application.opportunity_id`.
+- **`OpportunityMirrorService`** — upsert in place, soft-delete by `missing_since`, refresh-on-read
+  keeping the cache's two-minute staleness bound. **A local-only row is skipped by the absence
+  pass**, or every portal-born deal would be stamped missing on the first refresh after it was made.
+- **Deleted**: `CachedOpportunity`, `CachedOpportunityRepository`, `OpportunityCache`, and
+  `GhlOpportunityClient` — the last being a second client over `/opportunities/search` with a
+  narrower projection of the same rows than `GhlPipelineClient` already had.
+- **`ghl_stage_id` is text, not a foreign key**, and that is a decision: the two mirrors run on two
+  sweeps, so a FK would make an opportunity sync fail because a *different* sweep is behind. The id
+  still resolves against `pipeline_stage.ghl_id` — `00c` §2b's equality check, not a translation.
+- **`sync_state` is not a column**, deviating from `00c` §2's sketch. Today it is derivable
+  (`ghl_id IS NULL` is the only state that exists) and every other value needs a writer that is Unit
+  45's. Add it with the outbox, not before.
 
 ---
 
@@ -238,3 +280,23 @@ and rejected exactly that).
 - [x] `GET /api/ghl/pipelines` is GM-only, reads the mirror, and answers an empty list — not a
       502 — when the sweep has not run.
 - [x] `PUT /api/ghl/pipelines/{mirrorId}/purpose` is GM-only and refuses an unknown value by name.
+
+---
+
+## 8. Acceptance — slice 44d
+
+- [x] `opportunity` holds EvalOS's own `id` and GHL's `ghl_id` separately; `ghl_id` is unique per
+      brand only where it is present.
+- [x] The mirror upserts and never deletes; a row GHL stops returning is stamped `missing_since`.
+- [x] A local-only row (no `ghl_id`) is never stamped missing by the absence pass.
+- [x] The board, `PipelineScope` and the Sales desk's duplicate check all read the mirror; nothing
+      reads `ghl_opportunity_cache`, which is dropped.
+- [x] The board's age comes from the pipeline's `synced_at`, so an empty pipeline no longer reports
+      "read just now".
+- [x] A portal create opens the local row **before** calling GHL and sends its id as the correlation
+      key; the order is asserted, not just the payload.
+- [x] A retry reuses the row it already opened rather than minting a second key.
+- [x] An unmirrored intake pipeline still opens the deal, without a correlation key.
+- [x] An unconfigured correlation field omits it and changes nothing else.
+- [x] `opportunity_note` still survives the opportunity it names being deleted — the property
+      outlived the table it was written against.

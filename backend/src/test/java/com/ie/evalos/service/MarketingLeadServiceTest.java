@@ -39,9 +39,9 @@ class MarketingLeadServiceTest {
 	private static final String OPPORTUNITY = "opp_1";
 
 	private final GhlWriteClient ghl = mock(GhlWriteClient.class);
-	private final OpportunityCache cache = mock(OpportunityCache.class);
+	private final OpportunityMirrorService deals = mock(OpportunityMirrorService.class);
 	private final MarketingLeadService service =
-			new MarketingLeadService(ghl, new PipelineScope(cache));
+			new MarketingLeadService(ghl, new PipelineScope(deals));
 
 	private void authenticate(Role role, String pipelineId) {
 		StaffPrincipal principal = new StaffPrincipal(MEMBER, "desk@ie.test", "Desk", role, BRAND, null,
@@ -56,7 +56,7 @@ class MarketingLeadServiceTest {
 	}
 
 	private void givenTheOpportunityIsMine() {
-		when(cache.isInPipeline(OPPORTUNITY, MINE)).thenReturn(true);
+		when(deals.isOnPipeline(OPPORTUNITY, MINE)).thenReturn(true);
 	}
 
 	// --- opening a lead --------------------------------------------------------
@@ -136,7 +136,7 @@ class MarketingLeadServiceTest {
 	@Test
 	void anotherDesksOpportunityIsRefused() {
 		authenticate(Role.MARKETING, MINE);
-		when(cache.isInPipeline("opp_theirs", MINE)).thenReturn(false);
+		when(deals.isOnPipeline("opp_theirs", MINE)).thenReturn(false);
 
 		assertThatThrownBy(() -> service.value("opp_theirs", null, BigDecimal.TEN))
 				.isInstanceOf(ForbiddenException.class);
@@ -154,7 +154,7 @@ class MarketingLeadServiceTest {
 
 		service.value(OPPORTUNITY, null, BigDecimal.TEN);
 
-		verify(cache).isInPipeline(OPPORTUNITY, MINE);
+		verify(deals).isOnPipeline(OPPORTUNITY, MINE);
 	}
 
 	// --- valuation -------------------------------------------------------------

@@ -270,6 +270,26 @@ evalos:
     # A GHL custom field ID, same shape and same sourcing as the line above. Blank skips the call —
     # the request is still submitted in EvalOS, which is where it lives.
     opportunity-submitted-field: ${GHL_OPPORTUNITY_SUBMITTED_FIELD:}
+    # The GHL opportunity custom field carrying EvalOS's own opportunity id -- the CORRELATION KEY.
+    #
+    # **This is `00d` §6.1, which calls it "the single biggest sequencing error in `00c`".** The
+    # outbox gives at-least-once delivery, and `POST /opportunities/` is not idempotent, so a retry
+    # after a TIMEOUT is exactly how one opportunity becomes two: EvalOS cannot tell "GHL never got
+    # it" from "GHL got it and the answer was lost". The fix is a key EvalOS chooses, writes into a
+    # custom field on create, and can look for afterwards.
+    #
+    # **The key is persisted BEFORE the call**, in `opportunity.id` -- a key minted in memory and
+    # lost to a timeout is a key no retry can search for.
+    #
+    # **Reading it back is not a filter GHL offers, and that is a correction to §6.1's wording.**
+    # Verified against the API: neither `GET /opportunities/search` nor the advanced POST accepts a
+    # custom-field filter. The implementable form is to ask GHL for the CONTACT's opportunities --
+    # `contactId` IS a supported filter -- and match the correlation value locally. One contact has
+    # a handful of deals, and a retry-after-timeout is rare.
+    #
+    # A GHL custom field ID, same shape and sourcing as the two above. Blank omits the field: the
+    # deal is still created, and the duplicate risk on a retry is simply the one that exists today.
+    opportunity-correlation-field: ${GHL_OPPORTUNITY_CORRELATION_FIELD:}
     # Which brand owns `location-id`. Unit 36's single-brand ceiling, and it is ENFORCED rather
     # than documented: assigning SALES or MARKETING to a member of any other brand answers 400.
     #

@@ -11,10 +11,9 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Stream;
 
-import com.ie.evalos.domain.CachedOpportunity;
+import com.ie.evalos.domain.Opportunity;
 import com.ie.evalos.domain.PipelineStage;
 import com.ie.evalos.domain.Role;
-import com.ie.evalos.integration.GhlOpportunityClient;
 import com.ie.evalos.repository.TeamMemberRepository;
 import com.ie.evalos.security.TenantContext;
 
@@ -80,7 +79,15 @@ public class OpportunityBoardService {
 			Instant readAt, boolean stale) {
 	}
 
-	private final GhlOpportunityClient opportunities;
+	/**
+	 * The mirrored opportunities (Unit 44d).
+	 *
+	 * <p>This was a {@code GhlOpportunityClient} plus an {@code OpportunityCache} whose only write
+	 * path was delete-all-then-insert-all per pipeline. Both are gone: the board reads EvalOS rows
+	 * that are upserted in place, so a row keeps its identity across a refresh and a portal-born
+	 * deal with no {@code ghl_id} yet survives one.
+	 */
+	private final OpportunityMirrorService deals;
 
 	/**
 	 * The mirrored pipelines, which is where stage names come from as of Unit 44a.
@@ -92,7 +99,6 @@ public class OpportunityBoardService {
 	 */
 	private final PipelineMirrorService mirroredPipelines;
 
-	private final OpportunityCache cache;
 	private final TeamMemberRepository teamMembers;
 	private final Duration ttl;
 
@@ -108,13 +114,12 @@ public class OpportunityBoardService {
 	 */
 	private final UUID sellingBrandId;
 
-	OpportunityBoardService(GhlOpportunityClient opportunities, PipelineMirrorService mirroredPipelines,
-			OpportunityCache cache, TeamMemberRepository teamMembers,
+	OpportunityBoardService(OpportunityMirrorService deals, PipelineMirrorService mirroredPipelines,
+			TeamMemberRepository teamMembers,
 			@Value("${evalos.ghl.board-cache-ttl}") Duration ttl,
 			@Value("${evalos.ghl.sales-brand:}") String salesBrandId) {
-		this.opportunities = opportunities;
+		this.deals = deals;
 		this.mirroredPipelines = mirroredPipelines;
-		this.cache = cache;
 		this.teamMembers = teamMembers;
 		this.ttl = ttl;
 		try {
@@ -146,7 +151,7 @@ public class OpportunityBoardService {
 		}
 
 		mine.forEach(this::refillIfStale);
-		return draw(mine, cache.forPipelines(mine));
+		return draw(mine, deals.onPipelines(mine));
 	}
 
 	/**
@@ -193,13 +198,11 @@ public class OpportunityBoardService {
 	 * </pre>
 	 */
 	private void refillIfStale(String pipelineId) {
-		if (!cache.isStale(pipelineId, ttl)) {
-			return;
-		}
-		// The GHL read happens HERE, outside any transaction, and the write is a separate
-		// transactional call on OpportunityCache. Doing both inside one @Transactional method
-		// would hold a pooled connection open across a network round trip — see that class.
-		cache.replace(pipelineId, opportunities.inPipeline(pipelineId));
+		// The GHL read still happens outside any transaction, and the write is still a separate
+		// transactional call — holding a pooled connection open across a network round trip is how
+		// one slow upstream becomes an exhausted pool. What changed at Unit 44d is that the write
+		// is an UPSERT into `opportunity` rather than a delete-all-then-insert-all into a cache.
+		deals.refreshIfStale(pipelineId, ttl);
 	}
 
 	/**
@@ -216,7 +219,7 @@ public class OpportunityBoardService {
 	 * before: a card that vanishes is a card somebody goes looking for. The difference is that the
 	 * fallback is now reached when the <em>sweep</em> is behind rather than when GHL is slow.
 	 */
-	private Board draw(List<String> pipelineIds, List<CachedOpportunity> rows) {
+	private Board draw(List<String> pipelineIds, List<Opportunity> rows) {
 		Map<String, MirroredStage> stages = new LinkedHashMap<>();
 		mirroredPipelines.all().stream()
 				.filter((pipeline) -> pipelineIds.contains(pipeline.getGhlId()))
@@ -226,18 +229,18 @@ public class OpportunityBoardService {
 				.forEach((stage) -> stages.putIfAbsent(stage.getGhlId(),
 						new MirroredStage(stage.getName(), stage.getPosition())));
 
-		Map<String, List<CachedOpportunity>> byStage = new LinkedHashMap<>();
+		Map<String, List<Opportunity>> byStage = new LinkedHashMap<>();
 		stages.keySet().forEach((stageId) -> byStage.put(stageId, new ArrayList<>()));
-		rows.forEach((row) -> byStage.computeIfAbsent(row.getStageId(), (key) -> new ArrayList<>())
+		rows.forEach((row) -> byStage.computeIfAbsent(row.getGhlStageId(), (key) -> new ArrayList<>())
 				.add(row));
 
 		List<BoardColumn> columns = byStage.entrySet().stream()
 				.map((entry) -> {
 					MirroredStage stage = stages.get(entry.getKey());
 					List<Deal> deals = entry.getValue().stream()
-							.map((row) -> new Deal(row.getGhlOpportunityId(), row.getName(),
+							.map((row) -> new Deal(row.getGhlId(), row.getName(),
 									row.getGhlContactId(), row.getStatus(), row.getAmount(),
-									row.getUpdatedInGhlAt()))
+									row.getGhlUpdatedAt()))
 							.toList();
 					return new BoardColumn(entry.getKey(),
 							// A stage GHL no longer lists still holds cards until the next
@@ -250,8 +253,11 @@ public class OpportunityBoardService {
 				.sorted(Comparator.comparingInt(BoardColumn::position))
 				.toList();
 
-		Instant readAt = rows.stream().map(CachedOpportunity::getFetchedAt)
-				.max(Comparator.naturalOrder()).orElse(Instant.now());
+		// When the mirror last agreed with GHL, asked of the pipelines rather than of the rows: an
+		// empty pipeline has no row to carry a timestamp, and reporting "now" for it would tell a
+		// reader the board is live when nothing has been read.
+		Instant lastSynced = deals.lastSynced(pipelineIds);
+		Instant readAt = lastSynced == null ? Instant.now() : lastSynced;
 
 		return new Board(columns, rows.size(), sum(rows), readAt,
 				Duration.between(readAt, Instant.now()).compareTo(ttl) >= 0);
@@ -261,9 +267,9 @@ public class OpportunityBoardService {
 	private record MirroredStage(String name, int position) {
 	}
 
-	private static BigDecimal sum(List<CachedOpportunity> rows) {
+	private static BigDecimal sum(List<Opportunity> rows) {
 		return rows.stream()
-				.map(CachedOpportunity::getAmount)
+				.map(Opportunity::getAmount)
 				.filter((amount) -> amount != null)
 				.reduce(BigDecimal.ZERO, BigDecimal::add);
 	}

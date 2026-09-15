@@ -298,10 +298,15 @@ class GhlPipelineClientHttpTest {
 		assertThat(first.createdAt()).isEqualTo(Instant.parse("2026-05-05T18:09:32.849Z"));
 		assertThat(first.lastStatusChangeAt()).isEqualTo(Instant.parse("2026-05-05T18:09:32.849Z"));
 		assertThat(first.lastStageChangeAt()).isEqualTo(Instant.parse("2026-05-05T18:09:32.849Z"));
-		// The fixture supplies a name, an email, a phone and a tag on every row. The record has
-		// nowhere to put any of them, which is the point of this assertion.
+		assertThat(first.name()).isEqualTo("Test Person");
+		assertThat(first.contactId()).isEqualTo("contact-1");
+		// **The contact's CONTACT DETAILS are what must not be here**, and the fixture supplies all
+		// of them on every row - `relations`, `contact` and `attributions`. A deal's name and its
+		// contact id are what a board draws and what a mirror joins on; an email, a phone and a
+		// marketing tag are PII that would then sit inside an EvalOS response. The record has
+		// nowhere to put those, which is the point of this assertion.
 		assertThat(first.toString()).doesNotContain("test.person@example.invalid", "+15550000000",
-				"es_lead", "Test Person");
+				"es_lead");
 		// GHL really does send both of these as null on rows nobody priced or attributed. The
 		// service turns the money into zero; the client's job is only to not fall over.
 		assertThat(found.get(1).monetaryValue()).isNull();

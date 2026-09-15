@@ -13,6 +13,7 @@ import com.ie.evalos.repository.CaseDocumentRepository;
 import com.ie.evalos.repository.CaseRepository;
 import com.ie.evalos.repository.ClientAccountRepository;
 import com.ie.evalos.repository.ClientApplicationRepository;
+import com.ie.evalos.repository.OpportunityRepository;
 import com.ie.evalos.repository.PipelineRepository;
 import com.ie.evalos.repository.PipelineStageRepository;
 import com.ie.evalos.repository.ClientCredentialTokenRepository;
@@ -73,7 +74,8 @@ class DomainInvariantsTest {
 				arguments(FollowUpRepository.SCOPE, FollowUp.class),
 				arguments(ClientApplicationRepository.SCOPE, ClientApplication.class),
 				arguments(PipelineRepository.SCOPE, Pipeline.class),
-				arguments(PipelineStageRepository.SCOPE, PipelineStage.class));
+				arguments(PipelineStageRepository.SCOPE, PipelineStage.class),
+				arguments(OpportunityRepository.SCOPE, Opportunity.class));
 	}
 
 	@ParameterizedTest

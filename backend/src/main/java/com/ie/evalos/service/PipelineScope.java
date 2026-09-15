@@ -21,10 +21,24 @@ import org.springframework.stereotype.Component;
 @Component
 public class PipelineScope {
 
-	private final OpportunityCache cache;
+	/**
+	 * The mirrored opportunities (Unit 44d).
+	 *
+	 * <p><strong>{@code 00d} §6.5 recorded that access control here had a TTL.</strong> This asked
+	 * a cache whose rows were destroyed and recreated on every board refresh, so "a newly opened
+	 * lead is <em>immediately</em> unauthorised until the next refill". A mirror that is upserted
+	 * rather than replaced closes that half by construction: a row written on create stays written.
+	 *
+	 * <p>The other half — a deal moved to another rep's pipeline in GHL staying authorised here
+	 * until something refreshes — is a staleness bound rather than a hole, and Unit 45's delta sweep
+	 * is its fix. {@code 39} §7 already considered and rejected the alternative of asking GHL on
+	 * every write: "a second round trip on every write against a 100-per-10-seconds budget, to close
+	 * a gap the board read has already closed for anything the caller can actually see."
+	 */
+	private final OpportunityMirrorService deals;
 
-	PipelineScope(OpportunityCache cache) {
-		this.cache = cache;
+	PipelineScope(OpportunityMirrorService deals) {
+		this.deals = deals;
 	}
 
 	/**
@@ -60,7 +74,7 @@ public class PipelineScope {
 	 */
 	public String requireMine(String opportunityId) {
 		String pipelineId = mine();
-		if (!cache.isInPipeline(opportunityId, pipelineId)) {
+		if (!deals.isOnPipeline(opportunityId, pipelineId)) {
 			throw new ForbiddenException("That opportunity is not in your pipeline");
 		}
 		return pipelineId;

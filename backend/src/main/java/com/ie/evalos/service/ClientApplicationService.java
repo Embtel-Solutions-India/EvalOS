@@ -122,11 +122,31 @@ public class ClientApplicationService {
 	 */
 	private static final String SUBMITTED_FIELD_VALUE = "SUBMITTED";
 
+	/**
+	 * The GHL custom field carrying EvalOS's own opportunity id — the correlation key
+	 * ({@code 00d} §6.1), or blank for none.
+	 *
+	 * <p><strong>This is what makes a retry after a timeout answerable.</strong>
+	 * {@code POST /opportunities/} is not idempotent, so a create that times out leaves EvalOS
+	 * unable to tell "GHL never got it" from "GHL got it and the answer was lost" — and retrying
+	 * blind is precisely how one opportunity becomes two.
+	 *
+	 * <p><strong>It only works because the row is opened first.</strong> A key minted in memory and
+	 * lost to a timeout is a key nothing can search for, which is why the create path below writes
+	 * the local row before it calls GHL rather than after.
+	 */
+	private final String correlationFieldId;
+
+	/** The opportunity mirror (Unit 44d) — where a portal-born deal is recorded before GHL sees it. */
+	private final OpportunityMirrorService deals;
+
 	ClientApplicationService(ClientApplicationRepository applications, ClientAccountRepository accounts,
 			GhlWriteClient ghl, GhlPipelineClient pipelines,
 			@Value("${evalos.ghl.intake-pipeline-name}") String intakePipelineName,
 			@Value("${evalos.ghl.opportunity-service-field:}") String serviceFieldId,
-			@Value("${evalos.ghl.opportunity-submitted-field:}") String submittedFieldId) {
+			@Value("${evalos.ghl.opportunity-submitted-field:}") String submittedFieldId,
+			@Value("${evalos.ghl.opportunity-correlation-field:}") String correlationFieldId,
+			OpportunityMirrorService deals) {
 		this.applications = applications;
 		this.accounts = accounts;
 		this.ghl = ghl;
@@ -134,6 +154,8 @@ public class ClientApplicationService {
 		this.intakePipelineName = intakePipelineName;
 		this.serviceFieldId = serviceFieldId == null ? "" : serviceFieldId.trim();
 		this.submittedFieldId = submittedFieldId == null ? "" : submittedFieldId.trim();
+		this.correlationFieldId = correlationFieldId == null ? "" : correlationFieldId.trim();
+		this.deals = deals;
 	}
 
 	/** Every application this client has, newest first. */
@@ -334,13 +356,33 @@ public class ClientApplicationService {
 		}
 		try {
 			GhlPipelineClient.Pipeline intake = pipelines.pipelineNamed(intakePipelineName);
+			// **The local row first, and the order is the correlation key's whole mechanism.**
+			// EvalOS writes its own opportunity, sends that row's id to GHL in a custom field, and
+			// only then records GHL's id beside it. A create that times out therefore leaves a row
+			// EvalOS can find again, which is what turns "did my create land?" from a guess into a
+			// query (`00d` §6.1). A retry reuses the row rather than minting a second one.
+			UUID localId = application.getOpportunityId();
+			if (localId == null) {
+				// Empty when the intake pipeline is not mirrored yet. The deal is still created —
+				// losing a client's request because a sweep is behind would be the worse failure —
+				// it simply carries no correlation key, which is today's exposure and not a new one.
+				localId = deals.openLocally(intake.id(), client.getGhlContactId(),
+						opportunityName(application, client)).map(com.ie.evalos.domain.Opportunity::getId)
+						.orElse(null);
+				if (localId != null) {
+					application.linkOpportunityRow(localId);
+				}
+			}
 			GhlWriteClient.UpsertedOpportunity opened = ghl.createOpportunity(intake.id(),
 					client.getGhlContactId(), opportunityName(application, client), null,
 					// No stage and no assignee — see `serviceFieldId` and `noStageAndNoAssigneeAreSent`.
 					// No monetaryValue either: EvalOS holds no price list, and what the work is worth
 					// is Sales' to set on the deal. A zero here would be a priced deal worth nothing
 					// rather than an unpriced one.
-					null, null, routingFields(application));
+					null, null, createFields(application, localId));
+			if (localId != null) {
+				deals.linkGhl(localId, opened.id());
+			}
 			application.linkOpportunity(opened.id());
 		}
 		catch (RuntimeException ghlRefused) {
@@ -360,17 +402,22 @@ public class ClientApplicationService {
 	 * name was given at sign-up — a deal named after nobody is one a salesperson cannot pick up.
 	 */
 	/**
-	 * What GHL is told about the request, beyond the contact and the name.
+	 * What GHL is told on create: the requested service, and the correlation key.
 	 *
-	 * <p>Null rather than an empty map when nothing is configured, because
-	 * {@code GhlWriteClient.createOpportunity} already drops empty and blank entries and a caller
-	 * sending {@code {}} reads as "this request has no service", which is never true.
+	 * <p>Two fields with two jobs. The service is what a GHL workflow routes on; the correlation
+	 * key is what a retry finds the deal by. Either can be unconfigured, and an unconfigured field
+	 * is omitted rather than sent blank — null rather than an empty map, because a caller sending
+	 * {@code {}} reads as "this request has nothing on it", which is never true.
 	 */
-	private java.util.Map<String, String> routingFields(ClientApplication application) {
-		if (serviceFieldId.isEmpty() || application.getServiceId() == null) {
-			return null;
+	private java.util.Map<String, String> createFields(ClientApplication application, UUID localId) {
+		java.util.Map<String, String> fields = new java.util.LinkedHashMap<>();
+		if (!serviceFieldId.isEmpty() && application.getServiceId() != null) {
+			fields.put(serviceFieldId, application.getServiceId());
 		}
-		return java.util.Map.of(serviceFieldId, application.getServiceId());
+		if (!correlationFieldId.isEmpty() && localId != null) {
+			fields.put(correlationFieldId, localId.toString());
+		}
+		return fields.isEmpty() ? null : fields;
 	}
 
 	private static String opportunityName(ClientApplication application, ClientAccount client) {

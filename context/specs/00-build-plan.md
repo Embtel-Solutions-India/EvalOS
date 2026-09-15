@@ -752,7 +752,7 @@ Depends on: 42, 43. Hands to: 44–48.
 
 ## Unit 44 - The tier-1 GHL mirror
 
-**SLICE A BUILT 2026-09-16; B, C and D specced and unbuilt.** `00c`'s first real unit, amended
+**SLICES A AND D BUILT 2026-09-16; B and C specced and unbuilt.** `00c`'s first real unit, amended
 before it started by `00d` §6. Full slice order and reasoning: `44-ghl-tier1-mirror.md`.
 
 **44a** — `pipeline` and `pipeline_stage` (`V50`), holding GHL's ids verbatim; the `PIPELINE_MIRROR`
@@ -769,9 +769,13 @@ Retires `intake-pipeline-name`.
 
 **44c** — `contact`, merging `contact_snapshot` and `client_account`.
 
-**44d** — `opportunity`, replacing `ghl_opportunity_cache`, and the **correlation custom field**
-`00d` §6.1 pulls forward from tier 2 — the single biggest sequencing correction to `00c`, because
-at-least-once outbox delivery over a non-idempotent create is how one opportunity becomes two.
+**44d** — `opportunity` (`V51`) replacing `ghl_opportunity_cache` (dropped, `V52`), and the
+**correlation custom field** `00d` §6.1 pulls forward from tier 2 — the single biggest sequencing
+correction to `00c`, because at-least-once outbox delivery over a non-idempotent create is how one
+opportunity becomes two. Built second, ahead of B and C, because it is what unblocks Unit 45. Two
+corrections to §6.1 found in the building are in `44` §5.1: GHL offers **no filter on a custom
+field**, so a retry searches by `contactId` and matches locally; and the key must be persisted
+**before** the call, which is what `client_application.opportunity_id` (`V53`) is for.
 
 **No sync engine anywhere in Unit 44.** Webhooks, the delta sweep, the nightly paged diff, the
 outbox, `sync_drift` and error classification are Unit 45.

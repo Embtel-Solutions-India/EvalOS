@@ -29,3 +29,11 @@ Never deleted: `missing_since` is a soft delete, because `pipeline.purpose` is E
 judgement. `pipeline_stage.ghl_id` is MUTABLE — GHL stage ids are not stable across a
 delete-and-recreate, so the sweep repoints a row by `(pipeline_id, position, name)` rather than
 inserting a second one.
+
+**Unit 44d added `opportunity` (`V51`) and DROPPED `ghl_opportunity_cache` (`V52`)**, 2026-09-16.
+EvalOS's `id` is stable from creation and IS the GHL correlation key; `ghl_id` is null until GHL has
+seen the row, and its uniqueness index is PARTIAL (`where ghl_id is not null`) so many local-only
+rows can coexist. `ghl_stage_id` is TEXT and deliberately not a FK into `pipeline_stage`: the two
+mirrors run on two sweeps, and a FK would make an opportunity sync fail because a different sweep is
+behind. `client_application.opportunity_id` (`V53`) persists the correlation key before GHL is
+called — a key minted in memory and lost to a timeout is a key no retry can search for.

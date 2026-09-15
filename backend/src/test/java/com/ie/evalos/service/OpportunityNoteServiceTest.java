@@ -41,9 +41,9 @@ class OpportunityNoteServiceTest {
 	private static final String OPPORTUNITY = "opp_1";
 
 	private final OpportunityNoteRepository notes = mock(OpportunityNoteRepository.class);
-	private final OpportunityCache cache = mock(OpportunityCache.class);
+	private final OpportunityMirrorService deals = mock(OpportunityMirrorService.class);
 	private final OpportunityNoteService service =
-			new OpportunityNoteService(notes, new PipelineScope(cache));
+			new OpportunityNoteService(notes, new PipelineScope(deals));
 
 	private void authenticate(Role role, String pipelineId) {
 		StaffPrincipal principal = new StaffPrincipal(MEMBER, "desk@ie.test", "Desk", role, BRAND, null,
@@ -69,7 +69,7 @@ class OpportunityNoteServiceTest {
 	@EnumSource(value = Role.class, mode = EnumSource.Mode.INCLUDE, names = { "SALES", "MARKETING" })
 	void bothDesksWriteToTheSameStream(Role role) {
 		authenticate(role, MINE);
-		when(cache.isInPipeline(OPPORTUNITY, MINE)).thenReturn(true);
+		when(deals.isOnPipeline(OPPORTUNITY, MINE)).thenReturn(true);
 		when(notes.save(any())).thenAnswer((call) -> call.getArgument(0));
 
 		service.add(OPPORTUNITY, "from " + role);
@@ -89,7 +89,7 @@ class OpportunityNoteServiceTest {
 	@Test
 	void aNoteCarriesTheCallersBrandAndPipeline() {
 		authenticate(Role.SALES, MINE);
-		when(cache.isInPipeline(OPPORTUNITY, MINE)).thenReturn(true);
+		when(deals.isOnPipeline(OPPORTUNITY, MINE)).thenReturn(true);
 		when(notes.save(any())).thenAnswer((call) -> call.getArgument(0));
 
 		service.add(OPPORTUNITY, "  Client wants expedited  ");
@@ -106,7 +106,7 @@ class OpportunityNoteServiceTest {
 	@Test
 	void anotherDesksStreamIsRefused() {
 		authenticate(Role.SALES, MINE);
-		when(cache.isInPipeline("opp_theirs", MINE)).thenReturn(false);
+		when(deals.isOnPipeline("opp_theirs", MINE)).thenReturn(false);
 
 		assertThatThrownBy(() -> service.on("opp_theirs")).isInstanceOf(ForbiddenException.class);
 		assertThatThrownBy(() -> service.add("opp_theirs", "hello"))
@@ -125,7 +125,7 @@ class OpportunityNoteServiceTest {
 	@Test
 	void aBlankNoteIsRefused() {
 		authenticate(Role.MARKETING, MINE);
-		when(cache.isInPipeline(OPPORTUNITY, MINE)).thenReturn(true);
+		when(deals.isOnPipeline(OPPORTUNITY, MINE)).thenReturn(true);
 
 		assertThatThrownBy(() -> service.add(OPPORTUNITY, "   "))
 				.isInstanceOf(InvalidRequestException.class);
@@ -136,7 +136,7 @@ class OpportunityNoteServiceTest {
 	@Test
 	void theStreamIsReadNewestFirstForOneDeal() {
 		authenticate(Role.MARKETING, MINE);
-		when(cache.isInPipeline(OPPORTUNITY, MINE)).thenReturn(true);
+		when(deals.isOnPipeline(OPPORTUNITY, MINE)).thenReturn(true);
 		when(notes.findByGhlOpportunityIdOrderByCreatedAtDesc(OPPORTUNITY))
 				.thenReturn(List.of(new OpportunityNote(OPPORTUNITY, BRAND, MINE, MEMBER, "second"),
 						new OpportunityNote(OPPORTUNITY, BRAND, MINE, MEMBER, "first")));

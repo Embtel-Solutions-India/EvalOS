@@ -3,8 +3,8 @@
 ## CURRENT DATABASE
 
 Verified 2026-09-16 against the live local Postgres 18 database `evalos` (`pg_dump --schema-only`
-plus `pg_constraint` / `pg_indexes`). **Flyway V1–V50 all applied, `success = true`.** (`V50__pipeline_mirror.sql` is Unit 44a,
-added 2026-09-16 and verified by `LocalPostgresIntegrationTest`.) Migrations
+plus `pg_constraint` / `pg_indexes`). **Flyway V1–V53 all applied, `success = true`.** (`V50`–`V53` are Unit 44 slices A and D, added
+2026-09-16 and verified by `LocalPostgresIntegrationTest`.) Migrations
 live in `backend/src/main/resources/db/migration/`.
 
 > No production database was reachable from this workspace. Everything below is the schema the
@@ -19,7 +19,7 @@ live in `backend/src/main/resources/db/migration/`.
 | `team_member` | staff login, role, optional `ghl_pipeline_id` / `segment` | yes (nullable for GM) |
 | `client_account` | **portal identity**: email, password_hash, ghl_contact_id, name, phone | yes |
 | `client_credential_token` | single-use SET / RESET password links | yes |
-| `client_application` | **the client's request**: service, purpose, answers (jsonb), status, ghl_opportunity_id | yes |
+| `client_application` | **the client's request**: service, purpose, answers (jsonb), status, ghl_opportunity_id, `opportunity_id` (`V53` — the row it opened, whose id is the GHL correlation key) | yes |
 | `contact_snapshot` | CRM snapshot a case hangs off; utm / source fields | yes |
 | `evalos_case` | the production case, 60 columns | yes |
 | `case_document` | DRAFT / CLIENT_UPLOAD / SIGNED_LETTER, versioned, S3 `object_key` | yes |
@@ -32,7 +32,7 @@ live in `backend/src/main/resources/db/migration/`.
 | `opportunity_note` | staff prose against a GHL opportunity — **append-only trigger** | yes |
 | `pipeline` | **mirror of a GHL pipeline** (Unit 44a): `ghl_id` verbatim, `name`, `position`, `purpose`, `synced_at`, `missing_since`. Upserted, never deleted | yes |
 | `pipeline_stage` | **mirror of a GHL stage** (Unit 44a): FK to `pipeline`, `ghl_id` verbatim (mutable — see below), natural key `(pipeline_id, position, name)` | yes |
-| `ghl_opportunity_cache` | droppable mirror of GHL opportunity fields — **superseded by `opportunity` at slice 44d**, not yet removed | **no** |
+| `opportunity` | **mirror of a GHL opportunity** (Unit 44d, `V51`): EvalOS's `id` is also the GHL correlation key; `ghl_id` is null until GHL has seen the row; `ghl_stage_id` is text, not a FK, so one sweep being behind cannot fail another. Upserted, never deleted | yes |
 | `ghl_funnel_cache` | **orphaned 2026-09-16** — its only reader went with the funnel screens; the drop has nowhere to live (see `52`/`51` notes) | **no** |
 | `meeting` | mirror of a GHL appointment booked from the Sales desk | yes |
 | `follow_up` | mirror of a GHL contact task | yes |
@@ -62,6 +62,11 @@ brand ─┬─ team_member ─┬─ reports_to → team_member
 
 **`client_account` and `contact_snapshot` are not joined.** Both can hold a `ghl_contact_id` and
 nothing links them. A case reaches a contact snapshot; it does not reach the account.
+
+**`ghl_opportunity_cache` is GONE** (`V52`, 2026-09-16). `00d` §6.5's five reasons; the fifth — its
+only write path was delete-all-then-insert-all per pipeline — is why it could not be altered into
+`opportunity` and had to be replaced. `CachedOpportunity`, `CachedOpportunityRepository`,
+`OpportunityCache` and `GhlOpportunityClient` went with it.
 
 **`client_application` has no document relationship.** `case_document.case_id` is `NOT NULL` and
 FKs to `evalos_case`. No table, column or route attaches a file to a request.
@@ -96,6 +101,7 @@ FKs to `evalos_case`. No table, column or route attaches a file to a request.
 | `uq_portal_access_*` (four) | one unrevoked token per case+audience, per client party, per expert party, per account |
 | `uq_team_member_pipeline` | one active member per GHL pipeline — **replaced by `team_member_pipeline` at slice 44b**, which is many-to-many because Case Delivery has no single owner |
 | `uq_pipeline_per_brand_ghl_id`, `uq_pipeline_stage_per_brand_ghl_id` | GHL's id, unique per brand rather than globally: two brands will hold two locations and ids are only unique within one |
+| `uq_opportunity_per_brand_ghl_id` | **PARTIAL** — `where ghl_id is not null`. Many local-only rows must coexist while every GHL id appears at most once; a plain unique would allow only one |
 | `uq_webhook_event_source_brand_external` | idempotency, `NULLS NOT DISTINCT` |
 | `uq_payout_per_case` | one non-VOIDED payout per case |
 | `uq_case_document_version` | (case, kind, version) |
@@ -124,22 +130,20 @@ Not present today. Do not write code that assumes any of it exists.
 
 ### From the mirror programme (Units 44–48, `context/specs/00c-ghl-independence-programme.md`)
 
-**`pipeline` and `pipeline_stage` are BUILT** — slice 44a, `V50`, 2026-09-16. They are in CURRENT
-above. What is left:
+**`pipeline`, `pipeline_stage` and `opportunity` are BUILT** — slices 44a and 44d, `V50`–`V53`,
+2026-09-16. They are in CURRENT above. What is left:
 
 ```sql
 team_member_pipeline (team_member_id, pipeline_id)   -- 44b, replaces team_member.ghl_pipeline_id
 contact              (id uuid pk, brand_id, ghl_id unique null, name, email, phone, ...)  -- 44c
-opportunity          (id uuid pk, brand_id, ghl_id unique null, contact_id, pipeline_id, stage_id,
-                      name, amount, status, ghl_updated_at, local_updated_at, sync_state)  -- 44d
 outbox               (partial-unique on entity_id, not payload)   -- 45
 sync_drift           (the reported mismatches)                    -- 45
 ```
 
-Slice 44d replaces `ghl_opportunity_cache` with `opportunity` and carries the **correlation custom
-field** — `00d` §6.1 pulls that one tier-2 item forward into Unit 44, because at-least-once outbox
-delivery over a non-idempotent create is how one opportunity becomes two. Slice 44c merges
-`contact_snapshot` and `client_account`. The rest of tier 2 and all of tier 3 follow in Unit 47,
+Two deviations from `00c` §2's sketch, both recorded in `44-ghl-tier1-mirror.md` §5:
+**`opportunity` has no `sync_state` column** — today it is derivable (`ghl_id IS NULL`) and every
+other value needs a writer that is Unit 45's — and **`contact_id` is still `ghl_contact_id` text**,
+because 44c is where `contact` arrives. The rest of tier 2 and all of tier 3 follow in Unit 47,
 scoped to "what 46 reads" rather than to completeness (`00d` §6.6).
 
 Slice order and the reasoning behind it: `context/specs/44-ghl-tier1-mirror.md`.

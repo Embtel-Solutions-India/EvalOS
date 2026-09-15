@@ -3,7 +3,7 @@
 **The authoritative file is `.claude/implementation-status.md` — a table with evidence per row.
 Check it before claiming anything exists or is missing.**
 
-Build is green: backend 992 tests, 0 failures, 4 skipped; staff SPA 127 tests plus clean tsc;
+Build is green: backend 987 tests, 0 failures, 4 skipped; staff SPA 127 tests plus clean tsc;
 portals 30 tests plus clean tsc. All run 2026-09-16.
 
 **The newest work is uncommitted.** Units 40, 43 and 51 and the `00d` audit are 121 changed or
@@ -37,16 +37,35 @@ diff and `sync_drift` all reconcile rows that do not exist yet. A drift audit ov
 would report zero by construction, because 44a's sweep overwrites them hourly through the same code
 path. Build 44d next.
 
-BUILT 2026-09-16 (Unit 44, SLICE A ONLY): the tier-1 mirror has started. `pipeline` and
+BUILT 2026-09-16 (Unit 44, SLICE D): `opportunity` (`V51`) replaces `ghl_opportunity_cache`, which
+is DROPPED (`V52`) along with `CachedOpportunity`, `OpportunityCache` and `GhlOpportunityClient`.
+Two names per row: EvalOS's `id` is stable from creation AND IS THE GHL CORRELATION KEY, `ghl_id` is
+null until GHL answers. The board, `PipelineScope` and the Sales desk's duplicate check all read it
+now — which closes `00d` §6.5's "access control with a TTL", because a row written on create stays
+written instead of being destroyed by the next refresh.
+
+**The correlation key is why 44d exists** (`00d` §6.1 — "the single biggest sequencing error in
+00c"). A create that TIMES OUT cannot be retried safely, because EvalOS cannot tell "GHL never got
+it" from "GHL got it and the answer was lost". EvalOS now opens its own row FIRST, sends that row's
+id in a GHL custom field (`GHL_OPPORTUNITY_CORRELATION_FIELD`), then records GHL's id — and
+`client_application.opportunity_id` (`V53`) persists it so a retry reuses the row rather than
+minting a second key. TWO CORRECTIONS TO §6.1, found in the building: GHL offers NO filter on a
+custom field (verified), so a retry must search by `contactId` and match locally; and the key has to
+be persisted before the call, which is what the new column is for.
+
+BUILT 2026-09-16 (Unit 44, SLICE A): the tier-1 mirror has started. `pipeline` and
 `pipeline_stage` (`V50`) hold GHL's ids verbatim, refreshed hourly by the `PIPELINE_MIRROR` sweep;
 `pipeline.purpose` (MARKETING/SALES/DELIVERY/INTAKE/UNASSIGNED) is the one column EvalOS owns and a
 sweep never writes it. Rows are upserted and NEVER deleted. A stage GHL recreated under a new id is
 REPOINTED by `(pipeline, position, name)`, not duplicated — without that a recreated pipeline reads
 as every opportunity in it having drifted. The opportunity board no longer calls GHL to name a
-column. Slices 44b (`team_member_pipeline` + `PipelineScope.mine()` becoming a SET — an
-authorisation change across Units 39/40), 44c (`contact`) and 44d (`opportunity` + the correlation
-custom field) are specced and unbuilt: `context/specs/44-ghl-tier1-mirror.md`. There is still NO
-sync engine — that is Unit 45.
+column. Slices 44b (`team_member_pipeline` + `PipelineScope.mine()` becoming a SET — an authorisation
+change across Units 39/40, which is why it was held back) and 44c (`contact`, merging
+`contact_snapshot` and `client_account`) are specced and unbuilt:
+`context/specs/44-ghl-tier1-mirror.md`. `OpportunityRepository.SCOPE` is `brandOnly` until 44b lines
+the pipeline axis up, so the pipeline scope lives in the finder SIGNATURES and
+`OpportunityRepositoryScopeTest` guards it — delete that test at 44b, not before. There is still NO
+sync engine beyond error classification — that is Unit 45.
 
 BUILT 2026-09-16 (Unit 52, partial): the Client Portal ↔ GHL integration is EvalOS→GHL only.
 Sign-up upserts the GHL contact and stores the id; picking a service opens the opportunity carrying

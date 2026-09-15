@@ -56,6 +56,9 @@ class ClientApplicationServiceTest {
 
 	private static final String CONTACT = "ghl-contact-1";
 
+	/** The EvalOS opportunity row's id — what goes into GHL's correlation custom field. */
+	private static final UUID LOCAL_OPPORTUNITY = UUID.fromString("33333333-3333-3333-3333-333333333333");
+
 	private final ClientApplicationRepository applications = mock(ClientApplicationRepository.class);
 
 	private final ClientAccountRepository accounts = mock(ClientAccountRepository.class);
@@ -68,12 +71,17 @@ class ClientApplicationServiceTest {
 
 	private static final String SUBMITTED_FIELD = "ghl-field-submitted";
 
-	private final ClientApplicationService service = new ClientApplicationService(applications, accounts,
-			ghl, pipelines, "Client Intake", SERVICE_FIELD, SUBMITTED_FIELD);
+	private static final String CORRELATION_FIELD = "ghl-field-correlation";
 
-	/** The same service with neither custom field configured — the unconfigured environment. */
+	private final OpportunityMirrorService deals = mock(OpportunityMirrorService.class);
+
+	private final ClientApplicationService service = new ClientApplicationService(applications, accounts,
+			ghl, pipelines, "Client Intake", SERVICE_FIELD, SUBMITTED_FIELD, CORRELATION_FIELD, deals);
+
+	/** The same service with no custom field configured — the unconfigured environment. */
 	private ClientApplicationService withoutCustomFields() {
-		return new ClientApplicationService(applications, accounts, ghl, pipelines, "Client Intake", "", "");
+		return new ClientApplicationService(applications, accounts, ghl, pipelines, "Client Intake", "",
+				"", "", deals);
 	}
 
 	private ClientAccount client;
@@ -96,6 +104,13 @@ class ClientApplicationServiceTest {
 				List.of(new GhlPipelineClient.Pipeline.Stage("stage-new", "New", 0),
 						new GhlPipelineClient.Pipeline.Stage("stage-qualified", "Qualified", 1))));
 		given(applications.saveAndFlush(any())).willAnswer((call) -> call.getArgument(0));
+		// The local row EvalOS opens before it calls GHL — the correlation key's whole mechanism.
+		given(deals.openLocally(any(), any(), any())).willAnswer((call) -> {
+			com.ie.evalos.domain.Opportunity row =
+					new com.ie.evalos.domain.Opportunity(BRAND, null, UUID.randomUUID());
+			setId(row, LOCAL_OPPORTUNITY);
+			return java.util.Optional.of(row);
+		});
 	}
 
 	@Test
@@ -153,6 +168,10 @@ class ClientApplicationServiceTest {
 	 * <p>Sent on <em>create</em> and not on submit, because that is when the trigger fires — and
 	 * the deal is opened when the client picks a service, which {@link #pickingAServiceOpensTheDeal()}
 	 * pins.
+	 *
+	 * <p>{@code containsEntry} rather than {@code containsExactly}: the same create also carries the
+	 * correlation key (Unit 44d), and this test is about the routing field. The two are asserted
+	 * together in {@link #theLocalRowIsOpenedBeforeGhlIsCalledAndItsIdIsTheCorrelationKey()}.
 	 */
 	@Test
 	void theRequestedServiceIsSentAsTheRoutingField() {
@@ -164,7 +183,7 @@ class ClientApplicationServiceTest {
 		ArgumentCaptor<java.util.Map<String, String>> fields = ArgumentCaptor.forClass(java.util.Map.class);
 		verify(ghl).createOpportunity(eq("pipe-1"), eq(CONTACT), anyString(), any(), any(), any(),
 				fields.capture());
-		assertThat(fields.getValue()).containsExactly(entry(SERVICE_FIELD, "eb1a_expert_opinion_letter"));
+		assertThat(fields.getValue()).containsEntry(SERVICE_FIELD, "eb1a_expert_opinion_letter");
 	}
 
 	/**
@@ -240,6 +259,85 @@ class ClientApplicationServiceTest {
 		withoutCustomFields().submit(token(), existing.getId());
 
 		verify(ghl, never()).setOpportunityFields(any(), any());
+	}
+
+	/**
+	 * <strong>The correlation key, and the failure it exists to prevent.</strong>
+	 *
+	 * <p>{@code 00d} §6.1 calls this the single biggest sequencing error in {@code 00c}:
+	 * {@code POST /opportunities/} is not idempotent and an outbox gives at-least-once delivery, so
+	 * a create that TIMES OUT leaves EvalOS unable to tell "GHL never got it" from "GHL got it and
+	 * the answer was lost". Retrying blind is exactly how one opportunity becomes two.
+	 *
+	 * <p>The fix is a key EvalOS chooses and GHL hands back — and it only works if the key is
+	 * persisted <em>before</em> the call. So the order is asserted, not just the payload: the local
+	 * row is opened first, its id goes into the custom field, and GHL's id is recorded afterwards.
+	 */
+	@Test
+	void theLocalRowIsOpenedBeforeGhlIsCalledAndItsIdIsTheCorrelationKey() {
+		given(ghl.createOpportunity(any(), any(), any(), any(), any(), any(), any()))
+				.willReturn(opened("opp-1"));
+
+		service.start(token(), "academic_evaluation", "Academic Evaluation", null);
+
+		org.mockito.InOrder order = org.mockito.Mockito.inOrder(deals, ghl);
+		order.verify(deals).openLocally(eq("pipe-1"), eq(CONTACT), anyString());
+		order.verify(ghl).createOpportunity(any(), any(), any(), any(), any(), any(), any());
+		order.verify(deals).linkGhl(LOCAL_OPPORTUNITY, "opp-1");
+
+		ArgumentCaptor<java.util.Map<String, String>> fields = ArgumentCaptor.forClass(java.util.Map.class);
+		verify(ghl).createOpportunity(any(), any(), anyString(), any(), any(), any(), fields.capture());
+		assertThat(fields.getValue()).containsEntry(CORRELATION_FIELD, LOCAL_OPPORTUNITY.toString());
+		// The service field rides along on the same create — two fields, two jobs.
+		assertThat(fields.getValue()).containsEntry(SERVICE_FIELD, "academic_evaluation");
+	}
+
+	/**
+	 * A retry reuses the row it already opened rather than minting a second one.
+	 *
+	 * <p>This is the other half of the mechanism. {@code linkOpportunityIfMissing} runs on start
+	 * <em>and</em> on every save, so without this a client typing into the questionnaire after a GHL
+	 * outage would open a fresh correlation key on each keystroke-driven save — and the retry would
+	 * then be searching for a key GHL never saw.
+	 */
+	@Test
+	void aRetryReusesTheRowItAlreadyOpened() {
+		ClientApplication existing = draft(null);
+		existing.linkOpportunityRow(LOCAL_OPPORTUNITY);
+		given(applications.findByClientAccountIdAndStatus(ACCOUNT, ClientApplication.Status.DRAFT))
+				.willReturn(Optional.of(existing));
+		given(ghl.createOpportunity(any(), any(), any(), any(), any(), any(), any()))
+				.willReturn(opened("opp-1"));
+
+		service.start(token(), "academic_evaluation", "Academic Evaluation", null);
+
+		verify(deals, never()).openLocally(any(), any(), any());
+		ArgumentCaptor<java.util.Map<String, String>> fields = ArgumentCaptor.forClass(java.util.Map.class);
+		verify(ghl).createOpportunity(any(), any(), anyString(), any(), any(), any(), fields.capture());
+		assertThat(fields.getValue()).containsEntry(CORRELATION_FIELD, LOCAL_OPPORTUNITY.toString());
+	}
+
+	/**
+	 * An unmirrored intake pipeline still opens the deal.
+	 *
+	 * <p>The local row cannot be written without a mirrored pipeline to hang it off, so the create
+	 * goes out with no correlation key — which is the duplicate exposure that exists today, not a
+	 * new one. Losing a client's request because the {@code PIPELINE_MIRROR} sweep is behind would
+	 * be the worse failure by a wide margin.
+	 */
+	@Test
+	void anUnmirroredPipelineStillOpensTheDealWithoutACorrelationKey() {
+		given(deals.openLocally(any(), any(), any())).willReturn(Optional.empty());
+		given(ghl.createOpportunity(any(), any(), any(), any(), any(), any(), any()))
+				.willReturn(opened("opp-1"));
+
+		service.start(token(), "academic_evaluation", "Academic Evaluation", null);
+
+		ArgumentCaptor<java.util.Map<String, String>> fields = ArgumentCaptor.forClass(java.util.Map.class);
+		verify(ghl).createOpportunity(any(), any(), anyString(), any(), any(), any(), fields.capture());
+		assertThat(fields.getValue()).doesNotContainKey(CORRELATION_FIELD);
+		assertThat(fields.getValue()).containsEntry(SERVICE_FIELD, "academic_evaluation");
+		verify(deals, never()).linkGhl(any(), any());
 	}
 
 	/**

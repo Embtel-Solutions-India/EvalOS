@@ -70,6 +70,21 @@ public class ClientApplication extends ScopedEntity {
 	 * opportunity being created. The client is not stranded mid-funnel for it; the next save
 	 * tries again.
 	 */
+	/**
+	 * The EvalOS {@code opportunity} row this request opened, or null before a service was chosen.
+	 *
+	 * <p><strong>Its id is the correlation key written into a GHL custom field on create</strong>
+	 * ({@code 00d} §6.1), which only works because it is persisted <em>before</em> GHL is called: a
+	 * key minted in memory and lost to a timeout is a key no retry can search for. It is also what
+	 * makes a retry idempotent — a second attempt reuses the row it already opened rather than
+	 * minting a second one.
+	 *
+	 * <p>Distinct from {@link #getGhlOpportunityId()}, which stays null until GHL answers. The pair
+	 * is {@code 00c} §2a's two names for one deal.
+	 */
+	@Column(name = "opportunity_id")
+	private UUID opportunityId;
+
 	@Column(name = "ghl_opportunity_id")
 	private String ghlOpportunityId;
 
@@ -159,5 +174,16 @@ public class ClientApplication extends ScopedEntity {
 
 	public Instant getSubmittedAt() {
 		return submittedAt;
+	}
+
+	public UUID getOpportunityId() {
+		return opportunityId;
+	}
+
+	/** Records the local row this request opened. Set once, before GHL is called. */
+	public void linkOpportunityRow(UUID opportunityId) {
+		if (this.opportunityId == null) {
+			this.opportunityId = opportunityId;
+		}
 	}
 }

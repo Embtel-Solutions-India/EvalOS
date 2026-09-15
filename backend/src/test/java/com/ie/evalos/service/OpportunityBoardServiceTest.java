@@ -6,12 +6,10 @@ import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
-import com.ie.evalos.domain.CachedOpportunity;
+import com.ie.evalos.domain.Opportunity;
 import com.ie.evalos.domain.Pipeline;
 import com.ie.evalos.domain.PipelineStage;
 import com.ie.evalos.domain.Role;
-import com.ie.evalos.integration.GhlOpportunityClient;
-import com.ie.evalos.integration.GhlOpportunityClient.BoardOpportunity;
 import com.ie.evalos.repository.TeamMemberRepository;
 import com.ie.evalos.security.StaffPrincipal;
 
@@ -47,13 +45,12 @@ class OpportunityBoardServiceTest {
 	private static final String THEIRS = "pipe_theirs";
 	private static final Duration TTL = Duration.ofMinutes(2);
 
-	private final GhlOpportunityClient opportunities = mock(GhlOpportunityClient.class);
+	private final OpportunityMirrorService deals = mock(OpportunityMirrorService.class);
 	private final PipelineMirrorService pipelines = mock(PipelineMirrorService.class);
-	private final OpportunityCache cache = mock(OpportunityCache.class);
 	private final TeamMemberRepository teamMembers = mock(TeamMemberRepository.class);
 
 	private OpportunityBoardService service() {
-		return new OpportunityBoardService(opportunities, pipelines, cache, teamMembers, TTL,
+		return new OpportunityBoardService(deals, pipelines, teamMembers, TTL,
 				SELLING_BRAND.toString());
 	}
 
@@ -99,26 +96,35 @@ class OpportunityBoardServiceTest {
 		SecurityContextHolder.clearContext();
 	}
 
-	private static CachedOpportunity cached(String id, String pipelineId, String stageId, String amount,
-			Instant fetchedAt) {
-		return new CachedOpportunity(id, pipelineId, "contact_" + id, stageId, "open", "Deal " + id,
-				amount == null ? null : new BigDecimal(amount), null, fetchedAt);
+	/**
+	 * One mirrored row, as {@code OpportunityMirrorService.onPipelines} would hand it back.
+	 *
+	 * <p>The pipeline is passed as GHL's id and is not stored on the row — the entity holds
+	 * EvalOS's {@code pipeline_id} — because these tests are about what the board DRAWS, and the
+	 * board asks the mirror for "the rows on these GHL pipelines" rather than filtering them
+	 * itself.
+	 */
+	private static Opportunity mirrored(String id, String pipelineId, String stageId, String amount,
+			Instant syncedAt) {
+		Opportunity row = new Opportunity(SELLING_BRAND, id, UUID.randomUUID());
+		row.syncFromGhl("contact_" + id, row.getPipelineId(), stageId, "Deal " + id,
+				amount == null ? null : new BigDecimal(amount), "open", null, null, null, syncedAt,
+				null, null);
+		return row;
 	}
 
-	/** A fresh cache is served without touching GHL. */
-	private void givenFreshCache(List<CachedOpportunity> rows, String... pipelineIds) {
-		for (String pipelineId : pipelineIds) {
-			when(cache.isStale(eq(pipelineId), any())).thenReturn(false);
-		}
-		when(cache.forPipelines(any())).thenReturn(rows);
+	/** The mirror already holds these rows, so nothing is read from GHL. */
+	private void givenMirrored(List<Opportunity> rows, String... pipelineIds) {
+		when(deals.onPipelines(any())).thenReturn(rows);
+		when(deals.lastSynced(any())).thenReturn(Instant.now());
 	}
 
 	@Test
 	void aSalesCallerSeesTheirOwnPipelineGroupedByStage() {
 		authenticate(Role.SALES, MINE);
-		givenFreshCache(List.of(
-				cached("a", MINE, "s1", "100", Instant.now()),
-				cached("b", MINE, "s2", "250", Instant.now())), MINE);
+		givenMirrored(List.of(
+				mirrored("a", MINE, "s1", "100", Instant.now()),
+				mirrored("b", MINE, "s2", "250", Instant.now())), MINE);
 
 		OpportunityBoardService.Board board = service().forCaller();
 
@@ -131,7 +137,7 @@ class OpportunityBoardServiceTest {
 	@Test
 	void marketingIsScopedTheSameWay() {
 		authenticate(Role.MARKETING, MINE);
-		givenFreshCache(List.of(cached("a", MINE, "s1", "10", Instant.now())), MINE);
+		givenMirrored(List.of(mirrored("a", MINE, "s1", "10", Instant.now())), MINE);
 
 		assertThat(service().forCaller().totalDeals()).isEqualTo(1);
 	}
@@ -139,19 +145,19 @@ class OpportunityBoardServiceTest {
 	/**
 	 * <strong>The scope is the query, not a predicate somebody remembers to add.</strong>
 	 *
-	 * <p>The cache has no {@code brand_id} and so cannot go through {@code ScopePredicate}. What
-	 * replaces it is that every finder requires the pipeline ids, and they come from the
-	 * principal — so this asserts the value actually handed to the repository, which is the only
-	 * place the scope could go wrong.
+	 * <p>{@code OpportunityRepository.SCOPE} is {@code brandOnly} until slice 44b lines the
+	 * pipeline axis up with {@code ScopePredicate}, so until then the scope is that every read
+	 * requires the pipeline ids and they come from the principal. This asserts the value actually
+	 * handed to the mirror, which is the only place it could go wrong.
 	 */
 	@Test
 	void anotherPipelineIsNeverRead() {
 		authenticate(Role.SALES, MINE);
-		givenFreshCache(List.of(), MINE);
+		givenMirrored(List.of(), MINE);
 
 		service().forCaller();
 
-		verify(cache).forPipelines(List.of(MINE));
+		verify(deals).onPipelines(List.of(MINE));
 	}
 
 	/** Fail closed, exactly as {@code ScopePredicate}'s PIPELINE arm does. */
@@ -163,8 +169,8 @@ class OpportunityBoardServiceTest {
 
 		assertThat(board.columns()).isEmpty();
 		assertThat(board.totalDeals()).isZero();
-		verify(cache, never()).forPipelines(any());
-		verify(opportunities, never()).inPipeline(anyString());
+		verify(deals, never()).onPipelines(any());
+		verify(deals, never()).refreshIfStale(anyString(), any());
 	}
 
 	/**
@@ -175,9 +181,9 @@ class OpportunityBoardServiceTest {
 	void theGmSeesTheUnionOfTheSellingBrandsPipelines() {
 		authenticate(Role.GM, null);
 		when(teamMembers.findPipelinesOfActiveMembers(SELLING_BRAND)).thenReturn(List.of(MINE, THEIRS));
-		givenFreshCache(List.of(
-				cached("a", MINE, "s1", "100", Instant.now()),
-				cached("b", THEIRS, "t1", "5", Instant.now())), MINE, THEIRS);
+		givenMirrored(List.of(
+				mirrored("a", MINE, "s1", "100", Instant.now()),
+				mirrored("b", THEIRS, "t1", "5", Instant.now())), MINE, THEIRS);
 
 		OpportunityBoardService.Board board = service().forCaller();
 
@@ -189,11 +195,10 @@ class OpportunityBoardServiceTest {
 	@Test
 	void theGmSeesNothingWhenNoSellingBrandIsConfigured() {
 		authenticate(Role.GM, null);
-		OpportunityBoardService bare = new OpportunityBoardService(opportunities, pipelines, cache,
-				teamMembers, TTL, "");
+		OpportunityBoardService bare = new OpportunityBoardService(deals, pipelines, teamMembers, TTL, "");
 
 		assertThat(bare.forCaller().totalDeals()).isZero();
-		verify(cache, never()).forPipelines(any());
+		verify(deals, never()).onPipelines(any());
 	}
 
 	/**
@@ -213,72 +218,62 @@ class OpportunityBoardServiceTest {
 	 */
 	@Test
 	void aMalformedSellingBrandFailsAtConstruction() {
-		assertThatThrownBy(() -> new OpportunityBoardService(opportunities, pipelines, cache,
-				teamMembers, TTL, "not-a-uuid"))
+		assertThatThrownBy(() -> new OpportunityBoardService(deals, pipelines, teamMembers, TTL, "not-a-uuid"))
 				.isInstanceOf(IllegalStateException.class)
 				.hasMessageContaining("evalos.ghl.sales-brand");
 	}
 
+	/**
+	 * <strong>The board asks the mirror for a refresh and never reads GHL itself.</strong>
+	 *
+	 * <p>That separation is what Unit 44d bought: whether the copy has aged past the TTL is now a
+	 * question about `max(synced_at)` over rows that survive a refresh, and it belongs to the thing
+	 * that owns those rows. The board's job is to draw them.
+	 */
 	@Test
-	void aFreshCacheIsServedWithoutRefetchingOpportunities() {
+	void theBoardDelegatesFreshnessAndDrawsWhatItIsGiven() {
 		authenticate(Role.SALES, MINE);
-		givenFreshCache(List.of(cached("a", MINE, "s1", "1", Instant.now())), MINE);
+		givenMirrored(List.of(mirrored("a", MINE, "s1", "1", Instant.now())), MINE);
 
-		service().forCaller();
+		assertThat(service().forCaller().totalDeals()).isEqualTo(1);
 
-		verify(opportunities, never()).inPipeline(anyString());
+		verify(deals).refreshIfStale(eq(MINE), any());
+		verify(deals).onPipelines(List.of(MINE));
 	}
 
 	@Test
-	void aStaleCacheIsRefilledFromGhl() {
+	void aStaleMirrorIsRefreshedBeforeTheBoardIsDrawn() {
 		authenticate(Role.SALES, MINE);
-		when(cache.isStale(eq(MINE), any())).thenReturn(true);
-		when(opportunities.inPipeline(MINE)).thenReturn(List.of(
-				new BoardOpportunity("a", "Acme", "contact_a", MINE, "s1", "open",
-						new BigDecimal("100"), null)));
-		when(cache.forPipelines(any()))
-				.thenReturn(List.of(cached("a", MINE, "s1", "100", Instant.now())));
+		when(deals.onPipelines(any()))
+				.thenReturn(List.of(mirrored("a", MINE, "s1", "100", Instant.now())));
 
 		service().forCaller();
 
-		verify(opportunities).inPipeline(MINE);
-		// Replaced wholesale: an opportunity that has left the pipeline has no fresh row to
-		// update, so an upsert would strand it on the board forever. `OpportunityCache.replace`
-		// is the only write path and it deletes first — asserted in its own test.
-		verify(cache).replace(eq(MINE), any());
-	}
-
-	/** An empty cache is stale by definition — there is nothing to have been read recently. */
-	@Test
-	void anEmptyCacheIsFilledFromGhl() {
-		authenticate(Role.SALES, MINE);
-		when(cache.isStale(eq(MINE), any())).thenReturn(true);
-		when(opportunities.inPipeline(MINE)).thenReturn(List.of());
-		when(cache.forPipelines(any())).thenReturn(List.of());
-
-		service().forCaller();
-
-		verify(opportunities).inPipeline(MINE);
+		// The board asks; the mirror decides whether the copy has aged past the TTL. That check
+		// moved INTO the mirror at Unit 44d, because the answer now comes from `max(synced_at)`
+		// over rows that survive a refresh rather than from a cache-wide fetch stamp.
+		verify(deals).refreshIfStale(eq(MINE), any());
 	}
 
 	/**
-	 * What reaches the cache is what GHL returned, never anything the caller supplied.
+	 * <strong>The write path is an upsert now, and that is the whole point of slice 44d.</strong>
 	 *
-	 * <p>Asserted on the argument handed to {@link OpportunityCache#replace}; the mapping into
-	 * rows is that class's own, and {@code OpportunityCacheTest} pins it against a real schema.
+	 * <p>The three tests this replaced asserted {@code OpportunityCache.replace} — delete-all then
+	 * insert-all per pipeline, which destroys every row's identity on every board refresh.
+	 * {@code 00d} §6.5 calls that the deepest of five reasons the cache could not be salvaged:
+	 * nothing can hold a foreign key into it, and a portal-born row with no {@code ghl_id} dies on
+	 * the next refresh. What the board guarantees is now narrower and truer — it asks for a refresh
+	 * and draws what it is given.
 	 */
 	@Test
-	void theCacheIsWrittenFromGhlsAnswer() {
+	void theBoardNeverWritesToTheMirrorItself() {
 		authenticate(Role.SALES, MINE);
-		when(cache.isStale(eq(MINE), any())).thenReturn(true);
-		BoardOpportunity fromGhl = new BoardOpportunity("a", "Acme", "contact_a", MINE, "s1", "won",
-				new BigDecimal("42"), null);
-		when(opportunities.inPipeline(MINE)).thenReturn(List.of(fromGhl));
-		when(cache.forPipelines(any())).thenReturn(List.of());
+		when(deals.onPipelines(any())).thenReturn(List.of());
 
 		service().forCaller();
 
-		verify(cache).replace(MINE, List.of(fromGhl));
+		verify(deals, never()).absorb(any(), any());
+		verify(deals, never()).openLocally(any(), any(), any());
 	}
 
 	/**
@@ -290,7 +285,7 @@ class OpportunityBoardServiceTest {
 	@Test
 	void anUnknownStageKeepsItsDealsRatherThanLosingThem() {
 		authenticate(Role.SALES, MINE);
-		givenFreshCache(List.of(cached("a", MINE, "retired-stage", "7", Instant.now())), MINE);
+		givenMirrored(List.of(mirrored("a", MINE, "retired-stage", "7", Instant.now())), MINE);
 
 		OpportunityBoardService.Board board = service().forCaller();
 
@@ -304,7 +299,7 @@ class OpportunityBoardServiceTest {
 	@Test
 	void emptyStagesStillAppearAsColumns() {
 		authenticate(Role.SALES, MINE);
-		givenFreshCache(List.of(cached("a", MINE, "s1", "1", Instant.now())), MINE);
+		givenMirrored(List.of(mirrored("a", MINE, "s1", "1", Instant.now())), MINE);
 
 		assertThat(service().forCaller().columns()).hasSize(2);
 	}
@@ -313,18 +308,27 @@ class OpportunityBoardServiceTest {
 	@Test
 	void aDealWithNoAmountDoesNotBreakTheTotal() {
 		authenticate(Role.SALES, MINE);
-		givenFreshCache(List.of(
-				cached("a", MINE, "s1", null, Instant.now()),
-				cached("b", MINE, "s1", "10", Instant.now())), MINE);
+		givenMirrored(List.of(
+				mirrored("a", MINE, "s1", null, Instant.now()),
+				mirrored("b", MINE, "s1", "10", Instant.now())), MINE);
 
 		assertThat(service().forCaller().totalValue()).isEqualByComparingTo("10");
 	}
 
+	/**
+	 * <strong>The age is asked of the PIPELINES, not of the rows.</strong>
+	 *
+	 * <p>It used to be {@code max(fetched_at)} across the cached rows, which quietly reported "now"
+	 * for an empty pipeline — a board with no deals looked freshly read when nothing had been read
+	 * at all. The mirror answers the question properly, because {@code synced_at} belongs to the
+	 * pipeline's last confirmation rather than to whichever rows happen to exist.
+	 */
 	@Test
 	void theBoardCarriesItsOwnAgeSoTheReaderNeedNotTrustItBlindly() {
 		authenticate(Role.SALES, MINE);
 		Instant readAt = Instant.now().minusSeconds(30);
-		givenFreshCache(List.of(cached("a", MINE, "s1", "1", readAt)), MINE);
+		when(deals.onPipelines(any())).thenReturn(List.of(mirrored("a", MINE, "s1", "1", readAt)));
+		when(deals.lastSynced(any())).thenReturn(readAt);
 
 		OpportunityBoardService.Board board = service().forCaller();
 
@@ -332,29 +336,46 @@ class OpportunityBoardServiceTest {
 		assertThat(board.stale()).isFalse();
 	}
 
+	/**
+	 * A pipeline nothing has ever synced still answers, rather than throwing on a null age.
+	 *
+	 * <p>Null from the mirror means "never confirmed". The board falls back to the current instant
+	 * so the payload is well-formed, and the reader sees a board with no deals on it — which is the
+	 * honest rendering of "nothing has been read".
+	 */
+	@Test
+	void anUnsyncedPipelineStillDrawsABoard() {
+		authenticate(Role.SALES, MINE);
+		when(deals.onPipelines(any())).thenReturn(List.of());
+		when(deals.lastSynced(any())).thenReturn(null);
+
+		OpportunityBoardService.Board board = service().forCaller();
+
+		assertThat(board.readAt()).isNotNull();
+		assertThat(board.totalDeals()).isZero();
+	}
+
 	@Test
 	void theStageOrderFollowsGhlsOwnPositions() {
 		authenticate(Role.SALES, MINE);
-		givenFreshCache(List.of(
-				cached("b", MINE, "s2", "1", Instant.now()),
-				cached("a", MINE, "s1", "1", Instant.now())), MINE);
+		givenMirrored(List.of(
+				mirrored("b", MINE, "s2", "1", Instant.now()),
+				mirrored("a", MINE, "s1", "1", Instant.now())), MINE);
 
 		assertThat(service().forCaller().columns())
 				.extracting(OpportunityBoardService.BoardColumn::stageId)
 				.containsExactly("s1", "s2");
 	}
 
-	/** Only the caller's own pipeline is refilled, even when GHL knows about others. */
+	/** Only the caller's own pipeline is refreshed, even when GHL knows about others. */
 	@Test
-	void onlyTheCallersPipelineIsFetched() {
+	void onlyTheCallersPipelineIsRefreshed() {
 		authenticate(Role.SALES, MINE);
-		when(cache.isStale(eq(MINE), any())).thenReturn(true);
-		when(opportunities.inPipeline(MINE)).thenReturn(List.of());
-		when(cache.forPipelines(any())).thenReturn(List.of());
+		when(deals.onPipelines(any())).thenReturn(List.of());
 
 		service().forCaller();
 
-		verify(opportunities).inPipeline(MINE);
-		verify(opportunities, never()).inPipeline(eq(THEIRS));
+		verify(deals).refreshIfStale(eq(MINE), any());
+		verify(deals, never()).refreshIfStale(eq(THEIRS), any());
 	}
 }

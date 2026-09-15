@@ -59,9 +59,11 @@ public class SalesDeskService {
 	 * <p><strong>The duplicate that upsert used to prevent is now handled by asking.</strong> If
 	 * the contact already has an open deal on this pipeline the call is refused with
 	 * {@link DuplicateDealException} until {@code confirmSecondDeal} is set, so the salesperson
-	 * sees the existing deal before creating a second. Read from the board cache rather than from
-	 * GHL: it is the same data the desk is already looking at, and a second round trip on every
-	 * create would spend the rate budget to answer a question the screen can already see.
+	 * sees the existing deal before creating a second. Read from the <em>mirror</em> rather than
+	 * from GHL: it is the same data the desk is already looking at, and a second round trip on every
+	 * create would spend the rate budget to answer a question the screen can already see. It was the
+	 * board cache until Unit 44d — the answer is the same, but it now comes from rows that survive a
+	 * refresh instead of from rows that are deleted and recreated by one.
 	 *
 	 * <p><strong>The pipeline is never a parameter</strong> — it is the caller's own, exactly as
 	 * on every other route here. A create that let the caller name a pipeline would make the whole
@@ -89,12 +91,12 @@ public class SalesDeskService {
 		GhlWriteClient.UpsertedContact contact = ghl.upsertContact(firstName, lastName, email, phone);
 
 		if (!confirmSecondDeal) {
-			cache.forPipelines(java.util.List.of(pipelineId)).stream()
+			deals.onPipelines(java.util.List.of(pipelineId)).stream()
 					.filter((row) -> contact.id().equals(row.getGhlContactId()))
 					.filter((row) -> "open".equalsIgnoreCase(row.getStatus()))
 					.findFirst()
 					.ifPresent((row) -> {
-						throw new DuplicateDealException(row.getGhlOpportunityId());
+						throw new DuplicateDealException(row.getGhlId());
 					});
 		}
 
@@ -110,12 +112,12 @@ public class SalesDeskService {
 
 	private final GhlWriteClient ghl;
 	private final PipelineScope scope;
-	private final OpportunityCache cache;
+	private final OpportunityMirrorService deals;
 	private final com.ie.evalos.repository.FollowUpRepository followUps;
 
-	SalesDeskService(GhlWriteClient ghl, PipelineScope scope, OpportunityCache cache,
+	SalesDeskService(GhlWriteClient ghl, PipelineScope scope, OpportunityMirrorService deals,
 			com.ie.evalos.repository.FollowUpRepository followUps) {
-		this.cache = cache;
+		this.deals = deals;
 		this.followUps = followUps;
 		this.ghl = ghl;
 		this.scope = scope;

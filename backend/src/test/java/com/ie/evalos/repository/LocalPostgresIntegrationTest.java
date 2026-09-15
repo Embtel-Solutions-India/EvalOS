@@ -1590,41 +1590,55 @@ class LocalPostgresIntegrationTest {
 	/**
 	 * <strong>P3: a note outlives the opportunity it describes.</strong>
 	 *
-	 * <p>There is deliberately no foreign key to {@code ghl_opportunity_cache} — that table is
-	 * droppable (V40), and a FK into it would make truncating a cache delete real notes. This
-	 * asserts the property directly: wipe the cache, the notes are untouched. Append-only truth
-	 * outranks tidiness, and a vanished opportunity is exactly when the history matters.
+	 * <p>There is deliberately no foreign key from {@code opportunity_note} to the opportunity. It
+	 * was written when {@code ghl_opportunity_cache} was droppable, and it outlives that table's
+	 * deletion at Unit 44d for a better reason: a note is <strong>append-only truth</strong>, and a
+	 * vanished deal is exactly when the history matters. Asserted directly — delete the row the
+	 * note names, the note is untouched.
+	 *
+	 * <p>The table this deletes from changed on 2026-09-16; the property did not, which is why the
+	 * test was rewritten rather than dropped.
 	 */
 	@Test
-	void aNoteSurvivesItsOpportunityVanishingFromTheCache() {
+	void aNoteSurvivesItsOpportunityVanishing() {
 		String doomed = uniqueId("opp-doomed");
-		jdbc.update("INSERT INTO ghl_opportunity_cache "
-				+ "(ghl_opportunity_id, ghl_pipeline_id, ghl_contact_id, stage_id, status, fetched_at) "
-				+ "VALUES (?, ?, 'contact-1', 's1', 'open', now())", doomed, uniqueId("pipe"));
+		UUID pipeline = insertMirroredPipeline(uniqueId("pipe"));
+		jdbc.update("INSERT INTO opportunity (id, brand_id, ghl_id, pipeline_id, status, synced_at) "
+				+ "VALUES (?, ?, ?, ?, 'open', now())", UUID.randomUUID(), BRAND_IE, doomed, pipeline);
 		UUID note = insertNote(BRAND_IE, doomed, uniqueId("pipe"), "The deal we lost");
 
-		jdbc.update("DELETE FROM ghl_opportunity_cache WHERE ghl_opportunity_id = ?", doomed);
+		jdbc.update("DELETE FROM opportunity WHERE ghl_id = ?", doomed);
 
 		assertThat(jdbc.queryForObject("SELECT body FROM opportunity_note WHERE id = ?", String.class,
 				note)).isEqualTo("The deal we lost");
 	}
 
+	/** A mirrored pipeline to hang an opportunity off - `pipeline_id` is a real FK (Unit 44a). */
+	private UUID insertMirroredPipeline(String ghlId) {
+		UUID id = UUID.randomUUID();
+		jdbc.update("INSERT INTO pipeline (id, brand_id, ghl_id, name, position, synced_at) "
+				+ "VALUES (?, ?, ?, 'Test pipeline', 0, now())", id, BRAND_IE, ghlId);
+		return id;
+	}
+
 	/**
-	 * The note carries its own brand and pipeline so a scoped read never has to join the cache.
+	 * The note carries its own brand and pipeline so a scoped read never has to join the opportunity.
 	 *
-	 * <p>That denormalisation is the point: the cache is droppable, and a scope predicate that
-	 * depends on a droppable table fails <em>open</em> the moment the table is empty.
+	 * <p>That denormalisation was justified by the cache being droppable. <strong>The cache is gone
+	 * and the denormalisation is still right</strong>, for a reason that outlives it: a scope
+	 * predicate depending on another table fails <em>open</em> the moment that table is empty, and
+	 * the mirror can legitimately be empty — before its first sync, or for a pipeline nobody has
+	 * loaded.
 	 */
 	@Test
-	void notesAreScopedWithoutTouchingTheCache() {
+	void notesAreScopedWithoutTouchingTheOpportunityTable() {
 		String mine = uniqueId("pipe-mine");
 		String theirs = uniqueId("pipe-theirs");
 		insertNote(BRAND_IE, uniqueId("opp"), mine, "mine");
 		insertNote(BRAND_XP, uniqueId("opp"), theirs, "theirs");
-		jdbc.update("TRUNCATE ghl_opportunity_cache");
 
-		// The cache is empty and the scope still answers — which is the whole reason
-		// `ghl_pipeline_id` is denormalised onto the note rather than joined from the cache.
+		// No opportunity row exists for either note, and the scope still answers - which is the
+		// whole reason `ghl_pipeline_id` is denormalised onto the note.
 		assertThat(jdbc.queryForObject(
 				"SELECT count(*) FROM opportunity_note WHERE brand_id = ? AND ghl_pipeline_id = ?",
 				Integer.class, BRAND_IE, mine)).isEqualTo(1);

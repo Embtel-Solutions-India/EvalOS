@@ -113,11 +113,23 @@ public class GhlPipelineClient {
 	 *
 	 * <p>{@code assignedTo} is a GHL user id and EvalOS has no mapping from one to a
 	 * {@code team_member} — see {@code SalesOpportunityController}. It is bound so a future mapping
-	 * has something to map, and read by nothing today: per-salesperson figures come from
-	 * {@code team_member.ghl_pipeline_id}, which is a link EvalOS actually holds.
+	 * has something to map, and no figure is derived from it: per-salesperson numbers come from
+	 * {@code team_member.ghl_pipeline_id}, which is a link EvalOS actually holds. <strong>GHL owns
+	 * the field outright</strong> ({@code 00d} §6.2) — a round-robin automation reassigning a deal
+	 * is not a conflict to be undone.
+	 *
+	 * <p><strong>{@code name}, {@code contactId} and {@code updatedAt} joined at Unit 44d</strong>,
+	 * when this record stopped feeding only a group-by and started feeding a mirror. A board needs
+	 * the first two to draw a card, and {@code updatedAt} is the timestamp Unit 45's conflict
+	 * policy compares on — with the rule that a <em>null</em> is an explicit conflict rather than
+	 * "EvalOS is newer", because it is GHL-supplied and nullable.
+	 *
+	 * <p>This also absorbed {@code GhlOpportunityClient.BoardOpportunity}, a second projection of
+	 * the same endpoint's rows. Two records over one URL is one of them going stale.
 	 */
-	public record Opportunity(String id, String pipelineId, String pipelineStageId, String status,
-			BigDecimal monetaryValue, String source, String assignedTo, java.time.Instant createdAt,
+	public record Opportunity(String id, String name, String contactId, String pipelineId,
+			String pipelineStageId, String status, BigDecimal monetaryValue, String source,
+			String assignedTo, java.time.Instant createdAt, java.time.Instant updatedAt,
 			java.time.Instant lastStatusChangeAt, java.time.Instant lastStageChangeAt) {
 	}
 
@@ -207,6 +219,22 @@ public class GhlPipelineClient {
 	}
 
 	/**
+	 * Every opportunity on a pipeline, with no window at all — what a mirror needs (Unit 44d).
+	 *
+	 * <p><strong>A date window is the wrong shape for a mirror.</strong> {@code date}/{@code endDate}
+	 * filter on {@code createdAt}, so any window silently excludes the deals that have been open
+	 * longest — which are exactly the ones a board must show and a drift audit must compare. The
+	 * funnel screens could afford a window because they answered a question about a period; a
+	 * mirror answers "what is there".
+	 *
+	 * <p>This is the read that replaced {@code GhlOpportunityClient}, a second client on the same
+	 * endpoint with a narrower projection of the same rows.
+	 */
+	public List<Opportunity> allIn(String pipelineId) {
+		return opportunitiesIn(pipelineId, null, null, null);
+	}
+
+	/**
 	 * The same read, narrowed to one GHL status.
 	 *
 	 * <p><strong>Exists for one figure: "won this month".</strong> The window above filters on
@@ -245,8 +273,10 @@ public class GhlPipelineClient {
 						// the funnel becomes "opportunities *created* in this window, grouped by
 						// the stage they are in now", which is the question a marketer is asking.
 						// GHL wants mm-dd-yyyy; anything else is silently unfiltered, not refused.
-						.queryParam("date", GHL_DATE.format(from))
-						.queryParam("endDate", GHL_DATE.format(to));
+						// Null dates omit the window entirely — `allIn` reads a whole pipeline, and
+						// a mirror that filtered on createdAt would drop the oldest open deals.
+						.queryParamIfPresent("date", java.util.Optional.ofNullable(from).map(GHL_DATE::format))
+						.queryParamIfPresent("endDate", java.util.Optional.ofNullable(to).map(GHL_DATE::format));
 				if (status != null) {
 					uri.queryParam("status", status);
 				}

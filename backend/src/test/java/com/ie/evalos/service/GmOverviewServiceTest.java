@@ -69,8 +69,9 @@ class GmOverviewServiceTest {
 
 	private static GhlPipelineClient.Opportunity won(String amount, Instant wonAt, Instant createdAt,
 			String source) {
-		return new GhlPipelineClient.Opportunity(UUID.randomUUID().toString(), PIPELINE, "stage", "won",
-				new BigDecimal(amount), source, null, createdAt, wonAt, wonAt);
+		return new GhlPipelineClient.Opportunity(UUID.randomUUID().toString(), "A deal", "contact-1",
+				PIPELINE, "stage", "won", new BigDecimal(amount), source, null, createdAt, wonAt,
+				wonAt, wonAt);
 	}
 
 	private static Instant at(String date) {
