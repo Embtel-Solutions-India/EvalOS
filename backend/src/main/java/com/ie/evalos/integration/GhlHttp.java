@@ -76,6 +76,12 @@ public class GhlHttp {
 	 */
 	static final Duration MIN_REQUEST_INTERVAL = Duration.ofMillis(110);
 
+	/** How long a 429 with no usable {@code Retry-After} pauses the location. One budget window. */
+	static final Duration DEFAULT_BACKOFF = Duration.ofSeconds(10);
+
+	/** The cap on an upstream-supplied {@code Retry-After} — a header must not park a thread pool. */
+	static final Duration MAX_BACKOFF = Duration.ofMinutes(2);
+
 	private final RestClient http;
 	private final String locationId;
 	private final boolean configured;
@@ -172,7 +178,8 @@ public class GhlHttp {
 			// which one to set. Neither name is a secret, and the token's *value* never appears
 			// here — it is a default header on the client and is in no message this class writes.
 			throw new GhlUnavailableException(
-					"GHL is not configured in this environment. Set GHL_API_TOKEN and GHL_LOCATION_ID.");
+					"GHL is not configured in this environment. Set GHL_API_TOKEN and GHL_LOCATION_ID.",
+					null, GhlFailure.NOT_CONFIGURED, null);
 		}
 		pace();
 		try {
@@ -182,7 +189,8 @@ public class GhlHttp {
 			// binds no payload has said it wants none, and there is no reading of an empty body
 			// that makes it an error for them.
 			if (body == null && type != Void.class) {
-				throw new GhlUnavailableException("GHL returned an empty response");
+				throw new GhlUnavailableException("GHL returned an empty response", null,
+						GhlFailure.EMPTY_RESPONSE, null);
 			}
 			return body;
 		}
@@ -198,21 +206,71 @@ public class GhlHttp {
 			// from "fix the id" from "try again".
 			//
 			String upstream;
+			GhlFailure failure;
+			Integer status = null;
 			if (ex instanceof RestClientResponseException refused) {
-				upstream = "GHL refused the request with HTTP " + refused.getStatusCode().value();
+				status = refused.getStatusCode().value();
+				failure = GhlFailure.ofStatus(status);
+				upstream = "GHL refused the request with HTTP " + status;
 				// The token is never logged — it is a default header and appears in no message this
 				// class writes. GHL's response *body* is logged, because that is where the actual
 				// reason lives ("scope not authorized" and the like) and it is server-side only:
 				// it never reaches the API response.
-				log.error("GHL refused a request: HTTP {} body={}", refused.getStatusCode().value(),
+				log.error("GHL refused a request: HTTP {} [{}] body={}", status, failure,
 						refused.getResponseBodyAsString(), ex);
+				if (failure == GhlFailure.RATE_LIMITED) {
+					backOff(refused);
+				}
 			}
 			else {
+				// A request that never answered. **This is the class that matters most for a
+				// write**: a timeout means EvalOS does not know whether GHL acted, which is exactly
+				// how at-least-once delivery over a non-idempotent create makes two opportunities
+				// (`00d` §6.1). Naming it lets the outbox apply the correlation key rather than
+				// guess.
+				failure = GhlFailure.NO_ANSWER;
 				upstream = "GHL did not answer";
 				log.error("GHL request failed with no response", ex);
 			}
-			throw new GhlUnavailableException(upstream, ex);
+			throw new GhlUnavailableException(upstream, ex, failure, status);
 		}
+	}
+
+	/**
+	 * A 429 pushes the shared pacer forward, so the back-off applies to <strong>everything</strong>.
+	 *
+	 * <p>{@code 00d} §6.3: "{@code 429} must pause the <em>whole</em> outbox (the budget is per
+	 * location)". The same is true one layer down and for every caller that exists today — the
+	 * 100-requests-per-10-seconds budget belongs to the GHL location, not to the call that happened
+	 * to hit the wall, so backing off one caller while the next fires immediately is not a back-off
+	 * at all.
+	 *
+	 * <p>{@code Retry-After} is honoured when GHL sends one and capped, because a header is
+	 * upstream input and an uncapped value would let one response park every EvalOS request thread
+	 * behind it. Without the header, one full budget window.
+	 */
+	private void backOff(RestClientResponseException refused) {
+		Duration wait = DEFAULT_BACKOFF;
+		String header = refused.getResponseHeaders() == null ? null
+				: refused.getResponseHeaders().getFirst("Retry-After");
+		if (header != null) {
+			try {
+				Duration asked = Duration.ofSeconds(Long.parseLong(header.trim()));
+				wait = asked.compareTo(MAX_BACKOFF) > 0 ? MAX_BACKOFF : asked;
+			}
+			catch (NumberFormatException notSeconds) {
+				// Retry-After may also be an HTTP date. Not parsed: the default is already the
+				// right order of magnitude, and a second format is a second thing to get wrong.
+				log.debug("GHL sent a non-numeric Retry-After ('{}'); using the default back-off", header);
+			}
+		}
+		Instant until = Instant.now().plus(wait);
+		synchronized (this) {
+			if (until.isAfter(nextRequestAt)) {
+				nextRequestAt = until;
+			}
+		}
+		log.warn("GHL rate-limited this location; pausing every request for {}", wait);
 	}
 
 	/**
@@ -241,7 +299,8 @@ public class GhlHttp {
 			// Restore the flag and stop: the only thing that interrupts this is shutdown, and a
 			// swallowed interrupt there means the JVM waits on a read nobody is going to read.
 			Thread.currentThread().interrupt();
-			throw new GhlUnavailableException("Interrupted while pacing GHL requests", ex);
+			throw new GhlUnavailableException("Interrupted while pacing GHL requests", ex,
+					GhlFailure.NO_ANSWER, null);
 		}
 	}
 

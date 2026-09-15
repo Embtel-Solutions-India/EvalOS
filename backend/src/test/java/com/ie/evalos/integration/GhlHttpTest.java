@@ -221,6 +221,152 @@ class GhlHttpTest {
 	// --- Unit 37: the write verbs -------------------------------------------
 
 	/**
+	 * <strong>Unit 45's first requirement: a failure says WHAT KIND it is, not just that it
+	 * happened.</strong>
+	 *
+	 * <p>{@code 00d} §6.3: "{@code GhlHttp} flattens status into a message string, so 4xx, 5xx and
+	 * timeout are indistinguishable. Only 5xx/timeout/408/429 are retriable." Everything downstream
+	 * — the outbox, the delta sweep, the sync-status surface — has to make that decision, and
+	 * parsing it back out of a sentence is how one of them gets it wrong.
+	 *
+	 * <p>The status stays in the message too. It was put there deliberately, and a reader tailing
+	 * logs is not the same audience as the code branching on this.
+	 */
+	@Test
+	void everyUpstreamStatusIsClassifiedRatherThanFlattenedIntoAString() throws Exception {
+		try (RecordingGhl ghl = new RecordingGhl()) {
+			ghl.status = 403;
+			assertThatThrownBy(() -> ghl.client().get(Map.class, (uri) -> uri.path("/x").build()))
+					.isInstanceOfSatisfying(GhlUnavailableException.class, (refused) -> {
+						assertThat(refused.failure()).isEqualTo(GhlFailure.UNAUTHORIZED);
+						assertThat(refused.status()).isEqualTo(403);
+						// Not retriable, and it stops a queue rather than skipping one row: every
+						// other pending write would fail on the same credential.
+						assertThat(refused.isRetriable()).isFalse();
+						assertThat(refused.failure().stopsEverything()).isTrue();
+						assertThat(refused.getMessage()).contains("403");
+					});
+
+			ghl.status = 400;
+			assertThatThrownBy(() -> ghl.client().get(Map.class, (uri) -> uri.path("/x").build()))
+					.isInstanceOfSatisfying(GhlUnavailableException.class, (refused) -> {
+						assertThat(refused.failure()).isEqualTo(GhlFailure.REFUSED);
+						// The one a retry loop would get wrong: sending a malformed body again is
+						// budget spent on a body that is still malformed.
+						assertThat(refused.isRetriable()).isFalse();
+					});
+
+			ghl.status = 503;
+			assertThatThrownBy(() -> ghl.client().get(Map.class, (uri) -> uri.path("/x").build()))
+					.isInstanceOfSatisfying(GhlUnavailableException.class, (refused) -> {
+						assertThat(refused.failure()).isEqualTo(GhlFailure.UPSTREAM_ERROR);
+						assertThat(refused.isRetriable()).isTrue();
+						assertThat(refused.failure().stopsEverything()).isFalse();
+					});
+		}
+	}
+
+	/** 408 is a 4xx and is still retriable — the one exception to "4xx means stop". */
+	@Test
+	void aRequestTimeoutIsRetriableDespiteBeingA4xx() {
+		assertThat(GhlFailure.ofStatus(408)).isEqualTo(GhlFailure.NO_ANSWER);
+		assertThat(GhlFailure.ofStatus(408).isRetriable()).isTrue();
+		assertThat(GhlFailure.ofStatus(404).isRetriable()).isFalse();
+	}
+
+	/**
+	 * <strong>A 429 pauses the whole location, not the caller that hit the wall.</strong>
+	 *
+	 * <p>The 100-requests-per-10-seconds budget belongs to the GHL location, so backing off one
+	 * caller while the next fires immediately is not a back-off. The pacer this pushes forward is
+	 * the same one every other client shares, which is why this is at the door rather than in a
+	 * queue.
+	 *
+	 * <p>Asserted through the pacer's own field rather than by timing a second call, because a test
+	 * that waits ten seconds to prove a back-off is a test somebody deletes.
+	 */
+	@Test
+	void aRateLimitPushesTheSharedPacerForwardForEveryone() throws Exception {
+		try (RecordingGhl ghl = new RecordingGhl()) {
+			ghl.status = 429;
+			ghl.retryAfter = "3";
+			GhlHttp client = ghl.client();
+
+			assertThatThrownBy(() -> client.get(Map.class, (uri) -> uri.path("/x").build()))
+					.isInstanceOfSatisfying(GhlUnavailableException.class, (limited) -> {
+						assertThat(limited.failure()).isEqualTo(GhlFailure.RATE_LIMITED);
+						assertThat(limited.isRetriable()).isTrue();
+						assertThat(limited.failure().stopsEverything()).isTrue();
+					});
+
+			Instant next = (Instant) org.springframework.test.util.ReflectionTestUtils
+					.getField(client, "nextRequestAt");
+			assertThat(next).isAfter(Instant.now().plusSeconds(2));
+		}
+	}
+
+	/**
+	 * An upstream header must not park a thread pool.
+	 *
+	 * <p>{@code Retry-After} is input from somebody else's server. Honouring an hour of it would
+	 * hand a remote system the ability to stall every EvalOS request thread that touches GHL, so it
+	 * is capped — and a value that is not a number of seconds falls back rather than throwing
+	 * inside an error path.
+	 */
+	@Test
+	void anAbsurdRetryAfterIsCappedAndAnUnparseableOneFallsBack() throws Exception {
+		try (RecordingGhl ghl = new RecordingGhl()) {
+			ghl.status = 429;
+			ghl.retryAfter = "999999";
+			GhlHttp client = ghl.client();
+			assertThatThrownBy(() -> client.get(Map.class, (uri) -> uri.path("/x").build()))
+					.isInstanceOf(GhlUnavailableException.class);
+			Instant capped = (Instant) org.springframework.test.util.ReflectionTestUtils
+					.getField(client, "nextRequestAt");
+			assertThat(capped).isBefore(Instant.now().plus(GhlHttp.MAX_BACKOFF).plusSeconds(5));
+
+			ghl.retryAfter = "Wed, 21 Oct 2026 07:28:00 GMT";
+			GhlHttp second = ghl.client();
+			assertThatThrownBy(() -> second.get(Map.class, (uri) -> uri.path("/x").build()))
+					.isInstanceOf(GhlUnavailableException.class);
+			Instant fallback = (Instant) org.springframework.test.util.ReflectionTestUtils
+					.getField(second, "nextRequestAt");
+			assertThat(fallback).isAfter(Instant.now().plusSeconds(5));
+		}
+	}
+
+	/**
+	 * An unconfigured environment is not a transport failure, and must never be retried.
+	 *
+	 * <p>Nothing left the JVM, so there is no queue state to protect and no upstream to be gentle
+	 * with — {@link GhlFailure#NOT_CONFIGURED} is deliberately absent from
+	 * {@code stopsEverything()}.
+	 */
+	@Test
+	void anUnconfiguredEnvironmentIsItsOwnClassAndIsNotRetriable() {
+		GhlHttp blank = new GhlHttp("http://127.0.0.1:1", "2021-07-28", "", "", Duration.ofMillis(200));
+
+		assertThatThrownBy(() -> blank.get(Map.class, (uri) -> uri.path("/x").build()))
+				.isInstanceOfSatisfying(GhlUnavailableException.class, (unset) -> {
+					assertThat(unset.failure()).isEqualTo(GhlFailure.NOT_CONFIGURED);
+					assertThat(unset.isRetriable()).isFalse();
+					assertThat(unset.failure().stopsEverything()).isFalse();
+				});
+	}
+
+	/**
+	 * <strong>A write GHL accepted is never retriable, whatever else went wrong.</strong>
+	 *
+	 * <p>An empty body on a 2xx means GHL considered the call successful and EvalOS cannot name
+	 * what it created. Repeating it writes twice — the failure {@code 00d} §6.1 is built around.
+	 */
+	@Test
+	void anEmptyBodyOnASuccessfulWriteIsNotRetriable() {
+		assertThat(GhlFailure.EMPTY_RESPONSE.isRetriable()).isFalse();
+		assertThat(GhlFailure.EMPTY_RESPONSE.stopsEverything()).isFalse();
+	}
+
+	/**
 	 * A tiny JDK {@code HttpServer} that records every request and answers however the test says.
 	 *
 	 * <p>The other tests here aim at a closed port, which is enough to prove pacing but cannot
@@ -234,12 +380,18 @@ class GhlHttpTest {
 		private final List<String> methods = Collections.synchronizedList(new ArrayList<>());
 		private volatile int status = 200;
 
+		/** Sent as {@code Retry-After} when set — the header a 429 carries. */
+		private volatile String retryAfter;
+
 		RecordingGhl() throws IOException {
 			server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
 			server.createContext("/", (exchange) -> {
 				methods.add(exchange.getRequestMethod());
 				byte[] body = "{}".getBytes(StandardCharsets.UTF_8);
 				exchange.getResponseHeaders().add("Content-Type", "application/json");
+				if (retryAfter != null) {
+					exchange.getResponseHeaders().add("Retry-After", retryAfter);
+				}
 				exchange.sendResponseHeaders(status, body.length);
 				try (OutputStream out = exchange.getResponseBody()) {
 					out.write(body);

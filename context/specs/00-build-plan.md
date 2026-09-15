@@ -779,6 +779,26 @@ Depends on: 43. Hands to: 45.
 
 ---
 
+## Unit 45 - The sync engine
+
+**SLICE A BUILT 2026-09-16; the rest is BLOCKED on 44c/44d.** `45-sync-engine.md` §1 is the
+blocker table and should be read before anyone schedules the rest of it.
+
+**45a** - error classification at the door (`00d` §6.3, fourth bullet), which is a hard
+prerequisite for the outbox rather than a tidy-up. `GhlFailure` names seven classes and says which
+are retriable and which stop everything; `GhlHttp` honours a capped `Retry-After` on a 429 by
+pushing the **shared** pacer, so every caller backs off together. No HTTP status EvalOS returns
+changed.
+
+**Blocked, and honestly so:** the outbox, the `opportunity.update` / `contact.*` webhooks, the delta
+sweep, the nightly paged full-list diff and `sync_drift` all reconcile rows that Units 44c and 44d
+have not created yet. A drift audit over the one mirrored entity that exists (pipelines) would
+report zero by construction, because 44a's sweep overwrites them hourly through the same code path
+an audit would compare against.
+Depends on: 44c, 44d. Hands to: 46.
+
+---
+
 ## Notes
 
 - **The monorepo is three applications as of 2026-09-03**, not two: `backend/`,

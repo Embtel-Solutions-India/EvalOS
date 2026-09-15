@@ -38,7 +38,10 @@ construction, not a missing grant. The fix is a `PortalStageProjection.forSales`
 ## Integration layer
 
 `GhlHttp` is the only transport: closed verb set, rate-limited, 10s timeout, brand-agnostic
-(one location id globally). Clients on top of it:
+(one location id globally). **Failures are classified at the door** (Unit 45a): `GhlFailure` tells
+retriable (5xx, timeout, 408, 429) from fatal (other 4xx, empty body) and names the two that stop
+everything — 401/403 halts a queue, 429 pauses the whole location. A 429 also pushes `GhlHttp`'s own
+shared pacer forward, honouring a capped `Retry-After`, so every caller backs off together. Clients on top of it:
 
 | Client | Reads | Writes |
 |---|---|---|

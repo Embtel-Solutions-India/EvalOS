@@ -23,6 +23,20 @@ orphaned: the drop has nowhere to live, because `V905` clears the table and `Mig
 forbids a `db/migration` script numbered 900 or above. A funnel screen returns only as a NEW
 screen after Unit 25 puts the location on `brand`, and that one can admit Marketing.
 
+BUILT 2026-09-16 (Unit 45, SLICE A ONLY): GHL failures are CLASSIFIED at the door. `GhlFailure`
+has 7 classes with `isRetriable()` and `stopsEverything()`; `GhlUnavailableException` carries
+`failure()` and `status()`. Only 5xx/timeout/408/429 are retriable — a 4xx is NOT, and an empty body
+on a 2xx is NOT (GHL considered that write successful, so a repeat writes twice). A 429 pushes
+`GhlHttp`'s SHARED pacer forward honouring a capped `Retry-After`, because the budget belongs to the
+location and not to the caller that hit the wall. No HTTP status EvalOS returns changed — every
+class is still a 502. Two `missingScopeHint` string matches on "401" are deleted.
+
+**The rest of Unit 45 is BLOCKED on 44c/44d and that is written down** (`context/specs/45-sync-engine.md`
+§1): the outbox, the `opportunity.update`/`contact.*` webhooks, the delta sweep, the nightly paged
+diff and `sync_drift` all reconcile rows that do not exist yet. A drift audit over pipelines alone
+would report zero by construction, because 44a's sweep overwrites them hourly through the same code
+path. Build 44d next.
+
 BUILT 2026-09-16 (Unit 44, SLICE A ONLY): the tier-1 mirror has started. `pipeline` and
 `pipeline_stage` (`V50`) hold GHL's ids verbatim, refreshed hourly by the `PIPELINE_MIRROR` sweep;
 `pipeline.purpose` (MARKETING/SALES/DELIVERY/INTAKE/UNASSIGNED) is the one column EvalOS owns and a

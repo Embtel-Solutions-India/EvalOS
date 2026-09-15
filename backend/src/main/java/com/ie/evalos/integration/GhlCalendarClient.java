@@ -376,23 +376,29 @@ public class GhlCalendarClient {
 	 *
 	 * <p>Only 401 and 403 are decorated, for the reason {@link GhlInvoiceClient} gives: a guard
 	 * that also fired on 404s and timeouts would teach the reader to ignore it.
+	 *
+	 * <p><strong>Asked through {@link GhlUnavailableException#failure()}, not by searching the
+	 * message for "401".</strong> That string match was the exact defect {@code 00d} §6.3 names —
+	 * "{@code GhlHttp} flattens status into a message string" — and it would have matched a 403
+	 * mentioned anywhere in a response body just as happily. Unit 45 classifies at the door; this
+	 * reads the classification.
 	 */
 	private static GhlUnavailableException missingScopeHint(GhlUnavailableException refused, String scope) {
-		String message = refused.getMessage() == null ? "" : refused.getMessage();
-		if (!message.contains("401") && !message.contains("403")) {
+		if (refused.failure() != GhlFailure.UNAUTHORIZED) {
 			return refused;
 		}
-		return new GhlUnavailableException(message + " — the calendar API needs the " + scope
+		return new GhlUnavailableException(refused.getMessage() + " — the calendar API needs the " + scope
 				+ " scope. The read scopes were verified granted on 2026-09-11 and " + WRITE_SCOPE
 				+ " was never probed, so check the token's grant before suspecting the token.",
-				refused);
+				refused, GhlFailure.UNAUTHORIZED, refused.status());
 	}
 
 	private static AppointmentRow require(AppointmentRow row) {
 		if (row == null || row.id() == null) {
 			// GHL answered without the one field that makes the response usable. Louder than a
 			// null return, which would surface later as an unexplained empty meeting.
-			throw new GhlUnavailableException("GHL returned no appointment id");
+			throw new GhlUnavailableException("GHL returned no appointment id", null,
+					GhlFailure.EMPTY_RESPONSE, null);
 		}
 		return row;
 	}

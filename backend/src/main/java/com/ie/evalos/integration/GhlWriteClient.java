@@ -403,7 +403,10 @@ public class GhlWriteClient {
 	 */
 	private static <T> T require(T value, String what) {
 		if (value == null) {
-			throw new GhlUnavailableException("GHL accepted the write but returned no " + what);
+			// EMPTY_RESPONSE, and never retriable: GHL considered this write successful, so
+			// repeating it writes twice.
+			throw new GhlUnavailableException("GHL accepted the write but returned no " + what, null,
+					GhlFailure.EMPTY_RESPONSE, null);
 		}
 		return value;
 	}
