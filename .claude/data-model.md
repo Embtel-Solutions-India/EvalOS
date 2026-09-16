@@ -3,8 +3,8 @@
 ## CURRENT DATABASE
 
 Verified 2026-09-16 against the live local Postgres 18 database `evalos` (`pg_dump --schema-only`
-plus `pg_constraint` / `pg_indexes`). **Flyway V1–V56 all applied, `success = true`.** (`V50`–`V55` are Unit 44's four slices and `V56`
-is Unit 45b, added 2026-09-16 and verified by `LocalPostgresIntegrationTest`.) Migrations
+plus `pg_constraint` / `pg_indexes`). **Flyway V1–V58 all applied, `success = true`.** (`V50`–`V55` are Unit 44's four slices, `V56` is
+Unit 45b and `V57`/`V58` are 45c, added 2026-09-16 and verified by `LocalPostgresIntegrationTest`.) Migrations
 live in `backend/src/main/resources/db/migration/`.
 
 > No production database was reachable from this workspace. Everything below is the schema the
@@ -40,6 +40,7 @@ live in `backend/src/main/resources/db/migration/`.
 | `notification` | in-app notification to a team member | yes |
 | `audit_event` | **append-only trigger**; before/after jsonb, actor and actor_type | yes (nullable) |
 | `webhook_event` | every inbound webhook, raw payload, processed flag | yes (nullable) |
+| `sync_outbox` | **durable EvalOS→GHL pushes** (45c, `V57`/`V58`): `entity_id` never a payload, coarse `intent`, partial-unique while pending, dead rows kept | yes |
 | `sync_drift` | **divergences between EvalOS and GHL** (45b, `V56`): one OPEN row per disagreement, `first_detected_at` / `last_seen_at`, resolved rows kept as history | yes |
 | `scheduled_job` | one row per sweep run: RUNNING / OK / FAILED, items seen and acted | **no** |
 
@@ -106,6 +107,7 @@ FKs to `evalos_case`. No table, column or route attaches a file to a request.
 | `uq_portal_access_*` (four) | one unrevoked token per case+audience, per client party, per expert party, per account |
 | `uq_team_member_pipeline` | **VESTIGIAL** — `team_member_pipeline` is the authority as of 44b. Kept only because seeds `V908`/`V909` write the column it guards and a DROP cannot be ordered after them |
 | `uq_pipeline_per_brand_ghl_id`, `uq_pipeline_stage_per_brand_ghl_id` | GHL's id, unique per brand rather than globally: two brands will hold two locations and ids are only unique within one |
+| `uq_sync_outbox_pending` | **PARTIAL** — `where sent_at is null and dead_at is null`. Pending pushes collapse; sent and dead ones are history and must not block the next edit |
 | `uq_client_account_per_brand_ghl_contact` | **PARTIAL** — D6 enforced at last (`V55`): two accounts cannot claim one GHL contact, while many accounts with none can coexist (post-cutover clients have no contact) |
 | `uq_opportunity_per_brand_ghl_id` | **PARTIAL** — `where ghl_id is not null`. Many local-only rows must coexist while every GHL id appears at most once; a plain unique would allow only one |
 | `uq_webhook_event_source_brand_external` | idempotency, `NULLS NOT DISTINCT` |
@@ -139,11 +141,9 @@ Not present today. Do not write code that assumes any of it exists.
 **Unit 44 is BUILT in full** — `V50`–`V55`,
 2026-09-16. They are in CURRENT above. What is left:
 
-```sql
-outbox               (partial-unique on entity_id, not payload)   -- 45c
-```
-
-`sync_drift` is **built** (45b, `V56`) and is in CURRENT above.
+`sync_drift` (45b, `V56`) and `sync_outbox` (45c, `V57`/`V58`) are **built** and are in CURRENT
+above. Unit 45 has no schema left: 45d (webhooks + delta sweep) and 45e (per-field ownership) are
+code over the tables that exist.
 
 Two deviations from `00c` §2's sketch, both recorded in `44-ghl-tier1-mirror.md` §5:
 **`opportunity` has no `sync_state` column** — today it is derivable (`ghl_id IS NULL`) and every

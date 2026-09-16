@@ -351,6 +351,11 @@ evalos:
       # spend a meaningful share of that budget on a question whose answer changes slowly, and
       # starve the desks while it did.
       SYNC_AUDIT: ${JOBS_SYNC_AUDIT_INTERVAL:24h}
+      # The outbox drain (Unit 45c). **Two minutes, and this is the one interval chosen for a person
+      # rather than a budget.** What is queued is a client's request reaching Sales after a GHL
+      # outage; every minute it sits is a minute a salesperson does not know the lead exists. An
+      # hour, like the pipeline mirror's, would make the queue itself the outage.
+      SYNC_OUTBOX: ${JOBS_SYNC_OUTBOX_INTERVAL:2m}
     # How many missed intervals before the panel calls a sweep stopped. Four rather than two so
     # one slow pass or one restart is not an alarm; low enough that a scheduler that died is
     # named within a couple of hours rather than the next morning.

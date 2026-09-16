@@ -8,6 +8,7 @@ import com.ie.evalos.common.ApiResponse;
 import com.ie.evalos.domain.SyncDrift;
 import com.ie.evalos.domain.SyncEntity;
 import com.ie.evalos.service.SyncAuditService;
+import com.ie.evalos.service.SyncOutboxService;
 
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -54,13 +55,30 @@ public class SyncStatusController {
 	 *               a sync catching up, and the same one for a fortnight is a sync that is not
 	 *               working
 	 */
-	public record SyncStatus(int open, Instant oldest, List<Drift> drifts) {
+	public record SyncStatus(int open, Instant oldest, List<Drift> drifts, Outbox outbox) {
+	}
+
+	/**
+	 * The queue's health — Unit 45c.
+	 *
+	 * <p><strong>{@code dead} is the number that needs a human</strong>: a pending backlog is a
+	 * sync catching up, while a dead row is a write that <em>never reached GHL</em> and never will
+	 * without somebody looking. {@code oldestPending} is the other half — one minute of backlog is
+	 * a drain doing its job, an hour of it is a drain that is not.
+	 */
+	public record Outbox(int pending, int dead, Instant oldestPending, List<DeadPush> recentlyDead) {
+	}
+
+	public record DeadPush(UUID id, UUID entityId, String intent, int attempts, String lastFailure,
+			String reason, Instant deadAt) {
 	}
 
 	private final SyncAuditService audit;
+	private final SyncOutboxService outbox;
 
-	SyncStatusController(SyncAuditService audit) {
+	SyncStatusController(SyncAuditService audit, SyncOutboxService outbox) {
 		this.audit = audit;
+		this.outbox = outbox;
 	}
 
 	@GetMapping("/drift")
@@ -71,7 +89,19 @@ public class SyncStatusController {
 				open.size(),
 				open.stream().map(SyncDrift::getFirstDetectedAt).min(java.util.Comparator.naturalOrder())
 						.orElse(null),
-				open.stream().map(SyncStatusController::view).toList()));
+				open.stream().map(SyncStatusController::view).toList(),
+				outbox()));
+	}
+
+	private Outbox outbox() {
+		SyncOutboxService.Backlog backlog = this.outbox.backlog();
+		return new Outbox(backlog.pending(), backlog.dead(), backlog.oldestPending(),
+				backlog.recentlyDead().stream()
+						.map((row) -> new DeadPush(row.getId(), row.getEntityId(), row.getIntent().name(),
+								row.getAttempts(),
+								row.getLastFailure() == null ? null : row.getLastFailure().name(),
+								row.getDeadReason(), row.getDeadAt()))
+						.toList());
 	}
 
 	private static Drift view(SyncDrift row) {

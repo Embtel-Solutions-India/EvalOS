@@ -3,7 +3,7 @@
 **The authoritative file is `.claude/implementation-status.md` — a table with evidence per row.
 Check it before claiming anything exists or is missing.**
 
-Build is green: backend 1002 tests, 0 failures, 4 skipped; staff SPA 127 tests plus clean tsc;
+Build is green: backend 1013 tests, 0 failures, 4 skipped; staff SPA 127 tests plus clean tsc;
 portals 30 tests plus clean tsc. All run 2026-09-16.
 
 **The newest work is uncommitted.** Units 40, 43 and 51 and the `00d` audit are 121 changed or
@@ -22,6 +22,29 @@ screens rather than widen the gate. Gone with them: `MarketingPipelinePage`, `ma
 orphaned: the drop has nowhere to live, because `V905` clears the table and `MigrationTreeTest`
 forbids a `db/migration` script numbered 900 or above. A funnel screen returns only as a NEW
 screen after Unit 25 puts the location on `brand`, and that one can admit Marketing.
+
+BUILT 2026-09-16 (Unit 45, SLICE C): `sync_outbox` (`V57`/`V58`) — the durable EvalOS→GHL push.
+`00c` §4d: invariant 2 said "writes do not retry" PRECISELY because EvalOS had no key scheme, and
+44d's correlation key is that scheme.
+
+It stores an ENTITY ID, NEVER A PAYLOAD (`00d` §6.3) — the sender reads the current row at send time,
+so a collapse cannot send stale values, and the submit marker needs no intent of its own because an
+UPSERT re-sends whatever the row now says. Dedupe key is PARTIAL (`where sent_at is null and dead_at
+is null`), `intent` is COARSE or the collapse never happens, and `enqueue` is REQUIRES_NEW so a push
+survives the caller's transaction rolling back.
+
+THE RETRY-AFTER-TIMEOUT IS THE POINT: before creating, the drain asks GHL for THE CONTACT's
+opportunities and looks for its own correlation key — GHL offers no custom-field filter, so that is
+the only implementable form. Finding it means the create already landed and the row is LINKED, not
+made twice.
+
+Stop conditions are 45a's classification by name: 429 and 401/403 HALT THE WHOLE DRAIN (the budget is
+per location; nothing in EvalOS fixes a missing grant), non-retriable refusals and EvalOS exceptions
+are dead-lettered immediately, transient ones are retried to a cap of 5. Dead rows STAY.
+
+WHAT IT DOES NOT DO: the desks still write to GHL synchronously and read the answer back — moving
+them is UNIT 46. What it drains is the two portal writes that were previously swallowed and lost: the
+opportunity create and the submit marker.
 
 BUILT 2026-09-16 (Unit 45, SLICE B): `sync_drift` (`V56`) + a NIGHTLY `SYNC_AUDIT` sweep that asks
 whether the mirror is actually right, and `GET /api/sync/drift` (GM) where a human reads the answer.
@@ -45,10 +68,10 @@ on a 2xx is NOT (GHL considered that write successful, so a repeat writes twice)
 location and not to the caller that hit the wall. No HTTP status EvalOS returns changed — every
 class is still a 502. Two `missingScopeHint` string matches on "401" are deleted.
 
-**Nothing in Unit 45 is blocked any more** — Unit 44 is complete. What remains is 45c (the outbox),
-45d (`opportunity.update` / `contact.*` webhooks + the delta sweep) and 45e (per-field ownership,
-where a null `ghl_updated_at` must be an explicit CONFLICT rather than "EvalOS is newer").
-`context/specs/45-sync-engine.md` §3 carries each one's amendments so they are not re-derived.
+What remains in Unit 45: 45d (`opportunity.update` / `contact.*` webhooks + the delta sweep) and 45e
+(per-field ownership, where a null `ghl_updated_at` must be an explicit CONFLICT rather than "EvalOS
+is newer"). Neither needs a migration. `context/specs/45-sync-engine.md` §3 carries their amendments
+so they are not re-derived from `00d`.
 
 BUILT 2026-09-16 (Unit 44, SLICE C): `client_account.contact_id` (`V55`) joins the portal account to
 its CRM row — the "one person is two rows with no link" gap — backfilled on `ghl_contact_id` within

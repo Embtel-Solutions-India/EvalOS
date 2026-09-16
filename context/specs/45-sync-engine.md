@@ -1,7 +1,7 @@
 # Unit 45 — The sync engine
 
-**Status: slices A and B BUILT (2026-09-16). Unit 44 is complete, so nothing is blocked any more —
-what remains is C (the outbox), D (webhooks + delta sweep) and E (per-field ownership).**
+**Status: slices A, B and C BUILT (2026-09-16). What remains is D (webhooks + delta sweep) and
+E (per-field ownership).**
 
 `00c` §4 designs the engine; `00d` §6.1–6.4 amends it before it is built. This spec sequences
 those amendments against what actually exists.
@@ -14,7 +14,7 @@ those amendments against what actually exists.
 |---|---|---|---|
 | **45a** | error classification at the door | no | **BUILT — §2** |
 | **45b** | `sync_drift` + the nightly paged diff audit + the GM's read | only drift rows | **BUILT — §2B** |
-| **45c** | the outbox | **yes — every EvalOS→GHL write** | specced, §3.1 |
+| **45c** | the outbox | **yes — the two portal writes that were being lost** | **BUILT — §2C** |
 | **45d** | `opportunity.update` / `contact.*` webhooks + the delta sweep | **yes — the mirror** | specced |
 | **45e** | per-field ownership + the sync-status surface's resolution half | **yes — both sides** | specced, §3.2 |
 
@@ -167,21 +167,91 @@ worry about.
 
 ---
 
+## 2C. Slice 45c — the outbox (BUILT)
+
+`00c` §4d, and the chain of reasoning is short: no mismatch requires that a failed push is retried; a
+retry is only safe if it cannot double-apply; and **invariant 2 said *"writes do not retry"* precisely
+because EvalOS had no key scheme.** Unit 44d's correlation key is that scheme, which is why this
+could not have been built first.
+
+### 2C.1 What it queues, and what it does not
+
+**The desks still write to GHL synchronously.** A salesperson needs the created id and GHL's
+`isNew` back; taking that away is **Unit 46's** job. What this drains is the two writes that were
+previously *swallowed and lost*, each of which carried a `ponytail:` note naming this slice:
+
+- the client portal's opportunity **create** when GHL is unreachable, and
+- its **"request submitted"** marker.
+
+Both are now `enqueue`d instead of evaporating into a log line.
+
+### 2C.2 `entity_id`, never a payload
+
+`00d` §6.3: *"store `entity_id`, **not a payload snapshot**, and read the current row at send time —
+otherwise 'collapse onto the pending one even if a field changed' silently sends the older values."*
+A queue holding what was true when it was queued delivers stale writes on every retry.
+
+That is also why the **submit marker needs no intent of its own**: an `UPSERT` re-sends the row's
+current fields, which by then include it.
+
+### 2C.3 The dedupe key is partial, and `intent` is coarse
+
+- **Partial** — `where sent_at is null and dead_at is null`. §6.3 calls the plain constraint "the
+  obvious wrong reading": it makes the second edit of the same opportunity an hour later collide
+  with the first's **sent** row.
+- **Coarse `intent`** (`UPSERT`/`CLOSE`/`DELETE`) — *"or the collapse never happens"*. An intent per
+  field would make three edits in a minute three distinct rows and three sends.
+- `enqueue` runs `REQUIRES_NEW`, so a push survives the caller's transaction rolling back. A push
+  lost because the request that asked for it failed afterwards is exactly what this table prevents.
+
+### 2C.4 The retry-after-timeout, which is the whole of `00d` §6.1
+
+A create that did not answer leaves EvalOS unable to tell *"GHL never got it"* from *"GHL got it and
+the reply was lost"*. At-least-once delivery over a non-idempotent create is how one opportunity
+becomes two.
+
+So before creating, the drain asks GHL for **the contact's** opportunities and looks for its own
+correlation key. Finding it means the create already landed: the row is **linked, not made twice**.
+
+**This is the corrected form of §6.1's mechanism** (§5.1 of the Unit 44 spec records the finding):
+GHL offers *no* custom-field filter on either search endpoint, so "search that field" is not a query
+anybody can write. `contactId` *is* a documented filter, and one contact has a handful of deals.
+
+With no correlation field configured there is nothing to look for, and the create goes out
+unguarded — the duplicate exposure that exists today rather than a new one. Refusing to retry would
+lose the client's request outright, which is worse.
+
+### 2C.5 The stop conditions are 45a's classification, by name
+
+| Failure | What the drain does | Why |
+|---|---|---|
+| `RATE_LIMITED` (429) | **halts the whole drain**, row stays pending | the budget is per *location* — backing off one row while the next fires is not a back-off |
+| `UNAUTHORIZED` (401/403) | **halts and logs an error**, row stays pending | nothing in EvalOS can fix a missing grant, and retrying it across every row spends the whole budget on one credential |
+| `REFUSED`, `EMPTY_RESPONSE` | dead-lettered on the first attempt | a malformed body sent again is still malformed; a write GHL accepted must not be repeated |
+| `NO_ANSWER`, `UPSTREAM_ERROR` | retried, capped at 5 attempts | genuinely transient — but a row retried forever spends budget forever and never reaches anybody |
+| an EvalOS exception | dead-lettered | a `NullPointerException` does not become true on the fourth attempt, and looping hides the bug behind a queue that never drains |
+
+**Dead rows stay.** A write that never reached GHL is exactly what somebody needs to find afterwards.
+
+### 2C.6 Where a human sees it
+
+`GET /api/sync/drift` gained an `outbox` block: pending, dead, the age of the oldest pending push,
+and the last twenty dead ones with their failure class and reason. **`dead` is the number that needs
+a person** — a backlog is a drain catching up, a dead row is a write that will never arrive without
+somebody looking. The drain is a sweep on Unit 19's machinery for the same reason the audit is: **a
+queue nobody is draining looks exactly like a queue with nothing in it.**
+
+Two minutes, and it is the one interval here chosen for a person rather than a budget: what is
+queued is a client's request reaching Sales after an outage.
+
+---
+
 ## 3. What the rest of Unit 45 must do
 
 Carried here so the amendments are not re-derived from `00d`. Nothing below is blocked any more —
 Unit 44 is complete.
 
-### 3.1 The outbox (`00d` §6.3, second bullet)
-
-- **Partial unique index**, `where sent_at is null and dead_at is null`. A plain unique constraint
-  is the obvious wrong reading and makes the second edit of the same opportunity an hour later
-  collide with the first's sent row.
-- **Store `entity_id`, never a payload snapshot**, and read the current row at send time —
-  otherwise "collapse onto the pending one even if a field changed" silently sends older values.
-- **Keep `intent` coarse** (`UPSERT` / `CLOSE` / `DELETE`), or the collapse never happens.
-- Retry policy reads §2's classification: retriable classes only, `RATE_LIMITED` pauses the queue,
-  `UNAUTHORIZED` halts it and alerts.
+### 3.1 The outbox (`00d` §6.3, second bullet) — **BUILT at 45c, see §2C**
 
 ### 3.2 Per-field ownership, not "EvalOS wins" (`00d` §6.2)
 
@@ -241,3 +311,23 @@ mirror. `00d` §2.3's replay sweep stays separate and Unit 45 must not absorb it
 - [x] A blank selling brand audits nothing and does not call GHL.
 - [x] `GET /api/sync/drift` is GM-only and carries the age of the oldest open finding.
 - [x] Nothing is repaired, and there is no route to clear a row by hand.
+
+---
+
+## 6. Acceptance — slice 45c
+
+- [x] A push is a durable row naming an **entity id**, never a payload; the sender reads the current
+      row at send time.
+- [x] The dedupe key is **partial**; a second push for the same entity and intent collapses onto the
+      pending one and does not collide with a sent or dead row.
+- [x] `enqueue` survives the caller's transaction rolling back.
+- [x] A **timed-out create is linked, not made twice** — the drain finds its own correlation key on
+      the contact's GHL opportunities first.
+- [x] A create that genuinely never landed goes out **carrying the key**.
+- [x] No correlation field configured skips the lookup rather than refusing to retry.
+- [x] A `429` and a `401`/`403` each halt the **whole** drain and leave the row pending.
+- [x] A non-retriable refusal is dead-lettered on the first attempt; a transient one is retried and
+      capped; an EvalOS exception is dead-lettered rather than looped on.
+- [x] The portal's create and submit-marker failures are queued instead of swallowed.
+- [x] `GET /api/sync/drift` carries the queue's pending count, dead count, oldest pending age and
+      the recently dead.

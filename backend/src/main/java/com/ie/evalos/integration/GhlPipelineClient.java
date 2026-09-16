@@ -235,6 +235,55 @@ public class GhlPipelineClient {
 	}
 
 	/**
+	 * Every opportunity GHL holds for one contact — <strong>the retry-after-timeout read</strong>
+	 * (Unit 45c).
+	 *
+	 * <p><strong>This is the implementable form of {@code 00d} §6.1's correlation check, and it is a
+	 * correction to that section's wording.</strong> §6.1 says to "search that field before
+	 * creating". Verified against the API: <em>neither</em> {@code GET /opportunities/search} nor the
+	 * advanced {@code POST} accepts a custom-field filter — the advanced body takes a full-text
+	 * {@code query} of 75 characters and nothing else. So the field cannot be queried.
+	 *
+	 * <p>What <em>is</em> a documented filter is {@code contactId}. A create that timed out was made
+	 * for a known contact, and one contact has a handful of deals, so asking for theirs and matching
+	 * the correlation value locally answers the same question in one request. The alternative —
+	 * hoping GHL full-text-indexes custom field values — is a guess this cannot be built on.
+	 *
+	 * <p>Rare by construction: it runs only when a create did not answer.
+	 */
+	public List<Opportunity> forContact(String contactId) {
+		List<Opportunity> all = new ArrayList<>();
+		Long startAfter = null;
+		String startAfterId = null;
+
+		for (int page = 0; page < MAX_PAGES; page++) {
+			Long cursor = startAfter;
+			String cursorId = startAfterId;
+			SearchResponse response = http.get(SearchResponse.class, (uri) -> {
+				uri.path("/opportunities/search")
+						.queryParam("location_id", http.locationId())
+						.queryParam("contactId", contactId)
+						.queryParam("limit", PAGE_SIZE);
+				if (cursor != null && cursorId != null) {
+					uri.queryParam("startAfter", cursor).queryParam("startAfterId", cursorId);
+				}
+				return uri.build();
+			});
+
+			List<Opportunity> found = Optional.ofNullable(response.opportunities()).orElse(List.of());
+			all.addAll(found);
+			if (found.size() < PAGE_SIZE || response.meta() == null
+					|| response.meta().startAfter() == null || response.meta().startAfterId() == null) {
+				return all;
+			}
+			startAfter = response.meta().startAfter();
+			startAfterId = response.meta().startAfterId();
+		}
+		log.warn("Stopped reading GHL contact {} at the {}-page cap", contactId, MAX_PAGES);
+		return all;
+	}
+
+	/**
 	 * The same read, narrowed to one GHL status.
 	 *
 	 * <p><strong>Exists for one figure: "won this month".</strong> The window above filters on

@@ -76,12 +76,15 @@ class ClientApplicationServiceTest {
 
 	private final OpportunityMirrorService deals = mock(OpportunityMirrorService.class);
 
+	private final SyncOutboxService outbox = mock(SyncOutboxService.class);
+
 	private final ClientApplicationService service = new ClientApplicationService(applications, accounts,
-			ghl, pipelines, SERVICE_FIELD, SUBMITTED_FIELD, CORRELATION_FIELD, deals);
+			ghl, pipelines, SERVICE_FIELD, SUBMITTED_FIELD, CORRELATION_FIELD, deals, outbox);
 
 	/** The same service with no custom field configured — the unconfigured environment. */
 	private ClientApplicationService withoutCustomFields() {
-		return new ClientApplicationService(applications, accounts, ghl, pipelines, "", "", "", deals);
+		return new ClientApplicationService(applications, accounts, ghl, pipelines, "", "", "", deals,
+				outbox);
 	}
 
 	private ClientAccount client;

@@ -9,6 +9,7 @@ import com.ie.evalos.common.ForbiddenException;
 import com.ie.evalos.common.InvalidRequestException;
 import com.ie.evalos.domain.ClientAccount;
 import com.ie.evalos.domain.ClientApplication;
+import com.ie.evalos.domain.SyncOutboxEntry;
 import com.ie.evalos.integration.GhlWriteClient;
 import com.ie.evalos.repository.ClientAccountRepository;
 import com.ie.evalos.repository.ClientApplicationRepository;
@@ -138,12 +139,21 @@ public class ClientApplicationService {
 	/** The opportunity mirror (Unit 44d) — where a portal-born deal is recorded before GHL sees it. */
 	private final OpportunityMirrorService deals;
 
+	/**
+	 * The durable push (Unit 45c) — where a GHL failure goes instead of into a log line.
+	 *
+	 * <p>Both writes below used to be swallowed. The create left a local row with no {@code ghl_id}
+	 * and nothing to retry it; the submit marker was lost outright. Each carried a {@code ponytail:}
+	 * note naming this as the fix, and this is it.
+	 */
+	private final SyncOutboxService outbox;
+
 	ClientApplicationService(ClientApplicationRepository applications, ClientAccountRepository accounts,
 			GhlWriteClient ghl, PipelineRepository pipelines,
 			@Value("${evalos.ghl.opportunity-service-field:}") String serviceFieldId,
 			@Value("${evalos.ghl.opportunity-submitted-field:}") String submittedFieldId,
 			@Value("${evalos.ghl.opportunity-correlation-field:}") String correlationFieldId,
-			OpportunityMirrorService deals) {
+			OpportunityMirrorService deals, SyncOutboxService outbox) {
 		this.applications = applications;
 		this.accounts = accounts;
 		this.ghl = ghl;
@@ -152,6 +162,7 @@ public class ClientApplicationService {
 		this.submittedFieldId = submittedFieldId == null ? "" : submittedFieldId.trim();
 		this.correlationFieldId = correlationFieldId == null ? "" : correlationFieldId.trim();
 		this.deals = deals;
+		this.outbox = outbox;
 	}
 
 	/** Every application this client has, newest first. */
@@ -297,8 +308,17 @@ public class ClientApplicationService {
 					java.util.Map.of(submittedFieldId, SUBMITTED_FIELD_VALUE));
 		}
 		catch (RuntimeException ghlRefused) {
-			log.warn("Request {} is submitted in EvalOS but GHL was not told: {}", application.getId(),
-					ghlRefused.getMessage());
+			// **The `ponytail:` note above is now false, and this is what replaced it.** It read:
+			// "swallowed and logged, with no retry, so a GHL outage at this exact moment loses the
+			// marker permanently. The fix is the outbox in Unit 45." The outbox exists; an UPSERT
+			// re-sends the row's current fields, which by then include the submitted marker —
+			// which is exactly why it stores an entity id rather than a payload.
+			if (application.getOpportunityId() != null) {
+				outbox.enqueue(application.getBrandId(), application.getOpportunityId(),
+						SyncOutboxEntry.Intent.UPSERT);
+			}
+			log.warn("Request {} is submitted in EvalOS and GHL was not told yet; queued: {}",
+					application.getId(), ghlRefused.getMessage());
 		}
 	}
 
@@ -385,6 +405,17 @@ public class ClientApplicationService {
 			// Deliberately not rethrown: `submit` checks the id and refuses there, which is the
 			// one moment the client must not be told something untrue. Losing a half-typed
 			// questionnaire to an upstream outage is the worse trade.
+			//
+			// **But the attempt is queued now rather than evaporating (Unit 45c).** The local row
+			// exists and carries the correlation key, so the drain can finish this create safely:
+			// it asks GHL for the contact's opportunities and looks for that key first, which is
+			// what stops a timed-out create becoming two deals (`00d` §6.1).
+			UUID queued = application.getOpportunityId();
+			if (queued != null) {
+				outbox.enqueue(application.getBrandId(), queued, SyncOutboxEntry.Intent.UPSERT);
+			}
+			log.warn("Could not open the deal for request {} yet; queued for retry: {}",
+					application.getId(), ghlRefused.getMessage());
 			return application;
 		}
 		return application;

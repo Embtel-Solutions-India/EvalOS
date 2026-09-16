@@ -789,7 +789,7 @@ Depends on: 43. Hands to: 45.
 
 ## Unit 45 - The sync engine
 
-**SLICES A AND B BUILT 2026-09-16.** Unit 44 is complete, so nothing is blocked; `45-sync-engine.md`
+**SLICES A, B AND C BUILT 2026-09-16.** Unit 44 is complete, so nothing is blocked; `45-sync-engine.md`
 §1 is the slice table.
 
 **45a** - error classification at the door (`00d` §6.3, fourth bullet), which is a hard
@@ -804,7 +804,15 @@ have to take on trust. It detects and records and never repairs — resolution i
 in 45e, and a detector that also mutates cannot be trusted because its own writes become tomorrow's
 findings.
 
-**Still to build:** 45c the outbox, 45d the webhooks and delta sweep, 45e per-field ownership.
+**45c** - `sync_outbox` (`V57`/`V58`), the 2-minute drain, and the portal's two previously-swallowed
+writes queued instead of lost. Stores an entity id and never a payload; the dedupe key is partial and
+`intent` is coarse, or the collapse never happens. **Its headline is the retry-after-timeout**: before
+creating, the drain looks for its own correlation key among the CONTACT's GHL opportunities, because
+GHL offers no custom-field filter — finding it means the create already landed, and the row is linked
+rather than made twice (`00d` §6.1).
+
+**Still to build:** 45d the webhooks and delta sweep, 45e per-field ownership. Neither needs a
+migration. **The desks still write to GHL synchronously** — moving them onto the outbox is Unit 46.
 Depends on: 44. Hands to: 46.
 
 ---
