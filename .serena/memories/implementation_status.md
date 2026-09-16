@@ -3,7 +3,7 @@
 **The authoritative file is `.claude/implementation-status.md` — a table with evidence per row.
 Check it before claiming anything exists or is missing.**
 
-Build is green: backend 992 tests, 0 failures, 4 skipped; staff SPA 127 tests plus clean tsc;
+Build is green: backend 1002 tests, 0 failures, 4 skipped; staff SPA 127 tests plus clean tsc;
 portals 30 tests plus clean tsc. All run 2026-09-16.
 
 **The newest work is uncommitted.** Units 40, 43 and 51 and the `00d` audit are 121 changed or
@@ -23,7 +23,21 @@ orphaned: the drop has nowhere to live, because `V905` clears the table and `Mig
 forbids a `db/migration` script numbered 900 or above. A funnel screen returns only as a NEW
 screen after Unit 25 puts the location on `brand`, and that one can admit Marketing.
 
-BUILT 2026-09-16 (Unit 45, SLICE A ONLY): GHL failures are CLASSIFIED at the door. `GhlFailure`
+BUILT 2026-09-16 (Unit 45, SLICE B): `sync_drift` (`V56`) + a NIGHTLY `SYNC_AUDIT` sweep that asks
+whether the mirror is actually right, and `GET /api/sync/drift` (GM) where a human reads the answer.
+THE DETECTOR WENT BEFORE THE WRITERS deliberately — the outbox, the webhooks and the delta sweep are
+all writers, and a writer you cannot audit is one you have to take on trust.
+
+IT DETECTS AND RECORDS; IT NEVER REPAIRS, and there is no route to clear a row by hand: resolution is
+per-field ownership (45e), and a detector that also mutates cannot be trusted because its own writes
+become tomorrow's findings. A PAGED FULL-LIST DIFF, never a per-row GET (~30s vs ~21 minutes of GHL's
+shared budget) — pinned by a test. One OPEN row per disagreement with first/last-seen rather than a
+row per run; resolved rows stay as history. Two things it must NEVER call drift, both pinned: a
+portal-born row with no `ghl_id` (a legal state per `00c` §2a) and `1000` vs `1000.00`. Opportunities
+only: pipelines are overwritten hourly by the same code path so an audit would report zero by
+construction, and contacts have no GHL READ client yet.
+
+BUILT 2026-09-16 (Unit 45, SLICE A): GHL failures are CLASSIFIED at the door. `GhlFailure`
 has 7 classes with `isRetriable()` and `stopsEverything()`; `GhlUnavailableException` carries
 `failure()` and `status()`. Only 5xx/timeout/408/429 are retriable — a 4xx is NOT, and an empty body
 on a 2xx is NOT (GHL considered that write successful, so a repeat writes twice). A 429 pushes
@@ -31,11 +45,10 @@ on a 2xx is NOT (GHL considered that write successful, so a repeat writes twice)
 location and not to the caller that hit the wall. No HTTP status EvalOS returns changed — every
 class is still a 502. Two `missingScopeHint` string matches on "401" are deleted.
 
-**The rest of Unit 45 is BLOCKED on 44c/44d and that is written down** (`context/specs/45-sync-engine.md`
-§1): the outbox, the `opportunity.update`/`contact.*` webhooks, the delta sweep, the nightly paged
-diff and `sync_drift` all reconcile rows that do not exist yet. A drift audit over pipelines alone
-would report zero by construction, because 44a's sweep overwrites them hourly through the same code
-path. Build 44d next.
+**Nothing in Unit 45 is blocked any more** — Unit 44 is complete. What remains is 45c (the outbox),
+45d (`opportunity.update` / `contact.*` webhooks + the delta sweep) and 45e (per-field ownership,
+where a null `ghl_updated_at` must be an explicit CONFLICT rather than "EvalOS is newer").
+`context/specs/45-sync-engine.md` §3 carries each one's amendments so they are not re-derived.
 
 BUILT 2026-09-16 (Unit 44, SLICE C): `client_account.contact_id` (`V55`) joins the portal account to
 its CRM row — the "one person is two rows with no link" gap — backfilled on `ghl_contact_id` within

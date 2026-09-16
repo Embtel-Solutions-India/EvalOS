@@ -789,8 +789,8 @@ Depends on: 43. Hands to: 45.
 
 ## Unit 45 - The sync engine
 
-**SLICE A BUILT 2026-09-16; the rest is BLOCKED on 44c/44d.** `45-sync-engine.md` §1 is the
-blocker table and should be read before anyone schedules the rest of it.
+**SLICES A AND B BUILT 2026-09-16.** Unit 44 is complete, so nothing is blocked; `45-sync-engine.md`
+§1 is the slice table.
 
 **45a** - error classification at the door (`00d` §6.3, fourth bullet), which is a hard
 prerequisite for the outbox rather than a tidy-up. `GhlFailure` names seven classes and says which
@@ -798,12 +798,14 @@ are retriable and which stop everything; `GhlHttp` honours a capped `Retry-After
 pushing the **shared** pacer, so every caller backs off together. No HTTP status EvalOS returns
 changed.
 
-**Blocked, and honestly so:** the outbox, the `opportunity.update` / `contact.*` webhooks, the delta
-sweep, the nightly paged full-list diff and `sync_drift` all reconcile rows that Units 44c and 44d
-have not created yet. A drift audit over the one mirrored entity that exists (pipelines) would
-report zero by construction, because 44a's sweep overwrites them hourly through the same code path
-an audit would compare against.
-Depends on: 44c, 44d. Hands to: 46.
+**45b** - `sync_drift` (`V56`), the nightly paged full-list diff, and `GET /api/sync/drift`. **The
+detector before the writers**: 45c, 45d and 45e all write, and a writer you cannot audit is one you
+have to take on trust. It detects and records and never repairs — resolution is per-field ownership
+in 45e, and a detector that also mutates cannot be trusted because its own writes become tomorrow's
+findings.
+
+**Still to build:** 45c the outbox, 45d the webhooks and delta sweep, 45e per-field ownership.
+Depends on: 44. Hands to: 46.
 
 ---
 

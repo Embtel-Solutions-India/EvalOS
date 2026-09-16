@@ -1,38 +1,33 @@
 # Unit 45 — The sync engine
 
-**Status: slice A BUILT (2026-09-16). Everything else is blocked on Unit 44c and 44d, and this
-spec says so rather than pretending otherwise.**
+**Status: slices A and B BUILT (2026-09-16). Unit 44 is complete, so nothing is blocked any more —
+what remains is C (the outbox), D (webhooks + delta sweep) and E (per-field ownership).**
 
 `00c` §4 designs the engine; `00d` §6.1–6.4 amends it before it is built. This spec sequences
 those amendments against what actually exists.
 
 ---
 
-## 1. The blocker, stated first
+## 1. The slices, and why this order
 
-**Unit 45 reconciles rows. Four of its five pieces have no rows to reconcile yet.**
+| Slice | Ships | Writes anything? | Status |
+|---|---|---|---|
+| **45a** | error classification at the door | no | **BUILT — §2** |
+| **45b** | `sync_drift` + the nightly paged diff audit + the GM's read | only drift rows | **BUILT — §2B** |
+| **45c** | the outbox | **yes — every EvalOS→GHL write** | specced, §3.1 |
+| **45d** | `opportunity.update` / `contact.*` webhooks + the delta sweep | **yes — the mirror** | specced |
+| **45e** | per-field ownership + the sync-status surface's resolution half | **yes — both sides** | specced, §3.2 |
 
-`00c` §3 lists 45 as depending on 44, and 44 is one slice in of four. What the mirror holds today
-is `pipeline` and `pipeline_stage` (slice 44a) — and those are the one entity GHL owns outright
-(`00d` §6.2), refreshed hourly by a straight overwrite. There is nothing to reconcile there and no
-conflict to resolve.
+**The detector went before the writers, and that is the whole ordering argument.** 45c, 45d and 45e
+are all writers; a writer you cannot audit is a writer you have to take on trust. `00c` §4c promises
+that *every divergence is detected*, and until 45b nobody could check whether the mirror was right
+at all — which is also the question Unit 48's independence claim rests on.
 
-| Piece of Unit 45 | Needs | State |
-|---|---|---|
-| **Error classification at the door** | nothing | **BUILT — §2** |
-| `opportunity.update` / `contact.*` webhooks | `opportunity`, `contact` rows to write into | blocked on **44c**, **44d** |
-| The delta sweep | same | blocked on **44c**, **44d** |
-| The nightly paged diff audit | same, plus something that can actually diverge | blocked on **44c**, **44d** |
-| The outbox | a local row to read at send time (`00d` §6.3) | blocked on **44c**, **44d** |
-| `sync_drift` + the sync-status surface | a producer of drift | blocked on the above |
-
-**A drift audit over pipelines alone would be theatre.** The 44a sweep overwrites them hourly
-through the same code path an audit would compare against, so it would report zero by construction.
-Building it now would be a screen that proves nothing and a table nobody fills.
-
-**Recommendation: build 44d next**, then the rest of this unit. 44d carries `opportunity` and the
-correlation custom field, which is both the largest consumer of the sync engine and the thing
-`00d` §6.1 calls *"the single biggest sequencing error in `00c`"*.
+**45b was buildable only after Unit 44 completed.** An earlier version of this section recorded that
+four of five pieces had no rows to reconcile, and that a drift audit over pipelines alone would be
+theatre: the 44a sweep overwrites them hourly through the same code path an audit would compare
+against, so it would have reported zero by construction. Unit 44d's `opportunity` is what gave the
+audit something that can genuinely diverge.
 
 ---
 
@@ -104,9 +99,78 @@ inherits it for free.
 
 ---
 
-## 3. What the rest of Unit 45 must do when 44c/44d land
+## 2B. Slice 45b — drift detection (BUILT)
 
-Carried here so the amendments are not re-derived from `00d`.
+### 2B.1 `sync_drift` is a table, because a promise needs evidence
+
+`00d` §6.3, first bullet: *"`00c` §4b and §4c both say 'the drift report' as if it were a document.
+§4c's guarantee that every divergence is detected is only checkable if yesterday's divergences are
+still queryable."*
+
+- **One open row per thing that is wrong**, with `first_detected_at` and `last_seen_at` — not a row
+  per audit run. A drift that persists for a week is one fact, and a row per night buries the new
+  findings under the old ones, which is exactly how a report stops being read.
+- **The unique index is partial**, `where resolved_at is null` — the same lesson §6.3 records for the
+  outbox's dedupe key. A plain constraint would make tonight's re-detection of something that was
+  fixed and came back collide with last week's resolved row.
+- **Resolved rows stay.** *"This drifted and then stopped"* is the history worth keeping; deleting it
+  would make the table unable to say whether a fix worked.
+- **Both values travel.** A row naming a field without saying what each side held is one somebody has
+  to investigate by hand — the report-as-a-document failure this replaces.
+
+### 2B.2 It detects and records. It never repairs.
+
+Conflict resolution is per-field ownership (§3.2) and is **45e's**, deliberately. A detector that
+also mutates cannot be trusted to tell the truth, because its own writes become tomorrow's findings.
+There is no route to clear a drift row either: a human clearing one would clear the *symptom* and
+leave the two systems disagreeing.
+
+### 2B.3 A paged full-list diff, never a per-row `GET`
+
+`00d` §6.3 asks for this to be said out loud, because the per-row version *"is the one somebody
+writes first, because it is easier to reason about"*. Budget: ~115 pages at 110ms ≈ **30s at ~9
+req/s**, an order of magnitude inside GHL's 100-per-10-seconds. Per-row is 11.4k requests — about
+**21 minutes of continuous budget**, starving every desk while it runs. A test asserts the audit
+calls `allIn` and never the windowed reads.
+
+Nightly, on Unit 19's machinery, so it joins the admin panel's staleness warning for free: **an audit
+that quietly stopped running reads as "no drift"**, which is worse than no audit at all.
+
+### 2B.4 Two things it must never call drift
+
+Both are pinned by tests, because a detector that cries wolf is one nobody reads:
+
+- **A portal-born row with no `ghl_id`.** `00c` §2a says that is a *legal* state — the whole reason a
+  row has two names. Recording every one as MISSING_IN_GHL would fill the report with rows nobody
+  should act on, on the busiest day the portal has.
+- **`1000` against `1000.00`.** Compared by value, not by string. A report wrong every single night
+  is one that gets ignored.
+
+### 2B.5 Scope: opportunities, and the two reasoned absences
+
+**Pipelines and stages are not audited** — the 44a sweep overwrites them hourly through the same code
+path, so a finding is impossible by construction. **Contacts are not audited yet** for a different
+reason that will change: EvalOS has no GHL contact *read* client at all, only the upsert, so there is
+nothing to compare against. They join with 45d's contact webhooks.
+
+**Four fields compared** — stage, status, amount, name. Each is one a desk acts on; a field nobody
+reads cannot produce a finding anybody can act on. `assignedTo` is deliberately absent because `00d`
+§6.2 gives it to GHL outright, so EvalOS disagreeing about it is not drift, it is EvalOS being
+behind.
+
+### 2B.6 One index detail worth knowing
+
+`uq_sync_drift_open` includes `entity_id` while the finders key on `(brand, type, ghl_id, field)`.
+They cannot disagree: `uq_opportunity_per_brand_ghl_id` means at most one local row per GHL id, so
+`entity_id` is functionally determined by `ghl_id`. Noted rather than left for somebody to spot and
+worry about.
+
+---
+
+## 3. What the rest of Unit 45 must do
+
+Carried here so the amendments are not re-derived from `00d`. Nothing below is blocked any more —
+Unit 44 is complete.
 
 ### 3.1 The outbox (`00d` §6.3, second bullet)
 
@@ -137,10 +201,7 @@ row-level timestamps make every concurrent edit a conflict, which per-field owne
 ~21 minutes of continuous budget — starves every desk, and is the one somebody writes first because
 it is easier to reason about.
 
-### 3.4 `sync_drift` is a table (`00d` §6.3, first bullet)
-
-`00c` §4b and §4c both say "the drift report" as if it were a document. §4c's guarantee that
-*every divergence is detected* is only checkable if yesterday's divergences are still queryable.
+### 3.4 `sync_drift` is a table (`00d` §6.3, first bullet) — **BUILT at 45b, see §2B**
 
 ### 3.5 The webhook replay is not the delta sweep (`00d` §6.4)
 
@@ -162,3 +223,21 @@ mirror. `00d` §2.3's replay sweep stays separate and Unit 45 must not absorb it
 - [x] `EMPTY_RESPONSE` is never retriable.
 - [x] No HTTP status EvalOS returns changed — every class is still a 502 to a staff caller.
 - [x] The two `missingScopeHint` string matches are gone.
+
+---
+
+## 5. Acceptance — slice 45b
+
+- [x] `sync_drift` exists, is brand-scoped, and holds one **open** row per disagreement with
+      `first_detected_at` / `last_seen_at` rather than one row per run.
+- [x] A drift seen again is updated, with both values refreshed; a drift no longer seen is
+      **resolved, not deleted**.
+- [x] A deal only GHL has is `MISSING_LOCALLY`; a deal only EvalOS has (with a `ghl_id`) is
+      `MISSING_IN_GHL`.
+- [x] Each disagreeing field is its own row, carrying **both** sides' values.
+- [x] A portal-born row with no `ghl_id` is **not** drift.
+- [x] `1000` and `1000.00` are **not** drift.
+- [x] The audit reads one paged list per pipeline and never one row at a time.
+- [x] A blank selling brand audits nothing and does not call GHL.
+- [x] `GET /api/sync/drift` is GM-only and carries the age of the oldest open finding.
+- [x] Nothing is repaired, and there is no route to clear a row by hand.

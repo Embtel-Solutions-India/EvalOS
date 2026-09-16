@@ -3,8 +3,8 @@
 ## CURRENT DATABASE
 
 Verified 2026-09-16 against the live local Postgres 18 database `evalos` (`pg_dump --schema-only`
-plus `pg_constraint` / `pg_indexes`). **Flyway V1–V55 all applied, `success = true`.** (`V50`–`V55` are Unit 44's four slices, added
-2026-09-16 and verified by `LocalPostgresIntegrationTest`.) Migrations
+plus `pg_constraint` / `pg_indexes`). **Flyway V1–V56 all applied, `success = true`.** (`V50`–`V55` are Unit 44's four slices and `V56`
+is Unit 45b, added 2026-09-16 and verified by `LocalPostgresIntegrationTest`.) Migrations
 live in `backend/src/main/resources/db/migration/`.
 
 > No production database was reachable from this workspace. Everything below is the schema the
@@ -40,6 +40,7 @@ live in `backend/src/main/resources/db/migration/`.
 | `notification` | in-app notification to a team member | yes |
 | `audit_event` | **append-only trigger**; before/after jsonb, actor and actor_type | yes (nullable) |
 | `webhook_event` | every inbound webhook, raw payload, processed flag | yes (nullable) |
+| `sync_drift` | **divergences between EvalOS and GHL** (45b, `V56`): one OPEN row per disagreement, `first_detected_at` / `last_seen_at`, resolved rows kept as history | yes |
 | `scheduled_job` | one row per sweep run: RUNNING / OK / FAILED, items seen and acted | **no** |
 
 ### Relationships that matter
@@ -139,9 +140,10 @@ Not present today. Do not write code that assumes any of it exists.
 2026-09-16. They are in CURRENT above. What is left:
 
 ```sql
-outbox               (partial-unique on entity_id, not payload)   -- 45
-sync_drift           (the reported mismatches)                    -- 45
+outbox               (partial-unique on entity_id, not payload)   -- 45c
 ```
+
+`sync_drift` is **built** (45b, `V56`) and is in CURRENT above.
 
 Two deviations from `00c` §2's sketch, both recorded in `44-ghl-tier1-mirror.md` §5:
 **`opportunity` has no `sync_state` column** — today it is derivable (`ghl_id IS NULL`) and every

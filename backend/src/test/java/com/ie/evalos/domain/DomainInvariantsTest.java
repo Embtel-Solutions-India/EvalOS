@@ -15,6 +15,7 @@ import com.ie.evalos.repository.ClientAccountRepository;
 import com.ie.evalos.repository.ClientApplicationRepository;
 import com.ie.evalos.repository.OpportunityRepository;
 import com.ie.evalos.repository.PipelineRepository;
+import com.ie.evalos.repository.SyncDriftRepository;
 import com.ie.evalos.repository.PipelineStageRepository;
 import com.ie.evalos.repository.ClientCredentialTokenRepository;
 import com.ie.evalos.repository.ContactSnapshotRepository;
@@ -75,7 +76,8 @@ class DomainInvariantsTest {
 				arguments(ClientApplicationRepository.SCOPE, ClientApplication.class),
 				arguments(PipelineRepository.SCOPE, Pipeline.class),
 				arguments(PipelineStageRepository.SCOPE, PipelineStage.class),
-				arguments(OpportunityRepository.SCOPE, Opportunity.class));
+				arguments(OpportunityRepository.SCOPE, Opportunity.class),
+				arguments(SyncDriftRepository.SCOPE, SyncDrift.class));
 	}
 
 	@ParameterizedTest
