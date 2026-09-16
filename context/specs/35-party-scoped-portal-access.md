@@ -1,7 +1,17 @@
 # Unit 35 — Party-scoped portal access, the stage projection, and the expert's payout view
 
-> **Status: §7 BUILT 2026-09-04 (D8 + G14). §6 step 3 BUILT 2026-09-10 — the migration, the two
-> party reads, the projection and D6's whitelist. §6 step 4 (34d then 34b) is NOT built.** This is the unit that implements four decisions
+> **Status: BUILT. §7 2026-09-04 (D8 + G14); §6 step 3 2026-09-10 — the migration, the two party
+> reads, the projection and D6's whitelist; §6 step 4 (34b then 34d) 2026-09-11.** *(This line said
+> step 4 was "NOT built" long after it shipped — corrected 2026-09-12.)*
+>
+> **⚠ AMENDED 2026-09-12 — the party credential survives; the staff-minted CLIENT link does not.**
+> D1's party token is exactly what Unit 42's sign-in mints, so nothing here is undone. What is gone
+> is the *other* way to obtain one: `POST /api/cases/{id}/portal-link?audience=CLIENT` and the
+> client arm of `mintForParty`. Clients reach the portal at its own origin and sign in. `resolve`
+> still admits CLIENT rows, so links already issued keep working until they expire. **The expert
+> half of every mechanism in this spec is untouched** — an expert has no account.
+>
+> This is the unit that implements four decisions
 > the business took on 2026-09-04, recorded in `34-portal-frontend-wiring.md` §4:
 > **D1** (a portal credential names a party, not a case), **D5** (one lifecycle vocabulary,
 > EvalOS's, projected into the payload), **D6** (an expert reads their own payout rows), and

@@ -113,7 +113,7 @@ class InboundWebhookTest {
 			  "date_created": "2026-09-02T01:03:25.791Z",
 			  "full_address": "",
 			  "contact_type": "lead",
-			  "location": {"name": "International Evaluations", "id": "kBumF0uUOmMBB5bneYjx"},
+			  "location": {"name": "International Evaluations", "id": "WY6bW2xUCI8Tz8gw7aLJ"},
 			  "workflow": {"id": "3089c141", "name": "Webhook for Case creation in EvalOS"},
 			  "triggerData": {},
 			  "contact": {"attributionSource": {"sessionSource": "CRM UI", "medium": "csv_import"}},

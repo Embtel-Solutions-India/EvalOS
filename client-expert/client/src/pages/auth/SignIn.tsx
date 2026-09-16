@@ -4,9 +4,14 @@ import { Button } from '@shared/components/ui/button'
 import { Card } from '@shared/components/ui/card'
 import { FormField } from '@shared/components/common/FormField'
 import { Input } from '@shared/components/ui/input'
-import { failureMessage } from '@shared/lib/portal'
 import { statusOf } from '@shared/services/apiClient'
-import { forgotPassword, identify, signIn, type IdentifyState } from '@/services/authService'
+import {
+  authFailureMessage,
+  forgotPassword,
+  identify,
+  signIn,
+  type IdentifyState,
+} from '@/services/authService'
 
 /**
  * One email field that decides what the rest of this screen looks like (Unit 42).
@@ -24,6 +29,8 @@ import { forgotPassword, identify, signIn, type IdentifyState } from '@/services
  * missing sentence — it is a screen with no message and no way forward. `MAIL_UNAVAILABLE` was
  * exactly that until review found it, past a comment saying a new state would "fail loudly".
  * A comment cannot fail; a `Record<IdentifyState, …>` can, so the rule is a type now.
+ *
+ * @see STATE_MESSAGE
  */
 
 /**
@@ -42,6 +49,7 @@ const STATE_MESSAGE: Record<IdentifyState, string | null> = {
   MAIL_UNAVAILABLE:
     "You're in our system, but we can't send you a set-password link right now. Please contact us and we'll get you in.",
 }
+
 export default function SignIn() {
   const navigate = useNavigate()
 
@@ -78,7 +86,9 @@ export default function SignIn() {
     try {
       setState(await identify(email.trim()))
     } catch (error) {
-      setIdentifyError(failureMessage(statusOf(error)))
+      // A 400 here is the request being rejected, not the address being unknown — an unknown
+      // address is a 200 answering UNKNOWN, which is the whole point of asking first.
+      setIdentifyError(authFailureMessage(statusOf(error), 'Please enter a valid email address.'))
     } finally {
       setIdentifying(false)
     }
@@ -92,7 +102,13 @@ export default function SignIn() {
       await signIn(email.trim(), password)
       navigate('/dashboard')
     } catch (error) {
-      setSignInError(failureMessage(statusOf(error)))
+      // **One message, because the server sends one refusal.** A wrong password, an account with
+      // no password and an unknown email are deliberately indistinguishable here (`identify` is
+      // where the difference is told, once, under the limiter) — so this must not guess which it
+      // was, and must not send the client off to look for a link.
+      setSignInError(
+        authFailureMessage(statusOf(error), "That email and password don't match. Please try again."),
+      )
     } finally {
       setSigningIn(false)
     }
@@ -174,9 +190,9 @@ export default function SignIn() {
                 type="button"
                 variant="outline"
                 className="w-full"
-                onClick={() => navigate('/start', { state: { email: email.trim() } })}
+                onClick={() => navigate('/signup', { state: { email: email.trim() } })}
               >
-                Start a new evaluation
+                Create an account
               </Button>
             </div>
           )}

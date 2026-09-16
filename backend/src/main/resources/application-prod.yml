@@ -23,26 +23,39 @@ spring:
 evalos:
   mail:
     from: ${EVALOS_MAIL_FROM:}
+    # Who carries the two messages EvalOS sends. One of the MailTransport beans by name:
+    # `smtp` (Spring Mail) or `ghl` (POST /conversations/messages, so the link lands in the
+    # contact's own conversation thread). A third — Brevo — is a new class and this value.
+    #
+    # **A name that matches nothing fails at startup and says what it found.** Falling back
+    # silently would be discovered by a client who never got their link.
+    transport: ${EVALOS_MAIL_TRANSPORT:ghl}
+    # The envelope sender for the `ghl` transport. **Blank is the better default**: GHL knows
+    # which domain this location has authenticated, and an address it cannot sign for is how a
+    # password mail silently lands in spam.
+    ghl-from: ${EVALOS_MAIL_GHL_FROM:}
   portal:
     # Must name the deployed portal origin. **No default, so a missing value fails the boot** —
     # which is what the comment used to claim while the value carried an empty default and booted
     # happily into a portal where every cross-origin call was rejected. A CORS refusal surfaces in
     # the browser as something that looks like an auth problem, so "loud" has to mean at startup.
     allowed-origins: ${EVALOS_PORTAL_ORIGINS}
-    # No default, on purpose, and this is a change: the base profile defaults this to the
-    # Vite dev server because that is correct on every developer's laptop, which makes it
-    # actively dangerous in production. An unset value there does not fail — it mints
-    # links pointing at localhost:5173 and hands them to clients and experts, who get a
-    # dead page. Since dropping the signature provider, an expert's *only* route to the
-    # letter is one of these links, so a wrong origin now blocks signing too.
+    # **Both app origins, both without a default, and the second one is new here.** The base
+    # profile defaults each to a Vite dev server because that is correct on every developer's
+    # laptop, which is exactly what makes it dangerous in production: an unset value does not
+    # fail, it hands somebody a link to localhost. So they follow the JWT_SECRET /
+    # EVALOS_FIELD_KEY rule — an environment that forgets one must fail to start rather than run
+    # on a guess.
     #
-    # So it follows the JWT_SECRET / EVALOS_FIELD_KEY rule instead: an environment that
-    # forgets it must fail to start rather than run on a guess. This is the client- and
-    # expert-facing origin, not the API's.
-    base-url: ${PORTAL_BASE_URL}
-    # No default here either, and for a sharper reason than its neighbour: an unset value falls
+    # `PORTAL_EXPERT_BASE_URL` was NOT listed here before, and that was a live hole rather than an
+    # omission: `expert-base-url` used to fall back to `base-url` when blank, so prod happened to
+    # mint expert links onto the client origin and nobody noticed. That fallback is deleted with
+    # `base-url` itself. An expert's *only* route to the letter is one of these links, so a wrong
+    # origin blocks signing.
+    expert-base-url: ${PORTAL_EXPERT_BASE_URL}
+    # The client portal. Builds one URL and only one: the set-password mail. An unset value falls
     # back to the dev default, so a deployment that forgets it mails production clients a link to
-    # localhost. The failure is silent at boot and visible only in somebody's inbox.
+    # localhost — silent at boot and visible only in somebody's inbox.
     client-base-url: ${PORTAL_CLIENT_BASE_URL}
     # No default, for the same reason as its two neighbours above. An empty value is not "unset"
     # to Spring — it binds as a null UUID, which boots happily into a portal where every identify
@@ -50,6 +63,16 @@ evalos:
     # There is no log line and no failing request to find; it just looks like nobody has an account.
     client-brand: ${EVALOS_PORTAL_CLIENT_BRAND}
     credential-ttl: ${EVALOS_PORTAL_SIGNIN_LINK_TTL:30m}
+    # How long an unproved sign-up is kept before PORTAL_CLEANUP removes it (D3a).
+    #
+    # **Thirty days, and generous on purpose.** This is the window in which a real client who
+    # signed up, never opened the mail and came back still finds their own row instead of being
+    # told "we couldn't find that email" for a second time. **Only self-service sign-ups are
+    # eligible** (`created_via = 'SIGNUP'`, V59) with no password set, and the sweep skips any that
+    # acquired a token, an application or a session. A client seeded by V45 is never touched at any
+    # cutoff — so shortening this tidies the table and costs a returning client; it protects
+    # nothing extra.
+    abandoned-sign-up-after: ${EVALOS_PORTAL_ABANDONED_AFTER:30d}
   s3:
     # Required in a deployed environment. Absent, every document route answers 502 and the boot log
     # says which variable is missing.
@@ -64,7 +87,7 @@ evalos:
     # **The one place this profile deliberately does NOT follow "an environment that forgets it
     # must fail to start."** Stated because it otherwise reads as an oversight.
     #
-    # `JWT_SECRET`, `EVALOS_FIELD_KEY`, `DRIVE_REQUIRED` and `PORTAL_BASE_URL` are fatal because
+    # `JWT_SECRET`, `EVALOS_FIELD_KEY`, `DRIVE_REQUIRED` and the two portal origins are fatal because
     # getting them wrong is either unrecoverable or reaches an outsider: a guessed signing key,
     # plaintext at rest, an upload failing in front of a waiting client, a portal link pointing
     # at somebody's laptop. A missing GHL token is neither — it gates ONE read-only GM screen,
@@ -85,30 +108,94 @@ evalos:
     # The screen says "one GHL location" rather than naming a brand, because EvalOS has no
     # mapping from a location to a brand yet and must not imply one.
     location-id: ${GHL_LOCATION_ID:}
-    # Matched by NAME, not by id. A rename in GHL therefore breaks this screen with a stated 502
-    # rather than an empty funnel that reads as a bad month — and the fix is an environment
-    # change, not a deploy.
-    ads-pipeline-name: ${GHL_ADS_PIPELINE_NAME:Google ADS Pipeline}
-    # The email marketing funnel, by name for the same reason. All three defaults are the names the
-    # live location actually uses today, so a deployment sets none of them unless GHL renames one.
-    email-pipeline-name: ${GHL_EMAIL_PIPELINE_NAME:Shivangi's Email Marketing}
+    # **Unit 43's intake funnel, by name for the same reason as every other pipeline here.**
+    # A client picking a service opens an opportunity on this pipeline at the stage below, which
+    # is what puts a self-service lead on a salesperson's board the moment they start rather than
+    # when they finish.
+    #
+    # **Blank by default, and that is the safe direction.** `GhlPipelineClient.pipelineNamed`
+    # matches nothing on an empty name and answers 502 — so an unconfigured environment refuses
+    # to open a request and says why, instead of filing every client's application into whichever
+    # pipeline GHL happened to return first.
+    #
+    # **There is no stage property beside this, and that is a decision.** EvalOS puts the
+    # opportunity on this pipeline and stops: which stage it lands in, and who it is assigned to,
+    # are GHL's automation's job. A `hot-stage-name` existed here briefly and was removed — it made
+    # EvalOS hold a second opinion about pipeline placement, which goes stale the first time
+    # somebody reworks the workflow in GHL.
+     # The GHL opportunity custom field that carries the requested service — the one input GHL's
+    # own workflow needs to route a client's request to the right pipeline.
+    #
+    # **THIS IS WHAT MAKES "assign the pipeline by service" POSSIBLE, and it is the whole of
+    # EvalOS's part in it.** A GHL workflow triggered by opportunity-created can branch on a custom
+    # field; it cannot branch on the free text in the opportunity's NAME, which is the only place
+    # the service appeared before. So EvalOS states the fact it owns — which service was asked for
+    # — and GHL decides which pipeline that belongs on. Mapping eighteen services onto four sales
+    # pipelines is a business rule, and it lives in the workflow for the same reason the stage
+    # does: a copy here goes stale the first time somebody reworks the routing over there.
+    #
+    # **The value sent is the service ID** (`academic_evaluation`, `eb1a_expert_opinion_letter`, …
+    # see the client portal's `serviceCatalog.ts`), not the display name. The name is for a human
+    # reading a board and changes when the catalog is reworded; the id is the stable slug a
+    # workflow condition can be written against.
+    #
+    # **The GHL custom field ID, not its name or key** — an opaque 20-character string, the same
+    # shape as `team_member.ghl_pipeline_id` and for the same reason: a field renamed in GHL must
+    # not silently stop routing. Read it from GHL under Settings → Custom Fields (object:
+    # Opportunity), or from `GET /api/sales/opportunity-fields`, which the sales desk already
+    # calls.
+    #
+    # **Blank omits the field and nothing else changes.** The deal is still opened on the intake
+    # pipeline and still names the person and the service; it simply lands wherever GHL's default
+    # routing puts it. An environment that has not created the field yet must not lose the lead
+    # over it.
+    opportunity-service-field: ${GHL_OPPORTUNITY_SERVICE_FIELD:}
+    # The GHL opportunity custom field that says the client finished the questionnaire.
+    #
+    # **This exists because of D10**: the opportunity is opened when the client PICKS a service, not
+    # when they submit, so that a client who abandons halfway still reaches a salesperson. The cost
+    # of that decision is that a deal on the board says nothing about whether it is somebody
+    # browsing or a finished request. This field is the difference, and it gives GHL a second
+    # workflow trigger — notify, move a stage, start a sequence — without EvalOS holding any opinion
+    # about which.
+    #
+    # The value written is the constant `SUBMITTED`. Deliberately not configurable: a value a
+    # deployer could change is one a GHL workflow condition would have to be kept in step with by
+    # hand, and there is nothing to gain from the two disagreeing.
+    #
+    # A GHL custom field ID, same shape and same sourcing as the line above. Blank skips the call —
+    # the request is still submitted in EvalOS, which is where it lives.
+    opportunity-submitted-field: ${GHL_OPPORTUNITY_SUBMITTED_FIELD:}
+    # The GHL opportunity custom field carrying EvalOS's own opportunity id -- the CORRELATION KEY.
+    #
+    # **This is `00d` §6.1, which calls it "the single biggest sequencing error in `00c`".** The
+    # outbox gives at-least-once delivery, and `POST /opportunities/` is not idempotent, so a retry
+    # after a TIMEOUT is exactly how one opportunity becomes two: EvalOS cannot tell "GHL never got
+    # it" from "GHL got it and the answer was lost". The fix is a key EvalOS chooses, writes into a
+    # custom field on create, and can look for afterwards.
+    #
+    # **The key is persisted BEFORE the call**, in `opportunity.id` -- a key minted in memory and
+    # lost to a timeout is a key no retry can search for.
+    #
+    # **Reading it back is not a filter GHL offers, and that is a correction to §6.1's wording.**
+    # Verified against the API: neither `GET /opportunities/search` nor the advanced POST accepts a
+    # custom-field filter. The implementable form is to ask GHL for the CONTACT's opportunities --
+    # `contactId` IS a supported filter -- and match the correlation value locally. One contact has
+    # a handful of deals, and a retry-after-timeout is rare.
+    #
+    # A GHL custom field ID, same shape and sourcing as the two above. Blank omits the field: the
+    # deal is still created, and the duplicate risk on a retry is simply the one that exists today.
+    opportunity-correlation-field: ${GHL_OPPORTUNITY_CORRELATION_FIELD:}
     # Unit 36's single-brand ceiling; the reasoning is in the base profile.
     sales-brand: ${GHL_SALES_BRAND_ID:}
     board-cache-ttl: ${GHL_BOARD_CACHE_TTL:2m}
-    # The sales funnel. Written with ONE space where GHL stores two — the client collapses
-    # whitespace before matching, so this is correct as written; see the base profile.
-    sales-pipeline-name: ${GHL_SALES_PIPELINE_NAME:Aditya's pipeline}
     # Per page, not for the whole paginated read. This runs on a request path, so the bound is
     # what keeps it inside invariant 6's "one bounded request".
+    # Connect and read timeout on each GHL request. Required because this runs in a
+    # controller-triggered path, and a bound is what keeps it "one bounded request" rather than
+    # long-lived work (invariant 6). The read is paginated, so the bound is per page and not for
+    # the whole read.
     timeout: ${GHL_TIMEOUT:10s}
-    # A WRITE's bound, and deliberately more generous than the read's. A read that times out costs
-    # a stale screen; a write that times out leaves the outcome UNKNOWN - GHL may have applied it -
-    # and there is no safe automatic retry. Waiting longer for the truth beats telling a sales
-    # executive their stage move failed when it did not. Unit 29.
-    # The rate limiter, not a speed-up: without it, N open dashboards are N multi-page GHL reads
-    # per refresh and GHL's own limit becomes an EvalOS outage. Do not shorten it in a deployed
-    # environment — the local profile does, and says why.
-    cache-ttl: ${GHL_CACHE_TTL:PT5M}
 
 server:
   # MUST be `framework` if anything terminates the connection in front of the app — a

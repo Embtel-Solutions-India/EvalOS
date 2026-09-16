@@ -1,0 +1,165 @@
+package com.ie.evalos.domain;
+
+import java.time.Instant;
+import java.util.UUID;
+
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
+import jakarta.persistence.Table;
+
+/**
+ * One thing EvalOS and GHL disagree about — Unit 45, slice B.
+ *
+ * <p><strong>A row, not a log line.</strong> {@code 00d} §6.3: {@code 00c} §4c's guarantee that
+ * <em>every divergence is detected</em> "is only checkable if yesterday's divergences are still
+ * queryable". A report printed somewhere is a claim; this is evidence.
+ *
+ * <p><strong>Detected here, never repaired here.</strong> Resolution is per-field ownership
+ * ({@code 00d} §6.2) and belongs to a later slice. A detector that also mutates cannot be trusted to
+ * tell the truth, because its own writes become the next night's findings.
+ *
+ * <p><strong>One open row per thing that is wrong</strong>, with {@code firstDetectedAt} and
+ * {@code lastSeenAt} rather than a row per audit run — a drift that persists for a week is one fact,
+ * and a row per night buries the new findings under the old ones. Resolved rows stay: "this drifted
+ * and then stopped" is the history worth keeping, and deleting it would make the table unable to
+ * say whether a fix worked.
+ */
+@Entity
+@Table(name = "sync_drift")
+public class SyncDrift extends ScopedEntity {
+
+	/** What kind of disagreement this is. */
+	public enum Kind {
+
+		/** GHL has a row EvalOS has never seen. The mirror is behind, or a sync was lost. */
+		MISSING_LOCALLY,
+
+		/**
+		 * EvalOS holds a row with a GHL id that GHL no longer returns.
+		 *
+		 * <p>Not the same as a portal-born row with no {@code ghl_id} — that is a legal state, not
+		 * drift, and the sweep excludes it.
+		 */
+		MISSING_IN_GHL,
+
+		/** Both sides have the row and one field disagrees. */
+		FIELD_MISMATCH
+	}
+
+	@Enumerated(EnumType.STRING)
+	@Column(name = "entity_type", nullable = false, updatable = false)
+	private SyncEntity entityType;
+
+	@Column(name = "entity_id", updatable = false)
+	private UUID entityId;
+
+	@Column(name = "ghl_id", updatable = false)
+	private String ghlId;
+
+	@Enumerated(EnumType.STRING)
+	@Column(name = "kind", nullable = false, updatable = false)
+	private Kind kind;
+
+	@Column(name = "field", updatable = false)
+	private String field;
+
+	@Column(name = "local_value")
+	private String localValue;
+
+	@Column(name = "ghl_value")
+	private String ghlValue;
+
+	@Column(name = "first_detected_at", nullable = false, updatable = false)
+	private Instant firstDetectedAt;
+
+	@Column(name = "last_seen_at", nullable = false)
+	private Instant lastSeenAt;
+
+	@Column(name = "resolved_at")
+	private Instant resolvedAt;
+
+	protected SyncDrift() {
+		// for JPA
+	}
+
+	public SyncDrift(UUID brandId, SyncEntity entityType, UUID entityId, String ghlId, Kind kind,
+			String field, String localValue, String ghlValue) {
+		super(brandId);
+		this.entityType = entityType;
+		this.entityId = entityId;
+		this.ghlId = ghlId;
+		this.kind = kind;
+		this.field = field;
+		this.localValue = localValue;
+		this.ghlValue = ghlValue;
+		this.firstDetectedAt = Instant.now();
+		this.lastSeenAt = this.firstDetectedAt;
+	}
+
+	/**
+	 * Tonight's audit found this still wrong.
+	 *
+	 * <p>The values are refreshed as well as the timestamp: a mismatch whose two sides have both
+	 * moved on is still the same disagreement, and showing last week's numbers beside today's date
+	 * would be worse than showing neither.
+	 */
+	public void seenAgain(String localValue, String ghlValue) {
+		this.localValue = localValue;
+		this.ghlValue = ghlValue;
+		this.lastSeenAt = Instant.now();
+		this.resolvedAt = null;
+	}
+
+	/** The two sides agree again. The row stays. */
+	public void resolve() {
+		if (this.resolvedAt == null) {
+			this.resolvedAt = Instant.now();
+		}
+	}
+
+	public SyncEntity getEntityType() {
+		return entityType;
+	}
+
+	public UUID getEntityId() {
+		return entityId;
+	}
+
+	public String getGhlId() {
+		return ghlId;
+	}
+
+	public Kind getKind() {
+		return kind;
+	}
+
+	public String getField() {
+		return field;
+	}
+
+	public String getLocalValue() {
+		return localValue;
+	}
+
+	public String getGhlValue() {
+		return ghlValue;
+	}
+
+	public Instant getFirstDetectedAt() {
+		return firstDetectedAt;
+	}
+
+	public Instant getLastSeenAt() {
+		return lastSeenAt;
+	}
+
+	public Instant getResolvedAt() {
+		return resolvedAt;
+	}
+
+	public boolean isOpen() {
+		return resolvedAt == null;
+	}
+}

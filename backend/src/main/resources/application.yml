@@ -80,6 +80,27 @@ evalos:
     # Add `team_member.capacity` the day part-time or junior loads actually diverge — the bands
     # and the display do not change when it does.
     cases-per-cm: ${WORKLOAD_CASES_PER_CM:12}
+  sales:
+    # The GM overview's denominator: how much won business the month is aiming at. One number for
+    # the selling brand, on the same shape as `workload.cases-per-cm` and
+    # `roster.monthly-onboarding-target` — the figure was always computable, only the target had
+    # nowhere to live.
+    #
+    # **Zero means "no goal", and the tile then shows the amount alone** rather than a percentage
+    # of nothing. That is also why the percentage is suppressed on any window that is not a
+    # calendar month: a monthly target against a week is arithmetic dressed as a business figure.
+    monthly-goal: ${SALES_MONTHLY_GOAL:0}
+    # How far back "won this month" looks for deals to bucket.
+    #
+    # **This is not a tuning knob, it is a correctness bound.** GHL's opportunity search filters
+    # on `createdAt` and offers no filter on `lastStatusChangeAt`, so the only way to find a deal
+    # WON in September that was OPENED in July is to read the wins over a window wide enough to
+    # contain the sales cycle and bucket them in EvalOS. Set this shorter than the real sales
+    # cycle and the won figure is silently low; set it much longer and the read gets slower for
+    # nothing. 180 days is a comfortable multiple of a credential-evaluation sale.
+    #
+    # ponytail: goes away at Unit 44 — a mirrored `opportunity` table makes this one WHERE clause.
+    won-lookback-days: ${SALES_WON_LOOKBACK_DAYS:180}
   roster:
     # How many experts the network aims to onboard each month. The denominator behind the ENM's
     # "onboarded vs target" tile. One number per brand for the same reason cases-per-cm is
@@ -97,13 +118,24 @@ evalos:
     # GHL_API_TOKEN an empty default rather than a fatal one. A password reset is recoverable by
     # a support conversation; a refused boot is not recoverable by anyone.
     from: ${EVALOS_MAIL_FROM:}
+    # Who carries the two messages EvalOS sends. One of the MailTransport beans by name:
+    # `smtp` (Spring Mail) or `ghl` (POST /conversations/messages, so the link lands in the
+    # contact's own conversation thread). A third — Brevo — is a new class and this value.
+    #
+    # **A name that matches nothing fails at startup and says what it found.** Falling back
+    # silently would be discovered by a client who never got their link.
+    transport: ${EVALOS_MAIL_TRANSPORT:smtp}
+    # The envelope sender for the `ghl` transport. **Blank is the better default**: GHL knows
+    # which domain this location has authenticated, and an address it cannot sign for is how a
+    # password mail silently lands in spam.
+    ghl-from: ${EVALOS_MAIL_GHL_FROM:}
   portal:
     # Which brand this portal deployment serves. **NOT evalos.ghl.sales-brand** — that one names
     # which brand's STAFF may hold the SALES and MARKETING roles, a staff-authorization ceiling
     # on the normal chain. Nothing on the portal chain has roles. A second brand is a second
     # portal deployment with its own value here.
     client-brand: ${EVALOS_PORTAL_CLIENT_BRAND:}
-    # How long a set-password or reset-password link lives. Thirty minutes: long enough to walk
+    # How long a set-password or reset-password link lives. Ten minutes: long enough to walk
     # to another device, short enough that a forwarded mailbox is not a standing credential.
     #
     # **The key and its variable deliberately do not match, and this is not an oversight.**
@@ -112,28 +144,33 @@ evalos:
     # values misses short ones. A TTL is not a secret, so the variable is named for what it is to
     # a deployer (the sign-in link's lifetime) instead. Renaming it to EVALOS_PORTAL_CREDENTIAL_TTL
     # to "fix" the mismatch reintroduces that build failure.
-    credential-ttl: ${EVALOS_PORTAL_SIGNIN_LINK_TTL:30m}
+    credential-ttl: ${EVALOS_PORTAL_SIGNIN_LINK_TTL:10m}
+    # How long an unproved sign-up is kept before PORTAL_CLEANUP removes it (D3a).
+    #
+    # **Thirty days, and generous on purpose.** This is the window in which a real client who
+    # signed up, never opened the mail and came back still finds their own row instead of being
+    # told "we couldn't find that email" for a second time. **Only self-service sign-ups are
+    # eligible** (`created_via = 'SIGNUP'`, V59) with no password set, and the sweep skips any that
+    # acquired a token, an application or a session. A client seeded by V45 is never touched at any
+    # cutoff — so shortening this tidies the table and costs a returning client; it protects
+    # nothing extra.
+    abandoned-sign-up-after: ${EVALOS_PORTAL_ABANDONED_AFTER:30d}
     # The portal frontend's origin(s), comma-separated. **Empty by default and never `*`** —
     # see PortalSecurityConfig. An environment that forgets this gets a failing preflight, which
     # is loud; a wildcard would be silent and wrong.
     allowed-origins: ${EVALOS_PORTAL_ORIGINS:}
-    # Where a minted portal link points. The SPA serves /portal/client, so this is the client
-    # app's own origin — defaulted to the Vite dev server because that is where it is correct
-    # for every developer, and it must be set to the real origin in any deployed environment or
-    # the link mailed to a client points at somebody's laptop.
-    base-url: ${PORTAL_BASE_URL:http://localhost:5173}
-    # **The expert portal is a different application on a different origin** (client-expert/expert,
-    # split 2026-09-03), so its links cannot be built from the client's base. Defaults to the
-    # expert Vite dev server. Set it in every deployed environment: an unset value here does not
-    # fail loudly — it mints a link to the wrong host, which looks like a broken link to the one
-    # participant EvalOS cannot train.
+    # **Two origins, one per app a person is ever sent to.** `base-url` was a third and is DELETED:
+    # it named whatever served `/portal/client`, a second copy of the client portal that lived
+    # inside the STAFF SPA and was superseded by slice 34b. Nothing mints a client link any more —
+    # clients reach the portal from a button on the website and sign in — so there is no base to
+    # hold, and the expert base no longer falls back to it (an unset expert base used to mint
+    # expert links onto the client's origin).
+    #
+    # The expert portal (client-expert/expert, split 2026-09-03). This link is the ONLY way an
+    # expert is reached, so an unset value here does not fail loudly — it mints a link to the
+    # wrong host, which looks like a broken link to the one participant EvalOS cannot train.
     expert-base-url: ${PORTAL_EXPERT_BASE_URL:http://localhost:5175}
-    # **The client portal app is a third origin, and this is not `base-url`.** `base-url` above
-    # points at whatever serves `/portal/client`, which is the STAFF SPA (port 5173, and its own
-    # default). `/set-password` — the only thing this property builds — exists only in
-    # `client-expert/client` on 5174. Sharing one property meant the set-password mail landed a
-    # client on the staff sign-in page with their credential in the fragment. Same argument as
-    # `expert-base-url` directly above, one app later.
+    # The client portal (client-expert/client). Builds one URL and only one: the set-password mail.
     client-base-url: ${PORTAL_CLIENT_BASE_URL:http://localhost:5174}
     # How long a link works. A draft-review link that never expired would be a permanent bearer
     # credential sitting in somebody's inbox; re-minting is one click, so a short life costs
@@ -187,39 +224,92 @@ evalos:
     # funnel — not a cross-brand total. EvalOS has no mapping from a location to a brand, so it
     # cannot say which brand, cannot label it, and cannot filter by it.
     #
-    # That is why the endpoint is GM-only and takes no brandId — see MarketingPipelineService. An
-    # unattributable figure must not be shown to a role locked to one brand, because neither they
-    # nor the server can tell whether it is theirs. Do NOT add a brandId parameter to make it look
-    # scoped, and do not add a second global location here: Unit 25 puts the location on `brand`,
-    # which is the only thing that makes a second brand configurable.
+    # That is why every screen over it is GM-only — see GmOverviewService and the nav's
+    # `readsGhlLocation` marker. An unattributable figure must not be shown to a role locked to one
+    # brand, because neither they nor the server can tell whether it is theirs. Do NOT widen a gate
+    # to make a screen useful to its audience: that was the trade offered for the two funnel
+    # screens on 2026-09-16, and the business removed the screens instead. Do not add a second
+    # global location here either: Unit 25 puts the location on `brand`, which is the only thing
+    # that makes a second brand — or a Marketing-readable funnel — configurable.
     location-id: ${GHL_LOCATION_ID:}
-    # Which pipeline the marketing view draws. Looked up by NAME rather than by id, because the
-    # id is opaque and the name is what whoever provisions this can see in GHL. Renaming the
-    # pipeline over there makes this view answer 502 saying so, which is the right direction to
-    # fail in — the alternative is an empty funnel that looks like a bad month.
-    ads-pipeline-name: ${GHL_ADS_PIPELINE_NAME:Google ADS Pipeline}
-    # The second funnel on the same location: the email marketing pipeline. Same rules as the
-    # line above — matched by name, breaks loudly on a rename.
+    # **Unit 43's intake funnel, by name for the same reason as every other pipeline here.**
+    # A client picking a service opens an opportunity on this pipeline at the stage below, which
+    # is what puts a self-service lead on a salesperson's board the moment they start rather than
+    # when they finish.
     #
-    # THREE NAMES, NOT A LIST. A list would need a slug per entry to route and label it, and the
-    # slug is what the enum in MarketingPipelineService already is. The third funnel below was the
-    # test of that instruction and it held: a property and a constant, no new code path. Keep
-    # doing that; do not turn this into a map keyed by whatever GHL happens to call a pipeline
-    # this quarter.
-    email-pipeline-name: ${GHL_EMAIL_PIPELINE_NAME:Shivangi's Email Marketing}
-    # The sales team's own funnel — same location, same rules, and NOT a marketing campaign. It is
-    # here because the property is a GHL pipeline name like the two above; the screen it feeds
-    # sits under the Sales nav heading rather than Marketing.
+    # **Blank by default, and that is the safe direction.** `GhlPipelineClient.pipelineNamed`
+    # matches nothing on an empty name and answers 502 — so an unconfigured environment refuses
+    # to open a request and says why, instead of filing every client's application into whichever
+    # pipeline GHL happened to return first.
     #
-    # THE NAME IN GHL HAS TWO SPACES IN IT ("Aditya's<space><space>pipeline"). This default has
-    # one, deliberately, and it still matches: GhlPipelineClient collapses whitespace runs before
-    # comparing, precisely so nobody has to notice or preserve an invisible character here. Do not
-    # "correct" this line by pasting the double space back in — read that method's comment first.
-    sales-pipeline-name: ${GHL_SALES_PIPELINE_NAME:Aditya's pipeline}
-    # Connect and read timeout on each GHL request. Required because this runs in a
-    # controller-triggered path, and a bound is what keeps it "one bounded
-    # request" rather than long-lived work (invariant 6). The read is paginated, so the bound is
-    # per page and not for the whole funnel.
+    # **There is no stage property beside this, and that is a decision.** EvalOS puts the
+    # opportunity on this pipeline and stops: which stage it lands in, and who it is assigned to,
+    # are GHL's automation's job. A `hot-stage-name` existed here briefly and was removed — it made
+    # EvalOS hold a second opinion about pipeline placement, which goes stale the first time
+    # somebody reworks the workflow in GHL.
+     # The GHL opportunity custom field that carries the requested service — the one input GHL's
+    # own workflow needs to route a client's request to the right pipeline.
+    #
+    # **THIS IS WHAT MAKES "assign the pipeline by service" POSSIBLE, and it is the whole of
+    # EvalOS's part in it.** A GHL workflow triggered by opportunity-created can branch on a custom
+    # field; it cannot branch on the free text in the opportunity's NAME, which is the only place
+    # the service appeared before. So EvalOS states the fact it owns — which service was asked for
+    # — and GHL decides which pipeline that belongs on. Mapping eighteen services onto four sales
+    # pipelines is a business rule, and it lives in the workflow for the same reason the stage
+    # does: a copy here goes stale the first time somebody reworks the routing over there.
+    #
+    # **The value sent is the service ID** (`academic_evaluation`, `eb1a_expert_opinion_letter`, …
+    # see the client portal's `serviceCatalog.ts`), not the display name. The name is for a human
+    # reading a board and changes when the catalog is reworded; the id is the stable slug a
+    # workflow condition can be written against.
+    #
+    # **The GHL custom field ID, not its name or key** — an opaque 20-character string, the same
+    # shape as `team_member.ghl_pipeline_id` and for the same reason: a field renamed in GHL must
+    # not silently stop routing. Read it from GHL under Settings → Custom Fields (object:
+    # Opportunity), or from `GET /api/sales/opportunity-fields`, which the sales desk already
+    # calls.
+    #
+    # **Blank omits the field and nothing else changes.** The deal is still opened on the intake
+    # pipeline and still names the person and the service; it simply lands wherever GHL's default
+    # routing puts it. An environment that has not created the field yet must not lose the lead
+    # over it.
+    opportunity-service-field: ${GHL_OPPORTUNITY_SERVICE_FIELD:}
+    # The GHL opportunity custom field that says the client finished the questionnaire.
+    #
+    # **This exists because of D10**: the opportunity is opened when the client PICKS a service, not
+    # when they submit, so that a client who abandons halfway still reaches a salesperson. The cost
+    # of that decision is that a deal on the board says nothing about whether it is somebody
+    # browsing or a finished request. This field is the difference, and it gives GHL a second
+    # workflow trigger — notify, move a stage, start a sequence — without EvalOS holding any opinion
+    # about which.
+    #
+    # The value written is the constant `SUBMITTED`. Deliberately not configurable: a value a
+    # deployer could change is one a GHL workflow condition would have to be kept in step with by
+    # hand, and there is nothing to gain from the two disagreeing.
+    #
+    # A GHL custom field ID, same shape and same sourcing as the line above. Blank skips the call —
+    # the request is still submitted in EvalOS, which is where it lives.
+    opportunity-submitted-field: ${GHL_OPPORTUNITY_SUBMITTED_FIELD:}
+    # The GHL opportunity custom field carrying EvalOS's own opportunity id -- the CORRELATION KEY.
+    #
+    # **This is `00d` §6.1, which calls it "the single biggest sequencing error in `00c`".** The
+    # outbox gives at-least-once delivery, and `POST /opportunities/` is not idempotent, so a retry
+    # after a TIMEOUT is exactly how one opportunity becomes two: EvalOS cannot tell "GHL never got
+    # it" from "GHL got it and the answer was lost". The fix is a key EvalOS chooses, writes into a
+    # custom field on create, and can look for afterwards.
+    #
+    # **The key is persisted BEFORE the call**, in `opportunity.id` -- a key minted in memory and
+    # lost to a timeout is a key no retry can search for.
+    #
+    # **Reading it back is not a filter GHL offers, and that is a correction to §6.1's wording.**
+    # Verified against the API: neither `GET /opportunities/search` nor the advanced POST accepts a
+    # custom-field filter. The implementable form is to ask GHL for the CONTACT's opportunities --
+    # `contactId` IS a supported filter -- and match the correlation value locally. One contact has
+    # a handful of deals, and a retry-after-timeout is rare.
+    #
+    # A GHL custom field ID, same shape and sourcing as the two above. Blank omits the field: the
+    # deal is still created, and the duplicate risk on a retry is simply the one that exists today.
+    opportunity-correlation-field: ${GHL_OPPORTUNITY_CORRELATION_FIELD:}
     # Which brand owns `location-id`. Unit 36's single-brand ceiling, and it is ENFORCED rather
     # than documented: assigning SALES or MARKETING to a member of any other brand answers 400.
     #
@@ -242,14 +332,11 @@ evalos:
     #
     # The cache is droppable: raising this trades freshness for requests and nothing else.
     board-cache-ttl: ${GHL_BOARD_CACHE_TTL:2m}
+    # Connect and read timeout on each GHL request. Required because this runs in a
+    # controller-triggered path, and a bound is what keeps it "one bounded request" rather than
+    # long-lived work (invariant 6). The read is paginated, so the bound is per page and not for
+    # the whole read.
     timeout: ${GHL_TIMEOUT:10s}
-    # How long one funnel read is served from memory before GHL is asked again.
-    #
-    # This is not a performance tweak, it is the rate limiter. Without it, N open dashboards are
-    # N multi-page GHL reads per refresh and GHL's own rate limit becomes an EvalOS outage. Five
-    # minutes on a sales funnel is invisible to a GM reading trend, and the payload carries
-    # `readAt` so the screen states how old the figures are rather than implying they are live.
-    cache-ttl: ${GHL_CACHE_TTL:PT5M}
   jobs:
     # The background sweeps (Unit 19). Off in the integration suite, on everywhere else — see
     # JobSchedule for why the default points that way.
@@ -274,6 +361,27 @@ evalos:
       # interval is how stale a status light may be. Faster than the chases and for a different
       # reason — it feeds a screen, not a deadline.
       STAGE_SLA: ${JOBS_STAGE_SLA_INTERVAL:15m}
+      # The pipeline mirror (Unit 44a). **An hour, and the slowness is the point**: pipelines are
+      # structure, not traffic — a GM adds one every few months. Fifteen minutes would spend the
+      # GHL budget on an answer that has not changed since the last twenty passes, and no screen
+      # needs a stage name the instant it appears.
+      PIPELINE_MIRROR: ${JOBS_PIPELINE_MIRROR_INTERVAL:1h}
+      # The nightly sync audit (Unit 45b). **24 hours, and the length is a budget decision.** This
+      # is the longest read EvalOS makes -- a paged full list of every opportunity on every mirrored
+      # pipeline, roughly 30 seconds of GHL's shared 100-per-10-seconds allowance. Hourly would
+      # spend a meaningful share of that budget on a question whose answer changes slowly, and
+      # starve the desks while it did.
+      SYNC_AUDIT: ${JOBS_SYNC_AUDIT_INTERVAL:24h}
+      # The outbox drain (Unit 45c). **Two minutes, and this is the one interval chosen for a person
+      # rather than a budget.** What is queued is a client's request reaching Sales after a GHL
+      # outage; every minute it sits is a minute a salesperson does not know the lead exists. An
+      # hour, like the pipeline mirror's, would make the queue itself the outage.
+      SYNC_OUTBOX: ${JOBS_SYNC_OUTBOX_INTERVAL:2m}
+      # Portal cleanup (expired credential tokens, abandoned sign-ups). **Daily, and the slowness
+      # is deliberate**: nothing downstream reads these rows, so the only thing an hourly pass
+      # would buy is a slightly smaller table and 24x the ledger rows a GM reads past. It is also
+      # the one sweep that DELETES, and a daily cadence keeps a mistake's blast radius to one pass.
+      PORTAL_CLEANUP: ${JOBS_PORTAL_CLEANUP_INTERVAL:24h}
     # How many missed intervals before the panel calls a sweep stopped. Four rather than two so
     # one slow pass or one restart is not an alarm; low enough that a scheduler that died is
     # named within a couple of hours rather than the next morning.

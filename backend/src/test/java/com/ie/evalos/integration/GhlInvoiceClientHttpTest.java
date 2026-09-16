@@ -27,7 +27,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  */
 class GhlInvoiceClientHttpTest {
 
-	private static final String LOCATION = "kBumF0uUOmMBB5bneYjx";
+	private static final String LOCATION = "WY6bW2xUCI8Tz8gw7aLJ";
 	private static final String CONTACT = "contact_1";
 
 	private HttpServer server;

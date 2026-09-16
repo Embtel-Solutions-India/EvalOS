@@ -1,11 +1,12 @@
 package com.ie.evalos.service;
 
+import java.util.List;
+
+import com.ie.evalos.integration.MailTransport;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.mail.MailException;
-import org.springframework.mail.SimpleMailMessage;
-import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.stereotype.Service;
 
 /**
@@ -27,40 +28,63 @@ import org.springframework.stereotype.Service;
  * A password reset is recoverable by a human; a refused boot is not.
  *
  * <p><strong>A failing sender degrades the same way, and that is the half review found
- * missing.</strong> The paragraph above was only ever true of a blank {@code from}:
- * {@code JavaMailSender.send} throws the unchecked {@link MailException} on an SMTP error or on
- * any of the three five-second timeouts, and that propagated. On the unauthenticated
- * {@code forgot-password} route it propagated <em>selectively</em> — a known address answered 500
- * while an unknown one still answered 204 — which turns the one method written not to
- * differentiate into an enumeration oracle on the day the mail host is down. So both send methods
- * now report <strong>whether the message actually left</strong> rather than throwing, and a
- * caller that cannot say something true is given the means to say nothing.
+ * missing.</strong> The paragraph above was only ever true of a blank sender: the SMTP send threw
+ * on an error or on any of the three five-second timeouts, and that propagated. On the
+ * unauthenticated {@code forgot-password} route it propagated <em>selectively</em> — a known
+ * address answered 500 while an unknown one still answered 204 — which turns the one method
+ * written not to differentiate into an enumeration oracle on the day the mail host is down. So
+ * every {@link MailTransport} reports <strong>whether the message actually left</strong> rather
+ * than throwing, and a caller that cannot say something true is given the means to say nothing.
+ *
+ * <p><strong>This class owns the words; {@link MailTransport} owns the wire.</strong> The split
+ * arrived when GHL took over sending and is kept because the next provider (Brevo) is expected —
+ * adding one is a new {@code MailTransport} and a changed {@code evalos.mail.transport}, and this
+ * class does not move. What a set-password mail <em>says</em> has nothing to do with who carries
+ * it, and before the split those two facts lived in one method.
  */
 @Service
 public class ClientMailer {
 
 	private static final Logger log = LoggerFactory.getLogger(ClientMailer.class);
 
-	private final JavaMailSender sender;
+	/**
+	 * The one that sends. Chosen by {@code evalos.mail.transport} from every
+	 * {@link MailTransport} on the classpath.
+	 *
+	 * <p><strong>Chosen by name rather than by {@code @Primary} or a profile.</strong> Switching
+	 * providers is an environment change — the day GHL's sending domain is being re-verified, the
+	 * fix is a variable and a restart, not a build. A name that matches nothing fails at startup
+	 * and names what it found, because a typo that silently fell back to SMTP would be discovered
+	 * by a client who never got their link.
+	 */
+	private final MailTransport transport;
 
-	private final String from;
-
-	ClientMailer(JavaMailSender sender, @Value("${evalos.mail.from:}") String from) {
-		this.sender = sender;
-		this.from = from == null ? "" : from.trim();
-		if (this.from.isBlank()) {
-			log.warn("evalos.mail.from is not set — client password mail is disabled. "
-					+ "Sign-in still works for accounts that already have a password.");
+	ClientMailer(List<MailTransport> transports, @Value("${evalos.mail.transport}") String choice) {
+		this.transport = transports.stream()
+				.filter((candidate) -> candidate.name().equalsIgnoreCase(choice.trim()))
+				.findFirst()
+				.orElseThrow(() -> new IllegalStateException("evalos.mail.transport is '" + choice
+						+ "', which is not one of " + transports.stream().map(MailTransport::name).toList()));
+		if (!this.transport.isConfigured()) {
+			log.warn("Mail transport '{}' is not configured — client password mail is disabled. "
+					+ "Sign-in still works for accounts that already have a password.",
+					this.transport.name());
 		}
 	}
 
+	/** Whether the chosen transport could send anything at all. */
 	public boolean isConfigured() {
-		return !from.isBlank();
+		return transport.isConfigured();
+	}
+
+	/** Whether this particular person is addressable — GHL needs a linked contact, SMTP does not. */
+	public boolean canReach(MailTransport.Recipient to) {
+		return transport.isConfigured() && transport.canReach(to);
 	}
 
 	/** @return whether the message left; see the class javadoc for why this is not a throw */
-	public boolean sendSetPassword(String toEmail, String link) {
-		return send(toEmail, "Set your password",
+	public boolean sendSetPassword(MailTransport.Recipient to, String link) {
+		return send(to, "Set your password",
 				"""
 				Welcome.
 
@@ -75,8 +99,8 @@ public class ClientMailer {
 	}
 
 	/** @return whether the message left; see the class javadoc for why this is not a throw */
-	public boolean sendResetPassword(String toEmail, String link) {
-		return send(toEmail, "Reset your password",
+	public boolean sendResetPassword(MailTransport.Recipient to, String link) {
+		return send(to, "Reset your password",
 				"""
 				Use the link below to choose a new password. It works once and expires in 30 \
 				minutes.
@@ -87,29 +111,14 @@ public class ClientMailer {
 				""".formatted(link));
 	}
 
-	private boolean send(String toEmail, String subject, String body) {
-		if (!isConfigured()) {
+	private boolean send(MailTransport.Recipient to, String subject, String body) {
+		if (!canReach(to)) {
 			// Not an exception: the caller has already decided what to tell the client, and a
 			// throw here would turn a configuration gap into a 500 on a sign-in attempt.
-			log.warn("Mail not configured — '{}' to {} was not sent", subject, toEmail);
+			log.warn("Transport '{}' cannot reach {} — '{}' was not sent", transport.name(),
+					to.email(), subject);
 			return false;
 		}
-		SimpleMailMessage message = new SimpleMailMessage();
-		message.setFrom(from);
-		message.setTo(toEmail);
-		message.setSubject(subject);
-		message.setText(body);
-		try {
-			sender.send(message);
-			return true;
-		}
-		catch (MailException e) {
-			// **Logged with the address and swallowed.** An outage here must not reach the client
-			// as a 500, and on `forgot-password` it must not reach them as a 500 for a known
-			// address and a 204 for an unknown one. The operator needs the detail; the client
-			// needs the two paths to stay indistinguishable. `false` is what carries the failure.
-			log.error("Mail send failed — '{}' to {} was not delivered", subject, toEmail, e);
-			return false;
-		}
+		return transport.send(to, subject, body);
 	}
 }

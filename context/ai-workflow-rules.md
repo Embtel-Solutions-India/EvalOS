@@ -2,9 +2,9 @@
 
 ## Approach
 
-Build EvalOS incrementally, spec-driven. The context files define what to build,
-how to build it, and the current state; the EvalOS Technical Design Document
-(v1.1) is the authoritative design behind them. Implement against the unit spec
+Build EvalOS incrementally, spec-driven. **The `.claude/*.md` baseline defines what exists,
+what is decided and what is open** (reset 2026-09-16); the unit specs define how to build the
+next thing; the EvalOS Technical Design Document (v1.1) is the design behind them. Implement against the unit spec
 in `context/specs/NN-name.md` — do not infer or invent behavior from scratch.
 The stack is Java 21 + Spring Boot + PostgreSQL (Spring Data JPA) on the backend and
 **two** React/Vite + Tailwind frontends: `frontend/` (staff, same-origin) and `client/`
@@ -29,11 +29,10 @@ a temp file or a byte array on the way through.
     S3 and EvalOS keeps the key. Do not read this rule as forbidding an upload endpoint —
     read it as forbidding the temp file, the upload directory, the byte array and the blob
     column.
-  - *No email* is **settled, not under review.** Unit 18's outbound dispatcher was
-    removed, so EvalOS has no outbound channel of any kind and there is nothing to add
-    mail to. What is still open is who reaches the client —
-    `context/process-automation.md`, where in-portal state is now a third option. Do not
-    add a mail dependency.
+  - *No email* was **amended on 2026-09-11, not reversed.** EvalOS now sends **exactly two**
+    messages, both authentication: set-password and reset-password (`ClientMailer`). There is
+    still no outbound dispatcher and no notification, marketing or status mail of any kind.
+    A third message is a new decision — see `.claude/open-decisions.md` (carried question c).
 - **One home per fact.** SLA budgets live in `SlaCalculator`, transitions in
   `CaseTransitions`, recipients in `NotificationListeners.ROUTES`, scope in
   `ScopePredicate`. Docs cite them; they never restate a threshold as an authority.
@@ -62,10 +61,10 @@ If a change cannot be verified end to end quickly, the scope is too broad — sp
 - Do not invent product behavior that is not in the context files.
 - If a requirement is ambiguous, resolve it in the relevant context file (and the
   TDD if a decision changes) first, then implement.
-- If a requirement is missing, add it as an open question in `progress-tracker.md`
-  before continuing — do not guess.
+- If a requirement is missing, add it as an open question in `.claude/open-decisions.md`
+  before continuing — do not guess. Attach a recommendation to it (house rule).
 - **Known-open items that must not be built around silently** (see
-  `progress-tracker.md` for the live list): the **full brand list**; **StatCommand**;
+  `.claude/open-decisions.md` for the live list): the **full brand list**; **StatCommand**;
   the **GHL webhook/API contract** (per-brand inbound
   secret + payload, outbound subscriber URL + secret, client-message capability);
   and **staff SSO** (optional/later). *(The Dropbox Sign callback secret used to be on
@@ -101,40 +100,41 @@ Do not modify these unless explicitly instructed:
 ## Keeping Docs in Sync
 
 Update the relevant context file whenever implementation changes:
-- Architecture, boundaries, tenancy, or handoff contracts → `architecture.md`
-- Storage model or data ownership → `architecture.md` / `code-standards.md`
-- Code conventions → `code-standards.md`
-- Visual tokens or layout patterns → `ui-context.md`. **Two token sets, one per frontend** —
+- Architecture, boundaries, tenancy, or handoff contracts → `.claude/architecture.md`
+- Storage model or data ownership → `.claude/architecture.md` / `.claude/data-model.md`
+- Code conventions → `context/code-standards.md`
+- Visual tokens or layout patterns → `context/ui-context.md`. **Two token sets, one per frontend** —
   `frontend/src/styles/tokens.css` and `client/src/styles/globals.css`. They diverge on
   purpose; only RAG-is-status-only and tabular figures cross the boundary.
-- Feature scope → `project-overview.md`
-- **A trigger, its recipients, an SLA, or a client/expert touchpoint →
-  `process-automation.md`** (the A-register). Moving an automation from *gap* to
-  *built* is part of the unit that built it, not a later tidy-up.
-- A decision that changes the design → the TDD as well
+- Feature scope → `.claude/project-context.md`
+- What a domain's status is, with its evidence → `.claude/implementation-status.md`
+- A current vs. target workflow → `.claude/workflows.md`
+- **A trigger, its recipients, an SLA, or a client/expert touchpoint →** the owning unit spec
+  under `context/specs/`. The old A-register (`process-automation.md`) described the 5-stage
+  lifecycle and is archived; `V31` shipped 12 stages.
+- A decision that changes the design → `.claude/current-decisions.md` (and the TDD)
 
 Also update the **Serena memories** (`.serena/memories/`) in the same step, so the
-next session starts from the current picture instead of rediscovering it:
-- Backend domain, lifecycle, persistence, security, webhooks → `backend/*`
-- Staff frontend structure and conventions → `frontend/core`
-- Portal frontend (`client/`) structure, contract conflicts, tokens → `client/core`
-- Stack or tooling change → `tech_stack` / `suggested_commands`
-- Convention change → `conventions`; verification-step change → `task_completion`
-- New domain worth its own memory → add it and link it from `core`
+next session starts from the current picture instead of rediscovering it. Since the
+2026-09-16 reset there are seven, each a short pointer at its `.claude/` counterpart:
+`project_context`, `current_decisions`, `architecture`, `data_model`, `workflows`,
+`implementation_status`, `open_decisions`, plus `conventions`.
 
-A changed decision means **editing the existing memory**, never appending a
-contradicting note beside it — a memory that disagrees with the code is worse
-than no memory. Respect the add/update threshold in the `memory_maintenance`
-memory: durable, non-obvious conventions only, never task-local notes.
+**Write the fact in `.claude/` first, then trim the memory to a pointer.** A memory that
+restates a whole document is the pollution this reset removed.
+
+A changed decision means **editing the existing file and its memory**, never appending a
+contradicting note beside them — a memory that disagrees with the code is worse than no
+memory. Durable, non-obvious facts only, never task-local notes.
 
 ## Before Moving to the Next Unit
 
 1. The unit works end to end within its defined scope.
-2. No invariant in `architecture.md` was violated — especially: **brand scoping
+2. No invariant in `.claude/architecture.md` was violated — especially: **brand scoping
    on every query**, role+ownership on every mutation, `payment_detail` never
    exposed, audit entry on every transition, thin handlers, GHL-only payment path,
-   no files, no email.
-3. `progress-tracker.md` reflects the completed work.
+   no files, and no mail beyond the two authentication messages.
+3. `.claude/implementation-status.md` reflects the completed work.
 4. Backend `./mvnw verify` passes and the app starts cleanly; `frontend/`
    `npm run build` passes with no TypeScript or console errors — and, for any unit
    touching `client/`, that app's `npm run build` too. **Use `tsc -b`, never a bare

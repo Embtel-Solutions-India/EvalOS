@@ -27,6 +27,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.then;
 import static org.mockito.BDDMockito.willThrow;
@@ -117,7 +118,7 @@ class SalesDeskControllerTest {
 
 	@Test
 	void aSalespersonSetsAFollowUp() throws Exception {
-		given(desk.followUp(any(), any(), any(), any())).willReturn("task_1");
+		given(desk.followUp(any(), any(), any(), any(), any(), any())).willReturn("task_1");
 
 		mockMvc.perform(post("/api/sales/opportunities/{id}/follow-ups", OPPORTUNITY)
 				.header(HttpHeaders.AUTHORIZATION, bearer(Role.SALES))
@@ -144,7 +145,7 @@ class SalesDeskControllerTest {
 
 	@Test
 	void aSalespersonBooksAMeeting() throws Exception {
-		given(meetings.book(any(), any(), any(), any(), any(), any())).willReturn(MEETING);
+		given(meetings.book(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), anyBoolean(), any())).willReturn(MEETING);
 
 		mockMvc.perform(post("/api/sales/opportunities/{id}/meetings", OPPORTUNITY)
 				.header(HttpHeaders.AUTHORIZATION, bearer(Role.SALES))
@@ -171,7 +172,7 @@ class SalesDeskControllerTest {
 						{"calendarId":"cal_1","contactId":"c1","title":"Discovery call"}"""))
 				.andExpect(status().isBadRequest());
 
-		then(meetings).should(never()).book(any(), any(), any(), any(), any(), any());
+		then(meetings).should(never()).book(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), anyBoolean(), any());
 	}
 
 	@Test
@@ -194,7 +195,7 @@ class SalesDeskControllerTest {
 	@Test
 	void aSalespersonCannotBookAgainstSomebodyElsesDeal() throws Exception {
 		willThrow(new ForbiddenException("Not your pipeline"))
-				.given(meetings).book(any(), any(), any(), any(), any(), any());
+				.given(meetings).book(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), anyBoolean(), any());
 
 		mockMvc.perform(post("/api/sales/opportunities/{id}/meetings", OPPORTUNITY)
 				.header(HttpHeaders.AUTHORIZATION, bearer(Role.SALES))
@@ -248,6 +249,6 @@ class SalesDeskControllerTest {
 				.content("{\"contactId\":\"c1\",\"title\":\"  \",\"dueAt\":\"2026-09-18T09:00:00Z\"}"))
 				.andExpect(status().isBadRequest());
 
-		then(desk).should(never()).followUp(any(), any(), any(), any());
+		then(desk).should(never()).followUp(any(), any(), any(), any(), any(), any());
 	}
 }

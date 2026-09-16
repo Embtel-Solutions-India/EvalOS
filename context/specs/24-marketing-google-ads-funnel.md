@@ -1,6 +1,23 @@
 # Unit 24 — Marketing: the Google Ads funnel (GM)
 
-> **Status: built.** Backend, frontend, config and tests landed together.
+> **Its two surviving siblings, Units 26 and 27, were removed on 2026-09-16** — for a different
+> reason (they worked; their audience could not reach them). There is no GHL funnel screen left.
+
+> **Status: REMOVED 2026-09-14. This spec is kept as the record of a decision made, shipped and
+> undone.** IE replaced its GHL sub-account on 2026-09-11; the new location has no paid-search
+> funnel — its pipelines are BDE-1/2/3 (marketing), Sales-1..4 by service line, and ENM — so
+> `evalos.ghl.ads-pipeline-name` matched nothing and this screen could only ever answer 502. **A
+> screen that cannot succeed is worse than an absent one.** Removed rather than repointed because
+> nobody named a replacement funnel.
+>
+> **Gone:** the `/marketing/google-ads` route and nav entry, `GET /api/marketing/ads-pipeline`,
+> `Funnel.ADS`, and `evalos.ghl.ads-pipeline-name` from all three profiles.
+> **Kept, and load-bearing for Unit 26:** `GhlPipelineClient` and its name-matching, the
+> five-minute cache, `MarketingPipelinePage` (still serving two funnels) and the GM-only scoping
+> argument below, which is unchanged. Reinstating the screen is one property, one enum constant,
+> one route, one nav entry and an icon.
+>
+> **Status before that: built.** Backend, frontend, config and tests landed together.
 >
 > **This spec was written after the code, which is the wrong order and is recorded
 > as such.** The rule is that a change of direction gets a versioned spec first

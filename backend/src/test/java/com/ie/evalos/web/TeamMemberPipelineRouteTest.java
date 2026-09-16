@@ -1,12 +1,11 @@
 package com.ie.evalos.web;
 
+import java.util.List;
 import java.util.UUID;
 
 import com.ie.evalos.common.ApiErrors;
 import com.ie.evalos.common.InvalidRequestException;
 import com.ie.evalos.domain.Role;
-import com.ie.evalos.domain.Segment;
-import com.ie.evalos.domain.TeamMember;
 import com.ie.evalos.security.EvalOsUserDetailsService;
 import com.ie.evalos.security.JwtService;
 import com.ie.evalos.security.SecurityConfig;
@@ -24,15 +23,14 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
-import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
 
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.then;
 import static org.mockito.BDDMockito.willThrow;
 import static org.mockito.Mockito.never;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -52,7 +50,9 @@ class TeamMemberPipelineRouteTest {
 
 	private static final UUID BRAND_IE = UUID.fromString("11111111-1111-1111-1111-111111111111");
 	private static final UUID MEMBER = UUID.fromString("22222222-2222-2222-2222-222222222222");
-	private static final String BODY = "{\"ghlPipelineId\":\"pipe_aditya_01\"}";
+	private static final UUID PIPELINE = UUID.fromString("44444444-4444-4444-4444-444444444444");
+
+	private static final String BODY = "{\"pipelineId\":\"44444444-4444-4444-4444-444444444444\"}";
 
 	@Autowired
 	MockMvc mockMvc;
@@ -75,34 +75,41 @@ class TeamMemberPipelineRouteTest {
 		return "Bearer " + jwtService.issue(principal);
 	}
 
-	private static TeamMember assigned() {
-		TeamMember member = new TeamMember() {
-		};
-		ReflectionTestUtils.setField(member, "id", MEMBER);
-		ReflectionTestUtils.setField(member, "role", Role.SALES);
-		ReflectionTestUtils.setField(member, "segment", Segment.ATTORNEY);
-		ReflectionTestUtils.setField(member, "ghlPipelineId", "pipe_aditya_01");
-		return member;
-	}
-
 	@Test
-	void theGmAssignsAPipeline() throws Exception {
-		given(pipelines.assign(eq(MEMBER), eq("pipe_aditya_01"))).willReturn(assigned());
+	void theGmPutsAMemberOnAPipeline() throws Exception {
+		given(pipelines.grant(MEMBER, PIPELINE)).willReturn(List.of("pipe_aditya_01"));
 
-		mockMvc.perform(put("/api/team-members/{id}/ghl-pipeline", MEMBER)
+		mockMvc.perform(put("/api/team-members/{id}/pipelines", MEMBER)
 				.header(HttpHeaders.AUTHORIZATION, bearer(Role.GM))
 				.contentType(MediaType.APPLICATION_JSON).content(BODY))
 				.andExpect(status().isOk())
-				.andExpect(jsonPath("$.data.ghlPipelineId").value("pipe_aditya_01"))
-				.andExpect(jsonPath("$.data.segment").value("ATTORNEY"));
+				.andExpect(jsonPath("$.data.ghlPipelineIds[0]").value("pipe_aditya_01"));
+	}
+
+	/**
+	 * <strong>A member may hold several, which is the whole change.</strong>
+	 *
+	 * <p>{@code 00d} §6.7 retired the one-owner rule because the target pipeline set includes Case
+	 * Delivery — a pipeline no single person owns. The route answers with the whole set so a screen
+	 * never has to guess what the grant left behind.
+	 */
+	@Test
+	void theResponseCarriesTheWholeSet() throws Exception {
+		given(pipelines.grant(any(), any()))
+				.willReturn(List.of("pipe_aditya_01", "pipe_case_delivery"));
+
+		mockMvc.perform(put("/api/team-members/{id}/pipelines", MEMBER)
+				.header(HttpHeaders.AUTHORIZATION, bearer(Role.GM))
+				.contentType(MediaType.APPLICATION_JSON).content(BODY))
+				.andExpect(jsonPath("$.data.ghlPipelineIds.length()").value(2));
 	}
 
 	/** No email, no hash, no brand directory — a picker's response, not a staff record. */
 	@Test
 	void theResponseCarriesNoStaffContactDetail() throws Exception {
-		given(pipelines.assign(any(), any())).willReturn(assigned());
+		given(pipelines.grant(any(), any())).willReturn(List.of("pipe_aditya_01"));
 
-		mockMvc.perform(put("/api/team-members/{id}/ghl-pipeline", MEMBER)
+		mockMvc.perform(put("/api/team-members/{id}/pipelines", MEMBER)
 				.header(HttpHeaders.AUTHORIZATION, bearer(Role.GM))
 				.contentType(MediaType.APPLICATION_JSON).content(BODY))
 				.andExpect(jsonPath("$.data.email").doesNotExist())
@@ -110,15 +117,30 @@ class TeamMemberPipelineRouteTest {
 				.andExpect(jsonPath("$.data.displayName").doesNotExist());
 	}
 
+	@Test
+	void theGmTakesAMemberOffAPipeline() throws Exception {
+		given(pipelines.revoke(MEMBER, PIPELINE)).willReturn(List.of());
+
+		mockMvc.perform(delete("/api/team-members/{id}/pipelines/{pipelineId}", MEMBER, PIPELINE)
+				.header(HttpHeaders.AUTHORIZATION, bearer(Role.GM)))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.data.ghlPipelineIds.length()").value(0));
+	}
+
 	@ParameterizedTest
 	@EnumSource(value = Role.class, mode = EnumSource.Mode.EXCLUDE, names = "GM")
 	void everyOtherRoleIsRefused(Role role) throws Exception {
-		mockMvc.perform(put("/api/team-members/{id}/ghl-pipeline", MEMBER)
+		mockMvc.perform(put("/api/team-members/{id}/pipelines", MEMBER)
 				.header(HttpHeaders.AUTHORIZATION, bearer(role))
 				.contentType(MediaType.APPLICATION_JSON).content(BODY))
 				.andExpect(status().isForbidden());
 
-		then(pipelines).should(never()).assign(any(), any());
+		mockMvc.perform(delete("/api/team-members/{id}/pipelines/{pipelineId}", MEMBER, PIPELINE)
+				.header(HttpHeaders.AUTHORIZATION, bearer(role)))
+				.andExpect(status().isForbidden());
+
+		then(pipelines).should(never()).grant(any(), any());
+		then(pipelines).should(never()).revoke(any(), any());
 	}
 
 	/**
@@ -129,20 +151,30 @@ class TeamMemberPipelineRouteTest {
 	 */
 	@Test
 	void aNullPipelineIsFourHundred() throws Exception {
-		mockMvc.perform(put("/api/team-members/{id}/ghl-pipeline", MEMBER)
+		mockMvc.perform(put("/api/team-members/{id}/pipelines", MEMBER)
 				.header(HttpHeaders.AUTHORIZATION, bearer(Role.GM))
-				.contentType(MediaType.APPLICATION_JSON).content("{\"ghlPipelineId\":null}"))
+				.contentType(MediaType.APPLICATION_JSON).content("{\"pipelineId\":null}"))
 				.andExpect(status().isBadRequest());
 
-		then(pipelines).should(never()).assign(any(), any());
+		then(pipelines).should(never()).grant(any(), any());
 	}
 
+	/**
+	 * <strong>A pipeline is now a UUID, and a GHL string is refused.</strong>
+	 *
+	 * <p>That is {@code 00d} C4 closed at the door. The old route took GHL's opaque id, so after the
+	 * sub-account was replaced every member was scoped to a pipeline that no longer existed and "the
+	 * board draws zero columns with no error". A mirror id is a foreign key: an id that names no
+	 * real pipeline cannot be assigned at all.
+	 */
 	@Test
-	void aBlankPipelineIsFourHundred() throws Exception {
-		mockMvc.perform(put("/api/team-members/{id}/ghl-pipeline", MEMBER)
+	void aRawGhlPipelineIdIsRefused() throws Exception {
+		mockMvc.perform(put("/api/team-members/{id}/pipelines", MEMBER)
 				.header(HttpHeaders.AUTHORIZATION, bearer(Role.GM))
-				.contentType(MediaType.APPLICATION_JSON).content("{\"ghlPipelineId\":\"   \"}"))
+				.contentType(MediaType.APPLICATION_JSON).content("{\"pipelineId\":\"pipe_aditya_01\"}"))
 				.andExpect(status().isBadRequest());
+
+		then(pipelines).should(never()).grant(any(), any());
 	}
 
 	/**
@@ -151,19 +183,19 @@ class TeamMemberPipelineRouteTest {
 	 */
 	@Test
 	void aRefusedAssignmentIsFourHundredNotFiveHundred() throws Exception {
-		willThrow(new InvalidRequestException("Only SALES and MARKETING members own a pipeline"))
-				.given(pipelines).assign(any(), any());
+		willThrow(new InvalidRequestException("Only SALES and MARKETING members work a pipeline"))
+				.given(pipelines).grant(any(), any());
 
-		mockMvc.perform(put("/api/team-members/{id}/ghl-pipeline", MEMBER)
+		mockMvc.perform(put("/api/team-members/{id}/pipelines", MEMBER)
 				.header(HttpHeaders.AUTHORIZATION, bearer(Role.GM))
 				.contentType(MediaType.APPLICATION_JSON).content(BODY))
 				.andExpect(status().isBadRequest())
-				.andExpect(jsonPath("$.error.message").value("Only SALES and MARKETING members own a pipeline"));
+				.andExpect(jsonPath("$.error.message").value("Only SALES and MARKETING members work a pipeline"));
 	}
 
 	@Test
 	void anonymousIsRefused() throws Exception {
-		mockMvc.perform(put("/api/team-members/{id}/ghl-pipeline", MEMBER)
+		mockMvc.perform(put("/api/team-members/{id}/pipelines", MEMBER)
 				.contentType(MediaType.APPLICATION_JSON).content(BODY))
 				.andExpect(status().isUnauthorized());
 	}

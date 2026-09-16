@@ -40,7 +40,7 @@ import static org.mockito.Mockito.verify;
  */
 class GhlWriteClientTest {
 
-	private static final String LOCATION = "kBumF0uUOmMBB5bneYjx";
+	private static final String LOCATION = "WY6bW2xUCI8Tz8gw7aLJ";
 	private static final String PIPELINE = "tj2agZ90S1LQgCpDAoKi";
 
 	private HttpServer server;
@@ -92,7 +92,7 @@ class GhlWriteClientTest {
 				+ "\"email\":\"ada@example.test\",\"phone\":null}}");
 
 		GhlWriteClient.UpsertedContact contact = client().upsertContact("Ada", "Lovelace",
-				"ada@example.test", null);
+				"ada@example.test", null, GhlWriteClient.SOURCE_CLIENT_PORTAL);
 
 		assertThat(paths).containsExactly("POST /contacts/upsert");
 		assertThat(bodies.get(0)).contains("\"locationId\":\"" + LOCATION + "\"");
@@ -176,7 +176,7 @@ class GhlWriteClientTest {
 				+ "\"pipelineStageId\":\"s1\",\"status\":\"open\",\"monetaryValue\":null},\"new\":true}");
 
 		GhlWriteClient client = client();
-		client.upsertContact("A", null, "a@b.test", null);
+		client.upsertContact("A", null, "a@b.test", null, GhlWriteClient.SOURCE_SALES_DESK);
 		client.upsertOpportunity(PIPELINE, "same", "A", null);
 
 		ArgumentCaptor<UUID> contactKey = ArgumentCaptor.forClass(UUID.class);
@@ -246,7 +246,7 @@ class GhlWriteClientTest {
 				+ "\"dueDate\":\"2026-09-18T09:00:00Z\"}}");
 
 		String taskId = client().createFollowUp("c1", "o1", PIPELINE, "Call back",
-				"2026-09-18T09:00:00Z");
+				"2026-09-18T09:00:00Z", null, null);
 
 		assertThat(paths).containsExactly("POST /contacts/c1/tasks");
 		assertThat(bodies.get(0)).contains("\"title\":\"Call back\"");
@@ -265,7 +265,7 @@ class GhlWriteClientTest {
 	void aFollowUpIsAuditedAgainstTheDealNotTheContact() {
 		responses.add("{\"task\":{\"id\":\"t1\",\"title\":\"Call back\",\"dueDate\":\"x\"}}");
 
-		client().createFollowUp("c1", "o1", PIPELINE, "Call back", "2026-09-18T09:00:00Z");
+		client().createFollowUp("c1", "o1", PIPELINE, "Call back", "2026-09-18T09:00:00Z", null, null);
 
 		verify(audit).recordEvent(eq("GHL_OPPORTUNITY"), any(UUID.class), eq(AuditAction.CHASED),
 				any(), any(), any());
@@ -294,7 +294,8 @@ class GhlWriteClientTest {
 		GhlWriteClient client = new GhlWriteClient(
 				new GhlHttp("http://127.0.0.1:1", "2021-07-28", "", "", Duration.ofMillis(200)), audit);
 
-		assertThatThrownBy(() -> client.upsertContact("Ada", null, "ada@example.test", null))
+		assertThatThrownBy(() -> client.upsertContact("Ada", null, "ada@example.test", null,
+				GhlWriteClient.SOURCE_CLIENT_PORTAL))
 				.isInstanceOf(GhlUnavailableException.class)
 				.hasMessageContaining("GHL_API_TOKEN");
 

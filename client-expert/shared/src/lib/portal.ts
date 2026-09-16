@@ -87,12 +87,21 @@ export function actionFirst(checklist: ChecklistItem[]): ChecklistItem[] {
 export const MAX_UPLOAD_MB = 15
 
 /**
- * What to tell somebody whose link does not work.
+ * What to tell somebody whose **link** does not work.
  *
  * One message for unknown, expired and revoked, because the server answers all three identically
- * and nothing here should imply otherwise. **Never a login form** — the client has no EvalOS
- * account, and offering one sends them hunting for a password that does not exist. Never a stack
- * trace either: the reader is not a developer and cannot act on one.
+ * and nothing here should imply otherwise. Never a stack trace: the reader is not a developer and
+ * cannot act on one.
+ *
+ * **Never a password, and `portal.test.ts` enforces it — but the reason has changed.** It used to
+ * be that the client had no account to log into. Unit 42 gave them one, so the rule now rests on
+ * *who is reading*: everyone who reaches this function got here by opening a link, and telling
+ * them to try their password would send them looking for one they may never have set. That is why
+ * the rule survived the thing that justified it.
+ *
+ * **The auth screens must NOT use this** — they have `authFailureMessage` in the client app's own
+ * `authService`. Reusing this one is exactly the bug it caused: a wrong password answered "We
+ * could not load your documents… contact whoever sent you this link."
  */
 export function failureMessage(status: number | undefined): string {
   if (status === 401) {

@@ -63,74 +63,59 @@ const PRODUCTION_ROLES: readonly Role[] = [
 ]
 
 export const NAV_ITEMS: readonly NavItem[] = [
-  { path: '/dashboard', label: 'Dashboard', roles: PRODUCTION_ROLES, becomes: 'Role dashboard (Unit 17)', group: 'Overview' },
-
-  // The one screen in EvalOS that reads GHL's front of house: the Google Ads sales funnel,
-  // stage by stage, with the sources behind it.
-  //
-  // **GM only, and the reason is scoping rather than seniority.** `evalos.ghl.location-id` is a
-  // single global setting with no link to a brand, so the figures behind this entry cannot be
-  // attributed to one — the endpoint accepts no `brandId` because none would narrow anything.
-  //
-  // The first version of this note said the brands *share* one GHL sub-account, making the figure
-  // "cross-brand by construction". That was wrong: each brand has its own sub-account, so this is
-  // one brand's funnel and EvalOS cannot tell whose. **A Brand Manager is absent for the corrected
-  // reason** — not because the number spans brands, but because it is unattributable, and showing
-  // a single-brand role a figure that might be another brand's is the leak the scoping rule
-  // exists to prevent. Unit 25 maps locations to brands; Unit 25a then re-scopes this entry.
-  //
-  // Sits above Pipeline rather than in it: this is the funnel *before* EvalOS takes custody,
-  // and the Pipeline group is everything after. Its own group, because grouping is by
-  // consecutive runs and marketing is not production work.
+  // **`PRODUCTION_ROLES` plus the two pipeline roles, spelled out rather than widened.**
+  // `PRODUCTION_ROLES` earned its name by correctly excluding SALES and MARKETING from every
+  // case-reading screen, and that is still what it is for — so it is not the place to add them.
+  // They join *this* entry and no other, because `RoleDashboard` gained them a landing screen on
+  // 2026-09-14 (`PipelineDashboard`) that reads GHL opportunities and no case at all.
   {
-    path: '/marketing/google-ads',
-    readsGhlLocation: true,
-    label: 'Google Ads pipeline',
-    roles: ['GM'],
-    becomes: 'GHL Google Ads funnel by stage',
-    group: 'Marketing',
+    path: '/dashboard',
+    label: 'Dashboard',
+    roles: [...PRODUCTION_ROLES, 'SALES', 'MARKETING'],
+    becomes: 'Role dashboard (Unit 17)',
+    group: 'Overview',
   },
 
-  // The second GHL funnel: the email marketing pipeline, in the same location and behind the
-  // same door. GM-only for the identical reason — one global `location-id`, so the figures
-  // cannot be attributed to a brand, let alone narrowed to one.
+  // **The two GHL funnel screens were removed on 2026-09-16, and the reason is the one the
+  // business gave.** `/marketing/email` and `/sales/pipeline` rendered a GHL pipeline stage by
+  // stage, and both were **GM-only** — `evalos.ghl.location-id` is a single global setting with
+  // no link to a brand, so their figures could not be attributed to one and a brand-locked role
+  // shown them might be reading another brand's numbers.
   //
-  // Its own entry rather than a tab inside the Google Ads screen: they are separate funnels run
-  // by separate people, and a nav entry is what makes the second one findable.
-  {
-    path: '/marketing/email',
-    readsGhlLocation: true,
-    label: 'Email marketing',
-    roles: ['GM'],
-    becomes: 'GHL email marketing funnel by stage',
-    group: 'Marketing',
-  },
+  // That gate is what killed them. **The audience for a marketing funnel is Marketing, and
+  // Marketing could not open it** (`00d` §8.2: *"the role is named after two screens it cannot
+  // open"*). The two ways out were to widen the gate — which voids the exception's own argument
+  // until Unit 25 puts the location on `brand` — or to stop carrying the screens. The business
+  // chose the second: **remove them from the GM as well.**
+  //
+  // A third funnel screen, `/marketing/google-ads`, went on 2026-09-14 for a different reason:
+  // the GHL sub-account IE moved to on 2026-09-11 has no paid-search pipeline, so its configured
+  // name matched nothing and the screen could only ever 502.
+  //
+  // **Nothing of them is left to reinstate from.** `MarketingPipelinePage`, `marketingApi`,
+  // `MarketingController`, `MarketingPipelineService`, `GhlFunnelCache`,
+  // `GhlFunnelCacheRepository` and `GhlPipelineClient.countIn` are deleted. A funnel screen after
+  // Unit 25 is a new screen against a per-brand location, which is the only version of it that a
+  // Marketing user can be let into.
+  //
+  // **What Marketing kept**: `/opportunities/board` and `/dashboard` — their own pipeline, which
+  // IS attributable, because `evalos.ghl.sales-brand` names the brand that owns the location and
+  // assignment refuses any other brand's member with a 400.
 
-  // The sales team's own GHL funnel — the third pipeline in the same location, behind the same
-  // door, rendered by the same component as the two above.
+  // The salesperson's diary, and the one place a meeting can be booked without first finding the
+  // deal on the board.
   //
-  // **Its own heading rather than a third Marketing entry, and that is not cosmetic.** The two
-  // above are campaign funnels: leads a channel produced. This is a salesperson's working
-  // pipeline, and it carries stages the marketing funnels do not — Meeting booked, Invoice sent,
-  // Refund. Filing it under Marketing would tell the GM these three numbers are comparable
-  // channel results, which is the one thing they are not.
+  // **SALES only, and Marketing is absent on purpose.** `39` §5 gives Marketing no booking action
+  // — a marketer nurtures a lead and hands it over; the meeting belongs to whoever closes. Adding
+  // Marketing here would offer a button the server refuses.
   //
-  // Sits between Marketing and Pipeline because that is the real order of the business: a
-  // campaign produces a lead, sales closes it, and EvalOS takes custody at Handoff A — everything
-  // in the Pipeline group is after that point. Grouping is by consecutive runs, so this entry's
-  // position in this list *is* the heading order.
-  //
-  // GM-only for the identical reason as its two neighbours, and it is worth stating because
-  // "sales is not marketing" invites the assumption that the marketing scoping rule does not
-  // apply: it is the same single global `evalos.ghl.location-id`, so this is still one brand's
-  // funnel and EvalOS still cannot prove whose. Unit 25 maps locations to brands and closes it
-  // for all three at once.
+  // Sits in the Sales group beside the funnel, because that is when it happens: a meeting is
+  // worked before EvalOS takes custody at Handoff A.
   {
-    path: '/sales/pipeline',
-    readsGhlLocation: true,
-    label: 'Sales pipeline',
-    roles: ['GM'],
-    becomes: 'GHL sales funnel by stage',
+    path: '/meetings',
+    label: 'Meetings',
+    roles: ['SALES'],
+    becomes: 'Your diary, and booking',
     group: 'Sales',
   },
 

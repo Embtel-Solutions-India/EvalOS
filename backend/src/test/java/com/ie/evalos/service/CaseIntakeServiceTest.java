@@ -67,8 +67,18 @@ class CaseIntakeServiceTest {
 	private final ApplicationEventPublisher events = mock(ApplicationEventPublisher.class);
 
 	private final SlaCalculator sla = new SlaCalculator(new BusinessCalendar());
+	/**
+	 * A <strong>real</strong> {@link ContactSnapshotService} over the mocked repository, not a mock.
+	 *
+	 * <p>The contact matching moved out of {@code CaseIntakeService} at Unit 44c — {@code 00d} §5.4
+	 * required it before Unit 45's contact webhooks could exist, because
+	 * {@code DomainInvariantsTest} permits exactly one injector of the intake service. The rules did
+	 * not change, so neither did the stubs or the assertions in this class: they still drive the
+	 * repository and still describe what intake does with a contact. Mocking the new service instead
+	 * would have deleted that coverage and replaced it with nothing.
+	 */
 	private final CaseIntakeService intake = new CaseIntakeService(
-			cases, contacts, checklistItems, audit, sla, events);
+			cases, new ContactSnapshotService(contacts), checklistItems, audit, sla, events);
 
 	private final Brand brand = mock(Brand.class);
 

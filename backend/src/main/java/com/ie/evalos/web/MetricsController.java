@@ -9,6 +9,7 @@ import com.ie.evalos.service.CaseManagerMetricsService;
 import com.ie.evalos.service.CoordinatorMetricsService;
 import com.ie.evalos.service.DraftReviewService;
 import com.ie.evalos.service.ExpertNetworkMetricsService;
+import com.ie.evalos.service.GmOverviewService;
 import com.ie.evalos.service.NavBadgeService;
 import com.ie.evalos.service.PmMetricsService;
 import com.ie.evalos.service.PortalLinkLedgerService;
@@ -47,13 +48,15 @@ public class MetricsController {
 	private final CaseManagerMetricsService caseManager;
 	private final ExpertNetworkMetricsService network;
 	private final RevenueMetricsService revenue;
+	private final GmOverviewService gmOverview;
 	private final NavBadgeService navBadges;
 	private final DraftReviewService drafts;
 
 	MetricsController(PmMetricsService metrics, CoordinatorMetricsService coordinator,
 			CaseManagerMetricsService caseManager, ExpertNetworkMetricsService network,
 			RevenueMetricsService revenue, NavBadgeService navBadges, DraftReviewService drafts,
-			PortalLinkLedgerService portalLinks) {
+			PortalLinkLedgerService portalLinks, GmOverviewService gmOverview) {
+		this.gmOverview = gmOverview;
 		this.portalLinks = portalLinks;
 		this.metrics = metrics;
 		this.coordinator = coordinator;
@@ -91,6 +94,34 @@ public class MetricsController {
 		// resolved anywhere else would put this screen on a different day from the rest of EvalOS.
 		DateWindow window = DateWindow.of(range, from, to, BusinessCalendar.clock());
 		return ApiResponse.ok(metrics.forCaller(window.startInstant(), window.endInstant(), brandId));
+	}
+
+	/**
+	 * The GM's monthly overview: the money against the month's goal, where it came from, and the
+	 * four departments behind it.
+	 *
+	 * <p><strong>GM only, and narrower than every other route here on purpose.</strong> It reads
+	 * one GHL location that EvalOS cannot attribute to a brand — {@code architecture.md}'s stated
+	 * exception to invariant 1, which is licensed only while the reader is the one cross-brand
+	 * role. A Brand Manager on this gate would be shown a figure neither they nor the server can
+	 * tell is theirs, which is the exact failure the exception's argument rests on not happening.
+	 * The Brand Manager keeps {@code /metrics/revenue}, which is brand-scoped and true.
+	 *
+	 * <p><strong>It answers 200 when GHL is down.</strong> The production half is EvalOS's own
+	 * rows; {@code pipelineUnavailable} names the reason the other half is missing, and the screen
+	 * prints it on exactly the tiles it invalidates rather than blanking eight.
+	 *
+	 * @param range same vocabulary as {@code /pm} — the shell's own date filter, so the header
+	 *              control and this parameter cannot drift apart
+	 */
+	@GetMapping("/gm")
+	@PreAuthorize("hasRole('GM')")
+	public ApiResponse<GmOverviewService.GmOverview> gm(@RequestParam(defaultValue = "month") String range,
+			@RequestParam(required = false) String from,
+			@RequestParam(required = false) String to,
+			@RequestParam(required = false) UUID brandId) {
+		return ApiResponse.ok(
+				gmOverview.forCaller(DateWindow.of(range, from, to, BusinessCalendar.clock()), brandId));
 	}
 
 	/**

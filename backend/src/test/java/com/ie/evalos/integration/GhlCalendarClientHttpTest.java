@@ -33,7 +33,7 @@ import static org.mockito.Mockito.verify;
  */
 class GhlCalendarClientHttpTest {
 
-	private static final String LOCATION = "kBumF0uUOmMBB5bneYjx";
+	private static final String LOCATION = "WY6bW2xUCI8Tz8gw7aLJ";
 
 	private HttpServer server;
 	private final List<String> paths = new ArrayList<>();
@@ -102,7 +102,7 @@ class GhlCalendarClientHttpTest {
 
 		GhlCalendarClient.Meeting meeting =
 				client().book("cal_1", "c1", "opp_1", "pipe_1", "Discovery call",
-						"2026-10-01T14:00:00Z", "2026-10-01T14:30:00Z");
+						"2026-10-01T14:00:00Z", "2026-10-01T14:30:00Z", null, null, null, null, false);
 
 		assertThat(meeting.id()).isEqualTo("appt_1");
 		assertThat(meeting.status()).isEqualTo("confirmed");
@@ -121,7 +121,7 @@ class GhlCalendarClientHttpTest {
 		body = BOOKED;
 
 		client().book("cal_1", "c1", "opp_1", "pipe_1", "Discovery call",
-				"2026-10-01T14:00:00Z", "2026-10-01T14:30:00Z");
+				"2026-10-01T14:00:00Z", "2026-10-01T14:30:00Z", null, null, null, null, false);
 
 		assertThat(bodies).singleElement().asString().doesNotContain("toNotify");
 	}
@@ -136,7 +136,7 @@ class GhlCalendarClientHttpTest {
 		body = BOOKED;
 
 		client().book("cal_1", "c1", "opp_1", "pipe_1", "Discovery call",
-				"2026-10-01T14:00:00Z", "2026-10-01T14:30:00Z");
+				"2026-10-01T14:00:00Z", "2026-10-01T14:30:00Z", null, null, null, null, false);
 
 		assertThat(bodies).singleElement().asString()
 				.doesNotContain("ignoreFreeSlotValidation")
@@ -152,7 +152,7 @@ class GhlCalendarClientHttpTest {
 		body = BOOKED;
 
 		client().book("cal_1", "c1", "opp_1", "pipe_1", "Discovery call",
-				"2026-10-01T14:00:00Z", "2026-10-01T14:30:00Z");
+				"2026-10-01T14:00:00Z", "2026-10-01T14:30:00Z", null, null, null, null, false);
 
 		verify(audit).recordEvent(org.mockito.ArgumentMatchers.eq("GHL_OPPORTUNITY"), any(), any(),
 				any(), any(), any());
@@ -178,7 +178,7 @@ class GhlCalendarClientHttpTest {
 		body = "{\"message\":\"scope not authorized\"}";
 
 		assertThatThrownBy(() -> client().book("cal_1", "c1", "opp_1", "pipe_1", "x",
-				"2026-10-01T14:00:00Z", "2026-10-01T14:30:00Z"))
+				"2026-10-01T14:00:00Z", "2026-10-01T14:30:00Z", null, null, null, null, false))
 				.isInstanceOf(GhlUnavailableException.class)
 				.hasMessageContaining(GhlCalendarClient.WRITE_SCOPE);
 	}
@@ -193,7 +193,7 @@ class GhlCalendarClientHttpTest {
 		body = "{}";
 
 		assertThatThrownBy(() -> client().book("cal_1", "c1", "opp_1", "pipe_1", "x",
-				"2026-10-01T14:00:00Z", "2026-10-01T14:30:00Z"))
+				"2026-10-01T14:00:00Z", "2026-10-01T14:30:00Z", null, null, null, null, false))
 				.isInstanceOf(GhlUnavailableException.class)
 				.hasMessageNotContaining(GhlCalendarClient.WRITE_SCOPE);
 	}
@@ -204,7 +204,7 @@ class GhlCalendarClientHttpTest {
 		body = "{}";
 
 		assertThatThrownBy(() -> client().book("cal_1", "c1", "opp_1", "pipe_1", "x",
-				"2026-10-01T14:00:00Z", "2026-10-01T14:30:00Z"))
+				"2026-10-01T14:00:00Z", "2026-10-01T14:30:00Z", null, null, null, null, false))
 				.isInstanceOf(GhlUnavailableException.class);
 		verify(audit, never()).recordEvent(any(), any(), any(), any(), any(), any());
 	}

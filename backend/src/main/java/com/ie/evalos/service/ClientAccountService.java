@@ -11,10 +11,13 @@ import com.ie.evalos.domain.ClientAccount;
 import com.ie.evalos.domain.ClientCredentialToken;
 import com.ie.evalos.domain.CredentialPurpose;
 import com.ie.evalos.domain.PortalAudience;
+import com.ie.evalos.integration.GhlWriteClient;
+import com.ie.evalos.integration.MailTransport;
 import com.ie.evalos.repository.ClientAccountRepository;
 import com.ie.evalos.repository.ClientCredentialTokenRepository;
 
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -30,6 +33,9 @@ import org.springframework.transaction.annotation.Transactional;
  */
 @Service
 public class ClientAccountService {
+
+	private static final org.slf4j.Logger log =
+			org.slf4j.LoggerFactory.getLogger(ClientAccountService.class);
 
 	/**
 	 * What the sign-in screen branches on.
@@ -57,7 +63,13 @@ public class ClientAccountService {
 		 */
 		MAIL_UNAVAILABLE,
 
-		/** No account. Offer Get Started, carrying the email forward. */
+		/**
+		 * No account. Offer sign-up, carrying the email forward.
+		 *
+		 * <p>That offer led to a placeholder apologising for itself until 2026-09-15, because
+		 * nothing created a {@code client_account} at runtime. {@link #signUp} is what it reaches
+		 * now, and is the one state that route cannot return.
+		 */
 		UNKNOWN
 	}
 
@@ -66,6 +78,28 @@ public class ClientAccountService {
 	private final ClientCredentialTokenRepository credentials;
 
 	private final ClientMailer mailer;
+
+	/**
+	 * GHL's contact door, for {@link #ensureCrmIdentity} and nothing else on this class.
+	 *
+	 * <p>Invariant 7: GHL owns contact identity, so EvalOS asks it whether this email is somebody
+	 * it already has rather than deciding for itself. One call covers both branches.
+	 *
+	 * <p><strong>It was {@link #signUp}'s until 2026-09-16 (D3a).</strong> That method is
+	 * {@code permitAll}; this one is reached only by spending an emailed single-use token.
+	 */
+	private final GhlWriteClient ghlContacts;
+
+	/**
+	 * The CRM row for the person signing up — Unit 44c.
+	 *
+	 * <p><strong>This closes the prospect gap</strong> ({@code 00d} §5.4). Until now the only writer
+	 * of {@code contact_snapshot} was Handoff A, so it held <em>only contacts that won an
+	 * opportunity</em> — every prospect, and every lead Marketing opened this month, was unknown to
+	 * the portal. A client who signs up now has a CRM row from that moment, and the account points
+	 * at it.
+	 */
+	private final ContactSnapshotService contacts;
 
 	private final PortalAccessService links;
 
@@ -78,32 +112,35 @@ public class ClientAccountService {
 	private final Duration credentialTtl;
 
 	/**
-	 * The <strong>client portal app's</strong> origin — {@code evalos.portal.client-base-url},
-	 * <em>not</em> {@code base-url}.
+	 * The client portal's origin — {@code evalos.portal.client-base-url}, and the one place a
+	 * client-facing URL is still built.
 	 *
-	 * <p><strong>They are different deployments, and using the wrong one mails a client to the
-	 * staff login page.</strong> {@code base-url} is what {@code PortalAccessService.urlFor}
-	 * appends {@code /portal/client} to, and that route lives in {@code frontend/} — the staff
-	 * SPA, which is also the property's dev default. {@code /set-password} lives only in
-	 * {@code client-expert/client}, a separate build on a separate origin. One property could
-	 * only ever be right for one of them: pointed at the staff app, a client clicking their
-	 * set-password mail lands on a path the staff SPA does not recognise as a portal route, so it
-	 * renders the staff sign-in — with the credential sitting in the fragment.
+	 * <p><strong>It began as a fix and ended as the only survivor.</strong> The set-password link
+	 * was originally built from {@code evalos.portal.base-url}, which named whatever served
+	 * {@code /portal/client} — a second copy of the client portal inside the <em>staff</em> SPA,
+	 * and that property's dev default. A client clicking their mail landed on the staff sign-in
+	 * page with their credential in the fragment. This property was added to separate them;
+	 * {@code base-url} and the screen it pointed at have since been deleted outright, because the
+	 * client portal is one deployment clients navigate to themselves.
 	 *
-	 * <p>Third of its kind, and deliberately shaped like the second: {@code expert-base-url}
-	 * exists for exactly this reason (the expert portal split out on 2026-09-03) and its comment
-	 * in {@code application.yml} makes the same argument. Three apps, three origins.
+	 * <p>Two origins remain, one per app that a person is ever sent to: this, and
+	 * {@code expert-base-url}. Nothing mints a client <em>link</em> any more — a set-password mail
+	 * is the only client URL EvalOS composes.
 	 */
 	private final String clientAppBaseUrl;
 
 	ClientAccountService(ClientAccountRepository accounts, ClientCredentialTokenRepository credentials,
-			ClientMailer mailer, PortalAccessService links, AuditService audit, PasswordEncoder encoder,
+			ClientMailer mailer, GhlWriteClient ghlContacts, ContactSnapshotService contacts,
+			PortalAccessService links, AuditService audit,
+			PasswordEncoder encoder,
 			@Value("${evalos.portal.client-brand}") UUID brandId,
 			@Value("${evalos.portal.credential-ttl}") Duration credentialTtl,
 			@Value("${evalos.portal.client-base-url}") String clientAppBaseUrl) {
 		this.accounts = accounts;
 		this.credentials = credentials;
 		this.mailer = mailer;
+		this.ghlContacts = ghlContacts;
+		this.contacts = contacts;
 		this.links = links;
 		this.audit = audit;
 		this.encoder = encoder;
@@ -149,6 +186,90 @@ public class ClientAccountService {
 	}
 
 	/**
+	 * The other half of the front door: a client EvalOS has never heard of, signing themselves up.
+	 *
+	 * <p><strong>Nothing created a {@code client_account} at runtime before this.</strong> Every
+	 * row in that table came from {@code V45}, a one-shot backfill of the clients EvalOS already
+	 * knew on 2026-09-12. Handoff A creates a case and a {@code contact_snapshot} and no account,
+	 * and no staff route mints one — so every client acquired since then was told
+	 * <em>"we couldn't find that email"</em> by a front door with nothing behind it. This is the
+	 * only way in.
+	 *
+	 * <p><strong>This writes to the live CRM from a {@code permitAll} route, and that is a hazard
+	 * held down by something other than ordering now (D3d).</strong> D3a moved the contact to
+	 * set-password precisely to avoid this: an IP-rotating script could fill the sub-account Sales
+	 * works in and spend GHL's shared 100-requests-per-10-seconds-per-location budget, which makes
+	 * every GHL-backed staff screen answer 502 — a signup form taking the sales desk down.
+	 *
+	 * <p>It came back because GHL sends the mail now and will not mail a stranger: a contactId is
+	 * required, so the contact has to exist <em>before</em> the set-password link, not after it.
+	 * The security property D3a bought is kept by other means — a proof-of-human gate on this one
+	 * route, its own tighter budget rather than the shared sixty, and {@code PORTAL_CLEANUP}
+	 * removing what a flood leaves behind. The ordering was never the protection; it was one way
+	 * of getting it.
+	 *
+	 * <p><strong>An address we already hold is not an error and does not create anything.</strong>
+	 * It falls through to {@link #identify}, which is the same answer the sign-in screen would
+	 * have given — so a returning client who clicks <em>Sign up</em> out of habit is recognised
+	 * rather than duplicated, and signing up cannot be used to overwrite an account.
+	 *
+	 * <p><strong>This never signs anyone in, and that is the security property.</strong> The reply
+	 * is an {@link IdentifyState}, never a token: when GHL already held the address, the account
+	 * minted here reaches that contact's cases, so handing out a session for an unproven mailbox
+	 * would be account takeover by typing a stranger's email. Control of the inbox is proved by
+	 * the set-password link, exactly as it is for every seeded client.
+	 *
+	 * <p><strong>A local-only account is now the normal state, not a failure.</strong> This method
+	 * used to refuse with a 502 when GHL was unreachable, on the argument that an account with no
+	 * contact is a lead no salesperson can see. That argument survives; its answer moved. The
+	 * account is invisible to Sales for exactly as long as the mailbox is unproved — which is the
+	 * period in which it is not yet a lead — and {@link #setPassword} makes it visible the moment
+	 * it is. If GHL is down at that moment, {@code ClientApplicationService} backfills the contact
+	 * when the client actually asks for something (D3c), so nothing is lost either way.
+	 *
+	 * <p>Not {@code @Transactional}, for the reason {@link #identify} states at length: the tail
+	 * of this method sends mail.
+	 */
+	public IdentifyState signUp(String email, String firstName, String lastName, String phone) {
+		String normalized = normalize(email);
+		if (accounts.findByBrandIdAndEmailIgnoreCase(brandId, normalized).isEmpty()) {
+			// SIGNUP, and this is the only writer of that value. It is what makes this row
+			// eligible for PORTAL_CLEANUP and a seeded client's row not — see V59.
+			ClientAccount account = new ClientAccount(brandId, normalized, "SIGNUP");
+			account.setFirstName(firstName);
+			account.setLastName(lastName);
+			account.setPhone(phone);
+			// **The contact is created here, and D3a's mechanism changed to allow it (D3d).** GHL
+			// sends the set-password mail now, and `POST /conversations/messages` requires a
+			// contactId — there is no contact-less send and a conversationId is no escape, because
+			// a conversation belongs to a contact. So the contact cannot wait for setPassword: the
+			// mail that leads to setPassword needs it. What replaced the delay as the flood defence
+			// is the gate on this route plus PORTAL_CLEANUP, not the ordering.
+			//
+			// A GHL outage does not refuse the sign-up. The account stands with no contact,
+			// `identify` answers MAIL_UNAVAILABLE because GHL cannot reach them, and
+			// `ensureCrmIdentity` repairs it on their next sign-in (D3c).
+			ensureCrmIdentity(account);
+			try {
+				// The repository's own transaction, and no method-level one here on purpose: a
+				// @Transactional wrapper would hold a connection across identify()'s SMTP call
+				// below, which is the trap that method's javadoc describes at length.
+				accounts.saveAndFlush(account);
+			}
+			catch (DataIntegrityViolationException duplicate) {
+				// `client_account_brand_email_key`. Two submissions of the same form raced — a
+				// double-click is enough. The row the winner wrote is the row this caller wanted,
+				// so falling through to identify() gives the same answer they would have got a
+				// millisecond later, rather than a 500 on the front door.
+				return identify(normalized);
+			}
+			audit.recordPortalEvent(brandId, PortalAudience.CLIENT, "CLIENT_ACCOUNT", account.getId(),
+					AuditAction.CREATED, null, "signed up as " + normalized);
+		}
+		return identify(normalized);
+	}
+
+	/**
 	 * Mints a single-use link and mails it, unless one is already on its way.
 	 *
 	 * <p><strong>Returns false rather than throwing when mail cannot be sent</strong> — whether
@@ -174,7 +295,23 @@ public class ClientAccountService {
 	 * per purpose. Returning true is correct there: a working link <em>is</em> in that inbox.
 	 */
 	private boolean issueCredential(ClientAccount account, CredentialPurpose purpose) {
-		if (!mailer.isConfigured()) {
+		// **canReach, not isConfigured, and the difference is the GHL transport.** A configured
+		// transport that cannot address THIS person is a real state now: GHL needs a linked
+		// contact, and an account whose sign-up hit a GHL outage has none. Asking only whether
+		// mail is configured would mint a token and report NO_PASSWORD for a link that never left.
+		// **Repaired here, and this is the only place that can.** With the `ghl` transport,
+		// canReach needs a linked contact — and an account that has none can never set a password,
+		// so it can never reach signIn or setPassword, which were the only repair points. That is a
+		// client stuck on MAIL_UNAVAILABLE for ever with forgot-password silently doing nothing:
+		// exactly the dead end `identify`'s three-way answer exists to avoid. Review found it.
+		//
+		// Idempotent and free for the common case — an account with a contact makes no call.
+		if (ensureCrmIdentity(account)) {
+			persistCrmLink(account);
+		}
+		MailTransport.Recipient recipient = new MailTransport.Recipient(account.getBrandId(),
+				account.getEmail(), account.getGhlContactId());
+		if (!mailer.canReach(recipient)) {
 			return false;
 		}
 		if (credentials.findFirstByClientAccountIdAndPurposeAndUsedAtIsNullAndExpiresAtAfter(
@@ -184,8 +321,8 @@ public class ClientAccountService {
 		String token = PortalAccessService.freshCredentialToken();
 		String link = clientAppBaseUrl + "/set-password#" + token;
 		boolean sent = purpose == CredentialPurpose.SET
-				? mailer.sendSetPassword(account.getEmail(), link)
-				: mailer.sendResetPassword(account.getEmail(), link);
+				? mailer.sendSetPassword(recipient, link)
+				: mailer.sendResetPassword(recipient, link);
 		if (!sent) {
 			return false;
 		}
@@ -216,7 +353,7 @@ public class ClientAccountService {
 	 * before the throw — so committing here commits exactly the audit row and nothing more.
 	 */
 	@Transactional(noRollbackFor = InvalidRequestException.class)
-	public PortalAccessService.MintedLink signIn(String email, String password) {
+	public PortalAccessService.MintedToken signIn(String email, String password) {
 		ClientAccount account = accounts.findByBrandIdAndEmailIgnoreCase(brandId, normalize(email))
 				.orElseThrow(ClientAccountService::refused);
 
@@ -230,6 +367,18 @@ public class ClientAccountService {
 		}
 
 		account.recordSignIn(Instant.now());
+		// ponytail: a synchronous GHL call inside this transaction, so an account with no contact
+		// pays a full client timeout on every sign-in during a GHL outage, holding a Hikari
+		// connection while it does. The common path is a no-op — a client with a password came
+		// through setPassword, which linked them — and `identify` now repairs the pathological case
+		// before sign-in is ever reached. Move this behind the Unit 45 outbox if it ever bites.
+		//
+		// **"Login verify and update if something missing."** A client whose CRM link never got
+		// written — GHL was down when they set their password, or their row was seeded by V45 from
+		// a snapshot that carried no id — repairs it here, on the one route every returning client
+		// passes through. Idempotent and silent: an account that already has a contact makes no
+		// call, and a GHL outage leaves the sign-in alone, exactly as it does at set-password.
+		ensureCrmIdentity(account);
 		audit.recordPortalEvent(account.getBrandId(), PortalAudience.CLIENT, "CLIENT_ACCOUNT",
 				account.getId(), AuditAction.CLIENT_SIGNED_IN, null,
 				"signed in as " + account.getEmail());
@@ -263,9 +412,12 @@ public class ClientAccountService {
 	 * <p>Signing in here rather than bouncing to the sign-in screen is the point of returning a
 	 * token: somebody who has just proved control of the mailbox and chosen a password should not
 	 * immediately be asked for that password.
+	 *
+	 * <p><strong>And it is where the client becomes a GHL contact (D3a).</strong> Proving the
+	 * mailbox is the gate; see {@link #ensureCrmIdentity}.
 	 */
 	@Transactional
-	public PortalAccessService.MintedLink setPassword(String token, String password) {
+	public PortalAccessService.MintedToken setPassword(String token, String password) {
 		ClientCredentialToken credential = credentials.findByTokenHash(PortalAccessService.hash(token))
 				.orElseThrow(ClientAccountService::linkRefused);
 		Instant now = Instant.now();
@@ -295,7 +447,101 @@ public class ClientAccountService {
 		audit.recordPortalEvent(account.getBrandId(), PortalAudience.CLIENT, "CLIENT_ACCOUNT",
 				account.getId(), AuditAction.CLIENT_PASSWORD_SET, null,
 				"password set for " + account.getEmail());
+		ensureCrmIdentity(account);
 		return links.mintForClientAccount(account);
+	}
+
+	/**
+	 * Gives this client a GHL contact, now that they have proved they can read their own mail.
+	 *
+	 * <p><strong>Called from three places, and idempotent so that it can be.</strong> Sign-up
+	 * (the contact must exist before GHL can mail them), set-password, and sign-in — the last two
+	 * as the repair D3c describes, for an account whose sign-up met a GHL outage or whose row was
+	 * seeded by {@code V45} from a snapshot carrying no id.
+	 *
+	 * <p><strong>Idempotent on {@code ghl_contact_id}, which is what makes it safe here.</strong>
+	 * A seeded {@code V45} client resetting a forgotten password already has an id, and re-upserting
+	 * would be a pointless write against the rate budget. Only an account with no id calls out.
+	 *
+	 * <p><strong>A GHL refusal does not fail the set-password</strong>, for the same reason the
+	 * snapshot write never failed the sign-up: locking a client out of their own account over a
+	 * third party's outage is the worse failure, and the id is recoverable —
+	 * {@code ClientApplicationService} creates the contact at the first request that needs one
+	 * (D3c). This is the one place where "eventually" is genuinely good enough, because nothing
+	 * between here and there reads the id.
+	 *
+	 * @return whether a contact was linked <em>by this call</em> — false when one was already
+	 *         there and false when GHL refused. {@code issueCredential} persists on a true, which
+	 *         is the one path with no transaction to write it.
+	 *
+	 * <p>Inside the transaction, matching {@code ClientApplicationService.start}, which already
+	 * calls GHL from a {@code @Transactional} method on a bounded timeout. {@code identify}'s
+	 * no-transaction rule is about SMTP on an unauthenticated flood surface and does not reach
+	 * here.
+	 */
+	public boolean ensureCrmIdentity(ClientAccount account) {
+		if (account.getGhlContactId() != null) {
+			return false;
+		}
+		try {
+			GhlWriteClient.UpsertedContact contact = ghlContacts.upsertContact(account.getFirstName(),
+					account.getLastName(), account.getEmail(), account.getPhone(),
+					GhlWriteClient.SOURCE_CLIENT_PORTAL);
+			account.linkGhlContact(contact.id());
+			// The CRM mirror, found or created — Unit 44c. Nested rather than beside the upsert:
+			// a snapshot keyed on a contact id needs the contact to have answered first.
+			try {
+				account.linkContact(contacts.findOrCreate(account.getBrandId(),
+						ContactSnapshotService.Details.fromSignUp(contact.id(),
+								fullNameOf(account.getFirstName(), account.getLastName()),
+								account.getEmail(), account.getPhone()))
+						.getId());
+			}
+			catch (RuntimeException couldNotLink) {
+				log.warn("Linked {} to GHL without a CRM row: {}", account.getEmail(),
+						couldNotLink.getMessage());
+			}
+		}
+		catch (RuntimeException ghlRefused) {
+			log.warn("Set a password for {} without a GHL contact: {}. It will be created on their "
+					+ "first request.", account.getEmail(), ghlRefused.getMessage());
+		}
+		return account.getGhlContactId() != null;
+	}
+
+	/**
+	 * Writes what {@link #ensureCrmIdentity} linked, for the callers that have no transaction.
+	 *
+	 * <p><strong>{@code identify} and {@code forgotPassword} are deliberately not
+	 * {@code @Transactional}</strong> — that method's javadoc argues it at length — so the account
+	 * they hold is detached and dirty checking will never run on it. Without this the repair
+	 * happens in memory, the mail goes out, and the link is gone by the next request.
+	 *
+	 * <p><strong>Called from {@code issueCredential} and nowhere else.</strong> Not from inside
+	 * {@link #ensureCrmIdentity}, which would write a brand-new account before {@code signUp} has
+	 * had its own chance to — and {@code signUp}'s save is the one that catches the duplicate-email
+	 * race. The transactional callers need nothing: dirty checking already writes them.
+	 *
+	 * <p><strong>Guarded on {@code ensureCrmIdentity} having actually linked something</strong>,
+	 * not on a contact id being present. Writing whenever one exists re-saves an account on every
+	 * {@code identify} — a pointless write on the busiest unauthenticated route, and on the
+	 * sign-up race it re-inserts the row the winner already wrote and throws the duplicate-key
+	 * straight past the handler built to absorb it.
+	 */
+	private void persistCrmLink(ClientAccount account) {
+		try {
+			accounts.saveAndFlush(account);
+		}
+		catch (RuntimeException couldNotWrite) {
+			// **Swallowed, because this is a repair and not the caller's errand.** `identify` and
+			// `forgot-password` are unauthenticated; a write that loses a race or trips a
+			// constraint here must not become a 500 on the front door, and on forgot-password a
+			// 500 for a known address beside a 204 for an unknown one is the enumeration oracle
+			// that method exists to avoid. The link is in memory for this request, the mail still
+			// goes, and the next call repairs it again.
+			log.warn("Could not persist the CRM link for {}: {}", account.getEmail(),
+					couldNotWrite.getMessage());
+		}
 	}
 
 	private static InvalidRequestException refused() {
@@ -306,6 +552,15 @@ public class ClientAccountService {
 		return new InvalidRequestException(
 				"This link is no longer valid. It may have been used already, or it may have expired. "
 						+ "Please request a new one.");
+	}
+
+	/** What the CRM row is called. Null when neither part was given, rather than a blank string. */
+	private static String fullNameOf(String firstName, String lastName) {
+		String full = java.util.stream.Stream.of(firstName, lastName)
+				.filter((part) -> part != null && !part.isBlank())
+				.reduce((first, second) -> first + " " + second)
+				.orElse(null);
+		return full;
 	}
 
 	private static String normalize(String email) {

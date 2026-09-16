@@ -12,11 +12,19 @@ import com.ie.evalos.repository.AuditEventRepository;
 import com.ie.evalos.repository.CaseDocumentRepository;
 import com.ie.evalos.repository.CaseRepository;
 import com.ie.evalos.repository.ClientAccountRepository;
+import com.ie.evalos.repository.ClientApplicationRepository;
+import com.ie.evalos.repository.OpportunityRepository;
+import com.ie.evalos.repository.PipelineRepository;
+import com.ie.evalos.repository.SyncDriftRepository;
+import com.ie.evalos.repository.SyncOutboxRepository;
+import com.ie.evalos.repository.PipelineStageRepository;
 import com.ie.evalos.repository.ClientCredentialTokenRepository;
 import com.ie.evalos.repository.ContactSnapshotRepository;
 import com.ie.evalos.repository.DocumentChecklistItemRepository;
 import com.ie.evalos.repository.ExpertCaseOfferRepository;
 import com.ie.evalos.repository.ExpertRepository;
+import com.ie.evalos.repository.FollowUpRepository;
+import com.ie.evalos.repository.MeetingRepository;
 import com.ie.evalos.repository.NotificationRepository;
 import com.ie.evalos.repository.PayoutLedgerRepository;
 import com.ie.evalos.repository.PayoutPaymentRepository;
@@ -63,7 +71,15 @@ class DomainInvariantsTest {
 				arguments(PortalAccessRepository.SCOPE, PortalAccess.class),
 				arguments(NotificationRepository.SCOPE, Notification.class),
 				arguments(ClientAccountRepository.SCOPE, ClientAccount.class),
-				arguments(ClientCredentialTokenRepository.SCOPE, ClientCredentialToken.class));
+				arguments(ClientCredentialTokenRepository.SCOPE, ClientCredentialToken.class),
+				arguments(MeetingRepository.SCOPE, Meeting.class),
+				arguments(FollowUpRepository.SCOPE, FollowUp.class),
+				arguments(ClientApplicationRepository.SCOPE, ClientApplication.class),
+				arguments(PipelineRepository.SCOPE, Pipeline.class),
+				arguments(PipelineStageRepository.SCOPE, PipelineStage.class),
+				arguments(OpportunityRepository.SCOPE, Opportunity.class),
+				arguments(SyncDriftRepository.SCOPE, SyncDrift.class),
+				arguments(SyncOutboxRepository.SCOPE, SyncOutboxEntry.class));
 	}
 
 	@ParameterizedTest

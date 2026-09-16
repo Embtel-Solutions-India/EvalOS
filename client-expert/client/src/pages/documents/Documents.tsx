@@ -29,10 +29,15 @@ import { formatDateShort } from '@shared/utils/formatters'
 /**
  * The client's documents, against EvalOS (Unit 34c). **The first real screen in this app.**
  *
- * <p>It sits outside the account shell on purpose. The credential here is a scoped portal token
- * that names one case — not the mock account session the rest of the app carries — and the
- * question of whether a portal credential should name a *party* instead is Unit 34's decision D1,
- * which is not taken. Wiring this page into `AuthenticatedRoute` would answer it by accident.
+ * <p><strong>Two things this comment used to say are now the opposite, and the reversals are
+ * decisions rather than drift.</strong> D1 — whether a portal credential names a *party* rather
+ * than one case — **was taken, in favour of the party** (Unit 35), so this screen's token usually
+ * names a client and their cases are resolved from it. And there is no "mock account shell" to sit
+ * outside: it was deleted in 34d, and Unit 42 gave the client a real account in its place.
+ *
+ * <p><strong>Which is why a client with no cases sees an empty screen rather than a refusal
+ * (2026-09-15).</strong> Self-signup made that the ordinary first minute of an account's life.
+ * Two or more cases still refuses and still needs a case picker, the one `DraftReview` has.
  *
  * <p>What is deliberately absent: any status this file computes. Every word on a checklist row is
  * a label for a value EvalOS sent.

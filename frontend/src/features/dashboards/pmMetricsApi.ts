@@ -254,3 +254,76 @@ export type PortalLinkLedger = {
 export async function fetchPortalLinkLedger(signal?: AbortSignal): Promise<PortalLinkLedger> {
   return unwrap<PortalLinkLedger>(api.get('/metrics/portal-links', { signal }))
 }
+
+// --- the GM overview --------------------------------------------------------
+//
+// One payload, two halves. The production half is EvalOS's own rows and is always present; the
+// pipeline half is GHL's and is null when `pipelineUnavailable` says why. The screen prints that
+// message on exactly the tiles it invalidates rather than blanking the page — see
+// `GmOverviewService`.
+
+/** `null` on any window that is not a calendar month: a monthly target has no other denominator. */
+export type GmHeadline = { won: number; goal: number | null; pctToGoal: number | null }
+
+export type GmSourceRow = { source: string; deals: number; value: number }
+
+export type GmServiceRow = {
+  serviceType: string
+  openCases: number
+  openValue: number
+  delivered: number
+  deliveredValue: number
+}
+
+export type GmSales = {
+  newLeads: number
+  newValue: number
+  won: number
+  wonValue: number
+  /** Null when the previous window had no wins — a first win is not a percentage improvement. */
+  wonDeltaPct: number | null
+}
+
+export type GmDeskRow = {
+  memberId: string
+  name: string
+  role: 'SALES' | 'MARKETING'
+  newLeads: number
+  won: number
+  wonValue: number
+}
+
+/** `noSourcePct` is null, never 0, when the window held no opportunities to attribute. */
+export type GmMarketing = { newLeads: number; newValue: number; noSourcePct: number | null }
+
+/** `late` is past the promised date, not `PmMetrics.atRiskNow`'s wider band. */
+export type GmEvaluation = {
+  delivered: number
+  deliveredValue: number
+  late: number
+  openCases: number
+  openValue: number
+}
+
+export type GmOverview = {
+  headline: GmHeadline | null
+  bySource: GmSourceRow[]
+  byService: GmServiceRow[]
+  sales: GmSales | null
+  desks: GmDeskRow[]
+  marketing: GmMarketing | null
+  evaluation: GmEvaluation
+  readAt: string
+  /** Null when GHL answered. The reason it did not, otherwise. */
+  pipelineUnavailable: string | null
+}
+
+export async function fetchGmOverview(
+  range: DateRange,
+  brandId: string | null,
+  signal?: AbortSignal,
+): Promise<GmOverview> {
+  const params: Record<string, string> = rangeParams(range)
+  if (brandId) params.brandId = brandId
+  return unwrap<GmOverview>(api.get('/metrics/gm', { params, signal }))
+}

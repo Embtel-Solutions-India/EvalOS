@@ -37,6 +37,17 @@ public class ClientAccount extends ScopedEntity {
 	@Column(name = "password_hash")
 	private String passwordHash;
 
+	/**
+	 * The CRM row for this person — Unit 44c's link.
+	 *
+	 * <p><strong>The fix for "one person is two rows with no link".</strong> Both this table and
+	 * {@code contact_snapshot} could hold a {@code ghl_contact_id} and nothing joined them, so a
+	 * case could reach the contact and never the account. Null is legal: a client may sign up
+	 * before EvalOS has any other trace of them, and a wrong link is far worse than a missing one.
+	 */
+	@Column(name = "contact_id")
+	private UUID contactId;
+
 	@Column(name = "ghl_contact_id")
 	private String ghlContactId;
 
@@ -55,13 +66,41 @@ public class ClientAccount extends ScopedEntity {
 	@Column(name = "last_sign_in_at")
 	private Instant lastSignInAt;
 
+	/**
+	 * Where this row came from — {@code SEED}, {@code SIGNUP} or {@code STAFF} (V59).
+	 *
+	 * <p><strong>It exists for one reader: {@code PORTAL_CLEANUP}.</strong> A seeded client and an
+	 * abandoned self-signup are indistinguishable on every other column — null password, a linked
+	 * contact, a null {@code last_sign_in_at} — so a sweep that deletes the second would have
+	 * deleted the first, which is the whole seeded backlog and the exact failure V45 exists to
+	 * prevent. Review caught it before it shipped.
+	 *
+	 * <p><strong>Defaults to {@code SEED}, which is the value nothing deletes.</strong> A writer
+	 * that forgets to set this gets a row that survives rather than one that quietly qualifies.
+	 */
+	@Column(name = "created_via", nullable = false)
+	private String createdVia = "SEED";
+
 	protected ClientAccount() {
 		// for JPA
 	}
 
 	public ClientAccount(UUID brandId, String email) {
+		this(brandId, email, "SEED");
+	}
+
+	/**
+	 * @param createdVia {@code SIGNUP} for a self-service sign-up — the only value
+	 *                   {@code PORTAL_CLEANUP} will ever delete. See {@link #createdVia}.
+	 */
+	public ClientAccount(UUID brandId, String email, String createdVia) {
 		super(brandId);
 		this.email = email;
+		this.createdVia = createdVia;
+	}
+
+	public String getCreatedVia() {
+		return createdVia;
 	}
 
 	/** Whether this account can be signed into with a password today. */
@@ -128,5 +167,16 @@ public class ClientAccount extends ScopedEntity {
 
 	public void setCountry(String country) {
 		this.country = country;
+	}
+
+	public UUID getContactId() {
+		return contactId;
+	}
+
+	/** Set once, when the CRM row is first found or created for this person. */
+	public void linkContact(UUID contactId) {
+		if (this.contactId == null) {
+			this.contactId = contactId;
+		}
 	}
 }

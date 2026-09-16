@@ -39,9 +39,9 @@ class MarketingLeadServiceTest {
 	private static final String OPPORTUNITY = "opp_1";
 
 	private final GhlWriteClient ghl = mock(GhlWriteClient.class);
-	private final OpportunityCache cache = mock(OpportunityCache.class);
+	private final OpportunityMirrorService deals = mock(OpportunityMirrorService.class);
 	private final MarketingLeadService service =
-			new MarketingLeadService(ghl, new PipelineScope(cache));
+			new MarketingLeadService(ghl, new PipelineScope(deals));
 
 	private void authenticate(Role role, String pipelineId) {
 		StaffPrincipal principal = new StaffPrincipal(MEMBER, "desk@ie.test", "Desk", role, BRAND, null,
@@ -56,7 +56,7 @@ class MarketingLeadServiceTest {
 	}
 
 	private void givenTheOpportunityIsMine() {
-		when(cache.isInPipeline(OPPORTUNITY, MINE)).thenReturn(true);
+		when(deals.isOnPipeline(OPPORTUNITY, MINE)).thenReturn(true);
 	}
 
 	// --- opening a lead --------------------------------------------------------
@@ -64,7 +64,7 @@ class MarketingLeadServiceTest {
 	@Test
 	void opensALeadOnTheCallersOwnPipeline() {
 		authenticate(Role.MARKETING, MINE);
-		when(ghl.upsertContact(any(), any(), any(), any()))
+		when(ghl.upsertContact(any(), any(), any(), any(), any()))
 				.thenReturn(new GhlWriteClient.UpsertedContact("c1", "Ada Lovelace", "ada@example.test", null));
 		when(ghl.upsertOpportunity(eq(MINE), eq("c1"), any(), any()))
 				.thenReturn(new GhlWriteClient.UpsertedOpportunity("o1", "c1", MINE, "s1", "open",
@@ -87,7 +87,7 @@ class MarketingLeadServiceTest {
 	@Test
 	void aRepeatSubmissionIsNotASecondDeal() {
 		authenticate(Role.MARKETING, MINE);
-		when(ghl.upsertContact(any(), any(), any(), any()))
+		when(ghl.upsertContact(any(), any(), any(), any(), any()))
 				.thenReturn(new GhlWriteClient.UpsertedContact("c1", "Ada", "ada@example.test", null));
 		when(ghl.upsertOpportunity(any(), any(), any(), any()))
 				.thenReturn(new GhlWriteClient.UpsertedOpportunity("o1", "c1", MINE, "s1", "open", "Ada",
@@ -111,7 +111,7 @@ class MarketingLeadServiceTest {
 				.isInstanceOf(InvalidRequestException.class)
 				.hasMessageContaining("email or a phone");
 
-		verify(ghl, never()).upsertContact(any(), any(), any(), any());
+		verify(ghl, never()).upsertContact(any(), any(), any(), any(), any());
 	}
 
 	/** Fail closed: no pipeline on the principal means no write, not a default. */
@@ -122,7 +122,7 @@ class MarketingLeadServiceTest {
 		assertThatThrownBy(() -> service.openLead("Ada", null, "ada@example.test", null, null, null))
 				.isInstanceOf(ForbiddenException.class);
 
-		verify(ghl, never()).upsertContact(any(), any(), any(), any());
+		verify(ghl, never()).upsertContact(any(), any(), any(), any(), any());
 	}
 
 	// --- the scope check in front of every write -------------------------------
@@ -136,7 +136,7 @@ class MarketingLeadServiceTest {
 	@Test
 	void anotherDesksOpportunityIsRefused() {
 		authenticate(Role.MARKETING, MINE);
-		when(cache.isInPipeline("opp_theirs", MINE)).thenReturn(false);
+		when(deals.isOnPipeline("opp_theirs", MINE)).thenReturn(false);
 
 		assertThatThrownBy(() -> service.value("opp_theirs", null, BigDecimal.TEN))
 				.isInstanceOf(ForbiddenException.class);
@@ -154,7 +154,7 @@ class MarketingLeadServiceTest {
 
 		service.value(OPPORTUNITY, null, BigDecimal.TEN);
 
-		verify(cache).isInPipeline(OPPORTUNITY, MINE);
+		verify(deals).isOnPipeline(OPPORTUNITY, MINE);
 	}
 
 	// --- valuation -------------------------------------------------------------

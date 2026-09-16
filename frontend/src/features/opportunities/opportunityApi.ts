@@ -12,6 +12,14 @@ export type Deal = {
   contactId: string
   status: string
   amount: number | null
+  /**
+   * GHL's own last-modified stamp — **not** when EvalOS last read the row.
+   *
+   * Mirrors `OpportunityBoardService.Deal.updatedAt`. Null when GHL sends none, which the desk
+   * must render as "age unknown" rather than assume is fresh: a deal nobody has touched is the
+   * thing these screens exist to surface, so guessing in the optimistic direction defeats them.
+   */
+  updatedAt: string | null
 }
 
 /** One stage of the pipeline, named by GHL and ordered by GHL's own `position`. */
@@ -173,18 +181,102 @@ export function closeDeal(opportunityId: string, status: CloseStatus): Promise<S
   return unwrap<SalesDeal>(api.put(`/sales/opportunities/${opportunityId}/status`, { status }))
 }
 
+/**
+ * One open follow-up on the caller's pipeline, as the queue shows it.
+ *
+ * Mirrors `SalesCalendarController.FollowUpView`. Read from EvalOS's mirror rather than GHL —
+ * GHL lists tasks only per contact, so a desk-wide view over GHL would be one call per contact.
+ */
+export type FollowUpItem = {
+  taskId: string
+  opportunityId: string
+  contactId: string
+  title: string
+  note: string | null
+  dueAt: string
+  completed: boolean
+}
+
+/** Open follow-ups due before a cutoff, soonest first. */
+export function fetchFollowUps(
+  before: Date,
+  signal?: AbortSignal,
+): Promise<readonly FollowUpItem[]> {
+  return unwrap<readonly FollowUpItem[]>(
+    api.get('/sales/follow-ups', { params: { before: before.toISOString() }, signal }),
+  )
+}
+
+/**
+ * Marks a follow-up done — GHL first, then EvalOS's mirror.
+ *
+ * That order is the server's and it matters: if GHL refuses, nothing locally claims to be done.
+ */
+export function completeFollowUp(opportunityId: string, taskId: string): Promise<void> {
+  return unwrap<void>(
+    api.put(`/sales/opportunities/${opportunityId}/follow-ups/${taskId}/complete`, {}),
+  )
+}
+
 /** A follow-up is a GHL task on the deal's contact, not an EvalOS reminder. */
 export function setFollowUp(
   opportunityId: string,
-  followUp: { contactId: string; title: string; dueAt: string },
+  followUp: {
+    contactId: string
+    title: string
+    dueAt: string
+    /** GHL's task `body`. What the salesperson wants to remember, beyond the title. */
+    note?: string
+    /** Omit for GHL's own default assignment. */
+    assignedUserId?: string
+  },
 ): Promise<{ ghlTaskId: string }> {
   return unwrap<{ ghlTaskId: string }>(
     api.post(`/sales/opportunities/${opportunityId}/follow-ups`, followUp),
   )
 }
 
-/** A calendar a meeting can be booked into. Id and name — a picker needs nothing else. */
-export type Calendar = { id: string; name: string }
+/**
+ * A calendar a meeting can be booked into.
+ *
+ * Mirrors `GhlCalendarClient.CalendarOption`. This was id and name until 2026-09-15: GHL's own
+ * booking dialog is driven by the other three, so a picker with only id and name could not
+ * behave like one. `active` matters most — the location has twelve calendars and five are
+ * active, and GHL refuses a booking on an inactive one with "Calendar is inactive".
+ */
+export type Calendar = {
+  id: string
+  name: string
+  active: boolean
+  /** The calendar's own slot length. It is why the form picks a slot rather than a duration. */
+  slotMinutes: number | null
+  /** GHL's `eventTitle`, e.g. `{{contact.name}}` — shown as the title's default, as GHL does. */
+  titleTemplate: string | null
+}
+
+/**
+ * A calendar's bookable slots, as GHL computes them — keyed by date, values offset-bearing ISO.
+ *
+ * Availability depends on open hours, buffers, per-day caps, the team member's other
+ * appointments and minimum notice — all GHL configuration. EvalOS asks rather than calculates,
+ * which is the only way the two agree.
+ */
+export type FreeSlots = { timezone: string; byDate: Record<string, readonly string[]> }
+
+export function fetchSlots(
+  calendarId: string,
+  from: Date,
+  to: Date,
+  timezone: string,
+  signal?: AbortSignal,
+): Promise<FreeSlots> {
+  return unwrap<FreeSlots>(
+    api.get(`/sales/calendars/${calendarId}/slots`, {
+      params: { from: from.getTime(), to: to.getTime(), timezone },
+      signal,
+    }),
+  )
+}
 
 export function fetchCalendars(signal?: AbortSignal): Promise<readonly Calendar[]> {
   return unwrap<readonly Calendar[]>(api.get('/sales/calendars', { signal }))
@@ -216,7 +308,197 @@ export function bookMeeting(
     title: string
     startTime: string
     endTime: string
+    description?: string
+    /** Omit for "Calendar Default" — the calendar's own assigned member takes it. */
+    assignedUserId?: string
+    /** `custom` | `zoom` | `gmeet` | `phone` | `address` | `ms_teams` | `google`. */
+    meetingLocationType?: string
+    address?: string
+    /**
+     * GHL's Default | Custom toggle, as `ignoreFreeSlotValidation`.
+     *
+     * Default books into a slot the calendar says is free. Custom takes any time — GHL then stops
+     * refusing collisions, so a double-booking becomes a silent success rather than a visible
+     * failure. Off unless the salesperson deliberately chooses it.
+     */
+    customTime?: boolean
+    /** A second GHL call the server makes after the appointment exists. Max 5000 characters. */
+    internalNote?: string
   },
 ): Promise<Meeting> {
   return unwrap<Meeting>(api.post(`/sales/opportunities/${opportunityId}/meetings`, meeting))
+}
+
+/**
+ * One meeting on the caller's own pipeline, as the diary shows it.
+ *
+ * Mirrors `SalesCalendarController.MeetingView` exactly. `startsAt`/`endsAt` are ISO-8601 here —
+ * unlike the client portal's `ClientMeeting`, whose times are GHL's own unzoned strings and are
+ * deliberately never parsed. These come from EvalOS's own column, so they are real instants.
+ */
+export type DiaryMeeting = {
+  appointmentId: string
+  opportunityId: string
+  contactId: string
+  title: string
+  startsAt: string
+  endsAt: string
+  status: string | null
+}
+
+/**
+ * The caller's meetings inside a window, soonest first.
+ *
+ * Read from EvalOS's mirror rather than GHL: a diary is a screen people leave open, and a GHL
+ * call per render would spend the location's rate budget on it.
+ */
+export function fetchDiary(
+  from: Date,
+  to: Date,
+  signal?: AbortSignal,
+): Promise<readonly DiaryMeeting[]> {
+  return unwrap<readonly DiaryMeeting[]>(
+    api.get('/sales/meetings', {
+      params: { from: from.toISOString(), to: to.toISOString() },
+      signal,
+    }),
+  )
+}
+
+/**
+ * The fields a salesperson fills to open a deal — GHL's own "add opportunity" form, minus the
+ * ones EvalOS would have to guess at.
+ *
+ * Absent on purpose, each mirrored from `SalesOpportunityController.NewDealRequest`:
+ * `pipelineId` (the caller's own, never a field), `status` (forced to `open` — GHL accepts `won`
+ * on create, which fires Handoff A and mints a *paid* case), `assignedTo` (a GHL user id EvalOS
+ * does not hold), `customFields` (definitions arrive with the tier-2 mirror) and
+ * `forecastProbability` (GHL derives it from the stage).
+ */
+export type NewDeal = {
+  firstName?: string
+  lastName?: string
+  email?: string
+  phone?: string
+  name: string
+  monetaryValue?: number
+  stageId?: string
+  expectedCloseDate?: string
+  /**
+   * GHL custom field values, keyed by the location's own field id.
+   *
+   * The ids come from {@link fetchOpportunityFields}, never from a constant here — they are
+   * location-scoped, and the 2026-09-11 sub-account swap invalidated every hardcoded GHL id in
+   * the codebase at once. This is where the intake facts live: Service Requested, Visa Category,
+   * turnaround, and the client's own description of the case.
+   */
+  customFields?: Record<string, string>
+  /** Set only after the caller has been shown the contact's existing open deal. */
+  confirmSecondDeal?: boolean
+}
+
+/**
+ * Opens a new deal on the caller's own pipeline.
+ *
+ * **A true create, not an upsert**, which is what makes a repeat client's second purchase a
+ * second deal rather than an overwrite of their first. The cost is that the duplicate protection
+ * upsert gave for free is gone, so the server answers **409 `DEAL_ALREADY_OPEN`** when the
+ * contact already has an open deal — retry with `confirmSecondDeal` once the user has seen it.
+ */
+export function createDeal(deal: NewDeal): Promise<SalesDeal> {
+  return unwrap<SalesDeal>(api.post('/sales/opportunities', deal))
+}
+
+/**
+ * A custom field this GHL location puts on an opportunity.
+ *
+ * Mirrors `GhlCustomFieldClient.CustomField`. `dataType` is GHL's own word — `TEXT`,
+ * `LARGE_TEXT`, `NUMERICAL`, `DATE`, `SINGLE_OPTIONS` — passed through rather than mapped, so a
+ * type added in GHL tomorrow degrades to a text input instead of failing to parse.
+ */
+export type OpportunityField = {
+  id: string
+  name: string
+  fieldKey: string
+  dataType: string
+  picklistOptions: readonly string[]
+}
+
+/**
+ * The location's opportunity custom fields.
+ *
+ * Read live rather than hardcoded: the ids are location-scoped, and the 2026-09-11 sub-account
+ * swap invalidated every hardcoded GHL id in the codebase at once.
+ */
+export function fetchOpportunityFields(
+  signal?: AbortSignal,
+): Promise<readonly OpportunityField[]> {
+  return unwrap<readonly OpportunityField[]>(api.get('/sales/opportunity-fields', { signal }))
+}
+
+/** A GHL user, for the "Team member" picker. */
+export type GhlUser = { id: string; name: string; email: string }
+
+export function fetchGhlUsers(signal?: AbortSignal): Promise<readonly GhlUser[]> {
+  return unwrap<readonly GhlUser[]>(api.get('/sales/users', { signal }))
+}
+
+// --- Unit 43: the client's own request --------------------------------------
+
+/**
+ * One answered question, with the label **as the client was asked it**.
+ *
+ * The question text lives in the client portal's catalog, which this app is a separate build from
+ * and cannot import — so the label travels with the answer rather than being looked up. It also
+ * survives the catalog being reworded, which a lookup would not.
+ */
+export type AnsweredQuestion = {
+  id: string
+  label: string
+  value: string
+}
+
+/** `ClientApplicationService.ApplicationView` — what a client asked us for. */
+export type ClientApplication = {
+  id: string
+  serviceId: string
+  serviceName: string
+  purpose: string | null
+  status: 'DRAFT' | 'SUBMITTED'
+  /** A JSON string holding an array of {@link AnsweredQuestion}. */
+  answers: string
+  createdAt: string
+  updatedAt: string
+  submittedAt: string | null
+}
+
+/**
+ * The portal request behind a deal, or **null** when the deal did not come from the portal.
+ *
+ * **The server answers 200 with no payload for that case, not 404**, because most of the board is
+ * deals a salesperson opened by hand and "no request here" is an ordinary answer rather than a
+ * failure. Anything that actually fails still throws, so "GHL is down" and "this deal was phoned
+ * in" do not look the same on the panel.
+ */
+export async function fetchApplication(
+  opportunityId: string,
+  signal?: AbortSignal,
+): Promise<ClientApplication | null> {
+  const found = await unwrap<ClientApplication | null>(
+    api.get(`/opportunities/${opportunityId}/application`, { signal }),
+  )
+  // `@JsonInclude(NON_NULL)` drops the key entirely rather than sending null, so this is
+  // `undefined` in practice — normalised here so one falsy shape reaches the component.
+  return found ?? null
+}
+
+/** The stored answers, or an empty list for anything that is not the expected shape. */
+export function parseAnswers(answers: string | null | undefined): readonly AnsweredQuestion[] {
+  if (!answers) return []
+  try {
+    const parsed: unknown = JSON.parse(answers)
+    return Array.isArray(parsed) ? (parsed as AnsweredQuestion[]) : []
+  } catch {
+    return []
+  }
 }

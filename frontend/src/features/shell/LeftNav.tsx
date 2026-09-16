@@ -188,19 +188,12 @@ const NAV_ICONS: Record<string, ReactNode> = {
       <path d="M9 7V4h6v3" />
     </Glyph>
   ),
-  // A funnel, narrowing. The one screen that reads GHL rather than EvalOS, so it gets a shape
-  // no production screen uses.
-  '/marketing/google-ads': (
+  // A calendar page. The diary, which is EvalOS's own mirrored record rather than a GHL read, so
+  // it deliberately does not reuse the funnel corner's shapes.
+  '/meetings': (
     <Glyph>
-      <path d="M3 5h18l-7 8v6l-4 2v-8z" />
-    </Glyph>
-  ),
-  // An envelope. The second GHL funnel, so it keeps the "reads GHL" corner of the nav visually
-  // distinct from production work without reusing the funnel above.
-  '/marketing/email': (
-    <Glyph>
-      <rect x="3" y="6" width="18" height="12" rx="2" />
-      <path d="m3 8 9 6 9-6" />
+      <rect x="3" y="5" width="18" height="16" rx="2" />
+      <path d="M3 10h18M8 3v4M16 3v4" />
     </Glyph>
   ),
   '/checklists': (

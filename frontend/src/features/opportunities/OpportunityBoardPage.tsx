@@ -4,7 +4,9 @@ import { useMe } from '../../lib/authContext'
 import { useMetrics } from '../dashboards/useMetrics'
 import { formatCount, formatMoney } from '../../lib/money'
 import DealActions from './DealActions'
+import DealApplication from './DealApplication'
 import DealNotes from './DealNotes'
+import NewDealForm from './NewDealForm'
 import NewLeadForm from './NewLeadForm'
 import { fetchOpportunityBoard, type BoardColumn, type Deal } from './opportunityApi'
 
@@ -30,11 +32,14 @@ import { fetchOpportunityBoard, type BoardColumn, type Deal } from './opportunit
  * `boardRules.ts` gives Sales and Marketing `none` on every production stage for that reason.
  */
 export default function OpportunityBoardPage() {
-  const [reloads, setReloads] = useState(0)
-  const { data, state } = useMetrics((signal) => fetchOpportunityBoard(signal), [reloads])
+  // **`reload` from the hook, not a counter in the deps.** Passing a counter as a dependency made
+  // `useMetrics` clear `data` on every refresh, so adding a note or moving a card blanked the whole
+  // board to a skeleton and lost the reader's scroll position — the exact behaviour the hook
+  // documents itself as having been fixed to avoid by returning a separate `reload` that keeps the
+  // last good data on screen while the new read is in flight.
+  const { data, state, reload } = useMetrics((signal) => fetchOpportunityBoard(signal), [])
   const role = useMe().role
   const isMarketing = role === 'MARKETING'
-  const reload = () => setReloads((n) => n + 1)
   // Every stage on the board, so a salesperson can move a deal to any of them. Taken from the
   // board itself rather than fetched separately: it is the same pipeline, already loaded.
   const stages = (data?.columns ?? []).map((column) => ({
@@ -73,6 +78,15 @@ export default function OpportunityBoardPage() {
         back. A locally inserted card would show an outcome the server has not agreed to.
       */}
       {isMarketing && <NewLeadForm onOpened={reload} />}
+      {/* Sales opens a deal; Marketing opens a lead. Different verbs and different GHL calls —
+          a lead is an upsert (one open deal per contact per pipeline, which is right for a
+          marketing pipeline), a deal is a true create (a repeat client's second purchase must not
+          overwrite their first). See `NewDealForm`. */}
+      {role === 'SALES' && (
+        <div className="mt-3">
+          <NewDealForm columns={data?.columns ?? []} onCreated={reload} />
+        </div>
+      )}
 
       <Card title="" state={state}>
         {data && data.columns.length === 0 ? (
@@ -179,6 +193,12 @@ function DealCard({
           onChanged={onChanged}
         />
       )}
+      {/*
+        Above the notes, because it is what the client said and the notes are what we said back —
+        and a salesperson opening a card is looking for the first before writing the second.
+        Renders nothing for a deal that did not come through the portal, which is most of them.
+      */}
+      {open && <DealApplication opportunityId={deal.opportunityId} />}
       {open && <DealNotes opportunityId={deal.opportunityId} />}
     </article>
   )

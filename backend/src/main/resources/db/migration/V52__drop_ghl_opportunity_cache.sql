@@ -1,0 +1,31 @@
+-- `ghl_opportunity_cache` goes: Unit 44d's `opportunity` (V51) is what reads it now.
+--
+-- WHY IT COULD NOT BE MIGRATED IN PLACE. `00d` §6.5 gives five reasons, four of them schema —
+-- GHL's id as the primary key, `ghl_contact_id` and `stage_id` NOT NULL, and no `brand_id` at all
+-- (which made the single-brand ceiling load-bearing schema rather than configuration). The fifth is
+-- the one that made an ALTER impossible:
+--
+--   "Its only write path is delete-all-then-insert-all per pipeline. Every row's identity is
+--    destroyed on every board refresh, so nothing can hold a foreign key into it and any row
+--    carrying local state -- a sync_state, an outbox reference, a portal-born row with no ghl_id
+--    -- dies."
+--
+-- A table whose rows are recreated on every refresh cannot become one whose rows are the record.
+--
+-- DROPPING IT IS SAFE, and V40 says so itself: "TRUNCATE ghl_opportunity_cache costs a refill and
+-- nothing else." Every column was GHL's, nothing referenced it -- `opportunity_note` (V41) and
+-- `client_application` (V49) both deliberately hold `ghl_opportunity_id` as TEXT WITH NO FOREIGN
+-- KEY, each citing this table's droppability as the reason. Those two stay text for now; 44c and a
+-- later slice are where they get a real reference, which is a thing they can only have because
+-- `opportunity` rows survive a refresh.
+--
+-- THE ORDERING WORKS, unlike `ghl_funnel_cache`'s. That one could not be dropped because a local
+-- seed (`V905`) clears it and `MigrationTreeTest` forbids a `db/migration` script numbered 900 or
+-- above, so the DROP had nowhere to sit. Nothing in `db/seed-local` or `db/seed-testprod` mentions
+-- `ghl_opportunity_cache` -- verified -- so V52 runs cleanly before every seed.
+--
+-- Deleted in the same change: `CachedOpportunity`, `CachedOpportunityRepository`,
+-- `OpportunityCache` and `GhlOpportunityClient` -- the last of which was a second client over
+-- `/opportunities/search` with a narrower projection of the same rows than `GhlPipelineClient`
+-- already had.
+DROP TABLE IF EXISTS ghl_opportunity_cache;

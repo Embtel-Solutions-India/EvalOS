@@ -1,6 +1,18 @@
 # Unit 34 — The portal frontend, and wiring it to EvalOS
 
-> **Status: slices 34a and 34c BUILT 2026-09-03. The rest is SPECCED, not built.**
+> **Status: ALL SLICES BUILT. 34a and 34c 2026-09-03, 34e 2026-09-03, 34b and 34d 2026-09-11.**
+> *(This line said "the rest is SPECCED, not built" long after 34b and 34d shipped — corrected
+> 2026-09-12.)*
+>
+> **⚠ AMENDED 2026-09-12 — the staff SPA no longer hosts a client portal at all.**
+> `frontend/src/features/client-portal/` (`PortalRoot`, `ClientDraftView`, `portalApi`,
+> `portalRules`) and the `/portal/` branch in the staff `App.tsx` are **deleted**. They were the
+> pre-34b home of the client's draft review; 34b moved that screen into `client-expert/client` and
+> the minted link was never repointed, leaving a second, unmaintained client portal reachable only
+> by a stale URL. The business hosts the client portal at one origin and links to it from the
+> website, so **nothing mints a client link any more** — `evalos.portal.base-url`, which existed to
+> point at `/portal/client`, is deleted with it. §5's slice table below describes what was built,
+> not what is still deployed.
 >
 > Built: the HTTP seam (`X-Portal-Token` out of the URL fragment, `withCredentials` deleted,
 > Vitest installed), the client's document screen against real S3-backed endpoints, **two new

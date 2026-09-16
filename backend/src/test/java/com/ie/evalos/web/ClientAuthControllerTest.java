@@ -56,7 +56,7 @@ class ClientAuthControllerTest {
 	@Test
 	void signInReturnsTheToken() {
 		given(service.signIn("ana@example.com", "Correct!1")).willReturn(
-				new PortalAccessService.MintedLink("https://portal.example.com/#abc",
+				new PortalAccessService.MintedToken("abc",
 						Instant.parse("2026-09-19T10:00:00Z")));
 
 		var body = controller.signIn(

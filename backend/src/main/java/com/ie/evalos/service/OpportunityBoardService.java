@@ -9,12 +9,10 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-import java.util.stream.Stream;
 
-import com.ie.evalos.domain.CachedOpportunity;
+import com.ie.evalos.domain.Opportunity;
+import com.ie.evalos.domain.PipelineStage;
 import com.ie.evalos.domain.Role;
-import com.ie.evalos.integration.GhlOpportunityClient;
-import com.ie.evalos.integration.GhlPipelineClient;
 import com.ie.evalos.repository.TeamMemberRepository;
 import com.ie.evalos.security.TenantContext;
 
@@ -53,8 +51,21 @@ public class OpportunityBoardService {
 	}
 
 	/** One card. Deliberately not the cache row: no {@code fetchedAt}, no internal bookkeeping. */
+	/**
+	 * One card.
+	 *
+	 * <p>{@code updatedAt} is <strong>GHL's</strong> last-modified stamp, not ours: the cache also
+	 * holds {@code fetched_at}, which is when EvalOS last read the row and would make every deal
+	 * look touched on every refill. It is nullable because GHL does not always send it — a card
+	 * with no stamp is "age unknown", which the reader must be shown rather than have guessed as
+	 * "fresh".
+	 *
+	 * <p>Added 2026-09-14 for the Sales and Marketing desks: without it a board can draw deals but
+	 * cannot answer "which of these has nobody touched", which is the question a pipeline screen
+	 * exists to answer. The column was already in the cache and simply was not on the payload.
+	 */
 	public record Deal(String opportunityId, String name, String contactId, String status,
-			BigDecimal amount) {
+			BigDecimal amount, java.time.Instant updatedAt) {
 	}
 
 	/**
@@ -67,9 +78,26 @@ public class OpportunityBoardService {
 			Instant readAt, boolean stale) {
 	}
 
-	private final GhlOpportunityClient opportunities;
-	private final GhlPipelineClient pipelines;
-	private final OpportunityCache cache;
+	/**
+	 * The mirrored opportunities (Unit 44d).
+	 *
+	 * <p>This was a {@code GhlOpportunityClient} plus an {@code OpportunityCache} whose only write
+	 * path was delete-all-then-insert-all per pipeline. Both are gone: the board reads EvalOS rows
+	 * that are upserted in place, so a row keeps its identity across a refresh and a portal-born
+	 * deal with no {@code ghl_id} yet survives one.
+	 */
+	private final OpportunityMirrorService deals;
+
+	/**
+	 * The mirrored pipelines, which is where stage names come from as of Unit 44a.
+	 *
+	 * <p>This was {@code GhlPipelineClient} — a live GHL read on every board render, to turn an
+	 * opaque stage id into a word. The mirror holds GHL's id verbatim, so the same lookup is now
+	 * local and the busiest screen in the app stops spending the location's request budget on
+	 * structure that changes a few times a year.
+	 */
+	private final PipelineMirrorService mirroredPipelines;
+
 	private final TeamMemberRepository teamMembers;
 	private final Duration ttl;
 
@@ -85,13 +113,12 @@ public class OpportunityBoardService {
 	 */
 	private final UUID sellingBrandId;
 
-	OpportunityBoardService(GhlOpportunityClient opportunities, GhlPipelineClient pipelines,
-			OpportunityCache cache, TeamMemberRepository teamMembers,
+	OpportunityBoardService(OpportunityMirrorService deals, PipelineMirrorService mirroredPipelines,
+			TeamMemberRepository teamMembers,
 			@Value("${evalos.ghl.board-cache-ttl}") Duration ttl,
 			@Value("${evalos.ghl.sales-brand:}") String salesBrandId) {
-		this.opportunities = opportunities;
-		this.pipelines = pipelines;
-		this.cache = cache;
+		this.deals = deals;
+		this.mirroredPipelines = mirroredPipelines;
 		this.teamMembers = teamMembers;
 		this.ttl = ttl;
 		try {
@@ -123,7 +150,7 @@ public class OpportunityBoardService {
 		}
 
 		mine.forEach(this::refillIfStale);
-		return draw(mine, cache.forPipelines(mine));
+		return draw(mine, deals.onPipelines(mine));
 	}
 
 	/**
@@ -145,7 +172,7 @@ public class OpportunityBoardService {
 			return sellingBrandId == null ? List.of()
 					: teamMembers.findPipelinesOfActiveMembers(sellingBrandId);
 		}
-		return caller.ghlPipelineId() == null ? List.of() : List.of(caller.ghlPipelineId());
+		return caller.ghlPipelineIds();
 	}
 
 	/**
@@ -164,42 +191,55 @@ public class OpportunityBoardService {
 	 *
 	 * <pre>
 	 * ponytail: inline refill, whole-pipeline replace. If one pipeline ever grows past a few
-	 * pages, the upgrade is the off-thread refill MarketingPipelineService already implements —
+	 * pages, the upgrade is an off-thread refill (MarketingPipelineService implemented one until the
+	 * funnel screens were removed on 2026-09-16; `git show` it rather than redesigning it) —
 	 * not a bigger cache, and not a delta sync before there is a complaint to justify it.
 	 * </pre>
 	 */
 	private void refillIfStale(String pipelineId) {
-		if (!cache.isStale(pipelineId, ttl)) {
-			return;
-		}
-		// The GHL read happens HERE, outside any transaction, and the write is a separate
-		// transactional call on OpportunityCache. Doing both inside one @Transactional method
-		// would hold a pooled connection open across a network round trip — see that class.
-		cache.replace(pipelineId, opportunities.inPipeline(pipelineId));
+		// The GHL read still happens outside any transaction, and the write is still a separate
+		// transactional call — holding a pooled connection open across a network round trip is how
+		// one slow upstream becomes an exhausted pool. What changed at Unit 44d is that the write
+		// is an UPSERT into `opportunity` rather than a delete-all-then-insert-all into a cache.
+		deals.refreshIfStale(pipelineId, ttl);
 	}
 
-	/** Groups the rows into GHL's own stage order, so the board reads like the pipeline does. */
-	private Board draw(List<String> pipelineIds, List<CachedOpportunity> rows) {
-		Map<String, GhlPipelineClient.Pipeline.Stage> stages = new LinkedHashMap<>();
-		pipelines.pipelines().stream()
-				.filter((pipeline) -> pipelineIds.contains(pipeline.id()))
-				.flatMap((pipeline) -> pipeline.stages() == null
-						? Stream.<GhlPipelineClient.Pipeline.Stage>empty()
-						: pipeline.stages().stream())
-				.sorted(Comparator.comparingInt(GhlPipelineClient.Pipeline.Stage::position))
-				.forEach((stage) -> stages.putIfAbsent(stage.id(), stage));
+	/**
+	 * Groups the rows into GHL's own stage order, so the board reads like the pipeline does.
+	 *
+	 * <p><strong>The stage names come from the mirror now, not from GHL</strong> (Unit 44a). This
+	 * method used to call {@code GET /opportunities/pipelines} on <em>every board render</em> — an
+	 * unpaginated network round trip, against a 100-per-10-seconds budget shared with every other
+	 * desk, to turn an opaque stage id into a word. {@code pipeline_stage} holds GHL's id verbatim
+	 * ({@code 00c} §2b), so the lookup is now a local read and the id resolves without a
+	 * translation that could itself be wrong.
+	 *
+	 * <p>A stage the mirror has not seen still draws its column under the raw id, exactly as
+	 * before: a card that vanishes is a card somebody goes looking for. The difference is that the
+	 * fallback is now reached when the <em>sweep</em> is behind rather than when GHL is slow.
+	 */
+	private Board draw(List<String> pipelineIds, List<Opportunity> rows) {
+		Map<String, MirroredStage> stages = new LinkedHashMap<>();
+		mirroredPipelines.all().stream()
+				.filter((pipeline) -> pipelineIds.contains(pipeline.getGhlId()))
+				.flatMap((pipeline) -> mirroredPipelines.stagesOf(pipeline.getId()).stream())
+				.filter(PipelineStage::isLive)
+				.sorted(Comparator.comparingInt(PipelineStage::getPosition))
+				.forEach((stage) -> stages.putIfAbsent(stage.getGhlId(),
+						new MirroredStage(stage.getName(), stage.getPosition())));
 
-		Map<String, List<CachedOpportunity>> byStage = new LinkedHashMap<>();
+		Map<String, List<Opportunity>> byStage = new LinkedHashMap<>();
 		stages.keySet().forEach((stageId) -> byStage.put(stageId, new ArrayList<>()));
-		rows.forEach((row) -> byStage.computeIfAbsent(row.getStageId(), (key) -> new ArrayList<>())
+		rows.forEach((row) -> byStage.computeIfAbsent(row.getGhlStageId(), (key) -> new ArrayList<>())
 				.add(row));
 
 		List<BoardColumn> columns = byStage.entrySet().stream()
 				.map((entry) -> {
-					GhlPipelineClient.Pipeline.Stage stage = stages.get(entry.getKey());
+					MirroredStage stage = stages.get(entry.getKey());
 					List<Deal> deals = entry.getValue().stream()
-							.map((row) -> new Deal(row.getGhlOpportunityId(), row.getName(),
-									row.getGhlContactId(), row.getStatus(), row.getAmount()))
+							.map((row) -> new Deal(row.getGhlId(), row.getName(),
+									row.getGhlContactId(), row.getStatus(), row.getAmount(),
+									row.getGhlUpdatedAt()))
 							.toList();
 					return new BoardColumn(entry.getKey(),
 							// A stage GHL no longer lists still holds cards until the next
@@ -212,16 +252,23 @@ public class OpportunityBoardService {
 				.sorted(Comparator.comparingInt(BoardColumn::position))
 				.toList();
 
-		Instant readAt = rows.stream().map(CachedOpportunity::getFetchedAt)
-				.max(Comparator.naturalOrder()).orElse(Instant.now());
+		// When the mirror last agreed with GHL, asked of the pipelines rather than of the rows: an
+		// empty pipeline has no row to carry a timestamp, and reporting "now" for it would tell a
+		// reader the board is live when nothing has been read.
+		Instant lastSynced = deals.lastSynced(pipelineIds);
+		Instant readAt = lastSynced == null ? Instant.now() : lastSynced;
 
 		return new Board(columns, rows.size(), sum(rows), readAt,
 				Duration.between(readAt, Instant.now()).compareTo(ttl) >= 0);
 	}
 
-	private static BigDecimal sum(List<CachedOpportunity> rows) {
+	/** Just the two fields a column header needs, so the board does not carry a whole entity. */
+	private record MirroredStage(String name, int position) {
+	}
+
+	private static BigDecimal sum(List<Opportunity> rows) {
 		return rows.stream()
-				.map(CachedOpportunity::getAmount)
+				.map(Opportunity::getAmount)
 				.filter((amount) -> amount != null)
 				.reduce(BigDecimal.ZERO, BigDecimal::add);
 	}

@@ -237,9 +237,20 @@ describe('the nav and route table', () => {
     // and this test passed, because the new path simply was not in the list. A guard that only
     // checks what somebody remembered to list is a guard against forgetting nothing. Items now
     // declare `readsGhlLocation`, and this walks them.
+    // **The floor is 1, and the walk down from 4 is the history of this location's screens.**
+    // 4 until 2026-09-14, when `/marketing/google-ads` went (its configured pipeline name matched
+    // nothing in the sub-account IE moved to on 2026-09-11, so it could only ever 502). 3 until
+    // 2026-09-16, when `/marketing/email` and `/sales/pipeline` went on the business's
+    // instruction — they were GM-only for the scoping reason this test enforces, which meant the
+    // audience for a marketing funnel could not open one, so they were removed rather than
+    // widened. `/opportunities/board` is what is left, and it is the exception below.
+    //
+    // **Never lowered to 0.** The assertion's job is to catch the marker falling off the items,
+    // and an empty list would pass while proving nothing — which is the exact failure it exists
+    // to prevent. If the last GHL screen ever goes, delete this test rather than floor it at 0.
     const ghlScreens = NAV_ITEMS.filter((item) => item.readsGhlLocation)
     expect(ghlScreens.length, 'no GHL screens found — is the marker still on the items?')
-      .toBeGreaterThanOrEqual(4)
+      .toBeGreaterThanOrEqual(1)
 
     for (const item of ghlScreens) {
       const reachers = ALL_ROLES.filter((role) => mayReach(role, item.path))

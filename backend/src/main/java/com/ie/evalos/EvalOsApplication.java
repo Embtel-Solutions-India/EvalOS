@@ -10,7 +10,7 @@ import com.ie.evalos.job.JobProperties;
  * <p>{@code JobProperties} is registered explicitly rather than by
  * {@code @ConfigurationPropertiesScan}: it is the only bound-properties class in the codebase —
  * everything else reads a single value with {@code @Value} — and a scan would quietly adopt
- * every future one. Naming it here keeps the list of things bound from configuration readable.
+ * every future one. Naming it here keeps the list of things bound from onfiguration readable.
  */
 @SpringBootApplication
 @EnableConfigurationProperties(JobProperties.class)

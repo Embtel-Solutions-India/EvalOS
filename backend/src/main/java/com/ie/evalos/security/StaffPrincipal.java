@@ -32,7 +32,7 @@ public record StaffPrincipal(
 		 * the same property {@code brandId} and {@code teamId} already have, stated here so
 		 * nobody meets it as a bug.
 		 */
-		String ghlPipelineId,
+		List<String> ghlPipelineIds,
 		String passwordHash,
 		boolean active) implements UserDetails {
 
@@ -41,12 +41,41 @@ public record StaffPrincipal(
 	 * {@link TenantContext#TenantContext(UUID, Role, UUID, UUID)}: {@code null} is what the
 	 * column actually holds for these roles, and it fails closed for the ones it does not.
 	 */
-	public StaffPrincipal(UUID memberId, String email, String displayName, Role role, UUID brandId,
-			UUID teamId, String passwordHash, boolean active) {
-		this(memberId, email, displayName, role, brandId, teamId, null, passwordHash, active);
+	public StaffPrincipal {
+		// Never null, so no caller has to guard it and `ScopePredicate`'s empty case means exactly
+		// one thing: this member is on no pipeline.
+		ghlPipelineIds = ghlPipelineIds == null ? List.of() : List.copyOf(ghlPipelineIds);
 	}
 
-	public static StaffPrincipal of(TeamMember member) {
+	/** A principal with no pipelines — every role that is not SALES or MARKETING. */
+	public StaffPrincipal(UUID memberId, String email, String displayName, Role role, UUID brandId,
+			UUID teamId, String passwordHash, boolean active) {
+		this(memberId, email, displayName, role, brandId, teamId, List.of(), passwordHash, active);
+	}
+
+	/**
+	 * One pipeline, as a set of one.
+	 *
+	 * <p><strong>Kept so that Unit 44b's change of shape did not become a change to fifty call
+	 * sites.</strong> A desk with exactly one pipeline is still the normal case and will be for as
+	 * long as there is one salesperson per funnel; what changed is that it is no longer the only
+	 * case, because Case Delivery has no single owner ({@code 00d} §6.7).
+	 */
+	public StaffPrincipal(UUID memberId, String email, String displayName, Role role, UUID brandId,
+			UUID teamId, String ghlPipelineId, String passwordHash, boolean active) {
+		this(memberId, email, displayName, role, brandId, teamId,
+				ghlPipelineId == null ? List.<String>of() : List.of(ghlPipelineId), passwordHash, active);
+	}
+
+	/**
+	 * A principal for one member, with the pipelines they may work.
+	 *
+	 * <p><strong>The pipelines are passed in rather than read off the member</strong>, because as of
+	 * Unit 44b they live in {@code team_member_pipeline} and not on the row.
+	 * {@code team_member.ghl_pipeline_id} is vestigial — see {@code V54} — and reading it here would
+	 * be the one place the old single-owner model survived.
+	 */
+	public static StaffPrincipal of(TeamMember member, List<String> ghlPipelineIds) {
 		return new StaffPrincipal(
 				member.getId(),
 				member.getEmail(),
@@ -54,7 +83,7 @@ public record StaffPrincipal(
 				member.getRole(),
 				member.getBrandId(),
 				member.getTeamId(),
-				member.getGhlPipelineId(),
+				ghlPipelineIds,
 				member.getPasswordHash(),
 				member.isActive());
 	}

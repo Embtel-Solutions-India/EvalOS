@@ -85,6 +85,15 @@ strong accent for interactive elements.
 status (deadlines, SLA, capacity, overdue). The three status colors below are
 reserved for status only and must never be used as brand or decorative color.
 
+**The first design to test that rule was the GM dashboard (Unit 51, 2026-09-15), and the
+rule won.** The business's own layout keys its five blocks by department colour — Sales,
+Marketing, Experts, Evaluation. Four departmental hues sitting beside red / amber / green
+on the same tiles is exactly the collision this rule exists to prevent: the reader has to
+learn which colours mean *"who owns this"* and which mean *"act on this"*, and gets it
+wrong on the one that matters. The departments are **section headings** instead. When a
+future design asks for categorical colour again, the answer is the same and this is the
+precedent.
+
 ## Colors
 
 Define these as CSS custom properties / Tailwind tokens. No hardcoded hex in

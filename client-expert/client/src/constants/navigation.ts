@@ -20,16 +20,18 @@ export interface NavItem {
  * link can walk the rest without another. Before, each real screen stood alone and a nav entry
  * would have opened it with no token at all.
  *
- * **`/reports` is deliberately absent.** Its page is parked, not deleted: EvalOS has no route
- * that serves the signed letter, because delivery is a decision nobody has taken. A nav entry
- * is a promise that a route exists.
+ * **`/reports` is deliberately absent, and its page is DELETED, not parked.** This line said
+ * "parked" while `App.tsx` recorded the deletion in the same commit; `App.tsx` is right. The
+ * reason for the absence is unchanged and is the part that matters: EvalOS has no route that
+ * serves the signed letter, because delivery is a decision nobody has taken, and a nav entry is a
+ * promise that a route exists.
  *
  * **`ACCOUNT_NAV` and `SECONDARY_NAV` are gone**, with the pages behind them. A group is not
  * worth keeping for the day something might refill it.
  */
 export const PRIMARY_NAV: NavItem[] = [
   { label: 'Home', to: '/dashboard', icon: LayoutDashboard },
-  { label: 'My cases', to: '/requests', icon: FileCheck2 },
+  { label: 'My requests', to: '/requests', icon: FileCheck2 },
   { label: 'Documents', to: '/documents', icon: FileText },
   { label: 'Invoices', to: '/invoices', icon: Receipt },
   // Added 2026-09-11, the other half of "what a client is owed sight of". Sales books the

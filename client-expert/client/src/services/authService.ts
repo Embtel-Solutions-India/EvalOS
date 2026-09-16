@@ -25,6 +25,32 @@ export type IdentifyState = 'PASSWORD_SET' | 'NO_PASSWORD' | 'MAIL_UNAVAILABLE' 
 
 export type Session = { token: string; expiresAt: string }
 
+/**
+ * What a new client sends. Only the email is required — GHL's contact upsert matches on email
+ * then phone, and the server refuses a submission it cannot match on.
+ */
+export type SignUpDetails = {
+  email: string
+  firstName?: string
+  lastName?: string
+  phone?: string
+}
+
+/**
+ * Create the account, or recognise the client who already had one.
+ *
+ * **Returns an `IdentifyState`, not a `Session`, and that is deliberate.** Signing up does not
+ * sign you in: the address may be one GHL already holds, so a token here would be account
+ * takeover by typing a stranger's email. Every path ends at the emailed set-password link, which
+ * is the same door a seeded client comes through. `UNKNOWN` is the one answer this cannot give.
+ */
+export async function signUp(details: SignUpDetails): Promise<IdentifyState> {
+  const { state } = await unwrap(
+    apiClient.post<ApiResponse<{ state: IdentifyState }>>('/auth/sign-up', details),
+  )
+  return state
+}
+
 export async function identify(email: string): Promise<IdentifyState> {
   const { state } = await unwrap(
     apiClient.post<ApiResponse<{ state: IdentifyState }>>('/auth/identify', { email }),
@@ -50,4 +76,42 @@ export async function setPassword(token: string, password: string): Promise<Sess
   )
   setPortalToken(session.token)
   return session
+}
+
+/**
+ * What to tell somebody whose **sign-in** did not work.
+ *
+ * **A sibling of `failureMessage`, not a replacement, and the split is load-bearing.** That one is
+ * written for a reader who arrived by opening a link, so every branch of it talks about links and
+ * documents — and `portal.test.ts` pins it to never say "password" or "log in", because the client
+ * it was written for had no account to log into. Unit 42 gave them one and the auth screens reused
+ * it anyway, so a wrong password answered:
+ *
+ * > *"We could not load your documents. Please try again in a moment, or contact whoever sent you
+ * > this link."*
+ *
+ * Wrong subject, and it sends someone who is typing a password off to find a link that does not
+ * exist. Widening `failureMessage` to cover both readers is what that test exists to prevent, so
+ * the auth screens get their own.
+ *
+ * **`refused` is the only thing that varies, so it is the only parameter.** The server answers
+ * every deliberate refusal on these three routes with 400 — a wrong password, an account with no
+ * password, an unknown email, a spent link, a link for another brand — and what to say about it is
+ * the one thing that differs per screen. Everything else is the same sentence wherever you are.
+ *
+ * @param refused what a 400 means on this screen, in the client's words
+ */
+export function authFailureMessage(status: number | undefined, refused: string): string {
+  // The per-IP limiter on /api/portal/** (PortalTokenFilter), which is also what contains the
+  // enumeration `identify` deliberately allows. Worth its own words: it is the one failure here
+  // that a client fixes by waiting rather than by retyping.
+  if (status === 429) {
+    return 'Too many attempts. Please wait a minute and try again.'
+  }
+  if (status === 400) {
+    return refused
+  }
+  // 401 and 403 are not reachable: all four auth routes are permitAll. Anything else is ours, and
+  // saying so beats implying the client mistyped something.
+  return 'Something went wrong on our side. Please try again in a moment.'
 }

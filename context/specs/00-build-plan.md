@@ -452,7 +452,16 @@ than added to it, because approving a Case Manager's draft is the judgement of t
 PM who assigned it.
 Depends on: 04, 08, 09, 22.
 
-### Unit 24 — Marketing: the Google Ads funnel (GM)
+### Unit 24 — Marketing: the Google Ads funnel (GM) — **SCREEN REMOVED 2026-09-14**
+> The screen this unit built is gone: the GHL sub-account IE moved to on 2026-09-11 has no
+> paid-search funnel, so `evalos.ghl.ads-pipeline-name` matched nothing and the route could only
+> ever answer 502 — and a screen that cannot succeed is worse than an absent one. Removed rather
+> than repointed because nobody named a replacement funnel. **What the unit introduced survives**:
+> `GhlPipelineClient`, the five-minute cache, `MarketingPipelinePage` (still serving two funnels)
+> and the GM-only scoping argument all stand, and Unit 26 rests on them. Reinstating the screen is
+> a property, a route, a nav entry and an icon. The rest of this entry is the record of what was
+> built and why.
+
 Builds: the GM's one view of GHL's front of house — the **Google ADS Pipeline** as
 a chevron funnel (deals and value per stage, share of pipeline) with the sources
 behind it. First **read** integration against GHL's public API: two calls, a
@@ -470,6 +479,11 @@ the process note that this spec was written **after** the code.
 Depends on: 07, 17, 22.
 
 ### Unit 26 — Marketing: the email funnel (GM)
+**REMOVED 2026-09-16.** GM-only under the one-location scoping exception, which meant the
+audience for a marketing funnel could not open it. The business removed the screen rather than
+widen the gate; a funnel screen returns only as a NEW screen after Unit 25. See
+`26-marketing-email-funnel.md` for the full banner.
+
 Builds: a second GM screen over the same GHL location — **Shivangi's Email
 Marketing**, the email acquisition channel — through Unit 24's client, service,
 cache and card system. A `Funnel` enum (`ADS`, `EMAIL`) keys into configured
@@ -487,6 +501,11 @@ See `26-marketing-email-funnel.md`.
 Depends on: 24.
 
 ### Unit 27 — Sales: the sales pipeline (GM)
+**REMOVED 2026-09-16.** GM-only under the one-location scoping exception, which meant the
+audience for a marketing funnel could not open it. The business removed the screen rather than
+widen the gate; a funnel screen returns only as a NEW screen after Unit 25. See
+`27-sales-pipeline.md` for the full banner.
+
 Builds: the third GHL pipeline read — the sales team's own working funnel
 (*Aditya's pipeline*) — under a **new `Sales` nav group**, GM-only.
 `GET /api/marketing/sales-pipeline`, `evalos.ghl.sales-pipeline-name`, and
@@ -656,7 +675,10 @@ List stays lean, detail shows everything. Still no payment column, ever.
 See `33-case-and-expert-dossier.md`.
 Depends on: 11, 12, 31.
 
-### Unit 34 — The portal frontend, and wiring it to EvalOS — **PARTLY BUILT (34a, 34c, 34e)**
+### Unit 34 — The portal frontend, and wiring it to EvalOS — **ALL SLICES BUILT**
+> **2026-09-15:** this heading said *"PARTLY BUILT (34a, 34c, 34e)"*; 34b and 34d landed
+> 2026-09-11 and `34-portal-frontend-wiring.md` has said so since. **This file ends at Unit 34 —
+> Units 35–43 live in the programme documents** (`00b`, `00c`) and 44–50 have no spec files yet.
 Builds: the external SPA that arrived in `client/` on 2026-09-03 — **both portals, one
 deployment, port 5174, the origin the backend already allows** — becomes a real client of
 this backend. It is a **pivot spec**, because the app was built against a different auth
@@ -679,6 +701,121 @@ Unit 15's six routes — the one case the token names, at `/case#<token>` outsid
 *list*, D6 still gates payments.
 See `34-portal-frontend-wiring.md`.
 Depends on: 14, 30, 31, and 15 for slice 34e.
+
+---
+
+## Unit 51 — GM dashboard
+
+**BUILT 2026-09-15.** The business's own `IE_GM_Dashboard.pdf` laid out as the GM's landing
+screen: THE NUMBER (won money vs the month's goal, by source, by service), SALES, MARKETING,
+EXPERT MANAGEMENT and EVALUATION DEPARTMENT. One new route (`GET /api/metrics/gm`, `hasRole('GM')`
+and nothing wider), one new service, one new screen, two properties, **no migration** — the other
+four reads behind the screen already existed.
+
+**The GM and Brand Manager stop sharing `RevenueDashboard`**: half of this screen reads the GHL
+location, which is invariant 1's stated exception and holds only for the cross-brand reader.
+
+**2026-09-16:** its "Funnels" card is gone with the screen it linked to — see Units 26 and 27,
+removed the same day.
+
+`51-gm-dashboard.md` §3 is the **widget-by-widget mapping**, and it is the file to read before
+promising anything on that PDF to the business — it marks what is built, what needs a business
+decision (the monthly goal, the *Hot* and *Invoice sent* stage names) and what **cannot be
+computed at all** (email-campaign stats without a wider PIT scope, social reach at all, the expert
+recruitment funnel before Unit 50).
+Depends on: 17, 28, 36, 38.
+
+---
+
+## Unit 52 — Client Portal ↔ GHL integration
+
+**PARTIALLY BUILT 2026-09-16.** The EvalOS→GHL half of the client flow: **set-password** upserts
+the GHL contact and stores its id, carrying `source: "Client Portal"` — it was sign-up until D3a
+moved it the same day, because that route is `permitAll` and a CRM write behind it is a stranger's
+write (§8); picking a service opens the opportunity carrying the
+**service id** as a custom field, which is the one input a GHL workflow needs to route the deal to
+a pipeline; submitting writes `SUBMITTED` to a second custom field through
+`GhlWriteClient.setOpportunityFields` — custom fields only, so it cannot undo the routing GHL just
+did. No stage, no assignee, no price: placement is GHL's and price is Sales'.
+
+Two config properties, both blank by default (`GHL_OPPORTUNITY_SERVICE_FIELD`,
+`GHL_OPPORTUNITY_SUBMITTED_FIELD`), so an environment without the fields still opens the deal.
+
+**The routing workflow itself is UI work in GHL** and is written up as a runbook in `52` §4.3,
+along with the two Phase 0 items this flow is blocked on: a blank `GHL_INTAKE_PIPELINE_NAME` and
+the `opportunity.won` workflow that was never recreated in the new sub-account.
+
+**GHL → EvalOS sync is Units 44–48, decided 2026-09-16** — the mirror programme in `00c` as
+amended by `00d` §6, not a webhook bolted onto this unit. `52` §6 hands it three acceptance
+criteria.
+Depends on: 42, 43. Hands to: 44–48.
+
+---
+
+## Unit 44 - The tier-1 GHL mirror
+
+**BUILT 2026-09-16, all four slices.** `00c`'s first real unit, amended
+before it started by `00d` §6. Full slice order and reasoning: `44-ghl-tier1-mirror.md`.
+
+**44a** — `pipeline` and `pipeline_stage` (`V50`), holding GHL's ids verbatim; the `PIPELINE_MIRROR`
+sweep (hourly, on Unit 19's machinery); `pipeline.purpose` replacing a config property per pipeline;
+`GET`/`PUT /api/ghl/pipelines`. **First because GHL owns every column in it** (`00d` §6.2), so the
+table can only ever be *behind* GHL, never in conflict — no sync machinery needed to make it
+correct. Rows are upserted and never deleted, which is the exact opposite of the cache it begins to
+replace. A stage GHL recreated under a new id is repointed by `(pipeline, position, name)`, not
+duplicated.
+
+**44b** — `team_member_pipeline` (`V54`), and `PipelineScope.mine()` from one id to a set. Its own
+commit deliberately: it is an **authorisation change** across Units 39 and 40, not a schema change.
+Assignment moves to the **mirror id**, which closes `00d` C4 structurally — a dead GHL id can no
+longer be assigned at all. Retires `intake-pipeline-name` for `purpose = INTAKE`.
+
+**44c** — the `client_account` ↔ `contact_snapshot` join (`V55`), D6 enforced by a partial unique
+index, `ContactSnapshotService` extracted so Unit 45's contact webhooks have somewhere to live that is
+not Handoff A, and the prospect gap closed. The **rename** to `contact` is deferred: two seeds write
+that table and run after every migration, so it has nowhere to sit — `44` §4.1.
+
+**44d** — `opportunity` (`V51`) replacing `ghl_opportunity_cache` (dropped, `V52`), and the
+**correlation custom field** `00d` §6.1 pulls forward from tier 2 — the single biggest sequencing
+correction to `00c`, because at-least-once outbox delivery over a non-idempotent create is how one
+opportunity becomes two. Built second, ahead of B and C, because it is what unblocks Unit 45. Two
+corrections to §6.1 found in the building are in `44` §5.1: GHL offers **no filter on a custom
+field**, so a retry searches by `contactId` and matches locally; and the key must be persisted
+**before** the call, which is what `client_application.opportunity_id` (`V53`) is for.
+
+**No sync engine anywhere in Unit 44.** Webhooks, the delta sweep, the nightly paged diff, the
+outbox, `sync_drift` and error classification are Unit 45.
+Depends on: 43. Hands to: 45.
+
+---
+
+## Unit 45 - The sync engine
+
+**SLICES A, B AND C BUILT 2026-09-16.** Unit 44 is complete, so nothing is blocked; `45-sync-engine.md`
+§1 is the slice table.
+
+**45a** - error classification at the door (`00d` §6.3, fourth bullet), which is a hard
+prerequisite for the outbox rather than a tidy-up. `GhlFailure` names seven classes and says which
+are retriable and which stop everything; `GhlHttp` honours a capped `Retry-After` on a 429 by
+pushing the **shared** pacer, so every caller backs off together. No HTTP status EvalOS returns
+changed.
+
+**45b** - `sync_drift` (`V56`), the nightly paged full-list diff, and `GET /api/sync/drift`. **The
+detector before the writers**: 45c, 45d and 45e all write, and a writer you cannot audit is one you
+have to take on trust. It detects and records and never repairs — resolution is per-field ownership
+in 45e, and a detector that also mutates cannot be trusted because its own writes become tomorrow's
+findings.
+
+**45c** - `sync_outbox` (`V57`/`V58`), the 2-minute drain, and the portal's two previously-swallowed
+writes queued instead of lost. Stores an entity id and never a payload; the dedupe key is partial and
+`intent` is coarse, or the collapse never happens. **Its headline is the retry-after-timeout**: before
+creating, the drain looks for its own correlation key among the CONTACT's GHL opportunities, because
+GHL offers no custom-field filter — finding it means the create already landed, and the row is linked
+rather than made twice (`00d` §6.1).
+
+**Still to build:** 45d the webhooks and delta sweep, 45e per-field ownership. Neither needs a
+migration. **The desks still write to GHL synchronously** — moving them onto the outbox is Unit 46.
+Depends on: 44. Hands to: 46.
 
 ---
 

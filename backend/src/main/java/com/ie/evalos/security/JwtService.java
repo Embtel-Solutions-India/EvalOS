@@ -32,7 +32,16 @@ public class JwtService {
 	private static final String CLAIM_ROLE = "role";
 	private static final String CLAIM_BRAND = "brandId";
 	private static final String CLAIM_TEAM = "teamId";
-	private static final String CLAIM_PIPELINE = "ghlPipelineId";
+	/**
+	 * The pipelines this member may work.
+	 *
+	 * <p><strong>Renamed and re-shaped at Unit 44b</strong>, from a single {@code ghlPipelineId}
+	 * string. A token minted before that carries the old claim, which this does not read — so an
+	 * old token resolves to <em>no</em> pipelines and, per {@code ScopePredicate}'s PIPELINE arm,
+	 * matches nothing. One re-login fixes it, and an empty board is the safe direction for a scope
+	 * to be wrong in.
+	 */
+	private static final String CLAIM_PIPELINES = "ghlPipelineIds";
 
 	private final SecretKey key;
 	private final Duration ttl;
@@ -56,7 +65,7 @@ public class JwtService {
 				.claim(CLAIM_ROLE, principal.role().name())
 				.claim(CLAIM_BRAND, asString(principal.brandId()))
 				.claim(CLAIM_TEAM, asString(principal.teamId()))
-				.claim(CLAIM_PIPELINE, principal.ghlPipelineId())
+				.claim(CLAIM_PIPELINES, principal.ghlPipelineIds())
 				.issuedAt(Date.from(now))
 				.expiration(Date.from(now.plus(ttl)))
 				.signWith(key)
@@ -82,12 +91,31 @@ public class JwtService {
 				Role.valueOf(claims.get(CLAIM_ROLE, String.class)),
 				asUuid(claims.get(CLAIM_BRAND, String.class)),
 				asUuid(claims.get(CLAIM_TEAM, String.class)),
-				// Absent from a token minted before Unit 36, which reads as null and, per
-				// ScopePredicate's PIPELINE arm, matches nothing. One re-login fixes it, and
+				// Absent from a token minted before Unit 44b, which reads as an empty list and,
+				// per ScopePredicate's PIPELINE arm, matches nothing. One re-login fixes it, and
 				// that is the safe direction for a scope to be wrong in.
-				claims.get(CLAIM_PIPELINE, String.class),
+				pipelinesIn(claims),
 				null,
 				true);
+	}
+
+	/**
+	 * The pipeline claim, defensively.
+	 *
+	 * <p>A JWT is signed, so the list cannot have been tampered with — but it can be <em>absent</em>
+	 * (a token from before Unit 44b) or hold something unexpected if the claim is ever re-shaped
+	 * again. Anything that is not a list of strings resolves to none rather than throwing: a
+	 * malformed scope must fail closed, not fail the request in a way that looks like an outage.
+	 */
+	private static java.util.List<String> pipelinesIn(Claims claims) {
+		Object raw = claims.get(CLAIM_PIPELINES);
+		if (!(raw instanceof java.util.List<?> values)) {
+			return java.util.List.of();
+		}
+		return values.stream()
+				.filter((value) -> value instanceof String)
+				.map(String.class::cast)
+				.toList();
 	}
 
 	private static String asString(UUID value) {

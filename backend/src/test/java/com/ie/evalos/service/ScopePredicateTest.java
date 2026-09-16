@@ -256,11 +256,16 @@ class ScopePredicateTest {
 	 * would let the same id read another brand's rows.
 	 */
 	@Test
-	void salesReadsOwnBrandAndOwnPipeline() {
+	void salesReadsOwnBrandAndOwnPipelines() {
 		applyPipelineTier(Role.SALES, BRAND, PIPELINE);
 
 		verify(cb).equal(brandPath, BRAND);
-		verify(cb).equal(pipelinePath, PIPELINE);
+		// **IN, not equality, as of Unit 44b** — a desk holds a SET of pipelines now, because the
+		// target set includes Case Delivery and that has no single owner (`00d` §6.7). The brand
+		// predicate is still added BESIDE it, which is the assertion that matters most: a pipeline
+		// id is global (one GHL location, one namespace) while an EvalOS row is not, so a pipeline
+		// predicate that replaced the brand one would let the same id read another brand's rows.
+		verify(pipelinePath).in(List.of(PIPELINE));
 	}
 
 	@Test
@@ -268,7 +273,24 @@ class ScopePredicateTest {
 		applyPipelineTier(Role.MARKETING, BRAND, PIPELINE);
 
 		verify(cb).equal(brandPath, BRAND);
-		verify(cb).equal(pipelinePath, PIPELINE);
+		verify(pipelinePath).in(List.of(PIPELINE));
+	}
+
+	/**
+	 * <strong>A desk on several pipelines reads all of them, and still only its own brand.</strong>
+	 *
+	 * <p>The case that could not exist before this slice. One member, two pipelines, one IN clause
+	 * — and the brand predicate unchanged beside it, because widening the pipeline axis must never
+	 * widen the tenant one.
+	 */
+	@Test
+	void aDeskOnSeveralPipelinesReadsAllOfThem() {
+		ScopePredicate.<Object>of(
+				new TenantContext(MEMBER, Role.SALES, BRAND, null, List.of(PIPELINE, "pipe_delivery")),
+				PIPELINE_FIELDS).toPredicate(root, null, cb);
+
+		verify(cb).equal(brandPath, BRAND);
+		verify(pipelinePath).in(List.of(PIPELINE, "pipe_delivery"));
 	}
 
 	/**

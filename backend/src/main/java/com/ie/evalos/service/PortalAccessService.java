@@ -15,11 +15,9 @@ import java.util.UUID;
 import com.ie.evalos.domain.AuditAction;
 import com.ie.evalos.domain.Case;
 import com.ie.evalos.domain.ClientAccount;
-import com.ie.evalos.domain.ContactSnapshot;
 import com.ie.evalos.domain.IllegalTransitionException;
 import com.ie.evalos.domain.PortalAccess;
 import com.ie.evalos.domain.PortalAudience;
-import com.ie.evalos.repository.ContactSnapshotRepository;
 import com.ie.evalos.repository.PortalAccessRepository;
 import com.ie.evalos.security.PortalPrincipal;
 import com.ie.evalos.security.TenantContext;
@@ -49,8 +47,25 @@ public class PortalAccessService {
 
 	private static final SecureRandom RANDOM = new SecureRandom();
 
-	/** What a mint answers. The URL carries the token, and this is the only time it exists. */
+	/**
+	 * What a mint answers for the <strong>expert</strong>, whose link is still the only way they
+	 * are reached. The URL carries the token, and this is the only time it exists.
+	 */
 	public record MintedLink(String url, Instant expiresAt) {
+	}
+
+	/**
+	 * What a <strong>client</strong> sign-in answers: the bare token, no URL.
+	 *
+	 * <p><strong>The client portal is one origin the browser is already on.</strong> This used to
+	 * be a {@code MintedLink} too, so the service built a URL from a configured base and
+	 * {@code ClientAuthController} then found the {@code #} and threw the URL away to get the token
+	 * back. Two halves of one ceremony for a caller that needs neither: a client reaching
+	 * {@code client.example.com} and signing in is already where the link would have sent them.
+	 * The expert keeps {@link MintedLink} because a staff member really does copy that URL
+	 * somewhere.
+	 */
+	public record MintedToken(String token, Instant expiresAt) {
 	}
 
 	/**
@@ -64,31 +79,36 @@ public class PortalAccessService {
 
 	private final PortalAccessRepository tokens;
 	private final CaseLifecycleService cases;
-	private final ContactSnapshotRepository contacts;
 	private final AuditService audit;
 	private final Duration ttl;
 	private final Duration partyTtl;
-	private final String baseUrl;
+
+	/**
+	 * The expert portal's origin, and now the <strong>only</strong> origin this class builds a URL
+	 * against.
+	 *
+	 * <p><strong>{@code evalos.portal.base-url} is gone, not merely unused here.</strong> It named
+	 * whatever served {@code /portal/client} — a second copy of the client portal that lived inside
+	 * the staff SPA, superseded by slice 34b and kept alive only by this method. The client portal
+	 * is now one deployment the client navigates to themselves, so nothing mints a client URL and
+	 * there is no base to hold. What used to fall back to it when blank was this field; that
+	 * fallback is gone with it, which is the improvement — an unset expert base used to mint expert
+	 * links onto the client's origin.
+	 */
 	private final String expertBaseUrl;
 
 	PortalAccessService(PortalAccessRepository tokens, CaseLifecycleService cases,
-			ContactSnapshotRepository contacts, AuditService audit,
+			AuditService audit,
 			@Value("${evalos.portal.link-ttl}") Duration ttl,
 			@Value("${evalos.portal.party-link-ttl}") Duration partyTtl,
-			@Value("${evalos.portal.base-url}") String baseUrl,
-			@Value("${evalos.portal.expert-base-url:}") String expertBaseUrl) {
+			@Value("${evalos.portal.expert-base-url}") String expertBaseUrl) {
 		this.tokens = tokens;
 		this.cases = cases;
-		this.contacts = contacts;
 		this.audit = audit;
 		this.ttl = ttl;
 		this.partyTtl = partyTtl;
 		// A trailing slash is a configuration typo, not a different URL.
-		this.baseUrl = trimSlash(baseUrl);
-		// Blank falls back to the client's origin, which is what a single-deployment environment
-		// wants and what every test that predates the split expects. Two apps on two subdomains
-		// set it; one app serving both does not have to.
-		this.expertBaseUrl = expertBaseUrl.isBlank() ? this.baseUrl : trimSlash(expertBaseUrl);
+		this.expertBaseUrl = trimSlash(expertBaseUrl);
 	}
 
 	private static String trimSlash(String url) {
@@ -122,33 +142,30 @@ public class PortalAccessService {
 	 * audience and the expiry and <strong>never the token</strong>.
 	 */
 	@Transactional
-	public MintedLink mint(UUID caseId, PortalAudience audience) {
+	public MintedLink mintForExpert(UUID caseId) {
 		Case subject = cases.load(caseId);
-		// An expert link with no expert on the case is a credential naming nobody — and since
-		// Unit 15 the link is the only way the expert is reached, minting one early is how a
-		// Case Manager ends up sending a letter to a person who was never assigned.
-		if (audience == PortalAudience.EXPERT && subject.getExpertId() == null) {
+		// A link with no expert on the case is a credential naming nobody — and since Unit 15 the
+		// link is the only way the expert is reached, minting one early is how a Case Manager ends
+		// up sending a letter to a person who was never assigned.
+		if (subject.getExpertId() == null) {
 			throw new IllegalTransitionException("no expert is assigned to this case");
 		}
 		Instant now = Instant.now();
 
-		retirePrevious(subject.getId(), audience, now);
+		retirePrevious(subject.getId(), PortalAudience.EXPERT, now);
 
 		String token = freshToken();
-		// **The expert is stamped on the credential, not just the case** (V37). A CLIENT row leaves
-		// it null: the client is the case's own contact, and copying that here would be a second
-		// place for it to disagree.
+		// **The expert is stamped on the credential, not just the case** (V37).
 		PortalAccess minted = tokens.save(new PortalAccess(
-				subject.getBrandId(), subject.getId(), audience,
-				audience == PortalAudience.EXPERT ? subject.getExpertId() : null,
-				hash(token), now.plus(ttl)));
+				subject.getBrandId(), subject.getId(), PortalAudience.EXPERT,
+				subject.getExpertId(), hash(token), now.plus(ttl)));
 
 		audit.recordEvent("CASE", subject.getId(), AuditAction.PORTAL_LINK_ISSUED,
 				TenantContext.current().memberId(), CaseSnapshot.of(subject),
-				CaseSnapshot.of(subject, "%s portal link issued, expires %s".formatted(
-						audience.name().toLowerCase(), minted.getExpiresAt())));
+				CaseSnapshot.of(subject, "expert portal link issued, expires %s"
+						.formatted(minted.getExpiresAt())));
 
-		return new MintedLink(urlFor(audience, token), minted.getExpiresAt());
+		return new MintedLink(expertUrl(token), minted.getExpiresAt());
 	}
 
 	/**
@@ -171,34 +188,26 @@ public class PortalAccessService {
 	 * <p>Seven days rather than thirty, because this opens more than the case in front of you.
 	 */
 	@Transactional
-	public MintedLink mintForParty(UUID caseId, PortalAudience audience) {
+	public MintedLink mintPartyForExpert(UUID caseId) {
 		Case subject = cases.load(caseId);
+		// Same guard as the case-scoped mint, and for the same reason: a link naming nobody is the
+		// way a letter reaches a person who was never assigned.
+		if (subject.getExpertId() == null) {
+			throw new IllegalTransitionException("no expert is assigned to this case");
+		}
 		Instant now = Instant.now();
 		String token = freshToken();
-		PortalAccess minted;
 
-		if (audience == PortalAudience.EXPERT) {
-			// Same guard as the case-scoped mint, and for the same reason: a link naming nobody is
-			// the way a letter reaches a person who was never assigned.
-			if (subject.getExpertId() == null) {
-				throw new IllegalTransitionException("no expert is assigned to this case");
-			}
-			retirePreviousExpertParty(subject.getBrandId(), subject.getExpertId(), now);
-			minted = tokens.save(PortalAccess.forParty(subject.getBrandId(), audience, null,
-					subject.getExpertId(), hash(token), now.plus(partyTtl)));
-		} else {
-			String contact = contactOf(subject);
-			retirePreviousClientParty(subject.getBrandId(), contact, now);
-			minted = tokens.save(PortalAccess.forParty(subject.getBrandId(), audience, contact, null,
-					hash(token), now.plus(partyTtl)));
-		}
+		retirePreviousExpertParty(subject.getBrandId(), subject.getExpertId(), now);
+		PortalAccess minted = tokens.save(PortalAccess.forParty(subject.getBrandId(),
+				PortalAudience.EXPERT, null, subject.getExpertId(), hash(token), now.plus(partyTtl)));
 
 		audit.recordEvent("CASE", subject.getId(), AuditAction.PORTAL_LINK_ISSUED,
 				TenantContext.current().memberId(), CaseSnapshot.of(subject),
-				CaseSnapshot.of(subject, "%s party portal link issued, expires %s".formatted(
-						audience.name().toLowerCase(), minted.getExpiresAt())));
+				CaseSnapshot.of(subject, "expert party portal link issued, expires %s"
+						.formatted(minted.getExpiresAt())));
 
-		return new MintedLink(urlFor(audience, token), minted.getExpiresAt());
+		return new MintedLink(expertUrl(token), minted.getExpiresAt());
 	}
 
 	/**
@@ -234,8 +243,8 @@ public class PortalAccessService {
 	 * The contact-scoped row is retired by the contact branch, which is the only shape that can
 	 * collide with V38's index.
 	 *
-	 * <p><strong>A transient account is refused</strong>, the way {@link #contactOf} refuses a case
-	 * with no contact. Its id is assigned at persist ({@code ScopedEntity}), so an unsaved entity
+	 * <p><strong>A transient account is refused</strong>, rather than minting a row scoped to
+	 * nothing. Its id is assigned at persist ({@code ScopedEntity}), so an unsaved entity
 	 * would mint a row naming nobody — which {@code V44}'s widened constraint rejects at commit
 	 * anyway, but as a 500 rather than as a sentence saying what went wrong. It also makes the
 	 * retirement above safe: a null id there would match no row and silently retire nothing.
@@ -244,7 +253,7 @@ public class PortalAccessService {
 	 * subject, because a credential issued <em>as part of</em> a sign-in is one event, not two.
 	 */
 	@Transactional
-	public MintedLink mintForClientAccount(ClientAccount account) {
+	public MintedToken mintForClientAccount(ClientAccount account) {
 		if (account.getId() == null) {
 			throw new IllegalTransitionException(
 					"this account has not been persisted, so a token would name nobody");
@@ -266,27 +275,7 @@ public class PortalAccessService {
 					hash(token), now.plus(partyTtl)));
 		}
 
-		return new MintedLink(urlFor(PortalAudience.CLIENT, token), minted.getExpiresAt());
-	}
-
-	/**
-	 * The case's client, as GHL's contact id.
-	 *
-	 * <p>Refuses rather than minting a link scoped to nothing. A case with no contact, or a
-	 * contact with no GHL id, cannot have a party link — {@code V27} settled that email is a
-	 * fallback *matching* key and never an identity, so there is no second thing to fall back to
-	 * here (invariant 7).
-	 */
-	private String contactOf(Case subject) {
-		String ghlContactId = subject.getContactId() == null ? null
-				: contacts.findById(subject.getContactId())
-						.map(ContactSnapshot::getGhlContactId)
-						.orElse(null);
-		if (ghlContactId == null || ghlContactId.isBlank()) {
-			throw new IllegalTransitionException(
-					"this case has no GHL contact, so a client party link would name nobody");
-		}
-		return ghlContactId;
+		return new MintedToken(token, minted.getExpiresAt());
 	}
 
 	/**
@@ -350,9 +339,10 @@ public class PortalAccessService {
 	 * say than "the link you sent has run out".
 	 */
 	@Transactional(readOnly = true)
-	public LinkStatus status(UUID caseId, PortalAudience audience) {
+	public LinkStatus statusForExpert(UUID caseId) {
 		Case subject = cases.load(caseId);
-		List<PortalAccess> issued = tokens.findByCaseIdAndAudienceOrderByCreatedAtDesc(subject.getId(), audience);
+		List<PortalAccess> issued = tokens.findByCaseIdAndAudienceOrderByCreatedAtDesc(
+				subject.getId(), PortalAudience.EXPERT);
 		if (issued.isEmpty()) {
 			return LinkStatus.NONE;
 		}
@@ -433,13 +423,11 @@ public class PortalAccessService {
 	 * of access logs, {@code Referer} headers and any redirect chain. The SPA reads it there and
 	 * puts it in the {@code X-Portal-Token} header.
 	 */
-	private String urlFor(PortalAudience audience, String token) {
-		// **Two apps, two origins, two paths (Unit 34e).** The expert portal is its own deployment
-		// serving `/case`; the client's link still points at `/portal/client`, which is where that
-		// screen lives until Unit 34 slice 34b moves it. Getting either wrong mints a link to a
-		// page that does not exist — which reads to its holder exactly like a revoked token.
-		return audience == PortalAudience.CLIENT
-				? baseUrl + "/portal/client#" + token
-				: expertBaseUrl + "/case#" + token;
+	private String expertUrl(String token) {
+		// One app, one origin, one path. The CLIENT arm of this method pointed at `/portal/client`
+		// in the staff SPA "until slice 34b moves it" — 34b shipped, the link was never moved, and
+		// clients now arrive at their own portal and sign in. So the arm is deleted rather than
+		// repointed: nothing mints a client URL any more.
+		return expertBaseUrl + "/case#" + token;
 	}
 }

@@ -4,7 +4,6 @@ import java.time.Instant;
 import java.util.UUID;
 
 import com.ie.evalos.common.ApiResponse;
-import com.ie.evalos.domain.PortalAudience;
 import com.ie.evalos.service.PortalAccessService;
 
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -16,21 +15,23 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * The staff side of a portal link: mint one, and see whether one is live.
+ * The staff side of the <strong>expert's</strong> portal link: mint one, and see whether one is live.
  *
- * <p><strong>Two audiences, one route (Unit 15).</strong> {@code ?audience=EXPERT} mints the
- * expert's link instead of the client's — the same act, the same gate, the same one-live-token
- * index (V23), and the same "the token exists exactly once, in the response" rule. A second
- * controller for the expert would have been the same forty lines with one enum constant changed,
- * and two places for the mint to drift apart.
+ * <p><strong>One audience now, and the {@code ?audience} parameter is gone.</strong> This route
+ * used to mint for the client too, defaulting to {@code CLIENT}. Nothing called it that way — the
+ * staff app's only caller is {@code ExpertCard}, always with {@code EXPERT} — and clients now
+ * reach the portal by going to it and signing in (Unit 42), not by holding a link somebody pasted
+ * to them. A parameter with one legal value is not a parameter.
+ *
+ * <p><strong>The expert half is not a stopgap and is not going the same way.</strong> An expert
+ * has no account: since Unit 15 this link is the only way they are reached at all, and G15 — how
+ * it actually gets to them — is still open. Do not generalise the client's deletion onto it.
  *
  * <p>On the <strong>normal</strong> chain, unlike {@code ClientPortalController} — minting is a
  * staff act, gated by role here and by the scoped case load in the service. Everyone who works a
  * case toward the client is on it: the GM and Brand Manager as oversight, the PM whose approval
  * precedes it, and the Case Manager who wrote the draft and is the one fielding "my link doesn't
- * work". The Coordinator is deliberately off it even though they run
- * {@code draft/send-to-client} — Unit 18 dispatches the link on that event once GHL can carry it,
- * so the manual mint is the stopgap and not their workflow. Widening this is one role in one list.
+ * work". Widening this is one role in one list.
  *
  * <p><strong>The token exists exactly once, in the response to the POST.</strong> Nothing reads it
  * back: the GET answers whether a link is live, when it expires and when it was last opened, and
@@ -45,9 +46,8 @@ public class PortalLinkController {
 			"hasAnyRole('GM', 'BRAND_MANAGER', 'PROJECT_MANAGER', 'CASE_MANAGER')";
 
 	/**
-	 * @param url       the whole link, fragment and all. Shown once and stored nowhere — this is
-	 *                  the stopgap while open question (b) is open: staff copy it to the client
-	 *                  through GHL by hand, and Unit 18 dispatches it on an event if GHL can
+	 * @param url       the whole link, fragment and all. Shown once and stored nowhere — staff copy
+	 *                  it to the expert by hand, which is G15
 	 * @param expiresAt when it stops working, so whoever sends it knows what they promised
 	 */
 	public record MintedLinkView(String url, Instant expiresAt) {
@@ -55,7 +55,7 @@ public class PortalLinkController {
 
 	/**
 	 * @param live     whether the newest link still works
-	 * @param openedAt when the client last opened it, or null if they never have. This is the
+	 * @param openedAt when the expert last opened it, or null if they never have. This is the
 	 *                 answer the Case Manager actually wants before chasing
 	 */
 	public record LinkStatusView(boolean live, Instant expiresAt, Instant openedAt) {
@@ -68,7 +68,7 @@ public class PortalLinkController {
 	}
 
 	/**
-	 * Whether this case has a client link, and how it stands. Never the token.
+	 * Whether this case has an expert link, and how it stands. Never the token.
 	 *
 	 * <p>Not in the spec's route table, which lists the mint alone — added because frontend
 	 * deliverable 6 asks the case page to say whether a live link exists, when it expires and
@@ -76,32 +76,31 @@ public class PortalLinkController {
 	 */
 	@GetMapping
 	@PreAuthorize(MAY_MINT)
-	public ApiResponse<LinkStatusView> status(@PathVariable UUID id,
-			@RequestParam(defaultValue = "CLIENT") PortalAudience audience) {
-		PortalAccessService.LinkStatus status = links.status(id, audience);
+	public ApiResponse<LinkStatusView> status(@PathVariable UUID id) {
+		PortalAccessService.LinkStatus status = links.statusForExpert(id);
 		return ApiResponse.ok(new LinkStatusView(status.live(), status.expiresAt(), status.lastSeenAt()));
 	}
 
 	/**
 	 * Mints, or re-mints — which revokes the previous link immediately. Audited.
 	 *
-	 * <p>For {@code EXPERT} this is now the <strong>only</strong> way the expert is reached, so it
-	 * is the main path rather than a fallback: there is no signature provider sending anything, and
-	 * EvalOS sends no mail (invariant 14). The Case Manager copies the link to the expert.
+	 * <p>This is the <strong>only</strong> way the expert is reached, so it is the main path rather
+	 * than a fallback: there is no signature provider sending anything, and EvalOS sends mail for
+	 * authentication only (invariant 14 as amended). The Case Manager copies the link to the expert.
 	 *
 	 * <p><strong>{@code ?party=true} mints the wider credential (Unit 35, D1)</strong>: every case
-	 * that person has, rather than this one. It lives <strong>7 days</strong> against the case
+	 * that expert has, rather than this one. It lives <strong>7 days</strong> against the case
 	 * link's 30, because it opens more. A flag on this route rather than a route of its own,
-	 * because the staff act is identical — you are on a case, you issue a link to the person it
-	 * names — and the party is derived from that case, never typed. The two shapes revoke
+	 * because the staff act is identical — you are on a case, you issue a link to the expert it
+	 * names — and the expert is derived from that case, never typed. The two shapes revoke
 	 * independently: minting a party link does not kill a case link already sent.
 	 */
 	@PostMapping
 	@PreAuthorize(MAY_MINT)
 	public ApiResponse<MintedLinkView> mint(@PathVariable UUID id,
-			@RequestParam(defaultValue = "CLIENT") PortalAudience audience,
 			@RequestParam(defaultValue = "false") boolean party) {
-		PortalAccessService.MintedLink minted = party ? links.mintForParty(id, audience) : links.mint(id, audience);
+		PortalAccessService.MintedLink minted = party
+				? links.mintPartyForExpert(id) : links.mintForExpert(id);
 		return ApiResponse.ok(new MintedLinkView(minted.url(), minted.expiresAt()));
 	}
 }

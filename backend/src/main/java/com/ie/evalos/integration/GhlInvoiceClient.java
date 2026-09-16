@@ -94,13 +94,15 @@ public class GhlInvoiceClient {
 	 * attaching a scope hint to them would send the next reader down this path wrongly.
 	 */
 	private static GhlUnavailableException missingScopeHint(GhlUnavailableException refused) {
-		String message = refused.getMessage() == null ? "" : refused.getMessage();
-		if (!message.contains("401") && !message.contains("403")) {
+		// Asked through the classification rather than by searching the message for "401" — see
+		// GhlCalendarClient.missingScopeHint for why that string match had to go.
+		if (refused.failure() != GhlFailure.UNAUTHORIZED) {
 			return refused;
 		}
-		return new GhlUnavailableException(message + " — the invoice API needs the " + REQUIRED_SCOPE
-				+ " scope, which the rest of EvalOS does not use. Check the token's grant before "
-				+ "suspecting the token.", refused);
+		return new GhlUnavailableException(refused.getMessage() + " — the invoice API needs the "
+				+ REQUIRED_SCOPE + " scope, which the rest of EvalOS does not use. Check the token's "
+				+ "grant before suspecting the token.", refused, GhlFailure.UNAUTHORIZED,
+				refused.status());
 	}
 
 	// --- wire shapes -----------------------------------------------------------------

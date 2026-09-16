@@ -105,9 +105,10 @@ public class PortalSecurityConfig {
 						// here means the next route anyone adds under that prefix is open the
 						// moment it is written, silently — this list makes it arrive as a 401 in
 						// that route's own test instead, which is a question rather than a hole.
-						// POST-only for the same reason: none of the four reads.
+						// POST-only for the same reason: none of the five reads.
 						.requestMatchers(HttpMethod.POST, "/api/portal/auth/identify",
-								"/api/portal/auth/sign-in", "/api/portal/auth/forgot-password",
+								"/api/portal/auth/sign-up", "/api/portal/auth/sign-in",
+								"/api/portal/auth/forgot-password",
 								"/api/portal/auth/set-password").permitAll()
 						.anyRequest().authenticated())
 				.exceptionHandling(handling -> handling

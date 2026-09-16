@@ -4,17 +4,21 @@ import { Card } from '@shared/components/ui/card'
 import { Logo } from '@shared/components/common/Logo'
 
 /**
- * The client portal's front door (Unit 42).
+ * The client portal's front door (Unit 42), and since 2026-09-12 the only one.
  *
- * **A door, not the only door.** Every `portal_access` link EvalOS has already sent — one naming
- * a case, one naming a client — still works exactly as it did before this screen existed; the
- * server decides that, this screen only avoids implying otherwise. The line below is why: a
- * welcome screen offering just a password would tell someone holding a working link that their
- * link is broken, which is a worse bug than never having built the screen.
+ * **This used to say "a door, not the only door".** While staff could mint a client link, a
+ * welcome screen offering only a password would have told someone holding a working link that
+ * their link was broken — so this file carried a note sending them back to their inbox. Nothing
+ * mints a client link any more: the portal is hosted at one origin, the website links to it, and
+ * sign-in is the route to everything. The note is gone. `resolve` still admits links already
+ * issued, so anyone still holding one reaches their case by opening it, which this screen neither
+ * helps nor hinders.
  *
- * **"Start a new evaluation" links to `/start`, which does not exist yet.** That funnel is
- * Unit 43. The link is real anyway — this screen is what a case gets born from later, and there
- * is nowhere else for it to point.
+ * **The two doors are sign up and sign in**, which is what the client flow asks for. The first
+ * pointed at `/start` — a placeholder saying we could not take a new client — until 2026-09-15,
+ * because nothing created a `client_account` at runtime. It creates one now, along with the GHL
+ * contact. **Requesting an evaluation is a separate step** reached from the dashboard, and is
+ * Unit 43; this card must not promise it.
  */
 export default function Welcome() {
   return (
@@ -22,14 +26,14 @@ export default function Welcome() {
       <Logo size="lg" showTagline />
 
       <div className="w-full max-w-md space-y-4">
-        <Link to="/start" className="block">
+        <Link to="/signup" className="block">
           <Card className="p-5 transition-colors hover:bg-accent">
             <div className="flex items-center gap-4">
               <UserPlus className="h-6 w-6 shrink-0 text-primary" aria-hidden="true" />
               <div>
-                <p className="text-sm font-semibold text-foreground">Start a new evaluation</p>
+                <p className="text-sm font-semibold text-foreground">Create an account</p>
                 <p className="text-sm text-muted-foreground">
-                  Tell us about yourself and what you need evaluated.
+                  New here? Set up an account and request your evaluation from inside.
                 </p>
               </div>
             </div>
@@ -48,10 +52,15 @@ export default function Welcome() {
           </Card>
         </Link>
 
-        <p className="px-1 pt-2 text-center text-xs text-muted-foreground">
-          Opened a link we sent you? That link still works on its own — please go back and open it
-          from the original email or text rather than signing in here.
-        </p>
+        {/*
+          **The "opened a link we sent you?" note is deleted, reversing a rule this file used to
+          state.** It was right while a mailed link was how a client reached anything: signing in
+          instead of opening it would have lost them their only credential. Nothing mints a client
+          link any more — clients arrive here from a button on the website and sign in for
+          everything — so the advice now points away from the front door. Links already in inboxes
+          are unaffected: `resolve` still admits them and they work by being opened, which no copy
+          on this page changes.
+        */}
       </div>
     </div>
   )

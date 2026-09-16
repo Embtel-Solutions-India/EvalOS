@@ -1,4 +1,4 @@
-import { Navigate, Route, Routes, useLocation } from 'react-router-dom'
+import { Navigate, Route, Routes } from 'react-router-dom'
 import Forbidden from './components/Forbidden'
 import BoardView from './features/board/BoardView'
 import InboxPage from './features/queues/InboxPage'
@@ -8,9 +8,8 @@ import PmNotesPage from './features/queues/PmNotesPage'
 import ExpertAssignmentPage from './features/queues/ExpertAssignmentPage'
 import DeliveryQueuePage from './features/queues/DeliveryQueuePage'
 import ChecklistBoard from './features/checklist/ChecklistBoard'
-import PortalRoot from './features/client-portal/PortalRoot'
 import ExpertRoster from './features/experts/ExpertRoster'
-import MarketingPipelinePage from './features/marketing/MarketingPipelinePage'
+import MeetingsPage from './features/meetings/MeetingsPage'
 import OpportunityBoardPage from './features/opportunities/OpportunityBoardPage'
 import PayoutBatch from './features/payouts/PayoutBatch'
 import ExpertPayouts from './features/payouts/ExpertPayouts'
@@ -53,48 +52,32 @@ const SCREENS: Record<string, React.ReactNode> = {
   '/experts': <ExpertRoster />,
   '/payouts': <PayoutBatch />,
   '/admin/jobs': <JobRunsPage />,
-  // Three funnels, one component: same stage shape, same question, different GHL pipeline. The
-  // heading each carries is only a placeholder — GHL's own pipeline name replaces it on load.
+  // The diary. Its own screen rather than a panel on the board: a meeting booked from a deal card
+  // was invisible the moment the card scrolled away, and EvalOS kept no record of it at all until
+  // `V47__meeting.sql`.
+  '/meetings': <MeetingsPage />,
+  // **The last screen over a GHL pipeline.** Three funnel screens sat above this one until
+  // 2026-09-16; they drew an aggregate over a date window and asked "how is the funnel
+  // converting", and all three are gone (`/marketing/google-ads` on 2026-09-14 because its
+  // pipeline no longer existed, `/marketing/email` and `/sales/pipeline` on 2026-09-16 because
+  // they were GM-only and their audience was Marketing — see `navigation.ts`).
   //
-  // `/sales/pipeline` is under its own nav heading rather than Marketing (see `navigation.ts`),
-  // but it is the same screen and deliberately not a copy of it: three route entries pointing at
-  // one component is the whole cost of the third funnel.
-  '/marketing/google-ads': (
-    <MarketingPipelinePage funnel="ads" title="Google Ads pipeline" />
-  ),
-  '/marketing/email': (
-    <MarketingPipelinePage funnel="email" title="Email marketing pipeline" />
-  ),
-  '/sales/pipeline': <MarketingPipelinePage funnel="sales" title="Sales pipeline" />,
-  // **The opportunity board is not a fourth funnel** and shares nothing with the three above.
-  // Those draw an aggregate over a date window and ask "how is the funnel converting"; this
-  // draws individual deals with the contact on them and asks "what is on my desk". Same
-  // pipelines underneath, different question — which is exactly why `/sales/pipeline` was NOT
-  // deleted when this arrived, contrary to what Unit 38's spec first said.
+  // This one is not a funnel and never was: it draws individual deals with the contact on them
+  // and asks "what is on my desk". Same pipelines underneath, different question — which is why
+  // it survives them, and why SALES and MARKETING can reach it when they could not reach those.
   '/opportunities/board': <OpportunityBoardPage />,
 }
 
-/** The client portal's path prefix. `/portal/expert` joins it in Unit 15. */
-const PORTAL_PREFIX = '/portal/'
-
 /**
- * Two surfaces, and the split is here rather than in `main.tsx` so the whole route table stays in
- * one file.
- *
- * **The portal is answered before any staff-session code runs, and outside `AuthProvider`** — which
- * is mounted below, around the staff surface only. That is the point of the branch, not an
- * optimization: a client is not a staff user with fewer links, and mounting the provider on their
- * page would read the staff token out of `sessionStorage` and call `/api/me` for somebody who has no
- * account. It gets no `AppShell`, no nav and no brand switcher either — a portal token admits one
- * case, so there is one screen and nowhere to navigate.
+ * One surface. **This file used to branch on a `/portal/` prefix and render a client portal of its
+ * own**, outside `AuthProvider`, because there was a time when the staff SPA was the only thing
+ * deployed and the client's draft-review screen had to live somewhere. It has not been that for a
+ * while: the client portal is its own app (`client-expert/client`), slice 34b moved the draft
+ * review into it, and since Unit 42 clients reach it from a button on the website and sign in.
+ * Nothing mints a link to `/portal/client` any more, so the branch was a second, unmaintained
+ * client portal that only a stale URL could reach. Deleted with the five files behind it.
  */
 export default function App() {
-  const { pathname } = useLocation()
-
-  if (pathname.startsWith(PORTAL_PREFIX)) {
-    return <PortalRoot />
-  }
-
   return (
     <AuthProvider>
       <StaffApp />

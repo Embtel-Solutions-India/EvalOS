@@ -3,9 +3,16 @@
 > # ⚠ **REMOVED (2026-09-02). This spec is history, not a plan.**
 >
 > The sales desk and the `SALES_EXECUTIVE` role were deleted from the codebase. Everything below
-> describes what was built and why; **none of it is live**. Do not implement 29b-29d from it, and
-> do not cite it as precedent that EvalOS writes to GHL — `GhlHttp` has no write verb, and
-> invariant 2 has reverted to "EvalOS runs no sales".
+> describes what was built and why; **none of it is live**. Do not implement 29b-29d from it.
+>
+> **⚠ The last sentence of this banner was itself overtaken and is corrected here rather than
+> beside.** It read: *"do not cite it as precedent that EvalOS writes to GHL — `GhlHttp` has no
+> write verb, and invariant 2 has reverted to 'EvalOS runs no sales'."* Both halves were true on
+> 2026-09-02 and **false since 2026-09-10**: `00b`'s programme killed invariant 2's read-only
+> half, Unit 37 put `post`/`put`/`delete` back on `GhlHttp`, and Units 38–41 built a sales desk
+> again. **The right reading is narrower and still stands:** this unit's *design* is not
+> precedent — the desk that exists was specced afresh as `40-sales-desk.md`, and the role is
+> `SALES`, not `SALES_EXECUTIVE`.
 >
 > **What the removal touched:** `SalesController`, `SalesBoardService`, `GhlSalesClient`,
 > `features/sales/`, the `/sales/board` nav entry, `Role.SALES_EXECUTIVE`,

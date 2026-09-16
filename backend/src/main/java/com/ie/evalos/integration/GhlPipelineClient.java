@@ -56,9 +56,8 @@ public class GhlPipelineClient {
 	 * The only format GHL's {@code date}/{@code endDate} accept.
 	 *
 	 * <p>Date-only, so the window's edges are whole days in whatever zone GHL resolves them
-	 * against. The caller decides which days those are — see {@code MarketingPipelineService},
-	 * which uses {@code BusinessCalendar.ZONE} so "today" means the business's today rather
-	 * than UTC's.
+	 * against. The caller decides which days those are — {@code DateWindow} resolves them in
+	 * {@code BusinessCalendar.ZONE}, so "today" means the business's today rather than UTC's.
 	 */
 	private static final DateTimeFormatter GHL_DATE = DateTimeFormatter.ofPattern("MM-dd-yyyy");
 
@@ -66,18 +65,17 @@ public class GhlPipelineClient {
 	 * Hard stop on the pagination loop — a runaway guard, and only that.
 	 *
 	 * <p><strong>Raised from 50, which was silently truncating.</strong> 50 pages is 5,000 rows,
-	 * and the email funnel's year is 11,443 — so had the caller ever asked for that window, this
+	 * and the email funnel's year was 11,443 — so had the caller ever asked for that window, this
 	 * loop would have returned the first 5,000 and logged a warning nobody reads, and the screen
 	 * would have shown a total 56% short of the truth wearing no mark of it. A cap below what the
 	 * caller may legitimately ask for is not a guard, it is a wrong answer with a log line.
 	 *
-	 * <p>The real bound on how much this reads is {@code MarketingPipelineService}'s row ceiling,
-	 * which is checked against GHL's own count <em>before</em> a single page is fetched. This
-	 * only catches a cursor that never terminates, so it sits well above any real window.
-	 *
-	 * <p>Row paging is still never how the funnel is <em>counted</em> — {@link #countIn} gets that
-	 * exactly in one request per stage. This is for the sum and the group-by, which GHL does not
-	 * aggregate.
+	 * <p><strong>It is now the only bound, and that is a change worth knowing.</strong> The funnel
+	 * screens checked GHL's own count before fetching a page and refused to read a window over a
+	 * row ceiling; they were removed on 2026-09-16 and that pre-flight went with them. The one
+	 * caller left, {@code GmOverviewService}, reads a month of one desk's creations and a lookback
+	 * of its <em>wins</em> — both small by construction — so the ceiling is unnecessary rather
+	 * than missing. Add it back with the next caller that can ask for a year.
 	 */
 	private static final int MAX_PAGES = 1_500;
 
@@ -89,22 +87,50 @@ public class GhlPipelineClient {
 	}
 
 	/**
-	 * One opportunity, narrowed to the three fields the screen needs.
+	 * One opportunity, narrowed to the fields a dashboard reads.
 	 *
-	 * <p>The narrowing is the point. GHL's search response also carries the contact's name,
-	 * email, phone and tags on every row — none of which a stage count needs, and all of which
-	 * would then be marketing PII sitting inside an EvalOS response. Binding only these three is
-	 * what keeps it out of the payload, rather than a projection somebody has to remember.
+	 * <p>The narrowing is still the point. GHL's search response also carries the contact's name,
+	 * email, phone, tags, attributions and custom fields on every row — none of which a count or a
+	 * sum needs, and all of which would then be marketing PII sitting inside an EvalOS response.
+	 * Binding only these is what keeps it out of the payload, rather than a projection somebody has
+	 * to remember.
 	 *
-	 * <p>{@code createdAt} was bound here briefly for a time-bucketed chart and removed with it.
-	 * GHL's {@code date}/{@code endDate} already filter on that field server-side, so the window is
-	 * applied without EvalOS ever reading the value — which keeps this projection at three.
+	 * <p><strong>It grew from three fields to eight for the GM overview, and each addition answers
+	 * a question the three could not.</strong> {@code status} and {@code lastStatusChangeAt} are
+	 * the pair behind "won this month": GHL's {@code date}/{@code endDate} filter on
+	 * <em>createdAt</em> — verified against the live API, not inferred — so a deal opened in August
+	 * and won in September is outside every window that asks for September's creations. Nothing but
+	 * the status-change timestamp can place a win in time. {@code createdAt} is bound for the same
+	 * reason in reverse: once a read spans six months of wins, the rows have to be re-bucketed here
+	 * rather than by the query. {@code lastStageChangeAt} is how long a deal has sat where it is,
+	 * which is the one thing a Kanban cannot show.
 	 *
-	 * <p>{@code status} (open/won/lost/abandoned) is still deliberately absent: the stages this
-	 * pipeline actually has include Won, Cold and Lost, so a status axis beside them would state
-	 * the same fact twice and give two places for it to disagree.
+	 * <p>An earlier note here said {@code status} was "deliberately absent" because the funnel's own
+	 * stages already include Won, Cold and Lost. That held for <em>one marketing pipeline whose
+	 * stages happen to name outcomes</em>. It does not hold across a salesperson's pipeline, the
+	 * intake funnel and the email funnel at once, which is what this record now serves — there the
+	 * only common outcome axis is the one GHL keeps on every opportunity.
+	 *
+	 * <p>{@code assignedTo} is a GHL user id and EvalOS has no mapping from one to a
+	 * {@code team_member} — see {@code SalesOpportunityController}. It is bound so a future mapping
+	 * has something to map, and no figure is derived from it: per-salesperson numbers come from
+	 * {@code team_member.ghl_pipeline_id}, which is a link EvalOS actually holds. <strong>GHL owns
+	 * the field outright</strong> ({@code 00d} §6.2) — a round-robin automation reassigning a deal
+	 * is not a conflict to be undone.
+	 *
+	 * <p><strong>{@code name}, {@code contactId} and {@code updatedAt} joined at Unit 44d</strong>,
+	 * when this record stopped feeding only a group-by and started feeding a mirror. A board needs
+	 * the first two to draw a card, and {@code updatedAt} is the timestamp Unit 45's conflict
+	 * policy compares on — with the rule that a <em>null</em> is an explicit conflict rather than
+	 * "EvalOS is newer", because it is GHL-supplied and nullable.
+	 *
+	 * <p>This also absorbed {@code GhlOpportunityClient.BoardOpportunity}, a second projection of
+	 * the same endpoint's rows. Two records over one URL is one of them going stale.
 	 */
-	public record Opportunity(String pipelineStageId, BigDecimal monetaryValue, String source) {
+	public record Opportunity(String id, String name, String contactId, String pipelineId,
+			String pipelineStageId, String status, BigDecimal monetaryValue, String source,
+			String assignedTo, java.time.Instant createdAt, java.time.Instant updatedAt,
+			java.time.Instant lastStatusChangeAt, java.time.Instant lastStageChangeAt) {
 	}
 
 	private final GhlHttp http;
@@ -174,11 +200,10 @@ public class GhlPipelineClient {
 	/**
 	 * Every opportunity standing in one pipeline, across as many pages as GHL needs.
 	 *
-	 * <p><strong>For the value and source breakdown only — never to count a stage.</strong>
-	 * {@link #countIn} answers "how many" in one request; this one exists because a <em>sum</em>
-	 * and a group-by need the rows themselves, and there is no GHL endpoint that aggregates them.
-	 * The caller is responsible for only asking when the window is small: see
-	 * {@code MarketingPipelineService.INLINE_ROW_BUDGET}.
+	 * <p><strong>The rows themselves, because a sum and a group-by need them</strong> and there is
+	 * no GHL endpoint that aggregates either. {@code countIn} used to answer "how many" in a
+	 * single request for the funnel screens and went with them on 2026-09-16; nothing counts a
+	 * stage any more. The caller is responsible for only asking for a window it can afford.
 	 *
 	 * <p>Paged with {@code startAfter}/{@code startAfterId} rather than a page number, which is
 	 * what GHL's own {@code nextPageUrl} uses — a cursor cannot skip or double-count a row that
@@ -190,6 +215,91 @@ public class GhlPipelineClient {
 	 *             GHL's filter accepts
 	 */
 	public List<Opportunity> opportunitiesIn(String pipelineId, LocalDate from, LocalDate to) {
+		return opportunitiesIn(pipelineId, from, to, null);
+	}
+
+	/**
+	 * Every opportunity on a pipeline, with no window at all — what a mirror needs (Unit 44d).
+	 *
+	 * <p><strong>A date window is the wrong shape for a mirror.</strong> {@code date}/{@code endDate}
+	 * filter on {@code createdAt}, so any window silently excludes the deals that have been open
+	 * longest — which are exactly the ones a board must show and a drift audit must compare. The
+	 * funnel screens could afford a window because they answered a question about a period; a
+	 * mirror answers "what is there".
+	 *
+	 * <p>This is the read that replaced {@code GhlOpportunityClient}, a second client on the same
+	 * endpoint with a narrower projection of the same rows.
+	 */
+	public List<Opportunity> allIn(String pipelineId) {
+		return opportunitiesIn(pipelineId, null, null, null);
+	}
+
+	/**
+	 * Every opportunity GHL holds for one contact — <strong>the retry-after-timeout read</strong>
+	 * (Unit 45c).
+	 *
+	 * <p><strong>This is the implementable form of {@code 00d} §6.1's correlation check, and it is a
+	 * correction to that section's wording.</strong> §6.1 says to "search that field before
+	 * creating". Verified against the API: <em>neither</em> {@code GET /opportunities/search} nor the
+	 * advanced {@code POST} accepts a custom-field filter — the advanced body takes a full-text
+	 * {@code query} of 75 characters and nothing else. So the field cannot be queried.
+	 *
+	 * <p>What <em>is</em> a documented filter is {@code contactId}. A create that timed out was made
+	 * for a known contact, and one contact has a handful of deals, so asking for theirs and matching
+	 * the correlation value locally answers the same question in one request. The alternative —
+	 * hoping GHL full-text-indexes custom field values — is a guess this cannot be built on.
+	 *
+	 * <p>Rare by construction: it runs only when a create did not answer.
+	 */
+	public List<Opportunity> forContact(String contactId) {
+		List<Opportunity> all = new ArrayList<>();
+		Long startAfter = null;
+		String startAfterId = null;
+
+		for (int page = 0; page < MAX_PAGES; page++) {
+			Long cursor = startAfter;
+			String cursorId = startAfterId;
+			SearchResponse response = http.get(SearchResponse.class, (uri) -> {
+				uri.path("/opportunities/search")
+						.queryParam("location_id", http.locationId())
+						.queryParam("contactId", contactId)
+						.queryParam("limit", PAGE_SIZE);
+				if (cursor != null && cursorId != null) {
+					uri.queryParam("startAfter", cursor).queryParam("startAfterId", cursorId);
+				}
+				return uri.build();
+			});
+
+			List<Opportunity> found = Optional.ofNullable(response.opportunities()).orElse(List.of());
+			all.addAll(found);
+			if (found.size() < PAGE_SIZE || response.meta() == null
+					|| response.meta().startAfter() == null || response.meta().startAfterId() == null) {
+				return all;
+			}
+			startAfter = response.meta().startAfter();
+			startAfterId = response.meta().startAfterId();
+		}
+		log.warn("Stopped reading GHL contact {} at the {}-page cap", contactId, MAX_PAGES);
+		return all;
+	}
+
+	/**
+	 * The same read, narrowed to one GHL status.
+	 *
+	 * <p><strong>Exists for one figure: "won this month".</strong> The window above filters on
+	 * {@code createdAt}, so there is no window that means "won between these dates" — a deal
+	 * opened in August and won in September is a September win and an August creation, and GHL
+	 * offers no filter on {@code lastStatusChangeAt}. The only honest shape is to ask for the
+	 * <em>wins</em> over a created-window wide enough to contain the sales cycle and bucket them
+	 * here by the status-change timestamp. {@code status=won} is what keeps that read small:
+	 * six months of wins is a fraction of six months of leads.
+	 *
+	 * @param status one of GHL's {@code open}, {@code won}, {@code lost}, {@code abandoned}, or
+	 *               null for every status. Not validated here — the caller passes a constant, and
+	 *               GHL answers 422 on anything else, which {@link GhlHttp} maps to a 502 naming
+	 *               the refusal rather than to a silently unfiltered read.
+	 */
+	public List<Opportunity> opportunitiesIn(String pipelineId, LocalDate from, LocalDate to, String status) {
 		List<Opportunity> all = new ArrayList<>();
 		Long startAfter = null;
 		String startAfterId = null;
@@ -212,8 +322,13 @@ public class GhlPipelineClient {
 						// the funnel becomes "opportunities *created* in this window, grouped by
 						// the stage they are in now", which is the question a marketer is asking.
 						// GHL wants mm-dd-yyyy; anything else is silently unfiltered, not refused.
-						.queryParam("date", GHL_DATE.format(from))
-						.queryParam("endDate", GHL_DATE.format(to));
+						// Null dates omit the window entirely — `allIn` reads a whole pipeline, and
+						// a mirror that filtered on createdAt would drop the oldest open deals.
+						.queryParamIfPresent("date", java.util.Optional.ofNullable(from).map(GHL_DATE::format))
+						.queryParamIfPresent("endDate", java.util.Optional.ofNullable(to).map(GHL_DATE::format));
+				if (status != null) {
+					uri.queryParam("status", status);
+				}
 				if (cursor != null && cursorId != null) {
 					uri.queryParam("startAfter", cursor).queryParam("startAfterId", cursorId);
 				}
@@ -224,10 +339,9 @@ public class GhlPipelineClient {
 			all.addAll(found);
 
 			// A short page is the last page. GHL returns exactly `limit` rows whether or not more
-			// exist, so a final full page still costs one more request. `meta.total` is not used
-			// to stop the loop even though `countIn` trusts it for counting: a count that is a
-			// few rows stale is a fine count, while a *loop bound* that is a few rows short
-			// silently drops the tail of the page it was reading.
+			// exist, so a final full page still costs one more request. `meta.total` is deliberately
+			// NOT used to stop the loop: a loop bound that is a few rows short silently drops the
+			// tail of the page it was reading, and GHL's total moves whenever somebody drags a card.
 			if (found.size() < PAGE_SIZE || response.meta() == null
 					|| response.meta().startAfter() == null || response.meta().startAfterId() == null) {
 				return all;
@@ -241,77 +355,6 @@ public class GhlPipelineClient {
 		return all;
 	}
 
-	/**
-	 * How many opportunities are in one stage of a pipeline, <strong>without reading them</strong>.
-	 *
-	 * <p><strong>This is the whole reason the Year view works.</strong> GHL reports the match
-	 * count in {@code meta.total} on any search, so asking for a single row with the stage filter
-	 * applied returns the exact figure in <em>one</em> request. Counting by pagination cost one
-	 * request per hundred rows instead — 115 of them on the email pipeline's year, which timed the
-	 * browser out at 15s before it ever finished.
-	 *
-	 * <p>So the funnel costs one request per stage regardless of how many deals are in it, and it
-	 * is <strong>exact</strong>: nothing is capped, truncated or estimated.
-	 *
-	 * <p><strong>{@code pipeline_stage_id} is snake_case</strong>, like {@code location_id} and
-	 * {@code pipeline_id} beside it and unlike {@code date}/{@code endDate}. Getting it wrong is an
-	 * HTTP 422, which is the one merciful thing about this endpoint's naming — an unrecognised
-	 * filter that was merely ignored would have every stage report the whole pipeline's count.
-	 *
-	 * <p>The trade is real and worth stating: {@code meta.total} is GHL's own count and can differ
-	 * by a row or two from the rows a paginated read would return, if somebody moves a card
-	 * between calls. A funnel is read for shape and magnitude, and a count that is one deal stale
-	 * is a fine count — an unreadable screen is not.
-	 *
-	 * @param stageId the stage to count. Non-null: the pipeline total is the sum of its stages,
-	 *                which is also what keeps the parts adding up to the whole on screen
-	 */
-	public int countIn(String pipelineId, String stageId, LocalDate from, LocalDate to) {
-		SearchResponse response = http.get(SearchResponse.class, (uri) -> uri.path("/opportunities/search")
-				.queryParam("location_id", http.locationId())
-				.queryParam("pipeline_id", pipelineId)
-				// **`pipeline_stage_id`, snake_case — with the same two snake_case names and the
-				// same camelCase dates as the read above.** Verified against the live API, after
-				// shipping the camelCase guess and getting HTTP 422 "property pipelineStageId
-				// should not exist" on the first real call. It looked evidenced and was not: the
-				// spelling had been checked through a tool that normalises parameter names before
-				// sending, so what was tested was never what this client sends. Pinned in
-				// `GhlPipelineClientHttpTest` so the guess cannot come back.
-				.queryParam("pipeline_stage_id", stageId)
-				// One row, because zero is not a limit GHL accepts and the count is in the meta
-				// block either way. The row itself is parsed and thrown away — three fields.
-				.queryParam("limit", 1)
-				.queryParam("date", GHL_DATE.format(from))
-				.queryParam("endDate", GHL_DATE.format(to))
-				.build());
-
-		// A window with no matches returns meta with a null total rather than a zero.
-		return response.meta() == null || response.meta().total() == null ? 0 : response.meta().total();
-	}
-
-	/**
-	 * A pipeline name with its edges trimmed and its internal whitespace runs collapsed to one
-	 * space, for comparison only — never for display.
-	 *
-	 * <p><strong>This exists because a live pipeline is named {@code Aditya's··pipeline}, with two
-	 * spaces.</strong> Nobody typing that name into an environment variable, a deployment script or
-	 * this repo's defaults would reproduce the second one, and nothing on any screen would show
-	 * that they had missed it: the configured value and GHL's value look identical side by side and
-	 * {@code equalsIgnoreCase} says they differ. The failure is the stated 502 rather than silence,
-	 * which is the right direction — but it is a 502 whose cause is invisible in both places you
-	 * would look for it, and the "fix" is to paste a double space into config and hope no editor,
-	 * shell or reviewer ever tidies it. That is not a fix, it is a trap with a comment on it.
-	 *
-	 * <p>So the accidental whitespace is normalised out of the <em>match</em>, and configuration
-	 * gets to hold the name a human would write. What is deliberately NOT normalised: case is
-	 * already handled by the caller's {@code equalsIgnoreCase}, and nothing else — no punctuation
-	 * stripping, no apostrophe folding, no fuzzy distance. A name that differs by a real character
-	 * is a different pipeline and must still fail loudly, because the whole point of matching by
-	 * name is that a rename in GHL is visible over here.
-	 *
-	 * <p>Applies to every funnel, not just this one: the ads and email names go through the same
-	 * comparison, so the next pipeline with a stray space costs nobody an afternoon.
-	 */
 	private static String squashed(String name) {
 		return name == null ? "" : name.strip().replaceAll("\\s+", " ");
 	}
@@ -330,10 +373,11 @@ public class GhlPipelineClient {
 		/**
 		 * GHL's cursor: {@code startAfter} is an epoch-millis sort key, not a page number.
 		 *
-		 * <p>{@code total} is the count of everything the search matched, not of the page — which
-		 * is what {@link GhlPipelineClient#countIn} reads instead of paging.
+		 * <p>{@code total} — the count of everything the search matched — is bound by nothing here
+		 * any more. {@code countIn} read it to count a funnel stage in one request and went with
+		 * the funnel screens on 2026-09-16.
 		 */
-		record Meta(Long startAfter, String startAfterId, Integer total) {
+		record Meta(Long startAfter, String startAfterId) {
 		}
 	}
 }

@@ -275,7 +275,8 @@ class DateWindowTest {
 	 * rests on</strong>.
 	 *
 	 * <p>Two different custom windows are both named {@code custom}. Keyed by range name they
-	 * would collide in {@code ghl_funnel_cache} and serve each other's figures for a whole TTL,
+	 * would collide in any cache keyed on the range name and serve each other's figures for a whole
+	 * TTL (which `ghl_funnel_cache` did, before the funnel screens were removed on 2026-09-16),
 	 * with nothing on screen to contradict it because the payloads are identical in shape.
 	 */
 	@Test

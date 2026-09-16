@@ -1,10 +1,14 @@
 package com.ie.evalos.service;
 
+import java.util.List;
 import java.util.UUID;
 
 import com.ie.evalos.common.InvalidRequestException;
 import com.ie.evalos.domain.AuditAction;
+import com.ie.evalos.domain.Pipeline;
 import com.ie.evalos.domain.TeamMember;
+import com.ie.evalos.repository.PipelineRepository;
+import com.ie.evalos.repository.TeamMemberPipelineRepository;
 import com.ie.evalos.repository.TeamMemberRepository;
 import com.ie.evalos.security.TenantContext;
 
@@ -13,103 +17,140 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * Puts one GHL pipeline on one team member. GM-only, audited, and the single place the four rules
- * that make {@code ghl_pipeline_id} an access key rather than a text field are applied.
+ * Which GHL pipelines a member may work — Unit 36's access key, made a set by Unit 44b.
  *
- * <p><strong>Every refusal here is a 400 the caller can act on, and that is the whole reason this
- * service exists rather than the route writing straight to the repository.</strong> Each of these
- * is also a database constraint, and letting the constraint be the first line would answer 500
- * from a {@code DataIntegrityViolationException} — an error path a UI cannot test and a message
- * nobody can act on. The constraints stay as the backstop for the writers the enum cannot reach
- * (a seed, a hand-run UPDATE); this is the door humans come through.
+ * <p><strong>The one-owner rule is gone, and that is the change.</strong> It read: "That pipeline is
+ * already held by another active member. A pipeline has one owner." {@code 00d} §6.7 retires it,
+ * because the target pipeline set includes <strong>Case Delivery — a pipeline no single person
+ * owns</strong>, which {@code uq_team_member_pipeline} could not express and
+ * {@code PipelineScope.mine()} could not read. Many-to-many is the real shape, and "pretending
+ * otherwise costs a second migration".
+ *
+ * <p><strong>Assignment is by mirror id, not by a pasted GHL string.</strong> That closes
+ * {@code 00d} C4 structurally: every SALES/MARKETING member was scoped to a pipeline id that no
+ * longer existed after the sub-account was replaced, and the symptom was "the board draws zero
+ * columns <em>with no error</em>". A foreign key into {@code pipeline} makes that unrepresentable —
+ * a pipeline has to be mirrored before anyone can be put on it.
+ *
+ * <p><strong>The single-brand ceiling survives untouched.</strong> Only a member of
+ * {@code evalos.ghl.sales-brand} may hold a pipeline, because the location belongs to that brand
+ * and a brand-locked role reading another brand's funnel is the leak invariant 1's exception is
+ * narrowed to prevent.
  */
 @Service
 public class PipelineAssignmentService {
 
 	private final TeamMemberRepository teamMembers;
+	private final TeamMemberPipelineRepository assignments;
+	private final PipelineRepository pipelines;
 	private final AuditService audit;
 	private final String salesBrandId;
 
-	PipelineAssignmentService(TeamMemberRepository teamMembers, AuditService audit,
+	PipelineAssignmentService(TeamMemberRepository teamMembers, TeamMemberPipelineRepository assignments,
+			PipelineRepository pipelines, AuditService audit,
 			@Value("${evalos.ghl.sales-brand:}") String salesBrandId) {
 		this.teamMembers = teamMembers;
+		this.assignments = assignments;
+		this.pipelines = pipelines;
 		this.audit = audit;
 		this.salesBrandId = salesBrandId;
 	}
 
-	/**
-	 * Assigns {@code ghlPipelineId} to the member, or explains why not.
-	 *
-	 * @throws InvalidRequestException if the pipeline is blank, the member is not pipeline-scoped,
-	 *                                 the member's brand is not the configured selling brand, or
-	 *                                 another active member already holds the pipeline
-	 */
-	@Transactional
-	public TeamMember assign(UUID memberId, String ghlPipelineId) {
-		if (ghlPipelineId == null || ghlPipelineId.isBlank()) {
-			// PUT sets; it does not clear. A null on a pipeline-scoped member would violate
-			// `team_member_pipeline_matches_role`, and clearing only makes sense as part of a
-			// role change or a deactivation — both of which are other routes' work.
-			throw new InvalidRequestException(
-					"A pipeline id is required. Clearing a pipeline is a role change or a deactivation.");
-		}
-
-		TeamMember member = teamMembers.findById(memberId)
-				.orElseThrow(() -> new InvalidRequestException("No such team member"));
-
-		if (!member.getRole().isPipelineScoped()) {
-			throw new InvalidRequestException(
-					"Only SALES and MARKETING members own a pipeline; " + member.getRole() + " does not");
-		}
-
-		requireSellingBrand(member);
-
-		// Globally unique, not per brand, and the message says so because the alternative is a
-		// GM re-trying the same id under a different brand. One GHL location means one pipeline
-		// namespace: the same id under two brands would not be two pipelines, it would be one
-		// pipeline read by two people who cannot see each other.
-		teamMembers.findByGhlPipelineIdAndActiveTrue(ghlPipelineId)
-				.filter((holder) -> !holder.getId().equals(memberId))
-				.ifPresent((holder) -> {
-					throw new InvalidRequestException(
-							"That pipeline is already held by another active member. A pipeline has one owner.");
-				});
-
-		String before = member.getGhlPipelineId();
-		member.assignPipeline(ghlPipelineId);
-		TeamMember saved = teamMembers.save(member);
-
-		// Audited because it changes what a person may see, which is the class of change
-		// invariant 13 exists for. Before and after are the pipeline ids alone — the row also
-		// carries an email and a password hash, and an audit payload is not a place for either.
-		audit.recordEvent("TEAM_MEMBER", memberId, AuditAction.UPDATED,
-				TenantContext.current().memberId(), before, ghlPipelineId);
-
-		return saved;
+	/** One member's pipelines, as GHL ids — what the GM's screen lists and what a token carries. */
+	@Transactional(readOnly = true)
+	public List<String> assignedTo(UUID memberId) {
+		return assignments.ghlIdsFor(memberId);
 	}
 
 	/**
-	 * Refuses a member of any brand but the one that owns {@code evalos.ghl.location-id}.
+	 * Puts a member on a pipeline.
 	 *
-	 * <p>Unit 36's single-brand ceiling. EvalOS is multi-brand and talks to exactly one GHL
-	 * sub-account, and a brand-locked role reading that location is what breaks invariant 1's
-	 * stated exception. Naming the brand narrows the exception; refusing the mismatch here is
-	 * what makes it a ceiling rather than a note in a document.
+	 * <p>Idempotent: granting a pipeline somebody already has changes nothing and is not an error.
+	 * A GM clicking twice is not a mistake worth a 400.
 	 *
-	 * <p>A blank property refuses <em>everyone</em>: an environment that has not been told which
-	 * brand sells must not guess, and an empty board with no explanation is the failure this
-	 * whole route exists to prevent.
+	 * @param pipelineId the <strong>mirror</strong> id, not GHL's — see the class note on C4
+	 */
+	@Transactional
+	public List<String> grant(UUID memberId, UUID pipelineId) {
+		TeamMember member = pipelineScopedMember(memberId);
+		Pipeline pipeline = mirrored(pipelineId);
+
+		if (!pipeline.isLive()) {
+			// A pipeline GHL has stopped returning cannot be worked. Assigning it would hand
+			// somebody a board that is empty for a reason no screen explains.
+			throw new InvalidRequestException("That pipeline no longer exists in GHL. "
+					+ "Run the PIPELINE_MIRROR sweep if you think it should.");
+		}
+		if (!pipeline.getBrandId().equals(member.getBrandId())) {
+			throw new InvalidRequestException("That pipeline belongs to another brand");
+		}
+
+		assignments.grant(memberId, pipelineId, TenantContext.current().memberId());
+		List<String> after = assignments.ghlIdsFor(memberId);
+		audit.recordEvent("TEAM_MEMBER", memberId, AuditAction.UPDATED,
+				TenantContext.current().memberId(), null, "granted " + pipeline.getName());
+		return after;
+	}
+
+	/**
+	 * Takes a member off a pipeline.
+	 *
+	 * <p><strong>Nothing stops this leaving them with none.</strong> The old rule refused to clear
+	 * the last one, because the column was {@code NOT NULL}-shaped by a CHECK and a pipeline-scoped
+	 * member with no pipeline was unrepresentable. A join table has no such problem, and a member
+	 * with no pipelines is a state the code already handles correctly:
+	 * {@code ScopePredicate}'s PIPELINE arm matches nothing and {@code PipelineScope.mine()}
+	 * refuses with a sentence naming the fix. Failing closed is the right behaviour for somebody
+	 * mid-reassignment.
+	 */
+	@Transactional
+	public List<String> revoke(UUID memberId, UUID pipelineId) {
+		TeamMember member = pipelineScopedMember(memberId);
+		Pipeline pipeline = mirrored(pipelineId);
+
+		if (assignments.revoke(memberId, pipelineId) == 0) {
+			throw new InvalidRequestException("That member is not on that pipeline");
+		}
+		audit.recordEvent("TEAM_MEMBER", memberId, AuditAction.UPDATED,
+				TenantContext.current().memberId(), pipeline.getName(), null);
+		return assignments.ghlIdsFor(member.getId());
+	}
+
+	private TeamMember pipelineScopedMember(UUID memberId) {
+		TeamMember member = teamMembers.findById(memberId)
+				.orElseThrow(() -> new InvalidRequestException("No such team member"));
+		if (!member.getRole().isPipelineScoped()) {
+			throw new InvalidRequestException(
+					"Only SALES and MARKETING members work a pipeline; " + member.getRole() + " does not");
+		}
+		requireSellingBrand(member);
+		return member;
+	}
+
+	private Pipeline mirrored(UUID pipelineId) {
+		return pipelines.findById(pipelineId).orElseThrow(() -> new InvalidRequestException(
+				"No such mirrored pipeline. Run the PIPELINE_MIRROR sweep if this is a new one."));
+	}
+
+	/**
+	 * Unit 36's single-brand ceiling, enforced rather than documented.
+	 *
+	 * <p>{@code evalos.ghl.location-id} names one GHL sub-account and EvalOS cannot attribute it to
+	 * a brand — invariant 1's one stated exception, which holds only because every screen over that
+	 * location is GM-only. A brand-locked role reading it would void that argument, so
+	 * {@code evalos.ghl.sales-brand} names the one brand whose members may.
 	 */
 	private void requireSellingBrand(TeamMember member) {
 		if (salesBrandId == null || salesBrandId.isBlank()) {
 			throw new InvalidRequestException(
-					"No selling brand is configured. Set evalos.ghl.sales-brand to the brand that owns "
-							+ "the configured GHL location before assigning a pipeline.");
+					"No brand is configured as the selling brand (evalos.ghl.sales-brand), so no member "
+							+ "may hold a pipeline yet.");
 		}
-		if (member.getBrandId() == null || !member.getBrandId().toString().equals(salesBrandId)) {
+		if (!UUID.fromString(salesBrandId).equals(member.getBrandId())) {
 			throw new InvalidRequestException(
-					"Only the configured selling brand may hold a GHL pipeline. EvalOS reads one GHL "
-							+ "location and cannot scope a second brand's pipelines until Unit 25.");
+					"Only members of the selling brand may work a GHL pipeline. The configured GHL "
+							+ "location belongs to one brand, and this member is not in it.");
 		}
 	}
+
 }

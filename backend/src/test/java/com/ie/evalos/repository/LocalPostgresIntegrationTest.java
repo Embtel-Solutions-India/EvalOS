@@ -6,7 +6,6 @@ import java.sql.PreparedStatement;
 import java.sql.SQLException;
 import java.time.Duration;
 import java.time.Instant;
-import java.time.temporal.ChronoUnit;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
@@ -42,7 +41,6 @@ import com.ie.evalos.domain.DocumentChecklistItem;
 import com.ie.evalos.domain.ExceptionState;
 import com.ie.evalos.domain.Expert;
 import com.ie.evalos.domain.ExpertCaseOffer;
-import com.ie.evalos.domain.GhlFunnelCache;
 import com.ie.evalos.domain.Notification;
 import com.ie.evalos.domain.NotificationType;
 import com.ie.evalos.domain.OfferOutcome;
@@ -246,9 +244,6 @@ class LocalPostgresIntegrationTest {
 
 	@Autowired
 	PortalAccessService portalAccess;
-
-	@Autowired
-	GhlFunnelCacheRepository funnelCache;
 
 	@Autowired
 	AuditEventRepository auditEvents;
@@ -1135,93 +1130,6 @@ class LocalPostgresIntegrationTest {
 				.hasMessageContaining("append-only");
 	}
 
-	/**
-	 * The marketing funnel cache is a real table, and the three things only Postgres can prove.
-	 *
-	 * <p>These are exactly the guarantees {@code MarketingPipelineServiceTest} cannot make: its
-	 * in-memory fake is last-write-wins by construction, so asserting a unique key or an optimistic
-	 * lock there would only assert the fake. This is where the cache stopped being heap memory, so
-	 * this is where those claims have to be checked.
-	 */
-	@Test
-	void theFunnelCacheRoundTripsJsonbAndEnforcesOneRowPerWindow() {
-		// Cleared first, and this is not boilerplate. Every other test here stays re-runnable by
-		// inserting a random id; these keys are fixed strings, so the second run would collide on
-		// the very constraint the test is asserting. Safe to wipe: it is a cache, in the
-		// `evalos_test` schema.
-		funnelCache.deleteAll();
-
-		Instant readAt = Instant.now().truncatedTo(ChronoUnit.MILLIS);
-		// **A window key, not a range name — the V26 shape.** `2026-01-01..2026-12-31` rather than
-		// "YEAR", because every custom period is named `custom` and name-keyed rows would collide.
-		GhlFunnelCache stored = funnelCache.saveAndFlush(new GhlFunnelCache("ADS", "2026-01-01..2026-12-31",
-				"{\"pipelineName\":\"Google ADS Pipeline\",\"totalDeals\":93}", "READY", readAt, null));
-
-		assertThat(stored.getId()).isNotNull();
-		// jsonb survives the trip, which is what makes storing the payload as one document viable.
-		assertThat(funnelCache.findByFunnelAndWindowKey("ADS", "2026-01-01..2026-12-31")).get().satisfies((row) -> {
-			assertThat(row.getPayload()).contains("Google ADS Pipeline").contains("93");
-			assertThat(row.getDetail()).isEqualTo("READY");
-			assertThat(row.getReadAt()).isEqualTo(readAt);
-			assertThat(row.getTotallingSince()).isNull();
-		});
-
-		// The same funnel and a DIFFERENT window is a different row — the key is both halves.
-		funnelCache.saveAndFlush(new GhlFunnelCache("ADS", "2026-08-01..2026-08-26", "{}", "READY", readAt, null));
-		assertThat(funnelCache.findByFunnelAndWindowKey("ADS", "2026-08-01..2026-08-26")).isPresent();
-
-		// **Two custom windows, which is what V26 exists for.** Under the old range-name key both
-		// of these were "CUSTOM" and the second insert would have been refused by the unique
-		// constraint — or worse, an upsert would have served one period's figures for the other.
-		funnelCache.saveAndFlush(new GhlFunnelCache("ADS", "2026-02-01..2026-02-28", "{}", "READY", readAt, null));
-		funnelCache.saveAndFlush(new GhlFunnelCache("ADS", "2026-04-01..2026-04-30", "{}", "READY", readAt, null));
-		assertThat(funnelCache.findByFunnelAndWindowKey("ADS", "2026-02-01..2026-02-28")).isPresent();
-		assertThat(funnelCache.findByFunnelAndWindowKey("ADS", "2026-04-01..2026-04-30")).isPresent();
-
-		// A second row for the SAME window is refused by the database rather than by a check-then-
-		// insert, which two concurrent cold-cache callers would both pass.
-		assertThatThrownBy(() -> funnelCache.saveAndFlush(
-				new GhlFunnelCache("ADS", "2026-01-01..2026-12-31", "{}", "READY", readAt, null)))
-				.hasStackTraceContaining("uq_ghl_funnel_cache_window");
-	}
-
-	/**
-	 * The optimistic lock that stops a slow reader clobbering a completed background total.
-	 *
-	 * <p>The failure this prevents is specific: a caller whose inline count read finishes *after*
-	 * the totaller wrote {@code READY} must not overwrite those figures with {@code TOTALLING}.
-	 * Simulated the only way that race can be simulated deterministically — two entity instances
-	 * loaded at the same version, written one after the other.
-	 */
-	@Test
-	void aStaleWriterLosesToTheOneThatGotThereFirst() {
-		// Same reason as above: a fixed window key needs a clean slate to stay re-runnable.
-		funnelCache.deleteAll();
-
-		Instant readAt = Instant.now().truncatedTo(ChronoUnit.MILLIS);
-		UUID id = funnelCache.saveAndFlush(
-				new GhlFunnelCache("EMAIL", "YEAR", "{}", "TOTALLING", readAt, readAt)).getId();
-
-		// Two readers of the same version. `getReferenceById` would share the persistence context,
-		// so both are fetched detached via a fresh find after a clear.
-		GhlFunnelCache first = funnelCache.findById(id).orElseThrow();
-		long versionBothSaw = first.getVersion();
-		GhlFunnelCache second = new GhlFunnelCache("EMAIL", "YEAR", "{}", "TOTALLING", readAt, readAt);
-
-		first.refresh("{\"totalValue\":3000}", "READY", Instant.now(), null);
-		funnelCache.saveAndFlush(first);
-
-		// The winner's figures stand, and the version moved.
-		assertThat(funnelCache.findById(id)).get().satisfies((row) -> {
-			assertThat(row.getDetail()).isEqualTo("READY");
-			assertThat(row.getVersion()).isGreaterThan(versionBothSaw);
-		});
-		// And the loser cannot insert over the top of it: same window, so the unique key holds even
-		// though it never saw the winner's version.
-		assertThatThrownBy(() -> funnelCache.saveAndFlush(second))
-				.hasStackTraceContaining("uq_ghl_funnel_cache_window");
-	}
-
 	private static List<UUID> ids(List<Case> found) {
 		return found.stream().map(Case::getId).toList();
 	}
@@ -1681,41 +1589,55 @@ class LocalPostgresIntegrationTest {
 	/**
 	 * <strong>P3: a note outlives the opportunity it describes.</strong>
 	 *
-	 * <p>There is deliberately no foreign key to {@code ghl_opportunity_cache} — that table is
-	 * droppable (V40), and a FK into it would make truncating a cache delete real notes. This
-	 * asserts the property directly: wipe the cache, the notes are untouched. Append-only truth
-	 * outranks tidiness, and a vanished opportunity is exactly when the history matters.
+	 * <p>There is deliberately no foreign key from {@code opportunity_note} to the opportunity. It
+	 * was written when {@code ghl_opportunity_cache} was droppable, and it outlives that table's
+	 * deletion at Unit 44d for a better reason: a note is <strong>append-only truth</strong>, and a
+	 * vanished deal is exactly when the history matters. Asserted directly — delete the row the
+	 * note names, the note is untouched.
+	 *
+	 * <p>The table this deletes from changed on 2026-09-16; the property did not, which is why the
+	 * test was rewritten rather than dropped.
 	 */
 	@Test
-	void aNoteSurvivesItsOpportunityVanishingFromTheCache() {
+	void aNoteSurvivesItsOpportunityVanishing() {
 		String doomed = uniqueId("opp-doomed");
-		jdbc.update("INSERT INTO ghl_opportunity_cache "
-				+ "(ghl_opportunity_id, ghl_pipeline_id, ghl_contact_id, stage_id, status, fetched_at) "
-				+ "VALUES (?, ?, 'contact-1', 's1', 'open', now())", doomed, uniqueId("pipe"));
+		UUID pipeline = insertMirroredPipeline(uniqueId("pipe"));
+		jdbc.update("INSERT INTO opportunity (id, brand_id, ghl_id, pipeline_id, status, synced_at) "
+				+ "VALUES (?, ?, ?, ?, 'open', now())", UUID.randomUUID(), BRAND_IE, doomed, pipeline);
 		UUID note = insertNote(BRAND_IE, doomed, uniqueId("pipe"), "The deal we lost");
 
-		jdbc.update("DELETE FROM ghl_opportunity_cache WHERE ghl_opportunity_id = ?", doomed);
+		jdbc.update("DELETE FROM opportunity WHERE ghl_id = ?", doomed);
 
 		assertThat(jdbc.queryForObject("SELECT body FROM opportunity_note WHERE id = ?", String.class,
 				note)).isEqualTo("The deal we lost");
 	}
 
+	/** A mirrored pipeline to hang an opportunity off - `pipeline_id` is a real FK (Unit 44a). */
+	private UUID insertMirroredPipeline(String ghlId) {
+		UUID id = UUID.randomUUID();
+		jdbc.update("INSERT INTO pipeline (id, brand_id, ghl_id, name, position, synced_at) "
+				+ "VALUES (?, ?, ?, 'Test pipeline', 0, now())", id, BRAND_IE, ghlId);
+		return id;
+	}
+
 	/**
-	 * The note carries its own brand and pipeline so a scoped read never has to join the cache.
+	 * The note carries its own brand and pipeline so a scoped read never has to join the opportunity.
 	 *
-	 * <p>That denormalisation is the point: the cache is droppable, and a scope predicate that
-	 * depends on a droppable table fails <em>open</em> the moment the table is empty.
+	 * <p>That denormalisation was justified by the cache being droppable. <strong>The cache is gone
+	 * and the denormalisation is still right</strong>, for a reason that outlives it: a scope
+	 * predicate depending on another table fails <em>open</em> the moment that table is empty, and
+	 * the mirror can legitimately be empty — before its first sync, or for a pipeline nobody has
+	 * loaded.
 	 */
 	@Test
-	void notesAreScopedWithoutTouchingTheCache() {
+	void notesAreScopedWithoutTouchingTheOpportunityTable() {
 		String mine = uniqueId("pipe-mine");
 		String theirs = uniqueId("pipe-theirs");
 		insertNote(BRAND_IE, uniqueId("opp"), mine, "mine");
 		insertNote(BRAND_XP, uniqueId("opp"), theirs, "theirs");
-		jdbc.update("TRUNCATE ghl_opportunity_cache");
 
-		// The cache is empty and the scope still answers — which is the whole reason
-		// `ghl_pipeline_id` is denormalised onto the note rather than joined from the cache.
+		// No opportunity row exists for either note, and the scope still answers - which is the
+		// whole reason `ghl_pipeline_id` is denormalised onto the note.
 		assertThat(jdbc.queryForObject(
 				"SELECT count(*) FROM opportunity_note WHERE brand_id = ? AND ghl_pipeline_id = ?",
 				Integer.class, BRAND_IE, mine)).isEqualTo(1);

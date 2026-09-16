@@ -22,7 +22,7 @@ import org.springframework.web.bind.annotation.RestController;
  * The client's front door (Unit 42).
  *
  * <p><strong>The only unauthenticated routes on the portal chain.</strong> Everything else under
- * {@code /api/portal/**} requires a token; these four are how a client obtains one. They are
+ * {@code /api/portal/**} requires a token; these five are how a client obtains one. They are
  * {@code permitAll} in {@code PortalSecurityConfig} and are still covered by that chain's per-IP
  * limiter, which is what throttles both password guessing and the enumeration {@code identify}
  * deliberately allows.
@@ -39,6 +39,22 @@ public class ClientAuthController {
 	}
 
 	public record SignInRequest(@NotBlank @Email String email, @NotBlank String password) {
+	}
+
+	/**
+	 * What a stranger tells us about themselves.
+	 *
+	 * <p><strong>Only the email is required, and that is GHL's rule rather than a kindness.</strong>
+	 * {@code /contacts/upsert} matches on email then phone, so a submission carrying neither has
+	 * nothing to match on and creates another contact every time — the refusal
+	 * {@code MarketingLeadService} already states. Email is mandatory here anyway, because it is
+	 * also the account's login and where the set-password link goes.
+	 *
+	 * <p>A name and a phone are worth asking for and not worth refusing over: a salesperson would
+	 * rather ring a lead called "unknown" than not have the lead.
+	 */
+	public record SignUpRequest(@NotBlank @Email String email, String firstName, String lastName,
+			String phone) {
 	}
 
 	/**
@@ -72,6 +88,22 @@ public class ClientAuthController {
 		return ApiResponse.ok(new IdentifyView(accounts.identify(request.email()).name()));
 	}
 
+	/**
+	 * <strong>Answers an {@link IdentifyView}, never a session.</strong> Signing up does not sign
+	 * you in: the address may be one GHL already holds, and handing out a token for an unproven
+	 * mailbox would be account takeover by typing a stranger's email. The set-password link is
+	 * what proves it, which is the same door every seeded client comes through.
+	 *
+	 * <p>So the screen's three answers are the sign-in screen's three answers, which is also why
+	 * this shares that view rather than inventing a fourth vocabulary. {@code UNKNOWN} is the one
+	 * value it cannot return.
+	 */
+	@PostMapping("/sign-up")
+	public ApiResponse<IdentifyView> signUp(@Valid @RequestBody SignUpRequest request) {
+		return ApiResponse.ok(new IdentifyView(accounts.signUp(request.email(), request.firstName(),
+				request.lastName(), request.phone()).name()));
+	}
+
 	@PostMapping("/sign-in")
 	public ApiResponse<SessionView> signIn(@Valid @RequestBody SignInRequest request) {
 		return ApiResponse.ok(session(accounts.signIn(request.email(), request.password())));
@@ -93,15 +125,16 @@ public class ClientAuthController {
 	}
 
 	/**
-	 * Pulls the bare token out of the minted URL's fragment.
+	 * The minted token, as it is.
 	 *
-	 * <p>{@code PortalAccessService} returns a whole link because its other caller shows one to a
-	 * staff member to paste. This caller's client is a browser that already knows where it is, and
-	 * handing it a full URL would invite a redirect.
+	 * <p><strong>This used to parse a URL apart.</strong> {@code PortalAccessService} handed back a
+	 * whole link built from a configured base, and this method found the {@code #} and threw the
+	 * rest away — two halves of one ceremony for a caller that needs neither half. The service now
+	 * returns a {@link PortalAccessService.MintedToken} for the account path, because a client who
+	 * has just signed in at the client portal is already where a link would have sent them. The
+	 * expert path still returns a URL, because a staff member really does copy that somewhere.
 	 */
-	private static SessionView session(PortalAccessService.MintedLink link) {
-		String url = link.url();
-		int hash = url.indexOf('#');
-		return new SessionView(hash < 0 ? url : url.substring(hash + 1), link.expiresAt());
+	private static SessionView session(PortalAccessService.MintedToken minted) {
+		return new SessionView(minted.token(), minted.expiresAt());
 	}
 }

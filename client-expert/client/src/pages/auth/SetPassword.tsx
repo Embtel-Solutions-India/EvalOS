@@ -6,10 +6,10 @@ import { Card } from '@shared/components/ui/card'
 import { FormField } from '@shared/components/common/FormField'
 import { PageHeader } from '@shared/components/common/PageHeader'
 import { Input } from '@shared/components/ui/input'
-import { failureMessage, NO_TOKEN, tokenFromFragment } from '@shared/lib/portal'
+import { NO_TOKEN, tokenFromFragment } from '@shared/lib/portal'
 import { statusOf } from '@shared/services/apiClient'
 import { passwordRules } from '@/schemas/intake'
-import { setPassword } from '@/services/authService'
+import { authFailureMessage, setPassword } from '@/services/authService'
 
 /**
  * Where a set-password link lands (Unit 42) — a `NO_PASSWORD` reply's email, or a reset link.
@@ -64,7 +64,16 @@ export default function SetPassword() {
       await setPassword(token as string, password)
       navigate('/dashboard')
     } catch (error) {
-      setSubmitError(failureMessage(statusOf(error)))
+      // The server answers one 400 for every reason a link does not work — spent, expired,
+      // unknown, another brand's — so this says one thing back. "Request a new one" is the only
+      // action available, and it is always the right one.
+      setSubmitError(
+        authFailureMessage(
+          statusOf(error),
+          'This link is no longer valid. It may have been used already, or it may have expired. ' +
+            'Please request a new one from the sign-in screen.',
+        ),
+      )
     } finally {
       setSubmitting(false)
     }

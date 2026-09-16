@@ -5,14 +5,13 @@ import java.util.UUID;
 
 import com.ie.evalos.common.ApiResponse;
 import com.ie.evalos.domain.Role;
-import com.ie.evalos.domain.Segment;
 import com.ie.evalos.domain.TeamMember;
 import com.ie.evalos.service.PipelineAssignmentService;
 import com.ie.evalos.service.TeamMemberQueryService;
 
-import jakarta.validation.constraints.NotBlank;
 
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PutMapping;
@@ -71,29 +70,52 @@ public class TeamMemberController {
 				.toList());
 	}
 
-	/** Only the pipeline. A role change and a deactivation are different operations. */
-	public record AssignPipelineRequest(@NotBlank String ghlPipelineId) {
+	/** The mirrored pipeline, by EvalOS's id — never a pasted GHL string. See below. */
+	public record PipelineGrantRequest(@jakarta.validation.constraints.NotNull UUID pipelineId) {
 	}
 
 	/** What the assignment screen shows back: no email, no hash, no brand directory. */
-	public record PipelineAssignment(UUID id, Role role, Segment segment, String ghlPipelineId) {
+	public record PipelineAssignment(UUID id, List<String> ghlPipelineIds) {
 	}
 
 	/**
-	 * Puts one GHL pipeline on one member. GM-only, audited, and every refusal is a 400.
+	 * Puts a member on a GHL pipeline, or takes them off one. GM-only, audited, every refusal a 400.
 	 *
-	 * <p>GM-only because this changes what a person may see, and because the pipeline namespace
-	 * is global — a Brand Manager cannot be shown, let alone allowed to reassign, a pipeline that
-	 * may belong to another brand's desk. The rules it enforces are in
-	 * {@link PipelineAssignmentService}.
+	 * <p><strong>A set, not a value, as of Unit 44b.</strong> This was
+	 * {@code PUT /{id}/ghl-pipeline} taking one id and replacing whatever was there.
+	 * {@code 00d} §6.7 retires the one-owner model: the target pipeline set includes
+	 * <strong>Case Delivery, which no single person owns</strong>, so a member holds a set and the
+	 * verbs are grant and revoke.
+	 *
+	 * <p><strong>Addressed by the MIRROR id, which is the point.</strong> The old route took GHL's
+	 * opaque string, and {@code 00d} C4 is what that cost: after the sub-account was replaced every
+	 * member was scoped to an id that no longer existed, and "the board draws zero columns
+	 * <em>with no error</em>". The mirror is a foreign key, so an id that does not name a real
+	 * pipeline is a 400 at assignment rather than an empty board weeks later.
+	 * {@code GET /api/ghl/pipelines} is the list to pick from.
+	 *
+	 * <p>GM-only because this changes what a person may see, and because the pipeline namespace is
+	 * global — a Brand Manager cannot be shown, let alone reassign, a pipeline that may belong to
+	 * another brand's desk.
 	 */
-	@PutMapping("/{id}/ghl-pipeline")
+	@PutMapping("/{id}/pipelines")
 	@PreAuthorize("hasRole('GM')")
-	public ApiResponse<PipelineAssignment> assignPipeline(@PathVariable UUID id,
-			@RequestBody @jakarta.validation.Valid AssignPipelineRequest request) {
-		TeamMember member = pipelines.assign(id, request.ghlPipelineId());
-		return ApiResponse.ok(new PipelineAssignment(
-				member.getId(), member.getRole(), member.getSegment(), member.getGhlPipelineId()));
+	public ApiResponse<PipelineAssignment> grantPipeline(@PathVariable UUID id,
+			@RequestBody @jakarta.validation.Valid PipelineGrantRequest request) {
+		return ApiResponse.ok(new PipelineAssignment(id, pipelines.grant(id, request.pipelineId())));
+	}
+
+	@DeleteMapping("/{id}/pipelines/{pipelineId}")
+	@PreAuthorize("hasRole('GM')")
+	public ApiResponse<PipelineAssignment> revokePipeline(@PathVariable UUID id,
+			@PathVariable UUID pipelineId) {
+		return ApiResponse.ok(new PipelineAssignment(id, pipelines.revoke(id, pipelineId)));
+	}
+
+	@GetMapping("/{id}/pipelines")
+	@PreAuthorize("hasRole('GM')")
+	public ApiResponse<PipelineAssignment> pipelinesOf(@PathVariable UUID id) {
+		return ApiResponse.ok(new PipelineAssignment(id, pipelines.assignedTo(id)));
 	}
 
 }
