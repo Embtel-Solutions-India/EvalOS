@@ -24,7 +24,6 @@ import com.ie.evalos.domain.Stage;
 import com.ie.evalos.domain.VisaCategory;
 import com.ie.evalos.event.CaseEvents;
 import com.ie.evalos.repository.CaseRepository;
-import com.ie.evalos.repository.ContactSnapshotRepository;
 import com.ie.evalos.repository.DocumentChecklistItemRepository;
 
 import org.springframework.context.ApplicationEventPublisher;
@@ -90,13 +89,13 @@ public class CaseIntakeService {
 	}
 
 	private final CaseRepository cases;
-	private final ContactSnapshotRepository contacts;
+	private final ContactSnapshotService contacts;
 	private final DocumentChecklistItemRepository checklistItems;
 	private final AuditService audit;
 	private final SlaCalculator sla;
 	private final ApplicationEventPublisher events;
 
-	CaseIntakeService(CaseRepository cases, ContactSnapshotRepository contacts,
+	CaseIntakeService(CaseRepository cases, ContactSnapshotService contacts,
 			DocumentChecklistItemRepository checklistItems, AuditService audit, SlaCalculator sla,
 			ApplicationEventPublisher events) {
 		this.cases = cases;
@@ -232,76 +231,24 @@ public class CaseIntakeService {
 	}
 
 	/**
-	 * Upsert by GHL contact id, falling back to email — a brand's second order from
-	 * the same person must not create a second snapshot. Both lookups are
-	 * brand-scoped by their signature.
+	 * The contact this case belongs to.
+	 *
+	 * <p><strong>The matching lives in {@link ContactSnapshotService} as of Unit 44c, not here.</strong>
+	 * {@code 00d} §5.4 required the extraction before Unit 45's {@code contact.created} /
+	 * {@code contact.updated} handlers could exist at all: {@code DomainInvariantsTest} permits
+	 * exactly <em>one</em> injector of this class on the classpath — {@code 05b}'s rule that
+	 * {@code contact.created} "must not route to intake", enforced structurally — so a second
+	 * handler reaching for this logic would have failed the build. It now has somewhere to reach
+	 * that is not Handoff A.
+	 *
+	 * <p>The rules are unchanged: GHL id first, then email only where it does not contradict, and
+	 * the id backfilled onto whatever was found. Read that class for why each one is load-bearing.
 	 */
 	private ContactSnapshot syncContact(UUID brandId, ContactDetails details) {
-		ContactSnapshot contact = existingContact(brandId, details)
-				.orElseGet(() -> new ContactSnapshot(brandId, details.ghlContactId()));
-		// Repairs a row that was matched by email because it had no GHL id. Without this
-		// the id never lands and every later delivery re-matches by email — which works
-		// until the email changes, and then it is a second contact again.
-		contact.linkGhlContact(details.ghlContactId());
-		contact.syncFromGhl(details.fullName(), details.email(), details.phone(), details.company(),
-				details.clientType(), details.sourceChannel(), details.utmSource(), details.utmMedium(),
-				details.utmCampaign());
-		return contacts.save(contact);
-	}
-
-	/**
-	 * Both lookups, in order of authority — <strong>not</strong> one or the other.
-	 *
-	 * <p>These used to be exclusive returns, which needed no race to duplicate a contact:
-	 * the payload carries no {@code @NotBlank} on the GHL id, so a first delivery could
-	 * store a snapshot with a null {@code ghl_contact_id}; a later delivery *with* the id
-	 * then missed the id lookup, never reached the email one, and inserted a second
-	 * snapshot — and therefore a second case for the same contact and service.
-	 *
-	 * <p>Falling through to email fixes the reading. {@code syncContact} then backfills
-	 * the id onto the row it found, so the same delivery cannot keep re-matching by email
-	 * forever.
-	 *
-	 * <p><strong>But email never outranks a GHL id</strong> (invariant 7), which is what
-	 * {@link #contradicts} enforces. Two distinct GHL contacts can share an inbox — a firm's
-	 * office address is the obvious case — and without the guard the second one's delivery
-	 * matched the first one's row by email, could not backfill its own id over the id
-	 * already there, and quietly attached a paid case to <em>the wrong client</em> while
-	 * overwriting that client's name and phone. A wrong merge is worse than a duplicate:
-	 * the duplicate is visible and fixable, the merge looks like a normal case.
-	 */
-	private Optional<ContactSnapshot> existingContact(UUID brandId, ContactDetails details) {
-		return byGhlContactId(brandId, details.ghlContactId())
-				.or(() -> byEmail(brandId, details.email())
-						.filter(match -> !contradicts(match, details.ghlContactId())));
-	}
-
-	/**
-	 * An email match that names a different client. Only a genuine conflict counts — both
-	 * ids present and different — so the two cases the fall-through exists for still match:
-	 * a row with no id yet (it gets backfilled), and a delivery with no id to assert.
-	 *
-	 * <p>Rejecting sends intake down the create path, and {@code V27} is what lets that
-	 * insert land: the email uniqueness index now applies only to rows without a GHL id,
-	 * because a row that has one does not need email to tell it apart.
-	 */
-	private static boolean contradicts(ContactSnapshot match, String incomingGhlContactId) {
-		String held = match.getGhlContactId();
-		return held != null && !held.isBlank()
-				&& incomingGhlContactId != null && !incomingGhlContactId.isBlank()
-				&& !held.equals(incomingGhlContactId);
-	}
-
-	private Optional<ContactSnapshot> byGhlContactId(UUID brandId, String ghlContactId) {
-		return ghlContactId == null || ghlContactId.isBlank()
-				? Optional.empty()
-				: contacts.findByBrandIdAndGhlContactId(brandId, ghlContactId);
-	}
-
-	private Optional<ContactSnapshot> byEmail(UUID brandId, String email) {
-		return email == null || email.isBlank()
-				? Optional.empty()
-				: contacts.findByBrandIdAndEmailIgnoreCase(brandId, email);
+		return contacts.findOrCreate(brandId, new ContactSnapshotService.Details(
+				details.ghlContactId(), details.fullName(), details.email(), details.phone(),
+				details.company(), details.clientType(), details.sourceChannel(), details.utmSource(),
+				details.utmMedium(), details.utmCampaign()));
 	}
 
 	private Case newCase(Brand brand, NewCase request, UUID contactId) {

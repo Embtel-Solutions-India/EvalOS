@@ -1,6 +1,8 @@
 # Unit 44 — The tier-1 GHL mirror
 
-**Status: slices A, B and D BUILT (2026-09-16). C is specced and unbuilt.**
+**Status: BUILT (2026-09-16) — all four slices.** One thing it does not do is in §4.1: the
+`contact_snapshot` → `contact` **rename** is blocked by seed ordering and is deferred, with the
+reason written down rather than left to be rediscovered.
 
 Unit 44 is `00c`'s first real unit: EvalOS stops asking GHL what its structure is on every screen
 render and starts holding it, **using GHL's own ids**, so a mismatch is detectable by comparison
@@ -19,7 +21,7 @@ sequences it.
 |---|---|---|---|
 | **44a** | `pipeline`, `pipeline_stage`, the sweep, `purpose` | no | **BUILT** |
 | **44b** | `team_member_pipeline`; `PipelineScope.mine()` becomes a set; retires `intake-pipeline-name` | **yes** | **BUILT** |
-| **44c** | `contact` — merges `contact_snapshot` and `client_account` | no | specced |
+| **44c** | the `client_account` ↔ `contact_snapshot` join, D6 enforced, `ContactSnapshotService` | no | **BUILT** |
 | **44d** | `opportunity` + the correlation custom field; replaces `CachedOpportunity` | **yes** (via `PipelineScope`) | **BUILT** |
 
 **44a first because GHL owns every column in it.** `00d` §6.2 puts `pipeline.*` and
@@ -217,18 +219,68 @@ change to buy a bound that was already there.
 
 ---
 
-## 4. Slice 44c — `contact` (specced, unbuilt)
+## 4. Slice 44c — the contact link (BUILT)
 
-Merges `contact_snapshot` and `client_account`, which today *"are not joined — both can hold a
-`ghl_contact_id` and nothing links them"* (`.claude/data-model.md`). `00d` §11 Phase 4 puts the
-merge in the same migration as the mirror table deliberately.
+The problem, as `.claude/data-model.md` states it: *"`client_account` and `contact_snapshot` are not
+joined. Both can hold a `ghl_contact_id` and nothing links them. A case reaches a contact snapshot;
+it does not reach the account."* So the portal knew who signed in and production knew whose case it
+was, and neither could answer the other's question.
 
-Two facts to carry in: `client_account.ghl_contact_id` is **nullable and not unique**, so D6 (one
-contact, many opportunities) is not enforced by the schema and two accounts may name one contact.
-And `00d` §5.4's `contact.created`/`contact.updated` handlers are the inbound half — they belong to
-Unit 45, but `ContactSnapshotService` must be extracted **first**, because
-`DomainInvariantsTest` permits exactly one injector of `CaseIntakeService` and a second handler
-would fail the build (correctly — that is invariant 8 working).
+### 4.1 A join, not a merge — and why the rename is deferred
+
+`00c` §2 names a `contact` table and `00d` §11 asks for the merge. **The rename is blocked**, by the
+same trap `ghl_funnel_cache` is in: **two** seeds write `contact_snapshot` (`V905` local, `V951`
+testprod), both numbered 900+, both running *after* every `db/migration` script — and
+`MigrationTreeTest` forbids a migration in that range while editing an applied seed is a checksum
+mismatch that refuses the boot. A rename or a drop has nowhere to sit.
+
+The data model's own wording is *"merged with **or joined to**"*, and the join fixes the stated
+problem. **`contact_snapshot` is the mirror's contact table in every way that matters; the name is
+the only thing wrong with it.** Rename it in the change that rebaselines the seed tree.
+
+### 4.2 What 44c shipped
+
+- **`V55`** — `client_account.contact_id` with a foreign key into `contact_snapshot`, backfilled by
+  matching `ghl_contact_id` within the brand. An account with no GHL id, or naming a contact this
+  brand has never seen, is left unlinked: **a wrong link is far worse than a missing one**, since it
+  would attach somebody's cases to the wrong sign-in.
+- **D6 enforced at last.** `uq_client_account_per_brand_ghl_contact` is **partial**
+  (`where ghl_contact_id is not null`), because a post-cutover client may legitimately have no GHL
+  contact — `00c` §1 records that IE's sub-account was replaced with no contact migration — and many
+  such accounts must coexist. What must not coexist is two accounts claiming one contact, which is
+  one person with two sign-ins and two views of their own cases.
+- **`ContactSnapshotService`, extracted from `CaseIntakeService`.** `00d` §5.4 required this
+  *before* Unit 45's `contact.created` / `contact.updated` handlers can exist: `05b` rules that
+  `contact.created` *"must not route to intake"* and `DomainInvariantsTest` enforces it structurally
+  by permitting exactly **one** injector of `CaseIntakeService`. A second handler reaching for the
+  matching logic would have failed the build — correctly. It now has somewhere else to reach.
+- **The prospect gap is closed** (`00d` §5.4). Until now the only writer of `contact_snapshot` was
+  Handoff A, so it held *only contacts that won an opportunity* — every prospect and every lead
+  Marketing opened this month was unknown to the portal. Signing up now creates the row and links
+  the account to it.
+
+### 4.3 The matching rules moved unchanged, and they are load-bearing
+
+GHL id first (invariant 7), then email **only where it does not contradict**, then the id backfilled
+onto whatever was found. Each clause bought a real failure:
+
+- Without the email fall-through, a first delivery with no GHL id stored a null-id row, a later
+  delivery *with* the id missed the id lookup and inserted a second snapshot — and therefore a
+  second case for the same contact and service.
+- Without `contradicts`, two GHL contacts sharing an inbox (a firm's office address) meant the
+  second one's delivery matched the first one's row and **quietly attached a paid case to the wrong
+  client**. A wrong merge is worse than a duplicate: the duplicate is visible and fixable.
+- Without the backfill, every later delivery re-matches by email — which works until the email
+  changes, and then it is a second contact again.
+
+`CaseIntakeServiceTest` keeps driving those rules through a **real** `ContactSnapshotService` over a
+mocked repository, so the extraction cost no coverage.
+
+### 4.4 A failed CRM row does not cost a sign-up
+
+`contact_id` is nullable exactly for this. The account is the thing the person just created; the
+link is a convenience EvalOS can repair later, and failing the sign-up over it would be the wrong
+thing to fail on.
 
 ---
 
@@ -369,3 +421,17 @@ missing.
 - [x] The follow-up queue and the meetings diary span every pipeline the caller works.
 - [x] The intake pipeline is the one marked `INTAKE`; zero and two are both refusals naming the fix.
 - [x] Only a member of `evalos.ghl.sales-brand` may hold a pipeline — the ceiling is untouched.
+
+---
+
+## 10. Acceptance — slice 44c
+
+- [x] `client_account.contact_id` exists, is a foreign key, and is backfilled by `ghl_contact_id`
+      within the brand.
+- [x] An account with no GHL id, or naming an unknown contact, is left unlinked rather than guessed.
+- [x] Two accounts cannot claim one GHL contact (D6), while many accounts with no contact can.
+- [x] `ContactSnapshotService` exists and is the only place the matching rules live;
+      `CaseIntakeService` delegates and `DomainInvariantsTest` still sees exactly one injector.
+- [x] Signing up creates the CRM row and links the account, closing the prospect gap.
+- [x] A CRM row that cannot be written leaves the sign-up standing, with the link null.
+- [x] Every matching rule keeps its existing test coverage through the extracted service.

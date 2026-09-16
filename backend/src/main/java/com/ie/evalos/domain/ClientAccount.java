@@ -37,6 +37,17 @@ public class ClientAccount extends ScopedEntity {
 	@Column(name = "password_hash")
 	private String passwordHash;
 
+	/**
+	 * The CRM row for this person — Unit 44c's link.
+	 *
+	 * <p><strong>The fix for "one person is two rows with no link".</strong> Both this table and
+	 * {@code contact_snapshot} could hold a {@code ghl_contact_id} and nothing joined them, so a
+	 * case could reach the contact and never the account. Null is legal: a client may sign up
+	 * before EvalOS has any other trace of them, and a wrong link is far worse than a missing one.
+	 */
+	@Column(name = "contact_id")
+	private UUID contactId;
+
 	@Column(name = "ghl_contact_id")
 	private String ghlContactId;
 
@@ -128,5 +139,16 @@ public class ClientAccount extends ScopedEntity {
 
 	public void setCountry(String country) {
 		this.country = country;
+	}
+
+	public UUID getContactId() {
+		return contactId;
+	}
+
+	/** Set once, when the CRM row is first found or created for this person. */
+	public void linkContact(UUID contactId) {
+		if (this.contactId == null) {
+			this.contactId = contactId;
+		}
 	}
 }

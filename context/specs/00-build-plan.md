@@ -752,7 +752,7 @@ Depends on: 42, 43. Hands to: 44–48.
 
 ## Unit 44 - The tier-1 GHL mirror
 
-**SLICES A, B AND D BUILT 2026-09-16; C specced and unbuilt.** `00c`'s first real unit, amended
+**BUILT 2026-09-16, all four slices.** `00c`'s first real unit, amended
 before it started by `00d` §6. Full slice order and reasoning: `44-ghl-tier1-mirror.md`.
 
 **44a** — `pipeline` and `pipeline_stage` (`V50`), holding GHL's ids verbatim; the `PIPELINE_MIRROR`
@@ -768,7 +768,10 @@ commit deliberately: it is an **authorisation change** across Units 39 and 40, n
 Assignment moves to the **mirror id**, which closes `00d` C4 structurally — a dead GHL id can no
 longer be assigned at all. Retires `intake-pipeline-name` for `purpose = INTAKE`.
 
-**44c** — `contact`, merging `contact_snapshot` and `client_account`.
+**44c** — the `client_account` ↔ `contact_snapshot` join (`V55`), D6 enforced by a partial unique
+index, `ContactSnapshotService` extracted so Unit 45's contact webhooks have somewhere to live that is
+not Handoff A, and the prospect gap closed. The **rename** to `contact` is deferred: two seeds write
+that table and run after every migration, so it has nowhere to sit — `44` §4.1.
 
 **44d** — `opportunity` (`V51`) replacing `ghl_opportunity_cache` (dropped, `V52`), and the
 **correlation custom field** `00d` §6.1 pulls forward from tier 2 — the single biggest sequencing

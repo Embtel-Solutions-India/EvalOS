@@ -33,6 +33,9 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class ClientAccountService {
 
+	private static final org.slf4j.Logger log =
+			org.slf4j.LoggerFactory.getLogger(ClientAccountService.class);
+
 	/**
 	 * What the sign-in screen branches on.
 	 *
@@ -83,6 +86,17 @@ public class ClientAccountService {
 	 */
 	private final GhlWriteClient ghlContacts;
 
+	/**
+	 * The CRM row for the person signing up — Unit 44c.
+	 *
+	 * <p><strong>This closes the prospect gap</strong> ({@code 00d} §5.4). Until now the only writer
+	 * of {@code contact_snapshot} was Handoff A, so it held <em>only contacts that won an
+	 * opportunity</em> — every prospect, and every lead Marketing opened this month, was unknown to
+	 * the portal. A client who signs up now has a CRM row from that moment, and the account points
+	 * at it.
+	 */
+	private final ContactSnapshotService contacts;
+
 	private final PortalAccessService links;
 
 	private final AuditService audit;
@@ -112,7 +126,8 @@ public class ClientAccountService {
 	private final String clientAppBaseUrl;
 
 	ClientAccountService(ClientAccountRepository accounts, ClientCredentialTokenRepository credentials,
-			ClientMailer mailer, GhlWriteClient ghlContacts, PortalAccessService links, AuditService audit,
+			ClientMailer mailer, GhlWriteClient ghlContacts, ContactSnapshotService contacts,
+			PortalAccessService links, AuditService audit,
 			PasswordEncoder encoder,
 			@Value("${evalos.portal.client-brand}") UUID brandId,
 			@Value("${evalos.portal.credential-ttl}") Duration credentialTtl,
@@ -121,6 +136,7 @@ public class ClientAccountService {
 		this.credentials = credentials;
 		this.mailer = mailer;
 		this.ghlContacts = ghlContacts;
+		this.contacts = contacts;
 		this.links = links;
 		this.audit = audit;
 		this.encoder = encoder;
@@ -211,6 +227,19 @@ public class ClientAccountService {
 			account.setFirstName(firstName);
 			account.setLastName(lastName);
 			account.setPhone(phone);
+			// The CRM row, found or created, and the account pointed at it — Unit 44c. A GHL outage
+			// cannot reach here: the upsert above already answered, so there is a contact id to
+			// match on. If the row cannot be written the sign-up still stands; an account with no
+			// link is the state this column is nullable for, and losing a sign-up over a CRM row
+			// would be the wrong thing to fail on.
+			try {
+				account.linkContact(contacts.findOrCreate(brandId, ContactSnapshotService.Details
+						.fromSignUp(contact.id(), fullNameOf(firstName, lastName), normalized, phone))
+						.getId());
+			}
+			catch (RuntimeException couldNotLink) {
+				log.warn("Signed up {} without a CRM row: {}", normalized, couldNotLink.getMessage());
+			}
 			try {
 				// The repository's own transaction, and no method-level one here on purpose: a
 				// @Transactional wrapper would hold a connection across identify()'s SMTP call
@@ -388,6 +417,15 @@ public class ClientAccountService {
 		return new InvalidRequestException(
 				"This link is no longer valid. It may have been used already, or it may have expired. "
 						+ "Please request a new one.");
+	}
+
+	/** What the CRM row is called. Null when neither part was given, rather than a blank string. */
+	private static String fullNameOf(String firstName, String lastName) {
+		String full = java.util.stream.Stream.of(firstName, lastName)
+				.filter((part) -> part != null && !part.isBlank())
+				.reduce((first, second) -> first + " " + second)
+				.orElse(null);
+		return full;
 	}
 
 	private static String normalize(String email) {

@@ -3,7 +3,7 @@
 **The authoritative file is `.claude/implementation-status.md` — a table with evidence per row.
 Check it before claiming anything exists or is missing.**
 
-Build is green: backend 990 tests, 0 failures, 4 skipped; staff SPA 127 tests plus clean tsc;
+Build is green: backend 992 tests, 0 failures, 4 skipped; staff SPA 127 tests plus clean tsc;
 portals 30 tests plus clean tsc. All run 2026-09-16.
 
 **The newest work is uncommitted.** Units 40, 43 and 51 and the `00d` audit are 121 changed or
@@ -37,6 +37,21 @@ diff and `sync_drift` all reconcile rows that do not exist yet. A drift audit ov
 would report zero by construction, because 44a's sweep overwrites them hourly through the same code
 path. Build 44d next.
 
+BUILT 2026-09-16 (Unit 44, SLICE C): `client_account.contact_id` (`V55`) joins the portal account to
+its CRM row — the "one person is two rows with no link" gap — backfilled on `ghl_contact_id` within
+the brand, and D6 is finally enforced by a PARTIAL unique index (many accounts with no contact may
+coexist; two accounts claiming one contact may not). `ContactSnapshotService` is EXTRACTED from
+`CaseIntakeService`, which `00d` §5.4 required before Unit 45's contact webhooks can exist at all:
+`DomainInvariantsTest` permits exactly ONE injector of the intake service, so a second handler would
+have failed the build. Sign-up now creates the CRM row, closing the prospect gap — until this, the
+only writer was Handoff A, so `contact_snapshot` held only contacts that had WON an opportunity.
+
+**The `contact_snapshot` → `contact` RENAME is deferred, and the reason is not laziness**: two seeds
+(`V905` local, `V951` testprod) write that table and run after every migration, `MigrationTreeTest`
+forbids a migration numbered 900+, and editing an applied seed is a checksum mismatch. Same trap as
+`ghl_funnel_cache` and `team_member.ghl_pipeline_id`. `contact_snapshot` IS the mirror's contact
+table; the name is the only thing wrong with it.
+
 BUILT 2026-09-16 (Unit 44, SLICE B): `team_member_pipeline` (`V54`) replaces
 `team_member.ghl_pipeline_id` as the authority — a member holds a SET of pipelines, assigned by
 MIRROR id (a real FK, which closes `00d` C4 structurally: a dead GHL id can no longer be assigned at
@@ -69,8 +84,7 @@ BUILT 2026-09-16 (Unit 44, SLICE A): the tier-1 mirror has started. `pipeline` a
 sweep never writes it. Rows are upserted and NEVER deleted. A stage GHL recreated under a new id is
 REPOINTED by `(pipeline, position, name)`, not duplicated — without that a recreated pipeline reads
 as every opportunity in it having drifted. The opportunity board no longer calls GHL to name a
-column. Slice 44c (`contact`, merging `contact_snapshot` and `client_account`) is specced and unbuilt:
-`context/specs/44-ghl-tier1-mirror.md`. `OpportunityRepository.SCOPE` is `brandOnly` until 44b lines
+column. **Unit 44 is COMPLETE** (`context/specs/44-ghl-tier1-mirror.md`). `OpportunityRepository.SCOPE` is `brandOnly` until 44b lines
 the pipeline axis up, so the pipeline scope lives in the finder SIGNATURES and
 `OpportunityRepositoryScopeTest` guards it — delete that test at 44b, not before. There is still NO
 sync engine beyond error classification — that is Unit 45.

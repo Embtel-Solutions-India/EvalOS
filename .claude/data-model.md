@@ -3,7 +3,7 @@
 ## CURRENT DATABASE
 
 Verified 2026-09-16 against the live local Postgres 18 database `evalos` (`pg_dump --schema-only`
-plus `pg_constraint` / `pg_indexes`). **Flyway V1–V54 all applied, `success = true`.** (`V50`–`V54` are Unit 44 slices A, D and B, added
+plus `pg_constraint` / `pg_indexes`). **Flyway V1–V55 all applied, `success = true`.** (`V50`–`V55` are Unit 44's four slices, added
 2026-09-16 and verified by `LocalPostgresIntegrationTest`.) Migrations
 live in `backend/src/main/resources/db/migration/`.
 
@@ -18,7 +18,7 @@ live in `backend/src/main/resources/db/migration/`.
 | `brand` | tenant; webhook endpoint token, GHL webhook secret, currency, payout terms | — |
 | `team_member` | staff login, role, `segment`; `ghl_pipeline_id` is **VESTIGIAL** as of 44b | yes (nullable for GM) |
 | `team_member_pipeline` | **which pipelines a member may work** (44b, `V54`): FK to `pipeline`, many-to-many, `granted_at`/`granted_by` | via the member |
-| `client_account` | **portal identity**: email, password_hash, ghl_contact_id, name, phone | yes |
+| `client_account` | **portal identity**: email, password_hash, ghl_contact_id, `contact_id` (`V55` — FK to the CRM row), name, phone | yes |
 | `client_credential_token` | single-use SET / RESET password links | yes |
 | `client_application` | **the client's request**: service, purpose, answers (jsonb), status, ghl_opportunity_id, `opportunity_id` (`V53` — the row it opened, whose id is the GHL correlation key) | yes |
 | `contact_snapshot` | CRM snapshot a case hangs off; utm / source fields | yes |
@@ -61,8 +61,11 @@ brand ─┬─ team_member ─┬─ reports_to → team_member
                        └─ ghl_opportunity_id (text, no FK)
 ```
 
-**`client_account` and `contact_snapshot` are not joined.** Both can hold a `ghl_contact_id` and
-nothing links them. A case reaches a contact snapshot; it does not reach the account.
+**`client_account` and `contact_snapshot` are joined as of Unit 44c** (`V55`): `contact_id`, a real
+foreign key, backfilled on `ghl_contact_id` within the brand and set at sign-up. Null is legal — a
+client may sign up before EvalOS has any other trace of them, and a wrong link would attach
+somebody's cases to the wrong sign-in. **`contact_snapshot` keeps its name** only because two seeds
+write it and a rename cannot be ordered after them; it is the mirror's contact table.
 
 **`ghl_opportunity_cache` is GONE** (`V52`, 2026-09-16). `00d` §6.5's five reasons; the fifth — its
 only write path was delete-all-then-insert-all per pipeline — is why it could not be altered into
@@ -102,6 +105,7 @@ FKs to `evalos_case`. No table, column or route attaches a file to a request.
 | `uq_portal_access_*` (four) | one unrevoked token per case+audience, per client party, per expert party, per account |
 | `uq_team_member_pipeline` | **VESTIGIAL** — `team_member_pipeline` is the authority as of 44b. Kept only because seeds `V908`/`V909` write the column it guards and a DROP cannot be ordered after them |
 | `uq_pipeline_per_brand_ghl_id`, `uq_pipeline_stage_per_brand_ghl_id` | GHL's id, unique per brand rather than globally: two brands will hold two locations and ids are only unique within one |
+| `uq_client_account_per_brand_ghl_contact` | **PARTIAL** — D6 enforced at last (`V55`): two accounts cannot claim one GHL contact, while many accounts with none can coexist (post-cutover clients have no contact) |
 | `uq_opportunity_per_brand_ghl_id` | **PARTIAL** — `where ghl_id is not null`. Many local-only rows must coexist while every GHL id appears at most once; a plain unique would allow only one |
 | `uq_webhook_event_source_brand_external` | idempotency, `NULLS NOT DISTINCT` |
 | `uq_payout_per_case` | one non-VOIDED payout per case |
@@ -126,17 +130,15 @@ Not present today. Do not write code that assumes any of it exists.
 | **Request documents** — a table, or a nullable `client_application_id` on a rebuilt document table, plus routes and an S3 prefix | the target flow submits documents *with* the request, before a case exists | `case_document.case_id NOT NULL` |
 | **A join from `client_application` to the case it became** | nothing records that a request turned into a case | both hold `ghl_opportunity_id` as text, unjoined |
 | **A richer `client_application.status`** | two values cannot express Sales review, approval or rejection | `DRAFT` / `SUBMITTED` |
-| **`client_account` merged with or joined to `contact_snapshot`** | one person is two rows with no link | both hold `ghl_contact_id` |
-| **Unique `ghl_contact_id` per brand on `client_account`** | D6 (one contact, many opportunities) is not enforced by the schema | nullable, non-unique |
+| ~~`client_account` merged with or joined to `contact_snapshot`~~ | **DONE at 44c** — `contact_id`, `V55` | the *rename* to `contact` is still deferred, §4.1 |
+| ~~Unique `ghl_contact_id` per brand on `client_account`~~ | **DONE at 44c** — partial unique index | |
 
 ### From the mirror programme (Units 44–48, `context/specs/00c-ghl-independence-programme.md`)
 
-**`pipeline`, `pipeline_stage`, `opportunity` and `team_member_pipeline` are BUILT** — slices 44a,
-44d and 44b, `V50`–`V54`,
+**Unit 44 is BUILT in full** — `V50`–`V55`,
 2026-09-16. They are in CURRENT above. What is left:
 
 ```sql
-contact              (id uuid pk, brand_id, ghl_id unique null, name, email, phone, ...)  -- 44c
 outbox               (partial-unique on entity_id, not payload)   -- 45
 sync_drift           (the reported mismatches)                    -- 45
 ```

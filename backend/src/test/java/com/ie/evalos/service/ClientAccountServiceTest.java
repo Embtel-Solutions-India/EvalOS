@@ -6,6 +6,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 import com.ie.evalos.domain.ClientAccount;
+import com.ie.evalos.domain.ContactSnapshot;
 import com.ie.evalos.domain.ClientCredentialToken;
 import com.ie.evalos.domain.CredentialPurpose;
 import com.ie.evalos.integration.GhlWriteClient;
@@ -14,6 +15,7 @@ import com.ie.evalos.repository.ClientCredentialTokenRepository;
 
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
@@ -61,9 +63,70 @@ class ClientAccountServiceTest {
 
 	private final PasswordEncoder encoder = new BCryptPasswordEncoder();
 
+	private final ContactSnapshotService contacts = mock(ContactSnapshotService.class);
+
 	private final ClientAccountService service = new ClientAccountService(accounts, credentials,
-			mailer, ghlContacts, links, audit, encoder, BRAND, Duration.ofMinutes(30),
+			mailer, ghlContacts, contacts, links, audit, encoder, BRAND, Duration.ofMinutes(30),
 			"https://client.example.com");
+
+	/**
+	 * <strong>Signing up creates the CRM row, which is Unit 44c closing the prospect gap.</strong>
+	 *
+	 * <p>{@code 00d} §5.4: before this, the only writer of {@code contact_snapshot} was Handoff A,
+	 * so it held <em>only contacts that won an opportunity</em> — every prospect, and every lead
+	 * Marketing opened this month, was unknown to the portal. The account now points at the row, so
+	 * a case can reach the sign-in and the sign-in can reach the cases: the link
+	 * {@code .claude/data-model.md} lists as missing.
+	 */
+	@Test
+	void signingUpCreatesTheCrmRowAndLinksTheAccountToIt() {
+		UUID contactRow = UUID.randomUUID();
+		given(accounts.findByBrandIdAndEmailIgnoreCase(eq(BRAND), any())).willReturn(Optional.empty());
+		given(ghlContacts.upsertContact(any(), any(), any(), any()))
+				.willReturn(new GhlWriteClient.UpsertedContact("ghl-c-1", "Ana Okafor", "ana@example.com", null));
+		ContactSnapshot snapshot = new ContactSnapshot(BRAND, "ghl-c-1");
+		ReflectionTestUtils.setField(snapshot, "id", contactRow);
+		given(contacts.findOrCreate(eq(BRAND), any())).willReturn(snapshot);
+		given(accounts.saveAndFlush(any())).willAnswer((call) -> call.getArgument(0));
+
+		service.signUp("ana@example.com", "Ana", "Okafor", null);
+
+		ArgumentCaptor<ClientAccount> saved = ArgumentCaptor.forClass(ClientAccount.class);
+		verify(accounts).saveAndFlush(saved.capture());
+		assertThat(saved.getValue().getContactId()).isEqualTo(contactRow);
+		assertThat(saved.getValue().getGhlContactId()).isEqualTo("ghl-c-1");
+
+		ArgumentCaptor<ContactSnapshotService.Details> details =
+				ArgumentCaptor.forClass(ContactSnapshotService.Details.class);
+		verify(contacts).findOrCreate(eq(BRAND), details.capture());
+		// GHL's id goes with it, so the row is matched on the identity GHL owns rather than on an
+		// address two people at a firm might share.
+		assertThat(details.getValue().ghlContactId()).isEqualTo("ghl-c-1");
+		assertThat(details.getValue().fullName()).isEqualTo("Ana Okafor");
+	}
+
+	/**
+	 * A CRM row that cannot be written does not cost the client their sign-up.
+	 *
+	 * <p>{@code client_account.contact_id} is nullable exactly for this: the account is the thing
+	 * the person just created and the link is a convenience EvalOS can repair later. Failing the
+	 * sign-up over it would be the wrong thing to fail on.
+	 */
+	@Test
+	void aFailedCrmRowStillSignsThemUp() {
+		given(accounts.findByBrandIdAndEmailIgnoreCase(eq(BRAND), any())).willReturn(Optional.empty());
+		given(ghlContacts.upsertContact(any(), any(), any(), any()))
+				.willReturn(new GhlWriteClient.UpsertedContact("ghl-c-1", "Ana", "ana@example.com", null));
+		given(contacts.findOrCreate(any(), any())).willThrow(new IllegalStateException("database said no"));
+		given(accounts.saveAndFlush(any())).willAnswer((call) -> call.getArgument(0));
+
+		service.signUp("ana@example.com", "Ana", null, null);
+
+		ArgumentCaptor<ClientAccount> saved = ArgumentCaptor.forClass(ClientAccount.class);
+		verify(accounts).saveAndFlush(saved.capture());
+		assertThat(saved.getValue().getContactId()).isNull();
+		assertThat(saved.getValue().getGhlContactId()).isEqualTo("ghl-c-1");
+	}
 
 	@Test
 	void anAccountWithAPasswordAnswersPasswordSet() {
@@ -158,7 +221,7 @@ class ClientAccountServiceTest {
 		PasswordEncoder hostile = mock(PasswordEncoder.class);
 		given(hostile.matches(any(), any())).willThrow(new IllegalArgumentException("must not be called"));
 		ClientAccountService hostileService = new ClientAccountService(accounts, credentials, mailer,
-				ghlContacts, links, audit, hostile, BRAND, Duration.ofMinutes(30),
+				ghlContacts, contacts, links, audit, hostile, BRAND, Duration.ofMinutes(30),
 				"https://client.example.com");
 
 		org.assertj.core.api.Assertions
