@@ -188,13 +188,24 @@ public class DocumentStore {
 	 * what lets a lifecycle rule, an access policy or a per-brand export ever be written. Adding it
 	 * later is not a code change — it is a migration of the objects themselves.
 	 *
-	 * <p><strong>The client segment is EvalOS's own {@code contact_snapshot.id}, and that changed
-	 * on 2026-09-14.</strong> It used to be the GHL contact id, on the reasoning that the key would
-	 * then resolve in both systems with no mapping table. IE replaced its GHL sub-account on
-	 * 2026-09-11 with no contact migration, which falsified that reasoning twice over: every
-	 * existing value names a contact that no longer exists, and a client created after the swap has
-	 * no GHL contact id at all — so the key could not be built and {@code upload} threw. A key
-	 * namespaced by an identifier a third party can revoke is not a namespace.
+	 * <p><strong>The client segment is the GHL contact id, and that is a business ruling of
+	 * 2026-09-17: one id represents a contact everywhere in the system.</strong> It was
+	 * {@code contact_snapshot.id} between 2026-09-14 and then — swapped in after IE replaced its
+	 * GHL sub-account on 2026-09-11 with no contact migration, which left post-swap clients with no
+	 * GHL id at all, so the key could not be built and {@code upload} threw.
+	 *
+	 * <p><strong>What makes the GHL id safe to key on now is D3d and D3c, not optimism.</strong>
+	 * The contact is created at {@code setPassword}, at the next sign-in, or at the first request
+	 * that needs one, and a document is uploaded at questionnaire submit — which already ensures the
+	 * id before it opens the opportunity. The id is therefore present at the moment a key is built,
+	 * which was exactly what was untrue in September's failure.
+	 *
+	 * <p><strong>The residual exposure is stated rather than hidden:</strong> a contact whose GHL id
+	 * is missing (a pre-swap row, or an outage that has not been repaired yet) cannot have a key
+	 * built, and the caller refuses with a message naming the fix instead of writing to a guessed
+	 * prefix. And a second sub-account swap would orphan these keys again — reads resolve through
+	 * the stored {@code object_key}, so nothing breaks retroactively, but new writes would land in
+	 * a new namespace beside the old one.
 	 *
 	 * <p><strong>Existing objects do not move, and do not need to.</strong> Reads resolve through
 	 * the stored {@code case_document.object_key}, which is authoritative; only new writes take
@@ -209,14 +220,17 @@ public class DocumentStore {
 	 * {@code case_document.filename}, where it is data rather than a path.
 	 *
 	 * <pre>
-	 * // ponytail: the contact is the client here because a case always has one. Unit 43's funnel
-	 * // uploads a step earlier, before any case or contact exists, and keys on client_account.id
-	 * // (43 §5). Unit 44 merges contact_snapshot and client_account, and the two prefixes become
-	 * // one id at that point — not before.
+	 * // ponytail: one prefix for every document a client sends, case or request. Unit 53's funnel
+	 * // upload is a step earlier in the lifecycle and lands in the same place, which is what makes
+	 * // Handoff A's carry-forward a row insert over the same object rather than an S3 copy.
 	 * </pre>
+	 *
+	 * @param ghlContactId GHL's contact id — the one identifier that represents a contact
+	 *                     everywhere in this system (2026-09-17), so a key resolves in both
+	 *                     systems with no mapping table
 	 */
-	public static String clientKey(UUID brandId, UUID clientId, UUID documentId) {
-		return "%s/client/%s/%s".formatted(brandId, clientId, documentId);
+	public static String clientKey(UUID brandId, String ghlContactId, UUID documentId) {
+		return "%s/client/%s/%s".formatted(brandId, ghlContactId, documentId);
 	}
 
 	/**

@@ -374,13 +374,19 @@ public class PortalCaseService {
 		// **The client id comes off the case's contact, never off the request.** A key built from
 		// anything the caller sent would let one client write into another's prefix.
 		//
-		// It is `contact_snapshot.id` — an EvalOS UUID — and not the GHL contact id it used to be.
-		// The sub-account swap left every stored GHL id naming a contact that no longer exists, and
-		// left post-swap clients with none at all, so the old key could not be built and this
-		// method threw. See DocumentStore.clientKey.
-		UUID clientId = subject.getContactId();
+		// It is the **GHL contact id** — the one identifier that represents a contact everywhere in
+		// this system, ruled 2026-09-17. It was `contact_snapshot.id` from 2026-09-14 until then;
+		// see DocumentStore.clientKey for why that swap happened and what makes the GHL id safe to
+		// key on again. Reads are unaffected either way: `case_document.object_key` is what a read
+		// resolves through, so objects written under the old shape stay readable.
+		String clientId = Optional.ofNullable(subject.getContactId())
+				.flatMap(contacts::findById)
+				.map(ContactSnapshot::getGhlContactId)
+				.filter((id) -> !id.isBlank())
+				.orElse(null);
 		requireState(clientId != null,
-				"this case has no linked contact, so there is nowhere to file the document");
+				"this case's contact has no GHL contact id yet, so there is nowhere to file the "
+						+ "document. It is backfilled at the client's next sign-in or request (D3c)");
 
 		UUID documentId = UUID.randomUUID();
 		String key = DocumentStore.clientKey(subject.getBrandId(), clientId, documentId);

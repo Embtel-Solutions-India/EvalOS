@@ -130,9 +130,9 @@ Not present today. Do not write code that assumes any of it exists.
 
 | Needed | Why | Nearest thing today |
 |---|---|---|
-| **Request documents** — a table, or a nullable `client_application_id` on a rebuilt document table, plus routes and an S3 prefix | the target flow submits documents *with* the request, before a case exists | `case_document.case_id NOT NULL` |
+| **`application_document`** — its own table, plus routes and an S3 prefix **keyed by the GHL contact id** (D41), and a carry-forward into `case_document` at Handoff A | D33 (2026-09-17): the client uploads *at questionnaire submit*, before a case exists, and the files belong to the **person** — so the key is the contact, not the application. `contact_id` stays a real FK to `contact_snapshot`; naming a contact by GHL's id does not change a primary key (D18). Sales reads them on their own route on the opportunity (D34). Spec `53` | `case_document.case_id NOT NULL` |
 | **A join from `client_application` to the case it became** | nothing records that a request turned into a case | both hold `ghl_opportunity_id` as text, unjoined |
-| **A richer `client_application.status`** | two values cannot express Sales review, approval or rejection | `DRAFT` / `SUBMITTED` |
+| ~~A richer `client_application.status`~~ | **NOT NEEDED — D35, 2026-09-17.** Review, approval and rejection are GHL pipeline stages, not EvalOS columns. Two values are the right two | `DRAFT` / `SUBMITTED` stays |
 | ~~`client_account` merged with or joined to `contact_snapshot`~~ | **DONE at 44c** — `contact_id`, `V55` | the *rename* to `contact` is still deferred, §4.1 |
 | ~~Unique `ghl_contact_id` per brand on `client_account`~~ | **DONE at 44c** — partial unique index | |
 
@@ -156,6 +156,9 @@ Slice order and the reasoning behind it: `context/specs/44-ghl-tier1-mirror.md`.
 ### From other approved-but-unbuilt work
 
 - `expert_application` plus recruitment stages — Unit 50 (ENM as a function).
-- Expert accounts on the Unit 42 pattern — no table exists.
+- Expert accounts on the Unit 42 pattern — no table exists, **and none is designed until the
+  stakeholder discussion happens** (Q6, D23).
+- A **push subscription** table (endpoint + keys per staff user) — D37 makes notifications in-app
+  **and** push; the `notification` table already holds what happened, so this is delivery only.
 - Conversations, any channel — **no table, no column, no code anywhere.**
 - Outbound webhook queue — invariant 11 describes it; nothing implements it.

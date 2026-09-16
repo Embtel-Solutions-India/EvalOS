@@ -1,23 +1,18 @@
 package com.ie.evalos.webhook;
 
 import java.math.BigDecimal;
-import java.util.Set;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.PropertyNamingStrategies;
 import com.fasterxml.jackson.databind.annotation.JsonNaming;
 import com.ie.evalos.domain.Brand;
 import com.ie.evalos.domain.ServiceType;
 import com.ie.evalos.service.CaseIntakeService;
 
-import jakarta.validation.ConstraintViolation;
 import jakarta.validation.Valid;
-import jakarta.validation.Validator;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Positive;
 
-import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
 
 /**
@@ -144,37 +139,15 @@ public class GhlOpportunityHandler {
 	}
 
 	private final CaseIntakeService intake;
-	private final ObjectMapper objectMapper;
-	private final Validator validator;
+	private final WebhookPayload payloads;
 
-	GhlOpportunityHandler(CaseIntakeService intake, ObjectMapper objectMapper, Validator validator) {
+	GhlOpportunityHandler(CaseIntakeService intake, WebhookPayload payloads) {
 		this.intake = intake;
-		this.objectMapper = objectMapper;
-		this.validator = validator;
+		this.payloads = payloads;
 	}
 
 	void handle(Brand brand, String rawBody) {
-		intake.intake(brand, toCommand(validated(parse(rawBody))));
-	}
-
-	private OpportunityWon parse(String rawBody) {
-		try {
-			return objectMapper.readValue(rawBody, OpportunityWon.class);
-		}
-		catch (com.fasterxml.jackson.core.JsonProcessingException ex) {
-			throw new WebhookRejected(HttpStatus.BAD_REQUEST, "MALFORMED_PAYLOAD",
-					"opportunity payload could not be read");
-		}
-	}
-
-	private OpportunityWon validated(OpportunityWon payload) {
-		Set<ConstraintViolation<OpportunityWon>> violations = validator.validate(payload);
-		if (!violations.isEmpty()) {
-			ConstraintViolation<OpportunityWon> first = violations.iterator().next();
-			throw new WebhookRejected(HttpStatus.BAD_REQUEST, "VALIDATION_FAILED",
-					first.getPropertyPath() + " " + first.getMessage());
-		}
-		return payload;
+		intake.intake(brand, toCommand(payloads.read(rawBody, OpportunityWon.class, "opportunity")));
 	}
 
 	/**

@@ -28,10 +28,13 @@ import org.springframework.web.bind.annotation.RestController;
  * who can look at both systems — and this reads the GHL location, which is invariant 1's stated
  * exception and licensed only for the cross-brand role.
  *
- * <p><strong>There is no route to resolve a row, deliberately.</strong> Resolution is per-field
- * ownership ({@code 00d} §6.2) applied by the sync engine, not a button a GM presses — a human
- * clearing a drift row would clear the <em>symptom</em> and leave the two systems disagreeing.
- * Rows close when a later audit finds the two sides agreeing again.
+ * <p><strong>There is still no route to resolve a row, and 45e is what makes that defensible.</strong>
+ * Resolution is per-field ownership ({@code 00d} §6.2) applied by the sync engine, not a button a GM
+ * presses — a human clearing a drift row would clear the <em>symptom</em> and leave the two systems
+ * disagreeing. Rows close when a later audit finds the two sides agreeing again. What a GM is owed
+ * instead is the engine's answer, and every row now carries it: {@code owner} names who wins the
+ * field and {@code resolution} says whether it fixes itself. {@code needsAHuman} is the count that
+ * is worth an alert.
  */
 @RestController
 @RequestMapping("/api/sync")
@@ -46,16 +49,20 @@ public class SyncStatusController {
 	 */
 	public record Drift(UUID id, SyncEntity entityType, UUID entityId, String ghlId, String kind,
 			String field, String localValue, String ghlValue, Instant firstDetectedAt,
-			Instant lastSeenAt) {
+			Instant lastSeenAt, String owner, String resolution) {
 	}
 
 	/**
-	 * @param oldest when the longest-standing open drift was first seen, or null when there is none.
-	 *               <strong>Age is the number that matters</strong>: one disagreement this morning is
-	 *               a sync catching up, and the same one for a fortnight is a sync that is not
-	 *               working
+	 * @param oldest      when the longest-standing open drift was first seen, or null when there is
+	 *                    none. <strong>Age is the number that matters</strong>: one disagreement this
+	 *                    morning is a sync catching up, and the same one for a fortnight is a sync
+	 *                    that is not working
+	 * @param needsAHuman how many of them <strong>will not fix themselves</strong> (45e). The open
+	 *                    count alone reads the same whether every row closes at tonight's sync or
+	 *                    none of them do, which is how a number stops being looked at
 	 */
-	public record SyncStatus(int open, Instant oldest, List<Drift> drifts, Outbox outbox) {
+	public record SyncStatus(int open, Instant oldest, List<Drift> drifts, int needsAHuman,
+			Outbox outbox) {
 	}
 
 	/**
@@ -84,12 +91,15 @@ public class SyncStatusController {
 	@GetMapping("/drift")
 	@PreAuthorize("hasRole('GM')")
 	public ApiResponse<SyncStatus> drift() {
-		List<SyncDrift> open = audit.open();
+		List<SyncAuditService.Assessed> open = audit.openAssessed();
 		return ApiResponse.ok(new SyncStatus(
 				open.size(),
-				open.stream().map(SyncDrift::getFirstDetectedAt).min(java.util.Comparator.naturalOrder())
-						.orElse(null),
+				open.stream().map((assessed) -> assessed.row().getFirstDetectedAt())
+						.min(java.util.Comparator.naturalOrder()).orElse(null),
 				open.stream().map(SyncStatusController::view).toList(),
+				(int) open.stream()
+						.filter((assessed) -> assessed.resolution() == SyncDrift.Resolution.NEEDS_A_HUMAN)
+						.count(),
 				outbox()));
 	}
 
@@ -104,10 +114,12 @@ public class SyncStatusController {
 						.toList());
 	}
 
-	private static Drift view(SyncDrift row) {
+	private static Drift view(SyncAuditService.Assessed assessed) {
+		SyncDrift row = assessed.row();
 		return new Drift(row.getId(), row.getEntityType(), row.getEntityId(), row.getGhlId(),
 				row.getKind().name(), row.getField(), row.getLocalValue(), row.getGhlValue(),
-				row.getFirstDetectedAt(), row.getLastSeenAt());
+				row.getFirstDetectedAt(), row.getLastSeenAt(),
+				assessed.owner().name(), assessed.resolution().name());
 	}
 
 }

@@ -37,3 +37,17 @@ rows can coexist. `ghl_stage_id` is TEXT and deliberately not a FK into `pipelin
 mirrors run on two sweeps, and a FK would make an opportunity sync fail because a different sweep is
 behind. `client_application.opportunity_id` (`V53`) persists the correlation key before GHL is
 called — a key minted in memory and lost to a timeout is a key no retry can search for.
+
+**Decided 2026-09-17 — what the future model now owes, and what it no longer does:**
+
+- **`application_document`** (Unit 53, D33): request-stage uploads, `brand_id`,
+  `client_application_id`, `contact_id` → `contact_snapshot`, `object_key`, and
+  `carried_to_case_document_id` so Handoff A's carry-forward is idempotent. The S3 key is
+  `DocumentStore.clientKey` — `{brand}/client/{ghl_contact_id}/{doc}` (D41, 2026-09-17; it was
+  `contact_snapshot.id` for three days) — so the carry-forward is a row insert over the same object,
+  never a copy or a re-key. `contact_id` stays a real FK: naming a contact by GHL's id does not
+  change a primary key (D18).
+- **A push-subscription table** (endpoint + keys per staff user) for D37. The `notification` table
+  already records *what happened*; this is delivery only.
+- ~~A richer `client_application.status`~~ — **NOT NEEDED (D35).** `DRAFT`/`SUBMITTED` are the right
+  two; Sales review is a GHL pipeline stage, not an EvalOS column.

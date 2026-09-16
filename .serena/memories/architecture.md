@@ -22,3 +22,8 @@ pins before changing anything near it.
 
 The 15 invariants are in `.claude/architecture.md` in compact form; the long reasoning is archived
 at `context/archive/2026-09-16-pre-reset/architecture.md`.
+
+**2026-09-17.** Invariant 14 is untouched by D37: notifications are in-app **and push**, and a push
+is not mail. Deployment is **DevOps's** (D38) — `client-expert/` missing from compose and CI is not
+this repo's debt. `evalos.ghl.intake-pipeline-name`, `sales-pipeline-name` and `email-pipeline-name`
+no longer exist (Unit 44b, and the two funnel screens' removal).

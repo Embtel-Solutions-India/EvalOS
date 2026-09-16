@@ -112,36 +112,90 @@ public class Opportunity extends ScopedEntity {
 	}
 
 	/**
-	 * Everything GHL says about this deal, in one call.
+	 * Everything GHL says about this deal, in one call, <strong>under per-field ownership</strong>
+	 * (Unit 45e, {@link FieldOwnership}).
 	 *
 	 * <p>Deliberately one method rather than a setter per column: a partial update from a sync is a
 	 * row that half-agrees with GHL, and the whole value of a mirror is that a comparison means
 	 * something.
+	 *
+	 * <p><strong>GHL-owned fields are taken every time.</strong> The assignee and the pipeline are
+	 * GHL's, and overwriting them with a local value would revert the automations {@code 00b} kept
+	 * GHL for — a round-robin reassigning a deal is not a conflict to undo.
+	 *
+	 * <p><strong>The four shared fields are kept when EvalOS holds an edit GHL has not confirmed.</strong>
+	 * That is what {@link #localUpdatedAt} means, and it is cleared the moment GHL's answer
+	 * supersedes it (below) or GHL acknowledges the create ({@link #linkGhl}) — so a row cannot sit
+	 * frozen on a stale local value for ever. The disagreement is not silent: the next audit opens
+	 * a {@code sync_drift} row for each kept field, which is the "and reporting" half of §3.2.
+	 *
+	 * @param ghlUpdatedAt GHL's last-modified. <strong>Null is a conflict, never "EvalOS is
+	 *                     newer"</strong> — see the field's own note. It only decides anything when
+	 *                     EvalOS actually holds an unconfirmed edit; a row with none follows GHL
+	 *                     whatever this is, or a location that stopped sending the field would
+	 *                     freeze the whole mirror.
 	 */
 	public void syncFromGhl(String ghlContactId, UUID pipelineId, String ghlStageId, String name,
 			BigDecimal amount, String status, String source, String ghlAssignedTo, Instant ghlCreatedAt,
 			Instant ghlUpdatedAt, Instant lastStatusChangeAt, Instant lastStageChangeAt) {
+		boolean evalosWins = evalosWins(ghlUpdatedAt);
+
+		// GHL's, always.
 		this.ghlContactId = ghlContactId;
 		this.pipelineId = pipelineId;
-		this.ghlStageId = ghlStageId;
-		this.name = name;
-		this.amount = amount;
-		this.status = status;
 		this.source = source;
 		this.ghlAssignedTo = ghlAssignedTo;
 		this.ghlCreatedAt = ghlCreatedAt;
 		this.ghlUpdatedAt = ghlUpdatedAt;
 		this.lastStatusChangeAt = lastStatusChangeAt;
 		this.lastStageChangeAt = lastStageChangeAt;
+
+		// Shared: kept only while EvalOS holds an edit GHL has not confirmed.
+		if (!evalosWins) {
+			this.ghlStageId = ghlStageId;
+			this.name = name;
+			this.amount = amount;
+			this.status = status;
+			// GHL's answer has superseded whatever EvalOS held, so there is no unconfirmed edit
+			// left to defend. Without this a row whose `ghl_updated_at` comes back null would
+			// defend its local values for ever, which is "EvalOS always wins" arriving by the
+			// back door.
+			this.localUpdatedAt = null;
+		}
+
 		this.syncedAt = Instant.now();
 		this.missingSince = null;
 	}
 
-	/** GHL answered a create. The row keeps its id and gains GHL's. */
+	/**
+	 * Whether EvalOS holds an edit GHL has not confirmed, so the shared fields stay.
+	 *
+	 * <p>Both halves matter. <strong>No local edit means GHL wins</strong>, whatever the
+	 * timestamps say — the mirror's default is to follow GHL. <strong>A null
+	 * {@code ghlUpdatedAt} with a local edit is a conflict</strong> and EvalOS keeps its value
+	 * ({@code 00d} §6.2): the field is GHL-supplied and nullable, so reading absence as "GHL is
+	 * newer" would quietly discard the edit.
+	 */
+	private boolean evalosWins(Instant incomingGhlUpdatedAt) {
+		if (this.localUpdatedAt == null) {
+			return false;
+		}
+		return incomingGhlUpdatedAt == null || this.localUpdatedAt.isAfter(incomingGhlUpdatedAt);
+	}
+
+	/**
+	 * GHL answered a create. The row keeps its id and gains GHL's.
+	 *
+	 * <p><strong>The local edit is confirmed by this and stops being defended</strong> (45e): the
+	 * values EvalOS opened the row with are the values GHL was just handed, so there is nothing
+	 * left for the ownership check to protect. A row that kept {@code localUpdatedAt} here would
+	 * out-rank GHL on its four shared fields for the rest of its life.
+	 */
 	public void linkGhl(String ghlId) {
 		if (this.ghlId == null) {
 			this.ghlId = ghlId;
 			this.syncedAt = Instant.now();
+			this.localUpdatedAt = null;
 		}
 	}
 

@@ -15,26 +15,26 @@ POST /api/portal/auth/identify   { email }
                     yes + password  → PASSWORD_SET
                     yes + no password → mail a SET link → NO_PASSWORD
                                       → transport cannot reach them → MAIL_UNAVAILABLE
-                                        (unconfigured, OR `ghl` with no contact linked yet)
+                                        (no transport configured — an address is all Brevo needs)
 
 POST /api/portal/auth/sign-up    { email, firstName?, lastName?, phone? }
   → account already exists?  yes → fall through to identify()   (creates nothing, no GHL call)
-                             no  → GHL POST /contacts/upsert  (source: "Client Portal", D3d)
-                                     GHL matches email, then phone — found or created, one call
-                                 → INSERT client_account (ghl_contact_id + contact_snapshot linked)
+                             no  → INSERT client_account (created_via SIGNUP, NO contact — D3d)
+                                     NOTHING LEAVES THE JVM on this route
                                  → audit CREATED
                                  → fall through to identify()   → returns a state, NEVER a token
-                             A GHL outage does NOT refuse the sign-up: the account stands with no
-                             contact, identify answers MAIL_UNAVAILABLE, and sign-in repairs it.
+                             The contact is created at set-password, the next sign-in, or the
+                             first request that needs one (D3c). Until then it is an EvalOS row
+                             PORTAL_CLEANUP can sweep.
 
 POST /api/portal/auth/sign-in    { email, password }
   → verify hash → audit CLIENT_SIGNED_IN | CLIENT_SIGN_IN_REFUSED
   → mint a party-scoped portal_access token  (no contact, no account created)
 
 POST /api/portal/auth/forgot-password  → 204 always
-The SET/RESET link is carried by `evalos.mail.transport` (D3e): `smtp` (Spring Mail) or `ghl`
-(POST /conversations/messages, so it lands in the contact's own conversation thread). Brevo is a
-new `MailTransport` and a changed variable.
+The SET/RESET link is carried by `evalos.mail.transport` (D3e): `smtp` (Spring Mail) or `brevo`
+(POST /v3/smtp/email). The `ghl` transport is deleted — it addressed a `contactId` rather than an
+address, which is the only thing that ever forced the GHL contact to be created at sign-up.
 
 POST /api/portal/auth/set-password     → spend token, set hash
                                       → ensureCrmIdentity (idempotent; repairs an outage)
@@ -46,10 +46,11 @@ POST /api/portal/auth/sign-in         → verify, then ensureCrmIdentity — "lo
 
 `ClientAccountService`, `ClientAuthController`.
 
-**The CRM write is back at sign-up, and what holds the flood down is no longer the ordering
-(D3d, spec `52` §10).** GHL sends the mail and will not mail a stranger — `contactId` is required —
-so the contact cannot wait for set-password. D3a's *property* stands: what replaces the delay is
-this route's own tighter budget, a proof-of-human gate, and `PORTAL_CLEANUP`.
+**The CRM write is off sign-up again (D3d, spec `52` §11).** It was there only while GHL carried
+the mail and demanded a `contactId`; Brevo needs an address, so the ordering that holds D3a's
+property costs nothing and is back. Two call sites had to go — `signUp` and `issueCredential` —
+because sign-up falls through to `identify`, so removing one would have looked fixed and changed
+nothing.
 
 **A GHL outage never refuses anything here.** Sign-up stands with no contact, `identify` answers
 `MAIL_UNAVAILABLE` (the transport genuinely cannot reach them), and `ensureCrmIdentity` repairs it
@@ -122,11 +123,16 @@ CLIENT → PORTAL → REQUEST SERVICE → SERVICE DETAILS → DOCUMENT SUBMISSIO
        → SALES REVIEW → OPPORTUNITY PROCESS → PAYMENT / WON → CASE → PRODUCTION → DELIVERY
 ```
 
-Two steps of this are missing today:
+**One step of this is missing, and it is one step rather than two as of 2026-09-17.**
 
-- **DOCUMENT SUBMISSION** — needs a request-scoped document table, routes and S3 prefix.
-- **SALES REVIEW as a state** — Sales can *read* the application but cannot approve, reject or
-  return it; `client_application.status` has only DRAFT and SUBMITTED.
+- **DOCUMENT SUBMISSION** — needs a request-scoped document table, routes and an S3 prefix keyed by
+  the **GHL contact id** (D41), and a carry-forward into `case_document` at Handoff A (D33,
+  spec `53`).
+  The client uploads with the questionnaire; the documents are the client's, held against the
+  person, before any case exists to hold them.
+- ~~**SALES REVIEW as a state**~~ — **not owed.** D35: review is a GHL pipeline stage, not an
+  EvalOS column. `client_application.status` stays `DRAFT` / `SUBMITTED`. What Sales *is* owed is
+  the documents beside the answers on the one opportunity screen (D34).
 
 Everything else in the chain exists.
 
@@ -176,8 +182,17 @@ Four sweeps run over this: `DOC_CHASE`, `DOC_ESCALATION`, `EXPERT_SIGN`, `STAGE_
 
 ### TARGET WORKFLOW
 
-Unchanged. The open work is visibility, not lifecycle: Sales and the expert cannot see case
-status, and there is no unified timeline across the request, the opportunity and the case.
+**Unchanged — and as of 2026-09-17 this is the stated business lifecycle, not just what the code
+happens to do** (D36). Read as staffing: the case is born at Handoff A, a **PM** takes it, and the
+PM assigns the **Project Coordinator**, the **Case Manager** and the **Expert**
+(`POST /api/cases/{id}/assign-coordinator`, `…/assign-cm` — which names the CM and the expert in
+one transaction and writes the expert offer). The **CM drafts and uploads**; the **client sees and
+approves** it in the portal (`CLIENT_REVIEW` → `CLIENT_APPROVAL`); **only then** does it reach the
+**expert**, who downloads, signs and uploads it back (`EXPERT_SIGNING`, Handoff B).
+
+The open work is visibility, not lifecycle: the expert cannot open evidence documents, and there is
+no unified timeline across the request, the opportunity and the case. **Sales is not on that list**
+— they read no case by design (D19c).
 
 ---
 
@@ -190,7 +205,7 @@ Client Portal /documents
   GET  /api/portal/client/documents            checklist + this client's uploads
   POST /api/portal/client/documents?checklistItemId=…
         authorize the case → verify the item is on it
-        → S3 key built from brand + contact_snapshot.id + a fresh document uuid
+        → S3 key built from brand + the GHL contact id + a fresh document uuid (D41)
         → PUT to S3 → INSERT case_document (CLIENT_UPLOAD, versioned)
         → checklist item → UPLOADED → audit
   GET  /api/portal/client/documents/{id}/url   5-minute presigned read, never stored, audited
@@ -205,8 +220,14 @@ A client with two or more cases is **refused** — the per-case routes and picke
 ### TARGET WORKFLOW
 
 `Client Portal → S3 → Request → Sales → Case → Production → Expert`. The first hop into a
-**Request** does not exist; documents enter at the Case. Add the per-case picker and the
-request-scoped store together.
+**Request** does not exist; documents enter at the Case today.
+
+**Decided 2026-09-17 (D33, D41):** the client uploads **at questionnaire submit**, and the S3 key is
+keyed by the **GHL contact id** — one id names a contact everywhere, and the documents belong to the
+person rather than to a case that has not been won yet. Sales reads them on their own route and tab
+on the same opportunity (D34); Handoff A carries them forward into `case_document` over the same S3
+object, so Production starts holding what Sales already read. Spec `53`.
+The per-case picker (Q8) is separate and still open.
 
 ---
 
@@ -263,5 +284,6 @@ request / appointment context. This is tier 3 of the mirror (Unit 47) and has no
 | | Direction | Trigger | State |
 |---|---|---|---|
 | **A** | GHL → EvalOS | `opportunity.won` webhook creates the case | code complete |
+| **mirror** | GHL → EvalOS | `contact.*` and `opportunity.*` webhooks update `contact_snapshot` and `opportunity`; `MIRROR_DELTA` (15m) is the floor under them | code complete (45d, 2026-09-17) |
 | **B** | EvalOS → Expert | staff mints a portal link; expert signs | code complete |
 | **C** | EvalOS → GHL / client | outbound dispatcher | **not implemented** |

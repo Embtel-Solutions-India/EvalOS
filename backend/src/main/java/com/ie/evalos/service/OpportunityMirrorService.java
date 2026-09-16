@@ -124,6 +124,87 @@ public class OpportunityMirrorService {
 		}
 	}
 
+	/**
+	 * One contact's deals, upserted from GHL's own answer — <strong>the webhook's write</strong>
+	 * (Unit 45d).
+	 *
+	 * <p><strong>The webhook is a trigger, not a payload, and that is the whole design.</strong>
+	 * GHL's Custom Webhook action posts the <em>contact record</em> flat — no stage, no status, no
+	 * value — as {@code GhlOpportunityHandler}'s javadoc records after the nested envelope it was
+	 * first built for turned out not to exist. Trusting a workflow author's hand-typed
+	 * {@code customData} for a mirrored field would make the mirror only as correct as whoever
+	 * edited the workflow last. So the event supplies one thing, the contact id, and the field
+	 * values come from GHL where they are authoritative.
+	 *
+	 * <p><strong>Each row lands on the pipeline GHL says it is on</strong>, not on one the caller
+	 * chose — which is what closes the staleness {@link #isOnPipeline} names: a deal moved to
+	 * another rep's pipeline changes hands here, at the moment it moves, instead of staying
+	 * authorised until something refreshed.
+	 *
+	 * <p><strong>No absence pass, unlike {@link #absorb}.</strong> A contact's deals are not a
+	 * pipeline's whole list, so a row that is missing from this answer is missing from a question
+	 * that never asked about it. Marking it would stamp every other deal the contact does not have.
+	 * A genuine disappearance is the nightly audit's to notice.
+	 *
+	 * @return how many rows were written; rows on a pipeline the 44a sweep has not mirrored yet are
+	 *         skipped and logged, exactly as {@link #refreshIfStale} skips one
+	 */
+	@Transactional
+	public int absorbForContact(List<GhlPipelineClient.Opportunity> fromGhl) {
+		int written = 0;
+		for (GhlPipelineClient.Opportunity row : fromGhl) {
+			if (row.id() == null || row.id().isBlank()) {
+				continue;
+			}
+			Optional<Pipeline> pipeline = mirroredPipeline(row.pipelineId());
+			if (pipeline.isEmpty()) {
+				log.warn("Opportunity {} is on unmirrored pipeline {}; not absorbed. "
+						+ "Run the PIPELINE_MIRROR sweep.", row.id(), row.pipelineId());
+				continue;
+			}
+			UUID brandId = pipeline.get().getBrandId();
+			Opportunity held = opportunities.findByBrandIdAndGhlId(brandId, row.id())
+					.orElseGet(() -> new Opportunity(brandId, row.id(), pipeline.get().getId()));
+			held.syncFromGhl(row.contactId(), pipeline.get().getId(), row.pipelineStageId(), row.name(),
+					row.monetaryValue(), row.status(), row.source(), row.assignedTo(), row.createdAt(),
+					row.updatedAt(), row.lastStatusChangeAt(), row.lastStageChangeAt());
+			opportunities.save(held);
+			written++;
+		}
+		return written;
+	}
+
+	/**
+	 * The background half of refresh-on-read — <strong>the delta sweep</strong> (Unit 45d).
+	 *
+	 * <p><strong>"Delta" means a stale pipeline, not a changed row, and the API is why.</strong>
+	 * GHL's opportunity search filters on {@code createdAt} and offers no updated-since filter at
+	 * all — {@code GhlPipelineClient.opportunitiesIn} carries the verification, and it is the same
+	 * absence that forces "won this month" to be bucketed locally. So there is no read that returns
+	 * only what changed, and a sweep claiming to be one would be a full list wearing a smaller name.
+	 *
+	 * <p><strong>It costs only the pipelines nobody is looking at.</strong> {@link #refreshIfStale}
+	 * returns without a GHL call when the mirror is inside the TTL, so a pipeline a desk has open
+	 * is already warm and this pass skips it. What it buys is the pipelines no screen reads: they
+	 * stop being permanently stale, which is what the nightly audit needs if its findings are to
+	 * mean drift rather than "nobody looked".
+	 */
+	public int refreshStale(Duration ttl) {
+		if (sellingBrandId == null) {
+			log.warn("Delta sweep skipped: evalos.ghl.sales-brand is blank, so there is no mirror to refresh.");
+			return 0;
+		}
+		int refreshed = 0;
+		for (Pipeline pipeline : pipelines.findByBrandIdOrderByPositionAscNameAsc(sellingBrandId)) {
+			if (!pipeline.isLive()) {
+				continue;
+			}
+			refreshIfStale(pipeline.getGhlId(), ttl);
+			refreshed++;
+		}
+		return refreshed;
+	}
+
 	/** Every live deal on a set of GHL pipelines — the board read. */
 	@Transactional(readOnly = true)
 	public List<Opportunity> onPipelines(List<String> ghlPipelineIds) {

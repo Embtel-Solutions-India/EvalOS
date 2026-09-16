@@ -48,6 +48,38 @@ public class SyncDrift extends ScopedEntity {
 		FIELD_MISMATCH
 	}
 
+	/**
+	 * What the engine will do about this row — Unit 45e.
+	 *
+	 * <p><strong>Derived at read time, never a column.</strong> It is a function of the field's
+	 * {@link FieldOwnership} and of whether EvalOS still holds an unconfirmed edit, both of which
+	 * change after the row was written — a stored value would be yesterday's answer presented as
+	 * today's, which is the failure the drift table exists to avoid.
+	 *
+	 * <p><strong>This is the surface's "resolution half", and it is not a button.</strong>
+	 * {@code SyncStatusController} says why there is no route to clear a row: a human clearing one
+	 * clears the symptom while the two systems still disagree. What a GM is owed instead is the
+	 * answer to "will this fix itself" — which is exactly these three values.
+	 */
+	public enum Resolution {
+
+		/** The mirror takes GHL's value at the next sync and the row closes itself. No action. */
+		GHL_WINS,
+
+		/**
+		 * EvalOS holds an edit GHL has not confirmed, so the mirror keeps the local value on
+		 * purpose ({@code 45-sync-engine.md} §3.2). Expected, not broken — and it stops being
+		 * expected if it persists, because the edit should have reached GHL.
+		 */
+		EVALOS_WINS,
+
+		/**
+		 * Nobody can fix it automatically. A row GHL no longer returns is the case that matters:
+		 * re-creating or deleting a deal is not a sweep's decision.
+		 */
+		NEEDS_A_HUMAN
+	}
+
 	@Enumerated(EnumType.STRING)
 	@Column(name = "entity_type", nullable = false, updatable = false)
 	private SyncEntity entityType;

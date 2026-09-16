@@ -7,6 +7,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
+import com.ie.evalos.domain.FieldOwnership;
 import com.ie.evalos.domain.Opportunity;
 import com.ie.evalos.domain.Pipeline;
 import com.ie.evalos.domain.SyncDrift;
@@ -239,4 +240,71 @@ class SyncAuditServiceTest {
 				.opportunitiesIn(any(), any(), any(), any());
 	}
 
+
+	// --- Unit 45e: the engine's answer beside each row ------------------------
+
+	private SyncDrift open(SyncDrift.Kind kind, String field, UUID entityId) {
+		SyncDrift row = new SyncDrift(BRAND, SyncEntity.OPPORTUNITY, entityId, "opp-1", kind, field,
+				"local", "ghl");
+		ReflectionTestUtils.setField(row, "id", UUID.randomUUID());
+		given(drifts.findByBrandIdAndResolvedAtIsNullOrderByLastSeenAtDesc(BRAND))
+				.willReturn(List.of(row));
+		return row;
+	}
+
+	/**
+	 * <strong>The distinction the whole slice turns on.</strong> A shared field disagreeing means
+	 * one of two opposite things, and only the mirror row can say which: EvalOS defending an edit
+	 * GHL has not confirmed, or the mirror simply being stale.
+	 */
+	@Test
+	void aSharedFieldWithAnUnconfirmedLocalEditIsReportedAsEvalOsWinning() {
+		Opportunity subject = mirrored("opp-1", "s1", "open", "100", "Acme");
+		subject.touchedLocally();
+		given(opportunities.findAllById(any())).willReturn(List.of(subject));
+		open(SyncDrift.Kind.FIELD_MISMATCH, FieldOwnership.STAGE, subject.getId());
+
+		assertThat(audit.openAssessed()).singleElement().satisfies((assessed) -> {
+			assertThat(assessed.owner()).isEqualTo(FieldOwnership.SHARED);
+			assertThat(assessed.resolution()).isEqualTo(SyncDrift.Resolution.EVALOS_WINS);
+		});
+	}
+
+	@Test
+	void aSharedFieldWithNothingLocalToDefendIsReportedAsFixingItself() {
+		Opportunity subject = mirrored("opp-1", "s1", "open", "100", "Acme");
+		given(opportunities.findAllById(any())).willReturn(List.of(subject));
+		open(SyncDrift.Kind.FIELD_MISMATCH, FieldOwnership.NAME, subject.getId());
+
+		assertThat(audit.openAssessed()).singleElement()
+				.satisfies((assessed) -> assertThat(assessed.resolution())
+						.isEqualTo(SyncDrift.Resolution.GHL_WINS));
+	}
+
+	/** GHL has a row the mirror has not absorbed yet. The next refresh closes it; nobody is needed. */
+	@Test
+	void aRowOnlyGhlHasIsReportedAsFixingItself() {
+		given(opportunities.findAllById(any())).willReturn(List.of());
+		open(SyncDrift.Kind.MISSING_LOCALLY, null, null);
+
+		assertThat(audit.openAssessed()).singleElement()
+				.satisfies((assessed) -> assertThat(assessed.resolution())
+						.isEqualTo(SyncDrift.Resolution.GHL_WINS));
+	}
+
+	/**
+	 * <strong>The one case a person has to look at.</strong> Re-creating a deal GHL has lost, or
+	 * deleting the mirror's copy, is a business decision — a sweep doing it would turn one mistaken
+	 * archive in GHL into lost EvalOS history.
+	 */
+	@Test
+	void aRowGhlNoLongerReturnsIsTheOneThatNeedsAHuman() {
+		Opportunity subject = mirrored("opp-1", "s1", "open", "100", "Acme");
+		given(opportunities.findAllById(any())).willReturn(List.of(subject));
+		open(SyncDrift.Kind.MISSING_IN_GHL, null, subject.getId());
+
+		assertThat(audit.openAssessed()).singleElement()
+				.satisfies((assessed) -> assertThat(assessed.resolution())
+						.isEqualTo(SyncDrift.Resolution.NEEDS_A_HUMAN));
+	}
 }

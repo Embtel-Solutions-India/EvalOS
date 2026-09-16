@@ -26,29 +26,53 @@ public class WebhookRouter {
 	static final String OPPORTUNITY_WON = "opportunity.won";
 
 	/**
-	 * Recognized in the design, and deliberately no-ops.
+	 * The contact mirror's events — Unit 45d.
 	 *
-	 * <p><strong>{@code contact.created} is one of them, as of Case Creation v2.0.</strong>
-	 * It used to be the live type, and a lead is now front-of-house work: EvalOS takes
-	 * custody when the opportunity is Won, because that is the point the money is in.
-	 * Routing a contact to intake would re-open the unpaid window v2.0 closed.
-	 *
-	 * <p>{@code contact.updated} is here for the neighbouring reason. Intake is
-	 * create-or-update, so it would technically work — but an edit to a contact is not a
-	 * reason to open a case, and routing it there would turn every field change in GHL
-	 * into new work for a brand that never asked for it.
+	 * <p><strong>These were deferred, and what changed is where they now go.</strong> They used to
+	 * be no-ops with a note explaining that a contact is not a reason to open a <em>case</em> —
+	 * still true, and Case Creation v2.0's ruling stands untouched. What did not exist when that
+	 * note was written is a mirror for them to land in. They update {@code contact_snapshot} and
+	 * reach {@code CaseIntakeService} at no point.
 	 */
-	private static final Set<String> DEFERRED = Set.of("refund.requested", "contact.created", "contact.updated");
+	private static final Set<String> CONTACT_CHANGED = Set.of("contact.created", "contact.updated");
+
+	/**
+	 * The opportunity mirror's events — Unit 45d.
+	 *
+	 * <p><strong>Both tenses of both verbs, deliberately.</strong> {@code event_type} is typed by
+	 * hand into a GHL workflow's Custom Webhook action, so the difference between
+	 * {@code opportunity.update} and {@code opportunity.updated} is a typo away from a silently
+	 * unmirrored deal — and the handler re-reads GHL either way, so accepting both costs nothing.
+	 * Create and update are one handler for the same reason: the read does not care which it was.
+	 *
+	 * <p><strong>{@code opportunity.won} is not in this set and must not join it.</strong> That one
+	 * is Handoff A — it creates a case (invariant 8) — and an event that both creates custody and
+	 * writes the mirror would make two very different failures look like one.
+	 */
+	private static final Set<String> OPPORTUNITY_CHANGED = Set.of("opportunity.create",
+			"opportunity.created", "opportunity.update", "opportunity.updated",
+			"opportunity.stage_changed", "opportunity.status_changed");
+
+	/** Recognized in the design, and deliberately a no-op: nothing in EvalOS models a refund yet. */
+	private static final Set<String> DEFERRED = Set.of("refund.requested");
 
 	private final GhlOpportunityHandler ghlOpportunities;
+	private final GhlMirrorHandler mirror;
 
-	WebhookRouter(GhlOpportunityHandler ghlOpportunities) {
+	WebhookRouter(GhlOpportunityHandler ghlOpportunities, GhlMirrorHandler mirror) {
 		this.ghlOpportunities = ghlOpportunities;
+		this.mirror = mirror;
 	}
 
 	void route(Brand brand, String eventType, String rawBody) {
 		if (OPPORTUNITY_WON.equals(eventType)) {
 			ghlOpportunities.handle(brand, rawBody);
+		}
+		else if (CONTACT_CHANGED.contains(eventType)) {
+			mirror.contactChanged(brand, rawBody);
+		}
+		else if (OPPORTUNITY_CHANGED.contains(eventType)) {
+			mirror.opportunityChanged(brand, rawBody);
 		}
 		else if (DEFERRED.contains(eventType)) {
 			log.info("Event type '{}' is recognized but not yet implemented — archived and acked", eventType);

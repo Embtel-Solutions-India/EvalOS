@@ -134,11 +134,11 @@ the pipeline axis up, so the pipeline scope lives in the finder SIGNATURES and
 sync engine beyond error classification — that is Unit 45.
 
 BUILT 2026-09-16 (Unit 52, partial): the Client Portal ↔ GHL integration is EvalOS→GHL only.
-Sign-up upserts the GHL contact and stores the id; picking a service opens the opportunity carrying
-the SERVICE ID as a custom field so a GHL workflow can route it to a pipeline; submitting writes
-`SUBMITTED` to a second field through `GhlWriteClient.setOpportunityFields` — custom fields only, so
-it structurally cannot undo GHL's routing. Both field ids default BLANK (field omitted, nothing
-breaks); the routing WORKFLOW is UI work in GHL and is not built. GHL→EvalOS sync is Units 44–48,
+Sign-up upserts the GHL contact and stores the id; **SUBMIT** opens the opportunity (D10 — it was
+service-pick until 2026-09-16) carrying the SERVICE ID, the correlation key and `SUBMITTED` **all on
+that one create**, so a GHL workflow can route it and `setOpportunityFields` is off this path
+entirely. Custom fields only, so it structurally cannot undo GHL's routing. Both field ids default
+BLANK (field omitted, nothing breaks); the routing WORKFLOW is UI work in GHL and is not built. GHL→EvalOS sync is Units 44–48,
 decided 2026-09-16 — `opportunity.update` and `contact.*` are still archived-and-acked, not routed.
 Spec: `context/specs/52-client-portal-ghl-integration.md`.
 
@@ -147,13 +147,19 @@ BUILT 2026-09-15 (Unit 51): the GM dashboard — `GmDashboard.tsx` + `GET /api/m
 `RevenueDashboard`. `context/specs/51-gm-dashboard.md` §3 maps every widget on the business's PDF
 to its source and says which cannot be computed at all.
 
-PARTIAL and worth knowing: SALES can read no case; a client with two or more cases is refused; notifications are in-app only; the Client and Expert
-Portals are in neither `docker-compose.yml` nor CI.
+PARTIAL and worth knowing (**re-judged 2026-09-17** — three of these were never gaps):
+a client with two or more cases is refused (Q8, still open); notifications are in-app only and
+**push is owed** (D37 — in-app and push, never mail or SMS); request-stage documents do not exist
+and are **Unit 53** (D33). *No longer listed as gaps:* **SALES reading no case is correct** (D19c —
+their world ends at won, so `ScopePredicate`'s empty PIPELINE arm over `evalos_case` is the rule);
+**a richer `client_application.status` is not owed** (D35 — review is a GHL pipeline stage); and
+**the portals' absence from `docker-compose.yml` and CI is DevOps's, not this repo's** (D38).
 
 Operational, not code: IE's GHL sub-account was replaced on 2026-09-11 with
 `WY6bW2xUCI8Tz8gw7aLJ` and no contacts were migrated. The `opportunity.won` workflow **EXISTS** in the new
 account (confirmed by the business 2026-09-16; the repo cannot prove it and never will). **A real
-won opportunity producing a case has still not been observed.** A firing needs
+won opportunity producing a case has still not been observed** — 2026-09-17 the business confirms
+the webhook is built in the new location and a dummy opportunity to fire it is coming. A firing needs
 `POST /api/webhooks/ghl/{webhook_endpoint_token}` — that token is the whole credential, there is
 no signature step — with `event_type`, `contact_id` and `full_name` snake_case at the top level,
 and an optional camelCase `customData` of snake_case fields; `amount` is `@Positive` where
@@ -161,3 +167,30 @@ present, so **0 is refused** and absent is fine. `evalos.ghl.intake-pipeline-nam
 mark exactly one mirrored pipeline INTAKE via `PUT /api/ghl/pipelines/{id}/purpose`, and **zero
 (the fresh-deployment default) and two or more are both a 502** — guessing would file a client's
 request onto a pipeline nobody chose.
+
+**BUILT 2026-09-17 (Unit 45d)** — the mirror finally reads GHL as well as writing it.
+`GhlMirrorHandler` routes `contact.created`/`contact.updated` into `contact_snapshot` and **six
+spellings** of `opportunity.*` (create/created/update/updated/stage_changed/status_changed) into
+`OpportunityMirrorService.absorbForContact`. **The event is a TRIGGER, not a payload**: GHL's
+Custom Webhook action posts the contact record flat, with no stage/status/value, and anything under
+`customData` is hand-typed — so an opportunity event carries only the contact id and the handler
+re-reads `GhlPipelineClient.forContact`. A contact event is the one case where the payload IS the
+entity, so it costs no read. `opportunity.won` is NOT in that set and must never join it (Handoff A,
+invariant 8). `absorbForContact` has **no absence pass** — a contact's deals are not a pipeline's
+list. New sweep `MIRROR_DELTA` (15m, `evalos.ghl.delta-ttl` 10m): **"delta" is a stale PIPELINE, not
+a changed row**, because GHL's search has no updated-since filter. Parse-then-validate moved to
+`WebhookPayload`, shared by both handlers. Suite: **1036 tests, 0 failures**. Left in Unit 45: **45e
+only** (per-field ownership).
+
+**BUILT 2026-09-17 (Unit 45e) — UNIT 45 IS COMPLETE.** `FieldOwnership` (domain) classifies every
+mirrored field: **GHL owns the assignee and the pipeline** (and anything unclassified — a new column
+follows GHL rather than starting to defend itself), `ghlStageId`/`status`/`amount`/`name` are
+**SHARED**, `opportunityNote` is **EVALOS** and never synced. The blanket "EvalOS wins" from `00c`
+§4b is rejected because it **reverts GHL automations**, the one thing GHL was kept for.
+`Opportunity.syncFromGhl` keeps a shared field **only while `local_updated_at` says EvalOS holds an
+edit GHL has not confirmed**; that flag is cleared by a GHL win and by `linkGhl`, or a portal-born
+row would out-rank GHL for life. **A null `ghl_updated_at` is a conflict, but only when there is an
+edit to defend** — the other half stops the rule degrading into "EvalOS always wins".
+`GET /api/sync/drift` gained `owner`, `resolution` (GHL_WINS / EVALOS_WINS / NEEDS_A_HUMAN, derived
+at read time, never stored) and `needsAHuman`; **still no resolve button** (D43). 45e pushes nothing
+to GHL — correcting GHL is Unit 46's. Suite: **1049 tests, 0 failures**. No migration.

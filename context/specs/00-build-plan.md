@@ -813,9 +813,38 @@ creating, the drain looks for its own correlation key among the CONTACT's GHL op
 GHL offers no custom-field filter — finding it means the create already landed, and the row is linked
 rather than made twice (`00d` §6.1).
 
-**Still to build:** 45d the webhooks and delta sweep, 45e per-field ownership. Neither needs a
-migration. **The desks still write to GHL synchronously** — moving them onto the outbox is Unit 46.
+**45d** - the mirror's inbound half (BUILT 2026-09-17). `GhlMirrorHandler` routes `contact.*` into
+`contact_snapshot` and six spellings of `opportunity.*` into `absorbForContact`; `MIRROR_DELTA` (15m)
+is the floor under the webhooks. **The event is a trigger, not a payload** — GHL posts the contact
+record flat and `customData` is hand-typed, so the values are re-read from GHL. **"Delta" is a stale
+pipeline, not a changed row**: GHL's search has no updated-since filter.
+
+**45e** - per-field ownership (BUILT 2026-09-17). `FieldOwnership` classifies every mirrored field
+GHL / SHARED / EvalOS; the assignee and the pipeline are GHL's, because the blanket "EvalOS wins"
+reverts the automations GHL was kept for. A shared field is kept only while EvalOS holds an edit GHL
+has not confirmed, and a null `ghl_updated_at` is a conflict — but only when there is something to
+defend. The drift surface gained `owner`/`resolution`/`needsAHuman`; there is still no resolve
+button. No migration.
+
+**Unit 45 is COMPLETE.** **The desks still write to GHL synchronously** — moving them onto the
+outbox is Unit 46, and until that lands 45e's rules are largely latent.
 Depends on: 44. Hands to: 46.
+
+---
+
+## Unit 53 - Request documents
+
+**Specced 2026-09-17, unbuilt.** `53-request-documents.md`. The client uploads with the
+questionnaire; the files are keyed by **contact** (`DocumentStore.clientKey`, unchanged) rather than
+by case; Sales sees them beside the answers on the opportunity they already read (D34); Handoff A
+carries them into `case_document` as row inserts over the **same S3 object**.
+
+This is the DOCUMENT SUBMISSION step of the target lifecycle and the last one missing from it —
+**Sales review as an EvalOS state is not owed** (D35: it is a GHL pipeline stage). Submit is still
+never gated on documents.
+
+Depends on: 43, 44c (`client_account.contact_id`). Hands to: nothing — Production already reads
+`case_document`.
 
 ---
 

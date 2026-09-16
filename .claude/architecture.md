@@ -92,7 +92,8 @@ Transitions live in `CaseTransitions`/`CaseLifecycleService`; every one writes a
 12. Webhook transport carries no business logic.
 13. Every state transition writes an append-only audit row.
 14. EvalOS hosts no files, and sends email for **exactly one purpose**: proving control of a
-    mailbox (two messages).
+    mailbox (two messages). **A push notification is not mail** and does not touch this invariant
+    (D37: notifications are in-app and push, and nothing else).
 15. **No AI makes a production decision, and there is no AI in the system at all.**
 
 ## Build-failing structural tests
@@ -111,8 +112,9 @@ Precedence that actually decides on a dev machine: `.env` (loaded by `.vscode/la
 env vars) **beats** `backend/config/application-local.yml` **beats** `application-local.yml` on the
 classpath. `backend/config/` is gitignored and is where a real GHL token goes.
 
-Key settings: `evalos.ghl.{location-id, token, sales-brand, sales-pipeline-name,
-email-pipeline-name, intake-pipeline-name}`, `evalos.portal.{client-brand, client-base-url,
+Key settings: `evalos.ghl.{location-id, token, sales-brand, opportunity-service-field,
+opportunity-correlation-field, board-cache-ttl, delta-ttl}` (`intake-pipeline-name` is retired — Unit 44b, D10b; the two funnel
+screens took `sales-pipeline-name` and `email-pipeline-name` with them), `evalos.mail.transport`, `evalos.portal.{client-brand, client-base-url,
 expert-base-url, allowed-origins, credential-ttl}`, `evalos.s3.{bucket, region}`,
 `evalos.security.jwt.secret`, `evalos.field-key`, `SALES_MONTHLY_GOAL`.
 
@@ -120,4 +122,6 @@ expert-base-url, allowed-origins, credential-ttl}`, `evalos.s3.{bucket, region}`
 
 `docker-compose.yml`: postgres 16 + backend (Spring, `prod,testprod`) + frontend (nginx, 80/443).
 CI (`.github/workflows/ci.yml`) runs on push to **`main` only**: backend tests, frontend
-test/build/lint, then deploy to EC2. **`client-expert/` is in neither compose nor CI.**
+test/build/lint, then deploy to EC2. `client-expert/` is in neither compose nor CI — **and that is
+not this repository's debt: DevOps owns and edits deployment (D38, 2026-09-17).** Know it when
+reasoning about what is live; do not schedule work for it here.

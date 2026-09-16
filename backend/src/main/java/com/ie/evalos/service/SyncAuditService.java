@@ -11,6 +11,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 
+import com.ie.evalos.domain.FieldOwnership;
 import com.ie.evalos.domain.Opportunity;
 import com.ie.evalos.domain.Pipeline;
 import com.ie.evalos.domain.SyncDrift;
@@ -82,13 +83,13 @@ public class SyncAuditService {
 	 * <p>{@code assignedTo} is deliberately absent: {@code 00d} §6.2 gives it to GHL outright, so
 	 * EvalOS disagreeing with GHL about it is not drift, it is EvalOS being behind.
 	 */
-	private static final String STAGE = "ghlStageId";
+	private static final String STAGE = FieldOwnership.STAGE;
 
-	private static final String STATUS = "status";
+	private static final String STATUS = FieldOwnership.STATUS;
 
-	private static final String AMOUNT = "amount";
+	private static final String AMOUNT = FieldOwnership.AMOUNT;
 
-	private static final String NAME = "name";
+	private static final String NAME = FieldOwnership.NAME;
 
 	private final GhlPipelineClient ghl;
 	private final OpportunityRepository opportunities;
@@ -271,6 +272,69 @@ public class SyncAuditService {
 	public List<SyncDrift> open() {
 		return sellingBrandId == null ? List.of()
 				: drifts.findByBrandIdAndResolvedAtIsNullOrderByLastSeenAtDesc(sellingBrandId);
+	}
+
+	/** One open disagreement with the engine's answer attached — Unit 45e. */
+	public record Assessed(SyncDrift row, FieldOwnership owner, SyncDrift.Resolution resolution) {
+	}
+
+	/**
+	 * The same read, with <strong>what the engine will do</strong> beside each row (45e).
+	 *
+	 * <p>A field name and two values tell a GM what disagrees; they do not tell them whether it
+	 * matters. Most rows fix themselves at the next sync, and a report that reads the same for
+	 * those as for a deal GHL has lost is a report that gets skimmed. So each row is classified
+	 * against {@link FieldOwnership} and against the mirror's own state.
+	 *
+	 * <p><strong>Why the opportunity is loaded rather than inferred:</strong> a shared field
+	 * disagreeing means one of two opposite things — EvalOS is defending an edit GHL has not
+	 * confirmed, or the mirror is simply stale — and only {@code local_updated_at} on the row can
+	 * say which. One batched {@code findAllById}, not a query per drift row.
+	 */
+	@Transactional(readOnly = true)
+	public List<Assessed> openAssessed() {
+		List<SyncDrift> open = open();
+		Set<UUID> entityIds = open.stream()
+				.map(SyncDrift::getEntityId)
+				.filter(Objects::nonNull)
+				.collect(java.util.stream.Collectors.toSet());
+		Map<UUID, Opportunity> byId = new HashMap<>();
+		if (!entityIds.isEmpty()) {
+			for (Opportunity row : opportunities.findAllById(entityIds)) {
+				byId.put(row.getId(), row);
+			}
+		}
+		return open.stream()
+				.map((row) -> new Assessed(row, FieldOwnership.of(row.getField()),
+						resolutionOf(row, byId.get(row.getEntityId()))))
+				.toList();
+	}
+
+	/**
+	 * <strong>Only a row GHL no longer returns needs a person</strong>, and that is deliberate:
+	 * everything else is either GHL's to win or an EvalOS edit on its way out. Re-creating a deal
+	 * GHL has deleted, or deleting the mirror's copy, is a business decision — a sweep doing it
+	 * would turn one mistaken archive in GHL into lost EvalOS history.
+	 */
+	private static SyncDrift.Resolution resolutionOf(SyncDrift row, Opportunity subject) {
+		if (row.getKind() == SyncDrift.Kind.MISSING_IN_GHL) {
+			return SyncDrift.Resolution.NEEDS_A_HUMAN;
+		}
+		if (row.getKind() == SyncDrift.Kind.MISSING_LOCALLY) {
+			// The mirror absorbs it at the next refresh — MIRROR_DELTA at the latest (45d).
+			return SyncDrift.Resolution.GHL_WINS;
+		}
+		if (FieldOwnership.of(row.getField()) != FieldOwnership.SHARED) {
+			return SyncDrift.Resolution.GHL_WINS;
+		}
+		// A shared field, so it turns on whether EvalOS is defending anything. A drift row whose
+		// opportunity has gone is not a field question any more.
+		if (subject == null) {
+			return SyncDrift.Resolution.NEEDS_A_HUMAN;
+		}
+		return subject.getLocalUpdatedAt() != null
+				? SyncDrift.Resolution.EVALOS_WINS
+				: SyncDrift.Resolution.GHL_WINS;
 	}
 
 }

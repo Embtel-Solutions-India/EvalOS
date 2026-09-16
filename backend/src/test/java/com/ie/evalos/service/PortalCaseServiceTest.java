@@ -171,14 +171,15 @@ class PortalCaseServiceTest {
 	}
 
 	/**
-	 * The key is namespaced by EvalOS's own {@code contact_snapshot.id}, never by the GHL contact
-	 * id. IE replaced its GHL sub-account with no contact migration on 2026-09-11: every stored GHL
-	 * id names a contact that no longer exists, and a client created after the swap has none at
-	 * all — so a key built from one could not be built. An identifier a third party can revoke is
-	 * not a namespace.
+	 * <strong>The key is namespaced by the GHL contact id</strong> — the one identifier that
+	 * represents a contact everywhere in this system, ruled 2026-09-17. It was
+	 * {@code contact_snapshot.id} from 2026-09-14 until then, after IE's sub-account swap left
+	 * post-swap clients with no GHL id to build a key from; what makes it safe again is that the id
+	 * now exists before a document can be sent (D3d creates it at set-password, D3c backfills it at
+	 * the next sign-in or request, and a request upload happens at submit, which already ensures it).
 	 */
 	@Test
-	void theObjectKeyIsNamespacedByEvalOsContactIdNotTheGhlOne() {
+	void theObjectKeyIsNamespacedByTheGhlContactId() {
 		DocumentChecklistItem item = anItemOnThisCase();
 
 		CaseDocument written = portal.upload(partyTokenFor(BRAND, "ghl-1"), item.getId(),
@@ -186,8 +187,26 @@ class PortalCaseServiceTest {
 				new java.io.ByteArrayInputStream(new byte[] { 1 }));
 
 		assertThat(written.getObjectKey())
-				.startsWith(BRAND + "/client/" + CONTACT_ID + "/")
-				.doesNotContain("ghl-1");
+				.startsWith(BRAND + "/client/ghl-1/")
+				.doesNotContain(CONTACT_ID.toString());
+	}
+
+	/**
+	 * <strong>The exposure that comes with keying on a third party's id, pinned rather than
+	 * discovered.</strong> A contact with no GHL id — a pre-swap row, or an outage not yet repaired
+	 * — has no namespace to write into. It refuses with a message naming the repair (D3c backfills
+	 * at the next sign-in or request) instead of inventing a prefix, because a document filed under
+	 * a guess is worse than one not filed: nothing would ever look for it there.
+	 */
+	@Test
+	void aContactWithNoGhlIdIsRefusedRatherThanFiledUnderAGuess() {
+		ReflectionTestUtils.setField(theContact, "ghlContactId", null);
+		DocumentChecklistItem item = anItemOnThisCase();
+
+		assertThatThrownBy(() -> portal.upload(partyTokenFor(BRAND, "ghl-1"), item.getId(),
+				"transcript.pdf", "application/pdf", 1024L,
+				new java.io.ByteArrayInputStream(new byte[] { 1 })))
+				.hasMessageContaining("no GHL contact id");
 	}
 
 	/**

@@ -1,6 +1,6 @@
 # Current decisions
 
-**The authoritative file is `.claude/current-decisions.md` (31 numbered decisions). Read it.**
+**The authoritative file is `.claude/current-decisions.md` (43 numbered decisions). Read it.**
 
 The ones most often violated from memory:
 
@@ -8,12 +8,11 @@ The ones most often violated from memory:
   registration. All three states (no contact and no account; contact only; both) are legal.
 - One GHL Contact, many opportunities. A repeat request makes a new **opportunity**, never a
   second contact.
-- **The GHL contact is created AT SIGN-UP** (D3d) — it briefly moved to set-password (D3a,
-  2026-09-16 morning) and came back the same day because **GHL sends the mail and
-  `POST /conversations/messages` requires a `contactId`**: there is no contact-less send. D3a's
-  *property* still holds (a stranger must not drive unbounded CRM writes); what holds it is now the
-  route's own gate + `PORTAL_CLEANUP`, not the ordering. **The gate is NOT built yet** — the route
-  is still on the shared 60/min/IP counter.
+- **Sign-up creates NO GHL contact** (D3d) — D3a's ordering, restored once Brevo replaced GHL mail
+  and removed the `contactId` requirement that forced it there. `/auth/sign-up` is `permitAll`, so a
+  CRM write behind it is a stranger's write. **Two call sites, not one:** `signUp` and
+  `issueCredential` (sign-up falls through to `identify`, which lands there). The contact is created
+  at `setPassword`, the next sign-in, or the first request that needs one (D3c).
 - **`PORTAL_CLEANUP` only ever deletes `created_via = 'SIGNUP'` rows** (D3f, V59). The earlier
   predicate also matched every V45-seeded client and would have deleted the seeded backlog after
   30 days. Column defaults to `SEED` — a writer that forgets gets a row that survives.
@@ -24,9 +23,9 @@ The ones most often violated from memory:
 - **A GHL outage never refuses a sign-up, a set-password or a sign-in.** The account stands with no
   contact, `identify` answers `MAIL_UNAVAILABLE`, and `ensureCrmIdentity` repairs it at the next
   sign-in or the first request (D3c).
-- **Mail is swappable** (D3e): `MailTransport` + `evalos.mail.transport` = `smtp` | `ghl`. Brevo is
-  a new class and a changed variable. Ask `canReach`, not `isConfigured` — the GHL transport is
-  configured yet cannot address a client with no linked contact.
+- **Mail is swappable** (D3e): `MailTransport` + `evalos.mail.transport` = **`smtp` | `brevo`**
+  (`POST /v3/smtp/email`, header `api-key`). The `ghl` transport is deleted. The swap cost one class
+  and one variable. `ClientMailer` owns the wording and the audit row; transports are pure wire.
 - **A portal contact carries `source: "Client Portal"`** (D3b). GHL accepts no `utmSource` or
   `attributionSource` on a write — it fills those from its own form tracking, which an API caller
   never passes through — so the documented `source` string is the whole of what provenance can be.
@@ -70,7 +69,39 @@ The ones most often violated from memory:
   brand-locked role to an unattributable figure. `/api/opportunities/board` is the one narrowed
   case: `evalos.ghl.sales-brand` names the owning brand and assignment refuses any other, so its
   brand *is* provable and SALES/MARKETING reach it.
-- Experts have **no accounts** — a staff-minted link is the only way in.
+- Experts have **no accounts** — a staff-minted link is the only way in, and whether that changes
+  is **waiting on a stakeholder discussion**, not on code (D23, Q6).
+
+**The business answered five open questions on 2026-09-17 (D33–D38, D19c):**
+
+- **ONE ID REPRESENTS A CONTACT EVERYWHERE, AND IT IS THE GHL `contact_id`** (D41). Wherever a
+  contact is *named* — an S3 prefix, a route parameter, a payload field — it is GHL's id, so the
+  same client resolves in both systems with no mapping table. **Primary keys are untouched**: D18
+  stands, EvalOS mints its own UUID, and `client_account.contact_id` / `evalos_case.contact_id`
+  stay real FKs to `contact_snapshot` — an internal join is not a name. **This reverses the
+  2026-09-14 narrowing** of `DocumentStore.clientKey` onto `contact_snapshot.id`; what makes the
+  GHL id safe to name again is D3d + D3c — the contact is created at set-password, sign-in or the
+  first request, so it exists by the time anything needs to name it. A
+  contact with no GHL id is **refused** with a message naming the repair, never filed under a
+  guessed prefix.
+- **Documents arrive WITH the request**, at questionnaire submit, keyed by the **GHL contact id**
+  (D41). Reuses `DocumentStore.clientKey`; Handoff A carries them into `case_document` as row
+  inserts over the **same S3 object**. Unit 53, spec `53-request-documents.md` (D33).
+- **Sales clicks one opportunity and sees answers AND documents** — the documents are **their own
+  route and tab on that deal, never a second permission** (D34).
+- **There is NO EvalOS sales-review state** (D35). `client_application.status` stays
+  `DRAFT`/`SUBMITTED`; review, approval and rejection are GHL **pipeline stages**. Do not add
+  `IN_REVIEW`/`ACCEPTED`/`REJECTED` — an earlier recommendation said to, and the business said no.
+- **Sales reads their own pipelines and NO case at all** (D19c). `ScopePredicate`'s PIPELINE arm
+  returning `cb.disjunction()` over `evalos_case` is **correct**, not a bug to fix.
+- **The case is staffed PM-first** (D36): Handoff A → PM → PM assigns Coordinator, Case Manager and
+  Expert → CM drafts and uploads → **client approves in the portal** → only then the expert
+  downloads, signs and uploads back. This is what `CaseLifecycleService` already does; it is now a
+  stated business rule.
+- **Notifications are in-app AND push, and nothing else** (D37). No email, no SMS — invariant 14 is
+  untouched, because a push is not a message to a mailbox. In-app is built; push is owed.
+- **Deployment is DevOps's, outside this repo** (D38). The portals' absence from compose and CI is
+  not debt to schedule here.
 
 Changed a decision? Edit `.claude/current-decisions.md`, then this memory. Never leave a
 contradicting note beside the old one.
@@ -84,3 +115,18 @@ reason**: two seeds write that table (`V905`, `V951`), both 900+, both running a
 `db/migration` script, and `MigrationTreeTest` forbids a migration in that range while editing an
 applied seed is a checksum mismatch that refuses the boot. Do it when the seed tree is rebaselined.
 
+
+**D39/D40 (2026-09-17, Unit 45d).** A mirror webhook is a **trigger, not a payload** — GHL posts the
+contact record flat, and `customData` is hand-typed, so an `opportunity.*` event carries only the
+contact id and the mirror re-reads GHL for the values. A **contact** event is the exception: there
+the payload is the entity. And a **"delta sweep" means a stale pipeline, never a changed row**,
+because GHL's opportunity search filters on `createdAt` and has no updated-since filter at all.
+
+**D42/D43 (2026-09-17, Unit 45e).** Ownership of a mirrored field is **per field, in code** — never
+the blanket "EvalOS wins", which reverts the GHL automations GHL was kept for. GHL owns the
+**assignee** and the **pipeline**; stage/status/amount/name are shared with EvalOS winning *and
+reporting*; notes are never synced. "EvalOS wins" means only "there is an unconfirmed local edit",
+and the flag clears on a GHL win or on `linkGhl`. A null `ghl_updated_at` is a conflict **only when
+there is an edit to defend**. And **a drift row is never resolved by a button** — the surface
+answers *will this fix itself* with `owner`/`resolution`/`needsAHuman`, and only a row GHL no longer
+returns needs a person.
