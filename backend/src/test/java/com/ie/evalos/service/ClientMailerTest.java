@@ -58,8 +58,11 @@ class ClientMailerTest {
 		}
 	}
 
+	private static final java.util.UUID BRAND =
+			java.util.UUID.fromString("11111111-1111-1111-1111-111111111111");
+
 	private static final MailTransport.Recipient ANA =
-			new MailTransport.Recipient("ana@example.com", "ghl-1");
+			new MailTransport.Recipient(BRAND, "ana@example.com", "ghl-1");
 
 	@Test
 	void theConfiguredTransportIsTheOneThatCarriesIt() {
@@ -99,7 +102,7 @@ class ClientMailerTest {
 		ClientMailer mailer = new ClientMailer(List.of(ghl), "ghl");
 
 		assertThat(mailer.isConfigured()).isTrue();
-		assertThat(mailer.canReach(new MailTransport.Recipient("ana@example.com", null))).isFalse();
+		assertThat(mailer.canReach(new MailTransport.Recipient(BRAND, "ana@example.com", null))).isFalse();
 		assertThat(mailer.sendSetPassword(ANA, "https://portal/set#tok")).isFalse();
 		assertThat(ghl.sentTo).isNull();
 	}

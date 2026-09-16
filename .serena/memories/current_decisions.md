@@ -14,6 +14,13 @@ The ones most often violated from memory:
   *property* still holds (a stranger must not drive unbounded CRM writes); what holds it is now the
   route's own gate + `PORTAL_CLEANUP`, not the ordering. **The gate is NOT built yet** — the route
   is still on the shared 60/min/IP counter.
+- **`PORTAL_CLEANUP` only ever deletes `created_via = 'SIGNUP'` rows** (D3f, V59). The earlier
+  predicate also matched every V45-seeded client and would have deleted the seeded backlog after
+  30 days. Column defaults to `SEED` — a writer that forgets gets a row that survives.
+- **`identify` repairs a missing `ghl_contact_id` before asking whether mail can reach them.**
+  Without it, an account with no contact is unmailable, so it can never get a password, so it can
+  never reach any other repair point. The repair is best-effort: a failed write is logged, never a
+  500 on an unauthenticated route.
 - **A GHL outage never refuses a sign-up, a set-password or a sign-in.** The account stands with no
   contact, `identify` answers `MAIL_UNAVAILABLE`, and `ensureCrmIdentity` repairs it at the next
   sign-in or the first request (D3c).

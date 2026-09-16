@@ -7,7 +7,7 @@ import java.util.UUID;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.ie.evalos.domain.AuditAction;
-import com.ie.evalos.security.TenantContext;
+import com.ie.evalos.domain.PortalAudience;
 import com.ie.evalos.service.AuditService;
 
 import org.slf4j.Logger;
@@ -140,10 +140,14 @@ public class GhlMailTransport implements MailTransport {
 			// a working password reset — and the address is contact PII that `GhlWriteClient` also
 			// keeps out of this table. What a reader needs is "which person, which message, when",
 			// and the contact id answers the first.
-			audit.recordEvent("GHL_CONTACT", auditKey(to.ghlContactId()), AuditAction.PORTAL_LINK_ISSUED,
-					TenantContext.find().map(TenantContext::memberId).orElse(null), null,
-					Map.of("ghlContactId", to.ghlContactId(), "subject", subject,
-							"messageId", sent.messageId()));
+			// **recordPortalEvent, not recordEvent.** The latter derives the brand from
+			// TenantContext, which a portal route does not have — every row would have landed with
+			// a null brand_id and been invisible to every brand-scoped audit read. This overload
+			// takes the brand explicitly for exactly that reason, which is why Recipient carries it.
+			audit.recordPortalEvent(to.brandId(), PortalAudience.CLIENT, "GHL_CONTACT",
+					auditKey(to.ghlContactId()), AuditAction.PORTAL_LINK_ISSUED, null,
+					"sent '" + subject + "' to contact " + to.ghlContactId()
+							+ " (GHL message " + sent.messageId() + ")");
 			return true;
 		}
 		catch (RuntimeException refused) {

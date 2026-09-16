@@ -48,7 +48,7 @@ class PortalCleanupSweepTest {
 		Instant after = Instant.now();
 
 		ArgumentCaptor<Instant> tokenCutoff = ArgumentCaptor.forClass(Instant.class);
-		verify(credentials).deleteByExpiresAtBefore(tokenCutoff.capture());
+		verify(credentials).deleteExpiredBefore(tokenCutoff.capture());
 		ArgumentCaptor<Instant> accountCutoff = ArgumentCaptor.forClass(Instant.class);
 		verify(accounts).deleteAbandonedSignUps(accountCutoff.capture());
 
@@ -71,7 +71,7 @@ class PortalCleanupSweepTest {
 	 */
 	@Test
 	void deletingNothingIsNotActing() {
-		given(credentials.deleteByExpiresAtBefore(any())).willReturn(0L);
+		given(credentials.deleteExpiredBefore(any())).willReturn(0);
 		given(accounts.deleteAbandonedSignUps(any())).willReturn(0);
 
 		assertThat(act(PortalCleanupSweep.class)).isFalse();
@@ -79,7 +79,7 @@ class PortalCleanupSweepTest {
 
 	@Test
 	void deletingSomethingIsActing() {
-		given(credentials.deleteByExpiresAtBefore(any())).willReturn(4L);
+		given(credentials.deleteExpiredBefore(any())).willReturn(4);
 
 		assertThat(act(PortalCleanupSweep.class)).isTrue();
 	}

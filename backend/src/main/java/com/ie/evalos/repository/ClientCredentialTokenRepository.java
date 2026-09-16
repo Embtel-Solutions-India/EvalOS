@@ -60,8 +60,17 @@ public interface ClientCredentialTokenRepository extends ScopedRepository<Client
 	 * and taking the portal's configured one would silently leave a second brand's rows to grow
 	 * forever the day the portal stops being single-brand. Cleanup is infrastructure; the rule it
 	 * sits outside of is about reads a caller can influence.
+	 *
+	 * <p><strong>A bulk {@code delete}, not a derived {@code deleteBy...}.</strong> The derived form
+	 * SELECTs every match, hydrates each into the persistence context and removes them one at a
+	 * time — so the one pass that exists to clean up after a flood is the pass that loads the whole
+	 * flood into memory. This is one statement. {@code client_credential_token_expiry_idx} (V59) is
+	 * what keeps it an index scan rather than the sequential one the `ponytail:` note on the sweep
+	 * wrongly claimed it already was.
 	 */
 	@org.springframework.data.jpa.repository.Modifying
 	@org.springframework.transaction.annotation.Transactional
-	long deleteByExpiresAtBefore(Instant cutoff);
+	@org.springframework.data.jpa.repository.Query(
+			"delete from ClientCredentialToken t where t.expiresAt < :cutoff")
+	int deleteExpiredBefore(@org.springframework.data.repository.query.Param("cutoff") Instant cutoff);
 }

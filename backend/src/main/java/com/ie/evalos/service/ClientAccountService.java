@@ -233,7 +233,9 @@ public class ClientAccountService {
 	public IdentifyState signUp(String email, String firstName, String lastName, String phone) {
 		String normalized = normalize(email);
 		if (accounts.findByBrandIdAndEmailIgnoreCase(brandId, normalized).isEmpty()) {
-			ClientAccount account = new ClientAccount(brandId, normalized);
+			// SIGNUP, and this is the only writer of that value. It is what makes this row
+			// eligible for PORTAL_CLEANUP and a seeded client's row not — see V59.
+			ClientAccount account = new ClientAccount(brandId, normalized, "SIGNUP");
 			account.setFirstName(firstName);
 			account.setLastName(lastName);
 			account.setPhone(phone);
@@ -297,8 +299,18 @@ public class ClientAccountService {
 		// transport that cannot address THIS person is a real state now: GHL needs a linked
 		// contact, and an account whose sign-up hit a GHL outage has none. Asking only whether
 		// mail is configured would mint a token and report NO_PASSWORD for a link that never left.
-		MailTransport.Recipient recipient =
-				new MailTransport.Recipient(account.getEmail(), account.getGhlContactId());
+		// **Repaired here, and this is the only place that can.** With the `ghl` transport,
+		// canReach needs a linked contact — and an account that has none can never set a password,
+		// so it can never reach signIn or setPassword, which were the only repair points. That is a
+		// client stuck on MAIL_UNAVAILABLE for ever with forgot-password silently doing nothing:
+		// exactly the dead end `identify`'s three-way answer exists to avoid. Review found it.
+		//
+		// Idempotent and free for the common case — an account with a contact makes no call.
+		if (ensureCrmIdentity(account)) {
+			persistCrmLink(account);
+		}
+		MailTransport.Recipient recipient = new MailTransport.Recipient(account.getBrandId(),
+				account.getEmail(), account.getGhlContactId());
 		if (!mailer.canReach(recipient)) {
 			return false;
 		}
@@ -355,6 +367,12 @@ public class ClientAccountService {
 		}
 
 		account.recordSignIn(Instant.now());
+		// ponytail: a synchronous GHL call inside this transaction, so an account with no contact
+		// pays a full client timeout on every sign-in during a GHL outage, holding a Hikari
+		// connection while it does. The common path is a no-op — a client with a password came
+		// through setPassword, which linked them — and `identify` now repairs the pathological case
+		// before sign-in is ever reached. Move this behind the Unit 45 outbox if it ever bites.
+		//
 		// **"Login verify and update if something missing."** A client whose CRM link never got
 		// written — GHL was down when they set their password, or their row was seeded by V45 from
 		// a snapshot that carried no id — repairs it here, on the one route every returning client
@@ -452,14 +470,18 @@ public class ClientAccountService {
 	 * (D3c). This is the one place where "eventually" is genuinely good enough, because nothing
 	 * between here and there reads the id.
 	 *
+	 * @return whether a contact was linked <em>by this call</em> — false when one was already
+	 *         there and false when GHL refused. {@code issueCredential} persists on a true, which
+	 *         is the one path with no transaction to write it.
+	 *
 	 * <p>Inside the transaction, matching {@code ClientApplicationService.start}, which already
 	 * calls GHL from a {@code @Transactional} method on a bounded timeout. {@code identify}'s
 	 * no-transaction rule is about SMTP on an unauthenticated flood surface and does not reach
 	 * here.
 	 */
-	public void ensureCrmIdentity(ClientAccount account) {
+	public boolean ensureCrmIdentity(ClientAccount account) {
 		if (account.getGhlContactId() != null) {
-			return;
+			return false;
 		}
 		try {
 			GhlWriteClient.UpsertedContact contact = ghlContacts.upsertContact(account.getFirstName(),
@@ -483,6 +505,42 @@ public class ClientAccountService {
 		catch (RuntimeException ghlRefused) {
 			log.warn("Set a password for {} without a GHL contact: {}. It will be created on their "
 					+ "first request.", account.getEmail(), ghlRefused.getMessage());
+		}
+		return account.getGhlContactId() != null;
+	}
+
+	/**
+	 * Writes what {@link #ensureCrmIdentity} linked, for the callers that have no transaction.
+	 *
+	 * <p><strong>{@code identify} and {@code forgotPassword} are deliberately not
+	 * {@code @Transactional}</strong> — that method's javadoc argues it at length — so the account
+	 * they hold is detached and dirty checking will never run on it. Without this the repair
+	 * happens in memory, the mail goes out, and the link is gone by the next request.
+	 *
+	 * <p><strong>Called from {@code issueCredential} and nowhere else.</strong> Not from inside
+	 * {@link #ensureCrmIdentity}, which would write a brand-new account before {@code signUp} has
+	 * had its own chance to — and {@code signUp}'s save is the one that catches the duplicate-email
+	 * race. The transactional callers need nothing: dirty checking already writes them.
+	 *
+	 * <p><strong>Guarded on {@code ensureCrmIdentity} having actually linked something</strong>,
+	 * not on a contact id being present. Writing whenever one exists re-saves an account on every
+	 * {@code identify} — a pointless write on the busiest unauthenticated route, and on the
+	 * sign-up race it re-inserts the row the winner already wrote and throws the duplicate-key
+	 * straight past the handler built to absorb it.
+	 */
+	private void persistCrmLink(ClientAccount account) {
+		try {
+			accounts.saveAndFlush(account);
+		}
+		catch (RuntimeException couldNotWrite) {
+			// **Swallowed, because this is a repair and not the caller's errand.** `identify` and
+			// `forgot-password` are unauthenticated; a write that loses a race or trips a
+			// constraint here must not become a 500 on the front door, and on forgot-password a
+			// 500 for a known address beside a 204 for an unknown one is the enumeration oracle
+			// that method exists to avoid. The link is in memory for this request, the mail still
+			// goes, and the next call repairs it again.
+			log.warn("Could not persist the CRM link for {}: {}", account.getEmail(),
+					couldNotWrite.getMessage());
 		}
 	}
 

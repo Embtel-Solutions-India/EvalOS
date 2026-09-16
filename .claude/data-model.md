@@ -18,7 +18,7 @@ live in `backend/src/main/resources/db/migration/`.
 | `brand` | tenant; webhook endpoint token, GHL webhook secret, currency, payout terms | — |
 | `team_member` | staff login, role, `segment`; `ghl_pipeline_id` is **VESTIGIAL** as of 44b | yes (nullable for GM) |
 | `team_member_pipeline` | **which pipelines a member may work** (44b, `V54`): FK to `pipeline`, many-to-many, `granted_at`/`granted_by` | via the member |
-| `client_account` | **portal identity**: email, password_hash, ghl_contact_id, `contact_id` (`V55` — FK to the CRM row), name, phone | yes |
+| `client_account` | **portal identity**: email, password_hash, ghl_contact_id, `contact_id` (`V55` — FK to the CRM row), name, phone, `created_via` (`V59` — SEED / SIGNUP / STAFF, the only thing `PORTAL_CLEANUP` is allowed to delete on) | yes |
 | `client_credential_token` | single-use SET / RESET password links | yes |
 | `client_application` | **the client's request**: service, purpose, answers (jsonb), status, ghl_opportunity_id, `opportunity_id` (`V53` — the row it opened, whose id is the GHL correlation key) | yes |
 | `contact_snapshot` | CRM snapshot a case hangs off; utm / source fields | yes |

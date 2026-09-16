@@ -27,11 +27,15 @@ public interface MailTransport {
 	/**
 	 * Who to send to, by whichever name the transport understands.
 	 *
+	 * @param brandId      whose client this is. Carried explicitly because a portal route has no
+	 *                     {@code TenantContext} to derive it from — an audit row written here
+	 *                     without it lands unbranded and is invisible to every brand-scoped read,
+	 *                     which is the rule CLAUDE.md states first. Review caught that.
 	 * @param email        the address. Always present — it is the account's login.
 	 * @param ghlContactId GHL's own id for this person, or null if EvalOS has not linked one yet.
 	 *                     Only {@code GhlMailTransport} reads it.
 	 */
-	record Recipient(String email, String ghlContactId) {
+	record Recipient(java.util.UUID brandId, String email, String ghlContactId) {
 	}
 
 	/** A name for logs and for {@code evalos.mail.transport}. Lowercase, one word. */

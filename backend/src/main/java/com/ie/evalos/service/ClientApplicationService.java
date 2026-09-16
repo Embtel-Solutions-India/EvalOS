@@ -267,8 +267,25 @@ public class ClientApplicationService {
 	 * <p><strong>No opportunity means no submit.</strong> Submitting an application Sales cannot
 	 * see is the one failure this flow must not have — it reads to the client as "sent" and to
 	 * the business as nothing at all. A GHL outage makes this a 502 and leaves the draft intact.
+	 *
+	 * <p><strong>{@code noRollbackFor = InvalidRequestException.class}, and it is load-bearing —
+	 * review found it missing.</strong> D10 moved the create here, and this method is transactional
+	 * while {@code start} was a separate one that committed. So the local {@code opportunity} row
+	 * and {@code linkOpportunityRow} — written on the outage path precisely so a timed-out create
+	 * can be found again — were being rolled back by the refusal two lines below. The correlation
+	 * key that {@code 00d} §6.1 calls the answer to "did my create land?" evaporated, a retry minted
+	 * a fresh one, and a create that had actually succeeded became two deals: the exact duplicate
+	 * the mechanism exists to prevent.
+	 *
+	 * <p>It also repairs the outbox. {@code SyncOutboxService.enqueue} is {@code REQUIRES_NEW} and
+	 * commits on its own connection, so the entry survived a rollback that took the row it names —
+	 * leaving the drain retrying an {@code entity_id} matching nothing until it died. Committing
+	 * the row makes the queued entry true again.
+	 *
+	 * <p>Nothing else mutates before the throw: the draft check is a read and {@code submit()} is
+	 * never reached, so the application stays {@code DRAFT} exactly as the paragraph above says.
 	 */
-	@Transactional
+	@Transactional(noRollbackFor = InvalidRequestException.class)
 	public ApplicationView submit(PortalPrincipal principal, UUID applicationId) {
 		ClientAccount client = account(principal);
 		ClientApplication application = owned(client, applicationId);

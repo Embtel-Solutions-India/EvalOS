@@ -66,13 +66,41 @@ public class ClientAccount extends ScopedEntity {
 	@Column(name = "last_sign_in_at")
 	private Instant lastSignInAt;
 
+	/**
+	 * Where this row came from — {@code SEED}, {@code SIGNUP} or {@code STAFF} (V59).
+	 *
+	 * <p><strong>It exists for one reader: {@code PORTAL_CLEANUP}.</strong> A seeded client and an
+	 * abandoned self-signup are indistinguishable on every other column — null password, a linked
+	 * contact, a null {@code last_sign_in_at} — so a sweep that deletes the second would have
+	 * deleted the first, which is the whole seeded backlog and the exact failure V45 exists to
+	 * prevent. Review caught it before it shipped.
+	 *
+	 * <p><strong>Defaults to {@code SEED}, which is the value nothing deletes.</strong> A writer
+	 * that forgets to set this gets a row that survives rather than one that quietly qualifies.
+	 */
+	@Column(name = "created_via", nullable = false)
+	private String createdVia = "SEED";
+
 	protected ClientAccount() {
 		// for JPA
 	}
 
 	public ClientAccount(UUID brandId, String email) {
+		this(brandId, email, "SEED");
+	}
+
+	/**
+	 * @param createdVia {@code SIGNUP} for a self-service sign-up — the only value
+	 *                   {@code PORTAL_CLEANUP} will ever delete. See {@link #createdVia}.
+	 */
+	public ClientAccount(UUID brandId, String email, String createdVia) {
 		super(brandId);
 		this.email = email;
+		this.createdVia = createdVia;
+	}
+
+	public String getCreatedVia() {
+		return createdVia;
 	}
 
 	/** Whether this account can be signed into with a password today. */

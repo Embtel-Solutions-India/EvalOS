@@ -105,7 +105,7 @@ public class PortalCleanupSweep implements Sweep {
 	private boolean purge(Target target) {
 		Instant now = Instant.now();
 		long removed = switch (target) {
-			case EXPIRED_CREDENTIALS -> credentials.deleteByExpiresAtBefore(now.minus(credentialTtl));
+			case EXPIRED_CREDENTIALS -> credentials.deleteExpiredBefore(now.minus(credentialTtl));
 			case ABANDONED_SIGN_UPS -> accounts.deleteAbandonedSignUps(now.minus(abandonedAfter));
 		};
 		if (removed > 0) {

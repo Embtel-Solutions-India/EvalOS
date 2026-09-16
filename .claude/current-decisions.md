@@ -40,10 +40,19 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
   `attributionSource`, `utmSource`, `utmMedium` or `campaign`, and GHL fills those only from its own
   form and funnel tracking. The documented `source` string is the whole of what provenance can be.
   Every caller of `upsertContact` names itself. Spec `52` §8.3.
+- **D3f.** **`created_via` (V59) is what makes `PORTAL_CLEANUP` safe to run.** Only
+  `created_via = 'SIGNUP'` rows are ever deleted. Without it the predicate ("no password, old
+  enough") also described every client `V45` seeded — real clients, no password until their first
+  login — so the sweep would have deleted the whole seeded backlog 30 days after that migration.
+  Found in review before it shipped. The column defaults to `SEED`, the value nothing touches.
 - **D3c.** A missing `ghl_contact_id` is **backfilled at the moment one is needed**, not refused
   earlier. A GHL outage during set-password does not lock a client out of their own account; it
   defers the contact to the first request, where `ClientApplicationService` creates it instead of
   returning silently. This also covers `V45` accounts seeded from snapshots that carried no id.
+  **`identify` repairs it too, and that one is load-bearing:** with the `ghl` transport an account
+  with no contact cannot be mailed, so it can never set a password, so it could never reach the
+  sign-in or set-password repair points — a client stuck on `MAIL_UNAVAILABLE` for ever with
+  forgot-password silently doing nothing. Review found it.
 - **D4.** Signup never signs anyone in. It returns a state; control of the mailbox is proved by
   the set-password link. Signing up with a known email creates nothing and cannot overwrite.
 - **D5.** Sign-in creates no contact and no account.

@@ -67,9 +67,10 @@ evalos:
     #
     # **Thirty days, and generous on purpose.** This is the window in which a real client who
     # signed up, never opened the mail and came back still finds their own row instead of being
-    # told "we couldn't find that email" for a second time. Only rows with NO password and NO GHL
-    # contact are eligible, and the sweep skips any that acquired a token, an application or a
-    # session — so shortening this tidies the table and costs a returning client; it protects
+    # told "we couldn't find that email" for a second time. **Only self-service sign-ups are
+    # eligible** (`created_via = 'SIGNUP'`, V59) with no password set, and the sweep skips any that
+    # acquired a token, an application or a session. A client seeded by V45 is never touched at any
+    # cutoff — so shortening this tidies the table and costs a returning client; it protects
     # nothing extra.
     abandoned-sign-up-after: ${EVALOS_PORTAL_ABANDONED_AFTER:30d}
   s3:

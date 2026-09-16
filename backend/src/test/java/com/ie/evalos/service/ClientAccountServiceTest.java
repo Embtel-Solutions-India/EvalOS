@@ -525,9 +525,14 @@ class ClientAccountServiceTest {
 				.willReturn(new GhlWriteClient.UpsertedContact("ghl-1", "Ana Okafor",
 						"ana@example.com", "+15550100"));
 		// Absent before the insert, present after it — identify() re-reads through the same finder.
+		// Absent before the insert; afterwards it is the row signUp wrote, contact and all — a
+		// fresh unlinked instance here would make identify() upsert a second time, which is the
+		// database's behaviour nowhere and would hide a real double-write.
+		ClientAccount persisted = new ClientAccount(BRAND, "ana@example.com", "SIGNUP");
+		persisted.linkGhlContact("ghl-1");
 		given(accounts.findByBrandIdAndEmailIgnoreCase(BRAND, "ana@example.com"))
 				.willReturn(Optional.empty())
-				.willReturn(Optional.of(new ClientAccount(BRAND, "ana@example.com")));
+				.willReturn(Optional.of(persisted));
 
 		assertThat(service.signUp("ana@example.com", "Ana", "Okafor", "+15550100"))
 				.isEqualTo(ClientAccountService.IdentifyState.NO_PASSWORD);
@@ -605,11 +610,42 @@ class ClientAccountServiceTest {
 				.willReturn(new GhlWriteClient.UpsertedContact("ghl-1", null, "ana@example.com", null));
 		given(accounts.saveAndFlush(any()))
 				.willThrow(new org.springframework.dao.DataIntegrityViolationException("duplicate key"));
+		// The winner's row, as the database would hand it back: it ran ensureCrmIdentity before
+		// saving, so it carries a contact. A blank instance here would make the loser repair a row
+		// that needs no repair, which is a state the race cannot actually produce.
+		ClientAccount winner = new ClientAccount(BRAND, "ana@example.com", "SIGNUP");
+		winner.linkGhlContact("ghl-1");
 		given(accounts.findByBrandIdAndEmailIgnoreCase(BRAND, "ana@example.com"))
 				.willReturn(Optional.empty())
-				.willReturn(Optional.of(new ClientAccount(BRAND, "ana@example.com")));
+				.willReturn(Optional.of(winner));
 
 		assertThat(service.signUp("ana@example.com", null, null, null))
+				.isEqualTo(ClientAccountService.IdentifyState.NO_PASSWORD);
+	}
+
+	/**
+	 * The repair is best-effort and must never reach the client as a 500.
+	 *
+	 * <p>{@code identify} is unauthenticated and {@code forgot-password} answers 204 whether or not
+	 * the address is known — a write failing inside either, on a path that exists only to fix up a
+	 * missing CRM link, must not turn into a status code. On forgot-password it would be an
+	 * enumeration oracle: 500 for a known address beside 204 for an unknown one.
+	 */
+	@Test
+	void aFailedCrmRepairDoesNotBreakIdentify() {
+		given(mailer.canReach(any())).willReturn(true);
+		given(mailer.sendSetPassword(any(), any())).willReturn(true);
+		given(credentials.save(any())).willAnswer(call -> call.getArgument(0));
+		given(ghlContacts.upsertContact(any(), any(), any(), any(), any()))
+				.willReturn(new GhlWriteClient.UpsertedContact("ghl-1", null, "ana@example.com", null));
+		given(accounts.saveAndFlush(any()))
+				.willThrow(new org.springframework.dao.DataIntegrityViolationException("write failed"));
+		// A seeded account with no contact — the state that made a client permanently unmailable
+		// until identify learned to repair it.
+		given(accounts.findByBrandIdAndEmailIgnoreCase(BRAND, "ana@example.com"))
+				.willReturn(Optional.of(new ClientAccount(BRAND, "ana@example.com")));
+
+		assertThat(service.identify("ana@example.com"))
 				.isEqualTo(ClientAccountService.IdentifyState.NO_PASSWORD);
 	}
 }

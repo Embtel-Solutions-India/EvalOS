@@ -61,11 +61,19 @@ public interface ClientAccountRepository extends ScopedRepository<ClientAccount>
 	 * created there again, a flood also leaves contacts behind. This deletes the EvalOS side of
 	 * that: <em>no password</em> (never proved the mailbox) and older than the cutoff.
 	 *
-	 * <p><strong>{@code ghl_contact_id} is deliberately NOT in the predicate any more.</strong> It
-	 * was, while D3a held the contact back to set-password — and it would now match nothing at all,
-	 * because every sign-up gets a contact before the mail. A condition that silently stops
-	 * selecting anything is worse than no sweep: the table grows and the ledger reports a healthy
-	 * job doing it.
+	 * <p><strong>{@code created_via = 'SIGNUP'} is what makes this safe, and review is why it is
+	 * here.</strong> The predicate was {@code password_hash is null and created_at < cutoff}, which
+	 * is also an exact description of every client {@code V45} seeded — real clients, copied out of
+	 * {@code contact_snapshot} with a null password, holding no token, no application and no
+	 * session, so all three clauses below pass for them too. Thirty days after V45 ran, this would
+	 * have deleted the entire seeded backlog and told each of those people "we couldn't find that
+	 * email".
+	 *
+	 * <p>{@code ghl_contact_id is null} was the guard until D3d, and it stopped working the moment
+	 * the contact moved back to sign-up — it would now match nothing at all, which is worse than no
+	 * sweep: the table grows while the ledger reports a healthy job doing it. Neither condition
+	 * could tell the two rows apart, because on the data they are not different. V59 makes them
+	 * different.
 	 *
 	 * <p><strong>The GHL contact is left alone, and that is not an oversight.</strong> GHL owns
 	 * contact identity (invariant 7) and a contact may by now carry a note, a tag or an
@@ -91,7 +99,8 @@ public interface ClientAccountRepository extends ScopedRepository<ClientAccount>
 	@org.springframework.transaction.annotation.Transactional
 	@Query(nativeQuery = true, value = """
 			delete from client_account a
-			 where a.password_hash is null
+			 where a.created_via = 'SIGNUP'
+			   and a.password_hash is null
 			   and a.created_at < :cutoff
 			   and not exists (select 1 from client_credential_token t where t.client_account_id = a.id)
 			   and not exists (select 1 from client_application p where p.client_account_id = a.id)
