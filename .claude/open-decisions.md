@@ -15,7 +15,10 @@ person overwrites the first lead's name and value. The other three write paths u
 `createOpportunity`.
 _Recommend:_ keep upsert for a genuine marketing _lead_ capture and document it as the one
 exception; switch it if Marketing ever needs two live enquiries from one person.
-_Gates:_ nothing today. Decide before Unit 46 moves the desks onto the mirror.
+_Gates:_ **the gate moved on 2026-09-17.** It read "decide before Unit 46 moves the desks onto
+the mirror". Unit 46 moved the desks' _edits_ and left _creates_ calling GHL inline (D46) — and
+upsert lives in `openLead`, which is a create. Nothing in 46 turned on the answer, so the question
+is now gated on whichever unit moves creates onto the queue.
 
 ## Blocking the portals
 

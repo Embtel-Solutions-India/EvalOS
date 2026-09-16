@@ -3,6 +3,8 @@ package com.ie.evalos.service;
 import java.math.BigDecimal;
 
 import com.ie.evalos.common.InvalidRequestException;
+import com.ie.evalos.domain.Opportunity;
+import com.ie.evalos.domain.SyncOutboxEntry;
 import com.ie.evalos.integration.GhlWriteClient;
 
 import org.springframework.stereotype.Service;
@@ -29,10 +31,15 @@ public class MarketingLeadService {
 
 	private final GhlWriteClient ghl;
 	private final PipelineScope scope;
+	private final OpportunityMirrorService deals;
+	private final SyncOutboxService outbox;
 
-	MarketingLeadService(GhlWriteClient ghl, PipelineScope scope) {
+	MarketingLeadService(GhlWriteClient ghl, PipelineScope scope, OpportunityMirrorService deals,
+			SyncOutboxService outbox) {
 		this.ghl = ghl;
 		this.scope = scope;
+		this.deals = deals;
+		this.outbox = outbox;
 	}
 
 	/**
@@ -74,11 +81,17 @@ public class MarketingLeadService {
 	 * has the field, so a parallel EvalOS estimate would be two numbers that disagree.
 	 */
 	public Lead value(String opportunityId, String name, BigDecimal monetaryValue) {
-		String pipelineId = scope.requireMine(opportunityId);
+		scope.requireMine(opportunityId);
 
-		GhlWriteClient.UpsertedOpportunity updated = ghl.updateOpportunity(opportunityId, pipelineId, name,
-				monetaryValue, null);
-		return new Lead(updated.contactId(), updated.id(), updated.name(), updated.monetaryValue(), false);
+		// Unit 46: the mirror is written and the push is queued, exactly as on the sales desk.
+		// `openLead` above is deliberately NOT on this path — it is a create, and the outbox stores
+		// an id rather than a payload, so a create's extra fields have nowhere to ride.
+		Opportunity row = deals.editLocally(opportunityId, name, monetaryValue, null, null)
+				.orElseThrow(() -> new InvalidRequestException(
+						"That lead is not in the mirror yet, so it cannot be edited here. It arrives "
+								+ "with the next sync — run the MIRROR_DELTA job to pull it now."));
+		outbox.enqueue(row.getBrandId(), row.getId(), SyncOutboxEntry.Intent.UPSERT);
+		return new Lead(row.getGhlContactId(), row.getGhlId(), row.getName(), row.getAmount(), false);
 	}
 
 }

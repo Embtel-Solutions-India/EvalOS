@@ -55,3 +55,7 @@ on 2026-09-17) and carries it into `case_document` at Handoff A over the same S3
 `opportunity.create|created|update|updated|stage_changed|status_changed` → re-read
 `forContact` → `absorbForContact`. `opportunity.won` stays Handoff A alone. `MIRROR_DELTA` (15m)
 re-reads only pipelines nobody has looked at inside `evalos.ghl.delta-ttl`.
+
+**Desk writes (46, 2026-09-17).** Edits — `update`, `moveToStage`, `close`, Marketing's `value` —
+are `editLocally` + `enqueue(UPSERT|CLOSE)` and return the local row. Creates — `createDeal`,
+`openLead` — still call GHL inline. Boards call GHL **never**.

@@ -5,6 +5,7 @@ import com.ie.evalos.service.OpportunityBoardService;
 
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -39,5 +40,24 @@ public class OpportunityBoardController {
 	@PreAuthorize("hasAnyRole('SALES', 'MARKETING', 'GM')")
 	public ApiResponse<OpportunityBoardService.Board> board() {
 		return ApiResponse.ok(board.forCaller());
+	}
+
+	/**
+	 * Sync the mirror for this caller's pipelines, then answer with the board.
+	 *
+	 * <p><strong>A reconciliation, not a live read</strong>, and the difference is the point of
+	 * Unit 46: an ordinary load draws EvalOS rows and this brings those rows forward first. The
+	 * board never reads GHL on a render, with or without this route.
+	 *
+	 * <p><strong>POST because it writes.</strong> It updates the mirror — that is a side effect, and
+	 * a GET that changes rows is one a browser or a proxy will happily repeat.
+	 *
+	 * <p>Returns the drawn board rather than an acknowledgement, so the screen replaces its state in
+	 * one round trip instead of refreshing and then re-reading.
+	 */
+	@PostMapping("/board/refresh")
+	@PreAuthorize("hasAnyRole('SALES', 'MARKETING', 'GM')")
+	public ApiResponse<OpportunityBoardService.Board> refresh() {
+		return ApiResponse.ok(board.syncNow());
 	}
 }

@@ -113,7 +113,7 @@ env vars) **beats** `backend/config/application-local.yml` **beats** `applicatio
 classpath. `backend/config/` is gitignored and is where a real GHL token goes.
 
 Key settings: `evalos.ghl.{location-id, token, sales-brand, opportunity-service-field,
-opportunity-correlation-field, board-cache-ttl, delta-ttl}` (`intake-pipeline-name` is retired — Unit 44b, D10b; the two funnel
+opportunity-correlation-field, board-stale-after, delta-ttl}` (`intake-pipeline-name` is retired — Unit 44b, D10b; the two funnel
 screens took `sales-pipeline-name` and `email-pipeline-name` with them), `evalos.mail.transport`, `evalos.portal.{client-brand, client-base-url,
 expert-base-url, allowed-origins, credential-ttl}`, `evalos.s3.{bucket, region}`,
 `evalos.security.jwt.secret`, `evalos.field-key`, `SALES_MONTHLY_GOAL`.

@@ -140,14 +140,21 @@ Everything else in the chain exists.
 
 ## 3. Contact and opportunity write semantics
 
-### CURRENT IMPLEMENTATION — four paths, three different verbs
+### CURRENT IMPLEMENTATION — four create paths, three verbs; every *edit* is queued
+
+**Creates still call GHL inline** (D46):
 
 | Path | Contact | Opportunity | Effect on a repeat client |
 |---|---|---|---|
-| `ClientAccountService.signUp` | `upsertContact` | none | reuses the contact |
-| `ClientApplicationService.start` | — (uses the account's) | **`createOpportunity`** | **new opportunity, same contact** |
-| `SalesDeskService.newDeal` | `upsertContact` | **`createOpportunity`** | new opportunity; refuses a second open deal unless confirmed |
-| `MarketingLeadService.capture` | `upsertContact` | **`upsertOpportunity`** | **reuses the open opportunity on that pipeline** |
+| `ClientAccountService.signUp` | none (D3d) | none | — |
+| `ClientApplicationService.submit` | `upsertContact` if missing (D3c) | **`createOpportunity`** | **new opportunity, same contact** |
+| `SalesDeskService.createDeal` | `upsertContact` | **`createOpportunity`** | new opportunity; refuses a second open deal unless confirmed |
+| `MarketingLeadService.openLead` | `upsertContact` | **`upsertOpportunity`** | **reuses the open opportunity on that pipeline** |
+
+**Edits do not call GHL at all** (D44, Unit 46). `SalesDeskService.update` / `moveToStage` /
+`close` and `MarketingLeadService.value` each edit the mirror row, stamp `local_updated_at`, queue
+`UPSERT` or `CLOSE`, and answer from the row. `SYNC_OUTBOX` (2m) sends it; a successful push calls
+`pushedToGhl()`, which clears the stamp so 45e stops defending an edit GHL now has.
 
 `upsertOpportunity` means one open opportunity per contact per pipeline. It is correct for a
 marketing lead and would be wrong for a second sale.

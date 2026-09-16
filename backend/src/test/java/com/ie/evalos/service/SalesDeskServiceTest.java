@@ -7,6 +7,7 @@ import com.ie.evalos.common.DuplicateDealException;
 import com.ie.evalos.common.ForbiddenException;
 import com.ie.evalos.common.InvalidRequestException;
 import com.ie.evalos.domain.Role;
+import com.ie.evalos.domain.SyncOutboxEntry;
 import com.ie.evalos.integration.GhlWriteClient;
 import com.ie.evalos.security.StaffPrincipal;
 
@@ -38,11 +39,15 @@ class SalesDeskServiceTest {
 	private static final String MINE = "pipe_mine";
 	private static final String OPPORTUNITY = "opp_1";
 
+	private static final UUID PIPELINE_ROW = UUID.randomUUID();
+
 	private final GhlWriteClient ghl = mock(GhlWriteClient.class);
 	private final OpportunityMirrorService deals = mock(OpportunityMirrorService.class);
+	private final SyncOutboxService outbox = mock(SyncOutboxService.class);
 	private final com.ie.evalos.repository.FollowUpRepository followUps =
 			mock(com.ie.evalos.repository.FollowUpRepository.class);
-	private final SalesDeskService desk = new SalesDeskService(ghl, new PipelineScope(deals), deals, followUps);
+	private final SalesDeskService desk =
+			new SalesDeskService(ghl, new PipelineScope(deals), deals, outbox, followUps);
 
 	private void authenticateAsSales(String pipelineId) {
 		StaffPrincipal principal = new StaffPrincipal(UUID.randomUUID(), "sales@ie.test", "Desk",
@@ -58,6 +63,29 @@ class SalesDeskServiceTest {
 
 	private void givenItIsMine() {
 		when(deals.isOnPipeline(OPPORTUNITY, MINE)).thenReturn(true);
+	}
+
+	/**
+	 * The mirror row the desk edits — <strong>a real entity, not a mock</strong>, so these tests
+	 * exercise {@code editedLocally}'s "null means leave it alone" rather than a stub's idea of it.
+	 */
+	private com.ie.evalos.domain.Opportunity mirrored() {
+		com.ie.evalos.domain.Opportunity row =
+				new com.ie.evalos.domain.Opportunity(BRAND, OPPORTUNITY, PIPELINE_ROW);
+		org.springframework.test.util.ReflectionTestUtils.setField(row, "id", UUID.randomUUID());
+		row.syncFromGhl("c1", PIPELINE_ROW, "s1", "Acme", new BigDecimal("1200"), "open", null, null,
+				null, null, null, null);
+		return row;
+	}
+
+	/** Unit 46: the desk edits the mirror and queues the push, so that is what the stub does. */
+	private void givenTheMirrorHasIt() {
+		when(deals.editLocally(eq(OPPORTUNITY), any(), any(), any(), any())).thenAnswer((call) -> {
+			com.ie.evalos.domain.Opportunity row = mirrored();
+			row.editedLocally(call.getArgument(1), call.getArgument(2), call.getArgument(3),
+					call.getArgument(4));
+			return java.util.Optional.of(row);
+		});
 	}
 
 	private static GhlWriteClient.UpsertedOpportunity answer(String status) {
@@ -146,16 +174,39 @@ class SalesDeskServiceTest {
 		verify(ghl, never()).createOpportunity(any(), any(), any(), any(), any(), any(), any());
 	}
 
+	/**
+	 * <strong>Unit 46: the mirror is written, the push is queued, and GHL is not called.</strong>
+	 * The salesperson sees the new value from local state; the drain sends it within two minutes.
+	 */
 	@Test
-	void updatesTheNameAndValueOnTheCallersOwnPipeline() {
+	void updatingWritesTheMirrorAndQueuesThePushWithoutCallingGhl() {
 		authenticateAsSales(MINE);
 		givenItIsMine();
-		when(ghl.updateOpportunity(any(), any(), any(), any(), any())).thenReturn(answer("open"));
+		givenTheMirrorHasIt();
 
-		SalesDeskService.Deal deal = desk.update(OPPORTUNITY, "Acme", new BigDecimal("1200"));
+		SalesDeskService.Deal deal = desk.update(OPPORTUNITY, "Renamed", new BigDecimal("1500"));
 
-		verify(ghl).updateOpportunity(OPPORTUNITY, MINE, "Acme", new BigDecimal("1200"), null);
-		assertThat(deal.monetaryValue()).isEqualByComparingTo("1200");
+		assertThat(deal.name()).isEqualTo("Renamed");
+		assertThat(deal.monetaryValue()).isEqualByComparingTo("1500");
+		verify(outbox).enqueue(eq(BRAND), any(), eq(SyncOutboxEntry.Intent.UPSERT));
+		verify(ghl, never()).updateOpportunity(any(), any(), any(), any(), any());
+	}
+
+	/**
+	 * A deal GHL knows and the mirror has not absorbed yet is refused with the fix named, rather
+	 * than queueing a push for an entity id the drain could not resolve.
+	 */
+	@Test
+	void aDealTheMirrorHasNotAbsorbedYetIsRefusedRatherThanQueued() {
+		authenticateAsSales(MINE);
+		givenItIsMine();
+		when(deals.editLocally(any(), any(), any(), any(), any())).thenReturn(java.util.Optional.empty());
+
+		assertThatThrownBy(() -> desk.update(OPPORTUNITY, "Renamed", null))
+				.isInstanceOf(InvalidRequestException.class)
+				.hasMessageContaining("not in the mirror yet");
+
+		verify(outbox, never()).enqueue(any(), any(), any());
 	}
 
 	/** An update that changes nothing is a mistake worth naming, not a no-op write to GHL. */
@@ -167,18 +218,19 @@ class SalesDeskServiceTest {
 		assertThatThrownBy(() -> desk.update(OPPORTUNITY, "  ", null))
 				.isInstanceOf(InvalidRequestException.class);
 
-		verify(ghl, never()).updateOpportunity(any(), any(), any(), any(), any());
+		verify(outbox, never()).enqueue(any(), any(), any());
 	}
 
 	@Test
 	void movesADealToAnotherStageOfItsOwnPipeline() {
 		authenticateAsSales(MINE);
 		givenItIsMine();
-		when(ghl.moveStage(any(), any(), any())).thenReturn(answer("open"));
+		givenTheMirrorHasIt();
 
-		desk.moveToStage(OPPORTUNITY, "s2");
+		assertThat(desk.moveToStage(OPPORTUNITY, "s2").stageId()).isEqualTo("s2");
 
-		verify(ghl).moveStage(OPPORTUNITY, MINE, "s2");
+		verify(outbox).enqueue(eq(BRAND), any(), eq(SyncOutboxEntry.Intent.UPSERT));
+		verify(ghl, never()).moveStage(any(), any(), any());
 	}
 
 	/**
@@ -192,12 +244,13 @@ class SalesDeskServiceTest {
 	void thereIsNoWayToMoveADealToAnotherPipeline() {
 		authenticateAsSales(MINE);
 		givenItIsMine();
-		when(ghl.moveStage(any(), any(), any())).thenReturn(answer("open"));
+		givenTheMirrorHasIt();
 
 		desk.moveToStage(OPPORTUNITY, "s2");
 
-		verify(ghl).moveStage(OPPORTUNITY, MINE, "s2");
-		verify(ghl, never()).moveStage(any(), eq("pipe_theirs"), any());
+		// The edit names a stage and nothing else — there is no pipeline argument to pass, here or
+		// on the queued push, which reads the row's own pipeline.
+		verify(deals).editLocally(OPPORTUNITY, null, null, "s2", null);
 	}
 
 	@ParameterizedTest
@@ -205,9 +258,10 @@ class SalesDeskServiceTest {
 	void closesADealWithAnyRealOutcome(String status) {
 		authenticateAsSales(MINE);
 		givenItIsMine();
-		when(ghl.setStatus(any(), any(), any())).thenReturn(answer(status));
+		givenTheMirrorHasIt();
 
 		assertThat(desk.close(OPPORTUNITY, status).status()).isEqualTo(status);
+		verify(outbox).enqueue(eq(BRAND), any(), eq(SyncOutboxEntry.Intent.CLOSE));
 	}
 
 	/**
@@ -222,12 +276,14 @@ class SalesDeskServiceTest {
 	void winningDoesNotCreateACase() {
 		authenticateAsSales(MINE);
 		givenItIsMine();
-		when(ghl.setStatus(any(), any(), any())).thenReturn(answer("won"));
+		givenTheMirrorHasIt();
 
 		desk.close(OPPORTUNITY, "won");
 
-		verify(ghl).setStatus(OPPORTUNITY, MINE, "won");
-		// Nothing else happened: no second write, no local creation.
+		// Unit 46: the win becomes a local status plus one queued CLOSE. The webhook is still what
+		// creates the case — the queue changes when GHL hears, never who opens custody.
+		verify(outbox).enqueue(eq(BRAND), any(), eq(SyncOutboxEntry.Intent.CLOSE));
+		verify(ghl, never()).setStatus(any(), any(), any());
 		verify(ghl, never()).upsertOpportunity(any(), any(), any(), any());
 		verify(ghl, never()).upsertContact(any(), any(), any(), any(), any());
 	}
@@ -249,7 +305,7 @@ class SalesDeskServiceTest {
 				.isInstanceOf(InvalidRequestException.class)
 				.hasMessageContaining("won, lost, abandoned");
 
-		verify(ghl, never()).setStatus(any(), any(), any());
+		verify(outbox, never()).enqueue(any(), any(), any());
 	}
 
 	@Test
@@ -293,8 +349,8 @@ class SalesDeskServiceTest {
 		assertThatThrownBy(() -> desk.followUp("opp_theirs", "c1", "Call", "2026-09-18T09:00:00Z", null, null))
 				.isInstanceOf(ForbiddenException.class);
 
-		verify(ghl, never()).updateOpportunity(any(), any(), any(), any(), any());
-		verify(ghl, never()).setStatus(any(), any(), any());
+		verify(outbox, never()).enqueue(any(), any(), any());
+		verify(deals, never()).editLocally(any(), any(), any(), any(), any());
 		verify(ghl, never()).createFollowUp(any(), any(), any(), any(), any(), any(), any());
 	}
 

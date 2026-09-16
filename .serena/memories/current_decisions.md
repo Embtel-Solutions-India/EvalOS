@@ -1,6 +1,6 @@
 # Current decisions
 
-**The authoritative file is `.claude/current-decisions.md` (43 numbered decisions). Read it.**
+**The authoritative file is `.claude/current-decisions.md` (46 numbered decisions). Read it.**
 
 The ones most often violated from memory:
 
@@ -130,3 +130,15 @@ and the flag clears on a GHL win or on `linkGhl`. A null `ghl_updated_at` is a c
 there is an edit to defend**. And **a drift row is never resolved by a button** — the surface
 answers *will this fix itself* with `owner`/`resolution`/`needsAHuman`, and only a row GHL no longer
 returns needs a person.
+
+**D44/D45/D46 (2026-09-17, Unit 46).** A desk **edit** writes the mirror and queues the push — it
+does not call GHL, and it answers from the row. A **board** reads EvalOS rows and makes no GHL
+request at all. A **create** still calls GHL inline, because the outbox stores an id and never a
+payload and a create carries custom fields the mirror does not hold (tier 2, Unit 47). The four
+editable fields are exactly 45e's shared set — the assignee is missing on purpose, it is GHL's.
+**Known cost**: a won deal reaches GHL on the next drain (≤2m), so the case arrives later than it
+used to; a win surviving an outage is worth more than the two minutes.
+**The board's freshness contract**: `MIRROR_DELTA` every 5m; `lastSyncedAt` null = never synced
+(never faked as "now") and counts as stale; `board-stale-after` **5m** (one missed pass) draws a "Sync delayed" banner;
+`POST /api/opportunities/board/refresh` reconciles the mirror and then draws from it — it is never
+a live board read.

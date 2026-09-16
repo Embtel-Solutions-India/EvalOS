@@ -214,12 +214,22 @@ public class SyncOutboxService {
 			return;
 		}
 		switch (entry.getIntent()) {
+			// **The stage travels as of Unit 46**, where a desk's stage move became a local edit
+			// plus a queued push. It was null while the only queued writes were the portal's,
+			// which set no stage on purpose (D11) — but this intent's contract is "make GHL agree
+			// with the EvalOS row", and a push that left one of the row's four shared fields behind
+			// made that false, and would have left the next audit reporting drift EvalOS caused.
 			case UPSERT -> ghl.updateOpportunity(row.getGhlId(), ghlPipelineOf(row), row.getName(),
-					row.getAmount(), null);
+					row.getAmount(), row.getGhlStageId());
 			case CLOSE -> ghl.setStatus(row.getGhlId(), ghlPipelineOf(row),
 					row.getStatus() == null ? "won" : row.getStatus());
 			case DELETE -> throw new IllegalStateException("DELETE is not implemented; no caller queues it");
 		}
+		// GHL now holds what the row holds, so there is no unconfirmed edit left for 45e to defend.
+		// Skipping this would leave a desk-edited row defending itself for ever against a location
+		// whose `updatedAt` comes back null — see Opportunity.pushedToGhl.
+		row.pushedToGhl();
+		opportunities.save(row);
 	}
 
 	/**

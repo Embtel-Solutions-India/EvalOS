@@ -333,13 +333,22 @@ evalos:
     # Blank means no brand may hold a pipeline-scoped role, which is the safe default for an
     # environment that has not been told which brand sells.
     sales-brand: ${GHL_SALES_BRAND_ID:}
-    # How long a cached pipeline is considered fresh before the next board read refetches it
-    # (Unit 38). Short, because a board is an operational screen and a salesperson dragging a
-    # card expects to see it move; long enough that a room full of open boards is not a room
-    # full of GHL calls against the 100-per-10-seconds-per-location budget.
+    # When a board tells its reader the mirror has not been confirmed against GHL lately
+    # (Unit 46). **This is not a refresh trigger** — the board makes no GHL request at all any
+    # more, so nothing acts on it; it is a label.
     #
-    # The cache is droppable: raising this trades freshness for requests and nothing else.
-    board-cache-ttl: ${GHL_BOARD_CACHE_TTL:2m}
+    # 5 minutes — one missed sweep, set by the business on 2026-09-17 over a proposed 15. The
+    # reasoning for the shorter number: this is the only thing telling a salesperson that new GHL
+    # leads have stopped arriving, and being told one cycle late is the point of having it.
+    #
+    # **Known consequence, so it is not a surprise later:** the threshold equals the sweep interval,
+    # so the mirror's age reaches it just as the next pass is due — a pass that runs a few seconds
+    # long, or starts late, will show "Sync delayed" briefly before clearing itself. That is the
+    # trade for a one-cycle warning. If the blink becomes noise, raise this to 6m rather than
+    # slowing the sweep, because the sweep interval is the thing a reader actually feels.
+    #
+    # It replaced `board-cache-ttl`, which was the TTL of a refill-on-read that Unit 46 deleted.
+    board-stale-after: ${GHL_BOARD_STALE_AFTER:5m}
     # How stale a pipeline nobody is looking at may get before the MIRROR_DELTA sweep re-reads it
     # (Unit 45d). Deliberately SHORTER than that sweep's interval: the TTL is the freshness
     # promised, the interval is how often it is checked, and a TTL equal to the interval would
@@ -348,7 +357,11 @@ evalos:
     # Nothing in it is a delta: GHL's opportunity search filters on createdAt and has no
     # updated-since filter at all, so "delta" here means a stale PIPELINE, never a changed row.
     # Webhooks are what make a change current within seconds; this is the floor under them.
-    delta-ttl: ${GHL_MIRROR_DELTA_TTL:10m}
+    #
+    # 4 minutes under a 5-minute sweep (2026-09-17): the board reads the mirror and nothing else,
+    # so this TTL is the only thing deciding how old a pipeline may be, and a TTL at or above the
+    # interval would let clock jitter skip a pass and silently double the age.
+    delta-ttl: ${GHL_MIRROR_DELTA_TTL:4m}
     # Connect and read timeout on each GHL request. Required because this runs in a
     # controller-triggered path, and a bound is what keeps it "one bounded request" rather than
     # long-lived work (invariant 6). The read is paginated, so the bound is per page and not for
@@ -400,7 +413,12 @@ evalos:
       # staleness the nightly audit would otherwise report as drift, and the pipeline-scope check
       # (`isOnPipeline`) would otherwise answer from — a deal moved to another rep's board stays
       # authorised here until something re-reads it, and within a working day is the bar.
-      MIRROR_DELTA: ${JOBS_MIRROR_DELTA_INTERVAL:15m}
+      # **5 minutes as of 2026-09-17, and the board is why.** Unit 46 took the refill off the
+      # request path, so this sweep and the webhooks are now the ONLY things that put a new GHL
+      # lead in front of a salesperson. Fifteen minutes was a floor under webhooks; five is a
+      # cadence somebody waits on. It is still cheap: refreshIfStale is a no-op inside `delta-ttl`,
+      # and the manual Refresh button on the board covers the case of not wanting to wait at all.
+      MIRROR_DELTA: ${JOBS_MIRROR_DELTA_INTERVAL:5m}
       # Portal cleanup (expired credential tokens, abandoned sign-ups). **Daily, and the slowness
       # is deliberate**: nothing downstream reads these rows, so the only thing an hourly pass
       # would buy is a slightly smaller table and 24x the ledger rows a GM reads past. It is also

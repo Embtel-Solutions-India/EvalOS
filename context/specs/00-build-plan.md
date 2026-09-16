@@ -826,9 +826,30 @@ has not confirmed, and a null `ghl_updated_at` is a conflict — but only when t
 defend. The drift surface gained `owner`/`resolution`/`needsAHuman`; there is still no resolve
 button. No migration.
 
-**Unit 45 is COMPLETE.** **The desks still write to GHL synchronously** — moving them onto the
-outbox is Unit 46, and until that lands 45e's rules are largely latent.
+**Unit 45 is COMPLETE.**
 Depends on: 44. Hands to: 46.
+
+---
+
+## Unit 46 - The desks move onto the mirror
+
+**BUILT 2026-09-17.** `46-desks-on-the-mirror.md`.
+
+**The read half is a deletion**: `OpportunityBoardService` no longer refills from GHL on every
+load, so a board is EvalOS rows and nothing else — `00c` §3's headline for this unit. 45d's
+webhooks and `MIRROR_DELTA` are what made the refill removable. `board-cache-ttl` became
+`board-stale-after`, a label rather than a trigger.
+
+**The write half inverts the desk**: rename, re-price, stage move and close edit the mirror row,
+queue `UPSERT`/`CLOSE`, and answer from the row — no GHL call on the request path. The four
+editable fields are exactly 45e's shared set, so the edit is defended until the drain confirms it.
+
+**Creates stay inline** (D46): the outbox stores an id and never a payload, and a desk create
+carries custom fields the mirror does not hold — which is tier 2, and Unit 47's.
+
+**The cost, stated**: a won deal reaches GHL on the next drain, so the case arrives up to two
+minutes later than it used to. What it buys is that a win survives a GHL outage.
+Depends on: 45. Hands to: 48.
 
 ---
 

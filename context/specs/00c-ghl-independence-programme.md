@@ -171,7 +171,7 @@ Sequenced by whether a consumer exists today (§3) — that is ordering, not sco
 | **43** | Get Started intake funnel — **BUILT 2026-09-15** | the application and its answers (`V49`), and a GHL opportunity on the intake pipeline **with no stage and no assignee**. **Not** documents, and **not** `pipeline`/`pipeline_stage` — see below | 42, 37 |
 | **44** | The tier-1 mirror | `pipeline`, `pipeline_stage`, `contact`, `opportunity`; replaces `CachedOpportunity` | 43 |
 | **45** | The sync engine | webhooks + delta sweep + nightly audit + outbox + drift report | 44 |
-| **46** | The desks move onto the mirror | Sales and Marketing boards read EvalOS rows, never GHL | 45 |
+| **46** | The desks move onto the mirror — **BUILT 2026-09-17** | Sales and Marketing boards read EvalOS rows, never GHL; every desk *edit* is a local write plus a queued push. Creates stay inline (D46) | 45 |
 | **47** | Tier-2 and tier-3 mirror | custom fields, tags, notes, tasks, calendars | 45 |
 | **48** | The switch | `evalos.ghl.sync.enabled=false` runs the whole business | 46, 47 |
 | **49** | Invoicing | **the expensive one.** Reverses invariant 2's surviving half | 48, and a finance decision |

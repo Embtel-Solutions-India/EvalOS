@@ -234,7 +234,7 @@ evalos:
     # carries a default here for the same reason `location-id` and the three pipeline names do.
     # `db/seed-local/V908` seeds the five logins that depend on this being set.
     sales-brand: ${GHL_SALES_BRAND_ID:11111111-1111-1111-1111-111111111111}
-    board-cache-ttl: ${GHL_BOARD_CACHE_TTL:2m}
+    board-stale-after: ${GHL_BOARD_STALE_AFTER:5m}
     # Connect and read timeout on each GHL request. Required because this runs in a
     # controller-triggered path, and a bound is what keeps it "one bounded request" rather than
     # long-lived work (invariant 6). The read is paginated, so the bound is per page and not for

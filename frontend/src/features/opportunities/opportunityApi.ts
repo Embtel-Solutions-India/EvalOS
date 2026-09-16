@@ -34,14 +34,19 @@ export type BoardColumn = {
 /**
  * The whole board.
  *
- * `readAt` and `stale` are on the payload because a cached screen the reader cannot date is one
- * they have to trust blindly — the same reasoning the funnel screens' age stamp carries.
+ * `lastSyncedAt` and `stale` are on the payload because a screen served from a mirror is one the
+ * reader has to trust blindly otherwise. Unit 46 made that load-bearing: the board never reads GHL,
+ * so these two are the only way to know whether what is on screen is current.
+ *
+ * `lastSyncedAt` is **null when the sync has never confirmed these pipelines**. It is not
+ * substituted with "now" — saying "synced just now" when nothing has ever synced is the one lie
+ * this indicator exists to prevent — and a null is `stale` by definition.
  */
 export type OpportunityBoard = {
   columns: readonly BoardColumn[]
   totalDeals: number
   totalValue: number
-  readAt: string
+  lastSyncedAt: string | null
   stale: boolean
 }
 
@@ -56,6 +61,16 @@ export type OpportunityBoard = {
  */
 export function fetchOpportunityBoard(signal?: AbortSignal): Promise<OpportunityBoard> {
   return unwrap<OpportunityBoard>(api.get('/opportunities/board', { signal }))
+}
+
+/**
+ * Sync the mirror for the caller's pipelines, then get the board back.
+ *
+ * **This reconciles; it does not read GHL on the board's behalf.** The board is drawn from EvalOS
+ * rows either way — what this does is bring those rows forward first. POST because it writes.
+ */
+export function refreshOpportunityBoard(signal?: AbortSignal): Promise<OpportunityBoard> {
+  return unwrap<OpportunityBoard>(api.post('/opportunities/board/refresh', undefined, { signal }))
 }
 
 // --- Unit 39: the marketing desk --------------------------------------------

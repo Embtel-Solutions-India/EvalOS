@@ -279,6 +279,35 @@ public class OpportunityMirrorService {
 		});
 	}
 
+	/**
+	 * A desk edited a deal — <strong>the mirror is written first and GHL hears about it after</strong>
+	 * (Unit 46).
+	 *
+	 * <p><strong>This is the inversion the unit is named for.</strong> A desk used to call GHL and
+	 * show whatever came back; it now writes the row it is already looking at, queues the push, and
+	 * redraws from local state. The screen stops waiting on a network round trip, and an edit stops
+	 * being lost when GHL is down.
+	 *
+	 * <p>Takes GHL's opportunity id because that is what every desk route carries — the board's
+	 * cards, the URL and {@code PipelineScope.requireMine} all speak it.
+	 *
+	 * @return the edited row, or empty when no mirrored deal has that id. Empty is a real answer
+	 *         rather than an exception: a deal GHL knows and the mirror has not absorbed yet is a
+	 *         staleness the caller should report as such, not a 500
+	 */
+	@Transactional
+	public Optional<Opportunity> editLocally(String ghlOpportunityId, String name,
+			java.math.BigDecimal amount, String ghlStageId, String status) {
+		if (sellingBrandId == null) {
+			return Optional.empty();
+		}
+		return opportunities.findByBrandIdAndGhlId(sellingBrandId, ghlOpportunityId)
+				.map((row) -> {
+					row.editedLocally(name, amount, ghlStageId, status);
+					return opportunities.save(row);
+				});
+	}
+
 	/** GHL answered a create. The row keeps its id and gains GHL's — identity never changes. */
 	@Transactional
 	public void linkGhl(UUID opportunityId, String ghlId) {

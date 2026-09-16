@@ -173,6 +173,36 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
   `NEEDS_A_HUMAN`), derived at read time and never stored, and the envelope carries `needsAHuman`.
   **Only a row GHL no longer returns needs a person** — re-creating a lost deal, or deleting the
   mirror's copy, is a business decision a sweep must not take.
+- **D44.** **A desk edit writes the mirror and queues the push; it does not call GHL** (Unit 46,
+  2026-09-17). Rename, re-price, stage move and close on both desks are now: edit the local row,
+  `enqueue`, answer from the row. The salesperson sees the change immediately and no edit is lost
+  to a GHL outage. **The four editable fields are exactly 45e's shared set**, because what a desk
+  may edit locally is what EvalOS is allowed to win a conflict over — the assignee is absent for
+  that reason. **The cost is named rather than hidden: a won deal reaches GHL on the next drain
+  (≤2m), so Handoff A's case arrives that much later.** Taken deliberately — a win lost to an
+  outage is the more expensive failure.
+- **D45.** **A board reads EvalOS rows and makes no GHL request at all** (Unit 46) — on load, on
+  refetch, and on moving a card. A browser reload reads the mirror like everything else, so a lead
+  created in GHL appears only once a sync has brought it in.
+  **`MIRROR_DELTA` therefore runs every 5 minutes** (`delta-ttl` 4m): it was a floor under webhooks
+  at 15m, and with the refill gone it is one of only two things that put a new lead in front of a
+  salesperson, so it became a cadence somebody waits on.
+  **The screen says how old it is and stops pretending when it does not know.** `lastSyncedAt` is
+  **null when the sync has never confirmed those pipelines** — never substituted with "now", which
+  is the one lie a freshness indicator must not tell — and a null counts as stale.
+  `evalos.ghl.board-stale-after` (**5m — one missed pass**, set by the business over a proposed 15)
+  draws a **"Sync delayed"** banner naming the consequence: new GHL deals are not arriving on this
+  screen. The threshold equals the sweep interval, so a long pass shows the banner briefly before
+  clearing; the fix for that noise is 6m, never a slower sweep.
+  **`POST /api/opportunities/board/refresh` is a reconciliation, not a live read** — it syncs the
+  caller's own pipelines then draws from the mirror, behind a 30-second floor so a double-click
+  costs one read.
+- **D46.** **A create still calls GHL inline** — `SalesDeskService.createDeal` and
+  `MarketingLeadService.openLead`. The outbox stores an id and never a payload (`45` §2C.2), and a
+  desk create carries an expected close date and custom field values the mirror does not hold;
+  queueing one would mean either a payload column or silently dropping what the salesperson typed.
+  Custom fields are tier 2, which is Unit 47. The contact upsert and GHL tasks stay inline for the
+  neighbouring reason: `sync_outbox` is opportunity-scoped, and nothing mirrors a task.
 - **D18.** The target is an **id-faithful mirror** of GHL (same pipeline/stage/contact/opportunity
   ids both sides), synced both ways, that keeps working when sync is off. Units 44–48
   (`context/specs/00c-ghl-independence-programme.md`). EvalOS mints its own primary key and keeps

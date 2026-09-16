@@ -210,6 +210,51 @@ public class Opportunity extends ScopedEntity {
 		this.localUpdatedAt = Instant.now();
 	}
 
+	/**
+	 * A desk changed this deal — Unit 46.
+	 *
+	 * <p><strong>Exactly the four fields 45e calls shared, and that is the point rather than a
+	 * coincidence.</strong> What a desk may edit locally is what EvalOS is allowed to win a
+	 * conflict over; anything wider would be the mirror arguing with GHL about a field GHL owns.
+	 * The assignee is absent for that reason: it is GHL's, and a desk that could set it here would
+	 * revert the round-robin the automations run.
+	 *
+	 * <p><strong>Null means "leave it alone", not "clear it".</strong> Every caller sends one or two
+	 * of the four — a rename, a re-price, a stage move, a close — and a record-shaped update that
+	 * blanked the rest would turn a rename into data loss.
+	 *
+	 * <p>The stamp is what makes the edit survive until GHL has it: a sync arriving before the push
+	 * lands finds {@code localUpdatedAt} set and keeps these four (45e).
+	 */
+	public void editedLocally(String name, BigDecimal amount, String ghlStageId, String status) {
+		if (name != null && !name.isBlank()) {
+			this.name = name;
+		}
+		if (amount != null) {
+			this.amount = amount;
+		}
+		if (ghlStageId != null && !ghlStageId.isBlank()) {
+			this.ghlStageId = ghlStageId;
+		}
+		if (status != null && !status.isBlank()) {
+			this.status = status;
+		}
+		touchedLocally();
+	}
+
+	/**
+	 * The queued push reached GHL, so there is no unconfirmed edit left to defend — Unit 46.
+	 *
+	 * <p><strong>Without this, Unit 46 would reintroduce the freeze 45e was careful to avoid.</strong>
+	 * Every desk edit now stamps {@code localUpdatedAt}, and 45e reads a null {@code ghl_updated_at}
+	 * as a conflict — so a location that stopped sending the field would leave EvalOS defending this
+	 * row's four shared fields for ever. A create already had this through {@link #linkGhl};
+	 * an update did not, because until Unit 46 nothing edited a row locally.
+	 */
+	public void pushedToGhl() {
+		this.localUpdatedAt = null;
+	}
+
 	public String getGhlId() {
 		return ghlId;
 	}

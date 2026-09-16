@@ -194,3 +194,27 @@ edit to defend** — the other half stops the rule degrading into "EvalOS always
 `GET /api/sync/drift` gained `owner`, `resolution` (GHL_WINS / EVALOS_WINS / NEEDS_A_HUMAN, derived
 at read time, never stored) and `needsAHuman`; **still no resolve button** (D43). 45e pushes nothing
 to GHL — correcting GHL is Unit 46's. Suite: **1049 tests, 0 failures**. No migration.
+
+**BUILT 2026-09-17 (Unit 46) — the desks are on the mirror.** Spec `46-desks-on-the-mirror.md`.
+**Read half = a deletion**: `OpportunityBoardService` no longer calls `refreshIfStale` on load, so
+a board makes **no GHL request at all** — 45d's webhooks plus `MIRROR_DELTA` are what made the
+refill removable. `evalos.ghl.board-cache-ttl` became `board-stale-after` (30m), a **label** only:
+nothing acts on it, and 30m is the worst case the delta sweep promises (15m interval + 10m TTL).
+**Write half = an inversion**: `SalesDeskService.update`/`moveToStage`/`close` and
+`MarketingLeadService.value` call `OpportunityMirrorService.editLocally` (→ `Opportunity.editedLocally`,
+null means leave alone) and `outbox.enqueue`, then answer **from the row** — no GHL on the request
+path. The editable four are exactly 45e's SHARED set; the assignee is absent because it is GHL's.
+The outbox's `UPSERT` now carries the **stage** (it was null), and a delivered push calls
+`Opportunity.pushedToGhl()` to clear `local_updated_at` — without that, Unit 46 would freeze rows
+against a location whose `updatedAt` comes back null. **Creates stay inline** (D46): the outbox
+stores an id, never a payload, and a desk create carries custom fields (tier 2, Unit 47) the mirror
+does not hold; the contact upsert and GHL tasks stay inline for the same reason.
+**Cost, stated**: a won deal reaches GHL on the next drain (≤2m), so Handoff A's case arrives later.
+**Cadence and honesty (same unit, 2026-09-17):** `MIRROR_DELTA` runs every **5m** (`delta-ttl` 4m)
+because with the refill gone it is one of only two things putting a new GHL lead in front of a
+salesperson. `Board.lastSyncedAt` is **nullable and null means never synced** — it used to
+substitute `Instant.now()`, which claimed the board was current at the one moment nothing had been
+read — and a null is stale. `board-stale-after` **5m — one missed pass** (business call over a proposed 15) drives
+a **"Sync delayed"** banner; it equals the sweep interval, so a long pass blinks the banner briefly. `POST /api/opportunities/board/refresh` is the Refresh button: it **reconciles the mirror
+then draws from it**, caller's own pipelines only, behind a 30s floor.
+Suite: **backend 1052, frontend 127, both green**. No migration.

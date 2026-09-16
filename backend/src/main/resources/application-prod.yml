@@ -196,7 +196,7 @@ evalos:
     opportunity-correlation-field: ${GHL_OPPORTUNITY_CORRELATION_FIELD:}
     # Unit 36's single-brand ceiling; the reasoning is in the base profile.
     sales-brand: ${GHL_SALES_BRAND_ID:}
-    board-cache-ttl: ${GHL_BOARD_CACHE_TTL:2m}
+    board-stale-after: ${GHL_BOARD_STALE_AFTER:5m}
     # Per page, not for the whole paginated read. This runs on a request path, so the bound is
     # what keeps it inside invariant 6's "one bounded request".
     # Connect and read timeout on each GHL request. Required because this runs in a

@@ -8,7 +8,7 @@ import DealApplication from './DealApplication'
 import DealNotes from './DealNotes'
 import NewDealForm from './NewDealForm'
 import NewLeadForm from './NewLeadForm'
-import { fetchOpportunityBoard, type BoardColumn, type Deal } from './opportunityApi'
+import { fetchOpportunityBoard, refreshOpportunityBoard, type BoardColumn, type Deal } from './opportunityApi'
 
 /**
  * The sales and marketing desk: the opportunities standing in the pipeline you own.
@@ -39,6 +39,25 @@ export default function OpportunityBoardPage() {
   // last good data on screen while the new read is in flight.
   const { data, state, reload } = useMetrics((signal) => fetchOpportunityBoard(signal), [])
   const role = useMe().role
+  const [syncing, setSyncing] = useState(false)
+
+  /**
+   * The Refresh button: reconcile the mirror, then redraw.
+   *
+   * **`reload` alone would not do it.** A plain reload — and an F5, and every other refetch on this
+   * page — reads the EvalOS mirror and nothing else, which is the whole design: it shows new GHL
+   * leads only once the sweep has brought them in. This button is the way to ask for that sweep on
+   * demand, and it still ends at the mirror.
+   */
+  const syncNow = async () => {
+    setSyncing(true)
+    try {
+      await refreshOpportunityBoard()
+      reload()
+    } finally {
+      setSyncing(false)
+    }
+  }
   const isMarketing = role === 'MARKETING'
   // Every stage on the board, so a salesperson can move a deal to any of them. Taken from the
   // board itself rather than fetched separately: it is the same pipeline, already loaded.
@@ -57,20 +76,54 @@ export default function OpportunityBoardPage() {
           </p>
         </div>
         {data && (
-          <p className="text-sm text-slate-500">
-            {formatCount(data.totalDeals)} open · {formatMoney(data.totalValue)}
-            {/*
-              The age is shown rather than hidden. This screen is served from a short-lived copy,
-              and a reader who cannot tell how old it is has to trust it blindly — the same
-              reasoning the GM's funnel screens carry their own timestamp for.
-            */}
-            <span className="ml-2 text-xs text-slate-400">
-              read {new Date(data.readAt).toLocaleTimeString()}
-              {data.stale && ' · refreshing'}
+          <div className="flex items-center gap-3 text-sm text-slate-500">
+            <span>
+              {formatCount(data.totalDeals)} open · {formatMoney(data.totalValue)}
             </span>
-          </p>
+            {/*
+              The sync time is shown rather than hidden, and it is the mirror's — not this
+              render's. Unit 46 took the board off live GHL reads, so "when did we last hear from
+              GHL" is the only freshness question that means anything, and the reader cannot answer
+              it from the page. A null means the sync has never run: it says so instead of
+              guessing "now".
+            */}
+            <span className="text-xs text-slate-400">
+              {data.lastSyncedAt
+                ? `synced ${new Date(data.lastSyncedAt).toLocaleTimeString()}`
+                : 'never synced'}
+            </span>
+            <button
+              type="button"
+              onClick={syncNow}
+              disabled={syncing}
+              className="rounded border border-slate-300 px-2 py-1 text-xs text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+            >
+              {syncing ? 'Syncing…' : 'Refresh'}
+            </button>
+          </div>
         )}
       </header>
+
+      {/*
+        The banner, not a tooltip. Past `board-stale-after` the sweep has missed three passes, which
+        means new GHL leads are NOT arriving on this screen — that is a working assumption a
+        salesperson would otherwise make wrongly all morning. Saying it plainly beats a stamp they
+        have to interpret.
+      */}
+      {data?.stale && (
+        <p
+          className="rounded border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900"
+          role="status"
+        >
+          <strong>Sync delayed.</strong>{' '}
+          {data.lastSyncedAt
+            ? `The mirror was last confirmed against GoHighLevel at ${new Date(
+                data.lastSyncedAt,
+              ).toLocaleTimeString()}. Deals created in GHL since then are not on this board yet.`
+            : 'This board has never been synced with GoHighLevel, so deals created there are not on it yet.'}{' '}
+          Press Refresh, or ask a GM to check the MIRROR_DELTA sweep.
+        </p>
+      )}
 
       {/*
         Opening a lead refetches the board rather than inserting the new card locally: the
