@@ -1,7 +1,11 @@
 package com.ie.evalos.service;
 
+import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.UUID;
 
+import com.ie.evalos.domain.AuditAction;
+import com.ie.evalos.domain.PortalAudience;
 import com.ie.evalos.integration.MailTransport;
 
 import org.slf4j.Logger;
@@ -59,7 +63,20 @@ public class ClientMailer {
 	 */
 	private final MailTransport transport;
 
-	ClientMailer(List<MailTransport> transports, @Value("${evalos.mail.transport}") String choice) {
+	/**
+	 * The trail for "a password link was sent to this person, then".
+	 *
+	 * <p><strong>Here rather than in a transport, which is where it started.</strong> It lived in
+	 * {@code GhlMailTransport} because {@code GhlHttpTest} requires any class calling a GHL write
+	 * verb to reach {@code AuditService} — a rule about GHL, which made the audit an accident of
+	 * which provider happened to be carrying the mail. It is a fact about the client either way,
+	 * and a support conversation needs it whoever sent it.
+	 */
+	private final AuditService audit;
+
+	ClientMailer(List<MailTransport> transports, AuditService audit,
+			@Value("${evalos.mail.transport}") String choice) {
+		this.audit = audit;
 		this.transport = transports.stream()
 				.filter((candidate) -> candidate.name().equalsIgnoreCase(choice.trim()))
 				.findFirst()
@@ -119,6 +136,16 @@ public class ClientMailer {
 					to.email(), subject);
 			return false;
 		}
-		return transport.send(to, subject, body);
+		if (!transport.send(to, subject, body)) {
+			return false;
+		}
+		// **The subject and the brand, and deliberately not the link.** The link IS the credential:
+		// a trail that stored one would hand anyone who can read audit rows a working password
+		// reset. recordPortalEvent rather than recordEvent, because a portal route has no
+		// TenantContext and the row would otherwise land with no brand at all.
+		audit.recordPortalEvent(to.brandId(), PortalAudience.CLIENT, "CLIENT_MAIL",
+				UUID.nameUUIDFromBytes(("CLIENT_MAIL:" + to.email()).getBytes(StandardCharsets.UTF_8)),
+				AuditAction.PORTAL_LINK_ISSUED, null, "sent '" + subject + "' via " + transport.name());
+		return true;
 	}
 }

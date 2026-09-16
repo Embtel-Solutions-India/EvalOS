@@ -130,36 +130,34 @@ class ClientAccountServiceTest {
 	}
 
 	/**
-	 * D3d: sign-up reaches GHL exactly once per new account, and no longer zero times.
+	 * D3d restored to D3a: <strong>sign-up reaches GHL zero times.</strong>
 	 *
-	 * <p>D3a had moved the contact to set-password so that a {@code permitAll} route made no CRM
-	 * write at all. GHL sends the mail now and {@code POST /conversations/messages} requires a
-	 * contactId, so the contact has to exist <em>before</em> the set-password link rather than
-	 * after it. What this pins is that it is still <strong>one</strong> call per account and none
-	 * at all for an address already known — the flood defence moved to the route's gate and to
-	 * {@code PORTAL_CLEANUP}, but a sign-up must never become two contacts.
+	 * <p>The contact lived on this route for exactly as long as GHL carried the set-password mail,
+	 * which required a {@code contactId}. Brevo takes the address, so the reason is gone and the
+	 * exposure is not worth keeping: {@code /auth/sign-up} is {@code permitAll} behind one per-IP
+	 * counter, so a CRM write here is a stranger's write — an IP-rotating script fills the
+	 * sub-account Sales works in and spends GHL's shared 100-per-10-seconds location budget, which
+	 * makes every GHL-backed staff screen answer 502.
+	 *
+	 * <p><strong>A hundred sign-ups, and the assertion is none rather than fewer.</strong> It also
+	 * covers the second path, which is the one that would have survived a careless fix: sign-up
+	 * falls through to {@code identify}, and {@code issueCredential} used to repair the CRM link
+	 * there — so removing the direct call alone would have looked fixed and changed nothing.
 	 */
 	@Test
-	void signingUpReachesGhlOncePerNewAccountAndNeverForAKnownOne() {
-		given(accounts.findByBrandIdAndEmailIgnoreCase(eq(BRAND), any())).willReturn(Optional.empty());
+	void signingUpReachesGhlZeroTimes() {
+		given(mailer.canReach(any())).willReturn(true);
+		given(mailer.sendSetPassword(any(), any())).willReturn(true);
+		given(credentials.save(any())).willAnswer((call) -> call.getArgument(0));
 		given(accounts.saveAndFlush(any())).willAnswer((call) -> call.getArgument(0));
-		given(ghlContacts.upsertContact(any(), any(), any(), any(), any()))
-				.willReturn(new GhlWriteClient.UpsertedContact("ghl-c-1", "Ana", "ana@example.com", null));
-
-		service.signUp("ana@example.com", "Ana", null, null);
-
-		verify(ghlContacts, org.mockito.Mockito.times(1))
-				.upsertContact(any(), any(), any(), any(), any());
-
-		// The same address again: recognised, not duplicated. D4's rule, and the one that keeps a
-		// returning client's second order a second opportunity rather than a second contact.
-		org.mockito.Mockito.reset(ghlContacts);
-		ClientAccount existing = new ClientAccount(BRAND, "ana@example.com");
-		existing.linkGhlContact("ghl-c-1");
+		// Absent on the first read, present on the second — identify() re-reads after the insert.
 		given(accounts.findByBrandIdAndEmailIgnoreCase(eq(BRAND), any()))
-				.willReturn(Optional.of(existing));
+				.willAnswer((call) -> Optional.empty())
+				.willAnswer((call) -> Optional.of(new ClientAccount(BRAND, "flood@example.com", "SIGNUP")));
 
-		service.signUp("ana@example.com", "Ana", null, null);
+		for (int attempt = 0; attempt < 100; attempt++) {
+			service.signUp("flood" + attempt + "@example.com", "Flood", null, null);
+		}
 
 		verifyNoInteractions(ghlContacts);
 	}
@@ -508,31 +506,24 @@ class ClientAccountServiceTest {
 	/**
 	 * The gap this route closes: before 2026-09-15 nothing created a {@code client_account} at
 	 * runtime, so a client acquired after V45's backfill was told "we couldn't find that email"
-	 * for ever. Signing up must therefore actually write the row, link the contact GHL returns
-	 * (D3d — GHL cannot mail a stranger), and send the link.
+	 * for ever. Signing up must therefore actually write the row and send the link — and
+	 * <strong>link no contact</strong>, which is D3a restored now that Brevo can mail an address
+	 * without one.
 	 *
-	 * <p><strong>And it must still answer a STATE, never a session.</strong> That is the security
-	 * property, and it is the one that did not move when D3a's ordering did: the address is
-	 * unproven at this moment, so a token here would be account takeover by typing a stranger's
-	 * email. Control of the inbox is proved by the link, exactly as it is for every seeded client.
+	 * <p><strong>And it must answer a STATE, never a session.</strong> That property never moved
+	 * while the contact did: the address is unproven at this moment, so a token here would be
+	 * account takeover by typing a stranger's email. The name and phone are kept so
+	 * {@code setPassword} has something to send to GHL once the mailbox is proved.
 	 */
 	@Test
-	void aStrangerGetsAnAccountLinkedToTheirContactAndAStateRatherThanASession() {
+	void aStrangerGetsAnAccountAndNoContactUntilTheyProveTheMailbox() {
 		given(mailer.canReach(any())).willReturn(true);
 		given(mailer.sendSetPassword(any(), any())).willReturn(true);
 		given(credentials.save(any())).willAnswer(call -> call.getArgument(0));
-		given(ghlContacts.upsertContact(any(), any(), any(), any(), any()))
-				.willReturn(new GhlWriteClient.UpsertedContact("ghl-1", "Ana Okafor",
-						"ana@example.com", "+15550100"));
 		// Absent before the insert, present after it — identify() re-reads through the same finder.
-		// Absent before the insert; afterwards it is the row signUp wrote, contact and all — a
-		// fresh unlinked instance here would make identify() upsert a second time, which is the
-		// database's behaviour nowhere and would hide a real double-write.
-		ClientAccount persisted = new ClientAccount(BRAND, "ana@example.com", "SIGNUP");
-		persisted.linkGhlContact("ghl-1");
 		given(accounts.findByBrandIdAndEmailIgnoreCase(BRAND, "ana@example.com"))
 				.willReturn(Optional.empty())
-				.willReturn(Optional.of(persisted));
+				.willReturn(Optional.of(new ClientAccount(BRAND, "ana@example.com", "SIGNUP")));
 
 		assertThat(service.signUp("ana@example.com", "Ana", "Okafor", "+15550100"))
 				.isEqualTo(ClientAccountService.IdentifyState.NO_PASSWORD);
@@ -541,16 +532,13 @@ class ClientAccountServiceTest {
 		verify(accounts).saveAndFlush(saved.capture());
 		assertThat(saved.getValue().getEmail()).isEqualTo("ana@example.com");
 		assertThat(saved.getValue().hasPassword()).isFalse();
-		assertThat(saved.getValue().getGhlContactId()).isEqualTo("ghl-1");
+		assertThat(saved.getValue().getGhlContactId()).isNull();
+		assertThat(saved.getValue().getCreatedVia()).isEqualTo("SIGNUP");
 		assertThat(saved.getValue().getFirstName()).isEqualTo("Ana");
 		assertThat(saved.getValue().getPhone()).isEqualTo("+15550100");
 
-		// The contact is created before the mail, because the mail needs it.
-		org.mockito.InOrder order = org.mockito.Mockito.inOrder(ghlContacts, mailer);
-		order.verify(ghlContacts).upsertContact(any(), any(), any(), any(),
-				eq(GhlWriteClient.SOURCE_CLIENT_PORTAL));
-		order.verify(mailer).sendSetPassword(addressed("ana@example.com"), any());
-
+		verifyNoInteractions(ghlContacts);
+		verify(mailer).sendSetPassword(addressed("ana@example.com"), any());
 		verify(links, never()).mintForClientAccount(any());
 	}
 

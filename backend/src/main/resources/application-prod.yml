@@ -24,16 +24,24 @@ evalos:
   mail:
     from: ${EVALOS_MAIL_FROM:}
     # Who carries the two messages EvalOS sends. One of the MailTransport beans by name:
-    # `smtp` (Spring Mail) or `ghl` (POST /conversations/messages, so the link lands in the
-    # contact's own conversation thread). A third — Brevo — is a new class and this value.
+    # `smtp` (Spring Mail) or `brevo` (POST /v3/smtp/email). A `ghl` transport existed briefly and
+    # is deleted: it addressed a contactId rather than an address, which is what forced the GHL
+    # contact to be created at sign-up.
     #
     # **A name that matches nothing fails at startup and says what it found.** Falling back
     # silently would be discovered by a client who never got their link.
-    transport: ${EVALOS_MAIL_TRANSPORT:ghl}
-    # The envelope sender for the `ghl` transport. **Blank is the better default**: GHL knows
-    # which domain this location has authenticated, and an address it cannot sign for is how a
-    # password mail silently lands in spam.
-    ghl-from: ${EVALOS_MAIL_GHL_FROM:}
+    transport: ${EVALOS_MAIL_TRANSPORT:brevo}
+    brevo:
+      base-url: ${EVALOS_MAIL_BREVO_BASE_URL:https://api.brevo.com}
+      # **Never a default, not even locally.** A credential reaching a live third-party account;
+      # `ConfigSecretsTest` fails the build if a credential-shaped setting carries one.
+      api-key: ${EVALOS_MAIL_BREVO_API_KEY:}
+      # Must be a sender Brevo has verified for the account, or every send is refused. Blank here
+      # means the transport reports itself unconfigured rather than failing one send at a time.
+      sender-email: ${EVALOS_MAIL_BREVO_SENDER_EMAIL:}
+      sender-name: ${EVALOS_MAIL_BREVO_SENDER_NAME:International Evaluations}
+      # Bounded: this call sits on a request path.
+      timeout: ${EVALOS_MAIL_BREVO_TIMEOUT:10s}
   portal:
     # Must name the deployed portal origin. **No default, so a missing value fails the boot** —
     # which is what the comment used to claim while the value carried an empty default and booted

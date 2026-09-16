@@ -58,20 +58,23 @@ class ClientMailerTest {
 		}
 	}
 
+	private final com.ie.evalos.service.AuditService audit =
+			org.mockito.Mockito.mock(com.ie.evalos.service.AuditService.class);
+
 	private static final java.util.UUID BRAND =
 			java.util.UUID.fromString("11111111-1111-1111-1111-111111111111");
 
 	private static final MailTransport.Recipient ANA =
-			new MailTransport.Recipient(BRAND, "ana@example.com", "ghl-1");
+			new MailTransport.Recipient(BRAND, "ana@example.com");
 
 	@Test
 	void theConfiguredTransportIsTheOneThatCarriesIt() {
 		Fake smtp = new Fake("smtp", true, true);
-		Fake ghl = new Fake("ghl", true, true);
+		Fake brevo = new Fake("brevo", true, true);
 
-		new ClientMailer(List.of(smtp, ghl), "ghl").sendSetPassword(ANA, "https://portal/set#tok");
+		new ClientMailer(List.of(smtp, brevo), audit, "brevo").sendSetPassword(ANA, "https://portal/set#tok");
 
-		assertThat(ghl.sentTo).isEqualTo(ANA);
+		assertThat(brevo.sentTo).isEqualTo(ANA);
 		assertThat(smtp.sentTo).isNull();
 	}
 
@@ -84,9 +87,9 @@ class ClientMailerTest {
 	 */
 	@Test
 	void anUnknownTransportNameRefusesToStart() {
-		assertThatThrownBy(() -> new ClientMailer(List.of(new Fake("smtp", true, true)), "brevo"))
+		assertThatThrownBy(() -> new ClientMailer(List.of(new Fake("smtp", true, true)), audit, "sendgrid"))
 				.isInstanceOf(IllegalStateException.class)
-				.hasMessageContaining("brevo")
+				.hasMessageContaining("sendgrid")
 				.hasMessageContaining("smtp");
 	}
 
@@ -98,19 +101,19 @@ class ClientMailerTest {
 	 */
 	@Test
 	void aTransportThatCannotAddressThisPersonSendsNothingAndSaysSo() {
-		Fake ghl = new Fake("ghl", true, false);
-		ClientMailer mailer = new ClientMailer(List.of(ghl), "ghl");
+		Fake brevo = new Fake("brevo", true, false);
+		ClientMailer mailer = new ClientMailer(List.of(brevo), audit, "brevo");
 
 		assertThat(mailer.isConfigured()).isTrue();
-		assertThat(mailer.canReach(new MailTransport.Recipient(BRAND, "ana@example.com", null))).isFalse();
+		assertThat(mailer.canReach(new MailTransport.Recipient(BRAND, ""))).isFalse();
 		assertThat(mailer.sendSetPassword(ANA, "https://portal/set#tok")).isFalse();
-		assertThat(ghl.sentTo).isNull();
+		assertThat(brevo.sentTo).isNull();
 	}
 
 	/** An unconfigured transport is the MAIL_UNAVAILABLE path, not a boot failure. */
 	@Test
 	void anUnconfiguredTransportDegradesRatherThanThrowing() {
-		ClientMailer mailer = new ClientMailer(List.of(new Fake("smtp", false, true)), "smtp");
+		ClientMailer mailer = new ClientMailer(List.of(new Fake("smtp", false, true)), audit, "smtp");
 
 		assertThat(mailer.isConfigured()).isFalse();
 		assertThat(mailer.sendResetPassword(ANA, "https://portal/set#tok")).isFalse();

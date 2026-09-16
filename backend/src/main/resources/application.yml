@@ -119,16 +119,24 @@ evalos:
     # a support conversation; a refused boot is not recoverable by anyone.
     from: ${EVALOS_MAIL_FROM:}
     # Who carries the two messages EvalOS sends. One of the MailTransport beans by name:
-    # `smtp` (Spring Mail) or `ghl` (POST /conversations/messages, so the link lands in the
-    # contact's own conversation thread). A third — Brevo — is a new class and this value.
+    # `smtp` (Spring Mail) or `brevo` (POST /v3/smtp/email). A `ghl` transport existed briefly and
+    # is deleted: it addressed a contactId rather than an address, which is what forced the GHL
+    # contact to be created at sign-up.
     #
     # **A name that matches nothing fails at startup and says what it found.** Falling back
     # silently would be discovered by a client who never got their link.
     transport: ${EVALOS_MAIL_TRANSPORT:smtp}
-    # The envelope sender for the `ghl` transport. **Blank is the better default**: GHL knows
-    # which domain this location has authenticated, and an address it cannot sign for is how a
-    # password mail silently lands in spam.
-    ghl-from: ${EVALOS_MAIL_GHL_FROM:}
+    brevo:
+      base-url: ${EVALOS_MAIL_BREVO_BASE_URL:https://api.brevo.com}
+      # **Never a default, not even locally.** A credential reaching a live third-party account;
+      # `ConfigSecretsTest` fails the build if a credential-shaped setting carries one.
+      api-key: ${EVALOS_MAIL_BREVO_API_KEY:}
+      # Must be a sender Brevo has verified for the account, or every send is refused. Blank here
+      # means the transport reports itself unconfigured rather than failing one send at a time.
+      sender-email: ${EVALOS_MAIL_BREVO_SENDER_EMAIL:}
+      sender-name: ${EVALOS_MAIL_BREVO_SENDER_NAME:International Evaluations}
+      # Bounded: this call sits on a request path.
+      timeout: ${EVALOS_MAIL_BREVO_TIMEOUT:10s}
   portal:
     # Which brand this portal deployment serves. **NOT evalos.ghl.sales-brand** — that one names
     # which brand's STAFF may hold the SALES and MARKETING roles, a staff-authorization ceiling
@@ -332,6 +340,15 @@ evalos:
     #
     # The cache is droppable: raising this trades freshness for requests and nothing else.
     board-cache-ttl: ${GHL_BOARD_CACHE_TTL:2m}
+    # How stale a pipeline nobody is looking at may get before the MIRROR_DELTA sweep re-reads it
+    # (Unit 45d). Deliberately SHORTER than that sweep's interval: the TTL is the freshness
+    # promised, the interval is how often it is checked, and a TTL equal to the interval would
+    # double to 30 minutes on nothing worse than clock jitter between two passes.
+    #
+    # Nothing in it is a delta: GHL's opportunity search filters on createdAt and has no
+    # updated-since filter at all, so "delta" here means a stale PIPELINE, never a changed row.
+    # Webhooks are what make a change current within seconds; this is the floor under them.
+    delta-ttl: ${GHL_MIRROR_DELTA_TTL:10m}
     # Connect and read timeout on each GHL request. Required because this runs in a
     # controller-triggered path, and a bound is what keeps it "one bounded request" rather than
     # long-lived work (invariant 6). The read is paginated, so the bound is per page and not for
@@ -377,6 +394,13 @@ evalos:
       # outage; every minute it sits is a minute a salesperson does not know the lead exists. An
       # hour, like the pipeline mirror's, would make the queue itself the outage.
       SYNC_OUTBOX: ${JOBS_SYNC_OUTBOX_INTERVAL:2m}
+      # The mirror delta sweep (Unit 45d). **15 minutes, and it is nearly free at that rate**:
+      # refreshIfStale is a no-op for any pipeline a desk has read inside `ghl.delta-ttl`, so the
+      # cost is one paged list per pipeline NOBODY is looking at. Those are the rows whose
+      # staleness the nightly audit would otherwise report as drift, and the pipeline-scope check
+      # (`isOnPipeline`) would otherwise answer from — a deal moved to another rep's board stays
+      # authorised here until something re-reads it, and within a working day is the bar.
+      MIRROR_DELTA: ${JOBS_MIRROR_DELTA_INTERVAL:15m}
       # Portal cleanup (expired credential tokens, abandoned sign-ups). **Daily, and the slowness
       # is deliberate**: nothing downstream reads these rows, so the only thing an hourly pass
       # would buy is a slightly smaller table and 24x the ledger rows a GM reads past. It is also

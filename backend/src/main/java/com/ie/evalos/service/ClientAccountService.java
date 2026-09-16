@@ -85,8 +85,9 @@ public class ClientAccountService {
 	 * <p>Invariant 7: GHL owns contact identity, so EvalOS asks it whether this email is somebody
 	 * it already has rather than deciding for itself. One call covers both branches.
 	 *
-	 * <p><strong>It was {@link #signUp}'s until 2026-09-16 (D3a).</strong> That method is
-	 * {@code permitAll}; this one is reached only by spending an emailed single-use token.
+	 * <p><strong>Never {@link #signUp}'s, and the round trip is the point (D3d).</strong> It was
+	 * moved there while GHL carried the mail and needed a contactId, and moved back the moment
+	 * Brevo removed that need. {@code signUp} is {@code permitAll}; every caller of this is not.
 	 */
 	private final GhlWriteClient ghlContacts;
 
@@ -239,17 +240,18 @@ public class ClientAccountService {
 			account.setFirstName(firstName);
 			account.setLastName(lastName);
 			account.setPhone(phone);
-			// **The contact is created here, and D3a's mechanism changed to allow it (D3d).** GHL
-			// sends the set-password mail now, and `POST /conversations/messages` requires a
-			// contactId — there is no contact-less send and a conversationId is no escape, because
-			// a conversation belongs to a contact. So the contact cannot wait for setPassword: the
-			// mail that leads to setPassword needs it. What replaced the delay as the flood defence
-			// is the gate on this route plus PORTAL_CLEANUP, not the ordering.
+			// **No GHL contact here, and this is D3a restored (D3d).** The contact lived here for
+			// exactly as long as GHL carried the set-password mail, which required a contactId and
+			// would not take a bare address. Brevo takes the address, so the reason is gone and the
+			// exposure it cost is not worth keeping: this route is `permitAll` behind one per-IP
+			// counter, so a write to the live CRM here is a stranger's write — an IP-rotating
+			// script fills the sub-account Sales works in and spends GHL's shared
+			// 100-per-10-seconds location budget, which makes every GHL-backed staff screen answer
+			// 502. A signup form must not be able to take the sales desk down.
 			//
-			// A GHL outage does not refuse the sign-up. The account stands with no contact,
-			// `identify` answers MAIL_UNAVAILABLE because GHL cannot reach them, and
-			// `ensureCrmIdentity` repairs it on their next sign-in (D3c).
-			ensureCrmIdentity(account);
+			// The contact is created when the mailbox is proved (`setPassword`), at the next
+			// sign-in, or at the first request that actually needs one (D3c). Until then this is
+			// EvalOS's own row, which PORTAL_CLEANUP can sweep.
 			try {
 				// The repository's own transaction, and no method-level one here on purpose: a
 				// @Transactional wrapper would hold a connection across identify()'s SMTP call
@@ -299,18 +301,15 @@ public class ClientAccountService {
 		// transport that cannot address THIS person is a real state now: GHL needs a linked
 		// contact, and an account whose sign-up hit a GHL outage has none. Asking only whether
 		// mail is configured would mint a token and report NO_PASSWORD for a link that never left.
-		// **Repaired here, and this is the only place that can.** With the `ghl` transport,
-		// canReach needs a linked contact — and an account that has none can never set a password,
-		// so it can never reach signIn or setPassword, which were the only repair points. That is a
-		// client stuck on MAIL_UNAVAILABLE for ever with forgot-password silently doing nothing:
-		// exactly the dead end `identify`'s three-way answer exists to avoid. Review found it.
-		//
-		// Idempotent and free for the common case — an account with a contact makes no call.
-		if (ensureCrmIdentity(account)) {
-			persistCrmLink(account);
-		}
-		MailTransport.Recipient recipient = new MailTransport.Recipient(account.getBrandId(),
-				account.getEmail(), account.getGhlContactId());
+		// **This used to repair the CRM link here, and that had to go with D3a.** It was added
+		// because GHL's transport could not address a client with no contact, so an account
+		// missing one was permanently unmailable. Brevo addresses the address, so the repair buys
+		// nothing — and leaving it would have quietly defeated the restriction one method up:
+		// `signUp` falls through to `identify`, which lands here, so an unauthenticated sign-up
+		// would still have written to the live CRM by a second path. Removing one call without the
+		// other would have looked fixed and changed nothing.
+		MailTransport.Recipient recipient =
+				new MailTransport.Recipient(account.getBrandId(), account.getEmail());
 		if (!mailer.canReach(recipient)) {
 			return false;
 		}
@@ -454,10 +453,11 @@ public class ClientAccountService {
 	/**
 	 * Gives this client a GHL contact, now that they have proved they can read their own mail.
 	 *
-	 * <p><strong>Called from three places, and idempotent so that it can be.</strong> Sign-up
-	 * (the contact must exist before GHL can mail them), set-password, and sign-in — the last two
-	 * as the repair D3c describes, for an account whose sign-up met a GHL outage or whose row was
-	 * seeded by {@code V45} from a snapshot carrying no id.
+	 * <p><strong>Called from three places, none of them unauthenticated, and idempotent so that it
+	 * can be.</strong> Set-password (the mailbox is proved — this is the gate D3a names), sign-in,
+	 * and {@code ClientApplicationService} at the first request that needs a contact. The last two
+	 * are the repair D3c describes, for an account whose set-password met a GHL outage or whose row
+	 * was seeded by {@code V45} from a snapshot carrying no id.
 	 *
 	 * <p><strong>Idempotent on {@code ghl_contact_id}, which is what makes it safe here.</strong>
 	 * A seeded {@code V45} client resetting a forgotten password already has an id, and re-upserting
@@ -471,8 +471,8 @@ public class ClientAccountService {
 	 * between here and there reads the id.
 	 *
 	 * @return whether a contact was linked <em>by this call</em> — false when one was already
-	 *         there and false when GHL refused. {@code issueCredential} persists on a true, which
-	 *         is the one path with no transaction to write it.
+	 *         there and false when GHL refused. Every caller is transactional, so the link is
+	 *         written by dirty checking rather than an explicit save.
 	 *
 	 * <p>Inside the transaction, matching {@code ClientApplicationService.start}, which already
 	 * calls GHL from a {@code @Transactional} method on a bounded timeout. {@code identify}'s
@@ -507,41 +507,6 @@ public class ClientAccountService {
 					+ "first request.", account.getEmail(), ghlRefused.getMessage());
 		}
 		return account.getGhlContactId() != null;
-	}
-
-	/**
-	 * Writes what {@link #ensureCrmIdentity} linked, for the callers that have no transaction.
-	 *
-	 * <p><strong>{@code identify} and {@code forgotPassword} are deliberately not
-	 * {@code @Transactional}</strong> — that method's javadoc argues it at length — so the account
-	 * they hold is detached and dirty checking will never run on it. Without this the repair
-	 * happens in memory, the mail goes out, and the link is gone by the next request.
-	 *
-	 * <p><strong>Called from {@code issueCredential} and nowhere else.</strong> Not from inside
-	 * {@link #ensureCrmIdentity}, which would write a brand-new account before {@code signUp} has
-	 * had its own chance to — and {@code signUp}'s save is the one that catches the duplicate-email
-	 * race. The transactional callers need nothing: dirty checking already writes them.
-	 *
-	 * <p><strong>Guarded on {@code ensureCrmIdentity} having actually linked something</strong>,
-	 * not on a contact id being present. Writing whenever one exists re-saves an account on every
-	 * {@code identify} — a pointless write on the busiest unauthenticated route, and on the
-	 * sign-up race it re-inserts the row the winner already wrote and throws the duplicate-key
-	 * straight past the handler built to absorb it.
-	 */
-	private void persistCrmLink(ClientAccount account) {
-		try {
-			accounts.saveAndFlush(account);
-		}
-		catch (RuntimeException couldNotWrite) {
-			// **Swallowed, because this is a repair and not the caller's errand.** `identify` and
-			// `forgot-password` are unauthenticated; a write that loses a race or trips a
-			// constraint here must not become a 500 on the front door, and on forgot-password a
-			// 500 for a known address beside a 204 for an unknown one is the enumeration oracle
-			// that method exists to avoid. The link is in memory for this request, the mail still
-			// goes, and the next call repairs it again.
-			log.warn("Could not persist the CRM link for {}: {}", account.getEmail(),
-					couldNotWrite.getMessage());
-		}
 	}
 
 	private static InvalidRequestException refused() {

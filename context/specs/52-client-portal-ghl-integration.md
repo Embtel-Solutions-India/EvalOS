@@ -42,7 +42,7 @@ cache.
 
 | Clause | State |
 |---|---|
-| Sign-up creates or finds the GHL Contact | ⚙️ **moved, §8** — the contact is created at **set-password**, not at sign-up: an unauthenticated `permitAll` route may not write to the live CRM. `ClientAccountService.setPassword` → `GhlWriteClient.upsertContact` |
+| Sign-up creates or finds the GHL Contact | ⚙️ **moved, §8 and §11** — the contact is created at **set-password**, not at sign-up: an unauthenticated `permitAll` route may not write to the live CRM. `ClientAccountService.setPassword` → `GhlWriteClient.upsertContact` |
 | The GHL Contact ID is stored in EvalOS | ✅ **built** — `client_account.ghl_contact_id`, set by `linkGhlContact` |
 | A basic GHL Opportunity carrying the essential data | ✅ **built (§4.1)** — contact, name, the requested service, the correlation key and `SUBMITTED`, all on one create **at submit** (§9) |
 | Questionnaire / documents / request stay EvalOS's | ✅ **built** — and structurally, see §1 |
@@ -450,3 +450,72 @@ disagree, linking the typed address to that account hands a stranger somebody el
 typing their phone number. The rule that makes it safe is *the link always goes to the matched
 account's stored email, never the typed one* — and a shared number (a family, an office) then means
 two people resolve to one account, which is a product decision rather than a technical one.
+
+---
+
+## 11. Amendment, 2026-09-17 — Brevo replaces GHL mail, and the contact goes back off sign-up
+
+**This restores §8 and closes §10.** §10's placement was never a preference; it was a constraint,
+and the constraint is gone.
+
+### 11.1 What changed
+
+GHL no longer sends the set-password mail. `BrevoMailTransport` does —
+`POST https://api.brevo.com/v3/smtp/email`, header `api-key`, a text-only body. The `ghl`
+transport is deleted outright rather than kept as an option: it addressed a `contactId`, and
+keeping a transport that can only reach people who already have a CRM row would keep the whole
+problem §10 describes.
+
+**The seam paid for itself.** Swapping providers was one new class and one changed value of
+`evalos.mail.transport`. Nothing that knows what a set-password mail *says* moved, which is what
+§10.4 claimed the interface was for.
+
+### 11.2 The contact is off sign-up again (D3d → D3a's ordering)
+
+§10.1 put it there because `POST /conversations/messages` required a `contactId`. Brevo takes an
+address, so **there is no longer any reason for an unauthenticated route to write to the live
+CRM**, and the exposure §8.1 describes is not worth carrying for a placement nothing needs.
+
+**Two call sites, and this is the part worth remembering.** `signUp` called `ensureCrmIdentity`
+directly *and* fell through to `identify` → `issueCredential`, which called it again — the second
+added in review to repair an account the GHL transport could not address. Removing only the direct
+call would have left sign-up writing to GHL by the second path while looking fixed.
+`signingUpReachesGhlZeroTimes` drives a hundred sign-ups and asserts `verifyNoInteractions`, which
+is what catches that class of half-fix.
+
+`persistCrmLink` went with them: it existed because `identify` and `forgotPassword` are not
+transactional, and every remaining caller of `ensureCrmIdentity` is.
+
+### 11.3 Where the contact is created now
+
+| Moment | Authenticated by |
+|---|---|
+| `setPassword` | a single-use token that only reached the client's own inbox |
+| `signIn` | a password |
+| first request needing a deal | a portal session (D3c) |
+
+None of them is reachable by a stranger with a script, which is the whole of D3a's property.
+
+### 11.4 What this costs
+
+A client who signs up and never opens the mail is invisible to Sales until they do. That is D3a's
+original trade, taken again knowingly: an unproven address is not yet a lead, and the row is
+`created_via = 'SIGNUP'` so `PORTAL_CLEANUP` clears it after 30 days.
+
+**It also makes the outstanding work smaller rather than larger.** §10.2 listed a tighter sign-up
+budget and a proof-of-human gate as owed, because a `permitAll` route was writing to the CRM. It no
+longer is: a flood now costs two EvalOS rows and an append-only audit row per attempt, all of them
+ours and two of them swept. A gate is still worth having — the audit table grows and mail can be
+aimed at an address — but it stopped being the thing standing between a script and the sales desk.
+
+### 11.5 Acceptance
+
+- [x] `evalos.mail.transport=brevo` sends via `POST /v3/smtp/email` with `api-key`.
+- [x] `GhlMailTransport` is deleted; `Recipient` no longer carries a contact id.
+- [x] The send is audited once, in `ClientMailer`, carrying subject and brand and never the link.
+- [x] A hundred sign-ups reach GHL zero times, by either path.
+- [x] Sign-up still answers a state and never a session.
+- [ ] `EVALOS_MAIL_BREVO_API_KEY` / `_SENDER_EMAIL` set, and the sender verified in Brevo — **not
+      done, and prod defaults to `brevo`**: until both are set every client answers
+      `MAIL_UNAVAILABLE`.
+- [ ] A proof-of-human gate on `/auth/sign-up` — still worth having, no longer urgent.
