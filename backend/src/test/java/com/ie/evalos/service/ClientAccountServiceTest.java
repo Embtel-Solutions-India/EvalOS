@@ -10,6 +10,7 @@ import com.ie.evalos.domain.ContactSnapshot;
 import com.ie.evalos.domain.ClientCredentialToken;
 import com.ie.evalos.domain.CredentialPurpose;
 import com.ie.evalos.integration.GhlWriteClient;
+import com.ie.evalos.integration.MailTransport;
 import com.ie.evalos.repository.ClientAccountRepository;
 import com.ie.evalos.repository.ClientCredentialTokenRepository;
 
@@ -26,6 +27,7 @@ import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 
 /**
  * The four answers the sign-in screen branches on, and what each one sends.
@@ -38,10 +40,11 @@ import static org.mockito.Mockito.verify;
  * must not become one either. Both auth routes are unauthenticated, so "known address, unlimited
  * mail" is the same hole at a named inbox.
  *
- * <p><strong>{@code mailer.isConfigured()} AND the send itself are stubbed true wherever mail is
- * expected</strong>, and neither is boilerplate. {@code issueCredential} asks {@code isConfigured}
- * first and mints nothing when the answer is no; it then treats the send's own {@code false} —
- * which is what a failing SMTP host now returns instead of throwing — the same way. A mock left at
+ * <p><strong>{@code mailer.canReach(...)} AND the send itself are stubbed true wherever mail is
+ * expected</strong>, and neither is boilerplate. {@code issueCredential} asks {@code canReach}
+ * first — not {@code isConfigured}, because the GHL transport can be perfectly configured and
+ * still unable to address a client it has no contact for — and mints nothing when the answer is
+ * no; it then treats the send's own {@code false} the same way. A mock left at
  * its default on either is the {@code MAIL_UNAVAILABLE} path rather than the {@code NO_PASSWORD}
  * one, which is the point: an undelivered link is not a link.
  */
@@ -79,22 +82,21 @@ class ClientAccountServiceTest {
 	 * {@code .claude/data-model.md} lists as missing.
 	 */
 	@Test
-	void signingUpCreatesTheCrmRowAndLinksTheAccountToIt() {
+	void settingAPasswordCreatesTheCrmRowAndLinksTheAccountToIt() {
 		UUID contactRow = UUID.randomUUID();
-		given(accounts.findByBrandIdAndEmailIgnoreCase(eq(BRAND), any())).willReturn(Optional.empty());
-		given(ghlContacts.upsertContact(any(), any(), any(), any()))
+		ClientAccount account = new ClientAccount(BRAND, "ana@example.com");
+		account.setFirstName("Ana");
+		account.setLastName("Okafor");
+		given(ghlContacts.upsertContact(any(), any(), any(), any(), any()))
 				.willReturn(new GhlWriteClient.UpsertedContact("ghl-c-1", "Ana Okafor", "ana@example.com", null));
 		ContactSnapshot snapshot = new ContactSnapshot(BRAND, "ghl-c-1");
 		ReflectionTestUtils.setField(snapshot, "id", contactRow);
 		given(contacts.findOrCreate(eq(BRAND), any())).willReturn(snapshot);
-		given(accounts.saveAndFlush(any())).willAnswer((call) -> call.getArgument(0));
 
-		service.signUp("ana@example.com", "Ana", "Okafor", null);
+		spendSetPasswordToken(account);
 
-		ArgumentCaptor<ClientAccount> saved = ArgumentCaptor.forClass(ClientAccount.class);
-		verify(accounts).saveAndFlush(saved.capture());
-		assertThat(saved.getValue().getContactId()).isEqualTo(contactRow);
-		assertThat(saved.getValue().getGhlContactId()).isEqualTo("ghl-c-1");
+		assertThat(account.getGhlContactId()).isEqualTo("ghl-c-1");
+		assertThat(account.getContactId()).isEqualTo(contactRow);
 
 		ArgumentCaptor<ContactSnapshotService.Details> details =
 				ArgumentCaptor.forClass(ContactSnapshotService.Details.class);
@@ -106,26 +108,138 @@ class ClientAccountServiceTest {
 	}
 
 	/**
-	 * A CRM row that cannot be written does not cost the client their sign-up.
+	 * D3b. The provenance GHL will actually take.
 	 *
-	 * <p>{@code client_account.contact_id} is nullable exactly for this: the account is the thing
-	 * the person just created and the link is a convenience EvalOS can repair later. Failing the
-	 * sign-up over it would be the wrong thing to fail on.
+	 * <p>Its API documents no {@code attributionSource} and no {@code utmSource} on a write — those
+	 * come from GHL's own form tracking, which a portal-native signup never passes through — so
+	 * {@code source} is the whole of what can be sent, and a portal client must not arrive
+	 * indistinguishable from a lead a marketer typed in.
 	 */
 	@Test
-	void aFailedCrmRowStillSignsThemUp() {
-		given(accounts.findByBrandIdAndEmailIgnoreCase(eq(BRAND), any())).willReturn(Optional.empty());
-		given(ghlContacts.upsertContact(any(), any(), any(), any()))
+	void aPortalClientReachesGhlMarkedAsComingFromThePortal() {
+		ClientAccount account = new ClientAccount(BRAND, "ana@example.com");
+		account.setFirstName("Ana");
+		account.setPhone("+15550100");
+		given(ghlContacts.upsertContact(any(), any(), any(), any(), any()))
 				.willReturn(new GhlWriteClient.UpsertedContact("ghl-c-1", "Ana", "ana@example.com", null));
-		given(contacts.findOrCreate(any(), any())).willThrow(new IllegalStateException("database said no"));
+
+		spendSetPasswordToken(account);
+
+		verify(ghlContacts).upsertContact("Ana", null, "ana@example.com", "+15550100",
+				GhlWriteClient.SOURCE_CLIENT_PORTAL);
+	}
+
+	/**
+	 * D3d: sign-up reaches GHL exactly once per new account, and no longer zero times.
+	 *
+	 * <p>D3a had moved the contact to set-password so that a {@code permitAll} route made no CRM
+	 * write at all. GHL sends the mail now and {@code POST /conversations/messages} requires a
+	 * contactId, so the contact has to exist <em>before</em> the set-password link rather than
+	 * after it. What this pins is that it is still <strong>one</strong> call per account and none
+	 * at all for an address already known — the flood defence moved to the route's gate and to
+	 * {@code PORTAL_CLEANUP}, but a sign-up must never become two contacts.
+	 */
+	@Test
+	void signingUpReachesGhlOncePerNewAccountAndNeverForAKnownOne() {
+		given(accounts.findByBrandIdAndEmailIgnoreCase(eq(BRAND), any())).willReturn(Optional.empty());
 		given(accounts.saveAndFlush(any())).willAnswer((call) -> call.getArgument(0));
+		given(ghlContacts.upsertContact(any(), any(), any(), any(), any()))
+				.willReturn(new GhlWriteClient.UpsertedContact("ghl-c-1", "Ana", "ana@example.com", null));
 
 		service.signUp("ana@example.com", "Ana", null, null);
 
-		ArgumentCaptor<ClientAccount> saved = ArgumentCaptor.forClass(ClientAccount.class);
-		verify(accounts).saveAndFlush(saved.capture());
-		assertThat(saved.getValue().getContactId()).isNull();
-		assertThat(saved.getValue().getGhlContactId()).isEqualTo("ghl-c-1");
+		verify(ghlContacts, org.mockito.Mockito.times(1))
+				.upsertContact(any(), any(), any(), any(), any());
+
+		// The same address again: recognised, not duplicated. D4's rule, and the one that keeps a
+		// returning client's second order a second opportunity rather than a second contact.
+		org.mockito.Mockito.reset(ghlContacts);
+		ClientAccount existing = new ClientAccount(BRAND, "ana@example.com");
+		existing.linkGhlContact("ghl-c-1");
+		given(accounts.findByBrandIdAndEmailIgnoreCase(eq(BRAND), any()))
+				.willReturn(Optional.of(existing));
+
+		service.signUp("ana@example.com", "Ana", null, null);
+
+		verifyNoInteractions(ghlContacts);
+	}
+
+	/**
+	 * A CRM row that cannot be written does not cost the client their password.
+	 *
+	 * <p>{@code client_account.contact_id} is nullable exactly for this: the account is the thing
+	 * the person just proved they own, and the link is a convenience EvalOS can repair later.
+	 */
+	@Test
+	void aFailedCrmRowStillSetsThePassword() {
+		ClientAccount account = new ClientAccount(BRAND, "ana@example.com");
+		given(ghlContacts.upsertContact(any(), any(), any(), any(), any()))
+				.willReturn(new GhlWriteClient.UpsertedContact("ghl-c-1", "Ana", "ana@example.com", null));
+		given(contacts.findOrCreate(any(), any())).willThrow(new IllegalStateException("database said no"));
+
+		spendSetPasswordToken(account);
+
+		assertThat(account.getContactId()).isNull();
+		assertThat(account.getGhlContactId()).isEqualTo("ghl-c-1");
+		assertThat(account.hasPassword()).isTrue();
+	}
+
+	/**
+	 * D3c's first half: GHL being down must not lock a client out of their own account.
+	 *
+	 * <p>They get the password, the session and the dashboard; the contact is deferred to the
+	 * first request that needs one, which is where {@code ClientApplicationService} backfills it.
+	 */
+	@Test
+	void aGhlOutageAtSetPasswordStillSignsThemIn() {
+		ClientAccount account = new ClientAccount(BRAND, "ana@example.com");
+		given(ghlContacts.upsertContact(any(), any(), any(), any(), any()))
+				.willThrow(new com.ie.evalos.integration.GhlUnavailableException("GHL did not answer"));
+
+		spendSetPasswordToken(account);
+
+		assertThat(account.hasPassword()).isTrue();
+		assertThat(account.getGhlContactId()).isNull();
+		verify(links).mintForClientAccount(account);
+	}
+
+	/**
+	 * Idempotent on the id: a seeded {@code V45} client resetting a forgotten password already has
+	 * a contact, and re-upserting would spend the rate budget to learn what EvalOS already knows.
+	 */
+	@Test
+	void aClientWhoAlreadyHasAContactDoesNotGetASecondCall() {
+		ClientAccount account = new ClientAccount(BRAND, "ana@example.com");
+		account.linkGhlContact("ghl-seeded");
+
+		spendSetPasswordToken(account);
+
+		verifyNoInteractions(ghlContacts);
+		assertThat(account.getGhlContactId()).isEqualTo("ghl-seeded");
+	}
+
+	/**
+	 * A recipient matcher on the address alone.
+	 *
+	 * <p>The contact id rides along on every {@code Recipient} now and varies by fixture — what
+	 * these tests are about is <em>which inbox</em> the link went to, which is the property that
+	 * would be a takeover bug if it were ever wrong.
+	 */
+	private static MailTransport.Recipient addressed(String email) {
+		return org.mockito.ArgumentMatchers.argThat((to) -> to != null && email.equals(to.email()));
+	}
+
+	/** Spends a valid single-use SET token against this account, as the real route would. */
+	private void spendSetPasswordToken(ClientAccount account) {
+		UUID accountId = UUID.randomUUID();
+		ClientCredentialToken token = new ClientCredentialToken(BRAND, accountId,
+				PortalAccessService.hash("tok"), CredentialPurpose.SET, Instant.now().plusSeconds(600));
+		given(credentials.findByTokenHash(PortalAccessService.hash("tok"))).willReturn(Optional.of(token));
+		given(accounts.findById(accountId)).willReturn(Optional.of(account));
+		given(links.mintForClientAccount(account)).willReturn(
+				new PortalAccessService.MintedToken("minted", Instant.now().plusSeconds(600)));
+
+		service.setPassword("tok", "Brand!New1");
 	}
 
 	@Test
@@ -142,7 +256,7 @@ class ClientAccountServiceTest {
 
 	@Test
 	void aSeededAccountAnswersNoPasswordAndIsSentASetLink() {
-		given(mailer.isConfigured()).willReturn(true);
+		given(mailer.canReach(any())).willReturn(true);
 		given(mailer.sendSetPassword(any(), any())).willReturn(true);
 		given(accounts.findByBrandIdAndEmailIgnoreCase(BRAND, "ana@example.com"))
 				.willReturn(Optional.of(new ClientAccount(BRAND, "ana@example.com")));
@@ -150,7 +264,7 @@ class ClientAccountServiceTest {
 
 		assertThat(service.identify("ana@example.com"))
 				.isEqualTo(ClientAccountService.IdentifyState.NO_PASSWORD);
-		verify(mailer).sendSetPassword(eq("ana@example.com"), any());
+		verify(mailer).sendSetPassword(addressed("ana@example.com"), any());
 	}
 
 	@Test
@@ -241,7 +355,7 @@ class ClientAccountServiceTest {
 
 	@Test
 	void withMailUnconfiguredASeededAccountIsToldToContactUsAndNoTokenIsMinted() {
-		// isConfigured() is left at the mock's default false.
+		// canReach() is left at the mock's default false.
 		given(accounts.findByBrandIdAndEmailIgnoreCase(BRAND, "ana@example.com"))
 				.willReturn(Optional.of(new ClientAccount(BRAND, "ana@example.com")));
 
@@ -266,14 +380,14 @@ class ClientAccountServiceTest {
 	 */
 	@Test
 	void aFailedSendAnswersMailUnavailableAndLeavesNoTokenToPoisonTheCooldown() {
-		given(mailer.isConfigured()).willReturn(true);
+		given(mailer.canReach(any())).willReturn(true);
 		given(mailer.sendSetPassword(any(), any())).willReturn(false);
 		given(accounts.findByBrandIdAndEmailIgnoreCase(BRAND, "ana@example.com"))
 				.willReturn(Optional.of(new ClientAccount(BRAND, "ana@example.com")));
 
 		assertThat(service.identify("ana@example.com"))
 				.isEqualTo(ClientAccountService.IdentifyState.MAIL_UNAVAILABLE);
-		verify(mailer).sendSetPassword(eq("ana@example.com"), any());
+		verify(mailer).sendSetPassword(addressed("ana@example.com"), any());
 		verify(credentials, never()).save(any());
 	}
 
@@ -288,7 +402,7 @@ class ClientAccountServiceTest {
 	 */
 	@Test
 	void forgotPasswordDoesNotDifferentiateWhenTheMailHostIsDown() {
-		given(mailer.isConfigured()).willReturn(true);
+		given(mailer.canReach(any())).willReturn(true);
 		given(mailer.sendResetPassword(any(), any())).willReturn(false);
 		ClientAccount account = new ClientAccount(BRAND, "ana@example.com");
 		account.setPasswordHash(encoder.encode("Correct!1"));
@@ -302,7 +416,7 @@ class ClientAccountServiceTest {
 
 	@Test
 	void anOutstandingLinkIsNotReissued() {
-		given(mailer.isConfigured()).willReturn(true);
+		given(mailer.canReach(any())).willReturn(true);
 		given(accounts.findByBrandIdAndEmailIgnoreCase(BRAND, "ana@example.com"))
 				.willReturn(Optional.of(new ClientAccount(BRAND, "ana@example.com")));
 		given(credentials.findFirstByClientAccountIdAndPurposeAndUsedAtIsNullAndExpiresAtAfter(
@@ -320,7 +434,7 @@ class ClientAccountServiceTest {
 
 	@Test
 	void forgotPasswordForAKnownEmailMintsAResetTokenAndMailsTheLink() {
-		given(mailer.isConfigured()).willReturn(true);
+		given(mailer.canReach(any())).willReturn(true);
 		given(mailer.sendResetPassword(any(), any())).willReturn(true);
 		ClientAccount account = new ClientAccount(BRAND, "ana@example.com");
 		account.setPasswordHash(encoder.encode("Correct!1"));
@@ -338,7 +452,7 @@ class ClientAccountServiceTest {
 		assertThat(saved.getValue().getPurpose()).isEqualTo(CredentialPurpose.RESET);
 
 		ArgumentCaptor<String> link = ArgumentCaptor.forClass(String.class);
-		verify(mailer).sendResetPassword(eq("ana@example.com"), link.capture());
+		verify(mailer).sendResetPassword(addressed("ana@example.com"), link.capture());
 		verify(mailer, never()).sendSetPassword(any(), any());
 		// The token rides in the FRAGMENT of the set-password route, like every other portal
 		// credential — never a query parameter, which lands in access logs and Referer headers.
@@ -394,15 +508,20 @@ class ClientAccountServiceTest {
 	/**
 	 * The gap this route closes: before 2026-09-15 nothing created a {@code client_account} at
 	 * runtime, so a client acquired after V45's backfill was told "we couldn't find that email"
-	 * for ever. Signing up must therefore actually write the row — and link the contact, because
-	 * an account with none is a lead no salesperson can see.
+	 * for ever. Signing up must therefore actually write the row, link the contact GHL returns
+	 * (D3d — GHL cannot mail a stranger), and send the link.
+	 *
+	 * <p><strong>And it must still answer a STATE, never a session.</strong> That is the security
+	 * property, and it is the one that did not move when D3a's ordering did: the address is
+	 * unproven at this moment, so a token here would be account takeover by typing a stranger's
+	 * email. Control of the inbox is proved by the link, exactly as it is for every seeded client.
 	 */
 	@Test
-	void aStrangerGetsAnAccountLinkedToTheContactGhlReturns() {
-		given(mailer.isConfigured()).willReturn(true);
+	void aStrangerGetsAnAccountLinkedToTheirContactAndAStateRatherThanASession() {
+		given(mailer.canReach(any())).willReturn(true);
 		given(mailer.sendSetPassword(any(), any())).willReturn(true);
 		given(credentials.save(any())).willAnswer(call -> call.getArgument(0));
-		given(ghlContacts.upsertContact("Ana", "Okafor", "ana@example.com", "+15550100"))
+		given(ghlContacts.upsertContact(any(), any(), any(), any(), any()))
 				.willReturn(new GhlWriteClient.UpsertedContact("ghl-1", "Ana Okafor",
 						"ana@example.com", "+15550100"));
 		// Absent before the insert, present after it — identify() re-reads through the same finder.
@@ -415,10 +534,19 @@ class ClientAccountServiceTest {
 
 		ArgumentCaptor<ClientAccount> saved = ArgumentCaptor.forClass(ClientAccount.class);
 		verify(accounts).saveAndFlush(saved.capture());
-		assertThat(saved.getValue().getGhlContactId()).isEqualTo("ghl-1");
 		assertThat(saved.getValue().getEmail()).isEqualTo("ana@example.com");
 		assertThat(saved.getValue().hasPassword()).isFalse();
-		verify(mailer).sendSetPassword(eq("ana@example.com"), any());
+		assertThat(saved.getValue().getGhlContactId()).isEqualTo("ghl-1");
+		assertThat(saved.getValue().getFirstName()).isEqualTo("Ana");
+		assertThat(saved.getValue().getPhone()).isEqualTo("+15550100");
+
+		// The contact is created before the mail, because the mail needs it.
+		org.mockito.InOrder order = org.mockito.Mockito.inOrder(ghlContacts, mailer);
+		order.verify(ghlContacts).upsertContact(any(), any(), any(), any(),
+				eq(GhlWriteClient.SOURCE_CLIENT_PORTAL));
+		order.verify(mailer).sendSetPassword(addressed("ana@example.com"), any());
+
+		verify(links, never()).mintForClientAccount(any());
 	}
 
 	/**
@@ -437,7 +565,7 @@ class ClientAccountServiceTest {
 		assertThat(service.signUp("ana@example.com", "Ana", "Okafor", null))
 				.isEqualTo(ClientAccountService.IdentifyState.PASSWORD_SET);
 
-		verify(ghlContacts, never()).upsertContact(any(), any(), any(), any());
+		verify(ghlContacts, never()).upsertContact(any(), any(), any(), any(), any());
 		verify(accounts, never()).saveAndFlush(any());
 		verify(mailer, never()).sendSetPassword(any(), any());
 	}
@@ -450,10 +578,10 @@ class ClientAccountServiceTest {
 	 */
 	@Test
 	void signingUpMintsNoToken() {
-		given(mailer.isConfigured()).willReturn(true);
+		given(mailer.canReach(any())).willReturn(true);
 		given(mailer.sendSetPassword(any(), any())).willReturn(true);
 		given(credentials.save(any())).willAnswer(call -> call.getArgument(0));
-		given(ghlContacts.upsertContact(any(), any(), any(), any()))
+		given(ghlContacts.upsertContact(any(), any(), any(), any(), any()))
 				.willReturn(new GhlWriteClient.UpsertedContact("ghl-1", null, "ana@example.com", null));
 		given(accounts.findByBrandIdAndEmailIgnoreCase(BRAND, "ana@example.com"))
 				.willReturn(Optional.empty())
@@ -470,10 +598,10 @@ class ClientAccountServiceTest {
 	 */
 	@Test
 	void aRacedSecondSubmissionAnswersRatherThanFailing() {
-		given(mailer.isConfigured()).willReturn(true);
+		given(mailer.canReach(any())).willReturn(true);
 		given(mailer.sendSetPassword(any(), any())).willReturn(true);
 		given(credentials.save(any())).willAnswer(call -> call.getArgument(0));
-		given(ghlContacts.upsertContact(any(), any(), any(), any()))
+		given(ghlContacts.upsertContact(any(), any(), any(), any(), any()))
 				.willReturn(new GhlWriteClient.UpsertedContact("ghl-1", null, "ana@example.com", null));
 		given(accounts.saveAndFlush(any()))
 				.willThrow(new org.springframework.dao.DataIntegrityViolationException("duplicate key"));

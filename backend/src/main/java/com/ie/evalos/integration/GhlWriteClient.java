@@ -62,6 +62,19 @@ public class GhlWriteClient {
 	public record UpsertedContact(String id, String name, String email, String phone) {
 	}
 
+	/**
+	 * The three things that create a contact, named for GHL's {@code source} field (D3b).
+	 *
+	 * <p>Constants rather than literals at the call sites because these strings are what a
+	 * salesperson filters a smart list on: one of them drifting to "client portal" makes a
+	 * segment silently lose half its rows, and nothing in either system would complain.
+	 */
+	public static final String SOURCE_CLIENT_PORTAL = "Client Portal";
+
+	public static final String SOURCE_MARKETING_DESK = "EvalOS Marketing Desk";
+
+	public static final String SOURCE_SALES_DESK = "EvalOS Sales Desk";
+
 	private final GhlHttp http;
 	private final AuditService audit;
 
@@ -78,15 +91,31 @@ public class GhlWriteClient {
 	 * contact. That is invariant 7 working as intended: the identity authority stays over there,
 	 * and EvalOS never mints a {@code ghl_contact_id}.
 	 *
+	 * <p><strong>{@code source} is the only provenance GHL will take on a write (D3b).</strong>
+	 * Its public API documents no attribution on create or upsert — no {@code attributionSource},
+	 * no {@code utmSource}, no {@code campaign} — because GHL fills those from its own form and
+	 * funnel tracking, which an API caller never goes through. So the one documented string is
+	 * what carries "where did this person come from", and every caller passes one rather than
+	 * leaving two of three contacts unattributed.
+	 *
+	 * @param source who is creating this contact, in GHL's own vocabulary — see
+	 *               {@code SOURCE_CLIENT_PORTAL} and its siblings
 	 * @throws GhlUnavailableException if GHL is not configured here or refused the request
 	 */
-	public UpsertedContact upsertContact(String firstName, String lastName, String email, String phone) {
+	public UpsertedContact upsertContact(String firstName, String lastName, String email, String phone,
+			String source) {
 		Map<String, Object> body = new LinkedHashMap<>();
 		body.put("locationId", http.locationId());
 		putIfPresent(body, "firstName", firstName);
 		putIfPresent(body, "lastName", lastName);
 		putIfPresent(body, "email", email);
 		putIfPresent(body, "phone", phone);
+		// **Not putIfPresent, and that is the point (D3b).** Every other field here is optional
+		// because a lead really may arrive with no phone. A contact with no `source` is not a
+		// sparse contact, it is an unattributed one — and the way that happens is a fifth caller
+		// added later passing null because the compiler let them. Refusing is the only thing that
+		// makes "every time" true; a blank string would be a caller opting out silently.
+		body.put("source", requireSource(source));
 
 		ContactEnvelope response = http.post(ContactEnvelope.class,
 				(uri) -> uri.path("/contacts/upsert").build(), body);
@@ -386,6 +415,19 @@ public class GhlWriteClient {
 	 */
 	private static UUID auditKey(String objectType, String ghlId) {
 		return UUID.nameUUIDFromBytes((objectType + ':' + ghlId).getBytes(StandardCharsets.UTF_8));
+	}
+
+	/**
+	 * Refuses a contact with no provenance. <strong>Not a {@code GhlUnavailableException}</strong>
+	 * — nothing has been sent and GHL has done nothing wrong; this is a caller that forgot, and it
+	 * should read as the programming error it is rather than as an outage a reader would retry.
+	 */
+	private static String requireSource(String source) {
+		if (source == null || source.isBlank()) {
+			throw new IllegalArgumentException("A GHL contact needs a source (D3b) — see "
+					+ "GhlWriteClient.SOURCE_CLIENT_PORTAL and its siblings.");
+		}
+		return source.trim();
 	}
 
 	private static void putIfPresent(Map<String, Object> body, String key, String value) {

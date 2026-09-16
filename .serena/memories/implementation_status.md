@@ -3,12 +3,20 @@
 **The authoritative file is `.claude/implementation-status.md` — a table with evidence per row.
 Check it before claiming anything exists or is missing.**
 
-Build is green: backend 1013 tests, 0 failures, 4 skipped; staff SPA 127 tests plus clean tsc;
-portals 30 tests plus clean tsc. All run 2026-09-16.
+Build is green: backend **1013 tests, 0 failures, 3 skipped**; staff SPA 127 tests plus clean tsc;
+portals 30 tests plus clean tsc. Re-run 2026-09-16.
 
-**The newest work is uncommitted.** Units 40, 43 and 51 and the `00d` audit are 121 changed or
-untracked paths on branch `development`, whose HEAD is `dee45c6 fix(42)`. CI runs on `main` only,
-so none of it has been through CI.
+**It was RED on that re-run, from a time bomb rather than a regression.**
+`GmOverviewServiceTest.countsOnlyCasesAlreadyPastTheirPromisedDateAsLate` set a delivery date from
+the REAL `Instant.now()` while counting it against a window from a FIXED clock (2026-09-15,
+exclusive end at midnight opening the 16th) — so it passed the day it was written and failed every
+run after. Fixed with `CLOCK.instant()`. **The asymmetry that allowed it remains:**
+`GmOverviewService.evaluation` takes its window from an injected clock and its lateness from its
+own `Instant.now()`, so lateness cannot be tested at a fixed point in time.
+
+**The tree is CLEAN and everything is committed**; HEAD is `e2d18bb feat(45c)` on `development`.
+This paragraph said "uncommitted, 121 paths, HEAD `dee45c6`" until Units 51, 52, 44a-44d and
+45a-45c landed. **CI still runs on `main` only**, so none of it has been through CI.
 
 NOT IMPLEMENTED: conversations, outbound webhooks (Handoff C), expert accounts, the GHL mirror
 (Units 44 to 48), request-stage documents, client payments (deliberate — they are GHL's).
@@ -143,7 +151,13 @@ PARTIAL and worth knowing: SALES can read no case; a client with two or more cas
 Portals are in neither `docker-compose.yml` nor CI.
 
 Operational, not code: IE's GHL sub-account was replaced on 2026-09-11 with
-`WY6bW2xUCI8Tz8gw7aLJ` and no contacts were migrated. Whether the `opportunity.won` workflow was
-recreated **cannot be determined from this repo** — verify it in GHL. If it was not, no case is
-created by anything. `evalos.ghl.intake-pipeline-name` defaults to blank, which makes every
-request start answer 502.
+`WY6bW2xUCI8Tz8gw7aLJ` and no contacts were migrated. The `opportunity.won` workflow **EXISTS** in the new
+account (confirmed by the business 2026-09-16; the repo cannot prove it and never will). **A real
+won opportunity producing a case has still not been observed.** A firing needs
+`POST /api/webhooks/ghl/{webhook_endpoint_token}` — that token is the whole credential, there is
+no signature step — with `event_type`, `contact_id` and `full_name` snake_case at the top level,
+and an optional camelCase `customData` of snake_case fields; `amount` is `@Positive` where
+present, so **0 is refused** and absent is fine. `evalos.ghl.intake-pipeline-name` is GONE (retired at 44b): a GM must
+mark exactly one mirrored pipeline INTAKE via `PUT /api/ghl/pipelines/{id}/purpose`, and **zero
+(the fresh-deployment default) and two or more are both a 502** — guessing would file a client's
+request onto a pipeline nobody chose.

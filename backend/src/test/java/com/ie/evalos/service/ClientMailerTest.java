@@ -1,85 +1,115 @@
 package com.ie.evalos.service;
 
+import java.util.List;
+
+import com.ie.evalos.integration.MailTransport;
+
 import org.junit.jupiter.api.Test;
-import org.springframework.mail.SimpleMailMessage;
-import org.springframework.mail.javamail.JavaMailSender;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentCaptor.forClass;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.verify;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * What the one mail channel EvalOS has will and will not do.
+ * The transport seam: who carries the mail is an environment setting, not a build.
  *
- * <p>The interesting assertion is {@link #blankFromMeansNotConfigured()}: a missing sender must
- * degrade the sign-in flow, not throw from inside it.
+ * <p>The seam exists because the answer has already changed once (SMTP → GHL) and is expected to
+ * change again (→ Brevo). What these pin is the three things that make the switch safe — the right
+ * one is picked, a wrong name is loud, and a transport that cannot address a particular person
+ * says so rather than reporting a send that never happened.
  */
 class ClientMailerTest {
 
-	private final JavaMailSender sender = mock(JavaMailSender.class);
+	/** A transport that records what it was asked to carry. */
+	private static final class Fake implements MailTransport {
 
-	@Test
-	void setPasswordMailCarriesTheLink() {
-		ClientMailer mailer = new ClientMailer(sender, "noreply@internationalevaluations.com");
+		private final String name;
 
-		mailer.sendSetPassword("ana@example.com", "https://portal.example.com/set-password#tok");
+		private final boolean configured;
 
-		var captor = forClass(SimpleMailMessage.class);
-		verify(sender).send(captor.capture());
-		SimpleMailMessage sent = captor.getValue();
-		assertThat(sent.getTo()).containsExactly("ana@example.com");
-		assertThat(sent.getFrom()).isEqualTo("noreply@internationalevaluations.com");
-		assertThat(sent.getText()).contains("https://portal.example.com/set-password#tok");
+		private final boolean reachable;
+
+		private Recipient sentTo;
+
+		Fake(String name, boolean configured, boolean reachable) {
+			this.name = name;
+			this.configured = configured;
+			this.reachable = reachable;
+		}
+
+		@Override
+		public String name() {
+			return name;
+		}
+
+		@Override
+		public boolean isConfigured() {
+			return configured;
+		}
+
+		@Override
+		public boolean canReach(Recipient to) {
+			return reachable;
+		}
+
+		@Override
+		public boolean send(Recipient to, String subject, String body) {
+			this.sentTo = to;
+			return true;
+		}
 	}
 
+	private static final MailTransport.Recipient ANA =
+			new MailTransport.Recipient("ana@example.com", "ghl-1");
+
 	@Test
-	void blankFromMeansNotConfigured() {
-		ClientMailer mailer = new ClientMailer(sender, "");
+	void theConfiguredTransportIsTheOneThatCarriesIt() {
+		Fake smtp = new Fake("smtp", true, true);
+		Fake ghl = new Fake("ghl", true, true);
 
-		assertThat(mailer.isConfigured()).isFalse();
+		new ClientMailer(List.of(smtp, ghl), "ghl").sendSetPassword(ANA, "https://portal/set#tok");
 
-		assertThat(mailer.sendSetPassword("ana@example.com", "https://portal.example.com/set-password#tok"))
-				.isFalse();
-
-		verify(sender, never()).send(any(SimpleMailMessage.class));
+		assertThat(ghl.sentTo).isEqualTo(ANA);
+		assertThat(smtp.sentTo).isNull();
 	}
 
 	/**
-	 * A configured-but-failing sender reports false, exactly like an unconfigured one.
+	 * <strong>A name matching nothing fails at startup, and names what it found.</strong>
 	 *
-	 * <p><strong>The throw this replaces was an enumeration oracle.</strong> {@code MailException}
-	 * is unchecked and propagated out of {@code ClientAccountService.forgotPassword}, so on an SMTP
-	 * outage a <em>known</em> address answered 500 and an unknown one still answered 204 — the one
-	 * difference that method exists to hide, appearing on precisely the day somebody is probing.
-	 * It also turned {@code identify} into a 500 rather than {@code MAIL_UNAVAILABLE}, against
-	 * this class's own promise never to make a mail problem a 500.
+	 * <p>The alternative — falling back to whichever transport happens to be first — is discovered
+	 * by a client who never received their link, weeks later, on an environment nobody is watching.
+	 * A typo in a deployment variable should stop the deployment.
 	 */
 	@Test
-	void aFailingSenderReportsFalseRatherThanThrowing() {
-		ClientMailer mailer = new ClientMailer(sender, "noreply@internationalevaluations.com");
-		org.mockito.Mockito.doThrow(new org.springframework.mail.MailSendException("smtp is down"))
-				.when(sender).send(any(SimpleMailMessage.class));
-
-		assertThat(mailer.sendSetPassword("ana@example.com", "https://x/#a")).isFalse();
-		assertThat(mailer.sendResetPassword("ana@example.com", "https://x/#b")).isFalse();
+	void anUnknownTransportNameRefusesToStart() {
+		assertThatThrownBy(() -> new ClientMailer(List.of(new Fake("smtp", true, true)), "brevo"))
+				.isInstanceOf(IllegalStateException.class)
+				.hasMessageContaining("brevo")
+				.hasMessageContaining("smtp");
 	}
 
+	/**
+	 * <strong>Configured is not the same as able to reach this person</strong>, and conflating them
+	 * is what the GHL transport made dangerous. GHL addresses a contact id; an account whose
+	 * sign-up met a GHL outage has none. Reporting a send there would mint a credential token for a
+	 * link that never left — and the cooldown would then suppress the retry for a full TTL.
+	 */
 	@Test
-	void resetMailIsADifferentMessageFromSetMail() {
-		ClientMailer mailer = new ClientMailer(sender, "noreply@internationalevaluations.com");
+	void aTransportThatCannotAddressThisPersonSendsNothingAndSaysSo() {
+		Fake ghl = new Fake("ghl", true, false);
+		ClientMailer mailer = new ClientMailer(List.of(ghl), "ghl");
 
-		var captor = forClass(SimpleMailMessage.class);
-		mailer.sendSetPassword("ana@example.com", "https://x/#a");
-		mailer.sendResetPassword("ana@example.com", "https://x/#b");
-		verify(sender, org.mockito.Mockito.times(2)).send(captor.capture());
-
-		assertThat(captor.getAllValues().get(0).getSubject())
-				.isNotEqualTo(captor.getAllValues().get(1).getSubject());
+		assertThat(mailer.isConfigured()).isTrue();
+		assertThat(mailer.canReach(new MailTransport.Recipient("ana@example.com", null))).isFalse();
+		assertThat(mailer.sendSetPassword(ANA, "https://portal/set#tok")).isFalse();
+		assertThat(ghl.sentTo).isNull();
 	}
 
-	private static <T> T any(Class<T> type) {
-		return org.mockito.ArgumentMatchers.any(type);
+	/** An unconfigured transport is the MAIL_UNAVAILABLE path, not a boot failure. */
+	@Test
+	void anUnconfiguredTransportDegradesRatherThanThrowing() {
+		ClientMailer mailer = new ClientMailer(List.of(new Fake("smtp", false, true)), "smtp");
+
+		assertThat(mailer.isConfigured()).isFalse();
+		assertThat(mailer.sendResetPassword(ANA, "https://portal/set#tok")).isFalse();
 	}
 }

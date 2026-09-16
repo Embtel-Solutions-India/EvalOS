@@ -729,8 +729,10 @@ Depends on: 17, 28, 36, 38.
 
 ## Unit 52 — Client Portal ↔ GHL integration
 
-**PARTIALLY BUILT 2026-09-16.** The EvalOS→GHL half of the client flow: sign-up upserts the GHL
-contact and stores its id (already true); picking a service opens the opportunity carrying the
+**PARTIALLY BUILT 2026-09-16.** The EvalOS→GHL half of the client flow: **set-password** upserts
+the GHL contact and stores its id, carrying `source: "Client Portal"` — it was sign-up until D3a
+moved it the same day, because that route is `permitAll` and a CRM write behind it is a stranger's
+write (§8); picking a service opens the opportunity carrying the
 **service id** as a custom field, which is the one input a GHL workflow needs to route the deal to
 a pipeline; submitting writes `SUBMITTED` to a second custom field through
 `GhlWriteClient.setOpportunityFields` — custom fields only, so it cannot undo the routing GHL just

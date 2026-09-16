@@ -90,7 +90,8 @@ public class SalesDeskService {
 			throw new InvalidRequestException("A deal needs a name");
 		}
 
-		GhlWriteClient.UpsertedContact contact = ghl.upsertContact(firstName, lastName, email, phone);
+		GhlWriteClient.UpsertedContact contact = ghl.upsertContact(firstName, lastName, email, phone,
+				GhlWriteClient.SOURCE_SALES_DESK);
 
 		if (!confirmSecondDeal) {
 			deals.onPipelines(java.util.List.of(pipelineId)).stream()

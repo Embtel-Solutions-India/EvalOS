@@ -171,7 +171,14 @@ class GmOverviewServiceTest {
 		soon.setDeadline(Instant.now().plusSeconds(3600));
 		Case deliveredLate = caseOf(ServiceType.CREDENTIAL_EVALUATION, "800", Stage.DELIVERED);
 		deliveredLate.setDeadline(Instant.now().minusSeconds(7200));
-		deliveredLate.setDeliveryDate(Instant.now());
+		// **`CLOCK.instant()`, not `Instant.now()`, and the difference is a day-shaped bug.**
+		// `delivered` counts a delivery date inside the WINDOW, and the window comes from the fixed
+		// clock — 1-15 September, exclusive end at midnight opening the 16th. A real `now()` sat
+		// inside that only while the machine's date was still the 15th, so this assertion passed on
+		// the day it was written and failed on every run afterwards. The deadlines above stay on the
+		// real clock deliberately: `GmOverviewService.evaluation` compares them against its own
+		// `Instant.now()`, which no caller can inject.
+		deliveredLate.setDeliveryDate(CLOCK.instant());
 		given(lifecycle.list(any(), any(), any())).willReturn(List.of(late, soon, deliveredLate));
 
 		var evaluation = service("0").forCaller(window("month"), BRAND).evaluation();

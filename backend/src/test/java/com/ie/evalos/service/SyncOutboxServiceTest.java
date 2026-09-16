@@ -134,8 +134,7 @@ class SyncOutboxServiceTest {
 
 		service.drain();
 
-		org.mockito.ArgumentCaptor<java.util.Map<String, String>> fields =
-				org.mockito.ArgumentCaptor.forClass(java.util.Map.class);
+		org.mockito.ArgumentCaptor<java.util.Map<String, String>> fields = org.mockito.ArgumentCaptor.captor();
 		then(ghl).should().createOpportunity(eq("pipe-1"), eq("contact-1"), anyString(), any(), any(),
 				any(), fields.capture());
 		assertThat(fields.getValue()).containsEntry(CORRELATION_FIELD, row.getId().toString());

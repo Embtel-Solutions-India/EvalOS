@@ -118,6 +118,17 @@ evalos:
     # GHL_API_TOKEN an empty default rather than a fatal one. A password reset is recoverable by
     # a support conversation; a refused boot is not recoverable by anyone.
     from: ${EVALOS_MAIL_FROM:}
+    # Who carries the two messages EvalOS sends. One of the MailTransport beans by name:
+    # `smtp` (Spring Mail) or `ghl` (POST /conversations/messages, so the link lands in the
+    # contact's own conversation thread). A third — Brevo — is a new class and this value.
+    #
+    # **A name that matches nothing fails at startup and says what it found.** Falling back
+    # silently would be discovered by a client who never got their link.
+    transport: ${EVALOS_MAIL_TRANSPORT:smtp}
+    # The envelope sender for the `ghl` transport. **Blank is the better default**: GHL knows
+    # which domain this location has authenticated, and an address it cannot sign for is how a
+    # password mail silently lands in spam.
+    ghl-from: ${EVALOS_MAIL_GHL_FROM:}
   portal:
     # Which brand this portal deployment serves. **NOT evalos.ghl.sales-brand** — that one names
     # which brand's STAFF may hold the SALES and MARKETING roles, a staff-authorization ceiling
@@ -134,6 +145,15 @@ evalos:
     # a deployer (the sign-in link's lifetime) instead. Renaming it to EVALOS_PORTAL_CREDENTIAL_TTL
     # to "fix" the mismatch reintroduces that build failure.
     credential-ttl: ${EVALOS_PORTAL_SIGNIN_LINK_TTL:10m}
+    # How long an unproved sign-up is kept before PORTAL_CLEANUP removes it (D3a).
+    #
+    # **Thirty days, and generous on purpose.** This is the window in which a real client who
+    # signed up, never opened the mail and came back still finds their own row instead of being
+    # told "we couldn't find that email" for a second time. Only rows with NO password and NO GHL
+    # contact are eligible, and the sweep skips any that acquired a token, an application or a
+    # session — so shortening this tidies the table and costs a returning client; it protects
+    # nothing extra.
+    abandoned-sign-up-after: ${EVALOS_PORTAL_ABANDONED_AFTER:30d}
     # The portal frontend's origin(s), comma-separated. **Empty by default and never `*`** —
     # see PortalSecurityConfig. An environment that forgets this gets a failing preflight, which
     # is loud; a wildcard would be silent and wrong.
@@ -356,6 +376,11 @@ evalos:
       # outage; every minute it sits is a minute a salesperson does not know the lead exists. An
       # hour, like the pipeline mirror's, would make the queue itself the outage.
       SYNC_OUTBOX: ${JOBS_SYNC_OUTBOX_INTERVAL:2m}
+      # Portal cleanup (expired credential tokens, abandoned sign-ups). **Daily, and the slowness
+      # is deliberate**: nothing downstream reads these rows, so the only thing an hourly pass
+      # would buy is a slightly smaller table and 24x the ledger rows a GM reads past. It is also
+      # the one sweep that DELETES, and a daily cadence keeps a mistake's blast radius to one pass.
+      PORTAL_CLEANUP: ${JOBS_PORTAL_CLEANUP_INTERVAL:24h}
     # How many missed intervals before the panel calls a sweep stopped. Four rather than two so
     # one slow pass or one restart is not an alarm; low enough that a scheduler that died is
     # named within a couple of hours rather than the next morning.

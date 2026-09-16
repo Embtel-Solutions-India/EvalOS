@@ -8,11 +8,34 @@ The ones most often violated from memory:
   registration. All three states (no contact and no account; contact only; both) are legal.
 - One GHL Contact, many opportunities. A repeat request makes a new **opportunity**, never a
   second contact.
+- **The GHL contact is created AT SIGN-UP** (D3d) — it briefly moved to set-password (D3a,
+  2026-09-16 morning) and came back the same day because **GHL sends the mail and
+  `POST /conversations/messages` requires a `contactId`**: there is no contact-less send. D3a's
+  *property* still holds (a stranger must not drive unbounded CRM writes); what holds it is now the
+  route's own gate + `PORTAL_CLEANUP`, not the ordering. **The gate is NOT built yet** — the route
+  is still on the shared 60/min/IP counter.
+- **A GHL outage never refuses a sign-up, a set-password or a sign-in.** The account stands with no
+  contact, `identify` answers `MAIL_UNAVAILABLE`, and `ensureCrmIdentity` repairs it at the next
+  sign-in or the first request (D3c).
+- **Mail is swappable** (D3e): `MailTransport` + `evalos.mail.transport` = `smtp` | `ghl`. Brevo is
+  a new class and a changed variable. Ask `canReach`, not `isConfigured` — the GHL transport is
+  configured yet cannot address a client with no linked contact.
+- **A portal contact carries `source: "Client Portal"`** (D3b). GHL accepts no `utmSource` or
+  `attributionSource` on a write — it fills those from its own form tracking, which an API caller
+  never passes through — so the documented `source` string is the whole of what provenance can be.
+  Every `upsertContact` caller names itself.
 - **Request is not Case.** `client_application` is the request, `evalos_case` is production work,
   and the GHL opportunity is the commercial process between them.
-- **The opportunity opens when the client PICKS a service, not when they submit** (D10) — a
-  half-finished request is still a lead Sales can ring. Asked on 2026-09-16 to move it to submit;
-  reaffirmed, and submit now writes a `SUBMITTED` custom field on the same opportunity instead.
+- **The opportunity opens when the client SUBMITS** (D10) — changed 2026-09-16 on the second
+  asking, having been reaffirmed against the first. It opened at service-pick so a half-finished
+  request still reached Sales; it no longer does, and that cost is accepted rather than overlooked.
+  The `SUBMITTED` custom field rides the create now, not a follow-up call. A failed create refuses
+  the submit and keeps the draft. Then: Sales review → won → payment (D10c).
+- **Abandoned portal rows are swept** (`PORTAL_CLEANUP`, daily). Expired `client_credential_token`
+  rows go one TTL past expiry; `client_account` rows with no password, no GHL contact, no token, no
+  application and no session go after `abandoned-sign-up-after` (30d). **Audit is never swept** —
+  append-only by invariant, so a flood still grows `audit_event` and that is the one place growth
+  is the feature.
 - **GHL's pipelines and stages are MIRRORED rows now** (Unit 44a, `V50`), keyed on GHL's own ids.
   GHL owns every column except `pipeline.purpose`, which EvalOS owns and a sweep never writes. Rows
   are never deleted — `missing_since` instead. Nothing guesses a purpose from a pipeline's name.
@@ -44,3 +67,13 @@ The ones most often violated from memory:
 
 Changed a decision? Edit `.claude/current-decisions.md`, then this memory. Never leave a
 contradicting note beside the old one.
+
+**D32 (2026-09-16).** `client_account` and `contact_snapshot` stay **two tables, JOINED** — not
+merged. `V55` adds `client_account.contact_id`, a real FK, backfilled on `ghl_contact_id` within
+the brand and set at sign-up; null stays legal. **D6 is now schema-enforced** by a partial unique
+index, where `ghl_contact_id` had been nullable AND not unique, so nothing stopped two accounts
+naming one contact. The `contact_snapshot` → `contact` **rename is deferred for a mechanical
+reason**: two seeds write that table (`V905`, `V951`), both 900+, both running after every
+`db/migration` script, and `MigrationTreeTest` forbids a migration in that range while editing an
+applied seed is a checksum mismatch that refuses the boot. Do it when the seed tree is rebaselined.
+

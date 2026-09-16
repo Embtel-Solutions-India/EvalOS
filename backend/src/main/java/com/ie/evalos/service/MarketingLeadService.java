@@ -58,7 +58,8 @@ public class MarketingLeadService {
 							+ "those, and without either every save creates a new one.");
 		}
 
-		GhlWriteClient.UpsertedContact contact = ghl.upsertContact(firstName, lastName, email, phone);
+		GhlWriteClient.UpsertedContact contact = ghl.upsertContact(firstName, lastName, email, phone,
+				GhlWriteClient.SOURCE_MARKETING_DESK);
 		GhlWriteClient.UpsertedOpportunity opportunity = ghl.upsertOpportunity(pipelineId, contact.id(),
 				name == null || name.isBlank() ? contact.name() : name, monetaryValue);
 

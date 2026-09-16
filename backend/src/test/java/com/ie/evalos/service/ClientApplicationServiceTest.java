@@ -10,7 +10,6 @@ import com.ie.evalos.common.InvalidRequestException;
 import com.ie.evalos.domain.ClientAccount;
 import com.ie.evalos.domain.ClientApplication;
 import com.ie.evalos.domain.PortalAudience;
-import com.ie.evalos.integration.GhlPipelineClient;
 import com.ie.evalos.integration.GhlUnavailableException;
 import com.ie.evalos.integration.GhlWriteClient;
 import com.ie.evalos.repository.ClientAccountRepository;
@@ -23,7 +22,6 @@ import org.mockito.ArgumentCaptor;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.assertj.core.api.Assertions.entry;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -78,13 +76,17 @@ class ClientApplicationServiceTest {
 
 	private final SyncOutboxService outbox = mock(SyncOutboxService.class);
 
+	/** D3c's backfill door. Stubbed to do nothing, so a client who has a contact id keeps it. */
+	private final ClientAccountService accountsService = mock(ClientAccountService.class);
+
 	private final ClientApplicationService service = new ClientApplicationService(applications, accounts,
-			ghl, pipelines, SERVICE_FIELD, SUBMITTED_FIELD, CORRELATION_FIELD, deals, outbox);
+			ghl, pipelines, SERVICE_FIELD, SUBMITTED_FIELD, CORRELATION_FIELD, deals, outbox,
+			accountsService);
 
 	/** The same service with no custom field configured — the unconfigured environment. */
 	private ClientApplicationService withoutCustomFields() {
 		return new ClientApplicationService(applications, accounts, ghl, pipelines, "", "", "", deals,
-				outbox);
+				outbox, accountsService);
 	}
 
 	private ClientAccount client;
@@ -120,16 +122,19 @@ class ClientApplicationServiceTest {
 		});
 	}
 
+	/**
+	 * <strong>Submitting is what opens the deal (D10, changed 2026-09-16).</strong>
+	 *
+	 * <p>It was service-pick until then, so that a client who abandoned the questionnaire still
+	 * reached a salesperson. Refused twice, carried at the third asking: a deal on the board is now
+	 * a finished request and nothing else.
+	 */
 	@Test
-	void pickingAServiceOpensTheDeal() {
+	void submittingOpensTheDeal() {
 		given(ghl.createOpportunity(eq("pipe-1"), eq(CONTACT), anyString(), any(), any(), any(), any()))
 				.willReturn(opened("opp-1"));
 
-		ClientApplicationService.ApplicationView started =
-				service.start(token(), "academic_evaluation", "Academic Evaluation", "immigration");
-
-		assertThat(started.status()).isEqualTo("DRAFT");
-		assertThat(started.serviceName()).isEqualTo("Academic Evaluation");
+		submitFresh(service, "academic_evaluation", "Academic Evaluation");
 
 		// The name a salesperson scans a board for: the person, then what they want.
 		ArgumentCaptor<String> name = ArgumentCaptor.forClass(String.class);
@@ -155,7 +160,7 @@ class ClientApplicationServiceTest {
 		given(ghl.createOpportunity(any(), any(), any(), any(), any(), any(), any()))
 				.willReturn(opened("opp-1"));
 
-		service.start(token(), "academic_evaluation", "Academic Evaluation", null);
+		submitFresh(service, "academic_evaluation", "Academic Evaluation");
 
 		ArgumentCaptor<String> stage = ArgumentCaptor.forClass(String.class);
 		verify(ghl).createOpportunity(eq("pipe-1"), eq(CONTACT), anyString(), any(), stage.capture(),
@@ -172,9 +177,8 @@ class ClientApplicationServiceTest {
 	 * reading a board and is reworded whenever the catalog is, while a workflow condition has to
 	 * keep matching.
 	 *
-	 * <p>Sent on <em>create</em> and not on submit, because that is when the trigger fires — and
-	 * the deal is opened when the client picks a service, which {@link #pickingAServiceOpensTheDeal()}
-	 * pins.
+	 * <p>Sent on the <em>create</em>, because that is when the workflow trigger fires — and the
+	 * create happens at submit, which {@link #submittingOpensTheDeal()} pins.
 	 *
 	 * <p>{@code containsEntry} rather than {@code containsExactly}: the same create also carries the
 	 * correlation key (Unit 44d), and this test is about the routing field. The two are asserted
@@ -185,9 +189,9 @@ class ClientApplicationServiceTest {
 		given(ghl.createOpportunity(any(), any(), any(), any(), any(), any(), any()))
 				.willReturn(opened("opp-1"));
 
-		service.start(token(), "eb1a_expert_opinion_letter", "EB-1A Expert Opinion Letter", null);
+		submitFresh(service, "eb1a_expert_opinion_letter", "EB-1A Expert Opinion Letter");
 
-		ArgumentCaptor<java.util.Map<String, String>> fields = ArgumentCaptor.forClass(java.util.Map.class);
+		ArgumentCaptor<java.util.Map<String, String>> fields = ArgumentCaptor.captor();
 		verify(ghl).createOpportunity(eq("pipe-1"), eq(CONTACT), anyString(), any(), any(), any(),
 				fields.capture());
 		assertThat(fields.getValue()).containsEntry(SERVICE_FIELD, "eb1a_expert_opinion_letter");
@@ -198,40 +202,47 @@ class ClientApplicationServiceTest {
 	 *
 	 * <p>Null rather than an empty map, because {@code createOpportunity} drops blank entries
 	 * anyway and a caller sending <code>{}</code> reads as "this request has no service", which is
-	 * never true. **Losing the lead over an unconfigured field would be the worse failure**: the
-	 * whole reason the deal is opened at service-pick is that a client who abandons the
-	 * questionnaire must already be on a salesperson's board.
+	 * never true. **Losing the request over an unconfigured field would be the worse failure**: the
+	 * client has finished the questionnaire by this point, and an environment that has not created
+	 * the field yet must not turn that into nothing.
 	 */
 	@Test
 	void anUnconfiguredFieldStillOpensTheDeal() {
 		given(ghl.createOpportunity(any(), any(), any(), any(), any(), any(), any()))
 				.willReturn(opened("opp-1"));
 
-		withoutCustomFields().start(token(), "academic_evaluation", "Academic Evaluation", null);
+		submitFresh(withoutCustomFields(), "academic_evaluation", "Academic Evaluation");
 
-		ArgumentCaptor<java.util.Map<String, String>> fields = ArgumentCaptor.forClass(java.util.Map.class);
+		ArgumentCaptor<java.util.Map<String, String>> fields = ArgumentCaptor.captor();
 		verify(ghl).createOpportunity(eq("pipe-1"), eq(CONTACT), anyString(), any(), any(), any(),
 				fields.capture());
 		assertThat(fields.getValue()).isNull();
 	}
 
 	/**
-	 * <strong>Submitting tells GHL, and it tells it the one way that cannot undo GHL's routing.</strong>
+	 * <strong>The SUBMITTED marker rides the create, and the second call is gone (D12).</strong>
 	 *
-	 * <p>The deal was opened when the client picked a service (D10), so by now GHL's own workflow
-	 * has very probably moved it onto a service-specific pipeline. {@code setOpportunityFields}
-	 * sends custom fields and nothing else — no pipeline, no stage, no name — so there is nothing
-	 * for this call to move back. `moveStage` and `updateOpportunity` both carry a pipeline and are
-	 * asserted absent here for exactly that reason.
+	 * <p>It used to be a {@code setOpportunityFields} follow-up, because the old D10 opened the deal
+	 * at service-pick and a board could not tell somebody browsing from a finished request. Only a
+	 * submit opens a deal now, so every opportunity is a submitted one and a second call would
+	 * announce what the row's existence already says. The field is still written so a GHL workflow
+	 * keyed on it keeps firing.
+	 *
+	 * <p>{@code moveStage} and {@code updateOpportunity} both carry a pipeline and are asserted
+	 * absent: EvalOS places the deal and never moves it again.
 	 */
 	@Test
-	void submittingMarksTheDealSubmittedWithoutTouchingItsPipeline() {
-		ClientApplication existing = draft("opp-1");
-		given(applications.findById(existing.getId())).willReturn(Optional.of(existing));
+	void theSubmittedMarkerRidesTheCreateAndNothingFollowsIt() {
+		given(ghl.createOpportunity(any(), any(), any(), any(), any(), any(), any()))
+				.willReturn(opened("opp-1"));
 
-		service.submit(token(), existing.getId());
+		submitFresh(service, "academic_evaluation", "Academic Evaluation");
 
-		verify(ghl).setOpportunityFields("opp-1", java.util.Map.of(SUBMITTED_FIELD, "SUBMITTED"));
+		ArgumentCaptor<java.util.Map<String, String>> fields = ArgumentCaptor.captor();
+		verify(ghl).createOpportunity(any(), any(), anyString(), any(), any(), any(), fields.capture());
+		assertThat(fields.getValue()).containsEntry(SUBMITTED_FIELD, "SUBMITTED");
+
+		verify(ghl, never()).setOpportunityFields(any(), any());
 		verify(ghl, never()).moveStage(any(), any(), any());
 		verify(ghl, never()).updateOpportunity(any(), any(), any(), any(), any());
 	}
@@ -245,27 +256,37 @@ class ClientApplicationServiceTest {
 	 * board — only the marker is missing — so refusing would lose a completed questionnaire over a
 	 * flag. EvalOS owns the request; GHL is the copy that lags.
 	 */
+	/**
+	 * <strong>A GHL outage at submit refuses, and that is stricter than it used to be (D12).</strong>
+	 *
+	 * <p>The failure used to be swallowed: the deal already existed, only the marker was missing,
+	 * so refusing would have thrown away a finished questionnaire over a flag. Under D10 a failed
+	 * create means Sales has <em>no deal at all</em> — telling a client "sent" for that is the one
+	 * lie this flow must not tell. The draft survives and the next attempt retries.
+	 */
 	@Test
-	void aFailedSubmitSignalStillSubmitsTheRequest() {
-		ClientApplication existing = draft("opp-1");
-		given(applications.findById(existing.getId())).willReturn(Optional.of(existing));
-		org.mockito.BDDMockito.willThrow(new GhlUnavailableException("GHL did not answer"))
-				.given(ghl).setOpportunityFields(any(), any());
+	void aFailedCreateRefusesTheSubmitAndKeepsTheDraft() {
+		ClientApplication row = freshDraft("academic_evaluation", "Academic Evaluation");
+		given(ghl.createOpportunity(any(), any(), any(), any(), any(), any(), any()))
+				.willThrow(new GhlUnavailableException("GHL did not answer"));
 
-		ClientApplicationService.ApplicationView submitted = service.submit(token(), existing.getId());
+		assertThatThrownBy(() -> service.submit(token(), row.getId()))
+				.isInstanceOf(InvalidRequestException.class);
 
-		assertThat(submitted.status()).isEqualTo("SUBMITTED");
+		assertThat(row.isDraft()).isTrue();
 	}
 
-	/** No field configured is no call, not an empty one. */
+	/** No field configured omits it from the create rather than sending it blank. */
 	@Test
-	void anUnconfiguredSubmittedFieldSendsNothing() {
-		ClientApplication existing = draft("opp-1");
-		given(applications.findById(existing.getId())).willReturn(Optional.of(existing));
+	void anUnconfiguredSubmittedFieldIsOmitted() {
+		given(ghl.createOpportunity(any(), any(), any(), any(), any(), any(), any()))
+				.willReturn(opened("opp-1"));
 
-		withoutCustomFields().submit(token(), existing.getId());
+		submitFresh(withoutCustomFields(), "academic_evaluation", "Academic Evaluation");
 
-		verify(ghl, never()).setOpportunityFields(any(), any());
+		ArgumentCaptor<java.util.Map<String, String>> fields = ArgumentCaptor.captor();
+		verify(ghl).createOpportunity(any(), any(), anyString(), any(), any(), any(), fields.capture());
+		assertThat(fields.getValue()).isNull();
 	}
 
 	/**
@@ -285,14 +306,14 @@ class ClientApplicationServiceTest {
 		given(ghl.createOpportunity(any(), any(), any(), any(), any(), any(), any()))
 				.willReturn(opened("opp-1"));
 
-		service.start(token(), "academic_evaluation", "Academic Evaluation", null);
+		submitFresh(service, "academic_evaluation", "Academic Evaluation");
 
 		org.mockito.InOrder order = org.mockito.Mockito.inOrder(deals, ghl);
 		order.verify(deals).openLocally(eq("pipe-1"), eq(CONTACT), anyString());
 		order.verify(ghl).createOpportunity(any(), any(), any(), any(), any(), any(), any());
 		order.verify(deals).linkGhl(LOCAL_OPPORTUNITY, "opp-1");
 
-		ArgumentCaptor<java.util.Map<String, String>> fields = ArgumentCaptor.forClass(java.util.Map.class);
+		ArgumentCaptor<java.util.Map<String, String>> fields = ArgumentCaptor.captor();
 		verify(ghl).createOpportunity(any(), any(), anyString(), any(), any(), any(), fields.capture());
 		assertThat(fields.getValue()).containsEntry(CORRELATION_FIELD, LOCAL_OPPORTUNITY.toString());
 		// The service field rides along on the same create — two fields, two jobs.
@@ -302,24 +323,21 @@ class ClientApplicationServiceTest {
 	/**
 	 * A retry reuses the row it already opened rather than minting a second one.
 	 *
-	 * <p>This is the other half of the mechanism. {@code linkOpportunityIfMissing} runs on start
-	 * <em>and</em> on every save, so without this a client typing into the questionnaire after a GHL
-	 * outage would open a fresh correlation key on each keystroke-driven save — and the retry would
-	 * then be searching for a key GHL never saw.
+	 * <p>This is the other half of the mechanism. A refused submit leaves the application a draft,
+	 * so the client presses the button again — and without this each attempt would open a fresh
+	 * correlation key, leaving the retry searching for one GHL never saw.
 	 */
 	@Test
 	void aRetryReusesTheRowItAlreadyOpened() {
-		ClientApplication existing = draft(null);
+		ClientApplication existing = freshDraft("academic_evaluation", "Academic Evaluation");
 		existing.linkOpportunityRow(LOCAL_OPPORTUNITY);
-		given(applications.findByClientAccountIdAndStatus(ACCOUNT, ClientApplication.Status.DRAFT))
-				.willReturn(Optional.of(existing));
 		given(ghl.createOpportunity(any(), any(), any(), any(), any(), any(), any()))
 				.willReturn(opened("opp-1"));
 
-		service.start(token(), "academic_evaluation", "Academic Evaluation", null);
+		service.submit(token(), existing.getId());
 
 		verify(deals, never()).openLocally(any(), any(), any());
-		ArgumentCaptor<java.util.Map<String, String>> fields = ArgumentCaptor.forClass(java.util.Map.class);
+		ArgumentCaptor<java.util.Map<String, String>> fields = ArgumentCaptor.captor();
 		verify(ghl).createOpportunity(any(), any(), anyString(), any(), any(), any(), fields.capture());
 		assertThat(fields.getValue()).containsEntry(CORRELATION_FIELD, LOCAL_OPPORTUNITY.toString());
 	}
@@ -338,9 +356,9 @@ class ClientApplicationServiceTest {
 		given(ghl.createOpportunity(any(), any(), any(), any(), any(), any(), any()))
 				.willReturn(opened("opp-1"));
 
-		service.start(token(), "academic_evaluation", "Academic Evaluation", null);
+		submitFresh(service, "academic_evaluation", "Academic Evaluation");
 
-		ArgumentCaptor<java.util.Map<String, String>> fields = ArgumentCaptor.forClass(java.util.Map.class);
+		ArgumentCaptor<java.util.Map<String, String>> fields = ArgumentCaptor.captor();
 		verify(ghl).createOpportunity(any(), any(), anyString(), any(), any(), any(), fields.capture());
 		assertThat(fields.getValue()).doesNotContainKey(CORRELATION_FIELD);
 		assertThat(fields.getValue()).containsEntry(SERVICE_FIELD, "academic_evaluation");
@@ -359,7 +377,7 @@ class ClientApplicationServiceTest {
 		given(ghl.createOpportunity(any(), any(), any(), any(), any(), any(), any()))
 				.willReturn(opened("opp-1"));
 
-		service.start(token(), "academic_evaluation", "Academic Evaluation", null);
+		submitFresh(service, "academic_evaluation", "Academic Evaluation");
 
 		ArgumentCaptor<BigDecimal> value = ArgumentCaptor.forClass(BigDecimal.class);
 		verify(ghl).createOpportunity(eq("pipe-1"), eq(CONTACT), anyString(), value.capture(), any(),
@@ -382,19 +400,20 @@ class ClientApplicationServiceTest {
 	}
 
 	/**
-	 * <strong>A GHL outage must not cost the client their questionnaire.</strong> The row is
-	 * written first and the opportunity linked after, so an upstream refusal leaves a usable
-	 * draft; the next save retries. The opposite order trades somebody else's outage for the
-	 * client's typing.
+	 * <strong>Starting a request reaches GHL zero times (D10).</strong> The whole funnel up to the
+	 * submit button is EvalOS's own rows — a client browsing and typing costs the GHL budget
+	 * nothing, and an outage over there is invisible until they press submit.
 	 */
 	@Test
-	void aGhlOutageStillLeavesTheClientADraft() {
-		given(ghl.createOpportunity(any(), any(), any(), any(), any(), any(), any()))
-				.willThrow(new GhlUnavailableException("GHL is not configured here"));
+	void startingAndSavingReachGhlZeroTimes() {
+		ClientApplication row = freshDraft("academic_evaluation", "Academic Evaluation");
 
 		ClientApplicationService.ApplicationView started =
 				service.start(token(), "academic_evaluation", "Academic Evaluation", null);
+		service.save(token(), row.getId(), "{\"q1\":\"a\"}", null);
 
+		verify(ghl, never()).createOpportunity(any(), any(), any(), any(), any(), any(), any());
+		verify(deals, never()).openLocally(any(), any(), any());
 		assertThat(started.status()).isEqualTo("DRAFT");
 	}
 
@@ -478,6 +497,24 @@ class ClientApplicationServiceTest {
 
 	private PortalPrincipal token() {
 		return new PortalPrincipal(UUID.randomUUID(), BRAND, null, PortalAudience.CLIENT, null, CONTACT);
+	}
+
+	/**
+	 * A draft with no opportunity, registered with the repository mock — the state a client is in
+	 * when they press submit, which is the only thing that opens a deal now (D10).
+	 */
+	private ClientApplication freshDraft(String serviceId, String serviceName) {
+		ClientApplication row = new ClientApplication(BRAND, ACCOUNT, serviceId, serviceName, null);
+		setId(row, UUID.randomUUID());
+		given(applications.findById(row.getId())).willReturn(Optional.of(row));
+		return row;
+	}
+
+	/** Start-to-submit in one line, for the tests that are about what the create carries. */
+	private ClientApplication submitFresh(ClientApplicationService svc, String serviceId, String serviceName) {
+		ClientApplication row = freshDraft(serviceId, serviceName);
+		svc.submit(token(), row.getId());
+		return row;
 	}
 
 	private ClientApplication draft(String opportunityId) {

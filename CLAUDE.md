@@ -10,7 +10,7 @@ system underneath.
 Read these before implementing or deciding anything. They are short on purpose.
 
 1. `.claude/project-context.md` — stack, apps, modules, integrations, boundaries
-2. `.claude/current-decisions.md` — the 31 decisions in force
+2. `.claude/current-decisions.md` — the 32 decisions in force
 3. `.claude/architecture.md` — chains, tenancy, invariants, the tests that fail the build
 4. `.claude/data-model.md` — CURRENT DATABASE, then REQUIRED FUTURE MODEL, never mixed
 5. `.claude/workflows.md` — CURRENT IMPLEMENTATION, then TARGET WORKFLOW, never mixed

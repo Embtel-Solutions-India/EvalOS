@@ -76,7 +76,7 @@ class SalesDeskServiceTest {
 	@Test
 	void openingADealCreatesRatherThanUpserts() {
 		authenticateAsSales(MINE);
-		when(ghl.upsertContact(any(), any(), any(), any()))
+		when(ghl.upsertContact(any(), any(), any(), any(), any()))
 				.thenReturn(new GhlWriteClient.UpsertedContact("c1", "Acme", "a@b.test", null));
 		when(ghl.createOpportunity(any(), any(), any(), any(), any(), any(), any()))
 				.thenReturn(answer("open"));
@@ -99,7 +99,7 @@ class SalesDeskServiceTest {
 	@Test
 	void aSecondOpenDealForTheSameContactIsRefusedUntilItIsConfirmed() {
 		authenticateAsSales(MINE);
-		when(ghl.upsertContact(any(), any(), any(), any()))
+		when(ghl.upsertContact(any(), any(), any(), any(), any()))
 				.thenReturn(new GhlWriteClient.UpsertedContact("c1", "Acme", "a@b.test", null));
 		com.ie.evalos.domain.Opportunity existing = mock(com.ie.evalos.domain.Opportunity.class);
 		when(existing.getGhlContactId()).thenReturn("c1");
@@ -118,7 +118,7 @@ class SalesDeskServiceTest {
 	@Test
 	void theSameSecondDealGoesThroughOnceConfirmed() {
 		authenticateAsSales(MINE);
-		when(ghl.upsertContact(any(), any(), any(), any()))
+		when(ghl.upsertContact(any(), any(), any(), any(), any()))
 				.thenReturn(new GhlWriteClient.UpsertedContact("c1", "Acme", "a@b.test", null));
 		when(ghl.createOpportunity(any(), any(), any(), any(), any(), any(), any()))
 				.thenReturn(answer("open"));
@@ -142,7 +142,7 @@ class SalesDeskServiceTest {
 				null, null, false))
 				.isInstanceOf(InvalidRequestException.class);
 
-		verify(ghl, never()).upsertContact(any(), any(), any(), any());
+		verify(ghl, never()).upsertContact(any(), any(), any(), any(), any());
 		verify(ghl, never()).createOpportunity(any(), any(), any(), any(), any(), any(), any());
 	}
 
@@ -229,7 +229,7 @@ class SalesDeskServiceTest {
 		verify(ghl).setStatus(OPPORTUNITY, MINE, "won");
 		// Nothing else happened: no second write, no local creation.
 		verify(ghl, never()).upsertOpportunity(any(), any(), any(), any());
-		verify(ghl, never()).upsertContact(any(), any(), any(), any());
+		verify(ghl, never()).upsertContact(any(), any(), any(), any(), any());
 	}
 
 	/**

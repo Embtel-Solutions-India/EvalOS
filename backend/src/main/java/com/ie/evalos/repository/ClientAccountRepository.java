@@ -52,4 +52,50 @@ public interface ClientAccountRepository extends ScopedRepository<ClientAccount>
 	 * carries the brand for the same reason.
 	 */
 	Optional<ClientAccount> findByBrandIdAndGhlContactId(UUID brandId, String ghlContactId);
+
+	/**
+	 * Drops sign-ups that never became anything — {@code PortalCleanupSweep}.
+	 *
+	 * <p><strong>This is the other half of D3a's bargain, and D3d made it load-bearing.</strong>
+	 * Sign-up is cheap to flood — a script gets a row per request — and now that the GHL contact is
+	 * created there again, a flood also leaves contacts behind. This deletes the EvalOS side of
+	 * that: <em>no password</em> (never proved the mailbox) and older than the cutoff.
+	 *
+	 * <p><strong>{@code ghl_contact_id} is deliberately NOT in the predicate any more.</strong> It
+	 * was, while D3a held the contact back to set-password — and it would now match nothing at all,
+	 * because every sign-up gets a contact before the mail. A condition that silently stops
+	 * selecting anything is worse than no sweep: the table grows and the ledger reports a healthy
+	 * job doing it.
+	 *
+	 * <p><strong>The GHL contact is left alone, and that is not an oversight.</strong> GHL owns
+	 * contact identity (invariant 7) and a contact may by now carry a note, a tag or an
+	 * appointment that EvalOS cannot see. Deleting over there on a schedule, from a predicate
+	 * about an EvalOS row, is not a decision this sweep gets to make. Clearing them up is a GHL-side
+	 * job, and the `source: "Client Portal"` on every one of them is what makes that filterable.
+	 *
+	 * <p><strong>The three {@code not exists} clauses are what keep this from being a footgun.</strong>
+	 * Each is a foreign key into this table — a live credential token means somebody is mid-flow
+	 * right now, an application means they filed a request, a portal access means they hold a
+	 * session. None should be reachable for a null-password account, and that is exactly why they
+	 * are checked: a delete whose safety rests on "should be unreachable" is one schema change away
+	 * from removing a real client. Postgres would refuse the delete anyway; this makes it skip the
+	 * row instead of failing the sweep.
+	 *
+	 * <p><strong>The audit rows are NOT touched</strong> — append-only, by invariant. The
+	 * {@code CLIENT_ACCOUNT / CREATED} row outlives the account it describes, which is what an
+	 * audit trail is for.
+	 *
+	 * <p>Not brand-scoped, for the reason {@code ClientCredentialTokenRepository}'s delete states.
+	 */
+	@org.springframework.data.jpa.repository.Modifying
+	@org.springframework.transaction.annotation.Transactional
+	@Query(nativeQuery = true, value = """
+			delete from client_account a
+			 where a.password_hash is null
+			   and a.created_at < :cutoff
+			   and not exists (select 1 from client_credential_token t where t.client_account_id = a.id)
+			   and not exists (select 1 from client_application p where p.client_account_id = a.id)
+			   and not exists (select 1 from portal_access x where x.client_account_id = a.id)
+			""")
+	int deleteAbandonedSignUps(@Param("cutoff") java.time.Instant cutoff);
 }

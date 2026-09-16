@@ -53,6 +53,17 @@ evalos:
     field-key: ${EVALOS_FIELD_KEY:bG9jYWwtZGV2LWZpZWxkLWtleS1ub3QtZm9yLXByb2Q=}
   mail:
     from: ${EVALOS_MAIL_FROM:}
+    # Who carries the two messages EvalOS sends. One of the MailTransport beans by name:
+    # `smtp` (Spring Mail) or `ghl` (POST /conversations/messages, so the link lands in the
+    # contact's own conversation thread). A third — Brevo — is a new class and this value.
+    #
+    # **A name that matches nothing fails at startup and says what it found.** Falling back
+    # silently would be discovered by a client who never got their link.
+    transport: ${EVALOS_MAIL_TRANSPORT:smtp}
+    # The envelope sender for the `ghl` transport. **Blank is the better default**: GHL knows
+    # which domain this location has authenticated, and an address it cannot sign for is how a
+    # password mail silently lands in spam.
+    ghl-from: ${EVALOS_MAIL_GHL_FROM:}
   portal:
     # The two portal dev servers: client on 5174, expert on 5175. They are separate
     # apps under client-expert/ so they can be deployed to separate subdomains, and a
@@ -63,6 +74,15 @@ evalos:
     # correct for whoever runs this repo.
     client-brand: ${EVALOS_PORTAL_CLIENT_BRAND:11111111-1111-1111-1111-111111111111}
     credential-ttl: ${EVALOS_PORTAL_SIGNIN_LINK_TTL:30m}
+    # How long an unproved sign-up is kept before PORTAL_CLEANUP removes it (D3a).
+    #
+    # **Thirty days, and generous on purpose.** This is the window in which a real client who
+    # signed up, never opened the mail and came back still finds their own row instead of being
+    # told "we couldn't find that email" for a second time. Only rows with NO password and NO GHL
+    # contact are eligible, and the sweep skips any that acquired a token, an application or a
+    # session — so shortening this tidies the table and costs a returning client; it protects
+    # nothing extra.
+    abandoned-sign-up-after: ${EVALOS_PORTAL_ABANDONED_AFTER:30d}
   s3:
     # Blank on a laptop, deliberately. The whole app boots with no AWS access and every non-document
     # route works; only the document routes answer 502, naming both variables. Set them to exercise

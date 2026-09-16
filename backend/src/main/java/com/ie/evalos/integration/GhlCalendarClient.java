@@ -174,7 +174,7 @@ public class GhlCalendarClient {
 	 */
 	public FreeSlots freeSlots(String calendarId, long fromEpochMs, long toEpochMs, String timezone) {
 		try {
-			java.util.Map<String, Object> raw = http.get(java.util.Map.class,
+			java.util.Map<?, ?> raw = http.get(java.util.Map.class,
 					(uri) -> uri.path("/calendars/{id}/free-slots")
 							.queryParam("startDate", fromEpochMs)
 							.queryParam("endDate", toEpochMs)
@@ -186,7 +186,7 @@ public class GhlCalendarClient {
 				// Every date key carries {"slots": [...]}; `traceId` is a bare string and is the
 				// reason this cannot simply take every entry.
 				if (value instanceof java.util.Map<?, ?> day && day.get("slots") instanceof List<?> slots) {
-					byDate.put(key, slots.stream().map(String::valueOf).toList());
+					byDate.put(String.valueOf(key), slots.stream().map(String::valueOf).toList());
 				}
 			});
 			return new FreeSlots(timezone, byDate);

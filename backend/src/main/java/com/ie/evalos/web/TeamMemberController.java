@@ -5,12 +5,10 @@ import java.util.UUID;
 
 import com.ie.evalos.common.ApiResponse;
 import com.ie.evalos.domain.Role;
-import com.ie.evalos.domain.Segment;
 import com.ie.evalos.domain.TeamMember;
 import com.ie.evalos.service.PipelineAssignmentService;
 import com.ie.evalos.service.TeamMemberQueryService;
 
-import jakarta.validation.constraints.NotBlank;
 
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.DeleteMapping;

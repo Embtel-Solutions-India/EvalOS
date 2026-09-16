@@ -9,7 +9,8 @@ Unresolved as of 2026-09-16:
 2. What is the request status model? (two values today)
 3. What are the Sales approval rules?
 4. Which documents are required at request stage, and where do they live?
-5. Do `contact_snapshot` and `client_account` merge?
+5. ~~Do `contact_snapshot` and `client_account` merge?~~ **RESOLVED 2026-09-16 (D32)** — two
+   tables, JOINED by `client_account.contact_id` (`V55`); the rename waits on a seed rebaseline.
 6. Do experts get accounts?
 7. Are the Client and Expert Portals deployed by this repo?
 8. What does a client with two or more cases see?

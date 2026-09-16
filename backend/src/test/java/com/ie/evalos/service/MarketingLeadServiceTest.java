@@ -64,7 +64,7 @@ class MarketingLeadServiceTest {
 	@Test
 	void opensALeadOnTheCallersOwnPipeline() {
 		authenticate(Role.MARKETING, MINE);
-		when(ghl.upsertContact(any(), any(), any(), any()))
+		when(ghl.upsertContact(any(), any(), any(), any(), any()))
 				.thenReturn(new GhlWriteClient.UpsertedContact("c1", "Ada Lovelace", "ada@example.test", null));
 		when(ghl.upsertOpportunity(eq(MINE), eq("c1"), any(), any()))
 				.thenReturn(new GhlWriteClient.UpsertedOpportunity("o1", "c1", MINE, "s1", "open",
@@ -87,7 +87,7 @@ class MarketingLeadServiceTest {
 	@Test
 	void aRepeatSubmissionIsNotASecondDeal() {
 		authenticate(Role.MARKETING, MINE);
-		when(ghl.upsertContact(any(), any(), any(), any()))
+		when(ghl.upsertContact(any(), any(), any(), any(), any()))
 				.thenReturn(new GhlWriteClient.UpsertedContact("c1", "Ada", "ada@example.test", null));
 		when(ghl.upsertOpportunity(any(), any(), any(), any()))
 				.thenReturn(new GhlWriteClient.UpsertedOpportunity("o1", "c1", MINE, "s1", "open", "Ada",
@@ -111,7 +111,7 @@ class MarketingLeadServiceTest {
 				.isInstanceOf(InvalidRequestException.class)
 				.hasMessageContaining("email or a phone");
 
-		verify(ghl, never()).upsertContact(any(), any(), any(), any());
+		verify(ghl, never()).upsertContact(any(), any(), any(), any(), any());
 	}
 
 	/** Fail closed: no pipeline on the principal means no write, not a default. */
@@ -122,7 +122,7 @@ class MarketingLeadServiceTest {
 		assertThatThrownBy(() -> service.openLead("Ada", null, "ada@example.test", null, null, null))
 				.isInstanceOf(ForbiddenException.class);
 
-		verify(ghl, never()).upsertContact(any(), any(), any(), any());
+		verify(ghl, never()).upsertContact(any(), any(), any(), any(), any());
 	}
 
 	// --- the scope check in front of every write -------------------------------

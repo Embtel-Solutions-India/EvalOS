@@ -7,7 +7,6 @@ import com.ie.evalos.common.ApiErrors;
 import com.ie.evalos.domain.Role;
 import com.ie.evalos.domain.Pipeline;
 import com.ie.evalos.service.PipelineMirrorService;
-import com.ie.evalos.integration.GhlUnavailableException;
 import com.ie.evalos.security.EvalOsUserDetailsService;
 import com.ie.evalos.security.JwtService;
 import com.ie.evalos.security.SecurityConfig;
@@ -26,7 +25,6 @@ import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
 
 import static org.mockito.BDDMockito.given;
-import static org.mockito.BDDMockito.willThrow;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;

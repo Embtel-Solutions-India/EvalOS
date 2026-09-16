@@ -38,13 +38,6 @@ One table (`application_document`) mirroring `case_document`'s shape, its own S3
 Do not gate submit on completeness.
 *Gates:* the request-document unit.
 
-**Q5 — Does EvalOS keep a separate `contact_snapshot` and `client_account`?**
-One person is two unlinked rows. Unit 44 plans to merge `contact_snapshot` into a mirrored
-`contact` table.
-*Recommend:* merge in Unit 44 as planned, and add a unique `(brand_id, ghl_contact_id)` on the
-account side in the same migration.
-*Gates:* Unit 44.
-
 ## Blocking the portals
 
 **Q6 — Do experts get accounts?**
@@ -79,6 +72,18 @@ Nothing exists. It is tier 3 of the mirror (Unit 47) and has no spec.
 *Recommend:* spec it as its own unit after Unit 45's sync engine; start read-only (list, history,
 context) and add sending later, because sending is an invariant-14 question.
 *Gates:* Unit 47.
+
+**Q11 — Who, if anyone, chases an abandoned request now that D10 moved the opportunity to
+submit?**
+D10 changed on 2026-09-16: the deal opens at submit, so a client who picks a service and stops
+halfway reaches no salesperson at all. The `client_application` rows are still there with
+`status = DRAFT`, and **nothing reads them, sweeps them or reports them** — which is precisely the
+lead-loss the old D10 existed to prevent, now accepted deliberately rather than by accident.
+*Recommend:* a staff screen before a sweep — one GM/Sales list of drafts older than 48h, sorted by
+age, reading rows EvalOS already has. It needs no GHL write, no new table and no decision about
+whose job the chase is, which is the part that is actually unresolved. Resist a job that opens
+opportunities for abandoned drafts: that is the reverted D10 wearing a different name.
+*Gates:* none — the data is already there.
 
 ## Carried forward from `00d` §12, still unresolved
 

@@ -96,21 +96,21 @@ public class ClientApplicationService {
 	 * <p><strong>Blank omits the field and nothing else changes.</strong> The deal is still opened
 	 * on the intake pipeline and still names the person and the service; it simply lands wherever
 	 * GHL's default routing puts it. An environment that has not created the field yet must not
-	 * lose the lead over it — which is the whole reason the deal is opened at service-pick.
+	 * lose the request over it.
 	 */
 	private final String serviceFieldId;
 
 	/**
 	 * The GHL opportunity custom field that says the questionnaire is finished, or blank for none.
 	 *
-	 * <p>The companion to {@link #serviceFieldId}, and it exists because of {@code D10}: the deal
-	 * is opened when the client picks a service, so a deal on the board does not distinguish
-	 * somebody browsing from a finished request. This field does, and it is a second workflow
-	 * trigger for GHL to do whatever the business decides with — notify, move a stage, start a
-	 * sequence. EvalOS sets the fact and stops.
+	 * <p>The companion to {@link #serviceFieldId}, written on the same create. It existed because
+	 * the old {@code D10} opened the deal at service-pick, so a board could not tell somebody
+	 * browsing from a finished request. D10 changed on 2026-09-16 and only a submit opens a deal,
+	 * so the field no longer <em>distinguishes</em> anything — it is kept because a GHL workflow may
+	 * already be keyed on it, and because a trigger that reads the fact explicitly is cheaper to
+	 * reason about than one that infers it from the opportunity existing.
 	 *
-	 * <p>Blank skips the call entirely. The request is still submitted in EvalOS, which is where it
-	 * lives.
+	 * <p>Blank omits the field. The request is still submitted in EvalOS, which is where it lives.
 	 */
 	private final String submittedFieldId;
 
@@ -148,16 +148,28 @@ public class ClientApplicationService {
 	 */
 	private final SyncOutboxService outbox;
 
+	/**
+	 * The owner of what a portal contact is — for {@code ensureCrmIdentity} and nothing else.
+	 *
+	 * <p>D3c's backfill. This class needs a {@code ghl_contact_id} and is the first thing that
+	 * genuinely does, so it is where a missing one gets created. It does not build the contact
+	 * itself: the {@code source} string, the snapshot row and the idempotency check all belong to
+	 * one method, and a second copy here would be the one that drifts.
+	 */
+	private final ClientAccountService accountsService;
+
 	ClientApplicationService(ClientApplicationRepository applications, ClientAccountRepository accounts,
 			GhlWriteClient ghl, PipelineRepository pipelines,
 			@Value("${evalos.ghl.opportunity-service-field:}") String serviceFieldId,
 			@Value("${evalos.ghl.opportunity-submitted-field:}") String submittedFieldId,
 			@Value("${evalos.ghl.opportunity-correlation-field:}") String correlationFieldId,
-			OpportunityMirrorService deals, SyncOutboxService outbox) {
+			OpportunityMirrorService deals, SyncOutboxService outbox,
+			ClientAccountService accountsService) {
 		this.applications = applications;
 		this.accounts = accounts;
 		this.ghl = ghl;
 		this.pipelines = pipelines;
+		this.accountsService = accountsService;
 		this.serviceFieldId = serviceFieldId == null ? "" : serviceFieldId.trim();
 		this.submittedFieldId = submittedFieldId == null ? "" : submittedFieldId.trim();
 		this.correlationFieldId = correlationFieldId == null ? "" : correlationFieldId.trim();
@@ -174,29 +186,20 @@ public class ClientApplicationService {
 	}
 
 	/**
-	 * Starts a request, and puts the lead in front of Sales in the same call.
+	 * Starts a request. Nothing leaves EvalOS.
 	 *
-	 * <p><strong>"In front of Sales" means on the intake pipeline and no further.</strong> EvalOS
-	 * creates the opportunity and stops; the stage it lands in, the routing and the assignee are
-	 * GHL's automation's, which is what {@code 00b} keeps GHL for.
+	 * <p><strong>The opportunity is NOT created here — that is {@link #submit}'s job (D10, changed
+	 * 2026-09-16, third time of asking).</strong> It was created at this first screen
+	 * until then, on `43` §6a's argument that the questionnaire is the longest part of the funnel
+	 * and therefore where people stop, so a client who abandoned halfway should still reach a
+	 * salesperson. The requirement said submit from the start, EvalOS refused it twice, and the third asking carries it: a
+	 * deal on the board is now a finished request and nothing else, which is what gives Sales'
+	 * review step something to review.
 	 *
-	 * <p><strong>The opportunity is created here — at the first screen — and not at submit.</strong>
-	 * That is `43` §6a's decision, resolved on 2026-09-15 against the alternative of waiting: the
-	 * questionnaire is the longest part of the funnel and therefore exactly where people stop, and
-	 * a lead who stops halfway is still a lead a salesperson can ring. Waiting for submit would
-	 * leave them on no board at all. Picking a service is also the first moment there is anything
-	 * to sell — before it, EvalOS holds an account and no intent.
-	 *
-	 * <p><strong>{@code createOpportunity}, never {@code upsertOpportunity}.</strong> A client
-	 * asking for a second evaluation is a genuine second deal, and upsert means one open
-	 * opportunity per contact per pipeline — it would silently overwrite the first deal's name
-	 * and value instead of creating the second. This is `39` §3a's escape hatch, taken for the
-	 * case that spec named. The duplicate risk it brings back is contained by the one-draft index
-	 * rather than by a confirmation dialog: a client cannot have two unfinished requests.
-	 *
-	 * <p><strong>The row is written before GHL is called.</strong> If GHL refuses, the client
-	 * keeps their draft and their answers, and {@link #save} links the opportunity on the next
-	 * write. The opposite order loses the client's work to somebody else's outage.
+	 * <p><strong>The cost is stated rather than hidden: an abandoned questionnaire now reaches
+	 * nobody.</strong> The draft is still here — {@code client_application} rows with
+	 * {@code status = DRAFT} — and nothing sweeps them or tells anyone. Recovering them is a
+	 * separate job, and it is in `open-decisions.md` rather than improvised here.
 	 */
 	@Transactional
 	public ApplicationView start(PortalPrincipal principal, String serviceId, String serviceName,
@@ -212,13 +215,11 @@ public class ClientApplicationService {
 		Optional<ClientApplication> inProgress = applications
 				.findByClientAccountIdAndStatus(client.getId(), ClientApplication.Status.DRAFT);
 		if (inProgress.isPresent()) {
-			return view(linkOpportunityIfMissing(inProgress.get(), client));
+			return view(inProgress.get());
 		}
 
-		ClientApplication application = applications.saveAndFlush(new ClientApplication(
-				client.getBrandId(), client.getId(), serviceId.trim(), serviceName.trim(), trimToNull(purpose)));
-
-		return view(linkOpportunityIfMissing(application, client));
+		return view(applications.saveAndFlush(new ClientApplication(
+				client.getBrandId(), client.getId(), serviceId.trim(), serviceName.trim(), trimToNull(purpose))));
 	}
 
 	/** Records the answers so far. Autosaved, so it must be cheap and must never move a stage. */
@@ -233,14 +234,25 @@ public class ClientApplicationService {
 				"That is more than we can store against one request.");
 
 		application.saveAnswers(answersJson, purpose);
-		return view(linkOpportunityIfMissing(application, client));
+		return view(application);
 	}
 
 	/**
-	 * Hands the request to Sales.
+	 * Hands the request to Sales — and this is where the deal is born (D10).
 	 *
-	 * <p><strong>The stage does not move</strong> — it has been hot since {@link #start}. What
-	 * changes is {@code status}, which is what the staff screen sorts on.
+	 * <p><strong>{@code createOpportunity}, never {@code upsertOpportunity}.</strong> A client
+	 * asking for a second evaluation is a genuine second deal, and upsert means one open
+	 * opportunity per contact per pipeline — it would silently overwrite the first deal's name and
+	 * value instead of creating the second. This is `39` §3a's escape hatch, taken for the case
+	 * that spec named. The duplicate risk it brings back is contained by the one-draft index and by
+	 * the {@code isDraft} guard below: a submitted application cannot be submitted again.
+	 *
+	 * <p><strong>The funnel from here is GHL's and Sales' (D10c):</strong> review the request, win
+	 * the deal, take the payment. EvalOS puts it on the intake pipeline and stops — no stage, no
+	 * assignee, no price. A case is still born only of {@code opportunity.won}.
+	 *
+	 * <p><strong>The stage does not move here either.</strong> What changes in EvalOS is
+	 * {@code status}, which is what the staff screen sorts on.
 	 *
 	 * <p><strong>The answers are not copied into an {@code OpportunityNote}, and `43` §6b's plan
 	 * to do that is not followed.</strong> Two reasons, found in the building: `opportunity_note`
@@ -268,58 +280,7 @@ public class ClientApplicationService {
 				"We could not reach our systems to send this. Please try again in a moment.");
 
 		application.submit();
-		markSubmittedInGhl(application);
 		return view(application);
-	}
-
-	/**
-	 * Tells GHL the questionnaire is finished.
-	 *
-	 * <p><strong>Why a second signal exists at all.</strong> The opportunity is opened when the
-	 * client <em>picks</em> a service, not when they submit — {@code D10}, taken so a client who
-	 * abandons the questionnaire still reaches a salesperson. The cost of that decision is that a
-	 * deal on the board says nothing about whether it is somebody browsing or a finished request,
-	 * and Sales would have to open EvalOS to tell them apart. This field is the difference, and it
-	 * gives GHL a second workflow trigger — notify, move a stage, start a sequence — without EvalOS
-	 * holding any opinion about which.
-	 *
-	 * <p><strong>Custom fields only, and deliberately through
-	 * {@link GhlWriteClient#setOpportunityFields}.</strong> By now GHL's own workflow has very
-	 * probably moved this opportunity onto a service-specific pipeline; an update path carrying a
-	 * {@code pipelineId} could undo that routing, and that method structurally cannot.
-	 *
-	 * <p><strong>A failure here does not fail the submit, which is the opposite of the rule one
-	 * method up.</strong> That rule exists because an application Sales cannot <em>see</em> reads
-	 * to the client as "sent" and to the business as nothing at all. Here Sales can already see the
-	 * deal — only the marker is missing — so refusing would throw away a completed questionnaire
-	 * over a flag. EvalOS is the source of truth for the request either way; the screen and the
-	 * status are right, and GHL is the copy that lags.
-	 *
-	 * <p>ponytail: swallowed and logged, with no retry, so a GHL outage at this exact moment loses
-	 * the marker permanently. The fix is not a retry loop here — it is the outbox in Unit 45, which
-	 * is where every EvalOS→GHL write is meant to end up.
-	 */
-	private void markSubmittedInGhl(ClientApplication application) {
-		if (submittedFieldId.isEmpty()) {
-			return;
-		}
-		try {
-			ghl.setOpportunityFields(application.getGhlOpportunityId(),
-					java.util.Map.of(submittedFieldId, SUBMITTED_FIELD_VALUE));
-		}
-		catch (RuntimeException ghlRefused) {
-			// **The `ponytail:` note above is now false, and this is what replaced it.** It read:
-			// "swallowed and logged, with no retry, so a GHL outage at this exact moment loses the
-			// marker permanently. The fix is the outbox in Unit 45." The outbox exists; an UPSERT
-			// re-sends the row's current fields, which by then include the submitted marker —
-			// which is exactly why it stores an entity id rather than a payload.
-			if (application.getOpportunityId() != null) {
-				outbox.enqueue(application.getBrandId(), application.getOpportunityId(),
-						SyncOutboxEntry.Intent.UPSERT);
-			}
-			log.warn("Request {} is submitted in EvalOS and GHL was not told yet; queued: {}",
-					application.getId(), ghlRefused.getMessage());
-		}
 	}
 
 	/**
@@ -367,8 +328,22 @@ public class ClientApplicationService {
 	 * write retries, while a submit that returned "sent" with nothing behind it would be a lie.
 	 */
 	private ClientApplication linkOpportunityIfMissing(ClientApplication application, ClientAccount client) {
-		if (application.getGhlOpportunityId() != null || client.getGhlContactId() == null) {
+		if (application.getGhlOpportunityId() != null) {
 			return application;
+		}
+		// **The backfill D3c names.** This used to `return application` on a null contact id, which
+		// was nearly unreachable while sign-up created the contact — and became the state of every
+		// client whose set-password landed during a GHL outage when D3a moved it. Silently
+		// returning there would let somebody file requests that reach no salesperson, with no error
+		// anywhere. Delegated rather than repeated: `ensureCrmIdentity` is the one owner of what a
+		// portal contact looks like, down to its `source`.
+		if (client.getGhlContactId() == null) {
+			accountsService.ensureCrmIdentity(client);
+			if (client.getGhlContactId() == null) {
+				// GHL is still down. The draft is kept and the next write retries, which is exactly
+				// what the paragraph above promises for `start` and `save`.
+				return application;
+			}
 		}
 		try {
 			com.ie.evalos.domain.Pipeline intake = intakePipeline(application.getBrandId());
@@ -474,6 +449,15 @@ public class ClientApplicationService {
 		}
 		if (!correlationFieldId.isEmpty() && localId != null) {
 			fields.put(correlationFieldId, localId.toString());
+		}
+		// **The submitted marker rides here now, and the second call is gone (D12).** It used to be
+		// a `setOpportunityFields` follow-up, because under the old D10 a deal on the board could be
+		// somebody browsing and Sales needed the two told apart. D10 changed on 2026-09-16: the only
+		// thing that opens a deal is a submit, so every opportunity is a submitted one and a second
+		// call would announce what its own existence already says. The field is still written so a
+		// GHL workflow keyed on it keeps firing.
+		if (!submittedFieldId.isEmpty()) {
+			fields.put(submittedFieldId, SUBMITTED_FIELD_VALUE);
 		}
 		return fields.isEmpty() ? null : fields;
 	}

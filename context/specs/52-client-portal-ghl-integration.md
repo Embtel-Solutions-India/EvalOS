@@ -42,12 +42,12 @@ cache.
 
 | Clause | State |
 |---|---|
-| Sign-up creates or finds the GHL Contact | ✅ **built** — `ClientAccountService.signUp` → `GhlWriteClient.upsertContact` |
+| Sign-up creates or finds the GHL Contact | ⚙️ **moved, §8** — the contact is created at **set-password**, not at sign-up: an unauthenticated `permitAll` route may not write to the live CRM. `ClientAccountService.setPassword` → `GhlWriteClient.upsertContact` |
 | The GHL Contact ID is stored in EvalOS | ✅ **built** — `client_account.ghl_contact_id`, set by `linkGhlContact` |
-| A basic GHL Opportunity carrying the essential data | ✅ **built (§4.1)** — contact, name, and now the requested service |
+| A basic GHL Opportunity carrying the essential data | ✅ **built (§4.1)** — contact, name, the requested service, the correlation key and `SUBMITTED`, all on one create **at submit** (§9) |
 | Questionnaire / documents / request stay EvalOS's | ✅ **built** — and structurally, see §1 |
 | A GHL workflow routes it to a pipeline by service | ⚙️ **EvalOS's half is built (§4.1); the workflow is yours to build in GHL (§4.3)** |
-| GHL learns the request was submitted | ✅ **built (§4.2)** |
+| GHL learns the request was submitted | ✅ **built** — and since §9 the opportunity's existence *is* the signal; the field rides the create rather than a follow-up call |
 | Both platforms stay synchronized | ❌ **Units 44–48**, see §5.1 and §6 |
 | Sales manages from either platform | ◐ EvalOS→GHL works; GHL→EvalOS is §5.1 |
 
@@ -55,15 +55,17 @@ cache.
 
 ## 3. One decision the requirement collided with, and how it was resolved
 
-The requirement says the opportunity is created **when the client submits**. It is created when
-they **pick a service** — decision **D10**, taken deliberately on 2026-09-15 because the
-questionnaire is the longest part of the funnel and therefore exactly where people stop, so *a lead
-who abandons halfway must already be on a salesperson's board*.
+The requirement says the opportunity is created **when the client submits**. EvalOS created it when
+the client **picked a service** — decision **D10**, taken on 2026-09-15 because the questionnaire is
+the longest part of the funnel and therefore exactly where people stop, so *a lead who abandons
+halfway must already be on a salesperson's board*.
 
-**Resolved 2026-09-16 in favour of D10, with a submit signal added.** The opportunity still opens
-at service-pick, so no lead is lost; submitting now writes a custom field on the same opportunity,
-which is a clean second workflow trigger. That satisfies what the requirement is *for* — GHL
-learning that a real request arrived — without reversing a decision taken to stop losing leads.
+**Resolved 2026-09-16 in favour of the requirement, at the third asking — see §9.** It was refused
+twice first, the second time with a compromise (deal at service-pick plus a `SUBMITTED` marker).
+The business asked again; the argument against is on record and repeating it a fourth time would be
+substituting EvalOS's judgement for theirs on a question that is theirs. The opportunity is now
+created at submit, and **an abandoned questionnaire reaches nobody** — a cost §9.2 states plainly
+and `open-decisions.md` Q11 carries.
 
 ---
 
@@ -90,29 +92,29 @@ owns — which service was asked for — and GHL decides which pipeline that bel
   would be a priced deal worth nothing rather than an unpriced one, and would land in the GM
   dashboard's won figures as exactly that.
 - **Blank omits the field and nothing else changes.** An environment that has not created the field
-  yet still opens the deal — losing the lead over an unconfigured field would defeat D10.
+  yet still opens the deal — losing a finished request over an unconfigured field would be the
+  worse failure by a wide margin.
 
 ### 4.2 Submitting the request tells GHL
 
 `evalos.ghl.opportunity-submitted-field` (`GHL_OPPORTUNITY_SUBMITTED_FIELD`) names a second custom
-field. On submit, EvalOS writes the constant `SUBMITTED` into it.
+field carrying the constant `SUBMITTED`.
 
-Why it exists: because of D10, a deal on the board does not distinguish somebody browsing from a
-finished request, and Sales would have to open EvalOS to tell them apart. This field is the
-difference, and it is a second workflow trigger for GHL to do whatever the business decides with.
+**It used to be a follow-up call and is now part of the create (§9.3).** The field existed because
+the old D10 opened the deal at service-pick, so a board could not tell somebody browsing from a
+finished request. Since §9 only a submit opens a deal, so the opportunity's *existence* already
+says it — the field is kept, written on the create, because a GHL workflow may already be keyed on
+it and because an explicit fact is cheaper to write a condition against than an implicit one.
 
-- **Through `GhlWriteClient.setOpportunityFields`, which sends custom fields and nothing else.**
-  By submit time GHL's workflow has very probably moved the opportunity onto a service-specific
-  pipeline. `PUT /opportunities/{id}` accepts a `pipelineId` and treats the pipeline as a mutable
-  field, so any update path carrying one could **undo GHL's own routing**. That method structurally
-  cannot: there is no pipeline, stage or name in the body for a future edit to smuggle in.
-- **A failure here does not fail the submit**, which is the opposite of the rule for a missing
-  opportunity. That rule exists because an application Sales cannot *see* reads to the client as
-  "sent" and to the business as nothing at all. Here Sales can already see the deal — only the
-  marker is missing — so refusing would throw away a completed questionnaire over a flag.
-- `ponytail:` swallowed and logged with no retry, so a GHL outage at that exact moment loses the
-  marker permanently. The fix is not a retry loop — it is **Unit 45's outbox**, where every
-  EvalOS→GHL write is meant to end up.
+- **`GhlWriteClient.setOpportunityFields` is no longer on this path at all.** It was used here to
+  avoid a body carrying a `pipelineId`, which could have undone GHL's own routing. There is nothing
+  to undo now: the marker is set at the moment the deal is created, before any workflow has moved
+  it. The method remains for other callers.
+- **A failure refuses the submit**, which is the opposite of the old rule and follows from the
+  change. The swallow was right when the deal already existed and only a marker was missing; a
+  failed *create* means Sales has no deal at all, and answering "sent" to that is the one lie this
+  flow must not tell. The draft and the answers survive and the next attempt retries against the
+  same correlation key.
 
 ### 4.3 What you have to build in GHL
 
@@ -197,8 +199,9 @@ field is pulled forward into Unit 44 for exactly that reason.
 
 ## 7. Acceptance
 
-- [x] Sign-up upserts a GHL contact and stores its id; all three states (no contact, contact only,
-      contact + account) remain legal.
+- [~] **Superseded by §8.** Sign-up upserted a GHL contact and stored its id. The upsert moved to
+      `setPassword` on 2026-09-16; all three states (no contact, contact only, contact + account)
+      remain legal, and state (a) now simply lasts until the mailbox is proved.
 - [x] Picking a service opens a GHL opportunity carrying the contact, a human-readable name and the
       **service id** as a custom field.
 - [x] No stage, no assignee and no monetary value are sent — GHL owns placement and Sales owns price.
@@ -208,3 +211,242 @@ field is pulled forward into Unit 44 for exactly that reason.
 - [x] Both fields blank leaves every existing behaviour unchanged.
 - [ ] A GHL workflow routes by the service field — **yours to build (§4.3)**.
 - [ ] GHL → EvalOS sync — **Units 44–48 (§6)**.
+
+---
+
+## 8. Amendment, 2026-09-16 — the contact is born at set-password, not at sign-up
+
+**This reverses §2's first row and §7's first acceptance box.** Both are edited above rather than
+left standing beside this section; what follows is the argument, not a second opinion.
+
+### 8.1 Why the old placement was wrong
+
+`POST /api/portal/auth/sign-up` is `permitAll`. The only thing in front of it is
+`PortalTokenFilter`'s per-IP fixed window at `PORTAL_RATE_LIMIT:60`/min, keyed on
+`getRemoteAddr()` and held in a per-instance `ConcurrentHashMap`. Putting
+`GhlWriteClient.upsertContact` behind that matcher made **an unauthenticated stranger's HTTP
+request into a write on the live CRM**, with nothing between the two but a counter an IP pool
+defeats.
+
+What that buys an attacker, in order of severity:
+
+1. **GHL's 100-requests-per-10-seconds-per-location budget.** `GhlHttp.MIN_REQUEST_INTERVAL`
+   spaces EvalOS's own calls at 110ms precisely because that budget is shared. A signup flood
+   spends it, `GhlFailure` starts answering, and **every GHL-backed staff screen 502s** — the
+   client signup form becomes a way to take down the sales desk.
+2. **Contacts in the sub-account Sales works in.** Not EvalOS's rows to delete; someone cleans
+   them up by hand, in GHL.
+3. `client_account`, `contact_snapshot` and an **append-only** `audit` row per attempt. The audit
+   row is the one that cannot be swept, by invariant.
+
+None of this needed the contact to be there. The address was unproven at that moment — that is
+exactly what **D4** says — so the row it created was a CRM record for a mailbox nobody had shown
+they could open.
+
+### 8.2 The rule
+
+**Proving the mailbox is what creates the contact.** `setPassword` is that moment: it spends a
+single-use `client_credential_token` that only ever reached the client's own inbox, sets the
+password, and returns the session that opens the dashboard. The contact is written there.
+
+| Step | Before | After |
+|---|---|---|
+| `POST /auth/sign-up` | GHL contact + account + snapshot | **account only** (EvalOS rows, ours to sweep) |
+| set-password link clicked | password set, session minted | password set, **contact upserted + linked + snapshot written**, session minted |
+| Client picks a service | opportunity created (D10) | **nothing** — §9 moved it to submit |
+
+Sign-up is now an entirely local write. A flood costs junk in two EvalOS tables that a sweep can
+clean, and **nothing leaves the JVM**.
+
+### 8.3 Provenance: `source`, because GHL will not take UTM
+
+The business asked for the contact to carry a UTM source identifying the client portal.
+**GHL's public API does not accept attribution on a write.** Verified against
+`marketplace.gohighlevel.com/docs/ghl/contacts/create-contact` and `.../upsert-contact`: neither
+body documents `attributionSource`, `utmSource`, `utmMedium`, `sessionSource`, `campaign` or
+`referrer`. Confirmed against the live sub-account too — the contact this flow created on
+2026-09-16 carries `createdBy.source: "INTEGRATION"` and no attribution block at all. GHL
+populates those fields from its own tracking on forms and funnels, and a portal-native signup
+never touches one.
+
+The writable field is `source` (string, "Source from which the contact was created"). So:
+
+- A portal signup sends **`source: "Client Portal"`**.
+- `MarketingLeadService` and `SalesDeskService` name themselves the same way, because a `source`
+  that only one of three callers sets is worse than none.
+
+If true UTM attribution is ever required, it cannot be done from here — the contact would have to
+enter through a GHL form carrying the parameters, which is the opposite of a portal-native signup.
+That trade is recorded rather than worked around.
+
+### 8.4 The failure this move exposes, and its fix
+
+`ClientApplicationService.linkOpportunityIfMissing` returns **silently** when
+`client.getGhlContactId() == null`. Today that is nearly unreachable. After this move it is the
+state of any client whose set-password landed during a GHL outage — and it would leave them able
+to file requests that no salesperson ever sees, with no error anywhere.
+
+So the null branch stops being a silent return and **creates the contact**. It is the one place
+that genuinely needs the id, it already tests for it, and a backfill there also covers the `V45`
+accounts seeded from snapshots that carried no `ghl_contact_id`.
+
+A GHL outage during set-password therefore **does not refuse the set-password** — locking a client
+out of their own account over a third party's downtime is the worse failure — it defers the
+contact to the first moment one is actually required.
+
+### 8.5 Acceptance
+
+- [ ] `signUp` makes no outbound call; `GhlWriteClient` is not reachable from it.
+- [ ] `setPassword` upserts the contact with `source: "Client Portal"`, links it, writes the
+      snapshot, and still returns a session if GHL refused.
+- [ ] `linkOpportunityIfMissing` creates a missing contact instead of returning silently.
+- [ ] A seeded client with no `ghl_contact_id` gets one on their first request.
+- [ ] Signing up 100 times reaches GHL zero times.
+
+---
+
+## 9. Amendment, 2026-09-16 — the opportunity is created at submit
+
+**This reverses §3, which resolved the same question the other way earlier the same day.** §3 is
+edited above; the compromise it describes (deal at service-pick + a `SUBMITTED` marker) is gone.
+
+### 9.1 What changed and why it is not a reversal by accident
+
+The requirement always said the opportunity is created **when the client submits**. §3 refused
+that on 2026-09-15 and again on 2026-09-16 in favour of `D10` — the deal opened at service-pick so
+that a client who abandoned the questionnaire still reached a salesperson — and offered the
+`SUBMITTED` custom field as the way to satisfy what the requirement was *for*.
+
+**The business asked a third time, and the third asking carries it.** The argument against was made
+twice and is on record; repeating it a fourth time would be substituting EvalOS's judgement for the
+business's on a question that is theirs. The funnel is now what they asked for:
+
+    submit → opportunity → Sales review → won → payment
+
+### 9.2 What that costs, stated plainly
+
+**An abandoned questionnaire now reaches nobody.** The `client_application` row survives with
+`status = DRAFT` and nothing reads it, sweeps it or reports it. That is the exact failure `D10`
+existed to prevent, and it is now accepted rather than solved. It is filed as **Q11** in
+`open-decisions.md` with a recommendation (a staff list of stale drafts — no GHL write, no new
+table), because the fix is a screen and the unresolved part is whose job the chase is.
+
+### 9.3 The second call is deleted, not kept
+
+`markSubmittedInGhl` and its `setOpportunityFields` call are gone. Every opportunity is now a
+submitted one, so a follow-up announcing it would say nothing that the row's existence does not.
+The field is still **written on the create**, so a GHL workflow already keyed on it keeps firing —
+`evalos.ghl.opportunity-submitted-field` still means what it meant, and blank still omits it.
+
+One create now carries all three custom fields: service id (routing), correlation key (Unit 44d's
+retry-after-timeout answer) and `SUBMITTED`.
+
+### 9.4 A failed create refuses the submit
+
+Stricter than before, and it follows from the change rather than being an extra rule. The old
+swallow was correct when the deal already existed and only a marker was missing; now a failed
+create means **Sales has no deal at all**, and answering "sent" to that is the one lie this flow
+must not tell. The draft and the answers survive, and the next attempt retries against the same
+correlation key.
+
+### 9.5 Acceptance
+
+- [ ] `start` and `save` reach GHL zero times.
+- [ ] `submit` creates the opportunity, carrying service id, correlation key and `SUBMITTED`.
+- [ ] `setOpportunityFields` is not called from this service at all.
+- [ ] A GHL refusal at submit answers 502 and leaves the application `DRAFT`.
+- [ ] A retry reuses the local opportunity row rather than minting a second correlation key.
+
+---
+
+## 10. Amendment, 2026-09-16 — GHL sends the mail, so the contact comes back to sign-up
+
+**This reverses §8's placement and keeps §8's reason.** §8 is edited above; D3a is rewritten to
+state the *property* it was always about, and D3d records the new mechanism.
+
+### 10.1 The constraint that forced it
+
+The business's flow routes the set-password mail through GHL. `POST /conversations/messages`
+**requires `contactId`** — verified against `/docs/ghl/conversations/send-a-new-message`, and a
+`conversationId` is no escape because a conversation belongs to a contact. There is no
+contact-less send.
+
+So the ordering §8 chose is not available: the mail that leads to set-password needs the contact
+that §8 created *at* set-password. One of the two had to move, and the mail is the requirement.
+
+### 10.2 What actually protected anything, restated
+
+§8's argument was never "later is safer" — it was **a stranger must not be able to drive unbounded
+writes into the live CRM**, because an IP-rotating script fills the sub-account Sales works in and
+spends GHL's shared 100-per-10-seconds location budget, which makes every GHL-backed staff screen
+answer 502. Delay was one way of getting that. It is not the only one, and it was never the part
+that mattered.
+
+Three things carry it now:
+
+| | Status |
+|---|---|
+| `PORTAL_CLEANUP` removes what a flood leaves in EvalOS | **built** (§ sweep, 2026-09-16) |
+| Sign-up gets its own budget, not the shared 60/min/IP | **not built** |
+| A proof-of-human gate on `/auth/sign-up` | **not built** |
+
+**The last two are outstanding and this spec does not pretend otherwise.** Until they exist the
+exposure §8 closed is open again, with only the cleanup sweep behind it. A tighter budget is a
+config value and a second counter; the gate needs a decision about a dependency (Turnstile is the
+obvious one — Cloudflare already fronts the origin) and that decision has not been taken.
+
+### 10.3 A GHL outage refuses nothing
+
+Sign-up stands with no contact. `identify` then answers `MAIL_UNAVAILABLE` — which is *true* rather
+than a guess, because the transport genuinely cannot address someone it has no contact for — and
+`ensureCrmIdentity` repairs the link at the next sign-in, or at the first request (D3c). Losing a
+sign-up to a third party's downtime would be the worse failure, and the client is not stranded:
+the screen tells them to get in touch, which is what `MAIL_UNAVAILABLE` is for.
+
+### 10.4 Mail became a service, because it will change again
+
+`MailTransport` is an interface with two implementations and a third expected. That is the whole
+justification — a seam under two messages would otherwise be ceremony, and the rule here is no
+interface with one implementation. The answer to "who sends the mail" has already changed once
+(SMTP → GHL) and Brevo is named as next.
+
+- `evalos.mail.transport` picks one **by name** from the beans on the classpath. An environment
+  change, not a build — the day a sending domain is being re-verified, the fix is a variable.
+- **A name matching nothing fails at startup and names what it found.** A silent fallback is
+  discovered by a client who never got their link.
+- `Recipient` carries **both** an address and a `ghlContactId`. GHL addresses a contact; SMTP and
+  Brevo address an address. A recipient carrying only the intersection would make GHL
+  unimplementable.
+- Callers ask **`canReach`**, not `isConfigured`. The GHL transport can be perfectly configured and
+  still unable to address a client with no linked contact — and treating that as "configured, so
+  send" mints a credential token for a link that never leaves, whose cooldown then suppresses the
+  retry for a full TTL.
+- The send is **audited** (`PORTAL_LINK_ISSUED` on the contact's audit key), carrying the contact
+  id, the subject and GHL's message id — **never the link**, which is the credential, and never the
+  address, which is PII `GhlWriteClient` already keeps out of that table. `GhlHttpTest`'s
+  structural rule caught this class; it was right to.
+
+### 10.5 Acceptance
+
+- [x] Sign-up upserts exactly one contact per new account, and none for an address already held.
+- [x] The contact is created **before** the mail, asserted in order.
+- [x] Sign-up still answers a state and never a token.
+- [x] `evalos.mail.transport=ghl` sends via `/conversations/messages` with `contactId`.
+- [x] An unknown transport name refuses to start.
+- [x] A configured transport that cannot address this person sends nothing and reports false.
+- [x] Sign-in repairs a missing contact ("login verify and update if something missing").
+- [ ] **Sign-up has its own rate budget** — not built.
+- [ ] **Sign-up has a proof-of-human gate** — not built, needs a dependency decision.
+- [ ] **Phone matches an EvalOS account**, not just a GHL contact — not built, see §10.6.
+
+### 10.6 Phone matching is not built, and the rule it needs first
+
+The flow says *check ClientAccount by email/phone*. GHL's half already works — `upsertContact`
+matches email then phone on its side, which is step 4 of the flow and needs nothing from EvalOS.
+
+The EvalOS half is a different thing and is **deliberately not built yet**, because it has a
+takeover shape that needs a written rule before code: if a typed email and a phone-matched account
+disagree, linking the typed address to that account hands a stranger somebody else's cases by
+typing their phone number. The rule that makes it safe is *the link always goes to the matched
+account's stored email, never the typed one* — and a shared number (a family, an office) then means
+two people resolve to one account, which is a product decision rather than a technical one.
