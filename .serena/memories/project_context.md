@@ -15,8 +15,9 @@ Four apps in one repo:
 - `client-expert/client/` — Client Portal. **Not deployed by this repo.**
 - `client-expert/expert/` — Expert Portal. **Not deployed by this repo.**
 
-Integrations: GoHighLevel (read and write), AWS S3 (documents), Brevo (two auth emails only; SMTP
-is the other `evalos.mail.transport` and prod defaults to `brevo`).
+Integrations: GoHighLevel (read and write), AWS S3 (documents), SMTP for two auth emails only —
+**the provider is `spring.mail.*`, not a class** (D3e, 2026-09-18), so Brevo, Resend, Mailgun,
+Postmark or SES is an environment change; the Brevo API transport is deleted.
 No AI anywhere in the system.
 
 Knowledge baseline (reset 2026-09-16): `.claude/project-context.md`, `current-decisions.md`,

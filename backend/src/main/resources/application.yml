@@ -7,13 +7,38 @@ spring:
     url: ${DB_URL}
     username: ${DB_USER}
     password: ${DB_PASSWORD}
+  # **The whole of how EvalOS sends mail, and the whole of how the provider is chosen** (2026-09-18).
+  # There is one transport, `smtp`, because every transactional provider speaks it — so switching
+  # provider is these four values and a restart, with no build, no new class and no vendor SDK.
+  # That replaced a Brevo transport that spoke `POST /v3/smtp/email`; it was the second
+  # provider-specific transport in a year to be written and then deleted (GHL was the first).
+  #
+  # **The username is NOT your account email on most providers.** That is the single most common
+  # way this is misconfigured, and it fails as a 535 that reads like a bad password:
+  #
+  #   Provider   MAIL_HOST                MAIL_PORT  MAIL_USERNAME          MAIL_PASSWORD
+  #   ---------- ------------------------ ---------- ---------------------- -----------------------
+  #   Brevo      smtp-relay.brevo.com     587        the SMTP login on its  an SMTP key (xsmtpsib-),
+  #                                                  "SMTP & API" page      NOT the API key
+  #   Resend     smtp.resend.com          587        the literal `resend`   the API key (re_…)
+  #   Mailgun    smtp.mailgun.org         587        postmaster@<domain>    that mailbox's password
+  #   Postmark   smtp.postmarkapp.com     587        the server API token   the same token again
+  #   SES        email-smtp.<region>.     587        the SMTP username IAM  its SMTP password —
+  #              amazonaws.com                       hands you              derived, not the secret key
+  #
+  # `EVALOS_MAIL_FROM` must be an address the provider has VERIFIED for the domain, or every send
+  # is refused per-message. A blank host degrades rather than failing the boot: the transport
+  # reports itself unconfigured and clients are told to contact us — see `evalos.mail.from`.
+  #
+  # Port 587 with STARTTLS everywhere. If a provider ever needs implicit TLS on 465, that is
+  # `mail.smtp.ssl.enable: true` and `starttls` off — not a code change either.
   mail:
     host: ${MAIL_HOST:}
     port: ${MAIL_PORT:587}
     username: ${MAIL_USERNAME:}
     # **Never a value here, not even locally** — ConfigSecretsTest fails the build on a
     # credential-shaped setting carrying a default in a shared profile. The real value goes in
-    # backend/config/application-local.yml (gitignored) or the environment.
+    # the repo-root `.env` (gitignored) or the environment.
     password: ${MAIL_PASSWORD:}
     properties:
       mail.smtp.auth: true
@@ -118,25 +143,15 @@ evalos:
     # GHL_API_TOKEN an empty default rather than a fatal one. A password reset is recoverable by
     # a support conversation; a refused boot is not recoverable by anyone.
     from: ${EVALOS_MAIL_FROM:}
-    # Who carries the two messages EvalOS sends. One of the MailTransport beans by name:
-    # `smtp` (Spring Mail) or `brevo` (POST /v3/smtp/email). A `ghl` transport existed briefly and
-    # is deleted: it addressed a contactId rather than an address, which is what forced the GHL
-    # contact to be created at sign-up.
+    # Who carries the two messages EvalOS sends, by MailTransport bean name. **`smtp` is the only
+    # one there is** (2026-09-18), and the provider it reaches is `spring.mail.*` above — see the
+    # table there. A `ghl` transport and a `brevo` transport each existed for a few months and are
+    # deleted: both were a class, a config block, a credential and a live test proving one vendor.
     #
-    # **A name that matches nothing fails at startup and says what it found.** Falling back
-    # silently would be discovered by a client who never got their link.
+    # **The setting stays even at one implementation.** It is the seam ClientMailerTest fakes, and
+    # a name that matches nothing fails at startup saying what it found — falling back silently
+    # would be discovered by a client who never got their link.
     transport: ${EVALOS_MAIL_TRANSPORT:smtp}
-    brevo:
-      base-url: ${EVALOS_MAIL_BREVO_BASE_URL:https://api.brevo.com}
-      # **Never a default, not even locally.** A credential reaching a live third-party account;
-      # `ConfigSecretsTest` fails the build if a credential-shaped setting carries one.
-      api-key: ${EVALOS_MAIL_BREVO_API_KEY:}
-      # Must be a sender Brevo has verified for the account, or every send is refused. Blank here
-      # means the transport reports itself unconfigured rather than failing one send at a time.
-      sender-email: ${EVALOS_MAIL_BREVO_SENDER_EMAIL:}
-      sender-name: ${EVALOS_MAIL_BREVO_SENDER_NAME:International Evaluations}
-      # Bounded: this call sits on a request path.
-      timeout: ${EVALOS_MAIL_BREVO_TIMEOUT:10s}
   portal:
     # Which brand this portal deployment serves. **NOT evalos.ghl.sales-brand** — that one names
     # which brand's STAFF may hold the SALES and MARKETING roles, a staff-authorization ceiling

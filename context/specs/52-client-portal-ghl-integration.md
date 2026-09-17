@@ -410,6 +410,11 @@ justification — a seam under two messages would otherwise be ceremony, and the
 interface with one implementation. The answer to "who sends the mail" has already changed once
 (SMTP → GHL) and Brevo is named as next.
 
+> **Superseded by §12 (2026-09-18).** The third arrived, and so did the bill: `ghl` and `brevo`
+> were both written and both deleted inside a year. SMTP is the only implementation now, and the
+> seam survives as a test seam rather than as a provider switch — the provider switch moved into
+> `spring.mail.*`, where it costs nothing to own.
+
 - `evalos.mail.transport` picks one **by name** from the beans on the classpath. An environment
   change, not a build — the day a sending domain is being re-verified, the fix is a variable.
 - **A name matching nothing fails at startup and names what it found.** A silent fallback is
@@ -464,7 +469,9 @@ GHL no longer sends the set-password mail. `BrevoMailTransport` does —
 `POST https://api.brevo.com/v3/smtp/email`, header `api-key`, a text-only body. The `ghl`
 transport is deleted outright rather than kept as an option: it addressed a `contactId`, and
 keeping a transport that can only reach people who already have a CRM row would keep the whole
-problem §10 describes.
+problem §10 describes. **(The Brevo class itself is gone as of §12; what survives from this
+section is §11.2 onward — the contact staying off sign-up, which holds for any address-based
+transport.)**
 
 **The seam paid for itself.** Swapping providers was one new class and one changed value of
 `evalos.mail.transport`. Nothing that knows what a set-password mail *says* moved, which is what
@@ -510,12 +517,72 @@ aimed at an address — but it stopped being the thing standing between a script
 
 ### 11.5 Acceptance
 
-- [x] `evalos.mail.transport=brevo` sends via `POST /v3/smtp/email` with `api-key`.
+- [x] ~~`evalos.mail.transport=brevo` sends via `POST /v3/smtp/email` with `api-key`.~~ Replaced
+      by §12: `transport=smtp`, and the provider is `spring.mail.*`.
 - [x] `GhlMailTransport` is deleted; `Recipient` no longer carries a contact id.
 - [x] The send is audited once, in `ClientMailer`, carrying subject and brand and never the link.
 - [x] A hundred sign-ups reach GHL zero times, by either path.
 - [x] Sign-up still answers a state and never a session.
-- [ ] `EVALOS_MAIL_BREVO_API_KEY` / `_SENDER_EMAIL` set, and the sender verified in Brevo — **not
-      done, and prod defaults to `brevo`**: until both are set every client answers
-      `MAIL_UNAVAILABLE`.
+- [ ] ~~`EVALOS_MAIL_BREVO_API_KEY` / `_SENDER_EMAIL` set~~ — carried into §12.5 as SMTP settings.
 - [ ] A proof-of-human gate on `/auth/sign-up` — still worth having, no longer urgent.
+
+---
+
+## 12. Amendment, 2026-09-18 — the provider stops being a class
+
+**This deletes §11.1's transport and keeps everything else §11 decided.**
+
+### 12.1 What changed
+
+`BrevoMailTransport` is deleted, with `evalos.mail.brevo.*` and `BrevoMailTransportLiveTest`.
+`SmtpMailTransport` is the only `MailTransport`, and which provider carries the mail is
+`spring.mail.host/port/username/password` plus `EVALOS_MAIL_FROM`. Brevo, Resend, Mailgun,
+Postmark and SES all speak SMTP on 587, so **changing provider is four environment variables and a
+restart** — no class, no config block, no build. Prod's `transport` default flips `brevo` → `smtp`.
+
+### 12.2 Why, given §10.4 argued the opposite
+
+§10.4 is not wrong about the seam; it is wrong about where the switch belongs. Two vendor-specific
+transports were written and deleted inside a year, and each one cost a class, a config block, a
+credential and a live test that proved exactly one vendor. The seam made the *code* swap cheap and
+left the *operational* swap — new credential, new verified sender, new failure modes to learn — at
+full price. SMTP pays that once.
+
+**The username is the trap, and it is why `application.yml` carries a table.** It is not the
+account email on most providers: Resend wants the literal `resend`, Brevo wants the SMTP login from
+its "SMTP & API" page (and an `xsmtpsib-` SMTP key, not the `xkeysib-` API key), SES wants an IAM-
+derived SMTP username. A wrong one is a 535, which reads exactly like a wrong password.
+
+### 12.3 What is given up
+
+An API transport reads the provider's own message id; SMTP returns a protocol-level accept. So
+`send` promises that the message left EvalOS and nothing more — delivery, bounces and suppression
+are read in the provider's dashboard, or through webhooks nobody has built. For two messages whose
+failure a support conversation recovers, that is the cheaper side of the trade.
+
+### 12.4 What is kept
+
+`MailTransport` and `evalos.mail.transport`, at one implementation, against the no-interface-with-
+one-implementation rule and deliberately: it is the seam `ClientMailerTest` fakes in all four of
+its tests, and deleting it is a bigger diff than keeping it. A name matching nothing still fails
+the boot naming what it found.
+
+`isConfigured()` gained the relay: it checked only `evalos.mail.from`, so a deployment with a
+sender and no host reported itself configured, minted a credential token and told the client to
+watch an inbox — then failed one send at a time. Unconfigured has to be knowable before that
+promise is made.
+
+### 12.5 Acceptance
+
+- [x] `transport=smtp` is the only bean; `BrevoMailTransport` and `evalos.mail.brevo.*` are gone.
+- [x] `isConfigured()` requires both a relay and a sender (`SmtpMailTransportTest`).
+- [x] A refused send is `false` and a log line, never a throw (`SmtpMailTransportTest`).
+- [x] `SmtpMailTransportLiveTest` proves a real credential, a verified sender and egress, against
+      whatever provider the environment names — opt-in on `MAIL_LIVE_TEST=true`.
+- [ ] `MAIL_HOST` / `MAIL_USERNAME` / `MAIL_PASSWORD` / `EVALOS_MAIL_FROM` set in `.env` and in the
+      deployed environment — **not done**: until they are, every client answers `MAIL_UNAVAILABLE`.
+- [ ] The Brevo API key that sat in `application-local.yml` on 2026-09-17 **rotated or deleted** —
+      it was readable by anyone with the working tree.
+- [ ] Outbound 587 open from the deploy, and the deploy's IP on the provider's authorised list if
+      it keeps one. Both fail identically to a bad password from inside the application; the live
+      test run *from the deployed host* is what separates them.

@@ -53,36 +53,20 @@ evalos:
     field-key: ${EVALOS_FIELD_KEY:bG9jYWwtZGV2LWZpZWxkLWtleS1ub3QtZm9yLXByb2Q=}
   mail:
     from: ${EVALOS_MAIL_FROM:}
-    # Who carries the two messages EvalOS sends. One of the MailTransport beans by name:
-    # `smtp` (Spring Mail) or `brevo` (POST /v3/smtp/email). A `ghl` transport existed briefly and
-    # is deleted: it addressed a contactId rather than an address, which is what forced the GHL
-    # contact to be created at sign-up.
+    # Who carries the two messages EvalOS sends, by MailTransport bean name. **`smtp` is the only
+    # one there is** (2026-09-18); which provider that reaches is `spring.mail.*`, and the table
+    # over it in `application.yml` gives the host, port and username for each.
     #
-    # **A name that matches nothing fails at startup and says what it found.** Falling back
-    # silently would be discovered by a client who never got their link.
+    # **THE CREDENTIAL DOES NOT GO IN THIS FILE. It goes in the repo-root `.env`**, which is
+    # gitignored and which VS Code loads as real environment variables — and an environment
+    # variable beats a default here, so a key pasted on one of these lines is overridden by
+    # whatever `.env` holds and changes nothing. That is not hypothetical: it happened twice with
+    # the old Brevo key, and both times the value in `.env` kept winning while this file looked
+    # correct. `ConfigSecretsTest` fails the build on a credential default in any committed
+    # profile, which is how it was caught. **A live Brevo API key sat here until 2026-09-17 and
+    # must be treated as disclosed** — rotate or delete it in Brevo; it was readable by anyone
+    # with the working tree.
     transport: ${EVALOS_MAIL_TRANSPORT:smtp}
-    brevo:
-      base-url: ${EVALOS_MAIL_BREVO_BASE_URL:https://api.brevo.com}
-      # **THE VALUE DOES NOT GO HERE. It goes in the repo-root `.env`**, which is gitignored and
-      # which VS Code loads as real environment variables -- and an environment variable beats a
-      # default in this file, so a key pasted on this line is overridden by whatever `.env` holds
-      # and changes nothing. That is not a hypothetical: it was pasted here twice, and both times
-      # the old key in `.env` kept winning while this line looked correct.
-      #
-      # **Never a default, not even locally.** A credential reaching a live third-party account;
-      # `ConfigSecretsTest` fails the build if a credential-shaped setting carries one.
-      # **NO DEFAULT, EVER.** A live key sat here until 2026-09-17 and `ConfigSecretsTest` failed
-      # the build for it, which is the check doing its job: every profile in this directory is
-      # tracked by git, so a default here is a credential in the repository. It goes in `.env`,
-      # which is gitignored. **The key that was here must be rotated in Brevo** — it was readable by
-      # anyone with the working tree.
-      api-key: ${EVALOS_MAIL_BREVO_API_KEY:}
-      # Must be a sender Brevo has verified for the account, or every send is refused. Blank here
-      # means the transport reports itself unconfigured rather than failing one send at a time.
-      sender-email: ${EVALOS_MAIL_BREVO_SENDER_EMAIL:no-reply@Internationalevalustions.com}
-      sender-name: ${EVALOS_MAIL_BREVO_SENDER_NAME:International Evaluations}
-      # Bounded: this call sits on a request path.
-      timeout: ${EVALOS_MAIL_BREVO_TIMEOUT:10s}
   portal:
     # The two portal dev servers: client on 5174, expert on 5175. They are separate
     # apps under client-expert/ so they can be deployed to separate subdomains, and a

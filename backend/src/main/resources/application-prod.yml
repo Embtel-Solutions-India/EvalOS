@@ -23,25 +23,19 @@ spring:
 evalos:
   mail:
     from: ${EVALOS_MAIL_FROM:}
-    # Who carries the two messages EvalOS sends. One of the MailTransport beans by name:
-    # `smtp` (Spring Mail) or `brevo` (POST /v3/smtp/email). A `ghl` transport existed briefly and
-    # is deleted: it addressed a contactId rather than an address, which is what forced the GHL
-    # contact to be created at sign-up.
+    # Who carries the two messages EvalOS sends, by MailTransport bean name. **`smtp` is the only
+    # one there is** (2026-09-18) — this defaulted to `brevo` and to a transport that no longer
+    # exists, so the flip is not cosmetic. Which provider it reaches is `spring.mail.*`; the table
+    # over it in `application.yml` gives the host, port and username for each.
     #
-    # **A name that matches nothing fails at startup and says what it found.** Falling back
-    # silently would be discovered by a client who never got their link.
-    transport: ${EVALOS_MAIL_TRANSPORT:brevo}
-    brevo:
-      base-url: ${EVALOS_MAIL_BREVO_BASE_URL:https://api.brevo.com}
-      # **Never a default, not even locally.** A credential reaching a live third-party account;
-      # `ConfigSecretsTest` fails the build if a credential-shaped setting carries one.
-      api-key: ${EVALOS_MAIL_BREVO_API_KEY:}
-      # Must be a sender Brevo has verified for the account, or every send is refused. Blank here
-      # means the transport reports itself unconfigured rather than failing one send at a time.
-      sender-email: ${EVALOS_MAIL_BREVO_SENDER_EMAIL:}
-      sender-name: ${EVALOS_MAIL_BREVO_SENDER_NAME:International Evaluations}
-      # Bounded: this call sits on a request path.
-      timeout: ${EVALOS_MAIL_BREVO_TIMEOUT:10s}
+    # **Four variables are what a deployment must set**: `MAIL_HOST`, `MAIL_USERNAME`,
+    # `MAIL_PASSWORD` and `EVALOS_MAIL_FROM`. Missing any of them is not a boot failure by
+    # decision — the app serves every screen and clients are told MAIL_UNAVAILABLE rather than
+    # left waiting for a link nobody sent. **The egress matters as much as the credential**: a host
+    # that blocks outbound 587, or a provider with an authorised-IP list this deploy is not on,
+    # fails exactly like a bad password from inside the application. `SmtpMailTransportLiveTest`
+    # run from the deployed host is what separates them.
+    transport: ${EVALOS_MAIL_TRANSPORT:smtp}
   portal:
     # Must name the deployed portal origin. **No default, so a missing value fails the boot** —
     # which is what the comment used to claim while the value carried an empty default and booted

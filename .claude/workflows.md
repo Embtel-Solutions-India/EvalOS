@@ -15,7 +15,8 @@ POST /api/portal/auth/identify   { email }
                     yes + password  → PASSWORD_SET
                     yes + no password → mail a SET link → NO_PASSWORD
                                       → transport cannot reach them → MAIL_UNAVAILABLE
-                                        (no transport configured — an address is all Brevo needs)
+                                        (no relay or no sender configured — an address is all
+                                         any transport needs to reach a person)
 
 POST /api/portal/auth/sign-up    { email, firstName?, lastName?, phone? }
   → account already exists?  yes → fall through to identify()   (creates nothing, no GHL call)
@@ -32,9 +33,11 @@ POST /api/portal/auth/sign-in    { email, password }
   → mint a party-scoped portal_access token  (no contact, no account created)
 
 POST /api/portal/auth/forgot-password  → 204 always
-The SET/RESET link is carried by `evalos.mail.transport` (D3e): `smtp` (Spring Mail) or `brevo`
-(POST /v3/smtp/email). The `ghl` transport is deleted — it addressed a `contactId` rather than an
-address, which is the only thing that ever forced the GHL contact to be created at sign-up.
+The SET/RESET link leaves over **SMTP, and the provider is configuration** (D3e, 2026-09-18):
+`spring.mail.host/port/username/password` + `EVALOS_MAIL_FROM` reach Brevo, Resend, Mailgun,
+Postmark or SES without a build. Both vendor-specific transports are deleted — `ghl` (it addressed
+a `contactId` rather than an address, the only thing that ever forced the GHL contact to be created
+at sign-up) and `brevo` (`POST /v3/smtp/email`).
 
 POST /api/portal/auth/set-password     → spend token, set hash
                                       → ensureCrmIdentity (idempotent; repairs an outage)
@@ -47,7 +50,7 @@ POST /api/portal/auth/sign-in         → verify, then ensureCrmIdentity — "lo
 `ClientAccountService`, `ClientAuthController`.
 
 **The CRM write is off sign-up again (D3d, spec `52` §11).** It was there only while GHL carried
-the mail and demanded a `contactId`; Brevo needs an address, so the ordering that holds D3a's
+the mail and demanded a `contactId`; SMTP needs an address, so the ordering that holds D3a's
 property costs nothing and is back. Two call sites had to go — `signUp` and `issueCredential` —
 because sign-up falls through to `identify`, so removing one would have looked fixed and changed
 nothing.

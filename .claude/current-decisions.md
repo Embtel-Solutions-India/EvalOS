@@ -22,23 +22,36 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
   `PORTAL_CLEANUP`. Spec `52` §8.
 - **D3d.** **Sign-up creates no GHL contact — D3a's ordering, restored.** The contact lived on
   `/auth/sign-up` for exactly as long as GHL carried the set-password mail, which required a
-  `contactId` and would not take a bare address. Brevo takes the address, so the reason is gone and
-  the exposure is not worth keeping: that route is `permitAll` behind one per-IP counter, so a CRM
+  `contactId` and would not take a bare address. Every transport since takes the address, so the
+  reason is gone and the exposure is not worth keeping: that route is `permitAll` behind one
+  per-IP counter, so a CRM
   write there is a stranger's write — an IP-rotating script fills the sub-account Sales works in
   and spends GHL's shared 100-req/10s location budget, which 502s every GHL-backed staff screen.
   **Two call sites had to go, not one:** `signUp` itself, and `issueCredential` — because `signUp`
   falls through to `identify`, so removing only the first would have looked fixed and changed
   nothing. `signingUpReachesGhlZeroTimes` pins both. The contact is created at `setPassword`, at
   the next sign-in, or at the first request that needs one (D3c). Spec `52` §11.
-- **D3e.** **Mail is a transport behind an interface** (`MailTransport`), chosen by
-  `evalos.mail.transport` from the beans on the classpath — **`smtp` or `brevo`**
-  (`POST /v3/smtp/email`, header `api-key`). The `ghl` transport existed for one day and is
-  deleted; swapping it for Brevo was one new class and one changed variable, which is the seam
-  paying for itself. A name matching nothing **fails at startup** and names what it found; falling
-  back silently would be found by a client who never got their link. `Recipient` no longer carries
-  a GHL contact id — nothing addresses a person that way any more — and `ClientMailer` owns both
-  the wording and the one `PORTAL_LINK_ISSUED` audit row, so the trail is not a property of
-  whichever provider happens to be carrying the mail.
+- **D3e.** **Mail leaves over SMTP, and the provider is configuration — never a class**
+  (rewritten 2026-09-18). `SmtpMailTransport` is the only `MailTransport` there is; which provider
+  carries the mail is `spring.mail.host/port/username/password` plus `EVALOS_MAIL_FROM`, so moving
+  between Brevo, Resend, Mailgun, Postmark or SES is **four environment variables and a restart,
+  with no build**. The per-provider settings are tabulated over `spring.mail` in `application.yml`,
+  because the username is not the account email on most of them and a wrong one fails as a 535 that
+  reads like a wrong password. **This replaced two vendor-specific transports in a year**: `ghl`
+  (deleted 2026-09-16 — it addressed a `contactId`, which is what forced D3d's contact-at-sign-up)
+  and `brevo` (`POST /v3/smtp/email`, deleted 2026-09-18). Each was a class, a config block, a
+  credential and a live test that proved exactly one vendor; the seam was supposed to make swapping
+  cheap and instead made a second thing to swap. **What is knowingly given up:** an API transport
+  reads the provider's own message id, and SMTP gives back a protocol accept — "it left EvalOS" is
+  the whole of what `send` can promise, and delivery, bounces and suppression are read in the
+  provider's dashboard. For two messages whose failure a support conversation recovers, that is the
+  cheaper side. **What is kept:** the `MailTransport` interface and `evalos.mail.transport`, at one
+  implementation, because it is the seam `ClientMailerTest` fakes and a name matching nothing
+  **fails at startup** naming what it found. `ClientMailer` still owns the wording and the one
+  `PORTAL_LINK_ISSUED` audit row, so the trail is not a property of whoever carries the mail.
+  `SmtpMailTransportLiveTest` (opt-in, `MAIL_LIVE_TEST=true`) is the only check that proves a real
+  credential, a verified sender and the deploy's egress — and unlike the one it replaced, it
+  survives changing provider.
 - **D4.** Signup never signs anyone in. It returns a state; control of the mailbox is proved by
   the set-password link. Signing up with a known email creates nothing and cannot overwrite.
 - **D5.** Sign-in creates no contact and no account.
@@ -320,9 +333,11 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
   because a client who replies to it believes they have been heard. The two messages carry a
   link, not a conversation; a client who needs a person uses the support address the portal's
   `MAIL_UNAVAILABLE` screens name. **Consequence to expect, not to fix:** mail sent *to* the
-  sender address hard-bounces, and Brevo will list it as a blocked contact. That blocks delivery
-  **to** it and never **from** it, so it is noise in the Brevo UI rather than a fault. Never
-  point a test recipient at it — see `BrevoMailTransportLiveTest`.
+  sender address hard-bounces, and the provider will list it as a blocked contact. That blocks
+  delivery **to** it and never **from** it, so it is noise in a dashboard rather than a fault.
+  Never point a test recipient at it — `EVALOS_MAIL_TEST_TO` must name a mailbox a human can open,
+  and `SmtpMailTransportLiveTest` refuses to run without one. Doing the opposite once already cost
+  a suspended account.
 
 ## Notifications
 

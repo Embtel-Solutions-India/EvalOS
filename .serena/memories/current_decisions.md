@@ -23,13 +23,19 @@ The ones most often violated from memory:
 - **A GHL outage never refuses a sign-up, a set-password or a sign-in.** The account stands with no
   contact, `identify` answers `MAIL_UNAVAILABLE`, and `ensureCrmIdentity` repairs it at the next
   sign-in or the first request (D3c).
-- **Mail is swappable** (D3e): `MailTransport` + `evalos.mail.transport` = **`smtp` | `brevo`**
-  (`POST /v3/smtp/email`, header `api-key`). The `ghl` transport is deleted. The swap cost one class
-  and one variable. `ClientMailer` owns the wording and the audit row; transports are pure wire.
-  Brevo is proved live by `BrevoMailTransportLiveTest` (opt-in `BREVO_LIVE_TEST=true`) — every Brevo
-  failure is a swallowed `false`, so nothing short of a real send distinguishes working from silent.
-  Brevo enforces an **Authorised IPs** allowlist per account: an unlisted caller is a 401 with an
-  empty body, so every deploy's egress IP must be listed or the restriction turned off.
+- **Mail leaves over SMTP and the provider is configuration** (D3e, rewritten 2026-09-18):
+  `SmtpMailTransport` is the only `MailTransport`, and Brevo / Resend / Mailgun / Postmark / SES are
+  `spring.mail.host/port/username/password` + `EVALOS_MAIL_FROM` — **four variables and a restart,
+  no build**. The per-provider table is above `spring.mail` in `application.yml`; the username is not
+  the account email on most of them and a wrong one is a 535 that reads like a wrong password.
+  Both vendor transports are deleted (`ghl` 2026-09-16, `brevo` 2026-09-18) — each was a class, a
+  config block, a credential and a live test proving one vendor. **Given up knowingly:** no provider
+  message id, so `send` promises only that the message left EvalOS. **Kept:** the interface and
+  `evalos.mail.transport` at one implementation, because `ClientMailerTest` fakes that seam and an
+  unmatched name fails the boot. `isConfigured()` needs **both** relay and sender. Proved live by
+  `SmtpMailTransportLiveTest` (opt-in `MAIL_LIVE_TEST=true`) — every failure is a swallowed `false`,
+  so nothing short of a real send separates working from silent, and blocked egress or an
+  authorised-IP list looks exactly like a bad password from inside the app.
 - **A portal contact carries `source: "Client Portal"`** (D3b). GHL accepts no `utmSource` or
   `attributionSource` on a write — it fills those from its own form tracking, which an API caller
   never passes through — so the documented `source` string is the whole of what provenance can be.
@@ -64,8 +70,10 @@ The ones most often violated from memory:
 - Invoicing is GHL's, full stop. EvalOS reads invoices and raises none.
 - EvalOS sends **exactly two** emails: set-password and reset-password. Any other mail is a new
   decision. **Send-only, from a `no-reply@` sender with no mailbox** (D29a): inbound mail is not a
-  channel, so mail *to* the sender bounces and Brevo lists it as a blocked contact — which blocks
-  delivery to it, never from it. Never aim a test recipient at the sender address.
+  channel, so mail *to* the sender bounces and the provider lists it as a blocked contact — which
+  blocks delivery to it, never from it. Never aim a test recipient at the sender address:
+  `EVALOS_MAIL_TEST_TO` must be a mailbox a human can open, and doing otherwise once got an
+  account's transactional sending suspended.
 - Brand-scoped by default. Append-only truth for `audit_event` and `opportunity_note`, enforced by
   database triggers.
 - **The one scoping exception is the GHL location, and it costs screens rather than being
