@@ -55,12 +55,16 @@ public class SalesMeetingService {
 	private static final Logger log = LoggerFactory.getLogger(SalesMeetingService.class);
 
 	private final GhlCalendarClient calendars;
+	/** Unit 47: the calendar LIST comes from here; {@link #slots} still asks GHL. */
+	private final ReferenceMirrorService reference;
 	private final PipelineScope scope;
 	private final MeetingRepository meetings;
 
-	SalesMeetingService(GhlCalendarClient calendars, PipelineScope scope,
+	SalesMeetingService(GhlCalendarClient calendars, ReferenceMirrorService reference,
+			PipelineScope scope,
 			MeetingRepository meetings) {
 		this.calendars = calendars;
+		this.reference = reference;
 		this.scope = scope;
 		this.meetings = meetings;
 	}
@@ -73,7 +77,14 @@ public class SalesMeetingService {
 	 * is the gate — the same shape as the GM's pipeline picker.
 	 */
 	public List<GhlCalendarClient.CalendarOption> calendars() {
-		return calendars.calendars();
+		// Unit 47: the mirror, not GHL. The list is structure — it changes a few times a year — and
+		// a booking dialog was calling GHL for it on every open. The shape is unchanged so the form
+		// does not know the difference; `REFERENCE_MIRROR` keeps it current, and free SLOTS below
+		// are still live because availability is a fact about right now, not about the location.
+		return reference.bookableCalendars().stream()
+				.map((row) -> new GhlCalendarClient.CalendarOption(row.getGhlId(), row.getName(),
+						row.isActive(), row.getSlotMinutes(), row.getTitleTemplate()))
+				.toList();
 	}
 
 	/**

@@ -86,6 +86,27 @@ public class FollowUp extends ScopedEntity {
 	 * caller is a double-click, and moving the timestamp would rewrite when the work was actually
 	 * done.
 	 */
+	/**
+	 * GHL's version of this task — <strong>read-back, Unit 47b</strong>.
+	 *
+	 * <p>Until now this row was written when EvalOS created the task and never again, so a task
+	 * completed <em>in GHL</em> still read as open on the desk. `47` §4 accepted that divergence on
+	 * the grounds that tasks could only be listed per contact; they ride on the opportunity search
+	 * EvalOS already makes, so the divergence was never necessary.
+	 *
+	 * <p><strong>GHL wins on every field here.</strong> A task is GHL's object — EvalOS creates one
+	 * and never edits it — so there is no conflict to resolve and no 45e question to ask.
+	 */
+	public void syncFromGhl(String title, String body, Instant dueAt, boolean completed) {
+		this.title = title == null || title.isBlank() ? this.title : title;
+		this.body = body;
+		this.dueAt = dueAt == null ? this.dueAt : dueAt;
+		if (completed && !this.completed) {
+			complete();
+		}
+		this.syncedAt = Instant.now();
+	}
+
 	public void complete() {
 		if (!completed) {
 			this.completed = true;

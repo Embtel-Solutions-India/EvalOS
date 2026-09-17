@@ -1,14 +1,15 @@
 import { type FormEvent, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { ArrowLeft } from 'lucide-react'
+import { Link, useNavigate } from 'react-router-dom'
 import { z } from 'zod'
 import { Button } from '@shared/components/ui/button'
 import { Card } from '@shared/components/ui/card'
 import { FormField } from '@shared/components/common/FormField'
-import { PageHeader } from '@shared/components/common/PageHeader'
 import { Input } from '@shared/components/ui/input'
+import { Logo } from '@shared/components/common/Logo'
 import { NO_TOKEN, tokenFromFragment } from '@shared/lib/portal'
 import { statusOf } from '@shared/services/apiClient'
-import { passwordRules } from '@/schemas/intake'
+import { PASSWORD_REQUIREMENTS, passwordRules } from '@/schemas/intake'
 import { authFailureMessage, setPassword } from '@/services/authService'
 
 /**
@@ -18,6 +19,23 @@ import { authFailureMessage, setPassword } from '@/services/authService'
  * case, digit, special character) is written; a second copy here would be a second rule to keep
  * in sync with the intake funnel's. The confirm-match check is wired up fresh because this form's
  * two fields are not `aboutYouSchema`'s — the check itself is one line, not a rule to duplicate.
+ * {@link PASSWORD_REQUIREMENTS} follows the same rule for the same reason: the sentence that
+ * describes the rule lives beside the rule.
+ *
+ * <h2>The UX pass of 2026-09-17</h2>
+ *
+ * **The no-token state was a different screen wearing the same URL.** It rendered a bare
+ * `PageHeader` in a `max-w-2xl` block — no card, no logo, no button — while every sibling auth
+ * screen is a centred card under a logo. Someone whose mail client truncated the `#` fragment (a
+ * real and common thing: the token IS the fragment) landed on something that looked broken, and
+ * then had nowhere to click. It is the same card as its siblings now, and it ends in the action
+ * that actually recovers: go back and ask for a fresh link.
+ *
+ * **The rules were revealed one rejection at a time.** Five `.regex` calls, surfaced only after a
+ * submit, meant choosing a password could take five round trips to discover what was wanted. They
+ * are stated under the field before the first attempt.
+ *
+ * **A refused link said "request a new one from the sign-in screen" and did not link to it.**
  */
 const schema = z
   .object({
@@ -28,6 +46,39 @@ const schema = z
     message: 'Passwords do not match.',
     path: ['confirmPassword'],
   })
+
+/** The card every state of this screen sits in, so a dead end looks like the same product. */
+function AuthCard({ title, description, children }: {
+  title: string
+  description: string
+  children: React.ReactNode
+}) {
+  return (
+    <div className="flex min-h-dvh flex-col items-center justify-center gap-8 px-4 py-12">
+      <Logo size="lg" showTagline />
+      <Card className="w-full max-w-sm space-y-5 p-6">
+        <div>
+          <h1 className="text-xl font-semibold tracking-tight text-foreground">{title}</h1>
+          <p className="mt-1 text-sm text-muted-foreground">{description}</p>
+        </div>
+        {children}
+      </Card>
+    </div>
+  )
+}
+
+/** Always available, because every failure on this screen recovers the same way. */
+function BackToSignIn() {
+  return (
+    <Link
+      to="/signin"
+      className="inline-flex items-center gap-2 text-sm font-medium text-primary underline-offset-4 hover:underline"
+    >
+      <ArrowLeft className="h-4 w-4" aria-hidden="true" />
+      Back to sign in
+    </Link>
+  )
+}
 
 export default function SetPassword() {
   const navigate = useNavigate()
@@ -41,9 +92,16 @@ export default function SetPassword() {
 
   if (!token) {
     return (
-      <div className="mx-auto max-w-2xl p-6">
-        <PageHeader title="Set your password" description={NO_TOKEN} />
-      </div>
+      <AuthCard title="Set your password" description={NO_TOKEN}>
+        {/*
+          **A button, not just the sentence.** The client cannot fix a truncated link from here,
+          so the only real recovery is asking for a fresh one — which is what the sign-in screen
+          does on `NO_PASSWORD`. Naming that as the action beats leaving them to infer it.
+        */}
+        <Button className="w-full" onClick={() => navigate('/signin')}>
+          Request a new link
+        </Button>
+      </AuthCard>
     )
   }
 
@@ -80,52 +138,56 @@ export default function SetPassword() {
   }
 
   return (
-    <div className="flex min-h-dvh flex-col items-center justify-center px-4 py-12">
-      <Card className="w-full max-w-sm space-y-5 p-6">
-        <div>
-          <h1 className="text-xl font-semibold tracking-tight text-foreground">Set your password</h1>
-          <p className="mt-1 text-sm text-muted-foreground">Choose a password for signing in next time.</p>
-        </div>
+    <AuthCard title="Set your password" description="Set the password you'll sign in with from now on.">
+      <form onSubmit={(event) => void onSubmit(event)} className="space-y-4">
+        <FormField label="Password" htmlFor="password" required error={fieldErrors.password}>
+          <Input
+            id="password"
+            type="password"
+            autoComplete="new-password"
+            aria-describedby="password-requirements"
+            value={password}
+            onChange={(event) => setPasswordValue(event.target.value)}
+            disabled={submitting}
+          />
+        </FormField>
 
-        <form onSubmit={(event) => void onSubmit(event)} className="space-y-4">
-          <FormField label="Password" htmlFor="password" required error={fieldErrors.password}>
-            <Input
-              id="password"
-              type="password"
-              autoComplete="new-password"
-              value={password}
-              onChange={(event) => setPasswordValue(event.target.value)}
-              disabled={submitting}
-            />
-          </FormField>
+        {/*
+          Before the first submit, and wired to the field with `aria-describedby` so a screen
+          reader hears the requirement when it reaches the input rather than after failing it.
+        */}
+        <p id="password-requirements" className="text-xs text-muted-foreground">
+          {PASSWORD_REQUIREMENTS}
+        </p>
 
-          <FormField
-            label="Confirm password"
-            htmlFor="confirmPassword"
-            required
-            error={fieldErrors.confirmPassword}
-          >
-            <Input
-              id="confirmPassword"
-              type="password"
-              autoComplete="new-password"
-              value={confirmPassword}
-              onChange={(event) => setConfirmPassword(event.target.value)}
-              disabled={submitting}
-            />
-          </FormField>
+        <FormField
+          label="Confirm password"
+          htmlFor="confirmPassword"
+          required
+          error={fieldErrors.confirmPassword}
+        >
+          <Input
+            id="confirmPassword"
+            type="password"
+            autoComplete="new-password"
+            value={confirmPassword}
+            onChange={(event) => setConfirmPassword(event.target.value)}
+            disabled={submitting}
+          />
+        </FormField>
 
-          {submitError && (
-            <p className="text-xs font-medium text-destructive" role="alert">
-              {submitError}
-            </p>
-          )}
+        {submitError && (
+          <div className="space-y-2" role="alert">
+            <p className="text-xs font-medium text-destructive">{submitError}</p>
+            {/* The message names the sign-in screen; this is the screen it names. */}
+            <BackToSignIn />
+          </div>
+        )}
 
-          <Button type="submit" className="w-full" loading={submitting}>
-            Set password
-          </Button>
-        </form>
-      </Card>
-    </div>
+        <Button type="submit" className="w-full" loading={submitting}>
+          Set password
+        </Button>
+      </form>
+    </AuthCard>
   )
 }

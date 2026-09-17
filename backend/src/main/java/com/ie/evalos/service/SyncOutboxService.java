@@ -4,6 +4,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
+import com.ie.evalos.config.SellingBrand;
 import com.ie.evalos.domain.Opportunity;
 import com.ie.evalos.domain.Pipeline;
 import com.ie.evalos.domain.SyncEntity;
@@ -80,15 +81,14 @@ public class SyncOutboxService {
 
 	SyncOutboxService(SyncOutboxRepository outbox, OpportunityRepository opportunities,
 			PipelineRepository pipelines, GhlWriteClient ghl, GhlPipelineClient ghlReads,
-			@Value("${evalos.ghl.sales-brand:}") String salesBrandId,
+			SellingBrand sellingBrand,
 			@Value("${evalos.ghl.opportunity-correlation-field:}") String correlationFieldId) {
 		this.outbox = outbox;
 		this.opportunities = opportunities;
 		this.pipelines = pipelines;
 		this.ghl = ghl;
 		this.ghlReads = ghlReads;
-		this.sellingBrandId = salesBrandId == null || salesBrandId.isBlank() ? null
-				: UUID.fromString(salesBrandId);
+		this.sellingBrandId = sellingBrand.id();
 		this.correlationFieldId = correlationFieldId == null ? "" : correlationFieldId.trim();
 	}
 

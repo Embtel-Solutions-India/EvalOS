@@ -501,7 +501,7 @@ function MoneyBars({
             ]
           }
         />
-        <Bar dataKey="value" fill="var(--accent)" radius={[0, 4, 4, 0]} maxBarSize={18} />
+        <Bar dataKey="value" fill="var(--accent-primary)" radius={[0, 4, 4, 0]} maxBarSize={18} />
       </BarChart>
     </ResponsiveContainer>
   )

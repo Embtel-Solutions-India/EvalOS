@@ -15,7 +15,8 @@ Four apps in one repo:
 - `client-expert/client/` — Client Portal. **Not deployed by this repo.**
 - `client-expert/expert/` — Expert Portal. **Not deployed by this repo.**
 
-Integrations: GoHighLevel (read and write), AWS S3 (documents), SMTP (two auth emails only).
+Integrations: GoHighLevel (read and write), AWS S3 (documents), Brevo (two auth emails only; SMTP
+is the other `evalos.mail.transport` and prod defaults to `brevo`).
 No AI anywhere in the system.
 
 Knowledge baseline (reset 2026-09-16): `.claude/project-context.md`, `current-decisions.md`,

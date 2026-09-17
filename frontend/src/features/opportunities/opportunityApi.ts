@@ -48,6 +48,14 @@ export type OpportunityBoard = {
   totalValue: number
   lastSyncedAt: string | null
   stale: boolean
+  /**
+   * False when `evalos.ghl.sales-brand` is blank on the server.
+   *
+   * A blank one makes every mirror a no-op, so the board is empty and unsynced for a reason that
+   * has nothing to do with the sweep being behind. Without this the screen blames the sync for a
+   * configuration mistake — which is exactly what happened on 2026-09-17.
+   */
+  syncConfigured: boolean
 }
 
 /**
@@ -69,6 +77,23 @@ export function fetchOpportunityBoard(signal?: AbortSignal): Promise<Opportunity
  * **This reconciles; it does not read GHL on the board's behalf.** The board is drawn from EvalOS
  * rows either way — what this does is bring those rows forward first. POST because it writes.
  */
+/** Who the deal is with. Null when the mirror has not absorbed the contact yet. */
+export type DealContact = {
+  name: string | null
+  email: string | null
+  phone: string | null
+  company: string | null
+}
+
+export function fetchDealContact(
+  opportunityId: string,
+  signal?: AbortSignal,
+): Promise<DealContact | null> {
+  return unwrap<DealContact | null>(
+    api.get(`/opportunities/${opportunityId}/contact`, { signal }),
+  )
+}
+
 export function refreshOpportunityBoard(signal?: AbortSignal): Promise<OpportunityBoard> {
   return unwrap<OpportunityBoard>(api.post('/opportunities/board/refresh', undefined, { signal }))
 }

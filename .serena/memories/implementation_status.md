@@ -218,3 +218,38 @@ read — and a null is stale. `board-stale-after` **5m — one missed pass** (bu
 a **"Sync delayed"** banner; it equals the sweep interval, so a long pass blinks the banner briefly. `POST /api/opportunities/board/refresh` is the Refresh button: it **reconciles the mirror
 then draws from it**, caller's own pipelines only, behind a 30s floor.
 Suite: **backend 1052, frontend 127, both green**. No migration.
+
+**BUILT 2026-09-17 (Unit 47) — the reference mirror.** Spec `47-reference-mirror.md`.
+**Scoped by `00d` §6.6, NOT by `00c`'s tier list**: "a sync surface with no consumer is pure drift
+risk", so the question was *what does a desk screen still read live from GHL after Unit 46* — three
+lists. `V60` adds `ghl_custom_field`, `ghl_calendar`, `ghl_user` (prefixed because `user` is
+reserved in Postgres); one `GhlReference` superclass, three repositories, `ReferenceMirrorService`,
+and one hourly `REFERENCE_MIRROR` sweep. `/sales/opportunity-fields`, `/sales/calendars` and
+`/sales/users` now read the mirror; **payload shapes unchanged**, so no form was touched.
+**NOT mirrored, on purpose**: tags and GHL notes (no reader), custom field **values** (only
+definitions have a reader — values are what a queued create would need, D46/D49), and **free slots,
+which never will be** (availability is GHL's to compute; a mirrored slot is wrong within a minute —
+D48, and Unit 48 inherits "runs without sync, cannot take a new booking").
+`follow_up` and `meeting` stay write-through: a task completed or an appointment cancelled IN GHL is
+still not reflected — named as accepted divergence, because GHL lists tasks only per contact.
+An **empty** list does one live read on first access and never again (first-run cliff, not a
+refill-on-read). Suite: backend **1065**, frontend **127**, both green.
+
+**BUILT 2026-09-17 (Unit 47b) — the cuts reversed, and one of them was wrong on the facts.**
+47 §4 cut tags, GHL notes, custom field VALUES and task read-back; the business overruled it, and
+the task cut rested on a false claim: `GET /opportunities/search` takes **`getNotes`, `getTasks`,
+`getCalendarEvents`** and returns `customFields`/`notes`/`tasks`/`calendarEvents` per row — verified
+against the live operation contract. So all of it rides on the read the mirror already makes, for
+**zero extra requests**. `V62`: `opportunity.custom_fields` (jsonb, keyed by GHL **field id** — a
+rename keeps the id), `ghl_note`, `ghl_tag`. Read-back needed **no migration**: `FollowUp` and
+`Meeting` already had the columns and were only missing the code. **`ghl_note` must never merge with
+`opportunity_note`** (EvalOS prose, append-only trigger, never synced). **A task EvalOS never
+created is not invented.** **Tags are read, never written** — GHL workflows key off them.
+**D46 is unblocked**: the mirror now holds the values a queued desk create needs.
+Suite: backend **1075**, frontend **127**.
+
+**UI, 2026-09-17:** opening a deal and capturing a lead are **sidebar entries**, not controls on the
+board — `/opportunities/new` (SALES) and `/marketing/leads/new` (MARKETING), each its own screen,
+returning to the board on success. `NavItem.brandProven` replaces the hardcoded one-path exception
+in `navigation.test.ts`: a `readsGhlLocation` screen is GM-only unless it is marked, and a marked
+one may only be reached by GM/SALES/MARKETING.

@@ -6,6 +6,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
+import com.ie.evalos.config.SellingBrand;
 import com.ie.evalos.domain.Opportunity;
 import com.ie.evalos.domain.Pipeline;
 import com.ie.evalos.domain.PipelineStage;
@@ -49,10 +50,12 @@ class OpportunityBoardServiceTest {
 	private final OpportunityMirrorService deals = mock(OpportunityMirrorService.class);
 	private final PipelineMirrorService pipelines = mock(PipelineMirrorService.class);
 	private final TeamMemberRepository teamMembers = mock(TeamMemberRepository.class);
+	private final com.ie.evalos.repository.TeamMemberPipelineRepository assignments =
+			mock(com.ie.evalos.repository.TeamMemberPipelineRepository.class);
 
 	private OpportunityBoardService service() {
-		return new OpportunityBoardService(deals, pipelines, teamMembers, STALE_AFTER,
-				SELLING_BRAND.toString());
+		return new OpportunityBoardService(deals, pipelines, teamMembers, assignments, STALE_AFTER,
+				new SellingBrand(SELLING_BRAND));
 	}
 
 	private void authenticate(Role role, String pipelineId) {
@@ -175,31 +178,44 @@ class OpportunityBoardServiceTest {
 	}
 
 	/**
-	 * <strong>P1's answer, asserted rather than left to the comment.</strong> The GM's union is
-	 * the configured selling brand's pipelines — a query over the roster, not a predicate.
+	 * <strong>P1's answer, corrected 2026-09-17: the GM sees every MIRRORED pipeline.</strong>
+	 *
+	 * <p>It used to be the union of what active members are assigned to, which hid exactly the
+	 * pipelines that belong to the business rather than to a person — {@code 00d} §6.7's Case
+	 * Delivery, "a pipeline no single person owns", and the location's Master Pipeline. It also
+	 * read {@code team_member.ghl_pipeline_id}, the column Unit 44b replaced with
+	 * {@code team_member_pipeline}, so it answered empty once assignment moved.
 	 */
 	@Test
-	void theGmSeesTheUnionOfTheSellingBrandsPipelines() {
+	void theGmSeesEveryMirroredPipelineIncludingOnesNobodyIsAssignedTo() {
 		authenticate(Role.GM, null);
-		when(teamMembers.findPipelinesOfActiveMembers(SELLING_BRAND)).thenReturn(List.of(MINE, THEIRS));
 		givenMirrored(List.of(
 				mirrored("a", MINE, "s1", "100", Instant.now()),
 				mirrored("b", THEIRS, "t1", "5", Instant.now())), MINE, THEIRS);
 
 		OpportunityBoardService.Board board = service().forCaller();
 
-		verify(teamMembers).findPipelinesOfActiveMembers(SELLING_BRAND);
 		assertThat(board.totalDeals()).isEqualTo(2);
+		// The roster is not consulted at all: an unassigned pipeline is still the GM's to see.
+		verify(teamMembers, never()).findPipelinesOfActiveMembers(any());
 	}
 
-	/** No configured selling brand means the GM's union is empty, not everything. */
+	/** A pipeline GHL stopped returning is not offered, even to the GM. */
 	@Test
-	void theGmSeesNothingWhenNoSellingBrandIsConfigured() {
+	void theGmDoesNotSeeAPipelineThatHasLeftGhl() {
 		authenticate(Role.GM, null);
-		OpportunityBoardService bare = new OpportunityBoardService(deals, pipelines, teamMembers, STALE_AFTER, "");
+		com.ie.evalos.domain.Pipeline gone =
+				new com.ie.evalos.domain.Pipeline(SELLING_BRAND, THEIRS, "Retired", 1);
+		gone.markMissing(Instant.now());
+		com.ie.evalos.domain.Pipeline live =
+				new com.ie.evalos.domain.Pipeline(SELLING_BRAND, MINE, "Sales", 0);
+		when(pipelines.all()).thenReturn(List.of(live, gone));
+		when(deals.onPipelines(any())).thenReturn(List.of());
+		when(deals.lastSynced(any())).thenReturn(Instant.now());
 
-		assertThat(bare.forCaller().totalDeals()).isZero();
-		verify(deals, never()).onPipelines(any());
+		service().forCaller();
+
+		verify(deals).onPipelines(List.of(MINE));
 	}
 
 	/**
@@ -210,20 +226,6 @@ class OpportunityBoardServiceTest {
 	 * to cache the stage list if board loads ever dominated the budget. Unit 44a did better than
 	 * cache it — the stages are mirrored rows now, so the lookup left the network entirely.
 	 */
-	/**
-	 * A typo in `evalos.ghl.sales-brand` fails the boot, not the first GM board load.
-	 *
-	 * <p>Blank and malformed are different faults: blank is "no brand sells yet", a legitimate
-	 * state that yields an empty union. A malformed UUID is a deployment mistake, and finding it
-	 * as a 500 the first time a GM opens a board is finding it in the worst possible place.
-	 */
-	@Test
-	void aMalformedSellingBrandFailsAtConstruction() {
-		assertThatThrownBy(() -> new OpportunityBoardService(deals, pipelines, teamMembers, STALE_AFTER, "not-a-uuid"))
-				.isInstanceOf(IllegalStateException.class)
-				.hasMessageContaining("evalos.ghl.sales-brand");
-	}
-
 	/**
 	 * <strong>The board draws mirror rows and makes no GHL request at all</strong> — Unit 46, and
 	 * the headline `00c` §3 gives that unit.
@@ -407,5 +409,45 @@ class OpportunityBoardServiceTest {
 
 		verify(deals).onPipelines(List.of(MINE));
 		verify(deals, never()).onPipelines(List.of(THEIRS));
+	}
+
+	/**
+	 * <strong>The trap this closes.</strong> A desk signs in before the mirror has run, is granted
+	 * its pipeline minutes later by the backfill, and would otherwise see an empty board for the
+	 * rest of the session with "ask a GM" as the only advice. D19b's token claim is a staleness
+	 * bound for a REASSIGNMENT; it must not be one for a first assignment.
+	 */
+	@Test
+	void aDeskWhoseTokenPredatesItsAssignmentStillSeesItsPipeline() {
+		authenticate(Role.SALES, null);
+		when(assignments.ghlIdsFor(MEMBER)).thenReturn(List.of(MINE));
+		givenMirrored(List.of(mirrored("a", MINE, "s1", "100", Instant.now())), MINE);
+
+		assertThat(service().forCaller().totalDeals()).isEqualTo(1);
+	}
+
+	/** A member with no assignment anywhere still sees nothing — the fallback widens no access. */
+	@Test
+	void aDeskWithNoAssignmentAnywhereStillSeesAnEmptyBoard() {
+		authenticate(Role.SALES, null);
+		when(assignments.ghlIdsFor(MEMBER)).thenReturn(List.of());
+
+		assertThat(service().forCaller().totalDeals()).isZero();
+		verify(deals, never()).onPipelines(any());
+	}
+
+	/**
+	 * <strong>Refresh syncs pipelines before deals.</strong> In the state somebody actually presses
+	 * it — an empty mirror — there are no pipelines to refresh deals for, so an opportunities-only
+	 * refresh could not fix the thing it was offered for.
+	 */
+	@Test
+	void theRefreshButtonSyncsPipelinesNotJustDeals() {
+		authenticate(Role.SALES, MINE);
+		givenMirrored(List.of(), MINE);
+
+		service().syncNow();
+
+		verify(pipelines).sync();
 	}
 }

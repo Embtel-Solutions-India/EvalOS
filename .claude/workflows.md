@@ -259,7 +259,7 @@ Booking sends: calendar, contact, start, end, title, description, `assignedUserI
 
 | Capability | State |
 |---|---|
-| Calendar, title, description, date, available slots, timezone | **IMPLEMENTED** |
+| Calendar, title, description, date, available slots, timezone | **IMPLEMENTED** — the calendar **list** is mirrored (Unit 47); **slots stay live and must** (D48) |
 | Contact, meeting location, create, view, reschedule | **IMPLEMENTED** |
 | Team member on the appointment | **PARTIAL** — `assignedUserId` is a GHL user id; no column joins a GHL user to a `team_member` |
 | Employee-wise availability | **PARTIAL** — availability is per *calendar*, not per employee |

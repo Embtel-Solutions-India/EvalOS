@@ -46,7 +46,7 @@ Since the Units 36–41 pivot it is **also** the interface Sales and Marketing w
 |---|---|---|
 | GoHighLevel | read + write | contacts, opportunities, pipelines, calendars/appointments, tasks, invoices, custom fields, users |
 | AWS S3 | write + presign | all documents; two capabilities only (`put`, `presignedUrl`) |
-| SMTP (Spring Mail) | out | **two messages only** — set-password and reset-password |
+| Brevo (`POST /v3/smtp/email`) / SMTP (Spring Mail) | out | **two messages only** — set-password and reset-password. Which one carries them is `evalos.mail.transport`; prod defaults to `brevo` |
 
 No AI anywhere in the system. No Google Drive (removed, `V34`).
 

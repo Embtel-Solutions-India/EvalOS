@@ -396,6 +396,12 @@ evalos:
       # GHL budget on an answer that has not changed since the last twenty passes, and no screen
       # needs a stage name the instant it appears.
       PIPELINE_MIRROR: ${JOBS_PIPELINE_MIRROR_INTERVAL:1h}
+      # The location's reference lists — custom fields, calendars, users (Unit 47). **An hour, for
+      # the pipeline mirror's reason exactly**: these are structure, not traffic. Somebody adds a
+      # calendar or a custom field a few times a year, and no form needs one the instant it exists.
+      # One interval for all three because they change at the same speed; three sweeps would be
+      # three chances for one of them to be the one that quietly stopped.
+      REFERENCE_MIRROR: ${JOBS_REFERENCE_MIRROR_INTERVAL:1h}
       # The nightly sync audit (Unit 45b). **24 hours, and the length is a budget decision.** This
       # is the longest read EvalOS makes -- a paged full list of every opportunity on every mirrored
       # pipeline, roughly 30 seconds of GHL's shared 100-per-10-seconds allowance. Hourly would

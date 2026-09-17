@@ -255,13 +255,18 @@ describe('the nav and route table', () => {
     for (const item of ghlScreens) {
       const reachers = ALL_ROLES.filter((role) => mayReach(role, item.path))
 
-      if (item.path === '/opportunities/board') {
+      if (item.brandProven) {
         // **The one legitimate exception, stated rather than unnoticed.** Unit 36 added
         // `evalos.ghl.sales-brand`, which names the brand that owns the location, and bound
         // SALES/MARKETING to it with a 400 at assignment. So this screen's brand IS provable —
         // the exception narrowed rather than widened. Everything else on this location is still
         // unattributable and still GM-only.
-        expect(reachers.sort(), item.path).toEqual(['GM', 'MARKETING', 'SALES'])
+        // Whoever reaches it must be the GM or a pipeline-scoped role — never a brand-locked
+        // role with no binding to the selling brand. Asserted as a subset rather than an exact
+        // list, because these screens differ in audience: the board is all three, opening a deal
+        // is SALES, capturing a lead is MARKETING.
+        expect(reachers.every((role) => role === 'GM' || role === 'SALES' || role === 'MARKETING'),
+          `${item.path} reached by ${reachers.join(', ')}`).toBe(true)
         continue
       }
 

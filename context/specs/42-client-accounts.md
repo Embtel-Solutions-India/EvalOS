@@ -197,7 +197,7 @@ obvious from the column list:**
 it NULL, and that was wrong — corrected 2026-09-12, during implementation.**
 
 The original reasoning: IE runs a fresh sub-account as of 2026-09-11
-(`WY6bW2xUCI8Tz8gw7aLJ`, replacing `kBumF0uUOmMBB5bneYjx`) with no contact migration, so every
+(`WY6bW2xUCI8Tz8gw7aLJ`, replacing an abandoned one) with no contact migration, so every
 `ghl_contact_id` EvalOS holds names a contact **that does not exist in the new location** — and a
 column that looks authoritative and 404s is worse than a null.
 

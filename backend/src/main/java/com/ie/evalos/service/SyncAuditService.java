@@ -11,6 +11,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 
+import com.ie.evalos.config.SellingBrand;
 import com.ie.evalos.domain.FieldOwnership;
 import com.ie.evalos.domain.Opportunity;
 import com.ie.evalos.domain.Pipeline;
@@ -99,13 +100,12 @@ public class SyncAuditService {
 
 	SyncAuditService(GhlPipelineClient ghl, OpportunityRepository opportunities,
 			PipelineRepository pipelines, SyncDriftRepository drifts,
-			@Value("${evalos.ghl.sales-brand:}") String salesBrandId) {
+			SellingBrand sellingBrand) {
 		this.ghl = ghl;
 		this.opportunities = opportunities;
 		this.pipelines = pipelines;
 		this.drifts = drifts;
-		this.sellingBrandId = salesBrandId == null || salesBrandId.isBlank() ? null
-				: UUID.fromString(salesBrandId);
+		this.sellingBrandId = sellingBrand.id();
 	}
 
 	/**

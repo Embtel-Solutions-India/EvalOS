@@ -55,6 +55,35 @@ public class TeamMemberPipelineRepository {
 				UUID.class, memberId);
 	}
 
+	/**
+	 * Finishes Unit 44b's migration for members still described by the column it replaced.
+	 *
+	 * <p><strong>This exists because a seed cannot do it.</strong> {@code V54} backfills from
+	 * {@code team_member.ghl_pipeline_id}, but on a fresh database it runs before the rows exist;
+	 * {@code V910} is the same statement ordered after them, and it is <em>still</em> a no-op,
+	 * because {@code pipeline} is filled by the PIPELINE_MIRROR sweep against real GHL rather than
+	 * by any seed. A versioned seed runs once, at a moment when the join can never match — so every
+	 * fresh database got zero desk assignments, permanently, and every desk signed in with no
+	 * pipelines and drew an empty board.
+	 *
+	 * <p>Running it after each mirror pass is what makes it self-heal: the first pass that brings a
+	 * pipeline in is the pass that can finally resolve the member pointing at it.
+	 *
+	 * <p><strong>The legacy column is a migration source here and nothing else.</strong> Nothing
+	 * reads it for authorisation — {@code EvalOsUserDetailsService} fills a principal from this
+	 * table — and a member assigned through the route needs none of it.
+	 *
+	 * @return how many assignments were created
+	 */
+	public int backfillFromLegacyColumn() {
+		return jdbc.update("""
+				INSERT INTO team_member_pipeline (team_member_id, pipeline_id)
+				SELECT m.id, p.id
+				  FROM team_member m
+				  JOIN pipeline p ON p.ghl_id = m.ghl_pipeline_id AND p.brand_id = m.brand_id
+				 WHERE m.ghl_pipeline_id IS NOT NULL AND p.missing_since IS NULL
+				ON CONFLICT DO NOTHING""");
+	}
 	/** Who works this pipeline. <strong>May be empty</strong> — Case Delivery has no single owner. */
 	public List<UUID> membersOn(UUID pipelineId) {
 		return jdbc.queryForList(

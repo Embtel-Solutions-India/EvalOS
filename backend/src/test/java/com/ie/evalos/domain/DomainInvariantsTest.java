@@ -16,6 +16,11 @@ import com.ie.evalos.repository.ClientApplicationRepository;
 import com.ie.evalos.repository.OpportunityRepository;
 import com.ie.evalos.repository.PipelineRepository;
 import com.ie.evalos.repository.SyncDriftRepository;
+import com.ie.evalos.repository.GhlCalendarRepository;
+import com.ie.evalos.repository.GhlCustomFieldRepository;
+import com.ie.evalos.repository.GhlNoteRepository;
+import com.ie.evalos.repository.GhlTagRepository;
+import com.ie.evalos.repository.GhlUserRepository;
 import com.ie.evalos.repository.SyncOutboxRepository;
 import com.ie.evalos.repository.PipelineStageRepository;
 import com.ie.evalos.repository.ClientCredentialTokenRepository;
@@ -79,7 +84,15 @@ class DomainInvariantsTest {
 				arguments(PipelineStageRepository.SCOPE, PipelineStage.class),
 				arguments(OpportunityRepository.SCOPE, Opportunity.class),
 				arguments(SyncDriftRepository.SCOPE, SyncDrift.class),
-				arguments(SyncOutboxRepository.SCOPE, SyncOutboxEntry.class));
+				arguments(SyncOutboxRepository.SCOPE, SyncOutboxEntry.class),
+				// Unit 47's three reference mirrors. Brand-only, like every other list that belongs
+				// to the location rather than to a desk.
+				arguments(GhlCustomFieldRepository.SCOPE, GhlReference.CustomField.class),
+				arguments(GhlCalendarRepository.SCOPE, GhlReference.Calendar.class),
+				arguments(GhlUserRepository.SCOPE, GhlReference.User.class),
+				// Unit 47b: the tag vocabulary, and GHL's own notes.
+				arguments(GhlTagRepository.SCOPE, GhlReference.Tag.class),
+				arguments(GhlNoteRepository.SCOPE, GhlNote.class));
 	}
 
 	@ParameterizedTest

@@ -10,6 +10,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
+import com.ie.evalos.config.SellingBrand;
 import com.ie.evalos.domain.Opportunity;
 import com.ie.evalos.domain.PipelineStage;
 import com.ie.evalos.domain.Role;
@@ -89,11 +90,17 @@ public class OpportunityBoardService {
 	/**
 	 * @param lastSyncedAt when the sync last confirmed these pipelines against GHL, or <strong>null
 	 *                     when it never has</strong>. Never substituted with "now" — see {@code draw}
-	 * @param stale        whether to tell the reader the sync is behind. True when
-	 *                     {@code lastSyncedAt} is null, because never-synced is not fresh
+	 * @param stale          whether to tell the reader the sync is behind. True when
+	 *                       {@code lastSyncedAt} is null, because never-synced is not fresh
+	 * @param syncConfigured false when {@code evalos.ghl.sales-brand} is blank. <strong>A blank one
+	 *                       makes every mirror a no-op</strong> — the pipeline sweep, the delta
+	 *                       sweep and the reference sweep each log a warning and return zero — so
+	 *                       the board is empty and unsynced for a reason that has nothing to do with
+	 *                       the sync being behind. It travels so the screen can say which it is
+	 *                       instead of blaming the sweep
 	 */
 	public record Board(List<BoardColumn> columns, int totalDeals, BigDecimal totalValue,
-			Instant lastSyncedAt, boolean stale) {
+			Instant lastSyncedAt, boolean stale, boolean syncConfigured) {
 	}
 
 	/**
@@ -117,38 +124,33 @@ public class OpportunityBoardService {
 	private final PipelineMirrorService mirroredPipelines;
 
 	private final TeamMemberRepository teamMembers;
+	/** Read only when the caller's token carries no pipelines — see {@code pipelinesFor}. */
+	private final com.ie.evalos.repository.TeamMemberPipelineRepository assignments;
 	private final Duration staleAfter;
 
 	/**
 	 * The brand that owns the configured GHL location, or null when none is configured.
 	 *
-	 * <p><strong>Parsed at construction, so a typo fails the boot rather than the first board
-	 * load.</strong> Blank and malformed are different faults and deserve different treatment:
-	 * blank means "no brand sells yet", which is a legitimate state that yields an empty union;
-	 * a malformed UUID is a deployment mistake, and discovering it as a 500 the first time a GM
-	 * opens a board is discovering it in the worst place. {@code GhlHttp} answers 502 rather than
-	 * failing to boot for a *missing* token, which is the same distinction from the other side.
+	 * <p><strong>Resolved by {@link SellingBrand}, not parsed here.</strong> This class used to do
+	 * it itself, with the only bespoke error handling among nine copies — which meant eight other
+	 * services failed differently for the same typo. The resolver keeps the ruling that made that
+	 * handling worth having (a bad value fails the boot, not the first board load) and adds what it
+	 * could not: a brand <em>slug</em> resolves too, so a shared config file is not right in one
+	 * database and silently wrong in the next.
 	 */
 	private final UUID sellingBrandId;
 
 	OpportunityBoardService(OpportunityMirrorService deals, PipelineMirrorService mirroredPipelines,
 			TeamMemberRepository teamMembers,
+			com.ie.evalos.repository.TeamMemberPipelineRepository assignments,
 			@Value("${evalos.ghl.board-stale-after}") Duration staleAfter,
-			@Value("${evalos.ghl.sales-brand:}") String salesBrandId) {
+			SellingBrand sellingBrand) {
 		this.deals = deals;
 		this.mirroredPipelines = mirroredPipelines;
 		this.teamMembers = teamMembers;
+		this.assignments = assignments;
 		this.staleAfter = staleAfter;
-		try {
-			this.sellingBrandId = salesBrandId == null || salesBrandId.isBlank() ? null
-					: UUID.fromString(salesBrandId);
-		}
-		catch (IllegalArgumentException malformed) {
-			throw new IllegalStateException(
-					"evalos.ghl.sales-brand is not a UUID: \"" + salesBrandId + "\". It names the brand "
-							+ "that owns evalos.ghl.location-id; leave it blank if no brand sells yet.",
-					malformed);
-		}
+		this.sellingBrandId = sellingBrand.id();
 	}
 
 	/**
@@ -164,7 +166,7 @@ public class OpportunityBoardService {
 			// Fail closed, exactly as ScopePredicate's PIPELINE arm does: a principal with no
 			// pipeline sees an empty board, never somebody else's. One re-login fixes a token
 			// minted before V39, and that is the safe direction to be wrong in.
-			return new Board(List.of(), 0, BigDecimal.ZERO, Instant.now(), false);
+			return new Board(List.of(), 0, BigDecimal.ZERO, null, true, sellingBrandId != null);
 		}
 
 		return draw(mine, deals.onPipelines(mine));
@@ -189,6 +191,13 @@ public class OpportunityBoardService {
 	 * pipelines they cannot see. The background sweep is what covers the rest.
 	 */
 	public Board syncNow() {
+		// **Pipelines first, and this is the correction that makes the button worth having.** It
+		// used to refresh only opportunities — so in the one state a reader would actually press it
+		// in, an empty mirror with nothing on the board, it could do nothing at all: there were no
+		// mirrored pipelines to refresh deals *for*, and the only fix was a GM running a job by
+		// hand. A button that cannot fix the problem it is offered for is worse than no button.
+		mirroredPipelines.sync();
+
 		TenantContext caller = TenantContext.current();
 		List<String> mine = pipelinesFor(caller);
 		mine.forEach((pipelineId) -> deals.refreshIfStale(pipelineId, MANUAL_SYNC_FLOOR));
@@ -218,13 +227,48 @@ public class OpportunityBoardService {
 	 * <p>The union is a <em>query</em> rather than a predicate, which is why it lives here and
 	 * not in {@code ScopePredicate}: {@code Tier.ALL} short-circuits, and "every sales pipeline"
 	 * is a fact about the roster, not about the row being read.
+	 *
+	 * <p><strong>The GM's union is every LIVE MIRRORED pipeline, not the pipelines somebody is
+	 * assigned to</strong> (2026-09-17). It was
+	 * {@code teamMembers.findPipelinesOfActiveMembers(...)}, and that was wrong twice over:
+	 *
+	 * <ul>
+	 * <li><strong>It hid every pipeline nobody owns.</strong> {@code 00d} §6.7 says outright that
+	 * Case Delivery is "a pipeline no single person owns", and the location's Master Pipeline is
+	 * another — deriving the GM's view from assignments makes exactly the pipelines that belong to
+	 * the business rather than to a person the ones the GM cannot see.</li>
+	 * <li><strong>It read a column Unit 44b superseded.</strong> That finder selects
+	 * {@code team_member.ghl_pipeline_id}, the single-pipeline column replaced by
+	 * {@code team_member_pipeline} at 44b — so once assignment moved to the join table, the query
+	 * answered empty and the GM's board went blank with nothing logged.</li>
+	 * </ul>
+	 *
+	 * <p>Asking the mirror instead fixes both by deleting the question: the GM is
+	 * {@code Tier.ALL} and the mirror is the list of pipelines that exist.
 	 */
 	private List<String> pipelinesFor(TenantContext caller) {
 		if (caller.role() == Role.GM) {
-			return sellingBrandId == null ? List.of()
-					: teamMembers.findPipelinesOfActiveMembers(sellingBrandId);
+			return mirroredPipelines.all().stream()
+					.filter(com.ie.evalos.domain.Pipeline::isLive)
+					.map(com.ie.evalos.domain.Pipeline::getGhlId)
+					.toList();
 		}
-		return caller.ghlPipelineIds();
+		List<String> fromToken = caller.ghlPipelineIds();
+		if (!fromToken.isEmpty()) {
+			return fromToken;
+		}
+		// **Empty means "ask again", not "you have none".**
+		//
+		// D19b makes the set a claim carried in the token, read at sign-in — a deliberate staleness
+		// bound, so a REASSIGNMENT takes effect on next sign-in. That is fine for a change. It is a
+		// trap for a FIRST assignment: a desk signs in before the mirror has run, is granted its
+		// pipeline minutes later by the backfill, and then sees an empty board for the rest of the
+		// session with "ask a GM" as the only advice — which was the state on 2026-09-17.
+		//
+		// Re-reading only when the claim is empty keeps the bound where it earns its keep and
+		// removes the trap. It widens nothing: it is the same member's own row, read by their own
+		// id, and a member with no assignment still gets an empty list.
+		return assignments.ghlIdsFor(caller.memberId());
 	}
 
 	/**
@@ -291,7 +335,8 @@ public class OpportunityBoardService {
 		// 5-minute cadence: one slow pass is not news, a sync that stopped is.
 		return new Board(columns, rows.size(), sum(rows), lastSynced,
 				lastSynced == null
-						|| Duration.between(lastSynced, Instant.now()).compareTo(staleAfter) >= 0);
+						|| Duration.between(lastSynced, Instant.now()).compareTo(staleAfter) >= 0,
+				sellingBrandId != null);
 	}
 
 	/** Just the two fields a column header needs, so the board does not carry a whole entity. */

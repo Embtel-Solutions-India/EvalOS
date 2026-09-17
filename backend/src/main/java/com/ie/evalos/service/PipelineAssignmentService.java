@@ -3,6 +3,7 @@ package com.ie.evalos.service;
 import java.util.List;
 import java.util.UUID;
 
+import com.ie.evalos.config.SellingBrand;
 import com.ie.evalos.common.InvalidRequestException;
 import com.ie.evalos.domain.AuditAction;
 import com.ie.evalos.domain.Pipeline;
@@ -44,16 +45,16 @@ public class PipelineAssignmentService {
 	private final TeamMemberPipelineRepository assignments;
 	private final PipelineRepository pipelines;
 	private final AuditService audit;
-	private final String salesBrandId;
+	private final UUID salesBrandId;
 
 	PipelineAssignmentService(TeamMemberRepository teamMembers, TeamMemberPipelineRepository assignments,
 			PipelineRepository pipelines, AuditService audit,
-			@Value("${evalos.ghl.sales-brand:}") String salesBrandId) {
+			SellingBrand sellingBrand) {
 		this.teamMembers = teamMembers;
 		this.assignments = assignments;
 		this.pipelines = pipelines;
 		this.audit = audit;
-		this.salesBrandId = salesBrandId;
+		this.salesBrandId = sellingBrand.id();
 	}
 
 	/** One member's pipelines, as GHL ids — what the GM's screen lists and what a token carries. */
@@ -141,12 +142,12 @@ public class PipelineAssignmentService {
 	 * {@code evalos.ghl.sales-brand} names the one brand whose members may.
 	 */
 	private void requireSellingBrand(TeamMember member) {
-		if (salesBrandId == null || salesBrandId.isBlank()) {
+		if (salesBrandId == null) {
 			throw new InvalidRequestException(
 					"No brand is configured as the selling brand (evalos.ghl.sales-brand), so no member "
 							+ "may hold a pipeline yet.");
 		}
-		if (!UUID.fromString(salesBrandId).equals(member.getBrandId())) {
+		if (!salesBrandId.equals(member.getBrandId())) {
 			throw new InvalidRequestException(
 					"Only members of the selling brand may work a GHL pipeline. The configured GHL "
 							+ "location belongs to one brand, and this member is not in it.");

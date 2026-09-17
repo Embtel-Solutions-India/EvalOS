@@ -853,6 +853,25 @@ Depends on: 45. Hands to: 48.
 
 ---
 
+## Unit 47 - The reference mirror (tier 2 and tier 3)
+
+**BUILT 2026-09-17.** `47-reference-mirror.md`.
+
+**Scoped by `00d` §6.6, which overrules `00c` §2c's "everything the API exposes":** a sync surface
+with no consumer is pure drift risk. The question this unit answered is *what does a desk screen
+still read live from GHL after Unit 46* — and the answer was exactly three lists: custom field
+definitions, calendars, and the location's users. `V60` gives each a table; one hourly
+`REFERENCE_MIRROR` sweep keeps all three current.
+
+**Tags and GHL notes are not mirrored** — nothing reads them. **Custom field values are not** —
+only definitions have a reader, and values are what a queued *create* would need (D46/D49).
+**Free slots never will be**: availability is GHL's to compute and a mirrored slot is wrong within
+a minute, so Unit 48 inherits "the business runs without sync, and cannot take a new booking".
+
+Depends on: 45. Hands to: 48.
+
+---
+
 ## Unit 53 - Request documents
 
 **Specced 2026-09-17, unbuilt.** `53-request-documents.md`. The client uploads with the

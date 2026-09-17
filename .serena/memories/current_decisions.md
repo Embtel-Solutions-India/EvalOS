@@ -1,6 +1,6 @@
 # Current decisions
 
-**The authoritative file is `.claude/current-decisions.md` (46 numbered decisions). Read it.**
+**The authoritative file is `.claude/current-decisions.md` (49 numbered decisions). Read it.**
 
 The ones most often violated from memory:
 
@@ -26,6 +26,10 @@ The ones most often violated from memory:
 - **Mail is swappable** (D3e): `MailTransport` + `evalos.mail.transport` = **`smtp` | `brevo`**
   (`POST /v3/smtp/email`, header `api-key`). The `ghl` transport is deleted. The swap cost one class
   and one variable. `ClientMailer` owns the wording and the audit row; transports are pure wire.
+  Brevo is proved live by `BrevoMailTransportLiveTest` (opt-in `BREVO_LIVE_TEST=true`) — every Brevo
+  failure is a swallowed `false`, so nothing short of a real send distinguishes working from silent.
+  Brevo enforces an **Authorised IPs** allowlist per account: an unlisted caller is a 401 with an
+  empty body, so every deploy's egress IP must be listed or the restriction turned off.
 - **A portal contact carries `source: "Client Portal"`** (D3b). GHL accepts no `utmSource` or
   `attributionSource` on a write — it fills those from its own form tracking, which an API caller
   never passes through — so the documented `source` string is the whole of what provenance can be.
@@ -59,7 +63,9 @@ The ones most often violated from memory:
   `DomainInvariantsTest`. Never add a second creator.
 - Invoicing is GHL's, full stop. EvalOS reads invoices and raises none.
 - EvalOS sends **exactly two** emails: set-password and reset-password. Any other mail is a new
-  decision.
+  decision. **Send-only, from a `no-reply@` sender with no mailbox** (D29a): inbound mail is not a
+  channel, so mail *to* the sender bounces and Brevo lists it as a blocked contact — which blocks
+  delivery to it, never from it. Never aim a test recipient at the sender address.
 - Brand-scoped by default. Append-only truth for `audit_event` and `opportunity_note`, enforced by
   database triggers.
 - **The one scoping exception is the GHL location, and it costs screens rather than being
@@ -142,3 +148,24 @@ used to; a win surviving an outage is worth more than the two minutes.
 (never faked as "now") and counts as stale; `board-stale-after` **5m** (one missed pass) draws a "Sync delayed" banner;
 `POST /api/opportunities/board/refresh` reconciles the mirror and then draws from it — it is never
 a live board read.
+
+**D47/D48/D49 (2026-09-17, Unit 47).** Mirror **what a screen reads**, not what the tier list
+contains (`00d` §6.6 over `00c` §2c). Three lists got tables: custom field **definitions**,
+calendars, location users. **Mirror the structure, never the availability** — free slots are never
+mirrored, and Unit 48 inherits "the business runs without sync and cannot take a new booking".
+**Values are not mirrored, only definitions**: values are what a queued desk create would need
+(D46), so they arrive with that unit and its reader.
+
+**D19d/e/f (2026-09-17).** `evalos.ghl.sales-brand` takes a **brand slug** — a UUID is right in one
+database only (IE = 1111… local, 3333… testprod) — resolved once by `SellingBrand`, which replaced
+nine copies and fails the boot on a value matching no brand. The **GM's board is every live mirrored
+pipeline**, not the union of assignments: the old query hid unowned pipelines (Case Delivery, Master)
+AND read `team_member.ghl_pipeline_id`, the column 44b replaced. **`WY6bW2xUCI8Tz8gw7aLJ` is the
+final location**; the abandoned id is purged from every live file.
+
+**D19g/h (2026-09-17).** `StartupSync` fills the mirror once at boot (PIPELINE_MIRROR →
+REFERENCE_MIRROR → MIRROR_DELTA, own thread, honours `evalos.jobs.enabled`) — `fixedDelay` counts
+from the END of a run, so a fresh start was an hour from its first pipelines. The board's **Refresh
+syncs pipelines before deals**, because an opportunities-only refresh cannot fix an empty mirror.
+And a desk's pipeline claim is **re-read when the token carries none**: D19b's sign-in bound is
+right for a reassignment and a trap for a first assignment.

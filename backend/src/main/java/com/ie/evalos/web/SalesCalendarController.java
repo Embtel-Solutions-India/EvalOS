@@ -7,6 +7,7 @@ import com.ie.evalos.common.ApiResponse;
 import com.ie.evalos.domain.Meeting;
 import com.ie.evalos.integration.GhlCalendarClient;
 import com.ie.evalos.integration.GhlCustomFieldClient;
+import com.ie.evalos.service.ReferenceMirrorService;
 import com.ie.evalos.integration.GhlUserClient;
 import com.ie.evalos.service.SalesDeskService;
 import com.ie.evalos.service.SalesMeetingService;
@@ -41,15 +42,22 @@ import org.springframework.web.bind.annotation.RestController;
 public class SalesCalendarController {
 
 	private final SalesMeetingService meetings;
-	private final GhlCustomFieldClient customFields;
-	private final GhlUserClient users;
+	/**
+	 * Unit 47's mirror.
+	 *
+	 * <p><strong>The response records stay the clients' own</strong>
+	 * ({@code GhlCustomFieldClient.CustomField}, {@code GhlUserClient.User},
+	 * {@code GhlCalendarClient.CalendarOption}) rather than gaining view twins. The shape is what
+	 * the form already parses, and two records with identical fields are two records that will one
+	 * day disagree — the projection-drift this codebase has paid for before.
+	 */
+	private final ReferenceMirrorService reference;
 	private final SalesDeskService desk;
 
-	SalesCalendarController(SalesMeetingService meetings, GhlCustomFieldClient customFields,
-			GhlUserClient users, SalesDeskService desk) {
+	SalesCalendarController(SalesMeetingService meetings, ReferenceMirrorService reference,
+			SalesDeskService desk) {
 		this.meetings = meetings;
-		this.customFields = customFields;
-		this.users = users;
+		this.reference = reference;
 		this.desk = desk;
 	}
 
@@ -95,16 +103,21 @@ public class SalesCalendarController {
 	@GetMapping("/users")
 	@PreAuthorize("hasRole('SALES')")
 	public ApiResponse<List<GhlUserClient.User>> ghlUsers() {
-		return ApiResponse.ok(users.inLocation());
+		return ApiResponse.ok(reference.locationUsers().stream()
+				.map((row) -> new GhlUserClient.User(row.getGhlId(), row.getName(), row.getEmail()))
+				.toList());
 	}
 
 	/**
 	 * The custom fields this location puts on an opportunity, so the "add opportunity" form can
 	 * draw the same questions GHL's own form asks.
 	 *
-	 * <p><strong>Read live, not mirrored.</strong> The ids are location-scoped and the sub-account
-	 * swap on 2026-09-11 proved what happens to a hardcoded set of GHL ids. Fetching them means a
-	 * field renamed, added or re-optioned in GHL shows up on the form with no deploy.
+	 * <p><strong>Mirrored as of Unit 47, and the original reason for reading live still holds.</strong>
+	 * It read: "the ids are location-scoped and the sub-account swap on 2026-09-11 proved what
+	 * happens to a hardcoded set of GHL ids" — true, and nothing here is hardcoded. The definitions
+	 * are still GHL's, still discovered rather than declared; they are now discovered by
+	 * {@code REFERENCE_MIRROR} on the hour instead of by this request. A field renamed in GHL still
+	 * shows up on the form with no deploy, one sweep later.
 	 *
 	 * <p><strong>SALES, like the calendar list.</strong> These are definitions, not data: knowing
 	 * that a location has a "Visa Category" field discloses nothing about any client.
@@ -112,7 +125,10 @@ public class SalesCalendarController {
 	@GetMapping("/opportunity-fields")
 	@PreAuthorize("hasRole('SALES')")
 	public ApiResponse<List<GhlCustomFieldClient.CustomField>> opportunityFields() {
-		return ApiResponse.ok(customFields.forOpportunities());
+		return ApiResponse.ok(reference.opportunityFields().stream()
+				.map((row) -> new GhlCustomFieldClient.CustomField(row.getGhlId(), row.getName(),
+						row.getFieldKey(), row.getDataType(), row.getPicklistOptions()))
+				.toList());
 	}
 
 	@GetMapping("/calendars")

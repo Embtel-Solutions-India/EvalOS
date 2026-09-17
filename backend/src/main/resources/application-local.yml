@@ -63,12 +63,23 @@ evalos:
     transport: ${EVALOS_MAIL_TRANSPORT:smtp}
     brevo:
       base-url: ${EVALOS_MAIL_BREVO_BASE_URL:https://api.brevo.com}
+      # **THE VALUE DOES NOT GO HERE. It goes in the repo-root `.env`**, which is gitignored and
+      # which VS Code loads as real environment variables -- and an environment variable beats a
+      # default in this file, so a key pasted on this line is overridden by whatever `.env` holds
+      # and changes nothing. That is not a hypothetical: it was pasted here twice, and both times
+      # the old key in `.env` kept winning while this line looked correct.
+      #
       # **Never a default, not even locally.** A credential reaching a live third-party account;
       # `ConfigSecretsTest` fails the build if a credential-shaped setting carries one.
+      # **NO DEFAULT, EVER.** A live key sat here until 2026-09-17 and `ConfigSecretsTest` failed
+      # the build for it, which is the check doing its job: every profile in this directory is
+      # tracked by git, so a default here is a credential in the repository. It goes in `.env`,
+      # which is gitignored. **The key that was here must be rotated in Brevo** — it was readable by
+      # anyone with the working tree.
       api-key: ${EVALOS_MAIL_BREVO_API_KEY:}
       # Must be a sender Brevo has verified for the account, or every send is refused. Blank here
       # means the transport reports itself unconfigured rather than failing one send at a time.
-      sender-email: ${EVALOS_MAIL_BREVO_SENDER_EMAIL:}
+      sender-email: ${EVALOS_MAIL_BREVO_SENDER_EMAIL:no-reply@Internationalevalustions.com}
       sender-name: ${EVALOS_MAIL_BREVO_SENDER_NAME:International Evaluations}
       # Bounded: this call sits on a request path.
       timeout: ${EVALOS_MAIL_BREVO_TIMEOUT:10s}
@@ -96,8 +107,8 @@ evalos:
     # Blank on a laptop, deliberately. The whole app boots with no AWS access and every non-document
     # route works; only the document routes answer 502, naming both variables. Set them to exercise
     # a real bucket from here — the same shape `evalos.drive.required=false` used to provide.
-    bucket: ${EVALOS_S3_BUCKET:}
-    region: ${EVALOS_S3_REGION:}
+    bucket: ${EVALOS_S3_BUCKET:evalos-documents-2026}
+    region: ${EVALOS_S3_REGION:us-east-1}
   ghl:
     # Every `evalos.ghl.*` value, listed so the whole knob set is visible in one place.
     #
@@ -138,7 +149,7 @@ evalos:
     # token AND the location non-blank, so with no token the screen still answers 502 naming
     # both. And one value is the ceiling — XpertsPortal has nowhere to go until Unit 25 moves
     # the location onto `brand`.
-    # 2026-09-14: was defaulted to kBumF0uUOmMBB5bneYjx, the sub-account IE abandoned on
+    # 2026-09-14: was defaulted to the sub-account IE abandoned on
     # 2026-09-11 with no contact migration. A default pointing at a dead account is worse than
     # no default: every GHL-backed screen renders empty and looks like a bug rather than a
     # misconfiguration. The new location is the default now; `.env` still overrides it, and
@@ -159,7 +170,7 @@ evalos:
     # are GHL's automation's job. A `hot-stage-name` existed here briefly and was removed — it made
     # EvalOS hold a second opinion about pipeline placement, which goes stale the first time
     # somebody reworks the workflow in GHL.
-     # The GHL opportunity custom field that carries the requested service — the one input GHL's
+    # The GHL opportunity custom field that carries the requested service — the one input GHL's
     # own workflow needs to route a client's request to the right pipeline.
     #
     # **THIS IS WHAT MAKES "assign the pipeline by service" POSSIBLE, and it is the whole of

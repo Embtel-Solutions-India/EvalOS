@@ -8,6 +8,8 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 
+import com.ie.evalos.config.SellingBrand;
+import com.ie.evalos.domain.GhlNote;
 import com.ie.evalos.domain.Opportunity;
 import com.ie.evalos.domain.Pipeline;
 import com.ie.evalos.integration.GhlPipelineClient;
@@ -49,15 +51,24 @@ public class OpportunityMirrorService {
 	private final GhlPipelineClient ghl;
 	private final OpportunityRepository opportunities;
 	private final PipelineRepository pipelines;
+	/** Unit 47b: the three tier-2/3 collections that ride on the opportunity search. */
+	private final com.ie.evalos.repository.GhlNoteRepository notes;
+	private final com.ie.evalos.repository.FollowUpRepository followUps;
+	private final com.ie.evalos.repository.MeetingRepository meetings;
 	private final UUID sellingBrandId;
 
 	OpportunityMirrorService(GhlPipelineClient ghl, OpportunityRepository opportunities,
-			PipelineRepository pipelines, @Value("${evalos.ghl.sales-brand:}") String salesBrandId) {
+			PipelineRepository pipelines, com.ie.evalos.repository.GhlNoteRepository notes,
+			com.ie.evalos.repository.FollowUpRepository followUps,
+			com.ie.evalos.repository.MeetingRepository meetings,
+			SellingBrand sellingBrand) {
 		this.ghl = ghl;
 		this.opportunities = opportunities;
 		this.pipelines = pipelines;
-		this.sellingBrandId = salesBrandId == null || salesBrandId.isBlank() ? null
-				: UUID.fromString(salesBrandId);
+		this.notes = notes;
+		this.followUps = followUps;
+		this.meetings = meetings;
+		this.sellingBrandId = sellingBrand.id();
 	}
 
 	/**
@@ -78,7 +89,12 @@ public class OpportunityMirrorService {
 			return;
 		}
 		Pipeline pipeline = mirrored.get();
-		Instant lastSynced = opportunities.lastSyncedFor(pipeline.getId());
+		// **The freshness check and the stamp must read the same thing.** This asked
+		// `opportunities.lastSyncedFor(...)` — max(synced_at) over the pipeline's DEALS — while
+		// `absorb` stamps the PIPELINE. A pipeline with recent deals therefore looked fresh, was
+		// skipped, and so never got the stamp the board reads: every board said "never synced"
+		// while showing 31 deals. Two sources for one question is how that happens.
+		Instant lastSynced = pipeline.getOpportunitiesSyncedAt();
 		if (lastSynced != null && Duration.between(lastSynced, Instant.now()).compareTo(ttl) < 0) {
 			return;
 		}
@@ -99,6 +115,12 @@ public class OpportunityMirrorService {
 		Instant now = Instant.now();
 		Set<String> seen = new HashSet<>();
 
+		// **The pipeline is stamped even when the answer was empty**, and that is the whole point of
+		// the column. Deriving this from the rows meant an empty pipeline could never say it had
+		// been synced — see V61, and the boards that read "never synced" because of it.
+		pipeline.opportunitiesSynced();
+		pipelines.save(pipeline);
+
 		for (GhlPipelineClient.Opportunity row : fromGhl) {
 			if (row.id() == null || row.id().isBlank()) {
 				log.warn("GHL returned an opportunity with no id on pipeline {}; skipped", pipeline.getName());
@@ -110,6 +132,7 @@ public class OpportunityMirrorService {
 			held.syncFromGhl(row.contactId(), pipeline.getId(), row.pipelineStageId(), row.name(),
 					row.monetaryValue(), row.status(), row.source(), row.assignedTo(), row.createdAt(),
 					row.updatedAt(), row.lastStatusChangeAt(), row.lastStageChangeAt());
+			absorbTier23(held, row);
 			opportunities.save(held);
 		}
 
@@ -168,6 +191,7 @@ public class OpportunityMirrorService {
 			held.syncFromGhl(row.contactId(), pipeline.get().getId(), row.pipelineStageId(), row.name(),
 					row.monetaryValue(), row.status(), row.source(), row.assignedTo(), row.createdAt(),
 					row.updatedAt(), row.lastStatusChangeAt(), row.lastStageChangeAt());
+			absorbTier23(held, row);
 			opportunities.save(held);
 			written++;
 		}
@@ -203,6 +227,99 @@ public class OpportunityMirrorService {
 			refreshed++;
 		}
 		return refreshed;
+	}
+
+	/**
+	 * The deal's custom field values, notes, tasks and appointments — <strong>Unit 47b</strong>.
+	 *
+	 * <p><strong>All four arrive on the read that just happened.</strong> {@code getNotes},
+	 * {@code getTasks} and {@code getCalendarEvents} are parameters on the opportunity search the
+	 * mirror already runs, and {@code customFields} comes back with every row. Unit 47 §4 cut task
+	 * read-back believing tasks could only be listed one contact at a time; they cannot only be —
+	 * and the cost of having them here is zero extra requests.
+	 *
+	 * <p><strong>GHL wins outright on all four, so 45e never applies.</strong> A note, a task and an
+	 * appointment are GHL's objects: EvalOS creates some of them and edits none, so there is no
+	 * field to contest. Custom field values are the same until the unit that lets a desk edit them.
+	 *
+	 * <p><strong>The values are set, not saved, here.</strong> They are columns on the row the caller
+	 * is about to write, so a second {@code save} would be a second write of the same row — which is
+	 * exactly what it was until a test counted them.
+	 *
+	 * <p><strong>Absence is not deletion here, with one exception.</strong> A task or appointment
+	 * missing from this answer is left alone — the search returns what it returns, and a paged read
+	 * is not proof of removal. A <em>note</em> the deal no longer carries is stamped
+	 * {@code missing_since}, because notes are enumerated per opportunity rather than filtered.
+	 */
+	private void absorbTier23(Opportunity held, GhlPipelineClient.Opportunity row) {
+		held.syncCustomFields(row.customFields().stream()
+				.filter((field) -> field.id() != null && field.value() != null)
+				.collect(java.util.stream.Collectors.toMap(GhlPipelineClient.CustomFieldValue::id,
+						GhlPipelineClient.CustomFieldValue::value, (first, second) -> second,
+						java.util.LinkedHashMap::new)));
+
+		absorbNotes(held, row);
+		absorbTasks(held.getBrandId(), row);
+		absorbAppointments(held.getBrandId(), row);
+	}
+
+	private void absorbNotes(Opportunity held, GhlPipelineClient.Opportunity row) {
+		java.util.Set<String> seen = new HashSet<>();
+		for (GhlPipelineClient.Note note : row.noteList()) {
+			if (note.id() == null || note.id().isBlank()) {
+				continue;
+			}
+			seen.add(note.id());
+			GhlNote mirrored = notes.findByBrandIdAndGhlId(held.getBrandId(), note.id())
+					.orElseGet(() -> new GhlNote(held.getBrandId(), note.id(), row.contactId(), row.id()));
+			mirrored.syncFromGhl(note.title(), note.body(), note.userId(), note.dateAdded(), row.id());
+			notes.save(mirrored);
+		}
+		Instant now = Instant.now();
+		for (GhlNote mirrored : notes.findByBrandIdAndGhlOpportunityIdOrderByDateAddedDesc(
+				held.getBrandId(), row.id())) {
+			if (mirrored.isLive() && !seen.contains(mirrored.getGhlId())) {
+				mirrored.markMissing(now);
+				notes.save(mirrored);
+			}
+		}
+	}
+
+	/**
+	 * <strong>The read-back `47` §4 said was impossible.</strong> A task completed in GHL now closes
+	 * on the desk instead of sitting open for ever.
+	 *
+	 * <p>Only tasks EvalOS already knows are updated: a task created in GHL's own UI has no
+	 * {@code follow_up} row, and inventing one would put work on a desk's list that nobody here
+	 * asked for. That is a decision with a screen behind it, not a side effect of a sync.
+	 */
+	private void absorbTasks(UUID brandId, GhlPipelineClient.Opportunity row) {
+		for (GhlPipelineClient.Task task : row.tasks()) {
+			if (task.id() == null || task.id().isBlank()) {
+				continue;
+			}
+			// Brand-scoped, as both repositories insist: a GHL id is unique within a location, and
+			// a finder taking one alone is a mistyped caller away from another brand's row.
+			followUps.findByBrandIdAndGhlTaskId(brandId, task.id()).ifPresent((held) -> {
+				held.syncFromGhl(task.title(), task.body(), task.dueDate(),
+						Boolean.TRUE.equals(task.completed()));
+				followUps.save(held);
+			});
+		}
+	}
+
+	/** The same, for an appointment cancelled or moved in GHL's own UI. */
+	private void absorbAppointments(UUID brandId, GhlPipelineClient.Opportunity row) {
+		for (GhlPipelineClient.CalendarEvent event : row.calendarEvents()) {
+			if (event.id() == null || event.id().isBlank()) {
+				continue;
+			}
+			meetings.findByBrandIdAndGhlAppointmentId(brandId, event.id()).ifPresent((held) -> {
+				held.syncFromGhl(event.title(), event.startTime(), event.endTime(),
+						event.appointmentStatus() != null ? event.appointmentStatus() : event.status());
+				meetings.save(held);
+			});
+		}
 	}
 
 	/** Every live deal on a set of GHL pipelines — the board read. */
@@ -243,14 +360,29 @@ public class OpportunityMirrorService {
 	 * <p>The board prints it, so a reader is told how old the answer is rather than left to assume
 	 * it is live — the same contract the cache's {@code readAt} carried.
 	 */
+	/**
+	 * <strong>Read from the pipeline, not derived from its deals</strong> (V61).
+	 *
+	 * <p>It was {@code max(opportunity.synced_at)}, which cannot express "synced, and there was
+	 * nothing there" — so every empty pipeline reported never-synced, and after Unit 46 made that a
+	 * banner, every board on the screen accused the sync of being broken.
+	 *
+	 * <p><strong>The oldest of the caller's pipelines, not the newest.</strong> A board covering
+	 * several is only as current as its stalest one; reporting the freshest would let one
+	 * recently-read pipeline vouch for others nothing has touched in hours.
+	 */
 	@Transactional(readOnly = true)
 	public Instant lastSynced(List<String> ghlPipelineIds) {
-		return ghlPipelineIds.stream()
-				.map(this::mirroredPipeline)
-				.filter(Optional::isPresent)
-				.map((found) -> opportunities.lastSyncedFor(found.get().getId()))
-				.filter((at) -> at != null)
-				.max(java.util.Comparator.naturalOrder())
+		List<Optional<Pipeline>> mirrored = ghlPipelineIds.stream().map(this::mirroredPipeline).toList();
+		if (mirrored.stream().anyMatch((found) -> found.isEmpty()
+				|| found.get().getOpportunitiesSyncedAt() == null)) {
+			// A pipeline that is not mirrored at all, or has never been read, makes the whole
+			// board's age unknown. Answering with the others' timestamp would vouch for it.
+			return null;
+		}
+		return mirrored.stream()
+				.map((found) -> found.get().getOpportunitiesSyncedAt())
+				.min(java.util.Comparator.naturalOrder())
 				.orElse(null);
 	}
 
@@ -306,6 +438,18 @@ public class OpportunityMirrorService {
 					row.editedLocally(name, amount, ghlStageId, status);
 					return opportunities.save(row);
 				});
+	}
+
+	/**
+	 * One mirrored deal, by GHL's id — what every desk route carries.
+	 *
+	 * <p>Empty when the mirror has not absorbed it, which is a staleness for the caller to report
+	 * rather than an error: the deal exists in GHL and will be here after the next sweep.
+	 */
+	@Transactional(readOnly = true)
+	public Optional<Opportunity> byGhlId(String ghlOpportunityId) {
+		return sellingBrandId == null ? Optional.empty()
+				: opportunities.findByBrandIdAndGhlId(sellingBrandId, ghlOpportunityId);
 	}
 
 	/** GHL answered a create. The row keeps its id and gains GHL's — identity never changes. */

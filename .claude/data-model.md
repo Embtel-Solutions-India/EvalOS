@@ -153,6 +153,14 @@ scoped to "what 46 reads" rather than to completeness (`00d` §6.6).
 
 Slice order and the reasoning behind it: `context/specs/44-ghl-tier1-mirror.md`.
 
+### From Unit 47 (BUILT 2026-09-17) — in CURRENT above
+
+`ghl_custom_field`, `ghl_calendar` and `ghl_user` (`V60`) mirror the location's reference lists on
+GHL's own ids, stamped `synced_at`, never deleted (`missing_since` instead). Prefixed `ghl_` because
+`user` is reserved in Postgres and `calendar` collides with vocabulary the app already uses; the
+three are named consistently rather than one being the odd one out. **Free slots are not a table and
+must not become one** (D48). **Custom field values are not columns** (D49).
+
 ### From other approved-but-unbuilt work
 
 - `expert_application` plus recruitment stages — Unit 50 (ENM as a function).

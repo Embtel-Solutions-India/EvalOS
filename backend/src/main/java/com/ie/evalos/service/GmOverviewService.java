@@ -12,6 +12,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 
+import com.ie.evalos.config.SellingBrand;
 import com.ie.evalos.common.DateRange;
 import com.ie.evalos.common.DateWindow;
 import com.ie.evalos.domain.Case;
@@ -98,7 +99,7 @@ public class GmOverviewService {
 	private final int wonLookbackDays;
 
 	GmOverviewService(CaseLifecycleService lifecycle, TeamMemberRepository teamMembers, GhlPipelineClient ghl,
-			@Value("${evalos.ghl.sales-brand:}") String salesBrandId,
+			SellingBrand sellingBrand,
 			@Value("${evalos.sales.monthly-goal}") BigDecimal monthlyGoal,
 			@Value("${evalos.sales.won-lookback-days}") int wonLookbackDays) {
 		this.lifecycle = lifecycle;
@@ -106,8 +107,7 @@ public class GmOverviewService {
 		this.ghl = ghl;
 		this.monthlyGoal = monthlyGoal;
 		this.wonLookbackDays = wonLookbackDays;
-		this.sellingBrandId = salesBrandId == null || salesBrandId.isBlank() ? null
-				: UUID.fromString(salesBrandId);
+		this.sellingBrandId = sellingBrand.id();
 	}
 
 	// --- the payload ---------------------------------------------------------

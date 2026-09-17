@@ -51,3 +51,8 @@ called — a key minted in memory and lost to a timeout is a key no retry can se
   already records *what happened*; this is delivery only.
 - ~~A richer `client_application.status`~~ — **NOT NEEDED (D35).** `DRAFT`/`SUBMITTED` are the right
   two; Sales review is a GHL pipeline stage, not an EvalOS column.
+
+**Unit 47 (`V60`, BUILT 2026-09-17):** `ghl_custom_field`, `ghl_calendar`, `ghl_user` — the
+location's reference lists, upserted on GHL's id, `synced_at` stamped, never deleted
+(`missing_since`). Prefixed `ghl_` because `user` is reserved in Postgres. **No slots table, ever**
+(D48). **No custom field values** (D49).

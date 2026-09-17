@@ -47,16 +47,4 @@ public interface OpportunityRepository
 	 */
 	List<Opportunity> findByBrandIdAndGhlContactId(UUID brandId, String ghlContactId);
 
-	/**
-	 * When this pipeline's copy was last confirmed against GHL, or null if never.
-	 *
-	 * <p>The staleness bound the board reads, and the replacement for
-	 * {@code CachedOpportunityRepository.lastFetchedFor}. <strong>Rows that have never reached GHL
-	 * are excluded</strong>: a portal-born opportunity carries no {@code synced_at} from a read,
-	 * and counting its absence would make a pipeline look freshly synced because somebody opened a
-	 * request on it.
-	 */
-	@org.springframework.data.jpa.repository.Query("select max(o.syncedAt) from Opportunity o "
-			+ "where o.pipelineId = :pipelineId and o.ghlId is not null")
-	java.time.Instant lastSyncedFor(@org.springframework.data.repository.query.Param("pipelineId") UUID pipelineId);
 }

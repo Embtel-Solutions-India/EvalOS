@@ -137,6 +137,25 @@ public class ContactSnapshot extends ScopedEntity {
 		return ghlContactId;
 	}
 
+	/**
+	 * The three fields a desk screen shows beside a deal.
+	 *
+	 * <p>Added at the opportunity detail screen (2026-09-17): the columns existed and were written
+	 * by every sync, but nothing could read them, so "who is this deal with" had no answer that did
+	 * not go back to GHL.
+	 */
+	public String getEmail() {
+		return email;
+	}
+
+	public String getPhone() {
+		return phone;
+	}
+
+	public String getCompany() {
+		return company;
+	}
+
 	public String getFullName() {
 		return fullName;
 	}

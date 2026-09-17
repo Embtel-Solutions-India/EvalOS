@@ -7,6 +7,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
+import com.ie.evalos.config.SellingBrand;
 import com.ie.evalos.domain.FieldOwnership;
 import com.ie.evalos.domain.Opportunity;
 import com.ie.evalos.domain.Pipeline;
@@ -48,7 +49,7 @@ class SyncAuditServiceTest {
 	private final SyncDriftRepository drifts = mock(SyncDriftRepository.class);
 
 	private final SyncAuditService audit =
-			new SyncAuditService(ghl, opportunities, pipelines, drifts, BRAND.toString());
+			new SyncAuditService(ghl, opportunities, pipelines, drifts, new SellingBrand(BRAND));
 
 	private final List<SyncDrift> saved = new ArrayList<>();
 
@@ -213,7 +214,7 @@ class SyncAuditServiceTest {
 	@Test
 	void aBlankSellingBrandAuditsNothing() {
 		SyncAuditService unconfigured =
-				new SyncAuditService(ghl, opportunities, pipelines, drifts, "");
+				new SyncAuditService(ghl, opportunities, pipelines, drifts, new SellingBrand((java.util.UUID) null));
 
 		assertThat(unconfigured.audit().compared()).isZero();
 		org.mockito.BDDMockito.then(ghl).shouldHaveNoInteractions();

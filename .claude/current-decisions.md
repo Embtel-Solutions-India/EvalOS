@@ -203,6 +203,29 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
   queueing one would mean either a payload column or silently dropping what the salesperson typed.
   Custom fields are tier 2, which is Unit 47. The contact upsert and GHL tasks stay inline for the
   neighbouring reason: `sync_outbox` is opportunity-scoped, and nothing mirrors a task.
+- **D47.** **Unit 47 mirrors what a screen reads, not what the tier list contains** (2026-09-17),
+  which is `00d` §6.6's ruling over `00c` §2c: *a sync surface with no consumer is pure drift risk*.
+  After Unit 46 exactly three live GHL reads were left on a desk render, and those three are what
+  got mirrored — **custom field definitions, calendars, and the location's users** (`ghl_custom_field`,
+  `ghl_calendar`, `ghl_user`, `V60`), refreshed by one hourly `REFERENCE_MIRROR` sweep. **Tags and
+  GHL notes are not mirrored**: nothing reads them, and they return the day a screen does.
+- **D48.** **Mirror the structure, never the availability.** A GHL calendar is mirrored; its **free
+  slots never are**, and must not be — GHL computes them from open hours, buffers, caps and the
+  assignee's other appointments, so a mirrored slot is wrong within a minute of being written.
+  **Unit 48 inherits the consequence**: with sync disabled the business keeps its boards, desks and
+  production and **cannot take a new booking**. That belongs on 48's list of what degrades.
+- **D49.** **Tier 2 and tier 3 are mirrored in full, minus free slots** (Unit 47b, 2026-09-17).
+  Custom field **values** (`opportunity.custom_fields`, keyed by GHL **field id** so a rename cannot
+  lose them), **GHL notes** (`ghl_note`), **tags** (`ghl_tag`), and **read-back for tasks and
+  appointments** — a task completed or an appointment cancelled in GHL now reaches EvalOS.
+  *(This reverses 47 §4's cuts, which the business overruled. One of them was also wrong on the
+  facts: §4 claimed tasks could only be listed per contact, but `getNotes`/`getTasks`/
+  `getCalendarEvents` are parameters on the opportunity search the mirror already runs, so all of it
+  costs zero extra requests.)*
+  **`ghl_note` never merges with `opportunity_note`** — that one is EvalOS staff prose, append-only
+  by trigger, never synced. **A task EvalOS never created is not invented** on somebody's desk.
+  **Tags are read, never written**: GHL workflows key off them.
+  **D46's blocker is gone** — the mirror now holds the values a queued desk create would need.
 - **D18.** The target is an **id-faithful mirror** of GHL (same pipeline/stage/contact/opportunity
   ids both sides), synced both ways, that keeps working when sync is off. Units 44–48
   (`context/specs/00c-ghl-independence-programme.md`). EvalOS mints its own primary key and keeps
@@ -219,6 +242,39 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
   the audience for a marketing funnel could not open one. The business removed both screens, their
   controller, service, cache table and `countIn`. A funnel screen comes back only after Unit 25
   puts the location on `brand`, at which point it is brand-scoped and Marketing can be let in.
+- **D19d.** **`evalos.ghl.sales-brand` takes a brand SLUG, and one class resolves it** (2026-09-17).
+  It names the brand that owns `evalos.ghl.location-id` — a sub-account belongs to no brand on its
+  own, which is invariant 1's exception. **A UUID is right in exactly one database** (IE is
+  `1111…` local, `3333…` testprod), so a shared config carrying one is silently wrong everywhere
+  else; the slug is the same in all of them. `SellingBrand` resolves it once, replacing **nine**
+  services that each parsed the property themselves, and a value matching no brand **fails the
+  boot** naming the fix. **Blank is legal and means no brand sells yet** — and switches every
+  mirror off, which the board now says out loud (`syncConfigured`).
+- **D19e.** **The GM's board is every LIVE MIRRORED pipeline, not the union of assignments**
+  (2026-09-17). Deriving it from the roster hid exactly the pipelines that belong to the business
+  rather than to a person — `00d` §6.7's unowned Case Delivery, and the location's Master Pipeline
+  — and it read `team_member.ghl_pipeline_id`, the column Unit 44b replaced, so it answered empty
+  once assignment moved to `team_member_pipeline`. The GM is `Tier.ALL`; the mirror is the list.
+  **A GM holds no assignment rows and must not** — `team_member_pipeline_matches_role` permits
+  SALES/MARKETING only.
+- **D19f.** **`WY6bW2xUCI8Tz8gw7aLJ` is the final GHL location** (confirmed 2026-09-17). The
+  abandoned sub-account's id is removed from every live config and spec so it cannot be copied back
+  in. It survives only where it cannot be edited or cannot mislead: an applied seed (a checksum
+  mismatch refuses the boot), recorded review diffs, a build log, `context/archive/`, and the dated
+  `context/audit/2026-09-13/` evidence.
+- **D19g.** **The mirror fills itself at startup, and the Refresh button can fix an empty one**
+  (2026-09-17). `StartupSync` runs `PIPELINE_MIRROR` → `REFERENCE_MIRROR` → `MIRROR_DELTA` once when
+  the app is ready, in that order and on its own thread. `fixedDelay` counts from the end of the
+  previous run, so a fresh start was otherwise an hour from its first pipelines — an hour of empty
+  boards whose only remedy was a GM running a job by hand. **Nobody should have to run a job to see
+  their own pipeline.** The board's Refresh now syncs **pipelines before deals** for the same
+  reason: in the one state somebody presses it, an empty mirror, there were no pipelines to refresh
+  deals for, so the button could not fix what it was offered for.
+- **D19h.** **A desk's pipeline claim is re-read when the token carries none.** D19b's set is read
+  at sign-in — a deliberate staleness bound for a *reassignment*, and a trap for a *first*
+  assignment: a desk that signed in before the mirror ran saw an empty board for the whole session.
+  An empty claim now means "ask again", not "you have none". It widens nothing: same member, own
+  row, and a member with no assignment still gets an empty list.
 - **D19a.** `/api/opportunities/board` is the one narrowed case: `evalos.ghl.sales-brand` names the
   brand that owns the location and assignment refuses any other brand's member with a 400, so that
   screen's brand _is_ provable and SALES/MARKETING reach it.
@@ -258,6 +314,15 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
 
 - **D29.** EvalOS sends **exactly two** messages, both authentication: set-password and
   reset-password. Any other mail is a new decision. (Invariant 14, amended 2026-09-11.)
+- **D29a.** **Outbound mail is send-only, from a `no-reply@` sender with no mailbox behind it**
+  (decided 2026-09-17). Inbound email is not a channel EvalOS has, so an address that could
+  receive one would be an inbox nobody is assigned to read — which is worse than a bounce,
+  because a client who replies to it believes they have been heard. The two messages carry a
+  link, not a conversation; a client who needs a person uses the support address the portal's
+  `MAIL_UNAVAILABLE` screens name. **Consequence to expect, not to fix:** mail sent *to* the
+  sender address hard-bounces, and Brevo will list it as a blocked contact. That blocks delivery
+  **to** it and never **from** it, so it is noise in the Brevo UI rather than a fault. Never
+  point a test recipient at it — see `BrevoMailTransportLiveTest`.
 
 ## Notifications
 

@@ -8,6 +8,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
+import com.ie.evalos.config.SellingBrand;
 import com.ie.evalos.domain.Opportunity;
 import com.ie.evalos.domain.Pipeline;
 import com.ie.evalos.integration.GhlPipelineClient;
@@ -42,9 +43,17 @@ class OpportunityMirrorSyncTest {
 	private final OpportunityRepository opportunities = mock(OpportunityRepository.class);
 
 	private final PipelineRepository pipelines = mock(PipelineRepository.class);
+	/** Unit 47b's three tier-2/3 sinks, which ride on the same read. */
+	private final com.ie.evalos.repository.GhlNoteRepository notes =
+			mock(com.ie.evalos.repository.GhlNoteRepository.class);
+	private final com.ie.evalos.repository.FollowUpRepository followUps =
+			mock(com.ie.evalos.repository.FollowUpRepository.class);
+	private final com.ie.evalos.repository.MeetingRepository meetings =
+			mock(com.ie.evalos.repository.MeetingRepository.class);
 
 	private final OpportunityMirrorService mirror =
-			new OpportunityMirrorService(ghl, opportunities, pipelines, BRAND.toString());
+			new OpportunityMirrorService(ghl, opportunities, pipelines, notes, followUps, meetings,
+					new SellingBrand(BRAND));
 
 	private final List<Opportunity> saved = new ArrayList<>();
 
@@ -137,7 +146,7 @@ class OpportunityMirrorSyncTest {
 	@Test
 	void theDeltaSweepSkipsAPipelineADeskHasAlreadyWarmed() {
 		given(pipelines.findByBrandIdOrderByPositionAscNameAsc(BRAND)).willReturn(List.of(sales));
-		given(opportunities.lastSyncedFor(sales.getId())).willReturn(Instant.now());
+		sales.opportunitiesSynced();
 
 		assertThat(mirror.refreshStale(Duration.ofMinutes(10))).isEqualTo(1);
 		verify(ghl, never()).allIn(any());
@@ -146,8 +155,8 @@ class OpportunityMirrorSyncTest {
 	@Test
 	void theDeltaSweepRereadsAPipelineNobodyHasLookedAt() {
 		given(pipelines.findByBrandIdOrderByPositionAscNameAsc(BRAND)).willReturn(List.of(sales));
-		given(opportunities.lastSyncedFor(sales.getId()))
-				.willReturn(Instant.now().minus(Duration.ofHours(2)));
+		ReflectionTestUtils.setField(sales, "opportunitiesSyncedAt",
+				Instant.now().minus(Duration.ofHours(2)));
 		given(opportunities.findByPipelineIdIn(List.of(sales.getId()))).willReturn(List.of());
 		given(ghl.allIn("pipe-1")).willReturn(List.of(fromGhl("opp-1", "pipe-1", "s", "Rao", "open")));
 
@@ -165,5 +174,147 @@ class OpportunityMirrorSyncTest {
 
 		assertThat(mirror.refreshStale(Duration.ofMinutes(10))).isZero();
 		verify(ghl, never()).allIn(any());
+	}
+
+	/**
+	 * <strong>The bug that made every board read "never synced".</strong>
+	 *
+	 * <p>The age used to be {@code max(opportunity.synced_at)} over the pipeline's deals, so a
+	 * pipeline with no deals could not say it had been synced — it answered exactly like one that
+	 * never had. Latent while the board refilled from GHL on every render; visible the moment Unit
+	 * 46 removed the refill and turned a null into a "Sync delayed" banner.
+	 */
+	@Test
+	void aPipelineSyncedWithNoDealsReportsASyncTimeRatherThanNever() {
+		given(pipelines.findByBrandIdOrderByPositionAscNameAsc(BRAND)).willReturn(List.of(sales));
+		given(opportunities.findByPipelineIdIn(List.of(sales.getId()))).willReturn(List.of());
+
+		mirror.absorb(sales, List.of());
+
+		assertThat(sales.getOpportunitiesSyncedAt()).isNotNull();
+		assertThat(mirror.lastSynced(List.of("pipe-1"))).isNotNull();
+	}
+
+	/** A pipeline nothing has ever read makes the whole board's age unknown, not the others' age. */
+	@Test
+	void oneNeverReadPipelineMakesTheWholeBoardsAgeUnknown() {
+		Pipeline second = pipeline("pipe-2", "Case Delivery");
+		given(pipelines.findByBrandIdAndGhlId(BRAND, "pipe-2")).willReturn(Optional.of(second));
+		sales.opportunitiesSynced();
+
+		assertThat(mirror.lastSynced(List.of("pipe-1", "pipe-2"))).isNull();
+	}
+
+	/** Two read pipelines: the board is only as current as its stalest one. */
+	@Test
+	void theBoardsAgeIsItsStalestPipelineNotItsFreshest() {
+		Pipeline second = pipeline("pipe-2", "Case Delivery");
+		given(pipelines.findByBrandIdAndGhlId(BRAND, "pipe-2")).willReturn(Optional.of(second));
+		second.opportunitiesSynced();
+		ReflectionTestUtils.setField(second, "opportunitiesSyncedAt",
+				Instant.now().minus(Duration.ofHours(3)));
+		sales.opportunitiesSynced();
+
+		assertThat(mirror.lastSynced(List.of("pipe-1", "pipe-2")))
+				.isEqualTo(second.getOpportunitiesSyncedAt());
+	}
+
+	// --- Unit 47b: the tier-2/3 collections that ride on the same read -----------
+
+	private static GhlPipelineClient.Opportunity withCollections(
+			List<GhlPipelineClient.CustomFieldValue> fields, List<GhlPipelineClient.Note> notes,
+			List<GhlPipelineClient.Task> tasks, List<GhlPipelineClient.CalendarEvent> events) {
+		return new GhlPipelineClient.Opportunity("opp-1", "Rao", "ghl-c-1", "pipe-1", "stage-2",
+				"open", new BigDecimal("1450.00"), "CRM UI", "ghl-user-7", null, null, null, null,
+				fields, new GhlPipelineClient.NoteEnvelope(notes, notes.size()), tasks, events);
+	}
+
+	/**
+	 * <strong>Custom field VALUES, keyed by GHL's field id.</strong> Keying by name would lose the
+	 * value the day somebody renames the field in GHL — the id is what survives a rename, and
+	 * `ghl_custom_field` is what turns it back into a label.
+	 */
+	@Test
+	void customFieldValuesAreMirroredKeyedByFieldId() {
+		given(opportunities.findByBrandIdAndGhlId(BRAND, "opp-1")).willReturn(Optional.empty());
+
+		mirror.absorbForContact(List.of(withCollections(
+				List.of(new GhlPipelineClient.CustomFieldValue("f_visa", "H-1B", null),
+						new GhlPipelineClient.CustomFieldValue("f_docs", null,
+								List.of("Transcript", "Degree"))),
+				List.of(), List.of(), List.of())));
+
+		assertThat(saved).singleElement().satisfies((row) -> assertThat(row.getCustomFields())
+				.containsEntry("f_visa", "H-1B")
+				.containsEntry("f_docs", "Transcript, Degree"));
+	}
+
+	/**
+	 * <strong>The read-back Unit 47 §4 called impossible.</strong> It said GHL lists tasks only per
+	 * contact, so a desk-wide refresh would be one request per contact. `getTasks` is a parameter on
+	 * the search the mirror already makes — so a task completed in GHL closes on the desk, at no
+	 * extra request.
+	 */
+	@Test
+	void aTaskCompletedInGhlClosesTheFollowUpHere() {
+		com.ie.evalos.domain.FollowUp held = mock(com.ie.evalos.domain.FollowUp.class);
+		given(opportunities.findByBrandIdAndGhlId(BRAND, "opp-1")).willReturn(Optional.empty());
+		given(followUps.findByBrandIdAndGhlTaskId(BRAND, "task-1")).willReturn(Optional.of(held));
+
+		mirror.absorbForContact(List.of(withCollections(List.of(), List.of(),
+				List.of(new GhlPipelineClient.Task("task-1", "Call back", "notes", "u1", null, true)),
+				List.of())));
+
+		verify(held).syncFromGhl("Call back", "notes", null, true);
+		verify(followUps).save(held);
+	}
+
+	/** A task GHL knows and EvalOS never created is left alone: a sync must not invent desk work. */
+	@Test
+	void aTaskEvalOsNeverCreatedIsNotInvented() {
+		given(opportunities.findByBrandIdAndGhlId(BRAND, "opp-1")).willReturn(Optional.empty());
+		given(followUps.findByBrandIdAndGhlTaskId(BRAND, "task-x")).willReturn(Optional.empty());
+
+		mirror.absorbForContact(List.of(withCollections(List.of(), List.of(),
+				List.of(new GhlPipelineClient.Task("task-x", "Theirs", null, null, null, false)),
+				List.of())));
+
+		verify(followUps, never()).save(any());
+	}
+
+	/** An appointment cancelled in GHL's own UI reaches the diary. */
+	@Test
+	void anAppointmentChangedInGhlReachesTheMeetingRow() {
+		com.ie.evalos.domain.Meeting held = mock(com.ie.evalos.domain.Meeting.class);
+		given(opportunities.findByBrandIdAndGhlId(BRAND, "opp-1")).willReturn(Optional.empty());
+		given(meetings.findByBrandIdAndGhlAppointmentId(BRAND, "appt-1")).willReturn(Optional.of(held));
+
+		mirror.absorbForContact(List.of(withCollections(List.of(), List.of(), List.of(),
+				List.of(new GhlPipelineClient.CalendarEvent("appt-1", "cal-1", "Intro call", null,
+						null, "cancelled", "booked")))));
+
+		// appointmentStatus wins over status: it is the field GHL cancels in.
+		verify(held).syncFromGhl("Intro call", null, null, "cancelled");
+	}
+
+	/** GHL's notes are mirrored, and are NOT opportunity_note — that one is EvalOS's, append-only. */
+	@Test
+	void ghlNotesAreMirroredIntoTheirOwnTable() {
+		given(opportunities.findByBrandIdAndGhlId(BRAND, "opp-1")).willReturn(Optional.empty());
+		given(notes.findByBrandIdAndGhlId(BRAND, "note-1")).willReturn(Optional.empty());
+		given(notes.findByBrandIdAndGhlOpportunityIdOrderByDateAddedDesc(BRAND, "opp-1"))
+				.willReturn(List.of());
+
+		mirror.absorbForContact(List.of(withCollections(List.of(),
+				List.of(new GhlPipelineClient.Note("note-1", "Call summary", "Wants expedited",
+						"u1", null)),
+				List.of(), List.of())));
+
+		org.mockito.ArgumentCaptor<com.ie.evalos.domain.GhlNote> written =
+				org.mockito.ArgumentCaptor.forClass(com.ie.evalos.domain.GhlNote.class);
+		verify(notes).save(written.capture());
+		assertThat(written.getValue().getGhlId()).isEqualTo("note-1");
+		assertThat(written.getValue().getBody()).isEqualTo("Wants expedited");
+		assertThat(written.getValue().getGhlOpportunityId()).isEqualTo("opp-1");
 	}
 }

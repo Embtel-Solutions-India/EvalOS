@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
+import com.ie.evalos.config.SellingBrand;
 import com.ie.evalos.domain.Opportunity;
 import com.ie.evalos.domain.Pipeline;
 import com.ie.evalos.domain.SyncEntity;
@@ -60,7 +61,7 @@ class SyncOutboxServiceTest {
 	private SyncOutboxService service = newService(CORRELATION_FIELD);
 
 	private SyncOutboxService newService(String correlationField) {
-		return new SyncOutboxService(outbox, opportunities, pipelines, ghl, ghlReads, BRAND.toString(),
+		return new SyncOutboxService(outbox, opportunities, pipelines, ghl, ghlReads, new SellingBrand(BRAND),
 				correlationField);
 	}
 
@@ -277,7 +278,7 @@ class SyncOutboxServiceTest {
 	@Test
 	void aBlankSellingBrandDrainsNothing() {
 		SyncOutboxService unconfigured = new SyncOutboxService(outbox, opportunities, pipelines, ghl,
-				ghlReads, "", CORRELATION_FIELD);
+				ghlReads, new SellingBrand((java.util.UUID) null), CORRELATION_FIELD);
 
 		assertThat(unconfigured.drain().attempted()).isZero();
 		then(ghl).shouldHaveNoInteractions();

@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
+import com.ie.evalos.config.SellingBrand;
 import com.ie.evalos.domain.Pipeline;
 import com.ie.evalos.domain.PipelinePurpose;
 import com.ie.evalos.domain.PipelineStage;
@@ -42,9 +43,11 @@ class PipelineMirrorServiceTest {
 	private final PipelineRepository pipelines = mock(PipelineRepository.class);
 
 	private final PipelineStageRepository stages = mock(PipelineStageRepository.class);
+	private final com.ie.evalos.repository.TeamMemberPipelineRepository assignments =
+			mock(com.ie.evalos.repository.TeamMemberPipelineRepository.class);
 
 	private final PipelineMirrorService mirror =
-			new PipelineMirrorService(ghl, pipelines, stages, BRAND.toString());
+			new PipelineMirrorService(ghl, pipelines, stages, assignments, new SellingBrand(BRAND));
 
 	/** Rows the fakes hand back, so a save is observable without a database. */
 	private final List<Pipeline> heldPipelines = new ArrayList<>();
@@ -196,7 +199,7 @@ class PipelineMirrorServiceTest {
 	 */
 	@Test
 	void aBlankSellingBrandMirrorsNothingAndDoesNotCallGhl() {
-		PipelineMirrorService unconfigured = new PipelineMirrorService(ghl, pipelines, stages, "");
+		PipelineMirrorService unconfigured = new PipelineMirrorService(ghl, pipelines, stages, assignments, new SellingBrand((java.util.UUID) null));
 
 		var result = unconfigured.sync();
 

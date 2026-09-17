@@ -4,6 +4,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
+import com.ie.evalos.config.SellingBrand;
 import com.ie.evalos.common.InvalidRequestException;
 import com.ie.evalos.domain.AuditAction;
 import com.ie.evalos.domain.Pipeline;
@@ -58,12 +59,12 @@ class PipelineAssignmentServiceTest {
 	private final PipelineRepository pipelines = mock(PipelineRepository.class);
 	private final AuditService audit = mock(AuditService.class);
 
-	private PipelineAssignmentService service(String salesBrand) {
+	private PipelineAssignmentService service(SellingBrand salesBrand) {
 		return new PipelineAssignmentService(teamMembers, assignments, pipelines, audit, salesBrand);
 	}
 
 	private PipelineAssignmentService service() {
-		return service(SELLING_BRAND.toString());
+		return service(new SellingBrand(SELLING_BRAND));
 	}
 
 	@BeforeEach
@@ -199,7 +200,7 @@ class PipelineAssignmentServiceTest {
 	void noSellingBrandMeansNoAssignment() {
 		givenMember(Role.SALES, SELLING_BRAND);
 
-		assertThatThrownBy(() -> service("").grant(MEMBER, PIPELINE))
+		assertThatThrownBy(() -> service(new SellingBrand((java.util.UUID) null)).grant(MEMBER, PIPELINE))
 				.isInstanceOf(InvalidRequestException.class)
 				.hasMessageContaining("evalos.ghl.sales-brand");
 	}

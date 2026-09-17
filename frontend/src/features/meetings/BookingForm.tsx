@@ -147,10 +147,15 @@ export default function BookingForm({ onBooked }: { onBooked: () => void }) {
     }
   }
 
+  // **`minmax(0, …)` and `min-w-0`, not `1fr` and `16rem`.** A grid child defaults to
+  // `min-width: auto`, so it refuses to shrink below its content — the right column measured 412px
+  // of content in a 256px track, which pushed the whole page into a horizontal scrollbar and cut
+  // the contact picker off at the viewport edge. `1fr` is shorthand for `minmax(auto, 1fr)`, the
+  // same trap. It never showed while this form only ever rendered inside a 30rem sheet.
   return (
-    <form onSubmit={submit} className="grid gap-5 lg:grid-cols-[1fr_16rem]">
+    <form onSubmit={submit} className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,20rem)]">
       {/* Left: the appointment. */}
-      <div className="grid content-start gap-3">
+      <div className="grid min-w-0 content-start gap-3">
         <Select
           label="Calendar"
           value={calendarId}
@@ -183,7 +188,7 @@ export default function BookingForm({ onBooked }: { onBooked: () => void }) {
             type="button"
             onClick={() => setShowDescription(true)}
             className="justify-self-start text-sm"
-            style={{ color: 'var(--accent)' }}
+            style={{ color: 'var(--accent-primary)' }}
           >
             Add description
           </button>
@@ -216,9 +221,9 @@ export default function BookingForm({ onBooked }: { onBooked: () => void }) {
                 onClick={() => setMode(option)}
                 className="rounded-lg px-3 py-1 text-sm"
                 style={{
-                  background: mode === option ? 'var(--accent)' : 'transparent',
-                  color: mode === option ? 'var(--accent-contrast, #fff)' : 'var(--text-muted)',
-                  border: `1px solid ${mode === option ? 'var(--accent)' : 'var(--border-default)'}`,
+                  background: mode === option ? 'var(--accent-primary)' : 'transparent',
+                  color: mode === option ? '#fff' : 'var(--text-muted)',
+                  border: `1px solid ${mode === option ? 'var(--accent-primary)' : 'var(--border-default)'}`,
                 }}
               >
                 {option === 'default' ? 'Default' : 'Custom'}
@@ -306,7 +311,7 @@ export default function BookingForm({ onBooked }: { onBooked: () => void }) {
       </div>
 
       {/* Right: the people, and what staff want to remember. */}
-      <aside className="grid content-start gap-3">
+      <aside className="grid min-w-0 content-start gap-3">
         <Select
           label="Contact"
           value={opportunityId}
@@ -339,14 +344,14 @@ export default function BookingForm({ onBooked }: { onBooked: () => void }) {
             type="button"
             onClick={() => setShowNote(true)}
             className="justify-self-start text-sm"
-            style={{ color: 'var(--accent)' }}
+            style={{ color: 'var(--accent-primary)' }}
           >
             + Add internal note
           </button>
         )}
       </aside>
 
-      <div className="grid gap-2 lg:col-span-2">
+      <div className="grid min-w-0 gap-2 lg:col-span-2">
         {error && (
           <p className="text-sm" style={{ color: 'var(--status-red)' }} role="alert">
             {error}
@@ -356,11 +361,15 @@ export default function BookingForm({ onBooked }: { onBooked: () => void }) {
           Booking runs GHL's automations, which is how the client gets the invitation. Booking
           twice creates two meetings — GHL has no way to recognise a repeat.
         </p>
+        {/* **`--accent-primary`, not `--accent`.** There is no `--accent` token — `tokens.css`
+            defines `--accent-primary` — so `background: var(--accent)` resolved to nothing and this
+            button rendered white text on a transparent background: invisible on a white card, with
+            no error anywhere. Eleven usages across three files had the same typo. */}
         <button
           type="submit"
           disabled={!ready || busy}
           className="justify-self-start rounded-lg px-3 py-1.5 text-sm font-medium disabled:opacity-50"
-          style={{ background: 'var(--accent)', color: 'var(--accent-contrast, #fff)' }}
+          style={{ background: 'var(--accent-primary)', color: '#fff' }}
         >
           {busy ? 'Booking…' : 'Book meeting'}
         </button>

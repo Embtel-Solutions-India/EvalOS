@@ -100,6 +100,21 @@ public class Opportunity extends ScopedEntity {
 	@Column(name = "missing_since")
 	private Instant missingSince;
 
+	/**
+	 * GHL's custom field <strong>values</strong> for this deal, keyed by GHL field id — Unit 47b.
+	 *
+	 * <p><strong>Keyed by id, never by name.</strong> A field renamed in GHL keeps its id, and
+	 * {@code ghl_custom_field} (V60) is what turns an id into a label for a human. Keying by name
+	 * would make a rename lose data silently.
+	 *
+	 * <p><strong>This is what unblocks D46.</strong> A desk create carries custom field values, and
+	 * the outbox stores an id and never a payload — so a queued create had nowhere to put them and
+	 * creates stayed synchronous. With the values on the row, the row <em>is</em> the payload.
+	 */
+	@org.hibernate.annotations.JdbcTypeCode(org.hibernate.type.SqlTypes.JSON)
+	@Column(name = "custom_fields", nullable = false)
+	private java.util.Map<String, String> customFields = new java.util.LinkedHashMap<>();
+
 	protected Opportunity() {
 		// for JPA
 	}
@@ -317,6 +332,22 @@ public class Opportunity extends ScopedEntity {
 
 	public Instant getMissingSince() {
 		return missingSince;
+	}
+
+	/**
+	 * GHL's values for this deal's custom fields.
+	 *
+	 * <p><strong>Replaced wholesale rather than merged</strong>, because a field cleared in GHL is
+	 * absent from its answer, and merging would keep a value GHL no longer holds — the mirror would
+	 * then disagree with GHL about something nobody edited.
+	 */
+	public void syncCustomFields(java.util.Map<String, String> values) {
+		this.customFields = values == null ? new java.util.LinkedHashMap<>()
+				: new java.util.LinkedHashMap<>(values);
+	}
+
+	public java.util.Map<String, String> getCustomFields() {
+		return java.util.Collections.unmodifiableMap(customFields);
 	}
 
 	public boolean isLive() {

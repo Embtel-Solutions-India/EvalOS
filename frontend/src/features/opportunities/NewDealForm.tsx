@@ -81,7 +81,7 @@ export default function NewDealForm({
         type="button"
         onClick={() => setOpen(true)}
         className="rounded-lg px-3 py-1.5 text-sm font-medium"
-        style={{ background: 'var(--accent)', color: 'var(--accent-contrast, #fff)' }}
+        style={{ background: 'var(--accent-primary)', color: '#fff' }}
       >
         Add opportunity
       </button>
@@ -91,7 +91,7 @@ export default function NewDealForm({
           title="Add opportunity"
           description="Opens the deal in GHL on your own pipeline."
         >
-          <Fields
+          <NewDealFields
             columns={columns}
             onCreated={() => {
               setOpen(false)
@@ -104,7 +104,13 @@ export default function NewDealForm({
   )
 }
 
-function Fields({
+/**
+ * The form itself, separate from the button that used to be the only way in.
+ *
+ * <p>Exported because the sidebar is now the trigger (2026-09-17): `NewDealPage` renders these
+ * fields directly, so the sheet's own button is not a second entry point competing with the nav.
+ */
+export function NewDealFields({
   columns,
   onCreated,
 }: {
@@ -293,7 +299,7 @@ function Fields({
         type="submit"
         disabled={!ready || busy || duplicate !== null}
         className="rounded-lg px-3 py-1.5 text-sm font-medium disabled:opacity-50"
-        style={{ background: 'var(--accent)', color: 'var(--accent-contrast, #fff)' }}
+        style={{ background: 'var(--accent-primary)', color: '#fff' }}
       >
         {busy ? 'Opening…' : 'Open deal'}
       </button>

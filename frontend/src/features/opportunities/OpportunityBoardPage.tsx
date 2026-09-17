@@ -1,13 +1,8 @@
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import { Card } from '../../components/ui/card'
-import { useMe } from '../../lib/authContext'
 import { useMetrics } from '../dashboards/useMetrics'
 import { formatCount, formatMoney } from '../../lib/money'
-import DealActions from './DealActions'
-import DealApplication from './DealApplication'
-import DealNotes from './DealNotes'
-import NewDealForm from './NewDealForm'
-import NewLeadForm from './NewLeadForm'
 import { fetchOpportunityBoard, refreshOpportunityBoard, type BoardColumn, type Deal } from './opportunityApi'
 
 /**
@@ -38,7 +33,6 @@ export default function OpportunityBoardPage() {
   // documents itself as having been fixed to avoid by returning a separate `reload` that keeps the
   // last good data on screen while the new read is in flight.
   const { data, state, reload } = useMetrics((signal) => fetchOpportunityBoard(signal), [])
-  const role = useMe().role
   const [syncing, setSyncing] = useState(false)
 
   /**
@@ -58,13 +52,6 @@ export default function OpportunityBoardPage() {
       setSyncing(false)
     }
   }
-  const isMarketing = role === 'MARKETING'
-  // Every stage on the board, so a salesperson can move a deal to any of them. Taken from the
-  // board itself rather than fetched separately: it is the same pipeline, already loaded.
-  const stages = (data?.columns ?? []).map((column) => ({
-    stageId: column.stageId,
-    stageName: column.stageName,
-  }))
 
   return (
     <section className="space-y-4">
@@ -110,7 +97,19 @@ export default function OpportunityBoardPage() {
         salesperson would otherwise make wrongly all morning. Saying it plainly beats a stamp they
         have to interpret.
       */}
-      {data?.stale && (
+      {data && !data.syncConfigured && (
+        <p
+          className="rounded border border-rose-300 bg-rose-50 px-3 py-2 text-sm text-rose-900"
+          role="status"
+        >
+          <strong>GHL sync is not configured.</strong> `evalos.ghl.sales-brand` is blank on the
+          server, so nothing mirrors pipelines, deals or calendars — the board is empty for that
+          reason and not because the sync is behind. Set <code>GHL_SALES_BRAND_ID</code> to the
+          brand that owns the GHL location, then run the PIPELINE_MIRROR and MIRROR_DELTA jobs.
+        </p>
+      )}
+
+      {data?.stale && data.syncConfigured && (
         <p
           className="rounded border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900"
           role="status"
@@ -125,21 +124,9 @@ export default function OpportunityBoardPage() {
         </p>
       )}
 
-      {/*
-        Opening a lead refetches the board rather than inserting the new card locally: the
-        opportunity now lives in GHL, and the only honest confirmation it landed is reading it
-        back. A locally inserted card would show an outcome the server has not agreed to.
-      */}
-      {isMarketing && <NewLeadForm onOpened={reload} />}
-      {/* Sales opens a deal; Marketing opens a lead. Different verbs and different GHL calls —
-          a lead is an upsert (one open deal per contact per pipeline, which is right for a
-          marketing pipeline), a deal is a true create (a repeat client's second purchase must not
-          overwrite their first). See `NewDealForm`. */}
-      {role === 'SALES' && (
-        <div className="mt-3">
-          <NewDealForm columns={data?.columns ?? []} onCreated={reload} />
-        </div>
-      )}
+      {/* The two "open something" actions moved to the sidebar on 2026-09-17. They were here as a
+          button and an inline form, which put the thing a desk opens the app to do behind first
+          loading the board. `NewDealPage` and `NewLeadPage` are one click from anywhere. */}
 
       <Card title="" state={state}>
         {data && data.columns.length === 0 ? (
@@ -155,13 +142,7 @@ export default function OpportunityBoardPage() {
         ) : (
           <div className="flex gap-3 overflow-x-auto p-1">
             {data?.columns.map((column) => (
-              <StageColumn
-                key={column.stageId}
-                column={column}
-                isSales={role === 'SALES'}
-                stages={stages}
-                onChanged={reload}
-              />
+              <StageColumn key={column.stageId} column={column} />
             ))}
           </div>
         )}
@@ -170,17 +151,10 @@ export default function OpportunityBoardPage() {
   )
 }
 
-function StageColumn({
-  column,
-  isSales,
-  stages,
-  onChanged,
-}: {
-  column: BoardColumn
-  isSales: boolean
-  stages: readonly { stageId: string; stageName: string }[]
-  onChanged: () => void
-}) {
+// The column carries no actions now: a card is a link, and everything you can DO to a deal lives
+// on `DealPage`. The props that threaded stage lists and reload callbacks down two levels went
+// with them.
+function StageColumn({ column }: { column: BoardColumn }) {
   return (
     <div className="flex w-64 shrink-0 flex-col gap-2">
       <div className="flex items-baseline justify-between border-b border-slate-200 pb-1">
@@ -191,44 +165,24 @@ function StageColumn({
         <p className="text-xs text-slate-500">{formatMoney(column.total)}</p>
       )}
       {column.deals.map((deal) => (
-        <DealCard
-          key={deal.opportunityId}
-          deal={deal}
-          isSales={isSales}
-          stages={stages}
-          onChanged={onChanged}
-        />
+        <DealCard key={deal.opportunityId} deal={deal} />
       ))}
     </div>
   )
 }
 
-function DealCard({
-  deal,
-  isSales,
-  stages,
-  onChanged,
-}: {
-  deal: Deal
-  isSales: boolean
-  stages: readonly { stageId: string; stageName: string }[]
-  onChanged: () => void
-}) {
-  // Notes are loaded per card, and only when a card is opened. Eagerly fetching a stream for
-  // every deal on the board would be one request per card against a shared 100-per-10-seconds
-  // budget, to show text nobody has asked to read yet.
-  const [open, setOpen] = useState(false)
-
+function DealCard({ deal }: { deal: Deal }) {
+  // **The card is a link now, not a disclosure** (2026-09-17). It used to expand in place, which
+  // put the questionnaire, the notes and the stage actions inside a 16rem column between two other
+  // cards. `DealPage` is the screen they belong on; the card's job is to get you there.
   return (
-    <article className="rounded border border-slate-200 bg-white p-3 shadow-sm">
-      <button
-        type="button"
-        onClick={() => setOpen((shown) => !shown)}
-        className="w-full text-left"
-        aria-expanded={open}
+    <article className="rounded border border-slate-200 bg-white p-3 shadow-sm hover:border-slate-300">
+      <Link
+        to={`/opportunities/${deal.opportunityId}`}
+        className="block truncate text-sm font-medium text-slate-900 hover:underline"
       >
-        <p className="truncate text-sm font-medium text-slate-900">{deal.name ?? 'Untitled'}</p>
-      </button>
+        {deal.name ?? 'Untitled'}
+      </Link>
       <p className="mt-1 text-xs text-slate-500">
         {/*
           `amount` is null when GHL holds no value, and that is shown as "no value" rather than
@@ -238,21 +192,6 @@ function DealCard({
         {deal.amount === null ? 'No value set' : formatMoney(deal.amount)}
         {deal.status !== 'open' && <span className="ml-2 uppercase">{deal.status}</span>}
       </p>
-      {open && isSales && (
-        <DealActions
-          opportunityId={deal.opportunityId}
-          contactId={deal.contactId}
-          stages={stages}
-          onChanged={onChanged}
-        />
-      )}
-      {/*
-        Above the notes, because it is what the client said and the notes are what we said back —
-        and a salesperson opening a card is looking for the first before writing the second.
-        Renders nothing for a deal that did not come through the portal, which is most of them.
-      */}
-      {open && <DealApplication opportunityId={deal.opportunityId} />}
-      {open && <DealNotes opportunityId={deal.opportunityId} />}
     </article>
   )
 }
