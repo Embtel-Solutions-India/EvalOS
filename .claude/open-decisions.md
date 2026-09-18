@@ -22,14 +22,33 @@ is now gated on whichever unit moves creates onto the queue.
 
 ## Blocking the portals
 
-**Q6 — Do experts get accounts?**
-Access is a staff-minted link only. `00d` §12d recommends yes.
-_Recommend:_ yes, on the Unit 42 pattern — it is built, proven and cheap to repeat.
-_Status 2026-09-17:_ **waiting on a stakeholder discussion the business will hold** — not on a
-technical answer. Build nothing that assumes accounts until it happens (D23).
-_Gates:_ the expert's case list, payouts view and evidence access.
+**Q6 — ~~Do experts get accounts?~~ What is the expert's sign-in process?**
+_Answered 2026-09-18, in part:_ **yes, they get accounts, and staff-minted links go.** The
+stakeholder decision is in and D23 is edited to match. Experts are hosted at
+`experts.internationalevaluations.com` and sign in or up there.
 
-Expert will go to our experts.internationalevaluations.com and can sign in or up according to stakeholder decision.
+**The process itself is still open, and it is the part that gates code.** Three things make the
+Unit 42 client flow a starting point rather than a template:
+
+- **An expert exists before they can sign in.** A client self-serves from nothing; an expert is on
+  the roster because staff put them there, so sign-*up* is either an invitation or an unguarded
+  door onto the payouts of whoever claims an email.
+- **Access is party-scoped, not account-scoped.** `PortalAccessService.mintForParty` narrows an
+  expert to one case; an account is a person. Which one authorises the case list, the evidence and
+  the payouts view has to be said out loud — an account that implies "every case you were ever
+  offered" is a wider grant than any link ever made.
+- **One person, two panels.** The same expert may sit on two brands' rosters, and
+  `mintForParty`'s own note says minting one brand's link must not reach the other's. One login
+  across two brands is a question a client never poses.
+
+_Recommend:_ invitation-only sign-up — staff issue an invite from the expert row, the expert sets
+a password through the Unit 52 mail channel, and the account is bound to that `expert.id` rather
+than matched on email. Keep party-scoped tokens underneath and let the account mint them on demand,
+so the authorisation model does not change at all and only the credential does. Brand stays on the
+token, not the account, which answers the two-panels case without a second login.
+_Status:_ the expert portal's `/` is a holding page until this is specced; `/case` and
+`mintForExpert` stay live so in-flight reviews are not stranded, and both retire in one change.
+_Gates:_ the expert's case list, payouts view (Unit 35, D6) and evidence access.
 
 **Q8 — What does a client with two or more cases see?**
 `PortalCaseService.authorized` refuses. `00d` §2b item 3 names the per-case routes and a picker.

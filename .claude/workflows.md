@@ -155,9 +155,25 @@ Everything else in the chain exists.
 | `MarketingLeadService.openLead` | `upsertContact` | **`upsertOpportunity`** | **reuses the open opportunity on that pipeline** |
 
 **Edits do not call GHL at all** (D44, Unit 46). `SalesDeskService.update` / `moveToStage` /
-`close` and `MarketingLeadService.value` each edit the mirror row, stamp `local_updated_at`, queue
-`UPSERT` or `CLOSE`, and answer from the row. `SYNC_OUTBOX` (2m) sends it; a successful push calls
-`pushedToGhl()`, which clears the stamp so 45e stops defending an edit GHL now has.
+`close` and `MarketingLeadService.value` each edit the mirror row, stamp `local_updated_at` **and
+record which of the four shared fields they touched** (`locally_edited_fields`, `V63`), queue
+`UPSERT` or `CLOSE`, and answer from the row. `SYNC_OUTBOX` (2m) sends it.
+
+**The push carries the edited fields only.** `updateOpportunity` omits a null from the body, so an
+unedited field is left alone in GHL rather than overwritten by whatever the mirror happens to hold
+— which is what made a rename undo a GHL workflow's stage move, the mirror's stage being up to one
+`MIRROR_DELTA` behind. A row with nothing outstanding sends nothing: GHL answers 422 to an empty
+body, and "they already agree" is success, not a retry.
+
+**The confirmation is conditional.** `OpportunityRepository.confirmPushed(opportunityId, seen)`
+clears `local_updated_at` and `locally_edited_fields` only while the stamp is still the one the push
+carried. A zero row-count means the row was edited again during the round trip, so nothing is
+cleared and the drain re-queues — after marking the first row sent, because a pending row is what
+the outbox collapses onto.
+
+**Both creates write the mirror before answering** (`absorbCreated`), from GHL's own reply. Without
+it the very next edit of a just-created deal was refused as "not in the mirror yet" for up to a
+full `MIRROR_DELTA`.
 
 `upsertOpportunity` means one open opportunity per contact per pipeline. It is correct for a
 marketing lead and would be wrong for a second sale.
@@ -297,3 +313,32 @@ request / appointment context. This is tier 3 of the mirror (Unit 47) and has no
 | **mirror** | GHL → EvalOS | `contact.*` and `opportunity.*` webhooks update `contact_snapshot` and `opportunity`; `MIRROR_DELTA` (15m) is the floor under them | code complete (45d, 2026-09-17) |
 | **B** | EvalOS → Expert | staff mints a portal link; expert signs | code complete |
 | **C** | EvalOS → GHL / client | outbound dispatcher | **not implemented** |
+
+## Request documents (Unit 53, built 2026-09-18)
+
+### CURRENT IMPLEMENTATION
+
+The client attaches documents on the **review** step of the request, before sending
+(`RequestDocuments`, portal). **Submit is not gated on them** (`43` §5, unchanged) — the copy says
+"if you have them to hand" because a missing transcript is something Sales asks about on the call,
+not a wall in front of a lead.
+
+Sales reads them on the deal page beside the answers (`DealDocuments`), through
+`GET /api/opportunities/{id}/documents` and a five-minute presigned URL per click. Its own route
+and the same permission as the application read (D34): the documents ask no new authorisation
+question, because Sales reaches them by already being able to open the opportunity.
+
+At Handoff A the documents follow the request onto the case. **Nothing is copied in S3 and nothing
+is re-keyed** — the key is `{brand}/client/{ghl_contact_id}/{doc}`, the person's prefix, so the
+`case_document` row points at the object the client already uploaded. `carried_to_case_document_id`
+is stamped once, which is what makes a replayed `opportunity.won` skip rather than duplicate.
+
+The carry-forward is a listener on `CASE_CREATED`, not a call inside `CaseIntakeService` — a
+deliberate deviation from `53` §4 that buys the isolation §4 demands: `opportunity.won` is the only
+door into a case (invariant 8), so a carry-forward that threw would turn a recoverable problem into
+an unrecoverable one.
+
+### TARGET WORKFLOW
+
+Unchanged by this unit. DOCUMENT SUBMISSION was the one step of §2's lifecycle with nothing behind
+it; it now has a table, two audiences and a carry-forward.

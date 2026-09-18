@@ -58,7 +58,9 @@ The ones most often violated from memory:
 - **A SALES/MARKETING member holds a SET of pipelines** (`team_member_pipeline`, Unit 44b), assigned
   by MIRROR id and never by a pasted GHL string. The one-owner rule is gone — Case Delivery is a
   pipeline nobody owns. `PipelineScope.mine()` returns a list; a CREATE uses `mineForWrite()`, which
-  refuses rather than guessing when a desk holds several.
+  refuses rather than guessing when a desk holds several. **A revoke stamps `revoked_at` rather than
+  deleting the row** (`V64`, 2026-09-18) — otherwise `backfillFromLegacyColumn` re-created the grant
+  on the next `PIPELINE_MIRROR` pass, and `V39` forbids emptying the legacy column it reads.
 - **The client's request lands on the pipeline marked `INTAKE`**, not one matched by name.
   `evalos.ghl.intake-pipeline-name` is retired: a rename in GHL used to stop every request silently.
 - **EvalOS sends GHL the requested SERVICE ID as an opportunity custom field and nothing else about
@@ -177,3 +179,30 @@ from the END of a run, so a fresh start was an hour from its first pipelines. Th
 syncs pipelines before deals**, because an opportunities-only refresh cannot fix an empty mirror.
 And a desk's pipeline claim is **re-read when the token carries none**: D19b's sign-in bound is
 right for a reassignment and a trap for a first assignment.
+
+**D44/D46 amended 2026-09-18 (review pass).** A queued `UPSERT` sends **only the fields the desk
+edited** (`opportunity.locally_edited_fields`, `V63`); `updateOpportunity` omits a null, so an
+unedited field is left alone in GHL rather than overwritten from a mirror that may be a
+`MIRROR_DELTA` behind. A row with nothing outstanding sends nothing — GHL answers 422 to an empty
+body. The confirmation is `OpportunityRepository.confirmPushed`, a conditional statement, not
+`save(row)`: the entity was read before the round trip, so merging it lost any edit that landed
+during it, and a zero row-count re-queues instead. **Both creates now write the mirror from GHL's
+reply** (`absorbCreated`) so the next edit is not refused as "not in the mirror yet". Refresh reads
+pipeline *structure* only when the mirror holds none.
+
+**D23 edited 2026-09-18 — experts get accounts after all.** It said "experts do not have accounts;
+an expert reaches the portal only through a staff-minted link". The stakeholder decision reversed
+that: experts sign in like clients at `experts.internationalevaluations.com`, and staff-minted
+expert links are retired. D1's refusal rested on there being no mail channel for a password reset,
+and **Unit 52 built one** — the premise expired before the answer did.
+
+**The direction is decided; the PROCESS is not** (Q6, still open, still gates code). An expert is
+not a client: they are on the roster before they could sign in, their access is party-scoped rather
+than account-scoped, and one person may sit on two brands' panels. Recommendation on file:
+invitation-only sign-up bound to `expert.id`, party-scoped tokens kept underneath, brand on the
+token and not the account.
+
+**Nothing is deleted yet, and the ordering is deliberate.** `mintForExpert`/`mintForParty` are
+still wired into four staff screens and every link already in an expert's inbox points at `/case`,
+so minting and that route retire in ONE change once the replacement exists. Until then the expert
+portal's `/` is a holding page that offers no door.

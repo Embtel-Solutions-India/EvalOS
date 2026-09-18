@@ -59,3 +59,18 @@ re-reads only pipelines nobody has looked at inside `evalos.ghl.delta-ttl`.
 **Desk writes (46, 2026-09-17).** Edits — `update`, `moveToStage`, `close`, Marketing's `value` —
 are `editLocally` + `enqueue(UPSERT|CLOSE)` and return the local row. Creates — `createDeal`,
 `openLead` — still call GHL inline. Boards call GHL **never**.
+
+**Desk edits, as of the 2026-09-18 review pass.** Edit the mirror row, stamp `local_updated_at`
+**and record which shared fields were touched** (`locally_edited_fields`), enqueue, answer from the
+row. `SYNC_OUTBOX` (2m) sends **only those fields** — sending all four made a rename undo a GHL
+workflow's stage move, the mirror's stage being up to one `MIRROR_DELTA` behind. The push's
+confirmation is conditional (`confirmPushed`): if the row was edited again during the round trip
+nothing is cleared and the drain re-queues, after marking the first row sent so the pending-row
+collapse cannot swallow it. **Both creates absorb GHL's reply into the mirror before answering**, or
+the next edit of a just-created deal is refused as "not in the mirror yet" for a full sweep.
+
+**DOCUMENT SUBMISSION is no longer the missing step** (Unit 53, 2026-09-18). The client attaches
+documents on the request's review step before sending; **submit is never gated on them** (`43` §5).
+Sales reads them beside the answers on the deal page, on their own route and the same permission
+(D34). At Handoff A they follow the request onto the case with no S3 copy and no re-key, through a
+`CASE_CREATED` listener that can never fail the case.

@@ -209,4 +209,29 @@ class MarketingLeadServiceTest {
 
 		verify(outbox, never()).enqueue(any(), any(), any());
 	}
+
+	/**
+	 * <strong>A lead just opened is editable immediately.</strong>
+	 *
+	 * <p>{@code openLead} creates straight in GHL and answers from GHL's reply, while
+	 * {@link MarketingLeadService#value} refuses a deal the mirror has not absorbed — correctly,
+	 * since the outbox stores an id and a row that does not exist cannot be pushed. Without writing
+	 * the mirror here, correcting the name or the valuation of a lead opened seconds ago answered
+	 * 400 for up to a full MIRROR_DELTA, and the marketer's own correction looked like a bug in the
+	 * screen they were standing on.
+	 */
+	@Test
+	void openingALeadPutsItInTheMirrorSoItCanBeValuedAtOnce() {
+		authenticate(Role.MARKETING, MINE);
+		when(ghl.upsertContact(any(), any(), any(), any(), any()))
+				.thenReturn(new GhlWriteClient.UpsertedContact("c1", "Ada Lovelace", "ada@example.test", null));
+		when(ghl.upsertOpportunity(eq(MINE), eq("c1"), any(), any()))
+				.thenReturn(new GhlWriteClient.UpsertedOpportunity("o1", "c1", MINE, "s1", "open",
+						"Ada Lovelace", new BigDecimal("500"), true));
+
+		service.openLead("Ada", "Lovelace", "ada@example.test", null, null, new BigDecimal("500"));
+
+		verify(deals).absorbCreated(MINE, "o1", "c1", "Ada Lovelace", new BigDecimal("500"), "open",
+				"s1", GhlWriteClient.SOURCE_MARKETING_DESK);
+	}
 }

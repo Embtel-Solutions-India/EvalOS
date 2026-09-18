@@ -91,9 +91,20 @@ Transitions live in `CaseTransitions`/`CaseLifecycleService`; every one writes a
 11. Outbound webhooks are HMAC-signed, retried, dead-lettered — *(design; not implemented)*.
 12. Webhook transport carries no business logic.
 13. Every state transition writes an append-only audit row.
-14. EvalOS hosts no files, and sends email for **exactly one purpose**: proving control of a
-    mailbox (two messages). **A push notification is not mail** and does not touch this invariant
-    (D37: notifications are in-app and push, and nothing else).
+14. EvalOS hosts no files, and sends email for **two purposes and no others** — proving control of
+    a mailbox (set password, reset password) and **confirming that a client's request was
+    received** (one message, at submit). **A push notification is not mail** and does not touch this
+    invariant (D37: notifications are in-app and push, and nothing else).
+    **Amended 2026-09-19, on the business's instruction.** It read *"exactly one purpose: proving
+    control of a mailbox (two messages)"*, and the submission confirmation is not a mailbox proof —
+    so it is an amendment rather than a reading of the old rule. Two things bound it: the
+    confirmation **promises nothing the flow can fail to keep** (no price, no turnaround, no date —
+    EvalOS holds no price list and the work is quoted by a person), and **nothing depends on it
+    arriving**, so a failed send is logged and the submit still succeeds.
+    **This is not the four-message expansion `open-decisions.md` (c) recommends** — checklist+link,
+    draft ready, expert signing link, delivered. Those remain unbuilt and still need their own
+    decision; each one would be mail a client *acts on*, which is a different and larger question
+    than telling somebody their form arrived.
 15. **No AI makes a production decision, and there is no AI in the system at all.**
 
 ## Build-failing structural tests

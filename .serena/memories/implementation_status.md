@@ -3,8 +3,13 @@
 **The authoritative file is `.claude/implementation-status.md` — a table with evidence per row.
 Check it before claiming anything exists or is missing.**
 
-Build is green: backend **1013 tests, 0 failures, 3 skipped**; staff SPA 127 tests plus clean tsc;
-portals 30 tests plus clean tsc. Re-run 2026-09-16.
+Build is green: backend **1098 tests, 0 failures, 4 skipped**; staff SPA 127 tests plus clean tsc
+and oxlint; portals 30 tests plus clean tsc. Re-run 2026-09-18 on a `clean` build.
+
+**Use `mvnw clean test`, not `mvnw test`, after a signature change.** The VS Code Java extension
+writes error-tolerant classes into the same `target/classes` and Maven's incremental build keeps
+them — the suite reports green over stale bytecode, and Mockito then fails with "Byte Buddy could
+not instrument all classes within the mock's type hierarchy", which is not a Mockito problem.
 
 **It was RED on that re-run, from a time bomb rather than a regression.**
 `GmOverviewServiceTest.countsOnlyCasesAlreadyPastTheirPromisedDateAsLate` set a delivery date from
@@ -253,3 +258,109 @@ board — `/opportunities/new` (SALES) and `/marketing/leads/new` (MARKETING), e
 returning to the board on success. `NavItem.brandProven` replaces the hardcoded one-path exception
 in `navigation.test.ts`: a `readsGhlLocation` screen is GM-only unless it is marked, and a marked
 one may only be reached by GM/SALES/MARKETING.
+
+**2026-09-18 — a review pass fixed nine defects in Units 45d–47b and the mail refactor**, none
+caught by a test. Server side: the outbox push sent all four shared fields and confirmed with
+`save(row)` on a stale entity (both fixed, `V63` + `confirmPushed`); `revoke` was undone by
+`backfillFromLegacyColumn` every sweep (`V64`, soft delete); `absorb` stamped freshness BEFORE
+absorbing, so a mid-loop failure left a half-absorbed mirror claiming to be current; the four
+reference absorbs had no name guard, so one nameless GHL row failed its whole list inside
+`guarded()`; `ContactSnapshot.syncFromGhl` blanked name/email/phone/company from a partial webhook
+payload; `ClientMailer`'s audit write could 500 a known address and 204 an unknown one — the
+enumeration oracle it exists to close; both creates did not write the mirror, so the next edit 400'd
+for a full `MIRROR_DELTA`; Refresh re-read pipeline structure on every press; and
+`application-local.yml` defaulted S3 to the **live** bucket. **The four client-side findings were fixed and
+then REVERTED on request** — `frontend/src` is byte-identical to `9a1f3e7`, so all four are still
+live bugs: the deal page's Contact panel hangs on "Loading…" when the contact is not mirrored
+(`useMetrics` reads `data === null` as loading, and the endpoint answers 200 with `null` on
+purpose); a failed Refresh is silent (`try/finally`, no `catch`); a GM opening any deal gets an
+access error under an unusable "Add note" box (`navigation.ts` grants GM, the note controller does
+not — **gating the panel was declined, so fix it server-side if at all**); and navigating away
+`onOpened` hides "that contact already had an open deal".
+
+**Two findings were rejected and that is part of the record.** `board-stale-after` stays at **5m**
+— a business decision of 2026-09-17 over a proposed 15, with the boundary blink already named as
+the accepted cost; the defect was the code comment claiming 15m, and it was the comment that
+changed. And `syncNow` carries no `@Transactional`, so it was never holding a connection across a
+GHL round trip.
+
+**2026-09-18 — the client questionnaire's autosave 403'd at the CORS preflight.**
+`PortalSecurityConfig` allowed `GET, POST, OPTIONS`; `PUT /api/portal/applications/{id}` is the
+autosave and the only non-GET/POST route on `/api/portal/**`. A refused preflight comes back as a
+bare 403 with a plain-text body, so the client could not read a message out of it and fell back to
+"We could not save your answers." — nothing was unauthorised and nothing logged an error. Fixed by
+adding PUT; `ClientApplicationRoutesTest` now asserts the preflight per method AND that an unserved
+verb is still refused, so the list stays enumerated rather than becoming `*`.
+
+**2026-09-18 — the portals workspace served the client app on the expert port.** `npm run dev` was
+an alias for `cd client && vite` and neither vite config set `strictPort`, so Vite incremented past
+a busy 5174 and a second `npm run dev` answered on **5175**, the expert portal's port. Both configs
+now set `strictPort: true`; `dev` refuses and names `dev:client` (5174) / `dev:expert` (5175). The
+expert portal also gained a `/` holding page (`expert/src/pages/Welcome.tsx`) — it had no `/` at
+all, so the bare origin answered 404. `/case` and `mintForExpert` stay live until the new expert
+sign-in process is specced (Q6).
+
+**2026-09-18 — Unit 53 (request documents) BUILT.** `application_document` (`V65`),
+`ApplicationDocumentService`, portal routes (POST/GET/DELETE on
+`/api/portal/applications/{id}/documents`), Sales routes
+(`GET /api/opportunities/{id}/documents` + `/{d}/url`), `RequestDocuments` on the portal review
+step, `DealDocuments` on the deal page, and `RequestDocumentCarryForward` at Handoff A. Suite:
+backend **1106**, staff SPA 127, portals 30.
+
+Three things not obvious from the code: the S3 object is **never copied or re-keyed** at Handoff A
+(the key is the contact's prefix, so the case row points at the same object — the payoff of `53` §1
+keying by the person); the carry-forward is an **event listener on `CASE_CREATED`**, a deliberate
+deviation from `53` §4 that gets "never fails the case" structurally, since `opportunity.won` is
+the only door into a case; and **submit is still never gated on documents** (`43` §5).
+
+Adding DELETE for the document routes **failed `ClientApplicationRoutesTest`'s preflight
+assertion**, which is exactly why it exists — one commit before a client would have met it as a
+bare 403. Portal CORS is now GET/POST/PUT/DELETE/OPTIONS; PATCH is the unserved verb the negative
+assertion uses.
+
+**2026-09-19 — document routes now work on a laptop.** `DocumentStore` takes an optional
+`evalos.s3.endpoint`; set it and the client AND the presigner are both overridden (overriding only
+the client uploads fine and then hands out AWS URLs that 404) and addressing switches to path-style,
+which is what MinIO serves. `docker-compose.local.yml` — a SEPARATE file from the deployment
+compose, which is DevOps's (D38) — runs MinIO and creates the bucket. Credentials come from
+AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY in the environment, never a profile: `ConfigSecretsTest`
+forbids credential defaults. `application-local.yml` names a local bucket again, safe ONLY because
+the endpoint is localhost — `DocumentStoreEndpointTest` pins those two together and pins the
+endpoint blank in `application.yml` and `application-prod.yml`. **Not verified end to end: Docker
+was not running, so nothing has been written to MinIO yet.**
+
+**2026-09-19 — documents go to LOCAL DISK in development, never a bucket.** `evalos.s3.local-dir`
+(`EVALOS_S3_LOCAL_DIR` in `.env`, loaded by launch.json as real env vars) makes `DocumentStore`
+write to a directory; `LocalDocumentController` serves reads on a five-minute capability token with
+`Content-Disposition: attachment`, mirroring a presign. **MinIO was dropped** — it needed a
+container running before any document route worked, and `docker-compose.local.yml` was never
+written. **Production is unchanged and takes bucket + region from `application.yml`.** Three
+guards: blank in `application.yml`/`application-prod.yml`, a startup refusal outside the `local`
+profile, and `@ConditionalOnProperty` so the unauthenticated route is not mapped otherwise. The
+profile check must use `acceptsProfiles`, NOT `getActiveProfiles` — `spring.profiles.default: local`
+leaves the active list EMPTY while `application-local.yml` is loaded, and reading the active list
+refused every integration test. Suite: backend **1114**.
+
+**2026-09-19 — GHL WRITES ARE STUBBED ON A LAPTOP.** `evalos.ghl.write-mode` is `stub` in
+`application-local.yml`, `live` everywhere else; `StubGhlWriteClient` answers all nine write verbs
+locally. **Reads stay live** (the mirror needs the real pipelines/stages/fields, and a faked read
+would stop catching shape mismatches). Reason: `location-id` names the BUSINESS'S REAL CRM, so
+exercising the portal intake flow created real opportunities somebody had to delete. It refuses to
+start outside the `local` profile — a deployment holding it would report every write as successful
+and send none, diverging silently and permanently. `EVALOS_GHL_WRITE_MODE=live` to write for real.
+
+**Also 2026-09-19:** a fresh environment has NO pipeline marked INTAKE, and submit then 400'd with
+"we could not reach our systems, please try again in a moment" — untrue and unactionable, with a
+log line claiming "queued for retry" while queueing nothing. `intakePipeline()` now resolves
+outside the outage catch and logs at ERROR; the catch only claims a queue when it made one. Suite:
+backend **1121**.
+
+**Desk logins (2026-09-19).** Six: `sales-1..3` and `bde-1..3` (`@evalos.local` locally), password
+**`DevPassw0rd!`** — the seeded throwaway, kept on the business's instruction, verified against each
+stored bcrypt hash. Sales hold the three service pipelines, BDE the three BDE pipelines. **BDE is
+MARKETING, not SALES** (MARKETING opens a lead via upsert; SALES opens a deal via true create and
+gets meetings/follow-ups/close). `V911` converges the naming, because five had been renamed by hand
+locally while the seeds still said `sales.attorney...`. `docs/seed-desks.sql` is the production
+script — an operator script, not a migration. **It carries `DevPassw0rd!`, whose hash is committed
+in V908 and whose plaintext is in that file's comments: a PUBLISHED credential, not a weak one.
+Change the hash before using it on anything holding client data.**

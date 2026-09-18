@@ -194,6 +194,17 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
   that reason. **The cost is named rather than hidden: a won deal reaches GHL on the next drain
   (≤2m), so Handoff A's case arrives that much later.** Taken deliberately — a win lost to an
   outage is the more expensive failure.
+  **The push sends the fields the desk actually edited and no others** (`V63`,
+  `opportunity.locally_edited_fields`, amended 2026-09-18). It sent all four, and the mirror's stage
+  is up to one `MIRROR_DELTA` behind — so a rename re-sent a stale stage, undoing a GHL workflow's
+  card move and then having the revert read back as truth on the next sweep. `updateOpportunity`
+  omits a null from the body, so an unedited field is left alone in GHL; a row with nothing
+  outstanding sends nothing at all, because GHL answers 422 to an empty body and "they already
+  agree" is success.
+  **The confirmation is a conditional statement, not a save** (`OpportunityRepository.confirmPushed`).
+  The drain reads the row, spends a round trip, and comes back to clear the stamp; merging the
+  entity it read lost any edit that landed in between — in the mirror, in the queue, and in GHL at
+  once. A zero row-count means the row moved, and the drain re-queues rather than clearing.
 - **D45.** **A board reads EvalOS rows and makes no GHL request at all** (Unit 46) — on load, on
   refetch, and on moving a card. A browser reload reads the mirror like everything else, so a lead
   created in GHL appears only once a sync has brought it in.
@@ -209,13 +220,25 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
   clearing; the fix for that noise is 6m, never a slower sweep.
   **`POST /api/opportunities/board/refresh` is a reconciliation, not a live read** — it syncs the
   caller's own pipelines then draws from the mirror, behind a 30-second floor so a double-click
-  costs one read.
+  costs one read. **The pipeline *structure* read is gated on the mirror holding no live pipeline**
+  (amended 2026-09-18): the floor covered the deal reads and not that one, so every press also
+  spent a paged structure read on a location whose pipelines change a few times a year, and the GM
+  — whose board is every live pipeline — fanned it out over all of them. The hourly
+  `PIPELINE_MIRROR` sweep keeps structure current; the button only has to be able to fix a mirror
+  that has none, which is the state it was added for.
 - **D46.** **A create still calls GHL inline** — `SalesDeskService.createDeal` and
   `MarketingLeadService.openLead`. The outbox stores an id and never a payload (`45` §2C.2), and a
   desk create carries an expected close date and custom field values the mirror does not hold;
   queueing one would mean either a payload column or silently dropping what the salesperson typed.
   Custom fields are tier 2, which is Unit 47. The contact upsert and GHL tasks stay inline for the
   neighbouring reason: `sync_outbox` is opportunity-scoped, and nothing mirrors a task.
+  **A create writes the mirror from GHL's own reply before answering** (amended 2026-09-18,
+  `OpportunityMirrorService.absorbCreated`). It did not, and every desk *edit* refuses a deal the
+  mirror has not absorbed — correctly, since a row that does not exist cannot be pushed — so
+  correcting the name or value of a deal opened seconds ago answered 400 for up to a full
+  `MIRROR_DELTA`. From the create's reply rather than a second GHL read: it has just said what it
+  stored. GHL's own timestamps are left null for the next sweep to fill rather than filled with
+  EvalOS's clock.
 - **D47.** **Unit 47 mirrors what a screen reads, not what the tier list contains** (2026-09-17),
   which is `00d` §6.6's ruling over `00c` §2c: *a sync surface with no consumer is pure drift risk*.
   After Unit 46 exactly three live GHL reads were left on a desk render, and those three are what
@@ -308,10 +331,23 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
   not roles — identical permissions.
 - **D22.** Two Spring Security chains: `/api/portal/**` on an opaque portal token (order 1),
   everything else on staff JWT (order 2).
-- **D23.** Clients authenticate with email + password. **Experts do not have accounts** — an expert
-  reaches the portal only through a staff-minted link. Whether they get accounts is a **stakeholder
-  decision not yet taken** (Q6, re-gated 2026-09-17); until it is, the minted link is the whole of
-  expert access and nothing should be built assuming otherwise.
+- **D23.** Clients authenticate with email + password. **Experts will too — the stakeholder
+  decision came back on 2026-09-18: experts sign in like clients, and staff-minted expert links
+  are retired.** This reverses what D23 said (*"experts do not have accounts — an expert reaches
+  the portal only through a staff-minted link"*), and the reversal is cheap to justify: D1 refused
+  an account because a password store needs a reset flow and a reset flow needs a mail channel
+  invariant 14 denied, and **Unit 52 built that channel**. The premise expired before the answer
+  did.
+  **What is decided is the direction, not the process** — see Q6, which is still open and still
+  gates any code. An expert is not a client: they are party-scoped, they exist on the roster
+  before they could sign in, and the same person may sit on two brands' panels, so the Unit 42
+  flow is a starting point rather than a template.
+  **Nothing is removed yet, and that ordering is deliberate.** `PortalAccessService.mintForExpert`
+  and `mintForParty` are still wired into four staff screens and every link already in an
+  expert's inbox points at `/case` on the expert portal, so minting and the route it feeds are
+  retired together, in one change, once the replacement exists. Until then the expert portal's `/`
+  is a **holding page** that offers no door, because offering a sign-in that does not exist is
+  worse than saying so.
 
 ## Data
 
