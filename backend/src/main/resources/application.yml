@@ -223,6 +223,17 @@ evalos:
     # in a committed yaml (`ConfigSecretsTest` fails the build if one does).
     bucket: ${EVALOS_S3_BUCKET:}
     region: ${EVALOS_S3_REGION:}
+    # **Blank here and in prod, and that is the whole safety.** Set it and documents are written to
+    # a directory on the machine instead of to S3, and read back through an unauthenticated route
+    # -- which is right on a laptop and wrong everywhere else. `DocumentStore` refuses to start if
+    # it is set outside the `local` profile, and `LocalDocumentController` is not even mapped while
+    # it is blank. Production takes its bucket and region from the two lines above, as it always
+    # has.
+    local-dir: ${EVALOS_S3_LOCAL_DIR:}
+    # An S3-compatible endpoint instead of AWS. **Blank here and in prod on purpose** — it exists
+    # for `docker-compose.local.yml`'s MinIO, and a deployment that sets it is talking to something
+    # other than S3. Present in this file so the knob is visible rather than discovered.
+    endpoint: ${EVALOS_S3_ENDPOINT:}
   ghl:
     # The GHL public API, read-only. Only the marketing pipeline view uses it: EvalOS reads
     # GHL's Google Ads funnel and writes nothing back, because GHL owns the front of house.
@@ -348,6 +359,19 @@ evalos:
     # Blank means no brand may hold a pipeline-scoped role, which is the safe default for an
     # environment that has not been told which brand sells.
     sales-brand: ${GHL_SALES_BRAND_ID:}
+    # **`live` or `stub`, and `live` is the only value a deployment may hold.**
+    #
+    # `stub` answers every GHL WRITE locally instead of sending it — reads still reach the real
+    # location, because that is where the pipelines, stages and fields are and nothing works
+    # without them. It exists so the portal's intake flow can be exercised on a laptop without
+    # creating real opportunities in the business's CRM, which is the only way it could be
+    # exercised before.
+    #
+    # `StubGhlWriteClient` REFUSES TO START outside the `local` profile. A deployment running it
+    # would accept every desk edit, every request and every close, report success and send none of
+    # it — EvalOS and the CRM would diverge silently and permanently, with no failed request
+    # anywhere to notice. There is no outage in this system as bad as that.
+    write-mode: ${EVALOS_GHL_WRITE_MODE:live}
     # When a board tells its reader the mirror has not been confirmed against GHL lately
     # (Unit 46). **This is not a refresh trigger** — the board makes no GHL request at all any
     # more, so nothing acts on it; it is a label.

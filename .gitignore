@@ -38,3 +38,5 @@ desktop.ini
 # GHL_API_TOKEN belongs on a laptop — never in application-local.yml, which is committed.
 backend/config/
 frontend/ssl/
+.local-documents/
+mail-preview/

@@ -80,6 +80,8 @@ evalos:
     # says which variable is missing.
     bucket: ${EVALOS_S3_BUCKET:}
     region: ${EVALOS_S3_REGION:}
+    # Blank: production talks to real S3. See `application-local.yml` for what this is for.
+    endpoint: ${EVALOS_S3_ENDPOINT:}
   ghl:
     # Every `evalos.ghl.*` value, listed in one place: this
     # profile's convention is that a deployer can see what they are expected to set. The

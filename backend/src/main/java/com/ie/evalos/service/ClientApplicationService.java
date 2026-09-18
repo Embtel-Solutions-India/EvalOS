@@ -158,13 +158,19 @@ public class ClientApplicationService {
 	 */
 	private final ClientAccountService accountsService;
 
+	private final ClientMailer mailer;
+
+	/** Unit 53: the confirmation names how many documents arrived, which is the one fact it can prove. */
+	private final ApplicationDocumentService requestDocuments;
+
 	ClientApplicationService(ClientApplicationRepository applications, ClientAccountRepository accounts,
 			GhlWriteClient ghl, PipelineRepository pipelines,
 			@Value("${evalos.ghl.opportunity-service-field:}") String serviceFieldId,
 			@Value("${evalos.ghl.opportunity-submitted-field:}") String submittedFieldId,
 			@Value("${evalos.ghl.opportunity-correlation-field:}") String correlationFieldId,
 			OpportunityMirrorService deals, SyncOutboxService outbox,
-			ClientAccountService accountsService) {
+			ClientAccountService accountsService, ClientMailer mailer,
+			ApplicationDocumentService requestDocuments) {
 		this.applications = applications;
 		this.accounts = accounts;
 		this.ghl = ghl;
@@ -175,6 +181,8 @@ public class ClientApplicationService {
 		this.correlationFieldId = correlationFieldId == null ? "" : correlationFieldId.trim();
 		this.deals = deals;
 		this.outbox = outbox;
+		this.mailer = mailer;
+		this.requestDocuments = requestDocuments;
 	}
 
 	/** Every application this client has, newest first. */
@@ -297,6 +305,27 @@ public class ClientApplicationService {
 				"We could not reach our systems to send this. Please try again in a moment.");
 
 		application.submit();
+
+		// **The confirmation, and it is deliberately the last thing that happens.** The request is
+		// already submitted and already visible in the portal by this line, so nothing about it
+		// depends on the mail arriving — which is why the boolean is ignored and the whole call is
+		// guarded. A mail relay having a bad minute must not lose a client's finished
+		// questionnaire; that trade is the same one `linkOpportunityIfMissing` makes one method up,
+		// for the same reason.
+		//
+		// This message is NOT a mailbox proof, which is the one purpose invariant 14 allowed. It was
+		// added on the business's instruction 2026-09-19 and the invariant edited to say so.
+		try {
+			mailer.sendRequestSubmitted(
+					new com.ie.evalos.integration.MailTransport.Recipient(client.getBrandId(),
+							client.getEmail()),
+					client.getFirstName(), application.getServiceName(),
+					requestDocuments.countFor(application.getId()));
+		}
+		catch (RuntimeException mailFailed) {
+			log.error("Request {} was submitted but its confirmation could not be sent",
+					application.getId(), mailFailed);
+		}
 		return view(application);
 	}
 
@@ -362,8 +391,24 @@ public class ClientApplicationService {
 				return application;
 			}
 		}
+		// **Resolved OUTSIDE the try, because it is not a GHL failure and must not be treated as
+		// one.** "No pipeline is marked INTAKE" is this environment being unconfigured; the catch
+		// below exists for an upstream outage, and flattening the two together is what made a
+		// client retry for ever against a 400 that said "try again in a moment" while every log
+		// line called it queued. A GM marking a pipeline is the fix, and somebody has to be told.
+		com.ie.evalos.domain.Pipeline intake;
 		try {
-			com.ie.evalos.domain.Pipeline intake = intakePipeline(application.getBrandId());
+			intake = intakePipeline(application.getBrandId());
+		}
+		catch (com.ie.evalos.integration.GhlUnavailableException notConfigured) {
+			// ERROR, not WARN: nothing retries its way out of this, and it blocks every request in
+			// the brand rather than one.
+			log.error("Request {} cannot open a deal: {}", application.getId(),
+					notConfigured.getMessage());
+			return application;
+		}
+
+		try {
 			// **The local row first, and the order is the correlation key's whole mechanism.**
 			// EvalOS writes its own opportunity, sends that row's id to GHL in a custom field, and
 			// only then records GHL's id beside it. A create that times out therefore leaves a row
@@ -405,9 +450,18 @@ public class ClientApplicationService {
 			UUID queued = application.getOpportunityId();
 			if (queued != null) {
 				outbox.enqueue(application.getBrandId(), queued, SyncOutboxEntry.Intent.UPSERT);
+				log.warn("Could not open the deal for request {} yet; queued for retry: {}",
+						application.getId(), ghlRefused.getMessage());
 			}
-			log.warn("Could not open the deal for request {} yet; queued for retry: {}",
-					application.getId(), ghlRefused.getMessage());
+			else {
+				// **Said separately, because "queued for retry" was printed here too and was not
+				// true.** With no local row there is no entity id for the outbox to name, so
+				// nothing is queued and nothing will retry on its own — the next submit is what
+				// tries again. A log line that claims a queue that does not exist is worse than no
+				// log line, because it stops somebody looking.
+				log.error("Could not open the deal for request {} and nothing was queued: {}",
+						application.getId(), ghlRefused.getMessage());
+			}
 			return application;
 		}
 		return application;

@@ -1,8 +1,13 @@
 package com.ie.evalos.integration;
 
 import java.io.InputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Duration;
+import java.time.Instant;
+import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 
 import jakarta.annotation.PreDestroy;
 
@@ -15,6 +20,8 @@ import software.amazon.awssdk.core.exception.SdkClientException;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.S3ClientBuilder;
+import software.amazon.awssdk.services.s3.S3Configuration;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.S3Exception;
@@ -70,17 +77,70 @@ public class DocumentStore {
 	private final S3Client s3;
 	private final S3Presigner presigner;
 
+	/**
+	 * Where documents live on a laptop instead of in a bucket — <strong>local development only</strong>.
+	 *
+	 * <p><strong>This exists because the alternatives were both wrong.</strong> Blank S3 settings
+	 * made every document route answer 502, so Unit 53 could not be exercised at all; naming the
+	 * production bucket meant any developer whose shell held AWS credentials wrote test uploads
+	 * into production's own {@code brandId/client/…} prefixes. A directory resolves it: there is
+	 * no credential, no network call, and nothing that can reach a real bucket by accident.
+	 *
+	 * <p><strong>Blank everywhere but {@code application-local.yml}</strong>, and the constructor
+	 * refuses to start if it is set outside the {@code local} profile. A deployment that set this
+	 * would be writing client documents to a container filesystem that vanishes on the next deploy,
+	 * and serving them from a route with no authentication in front of it.
+	 */
+	private final Path localDir;
+
+	/**
+	 * @param endpoint an S3-compatible endpoint to talk to instead of AWS, or blank for AWS itself.
+	 *                 <strong>Local development only</strong> — `docker-compose.local.yml` runs
+	 *                 MinIO and `application-local.yml` points here at it, which is what makes the
+	 *                 document routes exercisable on a laptop without an AWS account. It is blank
+	 *                 in `application.yml` and `application-prod.yml`, so a deployment reaches real
+	 *                 S3 unless somebody sets this on purpose.
+	 */
 	DocumentStore(@Value("${evalos.s3.bucket:}") String bucket,
-			@Value("${evalos.s3.region:}") String region) {
+			@Value("${evalos.s3.region:}") String region,
+			@Value("${evalos.s3.endpoint:}") String endpoint,
+			@Value("${evalos.s3.local-dir:}") String localDir,
+			org.springframework.core.env.Environment environment) {
 
 		this.bucket = bucket;
+
+		// **Local disk wins when it is set, and it is only allowed to be set locally.** The guard is
+		// a startup failure rather than a warning because the failure it prevents is silent: client
+		// documents written to a container filesystem, served from a route with no authentication,
+		// and gone at the next deploy. A deployment that wants a real bucket already has one.
+		// **`acceptsProfiles`, not `getActiveProfiles`.** `application.yml` sets
+		// `spring.profiles.default: local`, so a run with nothing explicitly activated IS the local
+		// profile and loads `application-local.yml` — while `getActiveProfiles()` returns an empty
+		// array for it. Reading the active list therefore refused to start every integration test
+		// in the suite, which is the same mistake in reverse: it would have called a deployment
+		// local too if one ever ran with no profile set.
+		if (!localDir.isBlank() && !environment.acceptsProfiles(
+				org.springframework.core.env.Profiles.of("local"))) {
+			throw new IllegalStateException("evalos.s3.local-dir is set to '" + localDir
+					+ "' outside the 'local' profile. It writes documents to the local filesystem and "
+					+ "serves them from an unauthenticated route; set EVALOS_S3_BUCKET and "
+					+ "EVALOS_S3_REGION instead.");
+		}
+		this.localDir = localDir.isBlank() ? null : Path.of(localDir).toAbsolutePath().normalize();
 		// **The credential is deliberately not a property.** The SDK's default provider chain reads
 		// the environment, the shared profile file and the instance role, which is how every other
 		// AWS-hosted service is configured. An `evalos.s3.access-key` property would invite a
 		// credential into a committed yaml — the accident `ConfigSecretsTest` exists to catch.
-		this.configured = !bucket.isBlank() && !region.isBlank();
+		this.configured = this.localDir != null || (!bucket.isBlank() && !region.isBlank());
 
-		if (!configured) {
+		if (this.localDir != null) {
+			log.warn("Documents are being stored on the LOCAL FILESYSTEM at {} - development only. "
+					+ "Nothing reaches S3 and reads are served unauthenticated by "
+					+ "LocalDocumentController.", this.localDir);
+			this.s3 = null;
+			this.presigner = null;
+		}
+		else if (!configured) {
 			log.warn("No S3 bucket or region configured - document routes will answer 502. "
 					+ "Set EVALOS_S3_BUCKET and EVALOS_S3_REGION to enable them.");
 			this.s3 = null;
@@ -90,10 +150,38 @@ public class DocumentStore {
 			// Both names are echoed for the reason the GHL client echoes its two: whoever reads
 			// this is provisioning an environment and needs to know which variable resolved. A
 			// bucket name is not a secret, and no credential appears here or in any message below.
-			log.info("S3 document store configured: bucket={}, region={}", bucket, region);
+			// Both names are echoed for the reason the GHL client echoes its two: whoever reads
+			// this is provisioning an environment and needs to know which variable resolved. A
+			// bucket name is not a secret, and no credential appears here or in any message below.
+			// The endpoint is named too when it is set, because "my uploads went somewhere I did
+			// not expect" is exactly the confusion an unlogged override causes.
+			log.info("S3 document store configured: bucket={}, region={}, endpoint={}", bucket, region,
+					endpoint.isBlank() ? "AWS" : endpoint);
 			Region parsed = Region.of(region);
-			this.s3 = S3Client.builder().region(parsed).build();
-			this.presigner = S3Presigner.builder().region(parsed).build();
+
+			// **Path-style addressing when an endpoint is overridden**, because MinIO and most
+			// S3-compatible stores serve `host/bucket/key` while AWS serves `bucket.host/key`.
+			// Virtual-host style against `localhost` would resolve `evalos-documents-local.localhost`
+			// and fail as a DNS error, which reads like a network problem rather than a
+			// configuration one.
+			S3Configuration addressing = S3Configuration.builder()
+					.pathStyleAccessEnabled(!endpoint.isBlank())
+					.build();
+
+			S3ClientBuilder client = S3Client.builder().region(parsed).serviceConfiguration(addressing);
+			S3Presigner.Builder signer = S3Presigner.builder().region(parsed)
+					.serviceConfiguration(addressing);
+			if (!endpoint.isBlank()) {
+				// **The presigner needs it too, and forgetting that is the subtle half.** A client
+				// pointed at MinIO with a presigner still pointed at AWS uploads successfully and
+				// then hands out URLs on `s3.amazonaws.com` that 404 — the upload looks fine and
+				// only the read is broken, hours later.
+				java.net.URI uri = java.net.URI.create(endpoint);
+				client = client.endpointOverride(uri);
+				signer = signer.endpointOverride(uri);
+			}
+			this.s3 = client.build();
+			this.presigner = signer.build();
 		}
 	}
 
@@ -121,6 +209,10 @@ public class DocumentStore {
 	 */
 	public void put(String key, InputStream body, long length, String contentType) {
 		requireConfigured();
+		if (localDir != null) {
+			putLocally(key, body);
+			return;
+		}
 		try {
 			s3.putObject(PutObjectRequest.builder()
 					.bucket(bucket)
@@ -159,6 +251,9 @@ public class DocumentStore {
 	 */
 	public String presignedUrl(String key) {
 		requireConfigured();
+		if (localDir != null) {
+			return localUrl(key);
+		}
 		try {
 			return presigner.presignGetObject(GetObjectPresignRequest.builder()
 					.signatureDuration(READ_WINDOW)
@@ -249,5 +344,81 @@ public class DocumentStore {
 					"The document store is not configured in this environment. "
 							+ "Set EVALOS_S3_BUCKET and EVALOS_S3_REGION.");
 		}
+	}
+
+	// --- local filesystem mode (development only) -------------------------------
+
+	/**
+	 * One handed-out local read, and when it stops working.
+	 *
+	 * <p>Held in memory on purpose: these are capability URLs with a five-minute life, and a
+	 * restart invalidating them is correct rather than a limitation.
+	 */
+	private record LocalRead(String key, Instant expiresAt) {
+	}
+
+	private final Map<String, LocalRead> localReads = new ConcurrentHashMap<>();
+
+	private void putLocally(String key, InputStream body) {
+		Path target = resolveLocal(key);
+		try {
+			Files.createDirectories(target.getParent());
+			Files.copy(body, target, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+		}
+		catch (java.io.IOException ex) {
+			log.error("Local document write failed for key {}", key, ex);
+			throw new DocumentStoreUnavailableException(
+					"The document store did not accept the upload. Nothing was saved - try again.", ex);
+		}
+	}
+
+	/**
+	 * A relative URL rather than an absolute one, which is the one real difference from a presign.
+	 *
+	 * <p>S3 hands back an absolute URL on its own host; this has no host to name that would be
+	 * right for both the staff SPA and the two portals, each of which proxies {@code /api} to the
+	 * backend from a different origin. A relative URL resolves against whichever origin the reader
+	 * is already on and reaches the same route through the same proxy — and every caller opens it
+	 * with {@code window.open}, which handles both.
+	 */
+	private String localUrl(String key) {
+		String token = UUID.randomUUID().toString().replace("-", "");
+		localReads.put(token, new LocalRead(key, Instant.now().plus(READ_WINDOW)));
+		// Swept here rather than on a timer: the map is bounded by how often somebody clicks a
+		// document on a laptop, and a scheduled job for that would be machinery with no user.
+		localReads.values().removeIf((held) -> held.expiresAt().isBefore(Instant.now()));
+		return "/api/local-documents/" + token;
+	}
+
+	/**
+	 * The file one handed-out token names, or empty when it never existed or has expired.
+	 *
+	 * <p>Expiry is enforced here and not only at mint time, which is the whole point of the window:
+	 * a URL that was forwarded rather than clicked has to stop working.
+	 */
+	public java.util.Optional<Path> resolveLocalRead(String token) {
+		LocalRead held = localReads.get(token);
+		if (held == null || held.expiresAt().isBefore(Instant.now())) {
+			localReads.remove(token);
+			return java.util.Optional.empty();
+		}
+		Path file = resolveLocal(held.key());
+		return Files.isRegularFile(file) ? java.util.Optional.of(file) : java.util.Optional.empty();
+	}
+
+	/**
+	 * A key resolved under the local root, <strong>and proved to be under it</strong>.
+	 *
+	 * <p>Every key here is built by EvalOS from ids, so a traversal would need a bug upstream rather
+	 * than a hostile caller — which is exactly why the check is cheap to keep and expensive to
+	 * omit. A filename never reaches a key (see {@link #clientKey}), and this is the second lock on
+	 * the same door.
+	 */
+	private Path resolveLocal(String key) {
+		Path file = localDir.resolve(key).toAbsolutePath().normalize();
+		if (!file.startsWith(localDir)) {
+			throw new DocumentStoreUnavailableException("That document key is not a valid one.");
+		}
+		return file;
 	}
 }
