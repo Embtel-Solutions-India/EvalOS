@@ -111,10 +111,25 @@ public class ContactSnapshot extends ScopedEntity {
 	 */
 	public void syncFromGhl(String fullName, String email, String phone, String company, ClientType clientType,
 			SourceChannel sourceChannel, String utmSource, String utmMedium, String utmCampaign) {
-		this.fullName = fullName;
-		this.email = email;
-		this.phone = phone;
-		this.company = company;
+		// **Blank means "leave it alone", never "clear it"** — and these four needed the guard the
+		// other five already had. A GHL Custom Webhook's body is whatever the workflow author
+		// mapped, so a workflow carrying only a contact id and a phone number reached here and
+		// blanked the client's name and nulled the email the portal signs them in and mails them
+		// at. A partial payload is a partial statement about the contact, not an instruction to
+		// forget the rest of it. Blank rather than null because the webhook's own record rebuilds
+		// a missing full_name as "".
+		if (fullName != null && !fullName.isBlank()) {
+			this.fullName = fullName;
+		}
+		if (email != null && !email.isBlank()) {
+			this.email = email;
+		}
+		if (phone != null && !phone.isBlank()) {
+			this.phone = phone;
+		}
+		if (company != null && !company.isBlank()) {
+			this.company = company;
+		}
 		if (clientType != null) {
 			this.clientType = clientType;
 		}
@@ -135,6 +150,25 @@ public class ContactSnapshot extends ScopedEntity {
 
 	public String getGhlContactId() {
 		return ghlContactId;
+	}
+
+	/**
+	 * The three fields a desk screen shows beside a deal.
+	 *
+	 * <p>Added at the opportunity detail screen (2026-09-17): the columns existed and were written
+	 * by every sync, but nothing could read them, so "who is this deal with" had no answer that did
+	 * not go back to GHL.
+	 */
+	public String getEmail() {
+		return email;
+	}
+
+	public String getPhone() {
+		return phone;
+	}
+
+	public String getCompany() {
+		return company;
 	}
 
 	public String getFullName() {

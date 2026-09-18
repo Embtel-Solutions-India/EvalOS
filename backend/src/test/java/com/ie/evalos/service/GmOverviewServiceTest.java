@@ -7,6 +7,7 @@ import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
 
+import com.ie.evalos.config.SellingBrand;
 import com.ie.evalos.common.DateWindow;
 import com.ie.evalos.domain.Case;
 import com.ie.evalos.domain.Role;
@@ -47,7 +48,7 @@ class GmOverviewServiceTest {
 	private final GhlPipelineClient ghl = mock(GhlPipelineClient.class);
 
 	private GmOverviewService service(String goal) {
-		return new GmOverviewService(lifecycle, teamMembers, ghl, BRAND.toString(), new BigDecimal(goal), 180);
+		return new GmOverviewService(lifecycle, teamMembers, ghl, new SellingBrand(BRAND), new BigDecimal(goal), 180);
 	}
 
 	private static DateWindow window(String range) {

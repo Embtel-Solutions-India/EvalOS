@@ -10,6 +10,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
+import com.ie.evalos.config.SellingBrand;
 import com.ie.evalos.domain.Opportunity;
 import com.ie.evalos.domain.PipelineStage;
 import com.ie.evalos.domain.Role;
@@ -28,6 +29,18 @@ import org.springframework.stereotype.Service;
  * only in which role reaches them. Two services, two controllers and two payloads for one
  * question would be the same code twice, and the second copy is where they drift. The role gate
  * is the difference, and a gate is a line, not a class.
+ *
+ * <p><strong>It reads EvalOS rows and makes no GHL request at all</strong> — Unit 46, and the
+ * headline `00c` §3 gives that unit. This method used to call {@code refreshIfStale} per pipeline
+ * on every load, which was right while nothing else kept the mirror current. <strong>45d changed
+ * the premise</strong>: a webhook absorbs a change within seconds, and {@code MIRROR_DELTA} is the
+ * floor under it for pipelines nobody is looking at. So the refill went, and
+ * {@code evalos.ghl.board-cache-ttl} went with it.
+ *
+ * <p><strong>The board got faster rather than staler.</strong> A desk edit writes the mirror row
+ * first (Unit 46 §2) and queues the push, so a salesperson dragging a card sees it move without
+ * waiting for a GHL round trip. {@code lastSynced} still travels on every board: it is now the only
+ * staleness signal a reader has, which makes it load-bearing rather than decorative.
  *
  * <p><strong>Scoping is structural, not a predicate, and that is also a departure.</strong> The
  * cache carries no {@code brand_id} (see {@code V40}), so {@code ScopePredicate} cannot build its
@@ -74,8 +87,20 @@ public class OpportunityBoardService {
 	 * <p>{@code readAt} is on the payload because a cache the reader cannot date is a cache the
 	 * reader has to trust blindly — the same reasoning the funnel screens' own age stamp carries.
 	 */
+	/**
+	 * @param lastSyncedAt when the sync last confirmed these pipelines against GHL, or <strong>null
+	 *                     when it never has</strong>. Never substituted with "now" — see {@code draw}
+	 * @param stale          whether to tell the reader the sync is behind. True when
+	 *                       {@code lastSyncedAt} is null, because never-synced is not fresh
+	 * @param syncConfigured false when {@code evalos.ghl.sales-brand} is blank. <strong>A blank one
+	 *                       makes every mirror a no-op</strong> — the pipeline sweep, the delta
+	 *                       sweep and the reference sweep each log a warning and return zero — so
+	 *                       the board is empty and unsynced for a reason that has nothing to do with
+	 *                       the sync being behind. It travels so the screen can say which it is
+	 *                       instead of blaming the sweep
+	 */
 	public record Board(List<BoardColumn> columns, int totalDeals, BigDecimal totalValue,
-			Instant readAt, boolean stale) {
+			Instant lastSyncedAt, boolean stale, boolean syncConfigured) {
 	}
 
 	/**
@@ -99,38 +124,33 @@ public class OpportunityBoardService {
 	private final PipelineMirrorService mirroredPipelines;
 
 	private final TeamMemberRepository teamMembers;
-	private final Duration ttl;
+	/** Read only when the caller's token carries no pipelines — see {@code pipelinesFor}. */
+	private final com.ie.evalos.repository.TeamMemberPipelineRepository assignments;
+	private final Duration staleAfter;
 
 	/**
 	 * The brand that owns the configured GHL location, or null when none is configured.
 	 *
-	 * <p><strong>Parsed at construction, so a typo fails the boot rather than the first board
-	 * load.</strong> Blank and malformed are different faults and deserve different treatment:
-	 * blank means "no brand sells yet", which is a legitimate state that yields an empty union;
-	 * a malformed UUID is a deployment mistake, and discovering it as a 500 the first time a GM
-	 * opens a board is discovering it in the worst place. {@code GhlHttp} answers 502 rather than
-	 * failing to boot for a *missing* token, which is the same distinction from the other side.
+	 * <p><strong>Resolved by {@link SellingBrand}, not parsed here.</strong> This class used to do
+	 * it itself, with the only bespoke error handling among nine copies — which meant eight other
+	 * services failed differently for the same typo. The resolver keeps the ruling that made that
+	 * handling worth having (a bad value fails the boot, not the first board load) and adds what it
+	 * could not: a brand <em>slug</em> resolves too, so a shared config file is not right in one
+	 * database and silently wrong in the next.
 	 */
 	private final UUID sellingBrandId;
 
 	OpportunityBoardService(OpportunityMirrorService deals, PipelineMirrorService mirroredPipelines,
 			TeamMemberRepository teamMembers,
-			@Value("${evalos.ghl.board-cache-ttl}") Duration ttl,
-			@Value("${evalos.ghl.sales-brand:}") String salesBrandId) {
+			com.ie.evalos.repository.TeamMemberPipelineRepository assignments,
+			@Value("${evalos.ghl.board-stale-after}") Duration staleAfter,
+			SellingBrand sellingBrand) {
 		this.deals = deals;
 		this.mirroredPipelines = mirroredPipelines;
 		this.teamMembers = teamMembers;
-		this.ttl = ttl;
-		try {
-			this.sellingBrandId = salesBrandId == null || salesBrandId.isBlank() ? null
-					: UUID.fromString(salesBrandId);
-		}
-		catch (IllegalArgumentException malformed) {
-			throw new IllegalStateException(
-					"evalos.ghl.sales-brand is not a UUID: \"" + salesBrandId + "\". It names the brand "
-							+ "that owns evalos.ghl.location-id; leave it blank if no brand sells yet.",
-					malformed);
-		}
+		this.assignments = assignments;
+		this.staleAfter = staleAfter;
+		this.sellingBrandId = sellingBrand.id();
 	}
 
 	/**
@@ -146,12 +166,66 @@ public class OpportunityBoardService {
 			// Fail closed, exactly as ScopePredicate's PIPELINE arm does: a principal with no
 			// pipeline sees an empty board, never somebody else's. One re-login fixes a token
 			// minted before V39, and that is the safe direction to be wrong in.
-			return new Board(List.of(), 0, BigDecimal.ZERO, Instant.now(), false);
+			return new Board(List.of(), 0, BigDecimal.ZERO, null, true, sellingBrandId != null);
 		}
 
-		mine.forEach(this::refillIfStale);
 		return draw(mine, deals.onPipelines(mine));
 	}
+
+	/**
+	 * Sync this caller's own pipelines now, then draw — <strong>the Refresh button</strong>.
+	 *
+	 * <p><strong>It reconciles the mirror; it is not a live board read.</strong> The distinction is
+	 * the whole of Unit 46: the board is drawn from EvalOS rows either way, and what this does is
+	 * bring those rows forward rather than bypass them. Nothing here reaches GHL on the reader's
+	 * behalf — {@code refreshIfStale} writes the mirror, and the draw below reads it, exactly as an
+	 * ordinary load does.
+	 *
+	 * <p><strong>A 30-second floor rather than an unconditional read.</strong> This is a button, and
+	 * buttons get clicked twice; GHL's budget is per location and shared with every other desk, so
+	 * a room of people refreshing must not become a room of paged list reads. Thirty seconds is
+	 * short enough that a human pressing it after waiting still gets a real sync, and long enough
+	 * that a double-click costs one.
+	 *
+	 * <p>Only the caller's own pipelines, so a salesperson's refresh cannot spend the budget on
+	 * pipelines they cannot see. The background sweep is what covers the rest.
+	 */
+	public Board syncNow() {
+		// **Pipelines first, and this is the correction that makes the button worth having.** It
+		// used to refresh only opportunities — so in the one state a reader would actually press it
+		// in, an empty mirror with nothing on the board, it could do nothing at all: there were no
+		// mirrored pipelines to refresh deals *for*, and the only fix was a GM running a job by
+		// hand. A button that cannot fix the problem it is offered for is worse than no button.
+		//
+		// **But only in that state, which the floor below could not express.** MANUAL_SYNC_FLOOR
+		// guards the deal reads and not this one, so every press spent a paged GHL structure read
+		// as well — on a location whose pipelines and stages change a few times a year and which
+		// the hourly PIPELINE_MIRROR sweep already keeps current. Gating on "the mirror knows of no
+		// live pipeline" keeps exactly the case the button was added for and drops the rest.
+		if (mirroredPipelines.all().stream().noneMatch(com.ie.evalos.domain.Pipeline::isLive)) {
+			mirroredPipelines.sync();
+		}
+
+		TenantContext caller = TenantContext.current();
+		List<String> mine = pipelinesFor(caller);
+		// ponytail: a GM's board is every live pipeline, so their press fans a live read over all of
+		// them in the request thread, Master Pipeline included. MANUAL_SYNC_FLOOR bounds the repeat
+		// cost, not the first one. If that press becomes slow enough to notice, the upgrade is to
+		// hand it to the job runner and answer 202 rather than to cap the fan-out, because a
+		// Refresh that silently syncs some of the board is worse than one that takes a moment.
+		mine.forEach((pipelineId) -> deals.refreshIfStale(pipelineId, MANUAL_SYNC_FLOOR));
+		return forCaller();
+	}
+
+	/**
+	 * How recently a manual sync may already have happened for the button to be a no-op.
+	 *
+	 * <pre>
+	 * ponytail: a constant, not a setting. It exists to absorb a double-click, and nobody is going
+	 * to tune it — the number a deployment would actually want to change is the sweep interval.
+	 * </pre>
+	 */
+	private static final Duration MANUAL_SYNC_FLOOR = Duration.ofSeconds(30);
 
 	/**
 	 * Which pipelines this caller may read.
@@ -166,42 +240,48 @@ public class OpportunityBoardService {
 	 * <p>The union is a <em>query</em> rather than a predicate, which is why it lives here and
 	 * not in {@code ScopePredicate}: {@code Tier.ALL} short-circuits, and "every sales pipeline"
 	 * is a fact about the roster, not about the row being read.
+	 *
+	 * <p><strong>The GM's union is every LIVE MIRRORED pipeline, not the pipelines somebody is
+	 * assigned to</strong> (2026-09-17). It was
+	 * {@code teamMembers.findPipelinesOfActiveMembers(...)}, and that was wrong twice over:
+	 *
+	 * <ul>
+	 * <li><strong>It hid every pipeline nobody owns.</strong> {@code 00d} §6.7 says outright that
+	 * Case Delivery is "a pipeline no single person owns", and the location's Master Pipeline is
+	 * another — deriving the GM's view from assignments makes exactly the pipelines that belong to
+	 * the business rather than to a person the ones the GM cannot see.</li>
+	 * <li><strong>It read a column Unit 44b superseded.</strong> That finder selects
+	 * {@code team_member.ghl_pipeline_id}, the single-pipeline column replaced by
+	 * {@code team_member_pipeline} at 44b — so once assignment moved to the join table, the query
+	 * answered empty and the GM's board went blank with nothing logged.</li>
+	 * </ul>
+	 *
+	 * <p>Asking the mirror instead fixes both by deleting the question: the GM is
+	 * {@code Tier.ALL} and the mirror is the list of pipelines that exist.
 	 */
 	private List<String> pipelinesFor(TenantContext caller) {
 		if (caller.role() == Role.GM) {
-			return sellingBrandId == null ? List.of()
-					: teamMembers.findPipelinesOfActiveMembers(sellingBrandId);
+			return mirroredPipelines.all().stream()
+					.filter(com.ie.evalos.domain.Pipeline::isLive)
+					.map(com.ie.evalos.domain.Pipeline::getGhlId)
+					.toList();
 		}
-		return caller.ghlPipelineIds();
-	}
-
-	/**
-	 * Refetches a pipeline when its copy has aged past the TTL.
-	 *
-	 * <p><strong>Inline, not on a background thread, and that departs from the spec.</strong>
-	 * §4 justifies the cache with the funnel's arithmetic — ~11.4k opportunities over ~115
-	 * un-parallelisable pages, a ~13s floor. That figure is a <em>year of one marketing
-	 * funnel</em>. One person's live pipeline is one or two pages, so an inline refill costs a
-	 * few hundred milliseconds and the background machinery would be complexity bought for a
-	 * problem this screen does not have.
-	 *
-	 * <p>What the cache is still earning is the shared pacer: GHL's 100-per-10-seconds is per
-	 * location, so several people loading boards at once serialise behind one limiter. Absorbing
-	 * repeat loads is the point, not absorbing a single slow one.
-	 *
-	 * <pre>
-	 * ponytail: inline refill, whole-pipeline replace. If one pipeline ever grows past a few
-	 * pages, the upgrade is an off-thread refill (MarketingPipelineService implemented one until the
-	 * funnel screens were removed on 2026-09-16; `git show` it rather than redesigning it) —
-	 * not a bigger cache, and not a delta sync before there is a complaint to justify it.
-	 * </pre>
-	 */
-	private void refillIfStale(String pipelineId) {
-		// The GHL read still happens outside any transaction, and the write is still a separate
-		// transactional call — holding a pooled connection open across a network round trip is how
-		// one slow upstream becomes an exhausted pool. What changed at Unit 44d is that the write
-		// is an UPSERT into `opportunity` rather than a delete-all-then-insert-all into a cache.
-		deals.refreshIfStale(pipelineId, ttl);
+		List<String> fromToken = caller.ghlPipelineIds();
+		if (!fromToken.isEmpty()) {
+			return fromToken;
+		}
+		// **Empty means "ask again", not "you have none".**
+		//
+		// D19b makes the set a claim carried in the token, read at sign-in — a deliberate staleness
+		// bound, so a REASSIGNMENT takes effect on next sign-in. That is fine for a change. It is a
+		// trap for a FIRST assignment: a desk signs in before the mirror has run, is granted its
+		// pipeline minutes later by the backfill, and then sees an empty board for the rest of the
+		// session with "ask a GM" as the only advice — which was the state on 2026-09-17.
+		//
+		// Re-reading only when the claim is empty keeps the bound where it earns its keep and
+		// removes the trap. It widens nothing: it is the same member's own row, read by their own
+		// id, and a member with no assignment still gets an empty list.
+		return assignments.ghlIdsFor(caller.memberId());
 	}
 
 	/**
@@ -253,13 +333,30 @@ public class OpportunityBoardService {
 				.toList();
 
 		// When the mirror last agreed with GHL, asked of the pipelines rather than of the rows: an
-		// empty pipeline has no row to carry a timestamp, and reporting "now" for it would tell a
-		// reader the board is live when nothing has been read.
+		// empty pipeline has no row to carry a timestamp.
+		//
+		// **Null travels as null, and that is the correction.** This used to substitute `now()` for
+		// "never synced", which told the reader the board was current at the one moment nothing had
+		// ever been read — the precise thing a sync indicator exists to prevent. A pipeline that has
+		// never been synced is also stale by definition: not knowing is not the same as being fresh.
 		Instant lastSynced = deals.lastSynced(pipelineIds);
-		Instant readAt = lastSynced == null ? Instant.now() : lastSynced;
 
-		return new Board(columns, rows.size(), sum(rows), readAt,
-				Duration.between(readAt, Instant.now()).compareTo(ttl) >= 0);
+		// **`stale` changed meaning at Unit 46 and the flag was worth keeping for it.** It used to
+		// mean "this render did not refill", a statement about one request. It now means "the sync
+		// has not confirmed this mirror lately" — a statement about the sweep — and it is what the
+		// board's "sync delayed" banner is drawn from.
+		//
+		// **The threshold is ONE missed pass, not three.** This comment said three, which is a
+		// 15-minute window; `board-stale-after` defaults to 5m in every profile, equal to
+		// JOBS_MIRROR_DELTA_INTERVAL, because the business chose the shorter number on 2026-09-17
+		// over a proposed 15 — the reasoning, and the blink it accepts at the boundary, are
+		// written out in `application.yml` beside the value. A comment claiming the opposite of the
+		// configured default is worse than no comment: it is what a reader trusts instead of
+		// looking.
+		return new Board(columns, rows.size(), sum(rows), lastSynced,
+				lastSynced == null
+						|| Duration.between(lastSynced, Instant.now()).compareTo(staleAfter) >= 0,
+				sellingBrandId != null);
 	}
 
 	/** Just the two fields a column header needs, so the board does not carry a whole entity. */

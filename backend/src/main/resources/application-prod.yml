@@ -23,17 +23,19 @@ spring:
 evalos:
   mail:
     from: ${EVALOS_MAIL_FROM:}
-    # Who carries the two messages EvalOS sends. One of the MailTransport beans by name:
-    # `smtp` (Spring Mail) or `ghl` (POST /conversations/messages, so the link lands in the
-    # contact's own conversation thread). A third — Brevo — is a new class and this value.
+    # Who carries the two messages EvalOS sends, by MailTransport bean name. **`smtp` is the only
+    # one there is** (2026-09-18) — this defaulted to `brevo` and to a transport that no longer
+    # exists, so the flip is not cosmetic. Which provider it reaches is `spring.mail.*`; the table
+    # over it in `application.yml` gives the host, port and username for each.
     #
-    # **A name that matches nothing fails at startup and says what it found.** Falling back
-    # silently would be discovered by a client who never got their link.
-    transport: ${EVALOS_MAIL_TRANSPORT:ghl}
-    # The envelope sender for the `ghl` transport. **Blank is the better default**: GHL knows
-    # which domain this location has authenticated, and an address it cannot sign for is how a
-    # password mail silently lands in spam.
-    ghl-from: ${EVALOS_MAIL_GHL_FROM:}
+    # **Four variables are what a deployment must set**: `MAIL_HOST`, `MAIL_USERNAME`,
+    # `MAIL_PASSWORD` and `EVALOS_MAIL_FROM`. Missing any of them is not a boot failure by
+    # decision — the app serves every screen and clients are told MAIL_UNAVAILABLE rather than
+    # left waiting for a link nobody sent. **The egress matters as much as the credential**: a host
+    # that blocks outbound 587, or a provider with an authorised-IP list this deploy is not on,
+    # fails exactly like a bad password from inside the application. `SmtpMailTransportLiveTest`
+    # run from the deployed host is what separates them.
+    transport: ${EVALOS_MAIL_TRANSPORT:smtp}
   portal:
     # Must name the deployed portal origin. **No default, so a missing value fails the boot** —
     # which is what the comment used to claim while the value carried an empty default and booted
@@ -78,6 +80,8 @@ evalos:
     # says which variable is missing.
     bucket: ${EVALOS_S3_BUCKET:}
     region: ${EVALOS_S3_REGION:}
+    # Blank: production talks to real S3. See `application-local.yml` for what this is for.
+    endpoint: ${EVALOS_S3_ENDPOINT:}
   ghl:
     # Every `evalos.ghl.*` value, listed in one place: this
     # profile's convention is that a deployer can see what they are expected to set. The
@@ -188,7 +192,7 @@ evalos:
     opportunity-correlation-field: ${GHL_OPPORTUNITY_CORRELATION_FIELD:}
     # Unit 36's single-brand ceiling; the reasoning is in the base profile.
     sales-brand: ${GHL_SALES_BRAND_ID:}
-    board-cache-ttl: ${GHL_BOARD_CACHE_TTL:2m}
+    board-stale-after: ${GHL_BOARD_STALE_AFTER:5m}
     # Per page, not for the whole paginated read. This runs on a request path, so the bound is
     # what keeps it inside invariant 6's "one bounded request".
     # Connect and read timeout on each GHL request. Required because this runs in a

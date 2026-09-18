@@ -11,6 +11,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 
+import com.ie.evalos.config.SellingBrand;
 import com.ie.evalos.domain.Pipeline;
 import com.ie.evalos.domain.PipelinePurpose;
 import com.ie.evalos.domain.PipelineStage;
@@ -20,7 +21,6 @@ import com.ie.evalos.repository.PipelineStageRepository;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -80,15 +80,18 @@ public class PipelineMirrorService {
 	private final GhlPipelineClient ghl;
 	private final PipelineRepository pipelines;
 	private final PipelineStageRepository stages;
+	/** Unit 44b's join table, so a mirrored pipeline can resolve a desk still on the old column. */
+	private final com.ie.evalos.repository.TeamMemberPipelineRepository assignments;
 	private final UUID sellingBrandId;
 
 	PipelineMirrorService(GhlPipelineClient ghl, PipelineRepository pipelines, PipelineStageRepository stages,
-			@Value("${evalos.ghl.sales-brand:}") String salesBrandId) {
+			com.ie.evalos.repository.TeamMemberPipelineRepository assignments,
+			SellingBrand sellingBrand) {
 		this.ghl = ghl;
 		this.pipelines = pipelines;
 		this.stages = stages;
-		this.sellingBrandId = salesBrandId == null || salesBrandId.isBlank() ? null
-				: UUID.fromString(salesBrandId);
+		this.assignments = assignments;
+		this.sellingBrandId = sellingBrand.id();
 	}
 
 	/** Whether this deployment knows which brand owns the configured GHL location. */
@@ -148,6 +151,16 @@ public class PipelineMirrorService {
 				log.info("Pipeline '{}' ({}) is no longer returned by GHL; marked missing, not deleted",
 						held.getName(), held.getGhlId());
 			}
+		}
+
+		// **Unit 44b's migration, finished here because no seed can finish it.** A member whose desk
+		// is still described by the column 44b replaced gets their join row the moment the pipeline
+		// it names is mirrored -- see TeamMemberPipelineRepository.backfillFromLegacyColumn. Without
+		// it a fresh database leaves every seeded desk with no pipelines at all, and an empty board
+		// looks exactly like a GHL problem while being nothing of the kind.
+		int backfilled = assignments.backfillFromLegacyColumn();
+		if (backfilled > 0) {
+			log.info("Backfilled {} desk pipeline assignment(s) from the legacy column", backfilled);
 		}
 
 		MirrorResult result = new MirrorResult(fromGhl.size(), counters.created, counters.updated,

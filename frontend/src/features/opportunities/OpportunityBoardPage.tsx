@@ -1,14 +1,9 @@
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import { Card } from '../../components/ui/card'
-import { useMe } from '../../lib/authContext'
 import { useMetrics } from '../dashboards/useMetrics'
 import { formatCount, formatMoney } from '../../lib/money'
-import DealActions from './DealActions'
-import DealApplication from './DealApplication'
-import DealNotes from './DealNotes'
-import NewDealForm from './NewDealForm'
-import NewLeadForm from './NewLeadForm'
-import { fetchOpportunityBoard, type BoardColumn, type Deal } from './opportunityApi'
+import { fetchOpportunityBoard, refreshOpportunityBoard, type BoardColumn, type Deal } from './opportunityApi'
 
 /**
  * The sales and marketing desk: the opportunities standing in the pipeline you own.
@@ -38,14 +33,25 @@ export default function OpportunityBoardPage() {
   // documents itself as having been fixed to avoid by returning a separate `reload` that keeps the
   // last good data on screen while the new read is in flight.
   const { data, state, reload } = useMetrics((signal) => fetchOpportunityBoard(signal), [])
-  const role = useMe().role
-  const isMarketing = role === 'MARKETING'
-  // Every stage on the board, so a salesperson can move a deal to any of them. Taken from the
-  // board itself rather than fetched separately: it is the same pipeline, already loaded.
-  const stages = (data?.columns ?? []).map((column) => ({
-    stageId: column.stageId,
-    stageName: column.stageName,
-  }))
+  const [syncing, setSyncing] = useState(false)
+
+  /**
+   * The Refresh button: reconcile the mirror, then redraw.
+   *
+   * **`reload` alone would not do it.** A plain reload — and an F5, and every other refetch on this
+   * page — reads the EvalOS mirror and nothing else, which is the whole design: it shows new GHL
+   * leads only once the sweep has brought them in. This button is the way to ask for that sweep on
+   * demand, and it still ends at the mirror.
+   */
+  const syncNow = async () => {
+    setSyncing(true)
+    try {
+      await refreshOpportunityBoard()
+      reload()
+    } finally {
+      setSyncing(false)
+    }
+  }
 
   return (
     <section className="space-y-4">
@@ -57,36 +63,70 @@ export default function OpportunityBoardPage() {
           </p>
         </div>
         {data && (
-          <p className="text-sm text-slate-500">
-            {formatCount(data.totalDeals)} open · {formatMoney(data.totalValue)}
-            {/*
-              The age is shown rather than hidden. This screen is served from a short-lived copy,
-              and a reader who cannot tell how old it is has to trust it blindly — the same
-              reasoning the GM's funnel screens carry their own timestamp for.
-            */}
-            <span className="ml-2 text-xs text-slate-400">
-              read {new Date(data.readAt).toLocaleTimeString()}
-              {data.stale && ' · refreshing'}
+          <div className="flex items-center gap-3 text-sm text-slate-500">
+            <span>
+              {formatCount(data.totalDeals)} open · {formatMoney(data.totalValue)}
             </span>
-          </p>
+            {/*
+              The sync time is shown rather than hidden, and it is the mirror's — not this
+              render's. Unit 46 took the board off live GHL reads, so "when did we last hear from
+              GHL" is the only freshness question that means anything, and the reader cannot answer
+              it from the page. A null means the sync has never run: it says so instead of
+              guessing "now".
+            */}
+            <span className="text-xs text-slate-400">
+              {data.lastSyncedAt
+                ? `synced ${new Date(data.lastSyncedAt).toLocaleTimeString()}`
+                : 'never synced'}
+            </span>
+            <button
+              type="button"
+              onClick={syncNow}
+              disabled={syncing}
+              className="rounded border border-slate-300 px-2 py-1 text-xs text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+            >
+              {syncing ? 'Syncing…' : 'Refresh'}
+            </button>
+          </div>
         )}
       </header>
 
       {/*
-        Opening a lead refetches the board rather than inserting the new card locally: the
-        opportunity now lives in GHL, and the only honest confirmation it landed is reading it
-        back. A locally inserted card would show an outcome the server has not agreed to.
+        The banner, not a tooltip. Past `board-stale-after` the sweep has missed three passes, which
+        means new GHL leads are NOT arriving on this screen — that is a working assumption a
+        salesperson would otherwise make wrongly all morning. Saying it plainly beats a stamp they
+        have to interpret.
       */}
-      {isMarketing && <NewLeadForm onOpened={reload} />}
-      {/* Sales opens a deal; Marketing opens a lead. Different verbs and different GHL calls —
-          a lead is an upsert (one open deal per contact per pipeline, which is right for a
-          marketing pipeline), a deal is a true create (a repeat client's second purchase must not
-          overwrite their first). See `NewDealForm`. */}
-      {role === 'SALES' && (
-        <div className="mt-3">
-          <NewDealForm columns={data?.columns ?? []} onCreated={reload} />
-        </div>
+      {data && !data.syncConfigured && (
+        <p
+          className="rounded border border-rose-300 bg-rose-50 px-3 py-2 text-sm text-rose-900"
+          role="status"
+        >
+          <strong>GHL sync is not configured.</strong> `evalos.ghl.sales-brand` is blank on the
+          server, so nothing mirrors pipelines, deals or calendars — the board is empty for that
+          reason and not because the sync is behind. Set <code>GHL_SALES_BRAND_ID</code> to the
+          brand that owns the GHL location, then run the PIPELINE_MIRROR and MIRROR_DELTA jobs.
+        </p>
       )}
+
+      {data?.stale && data.syncConfigured && (
+        <p
+          className="rounded border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900"
+          role="status"
+        >
+          <strong>Sync delayed.</strong>{' '}
+          {data.lastSyncedAt
+            ? `The mirror was last confirmed against GoHighLevel at ${new Date(
+                data.lastSyncedAt,
+              ).toLocaleTimeString()}. Deals created in GHL since then are not on this board yet.`
+            : 'This board has never been synced with GoHighLevel, so deals created there are not on it yet.'}{' '}
+          Press Refresh, or ask a GM to check the MIRROR_DELTA sweep.
+        </p>
+      )}
+
+      {/* The two "open something" actions moved to the sidebar on 2026-09-17. They were here as a
+          button and an inline form, which put the thing a desk opens the app to do behind first
+          loading the board. `NewDealPage` and `NewLeadPage` are one click from anywhere. */}
 
       <Card title="" state={state}>
         {data && data.columns.length === 0 ? (
@@ -102,13 +142,7 @@ export default function OpportunityBoardPage() {
         ) : (
           <div className="flex gap-3 overflow-x-auto p-1">
             {data?.columns.map((column) => (
-              <StageColumn
-                key={column.stageId}
-                column={column}
-                isSales={role === 'SALES'}
-                stages={stages}
-                onChanged={reload}
-              />
+              <StageColumn key={column.stageId} column={column} />
             ))}
           </div>
         )}
@@ -117,17 +151,10 @@ export default function OpportunityBoardPage() {
   )
 }
 
-function StageColumn({
-  column,
-  isSales,
-  stages,
-  onChanged,
-}: {
-  column: BoardColumn
-  isSales: boolean
-  stages: readonly { stageId: string; stageName: string }[]
-  onChanged: () => void
-}) {
+// The column carries no actions now: a card is a link, and everything you can DO to a deal lives
+// on `DealPage`. The props that threaded stage lists and reload callbacks down two levels went
+// with them.
+function StageColumn({ column }: { column: BoardColumn }) {
   return (
     <div className="flex w-64 shrink-0 flex-col gap-2">
       <div className="flex items-baseline justify-between border-b border-slate-200 pb-1">
@@ -138,44 +165,24 @@ function StageColumn({
         <p className="text-xs text-slate-500">{formatMoney(column.total)}</p>
       )}
       {column.deals.map((deal) => (
-        <DealCard
-          key={deal.opportunityId}
-          deal={deal}
-          isSales={isSales}
-          stages={stages}
-          onChanged={onChanged}
-        />
+        <DealCard key={deal.opportunityId} deal={deal} />
       ))}
     </div>
   )
 }
 
-function DealCard({
-  deal,
-  isSales,
-  stages,
-  onChanged,
-}: {
-  deal: Deal
-  isSales: boolean
-  stages: readonly { stageId: string; stageName: string }[]
-  onChanged: () => void
-}) {
-  // Notes are loaded per card, and only when a card is opened. Eagerly fetching a stream for
-  // every deal on the board would be one request per card against a shared 100-per-10-seconds
-  // budget, to show text nobody has asked to read yet.
-  const [open, setOpen] = useState(false)
-
+function DealCard({ deal }: { deal: Deal }) {
+  // **The card is a link now, not a disclosure** (2026-09-17). It used to expand in place, which
+  // put the questionnaire, the notes and the stage actions inside a 16rem column between two other
+  // cards. `DealPage` is the screen they belong on; the card's job is to get you there.
   return (
-    <article className="rounded border border-slate-200 bg-white p-3 shadow-sm">
-      <button
-        type="button"
-        onClick={() => setOpen((shown) => !shown)}
-        className="w-full text-left"
-        aria-expanded={open}
+    <article className="rounded border border-slate-200 bg-white p-3 shadow-sm hover:border-slate-300">
+      <Link
+        to={`/opportunities/${deal.opportunityId}`}
+        className="block truncate text-sm font-medium text-slate-900 hover:underline"
       >
-        <p className="truncate text-sm font-medium text-slate-900">{deal.name ?? 'Untitled'}</p>
-      </button>
+        {deal.name ?? 'Untitled'}
+      </Link>
       <p className="mt-1 text-xs text-slate-500">
         {/*
           `amount` is null when GHL holds no value, and that is shown as "no value" rather than
@@ -185,21 +192,6 @@ function DealCard({
         {deal.amount === null ? 'No value set' : formatMoney(deal.amount)}
         {deal.status !== 'open' && <span className="ml-2 uppercase">{deal.status}</span>}
       </p>
-      {open && isSales && (
-        <DealActions
-          opportunityId={deal.opportunityId}
-          contactId={deal.contactId}
-          stages={stages}
-          onChanged={onChanged}
-        />
-      )}
-      {/*
-        Above the notes, because it is what the client said and the notes are what we said back —
-        and a salesperson opening a card is looking for the first before writing the second.
-        Renders nothing for a deal that did not come through the portal, which is most of them.
-      */}
-      {open && <DealApplication opportunityId={deal.opportunityId} />}
-      {open && <DealNotes opportunityId={deal.opportunityId} />}
     </article>
   )
 }

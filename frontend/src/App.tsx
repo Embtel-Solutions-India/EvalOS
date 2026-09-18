@@ -10,6 +10,10 @@ import DeliveryQueuePage from './features/queues/DeliveryQueuePage'
 import ChecklistBoard from './features/checklist/ChecklistBoard'
 import ExpertRoster from './features/experts/ExpertRoster'
 import MeetingsPage from './features/meetings/MeetingsPage'
+import NewMeetingPage from './features/meetings/NewMeetingPage'
+import DealPage from './features/opportunities/DealPage'
+import NewDealPage from './features/opportunities/NewDealPage'
+import NewLeadPage from './features/opportunities/NewLeadPage'
 import OpportunityBoardPage from './features/opportunities/OpportunityBoardPage'
 import PayoutBatch from './features/payouts/PayoutBatch'
 import ExpertPayouts from './features/payouts/ExpertPayouts'
@@ -21,6 +25,7 @@ import PlaceholderPage from './features/shell/PlaceholderPage'
 import CaseDetailPage from './features/case/CaseDetail'
 import {
   CASE_DETAIL_PATH,
+  DEAL_DETAIL_PATH,
   EXPERT_PAYOUTS_PATH,
   NAV_ITEMS,
   PAYMENT_DETAIL_PATH,
@@ -66,6 +71,11 @@ const SCREENS: Record<string, React.ReactNode> = {
   // and asks "what is on my desk". Same pipelines underneath, different question — which is why
   // it survives them, and why SALES and MARKETING can reach it when they could not reach those.
   '/opportunities/board': <OpportunityBoardPage />,
+  // The two "open something" screens. They were a button and an inline form on the board until
+  // 2026-09-17; the sidebar is the trigger now, so each is a screen of its own.
+  '/opportunities/new': <NewDealPage />,
+  '/marketing/leads/new': <NewLeadPage />,
+  '/meetings/new': <NewMeetingPage />,
 }
 
 /**
@@ -125,6 +135,16 @@ function StaffApp() {
       <Route element={<AppShell />}>
         <Route index element={<Navigate to={homePathFor(state.me.role)} replace />} />
         <Route path="/dashboard" element={<RoleDashboard />} />
+
+        {/* Reached from an opportunity card, for the reason the case route is unlisted. */}
+        <Route
+          path={DEAL_DETAIL_PATH}
+          element={
+            <RoleRoute path={DEAL_DETAIL_PATH}>
+              <DealPage />
+            </RoleRoute>
+          }
+        />
 
         {/* Reached from a board card, so it has no nav entry — but the same table gates it. */}
         <Route

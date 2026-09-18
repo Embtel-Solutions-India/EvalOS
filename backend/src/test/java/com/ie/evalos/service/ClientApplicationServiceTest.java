@@ -26,6 +26,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.BDDMockito.then;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -79,14 +80,18 @@ class ClientApplicationServiceTest {
 	/** D3c's backfill door. Stubbed to do nothing, so a client who has a contact id keeps it. */
 	private final ClientAccountService accountsService = mock(ClientAccountService.class);
 
+	/** Unit 53 / 2026-09-19: the submit confirmation and the document count it states. */
+	private final ClientMailer mailer = mock(ClientMailer.class);
+	private final ApplicationDocumentService requestDocuments = mock(ApplicationDocumentService.class);
+
 	private final ClientApplicationService service = new ClientApplicationService(applications, accounts,
 			ghl, pipelines, SERVICE_FIELD, SUBMITTED_FIELD, CORRELATION_FIELD, deals, outbox,
-			accountsService);
+			accountsService, mailer, requestDocuments);
 
 	/** The same service with no custom field configured — the unconfigured environment. */
 	private ClientApplicationService withoutCustomFields() {
 		return new ClientApplicationService(applications, accounts, ghl, pipelines, "", "", "", deals,
-				outbox, accountsService);
+				outbox, accountsService, mailer, requestDocuments);
 	}
 
 	private ClientAccount client;
@@ -274,6 +279,50 @@ class ClientApplicationServiceTest {
 				.isInstanceOf(InvalidRequestException.class);
 
 		assertThat(row.isDraft()).isTrue();
+	}
+
+	/**
+	 * <strong>An unmarked INTAKE pipeline refuses the submit without ever calling GHL.</strong>
+	 *
+	 * <p>This was the state of a fresh environment on 2026-09-19 — twelve mirrored pipelines, all
+	 * {@code UNASSIGNED} — and it produced a 400 saying "we could not reach our systems, please try
+	 * again in a moment" while GHL was perfectly reachable and no amount of trying would ever help.
+	 * The refusal is right; what was wrong is that it was indistinguishable from an outage, so the
+	 * pipeline resolution now happens outside the outage catch and logs at ERROR.
+	 *
+	 * <p>Asserting {@code shouldHaveNoInteractions} on the GHL client is the point: an environment
+	 * problem must not spend a request proving itself.
+	 */
+	@Test
+	void anUnmarkedIntakePipelineRefusesTheSubmitWithoutCallingGhl() {
+		given(pipelines.findByBrandIdAndPurposeAndMissingSinceIsNullOrderByPositionAsc(BRAND,
+				com.ie.evalos.domain.PipelinePurpose.INTAKE)).willReturn(java.util.List.of());
+		ClientApplication row = freshDraft("academic_evaluation", "Academic Evaluation");
+
+		assertThatThrownBy(() -> service.submit(token(), row.getId()))
+				.isInstanceOf(InvalidRequestException.class);
+
+		assertThat(row.isDraft()).isTrue();
+		then(ghl).shouldHaveNoInteractions();
+	}
+
+	/** Two marked pipelines is the same refusal: a request has nowhere unambiguous to go. */
+	@Test
+	void twoMarkedIntakePipelinesAlsoRefuseRatherThanGuessing() {
+		com.ie.evalos.domain.Pipeline second =
+				new com.ie.evalos.domain.Pipeline(BRAND, "pipe-2", "Also Intake", 1);
+		setId(second, UUID.randomUUID());
+		com.ie.evalos.domain.Pipeline first =
+				new com.ie.evalos.domain.Pipeline(BRAND, "pipe-1", "Client Intake", 0);
+		setId(first, UUID.randomUUID());
+		given(pipelines.findByBrandIdAndPurposeAndMissingSinceIsNullOrderByPositionAsc(BRAND,
+				com.ie.evalos.domain.PipelinePurpose.INTAKE)).willReturn(java.util.List.of(first, second));
+		ClientApplication row = freshDraft("academic_evaluation", "Academic Evaluation");
+
+		assertThatThrownBy(() -> service.submit(token(), row.getId()))
+				.isInstanceOf(InvalidRequestException.class);
+
+		then(ghl).shouldHaveNoInteractions();
 	}
 
 	/** No field configured omits it from the create rather than sending it blank. */

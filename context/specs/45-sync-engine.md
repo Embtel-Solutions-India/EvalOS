@@ -15,8 +15,8 @@ those amendments against what actually exists.
 | **45a** | error classification at the door | no | **BUILT — §2** |
 | **45b** | `sync_drift` + the nightly paged diff audit + the GM's read | only drift rows | **BUILT — §2B** |
 | **45c** | the outbox | **yes — the two portal writes that were being lost** | **BUILT — §2C** |
-| **45d** | `opportunity.update` / `contact.*` webhooks + the delta sweep | **yes — the mirror** | specced |
-| **45e** | per-field ownership + the sync-status surface's resolution half | **yes — both sides** | specced, §3.2 |
+| **45d** | `opportunity.update` / `contact.*` webhooks + the delta sweep | **yes — the mirror** | **BUILT — §2D** |
+| **45e** | per-field ownership + the sync-status surface's resolution half | **yes — both sides** | **BUILT — §2E** |
 
 **The detector went before the writers, and that is the whole ordering argument.** 45c, 45d and 45e
 are all writers; a writer you cannot audit is a writer you have to take on trust. `00c` §4c promises
@@ -246,6 +246,143 @@ queued is a client's request reaching Sales after an outage.
 
 ---
 
+## 2D. Slice 45d — the webhooks and the delta sweep (BUILT)
+
+### 2D.1 The event is a trigger, not a payload
+
+GHL's Custom Webhook action posts the **contact record**, flat — no stage, no status, no value.
+`GhlOpportunityHandler`'s javadoc records that discovery: the nested `opportunity`/`contact`
+envelope this codebase was first built for does not exist. Anything else in the body is
+`customData`, which is **hand-typed by whoever edited the workflow last**.
+
+So a mirror fed from the payload would be only as correct as that person. `GhlMirrorHandler`
+takes one fact from the event — the contact id, the one field GHL always sends — and reads the
+field values back from GHL, where they are authoritative:
+
+- **`contact.created` / `contact.updated`** → `ContactSnapshotService.findOrCreate`. This is the
+  one case where the payload *is* the entity: name, email, phone and company are exactly what GHL
+  posts and exactly what `contact_snapshot` holds. **No GHL read at all.** Create and update are
+  one handler because `findOrCreate` is one operation — splitting them would turn a dropped
+  `contact.created` into a refused `contact.updated`.
+- **`opportunity.*`** → `GhlPipelineClient.forContact(contactId)` → `absorbForContact`. The
+  `contactId` filter is documented and already proven by 45c's retry-after-timeout read; a contact
+  holds a handful of deals, so one request answers the question completely. **A single-opportunity
+  GET is not possible here anyway** — the payload carries no opportunity id.
+
+**Every spelling routes.** `opportunity.create`, `.created`, `.update`, `.updated`,
+`.stage_changed`, `.status_changed` all reach the same handler, because `event_type` is typed by
+hand into a GHL workflow and the difference between two tenses must not be the difference between
+a mirrored deal and a silently unmirrored one. **`opportunity.won` is not among them and must not
+join them** — that is Handoff A, it creates a case (invariant 8), and one event doing both would
+make two very different failures look like one.
+
+### 2D.2 `absorbForContact` has no absence pass, unlike `absorb`
+
+`absorb` was handed a pipeline's whole list, so a row missing from it has genuinely gone and is
+stamped `missing_since`. `absorbForContact` is handed **one person's deals**: a row missing from
+that answer is missing from a question that never asked about it, and marking it would stamp every
+deal the contact does not have. A real disappearance stays the nightly audit's to notice.
+
+Each row lands on **the pipeline GHL names**, not one the caller chose — which closes the
+staleness `isOnPipeline`'s javadoc predicted: a deal dragged onto another rep's board changes hands
+here at the moment it moves.
+
+### 2D.3 "Delta" means a stale pipeline, never a changed row
+
+**GHL offers no updated-since filter.** `GET /opportunities/search` filters `date`/`endDate` on
+`createdAt` — verified, and documented on `GhlPipelineClient.opportunitiesIn`, which is the same
+absence that forces "won this month" to be bucketed locally. There is no read that returns only
+what changed, and a sweep claiming to be one would be a full list wearing a smaller name.
+
+`MIRROR_DELTA` (15m) therefore asks `refreshIfStale` of every **live mirrored pipeline**, which is
+a no-op for any pipeline a desk has read inside `evalos.ghl.delta-ttl` (10m — deliberately shorter
+than the interval, so clock jitter between two passes cannot double the promised freshness). **Its
+cost is the pipelines nobody is looking at**, which is exactly what it exists for: those are the
+rows the nightly audit would otherwise report as drift when the truth is that nobody looked, and
+the rows `isOnPipeline` would otherwise answer an authorisation question from.
+
+It creates no case. A dropped `opportunity.won` is not drift (§3.5), and nothing here will ever
+open one.
+
+### 2D.4 What it does not do
+
+**It does not resolve a conflict.** A webhook write and a local edit racing is per-field
+ownership, which is 45e. Today GHL's answer is absorbed wholesale, which is the behaviour every
+other mirror write already has — 45d widens *when* the mirror is written, not *who wins*.
+
+---
+
+## 2E. Slice 45e — per-field ownership (BUILT)
+
+### 2E.1 Three owners, and the assignee is why
+
+`FieldOwnership` classifies every mirrored field as **GHL's**, **shared** or **EvalOS's**.
+
+| Owner | Fields | Rule |
+|---|---|---|
+| **GHL** | `ghlAssignedTo`, `pipelineId`, GHL's timestamps, `source`, `ghlContactId` — and anything unclassified | taken every time. A difference is EvalOS being behind, not a conflict |
+| **SHARED** | `ghlStageId`, `status`, `amount`, `name` | EvalOS wins a genuine conflict **and it is reported** |
+| **EvalOS** | `opportunityNote` | never synced in either direction |
+
+**The assignee is the field this slice exists for.** `00c` §4b's blanket "EvalOS wins" reverts GHL
+automations — the one thing `00b` explicitly kept GHL for — and a round-robin reassigning a deal is
+not a conflict to be undone. **An unclassified field defaults to GHL**, deliberately: everything in
+the mirror is GHL's until somebody adds a field to the shared set, and that addition is an edit a
+reviewer can see.
+
+### 2E.2 "EvalOS wins" means one narrow thing
+
+`localUpdatedAt` means **EvalOS holds an edit GHL has not confirmed**, and nothing else. The shared
+fields are kept only while that is true:
+
+- **No local edit → GHL wins**, whatever the timestamps say. The mirror's default is to follow GHL.
+- **A null `ghl_updated_at` with a local edit → conflict**, and EvalOS keeps its value (`00d` §6.2).
+  The field is GHL-supplied and nullable; reading absence as "GHL is newer" would discard the edit.
+- **A null `ghl_updated_at` with nothing to defend → still GHL's.** Without this half the null rule
+  degrades into "EvalOS always wins" the moment a location stops sending the field — the blanket
+  rule arriving by the back door.
+
+**Two places clear the flag, and without them the mirror freezes.** A GHL win clears it (GHL's
+answer superseded the edit), and `linkGhl` clears it (GHL acknowledged the create, so the values
+EvalOS opened the row with are the values GHL was just handed). A portal-born row would otherwise
+out-rank GHL on all four shared fields for the rest of its life.
+
+**Row-level timestamps are what this replaces.** Comparing one `updated_at` against another makes
+every concurrent edit a conflict, including two edits to different fields that could both have
+stood.
+
+### 2E.3 The surface's resolution half is an answer, not a button
+
+`SyncStatusController` still has **no route to resolve a row**, and 45e is what makes that
+defensible rather than merely stubborn. A human clearing a drift row clears the symptom while the
+two systems still disagree. What a GM is owed is *"will this fix itself"*, so every row now carries:
+
+- **`owner`** — who wins the field.
+- **`resolution`** — `GHL_WINS` (the next sync closes it; no action), `EVALOS_WINS` (the mirror is
+  keeping a local edit on purpose — expected, and worth chasing only if it persists), or
+  `NEEDS_A_HUMAN`.
+- **`needsAHuman`** on the envelope — the count worth alerting on. The open count alone reads the
+  same whether every row closes tonight or none of them do.
+
+**Both are derived at read time, never stored.** They are a function of the field's ownership and of
+whether the mirror still holds an unconfirmed edit, both of which move after the row was written — a
+stored value would be yesterday's answer presented as today's.
+
+**Only `MISSING_IN_GHL` needs a person**, and that is the honest list: re-creating a deal GHL has
+lost, or deleting the mirror's copy, is a business decision, and a sweep doing it would turn one
+mistaken archive in GHL into lost EvalOS history.
+
+### 2E.4 What it does not do
+
+**It pushes nothing to GHL.** "EvalOS wins" is about what the *mirror* keeps, not about correcting
+GHL — the desks still write to GHL synchronously, and routing them through the outbox is Unit 46.
+Until then the ownership rules are largely latent: the only rows carrying an unconfirmed local edit
+are portal-born ones between the create and GHL's acknowledgement.
+
+**No migration.** `local_updated_at` and `ghl_updated_at` were both added at 44d for this.
+
+---
+
 ## 3. What the rest of Unit 45 must do
 
 Carried here so the amendments are not re-derived from `00d`. Nothing below is blocked any more —
@@ -253,7 +390,7 @@ Unit 44 is complete.
 
 ### 3.1 The outbox (`00d` §6.3, second bullet) — **BUILT at 45c, see §2C**
 
-### 3.2 Per-field ownership, not "EvalOS wins" (`00d` §6.2)
+### 3.2 Per-field ownership, not "EvalOS wins" (`00d` §6.2) — **BUILT at 45e, see §2E**
 
 `00c` §4b's blanket rule **reverts GHL automations — the one thing `00b` explicitly kept GHL for.**
 A round-robin reassigning a deal is not a conflict to be undone. Ownership goes per field, in code;
@@ -331,3 +468,46 @@ mirror. `00d` §2.3's replay sweep stays separate and Unit 45 must not absorb it
 - [x] The portal's create and submit-marker failures are queued instead of swallowed.
 - [x] `GET /api/sync/drift` carries the queue's pending count, dead count, oldest pending age and
       the recently dead.
+
+---
+
+## 8. Acceptance — slice 45d
+
+- [x] `contact.created` and `contact.updated` reach `contact_snapshot` and **never** `CaseIntakeService`.
+- [x] A contact event with a blank `full_name` still lands a name, rebuilt from first + last.
+- [x] `opportunity.update` re-reads that contact's deals from GHL and absorbs GHL's own fields.
+- [x] All six spellings of an opportunity change route to the same handler.
+- [x] `opportunity.won` still reaches Handoff A and nothing else.
+- [x] A mirror event naming no contact is a **400**, not an ack — GHL does not retry a 4xx, and
+      acking would archive as processed a delivery that changed nothing.
+- [x] A deal that moved pipeline in GHL lands on the pipeline GHL names.
+- [x] A deal absent from one contact's answer is **not** marked missing.
+- [x] A deal on an unmirrored pipeline is skipped and logged, never filed somewhere.
+- [x] The delta sweep makes **no GHL call** for a pipeline inside the TTL, re-reads one outside it,
+      and leaves a pipeline GHL stopped returning alone.
+- [x] `SweepRegistrationTest` covers `MIRROR_DELTA` — it is addressable, ticked and configured.
+
+`InboundWebhookTest` (29), `OpportunityMirrorSyncTest` (7). Full suite: **1036 tests, 0 failures**.
+
+---
+
+## 9. Acceptance — slice 45e
+
+- [x] The four shared fields are `SHARED`; the assignee and the pipeline are `GHL`'s; a note is
+      `EVALOS`'s; an unclassified field defaults to `GHL`.
+- [x] The assignee is taken from GHL **even when EvalOS holds an unconfirmed edit** — the
+      automation-reverting failure §3.2 exists to prevent.
+- [x] A row with no local edit follows GHL on every field.
+- [x] An EvalOS edit newer than GHL's keeps all four shared fields.
+- [x] A null `ghl_updated_at` **with** a local edit is a conflict; **without** one it still follows
+      GHL.
+- [x] A GHL win clears the unconfirmed edit, and the next answer is taken whatever its timestamp.
+- [x] `linkGhl` clears it too, so a portal-born row does not defend itself for ever.
+- [x] A shared-field drift row reports `EVALOS_WINS` when the mirror holds an unconfirmed edit and
+      `GHL_WINS` when it does not.
+- [x] `MISSING_LOCALLY` reports `GHL_WINS`; `MISSING_IN_GHL` is the only `NEEDS_A_HUMAN`.
+- [x] There is still no route to resolve a row.
+
+`FieldOwnershipTest` (8), `SyncAuditServiceTest` (13). Full suite: **1049 tests, 0 failures**.
+
+**Unit 45 is complete.** §3.5's webhook replay is `00d` §2.3's sweep and was never this unit's.

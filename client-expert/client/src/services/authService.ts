@@ -21,6 +21,29 @@ import { apiClient, setPortalToken, unwrap, type ApiResponse } from '@shared/ser
  * and not a rare one: `evalos.mail.from` is blank by default and `ClientMailer` degrades rather
  * than failing, so every seeded client in a mail-less environment lands exactly here.
  */
+/**
+ * Where a client is sent when the portal cannot help them itself.
+ *
+ * **It exists because "please contact us" did not resolve to anything.** Two screens said it —
+ * `SignIn` and `SignUp`, both on `MAIL_UNAVAILABLE`, which is the one state where the portal has
+ * no action left to offer — and neither gave an address, a number or a link. A dead end that
+ * *sounds* like a way forward is worse than one that admits it: the client believes they have
+ * somewhere to go and finds out they do not.
+ *
+ * One constant, because the day this address changes it must not be a search for prose.
+ */
+export const SUPPORT_EMAIL = 'support@internationalevaluations.com'
+
+/**
+ * How long a set-password or reset link lives, as the client is told it.
+ *
+ * Mirrors `evalos.portal.credential-ttl` (30m locally and in prod). **Stated on screen rather
+ * than left to the mail**, because the client's question after "check your inbox" is always
+ * "how long do I have" — and the one who reads the mail an hour later needs to know the link is
+ * dead rather than believe the portal is broken.
+ */
+export const LINK_LIFETIME = '30 minutes'
+
 export type IdentifyState = 'PASSWORD_SET' | 'NO_PASSWORD' | 'MAIL_UNAVAILABLE' | 'UNKNOWN'
 
 export type Session = { token: string; expiresAt: string }

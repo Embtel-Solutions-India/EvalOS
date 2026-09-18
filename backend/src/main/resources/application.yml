@@ -7,13 +7,38 @@ spring:
     url: ${DB_URL}
     username: ${DB_USER}
     password: ${DB_PASSWORD}
+  # **The whole of how EvalOS sends mail, and the whole of how the provider is chosen** (2026-09-18).
+  # There is one transport, `smtp`, because every transactional provider speaks it — so switching
+  # provider is these four values and a restart, with no build, no new class and no vendor SDK.
+  # That replaced a Brevo transport that spoke `POST /v3/smtp/email`; it was the second
+  # provider-specific transport in a year to be written and then deleted (GHL was the first).
+  #
+  # **The username is NOT your account email on most providers.** That is the single most common
+  # way this is misconfigured, and it fails as a 535 that reads like a bad password:
+  #
+  #   Provider   MAIL_HOST                MAIL_PORT  MAIL_USERNAME          MAIL_PASSWORD
+  #   ---------- ------------------------ ---------- ---------------------- -----------------------
+  #   Brevo      smtp-relay.brevo.com     587        the SMTP login on its  an SMTP key (xsmtpsib-),
+  #                                                  "SMTP & API" page      NOT the API key
+  #   Resend     smtp.resend.com          587        the literal `resend`   the API key (re_…)
+  #   Mailgun    smtp.mailgun.org         587        postmaster@<domain>    that mailbox's password
+  #   Postmark   smtp.postmarkapp.com     587        the server API token   the same token again
+  #   SES        email-smtp.<region>.     587        the SMTP username IAM  its SMTP password —
+  #              amazonaws.com                       hands you              derived, not the secret key
+  #
+  # `EVALOS_MAIL_FROM` must be an address the provider has VERIFIED for the domain, or every send
+  # is refused per-message. A blank host degrades rather than failing the boot: the transport
+  # reports itself unconfigured and clients are told to contact us — see `evalos.mail.from`.
+  #
+  # Port 587 with STARTTLS everywhere. If a provider ever needs implicit TLS on 465, that is
+  # `mail.smtp.ssl.enable: true` and `starttls` off — not a code change either.
   mail:
     host: ${MAIL_HOST:}
     port: ${MAIL_PORT:587}
     username: ${MAIL_USERNAME:}
     # **Never a value here, not even locally** — ConfigSecretsTest fails the build on a
     # credential-shaped setting carrying a default in a shared profile. The real value goes in
-    # backend/config/application-local.yml (gitignored) or the environment.
+    # the repo-root `.env` (gitignored) or the environment.
     password: ${MAIL_PASSWORD:}
     properties:
       mail.smtp.auth: true
@@ -118,17 +143,15 @@ evalos:
     # GHL_API_TOKEN an empty default rather than a fatal one. A password reset is recoverable by
     # a support conversation; a refused boot is not recoverable by anyone.
     from: ${EVALOS_MAIL_FROM:}
-    # Who carries the two messages EvalOS sends. One of the MailTransport beans by name:
-    # `smtp` (Spring Mail) or `ghl` (POST /conversations/messages, so the link lands in the
-    # contact's own conversation thread). A third — Brevo — is a new class and this value.
+    # Who carries the two messages EvalOS sends, by MailTransport bean name. **`smtp` is the only
+    # one there is** (2026-09-18), and the provider it reaches is `spring.mail.*` above — see the
+    # table there. A `ghl` transport and a `brevo` transport each existed for a few months and are
+    # deleted: both were a class, a config block, a credential and a live test proving one vendor.
     #
-    # **A name that matches nothing fails at startup and says what it found.** Falling back
-    # silently would be discovered by a client who never got their link.
+    # **The setting stays even at one implementation.** It is the seam ClientMailerTest fakes, and
+    # a name that matches nothing fails at startup saying what it found — falling back silently
+    # would be discovered by a client who never got their link.
     transport: ${EVALOS_MAIL_TRANSPORT:smtp}
-    # The envelope sender for the `ghl` transport. **Blank is the better default**: GHL knows
-    # which domain this location has authenticated, and an address it cannot sign for is how a
-    # password mail silently lands in spam.
-    ghl-from: ${EVALOS_MAIL_GHL_FROM:}
   portal:
     # Which brand this portal deployment serves. **NOT evalos.ghl.sales-brand** — that one names
     # which brand's STAFF may hold the SALES and MARKETING roles, a staff-authorization ceiling
@@ -200,6 +223,17 @@ evalos:
     # in a committed yaml (`ConfigSecretsTest` fails the build if one does).
     bucket: ${EVALOS_S3_BUCKET:}
     region: ${EVALOS_S3_REGION:}
+    # **Blank here and in prod, and that is the whole safety.** Set it and documents are written to
+    # a directory on the machine instead of to S3, and read back through an unauthenticated route
+    # -- which is right on a laptop and wrong everywhere else. `DocumentStore` refuses to start if
+    # it is set outside the `local` profile, and `LocalDocumentController` is not even mapped while
+    # it is blank. Production takes its bucket and region from the two lines above, as it always
+    # has.
+    local-dir: ${EVALOS_S3_LOCAL_DIR:}
+    # An S3-compatible endpoint instead of AWS. **Blank here and in prod on purpose** — it exists
+    # for `docker-compose.local.yml`'s MinIO, and a deployment that sets it is talking to something
+    # other than S3. Present in this file so the knob is visible rather than discovered.
+    endpoint: ${EVALOS_S3_ENDPOINT:}
   ghl:
     # The GHL public API, read-only. Only the marketing pipeline view uses it: EvalOS reads
     # GHL's Google Ads funnel and writes nothing back, because GHL owns the front of house.
@@ -325,13 +359,48 @@ evalos:
     # Blank means no brand may hold a pipeline-scoped role, which is the safe default for an
     # environment that has not been told which brand sells.
     sales-brand: ${GHL_SALES_BRAND_ID:}
-    # How long a cached pipeline is considered fresh before the next board read refetches it
-    # (Unit 38). Short, because a board is an operational screen and a salesperson dragging a
-    # card expects to see it move; long enough that a room full of open boards is not a room
-    # full of GHL calls against the 100-per-10-seconds-per-location budget.
+    # **`live` or `stub`, and `live` is the only value a deployment may hold.**
     #
-    # The cache is droppable: raising this trades freshness for requests and nothing else.
-    board-cache-ttl: ${GHL_BOARD_CACHE_TTL:2m}
+    # `stub` answers every GHL WRITE locally instead of sending it — reads still reach the real
+    # location, because that is where the pipelines, stages and fields are and nothing works
+    # without them. It exists so the portal's intake flow can be exercised on a laptop without
+    # creating real opportunities in the business's CRM, which is the only way it could be
+    # exercised before.
+    #
+    # `StubGhlWriteClient` REFUSES TO START outside the `local` profile. A deployment running it
+    # would accept every desk edit, every request and every close, report success and send none of
+    # it — EvalOS and the CRM would diverge silently and permanently, with no failed request
+    # anywhere to notice. There is no outage in this system as bad as that.
+    write-mode: ${EVALOS_GHL_WRITE_MODE:live}
+    # When a board tells its reader the mirror has not been confirmed against GHL lately
+    # (Unit 46). **This is not a refresh trigger** — the board makes no GHL request at all any
+    # more, so nothing acts on it; it is a label.
+    #
+    # 5 minutes — one missed sweep, set by the business on 2026-09-17 over a proposed 15. The
+    # reasoning for the shorter number: this is the only thing telling a salesperson that new GHL
+    # leads have stopped arriving, and being told one cycle late is the point of having it.
+    #
+    # **Known consequence, so it is not a surprise later:** the threshold equals the sweep interval,
+    # so the mirror's age reaches it just as the next pass is due — a pass that runs a few seconds
+    # long, or starts late, will show "Sync delayed" briefly before clearing itself. That is the
+    # trade for a one-cycle warning. If the blink becomes noise, raise this to 6m rather than
+    # slowing the sweep, because the sweep interval is the thing a reader actually feels.
+    #
+    # It replaced `board-cache-ttl`, which was the TTL of a refill-on-read that Unit 46 deleted.
+    board-stale-after: ${GHL_BOARD_STALE_AFTER:5m}
+    # How stale a pipeline nobody is looking at may get before the MIRROR_DELTA sweep re-reads it
+    # (Unit 45d). Deliberately SHORTER than that sweep's interval: the TTL is the freshness
+    # promised, the interval is how often it is checked, and a TTL equal to the interval would
+    # double to 30 minutes on nothing worse than clock jitter between two passes.
+    #
+    # Nothing in it is a delta: GHL's opportunity search filters on createdAt and has no
+    # updated-since filter at all, so "delta" here means a stale PIPELINE, never a changed row.
+    # Webhooks are what make a change current within seconds; this is the floor under them.
+    #
+    # 4 minutes under a 5-minute sweep (2026-09-17): the board reads the mirror and nothing else,
+    # so this TTL is the only thing deciding how old a pipeline may be, and a TTL at or above the
+    # interval would let clock jitter skip a pass and silently double the age.
+    delta-ttl: ${GHL_MIRROR_DELTA_TTL:4m}
     # Connect and read timeout on each GHL request. Required because this runs in a
     # controller-triggered path, and a bound is what keeps it "one bounded request" rather than
     # long-lived work (invariant 6). The read is paginated, so the bound is per page and not for
@@ -366,6 +435,12 @@ evalos:
       # GHL budget on an answer that has not changed since the last twenty passes, and no screen
       # needs a stage name the instant it appears.
       PIPELINE_MIRROR: ${JOBS_PIPELINE_MIRROR_INTERVAL:1h}
+      # The location's reference lists — custom fields, calendars, users (Unit 47). **An hour, for
+      # the pipeline mirror's reason exactly**: these are structure, not traffic. Somebody adds a
+      # calendar or a custom field a few times a year, and no form needs one the instant it exists.
+      # One interval for all three because they change at the same speed; three sweeps would be
+      # three chances for one of them to be the one that quietly stopped.
+      REFERENCE_MIRROR: ${JOBS_REFERENCE_MIRROR_INTERVAL:1h}
       # The nightly sync audit (Unit 45b). **24 hours, and the length is a budget decision.** This
       # is the longest read EvalOS makes -- a paged full list of every opportunity on every mirrored
       # pipeline, roughly 30 seconds of GHL's shared 100-per-10-seconds allowance. Hourly would
@@ -377,6 +452,18 @@ evalos:
       # outage; every minute it sits is a minute a salesperson does not know the lead exists. An
       # hour, like the pipeline mirror's, would make the queue itself the outage.
       SYNC_OUTBOX: ${JOBS_SYNC_OUTBOX_INTERVAL:2m}
+      # The mirror delta sweep (Unit 45d). **15 minutes, and it is nearly free at that rate**:
+      # refreshIfStale is a no-op for any pipeline a desk has read inside `ghl.delta-ttl`, so the
+      # cost is one paged list per pipeline NOBODY is looking at. Those are the rows whose
+      # staleness the nightly audit would otherwise report as drift, and the pipeline-scope check
+      # (`isOnPipeline`) would otherwise answer from — a deal moved to another rep's board stays
+      # authorised here until something re-reads it, and within a working day is the bar.
+      # **5 minutes as of 2026-09-17, and the board is why.** Unit 46 took the refill off the
+      # request path, so this sweep and the webhooks are now the ONLY things that put a new GHL
+      # lead in front of a salesperson. Fifteen minutes was a floor under webhooks; five is a
+      # cadence somebody waits on. It is still cheap: refreshIfStale is a no-op inside `delta-ttl`,
+      # and the manual Refresh button on the board covers the case of not wanting to wait at all.
+      MIRROR_DELTA: ${JOBS_MIRROR_DELTA_INTERVAL:5m}
       # Portal cleanup (expired credential tokens, abandoned sign-ups). **Daily, and the slowness
       # is deliberate**: nothing downstream reads these rows, so the only thing an hourly pass
       # would buy is a slightly smaller table and 24x the ledger rows a GM reads past. It is also

@@ -40,14 +40,15 @@ are answered from, written to, and not droppable.
 ## 1. The cutover that is already happening (operational, not a unit)
 
 **IE replaced its GoHighLevel sub-account on 2026-09-11.** New location
-**`WY6bW2xUCI8Tz8gw7aLJ`**, replacing `kBumF0uUOmMBB5bneYjx`. Fresh CRM, **no contact or
+**`WY6bW2xUCI8Tz8gw7aLJ`** — the final location, confirmed 2026-09-17 — replacing a sub-account
+that is abandoned and whose id is deliberately not repeated here. Fresh CRM, **no contact or
 opportunity migration — the old account is abandoned.**
 
 ### 1a. Configuration — env only, no code
 
 | Setting | Was | Now |
 | --- | --- | --- |
-| `GHL_LOCATION_ID` | `kBumF0uUOmMBB5bneYjx` | `WY6bW2xUCI8Tz8gw7aLJ` |
+| `GHL_LOCATION_ID` | *(the abandoned sub-account)* | `WY6bW2xUCI8Tz8gw7aLJ` |
 | `GHL_API_TOKEN` | old PIT | the new PIT, full `pit-` prefix (40 chars; a bare 36-char UUID 401s in a way that reads like a scope problem) |
 | `GHL_ADS_PIPELINE_NAME` | `Google ADS Pipeline` | whatever the new account calls it |
 | `GHL_EMAIL_PIPELINE_NAME` | `Shivangi's Email Marketing` | ″ |
@@ -171,8 +172,8 @@ Sequenced by whether a consumer exists today (§3) — that is ordering, not sco
 | **43** | Get Started intake funnel — **BUILT 2026-09-15** | the application and its answers (`V49`), and a GHL opportunity on the intake pipeline **with no stage and no assignee**. **Not** documents, and **not** `pipeline`/`pipeline_stage` — see below | 42, 37 |
 | **44** | The tier-1 mirror | `pipeline`, `pipeline_stage`, `contact`, `opportunity`; replaces `CachedOpportunity` | 43 |
 | **45** | The sync engine | webhooks + delta sweep + nightly audit + outbox + drift report | 44 |
-| **46** | The desks move onto the mirror | Sales and Marketing boards read EvalOS rows, never GHL | 45 |
-| **47** | Tier-2 and tier-3 mirror | custom fields, tags, notes, tasks, calendars | 45 |
+| **46** | The desks move onto the mirror — **BUILT 2026-09-17** | Sales and Marketing boards read EvalOS rows, never GHL; every desk *edit* is a local write plus a queued push. Creates stay inline (D46) | 45 |
+| **47** | Tier-2 and tier-3 mirror — **BUILT 2026-09-17, scoped by `00d` §6.6** | custom field **definitions**, calendars, location users. **Not** tags, **not** GHL notes, **not** custom field values, **never** free slots — no reader, or wrong by nature | 45 |
 | **48** | The switch | `evalos.ghl.sync.enabled=false` runs the whole business | 46, 47 |
 | **49** | Invoicing | **the expensive one.** Reverses invariant 2's surviving half | 48, and a finance decision |
 

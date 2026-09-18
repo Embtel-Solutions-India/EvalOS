@@ -1,12 +1,10 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useMemo } from 'react'
 import { Card, KpiCard } from '../../components/ui/card'
-import { SheetContent, SheetRoot } from '../../components/ui/dialog'
 import { fetchDiary, type DiaryMeeting } from '../opportunities/opportunityApi'
-import BookingForm from './BookingForm'
 import { useMetrics } from '../dashboards/useMetrics'
 
 /**
- * The salesperson's diary: what is booked, and one place to book more.
+ * The salesperson's diary: what is booked.
  *
  * <p><strong>Why this screen exists at all.</strong> Booking lived only inside a deal card on the
  * opportunity board, which made the board carry three jobs at once and made a meeting invisible
@@ -35,15 +33,13 @@ export default function MeetingsPage() {
     return { from, to }
   }, [])
 
-  const [reloads, setReloads] = useState(0)
-  const reload = useCallback(() => setReloads((n) => n + 1), [])
-
+  // The refetch counter went with the booking sheet: nothing on this screen writes any more, so
+  // there is nothing here to reload after. `NewMeetingPage` navigates back and the diary reads
+  // fresh on mount.
   const { data, state } = useMetrics<readonly DiaryMeeting[]>(
     (signal) => fetchDiary(window30.from, window30.to, signal),
-    [window30, reloads],
+    [window30],
   )
-
-  const [booking, setBooking] = useState(false)
 
   const meetings = data ?? []
   const today = meetings.filter((m) => isSameDay(new Date(m.startsAt), new Date()))
@@ -52,16 +48,11 @@ export default function MeetingsPage() {
 
   return (
     <section>
+      {/* Booking moved to its own sidebar entry on 2026-09-17 (`/meetings/new`), with Add
+          opportunity and Add lead. This screen answers "what is booked"; adding to it is a
+          different question and now has its own way in. */}
       <header className="flex flex-wrap items-baseline justify-between gap-2">
         <h1 className="text-2xl font-semibold tracking-tight">Meetings</h1>
-        <button
-          type="button"
-          onClick={() => setBooking(true)}
-          className="rounded-lg px-3 py-1.5 text-sm font-medium"
-          style={{ background: 'var(--accent)', color: 'var(--accent-contrast, #fff)' }}
-        >
-          Book a meeting
-        </button>
       </header>
 
       <div className="mt-4 grid gap-4 md:grid-cols-3">
@@ -117,19 +108,6 @@ export default function MeetingsPage() {
         </Card>
       </div>
 
-      <SheetRoot open={booking} onOpenChange={setBooking}>
-        <SheetContent
-          title="Book appointment"
-          description="Booked into GHL, which is what sends the invitation to the client."
-        >
-          <BookingForm
-            onBooked={() => {
-              setBooking(false)
-              reload()
-            }}
-          />
-        </SheetContent>
-      </SheetRoot>
     </section>
   )
 }

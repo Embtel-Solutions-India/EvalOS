@@ -94,11 +94,41 @@ public class Opportunity extends ScopedEntity {
 	@Column(name = "local_updated_at")
 	private Instant localUpdatedAt;
 
+	/**
+	 * Which of the four shared fields the local edit is about — V63.
+	 *
+	 * <p><strong>{@link #localUpdatedAt} alone was not enough to push safely.</strong> It says an
+	 * edit is outstanding but not which field it touched, and the outbox stores an id rather than a
+	 * payload — so the drain read the whole row and sent all four, making a rename re-send the
+	 * mirror's stage. The mirror's stage is up to one {@code MIRROR_DELTA} behind GHL, so a
+	 * workflow's stage move inside that window was dragged backwards and then read back as truth.
+	 *
+	 * <p>Comma-joined {@link FieldOwnership} property names, which is the vocabulary
+	 * {@code sync_drift.field} already speaks. Null is the resting state: no edit outstanding.
+	 */
+	@Column(name = "locally_edited_fields")
+	private String locallyEditedFields;
+
 	@Column(name = "synced_at")
 	private Instant syncedAt;
 
 	@Column(name = "missing_since")
 	private Instant missingSince;
+
+	/**
+	 * GHL's custom field <strong>values</strong> for this deal, keyed by GHL field id — Unit 47b.
+	 *
+	 * <p><strong>Keyed by id, never by name.</strong> A field renamed in GHL keeps its id, and
+	 * {@code ghl_custom_field} (V60) is what turns an id into a label for a human. Keying by name
+	 * would make a rename lose data silently.
+	 *
+	 * <p><strong>This is what unblocks D46.</strong> A desk create carries custom field values, and
+	 * the outbox stores an id and never a payload — so a queued create had nowhere to put them and
+	 * creates stayed synchronous. With the values on the row, the row <em>is</em> the payload.
+	 */
+	@org.hibernate.annotations.JdbcTypeCode(org.hibernate.type.SqlTypes.JSON)
+	@Column(name = "custom_fields", nullable = false)
+	private java.util.Map<String, String> customFields = new java.util.LinkedHashMap<>();
 
 	protected Opportunity() {
 		// for JPA
@@ -112,36 +142,92 @@ public class Opportunity extends ScopedEntity {
 	}
 
 	/**
-	 * Everything GHL says about this deal, in one call.
+	 * Everything GHL says about this deal, in one call, <strong>under per-field ownership</strong>
+	 * (Unit 45e, {@link FieldOwnership}).
 	 *
 	 * <p>Deliberately one method rather than a setter per column: a partial update from a sync is a
 	 * row that half-agrees with GHL, and the whole value of a mirror is that a comparison means
 	 * something.
+	 *
+	 * <p><strong>GHL-owned fields are taken every time.</strong> The assignee and the pipeline are
+	 * GHL's, and overwriting them with a local value would revert the automations {@code 00b} kept
+	 * GHL for — a round-robin reassigning a deal is not a conflict to undo.
+	 *
+	 * <p><strong>The four shared fields are kept when EvalOS holds an edit GHL has not confirmed.</strong>
+	 * That is what {@link #localUpdatedAt} means, and it is cleared the moment GHL's answer
+	 * supersedes it (below) or GHL acknowledges the create ({@link #linkGhl}) — so a row cannot sit
+	 * frozen on a stale local value for ever. The disagreement is not silent: the next audit opens
+	 * a {@code sync_drift} row for each kept field, which is the "and reporting" half of §3.2.
+	 *
+	 * @param ghlUpdatedAt GHL's last-modified. <strong>Null is a conflict, never "EvalOS is
+	 *                     newer"</strong> — see the field's own note. It only decides anything when
+	 *                     EvalOS actually holds an unconfirmed edit; a row with none follows GHL
+	 *                     whatever this is, or a location that stopped sending the field would
+	 *                     freeze the whole mirror.
 	 */
 	public void syncFromGhl(String ghlContactId, UUID pipelineId, String ghlStageId, String name,
 			BigDecimal amount, String status, String source, String ghlAssignedTo, Instant ghlCreatedAt,
 			Instant ghlUpdatedAt, Instant lastStatusChangeAt, Instant lastStageChangeAt) {
+		boolean evalosWins = evalosWins(ghlUpdatedAt);
+
+		// GHL's, always.
 		this.ghlContactId = ghlContactId;
 		this.pipelineId = pipelineId;
-		this.ghlStageId = ghlStageId;
-		this.name = name;
-		this.amount = amount;
-		this.status = status;
 		this.source = source;
 		this.ghlAssignedTo = ghlAssignedTo;
 		this.ghlCreatedAt = ghlCreatedAt;
 		this.ghlUpdatedAt = ghlUpdatedAt;
 		this.lastStatusChangeAt = lastStatusChangeAt;
 		this.lastStageChangeAt = lastStageChangeAt;
+
+		// Shared: kept only while EvalOS holds an edit GHL has not confirmed.
+		if (!evalosWins) {
+			this.ghlStageId = ghlStageId;
+			this.name = name;
+			this.amount = amount;
+			this.status = status;
+			// GHL's answer has superseded whatever EvalOS held, so there is no unconfirmed edit
+			// left to defend. Without this a row whose `ghl_updated_at` comes back null would
+			// defend its local values for ever, which is "EvalOS always wins" arriving by the
+			// back door.
+			this.localUpdatedAt = null;
+			this.locallyEditedFields = null;
+		}
+
 		this.syncedAt = Instant.now();
 		this.missingSince = null;
 	}
 
-	/** GHL answered a create. The row keeps its id and gains GHL's. */
+	/**
+	 * Whether EvalOS holds an edit GHL has not confirmed, so the shared fields stay.
+	 *
+	 * <p>Both halves matter. <strong>No local edit means GHL wins</strong>, whatever the
+	 * timestamps say — the mirror's default is to follow GHL. <strong>A null
+	 * {@code ghlUpdatedAt} with a local edit is a conflict</strong> and EvalOS keeps its value
+	 * ({@code 00d} §6.2): the field is GHL-supplied and nullable, so reading absence as "GHL is
+	 * newer" would quietly discard the edit.
+	 */
+	private boolean evalosWins(Instant incomingGhlUpdatedAt) {
+		if (this.localUpdatedAt == null) {
+			return false;
+		}
+		return incomingGhlUpdatedAt == null || this.localUpdatedAt.isAfter(incomingGhlUpdatedAt);
+	}
+
+	/**
+	 * GHL answered a create. The row keeps its id and gains GHL's.
+	 *
+	 * <p><strong>The local edit is confirmed by this and stops being defended</strong> (45e): the
+	 * values EvalOS opened the row with are the values GHL was just handed, so there is nothing
+	 * left for the ownership check to protect. A row that kept {@code localUpdatedAt} here would
+	 * out-rank GHL on its four shared fields for the rest of its life.
+	 */
 	public void linkGhl(String ghlId) {
 		if (this.ghlId == null) {
 			this.ghlId = ghlId;
 			this.syncedAt = Instant.now();
+			this.localUpdatedAt = null;
+			this.locallyEditedFields = null;
 		}
 	}
 
@@ -155,6 +241,69 @@ public class Opportunity extends ScopedEntity {
 	public void touchedLocally() {
 		this.localUpdatedAt = Instant.now();
 	}
+
+	/**
+	 * A desk changed this deal — Unit 46.
+	 *
+	 * <p><strong>Exactly the four fields 45e calls shared, and that is the point rather than a
+	 * coincidence.</strong> What a desk may edit locally is what EvalOS is allowed to win a
+	 * conflict over; anything wider would be the mirror arguing with GHL about a field GHL owns.
+	 * The assignee is absent for that reason: it is GHL's, and a desk that could set it here would
+	 * revert the round-robin the automations run.
+	 *
+	 * <p><strong>Null means "leave it alone", not "clear it".</strong> Every caller sends one or two
+	 * of the four — a rename, a re-price, a stage move, a close — and a record-shaped update that
+	 * blanked the rest would turn a rename into data loss.
+	 *
+	 * <p>The stamp is what makes the edit survive until GHL has it: a sync arriving before the push
+	 * lands finds {@code localUpdatedAt} set and keeps these four (45e).
+	 */
+	public void editedLocally(String name, BigDecimal amount, String ghlStageId, String status) {
+		java.util.Set<String> edited = new java.util.LinkedHashSet<>(locallyEdited());
+		if (name != null && !name.isBlank()) {
+			this.name = name;
+			edited.add(FieldOwnership.NAME);
+		}
+		if (amount != null) {
+			this.amount = amount;
+			edited.add(FieldOwnership.AMOUNT);
+		}
+		if (ghlStageId != null && !ghlStageId.isBlank()) {
+			this.ghlStageId = ghlStageId;
+			edited.add(FieldOwnership.STAGE);
+		}
+		if (status != null && !status.isBlank()) {
+			this.status = status;
+			edited.add(FieldOwnership.STATUS);
+		}
+		// **Unioned, not replaced**, because the outbox collapses: a rename and then a re-price
+		// before the drain runs are two edits that must both travel on the one queued push.
+		this.locallyEditedFields = edited.isEmpty() ? null : String.join(",", edited);
+		touchedLocally();
+	}
+
+	/**
+	 * The shared fields a desk edited and GHL has not confirmed — what a push may send.
+	 *
+	 * <p>Empty means "send nothing of the four": either the row has no outstanding edit, or it is
+	 * an older row queued before V63 and the drain says so rather than guessing.
+	 */
+	public java.util.Set<String> locallyEdited() {
+		if (locallyEditedFields == null || locallyEditedFields.isBlank()) {
+			return java.util.Set.of();
+		}
+		return java.util.Set.of(locallyEditedFields.split(","));
+	}
+
+	/*
+	 * There is deliberately no `pushedToGhl()` here.
+	 *
+	 * Retiring a confirmed edit looks like an entity method and cannot be one: the drain reads the
+	 * row, spends a GHL round trip, and by the time it comes back the row may hold a newer edit.
+	 * Merging the entity it read would lose that edit outright. It is a conditional statement
+	 * instead -- OpportunityRepository.confirmPushed, which clears the stamp only while it is still
+	 * the same edit and reports zero when it is not.
+	 */
 
 	public String getGhlId() {
 		return ghlId;
@@ -218,6 +367,22 @@ public class Opportunity extends ScopedEntity {
 
 	public Instant getMissingSince() {
 		return missingSince;
+	}
+
+	/**
+	 * GHL's values for this deal's custom fields.
+	 *
+	 * <p><strong>Replaced wholesale rather than merged</strong>, because a field cleared in GHL is
+	 * absent from its answer, and merging would keep a value GHL no longer holds — the mirror would
+	 * then disagree with GHL about something nobody edited.
+	 */
+	public void syncCustomFields(java.util.Map<String, String> values) {
+		this.customFields = values == null ? new java.util.LinkedHashMap<>()
+				: new java.util.LinkedHashMap<>(values);
+	}
+
+	public java.util.Map<String, String> getCustomFields() {
+		return java.util.Collections.unmodifiableMap(customFields);
 	}
 
 	public boolean isLive() {

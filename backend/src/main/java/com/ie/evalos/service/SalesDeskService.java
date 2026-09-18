@@ -5,6 +5,8 @@ import java.util.Set;
 
 import com.ie.evalos.common.DuplicateDealException;
 import com.ie.evalos.common.InvalidRequestException;
+import com.ie.evalos.domain.Opportunity;
+import com.ie.evalos.domain.SyncOutboxEntry;
 import com.ie.evalos.integration.GhlWriteClient;
 import com.ie.evalos.security.TenantContext;
 
@@ -105,6 +107,14 @@ public class SalesDeskService {
 
 		GhlWriteClient.UpsertedOpportunity created = ghl.createOpportunity(pipelineId, contact.id(),
 				name, monetaryValue, stageId, expectedCloseDate, customFields);
+
+		// Same reason as the marketing desk's: `queue` below refuses a deal the mirror has not
+		// absorbed, so a salesperson who creates a deal and immediately moves or re-prices it would
+		// be told it "is not in the mirror yet" about the deal they are looking at.
+		deals.absorbCreated(pipelineId, created.id(), contact.id(), created.name(),
+				created.monetaryValue(), created.status(), created.stageId(),
+				GhlWriteClient.SOURCE_SALES_DESK);
+
 		return new Deal(created.id(), created.contactId(), created.name(), created.stageId(),
 				created.status(), created.monetaryValue());
 	}
@@ -116,23 +126,56 @@ public class SalesDeskService {
 	private final GhlWriteClient ghl;
 	private final PipelineScope scope;
 	private final OpportunityMirrorService deals;
+	private final SyncOutboxService outbox;
 	private final com.ie.evalos.repository.FollowUpRepository followUps;
 
 	SalesDeskService(GhlWriteClient ghl, PipelineScope scope, OpportunityMirrorService deals,
-			com.ie.evalos.repository.FollowUpRepository followUps) {
+			SyncOutboxService outbox, com.ie.evalos.repository.FollowUpRepository followUps) {
 		this.deals = deals;
+		this.outbox = outbox;
 		this.followUps = followUps;
 		this.ghl = ghl;
 		this.scope = scope;
 	}
 
-	/** Renames a deal or re-prices it. Both are GHL's fields; EvalOS holds no second copy. */
+	/**
+	 * Edit the mirror, queue the push, answer from the row — the three steps every desk edit is
+	 * made of (Unit 46 §2).
+	 *
+	 * <p><strong>A deal the mirror has not absorbed yet is refused rather than pushed.</strong>
+	 * {@code requireMine} has already proved the caller owns it, so an empty answer here means the
+	 * mirror is behind GHL, not that the caller is out of bounds — and queueing a push for a row
+	 * that does not exist would hand the drain an entity id it cannot resolve.
+	 */
+	private Deal queue(String opportunityId, String name, BigDecimal monetaryValue, String stageId,
+			String status, SyncOutboxEntry.Intent intent) {
+		Opportunity row = deals.editLocally(opportunityId, name, monetaryValue, stageId, status)
+				.orElseThrow(() -> new InvalidRequestException(
+						"That deal is not in the mirror yet, so it cannot be edited here. It arrives "
+								+ "with the next sync — run the MIRROR_DELTA job to pull it now."));
+		outbox.enqueue(row.getBrandId(), row.getId(), intent);
+		return asDeal(row);
+	}
+
+	/** The mirror row as the desk's own shape. */
+	private static Deal asDeal(Opportunity row) {
+		return new Deal(row.getGhlId(), row.getGhlContactId(), row.getName(), row.getGhlStageId(),
+				row.getStatus(), row.getAmount());
+	}
+
+	/**
+	 * Renames a deal or re-prices it.
+	 *
+	 * <p><strong>The mirror is written and the push is queued</strong> (Unit 46). Both fields are
+	 * shared with GHL under 45e, so the local edit is defended until the drain confirms it — and
+	 * the salesperson sees the new value at once instead of waiting for a round trip.
+	 */
 	public Deal update(String opportunityId, String name, BigDecimal monetaryValue) {
-		String pipelineId = scope.requireMine(opportunityId);
+		scope.requireMine(opportunityId);
 		if ((name == null || name.isBlank()) && monetaryValue == null) {
 			throw new InvalidRequestException("Nothing to change: send a name, a value, or both");
 		}
-		return asDeal(ghl.updateOpportunity(opportunityId, pipelineId, name, monetaryValue, null));
+		return queue(opportunityId, name, monetaryValue, null, null, SyncOutboxEntry.Intent.UPSERT);
 	}
 
 	/**
@@ -144,11 +187,11 @@ public class SalesDeskService {
 	 * racing the automation is exactly what the design avoids.
 	 */
 	public Deal moveToStage(String opportunityId, String stageId) {
-		String pipelineId = scope.requireMine(opportunityId);
+		scope.requireMine(opportunityId);
 		if (stageId == null || stageId.isBlank()) {
 			throw new InvalidRequestException("A stage is required");
 		}
-		return asDeal(ghl.moveStage(opportunityId, pipelineId, stageId));
+		return queue(opportunityId, null, null, stageId, null, SyncOutboxEntry.Intent.UPSERT);
 	}
 
 	/**
@@ -157,15 +200,20 @@ public class SalesDeskService {
 	 * <p><strong>Won does not create a case here.</strong> See the class comment: EvalOS tells
 	 * GHL and waits for the webhook. The caller should show a pending state rather than looking
 	 * for a case that has not arrived yet.
+	 *
+	 * <p><strong>And that pending state got longer at Unit 46.</strong> The status now reaches GHL
+	 * on the next drain rather than inside this request, so {@code opportunity.won} — and the case
+	 * behind it — arrives up to a couple of minutes later. Taken deliberately: what it buys is that
+	 * a win is no longer lost when GHL is unreachable, which is the more expensive failure by far.
 	 */
 	public Deal close(String opportunityId, String status) {
-		String pipelineId = scope.requireMine(opportunityId);
+		scope.requireMine(opportunityId);
 		if (status == null || !CLOSABLE.contains(status)) {
 			// The message names what is allowed rather than what was sent: a caller who typed
 			// "closed" needs the vocabulary, not their own word repeated back.
 			throw new InvalidRequestException("Status must be one of: won, lost, abandoned");
 		}
-		return asDeal(ghl.setStatus(opportunityId, pipelineId, status));
+		return queue(opportunityId, null, null, null, status, SyncOutboxEntry.Intent.CLOSE);
 	}
 
 	/**
@@ -245,10 +293,5 @@ public class SalesDeskService {
 		return followUps
 				.findByBrandIdAndGhlPipelineIdInAndCompletedFalseAndDueAtBeforeOrderByDueAtAsc(
 						caller.brandId(), scope.mine(), before);
-	}
-
-	private static Deal asDeal(GhlWriteClient.UpsertedOpportunity from) {
-		return new Deal(from.id(), from.contactId(), from.name(), from.stageId(), from.status(),
-				from.monetaryValue());
 	}
 }

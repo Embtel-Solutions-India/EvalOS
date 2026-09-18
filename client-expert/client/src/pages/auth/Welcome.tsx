@@ -14,6 +14,13 @@ import { Logo } from '@shared/components/common/Logo'
  * issued, so anyone still holding one reaches their case by opening it, which this screen neither
  * helps nor hinders.
  *
+ * **"Already set a password?" was a trap, fixed 2026-09-17.** It gated the sign-in door on
+ * having a password — so a client who signed up but never opened their link (the single most
+ * common state a new account is in) read "no" and took the other door, which answered "you
+ * already have an account with us". Two cards, and the only honest route was behind the one whose
+ * label said it was not for them. Sign-in is the door for everyone who exists: `identify` sorts
+ * out which of them has a password and mails a link to whoever does not.
+ *
  * **The two doors are sign up and sign in**, which is what the client flow asks for. The first
  * pointed at `/start` — a placeholder saying we could not take a new client — until 2026-09-15,
  * because nothing created a `client_account` at runtime. It creates one now, along with the GHL
@@ -46,7 +53,10 @@ export default function Welcome() {
               <LogIn className="h-6 w-6 shrink-0 text-primary" aria-hidden="true" />
               <div>
                 <p className="text-sm font-semibold text-foreground">Sign in</p>
-                <p className="text-sm text-muted-foreground">Already set a password? Sign in here.</p>
+                <p className="text-sm text-muted-foreground">
+                  Already have an account? Sign in — or we&rsquo;ll email you a link if you
+                  haven&rsquo;t set a password yet.
+                </p>
               </div>
             </div>
           </Card>

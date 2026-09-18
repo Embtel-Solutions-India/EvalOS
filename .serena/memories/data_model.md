@@ -3,7 +3,8 @@
 **The authoritative file is `.claude/data-model.md`. It separates CURRENT DATABASE from REQUIRED
 FUTURE MODEL — never mix them.**
 
-24 tables, Flyway V1 to V49 all applied (verified against a live Postgres instance on 2026-09-16).
+25 tables, Flyway V1 to V65 all applied (V1–V49 verified against a live Postgres instance on
+2026-09-16; V50–V62 are Units 44–47b, V63–V64 the 2026-09-18 review pass).
 Migrations live in `backend/src/main/resources/db/migration/`. New schema means a new migration; an
 applied one is never edited.
 
@@ -37,3 +38,45 @@ rows can coexist. `ghl_stage_id` is TEXT and deliberately not a FK into `pipelin
 mirrors run on two sweeps, and a FK would make an opportunity sync fail because a different sweep is
 behind. `client_application.opportunity_id` (`V53`) persists the correlation key before GHL is
 called — a key minted in memory and lost to a timeout is a key no retry can search for.
+
+**Decided 2026-09-17 — what the future model now owes, and what it no longer does:**
+
+- **`application_document`** (Unit 53, D33): request-stage uploads, `brand_id`,
+  `client_application_id`, `contact_id` → `contact_snapshot`, `object_key`, and
+  `carried_to_case_document_id` so Handoff A's carry-forward is idempotent. The S3 key is
+  `DocumentStore.clientKey` — `{brand}/client/{ghl_contact_id}/{doc}` (D41, 2026-09-17; it was
+  `contact_snapshot.id` for three days) — so the carry-forward is a row insert over the same object,
+  never a copy or a re-key. `contact_id` stays a real FK: naming a contact by GHL's id does not
+  change a primary key (D18).
+- **A push-subscription table** (endpoint + keys per staff user) for D37. The `notification` table
+  already records *what happened*; this is delivery only.
+- ~~A richer `client_application.status`~~ — **NOT NEEDED (D35).** `DRAFT`/`SUBMITTED` are the right
+  two; Sales review is a GHL pipeline stage, not an EvalOS column.
+
+**Unit 47 (`V60`, BUILT 2026-09-17):** `ghl_custom_field`, `ghl_calendar`, `ghl_user` — the
+location's reference lists, upserted on GHL's id, `synced_at` stamped, never deleted
+(`missing_since`). Prefixed `ghl_` because `user` is reserved in Postgres. **No slots table, ever**
+(D48). **No custom field values** (D49).
+
+**2026-09-18 review pass — two columns.**
+
+`opportunity.locally_edited_fields` (`V63`): comma-joined `FieldOwnership` property names, saying
+WHICH of the four shared fields a desk edited. `local_updated_at` said only that an edit existed, so
+the outbox push sent all four — and the mirror's stage is up to one `MIRROR_DELTA` behind, so a
+rename re-sent a stale stage and undid a GHL workflow's card move. Cleared together with
+`local_updated_at`.
+
+`team_member_pipeline.revoked_at` (`V64`): **a revoke stamps, it does not delete.** The row has to
+survive, because `backfillFromLegacyColumn` re-derives grants from `team_member.ghl_pipeline_id`
+after every `PIPELINE_MIRROR` pass and was resurrecting revoked ones — past the role check, the
+selling-brand check and the audit event. Clearing that column instead is forbidden: `V39`'s
+`team_member_pipeline_matches_role` requires a SALES/MARKETING row to hold a non-null one. Every
+read filters `revoked_at IS NULL`; `grant` is `ON CONFLICT ... DO UPDATE` so re-granting revives the
+row. It is also the shape append-only assignment history wanted.
+
+**`application_document` (`V65`, Unit 53, 2026-09-18).** Documents sent WITH a request, before any
+case exists. FK to `client_application` and to `contact_snapshot`; `object_key` authoritative for
+reads; `carried_to_case_document_id` stamped once at Handoff A, which is the whole idempotency.
+**It shares its S3 object with the `case_document` it becomes** — the key is
+`{brand}/client/{ghl_contact_id}/{doc}`, the person's prefix, so carrying a document onto a case is
+one new row and no copy. No status, no review, no checklist item: a request has no checklist.

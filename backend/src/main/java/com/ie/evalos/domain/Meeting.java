@@ -102,6 +102,25 @@ public class Meeting extends ScopedEntity {
 	 * <p>Named for the event rather than as three setters, so the row cannot be moved a field at a
 	 * time into a state GHL never confirmed. The caller passes GHL's response, not the request.
 	 */
+	/**
+	 * GHL's version of this appointment — <strong>read-back, Unit 47b</strong>.
+	 *
+	 * <p>This row held what GHL confirmed at booking and nothing after, so an appointment cancelled
+	 * or moved in GHL's own UI was invisible to the diary. `47` §4 named that as accepted
+	 * divergence; it rides on the opportunity search, so it did not have to be.
+	 *
+	 * <p>{@code appointmentStatus} is GHL's own vocabulary (confirmed, cancelled, showed…) and is
+	 * stored as given rather than mapped: EvalOS has no second status model for a meeting, and
+	 * inventing one would be a translation that can itself be wrong.
+	 */
+	public void syncFromGhl(String title, Instant startsAt, Instant endsAt, String status) {
+		if (title != null && !title.isBlank()) {
+			this.title = title;
+		}
+		movedTo(startsAt == null ? this.startsAt : startsAt, endsAt == null ? this.endsAt : endsAt,
+				status == null || status.isBlank() ? this.status : status);
+	}
+
 	public void movedTo(Instant startsAt, Instant endsAt, String status) {
 		this.startsAt = startsAt;
 		this.endsAt = endsAt;

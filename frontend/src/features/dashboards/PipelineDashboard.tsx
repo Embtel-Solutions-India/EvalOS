@@ -51,7 +51,10 @@ export default function PipelineDashboard({ audience }: { audience: 'sales' | 'm
         <h1 className="text-2xl font-semibold tracking-tight">{copy.title}</h1>
         {data && (
           <p className="font-num text-sm tabular-nums" style={{ color: 'var(--text-muted)' }}>
-            {stale ? 'showing a cached read' : 'read just now'}
+            {/* Unit 46: the board is always a local read, so the old "read just now" was a
+                claim about GHL that stopped being true. What a reader needs is whether the
+                mirror is keeping up. */}
+            {stale ? 'mirror not confirmed recently' : 'in step with GHL'}
           </p>
         )}
       </header>

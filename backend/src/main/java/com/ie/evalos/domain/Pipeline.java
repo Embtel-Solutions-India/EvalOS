@@ -48,6 +48,24 @@ public class Pipeline extends ScopedEntity {
 	@Column(name = "missing_since")
 	private Instant missingSince;
 
+	/**
+	 * When this pipeline's <em>opportunities</em> were last read from GHL — <strong>including a read
+	 * that returned none</strong>.
+	 *
+	 * <p><strong>Distinct from {@link #syncedAt}</strong>, which is when the pipeline itself was last
+	 * confirmed by the {@code PIPELINE_MIRROR} sweep. Two different sweeps answer two different
+	 * questions and conflating them would make a stale board look fresh.
+	 *
+	 * <p><strong>This column exists because the answer used to be derived, and the derivation was
+	 * wrong.</strong> The board asked {@code max(opportunity.synced_at)} over the pipeline's deals,
+	 * so a pipeline with no deals reported the same thing as one never synced — and after Unit 46
+	 * turned a null into a "Sync delayed" banner, every empty pipeline accused the sync of being
+	 * broken. A sync is something that happens to a pipeline; how many rows came back is a separate
+	 * fact.
+	 */
+	@Column(name = "opportunities_synced_at")
+	private Instant opportunitiesSyncedAt;
+
 	protected Pipeline() {
 		// for JPA
 	}
@@ -109,6 +127,15 @@ public class Pipeline extends ScopedEntity {
 
 	public Instant getMissingSince() {
 		return missingSince;
+	}
+
+	/** Stamped by every opportunity read for this pipeline, empty answers included. */
+	public void opportunitiesSynced() {
+		this.opportunitiesSyncedAt = Instant.now();
+	}
+
+	public Instant getOpportunitiesSyncedAt() {
+		return opportunitiesSyncedAt;
 	}
 
 	public boolean isLive() {

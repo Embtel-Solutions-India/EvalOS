@@ -286,7 +286,7 @@ For reference, to open either screen yourself:
 
 ```
 GHL_API_TOKEN=<private integration token, opportunities.readonly>
-GHL_LOCATION_ID=kBumF0uUOmMBB5bneYjx
+GHL_LOCATION_ID=WY6bW2xUCI8Tz8gw7aLJ
 ```
 
 Until then the route answers **502 `GHL_UNAVAILABLE`** with a message naming those

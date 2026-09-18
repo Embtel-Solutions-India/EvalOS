@@ -11,6 +11,7 @@ import { usePortalToken } from '@shared/hooks/usePortalToken'
 import { NO_TOKEN } from '@shared/lib/portal'
 import { statusOf } from '@shared/services/apiClient'
 import { IntakeProgress } from '@/components/intake/IntakeProgress'
+import RequestDocuments from '@/components/intake/RequestDocuments'
 import { QuestionField } from '@/components/intake/QuestionField'
 import { ServiceCategorySection } from '@/components/intake/ServiceCategorySection'
 import { SERVICE_CATEGORIES, getService, getServicesByCategory } from '@/constants/serviceCatalog'
@@ -225,7 +226,7 @@ export default function NewRequest() {
         </div>
       )}
 
-      {step === 'review' && service && (
+      {step === 'review' && service && application && (
         <div className="space-y-6">
           <Card className="space-y-4 p-5">
             <div>
@@ -257,9 +258,22 @@ export default function NewRequest() {
             })}
           </Card>
 
+          {/*
+            **The DOCUMENT SUBMISSION step, here at last** (Unit 53, D33). It sits on review rather
+            than as a fourth wizard step: the client has just read back what they are sending, and
+            the transcript that evidences it belongs in the same glance. Removal is offered while
+            the request is still a draft, which on this screen it always is — `send` navigates away.
+          */}
+          <RequestDocuments applicationId={application.id} canRemove />
+
           <p className="text-sm text-muted-foreground">
+            {/*
+              This said "you can send us your documents once your case is open", which was true
+              while there was nowhere to put them and is not any more. It is edited rather than
+              left beside the uploader contradicting it.
+            */}
             Sending this doesn't commit you to anything. We'll read it, price the work and come
-            back to you — you can send us your documents once your case is open.
+            back to you.
           </p>
 
           <div className="flex gap-3">

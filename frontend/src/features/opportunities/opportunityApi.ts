@@ -34,15 +34,28 @@ export type BoardColumn = {
 /**
  * The whole board.
  *
- * `readAt` and `stale` are on the payload because a cached screen the reader cannot date is one
- * they have to trust blindly — the same reasoning the funnel screens' age stamp carries.
+ * `lastSyncedAt` and `stale` are on the payload because a screen served from a mirror is one the
+ * reader has to trust blindly otherwise. Unit 46 made that load-bearing: the board never reads GHL,
+ * so these two are the only way to know whether what is on screen is current.
+ *
+ * `lastSyncedAt` is **null when the sync has never confirmed these pipelines**. It is not
+ * substituted with "now" — saying "synced just now" when nothing has ever synced is the one lie
+ * this indicator exists to prevent — and a null is `stale` by definition.
  */
 export type OpportunityBoard = {
   columns: readonly BoardColumn[]
   totalDeals: number
   totalValue: number
-  readAt: string
+  lastSyncedAt: string | null
   stale: boolean
+  /**
+   * False when `evalos.ghl.sales-brand` is blank on the server.
+   *
+   * A blank one makes every mirror a no-op, so the board is empty and unsynced for a reason that
+   * has nothing to do with the sweep being behind. Without this the screen blames the sync for a
+   * configuration mistake — which is exactly what happened on 2026-09-17.
+   */
+  syncConfigured: boolean
 }
 
 /**
@@ -56,6 +69,33 @@ export type OpportunityBoard = {
  */
 export function fetchOpportunityBoard(signal?: AbortSignal): Promise<OpportunityBoard> {
   return unwrap<OpportunityBoard>(api.get('/opportunities/board', { signal }))
+}
+
+/**
+ * Sync the mirror for the caller's pipelines, then get the board back.
+ *
+ * **This reconciles; it does not read GHL on the board's behalf.** The board is drawn from EvalOS
+ * rows either way — what this does is bring those rows forward first. POST because it writes.
+ */
+/** Who the deal is with. Null when the mirror has not absorbed the contact yet. */
+export type DealContact = {
+  name: string | null
+  email: string | null
+  phone: string | null
+  company: string | null
+}
+
+export function fetchDealContact(
+  opportunityId: string,
+  signal?: AbortSignal,
+): Promise<DealContact | null> {
+  return unwrap<DealContact | null>(
+    api.get(`/opportunities/${opportunityId}/contact`, { signal }),
+  )
+}
+
+export function refreshOpportunityBoard(signal?: AbortSignal): Promise<OpportunityBoard> {
+  return unwrap<OpportunityBoard>(api.post('/opportunities/board/refresh', undefined, { signal }))
 }
 
 // --- Unit 39: the marketing desk --------------------------------------------
@@ -490,6 +530,55 @@ export async function fetchApplication(
   // `@JsonInclude(NON_NULL)` drops the key entirely rather than sending null, so this is
   // `undefined` in practice — normalised here so one falsy shape reaches the component.
   return found ?? null
+}
+
+/**
+ * One document the client sent with their request — Unit 53 (D33/D34).
+ *
+ * **No object key.** That is an internal S3 address; the only way to open one of these is the
+ * five-minute presigned URL below, which is minted per click and never stored.
+ */
+export type RequestDocument = {
+  id: string
+  filename: string
+  contentType: string | null
+  sizeBytes: number | null
+  uploadedAt: string
+  /** True once Handoff A copied it onto the case, which is a fact a Coordinator asks about. */
+  carriedToCase: boolean
+}
+
+/**
+ * The documents behind a deal.
+ *
+ * **Its own route beside the application, not a field on it** (`53` §3, D34). Sales reaches these
+ * by already being able to open the opportunity, so the documents ask no new authorisation
+ * question — and an empty list is the ordinary answer for the deals somebody phoned in.
+ */
+export function fetchRequestDocuments(
+  opportunityId: string,
+  signal?: AbortSignal,
+): Promise<readonly RequestDocument[]> {
+  return unwrap<readonly RequestDocument[]>(
+    api.get(`/opportunities/${opportunityId}/documents`, { signal }),
+  )
+}
+
+/**
+ * A five-minute URL for one document.
+ *
+ * **Fetched on the click, never held.** A URL rendered into an `href` at load time is a credential
+ * sitting in the DOM for as long as the tab is open, and it expires while the reader is still
+ * looking at it — so the link asks for a fresh one each time and opens what comes back.
+ */
+export async function requestDocumentUrl(
+  opportunityId: string,
+  documentId: string,
+): Promise<string> {
+  const answer = await unwrap<{ url: string }>(
+    api.get(`/opportunities/${opportunityId}/documents/${documentId}/url`),
+  )
+  return answer.url
 }
 
 /** The stored answers, or an empty list for anything that is not the expected shape. */

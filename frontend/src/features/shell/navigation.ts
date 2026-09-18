@@ -40,6 +40,19 @@ export type NavItem = {
    * states explicitly rather than one it fails to notice.
    */
   readsGhlLocation?: true
+  /**
+   * Whether this screen's brand is provable, so a pipeline-scoped role may reach it.
+   *
+   * **The exception to `readsGhlLocation`, marked rather than listed.** `evalos.ghl.sales-brand`
+   * names the brand that owns the location (Unit 36 §4a) and assignment refuses any other brand's
+   * member, so a SALES or MARKETING caller on one of these screens IS attributable. Everything
+   * else over that location stays GM-only.
+   *
+   * It is a marker and not a path list in the test for the reason the test states about
+   * `readsGhlLocation` itself: a hardcoded list passes for the next screen somebody forgets to add
+   * to it.
+   */
+  brandProven?: true
 }
 
 export type NavGroup = 'Overview' | 'Marketing' | 'Sales' | 'Pipeline' | 'Records' | 'Admin'
@@ -102,23 +115,6 @@ export const NAV_ITEMS: readonly NavItem[] = [
   // IS attributable, because `evalos.ghl.sales-brand` names the brand that owns the location and
   // assignment refuses any other brand's member with a 400.
 
-  // The salesperson's diary, and the one place a meeting can be booked without first finding the
-  // deal on the board.
-  //
-  // **SALES only, and Marketing is absent on purpose.** `39` §5 gives Marketing no booking action
-  // — a marketer nurtures a lead and hands it over; the meeting belongs to whoever closes. Adding
-  // Marketing here would offer a button the server refuses.
-  //
-  // Sits in the Sales group beside the funnel, because that is when it happens: a meeting is
-  // worked before EvalOS takes custody at Handoff A.
-  {
-    path: '/meetings',
-    label: 'Meetings',
-    roles: ['SALES'],
-    becomes: 'Your diary, and booking',
-    group: 'Sales',
-  },
-
   // The operational board (Unit 38): the deals in the pipeline you own, as cards.
   //
   // **The first entry over the GHL location that is not GM-only**, and that is what Unit 36
@@ -133,9 +129,73 @@ export const NAV_ITEMS: readonly NavItem[] = [
   {
     path: '/opportunities/board',
     readsGhlLocation: true,
+    brandProven: true,
     label: 'My pipeline',
     roles: ['SALES', 'MARKETING', 'GM'],
     becomes: 'GHL opportunities as cards, by stage',
+    group: 'Sales',
+  },
+
+  // **Opening a deal is a nav entry, not a button on the board** (2026-09-17, on the business's
+  // instruction). It was a button above the cards, which put the one thing a salesperson opens the
+  // app to do behind first loading the board and then finding the button on it.
+  //
+  // SALES only. A marketer opens a *lead* — the next entry — and the two are different verbs
+  // against different semantics: a deal is a true create, a lead is an upsert on (contact,
+  // pipeline). Offering a salesperson the lead form would quietly overwrite a repeat client's
+  // first deal, which is the trade `39` §3a took for marketing alone.
+  {
+    path: '/opportunities/new',
+    readsGhlLocation: true,
+    brandProven: true,
+    label: 'Add opportunity',
+    roles: ['SALES'],
+    becomes: 'Open a deal on your own pipeline',
+    group: 'Sales',
+  },
+
+  // The marketer's half. Same reasoning, same place; the form opens on its own screen rather than
+  // inline above a board that had to load first.
+  {
+    path: '/marketing/leads/new',
+    readsGhlLocation: true,
+    brandProven: true,
+    label: 'Add lead',
+    roles: ['MARKETING'],
+    becomes: 'Capture a lead on your own pipeline',
+    group: 'Sales',
+  },
+
+  // The salesperson's diary, and the one place a meeting can be booked without first finding the
+  // deal on the board.
+  //
+  // **SALES only, and Marketing is absent on purpose.** `39` §5 gives Marketing no booking action
+  // — a marketer nurtures a lead and hands it over; the meeting belongs to whoever closes. Adding
+  // Marketing here would offer a button the server refuses.
+  //
+  // Sits in the Sales group beside the funnel, because that is when it happens: a meeting is
+  // worked before EvalOS takes custody at Handoff A.
+  {
+    path: '/meetings',
+    label: 'Meetings',
+    roles: ['SALES'],
+    becomes: 'Your diary',
+    group: 'Sales',
+  },
+
+  // Booking, beside the diary rather than inside it (2026-09-17). Same move as Add opportunity and
+  // Add lead: the diary answers "what is booked", and adding to it is a different question.
+  //
+  // **Marked `readsGhlLocation`** because the form reads the location's calendars, its users and —
+  // live, always — its free slots. SALES only, for the reason the diary is: `39` §5 gives Marketing
+  // no booking action, so listing it for them would be a button the server refuses.
+  {
+    path: '/meetings/new',
+    readsGhlLocation: true,
+    brandProven: true,
+    label: 'Add meeting',
+    roles: ['SALES'],
+    becomes: 'Book an appointment in GHL',
     group: 'Sales',
   },
 
@@ -350,6 +410,15 @@ export const NAV_ITEMS: readonly NavItem[] = [
  */
 export const CASE_DETAIL_PATH = '/cases/:id'
 
+/**
+ * One opportunity: the contact, the questionnaire they submitted, the notes and the actions.
+ * Reached from a board card, so it is unlisted — the card is the way in.
+ *
+ * **Pipeline-scoped on the server**, not by this table: every read behind it calls
+ * `PipelineScope.requireMine`, so pasting another desk's id answers 403 rather than a page.
+ */
+export const DEAL_DETAIL_PATH = '/opportunities/:opportunityId'
+
 /** One expert's pending drafts and their payment history. Reached from the batch screen. */
 export const EXPERT_PAYOUTS_PATH = '/payouts/experts/:expertId'
 
@@ -367,6 +436,15 @@ export const PAYMENT_DETAIL_PATH = '/payouts/payments/:paymentId'
 const PAYOUT_ROLES: readonly Role[] = ['GM', 'BRAND_MANAGER', 'EXPERT_NETWORK_MANAGER']
 
 const PARAMETERIZED: readonly NavItem[] = [
+  {
+    path: DEAL_DETAIL_PATH,
+    readsGhlLocation: true,
+    brandProven: true,
+    label: 'Opportunity',
+    roles: ['SALES', 'MARKETING', 'GM'],
+    becomes: 'One deal: contact, questionnaire, notes',
+    group: 'Sales',
+  },
   {
     path: CASE_DETAIL_PATH,
     label: 'Case',

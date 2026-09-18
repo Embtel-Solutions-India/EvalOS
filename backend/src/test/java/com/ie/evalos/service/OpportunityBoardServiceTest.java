@@ -6,6 +6,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
+import com.ie.evalos.config.SellingBrand;
 import com.ie.evalos.domain.Opportunity;
 import com.ie.evalos.domain.Pipeline;
 import com.ie.evalos.domain.PipelineStage;
@@ -21,7 +22,6 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.security.core.context.SecurityContextHolder;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -43,15 +43,18 @@ class OpportunityBoardServiceTest {
 	private static final UUID MEMBER = UUID.randomUUID();
 	private static final String MINE = "pipe_mine";
 	private static final String THEIRS = "pipe_theirs";
-	private static final Duration TTL = Duration.ofMinutes(2);
+	/** How old the mirror may be before the board says so. Unit 46: a label, never a refresh. */
+	private static final Duration STALE_AFTER = Duration.ofMinutes(30);
 
 	private final OpportunityMirrorService deals = mock(OpportunityMirrorService.class);
 	private final PipelineMirrorService pipelines = mock(PipelineMirrorService.class);
 	private final TeamMemberRepository teamMembers = mock(TeamMemberRepository.class);
+	private final com.ie.evalos.repository.TeamMemberPipelineRepository assignments =
+			mock(com.ie.evalos.repository.TeamMemberPipelineRepository.class);
 
 	private OpportunityBoardService service() {
-		return new OpportunityBoardService(deals, pipelines, teamMembers, TTL,
-				SELLING_BRAND.toString());
+		return new OpportunityBoardService(deals, pipelines, teamMembers, assignments, STALE_AFTER,
+				new SellingBrand(SELLING_BRAND));
 	}
 
 	private void authenticate(Role role, String pipelineId) {
@@ -174,31 +177,44 @@ class OpportunityBoardServiceTest {
 	}
 
 	/**
-	 * <strong>P1's answer, asserted rather than left to the comment.</strong> The GM's union is
-	 * the configured selling brand's pipelines — a query over the roster, not a predicate.
+	 * <strong>P1's answer, corrected 2026-09-17: the GM sees every MIRRORED pipeline.</strong>
+	 *
+	 * <p>It used to be the union of what active members are assigned to, which hid exactly the
+	 * pipelines that belong to the business rather than to a person — {@code 00d} §6.7's Case
+	 * Delivery, "a pipeline no single person owns", and the location's Master Pipeline. It also
+	 * read {@code team_member.ghl_pipeline_id}, the column Unit 44b replaced with
+	 * {@code team_member_pipeline}, so it answered empty once assignment moved.
 	 */
 	@Test
-	void theGmSeesTheUnionOfTheSellingBrandsPipelines() {
+	void theGmSeesEveryMirroredPipelineIncludingOnesNobodyIsAssignedTo() {
 		authenticate(Role.GM, null);
-		when(teamMembers.findPipelinesOfActiveMembers(SELLING_BRAND)).thenReturn(List.of(MINE, THEIRS));
 		givenMirrored(List.of(
 				mirrored("a", MINE, "s1", "100", Instant.now()),
 				mirrored("b", THEIRS, "t1", "5", Instant.now())), MINE, THEIRS);
 
 		OpportunityBoardService.Board board = service().forCaller();
 
-		verify(teamMembers).findPipelinesOfActiveMembers(SELLING_BRAND);
 		assertThat(board.totalDeals()).isEqualTo(2);
+		// The roster is not consulted at all: an unassigned pipeline is still the GM's to see.
+		verify(teamMembers, never()).findPipelinesOfActiveMembers(any());
 	}
 
-	/** No configured selling brand means the GM's union is empty, not everything. */
+	/** A pipeline GHL stopped returning is not offered, even to the GM. */
 	@Test
-	void theGmSeesNothingWhenNoSellingBrandIsConfigured() {
+	void theGmDoesNotSeeAPipelineThatHasLeftGhl() {
 		authenticate(Role.GM, null);
-		OpportunityBoardService bare = new OpportunityBoardService(deals, pipelines, teamMembers, TTL, "");
+		com.ie.evalos.domain.Pipeline gone =
+				new com.ie.evalos.domain.Pipeline(SELLING_BRAND, THEIRS, "Retired", 1);
+		gone.markMissing(Instant.now());
+		com.ie.evalos.domain.Pipeline live =
+				new com.ie.evalos.domain.Pipeline(SELLING_BRAND, MINE, "Sales", 0);
+		when(pipelines.all()).thenReturn(List.of(live, gone));
+		when(deals.onPipelines(any())).thenReturn(List.of());
+		when(deals.lastSynced(any())).thenReturn(Instant.now());
 
-		assertThat(bare.forCaller().totalDeals()).isZero();
-		verify(deals, never()).onPipelines(any());
+		service().forCaller();
+
+		verify(deals).onPipelines(List.of(MINE));
 	}
 
 	/**
@@ -210,49 +226,45 @@ class OpportunityBoardServiceTest {
 	 * cache it — the stages are mirrored rows now, so the lookup left the network entirely.
 	 */
 	/**
-	 * A typo in `evalos.ghl.sales-brand` fails the boot, not the first GM board load.
+	 * <strong>The board draws mirror rows and makes no GHL request at all</strong> — Unit 46, and
+	 * the headline `00c` §3 gives that unit.
 	 *
-	 * <p>Blank and malformed are different faults: blank is "no brand sells yet", a legitimate
-	 * state that yields an empty union. A malformed UUID is a deployment mistake, and finding it
-	 * as a 500 the first time a GM opens a board is finding it in the worst possible place.
+	 * <p>It used to call {@code refreshIfStale} per pipeline on every load. That was right while
+	 * nothing else kept the mirror current; 45d's webhooks and {@code MIRROR_DELTA} changed the
+	 * premise, so the refill went. This is the assertion that fails if somebody puts a read back
+	 * on the request path — which would be easy to do and invisible until the rate budget ran out.
 	 */
 	@Test
-	void aMalformedSellingBrandFailsAtConstruction() {
-		assertThatThrownBy(() -> new OpportunityBoardService(deals, pipelines, teamMembers, TTL, "not-a-uuid"))
-				.isInstanceOf(IllegalStateException.class)
-				.hasMessageContaining("evalos.ghl.sales-brand");
-	}
-
-	/**
-	 * <strong>The board asks the mirror for a refresh and never reads GHL itself.</strong>
-	 *
-	 * <p>That separation is what Unit 44d bought: whether the copy has aged past the TTL is now a
-	 * question about `max(synced_at)` over rows that survive a refresh, and it belongs to the thing
-	 * that owns those rows. The board's job is to draw them.
-	 */
-	@Test
-	void theBoardDelegatesFreshnessAndDrawsWhatItIsGiven() {
+	void theBoardDrawsMirrorRowsAndRefreshesNothing() {
 		authenticate(Role.SALES, MINE);
 		givenMirrored(List.of(mirrored("a", MINE, "s1", "1", Instant.now())), MINE);
 
 		assertThat(service().forCaller().totalDeals()).isEqualTo(1);
 
-		verify(deals).refreshIfStale(eq(MINE), any());
 		verify(deals).onPipelines(List.of(MINE));
+		verify(deals, never()).refreshIfStale(any(), any());
 	}
 
+	/**
+	 * A mirror nobody has refreshed in a while draws anyway, and says so.
+	 *
+	 * <p>{@code stale} changed meaning at Unit 46: it was "this render did not refill", a fact
+	 * about one request, and it is now "the mirror has not been confirmed against GHL lately", a
+	 * fact about the sync. It is the only staleness signal a reader has left, so it is worth a test.
+	 */
 	@Test
-	void aStaleMirrorIsRefreshedBeforeTheBoardIsDrawn() {
+	void anUnconfirmedMirrorStillDrawsAndIsFlaggedStale() {
 		authenticate(Role.SALES, MINE);
-		when(deals.onPipelines(any()))
-				.thenReturn(List.of(mirrored("a", MINE, "s1", "100", Instant.now())));
+		givenMirrored(List.of(mirrored("a", MINE, "s1", "100", Instant.now())), MINE);
+		// The age that decides is the mirror's last confirmation against GHL, not the row's own
+		// stamp: an empty pipeline has no row to carry one.
+		when(deals.lastSynced(any())).thenReturn(Instant.now().minus(java.time.Duration.ofHours(2)));
 
-		service().forCaller();
+		OpportunityBoardService.Board board = service().forCaller();
 
-		// The board asks; the mirror decides whether the copy has aged past the TTL. That check
-		// moved INTO the mirror at Unit 44d, because the answer now comes from `max(synced_at)`
-		// over rows that survive a refresh rather than from a cache-wide fetch stamp.
-		verify(deals).refreshIfStale(eq(MINE), any());
+		assertThat(board.totalDeals()).isEqualTo(1);
+		assertThat(board.stale()).isTrue();
+		verify(deals, never()).refreshIfStale(any(), any());
 	}
 
 	/**
@@ -332,27 +344,46 @@ class OpportunityBoardServiceTest {
 
 		OpportunityBoardService.Board board = service().forCaller();
 
-		assertThat(board.readAt()).isEqualTo(readAt);
+		assertThat(board.lastSyncedAt()).isEqualTo(readAt);
 		assertThat(board.stale()).isFalse();
 	}
 
 	/**
-	 * A pipeline nothing has ever synced still answers, rather than throwing on a null age.
+	 * A pipeline nothing has ever synced still answers — and <strong>says it has never synced</strong>.
 	 *
-	 * <p>Null from the mirror means "never confirmed". The board falls back to the current instant
-	 * so the payload is well-formed, and the reader sees a board with no deals on it — which is the
-	 * honest rendering of "nothing has been read".
+	 * <p>The age used to fall back to {@code Instant.now()} here, which made the payload well-formed
+	 * by telling the reader the board was confirmed at the one moment nothing had ever been read.
+	 * Unit 46 makes that indicator load-bearing — the board has no other freshness signal — so null
+	 * travels as null and the row counts as stale. Not knowing is not the same as being fresh.
 	 */
 	@Test
-	void anUnsyncedPipelineStillDrawsABoard() {
+	void anUnsyncedPipelineSaysSoRatherThanClaimingItIsCurrent() {
 		authenticate(Role.SALES, MINE);
 		when(deals.onPipelines(any())).thenReturn(List.of());
 		when(deals.lastSynced(any())).thenReturn(null);
 
 		OpportunityBoardService.Board board = service().forCaller();
 
-		assertThat(board.readAt()).isNotNull();
+		assertThat(board.lastSyncedAt()).isNull();
+		assertThat(board.stale()).isTrue();
 		assertThat(board.totalDeals()).isZero();
+	}
+
+	/**
+	 * The Refresh button reconciles the caller's own pipelines and nothing else.
+	 *
+	 * <p>A salesperson's refresh must not spend GHL's shared budget on pipelines they cannot see;
+	 * the background sweep is what covers those.
+	 */
+	@Test
+	void aManualSyncRefreshesOnlyTheCallersOwnPipelines() {
+		authenticate(Role.SALES, MINE);
+		givenMirrored(List.of(), MINE);
+
+		service().syncNow();
+
+		verify(deals).refreshIfStale(eq(MINE), any());
+		verify(deals, never()).refreshIfStale(eq(THEIRS), any());
 	}
 
 	@Test
@@ -367,15 +398,75 @@ class OpportunityBoardServiceTest {
 				.containsExactly("s1", "s2");
 	}
 
-	/** Only the caller's own pipeline is refreshed, even when GHL knows about others. */
+	/** Only the caller's own pipeline is read, even when the mirror holds others. */
 	@Test
-	void onlyTheCallersPipelineIsRefreshed() {
+	void onlyTheCallersPipelineIsRead() {
 		authenticate(Role.SALES, MINE);
 		when(deals.onPipelines(any())).thenReturn(List.of());
 
 		service().forCaller();
 
+		verify(deals).onPipelines(List.of(MINE));
+		verify(deals, never()).onPipelines(List.of(THEIRS));
+	}
+
+	/**
+	 * <strong>The trap this closes.</strong> A desk signs in before the mirror has run, is granted
+	 * its pipeline minutes later by the backfill, and would otherwise see an empty board for the
+	 * rest of the session with "ask a GM" as the only advice. D19b's token claim is a staleness
+	 * bound for a REASSIGNMENT; it must not be one for a first assignment.
+	 */
+	@Test
+	void aDeskWhoseTokenPredatesItsAssignmentStillSeesItsPipeline() {
+		authenticate(Role.SALES, null);
+		when(assignments.ghlIdsFor(MEMBER)).thenReturn(List.of(MINE));
+		givenMirrored(List.of(mirrored("a", MINE, "s1", "100", Instant.now())), MINE);
+
+		assertThat(service().forCaller().totalDeals()).isEqualTo(1);
+	}
+
+	/** A member with no assignment anywhere still sees nothing — the fallback widens no access. */
+	@Test
+	void aDeskWithNoAssignmentAnywhereStillSeesAnEmptyBoard() {
+		authenticate(Role.SALES, null);
+		when(assignments.ghlIdsFor(MEMBER)).thenReturn(List.of());
+
+		assertThat(service().forCaller().totalDeals()).isZero();
+		verify(deals, never()).onPipelines(any());
+	}
+
+	/**
+	 * <strong>Refresh syncs pipelines before deals — in the state it was added for.</strong> An
+	 * empty mirror has no pipelines to refresh deals <em>for</em>, so an opportunities-only refresh
+	 * could not fix the thing the button is offered for.
+	 */
+	@Test
+	void theRefreshButtonSyncsPipelineStructureWhenTheMirrorHasNone() {
+		authenticate(Role.SALES, MINE);
+		when(pipelines.all()).thenReturn(List.of());
+		givenMirrored(List.of(), MINE);
+
+		service().syncNow();
+
+		verify(pipelines).sync();
+	}
+
+	/**
+	 * <strong>And only in that state.</strong> This test is the other half, and it is the one the
+	 * cost lives in: the structure read is a paged GHL call on a location whose pipelines change a
+	 * few times a year, MANUAL_SYNC_FLOOR guards the deal reads and not this one, and a GM's board
+	 * is every live pipeline — so an ungated press spent a structure read plus a fan-out every
+	 * time anybody pressed it. The hourly PIPELINE_MIRROR sweep is what keeps structure current.
+	 */
+	@Test
+	void theRefreshButtonLeavesPipelineStructureAloneWhenTheMirrorAlreadyHasIt() {
+		authenticate(Role.SALES, MINE);
+		givenMirrored(List.of(), MINE);
+
+		service().syncNow();
+
+		// The @BeforeEach mirror holds two live pipelines, which is every state but the first run.
+		verify(pipelines, never()).sync();
 		verify(deals).refreshIfStale(eq(MINE), any());
-		verify(deals, never()).refreshIfStale(eq(THEIRS), any());
 	}
 }

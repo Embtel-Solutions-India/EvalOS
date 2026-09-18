@@ -36,11 +36,13 @@ class SalesMeetingServiceTest {
 	private static final java.util.UUID MEMBER = java.util.UUID.randomUUID();
 
 	private final GhlCalendarClient calendars = mock(GhlCalendarClient.class);
+	/** Unit 47: the calendar LIST is the mirror's; slots stay the client's. */
+	private final ReferenceMirrorService reference = mock(ReferenceMirrorService.class);
 	private final PipelineScope scope = mock(PipelineScope.class);
 	private final com.ie.evalos.repository.MeetingRepository meetingRows =
 			mock(com.ie.evalos.repository.MeetingRepository.class);
 	private final SalesMeetingService meetings =
-			new SalesMeetingService(calendars, scope, meetingRows);
+			new SalesMeetingService(calendars, reference, scope, meetingRows);
 
 	private static String inDays(int days) {
 		return Instant.now().plus(days, ChronoUnit.DAYS).toString();
@@ -171,13 +173,31 @@ class SalesMeetingServiceTest {
 
 	@Test
 	void theCalendarPickerIsANarrowedList() {
-		when(calendars.calendars()).thenReturn(java.util.List.of(
-				new GhlCalendarClient.CalendarOption("cal_1", "Sales calls", true, 30, "{{contact.name}}")));
+		com.ie.evalos.domain.GhlReference.Calendar mirrored =
+				new com.ie.evalos.domain.GhlReference.Calendar(java.util.UUID.randomUUID(), "cal_1",
+						"Sales calls");
+		mirrored.seen("Sales calls", true, 30, "{{contact.name}}");
+		when(reference.bookableCalendars()).thenReturn(java.util.List.of(mirrored));
 
 		assertThat(meetings.calendars()).singleElement()
 				.satisfies((calendar) -> {
 					assertThat(calendar.id()).isEqualTo("cal_1");
 					assertThat(calendar.name()).isEqualTo("Sales calls");
 				});
+	}
+
+	/**
+	 * <strong>Unit 47: the list is mirrored, the slots are not.</strong> Availability is GHL's to
+	 * compute — open hours, buffers, caps, the assignee's other appointments — and a mirrored slot
+	 * is wrong within a minute of being written. This is the assertion that fails if somebody
+	 * "finishes" the mirror by caching slots too.
+	 */
+	@Test
+	void theCalendarListIsMirroredAndTheSlotsAreStillLive() {
+		when(reference.bookableCalendars()).thenReturn(java.util.List.of());
+
+		meetings.calendars();
+
+		verify(calendars, never()).calendars();
 	}
 }

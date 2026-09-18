@@ -51,27 +51,36 @@ class ClientMailerTest {
 			return reachable;
 		}
 
+		private String sentHtml;
+
 		@Override
-		public boolean send(Recipient to, String subject, String body) {
+		public boolean send(Recipient to, String subject, String text, String html) {
 			this.sentTo = to;
+			this.sentHtml = html;
 			return true;
 		}
 	}
 
+	private final com.ie.evalos.service.AuditService audit =
+			org.mockito.Mockito.mock(com.ie.evalos.service.AuditService.class);
+
 	private static final java.util.UUID BRAND =
 			java.util.UUID.fromString("11111111-1111-1111-1111-111111111111");
 
+	/** Real templates, not a mock: rendering them is part of what these tests exercise. */
+	private static final MailTemplates TEMPLATES = new MailTemplates("https://portal.test");
+
 	private static final MailTransport.Recipient ANA =
-			new MailTransport.Recipient(BRAND, "ana@example.com", "ghl-1");
+			new MailTransport.Recipient(BRAND, "ana@example.com");
 
 	@Test
 	void theConfiguredTransportIsTheOneThatCarriesIt() {
 		Fake smtp = new Fake("smtp", true, true);
-		Fake ghl = new Fake("ghl", true, true);
+		Fake brevo = new Fake("brevo", true, true);
 
-		new ClientMailer(List.of(smtp, ghl), "ghl").sendSetPassword(ANA, "https://portal/set#tok");
+		new ClientMailer(List.of(smtp, brevo), audit, TEMPLATES, "brevo").sendSetPassword(ANA, "Ana", "https://portal/set#tok");
 
-		assertThat(ghl.sentTo).isEqualTo(ANA);
+		assertThat(brevo.sentTo).isEqualTo(ANA);
 		assertThat(smtp.sentTo).isNull();
 	}
 
@@ -84,9 +93,9 @@ class ClientMailerTest {
 	 */
 	@Test
 	void anUnknownTransportNameRefusesToStart() {
-		assertThatThrownBy(() -> new ClientMailer(List.of(new Fake("smtp", true, true)), "brevo"))
+		assertThatThrownBy(() -> new ClientMailer(List.of(new Fake("smtp", true, true)), audit, TEMPLATES, "sendgrid"))
 				.isInstanceOf(IllegalStateException.class)
-				.hasMessageContaining("brevo")
+				.hasMessageContaining("sendgrid")
 				.hasMessageContaining("smtp");
 	}
 
@@ -98,21 +107,48 @@ class ClientMailerTest {
 	 */
 	@Test
 	void aTransportThatCannotAddressThisPersonSendsNothingAndSaysSo() {
-		Fake ghl = new Fake("ghl", true, false);
-		ClientMailer mailer = new ClientMailer(List.of(ghl), "ghl");
+		Fake brevo = new Fake("brevo", true, false);
+		ClientMailer mailer = new ClientMailer(List.of(brevo), audit, TEMPLATES, "brevo");
 
 		assertThat(mailer.isConfigured()).isTrue();
-		assertThat(mailer.canReach(new MailTransport.Recipient(BRAND, "ana@example.com", null))).isFalse();
-		assertThat(mailer.sendSetPassword(ANA, "https://portal/set#tok")).isFalse();
-		assertThat(ghl.sentTo).isNull();
+		assertThat(mailer.canReach(new MailTransport.Recipient(BRAND, ""))).isFalse();
+		assertThat(mailer.sendSetPassword(ANA, "Ana", "https://portal/set#tok")).isFalse();
+		assertThat(brevo.sentTo).isNull();
 	}
 
 	/** An unconfigured transport is the MAIL_UNAVAILABLE path, not a boot failure. */
 	@Test
 	void anUnconfiguredTransportDegradesRatherThanThrowing() {
-		ClientMailer mailer = new ClientMailer(List.of(new Fake("smtp", false, true)), "smtp");
+		ClientMailer mailer = new ClientMailer(List.of(new Fake("smtp", false, true)), audit, TEMPLATES, "smtp");
 
 		assertThat(mailer.isConfigured()).isFalse();
-		assertThat(mailer.sendResetPassword(ANA, "https://portal/set#tok")).isFalse();
+		assertThat(mailer.sendResetPassword(ANA, "Ana", "https://portal/set#tok")).isFalse();
+	}
+
+	/**
+	 * <strong>A trail that cannot be written does not become an enumeration oracle.</strong>
+	 *
+	 * <p>{@code recordPortalEvent} is {@code @Transactional} and neither caller of
+	 * {@code issueCredential} is, so a transient database error here escaped as a 500 — for a
+	 * known address, while an unknown one still answered 204. That difference is exactly the
+	 * account-enumeration oracle this class exists to close, arriving by way of the trail instead
+	 * of the mail. And because the 500 unwound before {@code credentials.save}, the client was left
+	 * holding a link that could never work.
+	 *
+	 * <p>True rather than false: the message left, which is what this boolean means. The missing
+	 * audit row is logged as the real problem it is, and it is not the client's problem.
+	 */
+	@Test
+	void aFailedAuditWriteDoesNotFailTheSendThatAlreadyHappened() {
+		Fake brevo = new Fake("brevo", true, true);
+		ClientMailer mailer = new ClientMailer(List.of(brevo), audit, TEMPLATES, "brevo");
+		org.mockito.Mockito.doThrow(new org.springframework.dao.DataAccessResourceFailureException("pool"))
+				.when(audit).recordPortalEvent(org.mockito.ArgumentMatchers.any(),
+						org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.anyString(),
+						org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
+						org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
+
+		assertThat(mailer.sendResetPassword(ANA, "Ana", "https://portal/set#tok")).isTrue();
+		assertThat(brevo.sentTo).isEqualTo(ANA);
 	}
 }

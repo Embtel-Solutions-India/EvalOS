@@ -42,7 +42,7 @@ cache.
 
 | Clause | State |
 |---|---|
-| Sign-up creates or finds the GHL Contact | ⚙️ **moved, §8** — the contact is created at **set-password**, not at sign-up: an unauthenticated `permitAll` route may not write to the live CRM. `ClientAccountService.setPassword` → `GhlWriteClient.upsertContact` |
+| Sign-up creates or finds the GHL Contact | ⚙️ **moved, §8 and §11** — the contact is created at **set-password**, not at sign-up: an unauthenticated `permitAll` route may not write to the live CRM. `ClientAccountService.setPassword` → `GhlWriteClient.upsertContact` |
 | The GHL Contact ID is stored in EvalOS | ✅ **built** — `client_account.ghl_contact_id`, set by `linkGhlContact` |
 | A basic GHL Opportunity carrying the essential data | ✅ **built (§4.1)** — contact, name, the requested service, the correlation key and `SUBMITTED`, all on one create **at submit** (§9) |
 | Questionnaire / documents / request stay EvalOS's | ✅ **built** — and structurally, see §1 |
@@ -410,6 +410,11 @@ justification — a seam under two messages would otherwise be ceremony, and the
 interface with one implementation. The answer to "who sends the mail" has already changed once
 (SMTP → GHL) and Brevo is named as next.
 
+> **Superseded by §12 (2026-09-18).** The third arrived, and so did the bill: `ghl` and `brevo`
+> were both written and both deleted inside a year. SMTP is the only implementation now, and the
+> seam survives as a test seam rather than as a provider switch — the provider switch moved into
+> `spring.mail.*`, where it costs nothing to own.
+
 - `evalos.mail.transport` picks one **by name** from the beans on the classpath. An environment
   change, not a build — the day a sending domain is being re-verified, the fix is a variable.
 - **A name matching nothing fails at startup and names what it found.** A silent fallback is
@@ -450,3 +455,134 @@ disagree, linking the typed address to that account hands a stranger somebody el
 typing their phone number. The rule that makes it safe is *the link always goes to the matched
 account's stored email, never the typed one* — and a shared number (a family, an office) then means
 two people resolve to one account, which is a product decision rather than a technical one.
+
+---
+
+## 11. Amendment, 2026-09-17 — Brevo replaces GHL mail, and the contact goes back off sign-up
+
+**This restores §8 and closes §10.** §10's placement was never a preference; it was a constraint,
+and the constraint is gone.
+
+### 11.1 What changed
+
+GHL no longer sends the set-password mail. `BrevoMailTransport` does —
+`POST https://api.brevo.com/v3/smtp/email`, header `api-key`, a text-only body. The `ghl`
+transport is deleted outright rather than kept as an option: it addressed a `contactId`, and
+keeping a transport that can only reach people who already have a CRM row would keep the whole
+problem §10 describes. **(The Brevo class itself is gone as of §12; what survives from this
+section is §11.2 onward — the contact staying off sign-up, which holds for any address-based
+transport.)**
+
+**The seam paid for itself.** Swapping providers was one new class and one changed value of
+`evalos.mail.transport`. Nothing that knows what a set-password mail *says* moved, which is what
+§10.4 claimed the interface was for.
+
+### 11.2 The contact is off sign-up again (D3d → D3a's ordering)
+
+§10.1 put it there because `POST /conversations/messages` required a `contactId`. Brevo takes an
+address, so **there is no longer any reason for an unauthenticated route to write to the live
+CRM**, and the exposure §8.1 describes is not worth carrying for a placement nothing needs.
+
+**Two call sites, and this is the part worth remembering.** `signUp` called `ensureCrmIdentity`
+directly *and* fell through to `identify` → `issueCredential`, which called it again — the second
+added in review to repair an account the GHL transport could not address. Removing only the direct
+call would have left sign-up writing to GHL by the second path while looking fixed.
+`signingUpReachesGhlZeroTimes` drives a hundred sign-ups and asserts `verifyNoInteractions`, which
+is what catches that class of half-fix.
+
+`persistCrmLink` went with them: it existed because `identify` and `forgotPassword` are not
+transactional, and every remaining caller of `ensureCrmIdentity` is.
+
+### 11.3 Where the contact is created now
+
+| Moment | Authenticated by |
+|---|---|
+| `setPassword` | a single-use token that only reached the client's own inbox |
+| `signIn` | a password |
+| first request needing a deal | a portal session (D3c) |
+
+None of them is reachable by a stranger with a script, which is the whole of D3a's property.
+
+### 11.4 What this costs
+
+A client who signs up and never opens the mail is invisible to Sales until they do. That is D3a's
+original trade, taken again knowingly: an unproven address is not yet a lead, and the row is
+`created_via = 'SIGNUP'` so `PORTAL_CLEANUP` clears it after 30 days.
+
+**It also makes the outstanding work smaller rather than larger.** §10.2 listed a tighter sign-up
+budget and a proof-of-human gate as owed, because a `permitAll` route was writing to the CRM. It no
+longer is: a flood now costs two EvalOS rows and an append-only audit row per attempt, all of them
+ours and two of them swept. A gate is still worth having — the audit table grows and mail can be
+aimed at an address — but it stopped being the thing standing between a script and the sales desk.
+
+### 11.5 Acceptance
+
+- [x] ~~`evalos.mail.transport=brevo` sends via `POST /v3/smtp/email` with `api-key`.~~ Replaced
+      by §12: `transport=smtp`, and the provider is `spring.mail.*`.
+- [x] `GhlMailTransport` is deleted; `Recipient` no longer carries a contact id.
+- [x] The send is audited once, in `ClientMailer`, carrying subject and brand and never the link.
+- [x] A hundred sign-ups reach GHL zero times, by either path.
+- [x] Sign-up still answers a state and never a session.
+- [ ] ~~`EVALOS_MAIL_BREVO_API_KEY` / `_SENDER_EMAIL` set~~ — carried into §12.5 as SMTP settings.
+- [ ] A proof-of-human gate on `/auth/sign-up` — still worth having, no longer urgent.
+
+---
+
+## 12. Amendment, 2026-09-18 — the provider stops being a class
+
+**This deletes §11.1's transport and keeps everything else §11 decided.**
+
+### 12.1 What changed
+
+`BrevoMailTransport` is deleted, with `evalos.mail.brevo.*` and `BrevoMailTransportLiveTest`.
+`SmtpMailTransport` is the only `MailTransport`, and which provider carries the mail is
+`spring.mail.host/port/username/password` plus `EVALOS_MAIL_FROM`. Brevo, Resend, Mailgun,
+Postmark and SES all speak SMTP on 587, so **changing provider is four environment variables and a
+restart** — no class, no config block, no build. Prod's `transport` default flips `brevo` → `smtp`.
+
+### 12.2 Why, given §10.4 argued the opposite
+
+§10.4 is not wrong about the seam; it is wrong about where the switch belongs. Two vendor-specific
+transports were written and deleted inside a year, and each one cost a class, a config block, a
+credential and a live test that proved exactly one vendor. The seam made the *code* swap cheap and
+left the *operational* swap — new credential, new verified sender, new failure modes to learn — at
+full price. SMTP pays that once.
+
+**The username is the trap, and it is why `application.yml` carries a table.** It is not the
+account email on most providers: Resend wants the literal `resend`, Brevo wants the SMTP login from
+its "SMTP & API" page (and an `xsmtpsib-` SMTP key, not the `xkeysib-` API key), SES wants an IAM-
+derived SMTP username. A wrong one is a 535, which reads exactly like a wrong password.
+
+### 12.3 What is given up
+
+An API transport reads the provider's own message id; SMTP returns a protocol-level accept. So
+`send` promises that the message left EvalOS and nothing more — delivery, bounces and suppression
+are read in the provider's dashboard, or through webhooks nobody has built. For two messages whose
+failure a support conversation recovers, that is the cheaper side of the trade.
+
+### 12.4 What is kept
+
+`MailTransport` and `evalos.mail.transport`, at one implementation, against the no-interface-with-
+one-implementation rule and deliberately: it is the seam `ClientMailerTest` fakes in all four of
+its tests, and deleting it is a bigger diff than keeping it. A name matching nothing still fails
+the boot naming what it found.
+
+`isConfigured()` gained the relay: it checked only `evalos.mail.from`, so a deployment with a
+sender and no host reported itself configured, minted a credential token and told the client to
+watch an inbox — then failed one send at a time. Unconfigured has to be knowable before that
+promise is made.
+
+### 12.5 Acceptance
+
+- [x] `transport=smtp` is the only bean; `BrevoMailTransport` and `evalos.mail.brevo.*` are gone.
+- [x] `isConfigured()` requires both a relay and a sender (`SmtpMailTransportTest`).
+- [x] A refused send is `false` and a log line, never a throw (`SmtpMailTransportTest`).
+- [x] `SmtpMailTransportLiveTest` proves a real credential, a verified sender and egress, against
+      whatever provider the environment names — opt-in on `MAIL_LIVE_TEST=true`.
+- [ ] `MAIL_HOST` / `MAIL_USERNAME` / `MAIL_PASSWORD` / `EVALOS_MAIL_FROM` set in `.env` and in the
+      deployed environment — **not done**: until they are, every client answers `MAIL_UNAVAILABLE`.
+- [ ] The Brevo API key that sat in `application-local.yml` on 2026-09-17 **rotated or deleted** —
+      it was readable by anyone with the working tree.
+- [ ] Outbound 587 open from the deploy, and the deploy's IP on the provider's authorised list if
+      it keeps one. Both fail identically to a bad password from inside the application; the live
+      test run *from the deployed host* is what separates them.

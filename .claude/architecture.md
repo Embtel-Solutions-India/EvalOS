@@ -91,8 +91,20 @@ Transitions live in `CaseTransitions`/`CaseLifecycleService`; every one writes a
 11. Outbound webhooks are HMAC-signed, retried, dead-lettered — *(design; not implemented)*.
 12. Webhook transport carries no business logic.
 13. Every state transition writes an append-only audit row.
-14. EvalOS hosts no files, and sends email for **exactly one purpose**: proving control of a
-    mailbox (two messages).
+14. EvalOS hosts no files, and sends email for **two purposes and no others** — proving control of
+    a mailbox (set password, reset password) and **confirming that a client's request was
+    received** (one message, at submit). **A push notification is not mail** and does not touch this
+    invariant (D37: notifications are in-app and push, and nothing else).
+    **Amended 2026-09-19, on the business's instruction.** It read *"exactly one purpose: proving
+    control of a mailbox (two messages)"*, and the submission confirmation is not a mailbox proof —
+    so it is an amendment rather than a reading of the old rule. Two things bound it: the
+    confirmation **promises nothing the flow can fail to keep** (no price, no turnaround, no date —
+    EvalOS holds no price list and the work is quoted by a person), and **nothing depends on it
+    arriving**, so a failed send is logged and the submit still succeeds.
+    **This is not the four-message expansion `open-decisions.md` (c) recommends** — checklist+link,
+    draft ready, expert signing link, delivered. Those remain unbuilt and still need their own
+    decision; each one would be mail a client *acts on*, which is a different and larger question
+    than telling somebody their form arrived.
 15. **No AI makes a production decision, and there is no AI in the system at all.**
 
 ## Build-failing structural tests
@@ -111,8 +123,9 @@ Precedence that actually decides on a dev machine: `.env` (loaded by `.vscode/la
 env vars) **beats** `backend/config/application-local.yml` **beats** `application-local.yml` on the
 classpath. `backend/config/` is gitignored and is where a real GHL token goes.
 
-Key settings: `evalos.ghl.{location-id, token, sales-brand, sales-pipeline-name,
-email-pipeline-name, intake-pipeline-name}`, `evalos.portal.{client-brand, client-base-url,
+Key settings: `evalos.ghl.{location-id, token, sales-brand, opportunity-service-field,
+opportunity-correlation-field, board-stale-after, delta-ttl}` (`intake-pipeline-name` is retired — Unit 44b, D10b; the two funnel
+screens took `sales-pipeline-name` and `email-pipeline-name` with them), `evalos.mail.transport`, `evalos.portal.{client-brand, client-base-url,
 expert-base-url, allowed-origins, credential-ttl}`, `evalos.s3.{bucket, region}`,
 `evalos.security.jwt.secret`, `evalos.field-key`, `SALES_MONTHLY_GOAL`.
 
@@ -120,4 +133,6 @@ expert-base-url, allowed-origins, credential-ttl}`, `evalos.s3.{bucket, region}`
 
 `docker-compose.yml`: postgres 16 + backend (Spring, `prod,testprod`) + frontend (nginx, 80/443).
 CI (`.github/workflows/ci.yml`) runs on push to **`main` only**: backend tests, frontend
-test/build/lint, then deploy to EC2. **`client-expert/` is in neither compose nor CI.**
+test/build/lint, then deploy to EC2. `client-expert/` is in neither compose nor CI — **and that is
+not this repository's debt: DevOps owns and edits deployment (D38, 2026-09-17).** Know it when
+reasoning about what is live; do not schedule work for it here.

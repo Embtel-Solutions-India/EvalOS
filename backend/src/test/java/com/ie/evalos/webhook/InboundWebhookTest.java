@@ -54,6 +54,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  */
 @WebMvcTest(controllers = InboundWebhookController.class)
 @Import({ WebhookGateway.class, WebhookRouter.class, GhlOpportunityHandler.class,
+		GhlMirrorHandler.class, WebhookPayload.class,
 		SecurityConfig.class, JwtService.class, ApiErrors.class })
 @TestPropertySource(properties = "evalos.security.jwt.secret=test-signing-key-that-is-long-enough-for-hs256")
 class InboundWebhookTest {
@@ -76,6 +77,16 @@ class InboundWebhookTest {
 
 	@MockitoBean
 	CaseIntakeService intake;
+
+	/** Unit 45d's three collaborators. The mirror's own behaviour is asserted in its own tests. */
+	@MockitoBean
+	com.ie.evalos.service.ContactSnapshotService contacts;
+
+	@MockitoBean
+	com.ie.evalos.service.OpportunityMirrorService mirror;
+
+	@MockitoBean
+	com.ie.evalos.integration.GhlPipelineClient ghl;
 
 	@MockitoBean
 	EvalOsUserDetailsService userDetailsService;
@@ -506,10 +517,14 @@ class InboundWebhookTest {
 		assertThat(unprocessed.getError()).isNull();
 	}
 
+	/**
+	 * {@code refund.requested} is the last deferred type — {@code contact.*} left this group at
+	 * Unit 45d, where a mirror finally existed for them to land in.
+	 */
 	@Test
 	void aRecognizedButDeferredTypeIsArchivedAndAcked() throws Exception {
 		String body = """
-				{"event_type": "contact.updated", "event_id": "evt-77", "contact": {"ghl_contact_id": "ghl-c-1"}}""";
+				{"event_type": "refund.requested", "event_id": "evt-77", "contact_id": "ghl-c-1"}""";
 
 		deliver(body)
 				.andExpect(status().isOk())
@@ -519,26 +534,87 @@ class InboundWebhookTest {
 		verify(intake, never()).intake(any(), any());
 		ArgumentCaptor<WebhookEvent> archived = ArgumentCaptor.forClass(WebhookEvent.class);
 		verify(webhookEvents, org.mockito.Mockito.atLeastOnce()).save(archived.capture());
-		assertThat(archived.getValue().getEventType()).isEqualTo("contact.updated");
+		assertThat(archived.getValue().getEventType()).isEqualTo("refund.requested");
 		assertThat(archived.getValue().isProcessed()).isTrue();
 	}
 
 	/**
-	 * {@code contact.created} used to be the live type. Under Case Creation v2.0 a lead is
-	 * front-of-house work and EvalOS takes custody only when the money is in, so routing
-	 * one to intake would re-open the unpaid window v2.0 closed. It is acked, not failed —
-	 * a retry cannot make a deliberate no-op into work.
+	 * <strong>The rule Case Creation v2.0 set, held through a change of destination.</strong> A
+	 * contact event used to be a no-op; as of Unit 45d it updates the mirror. What must not change
+	 * is that it takes no custody: EvalOS opens a case when the money is in, and a lead being
+	 * created or edited in GHL is not that.
 	 */
 	@Test
-	void aCreatedContactNoLongerCreatesACase() throws Exception {
+	void aCreatedContactUpdatesTheMirrorAndStillCreatesNoCase() throws Exception {
 		String body = """
-				{"event_type": "contact.created", "event_id": "evt-78", "service_type": "EXPERT_OPINION_LETTER",
-				 "contact": {"ghl_contact_id": "ghl-c-1", "full_name": "Anita Rao"}}""";
+				{"event_type": "contact.created", "event_id": "evt-78",
+				 "contact_id": "ghl-c-1", "first_name": "Anita", "last_name": "Rao",
+				 "email": "anita@raolaw.example", "phone": "+15551234567"}""";
 
 		deliver(body)
 				.andExpect(status().isOk())
 				.andExpect(jsonPath("$.data.status").value("accepted"));
 
 		verify(intake, never()).intake(any(), any());
+		ArgumentCaptor<com.ie.evalos.service.ContactSnapshotService.Details> details =
+				ArgumentCaptor.forClass(com.ie.evalos.service.ContactSnapshotService.Details.class);
+		verify(contacts).findOrCreate(any(UUID.class), details.capture());
+		assertThat(details.getValue().ghlContactId()).isEqualTo("ghl-c-1");
+		// GHL sends full_name blank rather than omitting it; the handler rebuilds it, as Handoff
+		// A's does, so a contact captured with only a first name is not nameless in the mirror.
+		assertThat(details.getValue().fullName()).isEqualTo("Anita Rao");
+	}
+
+	/**
+	 * <strong>The event is a trigger, not a payload.</strong> GHL posts the contact record, which
+	 * carries no stage, status or value — so the handler asks GHL for that contact's deals and
+	 * mirrors GHL's own answer. Anything else would mirror whatever the workflow author last typed
+	 * into {@code customData}.
+	 */
+	@Test
+	void anOpportunityChangeRereadsThatContactsDealsAndAbsorbsThem() throws Exception {
+		String body = """
+				{"event_type": "opportunity.update", "event_id": "evt-79", "contact_id": "ghl-c-1"}""";
+		given(ghl.forContact("ghl-c-1")).willReturn(java.util.List.of());
+
+		deliver(body)
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.data.status").value("accepted"));
+
+		verify(ghl).forContact("ghl-c-1");
+		verify(mirror).absorbForContact(any());
+		verify(intake, never()).intake(any(), any());
+	}
+
+	/**
+	 * Both tenses route, because {@code event_type} is typed by hand into a GHL workflow and the
+	 * handler re-reads GHL either way — so the difference between them must not be the difference
+	 * between a mirrored deal and a silently unmirrored one.
+	 */
+	@ParameterizedTest
+	@ValueSource(strings = { "opportunity.create", "opportunity.created", "opportunity.updated",
+			"opportunity.stage_changed", "opportunity.status_changed" })
+	void everySpellingOfAnOpportunityChangeReachesTheMirror(String eventType) throws Exception {
+		given(ghl.forContact("ghl-c-1")).willReturn(java.util.List.of());
+
+		deliver("""
+				{"event_type": "%s", "event_id": "evt-%s", "contact_id": "ghl-c-1"}"""
+				.formatted(eventType, eventType.hashCode()))
+				.andExpect(status().isOk());
+
+		verify(mirror).absorbForContact(any());
+	}
+
+	/**
+	 * The one field a mirror event cannot do without. A 400 rather than an ack: GHL does not retry
+	 * a 4xx, and acking a delivery that named nobody would archive it as processed when nothing was.
+	 */
+	@Test
+	void aMirrorEventNamingNoContactIsRefused() throws Exception {
+		deliver("""
+				{"event_type": "contact.updated", "event_id": "evt-80", "email": "anita@raolaw.example"}""")
+				.andExpect(status().isBadRequest());
+
+		verify(contacts, never()).findOrCreate(any(), any());
 	}
 }

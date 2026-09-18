@@ -75,7 +75,7 @@ are ordered by dependency.
 
 ### 2.1 Cutover repair (operational, hours, no new code)
 
-The sub-account swap `kBumF0uUOmMBB5bneYjx` → `WY6bW2xUCI8Tz8gw7aLJ` (2026‑09‑11, no migration)
+The sub-account swap to `WY6bW2xUCI8Tz8gw7aLJ` (2026‑09‑11, no migration)
 broke five things. **Order matters: C1 → C3 → C2 → C4.**
 
 | # | Broken | Repair | Evidence |

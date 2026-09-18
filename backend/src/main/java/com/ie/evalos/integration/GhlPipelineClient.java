@@ -130,7 +130,109 @@ public class GhlPipelineClient {
 	public record Opportunity(String id, String name, String contactId, String pipelineId,
 			String pipelineStageId, String status, BigDecimal monetaryValue, String source,
 			String assignedTo, java.time.Instant createdAt, java.time.Instant updatedAt,
-			java.time.Instant lastStatusChangeAt, java.time.Instant lastStageChangeAt) {
+			java.time.Instant lastStatusChangeAt, java.time.Instant lastStageChangeAt,
+			List<CustomFieldValue> customFields, NoteEnvelope notes, List<Task> tasks,
+			List<CalendarEvent> calendarEvents) {
+
+		/**
+		 * The four tier-2 and tier-3 collections, bound as of Unit 47b.
+		 *
+		 * <p><strong>They ride on a request EvalOS already makes.</strong> {@code getNotes},
+		 * {@code getTasks} and {@code getCalendarEvents} are query parameters on this same search,
+		 * and {@code customFields} comes back unconditionally — verified against the live operation
+		 * contract. Unit 47 §4 cut task read-back on the grounds that "GHL lists tasks only per
+		 * contact, so a desk-wide refresh is one request per contact"; that is false, and this
+		 * record is where it stops being believed.
+		 *
+		 * <p><strong>Binding them is not exposing them.</strong> The narrow projection existed to
+		 * keep marketing PII out of EvalOS's own API responses, and that still holds: nothing on
+		 * {@code OpportunityBoardService.Deal} carries any of this. What changed is that the mirror
+		 * can now hold what GHL holds.
+		 */
+		public Opportunity {
+			customFields = customFields == null ? List.of() : List.copyOf(customFields);
+			notes = notes == null ? NoteEnvelope.empty() : notes;
+			tasks = tasks == null ? List.of() : List.copyOf(tasks);
+			calendarEvents = calendarEvents == null ? List.of() : List.copyOf(calendarEvents);
+		}
+
+		/** The notes themselves, out of the envelope GHL wraps them in. */
+		public List<Note> noteList() {
+			return notes.notes();
+		}
+
+		/**
+		 * The deal without its collections — <strong>the shape every caller used before Unit 47b</strong>.
+		 *
+		 * <p>Kept so that widening the record did not mean editing every construction of it. A deal
+		 * with no notes, no tasks and no custom values is a legal deal, so the four empties are the
+		 * honest default rather than a placeholder.
+		 */
+		public Opportunity(String id, String name, String contactId, String pipelineId,
+				String pipelineStageId, String status, BigDecimal monetaryValue, String source,
+				String assignedTo, java.time.Instant createdAt, java.time.Instant updatedAt,
+				java.time.Instant lastStatusChangeAt, java.time.Instant lastStageChangeAt) {
+			this(id, name, contactId, pipelineId, pipelineStageId, status, monetaryValue, source,
+					assignedTo, createdAt, updatedAt, lastStatusChangeAt, lastStageChangeAt,
+					List.of(), NoteEnvelope.empty(), List.of(), List.of());
+		}
+	}
+
+	/**
+	 * One custom field value on an opportunity.
+	 *
+	 * <p>GHL returns the value under whichever key fits its type — a string in {@code fieldValue},
+	 * a list in {@code fieldValueArray} — so {@link #value()} is where that is resolved once
+	 * instead of at every reader.
+	 */
+	public record CustomFieldValue(String id, String fieldValue, List<String> fieldValueArray) {
+
+		/** The value as text, whichever shape GHL used. Null when it sent neither. */
+		public String value() {
+			if (fieldValue != null && !fieldValue.isBlank()) {
+				return fieldValue;
+			}
+			return fieldValueArray == null || fieldValueArray.isEmpty() ? null
+					: String.join(", ", fieldValueArray);
+		}
+	}
+
+	/**
+	 * <strong>{@code notes} is an OBJECT on this endpoint, not an array</strong>: GHL sends
+	 * {@code {"notes": [...], "total": 0}} while {@code tasks} and {@code customFields} are plain
+	 * arrays and {@code calendarEvents} is absent altogether.
+	 *
+	 * <p>This cost an outage worth remembering. Binding it as a list made <em>every</em> opportunity
+	 * read fail with a Jackson mismatch — so the mirror could not absorb a single deal, every board
+	 * read "GHL did not answer", and the cause looked like a GHL problem rather than a shape this
+	 * code had assumed. The operation contract lists the field names; it does not give their shapes.
+	 * <strong>Checked against the live endpoint, which is the only thing that settles it.</strong>
+	 */
+	public record NoteEnvelope(List<Note> notes, Integer total) {
+
+		public NoteEnvelope {
+			notes = notes == null ? List.of() : List.copyOf(notes);
+		}
+
+		static NoteEnvelope empty() {
+			return new NoteEnvelope(List.of(), 0);
+		}
+	}
+
+	/** A note written in GHL. Fields as the live contract lists them. */
+	public record Note(String id, String title, String body, String userId,
+			java.time.Instant dateAdded) {
+	}
+
+	/** A GHL task. {@code completed} is the field task read-back exists to see. */
+	public record Task(String id, String title, String body, String assignedTo,
+			java.time.Instant dueDate, Boolean completed) {
+	}
+
+	/** An appointment. {@code appointmentStatus} is GHL's own cancelled/confirmed vocabulary. */
+	public record CalendarEvent(String id, String calendarId, String title,
+			java.time.Instant startTime, java.time.Instant endTime, String appointmentStatus,
+			String status) {
 	}
 
 	private final GhlHttp http;
@@ -263,7 +365,10 @@ public class GhlPipelineClient {
 				uri.path("/opportunities/search")
 						.queryParam("location_id", http.locationId())
 						.queryParam("contactId", contactId)
-						.queryParam("limit", PAGE_SIZE);
+						.queryParam("limit", PAGE_SIZE)
+						.queryParam("getNotes", true)
+						.queryParam("getTasks", true)
+						.queryParam("getCalendarEvents", true);
 				if (cursor != null && cursorId != null) {
 					uri.queryParam("startAfter", cursor).queryParam("startAfterId", cursorId);
 				}
@@ -317,6 +422,12 @@ public class GhlPipelineClient {
 						.queryParam("location_id", http.locationId())
 						.queryParam("pipeline_id", pipelineId)
 						.queryParam("limit", PAGE_SIZE)
+						// **Unit 47b: notes, tasks and appointments on the read we already make.**
+						// Three booleans instead of one request per contact — which is what Unit 47
+						// §4 believed was the only option when it cut task read-back.
+						.queryParam("getNotes", true)
+						.queryParam("getTasks", true)
+						.queryParam("getCalendarEvents", true)
 						// **`date`/`endDate` filter on the opportunity's `createdAt`** — confirmed
 						// by narrowing to one month and getting back only rows created in it. So
 						// the funnel becomes "opportunities *created* in this window, grouped by
