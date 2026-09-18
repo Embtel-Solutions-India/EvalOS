@@ -360,7 +360,23 @@ backend **1121**.
 stored bcrypt hash. Sales hold the three service pipelines, BDE the three BDE pipelines. **BDE is
 MARKETING, not SALES** (MARKETING opens a lead via upsert; SALES opens a deal via true create and
 gets meetings/follow-ups/close). `V911` converges the naming, because five had been renamed by hand
-locally while the seeds still said `sales.attorney...`. `docs/seed-desks.sql` is the production
-script — an operator script, not a migration. **It carries `DevPassw0rd!`, whose hash is committed
-in V908 and whose plaintext is in that file's comments: a PUBLISHED credential, not a weak one.
-Change the hash before using it on anything holding client data.**
+locally while the seeds still said `sales.attorney...`.
+
+**Production seeds them through `db/seed-prod/V960__seed_ie_desks.sql` since 2026-09-19** — a
+Flyway migration in a tree only `application-prod.yml` names, the sibling-directory mechanism
+`MigrationTreeTest` enforces. It replaces the hand-run `docs/seed-desks.sql`, now a pointer (kept,
+because applied V911 names it). The password is the `desk-password-hash` placeholder from
+`DESK_PASSWORD_HASH`, **no default**, so `DevPassw0rd!` — a PUBLISHED credential, hash in V908 and
+plaintext in its comments — never reaches a real database. Costs: prod now needs
+`out-of-order: true` (a seed numbered above every migration makes the next V-N look out of order),
+and `DESK_PASSWORD_HASH` is required on every prod boot, not only the migrating one. V960 sets
+`ghl_pipeline_id` but grants no `team_member_pipeline` row on a fresh DB — `pipeline` is filled by
+PIPELINE_MIRROR, so the six sign in to an empty board.
+
+**THERE IS NO PIPELINE-ASSIGNMENT SCREEN (found 2026-09-19).** Unit 44b's `PUT`/`DELETE`/`GET
+/api/team-members/{id}/pipelines` are GM-only and audited, but nothing in `frontend/` calls them —
+it calls one team-member route, `/team-members/assignable` (`features/board/boardApi.ts`), and has
+no team-admin feature folder or route. `TeamMemberController`'s javadoc names "the assignment
+screen"; it was never built, so Unit 44's COMPLETE means API + model, not an operable GM flow.
+Grants are made with curl or SQL, or by re-running V960's second statement after a mirror pass.
+There is likewise no create-team-member endpoint, which is why a seed is the only route to a login.
