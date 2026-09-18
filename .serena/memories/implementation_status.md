@@ -371,5 +371,12 @@ plaintext in its comments — never reaches a real database. Costs: prod now nee
 `out-of-order: true` (a seed numbered above every migration makes the next V-N look out of order),
 and `DESK_PASSWORD_HASH` is required on every prod boot, not only the migrating one. V960 sets
 `ghl_pipeline_id` but grants no `team_member_pipeline` row on a fresh DB — `pipeline` is filled by
-PIPELINE_MIRROR, so a GM assigns pipelines afterwards. No create-team-member endpoint exists, which
-is why a seed is the only route.
+PIPELINE_MIRROR, so the six sign in to an empty board.
+
+**THERE IS NO PIPELINE-ASSIGNMENT SCREEN (found 2026-09-19).** Unit 44b's `PUT`/`DELETE`/`GET
+/api/team-members/{id}/pipelines` are GM-only and audited, but nothing in `frontend/` calls them —
+it calls one team-member route, `/team-members/assignable` (`features/board/boardApi.ts`), and has
+no team-admin feature folder or route. `TeamMemberController`'s javadoc names "the assignment
+screen"; it was never built, so Unit 44's COMPLETE means API + model, not an operable GM flow.
+Grants are made with curl or SQL, or by re-running V960's second statement after a mirror pass.
+There is likewise no create-team-member endpoint, which is why a seed is the only route to a login.

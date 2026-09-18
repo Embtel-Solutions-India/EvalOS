@@ -90,11 +90,18 @@ SELECT gen_random_uuid(), b.id, NULL, d.role, d.segment, d.pipeline, d.email,
 -- table; `team_member.ghl_pipeline_id` survives as a legacy column that the CHECK above still
 -- requires. This is V54's own backfill, run again for the rows just written.
 --
--- ON A FRESH DATABASE THIS MATCHES NOTHING, and that is correct rather than a gap: `pipeline` is
--- populated by the PIPELINE_MIRROR sweep, which has not run at migrate time. The six then hold a
--- pipeline id and no grant -- they sign in and see an empty board until a GM assigns them from the
--- mirrored list (`PUT /api/team-members/{id}/pipelines`), which is the flow V54 introduced. Running
--- the sweep and re-running this statement by hand is the other way there.
+-- ON A FRESH DATABASE THIS MATCHES NOTHING: `pipeline` is populated by the PIPELINE_MIRROR sweep,
+-- which has not run at migrate time. The six then hold a pipeline id and no grant, so they sign in
+-- to an EMPTY BOARD.
+--
+-- **AND THERE IS NO SCREEN TO FIX THAT ON.** `PUT /api/team-members/{id}/pipelines` exists and is
+-- GM-only and audited, but no frontend calls it -- `frontend/` calls exactly one team-member route,
+-- `/team-members/assignable`. So the grant is an HTTP call a GM makes by hand, or this statement
+-- re-run once the sweep has populated `pipeline`. Re-running it is the shorter path and is why it
+-- is written to be safe to repeat.
+--
+-- Do not read the line above as "the flow V54 introduced works": V54 introduced the model and the
+-- API, and the assignment UI it implies was never built.
 INSERT INTO team_member_pipeline (team_member_id, pipeline_id)
 SELECT m.id, p.id
   FROM team_member m
