@@ -74,13 +74,26 @@ class SyncOutboxServiceTest {
 		given(pipelines.findById(pipeline.getId())).willReturn(Optional.of(pipeline));
 		given(outbox.save(any())).willAnswer((call) -> call.getArgument(0));
 		given(outbox.findById(any())).willReturn(Optional.empty());
+		// The ordinary case: the edit is still the one the push carried, so it is retired. The
+		// zero is its own test below, because zero is a real outcome and not a failure.
+		given(opportunities.confirmPushed(any(), any())).willReturn(1);
 	}
 
+	/**
+	 * A mirrored row with a desk edit outstanding — <strong>which is the only thing that can be
+	 * queued</strong>.
+	 *
+	 * <p>The edit is part of the fixture rather than a detail of it. Every UPSERT reaches the queue
+	 * through {@code SalesDeskService.queue} or {@code MarketingLeadService.value}, both of which
+	 * call {@code editLocally} first; a row with nothing outstanding is a state the outbox cannot
+	 * hold, and a fixture that modelled one was pinning a push that sent the whole row unasked.
+	 */
 	private Opportunity local(String ghlId) {
 		Opportunity row = new Opportunity(BRAND, ghlId, pipeline.getId());
 		ReflectionTestUtils.setField(row, "id", UUID.randomUUID());
-		row.syncFromGhl("contact-1", pipeline.getId(), null, "Ana — Academic Evaluation",
+		row.syncFromGhl("contact-1", pipeline.getId(), "s1", "Ana — Academic Evaluation",
 				new BigDecimal("500"), "open", null, null, null, null, null, null);
+		row.editedLocally("Ana — Academic Evaluation", new BigDecimal("500"), null, null);
 		given(opportunities.findById(row.getId())).willReturn(Optional.of(row));
 		return row;
 	}
@@ -272,6 +285,85 @@ class SyncOutboxServiceTest {
 
 		assertThat(service.drain().dead()).isEqualTo(1);
 		assertThat(entry.getDeadReason()).contains("our bug");
+	}
+
+	/**
+	 * <strong>A rename does not re-send the stage.</strong>
+	 *
+	 * <p>This is the finding the field list exists for. The push read the row and sent all four
+	 * shared fields, and the mirror's stage is up to one {@code MIRROR_DELTA} behind GHL — so a
+	 * workflow that moved the card inside that window had its move overwritten by the stage the
+	 * mirror still held, and the next sweep then read the reverted stage back as truth.
+	 * {@code FieldOwnership} calls the stage SHARED because GHL writes it too, which is exactly
+	 * what makes sending it unasked wrong.
+	 */
+	@Test
+	void anEditThatDidNotTouchTheStageDoesNotSendTheStage() {
+		Opportunity row = local("opp-1");
+		row.editedLocally("Ana — Credential Evaluation", null, null, null);
+		queued(row);
+
+		service.drain();
+
+		then(ghl).should().updateOpportunity("opp-1", "pipe-1", "Ana — Credential Evaluation",
+				new BigDecimal("500"), null);
+	}
+
+	/** A stage move is the one edit that may carry the stage, and it does. */
+	@Test
+	void aStageMoveSendsTheStage() {
+		Opportunity row = local("opp-1");
+		row.editedLocally(null, null, "s2", null);
+		queued(row);
+
+		service.drain();
+
+		then(ghl).should().updateOpportunity(eq("opp-1"), eq("pipe-1"), any(), any(), eq("s2"));
+	}
+
+	/**
+	 * A row GHL already agrees with sends nothing, and that is success rather than a retry.
+	 *
+	 * <p>It happens when a sync lands between the edit and the drain and GHL's own answer
+	 * supersedes the local value: the stamp is cleared, so there is nothing outstanding left to
+	 * tell GHL. An empty {@code PUT} body is a 422, so "they already agree" has to be recognised
+	 * here rather than discovered upstream.
+	 */
+	@Test
+	void aRowWithNothingOutstandingSendsNothingAndIsStillMarkedSent() {
+		Opportunity row = new Opportunity(BRAND, "opp-1", pipeline.getId());
+		ReflectionTestUtils.setField(row, "id", UUID.randomUUID());
+		row.syncFromGhl("contact-1", pipeline.getId(), "s1", "Ana", new BigDecimal("500"), "open",
+				null, null, null, null, null, null);
+		given(opportunities.findById(row.getId())).willReturn(Optional.of(row));
+		queued(row);
+
+		assertThat(service.drain().sent()).isEqualTo(1);
+
+		then(ghl).should(never()).updateOpportunity(any(), any(), any(), any(), any());
+	}
+
+	/**
+	 * <strong>An edit that lands while the push is in GHL is re-queued, not lost.</strong>
+	 *
+	 * <p>The drain read the row, spent a round trip, and came back to clear the stamp. Merging the
+	 * entity it read would have reverted the newer edit in the mirror, cleared the stamp so 45e
+	 * stopped defending it, and marked the pending row sent — and because the outbox collapses
+	 * onto a pending row, the newer edit's own enqueue had already been swallowed as "already
+	 * queued". The edit vanished from both systems. A zero from {@code confirmPushed} is how that
+	 * is noticed, and the re-queue is what makes it travel.
+	 */
+	@Test
+	void anEditThatLandsDuringThePushIsRequeuedRatherThanLost() {
+		Opportunity row = local("opp-1");
+		SyncOutboxEntry entry = queued(row);
+		given(opportunities.confirmPushed(any(), any())).willReturn(0);
+
+		assertThat(service.drain().sent()).isEqualTo(1);
+
+		// Queued again after the first row was marked sent, so the collapse cannot swallow it.
+		then(outbox).should().saveAndFlush(any());
+		assertThat(entry.isPending()).isFalse();
 	}
 
 	/** Nothing to sync into means nothing to drain, and GHL is not called. */

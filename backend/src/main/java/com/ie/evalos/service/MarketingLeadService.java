@@ -70,6 +70,15 @@ public class MarketingLeadService {
 		GhlWriteClient.UpsertedOpportunity opportunity = ghl.upsertOpportunity(pipelineId, contact.id(),
 				name == null || name.isBlank() ? contact.name() : name, monetaryValue);
 
+		// **Into the mirror at once, or the next request cannot see it.** `value` below refuses a
+		// deal the mirror has not absorbed — correctly, since the outbox stores an id and a row
+		// that does not exist cannot be pushed — so without this, correcting the name or the
+		// valuation of a lead just opened answered 400 for up to a full MIRROR_DELTA. From GHL's
+		// own reply rather than a second read: it has just told us what it stored.
+		deals.absorbCreated(pipelineId, opportunity.id(), contact.id(), opportunity.name(),
+				opportunity.monetaryValue(), opportunity.status(), opportunity.stageId(),
+				GhlWriteClient.SOURCE_MARKETING_DESK);
+
 		return new Lead(contact.id(), opportunity.id(), opportunity.name(), opportunity.monetaryValue(),
 				opportunity.isNew());
 	}

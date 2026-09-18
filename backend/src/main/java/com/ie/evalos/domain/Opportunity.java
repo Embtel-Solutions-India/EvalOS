@@ -94,6 +94,21 @@ public class Opportunity extends ScopedEntity {
 	@Column(name = "local_updated_at")
 	private Instant localUpdatedAt;
 
+	/**
+	 * Which of the four shared fields the local edit is about — V63.
+	 *
+	 * <p><strong>{@link #localUpdatedAt} alone was not enough to push safely.</strong> It says an
+	 * edit is outstanding but not which field it touched, and the outbox stores an id rather than a
+	 * payload — so the drain read the whole row and sent all four, making a rename re-send the
+	 * mirror's stage. The mirror's stage is up to one {@code MIRROR_DELTA} behind GHL, so a
+	 * workflow's stage move inside that window was dragged backwards and then read back as truth.
+	 *
+	 * <p>Comma-joined {@link FieldOwnership} property names, which is the vocabulary
+	 * {@code sync_drift.field} already speaks. Null is the resting state: no edit outstanding.
+	 */
+	@Column(name = "locally_edited_fields")
+	private String locallyEditedFields;
+
 	@Column(name = "synced_at")
 	private Instant syncedAt;
 
@@ -176,6 +191,7 @@ public class Opportunity extends ScopedEntity {
 			// defend its local values for ever, which is "EvalOS always wins" arriving by the
 			// back door.
 			this.localUpdatedAt = null;
+			this.locallyEditedFields = null;
 		}
 
 		this.syncedAt = Instant.now();
@@ -211,6 +227,7 @@ public class Opportunity extends ScopedEntity {
 			this.ghlId = ghlId;
 			this.syncedAt = Instant.now();
 			this.localUpdatedAt = null;
+			this.locallyEditedFields = null;
 		}
 	}
 
@@ -242,33 +259,51 @@ public class Opportunity extends ScopedEntity {
 	 * lands finds {@code localUpdatedAt} set and keeps these four (45e).
 	 */
 	public void editedLocally(String name, BigDecimal amount, String ghlStageId, String status) {
+		java.util.Set<String> edited = new java.util.LinkedHashSet<>(locallyEdited());
 		if (name != null && !name.isBlank()) {
 			this.name = name;
+			edited.add(FieldOwnership.NAME);
 		}
 		if (amount != null) {
 			this.amount = amount;
+			edited.add(FieldOwnership.AMOUNT);
 		}
 		if (ghlStageId != null && !ghlStageId.isBlank()) {
 			this.ghlStageId = ghlStageId;
+			edited.add(FieldOwnership.STAGE);
 		}
 		if (status != null && !status.isBlank()) {
 			this.status = status;
+			edited.add(FieldOwnership.STATUS);
 		}
+		// **Unioned, not replaced**, because the outbox collapses: a rename and then a re-price
+		// before the drain runs are two edits that must both travel on the one queued push.
+		this.locallyEditedFields = edited.isEmpty() ? null : String.join(",", edited);
 		touchedLocally();
 	}
 
 	/**
-	 * The queued push reached GHL, so there is no unconfirmed edit left to defend — Unit 46.
+	 * The shared fields a desk edited and GHL has not confirmed — what a push may send.
 	 *
-	 * <p><strong>Without this, Unit 46 would reintroduce the freeze 45e was careful to avoid.</strong>
-	 * Every desk edit now stamps {@code localUpdatedAt}, and 45e reads a null {@code ghl_updated_at}
-	 * as a conflict — so a location that stopped sending the field would leave EvalOS defending this
-	 * row's four shared fields for ever. A create already had this through {@link #linkGhl};
-	 * an update did not, because until Unit 46 nothing edited a row locally.
+	 * <p>Empty means "send nothing of the four": either the row has no outstanding edit, or it is
+	 * an older row queued before V63 and the drain says so rather than guessing.
 	 */
-	public void pushedToGhl() {
-		this.localUpdatedAt = null;
+	public java.util.Set<String> locallyEdited() {
+		if (locallyEditedFields == null || locallyEditedFields.isBlank()) {
+			return java.util.Set.of();
+		}
+		return java.util.Set.of(locallyEditedFields.split(","));
 	}
+
+	/*
+	 * There is deliberately no `pushedToGhl()` here.
+	 *
+	 * Retiring a confirmed edit looks like an entity method and cannot be one: the drain reads the
+	 * row, spends a GHL round trip, and by the time it comes back the row may hold a newer edit.
+	 * Merging the entity it read would lose that edit outright. It is a conditional statement
+	 * instead -- OpportunityRepository.confirmPushed, which clears the stamp only while it is still
+	 * the same edit and reports zero when it is not.
+	 */
 
 	public String getGhlId() {
 		return ghlId;

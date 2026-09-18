@@ -13,7 +13,6 @@ import com.ie.evalos.repository.TeamMemberPipelineRepository;
 import com.ie.evalos.repository.TeamMemberRepository;
 import com.ie.evalos.security.TenantContext;
 
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 

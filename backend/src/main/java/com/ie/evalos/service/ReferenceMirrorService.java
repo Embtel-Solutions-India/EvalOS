@@ -19,7 +19,6 @@ import com.ie.evalos.repository.GhlUserRepository;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -132,8 +131,8 @@ public class ReferenceMirrorService {
 			}
 			seen.add(row.id());
 			GhlReference.Tag held = tags.findByBrandIdAndGhlId(sellingBrandId, row.id())
-					.orElseGet(() -> new GhlReference.Tag(sellingBrandId, row.id(), row.name()));
-			held.seenAs(row.name());
+					.orElseGet(() -> new GhlReference.Tag(sellingBrandId, row.id(), nameOf(row.name(), row.id())));
+			held.seenAs(nameOf(row.name(), row.id()));
 			tags.save(held);
 		}
 		stampMissing(tags.findByBrandIdOrderByNameAsc(sellingBrandId), seen, tags::save);
@@ -162,8 +161,8 @@ public class ReferenceMirrorService {
 			GhlReference.CustomField held = customFields
 					.findByBrandIdAndGhlId(sellingBrandId, row.id())
 					.orElseGet(() -> new GhlReference.CustomField(sellingBrandId, row.id(),
-							OPPORTUNITY_MODEL, row.name()));
-			held.seen(row.name(), row.fieldKey(), row.dataType(), row.picklistOptions());
+							OPPORTUNITY_MODEL, nameOf(row.name(), row.id())));
+			held.seen(nameOf(row.name(), row.id()), row.fieldKey(), row.dataType(), row.picklistOptions());
 			customFields.save(held);
 		}
 		stampMissing(customFields.findByBrandIdAndModelOrderByNameAsc(sellingBrandId, OPPORTUNITY_MODEL),
@@ -180,8 +179,8 @@ public class ReferenceMirrorService {
 			}
 			seen.add(row.id());
 			GhlReference.Calendar held = calendars.findByBrandIdAndGhlId(sellingBrandId, row.id())
-					.orElseGet(() -> new GhlReference.Calendar(sellingBrandId, row.id(), row.name()));
-			held.seen(row.name(), row.active(), row.slotMinutes(), row.titleTemplate());
+					.orElseGet(() -> new GhlReference.Calendar(sellingBrandId, row.id(), nameOf(row.name(), row.id())));
+			held.seen(nameOf(row.name(), row.id()), row.active(), row.slotMinutes(), row.titleTemplate());
 			calendars.save(held);
 		}
 		stampMissing(calendars.findByBrandIdOrderByNameAsc(sellingBrandId), seen, calendars::save);
@@ -197,8 +196,8 @@ public class ReferenceMirrorService {
 			}
 			seen.add(row.id());
 			GhlReference.User held = users.findByBrandIdAndGhlId(sellingBrandId, row.id())
-					.orElseGet(() -> new GhlReference.User(sellingBrandId, row.id(), row.name()));
-			held.seen(row.name(), row.email());
+					.orElseGet(() -> new GhlReference.User(sellingBrandId, row.id(), nameOf(row.name(), row.id())));
+			held.seen(nameOf(row.name(), row.id()), row.email());
 			users.save(held);
 		}
 		stampMissing(users.findByBrandIdOrderByNameAsc(sellingBrandId), seen, users::save);
@@ -310,5 +309,20 @@ public class ReferenceMirrorService {
 
 	private static boolean blank(String value) {
 		return value == null || value.isBlank();
+	}
+
+	/**
+	 * GHL's id standing in for a name GHL did not send — the same guard
+	 * {@code PipelineMirrorService.nameOf} has had since 44a.
+	 *
+	 * <p><strong>One nameless row used to cost the whole list.</strong> {@code GhlReference.name}
+	 * is {@code NOT NULL} (V60, V62), so a null name raised a
+	 * {@code DataIntegrityViolationException} that {@link #guarded} caught, logged as a warning and
+	 * reported as zero — so nothing from that endpoint mirrored at all, and
+	 * {@link #refreshIfEmpty} then re-ran the failing GHL read on every booking-form request. An id
+	 * is a poor label and a readable one; an empty calendar list is a broken screen.
+	 */
+	private static String nameOf(String name, String ghlId) {
+		return blank(name) ? ghlId : name;
 	}
 }

@@ -22,7 +22,6 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.security.core.context.SecurityContextHolder;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -437,17 +436,37 @@ class OpportunityBoardServiceTest {
 	}
 
 	/**
-	 * <strong>Refresh syncs pipelines before deals.</strong> In the state somebody actually presses
-	 * it — an empty mirror — there are no pipelines to refresh deals for, so an opportunities-only
-	 * refresh could not fix the thing it was offered for.
+	 * <strong>Refresh syncs pipelines before deals — in the state it was added for.</strong> An
+	 * empty mirror has no pipelines to refresh deals <em>for</em>, so an opportunities-only refresh
+	 * could not fix the thing the button is offered for.
 	 */
 	@Test
-	void theRefreshButtonSyncsPipelinesNotJustDeals() {
+	void theRefreshButtonSyncsPipelineStructureWhenTheMirrorHasNone() {
 		authenticate(Role.SALES, MINE);
+		when(pipelines.all()).thenReturn(List.of());
 		givenMirrored(List.of(), MINE);
 
 		service().syncNow();
 
 		verify(pipelines).sync();
+	}
+
+	/**
+	 * <strong>And only in that state.</strong> This test is the other half, and it is the one the
+	 * cost lives in: the structure read is a paged GHL call on a location whose pipelines change a
+	 * few times a year, MANUAL_SYNC_FLOOR guards the deal reads and not this one, and a GM's board
+	 * is every live pipeline — so an ungated press spent a structure read plus a fan-out every
+	 * time anybody pressed it. The hourly PIPELINE_MIRROR sweep is what keeps structure current.
+	 */
+	@Test
+	void theRefreshButtonLeavesPipelineStructureAloneWhenTheMirrorAlreadyHasIt() {
+		authenticate(Role.SALES, MINE);
+		givenMirrored(List.of(), MINE);
+
+		service().syncNow();
+
+		// The @BeforeEach mirror holds two live pipelines, which is every state but the first run.
+		verify(pipelines, never()).sync();
+		verify(deals).refreshIfStale(eq(MINE), any());
 	}
 }

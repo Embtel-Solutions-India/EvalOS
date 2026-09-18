@@ -18,7 +18,6 @@ import com.ie.evalos.repository.PipelineRepository;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -41,7 +40,8 @@ import org.springframework.transaction.annotation.Transactional;
  *
  * <p><strong>The GHL read happens outside any transaction</strong>, exactly as the cache's did:
  * holding a pooled connection open across a network round trip is how one slow upstream becomes an
- * exhausted pool. {@link #refreshIfStale} reads, then calls a transactional write.
+ * exhausted pool. {@link #refreshIfStale} reads, then writes — see {@link #absorb} for why that
+ * write is deliberately not one transaction either.
  */
 @Service
 public class OpportunityMirrorService {
@@ -109,17 +109,18 @@ public class OpportunityMirrorService {
 	 * missing.</strong> A portal-born opportunity with no {@code ghl_id} was never in GHL's answer
 	 * to begin with, so treating its absence as a disappearance would stamp every one of them on
 	 * the first refresh after it was created.
+	 *
+	 * <p><strong>Not {@code @Transactional}, and that is now said rather than implied.</strong> It
+	 * carried the annotation and never honoured it: the only caller is {@link #refreshIfStale} in
+	 * this same class, so the call never crossed the proxy. Making it real would be worse than
+	 * removing it — the location's Master Pipeline is five figures of rows, and wrapping that in
+	 * one transaction holds a pooled connection for the whole absorb to buy atomicity nothing here
+	 * needs. Every write below is an upsert keyed by GHL's id, so a pass that dies half way is
+	 * re-absorbed by the next request; the freshness stamp lands last precisely so that happens.
 	 */
-	@Transactional
 	public void absorb(Pipeline pipeline, List<GhlPipelineClient.Opportunity> fromGhl) {
 		Instant now = Instant.now();
 		Set<String> seen = new HashSet<>();
-
-		// **The pipeline is stamped even when the answer was empty**, and that is the whole point of
-		// the column. Deriving this from the rows meant an empty pipeline could never say it had
-		// been synced — see V61, and the boards that read "never synced" because of it.
-		pipeline.opportunitiesSynced();
-		pipelines.save(pipeline);
 
 		for (GhlPipelineClient.Opportunity row : fromGhl) {
 			if (row.id() == null || row.id().isBlank()) {
@@ -145,6 +146,20 @@ public class OpportunityMirrorService {
 			log.info("Opportunity {} is no longer on pipeline {} in GHL; marked missing, not deleted",
 					held.getGhlId(), pipeline.getName());
 		}
+
+		// **Stamped last, and that ordering is the correction.** It was stamped first, so a failure
+		// anywhere in the two loops above — a constraint race against a concurrent
+		// absorbForContact, a GHL row this code cannot map — left a half-absorbed mirror
+		// advertising itself as fresh, and the TTL then suppressed the re-read that would have
+		// finished the job. Freshness is a claim about work that has been done, so it is written
+		// once the work is done; an unstamped pipeline is simply refreshed again on the next request,
+		// and every row write above is an idempotent upsert, so re-absorbing costs nothing.
+		//
+		// **Still stamped when the answer was empty**, which is the whole point of the column.
+		// Deriving this from the rows meant an empty pipeline could never say it had been synced —
+		// see V61, and the boards that read "never synced" because of it.
+		pipeline.opportunitiesSynced();
+		pipelines.save(pipeline);
 	}
 
 	/**
@@ -409,6 +424,45 @@ public class OpportunityMirrorService {
 			opened.touchedLocally();
 			return opportunities.saveAndFlush(opened);
 		});
+	}
+
+	/**
+	 * A desk just created this deal in GHL: put it in the mirror now.
+	 *
+	 * <p><strong>Without this a create was invisible to the very next request.</strong> Both desks
+	 * create straight in GHL and answer from GHL's reply, while every desk <em>edit</em> refuses a
+	 * deal the mirror has not absorbed — so correcting a lead's name or value seconds after
+	 * opening it answered 400 for up to a full {@code MIRROR_DELTA}, and the marketer's own
+	 * correction looked like a bug in the screen they were standing on.
+	 *
+	 * <p><strong>From the create's own answer, not a second GHL read.</strong> GHL has just told us
+	 * what it stored; asking again would spend another request on a question already answered.
+	 *
+	 * <p>GHL's timestamps are left null deliberately rather than filled with EvalOS's clock: they
+	 * are GHL's to state, the next sweep states them, and a fabricated {@code ghl_updated_at} is
+	 * exactly the kind of invented value {@link FieldOwnership} exists to keep out of the mirror.
+	 *
+	 * <p>Skipped with a warning when the pipeline is not mirrored yet, the same way
+	 * {@link #refreshIfStale} skips one: the deal is in GHL and the sweep will bring it in.
+	 */
+	@Transactional
+	public void absorbCreated(String ghlPipelineId, String ghlId, String ghlContactId, String name,
+			java.math.BigDecimal amount, String status, String ghlStageId, String source) {
+		if (ghlId == null || ghlId.isBlank()) {
+			return;
+		}
+		Optional<Pipeline> mirrored = mirroredPipeline(ghlPipelineId);
+		if (mirrored.isEmpty()) {
+			log.warn("Pipeline {} is not mirrored yet, so the deal just created on it cannot be. "
+					+ "The next sweep brings it in.", ghlPipelineId);
+			return;
+		}
+		Pipeline pipeline = mirrored.get();
+		Opportunity held = opportunities.findByBrandIdAndGhlId(pipeline.getBrandId(), ghlId)
+				.orElseGet(() -> new Opportunity(pipeline.getBrandId(), ghlId, pipeline.getId()));
+		held.syncFromGhl(ghlContactId, pipeline.getId(), ghlStageId, name, amount, status, source,
+				null, null, null, null, null);
+		opportunities.save(held);
 	}
 
 	/**

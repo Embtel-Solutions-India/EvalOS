@@ -107,6 +107,14 @@ public class SalesDeskService {
 
 		GhlWriteClient.UpsertedOpportunity created = ghl.createOpportunity(pipelineId, contact.id(),
 				name, monetaryValue, stageId, expectedCloseDate, customFields);
+
+		// Same reason as the marketing desk's: `queue` below refuses a deal the mirror has not
+		// absorbed, so a salesperson who creates a deal and immediately moves or re-prices it would
+		// be told it "is not in the mirror yet" about the deal they are looking at.
+		deals.absorbCreated(pipelineId, created.id(), contact.id(), created.name(),
+				created.monetaryValue(), created.status(), created.stageId(),
+				GhlWriteClient.SOURCE_SALES_DESK);
+
 		return new Deal(created.id(), created.contactId(), created.name(), created.stageId(),
 				created.status(), created.monetaryValue());
 	}
@@ -285,10 +293,5 @@ public class SalesDeskService {
 		return followUps
 				.findByBrandIdAndGhlPipelineIdInAndCompletedFalseAndDueAtBeforeOrderByDueAtAsc(
 						caller.brandId(), scope.mine(), before);
-	}
-
-	private static Deal asDeal(GhlWriteClient.UpsertedOpportunity from) {
-		return new Deal(from.id(), from.contactId(), from.name(), from.stageId(), from.status(),
-				from.monetaryValue());
 	}
 }

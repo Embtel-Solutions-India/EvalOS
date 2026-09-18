@@ -1,10 +1,12 @@
 package com.ie.evalos.service;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
 import com.ie.evalos.config.SellingBrand;
+import com.ie.evalos.domain.FieldOwnership;
 import com.ie.evalos.domain.Opportunity;
 import com.ie.evalos.domain.Pipeline;
 import com.ie.evalos.domain.SyncEntity;
@@ -150,9 +152,15 @@ public class SyncOutboxService {
 		for (SyncOutboxEntry entry : pending) {
 			attempted++;
 			try {
-				push(entry);
+				boolean editedUnderUs = push(entry);
 				record(entry, Outcome.SENT, null, null);
 				sent++;
+				if (editedUnderUs) {
+					// After SENT, never before: the pending-row constraint is what collapses
+					// duplicates, so queueing while this row is still pending would be swallowed
+					// as "already queued" and the newer edit would never travel.
+					enqueue(entry.getBrandId(), entry.getEntityId(), entry.getIntent());
+				}
 			}
 			catch (GhlUnavailableException refused) {
 				if (refused.failure().stopsEverything()) {
@@ -204,32 +212,72 @@ public class SyncOutboxService {
 	 * <p><strong>The row is read here, at send time</strong>, which is the whole reason the queue
 	 * stores an id rather than a payload ({@code 00d} §6.3).
 	 */
-	private void push(SyncOutboxEntry entry) {
+	private boolean push(SyncOutboxEntry entry) {
 		Opportunity row = opportunities.findById(entry.getEntityId())
 				.orElseThrow(() -> new IllegalStateException(
 						"Outbox names opportunity " + entry.getEntityId() + ", which no longer exists"));
 
 		if (row.getGhlId() == null) {
 			create(row);
-			return;
+			return false;
 		}
+		// Read before the GHL call, because the clear afterwards is conditional on it not having
+		// moved. Null means the edit has already been confirmed by something else, most likely a
+		// sync that arrived with GHL's own answer.
+		Instant edit = row.getLocalUpdatedAt();
 		switch (entry.getIntent()) {
-			// **The stage travels as of Unit 46**, where a desk's stage move became a local edit
-			// plus a queued push. It was null while the only queued writes were the portal's,
-			// which set no stage on purpose (D11) — but this intent's contract is "make GHL agree
-			// with the EvalOS row", and a push that left one of the row's four shared fields behind
-			// made that false, and would have left the next audit reporting drift EvalOS caused.
-			case UPSERT -> ghl.updateOpportunity(row.getGhlId(), ghlPipelineOf(row), row.getName(),
-					row.getAmount(), row.getGhlStageId());
+			case UPSERT -> upsert(row);
 			case CLOSE -> ghl.setStatus(row.getGhlId(), ghlPipelineOf(row),
 					row.getStatus() == null ? "won" : row.getStatus());
 			case DELETE -> throw new IllegalStateException("DELETE is not implemented; no caller queues it");
 		}
-		// GHL now holds what the row holds, so there is no unconfirmed edit left for 45e to defend.
-		// Skipping this would leave a desk-edited row defending itself for ever against a location
-		// whose `updatedAt` comes back null — see Opportunity.pushedToGhl.
-		row.pushedToGhl();
-		opportunities.save(row);
+		if (edit == null) {
+			return false;
+		}
+		// **Conditional, and a zero here is a real outcome rather than an error.** The row may have
+		// been edited again while this push was inside GHL; clearing the stamp then would leave 45e
+		// no longer defending an edit that GHL has never been told about. See
+		// OpportunityRepository.confirmPushed. The drain re-queues instead.
+		if (opportunities.confirmPushed(row.getId(), edit) == 0) {
+			log.info("Opportunity {} was edited again while its push was in flight; re-queueing",
+					row.getId());
+			return true;
+		}
+		return false;
+	}
+
+	/**
+	 * Sends the shared fields a desk actually edited, and <strong>only</strong> those.
+	 *
+	 * <p><strong>Sending all four made a rename undo a GHL automation.</strong> The mirror's stage
+	 * is up to one {@code MIRROR_DELTA} behind, so a workflow that moved the card inside that window
+	 * had its move overwritten by the stage the mirror still held — and then read back as truth on
+	 * the next sweep, permanently. {@link FieldOwnership} calls the stage {@code SHARED} precisely
+	 * because GHL writes it too, which is what makes sending it unasked wrong.
+	 *
+	 * <p>{@code updateOpportunity} omits a null from the body, so an unedited field is left alone in
+	 * GHL rather than cleared — the same "null means leave it" contract
+	 * {@link Opportunity#editedLocally} is built on.
+	 *
+	 * <p><strong>A row queued before V63 carries no field list</strong>, and gets the name and the
+	 * amount but never the stage: those two only ever change because a desk changed them, so
+	 * re-sending them is at worst a no-op, while the stage is the one that does damage.
+	 */
+	private void upsert(Opportunity row) {
+		java.util.Set<String> edited = row.locallyEdited();
+		boolean legacy = edited.isEmpty() && row.getLocalUpdatedAt() != null;
+		String name = legacy || edited.contains(FieldOwnership.NAME) ? row.getName() : null;
+		java.math.BigDecimal amount = legacy || edited.contains(FieldOwnership.AMOUNT)
+				? row.getAmount() : null;
+		String stage = edited.contains(FieldOwnership.STAGE) ? row.getGhlStageId() : null;
+
+		if (name == null && amount == null && stage == null) {
+			// Nothing outstanding to say. GHL answers 422 to an empty body, and "they already
+			// agree" is success rather than a failure worth retrying.
+			log.info("Outbox UPSERT for opportunity {} has no unconfirmed edit left to send", row.getId());
+			return;
+		}
+		ghl.updateOpportunity(row.getGhlId(), ghlPipelineOf(row), name, amount, stage);
 	}
 
 	/**

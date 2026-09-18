@@ -203,6 +203,9 @@ class LocalPostgresIntegrationTest {
 	private static final UUID CM_IE = UUID.fromString("aaaaaaaa-0000-0000-0000-000000000005");
 	private static final UUID COORDINATOR_IE = UUID.fromString("aaaaaaaa-0000-0000-0000-000000000006");
 	private static final UUID TEAM_IE = UUID.fromString("bbbbbbbb-0000-0000-0000-000000000001");
+	// A SALES member, because `team_member_pipeline_matches_role` lets only a pipeline-scoped role
+	// hold `ghl_pipeline_id` at all: V908's Attorney desk.
+	private static final UUID SALES_IE = UUID.fromString("aaaaaaaa-0000-0000-0000-000000000010");
 
 	private static final String DETAIL = "Wire to Bank of Nowhere, acct 12345678";
 
@@ -259,6 +262,9 @@ class LocalPostgresIntegrationTest {
 
 	@Autowired
 	PasswordEncoder passwordEncoder;
+
+	@Autowired
+	TeamMemberPipelineRepository pipelineAssignments;
 
 	@Test
 	void everyMigrationApplied() {
@@ -1730,4 +1736,61 @@ class LocalPostgresIntegrationTest {
 						+ "throw from undoing the write that precedes it")
 				.anyMatch(event -> event.getAction() == AuditAction.CLIENT_SIGN_IN_REFUSED);
 	}
+	/**
+	 * <strong>A revoked pipeline stays revoked.</strong>
+	 *
+	 * <p>{@code backfillFromLegacyColumn} runs after every PIPELINE_MIRROR pass so that a fresh
+	 * database can finish 44b's migration at all — and it re-inserts from
+	 * {@code team_member.ghl_pipeline_id}. A revoke that deleted only the join row was therefore
+	 * undone within the sweep interval, silently: the resurrected grant goes through no role check,
+	 * no selling-brand check and no audit event, which is every gate in
+	 * {@code PipelineAssignmentService.grant} bypassed by a background job.
+	 *
+	 * <p>Both halves are asserted here because only the pair is the fix. Two statements in SQL are
+	 * not something a mocked repository can pin, which is why this lives against a real database.
+	 */
+	@Test
+	void aRevokedPipelineIsNotResurrectedByTheNextBackfill() {
+		UUID pipelineId = UUID.randomUUID();
+		// A fresh id per run: `evalos_test` persists on a developer machine, so a hardcoded one
+		// turns any interrupted run into a duplicate-key failure in every run after it.
+		String ghlId = "ghl-pipe-revoke-" + pipelineId;
+		String held = jdbc.queryForObject("SELECT ghl_pipeline_id FROM team_member WHERE id = ?",
+				String.class, SALES_IE);
+		// Anything an interrupted earlier run left behind, since this schema is reused.
+		jdbc.update("DELETE FROM team_member_pipeline WHERE pipeline_id IN "
+				+ "(SELECT id FROM pipeline WHERE ghl_id LIKE 'ghl-pipe-revoke%')");
+		jdbc.update("DELETE FROM pipeline WHERE ghl_id LIKE 'ghl-pipe-revoke%'");
+		try {
+			jdbc.update("INSERT INTO pipeline (id, brand_id, ghl_id, name, position, synced_at) "
+					+ "VALUES (?, ?, ?, 'Revoke test', 99, now())", pipelineId, BRAND_IE, ghlId);
+			jdbc.update("UPDATE team_member SET ghl_pipeline_id = ? WHERE id = ?", ghlId, SALES_IE);
+
+			pipelineAssignments.backfillFromLegacyColumn();
+			assertThat(pipelineAssignments.ghlIdsFor(SALES_IE)).contains(ghlId);
+
+			assertThat(pipelineAssignments.revoke(SALES_IE, pipelineId)).isEqualTo(1);
+			assertThat(pipelineAssignments.ghlIdsFor(SALES_IE)).doesNotContain(ghlId);
+
+			// **The assertion the whole of V64 is for.** The legacy column still names this
+			// pipeline and V39 forbids emptying it for a SALES row, so before the row was kept
+			// rather than deleted, this pass put the grant straight back -- past the role check,
+			// the selling-brand check and the audit event that `revoke` had just gone through.
+			pipelineAssignments.backfillFromLegacyColumn();
+			assertThat(pipelineAssignments.ghlIdsFor(SALES_IE))
+					.describedAs("a revoked grant keeps its row, which is what the backfill's "
+							+ "ON CONFLICT DO NOTHING then skips")
+					.doesNotContain(ghlId);
+
+			// And a GM may still put them back, which a kept row must not block.
+			assertThat(pipelineAssignments.grant(SALES_IE, pipelineId, GM)).isEqualTo(1);
+			assertThat(pipelineAssignments.ghlIdsFor(SALES_IE)).contains(ghlId);
+		}
+		finally {
+			jdbc.update("DELETE FROM team_member_pipeline WHERE pipeline_id = ?", pipelineId);
+			jdbc.update("DELETE FROM pipeline WHERE id = ?", pipelineId);
+			jdbc.update("UPDATE team_member SET ghl_pipeline_id = ? WHERE id = ?", held, SALES_IE);
+		}
+	}
+
 }

@@ -196,10 +196,23 @@ public class OpportunityBoardService {
 		// in, an empty mirror with nothing on the board, it could do nothing at all: there were no
 		// mirrored pipelines to refresh deals *for*, and the only fix was a GM running a job by
 		// hand. A button that cannot fix the problem it is offered for is worse than no button.
-		mirroredPipelines.sync();
+		//
+		// **But only in that state, which the floor below could not express.** MANUAL_SYNC_FLOOR
+		// guards the deal reads and not this one, so every press spent a paged GHL structure read
+		// as well — on a location whose pipelines and stages change a few times a year and which
+		// the hourly PIPELINE_MIRROR sweep already keeps current. Gating on "the mirror knows of no
+		// live pipeline" keeps exactly the case the button was added for and drops the rest.
+		if (mirroredPipelines.all().stream().noneMatch(com.ie.evalos.domain.Pipeline::isLive)) {
+			mirroredPipelines.sync();
+		}
 
 		TenantContext caller = TenantContext.current();
 		List<String> mine = pipelinesFor(caller);
+		// ponytail: a GM's board is every live pipeline, so their press fans a live read over all of
+		// them in the request thread, Master Pipeline included. MANUAL_SYNC_FLOOR bounds the repeat
+		// cost, not the first one. If that press becomes slow enough to notice, the upgrade is to
+		// hand it to the job runner and answer 202 rather than to cap the fan-out, because a
+		// Refresh that silently syncs some of the board is worse than one that takes a moment.
 		mine.forEach((pipelineId) -> deals.refreshIfStale(pipelineId, MANUAL_SYNC_FLOOR));
 		return forCaller();
 	}
@@ -331,8 +344,15 @@ public class OpportunityBoardService {
 		// **`stale` changed meaning at Unit 46 and the flag was worth keeping for it.** It used to
 		// mean "this render did not refill", a statement about one request. It now means "the sync
 		// has not confirmed this mirror lately" — a statement about the sweep — and it is what the
-		// board's "sync delayed" banner is drawn from. The threshold is three missed passes at the
-		// 5-minute cadence: one slow pass is not news, a sync that stopped is.
+		// board's "sync delayed" banner is drawn from.
+		//
+		// **The threshold is ONE missed pass, not three.** This comment said three, which is a
+		// 15-minute window; `board-stale-after` defaults to 5m in every profile, equal to
+		// JOBS_MIRROR_DELTA_INTERVAL, because the business chose the shorter number on 2026-09-17
+		// over a proposed 15 — the reasoning, and the blink it accepts at the boundary, are
+		// written out in `application.yml` beside the value. A comment claiming the opposite of the
+		// configured default is worse than no comment: it is what a reader trusts instead of
+		// looking.
 		return new Board(columns, rows.size(), sum(rows), lastSynced,
 				lastSynced == null
 						|| Duration.between(lastSynced, Instant.now()).compareTo(staleAfter) >= 0,

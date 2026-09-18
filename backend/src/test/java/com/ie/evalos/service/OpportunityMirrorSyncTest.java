@@ -20,6 +20,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.mock;
@@ -316,5 +317,28 @@ class OpportunityMirrorSyncTest {
 		assertThat(written.getValue().getGhlId()).isEqualTo("note-1");
 		assertThat(written.getValue().getBody()).isEqualTo("Wants expedited");
 		assertThat(written.getValue().getGhlOpportunityId()).isEqualTo("opp-1");
+	}
+
+	/**
+	 * <strong>Freshness is written last, so a pass that dies half way does not claim to be fresh.</strong>
+	 *
+	 * <p>The stamp used to be the first thing {@code absorb} did. A failure anywhere in the loops
+	 * after it — a constraint race against a concurrent {@code absorbForContact}, a row this code
+	 * cannot map — therefore left a half-absorbed mirror advertising itself as current, and the TTL
+	 * then suppressed the re-read that would have finished the job for a full interval. Every write
+	 * in the loop is an upsert keyed by GHL's id, so being re-absorbed costs nothing; being skipped
+	 * costs the reader a board that is quietly wrong.
+	 */
+	@Test
+	void aFailureDuringAbsorbLeavesThePipelineUnstampedSoTheNextReadRetries() {
+		given(opportunities.findByBrandIdAndGhlId(BRAND, "opp-1")).willReturn(Optional.empty());
+		given(opportunities.save(any())).willThrow(new IllegalStateException("constraint race"));
+
+		assertThatThrownBy(() -> mirror.absorb(sales, List.of(fromGhl("opp-1", "pipe-1", "s1", "Ana", "open"))))
+				.isInstanceOf(IllegalStateException.class);
+
+		assertThat(sales.getOpportunitiesSyncedAt())
+				.describedAs("an unstamped pipeline is simply refreshed again on the next request")
+				.isNull();
 	}
 }
