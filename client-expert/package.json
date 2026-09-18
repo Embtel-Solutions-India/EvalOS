@@ -4,7 +4,7 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "cd client && vite",
+    "dev": "node -e \"console.error('Two apps, two origins. Use: npm run dev:client (5174) or npm run dev:expert (5175).'); process.exit(1)\"",
     "dev:client": "cd client && vite",
     "dev:expert": "cd expert && vite",
     "build": "npm run build:client && npm run build:expert",
