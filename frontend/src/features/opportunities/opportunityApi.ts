@@ -532,6 +532,55 @@ export async function fetchApplication(
   return found ?? null
 }
 
+/**
+ * One document the client sent with their request — Unit 53 (D33/D34).
+ *
+ * **No object key.** That is an internal S3 address; the only way to open one of these is the
+ * five-minute presigned URL below, which is minted per click and never stored.
+ */
+export type RequestDocument = {
+  id: string
+  filename: string
+  contentType: string | null
+  sizeBytes: number | null
+  uploadedAt: string
+  /** True once Handoff A copied it onto the case, which is a fact a Coordinator asks about. */
+  carriedToCase: boolean
+}
+
+/**
+ * The documents behind a deal.
+ *
+ * **Its own route beside the application, not a field on it** (`53` §3, D34). Sales reaches these
+ * by already being able to open the opportunity, so the documents ask no new authorisation
+ * question — and an empty list is the ordinary answer for the deals somebody phoned in.
+ */
+export function fetchRequestDocuments(
+  opportunityId: string,
+  signal?: AbortSignal,
+): Promise<readonly RequestDocument[]> {
+  return unwrap<readonly RequestDocument[]>(
+    api.get(`/opportunities/${opportunityId}/documents`, { signal }),
+  )
+}
+
+/**
+ * A five-minute URL for one document.
+ *
+ * **Fetched on the click, never held.** A URL rendered into an `href` at load time is a credential
+ * sitting in the DOM for as long as the tab is open, and it expires while the reader is still
+ * looking at it — so the link asks for a fresh one each time and opens what comes back.
+ */
+export async function requestDocumentUrl(
+  opportunityId: string,
+  documentId: string,
+): Promise<string> {
+  const answer = await unwrap<{ url: string }>(
+    api.get(`/opportunities/${opportunityId}/documents/${documentId}/url`),
+  )
+  return answer.url
+}
+
 /** The stored answers, or an empty list for anything that is not the expected shape. */
 export function parseAnswers(answers: string | null | undefined): readonly AnsweredQuestion[] {
   if (!answers) return []
