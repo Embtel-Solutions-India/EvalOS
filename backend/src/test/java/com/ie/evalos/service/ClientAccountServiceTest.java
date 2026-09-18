@@ -147,7 +147,7 @@ class ClientAccountServiceTest {
 	@Test
 	void signingUpReachesGhlZeroTimes() {
 		given(mailer.canReach(any())).willReturn(true);
-		given(mailer.sendSetPassword(any(), any())).willReturn(true);
+		given(mailer.sendSetPassword(any(), any(), any())).willReturn(true);
 		given(credentials.save(any())).willAnswer((call) -> call.getArgument(0));
 		given(accounts.saveAndFlush(any())).willAnswer((call) -> call.getArgument(0));
 		// Absent on the first read, present on the second — identify() re-reads after the insert.
@@ -249,20 +249,20 @@ class ClientAccountServiceTest {
 
 		assertThat(service.identify("ana@example.com"))
 				.isEqualTo(ClientAccountService.IdentifyState.PASSWORD_SET);
-		verify(mailer, never()).sendSetPassword(any(), any());
+		verify(mailer, never()).sendSetPassword(any(), any(), any());
 	}
 
 	@Test
 	void aSeededAccountAnswersNoPasswordAndIsSentASetLink() {
 		given(mailer.canReach(any())).willReturn(true);
-		given(mailer.sendSetPassword(any(), any())).willReturn(true);
+		given(mailer.sendSetPassword(any(), any(), any())).willReturn(true);
 		given(accounts.findByBrandIdAndEmailIgnoreCase(BRAND, "ana@example.com"))
 				.willReturn(Optional.of(new ClientAccount(BRAND, "ana@example.com")));
 		given(credentials.save(any())).willAnswer(call -> call.getArgument(0));
 
 		assertThat(service.identify("ana@example.com"))
 				.isEqualTo(ClientAccountService.IdentifyState.NO_PASSWORD);
-		verify(mailer).sendSetPassword(addressed("ana@example.com"), any());
+		verify(mailer).sendSetPassword(addressed("ana@example.com"), any(), any());
 	}
 
 	@Test
@@ -272,7 +272,7 @@ class ClientAccountServiceTest {
 
 		assertThat(service.identify("nobody@example.com"))
 				.isEqualTo(ClientAccountService.IdentifyState.UNKNOWN);
-		verify(mailer, never()).sendSetPassword(any(), any());
+		verify(mailer, never()).sendSetPassword(any(), any(), any());
 		verify(credentials, never()).save(any());
 	}
 
@@ -348,7 +348,7 @@ class ClientAccountServiceTest {
 
 		service.forgotPassword("nobody@example.com");
 
-		verify(mailer, never()).sendResetPassword(any(), any());
+		verify(mailer, never()).sendResetPassword(any(), any(), any());
 	}
 
 	@Test
@@ -363,7 +363,7 @@ class ClientAccountServiceTest {
 		// client would wait forever. The row is not minted either: a link with no way of reaching
 		// anybody is a row that can only expire.
 		verify(credentials, never()).save(any());
-		verify(mailer, never()).sendSetPassword(any(), any());
+		verify(mailer, never()).sendSetPassword(any(), any(), any());
 	}
 
 	/**
@@ -379,13 +379,13 @@ class ClientAccountServiceTest {
 	@Test
 	void aFailedSendAnswersMailUnavailableAndLeavesNoTokenToPoisonTheCooldown() {
 		given(mailer.canReach(any())).willReturn(true);
-		given(mailer.sendSetPassword(any(), any())).willReturn(false);
+		given(mailer.sendSetPassword(any(), any(), any())).willReturn(false);
 		given(accounts.findByBrandIdAndEmailIgnoreCase(BRAND, "ana@example.com"))
 				.willReturn(Optional.of(new ClientAccount(BRAND, "ana@example.com")));
 
 		assertThat(service.identify("ana@example.com"))
 				.isEqualTo(ClientAccountService.IdentifyState.MAIL_UNAVAILABLE);
-		verify(mailer).sendSetPassword(addressed("ana@example.com"), any());
+		verify(mailer).sendSetPassword(addressed("ana@example.com"), any(), any());
 		verify(credentials, never()).save(any());
 	}
 
@@ -401,7 +401,7 @@ class ClientAccountServiceTest {
 	@Test
 	void forgotPasswordDoesNotDifferentiateWhenTheMailHostIsDown() {
 		given(mailer.canReach(any())).willReturn(true);
-		given(mailer.sendResetPassword(any(), any())).willReturn(false);
+		given(mailer.sendResetPassword(any(), any(), any())).willReturn(false);
 		ClientAccount account = new ClientAccount(BRAND, "ana@example.com");
 		account.setPasswordHash(encoder.encode("Correct!1"));
 		given(accounts.findByBrandIdAndEmailIgnoreCase(BRAND, "ana@example.com"))
@@ -427,13 +427,13 @@ class ClientAccountServiceTest {
 		assertThat(service.identify("ana@example.com"))
 				.isEqualTo(ClientAccountService.IdentifyState.NO_PASSWORD);
 		verify(credentials, never()).save(any());
-		verify(mailer, never()).sendSetPassword(any(), any());
+		verify(mailer, never()).sendSetPassword(any(), any(), any());
 	}
 
 	@Test
 	void forgotPasswordForAKnownEmailMintsAResetTokenAndMailsTheLink() {
 		given(mailer.canReach(any())).willReturn(true);
-		given(mailer.sendResetPassword(any(), any())).willReturn(true);
+		given(mailer.sendResetPassword(any(), any(), any())).willReturn(true);
 		ClientAccount account = new ClientAccount(BRAND, "ana@example.com");
 		account.setPasswordHash(encoder.encode("Correct!1"));
 		given(accounts.findByBrandIdAndEmailIgnoreCase(BRAND, "ana@example.com"))
@@ -450,8 +450,8 @@ class ClientAccountServiceTest {
 		assertThat(saved.getValue().getPurpose()).isEqualTo(CredentialPurpose.RESET);
 
 		ArgumentCaptor<String> link = ArgumentCaptor.forClass(String.class);
-		verify(mailer).sendResetPassword(addressed("ana@example.com"), link.capture());
-		verify(mailer, never()).sendSetPassword(any(), any());
+		verify(mailer).sendResetPassword(addressed("ana@example.com"), any(), link.capture());
+		verify(mailer, never()).sendSetPassword(any(), any(), any());
 		// The token rides in the FRAGMENT of the set-password route, like every other portal
 		// credential — never a query parameter, which lands in access logs and Referer headers.
 		// On the CLIENT PORTAL's own origin (`evalos.portal.client-base-url`). This is now the only
@@ -518,7 +518,7 @@ class ClientAccountServiceTest {
 	@Test
 	void aStrangerGetsAnAccountAndNoContactUntilTheyProveTheMailbox() {
 		given(mailer.canReach(any())).willReturn(true);
-		given(mailer.sendSetPassword(any(), any())).willReturn(true);
+		given(mailer.sendSetPassword(any(), any(), any())).willReturn(true);
 		given(credentials.save(any())).willAnswer(call -> call.getArgument(0));
 		// Absent before the insert, present after it — identify() re-reads through the same finder.
 		given(accounts.findByBrandIdAndEmailIgnoreCase(BRAND, "ana@example.com"))
@@ -538,7 +538,7 @@ class ClientAccountServiceTest {
 		assertThat(saved.getValue().getPhone()).isEqualTo("+15550100");
 
 		verifyNoInteractions(ghlContacts);
-		verify(mailer).sendSetPassword(addressed("ana@example.com"), any());
+		verify(mailer).sendSetPassword(addressed("ana@example.com"), any(), any());
 		verify(links, never()).mintForClientAccount(any());
 	}
 
@@ -560,7 +560,7 @@ class ClientAccountServiceTest {
 
 		verify(ghlContacts, never()).upsertContact(any(), any(), any(), any(), any());
 		verify(accounts, never()).saveAndFlush(any());
-		verify(mailer, never()).sendSetPassword(any(), any());
+		verify(mailer, never()).sendSetPassword(any(), any(), any());
 	}
 
 	/**
@@ -572,7 +572,7 @@ class ClientAccountServiceTest {
 	@Test
 	void signingUpMintsNoToken() {
 		given(mailer.canReach(any())).willReturn(true);
-		given(mailer.sendSetPassword(any(), any())).willReturn(true);
+		given(mailer.sendSetPassword(any(), any(), any())).willReturn(true);
 		given(credentials.save(any())).willAnswer(call -> call.getArgument(0));
 		given(ghlContacts.upsertContact(any(), any(), any(), any(), any()))
 				.willReturn(new GhlWriteClient.UpsertedContact("ghl-1", null, "ana@example.com", null));
@@ -592,7 +592,7 @@ class ClientAccountServiceTest {
 	@Test
 	void aRacedSecondSubmissionAnswersRatherThanFailing() {
 		given(mailer.canReach(any())).willReturn(true);
-		given(mailer.sendSetPassword(any(), any())).willReturn(true);
+		given(mailer.sendSetPassword(any(), any(), any())).willReturn(true);
 		given(credentials.save(any())).willAnswer(call -> call.getArgument(0));
 		given(ghlContacts.upsertContact(any(), any(), any(), any(), any()))
 				.willReturn(new GhlWriteClient.UpsertedContact("ghl-1", null, "ana@example.com", null));
@@ -622,7 +622,7 @@ class ClientAccountServiceTest {
 	@Test
 	void aFailedCrmRepairDoesNotBreakIdentify() {
 		given(mailer.canReach(any())).willReturn(true);
-		given(mailer.sendSetPassword(any(), any())).willReturn(true);
+		given(mailer.sendSetPassword(any(), any(), any())).willReturn(true);
 		given(credentials.save(any())).willAnswer(call -> call.getArgument(0));
 		given(ghlContacts.upsertContact(any(), any(), any(), any(), any()))
 				.willReturn(new GhlWriteClient.UpsertedContact("ghl-1", null, "ana@example.com", null));

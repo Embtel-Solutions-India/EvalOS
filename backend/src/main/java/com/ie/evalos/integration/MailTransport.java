@@ -61,7 +61,17 @@ public interface MailTransport {
 	}
 
 	/**
+	 * Sends one message with <strong>both</strong> a plain-text and an HTML part.
+	 *
+	 * <p><strong>The text part is not optional and never becomes a stub.</strong> It is what a
+	 * text-only client renders, what a screen reader reads most reliably, and what several spam
+	 * filters score an HTML-only message down for lacking. Both parts must say the same thing: a
+	 * text part that omitted the link would strand exactly the readers least able to recover.
+	 *
+	 * <p>The two travel as {@code multipart/alternative}, so the client picks — EvalOS does not
+	 * sniff, guess or ask.
+	 *
 	 * @return whether the message left. Never throws — see the type javadoc.
 	 */
-	boolean send(Recipient to, String subject, String body);
+	boolean send(Recipient to, String subject, String text, String html);
 }

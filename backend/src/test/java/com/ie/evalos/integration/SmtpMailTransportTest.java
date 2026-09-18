@@ -11,6 +11,7 @@ import org.springframework.mail.javamail.JavaMailSender;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verifyNoInteractions;
 
@@ -67,12 +68,40 @@ class SmtpMailTransportTest {
 	@Test
 	void aRefusedSendIsFalseRatherThanAnException() {
 		JavaMailSender sender = mock(JavaMailSender.class);
-		doThrow(new MailSendException("relay refused")).when(sender).send(any(SimpleMailMessage.class));
+		// A real MimeMessage over a null Session: the transport now builds a multipart message, and
+		// a mock that answered null here would fail inside MimeMessageHelper rather than at the
+		// send this test is about.
+		given(sender.createMimeMessage())
+				.willReturn(new jakarta.mail.internet.MimeMessage((jakarta.mail.Session) null));
+		doThrow(new MailSendException("relay refused")).when(sender)
+				.send(any(jakarta.mail.internet.MimeMessage.class));
 
 		boolean left = new SmtpMailTransport(sender, "no-reply@example.com", "smtp.resend.com")
-				.send(ANA, "Set your password", "link");
+				.send(ANA, "Set your password", "link", "<p>link</p>");
 
 		assertThat(left).isFalse();
+	}
+
+	/**
+	 * <strong>Both parts travel, and the HTML is the one a client sees.</strong>
+	 *
+	 * <p>A text-only message would lose the whole template; an HTML-only one loses text clients,
+	 * screen readers and a point of spam score. {@code multipart/alternative} is what lets the
+	 * client choose, and Spring writes the parts in the order {@code setText(text, html)} names.
+	 */
+	@Test
+	void bothPartsAreSent() throws Exception {
+		JavaMailSender sender = mock(JavaMailSender.class);
+		jakarta.mail.internet.MimeMessage message =
+				new jakarta.mail.internet.MimeMessage((jakarta.mail.Session) null);
+		given(sender.createMimeMessage()).willReturn(message);
+
+		boolean left = new SmtpMailTransport(sender, "no-reply@example.com", "smtp.resend.com")
+				.send(ANA, "Set your password", "the text part", "<p>the html part</p>");
+
+		assertThat(left).isTrue();
+		assertThat(message.getSubject()).isEqualTo("Set your password");
+		assertThat(message.getContent()).isInstanceOf(jakarta.mail.Multipart.class);
 	}
 
 	/** The name is what {@code evalos.mail.transport} matches, so it is pinned. */

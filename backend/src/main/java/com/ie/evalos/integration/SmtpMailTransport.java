@@ -4,7 +4,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.mail.MailException;
-import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.stereotype.Component;
 
@@ -69,15 +68,31 @@ public class SmtpMailTransport implements MailTransport {
 	}
 
 	@Override
-	public boolean send(Recipient to, String subject, String body) {
-		SimpleMailMessage message = new SimpleMailMessage();
-		message.setFrom(from);
-		message.setTo(to.email());
-		message.setSubject(subject);
-		message.setText(body);
+	public boolean send(Recipient to, String subject, String text, String html) {
 		try {
+			jakarta.mail.internet.MimeMessage message = sender.createMimeMessage();
+			// `true` for multipart: the two parts travel as multipart/alternative and the client
+			// picks. UTF-8 named explicitly because a client's name is the first thing to arrive
+			// with an accent in it, and the platform default on a Windows laptop is not UTF-8.
+			org.springframework.mail.javamail.MimeMessageHelper helper =
+					new org.springframework.mail.javamail.MimeMessageHelper(message, true, "UTF-8");
+			helper.setFrom(from);
+			helper.setTo(to.email());
+			helper.setSubject(subject);
+			// **Text first, HTML second, and the order is the API's not a preference.** Spring
+			// writes them in the order `multipart/alternative` requires — least-preferred first —
+			// so a client that understands both shows the HTML. Passing them the other way round
+			// shows plain text to everyone.
+			helper.setText(text, html);
 			sender.send(message);
 			return true;
+		}
+		catch (jakarta.mail.MessagingException malformed) {
+			// A message this code built and could not assemble is our bug, not the relay's. Logged
+			// at the same level and swallowed the same way: the caller's contract is a boolean, and
+			// `forgot-password` must not answer differently for a known address.
+			log.error("Could not assemble '{}' for {}", subject, to.email(), malformed);
+			return false;
 		}
 		catch (MailException failed) {
 			// **Logged with the address and swallowed.** An outage here must not reach the client

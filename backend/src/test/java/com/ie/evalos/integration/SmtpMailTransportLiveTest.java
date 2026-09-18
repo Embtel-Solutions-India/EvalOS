@@ -159,7 +159,7 @@ class SmtpMailTransportLiveTest {
 
 				If it arrived, the relay, the credentials and the verified sender all work, and \
 				client set-password and reset-password mail will leave the same way.
-				""");
+				""", "<p>EvalOS SMTP live test.</p>");
 
 		// False rather than a throw is the contract: `send` swallows every failure so a mail
 		// outage cannot become a 500 on a sign-in. So the logged exception just above is where the

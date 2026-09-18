@@ -319,9 +319,13 @@ public class ClientAccountService {
 		}
 		String token = PortalAccessService.freshCredentialToken();
 		String link = clientAppBaseUrl + "/set-password#" + token;
+		// The first name only, and blank is ordinary: a client can sign up with an address and
+		// nothing else, and `MailTemplates` drops the greeting entirely rather than writing
+		// "Welcome ," at somebody.
+		String name = account.getFirstName();
 		boolean sent = purpose == CredentialPurpose.SET
-				? mailer.sendSetPassword(recipient, link)
-				: mailer.sendResetPassword(recipient, link);
+				? mailer.sendSetPassword(recipient, name, link)
+				: mailer.sendResetPassword(recipient, name, link);
 		if (!sent) {
 			return false;
 		}
