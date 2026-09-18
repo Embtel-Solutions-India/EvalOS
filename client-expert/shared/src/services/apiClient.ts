@@ -13,8 +13,11 @@ import axios from 'axios'
  * mock session in `localStorage`; this is a forwarded-link credential and a shared machine is the
  * risk. A reload still has the fragment in the address bar.
  *
- * **The chain accepts `GET`, `POST` and `OPTIONS` only**, and the only request headers it allows
- * are `Content-Type` and `X-Portal-Token`. There is deliberately no default `Content-Type` set
+ * **The chain accepts `GET`, `POST`, `PUT`, `DELETE` and `OPTIONS`**, and the only request headers
+ * it allows are `Content-Type` and `X-Portal-Token`. It said `GET`/`POST`/`OPTIONS` only, which was
+ * true of the CORS list and never of the routes: `PUT /applications/{id}` — the questionnaire's
+ * autosave — had existed since Unit 43 and answered a bare 403 from the refused preflight, which
+ * reads as nothing the client can report. DELETE arrived with Unit 53's document routes. There is deliberately no default `Content-Type` set
  * here: axios adds `application/json` when the body is an object, and leaves a `FormData` body
  * alone so the browser writes the multipart boundary itself.
  *
