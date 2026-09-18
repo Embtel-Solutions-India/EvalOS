@@ -60,12 +60,15 @@ class MigrationTreeTest {
 
 	/**
 	 * The seed still has to be somewhere, or the profile that lists it silently boots an
-	 * empty database. Both trees are checked: {@code db/seed-testprod} seeds a real
-	 * environment, so the numbering rule that marks a file as a seed matters more there,
-	 * not less.
+	 * empty database. All three trees are checked, and the rule gets stricter as the
+	 * environment gets realer rather than looser: {@code db/seed-testprod} seeds a real
+	 * environment and {@code db/seed-prod} seeds <em>the</em> real one — the six IE desk
+	 * logins, which have no create-team-member endpoint to arrive through. A file that
+	 * slipped below the floor there would be one the production Flyway location could
+	 * mistake for a migration.
 	 */
 	@ParameterizedTest
-	@ValueSource(strings = { "db/seed-local", "db/seed-testprod" })
+	@ValueSource(strings = { "db/seed-local", "db/seed-testprod", "db/seed-prod" })
 	void seedsLiveInTheirOwnTreeBesideTheMigrations(String location) throws Exception {
 		try (Stream<Path> seeds = Files.list(resource(location))) {
 			assertThat(seeds.map(path -> path.getFileName().toString()).filter(name -> name.endsWith(".sql")))

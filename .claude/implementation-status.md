@@ -89,12 +89,27 @@ references, so `--noEmit` typechecks nothing and exits 0.)
   `V911` exists because five of the six had been renamed **by hand in a local database** while the
   seeds still said `sales.attorney.ie@evalos.local` — so a fresh checkout came up with names
   nobody had been told to use. It renames by id, not by address, so it converges either way.
-  **`docs/seed-desks.sql` is the production script** (an operator script, not a migration: who
-  works at a company is not schema). **It carries the same published password, which is the one
-  thing about it to think twice over** — `DevPassw0rd!`'s hash is committed in `V908`, its
-  plaintext is in that file's comments, and both are in every clone and the whole git history.
-  On a laptop that costs nothing; on an environment holding client data it is a published
-  credential, not a weak one.
+  **Production seeds them through `db/seed-prod/V960__seed_ie_desks.sql`, a Flyway migration,
+  since 2026-09-19.** It replaces `docs/seed-desks.sql`, which was an operator script run by hand
+  on the argument that "who works at a company is not schema" — answered by putting it in a tree
+  only `application-prod.yml` names, the same sibling-directory mechanism `db/seed-local` and
+  `db/seed-testprod` already use and `MigrationTreeTest` enforces. `docs/seed-desks.sql` is now a
+  pointer, kept rather than deleted because applied `V911` names it in a comment.
+  **The published password is gone with it.** V960 takes its hash from the `desk-password-hash`
+  Flyway placeholder (`DESK_PASSWORD_HASH`, no default), so a forgotten variable fails the migrate
+  instead of seeding `DevPassw0rd!` — whose hash is committed in `V908`, whose plaintext is in that
+  file's comments, and which is therefore in every clone and the whole git history. That value
+  remains correct for local and nowhere else.
+  **Two costs, both deliberate.** Prod now sets `out-of-order: true`, because a seed numbered above
+  every migration makes the next V-N look out of order — the allowance local and testprod already
+  carry, now on the environment where a silently-late migration matters most. And
+  `DESK_PASSWORD_HASH` is required on *every* prod boot, not just the one that applies V960, since
+  Spring resolves the placeholder map at startup.
+  **V960 seeds `team_member.ghl_pipeline_id` but usually grants no `team_member_pipeline` row**, as
+  `pipeline` is filled by the PIPELINE_MIRROR sweep, which has not run at migrate time. The six sign
+  in to an empty board until a GM assigns pipelines (`PUT /api/team-members/{id}/pipelines`) — the
+  flow V54 introduced. There is still no create-team-member endpoint, which is why a seed is the
+  only way these logins exist at all.
 
 - **`npm run dev` in the portals workspace served the client app on the expert portal's port,
   fixed 2026-09-18.** `dev` was an alias for `cd client && vite`, and neither vite config set
