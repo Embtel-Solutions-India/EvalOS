@@ -311,8 +311,26 @@ request / appointment context. This is tier 3 of the mirror (Unit 47) and has no
 |---|---|---|---|
 | **A** | GHL → EvalOS | `opportunity.won` webhook creates the case | code complete |
 | **mirror** | GHL → EvalOS | `contact.*` and `opportunity.*` webhooks update `contact_snapshot` and `opportunity`; `MIRROR_DELTA` (15m) is the floor under them | code complete (45d, 2026-09-17) |
+| **contact backfill** | GHL → EvalOS | the deal screen reads `GET /contacts/{id}` when `contact_snapshot` has never seen the person, and keeps the row | code complete (2026-09-22) |
 | **B** | EvalOS → Expert | staff mints a portal link; expert signs | code complete |
 | **C** | EvalOS → GHL / client | outbound dispatcher | **not implemented** |
+
+**The contact backfill exists because every other writer of `contact_snapshot` is an EvalOS-side
+event.** Handoff A writes one when a deal is won, the portal writes one at set-password, and 45d's
+`contact.created`/`contact.updated` webhook writes one when GHL tells us something changed. None of
+those fires for a contact that already existed in GHL before EvalOS met it, and **no sweep pulls
+contacts** — `MIRROR_DELTA` refreshes opportunities. So a deal a salesperson typed into GHL arrived
+in the mirror carrying a `ghl_contact_id` and nothing else, and the deal screen said *"no contact on
+this deal yet — it arrives with the next sync"* indefinitely, which was a sentence about a sync that
+was never going to run.
+
+`ContactSnapshotService.findOrFetch` closes it: **the mirror is still the source** and a row already
+held is returned without touching GHL — which keeps the screen working with the sync off — but a
+miss reads `GET /contacts/{contactId}` once and saves the result through `findOrCreate`, so the
+email-match and contradiction rules still apply and the second open is a mirror read again. A GHL
+failure returns empty and logs rather than throwing: an upstream blip must not take the notes, the
+questionnaire and the actions down with the contact card. Scope `contacts.readonly`, already granted
+— `GhlCalendarClient` uses it for a contact's appointments.
 
 ## Request documents (Unit 53, built 2026-09-18)
 

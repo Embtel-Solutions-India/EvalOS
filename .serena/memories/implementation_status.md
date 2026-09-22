@@ -114,6 +114,79 @@ coexist; two accounts claiming one contact may not). `ContactSnapshotService` is
 have failed the build. Sign-up now creates the CRM row, closing the prospect gap — until this, the
 only writer was Handoff A, so `contact_snapshot` held only contacts that had WON an opportunity.
 
+**Contact mirror 2026-09-23 — `CONTACT_MIRROR`, hourly.** `GhlContactClient.page()` over
+`POST /contacts/search` (cursor `searchAfter`, sort `dateUpdated asc` so a contact edited mid-pass
+moves AHEAD of the cursor rather than being skipped), writing via `ContactSnapshotService`. THIS IS
+WHAT MAKES THE CONTACTS LIST COMPLETE: before it the table held 32 of the location's 1,407.
+Full pass, no high-water mark — 15 pages ~1.7s; switch to `dateUpdated >= lastRun` past ~20k.
+`GhlHttp.search()` is a FIFTH helper (not a fifth HTTP verb) for reads GHL exposes as POST; it
+refuses any path not ending `/search`, so it cannot become the hole in the write-audit guard.
+
+**`GhlHttpTest` write-audit guard was crying wolf** and is fixed: `\.(post|put|delete)\(` matched
+`body.put(...)` on a Map. It now binds the verb to the CAPTURED `GhlHttp` reference name.
+
+**Deal READ scope fixed 2026-09-23 — `PipelineScope.requireVisible`.** ALL=any deal,
+BRAND=own brand, PIPELINE=delegates to `requireMine`. Closes `00d` row 73 (P0): `requireMine`
+reads pipelines off the principal and D19e says A GM HOLDS NONE AND MUST NOT, so the GM's board
+listed every deal and 403'd on opening any. READS WIDENED, WRITES DID NOT — every edit/close/
+booking/note is still `requireMine`, and `PipelineScopeVisibilityTest` asserts the GM's write
+refusal so the two methods cannot be collapsed later. `SalesMeetingService.forOpportunity` now
+queries with the DEAL's brand (the caller's is null for a GM). 403-never-404 unchanged.
+`GET /opportunities/{id}/notes` also widened to +GM/+BRAND_MANAGER — the route's own javadoc named
+this exact precondition, and `00d` §3.1's "no role can read both note streams" is the DEFECT three
+audits found, not an invariant. THE POST STAYS SALES/MARKETING and a test asserts that refusal.
+
+**Contacts directory 2026-09-23.** `GET /api/contacts?search=`, nav `/contacts` under Records.
+THREE WIDTHS AND THEY ARE JUST THE TIERS: `GM(Tier.ALL)` = every brand, `BRAND_MANAGER(Tier.BRAND)`
+= own brand, `SALES`/`MARKETING(Tier.PIPELINE)` = contacts on the deals they work (join
+`contact_snapshot -> opportunity -> pipeline`, match `pipeline.ghl_id`). No brand/pipeline
+parameter on the request — a width the client could send is a width the client could change.
+JDBC rather than `ScopePredicate` ONLY because the pipeline arm needs a join and `Fields` has no
+vocabulary for one; do not add a join axis there for one screen. The contact→deal join is
+BRAND-MATCHED as well as id-matched (`ghl_contact_id` is unique per brand, not globally).
+PAGED server-side (`?page=&size=`, 15 default, clamp 100); offset not keyset because the pages are numbered and jumped between; total is a separate count wrapping the GROUPED query, since a bare count over the join counts DEALS. `ORDER BY full_name, id` — the id tiebreak is what stops a row showing on two pages. `ContactDirectoryScopeTest` pins every arm and both refusals.
+
+**Deal screen rebuilt 2026-09-23 (two columns).** Left = the record, right = Actions +
+Contact details (sticky at `xl`). `DealApplication`/`DealDocuments` became tables (`.tbl`);
+answers expand in place. `ContactView` gained `source` / `assignedTo` / `createdAt` — the assignee
+is resolved to a NAME via the `ghl_user` mirror so the raw GHL user id never reaches the browser.
+`ContactSnapshot.getSourceChannel()` is new. `DealEditDialog` wraps the existing
+`PUT /api/sales/opportunities/{id}` (name + value, SALES only).
+
+DOCUMENT TABLE: `Type` and `Verification` are PLACEHOLDER columns (2026-09-23) rendering `—`
+and `Not reviewed`, with a note under the table. The document list is still being agreed, and
+VERIFICATION IS THE PROJECT COORDINATOR'S WORK — Sales displays the verdict and never sets it.
+Do not fill either with a plausible value; a row reading "Verified" that nobody verified is worse
+than an empty column. `carried_to_case_document_id` has its own "On the case" column and is NOT
+the verification verdict. Format and size sit under the filename, where they are real.
+
+STILL NOT BUILT from that design: a "Hot" lead-temperature badge (nothing scores a lead) and a
+second questionnaire (one `client_application` per opportunity).
+
+**Mail branding 2026-09-23.** The logo is the horizontal mark served from the marketing site —
+`MailTemplates.LOGO_URL`, the APEX host (`www` 301s and image proxies drop redirects), sized
+`240x57` for a 1230x290 mark; the old `152x70` belonged to the stacked 380x175 portal logo and
+would squash this one. The accent is the client portal's `--brand-crimson` `#C8102E` in place of
+navy `#003152`, panel tint `#FBECEE` in place of `#EBF4F9`; neutrals unchanged, because an email
+whose prose is red reads as a warning. NOT the logo's own red (`#E60914`) — portal token wins.
+`MailTemplates.load` now strips HTML comments: `layout.html` is 55% comment and all of it was
+being mailed to clients. Safe only while no template uses an Outlook `<!--[if mso]>` conditional.
+
+**Dead-member sweep 2026-09-22 (backend).** Five unused `@Value` imports, `SalesDeskService`'s
+second `asDeal` overload, and `OpportunityBoardService`'s `TeamMemberRepository` — kept five days
+after the GM's union stopped using it, with `verify(teamMembers, never())` guarding behaviourally
+what removing the field now guarantees structurally. Zero unused imports remain in the whole
+backend. NOT touched, because they are not dead: Spring's package-private constructors, JUnit
+`@BeforeEach`/`@AfterEach` methods, and the fixture arguments `OpportunityBoardServiceTest` passes
+for documentation (`mirrored(..., pipelineId, ...)`, `givenMirrored(..., pipelineIds)`) — its own
+javadoc says the row does not store them.
+
+**The gap that survived all of that closed 2026-09-22.** None of those writers fires for a contact
+that already existed in GHL before EvalOS met it, and no sweep pulls contacts, so the deal screen
+was blank for every deal a salesperson typed into GHL. `ContactSnapshotService.findOrFetch` reads
+`GET /contacts/{id}` on a mirror miss and keeps the row; `GhlContactClient` is the new read client;
+`ContactSnapshotFetchTest` pins mirror-wins, fetch-and-keep, and outage-degrades-to-empty.
+
 **The `contact_snapshot` → `contact` RENAME is deferred, and the reason is not laziness**: two seeds
 (`V905` local, `V951` testprod) write that table and run after every migration, `MigrationTreeTest`
 forbids a migration numbered 900+, and editing an applied seed is a checksum mismatch. Same trap as

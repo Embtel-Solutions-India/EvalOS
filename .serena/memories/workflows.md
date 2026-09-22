@@ -56,6 +56,16 @@ on 2026-09-17) and carries it into `case_document` at Handoff A over the same S3
 `forContact` → `absorbForContact`. `opportunity.won` stays Handoff A alone. `MIRROR_DELTA` (15m)
 re-reads only pipelines nobody has looked at inside `evalos.ghl.delta-ttl`.
 
+**Contact backfill (2026-09-22).** `ContactSnapshotService.findOrFetch`: mirror first, and only on a
+miss `GhlContactClient.byId` → `GET /contacts/{id}` (`contacts.readonly`, already granted), saved
+through `findOrCreate` so the email-match and contradiction rules still apply. **Why it had to
+exist:** every writer of `contact_snapshot` is an EvalOS-side event (Handoff A, set-password, the
+`contact.*` webhook) and NO SWEEP PULLS CONTACTS — `MIRROR_DELTA` refreshes opportunities. A deal
+typed straight into GHL therefore carried a `ghl_contact_id` and no contact row, and the deal screen
+read "it arrives with the next sync", naming a sync that does not exist. A GHL failure returns empty
+and logs rather than throwing, so a blip does not take the whole screen down with the contact card.
+It is a backfill, not a mirror: a contact CHANGED in GHL still only updates via the webhook.
+
 **Desk writes (46, 2026-09-17).** Edits — `update`, `moveToStage`, `close`, Marketing's `value` —
 are `editLocally` + `enqueue(UPSERT|CLOSE)` and return the local row. Creates — `createDeal`,
 `openLead` — still call GHL inline. Boards call GHL **never**.
