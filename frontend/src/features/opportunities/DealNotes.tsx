@@ -51,34 +51,53 @@ export default function DealNotes({ opportunityId }: { opportunityId: string }) 
   }
 
   return (
-    <div className="space-y-2 border-t border-slate-200 pt-2">
-      <form onSubmit={submit} className="space-y-1">
+    <div className="space-y-3">
+      <form onSubmit={submit} className="space-y-2">
         <textarea
           value={draft}
           onChange={(event) => setDraft(event.target.value)}
           rows={2}
           placeholder="Add a note…"
-          className="w-full rounded border border-slate-300 px-2 py-1 text-xs text-slate-900"
+          className="field w-full"
         />
         <button
           type="submit"
           disabled={busy || draft.trim() === ''}
-          className="rounded bg-slate-900 px-2 py-1 text-xs text-white disabled:opacity-40"
+          className="btn btn-primary"
         >
           {busy ? 'Saving…' : 'Add note'}
         </button>
       </form>
 
-      {error && <p className="text-xs text-rose-600">{error}</p>}
+      {error && (
+        <p className="text-xs" style={{ color: 'var(--status-red)' }}>
+          {error}
+        </p>
+      )}
 
-      {notes === null && <p className="text-xs text-slate-400">Loading notes…</p>}
-      {notes?.length === 0 && <p className="text-xs text-slate-400">No notes yet.</p>}
+      {notes === null && (
+        <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+          Loading notes…
+        </p>
+      )}
+      {notes?.length === 0 && (
+        <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+          No notes yet.
+        </p>
+      )}
 
-      <ul className="space-y-1">
+      {/* A left rule rather than a filled block: a stream of tinted boxes on a white panel is
+          the striping `tokens.css` warns about, and the accent edge reads as one conversation
+          instead of a stack of unrelated cards. */}
+      <ul className="space-y-2">
         {notes?.map((note) => (
-          <li key={note.id} className="rounded bg-slate-50 p-2 text-xs text-slate-700">
+          <li
+            key={note.id}
+            className="border-l-2 py-0.5 pl-3 text-xs"
+            style={{ borderColor: 'var(--accent-soft)' }}
+          >
             <p className="whitespace-pre-wrap">{note.body}</p>
-            <p className="mt-1 text-[11px] text-slate-400">
+            <p className="mt-1 text-[11px]" style={{ color: 'var(--text-muted)' }}>
               {new Date(note.createdAt).toLocaleString()}
             </p>
           </li>

@@ -83,6 +83,26 @@ export type DealContact = {
   email: string | null
   phone: string | null
   company: string | null
+  /** `SourceChannel`'s name — `WEBSITE`, `GOOGLE_ADS`, … — or null. Label it with {@link sourceLabel}. */
+  source: string | null
+  /** The GHL user's display name, already resolved server-side. Never an id. */
+  assignedTo: string | null
+  /** When GHL opened the deal, not when EvalOS mirrored it. */
+  createdAt: string | null
+}
+
+/**
+ * `GOOGLE_ADS` -> `Google ads`.
+ *
+ * **Not a lookup table.** A map from the eight `SourceChannel` constants to prose would be a
+ * second list to keep in step with the enum, and the one that drifts is this one — a channel added
+ * server-side would render blank here rather than merely unpolished. Reshaping the name cannot
+ * miss a value.
+ */
+export function sourceLabel(source: string | null): string | null {
+  if (!source) return null
+  const words = source.replace(/_/g, ' ').toLowerCase()
+  return words.charAt(0).toUpperCase() + words.slice(1)
 }
 
 export function fetchDealContact(
@@ -590,4 +610,64 @@ export function parseAnswers(answers: string | null | undefined): readonly Answe
   } catch {
     return []
   }
+}
+
+
+// --- The contacts directory -------------------------------------------------
+
+/**
+ * One row of the contacts list.
+ *
+ * `dealCount` is counted **inside the caller's own scope**, so a desk sees the number of deals it
+ * can actually open rather than a business-wide total it cannot account for.
+ */
+export type DirectoryContact = {
+  id: string
+  brandId: string
+  brandName: string | null
+  name: string | null
+  email: string | null
+  phone: string | null
+  company: string | null
+  /** `SourceChannel`'s name, or null. Label it with {@link sourceLabel}. */
+  source: string | null
+  dealCount: number
+  lastActivityAt: string | null
+}
+
+/**
+ * One page of contacts, with the total behind it.
+ *
+ * `size` is what the server **applied**, not what was asked for — it clamps, and a last page of 7
+ * out of 15 still reports 15. Compute the page count from this and not from `contacts.length`.
+ */
+export type ContactPage = {
+  contacts: readonly DirectoryContact[]
+  total: number
+  page: number
+  size: number
+}
+
+/**
+ * Everyone the CRM holds, at the width this caller reads.
+ *
+ * **The scope is the server's and is never sent.** There is no brand or pipeline parameter here
+ * on purpose: a list whose width came from the request would be a width the caller could change.
+ *
+ * **Paged on the server, not sliced on the client.** The list is 1,400+ contacts and growing with
+ * the CRM; shipping all of them to slice fifteen out would cost the payload of the whole roster on
+ * every keystroke of the search box.
+ */
+export function fetchContacts(
+  search: string,
+  page: number,
+  size: number,
+  signal?: AbortSignal,
+): Promise<ContactPage> {
+  return unwrap<ContactPage>(
+    api.get('/contacts', {
+      params: { page, size, ...(search.trim() ? { search: search.trim() } : {}) },
+      signal,
+    }),
+  )
 }
