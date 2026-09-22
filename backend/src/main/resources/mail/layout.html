@@ -10,12 +10,26 @@
 
   THE PALETTE IS THE CLIENT PORTAL'S OWN TOKENS, resolved to hex because a CSS variable does not
   survive an email client:
-    --primary            #003152   the deep navy the logo sits in
+    --brand-crimson      #C8102E   headings, buttons and links        (was --primary #003152)
     --foreground         #11212C   body text
     --muted-foreground   #5C6E7A   secondary text and the footer
-    --accent             #EBF4F9   the tinted panel
+    --accent             #FBECEE   the tinted panel                   (was #EBF4F9, a navy tint)
     --border             #DCE4EA   hairlines
     --background         #FBFCFD   the page behind the card
+
+  THE ACCENT WENT CRIMSON ON 2026-09-23 and the neutrals deliberately did not. Body text, the
+  hairlines and the page stay the cool greys they were: reddening those makes an email that reads
+  as a warning, and every message this layout carries is routine — an account is ready, a request
+  arrived. Only what was already the brand accent changed colour.
+
+  #C8102E IS THE PORTAL'S `--brand-crimson`, NOT THE LOGO'S RED. The mark itself is #E60914, a
+  brighter near-pure red. They are close enough to sit together and the portal token wins because
+  this palette exists to match the portal a client is about to sign in to, not the image above it.
+  If the two should be unified that is a brand decision and it belongs in `globals.css` first.
+
+  CONTRAST, measured rather than assumed: #C8102E on #FFFFFF is 5.88:1, and white on #C8102E is the
+  same 5.88:1 — both above AA for body text, so the headings, the links and the button label all
+  pass. A lighter crimson would not have.
 
   PLACEHOLDERS are double-brace names, replaced by MailTemplates. Anything a client supplied is
   HTML-escaped on the way in; the link is built by EvalOS and is the one value that is not.
@@ -45,12 +59,19 @@
             <!-- Logo. An <img> with an explicit width and height: a client that blocks images by
                  default (Outlook's default) still reserves the space, so the layout does not jump
                  when the reader chooses to load it. The alt text is the company name because that
-                 is what a blocked image should say. -->
+                 is what a blocked image should say.
+
+                 240x57 BECAUSE THE MARK IS 1230x290. It was 152x70, which is 2.17:1 and was right
+                 for the stacked 380x175 logo this replaced; the horizontal mark is 4.24:1, so
+                 those numbers would have squashed it to two thirds of its width. Both attributes
+                 are stated AND repeated in the inline style: Outlook reads the attributes, and
+                 several webmail clients override them from the style. Getting one and not the
+                 other is how a logo renders at its full 1230px in exactly one client. -->
             <tr>
               <td align="center" style="padding:8px 0 20px 0;">
                 <a href="{{siteUrl}}" style="text-decoration:none;">
-                  <img src="{{logoUrl}}" width="152" height="70" alt="International Evaluations"
-                       style="display:block; border:0; outline:none; text-decoration:none; width:152px; height:70px;">
+                  <img src="{{logoUrl}}" width="240" height="57" alt="International Evaluations"
+                       style="display:block; border:0; outline:none; text-decoration:none; width:240px; height:57px;">
                 </a>
               </td>
             </tr>
@@ -78,11 +99,11 @@
                 </p>
                 <p style="margin:0 0 6px 0;">
                   Credential evaluations and expert opinion letters.
-                  <a href="{{siteUrl}}" style="color:#085A91; text-decoration:underline;">internationalevaluations.com</a>
+                  <a href="{{siteUrl}}" style="color:#C8102E; text-decoration:underline;">internationalevaluations.com</a>
                 </p>
                 <p style="margin:0 0 6px 0;">
                   Questions? Reply to this message or write to
-                  <a href="mailto:{{supportEmail}}" style="color:#085A91; text-decoration:underline;">{{supportEmail}}</a>.
+                  <a href="mailto:{{supportEmail}}" style="color:#C8102E; text-decoration:underline;">{{supportEmail}}</a>.
                 </p>
                 <p style="margin:12px 0 0 0; color:#8496A1;">
                   {{footerNote}}

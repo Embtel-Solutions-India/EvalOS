@@ -43,6 +43,24 @@ public class MailTemplates {
 	private static final String SITE_URL = "https://www.internationalevaluations.com";
 
 	/**
+	 * The brand mark, on the marketing site that already serves it.
+	 *
+	 * <p><strong>The apex host, and NOT derived from {@link #SITE_URL}.</strong> That constant is
+	 * the {@code www} host, and {@code www.internationalevaluations.com/assets/…} answers
+	 * <strong>301</strong>. A redirect is fine for a link a person clicks and is not fine for an
+	 * image: Gmail, Outlook.com and Yahoo all fetch images through a caching proxy, and a proxy
+	 * that declines to follow the hop serves nothing — the reader gets the alt text and the email
+	 * looks broken. So this is written out in full rather than built from the other, and the two
+	 * differing by a subdomain is the point rather than an oversight.
+	 */
+	/** An HTML comment, including a multi-line one. See {@link #load}. */
+	private static final java.util.regex.Pattern COMMENT =
+			java.util.regex.Pattern.compile("<!--.*?-->", java.util.regex.Pattern.DOTALL);
+
+	private static final String LOGO_URL =
+			"https://internationalevaluations.com/assets/logo-horizontal-main.png";
+
+	/**
 	 * The address the portal already shows a client in its dead-end states.
 	 *
 	 * <p>One constant here and one in {@code authService.ts}, deliberately not a shared config
@@ -65,16 +83,22 @@ public class MailTemplates {
 	}
 
 	/**
-	 * <strong>The logo is served by the portal, not attached and not inlined.</strong>
+	 * <strong>Linked, never attached and never inlined.</strong>
 	 *
 	 * <p>A {@code cid:} attachment renders in Outlook and is stripped or shown as a download by
 	 * several webmail clients; a {@code data:} URI is blocked outright by Gmail and Outlook.com. A
-	 * URL on the origin the links already point at is the one form every client loads — and it is
-	 * the origin the reader is about to visit anyway, so it adds no new host to trust.
+	 * plain URL is the one form every client loads.
+	 *
+	 * <p><strong>It moved off the portal origin on 2026-09-23</strong>, where it was
+	 * {@code portalBaseUrl + "/brand/logo.png"} — the 380x175 stacked mark. The argument for that
+	 * origin was that the email links there anyway so it added no host to trust; the footer links
+	 * to {@link #SITE_URL} in the same breath, so the marketing site was never a new host either.
+	 * What it does add is a mark that is already public, already cached and does not go dark when
+	 * the portal is redeployed.
+	 *
+	 * <p>Not a method any more because there is nothing left to compute — see {@link #LOGO_URL}
+	 * for why it is not built from {@code SITE_URL}.
 	 */
-	private String logoUrl() {
-		return portalBaseUrl + "/brand/logo.png";
-	}
 
 	public Message setPassword(String fullName, String link) {
 		Map<String, String> values = base(fullName);
@@ -176,7 +200,7 @@ public class MailTemplates {
 	private Map<String, String> base(String fullName) {
 		Map<String, String> values = new LinkedHashMap<>();
 		values.put("greetingName", greeting(fullName));
-		values.put("logoUrl", logoUrl());
+		values.put("logoUrl", LOGO_URL);
 		values.put("siteUrl", SITE_URL);
 		values.put("portalUrl", portalBaseUrl);
 		values.put("supportEmail", SUPPORT_EMAIL);
@@ -233,11 +257,26 @@ public class MailTemplates {
 	}
 
 	/** Read once and held: these are build artefacts, not something that changes at runtime. */
+	/**
+	 * The template, comments stripped, cached after the first read.
+	 *
+	 * <p><strong>The comments are for whoever edits these files and were being sent to
+	 * clients.</strong> {@code layout.html} is 55% comment — why the markup looks like 2005, which
+	 * hex replaced which, what the contrast measurements were — and all of it was travelling inside
+	 * every set-password and every confirmation. Nothing broke, which is why it went unnoticed: it
+	 * is invisible in a mail client and only shows in View Source. Stripping costs one regex at
+	 * load and takes about 4KB off every message.
+	 *
+	 * <p><strong>Safe only because nothing here uses an Outlook conditional comment.</strong>
+	 * {@code <!--[if mso]>} is a comment to every other client and a live branch to Word's renderer,
+	 * so a template that grows one must strip conditionally or not at all. There are none today and
+	 * {@code MailTemplatesTest} would not catch it — check by eye if you add one.
+	 */
 	private String load(String name) {
 		return cache.computeIfAbsent(name, (key) -> {
 			try {
-				return new ClassPathResource("mail/" + key + ".html").getContentAsString(
-						StandardCharsets.UTF_8);
+				return COMMENT.matcher(new ClassPathResource("mail/" + key + ".html")
+						.getContentAsString(StandardCharsets.UTF_8)).replaceAll("").strip();
 			}
 			catch (IOException missing) {
 				// A template that is not on the classpath is a packaging failure, not a runtime
