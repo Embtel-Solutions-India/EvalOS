@@ -17,8 +17,6 @@ public interface PipelineStageRepository
 	/** Brand only, for the same reason as {@link PipelineRepository#SCOPE}. */
 	ScopePredicate.Fields SCOPE = ScopePredicate.Fields.brandOnly("brandId");
 
-	List<PipelineStage> findByBrandIdOrderByPositionAsc(UUID brandId);
-
 	List<PipelineStage> findByPipelineIdOrderByPositionAsc(UUID pipelineId);
 
 	Optional<PipelineStage> findByBrandIdAndGhlId(UUID brandId, String ghlId);

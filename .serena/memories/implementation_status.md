@@ -3,8 +3,27 @@
 **The authoritative file is `.claude/implementation-status.md` — a table with evidence per row.
 Check it before claiming anything exists or is missing.**
 
-Build is green: backend **1098 tests, 0 failures, 4 skipped**; staff SPA 127 tests plus clean tsc
-and oxlint; portals 30 tests plus clean tsc. Re-run 2026-09-18 on a `clean` build.
+Build is green: backend **1132 tests, 0 failures, 4 skipped**; staff SPA 127 tests plus clean tsc
+and oxlint; portals 30 tests plus clean tsc and a clean `npm run build`. Re-run 2026-09-22 after
+the dead-code pass below.
+
+**Dead-code pass 2026-09-22 — deletions only, no behaviour change, all four suites green either
+side.** Gone: nine unimported shadcn wrappers in `client-expert/shared/src/components/ui/`
+(`avatar`, `dropdown-menu`, `pagination`, `popover`, `separator`, `switch`, `tabs`, `tooltip`,
+`dialog`) plus `common/ConfirmDialog.tsx`, their only reader; `shared/src/utils/storage.ts`,
+`constants/storage.ts`, `constants/upload.ts` and `hooks/useMediaQuery.ts`, all mock-auth
+leftovers; `frontend/src/components/ui/tabs.tsx`, which no screen imported (`ExpertRoster` has its
+own local `Tab`); five unused exports from `shared/src/utils/formatters.ts`, including a
+hand-rolled `relativeTime` that `Intl.RelativeTimeFormat` covers; and nine repository finders with
+no caller. `frontend/src/components/ui/menu.tsx` is now **`popover.tsx`** — the DropdownMenu and
+Tooltip halves had no callers, and `AssignPopover` and `DateFilter` were repointed. Eleven
+dependencies left `client-expert/package.json`; `@radix-ui/react-dialog` stays because
+`MobileNavDrawer` uses it directly.
+
+**Deliberately kept:** `TeamMemberPipelineRepository.membersOn` (no production caller, but a test
+covers it). **Deliberately deferred**, as refactors rather than deletions: `MailTransport` is an
+interface over one implementation, `ScopedRepository` is inherited by seven repositories that
+never call `findScoped`, and much of the javadoc retells git history.
 
 **Use `mvnw clean test`, not `mvnw test`, after a signature change.** The VS Code Java extension
 writes error-tolerant classes into the same `target/classes` and Maven's incremental build keeps

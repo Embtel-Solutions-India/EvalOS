@@ -5,9 +5,38 @@ backed by a file, endpoint, table or test. **Gap cells re-judged 2026-09-17** ag
 answers recorded as D33–D38 and D19c: three of them were never gaps (Sales case reads, a richer
 request status, portal deployment) and now say so.
 
-**Build state (backend re-verified 2026-09-18 after the review pass below, on a `clean` build; the rest 2026-09-17, in the browser against the live location):** backend `1112 tests, 0 failures, 0 errors, 4 skipped` (the 4 are opt-in live checks, `SmtpMailTransportLiveTest` among them); the GM board draws **1,460 deals, synced**, and a Sales desk draws its own pipeline's four;
+**Build state (all four suites re-verified 2026-09-22 after the dead-code pass below; the browser checks against the live location remain 2026-09-17):** backend `1132 tests, 0 failures, 0 errors, 4 skipped` (the 4 are opt-in live checks, `SmtpMailTransportLiveTest` among them); the GM board draws **1,460 deals, synced**, and a Sales desk draws its own pipeline's four;
 staff SPA `127 tests`, `oxlint` and `tsc -b` clean; portals `30 tests` and `tsc -b` clean in both `client/`
 and `expert/`. All green.
+
+> **Dead-code pass, 2026-09-22.** A repo-wide audit found code nothing reaches. Removed, with all
+> four suites green before and after — **no behaviour changed and no screen lost anything**:
+> 15 files (nine unimported shadcn wrappers in `client-expert/shared/src/components/ui/` —
+> `avatar`, `dropdown-menu`, `pagination`, `popover`, `separator`, `switch`, `tabs`, `tooltip`,
+> `dialog` — plus `common/ConfirmDialog.tsx`, its only reader; `shared/src/utils/storage.ts`,
+> `constants/storage.ts`, `constants/upload.ts` and `hooks/useMediaQuery.ts`, all leftovers of the
+> mock-auth portals; and `frontend/src/components/ui/tabs.tsx`, which no screen ever imported —
+> `ExpertRoster` has its own local `Tab`).
+> `frontend/src/components/ui/menu.tsx` is now **`popover.tsx`**: the DropdownMenu and Tooltip
+> halves (`MenuRoot`, `MenuTrigger`, `MenuContent`, `MenuItem`, `TooltipProvider`, `InfoTip`) had
+> no callers; `AssignPopover` and `DateFilter` use the Popover half and were repointed.
+> `shared/src/utils/formatters.ts` keeps `formatDate` and `formatDateShort` and drops the five
+> nothing called — including a hand-rolled `relativeTime` that `Intl.RelativeTimeFormat` covers.
+> **Nine repository finders with no caller are gone** (`AuditEventRepository`,
+> `FollowUpRepository` ×2, `MeetingRepository`, `PayoutPaymentRepository`,
+> `PipelineStageRepository`, `SyncDriftRepository`, `TeamMemberRepository`,
+> `TeamMemberPipelineRepository.pipelineIdsFor`). `DomainInvariantsTest`'s append-only whitelist
+> shrank with `AuditEventRepository` — that test is a whitelist, so a removal edits it by design.
+> **Eleven dependencies left `client-expert/package.json`**: `react-hook-form`,
+> `@hookform/resolvers`, `date-fns` and `recharts` appeared only in the lockfile, and seven
+> `@radix-ui/*` packages had exactly one importer each — the wrapper deleted above.
+> `@radix-ui/react-dialog` **stays**: `MobileNavDrawer` still uses it directly.
+>
+> **Held deliberately, not missed.** `TeamMemberPipelineRepository.membersOn` has no production
+> caller but does have a test, so it is left alone. The larger cuts the audit also found —
+> `MailTransport` being an interface over one implementation, `ScopedRepository` on seven
+> repositories that never call `findScoped`, and comment blocks that retell git history — are
+> refactors rather than deletions and are **not** part of this pass.
 
 > **Use `mvnw clean test`, not `mvnw test`, when a signature has changed.** The VS Code Java
 > extension compiles into the same `target/classes`, and its error-tolerant output — methods whose

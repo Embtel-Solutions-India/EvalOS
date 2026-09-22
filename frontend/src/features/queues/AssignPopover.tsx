@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { ChevronDown } from 'lucide-react'
-import { PopoverContent, PopoverRoot, PopoverTrigger } from '../../components/ui/menu'
+import { PopoverContent, PopoverRoot, PopoverTrigger } from '../../components/ui/popover'
 import { CapacityBar } from '../../components/ui/card'
 import { api, unwrap } from '../../lib/api'
 import { useMe } from '../../lib/authContext'

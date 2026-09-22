@@ -1,8 +1,5 @@
 package com.ie.evalos.repository;
 
-import java.util.List;
-import java.util.UUID;
-
 import com.ie.evalos.domain.PayoutPayment;
 import com.ie.evalos.service.ScopePredicate;
 
@@ -19,7 +16,4 @@ public interface PayoutPaymentRepository extends ScopedRepository<PayoutPayment>
 	default ScopePredicate.Fields scopeFields() {
 		return SCOPE;
 	}
-
-	/** One expert's payment history, newest first. Call only with a scoped brand id. */
-	List<PayoutPayment> findByBrandIdAndExpertIdOrderByPaidDateDesc(UUID brandId, UUID expertId);
 }

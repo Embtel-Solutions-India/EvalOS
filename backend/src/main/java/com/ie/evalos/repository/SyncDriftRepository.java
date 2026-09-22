@@ -43,6 +43,4 @@ public interface SyncDriftRepository extends JpaRepository<SyncDrift, UUID>, Jpa
 
 	/** Every open row for one entity type — the audit's "what did I say last night" read. */
 	List<SyncDrift> findByBrandIdAndEntityTypeAndResolvedAtIsNull(UUID brandId, SyncEntity entityType);
-
-	long countByBrandIdAndResolvedAtIsNull(UUID brandId);
 }
