@@ -1,13 +1,18 @@
 package com.ie.evalos.service;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
 import com.ie.evalos.domain.ClientType;
 import com.ie.evalos.domain.ContactSnapshot;
 import com.ie.evalos.domain.SourceChannel;
+import com.ie.evalos.integration.GhlContactClient;
+import com.ie.evalos.integration.GhlUnavailableException;
 import com.ie.evalos.repository.ContactSnapshotRepository;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -64,10 +69,14 @@ public class ContactSnapshotService {
 		}
 	}
 
-	private final ContactSnapshotRepository contacts;
+	private static final Logger log = LoggerFactory.getLogger(ContactSnapshotService.class);
 
-	ContactSnapshotService(ContactSnapshotRepository contacts) {
+	private final ContactSnapshotRepository contacts;
+	private final GhlContactClient ghlContacts;
+
+	ContactSnapshotService(ContactSnapshotRepository contacts, GhlContactClient ghlContacts) {
 		this.contacts = contacts;
+		this.ghlContacts = ghlContacts;
 	}
 
 	/**
@@ -89,11 +98,60 @@ public class ContactSnapshotService {
 		return contacts.save(contact);
 	}
 
+	/**
+	 * The mirror's row for this GHL contact, <strong>fetched from GHL and kept if the mirror has
+	 * never seen them</strong>.
+	 *
+	 * <p><strong>Why a fallback exists at all.</strong> Every writer above is an EvalOS-side
+	 * event — a won opportunity, a portal sign-up, a contact webhook. A deal a salesperson typed
+	 * straight into GHL fires none of them: {@code OpportunityMirrorService} stores the contact
+	 * <em>id</em> on the deal and stops, so the deal screen showed "no contact on this deal yet —
+	 * it arrives with the next sync" forever. No sweep was coming. This is the read that closes
+	 * that, and it writes what it finds, so the gap closes for good rather than once per page view.
+	 *
+	 * <p><strong>The mirror is still the source, and that ordering is the whole design.</strong>
+	 * A row already held is returned without touching GHL — which keeps the deal screen working
+	 * with the sync off, the property Unit 48 has to be able to claim, and keeps a busy pipeline
+	 * from spending its rate limit re-reading contacts it already has.
+	 *
+	 * <p><strong>A GHL failure is not this caller's problem.</strong> It returns empty and logs,
+	 * rather than throwing: the screen's honest state for "we do not hold this person" already
+	 * exists and already renders, and turning an upstream blip into a 502 would take the notes,
+	 * the questionnaire and the actions down with the contact card. The one thing it must not do
+	 * is report success with nothing, which is why the caller gets an {@code Optional} and not a
+	 * half-filled row.
+	 */
+	@Transactional
+	public Optional<ContactSnapshot> findOrFetch(UUID brandId, String ghlContactId) {
+		if (ghlContactId == null || ghlContactId.isBlank()) {
+			return Optional.empty();
+		}
+		return byGhlContactId(brandId, ghlContactId)
+				.or(() -> fetchFromGhl(brandId, ghlContactId));
+	}
+
+	private Optional<ContactSnapshot> fetchFromGhl(UUID brandId, String ghlContactId) {
+		try {
+			GhlContactClient.Contact fromGhl = ghlContacts.byId(ghlContactId);
+			// Through findOrCreate rather than a save here, so the email-match and
+			// contradiction rules above still apply: a contact the mirror holds under a
+			// different id must not become a second row just because this path found it first.
+			return Optional.of(findOrCreate(brandId, new Details(fromGhl.id(), fromGhl.name(),
+					fromGhl.email(), fromGhl.phone(), fromGhl.company(), null, null, null, null, null)));
+		}
+		catch (GhlUnavailableException unavailable) {
+			// Logged at warn with the id, because a contact that never resolves is a screen a
+			// salesperson reports as broken and this is the line that explains it.
+			log.warn("Could not read GHL contact {} for brand {}; the deal screen shows no contact",
+					ghlContactId, brandId, unavailable);
+			return Optional.empty();
+		}
+	}
+
 	/** Both lookups, in order of authority — see the class note for why it is not one or the other. */
 	private Optional<ContactSnapshot> existing(UUID brandId, Details details) {
 		return byGhlContactId(brandId, details.ghlContactId())
-				.or(() -> byEmail(brandId, details.email())
-						.filter((match) -> !contradicts(match, details.ghlContactId())));
+				.or(() -> byEmail(brandId, details.email(), details.ghlContactId()));
 	}
 
 	/**
@@ -118,10 +176,36 @@ public class ContactSnapshotService {
 				: contacts.findByBrandIdAndGhlContactId(brandId, ghlContactId);
 	}
 
-	private Optional<ContactSnapshot> byEmail(UUID brandId, String email) {
-		return email == null || email.isBlank()
-				? Optional.empty()
-				: contacts.findByBrandIdAndEmailIgnoreCase(brandId, email);
+	/**
+	 * The one contact at this address that this delivery could be, or nothing.
+	 *
+	 * <p><strong>An address can name several contacts, and that is the whole difficulty.</strong>
+	 * {@code uq_contact_per_brand_email} does not cover rows carrying a GHL id, so a firm's office
+	 * inbox legitimately appears on two mirrored people. This used to take an {@code Optional} from
+	 * the repository and threw the first time a real mirror pass met one.
+	 *
+	 * <p><strong>Ambiguity resolves to "create", never to "pick one".</strong> Contradicting
+	 * matches are dropped first — that is the existing rule, unchanged. If <em>exactly one</em>
+	 * candidate survives, it is the match. If several do, this returns empty and the caller creates
+	 * a row, because the class's founding trade applies exactly here: a wrong merge attaches a paid
+	 * case to the wrong client and looks like a normal case, while a duplicate is visible and
+	 * fixable. Choosing the first by id would be picking one, and the id is arbitrary.
+	 */
+	private Optional<ContactSnapshot> byEmail(UUID brandId, String email, String incomingGhlContactId) {
+		if (email == null || email.isBlank()) {
+			return Optional.empty();
+		}
+		List<ContactSnapshot> candidates = contacts.findByBrandIdAndEmailIgnoreCase(brandId, email)
+				.stream()
+				.filter((match) -> !contradicts(match, incomingGhlContactId))
+				.toList();
+
+		if (candidates.size() > 1) {
+			log.warn("{} contacts in brand {} share an address and none carries the incoming GHL "
+					+ "id; creating rather than guessing which one this is", candidates.size(), brandId);
+			return Optional.empty();
+		}
+		return candidates.stream().findFirst();
 	}
 
 }

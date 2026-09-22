@@ -178,4 +178,16 @@ public class ContactSnapshot extends ScopedEntity {
 	public Instant getSyncedAt() {
 		return syncedAt;
 	}
+
+	/**
+	 * How this person first reached the business, or null.
+	 *
+	 * <p><strong>A capture-time fact, which is why it is safe to show beside a deal.</strong>
+	 * {@link #syncFromGhl} treats the five attribution fields as fill-only — they describe how
+	 * somebody arrived and cannot change — so the value here is the one recorded when EvalOS first
+	 * met them, not whatever the most recent payload happened to carry.
+	 */
+	public SourceChannel getSourceChannel() {
+		return sourceChannel;
+	}
 }

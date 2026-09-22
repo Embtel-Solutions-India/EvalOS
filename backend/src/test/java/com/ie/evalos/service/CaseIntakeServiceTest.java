@@ -23,6 +23,7 @@ import com.ie.evalos.domain.Stage;
 import com.ie.evalos.domain.TeamMember;
 import com.ie.evalos.domain.VisaCategory;
 import com.ie.evalos.event.CaseEvents;
+import com.ie.evalos.integration.GhlContactClient;
 import com.ie.evalos.repository.CaseRepository;
 import com.ie.evalos.repository.ContactSnapshotRepository;
 import com.ie.evalos.repository.DocumentChecklistItemRepository;
@@ -76,9 +77,14 @@ class CaseIntakeServiceTest {
 	 * not change, so neither did the stubs or the assertions in this class: they still drive the
 	 * repository and still describe what intake does with a contact. Mocking the new service instead
 	 * would have deleted that coverage and replaced it with nothing.
+	 *
+	 * <p>Its {@code GhlContactClient} is a mock that is never stubbed, and the un-stubbing is the
+	 * assertion: intake is handed a contact by the webhook that woke it, so nothing on this path
+	 * may reach GHL to ask who somebody is.
 	 */
 	private final CaseIntakeService intake = new CaseIntakeService(
-			cases, new ContactSnapshotService(contacts), checklistItems, audit, sla, events);
+			cases, new ContactSnapshotService(contacts, mock(GhlContactClient.class)),
+			checklistItems, audit, sla, events);
 
 	private final Brand brand = mock(Brand.class);
 
@@ -200,7 +206,7 @@ class CaseIntakeServiceTest {
 		ContactSnapshot idless = new ContactSnapshot(BRAND, null);
 		given(contacts.findByBrandIdAndGhlContactId(BRAND, "ghl-c-1")).willReturn(Optional.empty());
 		given(contacts.findByBrandIdAndEmailIgnoreCase(BRAND, "anita@raolaw.example"))
-				.willReturn(Optional.of(idless));
+				.willReturn(java.util.List.of(idless));
 
 		intake.intake(brand, wonDeal("ghl-c-1", "anita@raolaw.example"));
 
@@ -216,7 +222,7 @@ class CaseIntakeServiceTest {
 		ContactSnapshot owned = new ContactSnapshot(BRAND, "ghl-original");
 		given(contacts.findByBrandIdAndGhlContactId(BRAND, "ghl-impostor")).willReturn(Optional.empty());
 		given(contacts.findByBrandIdAndEmailIgnoreCase(BRAND, "anita@raolaw.example"))
-				.willReturn(Optional.of(owned));
+				.willReturn(java.util.List.of(owned));
 
 		intake.intake(brand, wonDeal("ghl-impostor", "anita@raolaw.example"));
 
@@ -259,7 +265,7 @@ class CaseIntakeServiceTest {
 		ContactSnapshot idless = new ContactSnapshot(BRAND, null);
 		given(contacts.findByBrandIdAndGhlContactId(BRAND, "ghl-c-1")).willReturn(Optional.empty());
 		given(contacts.findByBrandIdAndEmailIgnoreCase(BRAND, "anita@raolaw.example"))
-				.willReturn(Optional.of(idless));
+				.willReturn(java.util.List.of(idless));
 
 		Case created = intake.intake(brand, wonDeal("ghl-c-1", "anita@raolaw.example"));
 
@@ -287,7 +293,7 @@ class CaseIntakeServiceTest {
 				ClientType.ATTORNEY, SourceChannel.REFERRAL, null, null, null);
 		given(contacts.findByBrandIdAndGhlContactId(BRAND, "ghl-c-1")).willReturn(Optional.empty());
 		given(contacts.findByBrandIdAndEmailIgnoreCase(BRAND, "office@raolaw.example"))
-				.willReturn(Optional.of(sharedInbox));
+				.willReturn(java.util.List.of(sharedInbox));
 
 		Case created = intake.intake(brand, wonDeal("ghl-c-1", "office@raolaw.example"));
 
@@ -312,7 +318,7 @@ class CaseIntakeServiceTest {
 	void aDeliveryWithNoGhlIdStillMatchesARowThatHasOne() {
 		ContactSnapshot known = new ContactSnapshot(BRAND, "ghl-c-1");
 		given(contacts.findByBrandIdAndEmailIgnoreCase(BRAND, "anita@raolaw.example"))
-				.willReturn(Optional.of(known));
+				.willReturn(java.util.List.of(known));
 
 		Case created = intake.intake(brand, wonDeal(null, "anita@raolaw.example"));
 

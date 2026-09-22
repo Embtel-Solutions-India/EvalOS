@@ -441,6 +441,14 @@ evalos:
       # One interval for all three because they change at the same speed; three sweeps would be
       # three chances for one of them to be the one that quietly stopped.
       REFERENCE_MIRROR: ${JOBS_REFERENCE_MIRROR_INTERVAL:1h}
+      # The contact mirror. **An hour, and unlike the two above it that is not because contacts
+      # are structure** -- they change daily. It is because nothing needs one INSTANTLY: the deal
+      # screen falls back to a live read for a contact the mirror has not met, and `contact.*`
+      # webhooks land the urgent case as it happens. This sweep is the floor that makes the
+      # contacts list COMPLETE, not the thing that makes it current. It is also cheap enough that
+      # the interval is barely a trade: ~1,407 contacts is 15 pages at GHL's maximum of 100,
+      # about 1.7 seconds of the shared budget -- an order of magnitude under SYNC_AUDIT.
+      CONTACT_MIRROR: ${JOBS_CONTACT_MIRROR_INTERVAL:1h}
       # The nightly sync audit (Unit 45b). **24 hours, and the length is a budget decision.** This
       # is the longest read EvalOS makes -- a paged full list of every opportunity on every mirrored
       # pipeline, roughly 30 seconds of GHL's shared 100-per-10-seconds allowance. Hourly would
