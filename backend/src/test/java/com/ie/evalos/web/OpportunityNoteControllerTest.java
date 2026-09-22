@@ -116,21 +116,49 @@ class OpportunityNoteControllerTest {
 	}
 
 	/**
-	 * Every role but the two desks — including the GM.
+	 * Production roles are refused: they work cases, and this is the sales conversation.
 	 *
-	 * <p>The GM reads every board (Unit 38's union) but owns no pipeline, so
-	 * {@code PipelineScope} would refuse them anyway. The gate says so plainly rather than
-	 * letting oversight walk into a 403. Widening it is a change to the scope model, not a
-	 * role-list edit.
+	 * <p><strong>The GM and the Brand Manager came off this list on 2026-09-23.</strong> They were
+	 * on it because {@code PipelineScope} could only ask "is this <em>my</em> pipeline" and a GM
+	 * owns none — {@code 00d} row 73's "implementation consequence hardened into policy", P0.
+	 * {@code requireVisible} answers the question properly now, so the gate no longer has to stand
+	 * in for a scope model that could not express oversight.
 	 */
 	@ParameterizedTest
-	@EnumSource(value = Role.class, mode = EnumSource.Mode.EXCLUDE, names = { "SALES", "MARKETING" })
-	void everyOtherRoleIsRefused(Role role) throws Exception {
+	@EnumSource(value = Role.class, mode = EnumSource.Mode.EXCLUDE,
+			names = { "SALES", "MARKETING", "GM", "BRAND_MANAGER" })
+	void everyProductionRoleIsRefused(Role role) throws Exception {
 		mockMvc.perform(get("/api/opportunities/{id}/notes", OPPORTUNITY)
 				.header(HttpHeaders.AUTHORIZATION, bearer(role)))
 				.andExpect(status().isForbidden());
 
 		then(notes).should(never()).on(any());
+	}
+
+	/** Oversight reads the conversation — the half of row 73 that was the bug. */
+	@ParameterizedTest
+	@EnumSource(value = Role.class, mode = EnumSource.Mode.INCLUDE, names = { "GM", "BRAND_MANAGER" })
+	void oversightReadsTheStream(Role role) throws Exception {
+		mockMvc.perform(get("/api/opportunities/{id}/notes", OPPORTUNITY)
+				.header(HttpHeaders.AUTHORIZATION, bearer(role)))
+				.andExpect(status().isOk());
+	}
+
+	/**
+	 * <strong>And does not write into it.</strong> A GM reading the thread is oversight; a GM
+	 * posting to it is a second voice in a conversation the desk owns and the client answers back
+	 * into. This is the assertion that stops the read widening being copied onto the write.
+	 */
+	@ParameterizedTest
+	@EnumSource(value = Role.class, mode = EnumSource.Mode.INCLUDE, names = { "GM", "BRAND_MANAGER" })
+	void oversightDoesNotWriteIntoIt(Role role) throws Exception {
+		mockMvc.perform(post("/api/opportunities/{id}/notes", OPPORTUNITY)
+				.header(HttpHeaders.AUTHORIZATION, bearer(role))
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("{\"body\":\"oversight should not be able to say this\"}"))
+				.andExpect(status().isForbidden());
+
+		then(notes).should(never()).add(any(), any());
 	}
 
 	@Test

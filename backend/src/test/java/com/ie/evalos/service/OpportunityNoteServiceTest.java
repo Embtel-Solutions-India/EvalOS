@@ -6,6 +6,7 @@ import java.util.UUID;
 import com.ie.evalos.common.ForbiddenException;
 import com.ie.evalos.common.InvalidRequestException;
 import com.ie.evalos.domain.OpportunityNote;
+import com.ie.evalos.domain.Opportunity;
 import com.ie.evalos.domain.Role;
 import com.ie.evalos.repository.OpportunityNoteRepository;
 import com.ie.evalos.security.StaffPrincipal;
@@ -16,6 +17,7 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.mockito.ArgumentCaptor;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.security.core.context.SecurityContextHolder;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -45,6 +47,20 @@ class OpportunityNoteServiceTest {
 	private final OpportunityNoteService service =
 			new OpportunityNoteService(notes, new PipelineScope(deals));
 
+	/**
+	 * The mirror row the scope check reads before it decides.
+	 *
+	 * <p>Needed since {@code PipelineScope.requireVisible} landed: the read path now resolves the
+	 * deal first — it has to, because a GM's answer depends on the deal's brand rather than on the
+	 * caller's, which is null for them. Without this stub every read here refuses on a deal that
+	 * does not exist rather than on the scope it is meant to be testing.
+	 */
+	private void givenTheDealExists() {
+		Opportunity deal = new Opportunity(BRAND, OPPORTUNITY, UUID.randomUUID());
+		ReflectionTestUtils.setField(deal, "id", UUID.randomUUID());
+		when(deals.byGhlId(OPPORTUNITY)).thenReturn(java.util.Optional.of(deal));
+	}
+
 	private void authenticate(Role role, String pipelineId) {
 		StaffPrincipal principal = new StaffPrincipal(MEMBER, "desk@ie.test", "Desk", role, BRAND, null,
 				pipelineId, null, true);
@@ -70,6 +86,7 @@ class OpportunityNoteServiceTest {
 	void bothDesksWriteToTheSameStream(Role role) {
 		authenticate(role, MINE);
 		when(deals.isOnPipeline(OPPORTUNITY, MINE)).thenReturn(true);
+		givenTheDealExists();
 		when(notes.save(any())).thenAnswer((call) -> call.getArgument(0));
 
 		service.add(OPPORTUNITY, "from " + role);
@@ -90,6 +107,7 @@ class OpportunityNoteServiceTest {
 	void aNoteCarriesTheCallersBrandAndPipeline() {
 		authenticate(Role.SALES, MINE);
 		when(deals.isOnPipeline(OPPORTUNITY, MINE)).thenReturn(true);
+		givenTheDealExists();
 		when(notes.save(any())).thenAnswer((call) -> call.getArgument(0));
 
 		service.add(OPPORTUNITY, "  Client wants expedited  ");
@@ -126,6 +144,7 @@ class OpportunityNoteServiceTest {
 	void aBlankNoteIsRefused() {
 		authenticate(Role.MARKETING, MINE);
 		when(deals.isOnPipeline(OPPORTUNITY, MINE)).thenReturn(true);
+		givenTheDealExists();
 
 		assertThatThrownBy(() -> service.add(OPPORTUNITY, "   "))
 				.isInstanceOf(InvalidRequestException.class);
@@ -137,6 +156,7 @@ class OpportunityNoteServiceTest {
 	void theStreamIsReadNewestFirstForOneDeal() {
 		authenticate(Role.MARKETING, MINE);
 		when(deals.isOnPipeline(OPPORTUNITY, MINE)).thenReturn(true);
+		givenTheDealExists();
 		when(notes.findByGhlOpportunityIdOrderByCreatedAtDesc(OPPORTUNITY))
 				.thenReturn(List.of(new OpportunityNote(OPPORTUNITY, BRAND, MINE, MEMBER, "second"),
 						new OpportunityNote(OPPORTUNITY, BRAND, MINE, MEMBER, "first")));

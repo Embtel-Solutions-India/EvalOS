@@ -44,17 +44,26 @@ public class OpportunityNoteController {
 	}
 
 	/**
-	 * The GM is absent from both routes, and that is a decision rather than an oversight.
+	 * <strong>Oversight reads the conversation; only the desk adds to it.</strong>
 	 *
-	 * <p>The GM reads every pipeline's board (Unit 38's union), so admitting them here would be
-	 * consistent — but {@code PipelineScope} answers "is this opportunity in <em>my</em>
-	 * pipeline", and a GM owns none. They would be refused by the scope check anyway, so the
-	 * role gate says so plainly instead of letting them reach a 403. If oversight ever needs to
-	 * read the conversation, that is a widening of {@code PipelineScope} and an argument to have
-	 * on its own.
+	 * <p>This route excluded the GM until 2026-09-23, and the note that did so named its own
+	 * expiry: <em>"they would be refused by the scope check anyway… if oversight ever needs to read
+	 * the conversation, that is a widening of {@code PipelineScope} and an argument to have on its
+	 * own."</em> That widening is {@code PipelineScope.requireVisible}, and the argument was
+	 * settled by the rule the business gave: a GM sees everything, a Brand Manager sees their
+	 * brand, a desk sees its own pipelines.
+	 *
+	 * <p><strong>It was never really a policy.</strong> {@code 00d} row 73 calls it "an
+	 * implementation consequence hardened into policy" and marks it P0, and §3.1 lists "no role on
+	 * earth can read both note streams" as the <em>mechanism</em> behind a communication breakdown
+	 * three separate audits found — not as a property worth keeping.
+	 *
+	 * <p><strong>The POST below is deliberately not widened.</strong> This is the sales
+	 * conversation with a client; a GM reading it is oversight, a GM writing into it is a second
+	 * voice in a thread the desk owns and the client's answers come back to.
 	 */
 	@GetMapping
-	@PreAuthorize("hasAnyRole('SALES', 'MARKETING')")
+	@PreAuthorize("hasAnyRole('SALES', 'MARKETING', 'GM', 'BRAND_MANAGER')")
 	public ApiResponse<List<OpportunityNoteService.Note>> list(@PathVariable String opportunityId) {
 		return ApiResponse.ok(notes.on(opportunityId));
 	}

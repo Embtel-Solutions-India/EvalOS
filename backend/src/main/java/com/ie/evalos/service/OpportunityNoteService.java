@@ -44,9 +44,16 @@ public class OpportunityNoteService {
 		this.scope = scope;
 	}
 
-	/** One deal's stream, newest first. */
+	/**
+	 * One deal's stream, newest first.
+	 *
+	 * <p><strong>{@code requireVisible}, not {@code requireMine}</strong>: reading a deal's notes is
+	 * reading. A GM holds no pipelines by design (D19e), so the stricter check refused the one role
+	 * that is meant to see everything — on a deal their own board had just listed. Writing a note
+	 * is still {@code requireMine}, two methods down.
+	 */
 	public List<Note> on(String opportunityId) {
-		scope.requireMine(opportunityId);
+		scope.requireVisible(opportunityId);
 
 		return notes.findByGhlOpportunityIdOrderByCreatedAtDesc(opportunityId).stream()
 				.map((note) -> new Note(note.getId(), note.getBody(), note.getAuthorId(),
