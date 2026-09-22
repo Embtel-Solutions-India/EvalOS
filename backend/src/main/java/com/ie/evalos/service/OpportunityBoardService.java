@@ -14,7 +14,6 @@ import com.ie.evalos.config.SellingBrand;
 import com.ie.evalos.domain.Opportunity;
 import com.ie.evalos.domain.PipelineStage;
 import com.ie.evalos.domain.Role;
-import com.ie.evalos.repository.TeamMemberRepository;
 import com.ie.evalos.security.TenantContext;
 
 import org.springframework.beans.factory.annotation.Value;
@@ -123,7 +122,6 @@ public class OpportunityBoardService {
 	 */
 	private final PipelineMirrorService mirroredPipelines;
 
-	private final TeamMemberRepository teamMembers;
 	/** Read only when the caller's token carries no pipelines — see {@code pipelinesFor}. */
 	private final com.ie.evalos.repository.TeamMemberPipelineRepository assignments;
 	private final Duration staleAfter;
@@ -141,13 +139,11 @@ public class OpportunityBoardService {
 	private final UUID sellingBrandId;
 
 	OpportunityBoardService(OpportunityMirrorService deals, PipelineMirrorService mirroredPipelines,
-			TeamMemberRepository teamMembers,
 			com.ie.evalos.repository.TeamMemberPipelineRepository assignments,
 			@Value("${evalos.ghl.board-stale-after}") Duration staleAfter,
 			SellingBrand sellingBrand) {
 		this.deals = deals;
 		this.mirroredPipelines = mirroredPipelines;
-		this.teamMembers = teamMembers;
 		this.assignments = assignments;
 		this.staleAfter = staleAfter;
 		this.sellingBrandId = sellingBrand.id();
@@ -243,7 +239,8 @@ public class OpportunityBoardService {
 	 *
 	 * <p><strong>The GM's union is every LIVE MIRRORED pipeline, not the pipelines somebody is
 	 * assigned to</strong> (2026-09-17). It was
-	 * {@code teamMembers.findPipelinesOfActiveMembers(...)}, and that was wrong twice over:
+	 * {@code TeamMemberRepository.findPipelinesOfActiveMembers(...)}, and that was wrong twice
+	 * over:
 	 *
 	 * <ul>
 	 * <li><strong>It hid every pipeline nobody owns.</strong> {@code 00d} §6.7 says outright that
@@ -258,6 +255,14 @@ public class OpportunityBoardService {
 	 *
 	 * <p>Asking the mirror instead fixes both by deleting the question: the GM is
 	 * {@code Tier.ALL} and the mirror is the list of pipelines that exist.
+	 *
+	 * <p><strong>This class no longer holds a {@code TeamMemberRepository} at all</strong>
+	 * (2026-09-22). It kept one for five days after the logic left, and
+	 * {@code OpportunityBoardServiceTest} guarded the fix with
+	 * {@code verify(teamMembers, never())} — a behavioural assertion over a collaborator that was
+	 * still injected. Not having the collaborator is the same guarantee made structurally: the
+	 * roster cannot be consulted by a class that cannot reach it, and no test has to remember to
+	 * check.
 	 */
 	private List<String> pipelinesFor(TenantContext caller) {
 		if (caller.role() == Role.GM) {
