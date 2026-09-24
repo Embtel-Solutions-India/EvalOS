@@ -76,9 +76,19 @@ public class OpportunityBoardService {
 	 * cannot answer "which of these has nobody touched", which is the question a pipeline screen
 	 * exists to answer. The column was already in the cache and simply was not on the payload.
 	 */
+	/**
+	 * <p>{@code source} and {@code service} were added 2026-09-23 for the card, and both come off the
+	 * row itself: the deal's own {@code source}, else its {@code opportunity.lead_source} field;
+	 * its {@code opportunity.service_requested} field, else the portal request it was opened
+	 * from. Null means neither says — the card shows a placeholder rather than a guess.
+	 */
 	public record Deal(String opportunityId, String name, String contactId, String status,
-			BigDecimal amount, java.time.Instant updatedAt) {
+			BigDecimal amount, java.time.Instant updatedAt, String source, String service) {
 	}
+
+	/** GHL's field keys for the two custom fields the card reads. Keys, not ids — see NewDealForm. */
+	static final String SERVICE_FIELD = "opportunity.service_requested";
+	static final String LEAD_SOURCE_FIELD = "opportunity.lead_source";
 
 	/**
 	 * The whole board.
@@ -138,13 +148,21 @@ public class OpportunityBoardService {
 	 */
 	private final UUID sellingBrandId;
 
+	/** Where the two card fields are resolved from — one read each per board, never per card. */
+	private final com.ie.evalos.repository.GhlCustomFieldRepository customFields;
+	private final com.ie.evalos.repository.ClientApplicationRepository applications;
+
 	OpportunityBoardService(OpportunityMirrorService deals, PipelineMirrorService mirroredPipelines,
 			com.ie.evalos.repository.TeamMemberPipelineRepository assignments,
 			@Value("${evalos.ghl.board-stale-after}") Duration staleAfter,
-			SellingBrand sellingBrand) {
+			SellingBrand sellingBrand,
+			com.ie.evalos.repository.GhlCustomFieldRepository customFields,
+			com.ie.evalos.repository.ClientApplicationRepository applications) {
 		this.deals = deals;
 		this.mirroredPipelines = mirroredPipelines;
 		this.assignments = assignments;
+		this.customFields = customFields;
+		this.applications = applications;
 		this.staleAfter = staleAfter;
 		this.sellingBrandId = sellingBrand.id();
 	}
@@ -318,13 +336,39 @@ public class OpportunityBoardService {
 		rows.forEach((row) -> byStage.computeIfAbsent(row.getGhlStageId(), (key) -> new ArrayList<>())
 				.add(row));
 
+		// The card's service and source, resolved once for the whole board. Custom field values are
+		// keyed by GHL field *id*, so the two keys are turned into ids first; a portal-born deal has
+		// no service field until a salesperson sets one, so its request's service fills in. Both
+		// reads are brand-scoped to the selling brand, the only one a board draws.
+		Map<String, String> fieldIds = new java.util.HashMap<>();
+		Map<String, String> requested = new java.util.HashMap<>();
+		if (sellingBrandId != null && !rows.isEmpty()) {
+			customFields.findByBrandIdAndModelOrderByNameAsc(sellingBrandId,
+					ReferenceMirrorService.OPPORTUNITY_MODEL)
+					.forEach((field) -> {
+						if (field.getFieldKey() != null) fieldIds.put(field.getFieldKey(), field.getGhlId());
+					});
+			List<String> ghlIds = rows.stream().map(Opportunity::getGhlId)
+					.filter(java.util.Objects::nonNull).toList();
+			if (!ghlIds.isEmpty()) {
+				applications.findByBrandIdAndGhlOpportunityIdIn(sellingBrandId, ghlIds)
+						.forEach((application) -> requested.putIfAbsent(
+								application.getGhlOpportunityId(), application.getServiceName()));
+			}
+		}
+		String serviceField = fieldIds.get(SERVICE_FIELD);
+		String leadSourceField = fieldIds.get(LEAD_SOURCE_FIELD);
+
 		List<BoardColumn> columns = byStage.entrySet().stream()
 				.map((entry) -> {
 					MirroredStage stage = stages.get(entry.getKey());
 					List<Deal> deals = entry.getValue().stream()
 							.map((row) -> new Deal(row.getGhlId(), row.getName(),
 									row.getGhlContactId(), row.getStatus(), row.getAmount(),
-									row.getGhlUpdatedAt()))
+									row.getGhlUpdatedAt(),
+									firstOf(row.getSource(), row.getCustomFields().get(leadSourceField)),
+									firstOf(row.getCustomFields().get(serviceField),
+											requested.get(row.getGhlId()))))
 							.toList();
 					return new BoardColumn(entry.getKey(),
 							// A stage GHL no longer lists still holds cards until the next
@@ -366,6 +410,12 @@ public class OpportunityBoardService {
 
 	/** Just the two fields a column header needs, so the board does not carry a whole entity. */
 	private record MirroredStage(String name, int position) {
+	}
+
+	/** The first value that says something; a blank one is treated as absent. */
+	private static String firstOf(String preferred, String fallback) {
+		return preferred != null && !preferred.isBlank() ? preferred
+				: fallback != null && !fallback.isBlank() ? fallback : null;
 	}
 
 	private static BigDecimal sum(List<Opportunity> rows) {

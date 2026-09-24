@@ -295,9 +295,18 @@ Booking sends: calendar, contact, start, end, title, description, `assignedUserI
 ### CURRENT IMPLEMENTATION
 
 **Nothing.** No table, no column, no endpoint, no component. The only message-like feature is
-`opportunity_note` — append-only staff prose against a GHL opportunity, rendered by `DealNotes.tsx`.
+`opportunity_note` — staff prose against a GHL opportunity, rendered by `DealNotes.tsx`; its author may
+edit or delete it (Unit 54a).
 
 ### TARGET WORKFLOW
+
+**Notes, both ways (Unit 54, built 2026-09-24).** A note written on a deal is queued and pushed
+once by `SYNC_OUTBOX` to the deal's GHL **contact** (≤2m), carrying an author/deal trailer; GHL's
+notes, already mirrored into `ghl_note` by `MIRROR_DELTA`, show on the deal beside EvalOS's with an
+origin badge (≤5m), filed by GHL's own `relations` — a note on the contact alone shows on every
+deal of that contact. **An EvalOS note's author may edit or delete it** (Unit 54a): the change is
+queued and the drain overwrites (`PUT`) or deletes (`DELETE`) the GHL copy; GHL notes are changed in
+GHL only. Spec `54-two-way-note-sync.md`.
 
 A custom EvalOS conversation sidebar backed by GHL: list, search, unread, assignment, history,
 SMS / email / WhatsApp / social, attachments, internal comments, calls, and contact / opportunity /

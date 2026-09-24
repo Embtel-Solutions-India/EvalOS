@@ -9,7 +9,6 @@ import com.ie.evalos.domain.GhlReference;
 import com.ie.evalos.domain.Opportunity;
 import com.ie.evalos.repository.GhlUserRepository;
 import com.ie.evalos.service.ContactSnapshotService;
-import com.ie.evalos.service.OpportunityMirrorService;
 import com.ie.evalos.service.PipelineScope;
 
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -79,14 +78,12 @@ public class OpportunityContactController {
 	}
 
 	private final PipelineScope scope;
-	private final OpportunityMirrorService deals;
 	private final ContactSnapshotService contacts;
 	private final GhlUserRepository ghlUsers;
 
-	OpportunityContactController(PipelineScope scope, OpportunityMirrorService deals,
-			ContactSnapshotService contacts, GhlUserRepository ghlUsers) {
+	OpportunityContactController(PipelineScope scope, ContactSnapshotService contacts,
+			GhlUserRepository ghlUsers) {
 		this.scope = scope;
-		this.deals = deals;
 		this.contacts = contacts;
 		this.ghlUsers = ghlUsers;
 	}

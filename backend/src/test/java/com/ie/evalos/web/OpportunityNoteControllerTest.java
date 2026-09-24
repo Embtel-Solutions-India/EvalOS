@@ -40,9 +40,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 /**
  * One note stream, reachable by both desks and by neither's URL.
  *
- * <p>{@link #aNoteCannotBeEditedOrDeleted} is the one worth reading: append-only is enforced by a
- * database trigger, but the absence of a route is what stops anyone writing the client code that
- * would find that out the hard way.
+ * <p>{@link #theDesksCanEditAndDeleteButOversightCannot} covers Unit 54a's two routes: open to the two
+ * desks by role, narrowed to the note's author in the service.
  */
 @WebMvcTest(controllers = OpportunityNoteController.class)
 @Import({ SecurityConfig.class, JwtService.class, ApiErrors.class })
@@ -54,7 +53,8 @@ class OpportunityNoteControllerTest {
 
 	private static final OpportunityNoteService.Note NOTE = new OpportunityNoteService.Note(
 			UUID.randomUUID(), "Spoke to the client", UUID.randomUUID(),
-			Instant.parse("2026-09-11T09:00:00Z"));
+			Instant.parse("2026-09-11T09:00:00Z"), OpportunityNoteService.Origin.EVALOS, "Desk", null,
+			false, false, null);
 
 	@Autowired
 	MockMvc mockMvc;
@@ -97,22 +97,29 @@ class OpportunityNoteControllerTest {
 	}
 
 	/**
-	 * <strong>There is no route to edit or delete a note.</strong>
-	 *
-	 * <p>The database refuses both with a trigger, and a 404 here is what stops anyone reaching
-	 * for one. This is the client conversation rather than a record of it — a correction is a
-	 * new note.
+	 * <strong>Edit and delete exist since Unit 54a</strong> — this was the test that they did not,
+	 * inverted when the business chose overwrite and hard delete (2026-09-24). A desk reaches both
+	 * routes, and the service decides whether it is the author; the GM, who reads but never writes
+	 * the conversation, is refused by role before it gets there.
 	 */
 	@Test
-	void aNoteCannotBeEditedOrDeleted() throws Exception {
-		mockMvc.perform(put("/api/opportunities/{id}/notes/{noteId}", OPPORTUNITY, UUID.randomUUID())
+	void theDesksCanEditAndDeleteButOversightCannot() throws Exception {
+		UUID noteId = UUID.randomUUID();
+		given(notes.edit(OPPORTUNITY, noteId, "rewritten")).willReturn(NOTE);
+
+		mockMvc.perform(put("/api/opportunities/{id}/notes/{noteId}", OPPORTUNITY, noteId)
 				.header(HttpHeaders.AUTHORIZATION, bearer(Role.SALES))
 				.contentType(MediaType.APPLICATION_JSON).content("{\"body\":\"rewritten\"}"))
-				.andExpect(status().isNotFound());
+				.andExpect(status().isOk());
+		mockMvc.perform(delete("/api/opportunities/{id}/notes/{noteId}", OPPORTUNITY, noteId)
+				.header(HttpHeaders.AUTHORIZATION, bearer(Role.MARKETING)))
+				.andExpect(status().isOk());
+		then(notes).should().delete(OPPORTUNITY, noteId);
 
-		mockMvc.perform(delete("/api/opportunities/{id}/notes/{noteId}", OPPORTUNITY, UUID.randomUUID())
-				.header(HttpHeaders.AUTHORIZATION, bearer(Role.SALES)))
-				.andExpect(status().isNotFound());
+		mockMvc.perform(delete("/api/opportunities/{id}/notes/{noteId}", OPPORTUNITY, noteId)
+				.header(HttpHeaders.AUTHORIZATION, bearer(Role.GM)))
+				.andExpect(status().isForbidden());
+		then(notes).should(org.mockito.Mockito.times(1)).delete(OPPORTUNITY, noteId);
 	}
 
 	/**

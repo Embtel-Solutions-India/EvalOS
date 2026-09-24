@@ -37,4 +37,8 @@ public interface ClientApplicationRepository extends ScopedRepository<ClientAppl
 
 	/** What Sales reads when standing on a deal. Brand-scoped, because the staff side has one. */
 	Optional<ClientApplication> findByBrandIdAndGhlOpportunityId(UUID brandId, String ghlOpportunityId);
+
+	/** The same, for a whole board at once — the service a portal-born card falls back to. */
+	List<ClientApplication> findByBrandIdAndGhlOpportunityIdIn(UUID brandId,
+			java.util.Collection<String> ghlOpportunityIds);
 }

@@ -51,12 +51,9 @@ class ClientMailerTest {
 			return reachable;
 		}
 
-		private String sentHtml;
-
 		@Override
 		public boolean send(Recipient to, String subject, String text, String html) {
 			this.sentTo = to;
-			this.sentHtml = html;
 			return true;
 		}
 	}

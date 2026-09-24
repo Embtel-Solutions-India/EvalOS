@@ -3,9 +3,34 @@
 **The authoritative file is `.claude/implementation-status.md` — a table with evidence per row.
 Check it before claiming anything exists or is missing.**
 
-Build is green: backend **1132 tests, 0 failures, 4 skipped**; staff SPA 127 tests plus clean tsc
+Build is green: backend **1177 tests, 0 failures, 4 skipped** (2026-09-24); staff SPA 131 tests (2026-09-23) plus clean tsc
 and oxlint; portals 30 tests plus clean tsc and a clean `npm run build`. Re-run 2026-09-22 after
 the dead-code pass below.
+
+**Opportunity board, 2026-09-23.** `OpportunityBoardPage` reuses the production board's
+`StageColumn` (fixed width, pinned header, per-column scroll). SALES drags a deal between stages:
+native HTML5 DnD delegated on the strip, no state change per pointer move, optimistic
+`boardMove.moveDeal` (untouched columns/cards keep identity, so memoised ones skip), one
+`PUT /sales/opportunities/{id}/stage`, rollback on refusal. Name search via `useDeferredValue`;
+`content-visibility: auto` on cards instead of a virtualiser. Server does not check the target
+stage is in the deal's pipeline — open decision Q12. 2026-09-24: board `Deal` carries `source` and
+`service` (row fields first, then `opportunity.lead_source` / the portal request), one read each
+per board; cards show Value / Source / service with "—" placeholders, headers show stage Value.
+
+**Unit 54a, note edit/delete — COMPLETE 2026-09-24.** Author-only `PUT`/`DELETE` on a note; `V67`
+drops the append-only triggers; the outbox overwrites or deletes the GHL copy; audited without text.
+An edit made during its own push is re-queued (`editedSince`), not lost. Outbox `enqueue` is a native
+`ON CONFLICT DO NOTHING` (`enqueueIfAbsent`) — the old caught-violation collapse failed the commit (500),
+for deal edits too. A delete leaves a link with the contact (`V68` delete marker, null GHL id) when a contact is known.
+`enqueueIfAbsent` is `@Transactional` itself: the drain's re-queue is a self-call that skips
+`enqueue`'s REQUIRES_NEW.
+
+**Unit 54, two-way note sync — COMPLETE 2026-09-24.** `V66` link table (insert-only) + backfill;
+outbox `OPPORTUNITY_NOTE` pushes a note once to the deal's GHL contact (retry reads contact notes
+for the `#id8` reference before re-posting); `OpportunityNoteService.on` merges deal + contact
+`ghl_note` rows minus echoes; the mirror files GHL notes by `relations` and reads
+`createdBy.userId`. No note has been posted to a real contact yet. Locally `EVALOS_GHL_WRITE_MODE=stub` (in `.env`)
+means notes are NOT sent and NOT linked; a note written while stubbed is never re-sent.
 
 **Dead-code pass 2026-09-22 — deletions only, no behaviour change, all four suites green either
 side.** Gone: nine unimported shadcn wrappers in `client-expert/shared/src/components/ui/`
@@ -340,7 +365,7 @@ against the live operation contract. So all of it rides on the read the mirror a
 **zero extra requests**. `V62`: `opportunity.custom_fields` (jsonb, keyed by GHL **field id** — a
 rename keeps the id), `ghl_note`, `ghl_tag`. Read-back needed **no migration**: `FollowUp` and
 `Meeting` already had the columns and were only missing the code. **`ghl_note` must never merge with
-`opportunity_note`** (EvalOS prose, append-only trigger, never synced). **A task EvalOS never
+`opportunity_note`** (EvalOS prose; synced both ways and author-editable since Units 54/54a). **A task EvalOS never
 created is not invented.** **Tags are read, never written** — GHL workflows key off them.
 **D46 is unblocked**: the mirror now holds the values a queued desk create needs.
 Suite: backend **1075**, frontend **127**.

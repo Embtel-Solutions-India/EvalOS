@@ -12,8 +12,9 @@ import jakarta.persistence.Table;
  *
  * <p><strong>This is not {@link OpportunityNote} and the two must never merge.</strong>
  * {@code opportunity_note} is EvalOS staff prose: append-only by database trigger, EvalOS-owned,
- * and never synced in either direction (45e classifies it {@code FieldOwnership.EVALOS}). This is
- * GHL's side — written in GHL's own UI, owned by GHL, read-only here. Merging them would put an
+ * pushed once to GHL and never edited there (Unit 54; 45e classifies it
+ * {@code FieldOwnership.EVALOS}). The two are <em>shown</em> together on a deal and stored apart.
+ * This is GHL's side — written in GHL's own UI, owned by GHL, read-only here. Merging them would put an
  * append-only trigger over rows a sync has to be able to update, and would make "who said this"
  * unanswerable on a screen that shows both.
  *
@@ -67,16 +68,19 @@ public class GhlNote extends ScopedEntity {
 		this.syncedAt = Instant.now();
 	}
 
-	/** GHL's current version of this note. Edited in GHL means edited here on the next pass. */
+	/**
+	 * GHL's current version of this note. Edited in GHL means edited here on the next pass.
+	 *
+	 * <p>{@code ghlOpportunityId} is assigned even when null (Unit 54): null means "the contact's,
+	 * no deal's", and a note the mirror had filed under the wrong deal has to be able to move there.
+	 */
 	public void syncFromGhl(String title, String body, String ghlUserId, Instant dateAdded,
 			String ghlOpportunityId) {
 		this.title = title;
 		this.body = body;
 		this.ghlUserId = ghlUserId;
 		this.dateAdded = dateAdded;
-		if (ghlOpportunityId != null) {
-			this.ghlOpportunityId = ghlOpportunityId;
-		}
+		this.ghlOpportunityId = ghlOpportunityId;
 		this.syncedAt = Instant.now();
 		this.missingSince = null;
 	}

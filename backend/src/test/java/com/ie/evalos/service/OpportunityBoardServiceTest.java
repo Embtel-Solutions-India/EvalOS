@@ -22,6 +22,8 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import com.ie.evalos.config.SellingBrand;
+import com.ie.evalos.domain.ClientApplication;
+import com.ie.evalos.domain.GhlReference;
 import com.ie.evalos.domain.Opportunity;
 import com.ie.evalos.domain.Pipeline;
 import com.ie.evalos.domain.PipelineStage;
@@ -48,10 +50,14 @@ class OpportunityBoardServiceTest {
 	private final PipelineMirrorService pipelines = mock(PipelineMirrorService.class);
 	private final com.ie.evalos.repository.TeamMemberPipelineRepository assignments =
 			mock(com.ie.evalos.repository.TeamMemberPipelineRepository.class);
+	private final com.ie.evalos.repository.GhlCustomFieldRepository customFields =
+			mock(com.ie.evalos.repository.GhlCustomFieldRepository.class);
+	private final com.ie.evalos.repository.ClientApplicationRepository applications =
+			mock(com.ie.evalos.repository.ClientApplicationRepository.class);
 
 	private OpportunityBoardService service() {
 		return new OpportunityBoardService(deals, pipelines, assignments, STALE_AFTER,
-				new SellingBrand(SELLING_BRAND));
+				new SellingBrand(SELLING_BRAND), customFields, applications);
 	}
 
 	private void authenticate(Role role, String pipelineId) {
@@ -132,6 +138,41 @@ class OpportunityBoardServiceTest {
 				.containsExactly("New", "Warm");
 		assertThat(board.totalDeals()).isEqualTo(2);
 		assertThat(board.totalValue()).isEqualByComparingTo("350");
+	}
+
+	/**
+	 * The card's service and source: the row's own values first, then the fallbacks — the lead
+	 * source field, and the portal request a deal with no service field was opened from. Resolved
+	 * with one read each for the board, which is what keeps 1,500 cards from being 1,500 queries.
+	 */
+	@Test
+	void aCardCarriesServiceAndSourceFromTheRowThenItsFallbacks() {
+		authenticate(Role.SALES, MINE);
+		GhlReference.CustomField service = new GhlReference.CustomField(SELLING_BRAND, "f_service",
+				"opportunity", "Service Requested");
+		service.seen("Service Requested", OpportunityBoardService.SERVICE_FIELD, "SINGLE_OPTIONS", List.of());
+		GhlReference.CustomField leadSource = new GhlReference.CustomField(SELLING_BRAND, "f_source",
+				"opportunity", "Lead Source");
+		leadSource.seen("Lead Source", OpportunityBoardService.LEAD_SOURCE_FIELD, "TEXT", List.of());
+		when(customFields.findByBrandIdAndModelOrderByNameAsc(SELLING_BRAND, "opportunity"))
+				.thenReturn(List.of(service, leadSource));
+
+		Opportunity fromGhl = mirrored("a", MINE, "s1", "100", Instant.now());
+		fromGhl.syncCustomFields(java.util.Map.of("f_service", "PERM", "f_source", "Referral"));
+		Opportunity fromPortal = mirrored("b", MINE, "s1", "100", Instant.now());
+		ClientApplication request = new ClientApplication(SELLING_BRAND, UUID.randomUUID(), "svc",
+				"Credential evaluation", null);
+		request.linkOpportunity("b");
+		when(applications.findByBrandIdAndGhlOpportunityIdIn(eq(SELLING_BRAND), any()))
+				.thenReturn(List.of(request));
+		givenMirrored(List.of(fromGhl, fromPortal), MINE);
+
+		List<OpportunityBoardService.Deal> cards = service().forCaller().columns().get(0).deals();
+
+		assertThat(cards).extracting(OpportunityBoardService.Deal::service)
+				.containsExactly("PERM", "Credential evaluation");
+		assertThat(cards).extracting(OpportunityBoardService.Deal::source)
+				.containsExactly("Referral", null);
 	}
 
 	@Test

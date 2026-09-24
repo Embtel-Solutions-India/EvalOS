@@ -8,6 +8,8 @@ import java.util.UUID;
 import com.ie.evalos.config.SellingBrand;
 import com.ie.evalos.domain.FieldOwnership;
 import com.ie.evalos.domain.Opportunity;
+import com.ie.evalos.domain.OpportunityNote;
+import com.ie.evalos.domain.OpportunityNoteGhlLink;
 import com.ie.evalos.domain.Pipeline;
 import com.ie.evalos.domain.SyncEntity;
 import com.ie.evalos.domain.SyncOutboxEntry;
@@ -15,14 +17,17 @@ import com.ie.evalos.integration.GhlFailure;
 import com.ie.evalos.integration.GhlPipelineClient;
 import com.ie.evalos.integration.GhlUnavailableException;
 import com.ie.evalos.integration.GhlWriteClient;
+import com.ie.evalos.repository.GhlNoteRepository;
+import com.ie.evalos.repository.OpportunityNoteGhlLinkRepository;
+import com.ie.evalos.repository.OpportunityNoteRepository;
 import com.ie.evalos.repository.OpportunityRepository;
 import com.ie.evalos.repository.PipelineRepository;
 import com.ie.evalos.repository.SyncOutboxRepository;
+import com.ie.evalos.repository.TeamMemberRepository;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Limit;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
@@ -80,11 +85,21 @@ public class SyncOutboxService {
 	private final GhlPipelineClient ghlReads;
 	private final UUID sellingBrandId;
 	private final String correlationFieldId;
+	private final OpportunityNoteRepository notes;
+	private final OpportunityNoteGhlLinkRepository noteLinks;
+	private final TeamMemberRepository teamMembers;
+	private final GhlNoteRepository ghlNotes;
 
 	SyncOutboxService(SyncOutboxRepository outbox, OpportunityRepository opportunities,
 			PipelineRepository pipelines, GhlWriteClient ghl, GhlPipelineClient ghlReads,
 			SellingBrand sellingBrand,
-			@Value("${evalos.ghl.opportunity-correlation-field:}") String correlationFieldId) {
+			@Value("${evalos.ghl.opportunity-correlation-field:}") String correlationFieldId,
+			OpportunityNoteRepository notes, OpportunityNoteGhlLinkRepository noteLinks,
+			TeamMemberRepository teamMembers, GhlNoteRepository ghlNotes) {
+		this.ghlNotes = ghlNotes;
+		this.notes = notes;
+		this.noteLinks = noteLinks;
+		this.teamMembers = teamMembers;
 		this.outbox = outbox;
 		this.opportunities = opportunities;
 		this.pipelines = pipelines;
@@ -107,8 +122,8 @@ public class SyncOutboxService {
 	 *
 	 * <p><strong>The collapse is the dedupe key doing its job</strong> ({@code 00d} §6.3): three
 	 * edits to one opportunity in a minute become one row and one send, because the sender reads the
-	 * current row rather than a queued payload. {@code ON CONFLICT DO NOTHING} in effect — a
-	 * constraint violation here means "already queued", which is success, not an error.
+	 * current row rather than a queued payload. It is a literal {@code ON CONFLICT DO NOTHING} (see
+	 * {@code SyncOutboxRepository.enqueueIfAbsent}): "already queued" is success, not an error.
 	 *
 	 * <p>{@code REQUIRES_NEW} so that queueing survives the caller's transaction rolling back. A push
 	 * that was lost because the request that asked for it failed afterwards is precisely the class of
@@ -116,12 +131,14 @@ public class SyncOutboxService {
 	 */
 	@Transactional(propagation = Propagation.REQUIRES_NEW)
 	public void enqueue(UUID brandId, UUID opportunityId, SyncOutboxEntry.Intent intent) {
-		try {
-			outbox.saveAndFlush(
-					new SyncOutboxEntry(brandId, SyncEntity.OPPORTUNITY, opportunityId, intent));
-		}
-		catch (DataIntegrityViolationException alreadyQueued) {
-			log.debug("{} for opportunity {} is already pending; collapsed", intent, opportunityId);
+		enqueue(brandId, SyncEntity.OPPORTUNITY, opportunityId, intent);
+	}
+
+	/** The same, for any outbox entity — an opportunity note is the second (Unit 54). */
+	@Transactional(propagation = Propagation.REQUIRES_NEW)
+	public void enqueue(UUID brandId, SyncEntity entityType, UUID entityId, SyncOutboxEntry.Intent intent) {
+		if (outbox.enqueueIfAbsent(brandId, entityType.name(), entityId, intent.name()) == 0) {
+			log.debug("{} for {} {} is already pending; collapsed", intent, entityType, entityId);
 		}
 	}
 
@@ -159,7 +176,8 @@ public class SyncOutboxService {
 					// After SENT, never before: the pending-row constraint is what collapses
 					// duplicates, so queueing while this row is still pending would be swallowed
 					// as "already queued" and the newer edit would never travel.
-					enqueue(entry.getBrandId(), entry.getEntityId(), entry.getIntent());
+					enqueue(entry.getBrandId(), entry.getEntityType(), entry.getEntityId(),
+							entry.getIntent());
 				}
 			}
 			catch (GhlUnavailableException refused) {
@@ -213,6 +231,9 @@ public class SyncOutboxService {
 	 * stores an id rather than a payload ({@code 00d} §6.3).
 	 */
 	private boolean push(SyncOutboxEntry entry) {
+		if (entry.getEntityType() == SyncEntity.OPPORTUNITY_NOTE) {
+			return pushNote(entry);
+		}
 		Opportunity row = opportunities.findById(entry.getEntityId())
 				.orElseThrow(() -> new IllegalStateException(
 						"Outbox names opportunity " + entry.getEntityId() + ", which no longer exists"));
@@ -345,6 +366,155 @@ public class SyncOutboxService {
 				.orElseThrow(() -> new IllegalStateException(
 						"Opportunity " + row.getId() + " names pipeline " + row.getPipelineId()
 								+ ", which is not mirrored"));
+	}
+
+	/**
+	 * Sends one EvalOS note to its deal's GHL contact (Unit 54 §1) — created once, then overwritten on
+	 * each edit and deleted on delete (Unit 54a).
+	 *
+	 * <p><strong>The contact, because a GHL note has nowhere else to live</strong> — and so the
+	 * title names the deal: a repeat client's contact carries notes from every deal they have had.
+	 *
+	 * <p><strong>Waiting is a retry, not a failure.</strong> A note on a deal the mirror has not
+	 * linked to GHL, or whose contact is not known yet, is recorded RETRY; the deal's own push, or the
+	 * next sweep, supplies what is missing. Five ticks later it is dead-lettered where the status
+	 * surface shows it, which is the right outcome for a deal that never reaches GHL.
+	 *
+	 * <p><strong>No double posts.</strong> GHL has no upsert for notes, so a retry first reads the
+	 * contact's notes for this note's reference and links the one it finds. A first attempt skips
+	 * that read: nothing can have landed yet.
+	 */
+	private boolean pushNote(SyncOutboxEntry entry) {
+		if (entry.getIntent() == SyncOutboxEntry.Intent.DELETE) {
+			deleteNote(entry);
+			return false;
+		}
+		// Missing means deleted (Unit 54a): a note is enqueued only after its transaction commits,
+		// so it cannot be "not visible yet". Its DELETE row, queued behind this one, does the rest.
+		OpportunityNote note = notes.findById(entry.getEntityId()).orElse(null);
+		if (note == null) {
+			return false;
+		}
+		java.util.Optional<OpportunityNoteGhlLink> link = noteLinks.findById(note.getId())
+				.filter((existing) -> existing.getGhlNoteId() != null);
+		if (link.isPresent() && com.ie.evalos.integration.StubGhlWriteClient.isStubId(link.get().getGhlNoteId())) {
+			// A fake id from the stub's first version: there is no GHL note to edit.
+			return false;
+		}
+		Opportunity deal = opportunities.findByBrandIdAndGhlId(note.getBrandId(), note.getGhlOpportunityId())
+				.orElse(null);
+		if (deal == null || deal.getGhlContactId() == null) {
+			throw new GhlUnavailableException(
+					"Note " + note.getId() + " waits for its deal and contact to reach GHL", null,
+					GhlFailure.NO_ANSWER, null);
+		}
+
+		String reference = noteReference(note.getId());
+		String title = "EvalOS · " + (deal.getName() == null ? "deal" : deal.getName());
+		if (link.isPresent()) {
+			// Already in GHL, so this is an edit: overwrite it there too. PUT is idempotent, so a
+			// retry after a timeout is harmless.
+			OpportunityNoteGhlLink linked = link.get();
+			ghl.updateContactNote(linked.getGhlContactId() != null ? linked.getGhlContactId() : deal.getGhlContactId(),
+					linked.getGhlNoteId(), title, noteBody(note, reference));
+			return editedSince(note);
+		}
+		String ghlNoteId = entry.getAttempts() == 0 ? null
+				: ghlReads.notesOnContact(deal.getGhlContactId()).stream()
+						.filter((existing) -> existing.body() != null && existing.body().contains(reference))
+						.map(GhlPipelineClient.Note::id)
+						.findFirst().orElse(null);
+		if (ghlNoteId == null) {
+			ghlNoteId = ghl.addContactNote(deal.getGhlContactId(), deal.getGhlId(), title,
+					noteBody(note, reference));
+		}
+		else {
+			// Found by reference after an ambiguous attempt: what landed is the text of that attempt,
+			// and an edit since then collapsed onto this row. Send the current text over it.
+			ghl.updateContactNote(deal.getGhlContactId(), ghlNoteId, title, noteBody(note, reference));
+		}
+		if (ghlNoteId == null) {
+			// Only the local stub answers null ("not sent"). Nothing is linked: this note has not
+			// reached GHL, and a link says it has.
+			log.info("Note {} was not sent (GHL writes are stubbed); left unlinked", note.getId());
+			return false;
+		}
+		noteLinks.save(new OpportunityNoteGhlLink(note.getId(), note.getBrandId(), ghlNoteId,
+				deal.getGhlContactId()));
+		return editedSince(note);
+	}
+
+	/**
+	 * Whether the note was edited while its push was inside GHL — the drain then re-queues it.
+	 *
+	 * <p><strong>Without this an edit in that window was lost.</strong> The edit's enqueue collapses
+	 * onto the row being sent (it is still pending until the drain records it), so the newer text
+	 * never travelled and GHL kept the old one. It is the note-side twin of the opportunity path's
+	 * {@code confirmPushed} returning zero. A note deleted meanwhile is not "edited": its DELETE row
+	 * is queued separately and does the rest.
+	 */
+	private boolean editedSince(OpportunityNote sent) {
+		return notes.findById(sent.getId())
+				.map((now) -> !java.util.Objects.equals(now.getUpdatedAt(), sent.getUpdatedAt()))
+				.orElse(false);
+	}
+
+	/**
+	 * Deletes the GHL copy of a note its author deleted (Unit 54a).
+	 *
+	 * <p>The EvalOS row is already gone, which is why the link carries the contact. No link means the
+	 * note never reached GHL, so there is nothing to delete. GHL's 404 is success — gone is what was
+	 * asked for. The link is dropped only after GHL confirms, so until then it keeps hiding the echo.
+	 */
+	private void deleteNote(SyncOutboxEntry entry) {
+		OpportunityNoteGhlLink link = noteLinks.findById(entry.getEntityId()).orElse(null);
+		if (link == null) {
+			return;
+		}
+		if (com.ie.evalos.integration.StubGhlWriteClient.isStubId(link.getGhlNoteId())) {
+			noteLinks.delete(link);
+			return;
+		}
+		if (link.getGhlContactId() == null) {
+			// A deal with no known contact never had a note pushed to it, so there is nothing to delete.
+			noteLinks.delete(link);
+			return;
+		}
+		// A delete marker (V68): the push never learned the GHL id, so find what landed by its reference.
+		List<String> ghlIds = link.getGhlNoteId() != null ? List.of(link.getGhlNoteId())
+				: ghlReads.notesOnContact(link.getGhlContactId()).stream()
+						.filter((existing) -> existing.body() != null
+								&& existing.body().contains(noteReference(link.getNoteId())))
+						.map(GhlPipelineClient.Note::id).toList();
+		for (String ghlId : ghlIds) {
+			try {
+				ghl.deleteContactNote(link.getGhlContactId(), ghlId);
+			}
+			catch (GhlUnavailableException refused) {
+				if (!Integer.valueOf(404).equals(refused.status())) {
+					throw refused;
+				}
+			}
+			// Stamped here, with the link dropped below: until the next sweep the mirrored copy would
+			// otherwise be live with nothing hiding it, and the deleted note would reappear as GHL's.
+			ghlNotes.findByBrandIdAndGhlId(link.getBrandId(), ghlId).ifPresent((mirrored) -> {
+				mirrored.markMissing(Instant.now());
+				ghlNotes.save(mirrored);
+			});
+		}
+		noteLinks.delete(link);
+	}
+
+	/** The body GHL gets: the note, then who wrote it and the reference a retry looks for. */
+	private String noteBody(OpportunityNote note, String reference) {
+		String author = teamMembers.findById(note.getAuthorId())
+				.map(com.ie.evalos.domain.TeamMember::getDisplayName).orElse("EvalOS staff");
+		return note.getBody() + "\n\n— " + author + ", in EvalOS · " + reference;
+	}
+
+	/** A short, unique tag on the pushed body. The note id is a UUID, so eight hex digits suffice. */
+	static String noteReference(UUID noteId) {
+		return "#" + noteId.toString().substring(0, 8);
 	}
 
 	/** How much is waiting and how much never arrived — the status surface's numbers. */

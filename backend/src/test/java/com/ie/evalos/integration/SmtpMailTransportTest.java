@@ -5,7 +5,6 @@ import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
 import org.springframework.mail.MailSendException;
-import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
 
 import static org.assertj.core.api.Assertions.assertThat;

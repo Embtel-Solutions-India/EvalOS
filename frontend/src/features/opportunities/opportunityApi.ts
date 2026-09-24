@@ -20,6 +20,10 @@ export type Deal = {
    * thing these screens exist to surface, so guessing in the optimistic direction defeats them.
    */
   updatedAt: string | null
+  /** The deal's source, else its lead-source field. Null when neither says. */
+  source: string | null
+  /** The service-requested field, else the portal request's service. Null when neither says. */
+  service: string | null
 }
 
 /** One stage of the pipeline, named by GHL and ordered by GHL's own `position`. */
@@ -136,11 +140,27 @@ export type Lead = {
   created: boolean
 }
 
+/**
+ * One entry in a deal's note timeline — EvalOS's own notes and GHL's, merged by the server
+ * (`OpportunityNoteService.Note`, Unit 54). Stored apart, shown together.
+ */
 export type Note = {
   id: string
   body: string
-  authorId: string
-  createdAt: string
+  /** A team member for an EvalOS note; null for a GHL one. */
+  authorId: string | null
+  /** Null on the note the server has only just written, before the database stamps it. */
+  createdAt: string | null
+  origin: 'EVALOS' | 'GHL'
+  authorName: string | null
+  /** GHL's note title; EvalOS notes have none. */
+  title: string | null
+  /** An EvalOS note's push has landed in GHL. Null for a GHL note. */
+  inGhl: boolean | null
+  /** A GHL note on the contact rather than this deal — it shows on every deal of that contact. */
+  onContact: boolean
+  /** When its author last edited it (Unit 54a); null if never, and always null for a GHL note. */
+  updatedAt: string | null
 }
 
 export type NewLead = {
@@ -189,6 +209,16 @@ export function fetchNotes(opportunityId: string, signal?: AbortSignal): Promise
  */
 export function addNote(opportunityId: string, body: string): Promise<Note> {
   return unwrap<Note>(api.post(`/opportunities/${opportunityId}/notes`, { body }))
+}
+
+/** Overwrites a note — its author only; the server refuses anyone else (Unit 54a). */
+export function editNote(opportunityId: string, noteId: string, body: string): Promise<Note> {
+  return unwrap<Note>(api.put(`/opportunities/${opportunityId}/notes/${noteId}`, { body }))
+}
+
+/** Deletes a note outright — its author only. The GHL copy follows within a drain tick. */
+export function deleteNote(opportunityId: string, noteId: string): Promise<void> {
+  return unwrap<void>(api.delete(`/opportunities/${opportunityId}/notes/${noteId}`))
 }
 
 // --- Unit 40: the sales desk ------------------------------------------------

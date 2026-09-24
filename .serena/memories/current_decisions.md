@@ -76,8 +76,9 @@ The ones most often violated from memory:
   blocks delivery to it, never from it. Never aim a test recipient at the sender address:
   `EVALOS_MAIL_TEST_TO` must be a mailbox a human can open, and doing otherwise once got an
   account's transactional sending suspended.
-- Brand-scoped by default. Append-only truth for `audit_event` and `opportunity_note`, enforced by
-  database triggers.
+- Brand-scoped by default. Append-only truth for `audit_event`, enforced by a database trigger.
+  `opportunity_note` left that rule on 2026-09-24 (Unit 54a, D24 amended): its author may overwrite or
+  hard-delete it; an audit row records who and when, never the text.
 - **The one scoping exception is the GHL location, and it costs screens rather than being
   widened.** `evalos.ghl.location-id` is one global sub-account belonging to no brand, so every
   screen over it is GM-only. On 2026-09-16 the two GHL funnel screens were **removed** for exactly
@@ -141,7 +142,10 @@ because GHL's opportunity search filters on `createdAt` and has no updated-since
 **D42/D43 (2026-09-17, Unit 45e).** Ownership of a mirrored field is **per field, in code** — never
 the blanket "EvalOS wins", which reverts the GHL automations GHL was kept for. GHL owns the
 **assignee** and the **pipeline**; stage/status/amount/name are shared with EvalOS winning *and
-reporting*; notes are never synced. "EvalOS wins" means only "there is an unconfirmed local edit",
+reporting*; notes sync both ways but are stored apart (Unit 54, built 2026-09-24):
+an EvalOS note is pushed to the deal's GHL contact and its author's edits/deletes follow it there
+(54a); GHL notes show beside it and are changed in GHL only. A GHL note is filed by its `relations` (the search repeats contact notes
+on every deal); a deal-less one is the contact's and shows on each of their deals. "EvalOS wins" means only "there is an unconfirmed local edit",
 and the flag clears on a GHL win or on `linkGhl`. A null `ghl_updated_at` is a conflict **only when
 there is an edit to defend**. And **a drift row is never resolved by a button** — the surface
 answers *will this fix itself* with `owner`/`resolution`/`needsAHuman`, and only a row GHL no longer

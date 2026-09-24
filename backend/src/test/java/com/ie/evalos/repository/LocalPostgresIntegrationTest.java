@@ -1561,28 +1561,81 @@ class LocalPostgresIntegrationTest {
 	}
 
 	/**
-	 * <strong>Append-only, against the real database.</strong>
+	 * <strong>Editable and deletable, against the real database</strong> (Unit 54a, {@code V67}).
 	 *
-	 * <p>No Java test can prove this: the entity has no setters and the repository exposes no
-	 * delete, so every unit test passes whether or not the trigger exists. A seed script, a
-	 * hand-run UPDATE or a future repository method would all get through. The trigger is the
-	 * only thing that holds for every writer — including the application, which connects as the
-	 * table owner and is therefore immune to {@code REVOKE}.
+	 * <p>This was the append-only test, inverted rather than deleted when the business chose
+	 * overwrite and hard delete (2026-09-24): a trigger restored by accident would silently break
+	 * the author's edit and delete, and this is the one test that would notice.
 	 */
 	@Test
-	void anOpportunityNoteCannotBeEditedOrDeleted() {
+	void anOpportunityNoteCanBeEditedAndDeleted() {
 		UUID note = insertNote(BRAND_IE, uniqueId("opp"), uniqueId("pipe"), "Spoke to the client");
 
-		assertThatThrownBy(() -> jdbc.update("UPDATE opportunity_note SET body = ? WHERE id = ?",
-				"rewritten", note))
-				.hasMessageContaining("append-only");
-
-		assertThatThrownBy(() -> jdbc.update("DELETE FROM opportunity_note WHERE id = ?", note))
-				.hasMessageContaining("append-only");
-
-		// Still there, and still saying what it said.
+		jdbc.update("UPDATE opportunity_note SET body = ?, updated_at = now() WHERE id = ?", "rewritten", note);
 		assertThat(jdbc.queryForObject("SELECT body FROM opportunity_note WHERE id = ?", String.class,
-				note)).isEqualTo("Spoke to the client");
+				note)).isEqualTo("rewritten");
+
+		jdbc.update("DELETE FROM opportunity_note WHERE id = ?", note);
+		assertThat(jdbc.queryForObject("SELECT count(*) FROM opportunity_note WHERE id = ?", Integer.class,
+				note)).isZero();
+	}
+
+	/**
+	 * The link outlives its note (V67): the drain needs the GHL id and contact after the note row is
+	 * gone, so deleting the note must not take the link with it — and the drain may delete the link.
+	 */
+	@Test
+	void aNoteGhlLinkOutlivesItsNoteUntilTheDrainDropsIt() {
+		UUID note = insertNote(BRAND_IE, uniqueId("opp"), uniqueId("pipe"), "Pushed to GHL");
+		jdbc.update("INSERT INTO opportunity_note_ghl_link (note_id, brand_id, ghl_note_id, ghl_contact_id) "
+				+ "VALUES (?, ?, ?, ?)", note, BRAND_IE, uniqueId("ghl-note"), "contact-1");
+
+		jdbc.update("DELETE FROM opportunity_note WHERE id = ?", note);
+		assertThat(jdbc.queryForObject("SELECT ghl_contact_id FROM opportunity_note_ghl_link WHERE note_id = ?",
+				String.class, note)).isEqualTo("contact-1");
+
+		jdbc.update("DELETE FROM opportunity_note_ghl_link WHERE note_id = ?", note);
+	}
+
+	@Autowired
+	com.ie.evalos.service.SyncOutboxService outboxService;
+
+	/**
+	 * <strong>A second identical enqueue collapses without failing its commit</strong> (code review,
+	 * 2026-09-24). It used to insert and catch the unique-index violation, but a failed
+	 * {@code saveAndFlush} marks the transaction rollback-only even when caught — so the second call
+	 * threw {@code UnexpectedRollbackException}, and a desk edit or note edit made twice before the
+	 * drain answered 500. Only the real database can show this: every unit test mocks the repository.
+	 */
+	@Test
+	void aSecondIdenticalEnqueueCollapsesWithoutFailing() {
+		UUID entity = UUID.randomUUID();
+
+		outboxService.enqueue(BRAND_IE, com.ie.evalos.domain.SyncEntity.OPPORTUNITY_NOTE, entity,
+				com.ie.evalos.domain.SyncOutboxEntry.Intent.UPSERT);
+		outboxService.enqueue(BRAND_IE, com.ie.evalos.domain.SyncEntity.OPPORTUNITY_NOTE, entity,
+				com.ie.evalos.domain.SyncOutboxEntry.Intent.UPSERT);
+
+		assertThat(jdbc.queryForObject("SELECT count(*) FROM sync_outbox WHERE entity_id = ? "
+				+ "AND sent_at IS NULL AND dead_at IS NULL", Integer.class, entity)).isEqualTo(1);
+		jdbc.update("DELETE FROM sync_outbox WHERE entity_id = ?", entity);
+	}
+
+	@Autowired
+	SyncOutboxRepository outboxRows;
+
+	/**
+	 * <strong>The insert works with no transaction around it</strong> — which is how the drain's
+	 * re-queue reaches it, through a self-call that skips {@code enqueue}'s proxy (second
+	 * {@code /code-review}, 2026-09-24). Without {@code @Transactional} on the method this threw.
+	 */
+	@Test
+	void theOutboxInsertCarriesItsOwnTransaction() {
+		UUID entity = UUID.randomUUID();
+
+		assertThat(outboxRows.enqueueIfAbsent(BRAND_IE, "OPPORTUNITY_NOTE", entity, "UPSERT")).isEqualTo(1);
+		assertThat(outboxRows.enqueueIfAbsent(BRAND_IE, "OPPORTUNITY_NOTE", entity, "UPSERT")).isZero();
+		jdbc.update("DELETE FROM sync_outbox WHERE entity_id = ?", entity);
 	}
 
 	/** A blank note is refused by the database as well as by the service. */

@@ -49,7 +49,9 @@ open deal).
 contact id** (D41 — one id names a contact everywhere; `DocumentStore.clientKey` moved back onto it
 on 2026-09-17) and carries it into `case_document` at Handoff A over the same S3 object. **Notifications** are in-app today; D37 makes them in-app **and push**, never mail.
 
-**Conversations do not exist** — no table, no route, no component, anywhere.
+**Conversations do not exist** — no table, no route, no component, anywhere. **Notes** are
+synced both ways (Unit 54, built 2026-09-24): pushed once to the GHL contact via the
+outbox, GHL notes shown on the deal from the existing `ghl_note` mirror.
 
 **GHL → EvalOS (45d, 2026-09-17).** `contact.created`/`contact.updated` → `contact_snapshot`;
 `opportunity.create|created|update|updated|stage_changed|status_changed` → re-read

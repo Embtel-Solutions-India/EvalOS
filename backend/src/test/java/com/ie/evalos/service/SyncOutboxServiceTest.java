@@ -7,6 +7,8 @@ import java.util.UUID;
 
 import com.ie.evalos.config.SellingBrand;
 import com.ie.evalos.domain.Opportunity;
+import com.ie.evalos.domain.OpportunityNote;
+import com.ie.evalos.domain.OpportunityNoteGhlLink;
 import com.ie.evalos.domain.Pipeline;
 import com.ie.evalos.domain.SyncEntity;
 import com.ie.evalos.domain.SyncOutboxEntry;
@@ -14,7 +16,10 @@ import com.ie.evalos.integration.GhlFailure;
 import com.ie.evalos.integration.GhlPipelineClient;
 import com.ie.evalos.integration.GhlUnavailableException;
 import com.ie.evalos.integration.GhlWriteClient;
+import com.ie.evalos.repository.OpportunityNoteGhlLinkRepository;
+import com.ie.evalos.repository.OpportunityNoteRepository;
 import com.ie.evalos.repository.OpportunityRepository;
+import com.ie.evalos.repository.TeamMemberRepository;
 import com.ie.evalos.repository.PipelineRepository;
 import com.ie.evalos.repository.SyncOutboxRepository;
 
@@ -58,11 +63,20 @@ class SyncOutboxServiceTest {
 
 	private final GhlPipelineClient ghlReads = mock(GhlPipelineClient.class);
 
+	private final OpportunityNoteRepository notes = mock(OpportunityNoteRepository.class);
+
+	private final OpportunityNoteGhlLinkRepository noteLinks = mock(OpportunityNoteGhlLinkRepository.class);
+
+	private final TeamMemberRepository teamMembers = mock(TeamMemberRepository.class);
+
+	private final com.ie.evalos.repository.GhlNoteRepository ghlNotes =
+			mock(com.ie.evalos.repository.GhlNoteRepository.class);
+
 	private SyncOutboxService service = newService(CORRELATION_FIELD);
 
 	private SyncOutboxService newService(String correlationField) {
 		return new SyncOutboxService(outbox, opportunities, pipelines, ghl, ghlReads, new SellingBrand(BRAND),
-				correlationField);
+				correlationField, notes, noteLinks, teamMembers, ghlNotes);
 	}
 
 	private Pipeline pipeline;
@@ -362,7 +376,7 @@ class SyncOutboxServiceTest {
 		assertThat(service.drain().sent()).isEqualTo(1);
 
 		// Queued again after the first row was marked sent, so the collapse cannot swallow it.
-		then(outbox).should().saveAndFlush(any());
+		then(outbox).should().enqueueIfAbsent(any(), anyString(), any(), anyString());
 		assertThat(entry.isPending()).isFalse();
 	}
 
@@ -370,10 +384,266 @@ class SyncOutboxServiceTest {
 	@Test
 	void aBlankSellingBrandDrainsNothing() {
 		SyncOutboxService unconfigured = new SyncOutboxService(outbox, opportunities, pipelines, ghl,
-				ghlReads, new SellingBrand((java.util.UUID) null), CORRELATION_FIELD);
+				ghlReads, new SellingBrand((java.util.UUID) null), CORRELATION_FIELD, notes, noteLinks,
+				teamMembers, ghlNotes);
 
 		assertThat(unconfigured.drain().attempted()).isZero();
 		then(ghl).shouldHaveNoInteractions();
 	}
 
+
+	// --- Unit 54: an EvalOS note, pushed once to the deal's contact ---------------------------
+
+	private OpportunityNote savedNote(String ghlOpportunityId) {
+		OpportunityNote note = new OpportunityNote(ghlOpportunityId, BRAND, "pipe-1", UUID.randomUUID(),
+				"Client wants expedited turnaround");
+		ReflectionTestUtils.setField(note, "id", UUID.randomUUID());
+		given(notes.findById(note.getId())).willReturn(Optional.of(note));
+		return note;
+	}
+
+	private SyncOutboxEntry queuedNote(OpportunityNote note) {
+		SyncOutboxEntry entry = new SyncOutboxEntry(BRAND, SyncEntity.OPPORTUNITY_NOTE, note.getId(),
+				SyncOutboxEntry.Intent.UPSERT);
+		ReflectionTestUtils.setField(entry, "id", UUID.randomUUID());
+		given(outbox.findByBrandIdAndSentAtIsNullAndDeadAtIsNullOrderByQueuedAtAsc(eq(BRAND), any(Limit.class)))
+				.willReturn(List.of(entry));
+		return entry;
+	}
+
+	private Opportunity dealInGhl(String ghlId) {
+		Opportunity deal = local(ghlId);
+		given(opportunities.findByBrandIdAndGhlId(BRAND, ghlId)).willReturn(Optional.of(deal));
+		return deal;
+	}
+
+	/** The contact gets the note, titled with the deal, carrying its reference — and it is linked. */
+	@Test
+	void aNoteIsPostedToTheDealsContactAndLinked() {
+		dealInGhl("opp-1");
+		OpportunityNote note = savedNote("opp-1");
+		queuedNote(note);
+		given(ghl.addContactNote(anyString(), anyString(), anyString(), anyString())).willReturn("ghl-note-1");
+
+		assertThat(service.drain().sent()).isEqualTo(1);
+
+		org.mockito.ArgumentCaptor<String> body = org.mockito.ArgumentCaptor.forClass(String.class);
+		then(ghl).should().addContactNote(eq("contact-1"), eq("opp-1"),
+				eq("EvalOS · Ana — Academic Evaluation"), body.capture());
+		assertThat(body.getValue()).startsWith("Client wants expedited turnaround")
+				.contains(SyncOutboxService.noteReference(note.getId()));
+		org.mockito.ArgumentCaptor<OpportunityNoteGhlLink> link =
+				org.mockito.ArgumentCaptor.forClass(OpportunityNoteGhlLink.class);
+		then(noteLinks).should().save(link.capture());
+		assertThat(link.getValue().getGhlNoteId()).isEqualTo("ghl-note-1");
+		assertThat(link.getValue().getNoteId()).isEqualTo(note.getId());
+		// A first attempt cannot have landed before, so it does not spend a read looking.
+		then(ghlReads).should(never()).notesOnContact(anyString());
+	}
+
+	/** A deal GHL has not linked yet is a wait, not a failure: the row stays pending. */
+	@Test
+	void aNoteOnADealGhlHasNotSeenWaits() {
+		OpportunityNote note = savedNote("opp-not-yet");
+		SyncOutboxEntry entry = queuedNote(note);
+		given(opportunities.findByBrandIdAndGhlId(BRAND, "opp-not-yet")).willReturn(Optional.empty());
+
+		var result = service.drain();
+
+		assertThat(result.retrying()).isEqualTo(1);
+		assertThat(entry.isPending()).isTrue();
+		then(ghl).should(never()).addContactNote(anyString(), anyString(), anyString(), anyString());
+	}
+
+	/** GHL has no upsert for notes, so a retry looks for its own reference before posting again. */
+	@Test
+	void aRetriedNoteThatAlreadyLandedIsLinkedNotPostedTwice() {
+		dealInGhl("opp-1");
+		OpportunityNote note = savedNote("opp-1");
+		SyncOutboxEntry entry = queuedNote(note);
+		ReflectionTestUtils.setField(entry, "attempts", 1);
+		given(ghlReads.notesOnContact("contact-1")).willReturn(List.of(new GhlPipelineClient.Note(
+				"ghl-note-landed", "EvalOS · Ana", "Client wants expedited turnaround\n\n— Desk, in EvalOS · "
+						+ SyncOutboxService.noteReference(note.getId()), null, null, null, null)));
+
+		assertThat(service.drain().sent()).isEqualTo(1);
+
+		then(ghl).should(never()).addContactNote(anyString(), anyString(), anyString(), anyString());
+		// The copy that landed carries that attempt's text; an edit since may have collapsed onto this
+		// row, so the current text is sent over it (second /code-review, 2026-09-24).
+		then(ghl).should().updateContactNote(eq("contact-1"), eq("ghl-note-landed"), anyString(),
+				org.mockito.ArgumentMatchers.startsWith("Client wants expedited turnaround"));
+		org.mockito.ArgumentCaptor<OpportunityNoteGhlLink> link =
+				org.mockito.ArgumentCaptor.forClass(OpportunityNoteGhlLink.class);
+		then(noteLinks).should().save(link.capture());
+		assertThat(link.getValue().getGhlNoteId()).isEqualTo("ghl-note-landed");
+	}
+
+	/**
+	 * The local stub answers null — "not sent" — and a note that did not reach GHL is not linked.
+	 * A link is permanent, so a fake one would claim a delivery forever (seen 2026-09-24).
+	 */
+	@Test
+	void aStubbedNoteIsNotLinked() {
+		dealInGhl("opp-1");
+		queuedNote(savedNote("opp-1"));
+		given(ghl.addContactNote(anyString(), anyString(), anyString(), anyString())).willReturn(null);
+
+		service.drain();
+
+		then(noteLinks).should(never()).save(any());
+	}
+
+	/** An edit to a note already in GHL overwrites it there — no second note is created. */
+	@Test
+	void anEditToALinkedNoteOverwritesItInGhl() {
+		dealInGhl("opp-1");
+		OpportunityNote note = savedNote("opp-1");
+		queuedNote(note);
+		given(noteLinks.findById(note.getId())).willReturn(Optional.of(
+				new OpportunityNoteGhlLink(note.getId(), BRAND, "ghl-note-1", "contact-1")));
+
+		assertThat(service.drain().sent()).isEqualTo(1);
+
+		then(ghl).should().updateContactNote(eq("contact-1"), eq("ghl-note-1"), anyString(), anyString());
+		then(ghl).should(never()).addContactNote(anyString(), anyString(), anyString(), anyString());
+	}
+
+	/**
+	 * An edit made while the push was inside GHL is re-queued, not lost. Its own enqueue collapsed
+	 * onto the row being sent, so without the re-queue GHL would keep the old text for good.
+	 */
+	@Test
+	void anEditMadeDuringThePushIsRequeued() {
+		dealInGhl("opp-1");
+		OpportunityNote sent = savedNote("opp-1");
+		queuedNote(sent);
+		OpportunityNote editedMeanwhile = new OpportunityNote("opp-1", BRAND, "pipe-1", sent.getAuthorId(), "newer");
+		ReflectionTestUtils.setField(editedMeanwhile, "id", sent.getId());
+		editedMeanwhile.edit("newer");
+		// First read is what the drain sends; the second, after GHL answers, sees the edit.
+		given(notes.findById(sent.getId())).willReturn(Optional.of(sent)).willReturn(Optional.of(editedMeanwhile));
+		given(noteLinks.findById(sent.getId())).willReturn(Optional.of(
+				new OpportunityNoteGhlLink(sent.getId(), BRAND, "ghl-note-1", "contact-1")));
+
+		assertThat(service.drain().sent()).isEqualTo(1);
+
+		then(outbox).should(org.mockito.Mockito.times(1)).enqueueIfAbsent(BRAND, "OPPORTUNITY_NOTE", sent.getId(), "UPSERT");
+	}
+
+	/** A queued push whose note is gone was deleted: done, and GHL is not called for it. */
+	@Test
+	void aPushForADeletedNoteIsDone() {
+		SyncOutboxEntry entry = new SyncOutboxEntry(BRAND, SyncEntity.OPPORTUNITY_NOTE, UUID.randomUUID(),
+				SyncOutboxEntry.Intent.UPSERT);
+		ReflectionTestUtils.setField(entry, "id", UUID.randomUUID());
+		given(outbox.findByBrandIdAndSentAtIsNullAndDeadAtIsNullOrderByQueuedAtAsc(eq(BRAND), any(Limit.class)))
+				.willReturn(List.of(entry));
+
+		assertThat(service.drain().sent()).isEqualTo(1);
+		then(ghl).shouldHaveNoInteractions();
+	}
+
+	private SyncOutboxEntry queuedDelete(UUID noteId) {
+		SyncOutboxEntry entry = new SyncOutboxEntry(BRAND, SyncEntity.OPPORTUNITY_NOTE, noteId,
+				SyncOutboxEntry.Intent.DELETE);
+		ReflectionTestUtils.setField(entry, "id", UUID.randomUUID());
+		given(outbox.findByBrandIdAndSentAtIsNullAndDeadAtIsNullOrderByQueuedAtAsc(eq(BRAND), any(Limit.class)))
+				.willReturn(List.of(entry));
+		return entry;
+	}
+
+	/** A delete reaches GHL from the link alone — the note row is already gone — then drops it. */
+	@Test
+	void aDeletedNoteIsDeletedInGhlAndItsLinkDropped() {
+		UUID noteId = UUID.randomUUID();
+		queuedDelete(noteId);
+		OpportunityNoteGhlLink link = new OpportunityNoteGhlLink(noteId, BRAND, "ghl-note-1", "contact-1");
+		given(noteLinks.findById(noteId)).willReturn(Optional.of(link));
+
+		assertThat(service.drain().sent()).isEqualTo(1);
+
+		then(ghl).should().deleteContactNote("contact-1", "ghl-note-1");
+		then(noteLinks).should().delete(link);
+	}
+
+	/**
+	 * The mirrored copy is stamped missing as the link is dropped — without it the deleted note
+	 * came back as a "GHL" note until the next sweep (code review, 2026-09-24).
+	 */
+	@Test
+	void aDeleteStampsTheMirroredCopyMissing() {
+		UUID noteId = UUID.randomUUID();
+		queuedDelete(noteId);
+		given(noteLinks.findById(noteId)).willReturn(Optional.of(
+				new OpportunityNoteGhlLink(noteId, BRAND, "ghl-note-1", "contact-1")));
+		com.ie.evalos.domain.GhlNote mirrored = new com.ie.evalos.domain.GhlNote(BRAND, "ghl-note-1",
+				"contact-1", null);
+		given(ghlNotes.findByBrandIdAndGhlId(BRAND, "ghl-note-1")).willReturn(Optional.of(mirrored));
+
+		service.drain();
+
+		assertThat(mirrored.isLive()).isFalse();
+	}
+
+	/**
+	 * A delete marker — no GHL id, because the push timed out after GHL had created the note — is
+	 * resolved by the note's reference on the contact, so the copy that landed is still deleted.
+	 */
+	@Test
+	void aDeleteMarkerFindsTheNoteThatLandedByItsReference() {
+		UUID noteId = UUID.randomUUID();
+		queuedDelete(noteId);
+		OpportunityNoteGhlLink marker = new OpportunityNoteGhlLink(noteId, BRAND, null, "contact-1");
+		given(noteLinks.findById(noteId)).willReturn(Optional.of(marker));
+		given(ghlReads.notesOnContact("contact-1")).willReturn(List.of(
+				new GhlPipelineClient.Note("landed", null, "text\n\n— Desk, in EvalOS · "
+						+ SyncOutboxService.noteReference(noteId), null, null, null, null),
+				new GhlPipelineClient.Note("unrelated", null, "someone else's note", null, null, null, null)));
+
+		assertThat(service.drain().sent()).isEqualTo(1);
+
+		then(ghl).should().deleteContactNote("contact-1", "landed");
+		then(ghl).should(never()).deleteContactNote("contact-1", "unrelated");
+		then(noteLinks).should().delete(marker);
+	}
+
+	/** Already gone in GHL (404) is what a delete asked for: done, and the link dropped. */
+	@Test
+	void aDeleteGhlAlreadyForgotIsDone() {
+		UUID noteId = UUID.randomUUID();
+		queuedDelete(noteId);
+		OpportunityNoteGhlLink link = new OpportunityNoteGhlLink(noteId, BRAND, "ghl-note-1", "contact-1");
+		given(noteLinks.findById(noteId)).willReturn(Optional.of(link));
+		willThrow(new GhlUnavailableException("gone", null, GhlFailure.REFUSED, 404))
+				.given(ghl).deleteContactNote("contact-1", "ghl-note-1");
+
+		assertThat(service.drain().sent()).isEqualTo(1);
+		then(noteLinks).should().delete(link);
+	}
+
+	/** A marker with no contact is dropped quietly — it is not an EvalOS bug to dead-letter. */
+	@Test
+	void aDeleteWithNoContactIsDoneNotDead() {
+		UUID noteId = UUID.randomUUID();
+		queuedDelete(noteId);
+		OpportunityNoteGhlLink orphan = new OpportunityNoteGhlLink(noteId, BRAND, null, null);
+		given(noteLinks.findById(noteId)).willReturn(Optional.of(orphan));
+
+		var result = service.drain();
+
+		assertThat(result.sent()).isEqualTo(1);
+		assertThat(result.dead()).isZero();
+		then(noteLinks).should().delete(orphan);
+		then(ghl).shouldHaveNoInteractions();
+	}
+
+	/** A note deleted before it ever reached GHL has nothing to delete there. */
+	@Test
+	void aDeleteForANoteNeverSentIsDone() {
+		queuedDelete(UUID.randomUUID());
+
+		assertThat(service.drain().sent()).isEqualTo(1);
+		then(ghl).shouldHaveNoInteractions();
+	}
 }

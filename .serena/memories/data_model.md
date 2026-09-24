@@ -18,7 +18,12 @@ Three facts that catch people out:
    state.
 
 `client_account.ghl_contact_id` is nullable and not unique.
-`audit_event` and `opportunity_note` carry append-only triggers that raise on UPDATE and DELETE.
+`audit_event` carries an append-only trigger that raises on UPDATE and DELETE. `opportunity_note`
+lost its trigger in `V67` (Unit 54a — author edit/delete) and gained `updated_at`.
+`opportunity_note_ghl_link` (`V66`/`V67`, Units 54/54a) records a pushed note's GHL id and contact —
+no FK, no trigger, it outlives a deleted note until the drain deletes the GHL copy, and a null GHL id
+(`V68`) is a delete marker the drain resolves by the note's `#id8` reference; outbox entity type `OPPORTUNITY_NOTE`; `ghl_note.ghl_opportunity_id` null = the
+contact's note.
 
 The mirror tables (`pipeline`, `pipeline_stage`, `contact`, `opportunity`, `outbox`, `sync_drift`)
 do **not** exist — they are Units 44 to 48.

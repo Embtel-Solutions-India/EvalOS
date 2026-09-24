@@ -285,14 +285,27 @@ public class OpportunityMirrorService {
 				continue;
 			}
 			seen.add(note.id());
+			// **Filed under the deal the note is about, not the deal it was listed under** (Unit 54).
+			// The search repeats a contact's notes under every one of that contact's deals, so
+			// filing by listing made a note flip to whichever deal was read last. GHL's own
+			// `relations` names the deal — or none, for a note on the contact alone, which is
+			// filed with no deal. An answer with no `relations` at all keeps the old filing.
+			String dealId = note.relations() == null ? row.id() : note.relatedOpportunityId();
 			GhlNote mirrored = notes.findByBrandIdAndGhlId(held.getBrandId(), note.id())
-					.orElseGet(() -> new GhlNote(held.getBrandId(), note.id(), row.contactId(), row.id()));
-			mirrored.syncFromGhl(note.title(), note.body(), note.userId(), note.dateAdded(), row.id());
+					.orElseGet(() -> new GhlNote(held.getBrandId(), note.id(), row.contactId(), dealId));
+			mirrored.syncFromGhl(note.title(), note.body(), note.authorId(), note.dateAdded(), dealId);
 			notes.save(mirrored);
 		}
+		// Every deal's answer carries the contact's whole note set, so a note filed under this deal
+		// or under the contact alone that is not in it has been deleted in GHL.
 		Instant now = Instant.now();
-		for (GhlNote mirrored : notes.findByBrandIdAndGhlOpportunityIdOrderByDateAddedDesc(
-				held.getBrandId(), row.id())) {
+		List<GhlNote> filedHere = new java.util.ArrayList<>(
+				notes.findByBrandIdAndGhlOpportunityIdOrderByDateAddedDesc(held.getBrandId(), row.id()));
+		if (row.contactId() != null) {
+			filedHere.addAll(notes.findByBrandIdAndGhlContactIdAndGhlOpportunityIdIsNull(
+					held.getBrandId(), row.contactId()));
+		}
+		for (GhlNote mirrored : filedHere) {
 			if (mirrored.isLive() && !seen.contains(mirrored.getGhlId())) {
 				mirrored.markMissing(now);
 				notes.save(mirrored);

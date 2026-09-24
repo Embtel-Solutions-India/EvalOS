@@ -126,6 +126,35 @@ public class StubGhlWriteClient extends GhlWriteClient {
 		return id;
 	}
 
+	/**
+	 * <strong>Null, not a stub id: "not sent".</strong> The other stubs can hand back a fake id
+	 * because what they write is mutable. A note's GHL id goes into
+	 * {@code opportunity_note_ghl_link}, which is append-only, so a fake one would permanently mark
+	 * the note delivered — the deal page would claim it is in GHL, and switching to live would never
+	 * send it. The outbox links nothing on a null. (First seen 2026-09-24, which left one
+	 * {@code stub-note-…} link behind; {@link #isStubId} keeps that one from counting.)
+	 */
+	@Override
+	public String addContactNote(String contactId, String ghlOpportunityId, String title, String body) {
+		log.info("STUB addContactNote on contact {} — not sent, so not linked", contactId);
+		return null;
+	}
+
+	@Override
+	public void updateContactNote(String contactId, String ghlNoteId, String title, String body) {
+		log.info("STUB updateContactNote {} on contact {} — not sent", ghlNoteId, contactId);
+	}
+
+	@Override
+	public void deleteContactNote(String contactId, String ghlNoteId) {
+		log.info("STUB deleteContactNote {} on contact {} — not sent", ghlNoteId, contactId);
+	}
+
+	/** Whether a recorded GHL id was minted by this stub rather than by GHL. */
+	public static boolean isStubId(String ghlId) {
+		return ghlId != null && ghlId.startsWith("stub-");
+	}
+
 	@Override
 	public void completeFollowUp(String contactId, String taskId, String opportunityId,
 			String pipelineId) {

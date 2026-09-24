@@ -174,7 +174,8 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
   thing GHL was kept for, and a round-robin reassigning a deal is not a conflict to undo. GHL owns
   the **assignee** and the **pipeline** (and anything unclassified, deliberately);
   `stage`/`status`/`amount`/`name` are **shared**, where EvalOS wins **and the conflict is
-  reported**; `opportunity_note` is EvalOS's and never synced. **"EvalOS wins" means one narrow
+  reported**; `opportunity_note` is EvalOS's — **pushed to the deal's GHL contact, and its author's
+  edits and deletes follow it there** (Units 54/54a, 2026-09-24; see D49). **"EvalOS wins" means one narrow
   thing** — the mirror keeps a shared field only while `local_updated_at` says EvalOS holds an edit
   GHL has not confirmed, and that flag is cleared the moment GHL's answer supersedes it or GHL
   acknowledges the create. **A null `ghl_updated_at` is a conflict, never "GHL is newer"** — but
@@ -243,8 +244,8 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
   which is `00d` §6.6's ruling over `00c` §2c: *a sync surface with no consumer is pure drift risk*.
   After Unit 46 exactly three live GHL reads were left on a desk render, and those three are what
   got mirrored — **custom field definitions, calendars, and the location's users** (`ghl_custom_field`,
-  `ghl_calendar`, `ghl_user`, `V60`), refreshed by one hourly `REFERENCE_MIRROR` sweep. **Tags and
-  GHL notes are not mirrored**: nothing reads them, and they return the day a screen does.
+  `ghl_calendar`, `ghl_user`, `V60`), refreshed by one hourly `REFERENCE_MIRROR` sweep. *(Its cut of
+  tags and GHL notes was reversed by D49; GHL notes gained their screen in Unit 54.)*
 - **D48.** **Mirror the structure, never the availability.** A GHL calendar is mirrored; its **free
   slots never are**, and must not be — GHL computes them from open hours, buffers, caps and the
   assignee's other appointments, so a mirrored slot is wrong within a minute of being written.
@@ -258,8 +259,16 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
   facts: §4 claimed tasks could only be listed per contact, but `getNotes`/`getTasks`/
   `getCalendarEvents` are parameters on the opportunity search the mirror already runs, so all of it
   costs zero extra requests.)*
-  **`ghl_note` never merges with `opportunity_note`** — that one is EvalOS staff prose, append-only
-  by trigger, never synced. **A task EvalOS never created is not invented** on somebody's desk.
+  **Notes sync both ways, and are stored apart** (Unit 54, 2026-09-24 — the business reversed
+  "never synced"; built the same day, `context/specs/54-two-way-note-sync.md`). An
+  `opportunity_note` is queued on write and pushed once to the deal's **contact** — GHL notes have
+  no opportunity — with an author/deal trailer, its GHL id recorded in the insert-only
+  `opportunity_note_ghl_link`; `ghl_note` rows are shown on the deal beside it, the echo of a pushed
+  note dropped. **A GHL note is filed by its own `relations`, not by the deal it was listed under**
+  (the search repeats a contact's notes on every deal); one with no deal is the contact's and shows
+  on each of that contact's deals, labelled so. **The two tables never merge.** **Its author may overwrite or hard-delete an
+  EvalOS note** (Unit 54a, `54a-note-edit-delete.md`) and the change is queued to GHL (`PUT` / `DELETE`
+  on the contact note); GHL notes stay read-only in EvalOS, changed in GHL and mirrored back. **A task EvalOS never created is not invented** on somebody's desk.
   **Tags are read, never written**: GHL workflows key off them.
   **D46's blocker is gone** — the mirror now holds the values a queued desk create would need.
 - **D18.** The target is an **id-faithful mirror** of GHL (same pipeline/stage/contact/opportunity
@@ -351,8 +360,10 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
 
 ## Data
 
-- **D24.** Append-only truth: `audit_event` and `opportunity_note` carry database triggers that
-  raise on UPDATE and DELETE.
+- **D24.** Append-only truth: `audit_event` carries a database trigger that raises on UPDATE and
+  DELETE. **`opportunity_note` left this rule on 2026-09-24** (Unit 54a, `V67`): the business chose
+  to let a note's author overwrite or hard-delete it, with no revision kept. What survives is an
+  `audit_event` (`NOTE_EDITED` / `NOTE_DELETED`) naming who and when — never the text.
 - **D25.** Every state transition writes an audit row (invariant 13). Failed client sign-ins too.
 - **D26.** Schema changes ship as new Flyway migrations. An applied migration is never edited.
 - **D27.** EvalOS hosts no files — S3 holds them, presigned reads expire in 5 minutes and are
