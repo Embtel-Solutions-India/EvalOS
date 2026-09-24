@@ -102,7 +102,7 @@ jobs:
             --document-name "AWS-RunShellScript" \
             --parameters 'commands=[
               "set -e",
-              "cd /home/ubuntu/EvalOS",
+              "git -c safe.directory=/home/ubuntu/EvalOS pull --ff-only origin main",
               "git pull --ff-only origin main",
               "docker compose --env-file ./backend/.env build frontend backend",
               "docker compose --env-file ./backend/.env up -d frontend backend",
