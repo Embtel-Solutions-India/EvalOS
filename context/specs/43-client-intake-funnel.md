@@ -1,5 +1,9 @@
 # Unit 43 — Get Started: the client intake funnel
 
+> **The questionnaire in this spec no longer exists (Unit 55, 2026-09-25).** Every part below about
+> question groups, answers or the autosave is history; the funnel is Service → Review (documents +
+> send). See `55-remove-questionnaire.md` and D13.
+
 > **Status: BUILT 2026-09-15.** Specced 2026-09-11, revised 2026-09-12, amended and built
 > 2026-09-15. Four things differ from the spec below and each is recorded where it belongs:
 >

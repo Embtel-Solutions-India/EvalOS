@@ -30,7 +30,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
  * off. GHL <strong>must be asked</strong> when it does not, or the blank card this exists to fix
  * comes straight back. What GHL returns <strong>must be kept</strong>, or the gap re-opens on
  * every page view. And a GHL failure <strong>must not throw</strong>, or an upstream blip takes
- * the notes, the questionnaire and the actions down with the contact card.
+ * the notes, the portal request and the actions down with the contact card.
  */
 class ContactSnapshotFetchTest {
 

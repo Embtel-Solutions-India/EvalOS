@@ -68,7 +68,7 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
   `contact_snapshot.id` after IE's sub-account swap left post-swap clients with no GHL id to build
   a key from. What makes the id safe to name again is D3d and D3c: the contact is created at
   set-password, at the next sign-in, or at the first request that needs one, and a document is
-  uploaded at questionnaire submit, which already ensures the id before it opens the deal.
+  uploaded with the request, which already ensures the id before it opens the deal.
   **Two consequences stated rather than hidden:** a contact with no GHL id yet is _refused_ with a
   message naming the repair instead of being filed under a guessed prefix, and a second sub-account
   swap would orphan the namespace again — reads resolve through the stored `object_key`, so nothing
@@ -86,10 +86,10 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
   `CaseIntakeService`. (Invariant 8.)
 - **D10.** The opportunity is created **when the client submits the request**, not when they pick
   a service. **Changed 2026-09-16, third time of asking.** It opened at service-pick until then, so that a
-  client who abandoned the questionnaire still reached a salesperson; the requirement said submit from the start,
+  client who abandoned the questionnaire (since removed, D13) still reached a salesperson; the requirement said submit from the start,
   EvalOS refused it twice, and the third asking carries it. The deal on the board is now a **finished
   request** and nothing else — which is what makes Sales' review step mean something, and is the
-  trade taken knowingly: **an abandoned questionnaire now reaches nobody.** Recovering those is a
+  trade taken knowingly: **an abandoned request now reaches nobody.** Recovering those is a
   separate job (nothing sweeps `DRAFT` applications today) and is in `open-decisions.md`.
 - **D10c.** The funnel is **submit → opportunity → Sales review → won → payment**. EvalOS creates
   the deal at submit and stops; review, win and invoicing are GHL's and Sales', exactly as D11
@@ -118,11 +118,14 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
   writes no note. **A GHL failure refuses the submit (502) and leaves the draft intact**, which is
   stricter than the swallow this decision used to describe: under D10 a failed create means Sales
   has no deal at all, and telling a client "sent" for that would be a lie.
-- **D13.** Sales reads the questionnaire through `GET /api/opportunities/{id}/application`, which
-  answers `null` + 200 for deals that did not come from the portal. **The documents ride on that
-  same read** (D34) — one opportunity, one screen, both halves of what the client sent.
+- **D13.** **There is no client questionnaire** (Unit 55, 2026-09-25, business decision). The portal
+  request is the service, the purpose and the documents; Sales asks everything else on the call.
+  The questions step, its autosave route (`PUT /api/portal/applications/{id}`) and
+  `client_application.answers` are gone. Sales reads the request through
+  `GET /api/opportunities/{id}/application`, which answers `null` + 200 for deals that did not come
+  from the portal, and the documents beside it (D34). Spec `55-remove-questionnaire.md`.
 
-- **D33.** **Documents arrive with the request, at questionnaire submit, and are stored against the
+- **D33.** **Documents arrive with the request, before submit, and are stored against the
   contact** — the person — not against a case, which does not exist yet. This is the DOCUMENT
   SUBMISSION step the target lifecycle always named and Unit 43 deferred, because every upload
   route EvalOS had took a checklist item on a **case**. Decided 2026-09-17.
@@ -131,8 +134,8 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
   into `case_document` at Handoff A as a row insert over the **same S3 object**: nothing copies,
   nothing re-keys, and Production starts holding exactly what Sales read.
   Spec `53-request-documents.md`. _(Closes `open-decisions.md` Q4.)_
-- **D34.** **Sales clicks one opportunity and sees both** the questionnaire answers and the
-  documents. The documents are **a second screen on that same deal, never a second permission** —
+- **D34.** **Sales clicks one opportunity and sees both** the request (service, purpose, status)
+  and the documents. The documents are **a second screen on that same deal, never a second permission** —
   their own route and their own tab beside the application, reached by whoever could already open
   the opportunity. Nothing about them asks a new authorisation question.
 - **D35.** **There is no EvalOS sales-review state.** `client_application.status` stays `DRAFT` /

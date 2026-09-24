@@ -101,10 +101,14 @@ The ones most often violated from memory:
   first request, so it exists by the time anything needs to name it. A
   contact with no GHL id is **refused** with a message naming the repair, never filed under a
   guessed prefix.
-- **Documents arrive WITH the request**, at questionnaire submit, keyed by the **GHL contact id**
+- **There is NO client questionnaire** (D13, Unit 55, 2026-09-25, business decision). The portal
+  request is service + purpose + documents; Sales asks the rest on the call. No questions step, no
+  `PUT /api/portal/applications/{id}`, no `answers` on the entity or the API. `client_application.answers`
+  is unmapped and awaits `V69` (drop held for an explicit go-ahead). Do not rebuild a questionnaire.
+- **Documents arrive WITH the request**, before submit, keyed by the **GHL contact id**
   (D41). Reuses `DocumentStore.clientKey`; Handoff A carries them into `case_document` as row
   inserts over the **same S3 object**. Unit 53, spec `53-request-documents.md` (D33).
-- **Sales clicks one opportunity and sees answers AND documents** — the documents are **their own
+- **Sales clicks one opportunity and sees the request AND documents** — the documents are **their own
   route and tab on that deal, never a second permission** (D34).
 - **There is NO EvalOS sales-review state** (D35). `client_application.status` stays
   `DRAFT`/`SUBMITTED`; review, approval and rejection are GHL **pipeline stages**. Do not add

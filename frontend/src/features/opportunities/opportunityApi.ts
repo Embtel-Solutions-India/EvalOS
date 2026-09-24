@@ -535,19 +535,6 @@ export function fetchGhlUsers(signal?: AbortSignal): Promise<readonly GhlUser[]>
 
 // --- Unit 43: the client's own request --------------------------------------
 
-/**
- * One answered question, with the label **as the client was asked it**.
- *
- * The question text lives in the client portal's catalog, which this app is a separate build from
- * and cannot import — so the label travels with the answer rather than being looked up. It also
- * survives the catalog being reworded, which a lookup would not.
- */
-export type AnsweredQuestion = {
-  id: string
-  label: string
-  value: string
-}
-
 /** `ClientApplicationService.ApplicationView` — what a client asked us for. */
 export type ClientApplication = {
   id: string
@@ -555,8 +542,6 @@ export type ClientApplication = {
   serviceName: string
   purpose: string | null
   status: 'DRAFT' | 'SUBMITTED'
-  /** A JSON string holding an array of {@link AnsweredQuestion}. */
-  answers: string
   createdAt: string
   updatedAt: string
   submittedAt: string | null
@@ -630,18 +615,6 @@ export async function requestDocumentUrl(
   )
   return answer.url
 }
-
-/** The stored answers, or an empty list for anything that is not the expected shape. */
-export function parseAnswers(answers: string | null | undefined): readonly AnsweredQuestion[] {
-  if (!answers) return []
-  try {
-    const parsed: unknown = JSON.parse(answers)
-    return Array.isArray(parsed) ? (parsed as AnsweredQuestion[]) : []
-  } catch {
-    return []
-  }
-}
-
 
 // --- The contacts directory -------------------------------------------------
 

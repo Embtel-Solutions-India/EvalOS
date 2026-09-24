@@ -120,7 +120,7 @@ body {
   background: var(--accent-soft);
 }
 
-/* Record tables — the questionnaire and document panels on a deal.
+/* Record tables — the request and document panels on a deal.
 
    Two users and no third, which is exactly the point at which this stops being worth copying
    twice: the panels sit one above the other on the same screen, so a header row that is grey in

@@ -173,7 +173,7 @@ PAGED server-side (`?page=&size=`, 15 default, clamp 100); offset not keyset bec
 
 **Deal screen rebuilt 2026-09-23 (two columns).** Left = the record, right = Actions +
 Contact details (sticky at `xl`). `DealApplication`/`DealDocuments` became tables (`.tbl`);
-answers expand in place. `ContactView` gained `source` / `assignedTo` / `createdAt` — the assignee
+`DealApplication` is the "Portal request" panel (service, purpose, submitted, status) since Unit 55. `ContactView` gained `source` / `assignedTo` / `createdAt` — the assignee
 is resolved to a NAME via the `ghl_user` mirror so the raw GHL user id never reaches the browser.
 `ContactSnapshot.getSourceChannel()` is new. `DealEditDialog` wraps the existing
 `PUT /api/sales/opportunities/{id}` (name + value, SALES only).
@@ -185,8 +185,8 @@ Do not fill either with a plausible value; a row reading "Verified" that nobody 
 than an empty column. `carried_to_case_document_id` has its own "On the case" column and is NOT
 the verification verdict. Format and size sit under the filename, where they are real.
 
-STILL NOT BUILT from that design: a "Hot" lead-temperature badge (nothing scores a lead) and a
-second questionnaire (one `client_application` per opportunity).
+STILL NOT BUILT from that design: a "Hot" lead-temperature badge (nothing scores a lead).
+Questionnaires are REMOVED entirely (Unit 55, D13).
 
 **Mail branding 2026-09-23.** The logo is the horizontal mark served from the marketing site —
 `MailTemplates.LOGO_URL`, the APEX host (`www` 301s and image proxies drop redirects), sized
@@ -497,3 +497,13 @@ no team-admin feature folder or route. `TeamMemberController`'s javadoc names "t
 screen"; it was never built, so Unit 44's COMPLETE means API + model, not an operable GM flow.
 Grants are made with curl or SQL, or by re-running V960's second statement after a mirror pass.
 There is likewise no create-team-member endpoint, which is why a seed is the only route to a login.
+
+**2026-09-25 — Unit 55: the client questionnaire is removed (D13, spec `55`).** Portal funnel is
+Service → Review (documents + send). Deleted: `lib/questionnaire.ts`, `constants/questionGroups.ts`,
+`constants/countries.ts`, `components/intake/QuestionField.tsx`, `saveApplication`/`parseAnswers`,
+`questionGroupIds`, the question types. Backend: `ClientApplicationService.save`, the portal `PUT`
+route, `ClientApplication.answers`, `ApplicationView.answers`; portal CORS methods are now
+GET/POST/DELETE/OPTIONS (`ClientApplicationRoutesTest` refuses PUT and PATCH at preflight). Staff:
+`DealApplication` is "Portal request", no answers. **`client_application.answers` column NOT dropped
+yet — `V69` awaits an explicit go-ahead** (it destroys client data). Suites: backend 1179/0/4 skipped,
+staff 131, portals 30, all green.

@@ -372,7 +372,7 @@ const Column = memo(function Column({
 
 /**
  * One deal. **The card is a link, not a disclosure** (2026-09-17): `DealPage` is where the
- * questionnaire, the notes and the actions belong, and the card's job is to get you there.
+ * portal request, the notes and the actions belong, and the card's job is to get you there.
  * Styled after `CaseCard` — the whole card is the link, and everything over it ignores the
  * pointer.
  *

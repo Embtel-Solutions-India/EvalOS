@@ -14,7 +14,7 @@ import com.ie.evalos.service.ScopePredicate;
  * <p><strong>Every finder here takes the account id, and that is the portal's scope.</strong> The
  * caller on this surface is a portal token, which has no {@code TenantContext} — so
  * {@code findScoped} is not the guard, the account is. A finder without it would be a client
- * reading somebody else's questionnaire.
+ * reading somebody else's request.
  */
 public interface ClientApplicationRepository extends ScopedRepository<ClientApplication> {
 

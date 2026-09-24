@@ -13,7 +13,7 @@ CLIENT → PORTAL → REQUEST SERVICE → SERVICE DETAILS → DOCUMENT SUBMISSIO
 **One step of it is missing** as of 2026-09-17: **document submission** at request stage (D33,
 Unit 53). *Sales review as an EvalOS state is NOT missing and NOT owed* — D35 makes it a GHL
 pipeline stage, so read-only on `GET /api/opportunities/{id}/application` is the finished shape,
-widened only to carry the documents beside the answers (D34).
+widened only to carry the documents beside the request (D34). No questionnaire since Unit 55 (D13).
 
 Production, and it is now a stated business rule rather than an accident of the code (D36):
 Handoff A creates the case → a **PM** takes it → the PM assigns **Coordinator**, **Case Manager**
@@ -33,10 +33,11 @@ contact (D3c).
 
 Client request (`ClientApplicationService`): the opportunity is created **at SUBMIT** (D10,
 changed 2026-09-16, third time of asking — it was service-pick, so an abandoned
-questionnaire still reached Sales; it no longer does, knowingly). `createOpportunity`, on the
+request still reached Sales; it no longer does, knowingly). The funnel is Service → Review
+(documents + send); the questionnaire is gone (Unit 55). `createOpportunity`, on the
 pipeline a GM marked `INTAKE`, with **no stage and no assignee** — placement is GHL automation's
 job. Service id, correlation key and `SUBMITTED` all ride that one create; `setOpportunityFields`
-is off this path. Start and save reach GHL zero times. A failed create **refuses the submit** and
+is off this path. Start and document uploads reach GHL zero times. A failed create **refuses the submit** and
 keeps the draft. From there it is Sales': review → won → payment (D10c).
 
 Four GHL write paths, three verbs: `signUp` → `ensureCrmIdentity` (upsertContact), application
@@ -84,6 +85,6 @@ the next edit of a just-created deal is refused as "not in the mirror yet" for a
 
 **DOCUMENT SUBMISSION is no longer the missing step** (Unit 53, 2026-09-18). The client attaches
 documents on the request's review step before sending; **submit is never gated on them** (`43` §5).
-Sales reads them beside the answers on the deal page, on their own route and the same permission
+Sales reads them beside the request on the deal page, on their own route and the same permission
 (D34). At Handoff A they follow the request onto the case with no S3 copy and no re-key, through a
 `CASE_CREATED` listener that can never fail the case.

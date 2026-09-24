@@ -18,10 +18,9 @@ import {
 } from 'lucide-react'
 import type { ServiceCategory, ServiceDefinition } from '@/types/intake'
 
-// The schema-driven catalog: adding a new service here — pointing at
-// existing (or new) question groups and document templates — is the only
-// change needed to offer it in the portal. ChooseService, Questionnaire and
-// IntakeDocuments all render purely from this data.
+// The schema-driven catalog: adding a new service here is the only change
+// needed to offer it in the portal. The request screen renders purely from
+// this data. There is no questionnaire (Unit 55).
 
 export const SERVICE_CATEGORIES: ServiceCategory[] = [
   {
@@ -49,7 +48,6 @@ const expertLetterDocs = [
   'employmentVerificationLetters',
   'supportingDocuments',
 ]
-const expertLetterGroups = ['professionalBackground', 'requestContext', 'employerInfo', 'attorneyInfo']
 
 export const SERVICES: ServiceDefinition[] = [
   // ---- Credential Evaluations ------------------------------------------
@@ -60,7 +58,6 @@ export const SERVICES: ServiceDefinition[] = [
     shortDescription: 'A summary equivalency of your degree or diploma.',
     bestFor: 'Best for university admissions or general reference',
     icon: GraduationCap,
-    questionGroupIds: ['education', 'requestContext'],
     documentTemplateIds: ['passport', 'degreeCertificate', 'transcript', 'resume', 'supportingDocuments'],
   },
   {
@@ -70,7 +67,6 @@ export const SERVICES: ServiceDefinition[] = [
     shortDescription: 'A detailed, course-level breakdown with U.S. credit equivalency.',
     bestFor: 'Best for graduate school or professional licensing',
     icon: ListChecks,
-    questionGroupIds: ['education', 'requestContext'],
     documentTemplateIds: ['passport', 'degreeCertificate', 'transcript', 'supportingDocuments'],
   },
   {
@@ -80,7 +76,6 @@ export const SERVICES: ServiceDefinition[] = [
     shortDescription: 'Convert professional experience into U.S. degree equivalency.',
     bestFor: 'Best for employment-based petitions',
     icon: Briefcase,
-    questionGroupIds: ['professionalBackground', 'requestContext'],
     documentTemplateIds: ['passport', 'resume', 'employmentVerificationLetters', 'recommendationLetters'],
   },
 
@@ -92,7 +87,6 @@ export const SERVICES: ServiceDefinition[] = [
     shortDescription: 'Supports specialty occupation requirements for an H-1B petition.',
     icon: FileSignature,
     impliedPurpose: 'immigration',
-    questionGroupIds: expertLetterGroups,
     documentTemplateIds: expertLetterDocs,
   },
   {
@@ -102,7 +96,6 @@ export const SERVICES: ServiceDefinition[] = [
     shortDescription: 'Supports extraordinary ability or achievement for an O-1 petition.',
     icon: Award,
     impliedPurpose: 'immigration',
-    questionGroupIds: expertLetterGroups,
     documentTemplateIds: [...expertLetterDocs, 'recommendationLetters'],
   },
   {
@@ -112,7 +105,6 @@ export const SERVICES: ServiceDefinition[] = [
     shortDescription: 'Supports extraordinary ability criteria for an EB-1A petition.',
     icon: Trophy,
     impliedPurpose: 'immigration',
-    questionGroupIds: expertLetterGroups,
     documentTemplateIds: [...expertLetterDocs, 'recommendationLetters'],
   },
   {
@@ -122,7 +114,6 @@ export const SERVICES: ServiceDefinition[] = [
     shortDescription: 'Supports outstanding professor or researcher criteria.',
     icon: GraduationCap,
     impliedPurpose: 'immigration',
-    questionGroupIds: expertLetterGroups,
     documentTemplateIds: [...expertLetterDocs, 'recommendationLetters'],
   },
   {
@@ -132,7 +123,6 @@ export const SERVICES: ServiceDefinition[] = [
     shortDescription: 'Supports a National Interest Waiver petition.',
     icon: Globe2,
     impliedPurpose: 'immigration',
-    questionGroupIds: expertLetterGroups,
     documentTemplateIds: [...expertLetterDocs, 'recommendationLetters'],
   },
   {
@@ -142,7 +132,6 @@ export const SERVICES: ServiceDefinition[] = [
     shortDescription: 'Supports an intracompany transferee petition.',
     icon: Building2,
     impliedPurpose: 'immigration',
-    questionGroupIds: expertLetterGroups,
     documentTemplateIds: expertLetterDocs,
   },
   {
@@ -152,7 +141,6 @@ export const SERVICES: ServiceDefinition[] = [
     shortDescription: 'Supports a TN professional classification.',
     icon: Plane,
     impliedPurpose: 'immigration',
-    questionGroupIds: expertLetterGroups,
     documentTemplateIds: expertLetterDocs,
   },
   {
@@ -162,7 +150,6 @@ export const SERVICES: ServiceDefinition[] = [
     shortDescription: 'An opinion on the appropriate prevailing wage level for a role.',
     icon: Scale,
     impliedPurpose: 'employment',
-    questionGroupIds: ['professionalBackground', 'requestContext', 'employerInfo'],
     documentTemplateIds: ['resume', 'employmentVerificationLetters'],
   },
   {
@@ -171,7 +158,6 @@ export const SERVICES: ServiceDefinition[] = [
     name: 'Cover Letter & Support Letter',
     shortDescription: 'A supporting narrative letter for your petition or application.',
     icon: FileText,
-    questionGroupIds: ['professionalBackground', 'requestContext', 'attorneyInfo'],
     documentTemplateIds: ['resume', 'supportingDocuments'],
   },
 
@@ -182,7 +168,6 @@ export const SERVICES: ServiceDefinition[] = [
     name: 'Certified Translations',
     shortDescription: 'Certified translation of academic or personal documents.',
     icon: Languages,
-    questionGroupIds: ['translationDetails', 'requestContext'],
     documentTemplateIds: ['sourceDocument'],
   },
   {
@@ -192,7 +177,6 @@ export const SERVICES: ServiceDefinition[] = [
     shortDescription: 'Documentation support to help respond to a USCIS Request for Evidence.',
     icon: FileWarning,
     impliedPurpose: 'immigration',
-    questionGroupIds: ['rfeDetails', 'requestContext', 'attorneyInfo'],
     documentTemplateIds: ['rfeNotice', 'originalPetition', 'supportingDocuments'],
   },
   {
@@ -202,7 +186,6 @@ export const SERVICES: ServiceDefinition[] = [
     shortDescription: 'Recruitment advertising support for the PERM labor certification process.',
     icon: Megaphone,
     impliedPurpose: 'employment',
-    questionGroupIds: ['professionalBackground', 'requestContext', 'employerInfo'],
     documentTemplateIds: ['jobPostingDraft'],
   },
   {
@@ -211,7 +194,6 @@ export const SERVICES: ServiceDefinition[] = [
     name: 'Business Plans',
     shortDescription: 'A professional business plan for visa or investment purposes.',
     icon: TrendingUp,
-    questionGroupIds: ['businessPlanDetails', 'requestContext'],
     documentTemplateIds: ['businessFinancials', 'supportingDocuments'],
   },
   {
@@ -221,7 +203,6 @@ export const SERVICES: ServiceDefinition[] = [
     shortDescription: 'A review of your documentation before you file.',
     icon: ShieldCheck,
     impliedPurpose: 'immigration',
-    questionGroupIds: ['requestContext', 'attorneyInfo'],
     documentTemplateIds: ['priorFilings', 'supportingDocuments'],
   },
 ]

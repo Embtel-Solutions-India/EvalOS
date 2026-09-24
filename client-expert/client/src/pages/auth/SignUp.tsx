@@ -24,8 +24,8 @@ import {
  * reached said we could not take them. Nothing created a `client_account` at runtime, so that
  * apology was accurate: every row in the table came from one backfill migration.
  *
- * **It creates an account, not an evaluation.** Choosing a service, answering the questionnaire
- * and opening the opportunity are Unit 43 and are reached from the dashboard afterwards. The
+ * **It creates an account, not an evaluation.** Choosing a service, sending the request and
+ * opening the opportunity are Unit 43 and are reached from the dashboard afterwards. The
  * copy below says so rather than implying a request has been placed.
  *
  * **Nobody is signed in from here, and the screen has no password field.** The email may be one

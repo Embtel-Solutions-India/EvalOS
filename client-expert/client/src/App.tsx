@@ -23,8 +23,8 @@ import { PortalLayout } from '@/layouts/PortalLayout'
  * **Parking stopped being available when the account shell went.** Every step of that funnel
  * imported `useAuth` and `authService`, so with the shell deleted it no longer compiled — and
  * code that cannot compile is not parked, it is broken. Deleting it was the honest reading.
- * The questionnaire will be rebuilt against a portal token rather than an account anyway, so
- * what was being preserved was a shape, and git history preserves that just as well.
+ * What was being preserved was a shape, and git history preserves that just as well. (The
+ * questionnaire those screens carried was rebuilt in Unit 43 and removed for good in Unit 55.)
  *
  * ---
  *
@@ -105,8 +105,8 @@ function AppRoutes() {
         `/signup` is the real second door (2026-09-15). It was `/start`, a placeholder apologising
         that we could not take a new client at all — accurate at the time, because nothing created
         a `client_account` outside V45's one-shot backfill. It creates the account and the GHL
-        contact; choosing a service and answering the questionnaire are Unit 43 and happen from
-        the dashboard afterwards.
+        contact; choosing a service and sending the request are Unit 43 and happen from the
+        dashboard afterwards.
       */}
       <Route path="/signup" element={<SignUp />} />
       {/* One release of grace for a link already typed or bookmarked. */}

@@ -117,7 +117,7 @@ public class ContactSnapshotService {
 	 * <p><strong>A GHL failure is not this caller's problem.</strong> It returns empty and logs,
 	 * rather than throwing: the screen's honest state for "we do not hold this person" already
 	 * exists and already renders, and turning an upstream blip into a 502 would take the notes,
-	 * the questionnaire and the actions down with the contact card. The one thing it must not do
+	 * the portal request and the actions down with the contact card. The one thing it must not do
 	 * is report success with nothing, which is why the caller gets an {@code Optional} and not a
 	 * half-filled row.
 	 */
