@@ -1,9 +1,11 @@
 import { Suspense, lazy } from 'react'
-import { Navigate, Route, BrowserRouter, Routes } from 'react-router-dom'
+import { Navigate, Outlet, Route, BrowserRouter, Routes } from 'react-router-dom'
 import { Toaster } from '@shared/components/ui/sonner'
 import { AppLoadingScreen } from '@shared/components/common/AppLoadingScreen'
 import { ErrorBoundary } from '@shared/components/common/ErrorBoundary'
 import { PortalLayout } from '@/layouts/PortalLayout'
+import { SiteFooter } from '@/components/layout/SiteFooter'
+import { LEGAL } from '@/constants/legal'
 
 /*
  * 2026-09-10 — what left this router, and the two different reasons.
@@ -91,26 +93,49 @@ const Documents = lazy(() => import('@/pages/documents/Documents'))
 const Invoices = lazy(() => import('@/pages/invoices/Invoices'))
 const Meetings = lazy(() => import('@/pages/meetings/Meetings'))
 const DraftReview = lazy(() => import('@/pages/draft/DraftReview'))
+const PrivacyPolicy = lazy(() => import('@/pages/legal/PrivacyPolicy'))
+const Disclaimer = lazy(() => import('@/pages/legal/Disclaimer'))
+const DocumentRetention = lazy(() => import('@/pages/legal/DocumentRetention'))
 const NotFound = lazy(() => import('@shared/pages/NotFound'))
+
+/** The signed-out screens, with the legal footer under them (2026-09-25). */
+function PublicLayout() {
+  return (
+    <>
+      <Outlet />
+      <SiteFooter />
+    </>
+  )
+}
 
 function AppRoutes() {
   return (
     <Routes>
       {/* A link that names them still works; this is only where an empty visit lands. */}
       <Route path="/" element={<Navigate to="/welcome" replace />} />
-      <Route path="/welcome" element={<Welcome />} />
-      <Route path="/signin" element={<SignIn />} />
-      <Route path="/set-password" element={<SetPassword />} />
       {/*
-        `/signup` is the real second door (2026-09-15). It was `/start`, a placeholder apologising
-        that we could not take a new client at all — accurate at the time, because nothing created
-        a `client_account` outside V45's one-shot backfill. It creates the account and the GHL
-        contact; choosing a service and sending the request are Unit 43 and happen from the
-        dashboard afterwards.
+        The legal pages are public on purpose: sign-up asks a client to agree to them, so they
+        have to be readable before an account exists. `LegalPage` carries its own footer.
       */}
-      <Route path="/signup" element={<SignUp />} />
-      {/* One release of grace for a link already typed or bookmarked. */}
-      <Route path="/start" element={<Navigate to="/signup" replace />} />
+      <Route path={LEGAL.privacy.to} element={<PrivacyPolicy />} />
+      <Route path={LEGAL.disclaimer.to} element={<Disclaimer />} />
+      <Route path={LEGAL.retention.to} element={<DocumentRetention />} />
+
+      <Route element={<PublicLayout />}>
+        <Route path="/welcome" element={<Welcome />} />
+        <Route path="/signin" element={<SignIn />} />
+        <Route path="/set-password" element={<SetPassword />} />
+        {/*
+          `/signup` is the real second door (2026-09-15). It was `/start`, a placeholder apologising
+          that we could not take a new client at all — accurate at the time, because nothing created
+          a `client_account` outside V45's one-shot backfill. It creates the account and the GHL
+          contact; choosing a service and sending the request are Unit 43 and happen from the
+          dashboard afterwards.
+        */}
+        <Route path="/signup" element={<SignUp />} />
+        {/* One release of grace for a link already typed or bookmarked. */}
+        <Route path="/start" element={<Navigate to="/signup" replace />} />
+      </Route>
 
       {/*
         Every screen shares one credential and one shell now, which is what 34d bought. Before

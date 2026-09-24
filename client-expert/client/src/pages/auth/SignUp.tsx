@@ -1,6 +1,7 @@
 import { type FormEvent, type ReactNode, useState } from 'react'
 import { ArrowLeft } from 'lucide-react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
+import { LEGAL } from '@/constants/legal'
 import { Button } from '@shared/components/ui/button'
 import { Card } from '@shared/components/ui/card'
 import { FormField } from '@shared/components/common/FormField'
@@ -238,6 +239,18 @@ export default function SignUp() {
             */}
             <p className="text-xs text-muted-foreground">
               We&rsquo;ll email you a link to set your password.
+            </p>
+
+            <p className="text-xs text-muted-foreground">
+              By creating an account you agree to our{' '}
+              <Link to={LEGAL.privacy.to} className="font-medium text-primary underline-offset-4 hover:underline">
+                {LEGAL.privacy.label}
+              </Link>{' '}
+              and acknowledge our{' '}
+              <Link to={LEGAL.disclaimer.to} className="font-medium text-primary underline-offset-4 hover:underline">
+                {LEGAL.disclaimer.label}
+              </Link>
+              .
             </p>
 
             <Button type="submit" className="w-full" loading={submitting}>

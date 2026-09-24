@@ -507,3 +507,10 @@ GET/POST/DELETE/OPTIONS (`ClientApplicationRoutesTest` refuses PUT and PATCH at 
 `DealApplication` is "Portal request", no answers. **`client_application.answers` column NOT dropped
 yet — `V69` awaits an explicit go-ahead** (it destroys client data). Suites: backend 1179/0/4 skipped,
 staff 131, portals 30, all green.
+
+**2026-09-25 — client portal legal pages.** Public `/privacy`, `/disclaimer`, `/document-retention`
+(`client/src/pages/legal/`, JSX content, no markdown dependency; paths + contact in
+`constants/legal.ts`). `SiteFooter` (three summary paragraphs + links + address) under every screen
+via `PortalLayout`, a `PublicLayout` route for the signed-out screens, and `LegalPage`. Linked in
+place at sign-up, the document uploader and the send step. The business's "not reviewed by an
+attorney" drafting notes are NOT published; attorney review before go-live is theirs to decide.

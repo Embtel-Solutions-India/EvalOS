@@ -1,7 +1,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, ArrowRight, Check } from 'lucide-react'
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
 import { Button } from '@shared/components/ui/button'
 import { Card } from '@shared/components/ui/card'
@@ -16,6 +16,7 @@ import { ServiceCategorySection } from '@/components/intake/ServiceCategorySecti
 import { SERVICE_CATEGORIES, getService, getServicesByCategory } from '@/constants/serviceCatalog'
 import { startApplication, submitApplication, type ClientApplication } from '@/services/applicationService'
 import type { RequestPurpose } from '@/types/intake'
+import { LEGAL } from '@/constants/legal'
 
 /**
  * Asking us for a service (Unit 43) — choose one, attach documents, send it.
@@ -165,7 +166,16 @@ export default function NewRequest() {
               left beside the uploader contradicting it.
             */}
             Sending this doesn't commit you to anything. We'll read it, price the work and come
-            back to you.
+            back to you. We are not a law firm, and our work supports a petition without
+            guaranteeing its outcome — see our{' '}
+            <Link to={LEGAL.disclaimer.to} className="font-medium text-primary underline-offset-4 hover:underline">
+              {LEGAL.disclaimer.label}
+            </Link>
+            . How we handle your information is in our{' '}
+            <Link to={LEGAL.privacy.to} className="font-medium text-primary underline-offset-4 hover:underline">
+              {LEGAL.privacy.label}
+            </Link>
+            .
           </p>
 
           <div className="flex gap-3">
