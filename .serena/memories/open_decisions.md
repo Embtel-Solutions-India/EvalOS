@@ -12,8 +12,8 @@ Unresolved as of 2026-09-17:
 9. Who owns an appointment, and how is employee availability modelled?
 10. What is the scope of the conversation sidebar, and when? (Unit 47)
 11. Who chases an abandoned `DRAFT` request now D10 moved the opportunity to submit?
-12. Should `moveToStage` refuse a stage outside the deal's own pipeline? (recommend: yes, server
-    guard; the board's drag and `DealActions` can both send one today)
+
+**Resolved 2026-09-24:** ~~Q12 cross-pipeline stage move~~ → **D44**: refused server-side.
 
 **Resolved 2026-09-17 — do not re-open from an old note:**
 

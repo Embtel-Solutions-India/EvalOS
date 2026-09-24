@@ -7,7 +7,8 @@ House rule: every question carries a recommendation.
 
 _Q2 (request status model), Q3 (Sales approval rules) and Q4 (request documents) were resolved on
 2026-09-17 and left for `current-decisions.md` D33–D35. Q7 (portal deployment) left for D38, and
-carried-forward item (a) for D19c._
+carried-forward item (a) for D19c. Q12 (stage moves across pipelines) was resolved on
+2026-09-24 and left for D44._
 
 **Q1 — Should `MarketingLeadService` keep `upsertOpportunity`?**
 It reuses the one open opportunity per contact per pipeline, so a second enquiry from the same
@@ -85,17 +86,6 @@ whose job the chase is, which is the part that is actually unresolved. Resist a 
 opportunities for abandoned drafts: that is the reverted D10 wearing a different name.
 _Gates:_ none — the data is already there.
 
-**Q12 — Should the server refuse a stage move to a stage of another pipeline?**
-`SalesDeskService.moveToStage` checks the caller owns the deal (`requireMine`) and that a stage was
-sent, but **not that the stage belongs to the deal's pipeline**. A salesperson may hold several
-pipelines (`team_member_pipeline`), and `OpportunityBoardService.draw` merges their stages into one
-strip — so the board's drag (2026-09-23) and `DealActions`' stage select can both send a foreign
-stage id, which the mirror accepts and the push then sends to GHL. `BoardColumn` carries no
-`pipelineId`, so the SPA cannot prevent it.
-_Recommend:_ a server guard in `moveToStage` — the stage must be a live `pipeline_stage` of the
-row's pipeline, else `InvalidRequestException` — and nothing in the SPA; the board already rolls a
-refused move back. It enforces the rule the method's own Javadoc states.
-_Gates:_ none.
 
 ## Carried forward from `00d` §12, still unresolved
 

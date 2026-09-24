@@ -157,7 +157,9 @@ Everything else in the chain exists.
 **Edits do not call GHL at all** (D44, Unit 46). `SalesDeskService.update` / `moveToStage` /
 `close` and `MarketingLeadService.value` each edit the mirror row, stamp `local_updated_at` **and
 record which of the four shared fields they touched** (`locally_edited_fields`, `V63`), queue
-`UPSERT` or `CLOSE`, and answer from the row. `SYNC_OUTBOX` (2m) sends it.
+`UPSERT` or `CLOSE`, and answer from the row. `SYNC_OUTBOX` (2m) sends it. `moveToStage` first
+refuses a stage that is not a live `pipeline_stage` of the row's own pipeline (Q12, 2026-09-24),
+so the merged board strip cannot turn a drag into a pipeline move.
 
 **The push carries the edited fields only.** `updateOpportunity` omits a null from the body, so an
 unedited field is left alone in GHL rather than overwritten by whatever the mirror happens to hold

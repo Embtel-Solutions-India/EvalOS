@@ -70,7 +70,8 @@ It is a backfill, not a mirror: a contact CHANGED in GHL still only updates via 
 
 **Desk writes (46, 2026-09-17).** Edits — `update`, `moveToStage`, `close`, Marketing's `value` —
 are `editLocally` + `enqueue(UPSERT|CLOSE)` and return the local row. Creates — `createDeal`,
-`openLead` — still call GHL inline. Boards call GHL **never**.
+`openLead` — still call GHL inline. Boards call GHL **never**. `moveToStage` refuses a stage not
+live on the row's own pipeline (Q12 → D44, 2026-09-24).
 
 **Desk edits, as of the 2026-09-18 review pass.** Edit the mirror row, stamp `local_updated_at`
 **and record which shared fields were touched** (`locally_edited_fields`), enqueue, answer from the

@@ -12,8 +12,8 @@ the dead-code pass below.
 native HTML5 DnD delegated on the strip, no state change per pointer move, optimistic
 `boardMove.moveDeal` (untouched columns/cards keep identity, so memoised ones skip), one
 `PUT /sales/opportunities/{id}/stage`, rollback on refusal. Name search via `useDeferredValue`;
-`content-visibility: auto` on cards instead of a virtualiser. Server does not check the target
-stage is in the deal's pipeline — open decision Q12. 2026-09-24: board `Deal` carries `source` and
+`content-visibility: auto` on cards instead of a virtualiser. `moveToStage` refuses a stage not
+live on the deal's own pipeline (Q12 resolved 2026-09-24, D44). 2026-09-24: board `Deal` carries `source` and
 `service` (row fields first, then `opportunity.lead_source` / the portal request), one read each
 per board; cards show Value / Source / service with "—" placeholders, headers show stage Value.
 

@@ -189,7 +189,10 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
   mirror's copy, is a business decision a sweep must not take.
 - **D44.** **A desk edit writes the mirror and queues the push; it does not call GHL** (Unit 46,
   2026-09-17). Rename, re-price, stage move and close on both desks are now: edit the local row,
-  `enqueue`, answer from the row. The salesperson sees the change immediately and no edit is lost
+  `enqueue`, answer from the row. **A stage move must name a live mirrored stage of the deal's
+  own pipeline** (Q12, 2026-09-24): a desk holding several pipelines sees their stages on one
+  board strip, and a foreign stage id would be a pipeline move in GHL — GHL's workflow, not a desk
+  edit — so `moveToStage` refuses it before anything is written or queued. The salesperson sees the change immediately and no edit is lost
   to a GHL outage. **The four editable fields are exactly 45e's shared set**, because what a desk
   may edit locally is what EvalOS is allowed to win a conflict over — the assignee is absent for
   that reason. **The cost is named rather than hidden: a won deal reaches GHL on the next drain

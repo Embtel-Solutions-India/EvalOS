@@ -156,7 +156,8 @@ does not call GHL, and it answers from the row. A **board** reads EvalOS rows an
 request at all. A **create** still calls GHL inline, because the outbox stores an id and never a
 payload and a create carries custom fields the mirror does not hold (tier 2, Unit 47). The four
 editable fields are exactly 45e's shared set — the assignee is missing on purpose, it is GHL's.
-**Known cost**: a won deal reaches GHL on the next drain (≤2m), so the case arrives later than it
+A stage move must name a **live stage of the deal's own pipeline** (Q12, 2026-09-24) — a foreign
+stage would be a pipeline move, which is GHL's workflow. **Known cost**: a won deal reaches GHL on the next drain (≤2m), so the case arrives later than it
 used to; a win surviving an outage is worth more than the two minutes.
 **The board's freshness contract**: `MIRROR_DELTA` every 5m; `lastSyncedAt` null = never synced
 (never faked as "now") and counts as stale; `board-stale-after` **5m** (one missed pass) draws a "Sync delayed" banner;
