@@ -30,6 +30,7 @@ services:
 
     environment:
       SPRING_PROFILES_ACTIVE: prod,testprod
+      SPRING_FLYWAY_LOCATIONS: classpath:db/migration,classpath:db/seed-prod,classpath:db/seed-testprod
 
       DB_URL: jdbc:postgresql://postgres:5432/evalos
       DB_USER: evalos
@@ -38,6 +39,15 @@ services:
       JWT_SECRET: ${JWT_SECRET}
       EVALOS_FIELD_KEY: ${EVALOS_FIELD_KEY}
       SEED_PASSWORD_HASH: ${SEED_PASSWORD_HASH}
+      DESK_PASSWORD_HASH: ${DESK_PASSWORD_HASH}
+
+      GHL_SALES_BRAND_ID: ${GHL_SALES_BRAND_ID}
+
+      MAIL_HOST: ${MAIL_HOST}
+      MAIL_PORT: ${MAIL_PORT}
+      MAIL_USERNAME: ${MAIL_USERNAME}
+      MAIL_PASSWORD: ${MAIL_PASSWORD}
+      EVALOS_MAIL_FROM: ${EVALOS_MAIL_FROM}
 
       PORTAL_BASE_URL: ${PORTAL_BASE_URL}
       PORTAL_EXPERT_BASE_URL: ${PORTAL_EXPERT_BASE_URL}
@@ -62,7 +72,6 @@ services:
     networks:
       - evalos-network
 
-
   frontend:
     build:
       context: ./frontend
@@ -80,7 +89,40 @@ services:
 
     networks:
       - evalos-network
+  client:
+    build:
+      context: ./client-expert
+      dockerfile: Dockerfile.client
 
+    container_name: evalos-client
+    restart: unless-stopped
+
+    depends_on:
+      - backend
+
+    ports:
+      - "8081:80"
+
+    networks:
+      - evalos-network
+
+
+  expert:
+    build:
+      context: ./client-expert
+      dockerfile: Dockerfile.expert
+
+    container_name: evalos-expert
+    restart: unless-stopped
+
+    depends_on:
+      - backend
+
+    ports:
+      - "8082:80"
+
+    networks:
+      - evalos-network
 
 volumes:
   postgres_data:
