@@ -40,11 +40,40 @@ class GhlHttpTest {
 	private static final Set<String> HTTP_VERBS =
 			Set.of("get", "post", "put", "patch", "delete", "head", "options", "remove");
 
-	/** A class that holds the door: {@code GhlHttp http} as a field or a constructor parameter. */
-	private static final Pattern HOLDS_GHL_HTTP = Pattern.compile("\\bGhlHttp\\s+\\w+");
+	/**
+	 * A class that holds the door: {@code GhlHttp http} as a field or a constructor parameter.
+	 *
+	 * <p>The reference's <strong>name is captured</strong>, not merely matched — see
+	 * {@link #writesThroughGhl}.
+	 */
+	private static final Pattern HOLDS_GHL_HTTP = Pattern.compile("\\bGhlHttp\\s+(\\w+)");
 
-	/** A call to one of the three write verbs. */
-	private static final Pattern CALLS_WRITE_VERB = Pattern.compile("\\.(post|put|delete)\\s*\\(");
+	/**
+	 * Whether this source both holds the door and pushes a <em>write</em> through it.
+	 *
+	 * <p><strong>The verb check used to be a bare {@code \.(post|put|delete)\(} and it matched
+	 * {@code body.put(...)}.</strong> Every GHL client builds its request body as a
+	 * {@code LinkedHashMap}, so the scan flagged any class that did — and the flaw stayed invisible
+	 * because until {@code GhlContactClient} every such class genuinely wrote and genuinely
+	 * audited. The first read-only client to build a map body tripped it, which is a guard crying
+	 * wolf at exactly the code it should be waving through. A guard that cries wolf is one somebody
+	 * eventually silences, and this one is load-bearing.
+	 *
+	 * <p>Binding the verb to the captured reference is what makes the scan mean what it says, and
+	 * it is not tied to the field being called {@code http}: the name comes from the declaration in
+	 * the same file, so a class naming it {@code ghlHttp} is checked just as strictly.
+	 */
+	private static boolean writesThroughGhl(String source) {
+		java.util.regex.Matcher holder = HOLDS_GHL_HTTP.matcher(source);
+		while (holder.find()) {
+			Pattern write = Pattern.compile(
+					"\\b" + Pattern.quote(holder.group(1)) + "\\.(post|put|delete)\\s*\\(");
+			if (write.matcher(source).find()) {
+				return true;
+			}
+		}
+		return false;
+	}
 
 	private static GhlHttp configured() {
 		// Nothing is actually sent: every test here either paces before failing to connect, or
@@ -160,10 +189,7 @@ class GhlHttpTest {
 					.filter((path) -> path.toString().endsWith(".java"))
 					// The door itself declares the verbs; it is not a caller of them.
 					.filter((path) -> !path.getFileName().toString().equals("GhlHttp.java"))
-					.filter((path) -> {
-						String text = read(path);
-						return HOLDS_GHL_HTTP.matcher(text).find() && CALLS_WRITE_VERB.matcher(text).find();
-					})
+					.filter((path) -> writesThroughGhl(read(path)))
 					.filter((path) -> !read(path).contains("AuditService"))
 					.map(Path::toString)
 					.sorted()
@@ -187,10 +213,21 @@ class GhlHttpTest {
 	@DisplayName("the write-caller scan recognises a caller and ignores a reader")
 	void theWriteCallerScanBites() {
 		String writer = "private final GhlHttp http; void go() { http.post(X.class, u, body); }";
-		assertThat(HOLDS_GHL_HTTP.matcher(writer).find() && CALLS_WRITE_VERB.matcher(writer).find()).isTrue();
+		assertThat(writesThroughGhl(writer)).isTrue();
 
 		String reader = "private final GhlHttp http; void go() { http.get(X.class, u); }";
-		assertThat(HOLDS_GHL_HTTP.matcher(reader).find() && CALLS_WRITE_VERB.matcher(reader).find()).isFalse();
+		assertThat(writesThroughGhl(reader)).isFalse();
+
+		// The field is not required to be called `http`, or the scan would be one rename from
+		// silent.
+		String renamed = "private final GhlHttp ghlHttp; void go() { ghlHttp.put(X.class, u, b); }";
+		assertThat(writesThroughGhl(renamed)).isTrue();
+
+		// **The false positive this scan shipped with.** Every GHL client builds its body as a
+		// map, and `body.put(...)` is not a write to GHL. A reader that builds one must pass.
+		String mapBuilder = "private final GhlHttp http; void go() { body.put(\"k\", v); "
+				+ "http.search(X.class, \"/contacts/search\", body); }";
+		assertThat(writesThroughGhl(mapBuilder)).isFalse();
 	}
 
 	private static String read(Path source) {

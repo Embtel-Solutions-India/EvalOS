@@ -252,7 +252,9 @@ something that already exists.**
 **Motion needs no library.** Radix stamps `data-state` on every overlay, so entry and
 exit are CSS keyframes keyed on it (`index.css`), under the existing
 `prefers-reduced-motion` block. Motion, dnd-kit and TanStack Table are deferred with
-written triggers in `context/specs/22-role-operations-ui.md`.
+written triggers in `context/specs/22-role-operations-ui.md`. **The opportunity board drags with native HTML5
+drag-and-drop** (2026-09-23) — a stage move needs no field, so spec 22's refusal (which is about
+case transitions) does not apply there; the production board still does not drag.
 
 ## Layout Patterns
 

@@ -6,22 +6,10 @@ import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
-import com.ie.evalos.config.SellingBrand;
-import com.ie.evalos.domain.Opportunity;
-import com.ie.evalos.domain.Pipeline;
-import com.ie.evalos.domain.PipelineStage;
-import com.ie.evalos.domain.Role;
-import com.ie.evalos.repository.TeamMemberRepository;
-import com.ie.evalos.security.StaffPrincipal;
-
+import static org.assertj.core.api.Assertions.assertThat;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.test.util.ReflectionTestUtils;
-import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
-import org.springframework.security.core.context.SecurityContextHolder;
-
-import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -29,6 +17,18 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.test.util.ReflectionTestUtils;
+
+import com.ie.evalos.config.SellingBrand;
+import com.ie.evalos.domain.ClientApplication;
+import com.ie.evalos.domain.GhlReference;
+import com.ie.evalos.domain.Opportunity;
+import com.ie.evalos.domain.Pipeline;
+import com.ie.evalos.domain.PipelineStage;
+import com.ie.evalos.domain.Role;
+import com.ie.evalos.security.StaffPrincipal;
 
 /**
  * The board's scoping, its cache behaviour, and open question P1's answer.
@@ -48,13 +48,16 @@ class OpportunityBoardServiceTest {
 
 	private final OpportunityMirrorService deals = mock(OpportunityMirrorService.class);
 	private final PipelineMirrorService pipelines = mock(PipelineMirrorService.class);
-	private final TeamMemberRepository teamMembers = mock(TeamMemberRepository.class);
 	private final com.ie.evalos.repository.TeamMemberPipelineRepository assignments =
 			mock(com.ie.evalos.repository.TeamMemberPipelineRepository.class);
+	private final com.ie.evalos.repository.GhlCustomFieldRepository customFields =
+			mock(com.ie.evalos.repository.GhlCustomFieldRepository.class);
+	private final com.ie.evalos.repository.ClientApplicationRepository applications =
+			mock(com.ie.evalos.repository.ClientApplicationRepository.class);
 
 	private OpportunityBoardService service() {
-		return new OpportunityBoardService(deals, pipelines, teamMembers, assignments, STALE_AFTER,
-				new SellingBrand(SELLING_BRAND));
+		return new OpportunityBoardService(deals, pipelines, assignments, STALE_AFTER,
+				new SellingBrand(SELLING_BRAND), customFields, applications);
 	}
 
 	private void authenticate(Role role, String pipelineId) {
@@ -137,6 +140,41 @@ class OpportunityBoardServiceTest {
 		assertThat(board.totalValue()).isEqualByComparingTo("350");
 	}
 
+	/**
+	 * The card's service and source: the row's own values first, then the fallbacks — the lead
+	 * source field, and the portal request a deal with no service field was opened from. Resolved
+	 * with one read each for the board, which is what keeps 1,500 cards from being 1,500 queries.
+	 */
+	@Test
+	void aCardCarriesServiceAndSourceFromTheRowThenItsFallbacks() {
+		authenticate(Role.SALES, MINE);
+		GhlReference.CustomField service = new GhlReference.CustomField(SELLING_BRAND, "f_service",
+				"opportunity", "Service Requested");
+		service.seen("Service Requested", OpportunityBoardService.SERVICE_FIELD, "SINGLE_OPTIONS", List.of());
+		GhlReference.CustomField leadSource = new GhlReference.CustomField(SELLING_BRAND, "f_source",
+				"opportunity", "Lead Source");
+		leadSource.seen("Lead Source", OpportunityBoardService.LEAD_SOURCE_FIELD, "TEXT", List.of());
+		when(customFields.findByBrandIdAndModelOrderByNameAsc(SELLING_BRAND, "opportunity"))
+				.thenReturn(List.of(service, leadSource));
+
+		Opportunity fromGhl = mirrored("a", MINE, "s1", "100", Instant.now());
+		fromGhl.syncCustomFields(java.util.Map.of("f_service", "PERM", "f_source", "Referral"));
+		Opportunity fromPortal = mirrored("b", MINE, "s1", "100", Instant.now());
+		ClientApplication request = new ClientApplication(SELLING_BRAND, UUID.randomUUID(), "svc",
+				"Credential evaluation", null);
+		request.linkOpportunity("b");
+		when(applications.findByBrandIdAndGhlOpportunityIdIn(eq(SELLING_BRAND), any()))
+				.thenReturn(List.of(request));
+		givenMirrored(List.of(fromGhl, fromPortal), MINE);
+
+		List<OpportunityBoardService.Deal> cards = service().forCaller().columns().get(0).deals();
+
+		assertThat(cards).extracting(OpportunityBoardService.Deal::service)
+				.containsExactly("PERM", "Credential evaluation");
+		assertThat(cards).extracting(OpportunityBoardService.Deal::source)
+				.containsExactly("Referral", null);
+	}
+
 	@Test
 	void marketingIsScopedTheSameWay() {
 		authenticate(Role.MARKETING, MINE);
@@ -184,6 +222,11 @@ class OpportunityBoardServiceTest {
 	 * Delivery, "a pipeline no single person owns", and the location's Master Pipeline. It also
 	 * read {@code team_member.ghl_pipeline_id}, the column Unit 44b replaced with
 	 * {@code team_member_pipeline}, so it answered empty once assignment moved.
+	 *
+	 * <p>This used to end with {@code verify(teamMembers, never()).findPipelinesOfActiveMembers()}.
+	 * The service stopped being given a {@code TeamMemberRepository} on 2026-09-22, so the roster
+	 * is now unreachable from it rather than merely unasked — a guarantee the compiler keeps and
+	 * this assertion cannot outlive.
 	 */
 	@Test
 	void theGmSeesEveryMirroredPipelineIncludingOnesNobodyIsAssignedTo() {
@@ -195,8 +238,6 @@ class OpportunityBoardServiceTest {
 		OpportunityBoardService.Board board = service().forCaller();
 
 		assertThat(board.totalDeals()).isEqualTo(2);
-		// The roster is not consulted at all: an unassigned pipeline is still the GM's to see.
-		verify(teamMembers, never()).findPipelinesOfActiveMembers(any());
 	}
 
 	/** A pipeline GHL stopped returning is not offered, even to the GM. */

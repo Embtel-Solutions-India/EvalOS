@@ -225,7 +225,6 @@ class DomainInvariantsTest {
 				.containsExactlyInAnyOrder(
 						"save",
 						"findByObjectTypeAndObjectIdOrderByCreatedAtAsc",
-						"findByBrandIdOrderByCreatedAtDesc",
 						"findCaseActionScoped",
 						"findCaseActionScoped");
 

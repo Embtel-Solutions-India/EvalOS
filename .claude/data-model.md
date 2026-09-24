@@ -13,7 +13,7 @@ live in `backend/src/main/resources/db/migration/`.
 > migrations produce, confirmed against a real applied instance. Row counts cited anywhere are the
 > **local seeded** database and say nothing about production.
 
-### Tables (26, including `flyway_schema_history`)
+### Tables (27, including `flyway_schema_history`)
 
 | Table | Purpose | Brand-scoped |
 |---|---|---|
@@ -32,7 +32,8 @@ live in `backend/src/main/resources/db/migration/`.
 | `payout_ledger` | one row per case, links to a payment | yes |
 | `payout_payment` | one transfer | yes |
 | `portal_access` | opaque tokens for CLIENT / EXPERT, case- or party-scoped | yes |
-| `opportunity_note` | staff prose against a GHL opportunity — **append-only trigger** | yes |
+| `opportunity_note` | staff prose against a GHL opportunity — **its author may overwrite or hard-delete it** (`V67`, Unit 54a: trigger dropped, `updated_at` added; was append-only until 2026-09-24) | yes |
+| `opportunity_note_ghl_link` | **the GHL note an `opportunity_note` became** (Unit 54, `V66`): `note_id` PK, `brand_id`, `ghl_note_id` unique per brand — **null on a delete marker** (`V68`: the note was deleted before its push learned the id, so the drain searches the contact for its reference) — `ghl_contact_id` (`V67`), `linked_at`. **No FK and no trigger since `V67`**: it outlives a deleted note until the drain has deleted the GHL copy, then the drain deletes it. `sync_outbox.entity_type` gained `OPPORTUNITY_NOTE` with no migration (no CHECK). `ghl_note.ghl_opportunity_id` null now means "the contact's note" | yes |
 | `pipeline` | **mirror of a GHL pipeline** (Unit 44a): `ghl_id` verbatim, `name`, `position`, `purpose`, `synced_at`, `missing_since`. Upserted, never deleted | yes |
 | `pipeline_stage` | **mirror of a GHL stage** (Unit 44a): FK to `pipeline`, `ghl_id` verbatim (mutable — see below), natural key `(pipeline_id, position, name)` | yes |
 | `opportunity` | **mirror of a GHL opportunity** (Unit 44d, `V51`): EvalOS's `id` is also the GHL correlation key; `ghl_id` is null until GHL has seen the row; `ghl_stage_id` is text, not a FK, so one sweep being behind cannot fail another. `local_updated_at` says an edit is outstanding and `locally_edited_fields` (`V63`) says **which of the four shared fields it is about**, so a push sends only those. Upserted, never deleted | yes |
@@ -166,6 +167,7 @@ three are named consistently rather than one being the odd one out. **Free slots
 must not become one** (D48). **Custom field values are not columns** (D49).
 
 ### From other approved-but-unbuilt work
+
 
 - `expert_application` plus recruitment stages — Unit 50 (ENM as a function).
 - Expert accounts on the Unit 42 pattern — no table exists, **and none is designed until the

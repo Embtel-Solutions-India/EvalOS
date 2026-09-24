@@ -128,10 +128,50 @@ class MailTemplatesTest {
 				.doesNotContain("within");
 	}
 
-	/** The logo is served by the portal, on the origin the links already point at. */
+	/**
+	 * The logo is an absolute URL on the marketing site, at the mark's own aspect ratio.
+	 *
+	 * <p><strong>The apex host is asserted, not just the path.</strong> The {@code www} host 301s,
+	 * and a redirect an image proxy declines to follow is a logo that silently stops rendering in
+	 * Gmail — a failure nobody sees from inside this codebase.
+	 *
+	 * <p><strong>The dimensions are asserted because getting them wrong is invisible here too.</strong>
+	 * The mark is 1230x290 (4.24:1); the previous stacked logo was 380x175 (2.17:1) and its 152x70
+	 * attributes would squash this one. A test is the only thing that notices, because the template
+	 * renders either way.
+	 */
 	@Test
-	void theLogoIsAbsoluteAndOnThePortalOrigin() {
-		assertThat(templates.setPassword("Ana", "https://portal.test/x").html())
-				.contains("https://portal.internationalevaluations.com/brand/logo.png");
+	void theLogoIsTheMarketingSiteMarkAtItsOwnAspectRatio() {
+		String html = templates.setPassword("Ana", "https://portal.test/x").html();
+
+		assertThat(html)
+				.contains("https://internationalevaluations.com/assets/logo-horizontal-main.png")
+				.doesNotContain("www.internationalevaluations.com/assets")
+				.contains("width=\"240\" height=\"57\"")
+				.contains("width:240px; height:57px;");
+	}
+
+	/**
+	 * The accent is the client portal's {@code --brand-crimson}, everywhere it appears.
+	 *
+	 * <p>Pins two things a recolour gets wrong. <strong>No navy survives</strong> — a palette swap
+	 * that misses one button leaves a single blue control in an otherwise crimson email, which
+	 * reads as a rendering fault rather than a design. And <strong>the neutrals are untouched</strong>:
+	 * body text stays {@code #11212C}, because an email whose prose is red reads as a warning and
+	 * every message here is routine.
+	 */
+	@Test
+	void theAccentIsThePortalsCrimsonAndTheNeutralsAreNot() {
+		for (String html : java.util.List.of(
+				templates.setPassword("Ana", "https://portal.test/x").html(),
+				templates.resetPassword("Ana", "https://portal.test/x").html(),
+				templates.requestSubmitted("Ana", "Academic Evaluation", 1).html())) {
+
+			assertThat(html.toUpperCase())
+					.contains("#C8102E")
+					.doesNotContain("#003152")
+					.doesNotContain("#085A91")
+					.contains("#11212C");
+		}
 	}
 }

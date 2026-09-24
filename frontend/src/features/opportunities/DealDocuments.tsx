@@ -1,4 +1,7 @@
 import { useEffect, useState } from 'react'
+import { Paperclip } from 'lucide-react'
+
+import { Panel } from '../../components/ui/panel'
 
 import {
   fetchRequestDocuments,
@@ -56,49 +59,141 @@ export default function DealDocuments({ opportunityId }: { opportunityId: string
   }
 
   if (error && documents.length === 0) {
-    return <p className="border-t border-slate-200 pt-2 text-xs text-rose-700">{error}</p>
+    return (
+      <p className="text-xs" style={{ color: 'var(--status-red)' }}>
+        {error}
+      </p>
+    )
   }
   if (documents.length === 0) return null
 
   return (
-    <section className="space-y-2 border-t border-slate-200 pt-2">
-      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-        Documents sent with the request
+    <Panel title="Submitted documents" icon={<Paperclip />}>
+      <table className="tbl">
+        <thead>
+          <tr>
+            <th className="num">#</th>
+            <th>Document name</th>
+            <th>Type</th>
+            <th>Uploaded on</th>
+            <th>Verification</th>
+            <th>On the case</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {documents.map((document, index) => (
+            <tr key={document.id}>
+              <td className="num">{index + 1}</td>
+              <td className="font-medium">
+                {document.filename}
+                {/* The format keeps its place under the name rather than in the Type column:
+                    it is real, it is the thing that tells you whether you can open the file,
+                    and it must not be mistaken for the document *category* beside it. */}
+                <span className="block text-xs font-normal" style={{ color: 'var(--text-muted)' }}>
+                  {fileType(document)} · {formatSize(document.sizeBytes)}
+                </span>
+              </td>
+              {/*
+                TYPE AND STATUS ARE PLACEHOLDERS, HELD OPEN ON PURPOSE (2026-09-23).
+
+                The columns are here so the screen matches the agreed design and can be reviewed
+                against it. Neither has a field behind it yet:
+
+                  Type    the document CATEGORY — Identity, Education, and the rest. Which
+                          documents a request expects, and what each is called, is still being
+                          decided. `application_document` stores a filename and a MIME type and
+                          nothing that answers "what kind of document is this".
+
+                  Status  the VERIFICATION verdict. That work belongs to the Project Coordinator
+                          and is theirs alone; this screen only ever displays it. Nothing sets it
+                          today, so every row reads the same.
+
+                Both render an explicit waiting state rather than a plausible value. A row saying
+                "Verified" that no one verified is the one outcome worse than an empty column:
+                a salesperson would price the work on it.
+              */}
+              <td style={{ color: 'var(--text-muted)' }}>—</td>
+              <td style={{ color: 'var(--text-muted)' }} className="whitespace-nowrap">
+                {new Date(document.uploadedAt).toLocaleDateString()}
+              </td>
+              <td className="whitespace-nowrap">
+                <span className="chip">Not reviewed</span>
+              </td>
+              <td className="whitespace-nowrap">
+                {/* `carriedToCase` IS real and stays, because it answers a question somebody
+                    actually asks — "has this reached the case yet". It is not the verification
+                    verdict and is not labelled as one. */}
+                <span className="chip">
+                  {document.carriedToCase ? 'On the case' : 'With the request'}
+                </span>
+              </td>
+              <td className="text-right">
+                <button
+                  type="button"
+                  onClick={() => void open(document)}
+                  disabled={opening === document.id}
+                  className="font-medium disabled:opacity-50"
+                  style={{ color: 'var(--accent-primary)' }}
+                >
+                  {opening === document.id ? 'Opening…' : 'View'}
+                </button>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+
+      {/*
+        The note is the "space held" made visible, not decoration. Without it the two waiting
+        columns read as a screen that failed to load its own data, and somebody files a bug
+        against a decision that has not been taken yet.
+      */}
+      <p
+        className="mt-3 border-t pt-3 text-xs"
+        style={{ borderColor: 'var(--border-default)', color: 'var(--text-muted)' }}
+      >
+        These are the files the client attached in their portal. <strong>Type</strong> and{' '}
+        <strong>Verification</strong> are not set yet — the document list is still being agreed, and
+        verifying a document is the Project Coordinator&rsquo;s work. Sales reads the verdict here;
+        it is never set from this screen.
       </p>
 
-      <ul className="space-y-1">
-        {documents.map((document) => (
-          <li key={document.id} className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
-            <button
-              type="button"
-              onClick={() => void open(document)}
-              disabled={opening === document.id}
-              className="text-left text-sm text-blue-600 hover:underline disabled:opacity-50"
-            >
-              {opening === document.id ? 'Opening…' : document.filename}
-            </button>
-            <span className="text-xs text-slate-500">
-              {formatSize(document.sizeBytes)}
-              {' · '}
-              {new Date(document.uploadedAt).toLocaleDateString()}
-            </span>
-            {/*
-              Only when it HAS been carried. A Coordinator asks "is this on the case yet"; the
-              answer "not yet" is the default state of every document on an open deal, and
-              labelling it would put a badge on every row to say nothing.
-            */}
-            {document.carriedToCase && (
-              <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-[11px] font-medium text-emerald-900">
-                on the case
-              </span>
-            )}
-          </li>
-        ))}
-      </ul>
-
-      {error && <p className="text-xs text-rose-700">{error}</p>}
-    </section>
+      {error && (
+        <p className="mt-2 text-xs" style={{ color: 'var(--status-red)' }}>
+          {error}
+        </p>
+      )}
+    </Panel>
   )
+}
+
+/**
+ * A word for the file, from the MIME type the upload recorded.
+ *
+ * **This is the format, not a category.** The design this table follows showed a Type column
+ * reading "Identity", "Education", "Other" — a taxonomy of what a document *is*, which
+ * `application_document` does not store and nothing on the request asks the client for. Inventing
+ * one here would put a classification on screen that no part of the system made. The format is a
+ * fact the row actually holds, and it answers the question the column is really asked: can I open
+ * this.
+ */
+function fileType(document: RequestDocument): string {
+  const mime = document.contentType
+  if (mime) {
+    const known: Record<string, string> = {
+      'application/pdf': 'PDF',
+      'image/jpeg': 'JPEG',
+      'image/png': 'PNG',
+      'application/msword': 'DOC',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'DOCX',
+    }
+    if (known[mime]) return known[mime]
+  }
+  // Falling back to the extension rather than showing the raw MIME string: `application/vnd.
+  // openxmlformats-…` in a table cell is noise, and a file with no recorded type still has a name.
+  const dot = document.filename.lastIndexOf('.')
+  return dot > 0 ? document.filename.slice(dot + 1).toUpperCase() : '—'
 }
 
 /**

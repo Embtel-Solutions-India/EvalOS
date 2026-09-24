@@ -221,9 +221,14 @@ public class SalesMeetingService {
 	 */
 	@Transactional(readOnly = true)
 	public List<Meeting> forOpportunity(String opportunityId) {
-		scope.requireMine(opportunityId);
+		// **The DEAL's brand, not the caller's, and that is not a detail.** `requireVisible` lets a
+		// GM read any deal, and a GM's principal carries NO brand — so the previous
+		// `TenantContext.current().brandId()` would have passed null here and returned an empty
+		// diary that looked like a deal with no meetings. Taking the brand off the row that was
+		// just authorised is both correct and narrower: it cannot name a brand the check did not
+		// already clear.
 		return meetings.findByBrandIdAndGhlOpportunityIdOrderByStartsAtDesc(
-				TenantContext.current().brandId(), opportunityId);
+				scope.requireVisible(opportunityId).getBrandId(), opportunityId);
 	}
 
 	private static void requireText(String value, String message) {

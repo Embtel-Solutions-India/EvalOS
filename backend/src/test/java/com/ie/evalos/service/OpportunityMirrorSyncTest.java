@@ -308,7 +308,7 @@ class OpportunityMirrorSyncTest {
 
 		mirror.absorbForContact(List.of(withCollections(List.of(),
 				List.of(new GhlPipelineClient.Note("note-1", "Call summary", "Wants expedited",
-						"u1", null)),
+						"u1", null, null, null)),
 				List.of(), List.of())));
 
 		org.mockito.ArgumentCaptor<com.ie.evalos.domain.GhlNote> written =
@@ -317,6 +317,38 @@ class OpportunityMirrorSyncTest {
 		assertThat(written.getValue().getGhlId()).isEqualTo("note-1");
 		assertThat(written.getValue().getBody()).isEqualTo("Wants expedited");
 		assertThat(written.getValue().getGhlOpportunityId()).isEqualTo("opp-1");
+	}
+
+	/**
+	 * <strong>Filed under the deal GHL says, not the deal it was listed under</strong> (Unit 54).
+	 *
+	 * <p>The search repeats a contact's notes under every one of that contact's deals — probed live
+	 * on 2026-09-24 — so a note listed under opp-1 but related to opp-2 belongs to opp-2, and one
+	 * related to no deal belongs to the contact alone.
+	 */
+	@Test
+	void aGhlNoteIsFiledUnderItsRelatedDealOrTheContact() {
+		given(opportunities.findByBrandIdAndGhlId(BRAND, "opp-1")).willReturn(Optional.empty());
+		given(notes.findByBrandIdAndGhlId(org.mockito.ArgumentMatchers.eq(BRAND), org.mockito.ArgumentMatchers.anyString())).willReturn(Optional.empty());
+		given(notes.findByBrandIdAndGhlOpportunityIdOrderByDateAddedDesc(BRAND, "opp-1"))
+				.willReturn(List.of());
+
+		mirror.absorbForContact(List.of(withCollections(List.of(), List.of(
+				new GhlPipelineClient.Note("n-other-deal", null, "about the second deal", null, null,
+						new GhlPipelineClient.CreatedBy("u9"),
+						List.of(new GhlPipelineClient.Relation("opportunity", "opp-2"),
+								new GhlPipelineClient.Relation("contact", "contact-1"))),
+				new GhlPipelineClient.Note("n-contact", null, "about the person", null, null, null,
+						List.of(new GhlPipelineClient.Relation("contact", "contact-1")))),
+				List.of(), List.of())));
+
+		org.mockito.ArgumentCaptor<com.ie.evalos.domain.GhlNote> written =
+				org.mockito.ArgumentCaptor.forClass(com.ie.evalos.domain.GhlNote.class);
+		verify(notes, org.mockito.Mockito.times(2)).save(written.capture());
+		assertThat(written.getAllValues()).extracting(com.ie.evalos.domain.GhlNote::getGhlOpportunityId)
+				.containsExactly("opp-2", null);
+		// The author GHL actually sends, in `createdBy`, not the documented top-level field.
+		assertThat(written.getAllValues().get(0).getGhlUserId()).isEqualTo("u9");
 	}
 
 	/**

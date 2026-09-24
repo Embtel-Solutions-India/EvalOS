@@ -84,8 +84,8 @@ export default function DealActions({
   }
 
   return (
-    <div className="space-y-2 border-t border-slate-200 pt-2">
-      <label className="block text-xs text-slate-600">
+    <div className="space-y-4">
+      <label className="block text-xs" style={{ color: 'var(--text-muted)' }}>
         Move to stage
         <select
           disabled={busy}
@@ -94,7 +94,7 @@ export default function DealActions({
             const stageId = event.target.value
             if (stageId) run(() => moveStage(opportunityId, stageId))
           }}
-          className="mt-0.5 w-full rounded border border-slate-300 px-2 py-1 text-xs"
+          className="field mt-1 w-full"
         >
           <option value="">Choose…</option>
           {stages.map((stage) => (
@@ -105,7 +105,7 @@ export default function DealActions({
         </select>
       </label>
 
-      <div className="flex gap-1">
+      <div className="flex gap-2">
         {(['won', 'lost', 'abandoned'] as CloseStatus[]).map((status) => (
           <button
             key={status}
@@ -119,7 +119,7 @@ export default function DealActions({
                 () => setAwaitingCase(status === 'won'),
               )
             }
-            className="flex-1 rounded border border-slate-300 px-2 py-1 text-xs capitalize disabled:opacity-40"
+            className="btn flex-1 capitalize"
           >
             {status}
           </button>
@@ -127,7 +127,7 @@ export default function DealActions({
       </div>
 
       {awaitingCase && (
-        <p className="text-xs text-amber-700">
+        <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
           {/*
             The honest description of a two-system handoff. EvalOS does not create the case and
             must not pretend to: GHL fires `opportunity.won` and the webhook does it (invariant
@@ -155,15 +155,15 @@ export default function DealActions({
             },
           )
         }}
-        className="space-y-1"
+        className="space-y-2"
       >
         <input
           value={followUpTitle}
           onChange={(event) => setFollowUpTitle(event.target.value)}
           placeholder="Follow up on…"
-          className="w-full rounded border border-slate-300 px-2 py-1 text-xs"
+          className="field w-full"
         />
-        <div className="flex gap-1">
+        <div className="flex gap-2">
           {/*
             A native date-time input rather than a picker library: the browser already has one,
             it is keyboard- and screen-reader-accessible for free, and it localises itself.
@@ -172,12 +172,12 @@ export default function DealActions({
             type="datetime-local"
             value={followUpDue}
             onChange={(event) => setFollowUpDue(event.target.value)}
-            className="flex-1 rounded border border-slate-300 px-2 py-1 text-xs"
+            className="field flex-1"
           />
           <button
             type="submit"
             disabled={busy || !followUpTitle.trim() || !followUpDue}
-            className="rounded bg-slate-900 px-2 py-1 text-xs text-white disabled:opacity-40"
+            className="btn btn-primary"
           >
             Set
           </button>
@@ -185,7 +185,7 @@ export default function DealActions({
       </form>
 
       {followUpSet && (
-        <p className="text-xs text-emerald-700">
+        <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
           Follow-up “{followUpSet}” added as a task in GHL.
         </p>
       )}
@@ -213,12 +213,13 @@ export default function DealActions({
               },
             )
           }}
-          className="space-y-1 border-t border-slate-200 pt-2"
+          className="space-y-2 border-t pt-4"
+          style={{ borderColor: 'var(--border-default)' }}
         >
           <select
             value={calendarId}
             onChange={(event) => setCalendarId(event.target.value)}
-            className="w-full rounded border border-slate-300 px-2 py-1 text-xs"
+            className="field w-full"
           >
             <option value="">Book a meeting…</option>
             {calendars.map((calendar) => (
@@ -233,14 +234,14 @@ export default function DealActions({
                 value={meetingTitle}
                 onChange={(event) => setMeetingTitle(event.target.value)}
                 placeholder="Meeting about…"
-                className="w-full rounded border border-slate-300 px-2 py-1 text-xs"
+                className="field w-full"
               />
-              <div className="flex gap-1">
+              <div className="flex gap-2">
                 <input
                   type="datetime-local"
                   value={meetingStart}
                   onChange={(event) => setMeetingStart(event.target.value)}
-                  className="flex-1 rounded border border-slate-300 px-2 py-1 text-xs"
+                  className="field flex-1"
                 />
                 {/*
                   A duration rather than a second datetime: every meeting on this desk is 15-60
@@ -250,7 +251,7 @@ export default function DealActions({
                 <select
                   value={meetingMinutes}
                   onChange={(event) => setMeetingMinutes(Number(event.target.value))}
-                  className="rounded border border-slate-300 px-1 py-1 text-xs"
+                  className="field w-auto"
                 >
                   {[15, 30, 45, 60].map((minutes) => (
                     <option key={minutes} value={minutes}>
@@ -261,7 +262,7 @@ export default function DealActions({
                 <button
                   type="submit"
                   disabled={busy || !meetingTitle.trim() || !meetingStart}
-                  className="rounded bg-slate-900 px-2 py-1 text-xs text-white disabled:opacity-40"
+                  className="btn btn-primary"
                 >
                   Book
                 </button>
@@ -272,7 +273,7 @@ export default function DealActions({
       )}
 
       {meetingBooked && (
-        <p className="text-xs text-emerald-700">
+        <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
           {/*
             Said explicitly, because it is the one action here that reaches the client. A
             salesperson who does not know GHL sent the invite will send a second one by hand.
@@ -280,7 +281,11 @@ export default function DealActions({
           “{meetingBooked}” booked. GHL sends the invitation.
         </p>
       )}
-      {error && <p className="text-xs text-rose-600">{error}</p>}
+      {error && (
+        <p className="text-xs" style={{ color: 'var(--status-red)' }}>
+          {error}
+        </p>
+      )}
     </div>
   )
 }

@@ -10,10 +10,15 @@ package com.ie.evalos.domain;
  *
  * <p>{@code CONTACT} is absent for a different reason and will arrive: EvalOS has no GHL contact
  * <em>read</em> client, only the upsert, so there is nothing to compare against yet.
+ *
+ * <p>Also what an outbox row is about. {@code OPPORTUNITY_NOTE} (Unit 54) is an outbox entity only:
+ * a note is pushed once and never edited, so there is nothing for an audit to drift.
  */
 public enum SyncEntity {
 
 	OPPORTUNITY,
 
-	CONTACT
+	CONTACT,
+
+	OPPORTUNITY_NOTE
 }

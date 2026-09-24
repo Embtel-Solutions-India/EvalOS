@@ -117,6 +117,13 @@ public enum AuditAction {
 	 * {@code @PreAuthorize}; the scoped load is the whole gate, so "everyone on the case" means
 	 * precisely the set the scope already admits.
 	 */
+	/**
+	 * An EvalOS deal note was overwritten by its author (Unit 54a). The row says who and when; it
+	 * never holds the text, because the business chose overwrite over revisions.
+	 */
+	NOTE_EDITED,
+	/** An EvalOS deal note was deleted by its author (Unit 54a). Who and when, never the words. */
+	NOTE_DELETED,
 	NOTE_ADDED,
 	/**
 	 * A transfer was recorded as sent, settling one or more payout rows (Unit 16b),

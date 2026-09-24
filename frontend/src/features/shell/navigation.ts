@@ -363,6 +363,23 @@ export const NAV_ITEMS: readonly NavItem[] = [
   // Manager oversee it, and the Project Manager reads it because they pick the experts on it
   // — the assignment picker only ever showed them a name. A Case Manager and a Coordinator
   // are absent, matching that gate: they work the case the expert was chosen for.
+  /*
+    Contacts sits above the expert database because the two are the same kind of screen — a
+    roster of people — and the client-facing one is the one the wider set of roles opens.
+
+    NOT `readsGhlLocation`. The list is read from `contact_snapshot`, EvalOS's own table, and
+    every row on it carries a brand: a Brand Manager sees their brand and a desk sees the
+    contacts on its own pipelines, both attributable without the sales-brand exception. The GM's
+    cross-brand view is `Tier.ALL` doing what it does on every other brand-scoped screen, not a
+    read of the shared location.
+  */
+  {
+    path: '/contacts',
+    label: 'Contacts',
+    roles: ['GM', 'BRAND_MANAGER', 'SALES', 'MARKETING'],
+    becomes: 'Everyone in the CRM, at the width your role reads',
+    group: 'Records',
+  },
   {
     path: '/experts',
     label: 'Expert database',

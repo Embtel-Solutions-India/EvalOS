@@ -40,9 +40,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 /**
  * One note stream, reachable by both desks and by neither's URL.
  *
- * <p>{@link #aNoteCannotBeEditedOrDeleted} is the one worth reading: append-only is enforced by a
- * database trigger, but the absence of a route is what stops anyone writing the client code that
- * would find that out the hard way.
+ * <p>{@link #theDesksCanEditAndDeleteButOversightCannot} covers Unit 54a's two routes: open to the two
+ * desks by role, narrowed to the note's author in the service.
  */
 @WebMvcTest(controllers = OpportunityNoteController.class)
 @Import({ SecurityConfig.class, JwtService.class, ApiErrors.class })
@@ -54,7 +53,8 @@ class OpportunityNoteControllerTest {
 
 	private static final OpportunityNoteService.Note NOTE = new OpportunityNoteService.Note(
 			UUID.randomUUID(), "Spoke to the client", UUID.randomUUID(),
-			Instant.parse("2026-09-11T09:00:00Z"));
+			Instant.parse("2026-09-11T09:00:00Z"), OpportunityNoteService.Origin.EVALOS, "Desk", null,
+			false, false, null);
 
 	@Autowired
 	MockMvc mockMvc;
@@ -97,40 +97,75 @@ class OpportunityNoteControllerTest {
 	}
 
 	/**
-	 * <strong>There is no route to edit or delete a note.</strong>
-	 *
-	 * <p>The database refuses both with a trigger, and a 404 here is what stops anyone reaching
-	 * for one. This is the client conversation rather than a record of it — a correction is a
-	 * new note.
+	 * <strong>Edit and delete exist since Unit 54a</strong> — this was the test that they did not,
+	 * inverted when the business chose overwrite and hard delete (2026-09-24). A desk reaches both
+	 * routes, and the service decides whether it is the author; the GM, who reads but never writes
+	 * the conversation, is refused by role before it gets there.
 	 */
 	@Test
-	void aNoteCannotBeEditedOrDeleted() throws Exception {
-		mockMvc.perform(put("/api/opportunities/{id}/notes/{noteId}", OPPORTUNITY, UUID.randomUUID())
+	void theDesksCanEditAndDeleteButOversightCannot() throws Exception {
+		UUID noteId = UUID.randomUUID();
+		given(notes.edit(OPPORTUNITY, noteId, "rewritten")).willReturn(NOTE);
+
+		mockMvc.perform(put("/api/opportunities/{id}/notes/{noteId}", OPPORTUNITY, noteId)
 				.header(HttpHeaders.AUTHORIZATION, bearer(Role.SALES))
 				.contentType(MediaType.APPLICATION_JSON).content("{\"body\":\"rewritten\"}"))
-				.andExpect(status().isNotFound());
+				.andExpect(status().isOk());
+		mockMvc.perform(delete("/api/opportunities/{id}/notes/{noteId}", OPPORTUNITY, noteId)
+				.header(HttpHeaders.AUTHORIZATION, bearer(Role.MARKETING)))
+				.andExpect(status().isOk());
+		then(notes).should().delete(OPPORTUNITY, noteId);
 
-		mockMvc.perform(delete("/api/opportunities/{id}/notes/{noteId}", OPPORTUNITY, UUID.randomUUID())
-				.header(HttpHeaders.AUTHORIZATION, bearer(Role.SALES)))
-				.andExpect(status().isNotFound());
+		mockMvc.perform(delete("/api/opportunities/{id}/notes/{noteId}", OPPORTUNITY, noteId)
+				.header(HttpHeaders.AUTHORIZATION, bearer(Role.GM)))
+				.andExpect(status().isForbidden());
+		then(notes).should(org.mockito.Mockito.times(1)).delete(OPPORTUNITY, noteId);
 	}
 
 	/**
-	 * Every role but the two desks — including the GM.
+	 * Production roles are refused: they work cases, and this is the sales conversation.
 	 *
-	 * <p>The GM reads every board (Unit 38's union) but owns no pipeline, so
-	 * {@code PipelineScope} would refuse them anyway. The gate says so plainly rather than
-	 * letting oversight walk into a 403. Widening it is a change to the scope model, not a
-	 * role-list edit.
+	 * <p><strong>The GM and the Brand Manager came off this list on 2026-09-23.</strong> They were
+	 * on it because {@code PipelineScope} could only ask "is this <em>my</em> pipeline" and a GM
+	 * owns none — {@code 00d} row 73's "implementation consequence hardened into policy", P0.
+	 * {@code requireVisible} answers the question properly now, so the gate no longer has to stand
+	 * in for a scope model that could not express oversight.
 	 */
 	@ParameterizedTest
-	@EnumSource(value = Role.class, mode = EnumSource.Mode.EXCLUDE, names = { "SALES", "MARKETING" })
-	void everyOtherRoleIsRefused(Role role) throws Exception {
+	@EnumSource(value = Role.class, mode = EnumSource.Mode.EXCLUDE,
+			names = { "SALES", "MARKETING", "GM", "BRAND_MANAGER" })
+	void everyProductionRoleIsRefused(Role role) throws Exception {
 		mockMvc.perform(get("/api/opportunities/{id}/notes", OPPORTUNITY)
 				.header(HttpHeaders.AUTHORIZATION, bearer(role)))
 				.andExpect(status().isForbidden());
 
 		then(notes).should(never()).on(any());
+	}
+
+	/** Oversight reads the conversation — the half of row 73 that was the bug. */
+	@ParameterizedTest
+	@EnumSource(value = Role.class, mode = EnumSource.Mode.INCLUDE, names = { "GM", "BRAND_MANAGER" })
+	void oversightReadsTheStream(Role role) throws Exception {
+		mockMvc.perform(get("/api/opportunities/{id}/notes", OPPORTUNITY)
+				.header(HttpHeaders.AUTHORIZATION, bearer(role)))
+				.andExpect(status().isOk());
+	}
+
+	/**
+	 * <strong>And does not write into it.</strong> A GM reading the thread is oversight; a GM
+	 * posting to it is a second voice in a conversation the desk owns and the client answers back
+	 * into. This is the assertion that stops the read widening being copied onto the write.
+	 */
+	@ParameterizedTest
+	@EnumSource(value = Role.class, mode = EnumSource.Mode.INCLUDE, names = { "GM", "BRAND_MANAGER" })
+	void oversightDoesNotWriteIntoIt(Role role) throws Exception {
+		mockMvc.perform(post("/api/opportunities/{id}/notes", OPPORTUNITY)
+				.header(HttpHeaders.AUTHORIZATION, bearer(role))
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("{\"body\":\"oversight should not be able to say this\"}"))
+				.andExpect(status().isForbidden());
+
+		then(notes).should(never()).add(any(), any());
 	}
 
 	@Test

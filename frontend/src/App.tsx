@@ -8,6 +8,7 @@ import PmNotesPage from './features/queues/PmNotesPage'
 import ExpertAssignmentPage from './features/queues/ExpertAssignmentPage'
 import DeliveryQueuePage from './features/queues/DeliveryQueuePage'
 import ChecklistBoard from './features/checklist/ChecklistBoard'
+import ContactsPage from './features/contacts/ContactsPage'
 import ExpertRoster from './features/experts/ExpertRoster'
 import MeetingsPage from './features/meetings/MeetingsPage'
 import NewMeetingPage from './features/meetings/NewMeetingPage'
@@ -54,6 +55,7 @@ const SCREENS: Record<string, React.ReactNode> = {
   '/expert-assignment': <ExpertAssignmentPage />,
   '/delivery': <DeliveryQueuePage />,
   '/checklists': <ChecklistBoard />,
+  '/contacts': <ContactsPage />,
   '/experts': <ExpertRoster />,
   '/payouts': <PayoutBatch />,
   '/admin/jobs': <JobRunsPage />,

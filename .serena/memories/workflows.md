@@ -49,12 +49,24 @@ open deal).
 contact id** (D41 — one id names a contact everywhere; `DocumentStore.clientKey` moved back onto it
 on 2026-09-17) and carries it into `case_document` at Handoff A over the same S3 object. **Notifications** are in-app today; D37 makes them in-app **and push**, never mail.
 
-**Conversations do not exist** — no table, no route, no component, anywhere.
+**Conversations do not exist** — no table, no route, no component, anywhere. **Notes** are
+synced both ways (Unit 54, built 2026-09-24): pushed once to the GHL contact via the
+outbox, GHL notes shown on the deal from the existing `ghl_note` mirror.
 
 **GHL → EvalOS (45d, 2026-09-17).** `contact.created`/`contact.updated` → `contact_snapshot`;
 `opportunity.create|created|update|updated|stage_changed|status_changed` → re-read
 `forContact` → `absorbForContact`. `opportunity.won` stays Handoff A alone. `MIRROR_DELTA` (15m)
 re-reads only pipelines nobody has looked at inside `evalos.ghl.delta-ttl`.
+
+**Contact backfill (2026-09-22).** `ContactSnapshotService.findOrFetch`: mirror first, and only on a
+miss `GhlContactClient.byId` → `GET /contacts/{id}` (`contacts.readonly`, already granted), saved
+through `findOrCreate` so the email-match and contradiction rules still apply. **Why it had to
+exist:** every writer of `contact_snapshot` is an EvalOS-side event (Handoff A, set-password, the
+`contact.*` webhook) and NO SWEEP PULLS CONTACTS — `MIRROR_DELTA` refreshes opportunities. A deal
+typed straight into GHL therefore carried a `ghl_contact_id` and no contact row, and the deal screen
+read "it arrives with the next sync", naming a sync that does not exist. A GHL failure returns empty
+and logs rather than throwing, so a blip does not take the whole screen down with the contact card.
+It is a backfill, not a mirror: a contact CHANGED in GHL still only updates via the webhook.
 
 **Desk writes (46, 2026-09-17).** Edits — `update`, `moveToStage`, `close`, Marketing's `value` —
 are `editLocally` + `enqueue(UPSERT|CLOSE)` and return the local row. Creates — `createDeal`,

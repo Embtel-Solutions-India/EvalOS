@@ -1,5 +1,5 @@
 import { useId, useState } from 'react'
-import { PopoverContent, PopoverRoot, PopoverTrigger } from '../../components/ui/menu'
+import { PopoverContent, PopoverRoot, PopoverTrigger } from '../../components/ui/popover'
 import {
   useFilters,
   rangeLabel,

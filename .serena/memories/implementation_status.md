@@ -3,8 +3,52 @@
 **The authoritative file is `.claude/implementation-status.md` — a table with evidence per row.
 Check it before claiming anything exists or is missing.**
 
-Build is green: backend **1098 tests, 0 failures, 4 skipped**; staff SPA 127 tests plus clean tsc
-and oxlint; portals 30 tests plus clean tsc. Re-run 2026-09-18 on a `clean` build.
+Build is green: backend **1177 tests, 0 failures, 4 skipped** (2026-09-24); staff SPA 131 tests (2026-09-23) plus clean tsc
+and oxlint; portals 30 tests plus clean tsc and a clean `npm run build`. Re-run 2026-09-22 after
+the dead-code pass below.
+
+**Opportunity board, 2026-09-23.** `OpportunityBoardPage` reuses the production board's
+`StageColumn` (fixed width, pinned header, per-column scroll). SALES drags a deal between stages:
+native HTML5 DnD delegated on the strip, no state change per pointer move, optimistic
+`boardMove.moveDeal` (untouched columns/cards keep identity, so memoised ones skip), one
+`PUT /sales/opportunities/{id}/stage`, rollback on refusal. Name search via `useDeferredValue`;
+`content-visibility: auto` on cards instead of a virtualiser. Server does not check the target
+stage is in the deal's pipeline — open decision Q12. 2026-09-24: board `Deal` carries `source` and
+`service` (row fields first, then `opportunity.lead_source` / the portal request), one read each
+per board; cards show Value / Source / service with "—" placeholders, headers show stage Value.
+
+**Unit 54a, note edit/delete — COMPLETE 2026-09-24.** Author-only `PUT`/`DELETE` on a note; `V67`
+drops the append-only triggers; the outbox overwrites or deletes the GHL copy; audited without text.
+An edit made during its own push is re-queued (`editedSince`), not lost. Outbox `enqueue` is a native
+`ON CONFLICT DO NOTHING` (`enqueueIfAbsent`) — the old caught-violation collapse failed the commit (500),
+for deal edits too. A delete leaves a link with the contact (`V68` delete marker, null GHL id) when a contact is known.
+`enqueueIfAbsent` is `@Transactional` itself: the drain's re-queue is a self-call that skips
+`enqueue`'s REQUIRES_NEW.
+
+**Unit 54, two-way note sync — COMPLETE 2026-09-24.** `V66` link table (insert-only) + backfill;
+outbox `OPPORTUNITY_NOTE` pushes a note once to the deal's GHL contact (retry reads contact notes
+for the `#id8` reference before re-posting); `OpportunityNoteService.on` merges deal + contact
+`ghl_note` rows minus echoes; the mirror files GHL notes by `relations` and reads
+`createdBy.userId`. No note has been posted to a real contact yet. Locally `EVALOS_GHL_WRITE_MODE=stub` (in `.env`)
+means notes are NOT sent and NOT linked; a note written while stubbed is never re-sent.
+
+**Dead-code pass 2026-09-22 — deletions only, no behaviour change, all four suites green either
+side.** Gone: nine unimported shadcn wrappers in `client-expert/shared/src/components/ui/`
+(`avatar`, `dropdown-menu`, `pagination`, `popover`, `separator`, `switch`, `tabs`, `tooltip`,
+`dialog`) plus `common/ConfirmDialog.tsx`, their only reader; `shared/src/utils/storage.ts`,
+`constants/storage.ts`, `constants/upload.ts` and `hooks/useMediaQuery.ts`, all mock-auth
+leftovers; `frontend/src/components/ui/tabs.tsx`, which no screen imported (`ExpertRoster` has its
+own local `Tab`); five unused exports from `shared/src/utils/formatters.ts`, including a
+hand-rolled `relativeTime` that `Intl.RelativeTimeFormat` covers; and nine repository finders with
+no caller. `frontend/src/components/ui/menu.tsx` is now **`popover.tsx`** — the DropdownMenu and
+Tooltip halves had no callers, and `AssignPopover` and `DateFilter` were repointed. Eleven
+dependencies left `client-expert/package.json`; `@radix-ui/react-dialog` stays because
+`MobileNavDrawer` uses it directly.
+
+**Deliberately kept:** `TeamMemberPipelineRepository.membersOn` (no production caller, but a test
+covers it). **Deliberately deferred**, as refactors rather than deletions: `MailTransport` is an
+interface over one implementation, `ScopedRepository` is inherited by seven repositories that
+never call `findScoped`, and much of the javadoc retells git history.
 
 **Use `mvnw clean test`, not `mvnw test`, after a signature change.** The VS Code Java extension
 writes error-tolerant classes into the same `target/classes` and Maven's incremental build keeps
@@ -94,6 +138,79 @@ coexist; two accounts claiming one contact may not). `ContactSnapshotService` is
 `DomainInvariantsTest` permits exactly ONE injector of the intake service, so a second handler would
 have failed the build. Sign-up now creates the CRM row, closing the prospect gap — until this, the
 only writer was Handoff A, so `contact_snapshot` held only contacts that had WON an opportunity.
+
+**Contact mirror 2026-09-23 — `CONTACT_MIRROR`, hourly.** `GhlContactClient.page()` over
+`POST /contacts/search` (cursor `searchAfter`, sort `dateUpdated asc` so a contact edited mid-pass
+moves AHEAD of the cursor rather than being skipped), writing via `ContactSnapshotService`. THIS IS
+WHAT MAKES THE CONTACTS LIST COMPLETE: before it the table held 32 of the location's 1,407.
+Full pass, no high-water mark — 15 pages ~1.7s; switch to `dateUpdated >= lastRun` past ~20k.
+`GhlHttp.search()` is a FIFTH helper (not a fifth HTTP verb) for reads GHL exposes as POST; it
+refuses any path not ending `/search`, so it cannot become the hole in the write-audit guard.
+
+**`GhlHttpTest` write-audit guard was crying wolf** and is fixed: `\.(post|put|delete)\(` matched
+`body.put(...)` on a Map. It now binds the verb to the CAPTURED `GhlHttp` reference name.
+
+**Deal READ scope fixed 2026-09-23 — `PipelineScope.requireVisible`.** ALL=any deal,
+BRAND=own brand, PIPELINE=delegates to `requireMine`. Closes `00d` row 73 (P0): `requireMine`
+reads pipelines off the principal and D19e says A GM HOLDS NONE AND MUST NOT, so the GM's board
+listed every deal and 403'd on opening any. READS WIDENED, WRITES DID NOT — every edit/close/
+booking/note is still `requireMine`, and `PipelineScopeVisibilityTest` asserts the GM's write
+refusal so the two methods cannot be collapsed later. `SalesMeetingService.forOpportunity` now
+queries with the DEAL's brand (the caller's is null for a GM). 403-never-404 unchanged.
+`GET /opportunities/{id}/notes` also widened to +GM/+BRAND_MANAGER — the route's own javadoc named
+this exact precondition, and `00d` §3.1's "no role can read both note streams" is the DEFECT three
+audits found, not an invariant. THE POST STAYS SALES/MARKETING and a test asserts that refusal.
+
+**Contacts directory 2026-09-23.** `GET /api/contacts?search=`, nav `/contacts` under Records.
+THREE WIDTHS AND THEY ARE JUST THE TIERS: `GM(Tier.ALL)` = every brand, `BRAND_MANAGER(Tier.BRAND)`
+= own brand, `SALES`/`MARKETING(Tier.PIPELINE)` = contacts on the deals they work (join
+`contact_snapshot -> opportunity -> pipeline`, match `pipeline.ghl_id`). No brand/pipeline
+parameter on the request — a width the client could send is a width the client could change.
+JDBC rather than `ScopePredicate` ONLY because the pipeline arm needs a join and `Fields` has no
+vocabulary for one; do not add a join axis there for one screen. The contact→deal join is
+BRAND-MATCHED as well as id-matched (`ghl_contact_id` is unique per brand, not globally).
+PAGED server-side (`?page=&size=`, 15 default, clamp 100); offset not keyset because the pages are numbered and jumped between; total is a separate count wrapping the GROUPED query, since a bare count over the join counts DEALS. `ORDER BY full_name, id` — the id tiebreak is what stops a row showing on two pages. `ContactDirectoryScopeTest` pins every arm and both refusals.
+
+**Deal screen rebuilt 2026-09-23 (two columns).** Left = the record, right = Actions +
+Contact details (sticky at `xl`). `DealApplication`/`DealDocuments` became tables (`.tbl`);
+answers expand in place. `ContactView` gained `source` / `assignedTo` / `createdAt` — the assignee
+is resolved to a NAME via the `ghl_user` mirror so the raw GHL user id never reaches the browser.
+`ContactSnapshot.getSourceChannel()` is new. `DealEditDialog` wraps the existing
+`PUT /api/sales/opportunities/{id}` (name + value, SALES only).
+
+DOCUMENT TABLE: `Type` and `Verification` are PLACEHOLDER columns (2026-09-23) rendering `—`
+and `Not reviewed`, with a note under the table. The document list is still being agreed, and
+VERIFICATION IS THE PROJECT COORDINATOR'S WORK — Sales displays the verdict and never sets it.
+Do not fill either with a plausible value; a row reading "Verified" that nobody verified is worse
+than an empty column. `carried_to_case_document_id` has its own "On the case" column and is NOT
+the verification verdict. Format and size sit under the filename, where they are real.
+
+STILL NOT BUILT from that design: a "Hot" lead-temperature badge (nothing scores a lead) and a
+second questionnaire (one `client_application` per opportunity).
+
+**Mail branding 2026-09-23.** The logo is the horizontal mark served from the marketing site —
+`MailTemplates.LOGO_URL`, the APEX host (`www` 301s and image proxies drop redirects), sized
+`240x57` for a 1230x290 mark; the old `152x70` belonged to the stacked 380x175 portal logo and
+would squash this one. The accent is the client portal's `--brand-crimson` `#C8102E` in place of
+navy `#003152`, panel tint `#FBECEE` in place of `#EBF4F9`; neutrals unchanged, because an email
+whose prose is red reads as a warning. NOT the logo's own red (`#E60914`) — portal token wins.
+`MailTemplates.load` now strips HTML comments: `layout.html` is 55% comment and all of it was
+being mailed to clients. Safe only while no template uses an Outlook `<!--[if mso]>` conditional.
+
+**Dead-member sweep 2026-09-22 (backend).** Five unused `@Value` imports, `SalesDeskService`'s
+second `asDeal` overload, and `OpportunityBoardService`'s `TeamMemberRepository` — kept five days
+after the GM's union stopped using it, with `verify(teamMembers, never())` guarding behaviourally
+what removing the field now guarantees structurally. Zero unused imports remain in the whole
+backend. NOT touched, because they are not dead: Spring's package-private constructors, JUnit
+`@BeforeEach`/`@AfterEach` methods, and the fixture arguments `OpportunityBoardServiceTest` passes
+for documentation (`mirrored(..., pipelineId, ...)`, `givenMirrored(..., pipelineIds)`) — its own
+javadoc says the row does not store them.
+
+**The gap that survived all of that closed 2026-09-22.** None of those writers fires for a contact
+that already existed in GHL before EvalOS met it, and no sweep pulls contacts, so the deal screen
+was blank for every deal a salesperson typed into GHL. `ContactSnapshotService.findOrFetch` reads
+`GET /contacts/{id}` on a mirror miss and keeps the row; `GhlContactClient` is the new read client;
+`ContactSnapshotFetchTest` pins mirror-wins, fetch-and-keep, and outage-degrades-to-empty.
 
 **The `contact_snapshot` → `contact` RENAME is deferred, and the reason is not laziness**: two seeds
 (`V905` local, `V951` testprod) write that table and run after every migration, `MigrationTreeTest`
@@ -248,7 +365,7 @@ against the live operation contract. So all of it rides on the read the mirror a
 **zero extra requests**. `V62`: `opportunity.custom_fields` (jsonb, keyed by GHL **field id** — a
 rename keeps the id), `ghl_note`, `ghl_tag`. Read-back needed **no migration**: `FollowUp` and
 `Meeting` already had the columns and were only missing the code. **`ghl_note` must never merge with
-`opportunity_note`** (EvalOS prose, append-only trigger, never synced). **A task EvalOS never
+`opportunity_note`** (EvalOS prose; synced both ways and author-editable since Units 54/54a). **A task EvalOS never
 created is not invented.** **Tags are read, never written** — GHL workflows key off them.
 **D46 is unblocked**: the mirror now holds the values a queued desk create needs.
 Suite: backend **1075**, frontend **127**.

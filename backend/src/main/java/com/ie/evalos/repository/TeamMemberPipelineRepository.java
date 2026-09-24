@@ -49,14 +49,6 @@ public class TeamMemberPipelineRepository {
 				 ORDER BY p.position, p.name""", String.class, memberId);
 	}
 
-	/** The mirror ids, for a caller that addresses the {@code pipeline} row itself. */
-	public List<UUID> pipelineIdsFor(UUID memberId) {
-		return jdbc.queryForList(
-				"SELECT pipeline_id FROM team_member_pipeline "
-						+ "WHERE team_member_id = ? AND revoked_at IS NULL",
-				UUID.class, memberId);
-	}
-
 	/**
 	 * Finishes Unit 44b's migration for members still described by the column it replaced.
 	 *
