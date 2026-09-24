@@ -10,7 +10,6 @@ permissions:
   id-token: write
 
 jobs:
-
   backend:
     name: Backend CI
     runs-on: ubuntu-latest
@@ -31,7 +30,6 @@ jobs:
           --health-retries 10
 
     steps:
-
       - name: Checkout code
         uses: actions/checkout@v4
 
@@ -50,7 +48,6 @@ jobs:
           DB_PASSWORD: postgres
         run: ./mvnw --batch-mode test -Devalos.db.test=true
 
-
   frontend:
     name: Frontend CI
     runs-on: ubuntu-latest
@@ -60,7 +57,6 @@ jobs:
         working-directory: frontend
 
     steps:
-
       - name: Checkout code
         uses: actions/checkout@v4
 
@@ -83,49 +79,61 @@ jobs:
       - name: Run lint
         run: npm run lint
 
-
   deploy:
     name: Deploy to EC2
-
     needs:
       - backend
       - frontend
-
     runs-on: ubuntu-latest
+    timeout-minutes: 45
 
     steps:
-
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: arn:aws:iam::637442130394:role/EvalOS-GitHub-Deploy-Role
           aws-region: us-east-1
 
-
       - name: Deploy to EC2
+        shell: bash
         run: |
+          set -euo pipefail
+
+          cat > deploy.sh <<'SCRIPT'
+          set -e
+          cd /home/ubuntu/EvalOS
+          git pull --ff-only origin main
+          docker compose --env-file ./backend/.env build frontend backend
+          docker compose --env-file ./backend/.env up -d frontend backend
+          docker compose --env-file ./backend/.env ps
+          SCRIPT
+
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          script = Path("deploy.sh").read_text()
+          commands = [
+              "set -e",
+              "sudo -H -u ubuntu bash -c " + __import__("shlex").quote(script)
+          ]
+
+          Path("ssm-parameters.json").write_text(
+              json.dumps({"commands": commands})
+          )
+          PY
 
           COMMAND_ID=$(aws ssm send-command \
             --instance-ids "i-0b4f356f554f30fb6" \
             --document-name "AWS-RunShellScript" \
-            --parameters 'commands=[
-              "set -e",
-              "cd /home/ubuntu/EvalOS",
-              "export GIT_SSH_COMMAND='ssh -F /home/ubuntu/.ssh/config'",
-              "git -c safe.directory=/home/ubuntu/EvalOS pull --ff-only origin main",
-              "docker compose --env-file ./backend/.env build frontend backend",
-              "docker compose --env-file ./backend/.env up -d frontend backend",
-              "docker compose --env-file ./backend/.env ps"
-            ]' \
+            --parameters file://ssm-parameters.json \
             --comment "EvalOS deployment from GitHub Actions" \
             --query "Command.CommandId" \
             --output text)
 
           echo "SSM Command ID: $COMMAND_ID"
 
-
           while true; do
-
             STATUS=$(aws ssm get-command-invocation \
               --command-id "$COMMAND_ID" \
               --instance-id "i-0b4f356f554f30fb6" \
@@ -135,26 +143,19 @@ jobs:
             echo "SSM Status: $STATUS"
 
             case "$STATUS" in
-
               Success)
                 echo "Deployment completed successfully."
                 break
                 ;;
-
               Failed|Cancelled|TimedOut|Cancelling)
                 echo "Deployment failed."
-
                 aws ssm get-command-invocation \
                   --command-id "$COMMAND_ID" \
                   --instance-id "i-0b4f356f554f30fb6"
-
                 exit 1
                 ;;
-
               *)
                 sleep 10
                 ;;
-
             esac
-
           done
