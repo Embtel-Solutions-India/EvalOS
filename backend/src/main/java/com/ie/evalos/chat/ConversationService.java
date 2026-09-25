@@ -16,7 +16,6 @@ import com.ie.evalos.repository.ExpertCaseOfferRepository;
 import com.ie.evalos.service.AuditService;
 
 import org.springframework.context.ApplicationEventPublisher;
-import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -102,37 +101,43 @@ public class ConversationService {
 	private Conversation ensure(Case subject, ConversationType type) {
 		return conversations.findByBrandIdAndCaseIdAndType(subject.getBrandId(), subject.getId(), type)
 				.orElseGet(() -> {
-					try {
-						return conversations.saveAndFlush(new Conversation(subject.getBrandId(), subject.getId(), type));
-					}
-					catch (DataIntegrityViolationException raced) {
-						// The sweep and a listener created it at the same moment; take the winner's.
-						return conversations.findByBrandIdAndCaseIdAndType(subject.getBrandId(), subject.getId(), type)
-								.orElseThrow(() -> raced);
-					}
+					// Insert-or-nothing, then read: whoever wins a race, both callers get the one row.
+					conversations.createIfAbsent(subject.getBrandId(), subject.getId(), type.name());
+					return conversations.findByBrandIdAndCaseIdAndType(subject.getBrandId(), subject.getId(), type)
+							.orElseThrow(() -> new IllegalStateException("Conversation " + type + " of case "
+									+ subject.getId() + " neither existed nor could be created"));
 				});
 	}
 
 	private void sync(Conversation conversation, List<ExpectedMember> expected) {
 		List<ConversationMember> current =
 				members.findByBrandIdAndConversationIdAndLeftAtIsNull(conversation.getBrandId(), conversation.getId());
-		Set<String> wanted = expected.stream().map((m) -> m.kind() + ":" + m.id()).collect(Collectors.toSet());
-		Set<String> held = current.stream().map((m) -> m.getKind() + ":" + m.getMemberId()).collect(Collectors.toSet());
+		Map<String, ExpectedMember> wanted = new java.util.LinkedHashMap<>();
+		expected.forEach((m) -> wanted.put(m.kind() + ":" + m.id(), m));
+		Set<String> kept = new java.util.HashSet<>();
 		List<ExpectedMember> added = new ArrayList<>();
 		List<ExpectedMember> removed = new ArrayList<>();
 
 		for (ConversationMember member : current) {
-			if (!wanted.contains(member.getKind() + ":" + member.getMemberId())) {
-				member.leave(reasonFor(member, conversation.getCaseId()), Instant.now());
-				members.save(member);
+			String key = member.getKind() + ":" + member.getMemberId();
+			ExpectedMember target = wanted.get(key);
+			if (target != null && target.role() == member.getRole()) {
+				kept.add(key);
+				continue;
+			}
+			// Gone, or still here under a different label: the old row is left, never rewritten.
+			LeftReason reason = target != null ? LeftReason.ROLE_CHANGED : reasonFor(member, conversation.getCaseId());
+			if (members.leave(member.getId(), reason.name()) == 1) {
 				audit.recordSystemEvent(conversation.getBrandId(), OBJECT_TYPE, conversation.getId(),
 						AuditAction.CHAT_MEMBER_REMOVED, Map.of("kind", member.getKind(), "id", member.getMemberId(),
-								"role", member.getRole()), Map.of("reason", member.getLeftReason()));
-				removed.add(new ExpectedMember(member.getKind(), member.getMemberId(), member.getRole()));
+								"role", member.getRole()), Map.of("reason", reason));
+				if (target == null) {
+					removed.add(new ExpectedMember(member.getKind(), member.getMemberId(), member.getRole()));
+				}
 			}
 		}
 		for (ExpectedMember member : expected) {
-			if (!held.contains(member.kind() + ":" + member.id())
+			if (!kept.contains(member.kind() + ":" + member.id())
 					&& members.addIfAbsent(conversation.getBrandId(), conversation.getId(), member.kind().name(),
 							member.id(), member.role().name()) == 1) {
 				audit.recordSystemEvent(conversation.getBrandId(), OBJECT_TYPE, conversation.getId(),

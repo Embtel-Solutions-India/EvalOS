@@ -22,6 +22,20 @@ public interface ConversationMemberRepository extends JpaRepository<Conversation
 	 * index, so a listener and the sweep racing on the same case insert one row, not a 500.
 	 * @return 1 if inserted, 0 if already a member
 	 */
+	/**
+	 * Stamps a current member as left. {@code WHERE left_at IS NULL}, so a concurrent sync that
+	 * already left them makes this a no-op instead of tripping the history trigger.
+	 * @return 1 if this call left them, 0 if they had already left
+	 */
+	@org.springframework.transaction.annotation.Transactional
+	@org.springframework.data.jpa.repository.Modifying
+	@org.springframework.data.jpa.repository.Query(nativeQuery = true, value = """
+			UPDATE conversation_members SET left_at = now(), left_reason = :reason
+			 WHERE id = :id AND left_at IS NULL
+			""")
+	int leave(@org.springframework.data.repository.query.Param("id") UUID id,
+			@org.springframework.data.repository.query.Param("reason") String reason);
+
 	@org.springframework.transaction.annotation.Transactional
 	@org.springframework.data.jpa.repository.Modifying
 	@org.springframework.data.jpa.repository.Query(nativeQuery = true, value = """

@@ -120,4 +120,19 @@ class ChatPushNotifierTest {
 
 		verify(sender, never()).send(any(), any());
 	}
+
+	/** Review I6: presence checks (Ably calls) and sends leave the request thread entirely. */
+	@Test
+	void presenceAndSendingHappenOnTheExecutor() {
+		UUID conversation = clientConversation();
+		java.util.List<Runnable> queued = new java.util.ArrayList<>();
+		ChatPushNotifier deferred = new ChatPushNotifier(settings, subscriptions, sender, members, conversations, cases,
+				presence, queued::add);
+
+		deferred.on(fromPm(conversation, "hi"));
+
+		verify(presence, never()).isOnline(any(), any());
+		queued.forEach(Runnable::run);
+		verify(presence).isOnline(ParticipantKind.CLIENT, client);
+	}
 }

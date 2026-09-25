@@ -24,10 +24,13 @@ public class ChatFanout {
 
 	private final ChatRealtime realtime;
 	private final ConversationMemberRepository members;
+	private final java.util.concurrent.Executor executor;
 
-	ChatFanout(ChatRealtime realtime, ConversationMemberRepository members) {
+	ChatFanout(ChatRealtime realtime, ConversationMemberRepository members,
+			@org.springframework.beans.factory.annotation.Qualifier("chatFanoutExecutor") java.util.concurrent.Executor executor) {
 		this.realtime = realtime;
 		this.members = members;
+		this.executor = executor;
 	}
 
 	@TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT, fallbackExecution = true)
@@ -35,8 +38,13 @@ public class ChatFanout {
 		if (!realtime.enabled()) {
 			return;
 		}
+		// Membership is read now, as committed; the Ably calls run off the request thread (review I6).
 		List<ConversationMember> current =
 				members.findByBrandIdAndConversationIdAndLeftAtIsNull(change.brandId(), change.conversationId());
+		executor.execute(() -> publish(change, current));
+	}
+
+	private void publish(ChatChanged change, List<ConversationMember> current) {
 		switch (change.kind()) {
 			case MESSAGE_CREATED -> {
 				ChatViews.MessageView message = (ChatViews.MessageView) change.payload();

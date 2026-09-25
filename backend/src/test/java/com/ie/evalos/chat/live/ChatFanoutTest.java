@@ -28,7 +28,7 @@ class ChatFanoutTest {
 
 	private final ChatRealtime realtime = mock(ChatRealtime.class);
 	private final ConversationMemberRepository members = mock(ConversationMemberRepository.class);
-	private final ChatFanout fanout = new ChatFanout(realtime, members);
+	private final ChatFanout fanout = new ChatFanout(realtime, members, Runnable::run);
 
 	private final UUID brand = UUID.randomUUID();
 	private final UUID conversation = UUID.randomUUID();
@@ -91,5 +91,19 @@ class ChatFanoutTest {
 
 		verify(realtime).publish(eq("chat:user:CLIENT:" + client), eq("message.created"),
 				argThat((ChatEnvelope e) -> e.conversationId().equals(conversation) && e.data() == message));
+	}
+
+	/** Review I6: the Ably calls leave the request thread — nothing is published until the executor runs. */
+	@Test
+	void publishingHappensOnTheExecutorNotTheCallersThread() {
+		twoMembers();
+		java.util.List<Runnable> queued = new java.util.ArrayList<>();
+		ChatFanout deferred = new ChatFanout(realtime, members, queued::add);
+
+		deferred.on(new ChatChanged(brand, conversation, ChatChanged.Kind.MESSAGE_CREATED, fromPm()));
+
+		verify(realtime, never()).publish(any(), any(), any());
+		queued.forEach(Runnable::run);
+		verify(realtime).publish(eq("chat:user:CLIENT:" + client), eq("message.created"), any(ChatEnvelope.class));
 	}
 }

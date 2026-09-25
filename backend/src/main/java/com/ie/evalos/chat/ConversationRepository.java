@@ -18,6 +18,23 @@ public interface ConversationRepository extends JpaRepository<Conversation, UUID
 
 	List<Conversation> findByBrandIdAndCaseIdIn(UUID brandId, Collection<UUID> caseIds);
 
+	/**
+	 * Creates the case's conversation of this type unless it exists. {@code ON CONFLICT DO NOTHING},
+	 * not a caught constraint violation: a failed insert would mark the caller's whole transaction
+	 * rollback-only, and the loser of a listener-versus-sweep race would lose its entire sync.
+	 * @return 1 if created, 0 if it already existed
+	 */
+	@org.springframework.transaction.annotation.Transactional
+	@org.springframework.data.jpa.repository.Modifying
+	@org.springframework.data.jpa.repository.Query(nativeQuery = true, value = """
+			INSERT INTO conversations (id, brand_id, case_id, type, status, created_at)
+			VALUES (gen_random_uuid(), :brandId, :caseId, :type, 'ACTIVE', now())
+			ON CONFLICT (case_id, type) DO NOTHING
+			""")
+	int createIfAbsent(@org.springframework.data.repository.query.Param("brandId") UUID brandId,
+			@org.springframework.data.repository.query.Param("caseId") UUID caseId,
+			@org.springframework.data.repository.query.Param("type") String type);
+
 	/** Conversations still open on a case that has closed — the sweep's repair list. Across brands, as a system job. */
 	@org.springframework.data.jpa.repository.Query("""
 			SELECT c FROM Conversation c WHERE c.status = com.ie.evalos.chat.ConversationStatus.ACTIVE

@@ -21,7 +21,9 @@ class ChatLifecycleListenerTest {
 
 	private final CaseRepository cases = mock(CaseRepository.class);
 	private final ConversationService conversations = mock(ConversationService.class);
-	private final ChatLifecycleListener listener = new ChatLifecycleListener(cases, conversations);
+	private final org.springframework.transaction.PlatformTransactionManager transactions =
+			mock(org.springframework.transaction.PlatformTransactionManager.class);
+	private final ChatLifecycleListener listener = new ChatLifecycleListener(cases, conversations, transactions);
 
 	private CaseEvents.CaseEvent event(CaseEvents.Type type, UUID caseId) {
 		return new CaseEvents.CaseEvent(type, UUID.randomUUID(), caseId, null, null, Stage.DOC_COLLECTION);
@@ -66,5 +68,32 @@ class ChatLifecycleListenerTest {
 		when(conversations.ensureAndSync(subject)).thenThrow(new IllegalStateException("boom"));
 
 		assertThatCode(() -> listener.on(event(CaseEvents.Type.PM_ASSIGNED, id))).doesNotThrowAnyException();
+	}
+
+	/**
+	 * Review I3: the sync runs in a NEW transaction the listener opens itself (after commit, a plain
+	 * joined transaction would never commit), committed on success, rolled back and swallowed on
+	 * failure — so a chat problem never reaches whoever published the event.
+	 */
+	@Test
+	void theSyncRunsInItsOwnNewTransactionCommittedOnSuccessRolledBackOnFailure() {
+		UUID ok = UUID.randomUUID();
+		UUID bad = UUID.randomUUID();
+		Case fine = mock(Case.class);
+		Case broken = mock(Case.class);
+		when(cases.findById(ok)).thenReturn(Optional.of(fine));
+		when(cases.findById(bad)).thenReturn(Optional.of(broken));
+		when(conversations.ensureAndSync(broken)).thenThrow(new IllegalStateException("boom"));
+		org.springframework.transaction.TransactionStatus status =
+				new org.springframework.transaction.support.SimpleTransactionStatus();
+		when(transactions.getTransaction(any())).thenReturn(status);
+
+		listener.on(event(CaseEvents.Type.PM_ASSIGNED, ok));
+		assertThatCode(() -> listener.on(event(CaseEvents.Type.PM_ASSIGNED, bad))).doesNotThrowAnyException();
+
+		verify(transactions, org.mockito.Mockito.times(2)).getTransaction(org.mockito.ArgumentMatchers.argThat(
+				(d) -> d.getPropagationBehavior() == org.springframework.transaction.TransactionDefinition.PROPAGATION_REQUIRES_NEW));
+		verify(transactions).commit(status);
+		verify(transactions).rollback(status);
 	}
 }

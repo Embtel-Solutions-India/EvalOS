@@ -4,7 +4,6 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Executor;
-import java.util.concurrent.Executors;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -19,7 +18,6 @@ import com.ie.evalos.chat.live.ChatPresence;
 import com.ie.evalos.domain.Case;
 import com.ie.evalos.repository.CaseRepository;
 
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.event.TransactionPhase;
 import org.springframework.transaction.event.TransactionalEventListener;
@@ -44,16 +42,10 @@ public class ChatPushNotifier {
 	private final ChatPresence presence;
 	private final Executor executor;
 
-	@Autowired
 	ChatPushNotifier(PushSettings settings, PushSubscriptionRepository subscriptions, PushSender sender,
 			ConversationMemberRepository members, ConversationRepository conversations, CaseRepository cases,
-			ChatPresence presence) {
-		this(settings, subscriptions, sender, members, conversations, cases, presence, Executors.newFixedThreadPool(2));
-	}
-
-	ChatPushNotifier(PushSettings settings, PushSubscriptionRepository subscriptions, PushSender sender,
-			ConversationMemberRepository members, ConversationRepository conversations, CaseRepository cases,
-			ChatPresence presence, Executor executor) {
+			ChatPresence presence,
+			@org.springframework.beans.factory.annotation.Qualifier("chatPushExecutor") Executor executor) {
 		this.settings = settings;
 		this.subscriptions = subscriptions;
 		this.sender = sender;
@@ -69,6 +61,11 @@ public class ChatPushNotifier {
 		if (!settings.enabled() || change.kind() != ChatChanged.Kind.MESSAGE_CREATED) {
 			return;
 		}
+		// Presence checks are Ably calls and sends are HTTPS: none of it on the request thread (review I6).
+		executor.execute(() -> notifyOffline(change));
+	}
+
+	private void notifyOffline(ChatChanged change) {
 		ChatViews.MessageView message = (ChatViews.MessageView) change.payload();
 		Conversation conversation = conversations.findByIdAndBrandId(change.conversationId(), change.brandId()).orElse(null);
 		if (conversation == null) {
@@ -84,7 +81,7 @@ public class ChatPushNotifier {
 			String payload = payload(recipient, message, conversation, change.conversationId(), caseCode);
 			for (PushSubscription to : subscriptions.findBySubscriberKindAndSubscriberId(recipient.getKind(),
 					recipient.getMemberId())) {
-				executor.execute(() -> deliver(to, payload));
+				deliver(to, payload);
 			}
 		}
 	}

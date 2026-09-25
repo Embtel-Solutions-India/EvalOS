@@ -73,6 +73,7 @@ public class ChatInboxQuery {
 			args.add(who.kind().name());
 			args.add(who.id());
 			args.add(who.brandId());
+			sql.append(typeRule(who));
 		}
 		if (caseId != null) {
 			sql.append("AND c.case_id = ? ");
@@ -185,11 +186,12 @@ public class ChatInboxQuery {
 	/** Total unread across every conversation the reader is currently a member of, in their brand. */
 	public long unreadTotal(ChatIdentity who) {
 		Long total = jdbc.queryForObject("SELECT count(*) FROM messages m "
+				+ "JOIN conversations c ON c.id = m.conversation_id "
 				+ "JOIN conversation_members cm ON cm.conversation_id = m.conversation_id AND cm.left_at IS NULL "
 				+ "AND cm.member_kind = ? AND cm.member_id = ? "
 				+ "LEFT JOIN message_reads r ON r.conversation_id = m.conversation_id AND r.reader_kind = ? AND r.reader_id = ? "
 				+ "WHERE m.brand_id = ? AND m.deleted_at IS NULL AND NOT (m.author_kind = ? AND m.author_id = ?) "
-				+ "AND (r.last_read_at IS NULL OR m.created_at > r.last_read_at)",
+				+ "AND (r.last_read_at IS NULL OR m.created_at > r.last_read_at) " + typeRule(who),
 				Long.class, who.kind().name(), who.id(), who.kind().name(), who.id(), who.brandId(), who.kind().name(),
 				who.id());
 		return total == null ? 0 : total;
@@ -216,6 +218,7 @@ public class ChatInboxQuery {
 			args.add(who.kind().name());
 			args.add(who.id());
 			args.add(who.brandId());
+			sql.append(typeRule(who));
 		}
 		sql.append("AND m.deleted_at IS NULL AND m.search @@ websearch_to_tsquery('simple', ?) ");
 		args.add(q);
@@ -278,6 +281,18 @@ public class ChatInboxQuery {
 							new CaseContext(rs.getString(2), rs.getString(3), rs.getString(4)));
 				}, distinct.toArray());
 		return context;
+	}
+
+	/**
+	 * Type before membership, as {@code ChatAccess} applies it: a client's lists only ever hold CLIENT
+	 * conversations and an expert's EXPERT ones, whatever a member row says. Fixed text, no input.
+	 */
+	private static String typeRule(ChatIdentity who) {
+		return switch (who.kind()) {
+			case CLIENT -> "AND c.type = 'CLIENT' ";
+			case EXPERT -> "AND c.type = 'EXPERT' ";
+			case STAFF -> "";
+		};
 	}
 
 	private static String placeholders(Collection<?> values) {

@@ -186,12 +186,39 @@ public class ChatApi {
 			throw new ForbiddenException(
 					"Oversight does not take part in conversations, so there is nothing to notify you about.");
 		}
+		requireKnownPushService(request.endpoint());
 		subscriptions.findByEndpoint(request.endpoint()).ifPresent((previous) -> {
 			subscriptions.delete(previous);
 			subscriptions.flush();
 		});
 		subscriptions.save(new com.ie.evalos.chat.push.PushSubscription(who.brandId(), who.kind(), who.id(),
 				request.endpoint(), request.keys().p256dh(), request.keys().auth()));
+	}
+
+	/**
+	 * The browser push services an endpoint may point at. The endpoint is a URL this server will POST
+	 * to, so it is a trust boundary: only https to one of these hosts, never an internal address.
+	 * Chrome/Edge-on-Chromium use FCM, Firefox Mozilla's service, Safari Apple's, legacy Edge WNS.
+	 */
+	private static final java.util.List<String> PUSH_HOSTS = java.util.List.of("fcm.googleapis.com",
+			"updates.push.services.mozilla.com");
+	private static final java.util.List<String> PUSH_HOST_SUFFIXES = java.util.List.of(".push.apple.com",
+			".notify.windows.com");
+
+	static void requireKnownPushService(String endpoint) {
+		java.net.URI uri;
+		try {
+			uri = new java.net.URI(endpoint);
+		}
+		catch (java.net.URISyntaxException malformed) {
+			throw new com.ie.evalos.common.InvalidRequestException("That is not a push subscription endpoint.");
+		}
+		String host = uri.getHost() == null ? "" : uri.getHost().toLowerCase(java.util.Locale.ROOT);
+		boolean known = PUSH_HOSTS.contains(host) || PUSH_HOST_SUFFIXES.stream().anyMatch(host::endsWith);
+		if (!"https".equalsIgnoreCase(uri.getScheme()) || !known) {
+			throw new com.ie.evalos.common.InvalidRequestException(
+					"Notifications can only be delivered through a browser's own push service.");
+		}
 	}
 
 	/** Forgets this browser, but only if it is the caller's. */

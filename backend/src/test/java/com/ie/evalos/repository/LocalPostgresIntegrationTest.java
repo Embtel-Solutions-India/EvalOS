@@ -2011,4 +2011,24 @@ class LocalPostgresIntegrationTest {
 		assertThat(hits).extracting(com.ie.evalos.chat.ChatInboxQuery.Row::id).containsExactly(found);
 	}
 
+	/**
+	 * Review I2: type before membership, in the list queries too. A client member row wrongly placed
+	 * on an INTERNAL conversation must not put it in the client's inbox, search or unread total.
+	 */
+	@Test
+	void aStrayClientRowOnAnInternalConversationStaysInvisible() {
+		UUID internal = conversationOn(anIeCase(), "INTERNAL");
+		UUID client = UUID.randomUUID();
+		jdbc.update("INSERT INTO conversation_members (id, brand_id, conversation_id, member_kind, member_id, "
+				+ "member_role, created_at) VALUES (?, ?, ?, 'CLIENT', ?, 'CLIENT', now())",
+				UUID.randomUUID(), BRAND_IE, internal, client);
+		String marker = "zi" + Long.toString(System.nanoTime(), 36);
+		chatMessage(internal, UUID.randomUUID(), "internal only " + marker, java.time.Instant.now());
+		com.ie.evalos.chat.ChatIdentity who = com.ie.evalos.chat.ChatIdentity.client(client, BRAND_IE);
+
+		assertThat(chatQuery.inbox(who, null, null, null, null, null, 50)).doesNotContain(internal);
+		assertThat(chatQuery.search(who, marker, null, null, 10)).isEmpty();
+		assertThat(chatQuery.unreadTotal(who)).isZero();
+	}
+
 }

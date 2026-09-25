@@ -48,7 +48,7 @@ class ChatApiPushTest {
 	void aGmCannotSubscribe() {
 		ChatIdentity gm = new ChatIdentity(ParticipantKind.STAFF, UUID.randomUUID(), null, Role.GM);
 
-		assertThatThrownBy(() -> api(true).subscribe(gm, request("https://push/1")))
+		assertThatThrownBy(() -> api(true).subscribe(gm, request("https://fcm.googleapis.com/fcm/send/1")))
 				.isInstanceOf(ForbiddenException.class);
 		verify(subscriptions, never()).save(any());
 	}
@@ -56,9 +56,9 @@ class ChatApiPushTest {
 	@Test
 	void subscribingStoresTheBrowserForTheCaller() {
 		ChatIdentity client = ChatIdentity.client(UUID.randomUUID(), brand);
-		when(subscriptions.findByEndpoint("https://push/2")).thenReturn(Optional.empty());
+		when(subscriptions.findByEndpoint("https://fcm.googleapis.com/fcm/send/2")).thenReturn(Optional.empty());
 
-		api(true).subscribe(client, request("https://push/2"));
+		api(true).subscribe(client, request("https://fcm.googleapis.com/fcm/send/2"));
 
 		ArgumentCaptor<PushSubscription> saved = ArgumentCaptor.forClass(PushSubscription.class);
 		verify(subscriptions).save(saved.capture());
@@ -71,10 +71,10 @@ class ChatApiPushTest {
 	void aBrowserAlreadySubscribedBySomeoneElseMovesToTheCaller() {
 		ChatIdentity pm = new ChatIdentity(ParticipantKind.STAFF, UUID.randomUUID(), brand, Role.PROJECT_MANAGER);
 		PushSubscription previous = new PushSubscription(brand, ParticipantKind.CLIENT, UUID.randomUUID(),
-				"https://push/3", "p", "a");
-		when(subscriptions.findByEndpoint("https://push/3")).thenReturn(Optional.of(previous));
+				"https://fcm.googleapis.com/fcm/send/3", "p", "a");
+		when(subscriptions.findByEndpoint("https://fcm.googleapis.com/fcm/send/3")).thenReturn(Optional.of(previous));
 
-		api(true).subscribe(pm, request("https://push/3"));
+		api(true).subscribe(pm, request("https://fcm.googleapis.com/fcm/send/3"));
 
 		verify(subscriptions).delete(previous);
 		verify(subscriptions).flush();
@@ -85,11 +85,37 @@ class ChatApiPushTest {
 	void unsubscribingRemovesOnlyTheCallersOwnBrowser() {
 		ChatIdentity pm = new ChatIdentity(ParticipantKind.STAFF, UUID.randomUUID(), brand, Role.PROJECT_MANAGER);
 		PushSubscription someoneElses = new PushSubscription(brand, ParticipantKind.CLIENT, UUID.randomUUID(),
-				"https://push/4", "p", "a");
-		when(subscriptions.findByEndpoint("https://push/4")).thenReturn(Optional.of(someoneElses));
+				"https://fcm.googleapis.com/fcm/send/4", "p", "a");
+		when(subscriptions.findByEndpoint("https://fcm.googleapis.com/fcm/send/4")).thenReturn(Optional.of(someoneElses));
 
-		api(true).unsubscribe(pm, new ChatApi.UnsubscribeRequest("https://push/4"));
+		api(true).unsubscribe(pm, new ChatApi.UnsubscribeRequest("https://fcm.googleapis.com/fcm/send/4"));
 
 		verify(subscriptions, never()).delete(any());
+	}
+
+	/**
+	 * Review I5: the endpoint is a URL the server will POST to, so it is a trust boundary. Only https to a
+	 * known browser push service is accepted — never an internal address.
+	 */
+	@Test
+	void onlyAnHttpsEndpointOfAKnownPushServiceIsAccepted() {
+		ChatIdentity client = ChatIdentity.client(UUID.randomUUID(), brand);
+		when(subscriptions.findByEndpoint(any())).thenReturn(Optional.empty());
+		ChatApi api = api(true);
+
+		for (String refused : new String[] { "http://fcm.googleapis.com/fcm/send/x", "https://10.0.0.5:8080/x",
+				"https://169.254.169.254/latest/meta-data", "https://localhost/x", "https://evil.example/x",
+				"https://fcm.googleapis.com.evil.example/x", "not a url" }) {
+			assertThatThrownBy(() -> api.subscribe(client, request(refused)))
+					.as(refused).isInstanceOf(com.ie.evalos.common.InvalidRequestException.class);
+		}
+		verify(subscriptions, never()).save(any());
+
+		for (String accepted : new String[] { "https://fcm.googleapis.com/fcm/send/abc",
+				"https://updates.push.services.mozilla.com/wpush/v2/abc", "https://web.push.apple.com/abc",
+				"https://wns2-par02p.notify.windows.com/w/?token=abc" }) {
+			api.subscribe(client, request(accepted));
+		}
+		verify(subscriptions, org.mockito.Mockito.times(4)).save(any());
 	}
 }
