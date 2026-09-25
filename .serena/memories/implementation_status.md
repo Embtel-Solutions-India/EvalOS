@@ -514,3 +514,12 @@ staff 131, portals 30, all green.
 via `PortalLayout`, a `PublicLayout` route for the signed-out screens, and `LegalPage`. Linked in
 place at sign-up, the document uploader and the send step. The business's "not reviewed by an
 attorney" drafting notes are NOT published; attorney review before go-live is theirs to decide.
+
+**2026-09-26 — Unit 57 case chat, PHASE 1 (backend) BUILT.** `V69`: conversations (3 per case),
+conversation_members (history, trigger-guarded), messages (text, replies 1 level, soft delete, FTS),
+message_reactions, message_reads (watermark), push_subscriptions. Membership computed from the case team,
+pipeline Sales, brand ENMs, client account, offered/accepted expert; follows case events after commit
+(new `CASE_MANAGER_REASSIGNED`) and the hourly `CHAT_RECONCILE` sweep (first run backfills open cases).
+Read-only at CLOSED. REST on /api/chat, /api/portal/client/chat, /api/portal/expert/chat (routes once in
+`ChatRoutes`). Live: Ably, one private channel per person, publish never granted. Push: web-push 5.1.2 to
+members not present. No UI yet (phases 2–3). Never run against a real Ably app. Full suite 1282/0/4 skipped.

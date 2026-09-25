@@ -4,7 +4,7 @@
 questionnaire no longer exists anywhere in EvalOS: not in the portal, not in the API, not in the
 database, not on the deal screen. Supersedes the questionnaire parts of Unit 43
 (`43-client-intake-funnel.md` step 2 and the autosave) and the "answers" half of D13 and D34.
-**Status: BUILT 2026-09-25, except the column drop (`V69`), which waits on an explicit go-ahead** — see §3.
+**Status: BUILT 2026-09-25, except the column drop (`V70`), which waits on an explicit go-ahead** — see §3. (`V69` went to case chat, Unit 57, on 2026-09-26.)
 
 ## 1. What stays
 
@@ -28,12 +28,12 @@ one-draft-per-client index still stops a second request racing the first.
 | API | `PUT /api/portal/applications/{id}` (the autosave — it existed only to carry answers; purpose already travels on the start) and its `SaveRequest`; `answers` on `ApplicationView`. |
 | Service | `ClientApplicationService.save`, `MAX_ANSWERS_CHARS`. |
 | Entity | `ClientApplication.answers`, `saveAnswers`, `getAnswers`. |
-| Database | `client_application.answers`, to be dropped by **`V69`** (pending, §3). Unmapped from the entity already; its `'[]'` default fills new rows meanwhile. |
+| Database | `client_application.answers`, to be dropped by **`V70`** (pending, §3). Unmapped from the entity already; its `'[]'` default fills new rows meanwhile. |
 | Staff app | the answers table on the deal screen. The panel stays as **"Portal request"**: service, purpose, submitted date, status. |
 
 ## 3. Data
 
-**`V69` drops the column and the answers with it.** Answers already given are not archived: the
+**`V70` drops the column and the answers with it.** Answers already given are not archived: the
 business asked for the questionnaire's *existence* to go, and a kept copy is a questionnaire that
 still exists. Hard to reverse once deployed — restore from a backup is the only way back.
 
@@ -41,7 +41,7 @@ still exists. Hard to reverse once deployed — restore from a backup is the onl
 destroys client data. Nothing depends on it: no code reads or writes the column, and its default
 fills new rows. The file, when approved, is one statement —
 `ALTER TABLE client_application DROP COLUMN answers;` — as
-`db/migration/V69__drop_client_application_answers.sql`.
+`db/migration/V70__drop_client_application_answers.sql`.
 
 ## 4. Consequences
 
@@ -57,5 +57,5 @@ fills new rows. The file, when approved, is one statement —
 - `ClientApplicationServiceTest` loses the save cases. `ClientApplicationRoutesTest` asserts the
   portal chain's preflight now **refuses PUT** (with PATCH): the autosave was the only PUT under
   `/api/portal/**`, so `PortalSecurityConfig` dropped it from the enumerated CORS methods.
-- `MigrationTreeTest` passes; it must still pass once `V69` joins the main tree.
+- `MigrationTreeTest` passes; it must still pass once `V70` joins the main tree.
 - Portal and staff builds type-check with no `answers` field anywhere.

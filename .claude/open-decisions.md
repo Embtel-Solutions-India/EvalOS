@@ -89,11 +89,13 @@ _Gates:_ none — the data is already there.
 
 ## Carried forward from `00d` §12, still unresolved
 
+_Item h was settled by Unit 57 (2026-09-26): the client sees the case team by name in the Client
+conversation and never shares a conversation with the expert._
+
 | #   | Question                                                   | Recommendation                                                                                                                                      |
 | --- | ---------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
 | b   | Who owns reaching the client now Sales exists?             | Split at Handoff A: before the case the client is Sales's, from creation the Coordinator's with Sales copied.                                       |
 | c   | Does EvalOS send client mail beyond the two auth messages? | Yes — four messages, as a unit, with a written invariant-14 amendment: checklist+link, draft ready, expert signing link, delivered. Not the chases. |
-| h   | Does the client see who is working on their case?          | A role and a date, not a name.                                                                                                                      |
 | i2  | Do GHL-born leads share the application table?             | Decide with Q5 in Unit 44. A GHL lead has no service.                                                                                               |
 | i3  | Does the GM's board span every brand or the selected one?  | The selected brand, consistently.                                                                                                                   |
 | j   | Should brand isolation move to Postgres RLS?               | No. Composite FKs plus a test forbidding `findById` on a `ScopedRepository` outside a token-authorised path.                                        |

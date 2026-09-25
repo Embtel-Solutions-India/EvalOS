@@ -88,3 +88,7 @@ documents on the request's review step before sending; **submit is never gated o
 Sales reads them beside the request on the deal page, on their own route and the same permission
 (D34). At Handoff A they follow the request onto the case with no S3 copy and no re-key, through a
 `CASE_CREATED` listener that can never fail the case.
+
+**Case chat (Unit 57 phase 1, backend).** Three conversations per case created at CASE_CREATED; membership
+follows assignment and expert-offer events and the hourly CHAT_RECONCILE; read-only at CLOSED. Messages
+over REST, live via each member's private Ably channel, web push when the app is closed. No screens yet.

@@ -348,6 +348,8 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
   case at all**. `ScopePredicate`'s PIPELINE arm matching no `evalos_case` row is therefore
   **correct**, not the gap `implementation-status.md` called it until 2026-09-17.
   _(Closes `00d` §12a, which asked how much of a case SALES gets: none.)_
+  **Chat is the one exception (Unit 57, 2026-09-26):** Sales takes part in the Client and Internal
+  conversations of cases from their pipeline, and still reads no case data.
 - **D20.** Eight staff roles with ABAC tiers: `GM`(ALL), `BRAND_MANAGER`(BRAND),
   `PROJECT_MANAGER`(TEAM), `PROJECT_COORDINATOR`/`CASE_MANAGER`(SELF),
   `EXPERT_NETWORK_MANAGER`(SUPPLY), `SALES`/`MARKETING`(PIPELINE).

@@ -3,7 +3,7 @@
 **Decided 2026-09-25 by the business, in a brainstorming session.** Every case has three live
 conversations. EvalOS owns the data and every rule (Spring Boot + PostgreSQL); **Ably relays live
 updates** (2026-09-26); web push reaches anyone without the app open. No chat platform owns the data. Supersedes Unit 56 (`56-live-chat-setup.md`, the Stream token setup), whose code is
-removed in phase 1. **Status: SPECCED 2026-09-25 — not built.**
+removed in phase 1. **Status: PHASE 1 BUILT 2026-09-26 (backend: schema, membership, access, lifecycle, sweep, REST, Ably live delivery, web push). Phases 2–3 (the apps) not built.**
 
 ## 0. What was decided, and by whom
 
@@ -56,7 +56,8 @@ All tables carry `brand_id`; every query filters on it.
   `OFFER_TIMED_OUT`, `OFFER_SUPERSEDED`, `PIPELINE_REVOKED`, `ROLE_CHANGED`, `DEACTIVATED`).
   Partial unique index on `(conversation_id, member_kind, member_id) WHERE left_at IS NULL`. **A
   trigger refuses `DELETE`**, and `UPDATE` may only set `left_at`/`left_reason` on a row where they
-  are null — the table is the membership history.
+  are null — the table is the membership history. The join time is the row's `created_at` (every
+  EvalOS table's), not a separate `joined_at` column.
 - **`messages`** — `id`, `brand_id`, `conversation_id`, `author_kind`, `author_id`, `body` (max
   4,000 characters), `parent_message_id` (a thread reply; replies are one level deep),
   `created_at`, `edited_at`, `deleted_at`. A delete clears `body` and stamps `deleted_at`.
@@ -122,7 +123,10 @@ role with no conversations simply gets an empty inbox.
 | `POST conversations/{id}/read` `{ messageId }` | move your watermark forward (never back) |
 | `GET search?q=&caseId=&type=` | full-text search over conversations the caller can open |
 | `GET unread` | total unread, for the nav badge |
-| `GET presence?ids=` | online state of a conversation's participants |
+| `GET conversations/{id}/presence` | online state of that conversation's current participants (built this way so presence cannot probe arbitrary people) |
+| `POST conversations/{id}/typing` | "I am typing", relayed by the backend (§5) |
+| `GET realtime/token` | the caller's Ably TokenRequest (§5) |
+| `GET push/public-key`, `POST` / `DELETE push/subscriptions` | web push opt-in (§6) |
 
 The portal chain's CORS methods gain **`PUT`** back, and `ClientApplicationRoutesTest`'s preflight
 lists follow.

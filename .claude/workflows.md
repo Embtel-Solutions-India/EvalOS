@@ -296,9 +296,17 @@ Booking sends: calendar, contact, start, end, title, description, `assignedUserI
 
 ### CURRENT IMPLEMENTATION
 
-**Nothing.** No table, no column, no endpoint, no component. The only message-like feature is
-`opportunity_note` — staff prose against a GHL opportunity, rendered by `DealNotes.tsx`; its author may
-edit or delete it (Unit 54a).
+**Case chat, backend only (Unit 57 phase 1, 2026-09-26; spec `57-case-chat.md`, D50).** Every case
+gets three conversations — Client, Internal, Expert — created at `CASE_CREATED` by the after-commit
+`ChatLifecycleListener`. Membership is computed by `ChatMembership` from the case team, the deal
+pipeline's Sales, the brand's ENMs, the client's portal account and the expert's open or accepted
+offer, and follows every event in `ChatLifecycleListener.MOVES_THE_CHAT` (including the new
+`CASE_MANAGER_REASSIGNED`). `CHAT_RECONCILE` (hourly) repairs whatever an event misses and, on its
+first run, backfills every case not yet closed. At `CLOSED` all three become read-only. Messages go
+through REST on `/api/chat`, `/api/portal/client/chat` and `/api/portal/expert/chat`; after commit
+`ChatFanout` publishes each change into every current member's private Ably channel, and
+`ChatPushNotifier` sends a web push to members who are not present on theirs. **No app screen yet**
+(phases 2–3). `opportunity_note` (Unit 54a) is unchanged and separate.
 
 ### TARGET WORKFLOW
 

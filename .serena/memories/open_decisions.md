@@ -13,6 +13,9 @@ Unresolved as of 2026-09-17:
 10. What is the scope of the conversation sidebar, and when? (Unit 47)
 11. Who chases an abandoned `DRAFT` request now D10 moved the opportunity to submit?
 
+**Resolved 2026-09-26:** ~~h does the client see who works their case~~ → Unit 57: the case team by name in
+the Client conversation; the client never shares a conversation with the expert.
+
 **Resolved 2026-09-25:** ~~g2 does the expert see the answers~~ → moot, no questionnaire (D13, Unit 55).
 
 **Resolved 2026-09-24:** ~~Q12 cross-pipeline stage move~~ → **D44**: refused server-side.
