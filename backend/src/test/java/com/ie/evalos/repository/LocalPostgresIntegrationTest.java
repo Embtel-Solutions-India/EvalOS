@@ -1962,7 +1962,10 @@ class LocalPostgresIntegrationTest {
 
 		assertThat(seen).containsExactlyInAnyOrderElementsOf(mine);
 		assertThat(seen).doesNotHaveDuplicates();
-		List<UUID> expectedOrder = mine.stream().sorted(java.util.Comparator.reverseOrder()).toList();
+		// By the text form, not UUID.compareTo: Java compares signed longs, Postgres unsigned bytes,
+		// and the hex string sorts the way Postgres does.
+		List<UUID> expectedOrder = mine.stream().sorted(java.util.Comparator.comparing(UUID::toString).reversed())
+				.toList();
 		assertThat(seen).containsExactlyElementsOf(expectedOrder);
 	}
 
