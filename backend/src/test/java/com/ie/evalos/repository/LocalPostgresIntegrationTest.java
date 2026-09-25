@@ -213,6 +213,9 @@ class LocalPostgresIntegrationTest {
 	JdbcTemplate jdbc;
 
 	@Autowired
+	com.ie.evalos.chat.ConversationMemberRepository chatMembers;
+
+	@Autowired
 	BrandRepository brands;
 
 	@Autowired
@@ -1900,6 +1903,20 @@ class LocalPostgresIntegrationTest {
 		assertThatThrownBy(() -> jdbc.update("INSERT INTO conversations (id, brand_id, case_id, type, status, "
 				+ "created_at) VALUES (?, ?, ?, 'CLIENT', 'ACTIVE', now())", UUID.randomUUID(), BRAND_IE, caseId))
 				.isInstanceOf(org.springframework.dao.DataIntegrityViolationException.class);
+	}
+
+	/** The listener and the sweep syncing one case at once must insert a member once, not twice or 500. */
+	@Test
+	void concurrentSyncInsertsOneRow() {
+		UUID conversation = conversationOn(anIeCase(), "INTERNAL");
+		UUID person = UUID.randomUUID();
+
+		int first = chatMembers.addIfAbsent(BRAND_IE, conversation, "STAFF", person, "PM");
+		int second = chatMembers.addIfAbsent(BRAND_IE, conversation, "STAFF", person, "PM");
+
+		assertThat(first + second).isEqualTo(1);
+		assertThat(jdbc.queryForObject("SELECT count(*) FROM conversation_members WHERE conversation_id = ? "
+				+ "AND member_id = ? AND left_at IS NULL", Long.class, conversation, person)).isEqualTo(1L);
 	}
 
 }
