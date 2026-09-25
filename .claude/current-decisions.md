@@ -277,6 +277,15 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
   on the contact note); GHL notes stay read-only in EvalOS, changed in GHL and mirrored back. **A task EvalOS never created is not invented** on somebody's desk.
   **Tags are read, never written**: GHL workflows key off them.
   **D46's blocker is gone** — the mirror now holds the values a queued desk create would need.
+- **D50.** **Case chat is an EvalOS-owned service** (Unit 57, `57-case-chat.md`, 2026-09-25/26,
+  business decision; it replaced a Stream Chat setup, Unit 56, that was never committed). Every
+  case has three conversations — Client (client, pipeline Sales, PM/Coordinator/Case Manager),
+  Internal (pipeline Sales, PM/Coordinator/Case Manager, brand ENMs) and Expert
+  (PM/Coordinator/Case Manager, brand ENMs, the expert from offer). EvalOS computes membership from
+  assignments and never lets a browser create a conversation or change a member. GM and Brand
+  Manager read as viewers. Text only; read-only at `CLOSED`. Spring Boot and PostgreSQL hold every
+  message and rule; **Ably relays live updates only** (one private channel per person, publish never
+  granted to a browser); web push for anyone without the app open. No chat platform owns the data.
 - **D18.** The target is an **id-faithful mirror** of GHL (same pipeline/stage/contact/opportunity
   ids both sides), synced both ways, that keeps working when sync is off. Units 44–48
   (`context/specs/00c-ghl-independence-programme.md`). EvalOS mints its own primary key and keeps

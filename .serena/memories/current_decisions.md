@@ -215,3 +215,8 @@ token and not the account.
 still wired into four staff screens and every link already in an expert's inbox points at `/case`,
 so minting and that route retire in ONE change once the replacement exists. Until then the expert
 portal's `/` is a holding page that offers no door.
+
+**D50 (2026-09-25/26, Unit 57): case chat is EvalOS-owned.** Three conversations per case (Client,
+Internal, Expert), membership computed from assignments, GM/BM as viewers, text only, read-only at
+CLOSED. PostgreSQL is the record; Ably relays live updates (one private channel per person, no
+browser publish); web push when the app is closed. Spec `57-case-chat.md`.
