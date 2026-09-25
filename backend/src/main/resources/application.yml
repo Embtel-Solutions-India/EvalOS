@@ -449,6 +449,9 @@ evalos:
       # the interval is barely a trade: ~1,407 contacts is 15 pages at GHL's maximum of 100,
       # about 1.7 seconds of the shared budget -- an order of magnitude under SYNC_AUDIT.
       CONTACT_MIRROR: ${JOBS_CONTACT_MIRROR_INTERVAL:1h}
+      # Case chat (Unit 57): hourly, the floor under the lifecycle listener - revoked pipelines,
+      # ENM changes, late portal accounts, and the first-run backfill of every open case.
+      CHAT_RECONCILE: ${JOBS_CHAT_RECONCILE_INTERVAL:1h}
       # The nightly sync audit (Unit 45b). **24 hours, and the length is a budget decision.** This
       # is the longest read EvalOS makes -- a paged full list of every opportunity on every mirrored
       # pipeline, roughly 30 seconds of GHL's shared 100-per-10-seconds allowance. Hourly would

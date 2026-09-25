@@ -183,6 +183,13 @@ public interface CaseRepository extends ScopedRepository<Case> {
 	 * <p>Delivered and closed cases are excluded: no clock runs against them, and refreshing
 	 * their {@code sla_status} would be rewriting history.
 	 */
+	/**
+	 * Every case not at this stage, across brands — the chat reconcile sweep's list (Unit 57). A
+	 * system sweep has no caller whose scope could apply; paid or not, because chat starts at
+	 * creation.
+	 */
+	List<Case> findByCurrentStageNot(Stage stage);
+
 	@Query("select c from Case c where c.paid = true and c.currentStage not in :terminal")
 	List<Case> findActiveForSweep(@Param("terminal") Collection<Stage> terminal);
 }

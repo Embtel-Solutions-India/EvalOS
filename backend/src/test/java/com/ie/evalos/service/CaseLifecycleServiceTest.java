@@ -1016,6 +1016,18 @@ class CaseLifecycleServiceTest {
 		verify(offers, never()).save(any());
 	}
 
+	/** Unit 57: the case chat follows the Case Manager, so reassignment announces itself. */
+	@Test
+	void reassigningTheCaseManagerPublishesAnEventForTheChat() {
+		walkToDraftGeneration();
+		clearInvocations(events);
+
+		lifecycle.reassignCaseManager(CASE_ID, OTHER_CM_ID);
+
+		verify(events).publishEvent(org.mockito.ArgumentMatchers.<Object>argThat((e) -> e instanceof CaseEvents.CaseEvent ce
+				&& ce.type() == CaseEvents.Type.CASE_MANAGER_REASSIGNED));
+	}
+
 	@Test
 	void reassigningToTheSameCaseManagerIsRefused() {
 		walkToDraftGeneration();

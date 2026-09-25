@@ -17,4 +17,11 @@ public interface ConversationRepository extends JpaRepository<Conversation, UUID
 	Optional<Conversation> findByIdAndBrandId(UUID id, UUID brandId);
 
 	List<Conversation> findByBrandIdAndCaseIdIn(UUID brandId, Collection<UUID> caseIds);
+
+	/** Conversations still open on a case that has closed — the sweep's repair list. Across brands, as a system job. */
+	@org.springframework.data.jpa.repository.Query("""
+			SELECT c FROM Conversation c WHERE c.status = com.ie.evalos.chat.ConversationStatus.ACTIVE
+			AND EXISTS (SELECT 1 FROM Case k WHERE k.id = c.caseId AND k.currentStage = com.ie.evalos.domain.Stage.CLOSED)
+			""")
+	List<Conversation> findActiveOfClosedCases();
 }

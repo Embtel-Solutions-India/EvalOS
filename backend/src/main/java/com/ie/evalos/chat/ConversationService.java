@@ -84,6 +84,21 @@ public class ConversationService {
 		}
 	}
 
+	/** The sweep's repair: freeze every conversation still open on a case that has closed. */
+	@Transactional
+	public void makeReadOnlyWhereClosed() {
+		Instant now = Instant.now();
+		for (Conversation conversation : conversations.findActiveOfClosedCases()) {
+			if (conversation.makeReadOnly(now)) {
+				conversations.save(conversation);
+				audit.recordSystemEvent(conversation.getBrandId(), OBJECT_TYPE, conversation.getId(),
+						AuditAction.CHAT_READ_ONLY, null, Map.of("caseId", conversation.getCaseId()));
+				events.publishEvent(new ChatChanged(conversation.getBrandId(), conversation.getId(),
+						ChatChanged.Kind.READ_ONLY, null));
+			}
+		}
+	}
+
 	private Conversation ensure(Case subject, ConversationType type) {
 		return conversations.findByBrandIdAndCaseIdAndType(subject.getBrandId(), subject.getId(), type)
 				.orElseGet(() -> {

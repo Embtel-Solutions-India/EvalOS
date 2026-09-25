@@ -63,6 +63,8 @@ public final class CaseEvents {
 		DOCS_ESCALATION_DAY3("docs.escalation.day3"),
 		PM_ASSIGNED("case.pm_assigned"),
 		COORDINATOR_ASSIGNED("case.coordinator_assigned"),
+		/** The Case Manager changed on a case already under way (Unit 57: the chat follows it). */
+		CASE_MANAGER_REASSIGNED("case.case_manager_reassigned"),
 		DOCUMENTS_COMPLETED("documents.completed"),
 		EXPERT_ASSIGNED("expert.assigned"),
 		DRAFT_SUBMITTED("draft.submitted"),
