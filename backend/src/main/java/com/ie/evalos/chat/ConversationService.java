@@ -118,7 +118,8 @@ public class ConversationService {
 				members.findByBrandIdAndConversationIdAndLeftAtIsNull(conversation.getBrandId(), conversation.getId());
 		Set<String> wanted = expected.stream().map((m) -> m.kind() + ":" + m.id()).collect(Collectors.toSet());
 		Set<String> held = current.stream().map((m) -> m.getKind() + ":" + m.getMemberId()).collect(Collectors.toSet());
-		boolean changed = false;
+		List<ExpectedMember> added = new ArrayList<>();
+		List<ExpectedMember> removed = new ArrayList<>();
 
 		for (ConversationMember member : current) {
 			if (!wanted.contains(member.getKind() + ":" + member.getMemberId())) {
@@ -127,7 +128,7 @@ public class ConversationService {
 				audit.recordSystemEvent(conversation.getBrandId(), OBJECT_TYPE, conversation.getId(),
 						AuditAction.CHAT_MEMBER_REMOVED, Map.of("kind", member.getKind(), "id", member.getMemberId(),
 								"role", member.getRole()), Map.of("reason", member.getLeftReason()));
-				changed = true;
+				removed.add(new ExpectedMember(member.getKind(), member.getMemberId(), member.getRole()));
 			}
 		}
 		for (ExpectedMember member : expected) {
@@ -137,12 +138,13 @@ public class ConversationService {
 				audit.recordSystemEvent(conversation.getBrandId(), OBJECT_TYPE, conversation.getId(),
 						AuditAction.CHAT_MEMBER_ADDED, null,
 						Map.of("kind", member.kind(), "id", member.id(), "role", member.role()));
-				changed = true;
+				added.add(member);
 			}
 		}
-		if (changed) {
+		if (!added.isEmpty() || !removed.isEmpty()) {
+			// Who joined and who left, so the live layer can tell each of them (Unit 57 §5).
 			events.publishEvent(new ChatChanged(conversation.getBrandId(), conversation.getId(),
-					ChatChanged.Kind.MEMBERS_CHANGED, null));
+					ChatChanged.Kind.MEMBERS_CHANGED, new MembersChanged(added, removed)));
 		}
 	}
 

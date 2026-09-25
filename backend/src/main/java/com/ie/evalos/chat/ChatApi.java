@@ -36,11 +36,21 @@ public class ChatApi {
 	private final MessageService messages;
 	private final ClientAccountRepository accounts;
 	private final com.ie.evalos.chat.live.ChatRealtime realtime;
+	private final com.ie.evalos.chat.live.ChatTyping typing;
+	private final com.ie.evalos.chat.live.ChatPresence presence;
+	private final ChatAccess access;
+	private final ConversationMemberRepository members;
 
-	ChatApi(MessageService messages, ClientAccountRepository accounts, com.ie.evalos.chat.live.ChatRealtime realtime) {
+	ChatApi(MessageService messages, ClientAccountRepository accounts, com.ie.evalos.chat.live.ChatRealtime realtime,
+			com.ie.evalos.chat.live.ChatTyping typing, com.ie.evalos.chat.live.ChatPresence presence, ChatAccess access,
+			ConversationMemberRepository members) {
 		this.messages = messages;
 		this.accounts = accounts;
 		this.realtime = realtime;
+		this.typing = typing;
+		this.presence = presence;
+		this.access = access;
+		this.members = members;
 	}
 
 	// --- identity, portal surfaces (staff comes straight from the session) ------------------
@@ -120,6 +130,26 @@ public class ChatApi {
 
 	public long unread(ChatIdentity who) {
 		return messages.unreadTotal(who);
+	}
+
+	public void typing(ChatIdentity who, UUID conversationId) {
+		typing.typing(who, conversationId);
+	}
+
+	/**
+	 * Who of a conversation's current participants has an app open, keyed {@code KIND:id}. Only the
+	 * conversation's own participants: presence is not a way to probe anyone else.
+	 */
+	@Transactional(readOnly = true)
+	public java.util.Map<String, Boolean> presence(ChatIdentity who, UUID conversationId) {
+		Conversation conversation = access.requireRead(who, conversationId);
+		java.util.Map<String, Boolean> online = new java.util.LinkedHashMap<>();
+		for (ConversationMember member : members.findByBrandIdAndConversationIdAndLeftAtIsNull(
+				conversation.getBrandId(), conversationId)) {
+			online.put(member.getKind() + ":" + member.getMemberId(),
+					presence.isOnline(member.getKind(), member.getMemberId()));
+		}
+		return online;
 	}
 
 	/** An Ably TokenRequest for the caller's own channel (Unit 57 §5). */

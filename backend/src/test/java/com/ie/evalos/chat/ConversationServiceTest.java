@@ -88,6 +88,16 @@ class ConversationServiceTest {
 
 		assertThat(leaving.isCurrent()).isFalse();
 		assertThat(leaving.getLeftReason()).isEqualTo(LeftReason.REASSIGNED);
+		org.mockito.ArgumentCaptor<Object> published = org.mockito.ArgumentCaptor.forClass(Object.class);
+		verify(events, org.mockito.Mockito.atLeastOnce()).publishEvent(published.capture());
+		MembersChanged internalDiff = published.getAllValues().stream()
+				.filter((e) -> e instanceof ChatChanged change && change.kind() == ChatChanged.Kind.MEMBERS_CHANGED
+						&& change.payload() instanceof MembersChanged m && !m.removed().isEmpty())
+				.map((e) -> (MembersChanged) ((ChatChanged) e).payload()).findFirst().orElseThrow();
+		assertThat(internalDiff.removed()).containsExactly(
+				new ExpectedMember(ParticipantKind.STAFF, oldCm, ChatRole.CASE_MANAGER));
+		assertThat(internalDiff.added()).containsExactly(
+				new ExpectedMember(ParticipantKind.STAFF, newCm, ChatRole.CASE_MANAGER));
 		verify(members, never()).delete(any());
 		verify(members, times(3)).addIfAbsent(eq(brand), any(), eq("STAFF"), eq(newCm), eq("CASE_MANAGER"));
 	}

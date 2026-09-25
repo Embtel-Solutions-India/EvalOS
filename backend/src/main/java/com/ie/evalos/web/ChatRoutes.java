@@ -115,6 +115,19 @@ public abstract class ChatRoutes {
 		return ApiResponse.ok(api.unread(who()));
 	}
 
+	/** "I am typing" — relayed by the backend, throttled, never stored. */
+	@PostMapping("/conversations/{id}/typing")
+	public ApiResponse<Void> typing(@PathVariable UUID id) {
+		api.typing(who(), id);
+		return ApiResponse.ok(null);
+	}
+
+	/** Which of this conversation's participants have an app open. */
+	@GetMapping("/conversations/{id}/presence")
+	public ApiResponse<java.util.Map<String, Boolean>> presence(@PathVariable UUID id) {
+		return ApiResponse.ok(api.presence(who(), id));
+	}
+
 	/** ably-js calls this through authCallback, and again before the token expires. */
 	@GetMapping("/realtime/token")
 	public ApiResponse<com.ie.evalos.chat.live.AblyToken> realtimeToken() {

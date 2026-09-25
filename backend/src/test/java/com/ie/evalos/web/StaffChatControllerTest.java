@@ -134,6 +134,29 @@ class StaffChatControllerTest {
 	}
 
 	@Test
+	void typingIsRelayedForTheCaller() throws Exception {
+		UUID conversation = UUID.randomUUID();
+
+		mockMvc.perform(post("/api/chat/conversations/" + conversation + "/typing")
+				.header(HttpHeaders.AUTHORIZATION, bearer(Role.PROJECT_MANAGER)))
+				.andExpect(status().isOk());
+
+		then(api).should().typing(any(ChatIdentity.class), eq(conversation));
+	}
+
+	@Test
+	void presenceListsTheConversationsParticipants() throws Exception {
+		UUID conversation = UUID.randomUUID();
+		UUID someone = UUID.randomUUID();
+		given(api.presence(any(), eq(conversation))).willReturn(java.util.Map.of("CLIENT:" + someone, true));
+
+		mockMvc.perform(get("/api/chat/conversations/" + conversation + "/presence")
+				.header(HttpHeaders.AUTHORIZATION, bearer(Role.PROJECT_MANAGER)))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.data['CLIENT:" + someone + "']").value(true));
+	}
+
+	@Test
 	void anUnknownReactionIs400() throws Exception {
 		mockMvc.perform(put("/api/chat/messages/" + UUID.randomUUID() + "/reactions/FIRE")
 				.header(HttpHeaders.AUTHORIZATION, bearer(Role.PROJECT_MANAGER)))
