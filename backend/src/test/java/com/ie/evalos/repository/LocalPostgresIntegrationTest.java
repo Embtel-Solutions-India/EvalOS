@@ -1846,4 +1846,60 @@ class LocalPostgresIntegrationTest {
 		}
 	}
 
+	// --- Unit 57: case chat ---------------------------------------------------------------
+	//
+	// Member rows can never be deleted (that is the point of the trigger), so these tests cannot
+	// clean up after themselves. They share one IE case and reuse its conversations across runs:
+	// `conversationOn` finds the case's conversation of a type or creates it.
+
+	private UUID anIeCase() {
+		return jdbc.queryForObject("SELECT id FROM evalos_case WHERE brand_id = ? ORDER BY id LIMIT 1",
+				UUID.class, BRAND_IE);
+	}
+
+	private UUID conversationOn(UUID caseId, String type) {
+		jdbc.update("INSERT INTO conversations (id, brand_id, case_id, type, status, created_at) "
+				+ "VALUES (?, ?, ?, ?, 'ACTIVE', now()) ON CONFLICT (case_id, type) DO NOTHING",
+				UUID.randomUUID(), BRAND_IE, caseId, type);
+		return jdbc.queryForObject("SELECT id FROM conversations WHERE case_id = ? AND type = ?", UUID.class,
+				caseId, type);
+	}
+
+	private UUID memberOf(UUID conversation, String kind, String role) {
+		UUID member = UUID.randomUUID();
+		jdbc.update("INSERT INTO conversation_members (id, brand_id, conversation_id, member_kind, member_id, "
+				+ "member_role, created_at) VALUES (?, ?, ?, ?, ?, ?, now())",
+				member, BRAND_IE, conversation, kind, UUID.randomUUID(), role);
+		return member;
+	}
+
+	@Test
+	void aConversationMemberRowCannotBeDeleted() {
+		UUID member = memberOf(conversationOn(anIeCase(), "INTERNAL"), "STAFF", "PM");
+
+		assertThatThrownBy(() -> jdbc.update("DELETE FROM conversation_members WHERE id = ?", member))
+				.hasMessageContaining("never deleted");
+	}
+
+	@Test
+	void aMemberRowMayOnlyBeStampedLeftOnce() {
+		UUID member = memberOf(conversationOn(anIeCase(), "EXPERT"), "EXPERT", "EXPERT");
+
+		jdbc.update("UPDATE conversation_members SET left_at = now(), left_reason = 'OFFER_DECLINED' WHERE id = ?",
+				member);
+		assertThatThrownBy(() -> jdbc.update(
+				"UPDATE conversation_members SET left_at = NULL, left_reason = NULL WHERE id = ?", member))
+				.hasMessageContaining("only stamp left_at");
+	}
+
+	@Test
+	void aCaseHasAtMostOneConversationPerType() {
+		UUID caseId = anIeCase();
+		conversationOn(caseId, "CLIENT");
+
+		assertThatThrownBy(() -> jdbc.update("INSERT INTO conversations (id, brand_id, case_id, type, status, "
+				+ "created_at) VALUES (?, ?, ?, 'CLIENT', 'ACTIVE', now())", UUID.randomUUID(), BRAND_IE, caseId))
+				.isInstanceOf(org.springframework.dao.DataIntegrityViolationException.class);
+	}
+
 }
