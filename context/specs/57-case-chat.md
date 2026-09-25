@@ -67,7 +67,7 @@ All tables carry `brand_id`; every query filters on it.
 - **`message_reads`** — `conversation_id`, `brand_id`, `reader_kind`, `reader_id`,
   `last_read_message_id`, `last_read_at`. One row per member per conversation: the read watermark
   behind both "seen by" and unread counts.
-- **`push_subscriptions`** (phase 5) — `id`, `brand_id`, `subscriber_kind`, `subscriber_id`,
+- **`push_subscriptions`** — `id`, `brand_id`, `subscriber_kind`, `subscriber_id`,
   `endpoint` (unique), `p256dh`, `auth`, `created_at`, `last_success_at`. Deleted when the push
   service answers 404/410.
 
@@ -153,16 +153,34 @@ lists follow.
   the deployment today. Two instances need Spring's STOMP broker relay (RabbitMQ) and a shared
   presence store.
 
-## 6. Push — phase 5 (D37)
+## 6. Notifications and push — built with the backend (D37)
 
-On a new message, every member except the author with **no open session** gets a web push
-("New message — <case reference>, <conversation type>"; never the message text, which may be
-confidential on a lock screen). VAPID keys from the environment (`EVALOS_PUSH_VAPID_PUBLIC`,
-`EVALOS_PUSH_VAPID_PRIVATE`, `EVALOS_PUSH_SUBJECT`); a service worker in each app; subscribe and
-unsubscribe routes on each surface. The permission prompt is an in-inbox card, never automatic.
-Chat does not write to the notification bell; it has its own unread badge. The server-side web-push
-library is chosen during planning. On iOS, web push works only for a portal added to the home
-screen — a browser rule.
+**Decided 2026-09-25:** real-time delivery and push are part of the first release, not later phases.
+
+| Recipient state | What they get |
+|---|---|
+| Has the app open on the conversation | the message, live (§5) |
+| Has the app open elsewhere | the message event plus an **in-app toast** and the unread badge, live |
+| Has **no open session** | a **web push** from the browser |
+
+- **Everyone is covered:** staff (all three conversation types, Internal included), clients and
+  experts. A team message reaches an offline client or expert as a push; their reply reaches the
+  team instantly, and any team member who is offline gets a push.
+- **The push says who and where, never what:** "New message from <name> — <case reference>"
+  (the team is named "Your case team" to a client). A lock screen is not private. One notification
+  per conversation — later messages replace it (the push `tag` is the conversation id) rather than
+  stacking.
+- **Opening it** goes to the conversation: staff → the case's Chat tab; client → `/cases/:caseId`;
+  expert → `/case`.
+- **Mechanics:** standard Web Push with VAPID (`EVALOS_PUSH_VAPID_PUBLIC`,
+  `EVALOS_PUSH_VAPID_PRIVATE`, `EVALOS_PUSH_SUBJECT`); library `nl.martijndwars:web-push` 5.1.2;
+  `push_subscriptions` in the same migration as the chat tables; a service worker in each app;
+  `GET push/public-key`, `POST push/subscriptions`, `DELETE push/subscriptions` on each surface.
+  Sent off the request thread. A 404/410 from the push service deletes the subscription.
+  Unconfigured VAPID keys disable push with a startup warning; chat still works.
+- **Permission** is asked from an in-inbox card, never automatically. On iOS, web push works only
+  for a portal added to the home screen — a browser rule.
+- Chat does not write to the notification bell; it has its own badge and toast.
 
 ## 7. Frontend — `packages/evalos-chat`
 
@@ -227,21 +245,21 @@ Vite alias. React is a peer dependency; the one new runtime dependency is `@stom
 
 ## 10. Phases — each one shippable
 
-1. **Backend core** — migration, `ChatMembership`, `ChatAccess`, `ConversationService`, lifecycle
-   listener and `CASE_MANAGER_REASSIGNED`, sweep with backfill, `MessageService`, REST on three
-   surfaces. Remove the Unit 56 Stream setup (`StreamChat`, `ChatTokenService`, `ChatController`,
-   `ChatUnavailableException`, their tests, the `evalos.stream` config and compose variables).
-2. **Real-time** — STOMP endpoint, auth interceptor, fan-out, typing, presence, nginx `/ws`.
-3. **`packages/evalos-chat`** and the staff app.
-4. **Client portal** case page and inbox; **expert portal** panel and inbox.
-5. **Web push** (D37).
+1. **Backend, live** — migration (chat tables + `push_subscriptions`), membership, access,
+   lifecycle and `CASE_MANAGER_REASSIGNED`, sweep with backfill, messages, REST on three surfaces,
+   **STOMP (auth, per-member fan-out, typing, presence, reconnect catch-up), web push sending**.
+   Removes the Unit 56 Stream setup.
+2. **`packages/evalos-chat` and the staff app** — inbox, Chat tab, toast, service worker and push
+   opt-in, nginx `/ws`.
+3. **Client and expert portals** — client case page and inbox, expert panel and inbox, service
+   workers and push opt-in.
 
 ## 11. Decisions this edits (in the step that builds them)
 
 - **D50** — rewritten from "Stream Chat" to this service.
 - **D19c** — Sales still reads no case data, but **takes part in the Client and Internal
   conversations** of cases from their pipeline.
-- **D37** — push is built in phase 5.
+- **D37** — web push is built in phase 1 (sending) and phases 2–3 (subscribing in each app).
 - **Open item h** — settled: the client and the expert never share a conversation.
 - **Q13** — closed by §0.
 - `data-model.md`, `workflows.md`, `implementation-status.md` and the Serena memories follow each
