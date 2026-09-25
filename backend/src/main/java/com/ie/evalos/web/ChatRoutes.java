@@ -114,4 +114,10 @@ public abstract class ChatRoutes {
 	public ApiResponse<Long> unread() {
 		return ApiResponse.ok(api.unread(who()));
 	}
+
+	/** ably-js calls this through authCallback, and again before the token expires. */
+	@GetMapping("/realtime/token")
+	public ApiResponse<com.ie.evalos.chat.live.AblyToken> realtimeToken() {
+		return ApiResponse.ok(api.realtimeToken(who()));
+	}
 }

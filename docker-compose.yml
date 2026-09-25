@@ -54,6 +54,10 @@ services:
       GHL_API_TOKEN: ${GHL_API_TOKEN:-}
       GHL_LOCATION_ID: ${GHL_LOCATION_ID:-}
 
+      # Case chat (Unit 57): Ably for live updates. Empty = chat works without live updates.
+      ABLY_API_KEY: ${ABLY_API_KEY:-}
+      EVALOS_STAFF_ORIGIN: ${EVALOS_STAFF_ORIGIN:-}
+
       FORWARD_HEADERS_STRATEGY: framework
 
     expose:

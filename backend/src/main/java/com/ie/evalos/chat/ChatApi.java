@@ -35,10 +35,12 @@ public class ChatApi {
 
 	private final MessageService messages;
 	private final ClientAccountRepository accounts;
+	private final com.ie.evalos.chat.live.ChatRealtime realtime;
 
-	ChatApi(MessageService messages, ClientAccountRepository accounts) {
+	ChatApi(MessageService messages, ClientAccountRepository accounts, com.ie.evalos.chat.live.ChatRealtime realtime) {
 		this.messages = messages;
 		this.accounts = accounts;
+		this.realtime = realtime;
 	}
 
 	// --- identity, portal surfaces (staff comes straight from the session) ------------------
@@ -118,5 +120,10 @@ public class ChatApi {
 
 	public long unread(ChatIdentity who) {
 		return messages.unreadTotal(who);
+	}
+
+	/** An Ably TokenRequest for the caller's own channel (Unit 57 §5). */
+	public com.ie.evalos.chat.live.AblyToken realtimeToken(ChatIdentity who) {
+		return realtime.token(who);
 	}
 }

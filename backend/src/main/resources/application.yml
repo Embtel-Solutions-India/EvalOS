@@ -95,6 +95,13 @@ evalos:
     # exactly 32 bytes. No default, for the same reason as the signing key: an
     # environment that forgets it must fail to start, not write plaintext.
     field-key: ${EVALOS_FIELD_KEY}
+  ably:
+    # Real-time delivery for case chat (Unit 57, D50): Ably relays, PostgreSQL keeps the record.
+    # A credential - never defaulted. Empty = no live updates; chat still works over REST.
+    api-key: ${ABLY_API_KEY:}
+  chat:
+    # The staff app's origin, used to build the link a staff push notification opens.
+    staff-origin: ${EVALOS_STAFF_ORIGIN:http://localhost:5173}
   workload:
     # How many open cases a Case Manager is considered fully loaded by. The denominator behind
     # every capacity percentage on the PM dashboard, and therefore behind ui-context.md's fixed

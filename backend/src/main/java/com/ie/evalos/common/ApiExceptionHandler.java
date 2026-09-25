@@ -163,6 +163,12 @@ public class ApiExceptionHandler {
 		return ResponseEntity.status(HttpStatus.CONFLICT).body(ApiResponse.error("CONVERSATION_READ_ONLY", ex.getMessage()));
 	}
 
+	/** No Ably key here (Unit 57): chat works over REST, without live updates. */
+	@ExceptionHandler(com.ie.evalos.chat.live.RealtimeUnavailableException.class)
+	public ResponseEntity<ApiResponse<Void>> onRealtimeUnavailable(com.ie.evalos.chat.live.RealtimeUnavailableException ex) {
+		return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(ApiResponse.error("REALTIME_UNAVAILABLE", ex.getMessage()));
+	}
+
 	/** More than 30 chat messages a minute from one person (Unit 57). */
 	@ExceptionHandler(com.ie.evalos.chat.ChatRateLimiter.TooManyMessagesException.class)
 	public ResponseEntity<ApiResponse<Void>> onTooManyMessages(com.ie.evalos.chat.ChatRateLimiter.TooManyMessagesException ex) {

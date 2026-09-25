@@ -115,6 +115,25 @@ class StaffChatControllerTest {
 	}
 
 	@Test
+	void theRealtimeTokenIsTheServicesAnswer() throws Exception {
+		given(api.realtimeToken(any())).willReturn(new com.ie.evalos.chat.live.AblyToken("app.key", "STAFF:x",
+				"{}", 3600000, 1L, "nonce", "mac"));
+
+		mockMvc.perform(get("/api/chat/realtime/token").header(HttpHeaders.AUTHORIZATION, bearer(Role.PROJECT_MANAGER)))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.data.clientId").value("STAFF:x"));
+	}
+
+	@Test
+	void realtimeOffIs503() throws Exception {
+		given(api.realtimeToken(any())).willThrow(new com.ie.evalos.chat.live.RealtimeUnavailableException());
+
+		mockMvc.perform(get("/api/chat/realtime/token").header(HttpHeaders.AUTHORIZATION, bearer(Role.PROJECT_MANAGER)))
+				.andExpect(status().isServiceUnavailable())
+				.andExpect(jsonPath("$.error.code").value("REALTIME_UNAVAILABLE"));
+	}
+
+	@Test
 	void anUnknownReactionIs400() throws Exception {
 		mockMvc.perform(put("/api/chat/messages/" + UUID.randomUUID() + "/reactions/FIRE")
 				.header(HttpHeaders.AUTHORIZATION, bearer(Role.PROJECT_MANAGER)))
