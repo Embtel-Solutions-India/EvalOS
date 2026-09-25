@@ -111,10 +111,25 @@ public class ContactSnapshot extends ScopedEntity {
 	 */
 	public void syncFromGhl(String fullName, String email, String phone, String company, ClientType clientType,
 			SourceChannel sourceChannel, String utmSource, String utmMedium, String utmCampaign) {
-		this.fullName = fullName;
-		this.email = email;
-		this.phone = phone;
-		this.company = company;
+		// **Blank means "leave it alone", never "clear it"** — and these four needed the guard the
+		// other five already had. A GHL Custom Webhook's body is whatever the workflow author
+		// mapped, so a workflow carrying only a contact id and a phone number reached here and
+		// blanked the client's name and nulled the email the portal signs them in and mails them
+		// at. A partial payload is a partial statement about the contact, not an instruction to
+		// forget the rest of it. Blank rather than null because the webhook's own record rebuilds
+		// a missing full_name as "".
+		if (fullName != null && !fullName.isBlank()) {
+			this.fullName = fullName;
+		}
+		if (email != null && !email.isBlank()) {
+			this.email = email;
+		}
+		if (phone != null && !phone.isBlank()) {
+			this.phone = phone;
+		}
+		if (company != null && !company.isBlank()) {
+			this.company = company;
+		}
 		if (clientType != null) {
 			this.clientType = clientType;
 		}
@@ -162,5 +177,17 @@ public class ContactSnapshot extends ScopedEntity {
 
 	public Instant getSyncedAt() {
 		return syncedAt;
+	}
+
+	/**
+	 * How this person first reached the business, or null.
+	 *
+	 * <p><strong>A capture-time fact, which is why it is safe to show beside a deal.</strong>
+	 * {@link #syncFromGhl} treats the five attribution fields as fill-only — they describe how
+	 * somebody arrived and cannot change — so the value here is the one recorded when EvalOS first
+	 * met them, not whatever the most recent payload happened to carry.
+	 */
+	public SourceChannel getSourceChannel() {
+		return sourceChannel;
 	}
 }

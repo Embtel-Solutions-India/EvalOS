@@ -1,0 +1,119 @@
+<!doctype html>
+<!--
+  The one wrapper every client email is built from.
+
+  WHY IT LOOKS LIKE 2005. Email is not the web: Outlook on Windows renders with Word, which has no
+  flexbox, no grid, no `max-width` on a div worth trusting and no external stylesheet at all. So the
+  layout is nested tables with width attributes, every rule is an inline style, and nothing here is
+  a class. That is not carelessness, it is the only thing that renders the same in Outlook, Gmail,
+  Apple Mail and a phone.
+
+  THE PALETTE IS THE CLIENT PORTAL'S OWN TOKENS, resolved to hex because a CSS variable does not
+  survive an email client:
+    --brand-crimson      #C8102E   headings, buttons and links        (was --primary #003152)
+    --foreground         #11212C   body text
+    --muted-foreground   #5C6E7A   secondary text and the footer
+    --accent             #FBECEE   the tinted panel                   (was #EBF4F9, a navy tint)
+    --border             #DCE4EA   hairlines
+    --background         #FBFCFD   the page behind the card
+
+  THE ACCENT WENT CRIMSON ON 2026-09-23 and the neutrals deliberately did not. Body text, the
+  hairlines and the page stay the cool greys they were: reddening those makes an email that reads
+  as a warning, and every message this layout carries is routine — an account is ready, a request
+  arrived. Only what was already the brand accent changed colour.
+
+  #C8102E IS THE PORTAL'S `--brand-crimson`, NOT THE LOGO'S RED. The mark itself is #E60914, a
+  brighter near-pure red. They are close enough to sit together and the portal token wins because
+  this palette exists to match the portal a client is about to sign in to, not the image above it.
+  If the two should be unified that is a brand decision and it belongs in `globals.css` first.
+
+  CONTRAST, measured rather than assumed: #C8102E on #FFFFFF is 5.88:1, and white on #C8102E is the
+  same 5.88:1 — both above AA for body text, so the headings, the links and the button label all
+  pass. A lighter crimson would not have.
+
+  PLACEHOLDERS are double-brace names, replaced by MailTemplates. Anything a client supplied is
+  HTML-escaped on the way in; the link is built by EvalOS and is the one value that is not.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="x-apple-disable-message-reformatting">
+    <title>{{subject}}</title>
+  </head>
+  <body style="margin:0; padding:0; background-color:#FBFCFD; -webkit-text-size-adjust:100%; -ms-text-size-adjust:100%;">
+
+    <!-- Preheader: the grey line a client sees beside the subject in their inbox. Hidden in the
+         body itself, which is why it carries the zero-height/opacity belt and braces. Without one,
+         clients show the first words of the layout instead, which is usually the alt text. -->
+    <div style="display:none; font-size:1px; color:#FBFCFD; line-height:1px; max-height:0; max-width:0; opacity:0; overflow:hidden;">
+      {{preheader}}
+    </div>
+
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#FBFCFD;">
+      <tr>
+        <td align="center" style="padding:24px 12px 40px 12px;">
+
+          <table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="width:600px; max-width:600px;">
+
+            <!-- Logo. An <img> with an explicit width and height: a client that blocks images by
+                 default (Outlook's default) still reserves the space, so the layout does not jump
+                 when the reader chooses to load it. The alt text is the company name because that
+                 is what a blocked image should say.
+
+                 240x57 BECAUSE THE MARK IS 1230x290. It was 152x70, which is 2.17:1 and was right
+                 for the stacked 380x175 logo this replaced; the horizontal mark is 4.24:1, so
+                 those numbers would have squashed it to two thirds of its width. Both attributes
+                 are stated AND repeated in the inline style: Outlook reads the attributes, and
+                 several webmail clients override them from the style. Getting one and not the
+                 other is how a logo renders at its full 1230px in exactly one client. -->
+            <tr>
+              <td align="center" style="padding:8px 0 20px 0;">
+                <a href="{{siteUrl}}" style="text-decoration:none;">
+                  <img src="{{logoUrl}}" width="240" height="57" alt="International Evaluations"
+                       style="display:block; border:0; outline:none; text-decoration:none; width:240px; height:57px;">
+                </a>
+              </td>
+            </tr>
+
+            <!-- The card. -->
+            <tr>
+              <td style="background-color:#FFFFFF; border:1px solid #DCE4EA; border-radius:10px; padding:32px 32px 28px 32px;">
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+                  <tr>
+                    <td style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif; color:#11212C;">
+                      {{content}}
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+
+            <!-- Footer. Company, site and the support address, and NOTHING ELSE: a postal address
+                 or a phone number nobody confirmed is worse than none, because a client will try
+                 it. -->
+            <tr>
+              <td style="padding:24px 8px 0 8px; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif; font-size:12px; line-height:19px; color:#5C6E7A;">
+                <p style="margin:0 0 6px 0;">
+                  <strong style="color:#11212C;">International Evaluations</strong>
+                </p>
+                <p style="margin:0 0 6px 0;">
+                  Credential evaluations and expert opinion letters.
+                  <a href="{{siteUrl}}" style="color:#C8102E; text-decoration:underline;">internationalevaluations.com</a>
+                </p>
+                <p style="margin:0 0 6px 0;">
+                  Questions? Reply to this message or write to
+                  <a href="mailto:{{supportEmail}}" style="color:#C8102E; text-decoration:underline;">{{supportEmail}}</a>.
+                </p>
+                <p style="margin:12px 0 0 0; color:#8496A1;">
+                  {{footerNote}}
+                </p>
+              </td>
+            </tr>
+
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>

@@ -26,6 +26,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.BDDMockito.then;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -33,7 +34,7 @@ import static org.mockito.Mockito.verify;
 /**
  * The funnel's one decision that cost an argument: <strong>the opportunity is opened when the
  * client picks a service, not when they submit</strong> (`43` §6a, resolved 2026-09-15). The
- * questionnaire is the longest part of the funnel and therefore where people stop, so a lead who
+ * questionnaire (removed, Unit 55) was the longest part of the funnel and therefore where people stop, so a lead who
  * abandons halfway must already be on a salesperson's board. Two tests pin it:
  * {@link #pickingAServiceOpensTheDeal()} and {@link #aSecondStartReturnsTheDraftAndOpensNoSecondDeal()}.
  *
@@ -79,14 +80,18 @@ class ClientApplicationServiceTest {
 	/** D3c's backfill door. Stubbed to do nothing, so a client who has a contact id keeps it. */
 	private final ClientAccountService accountsService = mock(ClientAccountService.class);
 
+	/** Unit 53 / 2026-09-19: the submit confirmation and the document count it states. */
+	private final ClientMailer mailer = mock(ClientMailer.class);
+	private final ApplicationDocumentService requestDocuments = mock(ApplicationDocumentService.class);
+
 	private final ClientApplicationService service = new ClientApplicationService(applications, accounts,
 			ghl, pipelines, SERVICE_FIELD, SUBMITTED_FIELD, CORRELATION_FIELD, deals, outbox,
-			accountsService);
+			accountsService, mailer, requestDocuments);
 
 	/** The same service with no custom field configured — the unconfigured environment. */
 	private ClientApplicationService withoutCustomFields() {
 		return new ClientApplicationService(applications, accounts, ghl, pipelines, "", "", "", deals,
-				outbox, accountsService);
+				outbox, accountsService, mailer, requestDocuments);
 	}
 
 	private ClientAccount client;
@@ -203,7 +208,7 @@ class ClientApplicationServiceTest {
 	 * <p>Null rather than an empty map, because {@code createOpportunity} drops blank entries
 	 * anyway and a caller sending <code>{}</code> reads as "this request has no service", which is
 	 * never true. **Losing the request over an unconfigured field would be the worse failure**: the
-	 * client has finished the questionnaire by this point, and an environment that has not created
+	 * client has finished the request by this point, and an environment that has not created
 	 * the field yet must not turn that into nothing.
 	 */
 	@Test
@@ -248,19 +253,19 @@ class ClientApplicationServiceTest {
 	}
 
 	/**
-	 * <strong>A GHL outage at submit does not throw the questionnaire away.</strong>
+	 * <strong>A GHL outage at submit does not throw the request away.</strong>
 	 *
 	 * <p>The opposite of the rule one line up in the service, and the difference is what Sales can
 	 * see. No opportunity at all is a 502, because an application Sales cannot see reads to the
 	 * client as "sent" and to the business as nothing at all. Here the deal is already on the
-	 * board — only the marker is missing — so refusing would lose a completed questionnaire over a
+	 * board — only the marker is missing — so refusing would lose a completed request over a
 	 * flag. EvalOS owns the request; GHL is the copy that lags.
 	 */
 	/**
 	 * <strong>A GHL outage at submit refuses, and that is stricter than it used to be (D12).</strong>
 	 *
 	 * <p>The failure used to be swallowed: the deal already existed, only the marker was missing,
-	 * so refusing would have thrown away a finished questionnaire over a flag. Under D10 a failed
+	 * so refusing would have thrown away a finished request over a flag. Under D10 a failed
 	 * create means Sales has <em>no deal at all</em> — telling a client "sent" for that is the one
 	 * lie this flow must not tell. The draft survives and the next attempt retries.
 	 */
@@ -274,6 +279,50 @@ class ClientApplicationServiceTest {
 				.isInstanceOf(InvalidRequestException.class);
 
 		assertThat(row.isDraft()).isTrue();
+	}
+
+	/**
+	 * <strong>An unmarked INTAKE pipeline refuses the submit without ever calling GHL.</strong>
+	 *
+	 * <p>This was the state of a fresh environment on 2026-09-19 — twelve mirrored pipelines, all
+	 * {@code UNASSIGNED} — and it produced a 400 saying "we could not reach our systems, please try
+	 * again in a moment" while GHL was perfectly reachable and no amount of trying would ever help.
+	 * The refusal is right; what was wrong is that it was indistinguishable from an outage, so the
+	 * pipeline resolution now happens outside the outage catch and logs at ERROR.
+	 *
+	 * <p>Asserting {@code shouldHaveNoInteractions} on the GHL client is the point: an environment
+	 * problem must not spend a request proving itself.
+	 */
+	@Test
+	void anUnmarkedIntakePipelineRefusesTheSubmitWithoutCallingGhl() {
+		given(pipelines.findByBrandIdAndPurposeAndMissingSinceIsNullOrderByPositionAsc(BRAND,
+				com.ie.evalos.domain.PipelinePurpose.INTAKE)).willReturn(java.util.List.of());
+		ClientApplication row = freshDraft("academic_evaluation", "Academic Evaluation");
+
+		assertThatThrownBy(() -> service.submit(token(), row.getId()))
+				.isInstanceOf(InvalidRequestException.class);
+
+		assertThat(row.isDraft()).isTrue();
+		then(ghl).shouldHaveNoInteractions();
+	}
+
+	/** Two marked pipelines is the same refusal: a request has nowhere unambiguous to go. */
+	@Test
+	void twoMarkedIntakePipelinesAlsoRefuseRatherThanGuessing() {
+		com.ie.evalos.domain.Pipeline second =
+				new com.ie.evalos.domain.Pipeline(BRAND, "pipe-2", "Also Intake", 1);
+		setId(second, UUID.randomUUID());
+		com.ie.evalos.domain.Pipeline first =
+				new com.ie.evalos.domain.Pipeline(BRAND, "pipe-1", "Client Intake", 0);
+		setId(first, UUID.randomUUID());
+		given(pipelines.findByBrandIdAndPurposeAndMissingSinceIsNullOrderByPositionAsc(BRAND,
+				com.ie.evalos.domain.PipelinePurpose.INTAKE)).willReturn(java.util.List.of(first, second));
+		ClientApplication row = freshDraft("academic_evaluation", "Academic Evaluation");
+
+		assertThatThrownBy(() -> service.submit(token(), row.getId()))
+				.isInstanceOf(InvalidRequestException.class);
+
+		then(ghl).shouldHaveNoInteractions();
 	}
 
 	/** No field configured omits it from the create rather than sending it blank. */
@@ -401,16 +450,15 @@ class ClientApplicationServiceTest {
 
 	/**
 	 * <strong>Starting a request reaches GHL zero times (D10).</strong> The whole funnel up to the
-	 * submit button is EvalOS's own rows — a client browsing and typing costs the GHL budget
-	 * nothing, and an outage over there is invisible until they press submit.
+	 * submit button is EvalOS's own rows — a client choosing a service and attaching documents costs
+	 * the GHL budget nothing, and an outage over there is invisible until they press submit.
 	 */
 	@Test
-	void startingAndSavingReachGhlZeroTimes() {
-		ClientApplication row = freshDraft("academic_evaluation", "Academic Evaluation");
+	void startingReachesGhlZeroTimes() {
+		freshDraft("academic_evaluation", "Academic Evaluation");
 
 		ClientApplicationService.ApplicationView started =
 				service.start(token(), "academic_evaluation", "Academic Evaluation", null);
-		service.save(token(), row.getId(), "{\"q1\":\"a\"}", null);
 
 		verify(ghl, never()).createOpportunity(any(), any(), any(), any(), any(), any(), any());
 		verify(deals, never()).openLocally(any(), any(), any());
@@ -450,13 +498,11 @@ class ClientApplicationServiceTest {
 	}
 
 	@Test
-	void aSubmittedRequestCannotBeEditedOrSubmittedTwice() {
+	void aSubmittedRequestCannotBeSubmittedTwice() {
 		ClientApplication done = draft("opp-1");
 		done.submit();
 		given(applications.findById(done.getId())).willReturn(Optional.of(done));
 
-		assertThatThrownBy(() -> service.save(token(), done.getId(), "{}", null))
-				.isInstanceOf(InvalidRequestException.class);
 		assertThatThrownBy(() -> service.submit(token(), done.getId()))
 				.isInstanceOf(InvalidRequestException.class);
 	}
@@ -472,7 +518,7 @@ class ClientApplicationServiceTest {
 		setId(theirs, UUID.randomUUID());
 		given(applications.findById(theirs.getId())).willReturn(Optional.of(theirs));
 
-		assertThatThrownBy(() -> service.save(token(), theirs.getId(), "{}", null))
+		assertThatThrownBy(() -> service.submit(token(), theirs.getId()))
 				.isInstanceOf(ForbiddenException.class);
 	}
 
@@ -483,16 +529,6 @@ class ClientApplicationServiceTest {
 				PortalAudience.CLIENT, null, "ghl-somebody-else");
 
 		assertThatThrownBy(() -> service.mine(stranger)).isInstanceOf(ForbiddenException.class);
-	}
-
-	/** The answers ceiling is a trust-boundary check, not a judgement about how much a client types. */
-	@Test
-	void anUnboundedAnswersPayloadIsRefused() {
-		ClientApplication open = draft("opp-1");
-		given(applications.findById(open.getId())).willReturn(Optional.of(open));
-
-		assertThatThrownBy(() -> service.save(token(), open.getId(), "x".repeat(64 * 1024 + 1), null))
-				.isInstanceOf(InvalidRequestException.class);
 	}
 
 	private PortalPrincipal token() {

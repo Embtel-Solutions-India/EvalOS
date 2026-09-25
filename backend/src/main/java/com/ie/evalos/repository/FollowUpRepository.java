@@ -27,27 +27,17 @@ public interface FollowUpRepository
 	ScopePredicate.Fields SCOPE = ScopePredicate.Fields.brandAndPipeline("brandId", "ghlPipelineId");
 
 	/**
-	 * A desk's open follow-ups, soonest first.
+	 * A desk's open follow-ups across every pipeline the caller works, soonest first — Unit 44b.
+	 *
+	 * <p>A desk holds a <em>set</em> of pipelines ({@code 00d} §6.7: Case Delivery has no single
+	 * owner), and a follow-up queue showing one of them would be a queue somebody misses a call
+	 * from.
 	 *
 	 * <p>Ascending and open-only because this is a work queue: the overdue one is the point, and a
 	 * list led by completed items buries it.
 	 */
-	List<FollowUp> findByBrandIdAndGhlPipelineIdAndCompletedFalseAndDueAtBeforeOrderByDueAtAsc(
-			UUID brandId, String ghlPipelineId, Instant before);
-
-	/**
-	 * The same queue across every pipeline the caller works — Unit 44b.
-	 *
-	 * <p>A desk holds a <em>set</em> of pipelines now ({@code 00d} §6.7: Case Delivery has no single
-	 * owner), and a follow-up queue showing one of them would be a queue somebody misses a call
-	 * from. The single-pipeline finder above is kept for callers that genuinely mean one.
-	 */
 	List<FollowUp> findByBrandIdAndGhlPipelineIdInAndCompletedFalseAndDueAtBeforeOrderByDueAtAsc(
 			UUID brandId, java.util.Collection<String> ghlPipelineIds, Instant before);
-
-	/** One deal's follow-ups, newest first — for the drawer on a deal card. */
-	List<FollowUp> findByBrandIdAndGhlOpportunityIdOrderByDueAtDesc(UUID brandId,
-			String ghlOpportunityId);
 
 	/**
 	 * The mirrored row for a GHL task, so completing updates rather than inserts.

@@ -24,29 +24,17 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * The client's request for a service: start it, save it, submit it (Unit 43).
+ * The client's request for a service: start it, submit it (Unit 43).
  *
  * <p><strong>No case is created here, by any path.</strong> A case is born only of a won
  * opportunity arriving on the webhook — invariant 8, and {@code DomainInvariantsTest} fails the
  * build if a second class ever injects {@code CaseIntakeService}. What this unit produces is a
- * <em>GHL opportunity</em> and a questionnaire attached to it, which is the thing Sales prices.
+ * <em>GHL opportunity</em> and the request behind it, which is the thing Sales prices.
  *
- * <p><strong>The service catalog is frontend data and is not mirrored here.</strong> Which
- * questions a service asks, which of them are conditional on earlier answers, and which documents
- * it wants are all in {@code serviceCatalog.ts} / {@code questionGroups.ts}, where adding a
- * service is one entry and no migration. Copying 400 lines of it into Java to re-check
- * completeness would create a second definition that drifts from the first, and the drift would
- * show up as a client being refused for an answer the form never asked. What this class stores is
- * the service id, the name as chosen, and the answers as given.
- *
- * <pre>
- * // ponytail: submit validates shape and size, not completeness — the form is the completeness
- * // gate. That is a real ceiling: a hand-crafted POST can submit an application with no answers.
- * // The blast radius is a salesperson reading a thin application and ringing the client, which
- * // 43 §5 already accepts for documents ("a missing document is a thing Sales chases, not a wall
- * // the funnel puts in front of a lead"). If completeness ever has to be enforced server-side,
- * // move the catalog to the server and serve it to the SPA — do not write a second copy.
- * </pre>
+ * <p><strong>There is no questionnaire</strong> (Unit 55, 2026-09-25). The request is the service
+ * as chosen, the purpose, and the documents attached to it; everything else Sales asks on the call.
+ * The service catalog is frontend data and is not mirrored here — what this class stores is the
+ * service id and the name as chosen.
  */
 @Service
 public class ClientApplicationService {
@@ -55,18 +43,8 @@ public class ClientApplicationService {
 
 	/** What the portal shows for one application. */
 	public record ApplicationView(UUID id, String serviceId, String serviceName, String purpose,
-			String status, String answers, Instant createdAt, Instant updatedAt, Instant submittedAt) {
+			String status, Instant createdAt, Instant updatedAt, Instant submittedAt) {
 	}
-
-	/**
-	 * The answers payload's ceiling, in characters.
-	 *
-	 * <p>The largest service in the catalog asks about thirty questions, several of them free
-	 * text. 64 KB is far above any honest answer and far below anything that would trouble a
-	 * jsonb column — it exists so an unbounded body cannot be posted at a route a signed-in
-	 * stranger can reach, not to second-guess a client who types a lot.
-	 */
-	private static final int MAX_ANSWERS_CHARS = 64 * 1024;
 
 	private final ClientApplicationRepository applications;
 
@@ -101,7 +79,7 @@ public class ClientApplicationService {
 	private final String serviceFieldId;
 
 	/**
-	 * The GHL opportunity custom field that says the questionnaire is finished, or blank for none.
+	 * The GHL opportunity custom field that says the request was sent, or blank for none.
 	 *
 	 * <p>The companion to {@link #serviceFieldId}, written on the same create. It existed because
 	 * the old {@code D10} opened the deal at service-pick, so a board could not tell somebody
@@ -158,13 +136,19 @@ public class ClientApplicationService {
 	 */
 	private final ClientAccountService accountsService;
 
+	private final ClientMailer mailer;
+
+	/** Unit 53: the confirmation names how many documents arrived, which is the one fact it can prove. */
+	private final ApplicationDocumentService requestDocuments;
+
 	ClientApplicationService(ClientApplicationRepository applications, ClientAccountRepository accounts,
 			GhlWriteClient ghl, PipelineRepository pipelines,
 			@Value("${evalos.ghl.opportunity-service-field:}") String serviceFieldId,
 			@Value("${evalos.ghl.opportunity-submitted-field:}") String submittedFieldId,
 			@Value("${evalos.ghl.opportunity-correlation-field:}") String correlationFieldId,
 			OpportunityMirrorService deals, SyncOutboxService outbox,
-			ClientAccountService accountsService) {
+			ClientAccountService accountsService, ClientMailer mailer,
+			ApplicationDocumentService requestDocuments) {
 		this.applications = applications;
 		this.accounts = accounts;
 		this.ghl = ghl;
@@ -175,6 +159,8 @@ public class ClientApplicationService {
 		this.correlationFieldId = correlationFieldId == null ? "" : correlationFieldId.trim();
 		this.deals = deals;
 		this.outbox = outbox;
+		this.mailer = mailer;
+		this.requestDocuments = requestDocuments;
 	}
 
 	/** Every application this client has, newest first. */
@@ -190,13 +176,13 @@ public class ClientApplicationService {
 	 *
 	 * <p><strong>The opportunity is NOT created here — that is {@link #submit}'s job (D10, changed
 	 * 2026-09-16, third time of asking).</strong> It was created at this first screen
-	 * until then, on `43` §6a's argument that the questionnaire is the longest part of the funnel
-	 * and therefore where people stop, so a client who abandoned halfway should still reach a
+	 * until then, on `43` §6a's argument that the questionnaire (removed, Unit 55) was the longest
+	 * part of the funnel and therefore where people stop, so a client who abandoned halfway should still reach a
 	 * salesperson. The requirement said submit from the start, EvalOS refused it twice, and the third asking carries it: a
 	 * deal on the board is now a finished request and nothing else, which is what gives Sales'
 	 * review step something to review.
 	 *
-	 * <p><strong>The cost is stated rather than hidden: an abandoned questionnaire now reaches
+	 * <p><strong>The cost is stated rather than hidden: an abandoned request now reaches
 	 * nobody.</strong> The draft is still here — {@code client_application} rows with
 	 * {@code status = DRAFT} — and nothing sweeps them or tells anyone. Recovering them is a
 	 * separate job, and it is in `open-decisions.md` rather than improvised here.
@@ -222,21 +208,6 @@ public class ClientApplicationService {
 				client.getBrandId(), client.getId(), serviceId.trim(), serviceName.trim(), trimToNull(purpose))));
 	}
 
-	/** Records the answers so far. Autosaved, so it must be cheap and must never move a stage. */
-	@Transactional
-	public ApplicationView save(PortalPrincipal principal, UUID applicationId, String answersJson,
-			String purpose) {
-		ClientAccount client = account(principal);
-		ClientApplication application = owned(client, applicationId);
-
-		require(application.isDraft(), "This request has already been submitted.");
-		require(answersJson != null && answersJson.length() <= MAX_ANSWERS_CHARS,
-				"That is more than we can store against one request.");
-
-		application.saveAnswers(answersJson, purpose);
-		return view(application);
-	}
-
 	/**
 	 * Hands the request to Sales — and this is where the deal is born (D10).
 	 *
@@ -253,16 +224,6 @@ public class ClientApplicationService {
 	 *
 	 * <p><strong>The stage does not move here either.</strong> What changes in EvalOS is
 	 * {@code status}, which is what the staff screen sorts on.
-	 *
-	 * <p><strong>The answers are not copied into an {@code OpportunityNote}, and `43` §6b's plan
-	 * to do that is not followed.</strong> Two reasons, found in the building: `opportunity_note`
-	 * requires an {@code author_id} referencing a {@code team_member}, and a client is not one —
-	 * filing a client's answers there would mean making that column nullable, weakening a
-	 * constraint so that a row could pretend to be staff prose. And a questionnaire flattened into
-	 * note text reads far worse than the same answers rendered against their questions. Sales
-	 * reads the application itself, through {@code GET /api/sales/opportunities/\{id\}/application}
-	 * — which `43` §6c requires anyway, because "a review step with nowhere to read the thing being
-	 * reviewed does not exist". The note stream stays what it is: what a salesperson wrote.
 	 *
 	 * <p><strong>No opportunity means no submit.</strong> Submitting an application Sales cannot
 	 * see is the one failure this flow must not have — it reads to the client as "sent" and to
@@ -297,6 +258,27 @@ public class ClientApplicationService {
 				"We could not reach our systems to send this. Please try again in a moment.");
 
 		application.submit();
+
+		// **The confirmation, and it is deliberately the last thing that happens.** The request is
+		// already submitted and already visible in the portal by this line, so nothing about it
+		// depends on the mail arriving — which is why the boolean is ignored and the whole call is
+		// guarded. A mail relay having a bad minute must not lose a client's finished
+		// request; that trade is the same one `linkOpportunityIfMissing` makes one method up,
+		// for the same reason.
+		//
+		// This message is NOT a mailbox proof, which is the one purpose invariant 14 allowed. It was
+		// added on the business's instruction 2026-09-19 and the invariant edited to say so.
+		try {
+			mailer.sendRequestSubmitted(
+					new com.ie.evalos.integration.MailTransport.Recipient(client.getBrandId(),
+							client.getEmail()),
+					client.getFirstName(), application.getServiceName(),
+					requestDocuments.countFor(application.getId()));
+		}
+		catch (RuntimeException mailFailed) {
+			log.error("Request {} was submitted but its confirmation could not be sent",
+					application.getId(), mailFailed);
+		}
 		return view(application);
 	}
 
@@ -362,8 +344,24 @@ public class ClientApplicationService {
 				return application;
 			}
 		}
+		// **Resolved OUTSIDE the try, because it is not a GHL failure and must not be treated as
+		// one.** "No pipeline is marked INTAKE" is this environment being unconfigured; the catch
+		// below exists for an upstream outage, and flattening the two together is what made a
+		// client retry for ever against a 400 that said "try again in a moment" while every log
+		// line called it queued. A GM marking a pipeline is the fix, and somebody has to be told.
+		com.ie.evalos.domain.Pipeline intake;
 		try {
-			com.ie.evalos.domain.Pipeline intake = intakePipeline(application.getBrandId());
+			intake = intakePipeline(application.getBrandId());
+		}
+		catch (com.ie.evalos.integration.GhlUnavailableException notConfigured) {
+			// ERROR, not WARN: nothing retries its way out of this, and it blocks every request in
+			// the brand rather than one.
+			log.error("Request {} cannot open a deal: {}", application.getId(),
+					notConfigured.getMessage());
+			return application;
+		}
+
+		try {
 			// **The local row first, and the order is the correlation key's whole mechanism.**
 			// EvalOS writes its own opportunity, sends that row's id to GHL in a custom field, and
 			// only then records GHL's id beside it. A create that times out therefore leaves a row
@@ -395,8 +393,8 @@ public class ClientApplicationService {
 		}
 		catch (RuntimeException ghlRefused) {
 			// Deliberately not rethrown: `submit` checks the id and refuses there, which is the
-			// one moment the client must not be told something untrue. Losing a half-typed
-			// questionnaire to an upstream outage is the worse trade.
+			// one moment the client must not be told something untrue. Losing a client's draft
+			// request to an upstream outage is the worse trade.
 			//
 			// **But the attempt is queued now rather than evaporating (Unit 45c).** The local row
 			// exists and carries the correlation key, so the drain can finish this create safely:
@@ -405,9 +403,18 @@ public class ClientApplicationService {
 			UUID queued = application.getOpportunityId();
 			if (queued != null) {
 				outbox.enqueue(application.getBrandId(), queued, SyncOutboxEntry.Intent.UPSERT);
+				log.warn("Could not open the deal for request {} yet; queued for retry: {}",
+						application.getId(), ghlRefused.getMessage());
 			}
-			log.warn("Could not open the deal for request {} yet; queued for retry: {}",
-					application.getId(), ghlRefused.getMessage());
+			else {
+				// **Said separately, because "queued for retry" was printed here too and was not
+				// true.** With no local row there is no entity id for the outbox to name, so
+				// nothing is queued and nothing will retry on its own — the next submit is what
+				// tries again. A log line that claims a queue that does not exist is worse than no
+				// log line, because it stops somebody looking.
+				log.error("Could not open the deal for request {} and nothing was queued: {}",
+						application.getId(), ghlRefused.getMessage());
+			}
 			return application;
 		}
 		return application;
@@ -530,7 +537,6 @@ public class ClientApplicationService {
 
 	private static ApplicationView view(ClientApplication row) {
 		return new ApplicationView(row.getId(), row.getServiceId(), row.getServiceName(), row.getPurpose(),
-				row.getStatus().name(), row.getAnswers(), row.getCreatedAt(), row.getUpdatedAt(),
-				row.getSubmittedAt());
+				row.getStatus().name(), row.getCreatedAt(), row.getUpdatedAt(), row.getSubmittedAt());
 	}
 }

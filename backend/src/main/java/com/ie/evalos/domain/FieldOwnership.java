@@ -25,8 +25,9 @@ import java.util.Set;
  * wins and it is reported</strong> (§3.2): the mirror keeps the local value and the nightly audit
  * opens a drift row, so a human sees the disagreement rather than a silent overwrite losing an
  * edit that has not reached GHL yet.</li>
- * <li>{@link #EVALOS} — EvalOS's alone and never synced in either direction. Staff prose about a
- * deal is not CRM data, and sending it would be the invariant-14 question all over again.</li>
+ * <li>{@link #EVALOS} — EvalOS's alone: GHL never overwrites it. Since Unit 54 a note is also
+ * <em>pushed</em> once to the deal's GHL contact, but that copy is GHL's, and nothing GHL does to it
+ * comes back onto the EvalOS row — there is no conflict to resolve because nothing is shared.</li>
  * </ul>
  *
  * <p><strong>The field names are the entity's property names</strong>, not GHL's JSON keys, because

@@ -219,9 +219,52 @@ public class GhlPipelineClient {
 		}
 	}
 
-	/** A note written in GHL. Fields as the live contract lists them. */
+	/**
+	 * A note written in GHL. Fields as the live contract lists them.
+	 *
+	 * <p><strong>{@code relations} and {@code createdBy} are not in GHL's docs and are in its
+	 * answers</strong> (probed 2026-09-24, 30 notes over 100 deals). Both matter:
+	 * <ul>
+	 * <li>The search repeats a contact's notes under <em>every</em> deal of that contact, so the deal
+	 * a note is listed under is not the deal it is about — in that sample it was a different deal 23
+	 * times in 30. {@code relations} names the one it was written on, or none for a contact-only
+	 * note.</li>
+	 * <li>The top-level {@code userId} was absent on 28 of 30; the author is {@code createdBy.userId}.</li>
+	 * </ul>
+	 */
 	public record Note(String id, String title, String body, String userId,
-			java.time.Instant dateAdded) {
+			java.time.Instant dateAdded, CreatedBy createdBy, List<Relation> relations) {
+
+		/** The deal this note was written on, or null when it belongs to the contact alone. */
+		public String relatedOpportunityId() {
+			return relations == null ? null
+					: relations.stream()
+							.filter((relation) -> "opportunity".equals(relation.objectKey()))
+							.map(Relation::recordId).findFirst().orElse(null);
+		}
+
+		/** Who wrote it: the documented field when GHL sends it, else where GHL actually puts it. */
+		public String authorId() {
+			return userId != null ? userId : createdBy == null ? null : createdBy.userId();
+		}
+	}
+
+	public record CreatedBy(String userId) {
+	}
+
+	public record Relation(String objectKey, String recordId) {
+	}
+
+	/**
+	 * A contact's notes, straight from GHL — {@code GET /contacts/{contactId}/notes}.
+	 *
+	 * <p>Read on one path only: the note outbox's retry after an ambiguous failure, to find whether
+	 * the note it is about to post already landed (Unit 54 §1). Everything else reads the mirror.
+	 */
+	public List<Note> notesOnContact(String contactId) {
+		NoteEnvelope response = http.get(NoteEnvelope.class,
+				(uri) -> uri.path("/contacts/{contactId}/notes").build(contactId));
+		return response == null ? List.of() : response.notes();
 	}
 
 	/** A GHL task. {@code completed} is the field task read-back exists to see. */

@@ -58,7 +58,9 @@ The ones most often violated from memory:
 - **A SALES/MARKETING member holds a SET of pipelines** (`team_member_pipeline`, Unit 44b), assigned
   by MIRROR id and never by a pasted GHL string. The one-owner rule is gone — Case Delivery is a
   pipeline nobody owns. `PipelineScope.mine()` returns a list; a CREATE uses `mineForWrite()`, which
-  refuses rather than guessing when a desk holds several.
+  refuses rather than guessing when a desk holds several. **A revoke stamps `revoked_at` rather than
+  deleting the row** (`V64`, 2026-09-18) — otherwise `backfillFromLegacyColumn` re-created the grant
+  on the next `PIPELINE_MIRROR` pass, and `V39` forbids emptying the legacy column it reads.
 - **The client's request lands on the pipeline marked `INTAKE`**, not one matched by name.
   `evalos.ghl.intake-pipeline-name` is retired: a rename in GHL used to stop every request silently.
 - **EvalOS sends GHL the requested SERVICE ID as an opportunity custom field and nothing else about
@@ -74,8 +76,9 @@ The ones most often violated from memory:
   blocks delivery to it, never from it. Never aim a test recipient at the sender address:
   `EVALOS_MAIL_TEST_TO` must be a mailbox a human can open, and doing otherwise once got an
   account's transactional sending suspended.
-- Brand-scoped by default. Append-only truth for `audit_event` and `opportunity_note`, enforced by
-  database triggers.
+- Brand-scoped by default. Append-only truth for `audit_event`, enforced by a database trigger.
+  `opportunity_note` left that rule on 2026-09-24 (Unit 54a, D24 amended): its author may overwrite or
+  hard-delete it; an audit row records who and when, never the text.
 - **The one scoping exception is the GHL location, and it costs screens rather than being
   widened.** `evalos.ghl.location-id` is one global sub-account belonging to no brand, so every
   screen over it is GM-only. On 2026-09-16 the two GHL funnel screens were **removed** for exactly
@@ -98,10 +101,14 @@ The ones most often violated from memory:
   first request, so it exists by the time anything needs to name it. A
   contact with no GHL id is **refused** with a message naming the repair, never filed under a
   guessed prefix.
-- **Documents arrive WITH the request**, at questionnaire submit, keyed by the **GHL contact id**
+- **There is NO client questionnaire** (D13, Unit 55, 2026-09-25, business decision). The portal
+  request is service + purpose + documents; Sales asks the rest on the call. No questions step, no
+  `PUT /api/portal/applications/{id}`, no `answers` on the entity or the API. `client_application.answers`
+  is unmapped and awaits `V69` (drop held for an explicit go-ahead). Do not rebuild a questionnaire.
+- **Documents arrive WITH the request**, before submit, keyed by the **GHL contact id**
   (D41). Reuses `DocumentStore.clientKey`; Handoff A carries them into `case_document` as row
   inserts over the **same S3 object**. Unit 53, spec `53-request-documents.md` (D33).
-- **Sales clicks one opportunity and sees answers AND documents** — the documents are **their own
+- **Sales clicks one opportunity and sees the request AND documents** — the documents are **their own
   route and tab on that deal, never a second permission** (D34).
 - **There is NO EvalOS sales-review state** (D35). `client_application.status` stays
   `DRAFT`/`SUBMITTED`; review, approval and rejection are GHL **pipeline stages**. Do not add
@@ -139,7 +146,10 @@ because GHL's opportunity search filters on `createdAt` and has no updated-since
 **D42/D43 (2026-09-17, Unit 45e).** Ownership of a mirrored field is **per field, in code** — never
 the blanket "EvalOS wins", which reverts the GHL automations GHL was kept for. GHL owns the
 **assignee** and the **pipeline**; stage/status/amount/name are shared with EvalOS winning *and
-reporting*; notes are never synced. "EvalOS wins" means only "there is an unconfirmed local edit",
+reporting*; notes sync both ways but are stored apart (Unit 54, built 2026-09-24):
+an EvalOS note is pushed to the deal's GHL contact and its author's edits/deletes follow it there
+(54a); GHL notes show beside it and are changed in GHL only. A GHL note is filed by its `relations` (the search repeats contact notes
+on every deal); a deal-less one is the contact's and shows on each of their deals. "EvalOS wins" means only "there is an unconfirmed local edit",
 and the flag clears on a GHL win or on `linkGhl`. A null `ghl_updated_at` is a conflict **only when
 there is an edit to defend**. And **a drift row is never resolved by a button** — the surface
 answers *will this fix itself* with `owner`/`resolution`/`needsAHuman`, and only a row GHL no longer
@@ -150,7 +160,8 @@ does not call GHL, and it answers from the row. A **board** reads EvalOS rows an
 request at all. A **create** still calls GHL inline, because the outbox stores an id and never a
 payload and a create carries custom fields the mirror does not hold (tier 2, Unit 47). The four
 editable fields are exactly 45e's shared set — the assignee is missing on purpose, it is GHL's.
-**Known cost**: a won deal reaches GHL on the next drain (≤2m), so the case arrives later than it
+A stage move must name a **live stage of the deal's own pipeline** (Q12, 2026-09-24) — a foreign
+stage would be a pipeline move, which is GHL's workflow. **Known cost**: a won deal reaches GHL on the next drain (≤2m), so the case arrives later than it
 used to; a win surviving an outage is worth more than the two minutes.
 **The board's freshness contract**: `MIRROR_DELTA` every 5m; `lastSyncedAt` null = never synced
 (never faked as "now") and counts as stale; `board-stale-after` **5m** (one missed pass) draws a "Sync delayed" banner;
@@ -177,3 +188,30 @@ from the END of a run, so a fresh start was an hour from its first pipelines. Th
 syncs pipelines before deals**, because an opportunities-only refresh cannot fix an empty mirror.
 And a desk's pipeline claim is **re-read when the token carries none**: D19b's sign-in bound is
 right for a reassignment and a trap for a first assignment.
+
+**D44/D46 amended 2026-09-18 (review pass).** A queued `UPSERT` sends **only the fields the desk
+edited** (`opportunity.locally_edited_fields`, `V63`); `updateOpportunity` omits a null, so an
+unedited field is left alone in GHL rather than overwritten from a mirror that may be a
+`MIRROR_DELTA` behind. A row with nothing outstanding sends nothing — GHL answers 422 to an empty
+body. The confirmation is `OpportunityRepository.confirmPushed`, a conditional statement, not
+`save(row)`: the entity was read before the round trip, so merging it lost any edit that landed
+during it, and a zero row-count re-queues instead. **Both creates now write the mirror from GHL's
+reply** (`absorbCreated`) so the next edit is not refused as "not in the mirror yet". Refresh reads
+pipeline *structure* only when the mirror holds none.
+
+**D23 edited 2026-09-18 — experts get accounts after all.** It said "experts do not have accounts;
+an expert reaches the portal only through a staff-minted link". The stakeholder decision reversed
+that: experts sign in like clients at `experts.internationalevaluations.com`, and staff-minted
+expert links are retired. D1's refusal rested on there being no mail channel for a password reset,
+and **Unit 52 built one** — the premise expired before the answer did.
+
+**The direction is decided; the PROCESS is not** (Q6, still open, still gates code). An expert is
+not a client: they are on the roster before they could sign in, their access is party-scoped rather
+than account-scoped, and one person may sit on two brands' panels. Recommendation on file:
+invitation-only sign-up bound to `expert.id`, party-scoped tokens kept underneath, brand on the
+token and not the account.
+
+**Nothing is deleted yet, and the ordering is deliberate.** `mintForExpert`/`mintForParty` are
+still wired into four staff screens and every link already in an expert's inbox points at `/case`,
+so minting and that route retire in ONE change once the replacement exists. Until then the expert
+portal's `/` is a holding page that offers no door.

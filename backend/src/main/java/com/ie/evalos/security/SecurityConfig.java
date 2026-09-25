@@ -46,6 +46,14 @@ public class SecurityConfig {
 						// token in the path, resolved in WebhookGateway. Nothing here reads
 						// the security context.
 						.requestMatchers("/api/webhooks/**").permitAll()
+						// **Local development only, and it usually is not mapped at all.**
+						// `LocalDocumentController` is `@ConditionalOnProperty("evalos.s3.local-dir")`,
+						// which `application.yml` and `application-prod.yml` leave blank, so in a
+						// deployment this matcher guards a route that does not exist. It is
+						// `permitAll` for the same reason a presigned S3 URL needs no header: the
+						// five-minute token in the path IS the credential, and a document opened in
+						// a new tab carries no Authorization header to check.
+						.requestMatchers("/api/local-documents/**").permitAll()
 						.anyRequest().authenticated())
 				.exceptionHandling(handling -> handling
 						.authenticationEntryPoint((request, response, ex) -> apiErrors.write(

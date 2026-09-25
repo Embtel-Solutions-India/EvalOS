@@ -3,24 +3,26 @@
 ## CURRENT DATABASE
 
 Verified 2026-09-16 against the live local Postgres 18 database `evalos` (`pg_dump --schema-only`
-plus `pg_constraint` / `pg_indexes`). **Flyway V1–V58 all applied, `success = true`.** (`V50`–`V55` are Unit 44's four slices, `V56` is
-Unit 45b and `V57`/`V58` are 45c, added 2026-09-16 and verified by `LocalPostgresIntegrationTest`.) Migrations
+plus `pg_constraint` / `pg_indexes`). **Flyway V1–V65 all applied, `success = true`.** (`V50`–`V55` are Unit 44's four slices, `V56` is
+Unit 45b and `V57`/`V58` are 45c, added 2026-09-16 and verified by `LocalPostgresIntegrationTest`;
+`V59`–`V62` are Units 46–47b; **`V63` and `V64` are the 2026-09-18 review pass** —
+`opportunity.locally_edited_fields` and `team_member_pipeline.revoked_at`; **`V65` is Unit 53** — `application_document`.) Migrations
 live in `backend/src/main/resources/db/migration/`.
 
 > No production database was reachable from this workspace. Everything below is the schema the
 > migrations produce, confirmed against a real applied instance. Row counts cited anywhere are the
 > **local seeded** database and say nothing about production.
 
-### Tables (26, including `flyway_schema_history`)
+### Tables (27, including `flyway_schema_history`)
 
 | Table | Purpose | Brand-scoped |
 |---|---|---|
 | `brand` | tenant; webhook endpoint token, GHL webhook secret, currency, payout terms | — |
 | `team_member` | staff login, role, `segment`; `ghl_pipeline_id` is **VESTIGIAL** as of 44b | yes (nullable for GM) |
-| `team_member_pipeline` | **which pipelines a member may work** (44b, `V54`): FK to `pipeline`, many-to-many, `granted_at`/`granted_by` | via the member |
+| `team_member_pipeline` | **which pipelines a member may work** (44b, `V54`): FK to `pipeline`, many-to-many, `granted_at`/`granted_by`, `revoked_at` (`V64`). **A revoke stamps, never deletes** — the row is what stops `backfillFromLegacyColumn` re-creating the grant from `team_member.ghl_pipeline_id`, which `V39` forbids emptying for SALES/MARKETING. Every read filters `revoked_at IS NULL` | via the member |
 | `client_account` | **portal identity**: email, password_hash, ghl_contact_id, `contact_id` (`V55` — FK to the CRM row), name, phone, `created_via` (`V59` — SEED / SIGNUP / STAFF, the only thing `PORTAL_CLEANUP` is allowed to delete on) | yes |
 | `client_credential_token` | single-use SET / RESET password links | yes |
-| `client_application` | **the client's request**: service, purpose, answers (jsonb), status, ghl_opportunity_id, `opportunity_id` (`V53` — the row it opened, whose id is the GHL correlation key) | yes |
+| `client_application` | **the client's request**: service, purpose, status (`answers` jsonb is unmapped since Unit 55 and awaits its drop, `V69`), ghl_opportunity_id, `opportunity_id` (`V53` — the row it opened, whose id is the GHL correlation key) | yes |
 | `contact_snapshot` | CRM snapshot a case hangs off; utm / source fields | yes |
 | `evalos_case` | the production case, 60 columns | yes |
 | `case_document` | DRAFT / CLIENT_UPLOAD / SIGNED_LETTER, versioned, S3 `object_key` | yes |
@@ -30,10 +32,11 @@ live in `backend/src/main/resources/db/migration/`.
 | `payout_ledger` | one row per case, links to a payment | yes |
 | `payout_payment` | one transfer | yes |
 | `portal_access` | opaque tokens for CLIENT / EXPERT, case- or party-scoped | yes |
-| `opportunity_note` | staff prose against a GHL opportunity — **append-only trigger** | yes |
+| `opportunity_note` | staff prose against a GHL opportunity — **its author may overwrite or hard-delete it** (`V67`, Unit 54a: trigger dropped, `updated_at` added; was append-only until 2026-09-24) | yes |
+| `opportunity_note_ghl_link` | **the GHL note an `opportunity_note` became** (Unit 54, `V66`): `note_id` PK, `brand_id`, `ghl_note_id` unique per brand — **null on a delete marker** (`V68`: the note was deleted before its push learned the id, so the drain searches the contact for its reference) — `ghl_contact_id` (`V67`), `linked_at`. **No FK and no trigger since `V67`**: it outlives a deleted note until the drain has deleted the GHL copy, then the drain deletes it. `sync_outbox.entity_type` gained `OPPORTUNITY_NOTE` with no migration (no CHECK). `ghl_note.ghl_opportunity_id` null now means "the contact's note" | yes |
 | `pipeline` | **mirror of a GHL pipeline** (Unit 44a): `ghl_id` verbatim, `name`, `position`, `purpose`, `synced_at`, `missing_since`. Upserted, never deleted | yes |
 | `pipeline_stage` | **mirror of a GHL stage** (Unit 44a): FK to `pipeline`, `ghl_id` verbatim (mutable — see below), natural key `(pipeline_id, position, name)` | yes |
-| `opportunity` | **mirror of a GHL opportunity** (Unit 44d, `V51`): EvalOS's `id` is also the GHL correlation key; `ghl_id` is null until GHL has seen the row; `ghl_stage_id` is text, not a FK, so one sweep being behind cannot fail another. Upserted, never deleted | yes |
+| `opportunity` | **mirror of a GHL opportunity** (Unit 44d, `V51`): EvalOS's `id` is also the GHL correlation key; `ghl_id` is null until GHL has seen the row; `ghl_stage_id` is text, not a FK, so one sweep being behind cannot fail another. `local_updated_at` says an edit is outstanding and `locally_edited_fields` (`V63`) says **which of the four shared fields it is about**, so a push sends only those. Upserted, never deleted | yes |
 | `ghl_funnel_cache` | **orphaned 2026-09-16** — its only reader went with the funnel screens; the drop has nowhere to live (see `52`/`51` notes) | **no** |
 | `meeting` | mirror of a GHL appointment booked from the Sales desk | yes |
 | `follow_up` | mirror of a GHL contact task | yes |
@@ -42,6 +45,7 @@ live in `backend/src/main/resources/db/migration/`.
 | `webhook_event` | every inbound webhook, raw payload, processed flag | yes (nullable) |
 | `sync_outbox` | **durable EvalOS→GHL pushes** (45c, `V57`/`V58`): `entity_id` never a payload, coarse `intent`, partial-unique while pending, dead rows kept | yes |
 | `sync_drift` | **divergences between EvalOS and GHL** (45b, `V56`): one OPEN row per disagreement, `first_detected_at` / `last_seen_at`, resolved rows kept as history | yes |
+| `application_document` | **documents sent WITH a request, before any case exists** (Unit 53, `V65`): FK to `client_application` and to `contact_snapshot`, `object_key` authoritative for reads, `carried_to_case_document_id` set once at Handoff A. **Shares its S3 object with the `case_document` it becomes** — the key is the contact's prefix, so nothing copies and nothing re-keys | yes |
 | `scheduled_job` | one row per sweep run: RUNNING / OK / FAILED, items seen and acted | **no** |
 
 ### Relationships that matter
@@ -106,6 +110,7 @@ FKs to `evalos_case`. No table, column or route attaches a file to a request.
 | `uq_contact_per_brand_ghl_id`, `uq_contact_per_brand_email` | ghl id where present; email only as fallback |
 | `uq_portal_access_*` (four) | one unrevoked token per case+audience, per client party, per expert party, per account |
 | `uq_team_member_pipeline` | **VESTIGIAL** — `team_member_pipeline` is the authority as of 44b. Kept only because seeds `V908`/`V909` write the column it guards and a DROP cannot be ordered after them |
+| `team_member_pipeline` PK `(team_member_id, pipeline_id)` | One row per pair, revoked or live. `grant` is `ON CONFLICT ... DO UPDATE` clearing `revoked_at`, so re-granting revives the row rather than colliding with it; `backfillFromLegacyColumn`'s `DO NOTHING` relies on the same row being present |
 | `uq_pipeline_per_brand_ghl_id`, `uq_pipeline_stage_per_brand_ghl_id` | GHL's id, unique per brand rather than globally: two brands will hold two locations and ids are only unique within one |
 | `uq_sync_outbox_pending` | **PARTIAL** — `where sent_at is null and dead_at is null`. Pending pushes collapse; sent and dead ones are history and must not block the next edit |
 | `uq_client_account_per_brand_ghl_contact` | **PARTIAL** — D6 enforced at last (`V55`): two accounts cannot claim one GHL contact, while many accounts with none can coexist (post-cutover clients have no contact) |
@@ -130,7 +135,7 @@ Not present today. Do not write code that assumes any of it exists.
 
 | Needed | Why | Nearest thing today |
 |---|---|---|
-| **`application_document`** — its own table, plus routes and an S3 prefix **keyed by the GHL contact id** (D41), and a carry-forward into `case_document` at Handoff A | D33 (2026-09-17): the client uploads *at questionnaire submit*, before a case exists, and the files belong to the **person** — so the key is the contact, not the application. `contact_id` stays a real FK to `contact_snapshot`; naming a contact by GHL's id does not change a primary key (D18). Sales reads them on their own route on the opportunity (D34). Spec `53` | `case_document.case_id NOT NULL` |
+| ~~**`application_document`**~~ — **BUILT 2026-09-18, `V65`; see CURRENT above** | D33 (2026-09-17): the client uploads *with the request*, before a case exists, and the files belong to the **person** — so the key is the contact, not the application. `contact_id` stays a real FK to `contact_snapshot`; naming a contact by GHL's id does not change a primary key (D18). Sales reads them on their own route on the opportunity (D34). Spec `53` | `case_document.case_id NOT NULL` |
 | **A join from `client_application` to the case it became** | nothing records that a request turned into a case | both hold `ghl_opportunity_id` as text, unjoined |
 | ~~A richer `client_application.status`~~ | **NOT NEEDED — D35, 2026-09-17.** Review, approval and rejection are GHL pipeline stages, not EvalOS columns. Two values are the right two | `DRAFT` / `SUBMITTED` stays |
 | ~~`client_account` merged with or joined to `contact_snapshot`~~ | **DONE at 44c** — `contact_id`, `V55` | the *rename* to `contact` is still deferred, §4.1 |
@@ -162,6 +167,7 @@ three are named consistently rather than one being the odd one out. **Free slots
 must not become one** (D48). **Custom field values are not columns** (D49).
 
 ### From other approved-but-unbuilt work
+
 
 - `expert_application` plus recruitment stages — Unit 50 (ENM as a function).
 - Expert accounts on the Unit 42 pattern — no table exists, **and none is designed until the

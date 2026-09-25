@@ -19,6 +19,38 @@ spring:
       mail.smtp.writetimeout: 5000
   jpa:
     show-sql: false
+  flyway:
+    # **Production has a seed tree now, and `db/seed-prod` is the only profile that names it.**
+    # Flyway has no exclude filter, so sibling directories are the whole mechanism keeping each
+    # environment's seed out of the others — the rule `MigrationTreeTest` enforces. What lives
+    # there is V960, the six International Evaluations desk logins, which have no other way in:
+    # there is no create-team-member endpoint, only read and pipeline grant/revoke.
+    locations: classpath:db/migration,classpath:db/seed-prod
+    # **This profile used to keep Flyway's strict default, and the comment in
+    # `application-testprod.yml` still says production does. That is no longer true, and the cost is
+    # real rather than cosmetic.** A seed is numbered above every real migration (V960), so once it
+    # is applied the next unit's V-N arrives BELOW the high-water mark and strict Flyway refuses the
+    # boot. Allowing out-of-order is what a seed tree costs, in every profile that has one.
+    #
+    # What it gives up: a migration accidentally left out of a release is silently applied whenever
+    # it does turn up, instead of stopping the deploy. Same exposure local and testprod already
+    # carry, now on the environment where it matters most — worth knowing before adding a V961.
+    out-of-order: true
+    placeholders:
+      # The BCrypt hash the six desks are seeded with, resolved from the environment at migrate time
+      # so no committed file carries one. **NO DEFAULT, deliberately**: an environment that forgets
+      # it must fail to migrate rather than seed six real logins with whatever a fallback said.
+      #
+      # **The cost, stated because it is permanent**: this is required on every prod boot, not only
+      # the one that applies V960 — Spring resolves the placeholder map at startup regardless of
+      # whether Flyway has anything left to run. Same shape as testprod's `seed-password-hash`.
+      #
+      # Generate with `new BCryptPasswordEncoder().encode("…")`. **Rotate with an UPDATE, never by
+      # editing V960** — an applied migration's checksum is fixed, and changing it refuses the boot.
+      # Staff have no forgot-password flow (that is client-only), so this value is the only way in
+      # until somebody changes it; treat it as a credential handed over once and rotated on first
+      # sign-in.
+      desk-password-hash: ${DESK_PASSWORD_HASH}
 
 evalos:
   mail:
@@ -80,6 +112,8 @@ evalos:
     # says which variable is missing.
     bucket: ${EVALOS_S3_BUCKET:}
     region: ${EVALOS_S3_REGION:}
+    # Blank: production talks to real S3. See `application-local.yml` for what this is for.
+    endpoint: ${EVALOS_S3_ENDPOINT:}
   ghl:
     # Every `evalos.ghl.*` value, listed in one place: this
     # profile's convention is that a deployer can see what they are expected to set. The
@@ -125,7 +159,7 @@ evalos:
     # are GHL's automation's job. A `hot-stage-name` existed here briefly and was removed — it made
     # EvalOS hold a second opinion about pipeline placement, which goes stale the first time
     # somebody reworks the workflow in GHL.
-     # The GHL opportunity custom field that carries the requested service — the one input GHL's
+    # The GHL opportunity custom field that carries the requested service — the one input GHL's
     # own workflow needs to route a client's request to the right pipeline.
     #
     # **THIS IS WHAT MAKES "assign the pipeline by service" POSSIBLE, and it is the whole of

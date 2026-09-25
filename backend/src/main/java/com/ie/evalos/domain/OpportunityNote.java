@@ -22,15 +22,15 @@ import jakarta.persistence.Table;
  * "an opportunity is itself a contact", which is true of every contact today and is exactly the
  * conflation invariant 7 forbids. A repeat client is one contact and two opportunities.
  *
- * <p><strong>Append-only, and the entity has no setters to say so.</strong> A correction is a new
- * note. The database enforces it with a trigger ({@code V41}), on the same reasoning
- * {@code audit_event} does: the application connects as the table owner, and an owner is not
- * subject to {@code REVOKE}.
+ * <p><strong>No longer append-only</strong> (Unit 54a, {@code V67}, 2026-09-24): the business chose to
+ * let a note's author overwrite or hard-delete it, and {@code V41}'s trigger is gone. What survives
+ * an edit or a delete is an {@code audit_event} saying who and when — never the words.
  *
- * <p><strong>What this costs, named rather than buried:</strong> a note written <em>in GHL</em>
- * never reaches EvalOS. That is acceptable only because the whole point of this programme is
- * that Sales and Marketing do not open GHL. If anyone works a deal there directly, this design
- * is wrong and gets revisited rather than patched.
+ * <p><strong>Revisited, as this comment said it would be</strong> (Unit 54, 2026-09-24): people do
+ * work deals in GHL, so notes now travel both ways. This row is pushed once to the deal's contact
+ * and its GHL id is written beside it in {@code opportunity_note_ghl_link}; an edit or delete is
+ * queued to GHL the same way (54a). GHL's own notes are read back from {@code ghl_note} and shown
+ * with these, still stored apart.
  */
 @Entity
 @Table(name = "opportunity_note")
@@ -58,8 +58,13 @@ public class OpportunityNote {
 	@Column(name = "author_id", nullable = false, updatable = false)
 	private UUID authorId;
 
-	@Column(name = "body", nullable = false, updatable = false)
+	/** Editable by its author since Unit 54a — overwritten in place, the previous text not kept. */
+	@Column(name = "body", nullable = false)
 	private String body;
+
+	/** Null until the first edit. */
+	@Column(name = "updated_at")
+	private Instant updatedAt;
 
 	@Column(name = "created_at", nullable = false, insertable = false, updatable = false)
 	private Instant createdAt;
@@ -103,5 +108,15 @@ public class OpportunityNote {
 
 	public Instant getCreatedAt() {
 		return createdAt;
+	}
+
+	public Instant getUpdatedAt() {
+		return updatedAt;
+	}
+
+	/** Replaces the text (Unit 54a). Who may call this is the service's rule: the author only. */
+	public void edit(String newBody) {
+		this.body = newBody;
+		this.updatedAt = Instant.now();
 	}
 }

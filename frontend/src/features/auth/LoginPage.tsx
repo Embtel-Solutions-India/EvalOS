@@ -31,7 +31,22 @@ export default function LoginPage() {
         className="w-full max-w-sm rounded-xl border p-6"
         style={{ background: 'var(--bg-surface)', borderColor: 'var(--border-default)' }}
       >
-        <h1 className="text-lg font-semibold tracking-tight">Sign in to EvalOS</h1>
+        {/* The product mark, drawn like the sidebar's brand tile so the two read as one system.
+            The login is the one screen before any brand is known, so it carries EvalOS itself. */}
+        <div className="mb-6 flex items-center gap-2.5">
+          <span
+            aria-hidden
+            className="grid h-10 w-10 place-items-center text-lg font-bold text-white"
+            style={{ background: 'var(--accent-primary)', borderRadius: 'var(--radius-md)' }}
+          >
+            E
+          </span>
+          <span className="text-xl font-semibold tracking-tight">
+            Eval<span style={{ color: 'var(--accent-primary)' }}>OS</span>
+          </span>
+        </div>
+
+        <h1 className="text-lg font-semibold tracking-tight">Sign in</h1>
         <p className="mt-1 text-sm" style={{ color: 'var(--text-muted)' }}>
           Back-of-house production. Staff accounts only.
         </p>

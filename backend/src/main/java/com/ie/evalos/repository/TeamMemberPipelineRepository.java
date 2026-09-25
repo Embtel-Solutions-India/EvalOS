@@ -44,15 +44,9 @@ public class TeamMemberPipelineRepository {
 		return jdbc.queryForList("""
 				SELECT p.ghl_id FROM team_member_pipeline tmp
 				  JOIN pipeline p ON p.id = tmp.pipeline_id
-				 WHERE tmp.team_member_id = ? AND p.missing_since IS NULL
+				 WHERE tmp.team_member_id = ? AND tmp.revoked_at IS NULL
+				   AND p.missing_since IS NULL
 				 ORDER BY p.position, p.name""", String.class, memberId);
-	}
-
-	/** The mirror ids, for a caller that addresses the {@code pipeline} row itself. */
-	public List<UUID> pipelineIdsFor(UUID memberId) {
-		return jdbc.queryForList(
-				"SELECT pipeline_id FROM team_member_pipeline WHERE team_member_id = ?",
-				UUID.class, memberId);
 	}
 
 	/**
@@ -68,6 +62,11 @@ public class TeamMemberPipelineRepository {
 	 *
 	 * <p>Running it after each mirror pass is what makes it self-heal: the first pass that brings a
 	 * pipeline in is the pass that can finally resolve the member pointing at it.
+	 *
+	 * <p><strong>{@code ON CONFLICT DO NOTHING} is load-bearing as of V64.</strong> A revoked grant
+	 * keeps its row precisely so that this statement skips it: the legacy column still names the
+	 * pipeline — V39 forbids emptying it for a pipeline-scoped role — so without the kept row this
+	 * would re-create the grant on the next pass, past every check {@code revoke} went through.
 	 *
 	 * <p><strong>The legacy column is a migration source here and nothing else.</strong> Nothing
 	 * reads it for authorisation — {@code EvalOsUserDetailsService} fills a principal from this
@@ -87,7 +86,8 @@ public class TeamMemberPipelineRepository {
 	/** Who works this pipeline. <strong>May be empty</strong> — Case Delivery has no single owner. */
 	public List<UUID> membersOn(UUID pipelineId) {
 		return jdbc.queryForList(
-				"SELECT team_member_id FROM team_member_pipeline WHERE pipeline_id = ?",
+				"SELECT team_member_id FROM team_member_pipeline "
+						+ "WHERE pipeline_id = ? AND revoked_at IS NULL",
 				UUID.class, pipelineId);
 	}
 
@@ -101,15 +101,42 @@ public class TeamMemberPipelineRepository {
 	 * @return 1 if this granted something, 0 if they already had it
 	 */
 	public int grant(UUID memberId, UUID pipelineId, UUID grantedBy) {
+		// **DO UPDATE, not DO NOTHING, because a revoked row is kept** (V64): a member granted a
+		// pipeline they once had would otherwise collide with their own revoked row and the grant
+		// would report success while changing nothing. Re-granting stamps the new grant and clears
+		// the revocation, which is the same row saying the same thing it would have said if the
+		// first grant had never happened.
 		return jdbc.update("""
 				INSERT INTO team_member_pipeline (team_member_id, pipeline_id, granted_by)
-				VALUES (?, ?, ?) ON CONFLICT DO NOTHING""", memberId, pipelineId, grantedBy);
+				VALUES (?, ?, ?)
+				ON CONFLICT (team_member_id, pipeline_id) DO UPDATE
+				   SET revoked_at = NULL, granted_at = now(), granted_by = EXCLUDED.granted_by
+				 WHERE team_member_pipeline.revoked_at IS NOT NULL""",
+				memberId, pipelineId, grantedBy);
 	}
 
-	/** @return 1 if this removed something, 0 if they were not on it */
+	/**
+	 * Takes a member off a pipeline — <strong>by stamping the row, not deleting it</strong> (V64).
+	 *
+	 * <p>The row has to survive, and the reason is a collision between two statements that were
+	 * each correct alone. {@link #backfillFromLegacyColumn} re-derives grants from
+	 * {@code team_member.ghl_pipeline_id} after every PIPELINE_MIRROR pass, so a DELETE was undone
+	 * within the sweep interval — silently, and through none of the checks
+	 * {@code PipelineAssignmentService.grant} applies. Clearing the legacy column instead is not
+	 * available: V39's {@code team_member_pipeline_matches_role} requires a SALES or MARKETING row
+	 * to hold a non-null one, so the backfill's source can never be retired for exactly the roles
+	 * that can hold pipelines. A kept row is what {@code ON CONFLICT DO NOTHING} then skips.
+	 *
+	 * <p>It is also the right verb. Assignment history is append-only, and "who could work this
+	 * pipeline in August" is a question a deleted row cannot answer.
+	 *
+	 * @return 1 if this removed something, 0 if they were not on it — unchanged, so
+	 *         {@code revoke}ing twice is still the 400 it was
+	 */
 	public int revoke(UUID memberId, UUID pipelineId) {
-		return jdbc.update(
-				"DELETE FROM team_member_pipeline WHERE team_member_id = ? AND pipeline_id = ?",
+		return jdbc.update("""
+				UPDATE team_member_pipeline SET revoked_at = now()
+				 WHERE team_member_id = ? AND pipeline_id = ? AND revoked_at IS NULL""",
 				memberId, pipelineId);
 	}
 }

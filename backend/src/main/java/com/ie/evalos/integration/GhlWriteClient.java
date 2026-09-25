@@ -384,6 +384,49 @@ public class GhlWriteClient {
 		return task.id();
 	}
 
+	/**
+	 * Writes a note on a contact — {@code POST /contacts/{contactId}/notes} (Unit 54).
+	 *
+	 * <p><strong>On the contact, because GHL has nowhere else to put it.</strong> The endpoint takes
+	 * no opportunity; the deal is named in {@code title} by the caller. Needs {@code contacts.write},
+	 * which the location already grants (spec 37). Not idempotent — GHL has no upsert for notes —
+	 * so the outbox checks for the note before retrying one that may have landed.
+	 *
+	 * @return GHL's id for the new note
+	 */
+	public String addContactNote(String contactId, String ghlOpportunityId, String title, String body) {
+		Map<String, Object> request = new LinkedHashMap<>();
+		request.put("body", body);
+		putIfPresent(request, "title", title);
+
+		NoteEnvelope response = http.post(NoteEnvelope.class,
+				(uri) -> uri.path("/contacts/{contactId}/notes").build(contactId), request);
+		NoteRow note = require(response == null ? null : response.note(), "note");
+
+		audit.recordEvent("GHL_OPPORTUNITY", auditKey("GHL_OPPORTUNITY", ghlOpportunityId),
+				AuditAction.UPDATED, actor(), null,
+				Map.of("ghlOpportunityId", ghlOpportunityId, "ghlContactId", contactId,
+						"ghlNoteId", note.id()));
+		return note.id();
+	}
+
+	/** Overwrites a note EvalOS pushed — {@code PUT /contacts/{contactId}/notes/{id}} (Unit 54a). */
+	public void updateContactNote(String contactId, String ghlNoteId, String title, String body) {
+		Map<String, Object> request = new LinkedHashMap<>();
+		request.put("body", body);
+		putIfPresent(request, "title", title);
+		http.put(NoteEnvelope.class,
+				(uri) -> uri.path("/contacts/{contactId}/notes/{id}").build(contactId, ghlNoteId), request);
+	}
+
+	/**
+	 * Deletes a note EvalOS pushed — {@code DELETE /contacts/{contactId}/notes/{id}} (Unit 54a).
+	 * The caller treats GHL's 404 as done: the note being gone is what was asked for.
+	 */
+	public void deleteContactNote(String contactId, String ghlNoteId) {
+		http.delete((uri) -> uri.path("/contacts/{contactId}/notes/{id}").build(contactId, ghlNoteId));
+	}
+
 	/** The staff member responsible, or null outside a request — the audit contract's own rule. */
 	private static UUID actor() {
 		return TenantContext.find().map(TenantContext::memberId).orElse(null);
@@ -481,5 +524,11 @@ public class GhlWriteClient {
 	}
 
 	record TaskRow(String id, String title, String dueDate) {
+	}
+
+	record NoteEnvelope(NoteRow note) {
+	}
+
+	record NoteRow(String id) {
 	}
 }

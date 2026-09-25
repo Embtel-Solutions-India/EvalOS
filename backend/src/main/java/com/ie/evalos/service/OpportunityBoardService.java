@@ -14,7 +14,6 @@ import com.ie.evalos.config.SellingBrand;
 import com.ie.evalos.domain.Opportunity;
 import com.ie.evalos.domain.PipelineStage;
 import com.ie.evalos.domain.Role;
-import com.ie.evalos.repository.TeamMemberRepository;
 import com.ie.evalos.security.TenantContext;
 
 import org.springframework.beans.factory.annotation.Value;
@@ -77,9 +76,19 @@ public class OpportunityBoardService {
 	 * cannot answer "which of these has nobody touched", which is the question a pipeline screen
 	 * exists to answer. The column was already in the cache and simply was not on the payload.
 	 */
+	/**
+	 * <p>{@code source} and {@code service} were added 2026-09-23 for the card, and both come off the
+	 * row itself: the deal's own {@code source}, else its {@code opportunity.lead_source} field;
+	 * its {@code opportunity.service_requested} field, else the portal request it was opened
+	 * from. Null means neither says — the card shows a placeholder rather than a guess.
+	 */
 	public record Deal(String opportunityId, String name, String contactId, String status,
-			BigDecimal amount, java.time.Instant updatedAt) {
+			BigDecimal amount, java.time.Instant updatedAt, String source, String service) {
 	}
+
+	/** GHL's field keys for the two custom fields the card reads. Keys, not ids — see NewDealForm. */
+	static final String SERVICE_FIELD = "opportunity.service_requested";
+	static final String LEAD_SOURCE_FIELD = "opportunity.lead_source";
 
 	/**
 	 * The whole board.
@@ -123,7 +132,6 @@ public class OpportunityBoardService {
 	 */
 	private final PipelineMirrorService mirroredPipelines;
 
-	private final TeamMemberRepository teamMembers;
 	/** Read only when the caller's token carries no pipelines — see {@code pipelinesFor}. */
 	private final com.ie.evalos.repository.TeamMemberPipelineRepository assignments;
 	private final Duration staleAfter;
@@ -140,15 +148,21 @@ public class OpportunityBoardService {
 	 */
 	private final UUID sellingBrandId;
 
+	/** Where the two card fields are resolved from — one read each per board, never per card. */
+	private final com.ie.evalos.repository.GhlCustomFieldRepository customFields;
+	private final com.ie.evalos.repository.ClientApplicationRepository applications;
+
 	OpportunityBoardService(OpportunityMirrorService deals, PipelineMirrorService mirroredPipelines,
-			TeamMemberRepository teamMembers,
 			com.ie.evalos.repository.TeamMemberPipelineRepository assignments,
 			@Value("${evalos.ghl.board-stale-after}") Duration staleAfter,
-			SellingBrand sellingBrand) {
+			SellingBrand sellingBrand,
+			com.ie.evalos.repository.GhlCustomFieldRepository customFields,
+			com.ie.evalos.repository.ClientApplicationRepository applications) {
 		this.deals = deals;
 		this.mirroredPipelines = mirroredPipelines;
-		this.teamMembers = teamMembers;
 		this.assignments = assignments;
+		this.customFields = customFields;
+		this.applications = applications;
 		this.staleAfter = staleAfter;
 		this.sellingBrandId = sellingBrand.id();
 	}
@@ -196,10 +210,23 @@ public class OpportunityBoardService {
 		// in, an empty mirror with nothing on the board, it could do nothing at all: there were no
 		// mirrored pipelines to refresh deals *for*, and the only fix was a GM running a job by
 		// hand. A button that cannot fix the problem it is offered for is worse than no button.
-		mirroredPipelines.sync();
+		//
+		// **But only in that state, which the floor below could not express.** MANUAL_SYNC_FLOOR
+		// guards the deal reads and not this one, so every press spent a paged GHL structure read
+		// as well — on a location whose pipelines and stages change a few times a year and which
+		// the hourly PIPELINE_MIRROR sweep already keeps current. Gating on "the mirror knows of no
+		// live pipeline" keeps exactly the case the button was added for and drops the rest.
+		if (mirroredPipelines.all().stream().noneMatch(com.ie.evalos.domain.Pipeline::isLive)) {
+			mirroredPipelines.sync();
+		}
 
 		TenantContext caller = TenantContext.current();
 		List<String> mine = pipelinesFor(caller);
+		// ponytail: a GM's board is every live pipeline, so their press fans a live read over all of
+		// them in the request thread, Master Pipeline included. MANUAL_SYNC_FLOOR bounds the repeat
+		// cost, not the first one. If that press becomes slow enough to notice, the upgrade is to
+		// hand it to the job runner and answer 202 rather than to cap the fan-out, because a
+		// Refresh that silently syncs some of the board is worse than one that takes a moment.
 		mine.forEach((pipelineId) -> deals.refreshIfStale(pipelineId, MANUAL_SYNC_FLOOR));
 		return forCaller();
 	}
@@ -230,7 +257,8 @@ public class OpportunityBoardService {
 	 *
 	 * <p><strong>The GM's union is every LIVE MIRRORED pipeline, not the pipelines somebody is
 	 * assigned to</strong> (2026-09-17). It was
-	 * {@code teamMembers.findPipelinesOfActiveMembers(...)}, and that was wrong twice over:
+	 * {@code TeamMemberRepository.findPipelinesOfActiveMembers(...)}, and that was wrong twice
+	 * over:
 	 *
 	 * <ul>
 	 * <li><strong>It hid every pipeline nobody owns.</strong> {@code 00d} §6.7 says outright that
@@ -245,6 +273,14 @@ public class OpportunityBoardService {
 	 *
 	 * <p>Asking the mirror instead fixes both by deleting the question: the GM is
 	 * {@code Tier.ALL} and the mirror is the list of pipelines that exist.
+	 *
+	 * <p><strong>This class no longer holds a {@code TeamMemberRepository} at all</strong>
+	 * (2026-09-22). It kept one for five days after the logic left, and
+	 * {@code OpportunityBoardServiceTest} guarded the fix with
+	 * {@code verify(teamMembers, never())} — a behavioural assertion over a collaborator that was
+	 * still injected. Not having the collaborator is the same guarantee made structurally: the
+	 * roster cannot be consulted by a class that cannot reach it, and no test has to remember to
+	 * check.
 	 */
 	private List<String> pipelinesFor(TenantContext caller) {
 		if (caller.role() == Role.GM) {
@@ -300,13 +336,39 @@ public class OpportunityBoardService {
 		rows.forEach((row) -> byStage.computeIfAbsent(row.getGhlStageId(), (key) -> new ArrayList<>())
 				.add(row));
 
+		// The card's service and source, resolved once for the whole board. Custom field values are
+		// keyed by GHL field *id*, so the two keys are turned into ids first; a portal-born deal has
+		// no service field until a salesperson sets one, so its request's service fills in. Both
+		// reads are brand-scoped to the selling brand, the only one a board draws.
+		Map<String, String> fieldIds = new java.util.HashMap<>();
+		Map<String, String> requested = new java.util.HashMap<>();
+		if (sellingBrandId != null && !rows.isEmpty()) {
+			customFields.findByBrandIdAndModelOrderByNameAsc(sellingBrandId,
+					ReferenceMirrorService.OPPORTUNITY_MODEL)
+					.forEach((field) -> {
+						if (field.getFieldKey() != null) fieldIds.put(field.getFieldKey(), field.getGhlId());
+					});
+			List<String> ghlIds = rows.stream().map(Opportunity::getGhlId)
+					.filter(java.util.Objects::nonNull).toList();
+			if (!ghlIds.isEmpty()) {
+				applications.findByBrandIdAndGhlOpportunityIdIn(sellingBrandId, ghlIds)
+						.forEach((application) -> requested.putIfAbsent(
+								application.getGhlOpportunityId(), application.getServiceName()));
+			}
+		}
+		String serviceField = fieldIds.get(SERVICE_FIELD);
+		String leadSourceField = fieldIds.get(LEAD_SOURCE_FIELD);
+
 		List<BoardColumn> columns = byStage.entrySet().stream()
 				.map((entry) -> {
 					MirroredStage stage = stages.get(entry.getKey());
 					List<Deal> deals = entry.getValue().stream()
 							.map((row) -> new Deal(row.getGhlId(), row.getName(),
 									row.getGhlContactId(), row.getStatus(), row.getAmount(),
-									row.getGhlUpdatedAt()))
+									row.getGhlUpdatedAt(),
+									firstOf(row.getSource(), row.getCustomFields().get(leadSourceField)),
+									firstOf(row.getCustomFields().get(serviceField),
+											requested.get(row.getGhlId()))))
 							.toList();
 					return new BoardColumn(entry.getKey(),
 							// A stage GHL no longer lists still holds cards until the next
@@ -331,8 +393,15 @@ public class OpportunityBoardService {
 		// **`stale` changed meaning at Unit 46 and the flag was worth keeping for it.** It used to
 		// mean "this render did not refill", a statement about one request. It now means "the sync
 		// has not confirmed this mirror lately" — a statement about the sweep — and it is what the
-		// board's "sync delayed" banner is drawn from. The threshold is three missed passes at the
-		// 5-minute cadence: one slow pass is not news, a sync that stopped is.
+		// board's "sync delayed" banner is drawn from.
+		//
+		// **The threshold is ONE missed pass, not three.** This comment said three, which is a
+		// 15-minute window; `board-stale-after` defaults to 5m in every profile, equal to
+		// JOBS_MIRROR_DELTA_INTERVAL, because the business chose the shorter number on 2026-09-17
+		// over a proposed 15 — the reasoning, and the blink it accepts at the boundary, are
+		// written out in `application.yml` beside the value. A comment claiming the opposite of the
+		// configured default is worse than no comment: it is what a reader trusts instead of
+		// looking.
 		return new Board(columns, rows.size(), sum(rows), lastSynced,
 				lastSynced == null
 						|| Duration.between(lastSynced, Instant.now()).compareTo(staleAfter) >= 0,
@@ -341,6 +410,12 @@ public class OpportunityBoardService {
 
 	/** Just the two fields a column header needs, so the board does not carry a whole entity. */
 	private record MirroredStage(String name, int position) {
+	}
+
+	/** The first value that says something; a blank one is treated as absent. */
+	private static String firstOf(String preferred, String fallback) {
+		return preferred != null && !preferred.isBlank() ? preferred
+				: fallback != null && !fallback.isBlank() ? fallback : null;
 	}
 
 	private static BigDecimal sum(List<Opportunity> rows) {

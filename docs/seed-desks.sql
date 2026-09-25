@@ -1,0 +1,25 @@
+-- SUPERSEDED. Do not run this file; it no longer contains a script.
+--
+-- The six International Evaluations desk logins (sales-1..3, bde-1..3) are now a Flyway migration:
+--
+--     backend/src/main/resources/db/seed-prod/V960__seed_ie_desks.sql
+--
+-- WHAT CHANGED AND WHY. This was an operator script on the argument that a migration "runs itself on
+-- every environment that boots" and "could not be given a different password per environment without
+-- committing one to the repository." Both are answered by the tree the migration sits in rather than
+-- by it not being a migration:
+--
+--   * `db/seed-prod` is named only by `application-prod.yml`, the same sibling-directory mechanism
+--     that already keeps `db/seed-local` and `db/seed-testprod` apart, held in place by
+--     `MigrationTreeTest`.
+--   * The password is the `desk-password-hash` Flyway placeholder, from `DESK_PASSWORD_HASH`, with
+--     no default. Nothing about it is in git, and an environment that forgets it fails to migrate.
+--
+-- WHAT THIS FILE CARRIED THAT YOU SHOULD NOT RESTORE. It seeded the hash of `DevPassw0rd!` — the
+-- same value committed in `db/seed-local/V908`, named in plaintext in that file's comments, and
+-- present in every clone of this repository and its whole git history. Against a real database that
+-- is not a weak password, it is a PUBLISHED one. That is the single reason this stopped being a
+-- hand-run script; keep the credential in the environment.
+--
+-- THE FILE IS KEPT RATHER THAN DELETED because `db/seed-local/V911` names it in a comment, and V911
+-- is applied — editing it is a checksum mismatch that refuses the boot.

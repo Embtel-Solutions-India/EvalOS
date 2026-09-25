@@ -80,8 +80,8 @@ Client Portal /requests/new
   step 1  pick a service          → POST /api/portal/applications
                                        INSERT client_application (status DRAFT)
                                        NOTHING LEAVES THE JVM — D10
-  step 2+ questionnaire           → PUT  /api/portal/applications/{id}   (autosave, jsonb)
-                                       still nothing; the whole funnel is EvalOS's own rows
+  step 2  review + documents      → POST /api/portal/applications/{id}/documents   (D33)
+                                       still nothing; no questionnaire since Unit 55 (D13)
   submit                          → POST /api/portal/applications/{id}/submit
                                        ensure ghl_contact_id (D3c backfill, if it is missing)
                                        open the local opportunity row (correlation key first)
@@ -107,10 +107,10 @@ GHL marks the opportunity won     → POST /api/webhooks/ghl/{endpointToken}
 `GhlOpportunityHandler`.
 
 **The deal opens at SUBMIT, not at service-pick (D10, changed 2026-09-16, third time of asking).**
-It opened at the first screen until then, so that a client who abandoned the questionnaire still
+It opened at the first screen until then, so that a client who abandoned the questionnaire (removed, D13) still
 reached a salesperson. A deal on the board is now a finished request and nothing else, which is
 what gives Sales' review step something to review. **The cost is stated rather than hidden: an
-abandoned questionnaire now reaches nobody** — the `DRAFT` rows are still there and nothing sweeps
+abandoned request now reaches nobody** — the `DRAFT` rows are still there and nothing sweeps
 them or tells anyone, which is an open decision, not a silent gap.
 
 **Documents are not part of this flow.** `NewRequest.tsx` says so in the UI: *"you can send us
@@ -131,11 +131,11 @@ CLIENT → PORTAL → REQUEST SERVICE → SERVICE DETAILS → DOCUMENT SUBMISSIO
 - **DOCUMENT SUBMISSION** — needs a request-scoped document table, routes and an S3 prefix keyed by
   the **GHL contact id** (D41), and a carry-forward into `case_document` at Handoff A (D33,
   spec `53`).
-  The client uploads with the questionnaire; the documents are the client's, held against the
+  The client uploads with the request; the documents are the client's, held against the
   person, before any case exists to hold them.
 - ~~**SALES REVIEW as a state**~~ — **not owed.** D35: review is a GHL pipeline stage, not an
   EvalOS column. `client_application.status` stays `DRAFT` / `SUBMITTED`. What Sales *is* owed is
-  the documents beside the answers on the one opportunity screen (D34).
+  the documents beside the request on the one opportunity screen (D34).
 
 Everything else in the chain exists.
 
@@ -155,9 +155,27 @@ Everything else in the chain exists.
 | `MarketingLeadService.openLead` | `upsertContact` | **`upsertOpportunity`** | **reuses the open opportunity on that pipeline** |
 
 **Edits do not call GHL at all** (D44, Unit 46). `SalesDeskService.update` / `moveToStage` /
-`close` and `MarketingLeadService.value` each edit the mirror row, stamp `local_updated_at`, queue
-`UPSERT` or `CLOSE`, and answer from the row. `SYNC_OUTBOX` (2m) sends it; a successful push calls
-`pushedToGhl()`, which clears the stamp so 45e stops defending an edit GHL now has.
+`close` and `MarketingLeadService.value` each edit the mirror row, stamp `local_updated_at` **and
+record which of the four shared fields they touched** (`locally_edited_fields`, `V63`), queue
+`UPSERT` or `CLOSE`, and answer from the row. `SYNC_OUTBOX` (2m) sends it. `moveToStage` first
+refuses a stage that is not a live `pipeline_stage` of the row's own pipeline (Q12, 2026-09-24),
+so the merged board strip cannot turn a drag into a pipeline move.
+
+**The push carries the edited fields only.** `updateOpportunity` omits a null from the body, so an
+unedited field is left alone in GHL rather than overwritten by whatever the mirror happens to hold
+— which is what made a rename undo a GHL workflow's stage move, the mirror's stage being up to one
+`MIRROR_DELTA` behind. A row with nothing outstanding sends nothing: GHL answers 422 to an empty
+body, and "they already agree" is success, not a retry.
+
+**The confirmation is conditional.** `OpportunityRepository.confirmPushed(opportunityId, seen)`
+clears `local_updated_at` and `locally_edited_fields` only while the stamp is still the one the push
+carried. A zero row-count means the row was edited again during the round trip, so nothing is
+cleared and the drain re-queues — after marking the first row sent, because a pending row is what
+the outbox collapses onto.
+
+**Both creates write the mirror before answering** (`absorbCreated`), from GHL's own reply. Without
+it the very next edit of a just-created deal was refused as "not in the mirror yet" for up to a
+full `MIRROR_DELTA`.
 
 `upsertOpportunity` means one open opportunity per contact per pipeline. It is correct for a
 marketing lead and would be wrong for a second sale.
@@ -232,7 +250,7 @@ A client with two or more cases is **refused** — the per-case routes and picke
 `Client Portal → S3 → Request → Sales → Case → Production → Expert`. The first hop into a
 **Request** does not exist; documents enter at the Case today.
 
-**Decided 2026-09-17 (D33, D41):** the client uploads **at questionnaire submit**, and the S3 key is
+**Decided 2026-09-17 (D33, D41):** the client uploads **with the request, before submit**, and the S3 key is
 keyed by the **GHL contact id** — one id names a contact everywhere, and the documents belong to the
 person rather than to a case that has not been won yet. Sales reads them on their own route and tab
 on the same opportunity (D34); Handoff A carries them forward into `case_document` over the same S3
@@ -279,9 +297,18 @@ Booking sends: calendar, contact, start, end, title, description, `assignedUserI
 ### CURRENT IMPLEMENTATION
 
 **Nothing.** No table, no column, no endpoint, no component. The only message-like feature is
-`opportunity_note` — append-only staff prose against a GHL opportunity, rendered by `DealNotes.tsx`.
+`opportunity_note` — staff prose against a GHL opportunity, rendered by `DealNotes.tsx`; its author may
+edit or delete it (Unit 54a).
 
 ### TARGET WORKFLOW
+
+**Notes, both ways (Unit 54, built 2026-09-24).** A note written on a deal is queued and pushed
+once by `SYNC_OUTBOX` to the deal's GHL **contact** (≤2m), carrying an author/deal trailer; GHL's
+notes, already mirrored into `ghl_note` by `MIRROR_DELTA`, show on the deal beside EvalOS's with an
+origin badge (≤5m), filed by GHL's own `relations` — a note on the contact alone shows on every
+deal of that contact. **An EvalOS note's author may edit or delete it** (Unit 54a): the change is
+queued and the drain overwrites (`PUT`) or deletes (`DELETE`) the GHL copy; GHL notes are changed in
+GHL only. Spec `54-two-way-note-sync.md`.
 
 A custom EvalOS conversation sidebar backed by GHL: list, search, unread, assignment, history,
 SMS / email / WhatsApp / social, attachments, internal comments, calls, and contact / opportunity /
@@ -295,5 +322,52 @@ request / appointment context. This is tier 3 of the mirror (Unit 47) and has no
 |---|---|---|---|
 | **A** | GHL → EvalOS | `opportunity.won` webhook creates the case | code complete |
 | **mirror** | GHL → EvalOS | `contact.*` and `opportunity.*` webhooks update `contact_snapshot` and `opportunity`; `MIRROR_DELTA` (15m) is the floor under them | code complete (45d, 2026-09-17) |
+| **contact backfill** | GHL → EvalOS | the deal screen reads `GET /contacts/{id}` when `contact_snapshot` has never seen the person, and keeps the row | code complete (2026-09-22) |
 | **B** | EvalOS → Expert | staff mints a portal link; expert signs | code complete |
 | **C** | EvalOS → GHL / client | outbound dispatcher | **not implemented** |
+
+**The contact backfill exists because every other writer of `contact_snapshot` is an EvalOS-side
+event.** Handoff A writes one when a deal is won, the portal writes one at set-password, and 45d's
+`contact.created`/`contact.updated` webhook writes one when GHL tells us something changed. None of
+those fires for a contact that already existed in GHL before EvalOS met it, and **no sweep pulls
+contacts** — `MIRROR_DELTA` refreshes opportunities. So a deal a salesperson typed into GHL arrived
+in the mirror carrying a `ghl_contact_id` and nothing else, and the deal screen said *"no contact on
+this deal yet — it arrives with the next sync"* indefinitely, which was a sentence about a sync that
+was never going to run.
+
+`ContactSnapshotService.findOrFetch` closes it: **the mirror is still the source** and a row already
+held is returned without touching GHL — which keeps the screen working with the sync off — but a
+miss reads `GET /contacts/{contactId}` once and saves the result through `findOrCreate`, so the
+email-match and contradiction rules still apply and the second open is a mirror read again. A GHL
+failure returns empty and logs rather than throwing: an upstream blip must not take the notes, the
+questionnaire and the actions down with the contact card. Scope `contacts.readonly`, already granted
+— `GhlCalendarClient` uses it for a contact's appointments.
+
+## Request documents (Unit 53, built 2026-09-18)
+
+### CURRENT IMPLEMENTATION
+
+The client attaches documents on the **review** step of the request, before sending
+(`RequestDocuments`, portal). **Submit is not gated on them** (`43` §5, unchanged) — the copy says
+"if you have them to hand" because a missing transcript is something Sales asks about on the call,
+not a wall in front of a lead.
+
+Sales reads them on the deal page beside the request (`DealDocuments`), through
+`GET /api/opportunities/{id}/documents` and a five-minute presigned URL per click. Its own route
+and the same permission as the application read (D34): the documents ask no new authorisation
+question, because Sales reaches them by already being able to open the opportunity.
+
+At Handoff A the documents follow the request onto the case. **Nothing is copied in S3 and nothing
+is re-keyed** — the key is `{brand}/client/{ghl_contact_id}/{doc}`, the person's prefix, so the
+`case_document` row points at the object the client already uploaded. `carried_to_case_document_id`
+is stamped once, which is what makes a replayed `opportunity.won` skip rather than duplicate.
+
+The carry-forward is a listener on `CASE_CREATED`, not a call inside `CaseIntakeService` — a
+deliberate deviation from `53` §4 that buys the isolation §4 demands: `opportunity.won` is the only
+door into a case (invariant 8), so a carry-forward that threw would turn a recoverable problem into
+an unrecoverable one.
+
+### TARGET WORKFLOW
+
+Unchanged by this unit. DOCUMENT SUBMISSION was the one step of §2's lifecycle with nothing behind
+it; it now has a table, two audiences and a carry-forward.

@@ -203,6 +203,9 @@ class LocalPostgresIntegrationTest {
 	private static final UUID CM_IE = UUID.fromString("aaaaaaaa-0000-0000-0000-000000000005");
 	private static final UUID COORDINATOR_IE = UUID.fromString("aaaaaaaa-0000-0000-0000-000000000006");
 	private static final UUID TEAM_IE = UUID.fromString("bbbbbbbb-0000-0000-0000-000000000001");
+	// A SALES member, because `team_member_pipeline_matches_role` lets only a pipeline-scoped role
+	// hold `ghl_pipeline_id` at all: V908's Attorney desk.
+	private static final UUID SALES_IE = UUID.fromString("aaaaaaaa-0000-0000-0000-000000000010");
 
 	private static final String DETAIL = "Wire to Bank of Nowhere, acct 12345678";
 
@@ -259,6 +262,9 @@ class LocalPostgresIntegrationTest {
 
 	@Autowired
 	PasswordEncoder passwordEncoder;
+
+	@Autowired
+	TeamMemberPipelineRepository pipelineAssignments;
 
 	@Test
 	void everyMigrationApplied() {
@@ -1555,28 +1561,81 @@ class LocalPostgresIntegrationTest {
 	}
 
 	/**
-	 * <strong>Append-only, against the real database.</strong>
+	 * <strong>Editable and deletable, against the real database</strong> (Unit 54a, {@code V67}).
 	 *
-	 * <p>No Java test can prove this: the entity has no setters and the repository exposes no
-	 * delete, so every unit test passes whether or not the trigger exists. A seed script, a
-	 * hand-run UPDATE or a future repository method would all get through. The trigger is the
-	 * only thing that holds for every writer — including the application, which connects as the
-	 * table owner and is therefore immune to {@code REVOKE}.
+	 * <p>This was the append-only test, inverted rather than deleted when the business chose
+	 * overwrite and hard delete (2026-09-24): a trigger restored by accident would silently break
+	 * the author's edit and delete, and this is the one test that would notice.
 	 */
 	@Test
-	void anOpportunityNoteCannotBeEditedOrDeleted() {
+	void anOpportunityNoteCanBeEditedAndDeleted() {
 		UUID note = insertNote(BRAND_IE, uniqueId("opp"), uniqueId("pipe"), "Spoke to the client");
 
-		assertThatThrownBy(() -> jdbc.update("UPDATE opportunity_note SET body = ? WHERE id = ?",
-				"rewritten", note))
-				.hasMessageContaining("append-only");
-
-		assertThatThrownBy(() -> jdbc.update("DELETE FROM opportunity_note WHERE id = ?", note))
-				.hasMessageContaining("append-only");
-
-		// Still there, and still saying what it said.
+		jdbc.update("UPDATE opportunity_note SET body = ?, updated_at = now() WHERE id = ?", "rewritten", note);
 		assertThat(jdbc.queryForObject("SELECT body FROM opportunity_note WHERE id = ?", String.class,
-				note)).isEqualTo("Spoke to the client");
+				note)).isEqualTo("rewritten");
+
+		jdbc.update("DELETE FROM opportunity_note WHERE id = ?", note);
+		assertThat(jdbc.queryForObject("SELECT count(*) FROM opportunity_note WHERE id = ?", Integer.class,
+				note)).isZero();
+	}
+
+	/**
+	 * The link outlives its note (V67): the drain needs the GHL id and contact after the note row is
+	 * gone, so deleting the note must not take the link with it — and the drain may delete the link.
+	 */
+	@Test
+	void aNoteGhlLinkOutlivesItsNoteUntilTheDrainDropsIt() {
+		UUID note = insertNote(BRAND_IE, uniqueId("opp"), uniqueId("pipe"), "Pushed to GHL");
+		jdbc.update("INSERT INTO opportunity_note_ghl_link (note_id, brand_id, ghl_note_id, ghl_contact_id) "
+				+ "VALUES (?, ?, ?, ?)", note, BRAND_IE, uniqueId("ghl-note"), "contact-1");
+
+		jdbc.update("DELETE FROM opportunity_note WHERE id = ?", note);
+		assertThat(jdbc.queryForObject("SELECT ghl_contact_id FROM opportunity_note_ghl_link WHERE note_id = ?",
+				String.class, note)).isEqualTo("contact-1");
+
+		jdbc.update("DELETE FROM opportunity_note_ghl_link WHERE note_id = ?", note);
+	}
+
+	@Autowired
+	com.ie.evalos.service.SyncOutboxService outboxService;
+
+	/**
+	 * <strong>A second identical enqueue collapses without failing its commit</strong> (code review,
+	 * 2026-09-24). It used to insert and catch the unique-index violation, but a failed
+	 * {@code saveAndFlush} marks the transaction rollback-only even when caught — so the second call
+	 * threw {@code UnexpectedRollbackException}, and a desk edit or note edit made twice before the
+	 * drain answered 500. Only the real database can show this: every unit test mocks the repository.
+	 */
+	@Test
+	void aSecondIdenticalEnqueueCollapsesWithoutFailing() {
+		UUID entity = UUID.randomUUID();
+
+		outboxService.enqueue(BRAND_IE, com.ie.evalos.domain.SyncEntity.OPPORTUNITY_NOTE, entity,
+				com.ie.evalos.domain.SyncOutboxEntry.Intent.UPSERT);
+		outboxService.enqueue(BRAND_IE, com.ie.evalos.domain.SyncEntity.OPPORTUNITY_NOTE, entity,
+				com.ie.evalos.domain.SyncOutboxEntry.Intent.UPSERT);
+
+		assertThat(jdbc.queryForObject("SELECT count(*) FROM sync_outbox WHERE entity_id = ? "
+				+ "AND sent_at IS NULL AND dead_at IS NULL", Integer.class, entity)).isEqualTo(1);
+		jdbc.update("DELETE FROM sync_outbox WHERE entity_id = ?", entity);
+	}
+
+	@Autowired
+	SyncOutboxRepository outboxRows;
+
+	/**
+	 * <strong>The insert works with no transaction around it</strong> — which is how the drain's
+	 * re-queue reaches it, through a self-call that skips {@code enqueue}'s proxy (second
+	 * {@code /code-review}, 2026-09-24). Without {@code @Transactional} on the method this threw.
+	 */
+	@Test
+	void theOutboxInsertCarriesItsOwnTransaction() {
+		UUID entity = UUID.randomUUID();
+
+		assertThat(outboxRows.enqueueIfAbsent(BRAND_IE, "OPPORTUNITY_NOTE", entity, "UPSERT")).isEqualTo(1);
+		assertThat(outboxRows.enqueueIfAbsent(BRAND_IE, "OPPORTUNITY_NOTE", entity, "UPSERT")).isZero();
+		jdbc.update("DELETE FROM sync_outbox WHERE entity_id = ?", entity);
 	}
 
 	/** A blank note is refused by the database as well as by the service. */
@@ -1730,4 +1789,61 @@ class LocalPostgresIntegrationTest {
 						+ "throw from undoing the write that precedes it")
 				.anyMatch(event -> event.getAction() == AuditAction.CLIENT_SIGN_IN_REFUSED);
 	}
+	/**
+	 * <strong>A revoked pipeline stays revoked.</strong>
+	 *
+	 * <p>{@code backfillFromLegacyColumn} runs after every PIPELINE_MIRROR pass so that a fresh
+	 * database can finish 44b's migration at all — and it re-inserts from
+	 * {@code team_member.ghl_pipeline_id}. A revoke that deleted only the join row was therefore
+	 * undone within the sweep interval, silently: the resurrected grant goes through no role check,
+	 * no selling-brand check and no audit event, which is every gate in
+	 * {@code PipelineAssignmentService.grant} bypassed by a background job.
+	 *
+	 * <p>Both halves are asserted here because only the pair is the fix. Two statements in SQL are
+	 * not something a mocked repository can pin, which is why this lives against a real database.
+	 */
+	@Test
+	void aRevokedPipelineIsNotResurrectedByTheNextBackfill() {
+		UUID pipelineId = UUID.randomUUID();
+		// A fresh id per run: `evalos_test` persists on a developer machine, so a hardcoded one
+		// turns any interrupted run into a duplicate-key failure in every run after it.
+		String ghlId = "ghl-pipe-revoke-" + pipelineId;
+		String held = jdbc.queryForObject("SELECT ghl_pipeline_id FROM team_member WHERE id = ?",
+				String.class, SALES_IE);
+		// Anything an interrupted earlier run left behind, since this schema is reused.
+		jdbc.update("DELETE FROM team_member_pipeline WHERE pipeline_id IN "
+				+ "(SELECT id FROM pipeline WHERE ghl_id LIKE 'ghl-pipe-revoke%')");
+		jdbc.update("DELETE FROM pipeline WHERE ghl_id LIKE 'ghl-pipe-revoke%'");
+		try {
+			jdbc.update("INSERT INTO pipeline (id, brand_id, ghl_id, name, position, synced_at) "
+					+ "VALUES (?, ?, ?, 'Revoke test', 99, now())", pipelineId, BRAND_IE, ghlId);
+			jdbc.update("UPDATE team_member SET ghl_pipeline_id = ? WHERE id = ?", ghlId, SALES_IE);
+
+			pipelineAssignments.backfillFromLegacyColumn();
+			assertThat(pipelineAssignments.ghlIdsFor(SALES_IE)).contains(ghlId);
+
+			assertThat(pipelineAssignments.revoke(SALES_IE, pipelineId)).isEqualTo(1);
+			assertThat(pipelineAssignments.ghlIdsFor(SALES_IE)).doesNotContain(ghlId);
+
+			// **The assertion the whole of V64 is for.** The legacy column still names this
+			// pipeline and V39 forbids emptying it for a SALES row, so before the row was kept
+			// rather than deleted, this pass put the grant straight back -- past the role check,
+			// the selling-brand check and the audit event that `revoke` had just gone through.
+			pipelineAssignments.backfillFromLegacyColumn();
+			assertThat(pipelineAssignments.ghlIdsFor(SALES_IE))
+					.describedAs("a revoked grant keeps its row, which is what the backfill's "
+							+ "ON CONFLICT DO NOTHING then skips")
+					.doesNotContain(ghlId);
+
+			// And a GM may still put them back, which a kept row must not block.
+			assertThat(pipelineAssignments.grant(SALES_IE, pipelineId, GM)).isEqualTo(1);
+			assertThat(pipelineAssignments.ghlIdsFor(SALES_IE)).contains(ghlId);
+		}
+		finally {
+			jdbc.update("DELETE FROM team_member_pipeline WHERE pipeline_id = ?", pipelineId);
+			jdbc.update("DELETE FROM pipeline WHERE id = ?", pipelineId);
+			jdbc.update("UPDATE team_member SET ghl_pipeline_id = ? WHERE id = ?", held, SALES_IE);
+		}
+	}
+
 }

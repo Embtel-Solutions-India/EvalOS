@@ -12,22 +12,21 @@ import org.springframework.web.bind.annotation.RestController;
 /**
  * What the client asked for, read by the staff who act on it (Unit 43 §6c).
  *
- * <p><strong>Required by the flow, not an extra.</strong> "Sales reviews the answers and contacts
+ * <p><strong>Required by the flow, not an extra.</strong> "Sales reviews the request and contacts
  * the client" is a step in the middle of the funnel, and a review step with nowhere to read the
- * thing being reviewed does not exist.
+ * thing being reviewed does not exist. The request is the service, the purpose and the documents —
+ * there is no questionnaire since Unit 55; the rest is asked on the call.
  *
  * <p><strong>Sales AND Production, which is `43` §6c's decision.</strong> Sales prices the work
- * from the answers; the PM and the expert then do the work described in them, and re-interviewing
- * a client who has already typed their history is the failure this whole unit exists to prevent.
- * The Expert Network Manager is absent because they staff a case rather than read one, and the
- * expert reaches the answers through their own portal or not at all — a role list is not the
- * place to widen the expert surface by accident.
+ * from the request; the PM and the expert then do the work it describes. The Expert Network
+ * Manager is absent because they staff a case rather than read one — a role list is not the place
+ * to widen the expert surface by accident.
  *
  * <p><strong>Brand-scoped and deliberately NOT pipeline-scoped.</strong> Every read here filters
  * on the caller's brand, which is the boundary that matters. Adding
  * {@code PipelineScope.requireMine} on top would refuse Production outright — they hold no
  * pipeline at all — and would buy nothing against Sales, since a colleague on another sales
- * pipeline in the same brand seeing an intake questionnaire is not a leak, it is a handover.
+ * pipeline in the same brand seeing an intake request is not a leak, it is a handover.
  *
  * <p>Its own controller rather than a route on {@code SalesDeskController}, which is
  * {@code hasRole('SALES')} throughout and mapped as the *desk*: a Project Manager reaching an

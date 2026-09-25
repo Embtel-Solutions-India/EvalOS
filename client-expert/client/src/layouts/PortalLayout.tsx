@@ -6,6 +6,7 @@ import { PageTransition } from '@shared/components/common/PageTransition'
 import { MobileNavDrawer } from '@/components/layout/MobileNavDrawer'
 import { PortalHeader } from '@/components/layout/PortalHeader'
 import { PortalSidebar } from '@/components/layout/PortalSidebar'
+import { SiteFooter } from '@/components/layout/SiteFooter'
 import { PRIMARY_NAV } from '@/constants/navigation'
 
 /**
@@ -61,6 +62,7 @@ export function PortalLayout() {
         <main className="relative flex-1 px-4 py-6 sm:px-6 lg:px-8">
           <PageTransition />
         </main>
+        <SiteFooter />
       </div>
     </div>
   )

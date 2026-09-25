@@ -31,6 +31,36 @@ public interface SyncOutboxRepository
 
 	long countByBrandIdAndDeadAtIsNotNull(UUID brandId);
 
+	/**
+	 * Queues a push, or does nothing if the same one is already pending.
+	 *
+	 * <p><strong>{@code ON CONFLICT DO NOTHING}, not a caught constraint violation</strong>
+	 * (2026-09-24). A failed {@code saveAndFlush} marks the surrounding transaction rollback-only
+	 * even when the exception is caught, so every collapse — a deal edited twice before the drain,
+	 * a note edited twice — failed its commit and answered 500 for a write that had landed. The
+	 * conflict target is {@code uq_sync_outbox_pending}'s own columns and predicate.
+	 *
+	 * <p><strong>{@code @Transactional} on the method, and it is load-bearing.</strong> The drain
+	 * re-queues through a self-call that bypasses {@code enqueue}'s {@code REQUIRES_NEW}, and a
+	 * derived query otherwise inherits the repository's read-only default — the {@code saveAndFlush}
+	 * this replaced brought its own read-write transaction, and a bare modifying query does not.
+	 *
+	 * @return 1 if queued, 0 if an identical push was already pending
+	 */
+	@org.springframework.transaction.annotation.Transactional
+	@org.springframework.data.jpa.repository.Modifying
+	@org.springframework.data.jpa.repository.Query(nativeQuery = true, value = """
+			INSERT INTO sync_outbox (id, brand_id, entity_type, entity_id, intent, queued_at)
+			VALUES (gen_random_uuid(), :brandId, :entityType, :entityId, :intent, now())
+			ON CONFLICT (brand_id, entity_type, entity_id, intent)
+			    WHERE sent_at IS NULL AND dead_at IS NULL
+			DO NOTHING
+			""")
+	int enqueueIfAbsent(@org.springframework.data.repository.query.Param("brandId") UUID brandId,
+			@org.springframework.data.repository.query.Param("entityType") String entityType,
+			@org.springframework.data.repository.query.Param("entityId") UUID entityId,
+			@org.springframework.data.repository.query.Param("intent") String intent);
+
 	/** What a human looks for after an incident. */
 	List<SyncOutboxEntry> findByBrandIdAndDeadAtIsNotNullOrderByDeadAtDesc(UUID brandId, Limit limit);
 }

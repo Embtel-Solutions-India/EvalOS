@@ -24,4 +24,7 @@ public interface GhlNoteRepository extends JpaRepository<GhlNote, UUID> {
 
 	List<GhlNote> findByBrandIdAndGhlOpportunityIdOrderByDateAddedDesc(UUID brandId,
 			String ghlOpportunityId);
+
+	/** Notes on the contact that no deal claims — shown on every deal of that contact (Unit 54). */
+	List<GhlNote> findByBrandIdAndGhlContactIdAndGhlOpportunityIdIsNull(UUID brandId, String ghlContactId);
 }

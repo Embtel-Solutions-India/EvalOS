@@ -1,21 +1,19 @@
 import { useEffect, useState } from 'react'
-import { fetchApplication, parseAnswers, type ClientApplication } from './opportunityApi'
+import { FileText } from 'lucide-react'
+
+import { Panel } from '../../components/ui/panel'
+import { fetchApplication, type ClientApplication } from './opportunityApi'
 
 /**
- * What the client actually asked for, on the deal (Unit 43 §6c).
+ * What the client asked for in their portal, on the deal (Unit 43 §6c).
  *
- * **Required by the flow, not an extra.** "Sales reviews the answers and contacts the client" is
- * a step in the middle of the funnel, and a review step with nowhere to read the thing being
- * reviewed does not exist. Without this panel the questionnaire would be written by the client,
- * stored by EvalOS and read by nobody.
+ * **The request, not a questionnaire.** There is no questionnaire since Unit 55 (2026-09-25): the
+ * request is the service, the purpose and the documents (`DealDocuments`, beside this), and Sales
+ * asks everything else on the call.
  *
  * **It renders nothing at all for a deal that did not come from the portal**, which is most of
- * the board: a lead Marketing opened or a deal Sales phoned in has no application and never will.
- * An empty panel saying "no request" on every card would be noise on the common case.
- *
- * **Every label is the client portal's, stored with the answer.** This app is a separate build
- * and cannot import that catalog, and looking a question up by id would break the day somebody
- * rewords it — the wording shown here is the wording the client was asked.
+ * the board: a lead Marketing opened or a deal Sales phoned in has no request and never will. An
+ * empty panel saying "no request" on every card would be noise on the common case.
  */
 export default function DealApplication({ opportunityId }: { opportunityId: string }) {
   const [application, setApplication] = useState<ClientApplication | null>(null)
@@ -35,48 +33,64 @@ export default function DealApplication({ opportunityId }: { opportunityId: stri
   }, [opportunityId])
 
   if (error) {
-    return <p className="border-t border-slate-200 pt-2 text-xs text-rose-700">{error}</p>
+    return (
+      <p className="text-xs" style={{ color: 'var(--status-red)' }}>
+        {error}
+      </p>
+    )
   }
   // Null covers both "still loading" and "not a portal deal". Neither deserves a spinner on a
   // panel that is empty for most cards.
   if (!application) return null
 
-  const answers = parseAnswers(application.answers)
+  const submitted = application.status === 'SUBMITTED'
 
   return (
-    <section className="space-y-2 border-t border-slate-200 pt-2">
-      <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-          Client&rsquo;s request
-        </p>
-        {/*
-          The two-value status matters to a salesperson: an unfinished request means the client
-          stopped mid-questionnaire, which is a reason to ring them rather than to wait.
-        */}
-        {application.status === 'DRAFT' && (
-          <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[11px] font-medium text-amber-900">
-            Still filling it in
-          </span>
-        )}
-      </div>
+    <Panel title="Portal request" icon={<FileText />}>
+      <table className="tbl">
+        <thead>
+          <tr>
+            <th>Service</th>
+            <th>Submitted on</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td className="font-medium">
+              {application.serviceName}
+              {application.purpose && (
+                <span className="block text-xs font-normal" style={{ color: 'var(--text-muted)' }}>
+                  For: {application.purpose.replace(/_/g, ' ')}
+                </span>
+              )}
+            </td>
+            <td className="whitespace-nowrap" style={{ color: 'var(--text-muted)' }}>
+              {/* An em dash while it is still a draft: there is no submission date yet, and
+                  showing the created date under a "Submitted on" heading would be a wrong
+                  answer that looks right. */}
+              {application.submittedAt
+                ? new Date(application.submittedAt).toLocaleDateString()
+                : '—'}
+            </td>
+            <td className="whitespace-nowrap">
+              {/* An unsent request means the client stopped before sending, which is a reason to
+                  ring them rather than to wait. The accent chip marks the one that needs an
+                  action. */}
+              <span className={submitted ? 'chip' : 'chip chip-accent'}>
+                {submitted ? 'Submitted' : 'Not sent yet'}
+              </span>
+            </td>
+          </tr>
+        </tbody>
+      </table>
 
-      <p className="text-sm font-medium text-slate-900">{application.serviceName}</p>
-      {application.purpose && (
-        <p className="text-xs text-slate-500">For: {application.purpose.replace(/_/g, ' ')}</p>
-      )}
-
-      {answers.length === 0 ? (
-        <p className="text-xs text-slate-500">No answers yet.</p>
-      ) : (
-        <dl className="space-y-1">
-          {answers.map((answer) => (
-            <div key={answer.id} className="grid gap-0.5 sm:grid-cols-[1fr_1.3fr] sm:gap-3">
-              <dt className="text-xs text-slate-500">{answer.label}</dt>
-              <dd className="text-xs text-slate-900">{answer.value}</dd>
-            </div>
-          ))}
-        </dl>
-      )}
-    </section>
+      <p
+        className="mt-3 border-t pt-3 text-xs"
+        style={{ borderColor: 'var(--border-default)', color: 'var(--text-muted)' }}
+      >
+        Sent by the client from their portal. Read-only here.
+      </p>
+    </Panel>
   )
 }

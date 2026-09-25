@@ -47,16 +47,10 @@ public interface MeetingRepository
 			String ghlOpportunityId);
 
 	/**
-	 * A desk's meetings inside a window, in the order they will happen.
+	 * A desk's meetings inside a window, across every pipeline the caller works — Unit 44b.
 	 *
 	 * <p>Ascending because this is a diary: the next meeting is the one that matters, and a
 	 * descending list would put next month above this afternoon.
-	 */
-	List<Meeting> findByBrandIdAndGhlPipelineIdAndStartsAtBetweenOrderByStartsAtAsc(UUID brandId,
-			String ghlPipelineId, Instant from, Instant to);
-
-	/**
-	 * The same diary across every pipeline the caller works — Unit 44b.
 	 *
 	 * <p>Ascending for the same reason as above: the next meeting is the one that matters. Across a
 	 * set because a desk holds one now, and a diary showing one of three is a diary somebody misses

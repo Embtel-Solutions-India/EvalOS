@@ -27,3 +27,16 @@ at `context/archive/2026-09-16-pre-reset/architecture.md`.
 is not mail. Deployment is **DevOps's** (D38) — `client-expert/` missing from compose and CI is not
 this repo's debt. `evalos.ghl.intake-pipeline-name`, `sales-pipeline-name` and `email-pipeline-name`
 no longer exist (Unit 44b, and the two funnel screens' removal).
+
+**Invariant 14 amended 2026-09-19.** EvalOS now sends client mail for TWO purposes: proving control
+of a mailbox (set password, reset password) and **confirming a request was received** (one message,
+at submit). It previously allowed "exactly one purpose ... (two messages)". Bounded by: the
+confirmation promises nothing the flow can fail to keep (no price, no turnaround, no date), and
+nothing depends on it arriving — a failed send is logged and the submit still succeeds. This is NOT
+the four-message expansion open-decisions (c) recommends; those are mail a client ACTS on and still
+need their own decision.
+
+All three messages are HTML + plain text (`multipart/alternative`), rendered by `MailTemplates`
+from `resources/mail/` with `{{placeholder}}` substitution — no template engine dependency. The
+logo is served by the portal at `{client-base-url}/brand/logo.png`: a `cid:` attachment is stripped
+by several webmail clients and a `data:` URI is blocked outright by Gmail and Outlook.com.

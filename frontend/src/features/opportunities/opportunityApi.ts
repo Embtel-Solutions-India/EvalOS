@@ -20,6 +20,10 @@ export type Deal = {
    * thing these screens exist to surface, so guessing in the optimistic direction defeats them.
    */
   updatedAt: string | null
+  /** The deal's source, else its lead-source field. Null when neither says. */
+  source: string | null
+  /** The service-requested field, else the portal request's service. Null when neither says. */
+  service: string | null
 }
 
 /** One stage of the pipeline, named by GHL and ordered by GHL's own `position`. */
@@ -83,6 +87,26 @@ export type DealContact = {
   email: string | null
   phone: string | null
   company: string | null
+  /** `SourceChannel`'s name — `WEBSITE`, `GOOGLE_ADS`, … — or null. Label it with {@link sourceLabel}. */
+  source: string | null
+  /** The GHL user's display name, already resolved server-side. Never an id. */
+  assignedTo: string | null
+  /** When GHL opened the deal, not when EvalOS mirrored it. */
+  createdAt: string | null
+}
+
+/**
+ * `GOOGLE_ADS` -> `Google ads`.
+ *
+ * **Not a lookup table.** A map from the eight `SourceChannel` constants to prose would be a
+ * second list to keep in step with the enum, and the one that drifts is this one — a channel added
+ * server-side would render blank here rather than merely unpolished. Reshaping the name cannot
+ * miss a value.
+ */
+export function sourceLabel(source: string | null): string | null {
+  if (!source) return null
+  const words = source.replace(/_/g, ' ').toLowerCase()
+  return words.charAt(0).toUpperCase() + words.slice(1)
 }
 
 export function fetchDealContact(
@@ -116,11 +140,27 @@ export type Lead = {
   created: boolean
 }
 
+/**
+ * One entry in a deal's note timeline — EvalOS's own notes and GHL's, merged by the server
+ * (`OpportunityNoteService.Note`, Unit 54). Stored apart, shown together.
+ */
 export type Note = {
   id: string
   body: string
-  authorId: string
-  createdAt: string
+  /** A team member for an EvalOS note; null for a GHL one. */
+  authorId: string | null
+  /** Null on the note the server has only just written, before the database stamps it. */
+  createdAt: string | null
+  origin: 'EVALOS' | 'GHL'
+  authorName: string | null
+  /** GHL's note title; EvalOS notes have none. */
+  title: string | null
+  /** An EvalOS note's push has landed in GHL. Null for a GHL note. */
+  inGhl: boolean | null
+  /** A GHL note on the contact rather than this deal — it shows on every deal of that contact. */
+  onContact: boolean
+  /** When its author last edited it (Unit 54a); null if never, and always null for a GHL note. */
+  updatedAt: string | null
 }
 
 export type NewLead = {
@@ -169,6 +209,16 @@ export function fetchNotes(opportunityId: string, signal?: AbortSignal): Promise
  */
 export function addNote(opportunityId: string, body: string): Promise<Note> {
   return unwrap<Note>(api.post(`/opportunities/${opportunityId}/notes`, { body }))
+}
+
+/** Overwrites a note — its author only; the server refuses anyone else (Unit 54a). */
+export function editNote(opportunityId: string, noteId: string, body: string): Promise<Note> {
+  return unwrap<Note>(api.put(`/opportunities/${opportunityId}/notes/${noteId}`, { body }))
+}
+
+/** Deletes a note outright — its author only. The GHL copy follows within a drain tick. */
+export function deleteNote(opportunityId: string, noteId: string): Promise<void> {
+  return unwrap<void>(api.delete(`/opportunities/${opportunityId}/notes/${noteId}`))
 }
 
 // --- Unit 40: the sales desk ------------------------------------------------
@@ -485,19 +535,6 @@ export function fetchGhlUsers(signal?: AbortSignal): Promise<readonly GhlUser[]>
 
 // --- Unit 43: the client's own request --------------------------------------
 
-/**
- * One answered question, with the label **as the client was asked it**.
- *
- * The question text lives in the client portal's catalog, which this app is a separate build from
- * and cannot import — so the label travels with the answer rather than being looked up. It also
- * survives the catalog being reworded, which a lookup would not.
- */
-export type AnsweredQuestion = {
-  id: string
-  label: string
-  value: string
-}
-
 /** `ClientApplicationService.ApplicationView` — what a client asked us for. */
 export type ClientApplication = {
   id: string
@@ -505,8 +542,6 @@ export type ClientApplication = {
   serviceName: string
   purpose: string | null
   status: 'DRAFT' | 'SUBMITTED'
-  /** A JSON string holding an array of {@link AnsweredQuestion}. */
-  answers: string
   createdAt: string
   updatedAt: string
   submittedAt: string | null
@@ -532,13 +567,110 @@ export async function fetchApplication(
   return found ?? null
 }
 
-/** The stored answers, or an empty list for anything that is not the expected shape. */
-export function parseAnswers(answers: string | null | undefined): readonly AnsweredQuestion[] {
-  if (!answers) return []
-  try {
-    const parsed: unknown = JSON.parse(answers)
-    return Array.isArray(parsed) ? (parsed as AnsweredQuestion[]) : []
-  } catch {
-    return []
-  }
+/**
+ * One document the client sent with their request — Unit 53 (D33/D34).
+ *
+ * **No object key.** That is an internal S3 address; the only way to open one of these is the
+ * five-minute presigned URL below, which is minted per click and never stored.
+ */
+export type RequestDocument = {
+  id: string
+  filename: string
+  contentType: string | null
+  sizeBytes: number | null
+  uploadedAt: string
+  /** True once Handoff A copied it onto the case, which is a fact a Coordinator asks about. */
+  carriedToCase: boolean
+}
+
+/**
+ * The documents behind a deal.
+ *
+ * **Its own route beside the application, not a field on it** (`53` §3, D34). Sales reaches these
+ * by already being able to open the opportunity, so the documents ask no new authorisation
+ * question — and an empty list is the ordinary answer for the deals somebody phoned in.
+ */
+export function fetchRequestDocuments(
+  opportunityId: string,
+  signal?: AbortSignal,
+): Promise<readonly RequestDocument[]> {
+  return unwrap<readonly RequestDocument[]>(
+    api.get(`/opportunities/${opportunityId}/documents`, { signal }),
+  )
+}
+
+/**
+ * A five-minute URL for one document.
+ *
+ * **Fetched on the click, never held.** A URL rendered into an `href` at load time is a credential
+ * sitting in the DOM for as long as the tab is open, and it expires while the reader is still
+ * looking at it — so the link asks for a fresh one each time and opens what comes back.
+ */
+export async function requestDocumentUrl(
+  opportunityId: string,
+  documentId: string,
+): Promise<string> {
+  const answer = await unwrap<{ url: string }>(
+    api.get(`/opportunities/${opportunityId}/documents/${documentId}/url`),
+  )
+  return answer.url
+}
+
+// --- The contacts directory -------------------------------------------------
+
+/**
+ * One row of the contacts list.
+ *
+ * `dealCount` is counted **inside the caller's own scope**, so a desk sees the number of deals it
+ * can actually open rather than a business-wide total it cannot account for.
+ */
+export type DirectoryContact = {
+  id: string
+  brandId: string
+  brandName: string | null
+  name: string | null
+  email: string | null
+  phone: string | null
+  company: string | null
+  /** `SourceChannel`'s name, or null. Label it with {@link sourceLabel}. */
+  source: string | null
+  dealCount: number
+  lastActivityAt: string | null
+}
+
+/**
+ * One page of contacts, with the total behind it.
+ *
+ * `size` is what the server **applied**, not what was asked for — it clamps, and a last page of 7
+ * out of 15 still reports 15. Compute the page count from this and not from `contacts.length`.
+ */
+export type ContactPage = {
+  contacts: readonly DirectoryContact[]
+  total: number
+  page: number
+  size: number
+}
+
+/**
+ * Everyone the CRM holds, at the width this caller reads.
+ *
+ * **The scope is the server's and is never sent.** There is no brand or pipeline parameter here
+ * on purpose: a list whose width came from the request would be a width the caller could change.
+ *
+ * **Paged on the server, not sliced on the client.** The list is 1,400+ contacts and growing with
+ * the CRM; shipping all of them to slice fifteen out would cost the payload of the whole roster on
+ * every keystroke of the search box.
+ */
+export function fetchContacts(
+  search: string,
+  page: number,
+  size: number,
+  signal?: AbortSignal,
+): Promise<ContactPage> {
+  return unwrap<ContactPage>(
+    api.get('/contacts', {
+      params: { page, size, ...(search.trim() ? { search: search.trim() } : {}) },
+      signal,
+    }),
+  )
 }

@@ -74,9 +74,12 @@ public class ClientMailer {
 	 */
 	private final AuditService audit;
 
-	ClientMailer(List<MailTransport> transports, AuditService audit,
+	private final MailTemplates templates;
+
+	ClientMailer(List<MailTransport> transports, AuditService audit, MailTemplates templates,
 			@Value("${evalos.mail.transport}") String choice) {
 		this.audit = audit;
+		this.templates = templates;
 		this.transport = transports.stream()
 				.filter((candidate) -> candidate.name().equalsIgnoreCase(choice.trim()))
 				.findFirst()
@@ -100,35 +103,34 @@ public class ClientMailer {
 	}
 
 	/** @return whether the message left; see the class javadoc for why this is not a throw */
-	public boolean sendSetPassword(MailTransport.Recipient to, String link) {
-		return send(to, "Set your password",
-				"""
-				Welcome.
-
-				Use the link below to set a password for your account. It works once and expires \
-				in 30 minutes.
-
-				%s
-
-				If you did not expect this, you can ignore it — nothing changes until the link is \
-				used.
-				""".formatted(link));
+	public boolean sendSetPassword(MailTransport.Recipient to, String fullName, String link) {
+		return send(to, templates.setPassword(fullName, link));
 	}
 
 	/** @return whether the message left; see the class javadoc for why this is not a throw */
-	public boolean sendResetPassword(MailTransport.Recipient to, String link) {
-		return send(to, "Reset your password",
-				"""
-				Use the link below to choose a new password. It works once and expires in 30 \
-				minutes.
-
-				%s
-
-				If you did not ask for this, you can ignore it — your current password still works.
-				""".formatted(link));
+	public boolean sendResetPassword(MailTransport.Recipient to, String fullName, String link) {
+		return send(to, templates.resetPassword(fullName, link));
 	}
 
-	private boolean send(MailTransport.Recipient to, String subject, String body) {
+	/**
+	 * The confirmation a client gets when their request reaches Sales — 2026-09-19.
+	 *
+	 * <p><strong>This is the message that needed invariant 14 amended.</strong> The two above prove
+	 * control of a mailbox, which is the one purpose that invariant allowed; this one does not. It
+	 * was added on the business's instruction and the invariant was EDITED to say so rather than
+	 * quietly widened — see {@code architecture.md}.
+	 *
+	 * <p>Unlike the two above, <strong>nothing depends on it arriving.</strong> The request is
+	 * already submitted and already visible in the portal, so a failure here is logged and the
+	 * submit still succeeds — which is why its caller ignores the boolean.
+	 */
+	public boolean sendRequestSubmitted(MailTransport.Recipient to, String fullName,
+			String serviceName, int documentCount) {
+		return send(to, templates.requestSubmitted(fullName, serviceName, documentCount));
+	}
+
+	private boolean send(MailTransport.Recipient to, MailTemplates.Message message) {
+		String subject = message.subject();
 		if (!canReach(to)) {
 			// Not an exception: the caller has already decided what to tell the client, and a
 			// throw here would turn a configuration gap into a 500 on a sign-in attempt.
@@ -136,16 +138,33 @@ public class ClientMailer {
 					to.email(), subject);
 			return false;
 		}
-		if (!transport.send(to, subject, body)) {
+		if (!transport.send(to, subject, message.text(), message.html())) {
 			return false;
 		}
 		// **The subject and the brand, and deliberately not the link.** The link IS the credential:
 		// a trail that stored one would hand anyone who can read audit rows a working password
 		// reset. recordPortalEvent rather than recordEvent, because a portal route has no
 		// TenantContext and the row would otherwise land with no brand at all.
-		audit.recordPortalEvent(to.brandId(), PortalAudience.CLIENT, "CLIENT_MAIL",
-				UUID.nameUUIDFromBytes(("CLIENT_MAIL:" + to.email()).getBytes(StandardCharsets.UTF_8)),
-				AuditAction.PORTAL_LINK_ISSUED, null, "sent '" + subject + "' via " + transport.name());
+		//
+		// **Caught, because the mail has already left.** recordPortalEvent is @Transactional and
+		// neither caller of issueCredential is, so a transient database error here escaped as a 500
+		// — for a known address, while an unknown one still answered 204. That difference is the
+		// account-enumeration oracle this class's javadoc exists to close, arriving by way of the
+		// trail rather than the mail. Worse, the 500 unwinds before the credential row is saved, so
+		// the client holds a link that can never work.
+		//
+		// True, not false: the message left, and that is what this method's boolean means. A
+		// missing trail row is a real problem and it is logged as one, but it is not the client's.
+		try {
+			audit.recordPortalEvent(to.brandId(), PortalAudience.CLIENT, "CLIENT_MAIL",
+					UUID.nameUUIDFromBytes(("CLIENT_MAIL:" + to.email()).getBytes(StandardCharsets.UTF_8)),
+					AuditAction.PORTAL_LINK_ISSUED, null,
+					"sent '" + subject + "' via " + transport.name());
+		}
+		catch (RuntimeException trailFailed) {
+			log.error("'{}' was sent via {} but the audit row could not be written", subject,
+					transport.name(), trailFailed);
+		}
 		return true;
 	}
 }

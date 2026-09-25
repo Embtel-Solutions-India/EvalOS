@@ -38,3 +38,9 @@ desktop.ini
 # GHL_API_TOKEN belongs on a laptop — never in application-local.yml, which is committed.
 backend/config/
 frontend/ssl/
+.local-documents/
+mail-preview/
+
+# Vite dep pre-bundling cache. Lands in <root>/.vite here because client/ and
+# expert/ have no node_modules of their own (deps hoisted to client-expert/).
+.vite/

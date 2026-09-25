@@ -151,6 +151,39 @@ public class GhlHttp {
 		return call(type, () -> http.post().uri(uri).body(body).retrieve().body(type));
 	}
 
+	/**
+	 * A <strong>read</strong> that GHL exposes as a POST.
+	 *
+	 * <p><strong>This exists because {@code POST /contacts/search} is a listing, not a
+	 * mutation.</strong> GHL's contact directory has no GET: paging the location's contacts means
+	 * posting a body with {@code pageLimit} and a {@code searchAfter} cursor. Routing that through
+	 * {@link #post} put {@code GhlContactClient} on the wrong side of
+	 * {@code GhlHttpTest.writeCallersAudit}, which requires every caller of a write verb to reach
+	 * {@code AuditService} — and the honest answer there is not to add an audit row. Auditing a
+	 * read would put fifteen rows an hour in the trail for a sweep that changes nothing, and an
+	 * audit trail padded with reads is one nobody can find a write in.
+	 *
+	 * <p><strong>It is not a fifth HTTP verb.</strong> The verb list {@code GhlHttpTest} closes is
+	 * {@code get}, {@code post}, {@code put}, {@code delete}, and this is a second helper over
+	 * {@code post} rather than a new method — which is why that test is untouched.
+	 *
+	 * <p><strong>The path is checked rather than trusted, so this cannot become the hole in the
+	 * audit guard.</strong> A caller that routed a real mutation through here would escape
+	 * invariant 13 silently, which is the one failure worth more than a comment. The path must end
+	 * in {@code /search}; anything else throws before a request is built. That is also why the path
+	 * is a plain string here and a {@code UriBuilder} function everywhere else — a search endpoint
+	 * takes no path variables, and a string is something this method can actually inspect.
+	 */
+	public <T> T search(Class<T> type, String path, Object body) {
+		if (!path.endsWith("/search")) {
+			throw new IllegalArgumentException(
+					"GhlHttp.search is for GHL's search endpoints only; " + path + " is not one. "
+							+ "A write belongs on post/put/delete, where the audit guard can see it.");
+		}
+		return call(type, () -> http.post().uri((uri) -> uri.path(path).build()).body(body)
+				.retrieve().body(type));
+	}
+
 	/** Updates something in GHL. Same contract as {@link #post}. */
 	public <T> T put(Class<T> type, Function<UriBuilder, URI> uri, Object body) {
 		return call(type, () -> http.put().uri(uri).body(body).retrieve().body(type));

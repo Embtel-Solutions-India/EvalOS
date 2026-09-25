@@ -31,20 +31,6 @@ public interface TeamMemberRepository extends JpaRepository<TeamMember, UUID>, J
 	Optional<TeamMember> findByIdAndBrandIdAndRoleAndActiveTrue(UUID id, UUID brandId, Role role);
 
 	/**
-	 * Whoever currently holds this GHL pipeline, if anyone.
-	 *
-	 * <p><strong>Deliberately not brand-filtered, and this is the one query here that should
-	 * not be.</strong> {@code uq_team_member_pipeline} is globally unique because a GHL pipeline
-	 * belongs to the single configured location rather than to a brand — so the uniqueness check
-	 * in front of it has to look across every brand or it would let one brand's assignment
-	 * silently collide with another's and answer 500 from the index.
-	 *
-	 * <p>It leaks nothing: the caller is GM-only, and the only thing done with the result is to
-	 * refuse the assignment.
-	 */
-	Optional<TeamMember> findByGhlPipelineIdAndActiveTrue(String ghlPipelineId);
-
-	/**
 	 * Every pipeline owned by an active member of one brand — the GM's board union (Unit 38).
 	 *
 	 * <p><strong>Brand-scoped, and that is open question P1's answer.</strong> The GM is the one

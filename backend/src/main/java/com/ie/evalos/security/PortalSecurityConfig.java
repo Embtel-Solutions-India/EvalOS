@@ -55,7 +55,16 @@ public class PortalSecurityConfig {
 		config.setAllowedOrigins(allowedOrigins.isBlank() ? java.util.List.of()
 				: java.util.Arrays.stream(allowedOrigins.split(",")).map(String::trim)
 						.filter(origin -> !origin.isEmpty()).toList());
-		config.setAllowedMethods(java.util.List.of("GET", "POST", "OPTIONS"));
+		// **Every method the chain actually serves, and nothing else.** A method absent from this
+		// list fails its PREFLIGHT, and `DefaultCorsProcessor` answers that with a bare **403 and a
+		// plain-text body** -- a 403 the client cannot read an error out of. That is how the
+		// questionnaire's autosave broke on 2026-09-18, when PUT was missing.
+		//
+		// **DELETE is here for Unit 53**, `DELETE /applications/{id}/documents/{d}` -- a client
+		// taking a document back off a draft. **PUT left with the questionnaire (Unit 55)**: its
+		// autosave was the only PUT under `/api/portal/**`. The list is enumerated rather than a
+		// standard set so that `ClientApplicationRoutesTest` fails when a route adds or drops a verb.
+		config.setAllowedMethods(java.util.List.of("GET", "POST", "DELETE", "OPTIONS"));
 		config.setAllowedHeaders(java.util.List.of("Content-Type", PortalTokenFilter.HEADER));
 		// No cookies are used and none should be: the credential is a header, and allowing
 		// credentials would turn a mistaken origin into a session-riding hole.

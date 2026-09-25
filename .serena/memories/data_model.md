@@ -3,7 +3,8 @@
 **The authoritative file is `.claude/data-model.md`. It separates CURRENT DATABASE from REQUIRED
 FUTURE MODEL — never mix them.**
 
-24 tables, Flyway V1 to V49 all applied (verified against a live Postgres instance on 2026-09-16).
+25 tables, Flyway V1 to V65 all applied (V1–V49 verified against a live Postgres instance on
+2026-09-16; V50–V62 are Units 44–47b, V63–V64 the 2026-09-18 review pass).
 Migrations live in `backend/src/main/resources/db/migration/`. New schema means a new migration; an
 applied one is never edited.
 
@@ -17,7 +18,12 @@ Three facts that catch people out:
    state.
 
 `client_account.ghl_contact_id` is nullable and not unique.
-`audit_event` and `opportunity_note` carry append-only triggers that raise on UPDATE and DELETE.
+`audit_event` carries an append-only trigger that raises on UPDATE and DELETE. `opportunity_note`
+lost its trigger in `V67` (Unit 54a — author edit/delete) and gained `updated_at`.
+`opportunity_note_ghl_link` (`V66`/`V67`, Units 54/54a) records a pushed note's GHL id and contact —
+no FK, no trigger, it outlives a deleted note until the drain deletes the GHL copy, and a null GHL id
+(`V68`) is a delete marker the drain resolves by the note's `#id8` reference; outbox entity type `OPPORTUNITY_NOTE`; `ghl_note.ghl_opportunity_id` null = the
+contact's note.
 
 The mirror tables (`pipeline`, `pipeline_stage`, `contact`, `opportunity`, `outbox`, `sync_drift`)
 do **not** exist — they are Units 44 to 48.
@@ -56,3 +62,26 @@ called — a key minted in memory and lost to a timeout is a key no retry can se
 location's reference lists, upserted on GHL's id, `synced_at` stamped, never deleted
 (`missing_since`). Prefixed `ghl_` because `user` is reserved in Postgres. **No slots table, ever**
 (D48). **No custom field values** (D49).
+
+**2026-09-18 review pass — two columns.**
+
+`opportunity.locally_edited_fields` (`V63`): comma-joined `FieldOwnership` property names, saying
+WHICH of the four shared fields a desk edited. `local_updated_at` said only that an edit existed, so
+the outbox push sent all four — and the mirror's stage is up to one `MIRROR_DELTA` behind, so a
+rename re-sent a stale stage and undid a GHL workflow's card move. Cleared together with
+`local_updated_at`.
+
+`team_member_pipeline.revoked_at` (`V64`): **a revoke stamps, it does not delete.** The row has to
+survive, because `backfillFromLegacyColumn` re-derives grants from `team_member.ghl_pipeline_id`
+after every `PIPELINE_MIRROR` pass and was resurrecting revoked ones — past the role check, the
+selling-brand check and the audit event. Clearing that column instead is forbidden: `V39`'s
+`team_member_pipeline_matches_role` requires a SALES/MARKETING row to hold a non-null one. Every
+read filters `revoked_at IS NULL`; `grant` is `ON CONFLICT ... DO UPDATE` so re-granting revives the
+row. It is also the shape append-only assignment history wanted.
+
+**`application_document` (`V65`, Unit 53, 2026-09-18).** Documents sent WITH a request, before any
+case exists. FK to `client_application` and to `contact_snapshot`; `object_key` authoritative for
+reads; `carried_to_case_document_id` stamped once at Handoff A, which is the whole idempotency.
+**It shares its S3 object with the `case_document` it becomes** — the key is
+`{brand}/client/{ghl_contact_id}/{doc}`, the person's prefix, so carrying a document onto a case is
+one new row and no copy. No status, no review, no checklist item: a request has no checklist.

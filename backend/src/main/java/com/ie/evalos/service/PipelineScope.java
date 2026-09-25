@@ -113,6 +113,61 @@ public class PipelineScope {
 	 * GHL — and with a set, "the caller's pipeline" is no longer a single answer they could have
 	 * worked out themselves.
 	 */
+	/**
+	 * A deal the caller may <strong>read</strong>, or a refusal — the three widths, on a deal.
+	 *
+	 * <p><strong>This exists because {@link #mine()} answers the wrong question for two of the
+	 * three roles.</strong> It reads {@code ghlPipelineIds()} off the principal, and D19e says a
+	 * GM holds no assignment rows <em>and must not</em>. So a GM's board listed every mirrored deal
+	 * and then 403'd on opening any of them: the contact, the notes and the meetings all refused,
+	 * on a screen the same GM was looking at a card for. A Brand Manager was in the same position.
+	 * {@code 00d} row 73 recorded it as P0 and named the cause exactly — "an implementation
+	 * consequence hardened into policy".
+	 *
+	 * <p><strong>Reading is widened; writing is not.</strong> The rule is that a GM sees
+	 * everything, a Brand Manager sees their brand, and a desk sees its own pipelines — and
+	 * <em>sees</em> is the operative word. {@link #requireMine} still guards every edit, close,
+	 * booking and note, so a GM can now open any deal and still cannot move one. Widening the one
+	 * method both paths shared would have handed out write access nobody asked for, which is why
+	 * this is a second method rather than a looser first one.
+	 *
+	 * <p><strong>403 for a deal that does not exist, exactly as for one that is not yours.</strong>
+	 * Unchanged from {@link #requireMine} and for its reason: distinguishing them turns the
+	 * response into an oracle for which ids the location holds.
+	 *
+	 * @return the deal, because every caller then needs its brand — and for a GM the caller's own
+	 *         brand is null, so reading it off the principal is exactly the bug this fixes
+	 */
+	public com.ie.evalos.domain.Opportunity requireVisible(String opportunityId) {
+		TenantContext caller = TenantContext.current();
+		com.ie.evalos.domain.Opportunity deal = deals.byGhlId(opportunityId)
+				.orElseThrow(PipelineScope::notYours);
+
+		return switch (caller.role().tier()) {
+			case ALL -> deal;
+			case BRAND -> {
+				if (caller.brandId() != null && caller.brandId().equals(deal.getBrandId())) {
+					yield deal;
+				}
+				throw notYours();
+			}
+			case PIPELINE -> {
+				// Delegated rather than reimplemented: a desk's reading and writing scope are the
+				// same set, and two copies of that check is one place for them to drift apart.
+				requireMine(opportunityId);
+				yield deal;
+			}
+			// SELF and SUPPLY work cases, not the CRM. They reach the portal request and its
+			// documents through their own routes, which deliberately apply no pipeline scope
+			// (see ApplicationReviewController) — but a deal's notes and meetings are not theirs.
+			default -> throw notYours();
+		};
+	}
+
+	private static ForbiddenException notYours() {
+		return new ForbiddenException("That opportunity is not on a pipeline you can read.");
+	}
+
 	public String requireMine(String opportunityId) {
 		for (String pipelineId : mine()) {
 			if (deals.isOnPipeline(opportunityId, pipelineId)) {

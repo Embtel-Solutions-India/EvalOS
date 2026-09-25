@@ -1,6 +1,7 @@
 import { type FormEvent, type ReactNode, useState } from 'react'
 import { ArrowLeft } from 'lucide-react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
+import { LEGAL } from '@/constants/legal'
 import { Button } from '@shared/components/ui/button'
 import { Card } from '@shared/components/ui/card'
 import { FormField } from '@shared/components/common/FormField'
@@ -24,8 +25,8 @@ import {
  * reached said we could not take them. Nothing created a `client_account` at runtime, so that
  * apology was accurate: every row in the table came from one backfill migration.
  *
- * **It creates an account, not an evaluation.** Choosing a service, answering the questionnaire
- * and opening the opportunity are Unit 43 and are reached from the dashboard afterwards. The
+ * **It creates an account, not an evaluation.** Choosing a service, sending the request and
+ * opening the opportunity are Unit 43 and are reached from the dashboard afterwards. The
  * copy below says so rather than implying a request has been placed.
  *
  * **Nobody is signed in from here, and the screen has no password field.** The email may be one
@@ -238,6 +239,18 @@ export default function SignUp() {
             */}
             <p className="text-xs text-muted-foreground">
               We&rsquo;ll email you a link to set your password.
+            </p>
+
+            <p className="text-xs text-muted-foreground">
+              By creating an account you agree to our{' '}
+              <Link to={LEGAL.privacy.to} className="font-medium text-primary underline-offset-4 hover:underline">
+                {LEGAL.privacy.label}
+              </Link>{' '}
+              and acknowledge our{' '}
+              <Link to={LEGAL.disclaimer.to} className="font-medium text-primary underline-offset-4 hover:underline">
+                {LEGAL.disclaimer.label}
+              </Link>
+              .
             </p>
 
             <Button type="submit" className="w-full" loading={submitting}>

@@ -206,4 +206,24 @@ class ReferenceMirrorServiceTest {
 		assertThat(none.bookableCalendars()).isEmpty();
 		verify(calendarClient, never()).calendars();
 	}
+
+	/**
+	 * <strong>One nameless GHL row used to cost the whole list.</strong>
+	 *
+	 * <p>{@code ghl_reference.name} is {@code NOT NULL} (V60, V62) and only the id was guarded, so a
+	 * row GHL returned with no name raised a {@code DataIntegrityViolationException} that
+	 * {@code guarded} caught, logged as a warning and reported as zero — nothing from that endpoint
+	 * mirrored at all. Worse, {@code refreshIfEmpty} then re-ran the failing GHL read on every
+	 * booking-form request, because the table stayed empty. The id is a poor label and a readable
+	 * one; an empty calendar list is a broken screen.
+	 */
+	@Test
+	void aRowGhlSendsWithNoNameIsMirroredUnderItsIdRatherThanFailingTheWholeList() {
+		given(userClient.inLocation()).willReturn(List.of(
+				new GhlUserClient.User("user-nameless", null, "nobody@ie.test"),
+				new GhlUserClient.User("user-2", "Dana Okafor", "dana@ie.test")));
+
+		assertThat(mirror.refresh().users()).isEqualTo(2);
+		assertThat(saved).extracting("name").contains("user-nameless", "Dana Okafor");
+	}
 }

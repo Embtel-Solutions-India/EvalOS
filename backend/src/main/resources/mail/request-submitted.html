@@ -1,0 +1,71 @@
+<!--
+  "We have your request" — the confirmation sent when a client submits their questionnaire.
+
+  NOT a mailbox-proof message, which is why sending it needed invariant 14 amended on 2026-09-19
+  rather than quietly added. See architecture.md, invariant 14.
+
+  IT PROMISES NOTHING IT CANNOT KEEP. No price, no turnaround, no date: EvalOS holds no price list
+  and the work is quoted by a person. "We will read it and come back to you" is what the flow
+  actually guarantees, and it is the same sentence the portal shows on screen — a confirmation that
+  said more than the screen did would be the first place the two disagreed.
+
+  The document count is stated because a client who attached files wants to know they arrived, and
+  it is the one fact this message can prove. Zero is worded as an invitation rather than a warning:
+  submit is never gated on documents, and a confirmation that reads as a telling-off for sending
+  none would undo that.
+-->
+<h1 style="margin:0 0 16px 0; font-size:22px; line-height:30px; font-weight:600; color:#C8102E;">
+  We have your request
+</h1>
+
+<p style="margin:0 0 24px 0; font-size:15px; line-height:24px; color:#11212C;">
+  Thank you{{greetingName}} — your request has reached us and a member of our team will read it
+  and come back to you.
+</p>
+
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 24px 0; background-color:#FBECEE; border-radius:6px;">
+  <tr>
+    <td style="padding:16px 18px; font-size:14px; line-height:22px; color:#11212C;">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+        <tr>
+          <td style="padding:0 0 6px 0; font-size:12px; text-transform:uppercase; letter-spacing:0.4px; color:#5C6E7A;">
+            What you asked for
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:0 0 10px 0; font-size:15px; font-weight:600; color:#C8102E;">
+            {{serviceName}}
+          </td>
+        </tr>
+        <tr>
+          <td style="font-size:13px; line-height:20px; color:#5C6E7A;">
+            {{documentLine}}
+          </td>
+        </tr>
+      </table>
+    </td>
+  </tr>
+</table>
+
+<p style="margin:0 0 10px 0; font-size:15px; line-height:24px; font-weight:600; color:#11212C;">
+  What happens next
+</p>
+<p style="margin:0 0 24px 0; font-size:15px; line-height:24px; color:#11212C;">
+  We read what you sent, price the work and contact you with the details. If anything is missing or
+  unclear, we will ask — you do not need to do anything in the meantime.
+</p>
+
+<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 24px 0;">
+  <tr>
+    <td align="center" bgcolor="#C8102E" style="border-radius:6px;">
+      <a href="{{portalUrl}}"
+         style="display:inline-block; padding:13px 28px; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif; font-size:15px; font-weight:600; line-height:20px; color:#FFFFFF; text-decoration:none; border-radius:6px;">
+        Open my portal
+      </a>
+    </td>
+  </tr>
+</table>
+
+<p style="margin:0; padding-top:20px; border-top:1px solid #DCE4EA; font-size:13px; line-height:20px; color:#5C6E7A;">
+  You can add documents to this request at any time by signing in to your portal.
+</p>
