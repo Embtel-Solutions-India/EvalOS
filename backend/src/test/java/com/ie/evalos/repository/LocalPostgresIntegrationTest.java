@@ -216,6 +216,9 @@ class LocalPostgresIntegrationTest {
 	com.ie.evalos.chat.ConversationMemberRepository chatMembers;
 
 	@Autowired
+	com.ie.evalos.chat.ChatInboxQuery chatQuery;
+
+	@Autowired
 	BrandRepository brands;
 
 	@Autowired
@@ -1917,6 +1920,91 @@ class LocalPostgresIntegrationTest {
 		assertThat(first + second).isEqualTo(1);
 		assertThat(jdbc.queryForObject("SELECT count(*) FROM conversation_members WHERE conversation_id = ? "
 				+ "AND member_id = ? AND left_at IS NULL", Long.class, conversation, person)).isEqualTo(1L);
+	}
+
+	/** A message in `conversation`, authored by `author` (STAFF), at a fixed instant, top-level. */
+	private UUID chatMessage(UUID conversation, UUID author, String body, java.time.Instant at) {
+		UUID id = UUID.randomUUID();
+		jdbc.update("INSERT INTO messages (id, brand_id, conversation_id, author_kind, author_id, body, created_at) "
+				+ "VALUES (?, ?, ?, 'STAFF', ?, ?, ?)", id, BRAND_IE, conversation, author, body,
+				java.sql.Timestamp.from(at));
+		return id;
+	}
+
+	/**
+	 * Review Focus #1: five messages with the SAME timestamp, paged two at a time, come back exactly
+	 * once each and in (created_at, id) order. A conversation of its own per run, via a fresh case type
+	 * would collide, so this uses a far-future timestamp and filters to its own ids.
+	 */
+	@Test
+	void pagingIsStableForEqualTimestamps() {
+		UUID conversation = conversationOn(anIeCase(), "CLIENT");
+		java.time.Instant same = java.time.Instant.parse("2999-01-01T00:00:00Z").plusSeconds(
+				java.util.concurrent.ThreadLocalRandom.current().nextInt(1, 1_000_000));
+		java.util.Set<UUID> mine = new java.util.HashSet<>();
+		for (int i = 0; i < 5; i++) {
+			mine.add(chatMessage(conversation, UUID.randomUUID(), "page " + i, same));
+		}
+
+		List<UUID> seen = new java.util.ArrayList<>();
+		java.time.Instant at = same.plusNanos(1000);
+		UUID after = new UUID(Long.MAX_VALUE, Long.MAX_VALUE);
+		for (int page = 0; page < 3; page++) {
+			List<com.ie.evalos.chat.ChatInboxQuery.Row> rows = chatQuery.page(BRAND_IE, conversation, at, after, true, 2)
+					.stream().filter((r) -> mine.contains(r.id())).toList();
+			rows.forEach((r) -> seen.add(r.id()));
+			if (rows.isEmpty()) {
+				break;
+			}
+			at = rows.get(rows.size() - 1).createdAt();
+			after = rows.get(rows.size() - 1).id();
+		}
+
+		assertThat(seen).containsExactlyInAnyOrderElementsOf(mine);
+		assertThat(seen).doesNotHaveDuplicates();
+		List<UUID> expectedOrder = mine.stream().sorted(java.util.Comparator.reverseOrder()).toList();
+		assertThat(seen).containsExactlyElementsOf(expectedOrder);
+	}
+
+	@Test
+	void unreadCountsFromTheWatermark() {
+		UUID conversation = conversationOn(anIeCase(), "INTERNAL");
+		UUID reader = UUID.randomUUID();
+		UUID other = UUID.randomUUID();
+		java.time.Instant base = java.time.Instant.parse("2998-01-01T00:00:00Z").plusSeconds(
+				java.util.concurrent.ThreadLocalRandom.current().nextInt(1, 1_000_000));
+		UUID first = chatMessage(conversation, other, "one", base);
+		chatMessage(conversation, other, "two", base.plusSeconds(1));
+		chatMessage(conversation, other, "three", base.plusSeconds(2));
+		chatMessage(conversation, reader, "my own", base.plusSeconds(3));
+		UUID gone = chatMessage(conversation, other, "deleted", base.plusSeconds(4));
+		jdbc.update("UPDATE messages SET body = '', deleted_at = now() WHERE id = ?", gone);
+		jdbc.update("INSERT INTO message_reads (id, brand_id, conversation_id, reader_kind, reader_id, "
+				+ "last_read_message_id, last_read_at, created_at) VALUES (?, ?, ?, 'STAFF', ?, ?, ?, now())",
+				UUID.randomUUID(), BRAND_IE, conversation, reader, first, java.sql.Timestamp.from(base));
+
+		// Every earlier message in this shared conversation predates `base` (year 2998), so it is read.
+		assertThat(chatQuery.unread(com.ie.evalos.chat.ParticipantKind.STAFF, reader, List.of(conversation)))
+				.containsEntry(conversation, 2L);
+	}
+
+	@Test
+	void searchFindsOnlyReachableConversations() {
+		UUID caseId = anIeCase();
+		UUID mineConv = conversationOn(caseId, "INTERNAL");
+		UUID otherConv = conversationOn(caseId, "EXPERT");
+		UUID me = UUID.randomUUID();
+		jdbc.update("INSERT INTO conversation_members (id, brand_id, conversation_id, member_kind, member_id, "
+				+ "member_role, created_at) VALUES (?, ?, ?, 'STAFF', ?, 'PM', now())",
+				UUID.randomUUID(), BRAND_IE, mineConv, me);
+		String marker = "zq" + Long.toString(System.nanoTime(), 36);
+		UUID found = chatMessage(mineConv, UUID.randomUUID(), "about " + marker + " today", java.time.Instant.now());
+		chatMessage(otherConv, UUID.randomUUID(), "also " + marker, java.time.Instant.now());
+
+		List<com.ie.evalos.chat.ChatInboxQuery.Row> hits = chatQuery.search(new com.ie.evalos.chat.ChatIdentity(
+				com.ie.evalos.chat.ParticipantKind.STAFF, me, BRAND_IE, Role.PROJECT_MANAGER), marker, null, null, 10);
+
+		assertThat(hits).extracting(com.ie.evalos.chat.ChatInboxQuery.Row::id).containsExactly(found);
 	}
 
 }

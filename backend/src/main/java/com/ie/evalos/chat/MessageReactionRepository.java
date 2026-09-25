@@ -9,7 +9,11 @@ import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface MessageReactionRepository extends JpaRepository<MessageReaction, UUID> {
 
-	List<MessageReaction> findByBrandIdAndMessageIdIn(UUID brandId, Collection<UUID> messageIds);
+	/**
+	 * The reactions on these messages. Not brand-filtered: the ids always come from a message read
+	 * that was, and a GM's search spans brands.
+	 */
+	List<MessageReaction> findByMessageIdIn(Collection<UUID> messageIds);
 
 	Optional<MessageReaction> findByBrandIdAndMessageIdAndReactorKindAndReactorIdAndReaction(UUID brandId,
 			UUID messageId, ParticipantKind kind, UUID reactorId, Reaction reaction);

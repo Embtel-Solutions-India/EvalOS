@@ -157,6 +157,18 @@ public class ApiExceptionHandler {
 	}
 
 
+	/** A write to the conversation of a closed case (Unit 57). The composer shows why. */
+	@ExceptionHandler(com.ie.evalos.chat.ConversationReadOnlyException.class)
+	public ResponseEntity<ApiResponse<Void>> onConversationReadOnly(com.ie.evalos.chat.ConversationReadOnlyException ex) {
+		return ResponseEntity.status(HttpStatus.CONFLICT).body(ApiResponse.error("CONVERSATION_READ_ONLY", ex.getMessage()));
+	}
+
+	/** More than 30 chat messages a minute from one person (Unit 57). */
+	@ExceptionHandler(com.ie.evalos.chat.ChatRateLimiter.TooManyMessagesException.class)
+	public ResponseEntity<ApiResponse<Void>> onTooManyMessages(com.ie.evalos.chat.ChatRateLimiter.TooManyMessagesException ex) {
+		return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).body(ApiResponse.error("TOO_MANY_MESSAGES", ex.getMessage()));
+	}
+
 	/**
 	 * The document store did not answer.
 	 *
