@@ -79,7 +79,7 @@ class ClientApplicationRoutesTest {
 	 */
 	@Test
 	void thePreflightIsAllowedForEveryMethodTheChainServes() throws Exception {
-		for (String method : new String[] { "GET", "POST", "DELETE" }) {
+		for (String method : new String[] { "GET", "POST", "PUT", "DELETE" }) {
 			mockMvc.perform(options("/api/portal/applications/" + java.util.UUID.randomUUID())
 					.header("Origin", "https://portal.test")
 					.header("Access-Control-Request-Method", method)
@@ -92,11 +92,11 @@ class ClientApplicationRoutesTest {
 	 * And the check can fail: a verb nothing under {@code /api/portal/**} serves is still refused.
 	 *
 	 * <p>Without this the test above would pass against {@code setAllowedMethods(List.of("*"))}.
-	 * <strong>PUT is here since Unit 55</strong>: the questionnaire's autosave was the only PUT on
-	 * the portal, and it is gone. PATCH has never reached anything under {@code /api/portal/**}.
+	 * PUT left with the questionnaire's autosave (Unit 55) and came back with case chat (Unit 57):
+	 * editing a message and reacting to one. PATCH has never reached anything under {@code /api/portal/**}.
 	 */
 	@ParameterizedTest
-	@ValueSource(strings = { "PUT", "PATCH" })
+	@ValueSource(strings = { "PATCH" })
 	void aMethodTheChainDoesNotServeIsStillRefusedAtThePreflight(String method) throws Exception {
 		mockMvc.perform(options("/api/portal/applications/" + java.util.UUID.randomUUID())
 				.header("Origin", "https://portal.test")

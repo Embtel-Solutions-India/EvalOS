@@ -61,10 +61,10 @@ public class PortalSecurityConfig {
 		// questionnaire's autosave broke on 2026-09-18, when PUT was missing.
 		//
 		// **DELETE is here for Unit 53**, `DELETE /applications/{id}/documents/{d}` -- a client
-		// taking a document back off a draft. **PUT left with the questionnaire (Unit 55)**: its
-		// autosave was the only PUT under `/api/portal/**`. The list is enumerated rather than a
+		// taking a document back off a draft. **PUT left with the questionnaire (Unit 55)** and came
+		// back with case chat (Unit 57): editing a message and reacting to one. The list is enumerated rather than a
 		// standard set so that `ClientApplicationRoutesTest` fails when a route adds or drops a verb.
-		config.setAllowedMethods(java.util.List.of("GET", "POST", "DELETE", "OPTIONS"));
+		config.setAllowedMethods(java.util.List.of("GET", "POST", "PUT", "DELETE", "OPTIONS"));
 		config.setAllowedHeaders(java.util.List.of("Content-Type", PortalTokenFilter.HEADER));
 		// No cookies are used and none should be: the credential is a header, and allowing
 		// credentials would turn a mistaken origin into a session-riding hole.

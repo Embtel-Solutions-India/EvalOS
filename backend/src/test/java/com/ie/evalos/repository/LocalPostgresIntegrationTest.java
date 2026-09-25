@@ -1974,8 +1974,10 @@ class LocalPostgresIntegrationTest {
 		UUID conversation = conversationOn(anIeCase(), "INTERNAL");
 		UUID reader = UUID.randomUUID();
 		UUID other = UUID.randomUUID();
-		java.time.Instant base = java.time.Instant.parse("2998-01-01T00:00:00Z").plusSeconds(
-				java.util.concurrent.ThreadLocalRandom.current().nextInt(1, 1_000_000));
+		// After every message earlier runs left in this shared conversation, so those all count as read.
+		java.sql.Timestamp newest = jdbc.queryForObject("SELECT max(created_at) FROM messages WHERE conversation_id = ?",
+				java.sql.Timestamp.class, conversation);
+		java.time.Instant base = (newest == null ? java.time.Instant.now() : newest.toInstant()).plusSeconds(60);
 		UUID first = chatMessage(conversation, other, "one", base);
 		chatMessage(conversation, other, "two", base.plusSeconds(1));
 		chatMessage(conversation, other, "three", base.plusSeconds(2));
@@ -1986,7 +1988,6 @@ class LocalPostgresIntegrationTest {
 				+ "last_read_message_id, last_read_at, created_at) VALUES (?, ?, ?, 'STAFF', ?, ?, ?, now())",
 				UUID.randomUUID(), BRAND_IE, conversation, reader, first, java.sql.Timestamp.from(base));
 
-		// Every earlier message in this shared conversation predates `base` (year 2998), so it is read.
 		assertThat(chatQuery.unread(com.ie.evalos.chat.ParticipantKind.STAFF, reader, List.of(conversation)))
 				.containsEntry(conversation, 2L);
 	}
