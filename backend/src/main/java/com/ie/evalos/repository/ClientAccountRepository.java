@@ -53,6 +53,9 @@ public interface ClientAccountRepository extends ScopedRepository<ClientAccount>
 	 */
 	Optional<ClientAccount> findByBrandIdAndGhlContactId(UUID brandId, String ghlContactId);
 
+	/** The portal account on a CRM contact, if the client has made one (Unit 57: the chat's client). */
+	Optional<ClientAccount> findByBrandIdAndContactId(UUID brandId, UUID contactId);
+
 	/**
 	 * Drops sign-ups that never became anything — {@code PortalCleanupSweep}.
 	 *
