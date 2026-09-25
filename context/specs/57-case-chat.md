@@ -1,8 +1,8 @@
 # Unit 57 — Case chat: the EvalOS Chat Service
 
 **Decided 2026-09-25 by the business, in a brainstorming session.** Every case has three live
-conversations, run by EvalOS itself — Spring Boot, WebSocket/STOMP and PostgreSQL. **No external
-chat platform.** Supersedes Unit 56 (`56-live-chat-setup.md`, the Stream token setup), whose code is
+conversations. EvalOS owns the data and every rule (Spring Boot + PostgreSQL); **Ably relays live
+updates** (2026-09-26); web push reaches anyone without the app open. No chat platform owns the data. Supersedes Unit 56 (`56-live-chat-setup.md`, the Stream token setup), whose code is
 removed in phase 1. **Status: SPECCED 2026-09-25 — not built.**
 
 ## 0. What was decided, and by whom
@@ -16,7 +16,7 @@ Every row below is a business answer from the session, not an inference.
 | 3 | When does the expert join? | **At offer** (`OFFERED`); removed on decline or timeout |
 | 4 | Internal conversation? | Sales (pipeline holders) + the case's PM / Coordinator / Case Manager + the brand's ENMs |
 | 5 | When a case ends? | **Read-only at `CLOSED`**; `DELIVERED` stays open |
-| 6 | Platform? | **In-house**: WebSocket/STOMP + PostgreSQL. Stream is dropped |
+| 6 | Platform? | **In-house** data and rules (Spring Boot + PostgreSQL); **Ably relays live updates** (2026-09-26 — building WebSocket infrastructure judged too costly). Stream is dropped |
 | 7 | Edit and delete? | **Own messages only.** An edit shows "edited"; a delete leaves a "message deleted" placeholder; the original text is kept in `audit_event`. Nobody deletes another person's message |
 | 8 | Files? | **None. Text only.** Documents have their own flow; the composer links to it |
 | 9 | Push? | **Yes** — web push, the push D37 already owes |
@@ -127,31 +127,36 @@ role with no conversations simply gets an empty inbox.
 The portal chain's CORS methods gain **`PUT`** back, and `ClientApplicationRoutesTest`'s preflight
 lists follow.
 
-## 5. Real-time — WebSocket/STOMP
+## 5. Real-time — Ably relays, EvalOS decides
 
-- **Endpoint `/ws`**, STOMP over native WebSocket, allowed origins = the staff app plus
-  `EVALOS_PORTAL_ORIGINS`. The nginx configs in front of the staff app and portals proxy `/ws`
-  with the `Upgrade`/`Connection` headers. Heartbeats 10s/10s.
-- **`CONNECT`** carries `Authorization: Bearer <staff JWT>` or `X-Portal-Token`; a channel
-  interceptor validates it with `JwtService` / the portal-access service and attaches the
-  `ChatIdentity`. Invalid → `ERROR` and close. A subscription attempted after the credential
-  expires is refused.
-- **Writes go through REST; STOMP only fans out**, after commit. The one client-to-server frame is
-  typing.
-- **`/user/queue/chat`** — per identity, reaching every open session: message created / edited /
-  deleted, reaction changed, read watermark moved, typing, participants changed, read-only,
-  unread count changed, access granted or revoked. **Recipients are computed per event from current
-  membership**, so a removed member stops receiving at once.
-- **`/topic/view.conversations.{id}`** — viewers only, checked by `ChatAccess` at `SUBSCRIBE`.
-- **`SEND /app/conversations.{id}.typing`** — members only, throttled to one per second per person,
-  relayed to the other members, never stored.
-- **Presence** — an in-memory count of open sessions per identity; online = at least one. Changes go
-  to the members of that identity's conversations.
-- **Reconnect** — the client backs off and reconnects, then catches up over REST (`after=`) for
-  open conversations and refreshes the inbox. The database is the record, so nothing is lost.
-- ponytail: the in-memory broker and presence registry hold for **one backend instance**, which is
-  the deployment today. Two instances need Spring's STOMP broker relay (RabbitMQ) and a shared
-  presence store.
+**Decided 2026-09-26:** live delivery runs on Ably rather than a self-hosted WebSocket server.
+Ably never holds the record: every message is committed in PostgreSQL before it is published, and
+an app that missed something catches up over REST.
+
+- **One private channel per person** — `chat:user:<STAFF|CLIENT|EXPERT>:<uuid>`. The backend
+  publishes each committed change into the channel of **every current member**, recipients read per
+  event, so somebody reassigned off a case receives nothing after they leave.
+- **Tokens** come from `GET realtime/token` on each surface (an Ably TokenRequest, one hour,
+  refreshed by ably-js through the same route). A token may **subscribe and enter presence on its
+  own channel only; no token may publish.** A Brand Manager may also subscribe to
+  `chat:view:<brandId>:*` and the GM to `chat:view:*` — the view channels the backend publishes each
+  conversation's events to, for read-only oversight.
+- **Writes go through REST**; typing too (`POST conversations/{id}/typing`, relayed by the backend,
+  one per three seconds per person, never stored).
+- **Presence:** each app enters presence on its own channel; "online" = present there, read by the
+  backend when deciding on a push and for `GET presence?ids=`.
+- **Envelope:** the Ably message name is the event type, the data is
+  `{ type, conversationId, data }`, with `type` one of `message.created`, `message.edited`,
+  `message.deleted`, `reactions.changed`, `read.moved`, `members.changed`,
+  `conversation.read_only`, `access.granted`, `access.revoked`, `typing`, `unread.changed`.
+- **Reconnect:** ably-js reconnects on its own; on reconnect the app catches up over REST
+  (`messages?after=`) and refreshes the inbox.
+- **Without `ABLY_API_KEY`**, chat still works over REST without live updates; the token route
+  answers 503 `REALTIME_UNAVAILABLE`.
+- **Cost at today's volume** (checked 2026-09-26): 100–150 cases a month at 5–7 days each is about
+  35 open cases and 30–70 people connected at the busiest moment — inside Ably's free plan
+  (200 connections, 200 channels, 6M messages a month); Standard is $29/month plus usage. Closed
+  cases cost nothing: they are history in PostgreSQL.
 
 ## 6. Notifications and push — built with the backend (D37)
 
@@ -161,7 +166,7 @@ lists follow.
 |---|---|
 | Has the app open on the conversation | the message, live (§5) |
 | Has the app open elsewhere | the message event plus an **in-app toast** and the unread badge, live |
-| Has **no open session** | a **web push** from the browser |
+| Has **no app open** (not present on their Ably channel) | a **web push** from the browser |
 
 - **Everyone is covered:** staff (all three conversation types, Internal included), clients and
   experts. A team message reaches an offline client or expert as a push; their reply reaches the
@@ -185,10 +190,11 @@ lists follow.
 ## 7. Frontend — `packages/evalos-chat`
 
 A local package consumed by `frontend/` and `client-expert/` through a `file:` dependency and a
-Vite alias. React is a peer dependency; the one new runtime dependency is `@stomp/stompjs`.
+Vite alias. React is a peer dependency; the one new runtime dependency is `ably` (ably-js).
 
 - **`core/`** (no React) — `createChatClient({ apiBase, wsUrl, credentials })`: typed REST client,
-  STOMP connection, event stream, reconnect catch-up, and pure reducers that fold events into state.
+  Ably connection (token via `authCallback` to `realtime/token`, presence on the person's own
+  channel), event stream, REST catch-up on reconnect, and pure reducers that fold events into state.
 - **`react/`** — `ChatProvider`; hooks `useInbox`, `useConversation`, `useMessages`, `useThread`,
   `useTyping`, `usePresence`, `useUnreadTotal`; components:
   - `ChatInbox` — grouped by case, type tabs, unread badges, search, filters (type, status);
@@ -239,18 +245,19 @@ Vite alias. React is a peer dependency; the one new runtime dependency is `@stom
   committed.
 - Real Postgres (`LocalPostgresIntegrationTest` harness) — keyset paging with equal timestamps,
   search, unread from watermarks, the member-row trigger.
-- Controllers on all three surfaces; STOMP: bad token refused, foreign subscription refused, an
-  event reaches every session of a member and none of a removed one.
+- Controllers on all three surfaces; Ably: every token's capability names only its own channel and
+  never `publish`; an event is published to every current member's channel and none of a removed
+  one's; a manual check against a development Ably app.
 - Package — reducers and reconnect catch-up; each app type-checks and builds.
 
 ## 10. Phases — each one shippable
 
 1. **Backend, live** — migration (chat tables + `push_subscriptions`), membership, access,
    lifecycle and `CASE_MANAGER_REASSIGNED`, sweep with backfill, messages, REST on three surfaces,
-   **STOMP (auth, per-member fan-out, typing, presence, reconnect catch-up), web push sending**.
+   **Ably tokens and per-member publishing, typing and presence, web push sending**.
    Removes the Unit 56 Stream setup.
-2. **`packages/evalos-chat` and the staff app** — inbox, Chat tab, toast, service worker and push
-   opt-in, nginx `/ws`.
+2. **`packages/evalos-chat` and the staff app** — inbox, Chat tab, toast, ably-js connection, service
+   worker and push opt-in.
 3. **Client and expert portals** — client case page and inbox, expert panel and inbox, service
    workers and push opt-in.
 
@@ -270,4 +277,4 @@ Vite alias. React is a peer dependency; the one new runtime dependency is `@stom
 Attachments of any kind; link previews; chat before a case exists (a request has no case team);
 email or SMS notifications (invariant 14); moderation beyond own-message edit/delete; a message
 retention sweep (messages are case correspondence, kept with the case under the Document Retention
-Policy); an expert-portal case list; more than one backend instance.
+Policy); an expert-portal case list.

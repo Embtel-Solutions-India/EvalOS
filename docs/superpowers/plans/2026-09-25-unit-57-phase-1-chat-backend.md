@@ -2,11 +2,11 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Every case has three conversations (Client, Internal, Expert) whose membership EvalOS computes from case assignments; messages reach every connected participant instantly over STOMP, and participants who are not connected get a browser push.
+**Goal:** Every case has three conversations (Client, Internal, Expert) whose membership EvalOS computes from case assignments; messages reach every connected participant instantly through Ably, and participants who are not connected get a browser push.
 
-**Architecture:** A `com.ie.evalos.chat` package. A pure `ChatMembership` turns a `CaseRoster` (loaded by `ChatRosterLoader`) into expected participants; `ConversationService` applies the difference to append-only member rows; `ChatAccess` decides MEMBER / VIEWER / NONE; `MessageService` owns messages, reactions, reads and search. An after-commit `ChatLifecycleListener` and an hourly `ChatReconcileSweep` keep conversations in step with cases. Thin controllers expose the same operations on the staff, client-portal and expert-portal surfaces. Every committed change is published as `ChatChanged`; after commit, `ChatFanout` delivers it over STOMP to each current member's own queue and `ChatPushNotifier` sends a Web Push to members with no open session.
+**Architecture:** A `com.ie.evalos.chat` package. A pure `ChatMembership` turns a `CaseRoster` (loaded by `ChatRosterLoader`) into expected participants; `ConversationService` applies the difference to append-only member rows; `ChatAccess` decides MEMBER / VIEWER / NONE; `MessageService` owns messages, reactions, reads and search. An after-commit `ChatLifecycleListener` and an hourly `ChatReconcileSweep` keep conversations in step with cases. Thin controllers expose the same operations on the staff, client-portal and expert-portal surfaces. Every committed change is published as `ChatChanged`; after commit, `ChatFanout` publishes it through Ably into each current member's private channel and `ChatPushNotifier` sends a Web Push to members with no app open. PostgreSQL is the record; Ably only relays.
 
-**Tech Stack:** Java 21 / Spring Boot 3.5, Spring Data JPA, JdbcTemplate, Flyway (PostgreSQL), Spring WebSocket/STOMP (simple broker), `nl.martijndwars:web-push` 5.1.2, JUnit 5, Mockito, AssertJ, MockMvc.
+**Tech Stack:** Java 21 / Spring Boot 3.5, Spring Data JPA, JdbcTemplate, Flyway (PostgreSQL), Ably (`io.ably:ably-java` 1.2.53, REST publish + token requests), `nl.martijndwars:web-push` 5.1.2, JUnit 5, Mockito, AssertJ, MockMvc.
 
 **Spec:** `context/specs/57-case-chat.md` (Unit 57), phase 1 of 3. Phase 2 (package + staff app) and phase 3 (portals) get their own plans after this ships.
 
@@ -25,9 +25,10 @@
 - Rate limit: 30 messages per minute per identity → 429.
 - Reactions: exactly `THUMBS_UP`, `HEART`, `LAUGH`, `CELEBRATE`, `SURPRISED`, `THANKS`.
 - Not your conversation (or you left it) → 403 with the same message whether or not it exists.
-- Real-time: writes go through REST; STOMP only fans out, after commit. Envelope `type` strings are fixed by Task 10 and are the contract phases 2–3 code against.
+- Real-time: writes go through REST; Ably only relays, after commit, into **one private channel per person** (`chat:user:<KIND>:<uuid>`); no token may publish. Envelope `type` strings are fixed by Task 10 and are the contract phases 2–3 code against.
 - Push: only to members with no open session, never the author; the payload names who and where, **never the message text**; one notification per conversation (`tag` = conversation id).
-- One backend instance: the in-memory broker, presence and rate limiter are marked `ponytail:` with the upgrade path.
+- The message rate limiter and typing throttle are in memory (one backend instance) and marked `ponytail:`; Ably itself removes the one-instance limit for delivery.
+- Credentials `ABLY_API_KEY` and `EVALOS_PUSH_VAPID_PRIVATE` never carry defaults (`ConfigSecretsTest`). Without `ABLY_API_KEY` chat works over REST without live updates.
 - Code style: tabs, Javadoc explaining *why*, as in the surrounding code. Commit messages end with `Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>`.
 - Tests run with `./mvnw -q test -Dtest=<Class>` from `backend/`. The real-Postgres tests run only when a local Postgres is reachable (`LocalPostgresIntegrationTest`'s `@EnabledIf("postgresIsUsable")` pattern).
 
@@ -63,10 +64,10 @@ backend/src/main/java/com/ie/evalos/chat/
   ChatRateLimiter.java  ConversationReadOnlyException.java             Task 7
   ChatApi.java (shared controller logic)                               Task 8
   MembersChanged.java                                                  Task 10
-  live/ChatWebSocketConfig.java  live/ChatStompAuth.java
-  live/ChatPrincipal.java                                              Task 9
+  live/AblySettings.java  live/ChatRealtime.java  live/AblyToken.java
+  live/ChatChannels.java  live/RealtimeUnavailableException.java       Task 9
   live/ChatEnvelope.java  live/ChatFanout.java  live/ChatPresence.java
-  live/ChatTypingController.java                                       Task 10
+  live/ChatTyping.java                                                 Task 10
   push/PushSettings.java  push/PushSubscription.java
   push/PushSubscriptionRepository.java  push/PushSender.java
   push/ChatPushNotifier.java                                           Task 11
@@ -152,8 +153,9 @@ Expected: PASS.
   Internal (pipeline Sales, PM/Coordinator/Case Manager, brand ENMs) and Expert
   (PM/Coordinator/Case Manager, brand ENMs, the expert from offer). EvalOS computes membership from
   assignments and never lets a browser create a conversation or change a member. GM and Brand
-  Manager read as viewers. Text only; read-only at `CLOSED`. Spring Boot, WebSocket/STOMP,
-  PostgreSQL — no external chat platform.
+  Manager read as viewers. Text only; read-only at `CLOSED`. Spring Boot and PostgreSQL hold every
+  message and rule; **Ably relays live updates only** (one private channel per person, publish never
+  granted to a browser); web push for anyone without the app open. No chat platform owns the data.
 ```
 
 In `.claude/open-decisions.md` delete the whole `**Q13 — Live chat: who talks to whom, and who sees what?**` entry (through its `_Gates:_` line) and add to the intro paragraph that already lists resolved items: `Q13 (live chat) was resolved on 2026-09-25 and left for D50.` Delete the `| **Live chat setup (Unit 56)** |` row from `.claude/implementation-status.md`. In `.serena/memories/current_decisions.md` replace the `**D50 (2026-09-25, Unit 56): live chat is Stream Chat.**` paragraph with a three-line summary of the new D50; in `.serena/memories/open_decisions.md` delete item `13.`; in `.serena/memories/implementation_status.md` delete the `**2026-09-25 — Unit 56 live chat SETUP only.**` paragraph.
@@ -1512,8 +1514,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * The one gate every chat read and write passes (Unit 57 §3). REST and, in Phase 2, every STOMP
- * subscription call it.
+ * The one gate every chat read and write passes (Unit 57 §3): every REST route, and typing.
  *
  * <p><strong>Type before membership.</strong> A client reaches CLIENT conversations and an expert
  * EXPERT ones, whatever a member row says — a bad row must not be the only thing between a client
@@ -2220,439 +2221,447 @@ A `Reaction` path value that is not an enum constant fails conversion → Spring
 
 ---
 
-### Task 9: STOMP transport and authentication
+### Task 9: Ably gateway and realtime tokens
 
 **Files:**
-- Modify: `backend/pom.xml` (add `spring-boot-starter-websocket`)
-- Create: `chat/live/ChatWebSocketConfig.java`, `chat/live/ChatStompAuth.java`, `chat/live/ChatPrincipal.java`
-- Modify: `security/SecurityConfig.java` (permit the `/ws` handshake; STOMP `CONNECT` is the real gate)
-- Modify: `backend/src/main/resources/application.yml` (`evalos.chat.staff-origin`)
-- Test: `chat/live/ChatStompAuthTest.java`
+- Modify: `backend/pom.xml` (add `io.ably:ably-java:1.2.53` — confirm it is still the latest 1.x on Maven Central)
+- Create: `chat/live/AblySettings.java`, `chat/live/ChatRealtime.java`, `chat/live/AblyToken.java`, `chat/live/RealtimeUnavailableException.java`, `chat/live/ChatChannels.java`
+- Modify: `chat/ChatApi.java` and the three chat controllers (a `GET realtime/token` route each)
+- Modify: `common/ApiExceptionHandler.java` (503 `REALTIME_UNAVAILABLE`)
+- Modify: `backend/src/main/resources/application.yml` (`evalos.ably.api-key`, `evalos.chat.staff-origin`), `docker-compose.yml` (`ABLY_API_KEY`)
+- Test: `chat/live/ChatChannelsTest.java`, `chat/live/ChatRealtimeTest.java`
 
 **Interfaces:**
-- Consumes: `JwtService.verify(String token)` → `StaffPrincipal` (throws on a bad token); `PortalAccessService.resolve(String presented)` → `Optional<PortalPrincipal>`; `ClientAccountRepository.findByBrandIdAndGhlContactId`; `ChatAccess.level`, `ConversationRepository`.
-- Produces `record ChatPrincipal(ChatIdentity identity, Instant expiresAt) implements java.security.Principal` with `getName()` = `identity.kind() + ":" + identity.id()` — the key Spring uses for `/user/**` destinations, so every session of one person shares it.
-- Produces `ChatPrincipal.nameOf(ParticipantKind kind, UUID id)` (static, same format) for the fan-out in Task 10.
-- Produces the endpoint `/ws`; app prefix `/app`; broker prefixes `/queue`, `/topic`; user prefix `/user`.
-- Produces `ChatStompAuth.identityFor(StompHeaderAccessor)` rules: `Authorization: Bearer <jwt>` → staff; `X-Portal-Token` → client or expert by the token's audience. Neither, or invalid → `MessagingException` (Spring answers an `ERROR` frame and closes).
+- Consumes: `ChatIdentity` (Task 5).
+- Produces `ChatChannels` (pure, static):
+  - `personal(ParticipantKind kind, UUID id)` → `"chat:user:" + kind + ":" + id` — one private channel per person, the only channel a member's token may subscribe to.
+  - `view(UUID brandId, UUID conversationId)` → `"chat:view:" + brandId + ":" + conversationId` — what a viewer (GM, Brand Manager) listens to for the conversation they have open.
+  - `clientId(ChatIdentity who)` → `who.kind() + ":" + who.id()`.
+  - `capability(ChatIdentity who)` → JSON: members get `{"chat:user:<kind>:<id>":["subscribe","presence"]}`; a Brand Manager also gets `"chat:view:<brandId>:*":["subscribe"]`; the GM also gets `"chat:view:*":["subscribe"]`. **No token can ever publish.**
+- Produces `ChatRealtime` (the only class that talks to Ably):
+  - `boolean enabled()`
+  - `AblyToken token(ChatIdentity who)` → `record AblyToken(String keyName, String clientId, String capability, long ttl, long timestamp, String nonce, String mac)` — exactly the fields of an Ably TokenRequest, which ably-js accepts as the `authUrl`/`authCallback` answer.
+  - `void publish(String channel, String event, Object data)` — serialises `data` to JSON with Jackson; logs and swallows Ably failures (the database already holds the change; a client catches up over REST).
+  - `boolean isPresent(String channel)` — true if anyone is in the channel's presence set.
+- Produces the route `GET realtime/token` on `/api/chat`, `/api/portal/client/chat`, `/api/portal/expert/chat`.
 
-Why the handshake is `permitAll`: a browser cannot put an `Authorization` header on a WebSocket handshake. The credential travels in the STOMP `CONNECT` frame instead, and the interceptor refuses the session there — no frame after `CONNECT` is processed without a `ChatPrincipal`.
+Why per-person channels: recipients are chosen **by the backend, per event, from current membership** (Task 10). A token that can only subscribe to its own channel means nobody can join a conversation channel by guessing its name, and a reassigned person stops receiving the moment they leave — no token revocation, no capability refresh.
 
-- [ ] **Step 1: Write the failing test** `ChatStompAuthTest.java`:
+Token lifetime: one hour; ably-js refreshes it through the same route before expiry without dropping the connection. Because capabilities are per person rather than per conversation, a membership change never needs a new token.
+
+- [ ] **Step 1: Write the failing pure test** `ChatChannelsTest.java`:
 
 ```java
 package com.ie.evalos.chat.live;
 
-import java.time.Instant;
-import java.util.Optional;
 import java.util.UUID;
 
-import com.ie.evalos.chat.ChatAccess;
-import com.ie.evalos.chat.ChatAccessLevel;
-import com.ie.evalos.chat.Conversation;
-import com.ie.evalos.chat.ConversationRepository;
-import com.ie.evalos.chat.ConversationType;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.ie.evalos.chat.ChatIdentity;
 import com.ie.evalos.chat.ParticipantKind;
-import com.ie.evalos.domain.PortalAudience;
 import com.ie.evalos.domain.Role;
-import com.ie.evalos.repository.ClientAccountRepository;
-import com.ie.evalos.security.JwtService;
-import com.ie.evalos.security.PortalPrincipal;
-import com.ie.evalos.security.StaffPrincipal;
-import com.ie.evalos.service.PortalAccessService;
 
 import org.junit.jupiter.api.Test;
-import org.springframework.messaging.Message;
-import org.springframework.messaging.MessagingException;
-import org.springframework.messaging.simp.stomp.StompCommand;
-import org.springframework.messaging.simp.stomp.StompHeaderAccessor;
-import org.springframework.messaging.support.MessageBuilder;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.when;
 
-class ChatStompAuthTest {
+class ChatChannelsTest {
 
-	private final JwtService jwt = mock(JwtService.class);
-	private final PortalAccessService portal = mock(PortalAccessService.class);
-	private final ClientAccountRepository accounts = mock(ClientAccountRepository.class);
-	private final ConversationRepository conversations = mock(ConversationRepository.class);
-	private final ChatAccess access = mock(ChatAccess.class);
-	private final ChatStompAuth auth = new ChatStompAuth(jwt, portal, accounts, conversations, access);
-
-	private static Message<byte[]> frame(StompCommand command, String header, String value, String destination) {
-		StompHeaderAccessor accessor = StompHeaderAccessor.create(command);
-		if (header != null) {
-			accessor.setNativeHeader(header, value);
-		}
-		if (destination != null) {
-			accessor.setDestination(destination);
-		}
-		accessor.setLeaveMutable(true);
-		return MessageBuilder.createMessage(new byte[0], accessor.getMessageHeaders());
+	private static JsonNode capability(ChatIdentity who) throws Exception {
+		return new ObjectMapper().readTree(ChatChannels.capability(who));
 	}
 
 	@Test
-	void aConnectWithNoCredentialIsRefused() {
-		assertThatThrownBy(() -> auth.preSend(frame(StompCommand.CONNECT, null, null, null), null))
-				.isInstanceOf(MessagingException.class);
+	void aMemberMayOnlySubscribeToTheirOwnChannelAndNeverPublish() throws Exception {
+		UUID pm = UUID.randomUUID();
+		JsonNode caps = capability(new ChatIdentity(ParticipantKind.STAFF, pm, UUID.randomUUID(), Role.PROJECT_MANAGER));
+
+		assertThat(caps.size()).isEqualTo(1);
+		JsonNode own = caps.get("chat:user:STAFF:" + pm);
+		assertThat(own).isNotNull();
+		assertThat(own.toString()).contains("subscribe").contains("presence").doesNotContain("publish");
 	}
 
 	@Test
-	void aStaffBearerBecomesAStaffPrincipal() {
-		UUID member = UUID.randomUUID();
-		when(jwt.verify("good")).thenReturn(new StaffPrincipal(member, "pm@ie.test", "PM", Role.PROJECT_MANAGER,
-				UUID.randomUUID(), null, (String) null, null, true));
+	void aClientGetsTheirOwnChannelOnly() throws Exception {
+		UUID account = UUID.randomUUID();
+		JsonNode caps = capability(ChatIdentity.client(account, UUID.randomUUID()));
 
-		Message<?> out = auth.preSend(frame(StompCommand.CONNECT, "Authorization", "Bearer good", null), null);
-
-		ChatPrincipal who = (ChatPrincipal) StompHeaderAccessor.wrap(out).getUser();
-		assertThat(who.getName()).isEqualTo("STAFF:" + member);
+		assertThat(caps.fieldNames()).toIterable().containsExactly("chat:user:CLIENT:" + account);
 	}
 
 	@Test
-	void anExpertPortalTokenBecomesAnExpertPrincipal() {
-		UUID expert = UUID.randomUUID();
-		when(portal.resolve("tok")).thenReturn(Optional.of(new PortalPrincipal(UUID.randomUUID(), UUID.randomUUID(),
-				UUID.randomUUID(), PortalAudience.EXPERT, expert)));
+	void aBrandManagerMayWatchTheirBrandsConversationsOnly() throws Exception {
+		UUID brand = UUID.randomUUID();
+		JsonNode caps = capability(new ChatIdentity(ParticipantKind.STAFF, UUID.randomUUID(), brand, Role.BRAND_MANAGER));
 
-		Message<?> out = auth.preSend(frame(StompCommand.CONNECT, "X-Portal-Token", "tok", null), null);
-
-		assertThat(StompHeaderAccessor.wrap(out).getUser().getName()).isEqualTo("EXPERT:" + expert);
+		assertThat(caps.get("chat:view:" + brand + ":*").toString()).isEqualTo("[\"subscribe\"]");
+		assertThat(caps.has("chat:view:*")).isFalse();
 	}
 
 	@Test
-	void subscribingToAnotherPersonsQueueOrAConversationYouCannotViewIsRefused() {
-		ChatPrincipal pm = new ChatPrincipal(new com.ie.evalos.chat.ChatIdentity(ParticipantKind.STAFF,
-				UUID.randomUUID(), UUID.randomUUID(), Role.PROJECT_MANAGER), Instant.now().plusSeconds(600));
-		UUID conversation = UUID.randomUUID();
-		when(conversations.findById(conversation)).thenReturn(Optional.of(
-				new Conversation(UUID.randomUUID(), UUID.randomUUID(), ConversationType.INTERNAL)));
-		when(access.level(any(), any())).thenReturn(ChatAccessLevel.MEMBER);
+	void theGmMayWatchEveryConversation() throws Exception {
+		JsonNode caps = capability(new ChatIdentity(ParticipantKind.STAFF, UUID.randomUUID(), null, Role.GM));
 
-		Message<byte[]> topic = frame(StompCommand.SUBSCRIBE, null, null, "/topic/view.conversations." + conversation);
-		StompHeaderAccessor.getAccessor(topic, StompHeaderAccessor.class).setUser(pm);
-		// A MEMBER gets their events on their own queue; the view topic is for VIEWERs only.
-		assertThatThrownBy(() -> auth.preSend(topic, null)).isInstanceOf(MessagingException.class);
-
-		Message<byte[]> stray = frame(StompCommand.SUBSCRIBE, null, null, "/queue/somebody-else");
-		StompHeaderAccessor.getAccessor(stray, StompHeaderAccessor.class).setUser(pm);
-		assertThatThrownBy(() -> auth.preSend(stray, null)).isInstanceOf(MessagingException.class);
+		assertThat(caps.get("chat:view:*").toString()).isEqualTo("[\"subscribe\"]");
 	}
 
 	@Test
-	void anExpiredSessionCannotSubscribe() {
-		ChatPrincipal stale = new ChatPrincipal(new com.ie.evalos.chat.ChatIdentity(ParticipantKind.STAFF,
-				UUID.randomUUID(), UUID.randomUUID(), Role.PROJECT_MANAGER), Instant.now().minusSeconds(1));
-		Message<byte[]> subscribe = frame(StompCommand.SUBSCRIBE, null, null, "/user/queue/chat");
-		StompHeaderAccessor.getAccessor(subscribe, StompHeaderAccessor.class).setUser(stale);
-
-		assertThatThrownBy(() -> auth.preSend(subscribe, null)).isInstanceOf(MessagingException.class);
+	void theClientIdIsKindAndId() {
+		UUID id = UUID.randomUUID();
+		assertThat(ChatChannels.clientId(ChatIdentity.expert(id, UUID.randomUUID()))).isEqualTo("EXPERT:" + id);
+		assertThat(ChatChannels.personal(ParticipantKind.EXPERT, id)).isEqualTo("chat:user:EXPERT:" + id);
 	}
 }
 ```
 
-- [ ] **Step 2: Run to verify it fails** — `./mvnw -q test -Dtest=ChatStompAuthTest` → FAIL (classes missing; add the websocket starter to `pom.xml` first if the `org.springframework.messaging` imports do not resolve):
+- [ ] **Step 2: Run to verify it fails** — `./mvnw -q test -Dtest=ChatChannelsTest` → FAIL (class missing).
+
+- [ ] **Step 3: Implement** `ChatChannels.java`:
+
+```java
+package com.ie.evalos.chat.live;
+
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.ie.evalos.chat.ChatIdentity;
+import com.ie.evalos.chat.ParticipantKind;
+import com.ie.evalos.domain.Role;
+
+/**
+ * Ably channel names and token capabilities for case chat (Unit 57 §5, D50).
+ *
+ * <p><strong>One private channel per person, and no token may publish.</strong> The backend decides
+ * who receives each event and publishes it into each recipient's own channel, so a capability never
+ * names a conversation and never has to change when membership does.
+ */
+public final class ChatChannels {
+
+	private static final ObjectMapper JSON = new ObjectMapper();
+
+	private ChatChannels() {
+	}
+
+	public static String personal(ParticipantKind kind, UUID id) {
+		return "chat:user:" + kind + ":" + id;
+	}
+
+	public static String view(UUID brandId, UUID conversationId) {
+		return "chat:view:" + brandId + ":" + conversationId;
+	}
+
+	public static String clientId(ChatIdentity who) {
+		return who.kind() + ":" + who.id();
+	}
+
+	public static String capability(ChatIdentity who) {
+		Map<String, List<String>> caps = new LinkedHashMap<>();
+		caps.put(personal(who.kind(), who.id()), List.of("subscribe", "presence"));
+		if (who.staffRole() == Role.GM) {
+			caps.put("chat:view:*", List.of("subscribe"));
+		}
+		else if (who.staffRole() == Role.BRAND_MANAGER && who.brandId() != null) {
+			caps.put("chat:view:" + who.brandId() + ":*", List.of("subscribe"));
+		}
+		try {
+			return JSON.writeValueAsString(caps);
+		}
+		catch (JsonProcessingException impossible) {
+			throw new IllegalStateException(impossible);
+		}
+	}
+}
+```
+
+- [ ] **Step 4: Run** — `./mvnw -q test -Dtest=ChatChannelsTest` → PASS, 5 tests.
+
+- [ ] **Step 5: Write the failing gateway test** `ChatRealtimeTest.java` — the unconfigured path, which needs no network:
+
+```java
+package com.ie.evalos.chat.live;
+
+import java.util.UUID;
+
+import com.ie.evalos.chat.ChatIdentity;
+
+import org.junit.jupiter.api.Test;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
+class ChatRealtimeTest {
+
+	private final ChatRealtime off = new ChatRealtime(new AblySettings(""));
+
+	@Test
+	void withNoKeyRealtimeIsOffAndSaysSo() {
+		assertThat(off.enabled()).isFalse();
+		assertThatThrownBy(() -> off.token(ChatIdentity.client(UUID.randomUUID(), UUID.randomUUID())))
+				.isInstanceOf(RealtimeUnavailableException.class);
+	}
+
+	@Test
+	void publishingWithRealtimeOffIsANoOpNotAFailure() {
+		assertThatCode(() -> off.publish("chat:user:STAFF:" + UUID.randomUUID(), "message.created", "{}"))
+				.doesNotThrowAnyException();
+		assertThat(off.isPresent("chat:user:STAFF:" + UUID.randomUUID())).isFalse();
+	}
+
+	@Test
+	void aConfiguredKeyMintsATokenRequestForTheCallerAlone() {
+		// A syntactically valid key; createTokenRequest signs locally and makes no network call.
+		ChatRealtime on = new ChatRealtime(new AblySettings("appid.keyid:secretsecretsecret"));
+		UUID account = UUID.randomUUID();
+
+		AblyToken token = on.token(ChatIdentity.client(account, UUID.randomUUID()));
+
+		assertThat(token.clientId()).isEqualTo("CLIENT:" + account);
+		assertThat(token.capability()).contains("chat:user:CLIENT:" + account).doesNotContain("publish");
+		assertThat(token.keyName()).isEqualTo("appid.keyid");
+		assertThat(token.mac()).isNotBlank();
+	}
+}
+```
+
+- [ ] **Step 6: Run to verify it fails** — `./mvnw -q test -Dtest=ChatRealtimeTest` → FAIL.
+
+- [ ] **Step 7: Add the dependency and config, then implement.** `pom.xml`:
 
 ```xml
 		<dependency>
-			<groupId>org.springframework.boot</groupId>
-			<artifactId>spring-boot-starter-websocket</artifactId>
+			<groupId>io.ably</groupId>
+			<artifactId>ably-java</artifactId>
+			<version>1.2.53</version>
 		</dependency>
 ```
 
-- [ ] **Step 3: Implement** `ChatPrincipal.java`:
-
-```java
-package com.ie.evalos.chat.live;
-
-import java.security.Principal;
-import java.time.Instant;
-import java.util.UUID;
-
-import com.ie.evalos.chat.ChatIdentity;
-import com.ie.evalos.chat.ParticipantKind;
-
-/**
- * The person behind a STOMP session. {@link #getName} is the key Spring routes {@code /user/**} on, so
- * every tab and device of one person shares it and receives the same events.
- */
-public record ChatPrincipal(ChatIdentity identity, Instant expiresAt) implements Principal {
-
-	public static String nameOf(ParticipantKind kind, UUID id) {
-		return kind + ":" + id;
-	}
-
-	@Override
-	public String getName() {
-		return nameOf(identity.kind(), identity.id());
-	}
-
-	public boolean expired() {
-		return Instant.now().isAfter(expiresAt);
-	}
-}
-```
-
-`ChatStompAuth.java` (`@Component`, `implements ChannelInterceptor`):
-
-```java
-package com.ie.evalos.chat.live;
-
-import java.time.Duration;
-import java.time.Instant;
-import java.util.UUID;
-
-import com.ie.evalos.chat.ChatAccess;
-import com.ie.evalos.chat.ChatAccessLevel;
-import com.ie.evalos.chat.ChatIdentity;
-import com.ie.evalos.chat.ConversationRepository;
-import com.ie.evalos.domain.ClientAccount;
-import com.ie.evalos.domain.PortalAudience;
-import com.ie.evalos.repository.ClientAccountRepository;
-import com.ie.evalos.security.JwtService;
-import com.ie.evalos.security.PortalPrincipal;
-import com.ie.evalos.security.StaffPrincipal;
-import com.ie.evalos.security.TenantContext;
-import com.ie.evalos.service.PortalAccessService;
-
-import org.springframework.messaging.Message;
-import org.springframework.messaging.MessageChannel;
-import org.springframework.messaging.MessagingException;
-import org.springframework.messaging.simp.stomp.StompCommand;
-import org.springframework.messaging.simp.stomp.StompHeaderAccessor;
-import org.springframework.messaging.support.ChannelInterceptor;
-import org.springframework.messaging.support.MessageHeaderAccessor;
-import org.springframework.stereotype.Component;
-
-/**
- * Who a STOMP session is, and what it may subscribe to (Unit 57 §5).
- *
- * <p><strong>CONNECT carries the same credential REST does.</strong> A browser cannot set headers on
- * the WebSocket handshake, so the handshake is open and this is the gate: no frame after CONNECT is
- * handled without a {@link ChatPrincipal}.
- *
- * <p><strong>Subscriptions are an allowlist of two.</strong> {@code /user/queue/chat} (your own
- * events) and {@code /topic/view.conversations.{id}} for a VIEWER. Everything else is refused, so a
- * client cannot subscribe to a destination nobody meant to exist.
- */
-@Component
-public class ChatStompAuth implements ChannelInterceptor {
-
-	static final String OWN_QUEUE = "/user/queue/chat";
-	static final String VIEW_TOPIC = "/topic/view.conversations.";
-
-	/** A portal session is re-checked by expiry at most this far ahead; tokens are long-lived. */
-	private static final Duration PORTAL_SESSION = Duration.ofHours(8);
-
-	private final JwtService jwt;
-	private final PortalAccessService portal;
-	private final ClientAccountRepository accounts;
-	private final ConversationRepository conversations;
-	private final ChatAccess access;
-
-	ChatStompAuth(JwtService jwt, PortalAccessService portal, ClientAccountRepository accounts,
-			ConversationRepository conversations, ChatAccess access) {
-		this.jwt = jwt;
-		this.portal = portal;
-		this.accounts = accounts;
-		this.conversations = conversations;
-		this.access = access;
-	}
-
-	@Override
-	public Message<?> preSend(Message<?> message, MessageChannel channel) {
-		StompHeaderAccessor accessor = MessageHeaderAccessor.getAccessor(message, StompHeaderAccessor.class);
-		if (accessor == null || accessor.getCommand() == null) {
-			return message;
-		}
-		StompCommand command = accessor.getCommand();
-		if (command == StompCommand.CONNECT) {
-			accessor.setUser(connect(accessor));
-			return message;
-		}
-		if (command == StompCommand.SUBSCRIBE || command == StompCommand.SEND) {
-			ChatPrincipal who = accessor.getUser() instanceof ChatPrincipal p ? p : null;
-			if (who == null || who.expired()) {
-				throw new MessagingException("Your session has ended. Sign in again.");
-			}
-			if (command == StompCommand.SUBSCRIBE) {
-				requireSubscribable(who, accessor.getDestination());
-			}
-		}
-		return message;
-	}
-
-	private ChatPrincipal connect(StompHeaderAccessor accessor) {
-		String bearer = accessor.getFirstNativeHeader("Authorization");
-		if (bearer != null && bearer.startsWith("Bearer ")) {
-			try {
-				StaffPrincipal staff = jwt.verify(bearer.substring("Bearer ".length()));
-				TenantContext ctx = TenantContext.of(staff);
-				return new ChatPrincipal(ChatIdentity.staff(ctx), Instant.now().plus(Duration.ofHours(8)));
-			}
-			catch (RuntimeException invalid) {
-				throw new MessagingException("That sign-in is not valid.");
-			}
-		}
-		String token = accessor.getFirstNativeHeader("X-Portal-Token");
-		if (token != null) {
-			PortalPrincipal principal = portal.resolve(token)
-					.orElseThrow(() -> new MessagingException("That link is not valid."));
-			return new ChatPrincipal(portalIdentity(principal), Instant.now().plus(PORTAL_SESSION));
-		}
-		throw new MessagingException("Sign in first.");
-	}
-
-	private ChatIdentity portalIdentity(PortalPrincipal principal) {
-		if (principal.audience() == PortalAudience.EXPERT) {
-			if (principal.expertId() == null) {
-				throw new MessagingException("That link does not admit you to chat.");
-			}
-			return ChatIdentity.expert(principal.expertId(), principal.brandId());
-		}
-		UUID account = principal.namesAnAccountDirectly() ? principal.clientAccountId()
-				: java.util.Optional.ofNullable(principal.ghlContactId())
-						.flatMap((contact) -> accounts.findByBrandIdAndGhlContactId(principal.brandId(), contact))
-						.map(ClientAccount::getId)
-						.orElseThrow(() -> new MessagingException("That link does not admit you to chat."));
-		return ChatIdentity.client(account, principal.brandId());
-	}
-
-	private void requireSubscribable(ChatPrincipal who, String destination) {
-		if (OWN_QUEUE.equals(destination)) {
-			return;
-		}
-		if (destination != null && destination.startsWith(VIEW_TOPIC)) {
-			UUID id;
-			try {
-				id = UUID.fromString(destination.substring(VIEW_TOPIC.length()));
-			}
-			catch (IllegalArgumentException malformed) {
-				throw new MessagingException(ChatAccess.NOT_YOURS);
-			}
-			boolean viewer = conversations.findById(id)
-					.map((conversation) -> access.level(who.identity(), conversation) == ChatAccessLevel.VIEWER)
-					.orElse(false);
-			if (viewer) {
-				return;
-			}
-		}
-		throw new MessagingException(ChatAccess.NOT_YOURS);
-	}
-}
-```
-
-Two existing names to confirm while implementing, because the code above depends on them: how `TenantContext` is built from a `StaffPrincipal` (search `TenantContext` for a factory such as `of(StaffPrincipal)` or its canonical constructor `(memberId, role, brandId, teamId, ghlPipelineIds)` — use whichever exists), and that `JwtService.verify` throws on an invalid token rather than returning null (`JwtService.java:80`). If the JWT's own expiry is available on `StaffPrincipal` or from `verify`, use it for `expiresAt` instead of the fixed 8 hours.
-
-`ChatWebSocketConfig.java`:
-
-```java
-package com.ie.evalos.chat.live;
-
-import java.util.ArrayList;
-import java.util.List;
-
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.context.annotation.Configuration;
-import org.springframework.messaging.simp.config.ChannelRegistration;
-import org.springframework.messaging.simp.config.MessageBrokerRegistry;
-import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
-import org.springframework.web.socket.config.annotation.EnableWebSocketMessageBroker;
-import org.springframework.web.socket.config.annotation.StompEndpointRegistry;
-import org.springframework.web.socket.config.annotation.WebSocketMessageBrokerConfigurer;
-
-/**
- * STOMP over a native WebSocket at {@code /ws} (Unit 57 §5).
- *
- * <p>ponytail: the simple in-memory broker holds for one backend instance, the deployment today.
- * A second instance needs {@code enableStompBrokerRelay} (RabbitMQ) and a shared presence store.
- */
-@Configuration
-@EnableWebSocketMessageBroker
-public class ChatWebSocketConfig implements WebSocketMessageBrokerConfigurer {
-
-	private final ChatStompAuth auth;
-	private final List<String> origins;
-
-	ChatWebSocketConfig(ChatStompAuth auth, @Value("${evalos.chat.staff-origin}") String staffOrigin,
-			@Value("${evalos.portal.allowed-origins:}") String portalOrigins) {
-		this.auth = auth;
-		List<String> all = new ArrayList<>();
-		all.add(staffOrigin.trim());
-		for (String origin : portalOrigins.split(",")) {
-			if (!origin.isBlank()) {
-				all.add(origin.trim());
-			}
-		}
-		this.origins = List.copyOf(all);
-	}
-
-	@Override
-	public void registerStompEndpoints(StompEndpointRegistry registry) {
-		registry.addEndpoint("/ws").setAllowedOrigins(origins.toArray(String[]::new));
-	}
-
-	@Override
-	public void configureMessageBroker(MessageBrokerRegistry registry) {
-		ThreadPoolTaskScheduler heartbeats = new ThreadPoolTaskScheduler();
-		heartbeats.setPoolSize(1);
-		heartbeats.setThreadNamePrefix("chat-heartbeat-");
-		heartbeats.initialize();
-		registry.enableSimpleBroker("/queue", "/topic").setHeartbeatValue(new long[] { 10_000, 10_000 })
-				.setTaskScheduler(heartbeats);
-		registry.setApplicationDestinationPrefixes("/app");
-		registry.setUserDestinationPrefix("/user");
-	}
-
-	@Override
-	public void configureClientInboundChannel(ChannelRegistration registration) {
-		registration.interceptors(auth);
-	}
-}
-```
-
-In `SecurityConfig`, add `.requestMatchers("/ws", "/ws/**").permitAll()` beside `/api/webhooks/**`, with a comment: `// The STOMP CONNECT frame carries the credential; ChatStompAuth is the gate (Unit 57).`
-
-In `application.yml`, under `evalos:`:
+`application.yml`, under `evalos:`:
 
 ```yaml
+  ably:
+    # Real-time delivery for case chat (Unit 57, D50): Ably relays, PostgreSQL keeps the record.
+    # A credential - never defaulted. Empty = no live updates; chat still works over REST.
+    api-key: ${ABLY_API_KEY:}
   chat:
-    # The staff app's origin, for the WebSocket handshake (Unit 57). The portal origins come from
-    # evalos.portal.allowed-origins. Not a credential.
+    # The staff app's origin, used to build the link a staff push notification opens.
     staff-origin: ${EVALOS_STAFF_ORIGIN:http://localhost:5173}
 ```
 
-- [ ] **Step 4: Run** — `./mvnw -q test -Dtest=ChatStompAuthTest,ConfigSecretsTest` → PASS.
+`docker-compose.yml`, backend `environment:`: `ABLY_API_KEY: ${ABLY_API_KEY:-}` and `EVALOS_STAFF_ORIGIN: ${EVALOS_STAFF_ORIGIN:-}`.
 
-- [ ] **Step 5: Commit** — `feat(chat): STOMP at /ws, authenticated by the same credentials as REST (Unit 57 §5)`.
+`AblySettings.java`:
+
+```java
+package com.ie.evalos.chat.live;
+
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Component;
+
+/** The Ably API key. Empty = realtime off (a startup warning, not a failed boot). */
+@Component
+public class AblySettings {
+
+	private final String apiKey;
+
+	AblySettings(@Value("${evalos.ably.api-key:}") String apiKey) {
+		this.apiKey = apiKey == null ? "" : apiKey.trim();
+	}
+
+	public boolean enabled() {
+		return !apiKey.isEmpty();
+	}
+
+	public String apiKey() {
+		return apiKey;
+	}
+}
+```
+
+`RealtimeUnavailableException.java`:
+
+```java
+package com.ie.evalos.chat.live;
+
+/** No Ably key here. Answered 503 REALTIME_UNAVAILABLE; the apps fall back to polling REST. */
+public class RealtimeUnavailableException extends RuntimeException {
+
+	public RealtimeUnavailableException() {
+		super("Live updates are not set up here (ABLY_API_KEY). Chat still works; refresh to see new messages.");
+	}
+}
+```
+
+`AblyToken.java`:
+
+```java
+package com.ie.evalos.chat.live;
+
+/** An Ably TokenRequest, field for field — ably-js takes this as the authUrl / authCallback answer. */
+public record AblyToken(String keyName, String clientId, String capability, long ttl, long timestamp,
+		String nonce, String mac) {
+}
+```
+
+`ChatRealtime.java`:
+
+```java
+package com.ie.evalos.chat.live;
+
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import com.ie.evalos.chat.ChatIdentity;
+
+import io.ably.lib.rest.AblyRest;
+import io.ably.lib.rest.Auth;
+import io.ably.lib.types.AblyException;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.stereotype.Component;
+
+/**
+ * The only class that talks to Ably (Unit 57 §5, D50).
+ *
+ * <p><strong>Ably relays; it is never the record.</strong> Every change is already committed in
+ * PostgreSQL when it is published here, so a failed publish is logged and dropped: the recipient's
+ * app catches up over REST on its next reconnect.
+ */
+@Component
+public class ChatRealtime {
+
+	private static final Logger log = LoggerFactory.getLogger(ChatRealtime.class);
+	private static final long TOKEN_TTL_MS = 60 * 60 * 1000L;
+	private static final ObjectMapper JSON = new ObjectMapper().registerModule(new JavaTimeModule())
+			.disable(com.fasterxml.jackson.databind.SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
+
+	private final AblyRest rest;
+
+	ChatRealtime(AblySettings settings) {
+		AblyRest built = null;
+		if (settings.enabled()) {
+			try {
+				built = new AblyRest(settings.apiKey());
+			}
+			catch (AblyException invalid) {
+				throw new IllegalStateException("ABLY_API_KEY is not a valid Ably key", invalid);
+			}
+		}
+		else {
+			log.warn("No ABLY_API_KEY configured - case chat works over REST without live updates.");
+		}
+		this.rest = built;
+	}
+
+	public boolean enabled() {
+		return rest != null;
+	}
+
+	public AblyToken token(ChatIdentity who) {
+		if (rest == null) {
+			throw new RealtimeUnavailableException();
+		}
+		Auth.TokenParams params = new Auth.TokenParams();
+		params.clientId = ChatChannels.clientId(who);
+		params.capability = ChatChannels.capability(who);
+		params.ttl = TOKEN_TTL_MS;
+		try {
+			Auth.TokenRequest request = rest.auth.createTokenRequest(params, null);
+			return new AblyToken(request.keyName, request.clientId, request.capability, request.ttl,
+					request.timestamp, request.nonce, request.mac);
+		}
+		catch (AblyException failed) {
+			throw new RealtimeUnavailableException();
+		}
+	}
+
+	public void publish(String channel, String event, Object data) {
+		if (rest == null) {
+			return;
+		}
+		try {
+			rest.channels.get(channel).publish(event, data instanceof String s ? s : JSON.writeValueAsString(data));
+		}
+		catch (AblyException | JsonProcessingException failed) {
+			log.warn("Ably publish of {} to {} failed; the recipient catches up over REST", event, channel, failed);
+		}
+	}
+
+	public boolean isPresent(String channel) {
+		if (rest == null) {
+			return false;
+		}
+		try {
+			return rest.channels.get(channel).presence.get(null).items().length > 0;
+		}
+		catch (AblyException failed) {
+			// Unknown is treated as offline: a spare push beats a missed one.
+			log.warn("Ably presence check on {} failed", channel, failed);
+			return false;
+		}
+	}
+}
+```
+
+(Confirm the ably-java 1.2.x names used above against its Javadoc: `AblyRest(String key)`, `rest.auth.createTokenRequest(Auth.TokenParams, Auth.AuthOptions)` returning `Auth.TokenRequest` with public fields `keyName, clientId, capability, ttl, timestamp, nonce, mac`, `rest.channels.get(name).publish(String, Object)`, and `channel.presence.get(Param[])` returning `PaginatedResult<PresenceMessage>` with `items()`. If `createTokenRequest` wants non-null `AuthOptions`, pass `new Auth.AuthOptions()`.)
+
+- [ ] **Step 8: The token route and the 503.** Add to `ChatApi`: `public AblyToken realtimeToken(ChatIdentity who) { return realtime.token(who); }` (inject `ChatRealtime`). Add to each of the three controllers:
+
+```java
+	/** ably-js calls this through authCallback, and again before the token expires. */
+	@GetMapping("/realtime/token")
+	public ApiResponse<com.ie.evalos.chat.live.AblyToken> realtimeToken() {
+		return ApiResponse.ok(api.realtimeToken(who()));
+	}
+```
+
+In `ApiExceptionHandler`:
+
+```java
+	@ExceptionHandler(com.ie.evalos.chat.live.RealtimeUnavailableException.class)
+	public ResponseEntity<ApiResponse<Void>> onRealtimeUnavailable(com.ie.evalos.chat.live.RealtimeUnavailableException ex) {
+		return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(ApiResponse.error("REALTIME_UNAVAILABLE", ex.getMessage()));
+	}
+```
+
+The apps use `authCallback` (not `authUrl`) so the call carries each app's own credential header through its existing API client, and unwrap `ApiResponse.data` before handing the TokenRequest to ably-js.
+
+- [ ] **Step 9: Run** — `./mvnw -q test -Dtest=ChatChannelsTest,ChatRealtimeTest,ConfigSecretsTest,StaffChatControllerTest` → PASS. Add to `StaffChatControllerTest`: `theRealtimeTokenIsTheServicesAnswer` (200, `$.data.clientId`) and `realtimeOffIs503` (`$.error.code` = `REALTIME_UNAVAILABLE`).
+
+- [ ] **Step 10: Commit** — `feat(chat): Ably realtime tokens — one private channel per person, publish never granted (Unit 57, D50)`.
 
 ---
 
-### Task 10: Live fan-out, typing and presence
+### Task 10: Live fan-out, typing and presence over Ably
 
 **Files:**
-- Modify: `chat/ChatChanged.java` (payload types), `chat/ConversationService.java` (members-changed payload), `chat/MessageService.java` (publish payloads)
-- Create: `chat/live/ChatFanout.java`, `chat/live/ChatPresence.java`, `chat/live/ChatTypingController.java`
-- Test: `chat/live/ChatFanoutTest.java`, `chat/live/ChatPresenceTest.java`, `chat/live/ChatTypingControllerTest.java`
+- Modify: `chat/ChatChanged.java` (payload types), `chat/ConversationService.java` (members-changed payload)
+- Create: `chat/MembersChanged.java`, `chat/live/ChatEnvelope.java`, `chat/live/ChatFanout.java`, `chat/live/ChatPresence.java`, `chat/live/ChatTyping.java`
+- Modify: `chat/ChatApi.java` and the three controllers (`POST conversations/{id}/typing`)
+- Test: `chat/live/ChatFanoutTest.java`, `chat/live/ChatPresenceTest.java`, `chat/live/ChatTypingTest.java`
 
 **Interfaces:**
-- Consumes: `ChatChanged` (Task 4), `ConversationMemberRepository.findByBrandIdAndConversationIdAndLeftAtIsNull`, `ChatAccess.level`, `ChatPrincipal.nameOf`, `SimpMessagingTemplate`.
-- Produces the envelope every client receives: `record ChatEnvelope(String type, UUID conversationId, Object data)` with `type` one of `message.created`, `message.edited`, `message.deleted`, `reactions.changed`, `read.moved`, `members.changed`, `conversation.read_only`, `access.granted`, `access.revoked`, `typing`, `presence`, `unread.changed`. **Phases 2–3 code against exactly these strings.**
-- Produces `ChatChanged` payloads: `MESSAGE_*` and `REACTIONS_CHANGED` → `ChatViews.MessageView`; `READ_MOVED` → `ChatViews.ReaderMark`; `MEMBERS_CHANGED` → `record MembersChanged(List<ExpectedMember> added, List<ExpectedMember> removed)`; `READ_ONLY` → null.
-- Produces `ChatPresence.isOnline(ParticipantKind, UUID)` (used by Task 11) and `ChatPresence.online(Collection<String> principalNames)` → `Set<String>`.
-- Produces a `SEND /app/conversations.{id}.typing` handler.
+- Consumes: `ChatChanged` (Task 4), `ConversationMemberRepository.findByBrandIdAndConversationIdAndLeftAtIsNull`, `ChatAccess.requireWrite`, `ChatRealtime.publish/isPresent`, `ChatChannels.personal/view`.
+- Produces the envelope every app receives as the **data** of an Ably message whose **name** is the envelope `type`: `record ChatEnvelope(String type, UUID conversationId, Object data)`, `type` ∈ `message.created`, `message.edited`, `message.deleted`, `reactions.changed`, `read.moved`, `members.changed`, `conversation.read_only`, `access.granted`, `access.revoked`, `typing`, `unread.changed`. **Phases 2–3 code against exactly these strings.**
+- Produces `ChatChanged` payloads: `MESSAGE_*`, `REACTIONS_CHANGED` → `ChatViews.MessageView`; `READ_MOVED` → `ChatViews.ReaderMark`; `MEMBERS_CHANGED` → `record MembersChanged(List<ExpectedMember> added, List<ExpectedMember> removed)`; `READ_ONLY` → null.
+- Produces `ChatPresence.isOnline(ParticipantKind kind, UUID id)` → boolean (Task 11 uses it).
+- Produces `POST conversations/{id}/typing` on each surface → 204-style `ApiResponse.ok(null)`.
 
-Fan-out rules (spec §5):
-- Recipients are computed **per event** from current members, so a removed member receives nothing after removal.
-- Every member, author included, gets `message.created` (the author's other tabs need it too) and, for every member except the author, `unread.changed`.
+Presence model: each app, once connected, **enters presence on its own personal channel** (its token grants `presence` there). "Online" = anyone present on that person's channel, read by the backend with `ChatRealtime.isPresent`. Online status for the participant list is not broadcast in Phase 1 — the apps read it on demand through `GET presence?ids=` (Task 7 route, now backed by `ChatPresence`); a live online dot is added in phase 2 if wanted. This keeps presence traffic to one enter and one leave per session.
+
+Fan-out rules (unchanged from the spec):
+- Recipients are read **per event** from current members, so a removed member receives nothing after removal.
+- Every member, author included, gets `message.created` (the author's other tabs need it); everyone except the author also gets `unread.changed`.
 - `MEMBERS_CHANGED`: `access.granted` to each added person, `access.revoked` to each removed person, `members.changed` to everyone still in.
-- Viewers get everything except `typing` and `unread.changed`, on `/topic/view.conversations.{id}`.
-- `typing` goes to current members except the sender, throttled to one per second per sender per conversation, never stored, never to viewers.
-- `presence` goes to the members of every conversation the person is in, when their session count goes 0→1 or 1→0.
+- Every event except `typing` and `unread.changed` is also published once to the conversation's view channel for viewers.
+- `typing` goes to current members except the sender, **throttled to one per 3 seconds** per sender per conversation (every Ably message is billed), never stored, never to viewers.
 
 - [ ] **Step 1: Write the failing tests.**
 
@@ -2661,7 +2670,9 @@ Fan-out rules (spec §5):
 ```java
 package com.ie.evalos.chat.live;
 
+import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 import com.ie.evalos.chat.ChatChanged;
@@ -2674,7 +2685,6 @@ import com.ie.evalos.chat.MembersChanged;
 import com.ie.evalos.chat.ParticipantKind;
 
 import org.junit.jupiter.api.Test;
-import org.springframework.messaging.simp.SimpMessagingTemplate;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
@@ -2686,75 +2696,79 @@ import static org.mockito.Mockito.when;
 
 class ChatFanoutTest {
 
-	private final SimpMessagingTemplate stomp = mock(SimpMessagingTemplate.class);
+	private final ChatRealtime realtime = mock(ChatRealtime.class);
 	private final ConversationMemberRepository members = mock(ConversationMemberRepository.class);
-	private final ChatFanout fanout = new ChatFanout(stomp, members);
+	private final ChatFanout fanout = new ChatFanout(realtime, members);
 
 	private final UUID brand = UUID.randomUUID();
 	private final UUID conversation = UUID.randomUUID();
 	private final UUID pm = UUID.randomUUID();
 	private final UUID client = UUID.randomUUID();
 
-	private ChatViews.MessageView message(ParticipantKind kind, UUID author) {
-		return new ChatViews.MessageView(UUID.randomUUID(), conversation, kind, author, "Name", "hi", null, 0,
-				java.time.Instant.now(), null, false, java.util.Map.of(), false);
+	private ChatViews.MessageView fromPm() {
+		return new ChatViews.MessageView(UUID.randomUUID(), conversation, ParticipantKind.STAFF, pm, "Priya", "hi",
+				null, 0, Instant.now(), null, false, Map.of(), false);
 	}
 
-	private void currentMembers() {
+	private void twoMembers() {
 		when(members.findByBrandIdAndConversationIdAndLeftAtIsNull(brand, conversation)).thenReturn(List.of(
 				new ConversationMember(brand, conversation, ParticipantKind.STAFF, pm, ChatRole.PM),
 				new ConversationMember(brand, conversation, ParticipantKind.CLIENT, client, ChatRole.CLIENT)));
 	}
 
 	@Test
-	void aNewMessageReachesEveryCurrentMemberAndTheViewTopic() {
-		currentMembers();
+	void aNewMessageGoesToEachMembersOwnChannelAndTheViewChannel() {
+		twoMembers();
 
-		fanout.on(new ChatChanged(brand, conversation, ChatChanged.Kind.MESSAGE_CREATED,
-				message(ParticipantKind.STAFF, pm)));
+		fanout.on(new ChatChanged(brand, conversation, ChatChanged.Kind.MESSAGE_CREATED, fromPm()));
 
-		verify(stomp).convertAndSendToUser(eq("STAFF:" + pm), eq("/queue/chat"),
-				argThat((ChatEnvelope e) -> e.type().equals("message.created")));
-		verify(stomp).convertAndSendToUser(eq("CLIENT:" + client), eq("/queue/chat"),
-				argThat((ChatEnvelope e) -> e.type().equals("message.created")));
-		verify(stomp).convertAndSend(eq("/topic/view.conversations." + conversation), any(ChatEnvelope.class));
+		verify(realtime).publish(eq("chat:user:STAFF:" + pm), eq("message.created"), any(ChatEnvelope.class));
+		verify(realtime).publish(eq("chat:user:CLIENT:" + client), eq("message.created"), any(ChatEnvelope.class));
+		verify(realtime).publish(eq("chat:view:" + brand + ":" + conversation), eq("message.created"),
+				any(ChatEnvelope.class));
 	}
 
 	@Test
 	void theAuthorGetsNoUnreadBumpButEveryoneElseDoes() {
-		currentMembers();
+		twoMembers();
 
-		fanout.on(new ChatChanged(brand, conversation, ChatChanged.Kind.MESSAGE_CREATED,
-				message(ParticipantKind.STAFF, pm)));
+		fanout.on(new ChatChanged(brand, conversation, ChatChanged.Kind.MESSAGE_CREATED, fromPm()));
 
-		verify(stomp).convertAndSendToUser(eq("CLIENT:" + client), eq("/queue/chat"),
-				argThat((ChatEnvelope e) -> e.type().equals("unread.changed")));
-		verify(stomp, never()).convertAndSendToUser(eq("STAFF:" + pm), eq("/queue/chat"),
-				argThat((ChatEnvelope e) -> e.type().equals("unread.changed")));
+		verify(realtime).publish(eq("chat:user:CLIENT:" + client), eq("unread.changed"), any());
+		verify(realtime, never()).publish(eq("chat:user:STAFF:" + pm), eq("unread.changed"), any());
 	}
 
 	@Test
 	void aRemovedMemberIsToldAccessIsRevokedAndGetsNothingElse() {
 		UUID oldCm = UUID.randomUUID();
-		currentMembers();
+		twoMembers();
 
 		fanout.on(new ChatChanged(brand, conversation, ChatChanged.Kind.MEMBERS_CHANGED, new MembersChanged(List.of(),
 				List.of(new ExpectedMember(ParticipantKind.STAFF, oldCm, ChatRole.CASE_MANAGER)))));
 
-		verify(stomp).convertAndSendToUser(eq("STAFF:" + oldCm), eq("/queue/chat"),
-				argThat((ChatEnvelope e) -> e.type().equals("access.revoked")));
-		verify(stomp, never()).convertAndSendToUser(eq("STAFF:" + oldCm), eq("/queue/chat"),
-				argThat((ChatEnvelope e) -> e.type().equals("members.changed")));
+		verify(realtime).publish(eq("chat:user:STAFF:" + oldCm), eq("access.revoked"), any());
+		verify(realtime, never()).publish(eq("chat:user:STAFF:" + oldCm), eq("members.changed"), any());
+		verify(realtime).publish(eq("chat:user:STAFF:" + pm), eq("members.changed"), any());
+	}
+
+	@Test
+	void theEnvelopeCarriesTheConversationAndTheView() {
+		twoMembers();
+		ChatViews.MessageView message = fromPm();
+
+		fanout.on(new ChatChanged(brand, conversation, ChatChanged.Kind.MESSAGE_CREATED, message));
+
+		verify(realtime).publish(eq("chat:user:CLIENT:" + client), eq("message.created"),
+				argThat((ChatEnvelope e) -> e.conversationId().equals(conversation) && e.data() == message));
 	}
 }
 ```
 
-`ChatPresenceTest.java` — session counting without a broker:
+`ChatPresenceTest.java`:
 
 ```java
 package com.ie.evalos.chat.live;
 
-import java.util.Set;
 import java.util.UUID;
 
 import com.ie.evalos.chat.ParticipantKind;
@@ -2762,57 +2776,59 @@ import com.ie.evalos.chat.ParticipantKind;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 class ChatPresenceTest {
 
 	@Test
-	void onlineUntilTheLastSessionCloses() {
-		ChatPresence presence = new ChatPresence(null, null);
-		UUID pm = UUID.randomUUID();
-		String name = ChatPrincipal.nameOf(ParticipantKind.STAFF, pm);
+	void onlineMeansPresentOnTheirOwnChannel() {
+		ChatRealtime realtime = mock(ChatRealtime.class);
+		UUID client = UUID.randomUUID();
+		when(realtime.isPresent("chat:user:CLIENT:" + client)).thenReturn(true);
 
-		assertThat(presence.opened(name)).isTrue();   // 0 -> 1: announce
-		assertThat(presence.opened(name)).isFalse();  // second tab: no announcement
-		assertThat(presence.closed(name)).isFalse();  // one tab left
-		assertThat(presence.isOnline(ParticipantKind.STAFF, pm)).isTrue();
-		assertThat(presence.closed(name)).isTrue();   // 1 -> 0: announce
-		assertThat(presence.isOnline(ParticipantKind.STAFF, pm)).isFalse();
-		assertThat(presence.online(Set.of(name))).isEmpty();
+		assertThat(new ChatPresence(realtime).isOnline(ParticipantKind.CLIENT, client)).isTrue();
 	}
 
 	@Test
-	void closingASessionThatWasNeverCountedDoesNotGoNegative() {
-		ChatPresence presence = new ChatPresence(null, null);
-		assertThat(presence.closed("STAFF:" + UUID.randomUUID())).isFalse();
+	void aRecentAnswerIsReusedForTenSeconds() {
+		ChatRealtime realtime = mock(ChatRealtime.class);
+		UUID pm = UUID.randomUUID();
+		when(realtime.isPresent("chat:user:STAFF:" + pm)).thenReturn(false);
+		ChatPresence presence = new ChatPresence(realtime);
+
+		presence.isOnline(ParticipantKind.STAFF, pm);
+		presence.isOnline(ParticipantKind.STAFF, pm);
+
+		verify(realtime, times(1)).isPresent("chat:user:STAFF:" + pm);
 	}
 }
 ```
 
-`ChatTypingControllerTest.java`:
+`ChatTypingTest.java`:
 
 ```java
 package com.ie.evalos.chat.live;
 
-import java.time.Instant;
 import java.util.List;
-import java.util.Optional;
 import java.util.UUID;
 
 import com.ie.evalos.chat.ChatAccess;
-import com.ie.evalos.chat.ChatAccessLevel;
 import com.ie.evalos.chat.ChatIdentity;
 import com.ie.evalos.chat.ChatRole;
 import com.ie.evalos.chat.Conversation;
 import com.ie.evalos.chat.ConversationMember;
 import com.ie.evalos.chat.ConversationMemberRepository;
-import com.ie.evalos.chat.ConversationRepository;
 import com.ie.evalos.chat.ConversationType;
 import com.ie.evalos.chat.ParticipantKind;
+import com.ie.evalos.common.ForbiddenException;
 import com.ie.evalos.domain.Role;
 
 import org.junit.jupiter.api.Test;
-import org.springframework.messaging.simp.SimpMessagingTemplate;
 
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
@@ -2821,68 +2837,60 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-class ChatTypingControllerTest {
+class ChatTypingTest {
 
-	private final SimpMessagingTemplate stomp = mock(SimpMessagingTemplate.class);
-	private final ConversationRepository conversations = mock(ConversationRepository.class);
+	private final ChatRealtime realtime = mock(ChatRealtime.class);
 	private final ConversationMemberRepository members = mock(ConversationMemberRepository.class);
 	private final ChatAccess access = mock(ChatAccess.class);
-	private final ChatTypingController typing = new ChatTypingController(stomp, conversations, members, access);
+	private final ChatTyping typing = new ChatTyping(realtime, members, access);
 
 	private final UUID brand = UUID.randomUUID();
 	private final UUID pm = UUID.randomUUID();
 	private final UUID client = UUID.randomUUID();
+	private final ChatIdentity who = new ChatIdentity(ParticipantKind.STAFF, pm, brand, Role.PROJECT_MANAGER);
 
-	private ChatPrincipal principal(UUID id) {
-		return new ChatPrincipal(new ChatIdentity(ParticipantKind.STAFF, id, brand, Role.PROJECT_MANAGER),
-				Instant.now().plusSeconds(600));
-	}
-
-	private UUID conversationWithTwo(ChatAccessLevel level) {
-		Conversation conversation = new Conversation(brand, UUID.randomUUID(), ConversationType.CLIENT);
-		when(conversations.findById(any())).thenReturn(Optional.of(conversation));
-		when(access.level(any(), any())).thenReturn(level);
-		when(members.findByBrandIdAndConversationIdAndLeftAtIsNull(any(), any())).thenReturn(List.of(
-				new ConversationMember(brand, conversation.getId(), ParticipantKind.STAFF, pm, ChatRole.PM),
-				new ConversationMember(brand, conversation.getId(), ParticipantKind.CLIENT, client, ChatRole.CLIENT)));
-		return UUID.randomUUID();
+	private UUID conversation() {
+		Conversation c = new Conversation(brand, UUID.randomUUID(), ConversationType.CLIENT);
+		UUID id = UUID.randomUUID();
+		when(access.requireWrite(who, id)).thenReturn(c);
+		when(members.findByBrandIdAndConversationIdAndLeftAtIsNull(eq(brand), any())).thenReturn(List.of(
+				new ConversationMember(brand, id, ParticipantKind.STAFF, pm, ChatRole.PM),
+				new ConversationMember(brand, id, ParticipantKind.CLIENT, client, ChatRole.CLIENT)));
+		return id;
 	}
 
 	@Test
 	void typingReachesTheOtherMembersButNotTheTypist() {
-		UUID id = conversationWithTwo(ChatAccessLevel.MEMBER);
+		typing.typing(who, conversation());
 
-		typing.typing(id, principal(pm));
-
-		verify(stomp).convertAndSendToUser(eq("CLIENT:" + client), eq("/queue/chat"), any(ChatEnvelope.class));
-		verify(stomp, never()).convertAndSendToUser(eq("STAFF:" + pm), eq("/queue/chat"), any(ChatEnvelope.class));
+		verify(realtime).publish(eq("chat:user:CLIENT:" + client), eq("typing"), any());
+		verify(realtime, never()).publish(eq("chat:user:STAFF:" + pm), eq("typing"), any());
 	}
 
 	@Test
-	void aViewerCannotSignalTyping() {
-		UUID id = conversationWithTwo(ChatAccessLevel.VIEWER);
+	void typingIsThrottledToOncePerThreeSeconds() {
+		UUID id = conversation();
 
-		typing.typing(id, principal(UUID.randomUUID()));
+		typing.typing(who, id);
+		typing.typing(who, id);
 
-		verify(stomp, never()).convertAndSendToUser(any(), any(), any());
+		verify(realtime, times(1)).publish(eq("chat:user:CLIENT:" + client), eq("typing"), any());
 	}
 
 	@Test
-	void typingIsThrottledToOncePerSecond() {
-		UUID id = conversationWithTwo(ChatAccessLevel.MEMBER);
-		ChatPrincipal who = principal(pm);
+	void aViewerOrStrangerCannotSignalTyping() {
+		UUID id = UUID.randomUUID();
+		when(access.requireWrite(who, id)).thenThrow(new ForbiddenException(ChatAccess.NOT_YOURS));
 
-		typing.typing(id, who);
-		typing.typing(id, who);
-
-		verify(stomp, times(1)).convertAndSendToUser(eq("CLIENT:" + client), eq("/queue/chat"), any(ChatEnvelope.class));
+		assertThatThrownBy(() -> typing.typing(who, id)).isInstanceOf(ForbiddenException.class);
+		verify(realtime, never()).publish(any(), any(), any());
 	}
 }
 ```
 
-- [ ] **Step 2: Run to verify they fail** — `./mvnw -q test -Dtest=ChatFanoutTest,ChatPresenceTest,ChatTypingControllerTest` → FAIL.
+- [ ] **Step 2: Run to verify they fail** — `./mvnw -q test -Dtest=ChatFanoutTest,ChatPresenceTest,ChatTypingTest` → FAIL.
 
-- [ ] **Step 3: Add the payload type and publish it.** Create `chat/MembersChanged.java`:
+- [ ] **Step 3: The members-changed payload.** Create `chat/MembersChanged.java`:
 
 ```java
 package com.ie.evalos.chat;
@@ -2894,7 +2902,7 @@ public record MembersChanged(List<ExpectedMember> added, List<ExpectedMember> re
 }
 ```
 
-In `ConversationService.sync`, collect `added` (each `ExpectedMember` inserted) and `removed` (each leaver as `new ExpectedMember(member.getKind(), member.getMemberId(), member.getRole())`), and publish `new ChatChanged(brand, id, Kind.MEMBERS_CHANGED, new MembersChanged(added, removed))` instead of the null payload. Update `ConversationServiceTest.aReassignedCaseManagerLeavesAndTheNewOneJoinsWithHistoryKept` to capture the event and assert one removed and one added.
+In `ConversationService.sync`, collect `added` (each `ExpectedMember` inserted) and `removed` (each leaver as `new ExpectedMember(member.getKind(), member.getMemberId(), member.getRole())`) and publish `new ChatChanged(brand, id, ChatChanged.Kind.MEMBERS_CHANGED, new MembersChanged(added, removed))` instead of the null payload. Extend `ConversationServiceTest.aReassignedCaseManagerLeavesAndTheNewOneJoinsWithHistoryKept` to capture the published `ChatChanged` for the INTERNAL conversation and assert one removed (the old CM) and one added (the new CM).
 
 - [ ] **Step 4: Implement** `ChatEnvelope.java`:
 
@@ -2903,7 +2911,7 @@ package com.ie.evalos.chat.live;
 
 import java.util.UUID;
 
-/** What every chat client receives. {@code type} strings are the contract Phases 2–3 code against. */
+/** The data of every chat Ably message; the Ably message name is {@code type}. The contract for phases 2–3. */
 public record ChatEnvelope(String type, UUID conversationId, Object data) {
 }
 ```
@@ -2914,7 +2922,6 @@ public record ChatEnvelope(String type, UUID conversationId, Object data) {
 package com.ie.evalos.chat.live;
 
 import java.util.List;
-import java.util.UUID;
 
 import com.ie.evalos.chat.ChatChanged;
 import com.ie.evalos.chat.ChatViews;
@@ -2923,43 +2930,44 @@ import com.ie.evalos.chat.ConversationMemberRepository;
 import com.ie.evalos.chat.ExpectedMember;
 import com.ie.evalos.chat.MembersChanged;
 
-import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.event.TransactionPhase;
 import org.springframework.transaction.event.TransactionalEventListener;
 
 /**
- * Pushes committed chat changes to the people in the conversation (Unit 57 §5).
+ * Publishes committed chat changes into each current member's private Ably channel (Unit 57 §5).
  *
- * <p><strong>Recipients are read per event from current membership</strong>, never from a
- * subscription list, so somebody reassigned off a case stops receiving at the moment they leave.
+ * <p><strong>Recipients are read per event from current membership</strong>, so somebody reassigned
+ * off a case receives nothing after they leave — their token never named the conversation.
  */
 @Component
 public class ChatFanout {
 
-	static final String QUEUE = "/queue/chat";
-	static final String VIEW_TOPIC = "/topic/view.conversations.";
-
-	private final SimpMessagingTemplate stomp;
+	private final ChatRealtime realtime;
 	private final ConversationMemberRepository members;
 
-	ChatFanout(SimpMessagingTemplate stomp, ConversationMemberRepository members) {
-		this.stomp = stomp;
+	ChatFanout(ChatRealtime realtime, ConversationMemberRepository members) {
+		this.realtime = realtime;
 		this.members = members;
 	}
 
 	@TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT, fallbackExecution = true)
 	public void on(ChatChanged change) {
+		if (!realtime.enabled()) {
+			return;
+		}
 		List<ConversationMember> current =
 				members.findByBrandIdAndConversationIdAndLeftAtIsNull(change.brandId(), change.conversationId());
 		switch (change.kind()) {
 			case MESSAGE_CREATED -> {
 				ChatViews.MessageView message = (ChatViews.MessageView) change.payload();
-				ChatEnvelope created = envelope("message.created", change);
+				ChatEnvelope created = new ChatEnvelope("message.created", change.conversationId(), message);
+				ChatEnvelope unread = new ChatEnvelope("unread.changed", change.conversationId(), null);
 				for (ConversationMember member : current) {
 					send(member, created);
-					if (!(member.getKind() == message.authorKind() && member.getMemberId().equals(message.authorId()))) {
-						send(member, new ChatEnvelope("unread.changed", change.conversationId(), null));
+					boolean author = member.getKind() == message.authorKind() && member.getMemberId().equals(message.authorId());
+					if (!author) {
+						send(member, unread);
 					}
 				}
 				view(change, created);
@@ -2979,213 +2987,150 @@ public class ChatFanout {
 	}
 
 	private void everyone(List<ConversationMember> current, ChatChanged change, String type) {
-		ChatEnvelope envelope = envelope(type, change);
+		ChatEnvelope envelope = new ChatEnvelope(type, change.conversationId(), change.payload());
 		current.forEach((member) -> send(member, envelope));
 		view(change, envelope);
 	}
 
-	private static ChatEnvelope envelope(String type, ChatChanged change) {
-		return new ChatEnvelope(type, change.conversationId(), change.payload());
-	}
-
 	private void send(ConversationMember member, ChatEnvelope envelope) {
-		stomp.convertAndSendToUser(ChatPrincipal.nameOf(member.getKind(), member.getMemberId()), QUEUE, envelope);
+		realtime.publish(ChatChannels.personal(member.getKind(), member.getMemberId()), envelope.type(), envelope);
 	}
 
 	private void sendTo(ExpectedMember member, ChatEnvelope envelope) {
-		stomp.convertAndSendToUser(ChatPrincipal.nameOf(member.kind(), member.id()), QUEUE, envelope);
+		realtime.publish(ChatChannels.personal(member.kind(), member.id()), envelope.type(), envelope);
 	}
 
 	private void view(ChatChanged change, ChatEnvelope envelope) {
-		stomp.convertAndSend(VIEW_TOPIC + change.conversationId(), envelope);
+		realtime.publish(ChatChannels.view(change.brandId(), change.conversationId()), envelope.type(), envelope);
 	}
 }
 ```
+
+(`ChatFanoutTest` builds `ChatRealtime` as a mock, whose `enabled()` returns false by default — add `when(realtime.enabled()).thenReturn(true);` to each test's arrange step.)
 
 `ChatPresence.java`:
 
 ```java
 package com.ie.evalos.chat.live;
 
-import java.util.Collection;
-import java.util.Set;
+import java.time.Instant;
+import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.stream.Collectors;
 
-import com.ie.evalos.chat.ConversationMemberRepository;
 import com.ie.evalos.chat.ParticipantKind;
 
-import org.springframework.context.event.EventListener;
-import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Component;
-import org.springframework.web.socket.messaging.SessionConnectedEvent;
-import org.springframework.web.socket.messaging.SessionDisconnectEvent;
 
 /**
- * Who is online: at least one open STOMP session (Unit 57 §5).
+ * Whether a person has an app open: present on their own Ably channel (Unit 57 §5–6).
  *
- * <p>ponytail: in memory, one backend instance. A second instance needs this in Redis.
+ * <p>Answers are cached ten seconds, so a burst of messages to one conversation asks Ably once per
+ * recipient, not once per message.
  */
 @Component
 public class ChatPresence {
 
-	private final ConcurrentHashMap<String, Integer> sessions = new ConcurrentHashMap<>();
-	private final SimpMessagingTemplate stomp;
-	private final ConversationMemberRepository members;
+	private static final long CACHE_SECONDS = 10;
 
-	ChatPresence(SimpMessagingTemplate stomp, ConversationMemberRepository members) {
-		this.stomp = stomp;
-		this.members = members;
+	private record Answer(boolean online, Instant at) {
 	}
 
-	@EventListener
-	public void onConnected(SessionConnectedEvent event) {
-		if (event.getUser() instanceof ChatPrincipal who && opened(who.getName())) {
-			announce(who, true);
-		}
-	}
+	private final Map<String, Answer> recent = new ConcurrentHashMap<>();
+	private final ChatRealtime realtime;
 
-	@EventListener
-	public void onDisconnected(SessionDisconnectEvent event) {
-		if (event.getUser() instanceof ChatPrincipal who && closed(who.getName())) {
-			announce(who, false);
-		}
-	}
-
-	/** @return true when this is the person's first session (0 → 1) */
-	boolean opened(String name) {
-		return sessions.merge(name, 1, Integer::sum) == 1;
-	}
-
-	/** @return true when this was the person's last session (1 → 0) */
-	boolean closed(String name) {
-		boolean[] last = { false };
-		sessions.computeIfPresent(name, (key, count) -> {
-			if (count <= 1) {
-				last[0] = true;
-				return null;
-			}
-			return count - 1;
-		});
-		return last[0];
+	ChatPresence(ChatRealtime realtime) {
+		this.realtime = realtime;
 	}
 
 	public boolean isOnline(ParticipantKind kind, UUID id) {
-		return sessions.containsKey(ChatPrincipal.nameOf(kind, id));
-	}
-
-	public Set<String> online(Collection<String> names) {
-		return names.stream().filter(sessions::containsKey).collect(Collectors.toSet());
-	}
-
-	private void announce(ChatPrincipal who, boolean online) {
-		ChatEnvelope envelope = new ChatEnvelope("presence", null,
-				java.util.Map.of("kind", who.identity().kind(), "id", who.identity().id(), "online", online));
-		members.findCoMembers(who.identity().kind(), who.identity().id())
-				.forEach((name) -> stomp.convertAndSendToUser(name, ChatFanout.QUEUE, envelope));
+		String channel = ChatChannels.personal(kind, id);
+		Answer cached = recent.get(channel);
+		if (cached != null && cached.at().isAfter(Instant.now().minusSeconds(CACHE_SECONDS))) {
+			return cached.online();
+		}
+		boolean online = realtime.isPresent(channel);
+		recent.put(channel, new Answer(online, Instant.now()));
+		return online;
 	}
 }
 ```
 
-Add to `ConversationMemberRepository` the query `announce` needs — every other current member of every conversation this person is currently in, as principal names:
-
-```java
-	@org.springframework.data.jpa.repository.Query(nativeQuery = true, value = """
-			SELECT DISTINCT other.member_kind || ':' || other.member_id
-			  FROM conversation_members me
-			  JOIN conversation_members other
-			    ON other.conversation_id = me.conversation_id AND other.left_at IS NULL
-			 WHERE me.member_kind = :kind AND me.member_id = :id AND me.left_at IS NULL
-			   AND NOT (other.member_kind = :kind AND other.member_id = :id)
-			""")
-	List<String> findCoMembersNative(@org.springframework.data.repository.query.Param("kind") String kind,
-			@org.springframework.data.repository.query.Param("id") UUID id);
-
-	default List<String> findCoMembers(ParticipantKind kind, UUID id) {
-		return findCoMembersNative(kind.name(), id);
-	}
-```
-
-(This query is not brand-filtered on purpose: it starts from the person's own member rows, which are already their brand's. Say so in its Javadoc.)
-
-`ChatTypingController.java`:
+`ChatTyping.java`:
 
 ```java
 package com.ie.evalos.chat.live;
 
-import java.security.Principal;
 import java.time.Instant;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 import com.ie.evalos.chat.ChatAccess;
-import com.ie.evalos.chat.ChatAccessLevel;
+import com.ie.evalos.chat.ChatIdentity;
+import com.ie.evalos.chat.Conversation;
 import com.ie.evalos.chat.ConversationMemberRepository;
-import com.ie.evalos.chat.ConversationRepository;
 
-import org.springframework.messaging.handler.annotation.DestinationVariable;
-import org.springframework.messaging.handler.annotation.MessageMapping;
-import org.springframework.messaging.simp.SimpMessagingTemplate;
-import org.springframework.stereotype.Controller;
+import org.springframework.stereotype.Component;
 
-/** "Somebody is typing" — relayed to the other members, throttled, never stored (Unit 57 §5). */
-@Controller
-public class ChatTypingController {
+/**
+ * "Somebody is typing", relayed by the backend because no token may publish (Unit 57 §5).
+ * Throttled to one per three seconds per person per conversation — every Ably message is billed.
+ * Never stored.
+ */
+@Component
+public class ChatTyping {
+
+	private static final long EVERY_SECONDS = 3;
 
 	private final Map<String, Instant> lastSent = new ConcurrentHashMap<>();
-	private final SimpMessagingTemplate stomp;
-	private final ConversationRepository conversations;
+	private final ChatRealtime realtime;
 	private final ConversationMemberRepository members;
 	private final ChatAccess access;
 
-	ChatTypingController(SimpMessagingTemplate stomp, ConversationRepository conversations,
-			ConversationMemberRepository members, ChatAccess access) {
-		this.stomp = stomp;
-		this.conversations = conversations;
+	ChatTyping(ChatRealtime realtime, ConversationMemberRepository members, ChatAccess access) {
+		this.realtime = realtime;
 		this.members = members;
 		this.access = access;
 	}
 
-	@MessageMapping("/conversations.{id}.typing")
-	public void typing(@DestinationVariable UUID id, Principal principal) {
-		if (!(principal instanceof ChatPrincipal who)) {
+	public void typing(ChatIdentity who, UUID conversationId) {
+		Conversation conversation = access.requireWrite(who, conversationId);
+		String key = ChatChannels.clientId(who) + "@" + conversationId;
+		Instant now = Instant.now();
+		Instant previous = lastSent.get(key);
+		if (previous != null && previous.isAfter(now.minusSeconds(EVERY_SECONDS))) {
 			return;
 		}
-		conversations.findById(id)
-				.filter((conversation) -> !conversation.isReadOnly())
-				.filter((conversation) -> access.level(who.identity(), conversation) == ChatAccessLevel.MEMBER)
-				.filter((conversation) -> throttle(who.getName() + "@" + id))
-				.ifPresent((conversation) -> {
-					ChatEnvelope envelope = new ChatEnvelope("typing", id,
-							Map.of("kind", who.identity().kind(), "id", who.identity().id()));
-					members.findByBrandIdAndConversationIdAndLeftAtIsNull(conversation.getBrandId(), id).stream()
-							.map((m) -> ChatPrincipal.nameOf(m.getKind(), m.getMemberId()))
-							.filter((name) -> !name.equals(who.getName()))
-							.forEach((name) -> stomp.convertAndSendToUser(name, ChatFanout.QUEUE, envelope));
-				});
-	}
-
-	private boolean throttle(String key) {
-		Instant now = Instant.now();
-		Instant previous = lastSent.put(key, now);
-		return previous == null || previous.isBefore(now.minusSeconds(1));
+		lastSent.put(key, now);
+		ChatEnvelope envelope = new ChatEnvelope("typing", conversationId,
+				Map.of("kind", who.kind(), "id", who.id()));
+		members.findByBrandIdAndConversationIdAndLeftAtIsNull(conversation.getBrandId(), conversationId).stream()
+				.filter((m) -> !(m.getKind() == who.kind() && m.getMemberId().equals(who.id())))
+				.forEach((m) -> realtime.publish(ChatChannels.personal(m.getKind(), m.getMemberId()), "typing", envelope));
 	}
 }
 ```
 
-(In the test, `typing.typing(id, principal(pm))` is called twice within a second — the second must be dropped. Note the throttle records even a dropped attempt's time, which keeps a held-down key from sending at all after the first frame; if that proves too strict in phase 2's UI testing, record only on send.)
+(`requireWrite` already refuses viewers, strangers and read-only conversations, so typing obeys the same rules as sending.)
 
-- [ ] **Step 5: Run** — `./mvnw -q test -Dtest=ChatFanoutTest,ChatPresenceTest,ChatTypingControllerTest,ConversationServiceTest` → PASS.
+Add to `ChatApi` `public void typing(ChatIdentity who, UUID conversationId) { typingRelay.typing(who, conversationId); }` and to each controller:
 
-- [ ] **Step 6: One end-to-end STOMP test** — `chat/live/ChatStompEndToEndTest.java`, `@SpringBootTest(webEnvironment = RANDOM_PORT)` with the same `@EnabledIf("postgresIsUsable")` and Postgres properties as `LocalPostgresIntegrationTest` (copy its `@TestPropertySource` block), using `WebSocketStompClient` with `StandardWebSocketClient`:
-  - `aBadTokenIsRefusedAtConnect` — connect with `Authorization: Bearer nonsense` → the `StompSessionHandler.handleTransportError` or `handleException` fires / the future completes exceptionally within 5s.
-  - `aMessageReachesEveryOpenSessionOfAMember` — seed a conversation with a PM member (via `jdbc`), open **two** sessions with the PM's JWT (`JwtService.issue`), subscribe both to `/user/queue/chat`, `POST` a message over REST as another member, assert both sessions receive a `message.created` envelope within 5s.
+```java
+	@PostMapping("/conversations/{id}/typing")
+	public ApiResponse<Void> typing(@PathVariable UUID id) {
+		api.typing(who(), id);
+		return ApiResponse.ok(null);
+	}
+```
 
-  Write both fully; use a `BlockingQueue<Map>` per session and `poll(5, SECONDS)`.
+Back Task 7's `GET presence?ids=` with `ChatPresence.isOnline` for each requested participant of a conversation the caller can read (ignore ids that are not participants of it).
 
-- [ ] **Step 7: Commit** — `feat(chat): live delivery to every open session, typing and presence (Unit 57 §5)`.
+- [ ] **Step 5: Run** — `./mvnw -q test -Dtest=ChatFanoutTest,ChatPresenceTest,ChatTypingTest,ConversationServiceTest` → PASS.
+
+- [ ] **Step 6: A live check against a real Ably app (manual, once).** With `ABLY_API_KEY` set to a **development** Ably app, start the backend with the local profile, open Ably's dashboard dev console on channel `chat:user:STAFF:<a PM's team_member id>`, send a message as another member of one of that PM's case conversations through `POST /api/chat/conversations/{id}/messages`, and confirm a `message.created` message appears on the channel within a second. Record the result in the commit message. (No automated test calls Ably: it would need a real key in CI.)
+
+- [ ] **Step 7: Commit** — `feat(chat): live delivery through each member's private Ably channel, typing and presence (Unit 57 §5)`.
 
 ---
 
@@ -3685,7 +3630,7 @@ public class ChatPushNotifier {
 
 **Interfaces:** none — documentation only.
 
-- [ ] **Step 1: Spec 57** — status line becomes `**Status: PHASE 1 BUILT <date> (backend: schema, membership, access, lifecycle, sweep, REST, STOMP, web push). Phases 2–3 (the apps) not built.**`; in §2 under `conversation_members` add: `The join time is the row's \`created_at\` (every EvalOS table's), not a separate \`joined_at\` column.`
+- [ ] **Step 1: Spec 57** — status line becomes `**Status: PHASE 1 BUILT <date> (backend: schema, membership, access, lifecycle, sweep, REST, Ably live delivery, web push). Phases 2–3 (the apps) not built.**`; in §2 under `conversation_members` add: `The join time is the row's \`created_at\` (every EvalOS table's), not a separate \`joined_at\` column.`
 
 - [ ] **Step 2: Spec 55** — replace every `V69__drop_client_application_answers.sql` with `V70__drop_client_application_answers.sql` and add one sentence: `V69 went to case chat (Unit 57) on 2026-09-25.`
 
@@ -3693,7 +3638,7 @@ public class ChatPushNotifier {
 
 - [ ] **Step 4: Open item h** — in `.claude/open-decisions.md`, delete the `| h   | Does the client see who is working on their case? |` row and add to the section intro: `Item h was settled by Unit 57 (2026-09-25): the client sees the case team by name in the Client conversation and never shares a conversation with the expert.` Same in the Serena `open_decisions.md`.
 
-- [ ] **Step 5: data-model, workflows, implementation-status** — `data-model.md` CURRENT DATABASE: add rows for `conversations`, `conversation_members` (history, trigger-guarded), `messages`, `message_reactions`, `message_reads`. `workflows.md` CURRENT IMPLEMENTATION: a short "Case chat (Unit 57 phase 1)" subsection — created at `CASE_CREATED`, membership follows the events in `ChatLifecycleListener.MOVES_THE_CHAT`, `CHAT_RECONCILE` hourly with first-run backfill, read-only at `CLOSED`, live over STOMP to every open session, web push to members who are not connected. `implementation-status.md`: a `| **Case chat (Unit 57)** | PARTIAL — phase 1 of 3 |` row naming the classes and tests, gap cell: `no UI yet — staff app is phase 2, portals phase 3; VAPID keys must be set in the environment for push`. Mirror each in the matching Serena memory.
+- [ ] **Step 5: data-model, workflows, implementation-status** — `data-model.md` CURRENT DATABASE: add rows for `conversations`, `conversation_members` (history, trigger-guarded), `messages`, `message_reactions`, `message_reads`. `workflows.md` CURRENT IMPLEMENTATION: a short "Case chat (Unit 57 phase 1)" subsection — created at `CASE_CREATED`, membership follows the events in `ChatLifecycleListener.MOVES_THE_CHAT`, `CHAT_RECONCILE` hourly with first-run backfill, read-only at `CLOSED`, live through each member's private Ably channel, web push to members without the app open. `implementation-status.md`: a `| **Case chat (Unit 57)** | PARTIAL — phase 1 of 3 |` row naming the classes and tests, gap cell: `no UI yet — staff app is phase 2, portals phase 3; ABLY_API_KEY and the VAPID keys must be set in the environment`. Mirror each in the matching Serena memory.
 
 - [ ] **Step 6: Commit** — `docs(chat): the baseline catches up with Unit 57 phase 1`.
 
@@ -3701,6 +3646,6 @@ public class ChatPushNotifier {
 
 ## Self-review (done while writing)
 
-- **Spec coverage:** §0/§1 → Tasks 3–5; §2 → Task 2 (including `push_subscriptions`); §3 → Tasks 3–7; §4 → Task 8; §5 real-time → Tasks 9–10; §6 push → Task 11; §7 frontend → phases 2–3; §8 errors → Tasks 5, 7, 8; §9 tests → each task; §10 phase 1 list → Tasks 1–11; §11 doc edits → Tasks 1 and 12.
+- **Spec coverage:** §0/§1 → Tasks 3–5; §2 → Task 2 (including `push_subscriptions`); §3 → Tasks 3–7; §4 → Task 8; §5 real-time (Ably) → Tasks 9–10; §6 push → Task 11; §7 frontend → phases 2–3; §8 errors → Tasks 5, 7, 8; §9 tests → each task; §10 phase 1 list → Tasks 1–11; §11 doc edits → Tasks 1 and 12.
 - **Placeholders:** Task 7 Step 1 lists its tests by name and behaviour rather than full code, and its implementation is described by interface and SQL rather than a full listing — `MessageService` is the largest single class and its shape is fixed by the Interfaces block. The executor writes it from those; every signature it must honour is stated.
 - **Type consistency:** `ensureAndSync(Case)`, `makeReadOnly(Case)`, `makeReadOnlyWhereClosed()`, `ChatIdentity(kind, id, brandId, staffRole)`, `ChatAccessLevel`, `ChatViews.*`, `addIfAbsent(brandId, conversationId, kind, memberId, role)` and `advance(brandId, conversationId, kind, readerId, messageId, messageAt)` are used with the same names and parameter orders throughout.
