@@ -128,6 +128,23 @@ public abstract class ChatRoutes {
 		return ApiResponse.ok(api.presence(who(), id));
 	}
 
+	@GetMapping("/push/public-key")
+	public ApiResponse<java.util.Map<String, String>> publicKey() {
+		return ApiResponse.ok(api.publicKey());
+	}
+
+	@PostMapping("/push/subscriptions")
+	public ApiResponse<Void> subscribe(@Valid @RequestBody ChatApi.SubscribeRequest request) {
+		api.subscribe(who(), request);
+		return ApiResponse.ok(null);
+	}
+
+	@DeleteMapping("/push/subscriptions")
+	public ApiResponse<Void> unsubscribe(@Valid @RequestBody ChatApi.UnsubscribeRequest request) {
+		api.unsubscribe(who(), request);
+		return ApiResponse.ok(null);
+	}
+
 	/** ably-js calls this through authCallback, and again before the token expires. */
 	@GetMapping("/realtime/token")
 	public ApiResponse<com.ie.evalos.chat.live.AblyToken> realtimeToken() {

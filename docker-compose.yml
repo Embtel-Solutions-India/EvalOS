@@ -57,6 +57,9 @@ services:
       # Case chat (Unit 57): Ably for live updates. Empty = chat works without live updates.
       ABLY_API_KEY: ${ABLY_API_KEY:-}
       EVALOS_STAFF_ORIGIN: ${EVALOS_STAFF_ORIGIN:-}
+      EVALOS_PUSH_VAPID_PUBLIC: ${EVALOS_PUSH_VAPID_PUBLIC:-}
+      EVALOS_PUSH_VAPID_PRIVATE: ${EVALOS_PUSH_VAPID_PRIVATE:-}
+      EVALOS_PUSH_SUBJECT: ${EVALOS_PUSH_SUBJECT:-}
 
       FORWARD_HEADERS_STRATEGY: framework
 

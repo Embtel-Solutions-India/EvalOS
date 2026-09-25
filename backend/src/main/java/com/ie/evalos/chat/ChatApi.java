@@ -33,6 +33,16 @@ public class ChatApi {
 	public record ReadRequest(@NotNull UUID messageId) {
 	}
 
+	/** A browser's PushSubscription, as the Push API serialises it. */
+	public record SubscribeRequest(@NotBlank String endpoint, @NotNull @jakarta.validation.Valid Keys keys) {
+
+		public record Keys(@NotBlank String p256dh, @NotBlank String auth) {
+		}
+	}
+
+	public record UnsubscribeRequest(@NotBlank String endpoint) {
+	}
+
 	private final MessageService messages;
 	private final ClientAccountRepository accounts;
 	private final com.ie.evalos.chat.live.ChatRealtime realtime;
@@ -40,10 +50,13 @@ public class ChatApi {
 	private final com.ie.evalos.chat.live.ChatPresence presence;
 	private final ChatAccess access;
 	private final ConversationMemberRepository members;
+	private final com.ie.evalos.chat.push.PushSettings push;
+	private final com.ie.evalos.chat.push.PushSubscriptionRepository subscriptions;
 
 	ChatApi(MessageService messages, ClientAccountRepository accounts, com.ie.evalos.chat.live.ChatRealtime realtime,
 			com.ie.evalos.chat.live.ChatTyping typing, com.ie.evalos.chat.live.ChatPresence presence, ChatAccess access,
-			ConversationMemberRepository members) {
+			ConversationMemberRepository members, com.ie.evalos.chat.push.PushSettings push,
+			com.ie.evalos.chat.push.PushSubscriptionRepository subscriptions) {
 		this.messages = messages;
 		this.accounts = accounts;
 		this.realtime = realtime;
@@ -51,6 +64,8 @@ public class ChatApi {
 		this.presence = presence;
 		this.access = access;
 		this.members = members;
+		this.push = push;
+		this.subscriptions = subscriptions;
 	}
 
 	// --- identity, portal surfaces (staff comes straight from the session) ------------------
@@ -150,6 +165,41 @@ public class ChatApi {
 					presence.isOnline(member.getKind(), member.getMemberId()));
 		}
 		return online;
+	}
+
+	// --- push (Unit 57 §6, D37) -------------------------------------------------------------
+
+	public java.util.Map<String, String> publicKey() {
+		if (!push.enabled()) {
+			throw new com.ie.evalos.chat.push.PushUnavailableException();
+		}
+		return java.util.Map.of("publicKey", push.publicKey());
+	}
+
+	/**
+	 * Remembers this browser for the caller. <strong>A browser belongs to whoever subscribed it last</strong>
+	 * — on a shared computer the previous person's row is replaced, never kept beside it.
+	 */
+	@Transactional
+	public void subscribe(ChatIdentity who, SubscribeRequest request) {
+		if (who.isViewerRole() || who.brandId() == null) {
+			throw new ForbiddenException(
+					"Oversight does not take part in conversations, so there is nothing to notify you about.");
+		}
+		subscriptions.findByEndpoint(request.endpoint()).ifPresent((previous) -> {
+			subscriptions.delete(previous);
+			subscriptions.flush();
+		});
+		subscriptions.save(new com.ie.evalos.chat.push.PushSubscription(who.brandId(), who.kind(), who.id(),
+				request.endpoint(), request.keys().p256dh(), request.keys().auth()));
+	}
+
+	/** Forgets this browser, but only if it is the caller's. */
+	@Transactional
+	public void unsubscribe(ChatIdentity who, UnsubscribeRequest request) {
+		subscriptions.findByEndpoint(request.endpoint())
+				.filter((mine) -> mine.belongsTo(who.kind(), who.id()))
+				.ifPresent(subscriptions::delete);
 	}
 
 	/** An Ably TokenRequest for the caller's own channel (Unit 57 §5). */

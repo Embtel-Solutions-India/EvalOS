@@ -99,6 +99,12 @@ evalos:
     # Real-time delivery for case chat (Unit 57, D50): Ably relays, PostgreSQL keeps the record.
     # A credential - never defaulted. Empty = no live updates; chat still works over REST.
     api-key: ${ABLY_API_KEY:}
+  push:
+    # Web push (D37, Unit 57). VAPID keys: generate once with `npx web-push generate-vapid-keys` and set
+    # them in the environment. Empty = push off, chat still works. The private key is a credential.
+    vapid-public: ${EVALOS_PUSH_VAPID_PUBLIC:}
+    vapid-private: ${EVALOS_PUSH_VAPID_PRIVATE:}
+    subject: ${EVALOS_PUSH_SUBJECT:}
   chat:
     # The staff app's origin, used to build the link a staff push notification opens.
     staff-origin: ${EVALOS_STAFF_ORIGIN:http://localhost:5173}

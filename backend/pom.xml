@@ -104,6 +104,30 @@
 			<artifactId>ably-java</artifactId>
 			<version>1.2.53</version>
 		</dependency>
+		<!-- Web push for case chat (Unit 57, D37): RFC 8291 encryption + VAPID. -->
+		<dependency>
+			<groupId>nl.martijndwars</groupId>
+			<artifactId>web-push</artifactId>
+			<version>5.1.2</version>
+		</dependency>
+		<!-- web-push needs a BouncyCastle provider at runtime and does not bring one. -->
+		<dependency>
+			<groupId>org.bouncycastle</groupId>
+			<artifactId>bcprov-jdk18on</artifactId>
+			<version>1.80</version>
+		</dependency>
+		<!-- web-push returns an org.apache.http response; the version already on the classpath, at compile scope. -->
+		<dependency>
+			<groupId>org.apache.httpcomponents</groupId>
+			<artifactId>httpcore</artifactId>
+			<version>4.4.16</version>
+		</dependency>
+		<!-- web-push signs VAPID with jose4j and brings 0.7.9 (known CVEs, fixed in 0.9.x); pinned newer, compile scope. -->
+		<dependency>
+			<groupId>org.bitbucket.b_c</groupId>
+			<artifactId>jose4j</artifactId>
+			<version>0.9.6</version>
+		</dependency>
 		<dependency>
 			<groupId>org.postgresql</groupId>
 			<artifactId>postgresql</artifactId>

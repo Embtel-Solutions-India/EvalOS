@@ -157,6 +157,26 @@ class StaffChatControllerTest {
 	}
 
 	@Test
+	void thePublicKeyIs404WhenPushIsOff() throws Exception {
+		given(api.publicKey()).willThrow(new com.ie.evalos.chat.push.PushUnavailableException());
+
+		mockMvc.perform(get("/api/chat/push/public-key").header(HttpHeaders.AUTHORIZATION, bearer(Role.PROJECT_MANAGER)))
+				.andExpect(status().isNotFound())
+				.andExpect(jsonPath("$.error.code").value("PUSH_UNAVAILABLE"));
+	}
+
+	@Test
+	void subscribingPassesTheBrowsersKeys() throws Exception {
+		mockMvc.perform(post("/api/chat/push/subscriptions").header(HttpHeaders.AUTHORIZATION, bearer(Role.PROJECT_MANAGER))
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("{\"endpoint\":\"https://push/x\",\"keys\":{\"p256dh\":\"p\",\"auth\":\"a\"}}"))
+				.andExpect(status().isOk());
+
+		then(api).should().subscribe(any(ChatIdentity.class), argThat((ChatApi.SubscribeRequest r) ->
+				r.endpoint().equals("https://push/x") && r.keys().auth().equals("a")));
+	}
+
+	@Test
 	void anUnknownReactionIs400() throws Exception {
 		mockMvc.perform(put("/api/chat/messages/" + UUID.randomUUID() + "/reactions/FIRE")
 				.header(HttpHeaders.AUTHORIZATION, bearer(Role.PROJECT_MANAGER)))
