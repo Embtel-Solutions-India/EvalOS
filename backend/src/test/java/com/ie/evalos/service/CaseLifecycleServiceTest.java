@@ -669,7 +669,7 @@ class CaseLifecycleServiceTest {
 	void theSupplySideRoleReachesTheCaseButNotItsDocuments() {
 		actAs(Role.EXPERT_NETWORK_MANAGER);
 
-		assertThrows(ForbiddenException.class, () -> lifecycle.readUrl(CASE_ID, UUID.randomUUID()),
+		assertThrows(ForbiddenException.class, () -> lifecycle.readUrl(CASE_ID, UUID.randomUUID(), false),
 				"a presigned URL is the document, so this is the download");
 		assertThrows(ForbiddenException.class, () -> lifecycle.versionsOf(CASE_ID, DocumentKind.DRAFT),
 				"and the filenames alone would name the client");

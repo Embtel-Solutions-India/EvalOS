@@ -645,21 +645,23 @@ public class CaseLifecycleService {
 	 * out to describe a presigned read exactly.
 	 */
 	@Transactional
-	public String readUrl(UUID caseId, UUID documentId) {
+	public String readUrl(UUID caseId, UUID documentId, boolean pdf) {
 		Case subject = load(caseId);
 		requireCaseContent();
+		// Forbidden, not NoSuchElement: the latter had no handler and answered 500 (Unit 58).
 		CaseDocument document = documents.findById(documentId)
 				.filter(row -> row.getCaseId().equals(subject.getId()))
-				.orElseThrow(() -> new java.util.NoSuchElementException("No document " + documentId));
-		requireState(document.getObjectKey() != null,
-				"that document predates the document store and has no file behind it");
+				.orElseThrow(() -> new ForbiddenException("No document " + documentId + " on this case"));
+		// `pdf` names a draft's second file (Unit 58); every other document has only the one.
+		String key = pdf ? document.getPdfObjectKey() : document.getObjectKey();
+		requireState(key != null, "that document has no such file behind it");
 
 		// The brand is deliberately not passed: `recordEvent` takes it from the authenticated
 		// caller, never from an argument a caller could get wrong.
 		audit.recordEvent("CASE_DOCUMENT", document.getId(), AuditAction.EXPORTED,
 				TenantContext.current().memberId(), null,
-				Map.of("opened", String.valueOf(document.getFilename())));
-		return store.presignedUrl(document.getObjectKey());
+				Map.of("opened", String.valueOf(pdf ? document.getPdfFilename() : document.getFilename())));
+		return store.presignedUrl(key);
 	}
 
 	/**

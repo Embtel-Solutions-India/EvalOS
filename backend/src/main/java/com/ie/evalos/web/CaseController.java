@@ -27,6 +27,7 @@ import com.ie.evalos.domain.SlaStatus;
 import com.ie.evalos.domain.Stage;
 import com.ie.evalos.security.TenantContext;
 import com.ie.evalos.service.CaseDetailService;
+import com.ie.evalos.service.CaseDrafts;
 import com.ie.evalos.service.CaseLifecycleService;
 import com.ie.evalos.service.DraftFile;
 import com.ie.evalos.service.RefundService;
@@ -34,6 +35,7 @@ import com.ie.evalos.service.RefundService;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.Size;
 
 import org.springframework.http.MediaType;
@@ -343,12 +345,14 @@ public class CaseController {
 	}
 
 	private final CaseLifecycleService lifecycle;
+	private final CaseDrafts drafts;
 	private final RefundService refunds;
 	private final CaseDetailService details;
 	private final CaseBoardService board;
 
 	CaseController(CaseLifecycleService lifecycle, RefundService refunds, CaseDetailService details,
-			CaseBoardService board) {
+			CaseBoardService board, CaseDrafts drafts) {
+		this.drafts = drafts;
 		this.lifecycle = lifecycle;
 		this.refunds = refunds;
 		this.details = details;
@@ -503,7 +507,7 @@ public class CaseController {
 	 *                       roster endpoint it may not be allowed to read.
 	 */
 	public record DocumentVersion(UUID id, int version, String status, String uploadedByName,
-			Instant uploadedAt, String notes, String reviewComment, String filename) {
+			Instant uploadedAt, String notes, String reviewComment, String filename, boolean hasPdf) {
 
 		static DocumentVersion of(CaseLifecycleService.Version version) {
 			CaseDocument document = version.document();
@@ -511,7 +515,7 @@ public class CaseController {
 			// somebody will eventually try to turn into a URL. The filename is what a human reads.
 			return new DocumentVersion(document.getId(), document.getVersion(), document.getStatus().name(),
 					version.uploadedByName(), document.getUploadedAt(), document.getNotes(),
-					document.getReviewComment(), document.getFilename());
+					document.getReviewComment(), document.getFilename(), document.hasPdf());
 		}
 	}
 
@@ -522,8 +526,26 @@ public class CaseController {
 	 * the service, which runs before the URL exists. See {@code CaseLifecycleService.readUrl}.
 	 */
 	@GetMapping("/{id}/documents/{documentId}/url")
-	public ApiResponse<ReadUrl> documentUrl(@PathVariable UUID id, @PathVariable UUID documentId) {
-		return ApiResponse.ok(new ReadUrl(lifecycle.readUrl(id, documentId)));
+	public ApiResponse<ReadUrl> documentUrl(@PathVariable UUID id, @PathVariable UUID documentId,
+			@RequestParam(defaultValue = "false") boolean pdf) {
+		return ApiResponse.ok(new ReadUrl(lifecycle.readUrl(id, documentId, pdf)));
+	}
+
+	/** One version's thread (Unit 58). No {@code @PreAuthorize}: the scoped load decides, like every read here. */
+	@GetMapping("/{id}/drafts/{draftId}/comments")
+	public ApiResponse<List<CaseDrafts.CommentView>> draftComments(@PathVariable UUID id, @PathVariable UUID draftId) {
+		return ApiResponse.ok(drafts.staffComments(id, draftId));
+	}
+
+	public record CommentRequest(@NotBlank @Size(max = 2000) String body, @Positive Integer page) {
+	}
+
+	/** The case team's side of the thread — only on the version in client review (409 otherwise). */
+	@PostMapping("/{id}/drafts/{draftId}/comments")
+	@PreAuthorize(GM_OR + "hasAnyRole('CASE_MANAGER', 'PROJECT_COORDINATOR', 'PROJECT_MANAGER')")
+	public ApiResponse<CaseDrafts.CommentView> addDraftComment(@PathVariable UUID id, @PathVariable UUID draftId,
+			@Valid @RequestBody CommentRequest request) {
+		return ApiResponse.ok(drafts.staffAddComment(id, draftId, request.body(), request.page()));
 	}
 
 	/** @param url expires in five minutes. Never stored — a stored one is a stored credential. */

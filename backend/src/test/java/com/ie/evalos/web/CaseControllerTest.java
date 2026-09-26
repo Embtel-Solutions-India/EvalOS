@@ -146,6 +146,9 @@ class CaseControllerTest {
 	CaseBoardService board;
 
 	@MockitoBean
+	com.ie.evalos.service.CaseDrafts drafts;
+
+	@MockitoBean
 	EvalOsUserDetailsService userDetailsService;
 
 	private String bearer(Role role) {
@@ -529,5 +532,32 @@ class CaseControllerTest {
 				.header(HttpHeaders.AUTHORIZATION, bearer(Role.CASE_MANAGER)))
 				.andExpect(status().isBadRequest());
 		verify(lifecycle, never()).submitDraft(any(), any(), any());
+	}
+
+	/** Unit 58 §3: the case team reads and writes a version's thread; the PDF link is one flag. */
+	@Test
+	void theCaseTeamReachesDraftCommentsAndThePdfLink() throws Exception {
+		UUID draftId = UUID.randomUUID();
+		given(drafts.staffComments(CASE_ID, draftId)).willReturn(List.of());
+		given(drafts.staffAddComment(CASE_ID, draftId, "See page 2", 2)).willReturn(
+				new com.ie.evalos.service.CaseDrafts.CommentView(UUID.randomUUID(), "STAFF", "Cam", "See page 2", 2,
+						java.time.Instant.now()));
+		given(lifecycle.readUrl(CASE_ID, draftId, true)).willReturn("https://s3/pdf");
+
+		mockMvc.perform(get("/api/cases/{id}/drafts/{draftId}/comments", CASE_ID, draftId)
+				.header(HttpHeaders.AUTHORIZATION, bearer(Role.CASE_MANAGER)))
+				.andExpect(status().isOk());
+		mockMvc.perform(post("/api/cases/{id}/drafts/{draftId}/comments", CASE_ID, draftId)
+				.header(HttpHeaders.AUTHORIZATION, bearer(Role.PROJECT_MANAGER))
+				.contentType(MediaType.APPLICATION_JSON).content("{\"body\":\"See page 2\",\"page\":2}"))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.data.page").value(2));
+		mockMvc.perform(post("/api/cases/{id}/drafts/{draftId}/comments", CASE_ID, draftId)
+				.header(HttpHeaders.AUTHORIZATION, bearer(Role.EXPERT_NETWORK_MANAGER))
+				.contentType(MediaType.APPLICATION_JSON).content("{\"body\":\"x\"}"))
+				.andExpect(status().isForbidden());
+		mockMvc.perform(get("/api/cases/{id}/documents/{documentId}/url", CASE_ID, draftId).param("pdf", "true")
+				.header(HttpHeaders.AUTHORIZATION, bearer(Role.CASE_MANAGER)))
+				.andExpect(jsonPath("$.data.url").value("https://s3/pdf"));
 	}
 }
