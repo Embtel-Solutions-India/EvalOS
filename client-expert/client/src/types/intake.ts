@@ -1,9 +1,9 @@
 // ---------------------------------------------------------------------------
-// The client's guided intake: a schema-driven questionnaire engine.
+// The client's request for a service: the catalog it is chosen from.
 //
-// A Service points at a list of QuestionGroup ids and DocumentTemplate ids, so
-// a new service is one entry in constants/serviceCatalog.ts and no component
-// changes. NewRequest and QuestionField render whatever the catalog says.
+// A new service is one entry in constants/serviceCatalog.ts and no component
+// changes. There is no questionnaire (Unit 55, 2026-09-25): the request is the
+// service, the purpose and the documents; Sales asks the rest on the call.
 //
 // RECOVERED from f9f1165^ for Unit 43, and deliberately SHORTER than it was.
 // Gone with the screens that used them:
@@ -48,38 +48,6 @@ export interface ServiceDefinition {
   icon: LucideIcon
   /** If set, the Purpose step is skipped — this service already implies it. */
   impliedPurpose?: RequestPurpose
-  /** Ordered list of reusable question group ids composed for this service. */
-  questionGroupIds: string[]
   /** Ordered list of reusable document template ids required for this service. */
   documentTemplateIds: string[]
 }
-
-export type QuestionType = 'text' | 'textarea' | 'select' | 'date' | 'radio' | 'number'
-
-export interface QuestionOption {
-  value: string
-  label: string
-}
-
-export interface QuestionDefinition {
-  id: string
-  label: string
-  type: QuestionType
-  required: boolean
-  placeholder?: string
-  helpText?: string
-  options?: QuestionOption[]
-  /** Answers accumulated so far, keyed by question id across all groups. */
-  showIf?: (answers: RequestAnswers) => boolean
-}
-
-export interface QuestionGroup {
-  id: string
-  title: string
-  description: string
-  questions: QuestionDefinition[]
-  /** Whole group is skipped unless this returns true (e.g. "only if working with an attorney"). */
-  showIf?: (answers: RequestAnswers) => boolean
-}
-
-export type RequestAnswers = Record<string, string>

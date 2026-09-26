@@ -46,8 +46,10 @@ class SalesDeskServiceTest {
 	private final SyncOutboxService outbox = mock(SyncOutboxService.class);
 	private final com.ie.evalos.repository.FollowUpRepository followUps =
 			mock(com.ie.evalos.repository.FollowUpRepository.class);
+	private final com.ie.evalos.repository.PipelineStageRepository stages =
+			mock(com.ie.evalos.repository.PipelineStageRepository.class);
 	private final SalesDeskService desk =
-			new SalesDeskService(ghl, new PipelineScope(deals), deals, outbox, followUps);
+			new SalesDeskService(ghl, new PipelineScope(deals), deals, outbox, followUps, stages);
 
 	private void authenticateAsSales(String pipelineId) {
 		StaffPrincipal principal = new StaffPrincipal(UUID.randomUUID(), "sales@ie.test", "Desk",
@@ -79,7 +81,18 @@ class SalesDeskServiceTest {
 	}
 
 	/** Unit 46: the desk edits the mirror and queues the push, so that is what the stub does. */
+	/** A mirrored stage on {@code pipeline}, live or retired — what the Q12 guard reads. */
+	private void givenStage(String ghlStageId, UUID pipeline, boolean live) {
+		com.ie.evalos.domain.PipelineStage stage =
+				new com.ie.evalos.domain.PipelineStage(BRAND, pipeline, ghlStageId, "Stage", 2);
+		if (!live) {
+			stage.markMissing(java.time.Instant.now());
+		}
+		when(stages.findByBrandIdAndGhlId(BRAND, ghlStageId)).thenReturn(java.util.Optional.of(stage));
+	}
+
 	private void givenTheMirrorHasIt() {
+		when(deals.byGhlId(OPPORTUNITY)).thenAnswer((call) -> java.util.Optional.of(mirrored()));
 		when(deals.editLocally(eq(OPPORTUNITY), any(), any(), any(), any())).thenAnswer((call) -> {
 			com.ie.evalos.domain.Opportunity row = mirrored();
 			row.editedLocally(call.getArgument(1), call.getArgument(2), call.getArgument(3),
@@ -226,6 +239,7 @@ class SalesDeskServiceTest {
 		authenticateAsSales(MINE);
 		givenItIsMine();
 		givenTheMirrorHasIt();
+		givenStage("s2", PIPELINE_ROW, true);
 
 		assertThat(desk.moveToStage(OPPORTUNITY, "s2").stageId()).isEqualTo("s2");
 
@@ -245,12 +259,48 @@ class SalesDeskServiceTest {
 		authenticateAsSales(MINE);
 		givenItIsMine();
 		givenTheMirrorHasIt();
+		givenStage("s2", PIPELINE_ROW, true);
 
 		desk.moveToStage(OPPORTUNITY, "s2");
 
 		// The edit names a stage and nothing else — there is no pipeline argument to pass, here or
 		// on the queued push, which reads the row's own pipeline.
 		verify(deals).editLocally(OPPORTUNITY, null, null, "s2", null);
+	}
+
+	/**
+	 * Q12: a desk holding two pipelines sees both strips on one board, so a drag can send the other
+	 * pipeline's stage. That would be a pipeline move in GHL, and is refused before anything queues.
+	 */
+	@Test
+	void aStageOfAnotherPipelineIsRefused() {
+		authenticateAsSales(MINE);
+		givenItIsMine();
+		givenTheMirrorHasIt();
+		givenStage("s_other", UUID.randomUUID(), true);
+
+		assertThatThrownBy(() -> desk.moveToStage(OPPORTUNITY, "s_other"))
+				.isInstanceOf(InvalidRequestException.class)
+				.hasMessageContaining("not on this deal's pipeline");
+
+		verify(deals, never()).editLocally(any(), any(), any(), any(), any());
+		verify(outbox, never()).enqueue(any(), any(), any());
+	}
+
+	/** A retired stage, or one the mirror has never seen, is refused rather than pushed. */
+	@Test
+	void aRetiredOrUnknownStageIsRefused() {
+		authenticateAsSales(MINE);
+		givenItIsMine();
+		givenTheMirrorHasIt();
+		givenStage("s_gone", PIPELINE_ROW, false);
+
+		assertThatThrownBy(() -> desk.moveToStage(OPPORTUNITY, "s_gone"))
+				.isInstanceOf(InvalidRequestException.class);
+		assertThatThrownBy(() -> desk.moveToStage(OPPORTUNITY, "s_never_mirrored"))
+				.isInstanceOf(InvalidRequestException.class);
+
+		verify(outbox, never()).enqueue(any(), any(), any());
 	}
 
 	@ParameterizedTest

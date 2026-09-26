@@ -439,6 +439,13 @@ case transitions) does not apply there; the production board still does not drag
 - **Client portal** (built in Unit 14): single centered column, one case, the
   drafted letter with big Approve / Request revisions actions and a visible
   "changes requested" note field.
+  - **Every client-portal screen ends in `SiteFooter`** (2026-09-25): three short
+    paragraphs — not a law firm, never sold, kept seven years — each ending in a link
+    to the policy that says it in full, then the three links and the address. The
+    policies live at public routes (`/privacy`, `/disclaimer`, `/document-retention`)
+    because sign-up asks a client to agree to them before an account exists. Where data
+    is handed over — sign-up, the uploader, the send step — the relevant policy is
+    linked in place as well.
   - **No shell, no nav, no brand switcher, and no auth provider** — `App` answers
     `/portal/*` before any staff-session code runs, and mounts `AuthProvider`
     around the staff surface only. A client is not a staff user with fewer links.

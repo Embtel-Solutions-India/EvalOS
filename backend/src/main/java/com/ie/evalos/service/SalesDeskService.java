@@ -128,9 +128,12 @@ public class SalesDeskService {
 	private final OpportunityMirrorService deals;
 	private final SyncOutboxService outbox;
 	private final com.ie.evalos.repository.FollowUpRepository followUps;
+	private final com.ie.evalos.repository.PipelineStageRepository stages;
 
 	SalesDeskService(GhlWriteClient ghl, PipelineScope scope, OpportunityMirrorService deals,
-			SyncOutboxService outbox, com.ie.evalos.repository.FollowUpRepository followUps) {
+			SyncOutboxService outbox, com.ie.evalos.repository.FollowUpRepository followUps,
+			com.ie.evalos.repository.PipelineStageRepository stages) {
+		this.stages = stages;
 		this.deals = deals;
 		this.outbox = outbox;
 		this.followUps = followUps;
@@ -185,13 +188,32 @@ public class SalesDeskService {
 	 * target pipeline: moving a deal between pipelines is the marketing-to-sales promotion, and
 	 * that is <strong>GHL's workflow to run</strong>, not a button here. A second promotion path
 	 * racing the automation is exactly what the design avoids.
+	 *
+	 * <p><strong>The stage is checked against the deal's own pipeline</strong> (Q12, 2026-09-24).
+	 * A desk holding several pipelines sees all their stages on one board strip, so a drag could
+	 * send another pipeline's stage id — which GHL would take as a pipeline move. The stage must be
+	 * a live mirrored stage of the row's pipeline; anything else, including a stage the mirror has
+	 * not seen yet, is refused rather than pushed.
 	 */
 	public Deal moveToStage(String opportunityId, String stageId) {
 		scope.requireMine(opportunityId);
 		if (stageId == null || stageId.isBlank()) {
 			throw new InvalidRequestException("A stage is required");
 		}
+		// A deal the mirror does not hold falls through to `queue`, whose refusal says so.
+		deals.byGhlId(opportunityId).ifPresent((row) -> requireStageOf(row, stageId));
 		return queue(opportunityId, null, null, stageId, null, SyncOutboxEntry.Intent.UPSERT);
+	}
+
+	private void requireStageOf(Opportunity row, String stageId) {
+		boolean onItsPipeline = stages.findByBrandIdAndGhlId(row.getBrandId(), stageId)
+				.filter(com.ie.evalos.domain.PipelineStage::isLive)
+				.filter((stage) -> stage.getPipelineId().equals(row.getPipelineId()))
+				.isPresent();
+		if (!onItsPipeline) {
+			throw new InvalidRequestException("That stage is not on this deal's pipeline. Moving a "
+					+ "deal between pipelines is GHL's workflow, not a move here.");
+		}
 	}
 
 	/**

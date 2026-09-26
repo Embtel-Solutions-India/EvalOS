@@ -291,7 +291,7 @@ public class DocumentStore {
 	 *
 	 * <p><strong>What makes the GHL id safe to key on now is D3d and D3c, not optimism.</strong>
 	 * The contact is created at {@code setPassword}, at the next sign-in, or at the first request
-	 * that needs one, and a document is uploaded at questionnaire submit — which already ensures the
+	 * that needs one, and a document is uploaded with the request — which already ensures the
 	 * id before it opens the opportunity. The id is therefore present at the moment a key is built,
 	 * which was exactly what was untrue in September's failure.
 	 *

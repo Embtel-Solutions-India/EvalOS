@@ -157,6 +157,30 @@ public class ApiExceptionHandler {
 	}
 
 
+	/** A write to the conversation of a closed case (Unit 57). The composer shows why. */
+	@ExceptionHandler(com.ie.evalos.chat.ConversationReadOnlyException.class)
+	public ResponseEntity<ApiResponse<Void>> onConversationReadOnly(com.ie.evalos.chat.ConversationReadOnlyException ex) {
+		return ResponseEntity.status(HttpStatus.CONFLICT).body(ApiResponse.error("CONVERSATION_READ_ONLY", ex.getMessage()));
+	}
+
+	/** No Ably key here (Unit 57): chat works over REST, without live updates. */
+	@ExceptionHandler(com.ie.evalos.chat.live.RealtimeUnavailableException.class)
+	public ResponseEntity<ApiResponse<Void>> onRealtimeUnavailable(com.ie.evalos.chat.live.RealtimeUnavailableException ex) {
+		return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(ApiResponse.error("REALTIME_UNAVAILABLE", ex.getMessage()));
+	}
+
+	/** No VAPID keys here (Unit 57): the apps hide the notifications card. */
+	@ExceptionHandler(com.ie.evalos.chat.push.PushUnavailableException.class)
+	public ResponseEntity<ApiResponse<Void>> onPushUnavailable(com.ie.evalos.chat.push.PushUnavailableException ex) {
+		return ResponseEntity.status(HttpStatus.NOT_FOUND).body(ApiResponse.error("PUSH_UNAVAILABLE", ex.getMessage()));
+	}
+
+	/** More than 30 chat messages a minute from one person (Unit 57). */
+	@ExceptionHandler(com.ie.evalos.chat.ChatRateLimiter.TooManyMessagesException.class)
+	public ResponseEntity<ApiResponse<Void>> onTooManyMessages(com.ie.evalos.chat.ChatRateLimiter.TooManyMessagesException ex) {
+		return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).body(ApiResponse.error("TOO_MANY_MESSAGES", ex.getMessage()));
+	}
+
 	/**
 	 * The document store did not answer.
 	 *

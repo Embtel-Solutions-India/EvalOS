@@ -85,3 +85,7 @@ reads; `carried_to_case_document_id` stamped once at Handoff A, which is the who
 **It shares its S3 object with the `case_document` it becomes** — the key is
 `{brand}/client/{ghl_contact_id}/{doc}`, the person's prefix, so carrying a document onto a case is
 one new row and no copy. No status, no review, no checklist item: a request has no checklist.
+
+**Case chat (Unit 57, V69):** conversations (UNIQUE case_id+type), conversation_members (never deleted;
+left_at stamped once; trigger-guarded), messages (text ≤4000, parent_message_id, deleted_at, search tsvector),
+message_reactions, message_reads (one watermark per member), push_subscriptions.

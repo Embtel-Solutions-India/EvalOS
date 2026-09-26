@@ -213,6 +213,12 @@ class LocalPostgresIntegrationTest {
 	JdbcTemplate jdbc;
 
 	@Autowired
+	com.ie.evalos.chat.ConversationMemberRepository chatMembers;
+
+	@Autowired
+	com.ie.evalos.chat.ChatInboxQuery chatQuery;
+
+	@Autowired
 	BrandRepository brands;
 
 	@Autowired
@@ -1844,6 +1850,185 @@ class LocalPostgresIntegrationTest {
 			jdbc.update("DELETE FROM pipeline WHERE id = ?", pipelineId);
 			jdbc.update("UPDATE team_member SET ghl_pipeline_id = ? WHERE id = ?", held, SALES_IE);
 		}
+	}
+
+	// --- Unit 57: case chat ---------------------------------------------------------------
+	//
+	// Member rows can never be deleted (that is the point of the trigger), so these tests cannot
+	// clean up after themselves. They share one IE case and reuse its conversations across runs:
+	// `conversationOn` finds the case's conversation of a type or creates it.
+
+	private UUID anIeCase() {
+		return jdbc.queryForObject("SELECT id FROM evalos_case WHERE brand_id = ? ORDER BY id LIMIT 1",
+				UUID.class, BRAND_IE);
+	}
+
+	private UUID conversationOn(UUID caseId, String type) {
+		jdbc.update("INSERT INTO conversations (id, brand_id, case_id, type, status, created_at) "
+				+ "VALUES (?, ?, ?, ?, 'ACTIVE', now()) ON CONFLICT (case_id, type) DO NOTHING",
+				UUID.randomUUID(), BRAND_IE, caseId, type);
+		return jdbc.queryForObject("SELECT id FROM conversations WHERE case_id = ? AND type = ?", UUID.class,
+				caseId, type);
+	}
+
+	private UUID memberOf(UUID conversation, String kind, String role) {
+		UUID member = UUID.randomUUID();
+		jdbc.update("INSERT INTO conversation_members (id, brand_id, conversation_id, member_kind, member_id, "
+				+ "member_role, created_at) VALUES (?, ?, ?, ?, ?, ?, now())",
+				member, BRAND_IE, conversation, kind, UUID.randomUUID(), role);
+		return member;
+	}
+
+	@Test
+	void aConversationMemberRowCannotBeDeleted() {
+		UUID member = memberOf(conversationOn(anIeCase(), "INTERNAL"), "STAFF", "PM");
+
+		assertThatThrownBy(() -> jdbc.update("DELETE FROM conversation_members WHERE id = ?", member))
+				.hasMessageContaining("never deleted");
+	}
+
+	@Test
+	void aMemberRowMayOnlyBeStampedLeftOnce() {
+		UUID member = memberOf(conversationOn(anIeCase(), "EXPERT"), "EXPERT", "EXPERT");
+
+		jdbc.update("UPDATE conversation_members SET left_at = now(), left_reason = 'OFFER_DECLINED' WHERE id = ?",
+				member);
+		assertThatThrownBy(() -> jdbc.update(
+				"UPDATE conversation_members SET left_at = NULL, left_reason = NULL WHERE id = ?", member))
+				.hasMessageContaining("only stamp left_at");
+	}
+
+	@Test
+	void aCaseHasAtMostOneConversationPerType() {
+		UUID caseId = anIeCase();
+		conversationOn(caseId, "CLIENT");
+
+		assertThatThrownBy(() -> jdbc.update("INSERT INTO conversations (id, brand_id, case_id, type, status, "
+				+ "created_at) VALUES (?, ?, ?, 'CLIENT', 'ACTIVE', now())", UUID.randomUUID(), BRAND_IE, caseId))
+				.isInstanceOf(org.springframework.dao.DataIntegrityViolationException.class);
+	}
+
+	/** The listener and the sweep syncing one case at once must insert a member once, not twice or 500. */
+	@Test
+	void concurrentSyncInsertsOneRow() {
+		UUID conversation = conversationOn(anIeCase(), "INTERNAL");
+		UUID person = UUID.randomUUID();
+
+		int first = chatMembers.addIfAbsent(BRAND_IE, conversation, "STAFF", person, "PM");
+		int second = chatMembers.addIfAbsent(BRAND_IE, conversation, "STAFF", person, "PM");
+
+		assertThat(first + second).isEqualTo(1);
+		assertThat(jdbc.queryForObject("SELECT count(*) FROM conversation_members WHERE conversation_id = ? "
+				+ "AND member_id = ? AND left_at IS NULL", Long.class, conversation, person)).isEqualTo(1L);
+	}
+
+	/** A message in `conversation`, authored by `author` (STAFF), at a fixed instant, top-level. */
+	private UUID chatMessage(UUID conversation, UUID author, String body, java.time.Instant at) {
+		UUID id = UUID.randomUUID();
+		jdbc.update("INSERT INTO messages (id, brand_id, conversation_id, author_kind, author_id, body, created_at) "
+				+ "VALUES (?, ?, ?, 'STAFF', ?, ?, ?)", id, BRAND_IE, conversation, author, body,
+				java.sql.Timestamp.from(at));
+		return id;
+	}
+
+	/**
+	 * Review Focus #1: five messages with the SAME timestamp, paged two at a time, come back exactly
+	 * once each and in (created_at, id) order. A conversation of its own per run, via a fresh case type
+	 * would collide, so this uses a far-future timestamp and filters to its own ids.
+	 */
+	@Test
+	void pagingIsStableForEqualTimestamps() {
+		UUID conversation = conversationOn(anIeCase(), "CLIENT");
+		java.time.Instant same = java.time.Instant.parse("2999-01-01T00:00:00Z").plusSeconds(
+				java.util.concurrent.ThreadLocalRandom.current().nextInt(1, 1_000_000));
+		java.util.Set<UUID> mine = new java.util.HashSet<>();
+		for (int i = 0; i < 5; i++) {
+			mine.add(chatMessage(conversation, UUID.randomUUID(), "page " + i, same));
+		}
+
+		List<UUID> seen = new java.util.ArrayList<>();
+		java.time.Instant at = same.plusNanos(1000);
+		UUID after = new UUID(Long.MAX_VALUE, Long.MAX_VALUE);
+		for (int page = 0; page < 3; page++) {
+			List<com.ie.evalos.chat.ChatInboxQuery.Row> rows = chatQuery.page(BRAND_IE, conversation, at, after, true, 2)
+					.stream().filter((r) -> mine.contains(r.id())).toList();
+			rows.forEach((r) -> seen.add(r.id()));
+			if (rows.isEmpty()) {
+				break;
+			}
+			at = rows.get(rows.size() - 1).createdAt();
+			after = rows.get(rows.size() - 1).id();
+		}
+
+		assertThat(seen).containsExactlyInAnyOrderElementsOf(mine);
+		assertThat(seen).doesNotHaveDuplicates();
+		// By the text form, not UUID.compareTo: Java compares signed longs, Postgres unsigned bytes,
+		// and the hex string sorts the way Postgres does.
+		List<UUID> expectedOrder = mine.stream().sorted(java.util.Comparator.comparing(UUID::toString).reversed())
+				.toList();
+		assertThat(seen).containsExactlyElementsOf(expectedOrder);
+	}
+
+	@Test
+	void unreadCountsFromTheWatermark() {
+		UUID conversation = conversationOn(anIeCase(), "INTERNAL");
+		UUID reader = UUID.randomUUID();
+		UUID other = UUID.randomUUID();
+		// After every message earlier runs left in this shared conversation, so those all count as read.
+		java.sql.Timestamp newest = jdbc.queryForObject("SELECT max(created_at) FROM messages WHERE conversation_id = ?",
+				java.sql.Timestamp.class, conversation);
+		java.time.Instant base = (newest == null ? java.time.Instant.now() : newest.toInstant()).plusSeconds(60);
+		UUID first = chatMessage(conversation, other, "one", base);
+		chatMessage(conversation, other, "two", base.plusSeconds(1));
+		chatMessage(conversation, other, "three", base.plusSeconds(2));
+		chatMessage(conversation, reader, "my own", base.plusSeconds(3));
+		UUID gone = chatMessage(conversation, other, "deleted", base.plusSeconds(4));
+		jdbc.update("UPDATE messages SET body = '', deleted_at = now() WHERE id = ?", gone);
+		jdbc.update("INSERT INTO message_reads (id, brand_id, conversation_id, reader_kind, reader_id, "
+				+ "last_read_message_id, last_read_at, created_at) VALUES (?, ?, ?, 'STAFF', ?, ?, ?, now())",
+				UUID.randomUUID(), BRAND_IE, conversation, reader, first, java.sql.Timestamp.from(base));
+
+		assertThat(chatQuery.unread(com.ie.evalos.chat.ParticipantKind.STAFF, reader, List.of(conversation)))
+				.containsEntry(conversation, 2L);
+	}
+
+	@Test
+	void searchFindsOnlyReachableConversations() {
+		UUID caseId = anIeCase();
+		UUID mineConv = conversationOn(caseId, "INTERNAL");
+		UUID otherConv = conversationOn(caseId, "EXPERT");
+		UUID me = UUID.randomUUID();
+		jdbc.update("INSERT INTO conversation_members (id, brand_id, conversation_id, member_kind, member_id, "
+				+ "member_role, created_at) VALUES (?, ?, ?, 'STAFF', ?, 'PM', now())",
+				UUID.randomUUID(), BRAND_IE, mineConv, me);
+		String marker = "zq" + Long.toString(System.nanoTime(), 36);
+		UUID found = chatMessage(mineConv, UUID.randomUUID(), "about " + marker + " today", java.time.Instant.now());
+		chatMessage(otherConv, UUID.randomUUID(), "also " + marker, java.time.Instant.now());
+
+		List<com.ie.evalos.chat.ChatInboxQuery.Row> hits = chatQuery.search(new com.ie.evalos.chat.ChatIdentity(
+				com.ie.evalos.chat.ParticipantKind.STAFF, me, BRAND_IE, Role.PROJECT_MANAGER), marker, null, null, 10);
+
+		assertThat(hits).extracting(com.ie.evalos.chat.ChatInboxQuery.Row::id).containsExactly(found);
+	}
+
+	/**
+	 * Review I2: type before membership, in the list queries too. A client member row wrongly placed
+	 * on an INTERNAL conversation must not put it in the client's inbox, search or unread total.
+	 */
+	@Test
+	void aStrayClientRowOnAnInternalConversationStaysInvisible() {
+		UUID internal = conversationOn(anIeCase(), "INTERNAL");
+		UUID client = UUID.randomUUID();
+		jdbc.update("INSERT INTO conversation_members (id, brand_id, conversation_id, member_kind, member_id, "
+				+ "member_role, created_at) VALUES (?, ?, ?, 'CLIENT', ?, 'CLIENT', now())",
+				UUID.randomUUID(), BRAND_IE, internal, client);
+		String marker = "zi" + Long.toString(System.nanoTime(), 36);
+		chatMessage(internal, UUID.randomUUID(), "internal only " + marker, java.time.Instant.now());
+		com.ie.evalos.chat.ChatIdentity who = com.ie.evalos.chat.ChatIdentity.client(client, BRAND_IE);
+
+		assertThat(chatQuery.inbox(who, null, null, null, null, null, 50)).doesNotContain(internal);
+		assertThat(chatQuery.search(who, marker, null, null, 10)).isEmpty();
+		assertThat(chatQuery.unreadTotal(who)).isZero();
 	}
 
 }

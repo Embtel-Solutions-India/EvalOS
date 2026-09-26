@@ -19,7 +19,6 @@ import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -53,13 +52,6 @@ public class ClientApplicationController {
 			@NotBlank @Size(max = 200) String serviceName, @Size(max = 100) String purpose) {
 	}
 
-	/**
-	 * @param answers the whole questionnaire as a JSON object, bounded by the service rather than
-	 *                here — a body limit belongs where the reason for it lives
-	 */
-	public record SaveRequest(@NotBlank String answers, @Size(max = 100) String purpose) {
-	}
-
 	private final ClientApplicationService applications;
 
 	private final ApplicationDocumentService documents;
@@ -86,14 +78,6 @@ public class ClientApplicationController {
 			@Valid @RequestBody StartRequest request) {
 		return ApiResponse.ok(applications.start(PortalPrincipal.current(PortalAudience.CLIENT),
 				request.serviceId(), request.serviceName(), request.purpose()));
-	}
-
-	/** Autosave. Called on every step, so it does the least it can and never moves a stage. */
-	@PutMapping("/{applicationId}")
-	public ApiResponse<ClientApplicationService.ApplicationView> save(@PathVariable UUID applicationId,
-			@Valid @RequestBody SaveRequest request) {
-		return ApiResponse.ok(applications.save(PortalPrincipal.current(PortalAudience.CLIENT),
-				applicationId, request.answers(), request.purpose()));
 	}
 
 	/** Hand it to Sales. Refuses if GHL never took the opportunity — see the service. */

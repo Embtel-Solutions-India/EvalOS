@@ -101,16 +101,22 @@ The ones most often violated from memory:
   first request, so it exists by the time anything needs to name it. A
   contact with no GHL id is **refused** with a message naming the repair, never filed under a
   guessed prefix.
-- **Documents arrive WITH the request**, at questionnaire submit, keyed by the **GHL contact id**
+- **There is NO client questionnaire** (D13, Unit 55, 2026-09-25, business decision). The portal
+  request is service + purpose + documents; Sales asks the rest on the call. No questions step, no
+  `PUT /api/portal/applications/{id}`, no `answers` on the entity or the API. `client_application.answers`
+  is unmapped and awaits `V69` (drop held for an explicit go-ahead). Do not rebuild a questionnaire.
+- **Documents arrive WITH the request**, before submit, keyed by the **GHL contact id**
   (D41). Reuses `DocumentStore.clientKey`; Handoff A carries them into `case_document` as row
   inserts over the **same S3 object**. Unit 53, spec `53-request-documents.md` (D33).
-- **Sales clicks one opportunity and sees answers AND documents** — the documents are **their own
+- **Sales clicks one opportunity and sees the request AND documents** — the documents are **their own
   route and tab on that deal, never a second permission** (D34).
 - **There is NO EvalOS sales-review state** (D35). `client_application.status` stays
   `DRAFT`/`SUBMITTED`; review, approval and rejection are GHL **pipeline stages**. Do not add
   `IN_REVIEW`/`ACCEPTED`/`REJECTED` — an earlier recommendation said to, and the business said no.
 - **Sales reads their own pipelines and NO case at all** (D19c). `ScopePredicate`'s PIPELINE arm
-  returning `cb.disjunction()` over `evalos_case` is **correct**, not a bug to fix.
+  returning `cb.disjunction()` over `evalos_case` is **correct**, not a bug to fix. **Chat is the one
+  exception** (Unit 57): Sales takes part in the Client and Internal conversations of their pipeline's
+  cases, and still reads no case data.
 - **The case is staffed PM-first** (D36): Handoff A → PM → PM assigns Coordinator, Case Manager and
   Expert → CM drafts and uploads → **client approves in the portal** → only then the expert
   downloads, signs and uploads back. This is what `CaseLifecycleService` already does; it is now a
@@ -156,7 +162,8 @@ does not call GHL, and it answers from the row. A **board** reads EvalOS rows an
 request at all. A **create** still calls GHL inline, because the outbox stores an id and never a
 payload and a create carries custom fields the mirror does not hold (tier 2, Unit 47). The four
 editable fields are exactly 45e's shared set — the assignee is missing on purpose, it is GHL's.
-**Known cost**: a won deal reaches GHL on the next drain (≤2m), so the case arrives later than it
+A stage move must name a **live stage of the deal's own pipeline** (Q12, 2026-09-24) — a foreign
+stage would be a pipeline move, which is GHL's workflow. **Known cost**: a won deal reaches GHL on the next drain (≤2m), so the case arrives later than it
 used to; a win surviving an outage is worth more than the two minutes.
 **The board's freshness contract**: `MIRROR_DELTA` every 5m; `lastSyncedAt` null = never synced
 (never faked as "now") and counts as stale; `board-stale-after` **5m** (one missed pass) draws a "Sync delayed" banner;
@@ -210,3 +217,8 @@ token and not the account.
 still wired into four staff screens and every link already in an expert's inbox points at `/case`,
 so minting and that route retire in ONE change once the replacement exists. Until then the expert
 portal's `/` is a holding page that offers no door.
+
+**D50 (2026-09-25/26, Unit 57): case chat is EvalOS-owned.** Three conversations per case (Client,
+Internal, Expert), membership computed from assignments, GM/BM as viewers, text only, read-only at
+CLOSED. PostgreSQL is the record; Ably relays live updates (one private channel per person, no
+browser publish); web push when the app is closed. Spec `57-case-chat.md`.

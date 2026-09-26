@@ -157,7 +157,7 @@ public class PipelineScope {
 				requireMine(opportunityId);
 				yield deal;
 			}
-			// SELF and SUPPLY work cases, not the CRM. They reach the questionnaire and the
+			// SELF and SUPPLY work cases, not the CRM. They reach the portal request and its
 			// documents through their own routes, which deliberately apply no pipeline scope
 			// (see ApplicationReviewController) — but a deal's notes and meetings are not theirs.
 			default -> throw notYours();

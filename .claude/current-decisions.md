@@ -68,7 +68,7 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
   `contact_snapshot.id` after IE's sub-account swap left post-swap clients with no GHL id to build
   a key from. What makes the id safe to name again is D3d and D3c: the contact is created at
   set-password, at the next sign-in, or at the first request that needs one, and a document is
-  uploaded at questionnaire submit, which already ensures the id before it opens the deal.
+  uploaded with the request, which already ensures the id before it opens the deal.
   **Two consequences stated rather than hidden:** a contact with no GHL id yet is _refused_ with a
   message naming the repair instead of being filed under a guessed prefix, and a second sub-account
   swap would orphan the namespace again — reads resolve through the stored `object_key`, so nothing
@@ -86,10 +86,10 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
   `CaseIntakeService`. (Invariant 8.)
 - **D10.** The opportunity is created **when the client submits the request**, not when they pick
   a service. **Changed 2026-09-16, third time of asking.** It opened at service-pick until then, so that a
-  client who abandoned the questionnaire still reached a salesperson; the requirement said submit from the start,
+  client who abandoned the questionnaire (since removed, D13) still reached a salesperson; the requirement said submit from the start,
   EvalOS refused it twice, and the third asking carries it. The deal on the board is now a **finished
   request** and nothing else — which is what makes Sales' review step mean something, and is the
-  trade taken knowingly: **an abandoned questionnaire now reaches nobody.** Recovering those is a
+  trade taken knowingly: **an abandoned request now reaches nobody.** Recovering those is a
   separate job (nothing sweeps `DRAFT` applications today) and is in `open-decisions.md`.
 - **D10c.** The funnel is **submit → opportunity → Sales review → won → payment**. EvalOS creates
   the deal at submit and stops; review, win and invoicing are GHL's and Sales', exactly as D11
@@ -118,11 +118,14 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
   writes no note. **A GHL failure refuses the submit (502) and leaves the draft intact**, which is
   stricter than the swallow this decision used to describe: under D10 a failed create means Sales
   has no deal at all, and telling a client "sent" for that would be a lie.
-- **D13.** Sales reads the questionnaire through `GET /api/opportunities/{id}/application`, which
-  answers `null` + 200 for deals that did not come from the portal. **The documents ride on that
-  same read** (D34) — one opportunity, one screen, both halves of what the client sent.
+- **D13.** **There is no client questionnaire** (Unit 55, 2026-09-25, business decision). The portal
+  request is the service, the purpose and the documents; Sales asks everything else on the call.
+  The questions step, its autosave route (`PUT /api/portal/applications/{id}`) and
+  `client_application.answers` are gone. Sales reads the request through
+  `GET /api/opportunities/{id}/application`, which answers `null` + 200 for deals that did not come
+  from the portal, and the documents beside it (D34). Spec `55-remove-questionnaire.md`.
 
-- **D33.** **Documents arrive with the request, at questionnaire submit, and are stored against the
+- **D33.** **Documents arrive with the request, before submit, and are stored against the
   contact** — the person — not against a case, which does not exist yet. This is the DOCUMENT
   SUBMISSION step the target lifecycle always named and Unit 43 deferred, because every upload
   route EvalOS had took a checklist item on a **case**. Decided 2026-09-17.
@@ -131,8 +134,8 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
   into `case_document` at Handoff A as a row insert over the **same S3 object**: nothing copies,
   nothing re-keys, and Production starts holding exactly what Sales read.
   Spec `53-request-documents.md`. _(Closes `open-decisions.md` Q4.)_
-- **D34.** **Sales clicks one opportunity and sees both** the questionnaire answers and the
-  documents. The documents are **a second screen on that same deal, never a second permission** —
+- **D34.** **Sales clicks one opportunity and sees both** the request (service, purpose, status)
+  and the documents. The documents are **a second screen on that same deal, never a second permission** —
   their own route and their own tab beside the application, reached by whoever could already open
   the opportunity. Nothing about them asks a new authorisation question.
 - **D35.** **There is no EvalOS sales-review state.** `client_application.status` stays `DRAFT` /
@@ -189,7 +192,10 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
   mirror's copy, is a business decision a sweep must not take.
 - **D44.** **A desk edit writes the mirror and queues the push; it does not call GHL** (Unit 46,
   2026-09-17). Rename, re-price, stage move and close on both desks are now: edit the local row,
-  `enqueue`, answer from the row. The salesperson sees the change immediately and no edit is lost
+  `enqueue`, answer from the row. **A stage move must name a live mirrored stage of the deal's
+  own pipeline** (Q12, 2026-09-24): a desk holding several pipelines sees their stages on one
+  board strip, and a foreign stage id would be a pipeline move in GHL — GHL's workflow, not a desk
+  edit — so `moveToStage` refuses it before anything is written or queued. The salesperson sees the change immediately and no edit is lost
   to a GHL outage. **The four editable fields are exactly 45e's shared set**, because what a desk
   may edit locally is what EvalOS is allowed to win a conflict over — the assignee is absent for
   that reason. **The cost is named rather than hidden: a won deal reaches GHL on the next drain
@@ -271,6 +277,15 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
   on the contact note); GHL notes stay read-only in EvalOS, changed in GHL and mirrored back. **A task EvalOS never created is not invented** on somebody's desk.
   **Tags are read, never written**: GHL workflows key off them.
   **D46's blocker is gone** — the mirror now holds the values a queued desk create would need.
+- **D50.** **Case chat is an EvalOS-owned service** (Unit 57, `57-case-chat.md`, 2026-09-25/26,
+  business decision; it replaced a Stream Chat setup, Unit 56, that was never committed). Every
+  case has three conversations — Client (client, pipeline Sales, PM/Coordinator/Case Manager),
+  Internal (pipeline Sales, PM/Coordinator/Case Manager, brand ENMs) and Expert
+  (PM/Coordinator/Case Manager, brand ENMs, the expert from offer). EvalOS computes membership from
+  assignments and never lets a browser create a conversation or change a member. GM and Brand
+  Manager read as viewers. Text only; read-only at `CLOSED`. Spring Boot and PostgreSQL hold every
+  message and rule; **Ably relays live updates only** (one private channel per person, publish never
+  granted to a browser); web push for anyone without the app open. No chat platform owns the data.
 - **D18.** The target is an **id-faithful mirror** of GHL (same pipeline/stage/contact/opportunity
   ids both sides), synced both ways, that keeps working when sync is off. Units 44–48
   (`context/specs/00c-ghl-independence-programme.md`). EvalOS mints its own primary key and keeps
@@ -333,6 +348,8 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
   case at all**. `ScopePredicate`'s PIPELINE arm matching no `evalos_case` row is therefore
   **correct**, not the gap `implementation-status.md` called it until 2026-09-17.
   _(Closes `00d` §12a, which asked how much of a case SALES gets: none.)_
+  **Chat is the one exception (Unit 57, 2026-09-26):** Sales takes part in the Client and Internal
+  conversations of cases from their pipeline, and still reads no case data.
 - **D20.** Eight staff roles with ABAC tiers: `GM`(ALL), `BRAND_MANAGER`(BRAND),
   `PROJECT_MANAGER`(TEAM), `PROJECT_COORDINATOR`/`CASE_MANAGER`(SELF),
   `EXPERT_NETWORK_MANAGER`(SUPPLY), `SALES`/`MARKETING`(PIPELINE).

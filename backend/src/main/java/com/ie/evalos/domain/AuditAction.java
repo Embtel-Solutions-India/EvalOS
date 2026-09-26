@@ -125,6 +125,16 @@ public enum AuditAction {
 	/** An EvalOS deal note was deleted by its author (Unit 54a). Who and when, never the words. */
 	NOTE_DELETED,
 	NOTE_ADDED,
+	/** A participant joined a case conversation (Unit 57). System actor: EvalOS computed it. */
+	CHAT_MEMBER_ADDED,
+	/** A participant left a case conversation (Unit 57); the row is stamped, never deleted. */
+	CHAT_MEMBER_REMOVED,
+	/** A chat message was edited by its author; {@code before} holds the previous text (Unit 57). */
+	CHAT_MESSAGE_EDITED,
+	/** A chat message was deleted by its author; {@code before} holds the text it had (Unit 57). */
+	CHAT_MESSAGE_DELETED,
+	/** A case's conversations became read-only because the case closed (Unit 57). */
+	CHAT_READ_ONLY,
 	/**
 	 * A transfer was recorded as sent, settling one or more payout rows (Unit 16b),
 	 * written against the <strong>payment</strong>.

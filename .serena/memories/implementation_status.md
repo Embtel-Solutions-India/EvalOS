@@ -12,8 +12,8 @@ the dead-code pass below.
 native HTML5 DnD delegated on the strip, no state change per pointer move, optimistic
 `boardMove.moveDeal` (untouched columns/cards keep identity, so memoised ones skip), one
 `PUT /sales/opportunities/{id}/stage`, rollback on refusal. Name search via `useDeferredValue`;
-`content-visibility: auto` on cards instead of a virtualiser. Server does not check the target
-stage is in the deal's pipeline — open decision Q12. 2026-09-24: board `Deal` carries `source` and
+`content-visibility: auto` on cards instead of a virtualiser. `moveToStage` refuses a stage not
+live on the deal's own pipeline (Q12 resolved 2026-09-24, D44). 2026-09-24: board `Deal` carries `source` and
 `service` (row fields first, then `opportunity.lead_source` / the portal request), one read each
 per board; cards show Value / Source / service with "—" placeholders, headers show stage Value.
 
@@ -173,7 +173,7 @@ PAGED server-side (`?page=&size=`, 15 default, clamp 100); offset not keyset bec
 
 **Deal screen rebuilt 2026-09-23 (two columns).** Left = the record, right = Actions +
 Contact details (sticky at `xl`). `DealApplication`/`DealDocuments` became tables (`.tbl`);
-answers expand in place. `ContactView` gained `source` / `assignedTo` / `createdAt` — the assignee
+`DealApplication` is the "Portal request" panel (service, purpose, submitted, status) since Unit 55. `ContactView` gained `source` / `assignedTo` / `createdAt` — the assignee
 is resolved to a NAME via the `ghl_user` mirror so the raw GHL user id never reaches the browser.
 `ContactSnapshot.getSourceChannel()` is new. `DealEditDialog` wraps the existing
 `PUT /api/sales/opportunities/{id}` (name + value, SALES only).
@@ -185,8 +185,8 @@ Do not fill either with a plausible value; a row reading "Verified" that nobody 
 than an empty column. `carried_to_case_document_id` has its own "On the case" column and is NOT
 the verification verdict. Format and size sit under the filename, where they are real.
 
-STILL NOT BUILT from that design: a "Hot" lead-temperature badge (nothing scores a lead) and a
-second questionnaire (one `client_application` per opportunity).
+STILL NOT BUILT from that design: a "Hot" lead-temperature badge (nothing scores a lead).
+Questionnaires are REMOVED entirely (Unit 55, D13).
 
 **Mail branding 2026-09-23.** The logo is the horizontal mark served from the marketing site —
 `MailTemplates.LOGO_URL`, the APEX host (`www` 301s and image proxies drop redirects), sized
@@ -497,3 +497,29 @@ no team-admin feature folder or route. `TeamMemberController`'s javadoc names "t
 screen"; it was never built, so Unit 44's COMPLETE means API + model, not an operable GM flow.
 Grants are made with curl or SQL, or by re-running V960's second statement after a mirror pass.
 There is likewise no create-team-member endpoint, which is why a seed is the only route to a login.
+
+**2026-09-25 — Unit 55: the client questionnaire is removed (D13, spec `55`).** Portal funnel is
+Service → Review (documents + send). Deleted: `lib/questionnaire.ts`, `constants/questionGroups.ts`,
+`constants/countries.ts`, `components/intake/QuestionField.tsx`, `saveApplication`/`parseAnswers`,
+`questionGroupIds`, the question types. Backend: `ClientApplicationService.save`, the portal `PUT`
+route, `ClientApplication.answers`, `ApplicationView.answers`; portal CORS methods are now
+GET/POST/DELETE/OPTIONS (`ClientApplicationRoutesTest` refuses PUT and PATCH at preflight). Staff:
+`DealApplication` is "Portal request", no answers. **`client_application.answers` column NOT dropped
+yet — `V69` awaits an explicit go-ahead** (it destroys client data). Suites: backend 1179/0/4 skipped,
+staff 131, portals 30, all green.
+
+**2026-09-25 — client portal legal pages.** Public `/privacy`, `/disclaimer`, `/document-retention`
+(`client/src/pages/legal/`, JSX content, no markdown dependency; paths + contact in
+`constants/legal.ts`). `SiteFooter` (three summary paragraphs + links + address) under every screen
+via `PortalLayout`, a `PublicLayout` route for the signed-out screens, and `LegalPage`. Linked in
+place at sign-up, the document uploader and the send step. The business's "not reviewed by an
+attorney" drafting notes are NOT published; attorney review before go-live is theirs to decide.
+
+**2026-09-26 — Unit 57 case chat, PHASE 1 (backend) BUILT.** `V69`: conversations (3 per case),
+conversation_members (history, trigger-guarded), messages (text, replies 1 level, soft delete, FTS),
+message_reactions, message_reads (watermark), push_subscriptions. Membership computed from the case team,
+pipeline Sales, brand ENMs, client account, offered/accepted expert; follows case events after commit
+(new `CASE_MANAGER_REASSIGNED`) and the hourly `CHAT_RECONCILE` sweep (first run backfills open cases).
+Read-only at CLOSED. REST on /api/chat, /api/portal/client/chat, /api/portal/expert/chat (routes once in
+`ChatRoutes`). Live: Ably, one private channel per person, publish never granted. Push: web-push 5.1.2 to
+members not present. No UI yet (phases 2–3). Never run against a real Ably app. Full suite 1282/0/4 skipped.

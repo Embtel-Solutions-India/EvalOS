@@ -7,7 +7,8 @@ House rule: every question carries a recommendation.
 
 _Q2 (request status model), Q3 (Sales approval rules) and Q4 (request documents) were resolved on
 2026-09-17 and left for `current-decisions.md` D33–D35. Q7 (portal deployment) left for D38, and
-carried-forward item (a) for D19c._
+carried-forward item (a) for D19c. Q12 (stage moves across pipelines) was resolved on
+2026-09-24 and left for D44._
 
 **Q1 — Should `MarketingLeadService` keep `upsertOpportunity`?**
 It reuses the one open opportunity per contact per pipeline, so a second enquiry from the same
@@ -85,27 +86,17 @@ whose job the chase is, which is the part that is actually unresolved. Resist a 
 opportunities for abandoned drafts: that is the reverted D10 wearing a different name.
 _Gates:_ none — the data is already there.
 
-**Q12 — Should the server refuse a stage move to a stage of another pipeline?**
-`SalesDeskService.moveToStage` checks the caller owns the deal (`requireMine`) and that a stage was
-sent, but **not that the stage belongs to the deal's pipeline**. A salesperson may hold several
-pipelines (`team_member_pipeline`), and `OpportunityBoardService.draw` merges their stages into one
-strip — so the board's drag (2026-09-23) and `DealActions`' stage select can both send a foreign
-stage id, which the mirror accepts and the push then sends to GHL. `BoardColumn` carries no
-`pipelineId`, so the SPA cannot prevent it.
-_Recommend:_ a server guard in `moveToStage` — the stage must be a live `pipeline_stage` of the
-row's pipeline, else `InvalidRequestException` — and nothing in the SPA; the board already rolls a
-refused move back. It enforces the rule the method's own Javadoc states.
-_Gates:_ none.
 
 ## Carried forward from `00d` §12, still unresolved
+
+_Item h was settled by Unit 57 (2026-09-26): the client sees the case team by name in the Client
+conversation and never shares a conversation with the expert._
 
 | #   | Question                                                   | Recommendation                                                                                                                                      |
 | --- | ---------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
 | b   | Who owns reaching the client now Sales exists?             | Split at Handoff A: before the case the client is Sales's, from creation the Coordinator's with Sales copied.                                       |
 | c   | Does EvalOS send client mail beyond the two auth messages? | Yes — four messages, as a unit, with a written invariant-14 amendment: checklist+link, draft ready, expert signing link, delivered. Not the chases. |
-| g2  | Does the expert see the client's questionnaire answers?    | A curated subset — field, degree, institution, visa category, stated goal. Never budget, timeline pressure or attribution.                          |
-| h   | Does the client see who is working on their case?          | A role and a date, not a name.                                                                                                                      |
-| i2  | Do GHL-born leads share the application table?             | Decide with Q5 in Unit 44. A GHL lead has no service and no answers.                                                                                |
+| i2  | Do GHL-born leads share the application table?             | Decide with Q5 in Unit 44. A GHL lead has no service.                                                                                               |
 | i3  | Does the GM's board span every brand or the selected one?  | The selected brand, consistently.                                                                                                                   |
 | j   | Should brand isolation move to Postgres RLS?               | No. Composite FKs plus a test forbidding `findById` on a `ScopedRepository` outside a token-authorised path.                                        |
 | k   | Do the `…FromPortal` method twins collapse?                | Yes, while splitting `CaseLifecycleService`, not before.                                                                                            |

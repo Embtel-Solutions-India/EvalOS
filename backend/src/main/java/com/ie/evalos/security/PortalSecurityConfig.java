@@ -55,21 +55,15 @@ public class PortalSecurityConfig {
 		config.setAllowedOrigins(allowedOrigins.isBlank() ? java.util.List.of()
 				: java.util.Arrays.stream(allowedOrigins.split(",")).map(String::trim)
 						.filter(origin -> !origin.isEmpty()).toList());
-		// **Every method the chain actually serves, and PUT is the one that was missing.** It read
-		// GET/POST/OPTIONS while `ClientApplicationController` has carried
-		// `PUT /api/portal/applications/{id}` since Unit 43 -- the questionnaire's autosave, and the
-		// only non-GET/POST route on the whole portal API. A method absent from this list fails its
-		// PREFLIGHT, and `DefaultCorsProcessor` answers that with a bare **403 and a plain-text
-		// body** -- so it does not arrive as a CORS message in the client, it arrives as a 403 the
-		// app cannot read an error out of, and the client falls back to "We could not save your
-		// answers." A client mid-questionnaire clicked Review and lost the lot.
+		// **Every method the chain actually serves, and nothing else.** A method absent from this
+		// list fails its PREFLIGHT, and `DefaultCorsProcessor` answers that with a bare **403 and a
+		// plain-text body** -- a 403 the client cannot read an error out of. That is how the
+		// questionnaire's autosave broke on 2026-09-18, when PUT was missing.
 		//
-		// **DELETE joined the list at Unit 53**, for `DELETE /applications/{id}/documents/{d}` —
-		// a client taking a document back off a draft. It is here because that route exists, and
-		// `ClientApplicationRoutesTest` is what stopped it shipping without: the preflight
-		// assertion failed the moment the route was added, which is the whole reason the list is
-		// enumerated rather than widened to a standard set. PATCH still reaches nothing under
-		// `/api/portal/**`, so PATCH is still absent and is what the negative assertion uses.
+		// **DELETE is here for Unit 53**, `DELETE /applications/{id}/documents/{d}` -- a client
+		// taking a document back off a draft. **PUT left with the questionnaire (Unit 55)** and came
+		// back with case chat (Unit 57): editing a message and reacting to one. The list is enumerated rather than a
+		// standard set so that `ClientApplicationRoutesTest` fails when a route adds or drops a verb.
 		config.setAllowedMethods(java.util.List.of("GET", "POST", "PUT", "DELETE", "OPTIONS"));
 		config.setAllowedHeaders(java.util.List.of("Content-Type", PortalTokenFilter.HEADER));
 		// No cookies are used and none should be: the credential is a header, and allowing

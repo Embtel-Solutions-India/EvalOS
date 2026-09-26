@@ -428,7 +428,7 @@ export const NAV_ITEMS: readonly NavItem[] = [
 export const CASE_DETAIL_PATH = '/cases/:id'
 
 /**
- * One opportunity: the contact, the questionnaire they submitted, the notes and the actions.
+ * One opportunity: the contact, the request they sent, the notes and the actions.
  * Reached from a board card, so it is unlisted — the card is the way in.
  *
  * **Pipeline-scoped on the server**, not by this table: every read behind it calls
@@ -459,7 +459,7 @@ const PARAMETERIZED: readonly NavItem[] = [
     brandProven: true,
     label: 'Opportunity',
     roles: ['SALES', 'MARKETING', 'GM'],
-    becomes: 'One deal: contact, questionnaire, notes',
+    becomes: 'One deal: contact, request, notes',
     group: 'Sales',
   },
   {

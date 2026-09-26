@@ -1,10 +1,8 @@
 import { AnimatePresence, motion } from 'framer-motion'
 
-// Three, not the four this file was deleted with. **About You went to sign-up** — the client is
-// signed in before the funnel starts — and **Documents is not a funnel step**: there is no place
-// to put a file before a case exists, so uploading happens from the Documents screen once there
-// is one. See NewRequest.
-const STAGES = ['Service', 'Your request', 'Review'] as const
+// Two: choose a service, then review and send — the documents attach on review. About You went
+// to sign-up, and the questionnaire step went with Unit 55. See NewRequest.
+const STAGES = ['Service', 'Review'] as const
 
 interface IntakeProgressProps {
   currentIndex: number

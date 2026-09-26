@@ -12,14 +12,19 @@ Unresolved as of 2026-09-17:
 9. Who owns an appointment, and how is employee availability modelled?
 10. What is the scope of the conversation sidebar, and when? (Unit 47)
 11. Who chases an abandoned `DRAFT` request now D10 moved the opportunity to submit?
-12. Should `moveToStage` refuse a stage outside the deal's own pipeline? (recommend: yes, server
-    guard; the board's drag and `DealActions` can both send one today)
+
+**Resolved 2026-09-26:** ~~h does the client see who works their case~~ → Unit 57: the case team by name in
+the Client conversation; the client never shares a conversation with the expert.
+
+**Resolved 2026-09-25:** ~~g2 does the expert see the answers~~ → moot, no questionnaire (D13, Unit 55).
+
+**Resolved 2026-09-24:** ~~Q12 cross-pipeline stage move~~ → **D44**: refused server-side.
 
 **Resolved 2026-09-17 — do not re-open from an old note:**
 
 - ~~2. request status model~~ / ~~3. Sales approval rules~~ → **D35**: no EvalOS review state at
   all. Two statuses is the answer. Review is a GHL pipeline stage.
-- ~~4. request-stage documents~~ → **D33**: uploaded at questionnaire submit, keyed by contact,
+- ~~4. request-stage documents~~ → **D33**: uploaded with the request, keyed by contact,
   carried into `case_document` at Handoff A. Unit 53.
 - ~~5. merge `contact_snapshot` + `client_account`~~ → **D32** (2026-09-16): two tables, joined.
 - ~~7. portal deployment~~ → **D38**: DevOps's, outside this repository.

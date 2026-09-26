@@ -318,6 +318,9 @@ public class CaseLifecycleService {
 
 		audit.recordEvent(OBJECT_TYPE, saved.getId(), AuditAction.ASSIGNED, TenantContext.current().memberId(),
 				before, new CaseManagerSnapshot(cm.getId()));
+		// Unit 57: the chat membership follows the Case Manager. Until now this method published
+		// nothing, so the chat would have learned of the change only on the hourly sweep.
+		events.publishEvent(CaseEvents.CaseEvent.of(CaseEvents.Type.CASE_MANAGER_REASSIGNED, saved));
 		return saved;
 	}
 

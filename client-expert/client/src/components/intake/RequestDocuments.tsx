@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { FileText, X } from 'lucide-react'
+import { Link } from 'react-router-dom'
 import { toast } from 'sonner'
 import { Button } from '@shared/components/ui/button'
 import { Card } from '@shared/components/ui/card'
@@ -10,6 +11,7 @@ import {
   removeDocument,
   type RequestDocument,
 } from '@/services/applicationService'
+import { LEGAL } from '@/constants/legal'
 
 /**
  * The documents that go with a request — Unit 53 (D33), the DOCUMENT SUBMISSION step
@@ -128,6 +130,15 @@ export default function RequestDocuments({
         onFileSelected={onFile}
         disabled={attach.isPending}
       />
+      {/* Said where the files are handed over, not only in the footer. */}
+      <p className="text-xs text-muted-foreground">
+        We keep case documents for seven years and delete copies of government ID within 90 days of
+        delivery. See our{' '}
+        <Link to={LEGAL.retention.to} className="font-medium text-primary underline-offset-4 hover:underline">
+          {LEGAL.retention.label}
+        </Link>
+        .
+      </p>
     </Card>
   )
 }

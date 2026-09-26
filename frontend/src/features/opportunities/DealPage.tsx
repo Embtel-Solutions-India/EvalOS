@@ -38,16 +38,16 @@ import {
  *
  * <p><strong>Clicking a card opens this</strong> (2026-09-17). The card used to expand in place,
  * which meant the answers, the notes and the actions all appeared inside a 16rem column between
- * two other cards — readable for a note, useless for a questionnaire.
+ * two other cards — readable for a note, useless for anything longer.
  *
  * <p><strong>Two columns as of 2026-09-23.</strong> The left is the record — who they are, what
  * they submitted, what they sent, what has been said about them — read top to bottom. The right is
  * what you <em>do</em> and what you <em>check</em>, and it stays in view while the left scrolls.
  * That split is what stopped the actions being the last thing on a long page: a salesperson
- * opening a deal to move it a stage had to scroll past a whole questionnaire to reach the control.
+ * opening a deal to move it a stage had to scroll past the whole record to reach the control.
  *
  * <p><strong>Everything here is a field something actually stores.</strong> The design this
- * follows also carried a "Hot" lead-temperature badge, a second questionnaire, and a
+ * follows also carried a "Hot" lead-temperature badge, questionnaires (removed, Unit 55), and a
  * Verified / Pending-review column on the documents. None of those exists — there is no lead score
  * anywhere in EvalOS or the mirror, there is one {@code client_application} per opportunity, and
  * nothing reviews a request document. They are left out rather than faked, because a screen

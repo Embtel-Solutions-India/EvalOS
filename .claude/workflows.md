@@ -80,8 +80,8 @@ Client Portal /requests/new
   step 1  pick a service          → POST /api/portal/applications
                                        INSERT client_application (status DRAFT)
                                        NOTHING LEAVES THE JVM — D10
-  step 2+ questionnaire           → PUT  /api/portal/applications/{id}   (autosave, jsonb)
-                                       still nothing; the whole funnel is EvalOS's own rows
+  step 2  review + documents      → POST /api/portal/applications/{id}/documents   (D33)
+                                       still nothing; no questionnaire since Unit 55 (D13)
   submit                          → POST /api/portal/applications/{id}/submit
                                        ensure ghl_contact_id (D3c backfill, if it is missing)
                                        open the local opportunity row (correlation key first)
@@ -107,10 +107,10 @@ GHL marks the opportunity won     → POST /api/webhooks/ghl/{endpointToken}
 `GhlOpportunityHandler`.
 
 **The deal opens at SUBMIT, not at service-pick (D10, changed 2026-09-16, third time of asking).**
-It opened at the first screen until then, so that a client who abandoned the questionnaire still
+It opened at the first screen until then, so that a client who abandoned the questionnaire (removed, D13) still
 reached a salesperson. A deal on the board is now a finished request and nothing else, which is
 what gives Sales' review step something to review. **The cost is stated rather than hidden: an
-abandoned questionnaire now reaches nobody** — the `DRAFT` rows are still there and nothing sweeps
+abandoned request now reaches nobody** — the `DRAFT` rows are still there and nothing sweeps
 them or tells anyone, which is an open decision, not a silent gap.
 
 **Documents are not part of this flow.** `NewRequest.tsx` says so in the UI: *"you can send us
@@ -131,11 +131,11 @@ CLIENT → PORTAL → REQUEST SERVICE → SERVICE DETAILS → DOCUMENT SUBMISSIO
 - **DOCUMENT SUBMISSION** — needs a request-scoped document table, routes and an S3 prefix keyed by
   the **GHL contact id** (D41), and a carry-forward into `case_document` at Handoff A (D33,
   spec `53`).
-  The client uploads with the questionnaire; the documents are the client's, held against the
+  The client uploads with the request; the documents are the client's, held against the
   person, before any case exists to hold them.
 - ~~**SALES REVIEW as a state**~~ — **not owed.** D35: review is a GHL pipeline stage, not an
   EvalOS column. `client_application.status` stays `DRAFT` / `SUBMITTED`. What Sales *is* owed is
-  the documents beside the answers on the one opportunity screen (D34).
+  the documents beside the request on the one opportunity screen (D34).
 
 Everything else in the chain exists.
 
@@ -157,7 +157,9 @@ Everything else in the chain exists.
 **Edits do not call GHL at all** (D44, Unit 46). `SalesDeskService.update` / `moveToStage` /
 `close` and `MarketingLeadService.value` each edit the mirror row, stamp `local_updated_at` **and
 record which of the four shared fields they touched** (`locally_edited_fields`, `V63`), queue
-`UPSERT` or `CLOSE`, and answer from the row. `SYNC_OUTBOX` (2m) sends it.
+`UPSERT` or `CLOSE`, and answer from the row. `SYNC_OUTBOX` (2m) sends it. `moveToStage` first
+refuses a stage that is not a live `pipeline_stage` of the row's own pipeline (Q12, 2026-09-24),
+so the merged board strip cannot turn a drag into a pipeline move.
 
 **The push carries the edited fields only.** `updateOpportunity` omits a null from the body, so an
 unedited field is left alone in GHL rather than overwritten by whatever the mirror happens to hold
@@ -248,7 +250,7 @@ A client with two or more cases is **refused** — the per-case routes and picke
 `Client Portal → S3 → Request → Sales → Case → Production → Expert`. The first hop into a
 **Request** does not exist; documents enter at the Case today.
 
-**Decided 2026-09-17 (D33, D41):** the client uploads **at questionnaire submit**, and the S3 key is
+**Decided 2026-09-17 (D33, D41):** the client uploads **with the request, before submit**, and the S3 key is
 keyed by the **GHL contact id** — one id names a contact everywhere, and the documents belong to the
 person rather than to a case that has not been won yet. Sales reads them on their own route and tab
 on the same opportunity (D34); Handoff A carries them forward into `case_document` over the same S3
@@ -294,9 +296,17 @@ Booking sends: calendar, contact, start, end, title, description, `assignedUserI
 
 ### CURRENT IMPLEMENTATION
 
-**Nothing.** No table, no column, no endpoint, no component. The only message-like feature is
-`opportunity_note` — staff prose against a GHL opportunity, rendered by `DealNotes.tsx`; its author may
-edit or delete it (Unit 54a).
+**Case chat, backend only (Unit 57 phase 1, 2026-09-26; spec `57-case-chat.md`, D50).** Every case
+gets three conversations — Client, Internal, Expert — created at `CASE_CREATED` by the after-commit
+`ChatLifecycleListener`. Membership is computed by `ChatMembership` from the case team, the deal
+pipeline's Sales, the brand's ENMs, the client's portal account and the expert's open or accepted
+offer, and follows every event in `ChatLifecycleListener.MOVES_THE_CHAT` (including the new
+`CASE_MANAGER_REASSIGNED`). `CHAT_RECONCILE` (hourly) repairs whatever an event misses and, on its
+first run, backfills every case not yet closed. At `CLOSED` all three become read-only. Messages go
+through REST on `/api/chat`, `/api/portal/client/chat` and `/api/portal/expert/chat`; after commit
+`ChatFanout` publishes each change into every current member's private Ably channel, and
+`ChatPushNotifier` sends a web push to members who are not present on theirs. **No app screen yet**
+(phases 2–3). `opportunity_note` (Unit 54a) is unchanged and separate.
 
 ### TARGET WORKFLOW
 
@@ -350,7 +360,7 @@ The client attaches documents on the **review** step of the request, before send
 "if you have them to hand" because a missing transcript is something Sales asks about on the call,
 not a wall in front of a lead.
 
-Sales reads them on the deal page beside the answers (`DealDocuments`), through
+Sales reads them on the deal page beside the request (`DealDocuments`), through
 `GET /api/opportunities/{id}/documents` and a five-minute presigned URL per click. Its own route
 and the same permission as the application read (D34): the documents ask no new authorisation
 question, because Sales reaches them by already being able to open the opportunity.
