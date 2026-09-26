@@ -30,9 +30,12 @@ The stage flow is unchanged (`CaseTransitions`): Case Manager submits → PM app
 sent to client → client approves (the case enters `EXPERT_SIGNING`) or requests revisions (back to
 `DRAFT_IN_PROGRESS`). What changes is what is submitted:
 
+- **Draft versions already exist** — `case_document` rows of kind `DRAFT`, numbered per case,
+  created by `submitDraft` and stamped by the PM (`V31`). **This unit reuses them** (decided
+  2026-09-27, replacing a new-table design that would have duplicated that versioning).
 - **`SUBMIT_DRAFT` takes two files instead of a link**: a `.docx` and a `.pdf` of the same draft,
-  creating the case's next version (v1, v2…). Both must pass the existing content sniffing (a real
-  Word document, a real PDF) and the upload size limit.
+  stored on the version row `submitDraft` already creates. Both must pass the existing content
+  sniffing (a real Word document, a real PDF) and the upload size limit.
 - **The client sees a version only once it is sent to them** (`SEND_DRAFT_TO_CLIENT`). A version the
   PM returns never reaches the client.
 - **Approve and Request changes act on the version under client review** and drive the existing
@@ -42,11 +45,16 @@ sent to client → client approves (the case enters `EXPERT_SIGNING`) or request
 - **Legacy cases** whose draft is a pasted `draft_link` keep showing it as "Draft (link)" with
   View only; no data migration is attempted.
 
-### Version status
+### Version status (the existing `DocumentStatus`, plus one value)
 
-`PM_REVIEW` (submitted) → `RETURNED` (PM sent it back; never client-visible) or `CLIENT_REVIEW`
-(sent to the client) → `APPROVED` or `CHANGES_REQUESTED`. Only one version per case is ever in
-`CLIENT_REVIEW`, and it is the latest. Earlier versions are read-only history.
+`SUBMITTED` (with the PM) → `RETURNED` (PM sent it back; never client-visible) or `PM_APPROVED` →
+sent to the client (the case enters `CLIENT_REVIEW`) → `CLIENT_APPROVED` (the version the expert
+signs, locked) or **`CHANGES_REQUESTED`** (new — stamped when the client requests changes; today
+that leaves the version unmarked). `SUPERSEDED` (a newer version replaced it unruled) and `SIGNED`
+stay as they are. **The version "in client review"** is the latest `PM_APPROVED` version while the
+case is at `CLIENT_REVIEW` / `CLIENT_APPROVAL`; only it can be commented on, approved or sent
+back. **Client-visible versions:** that one, plus every `CLIENT_APPROVED` and `CHANGES_REQUESTED`
+version. `SUBMITTED`, `RETURNED` and `SUPERSEDED` never reach the client.
 
 ### Comments
 
@@ -59,13 +67,13 @@ sent to client → client approves (the case enters `EXPERT_SIGNING`) or request
 
 ## 2. Data — migration `V70`
 
-- **`case_drafts`** — `id`, `brand_id`, `case_id` → `evalos_case`, `version` (unique per case),
-  `docx_key`, `pdf_key` (S3 keys under the case, via `DocumentStore`), `docx_filename`,
-  `pdf_filename`, `uploaded_by` (team member), `created_at`, `status` (above), `sent_at`,
-  `decided_at`, `decided_by_client` (bool).
-- **`draft_comments`** — `id`, `brand_id`, `draft_id` → `case_drafts`, `author_kind`
-  (`STAFF`/`CLIENT`), `author_id`, `body`, `page` (nullable, ≥ 1), `created_at`. **A trigger refuses
-  UPDATE and DELETE** — comments are a record.
+- **`case_document` gains the PDF**: `pdf_object_key`, `pdf_filename`, `pdf_size_bytes` (nullable).
+  For a `DRAFT` row the existing `object_key` / `filename` / `size_bytes` hold the Word file and the
+  new columns the PDF. No other kind uses them.
+- **`DocumentStatus` gains `CHANGES_REQUESTED`** — the status check constraint is widened to allow it.
+- **`draft_comments`** — `id`, `brand_id`, `document_id` → `case_document` (a `DRAFT` row),
+  `author_kind` (`STAFF`/`CLIENT`), `author_id`, `body`, `page` (nullable, ≥ 1), `created_at`.
+  **A trigger refuses UPDATE and DELETE** — comments are a record.
 - The pending `client_application.answers` drop (Unit 55) moves from `V70` to **`V71`**.
 
 ## 3. Backend
@@ -89,12 +97,12 @@ sent to client → client approves (the case enters `EXPERT_SIGNING`) or request
 | `GET cases/{id}` | detail: step, stepper position, milestone timeline, checklist |
 | `GET cases/{id}/documents`, `POST cases/{id}/documents?checklistItemId=` | this case's checklist and uploads (replaces the case-less `/documents`) |
 | `GET cases/{id}/documents/{docId}/url` | 5-minute download link to the client's own file |
-| `GET cases/{id}/drafts` | client-visible versions only (`CLIENT_REVIEW`, `APPROVED`, `CHANGES_REQUESTED`) |
+| `GET cases/{id}/drafts` | client-visible versions only (§1) |
 | `GET cases/{id}/drafts/{draftId}/files/{docx\|pdf}/url` | 5-minute link |
 | `GET` / `POST cases/{id}/drafts/{draftId}/comments` | read / add (post only on the version in review) |
 | `POST cases/{id}/drafts/{draftId}/approve` | `CLIENT_APPROVE_DRAFT` on that version |
 | `POST cases/{id}/drafts/{draftId}/request-changes` | `CLIENT_REQUEST_REVISIONS`, optional note |
-| `GET cases/{id}/delivered` | the signed letter and the approved draft — **only at `DELIVERED` or `CLOSED`** |
+| `GET cases/{id}/delivered` | the `SIGNED_LETTER` and the `CLIENT_APPROVED` draft — **only at `DELIVERED` or `CLOSED`** |
 | `GET invoices?status=paid` | paid invoices only (GHL's `paid` status) |
 
 The old token-scoped `/approve` and `/request-revisions` and the case-less `/documents` routes are
@@ -170,7 +178,7 @@ Conversations; permission is never requested on its own.
 
 ## 8. Phases — each shippable
 
-1. **Backend** — `V70`, draft versions and comments, per-case client routes, delivered gating,
+1. **Backend** — `V70` (draft PDF columns, `CHANGES_REQUESTED`, comments), per-case client routes, delivered gating,
    milestones, paid filter, staff upload and the staff "Upload draft" control.
 2. **`packages/evalos-chat`** — the portal subset.
 3. **Client portal** — Home, case detail, Conversations, Invoices; Meetings and Documents removed;
@@ -179,8 +187,9 @@ Conversations; permission is never requested on its own.
 
 ## 9. Decisions this edits
 
-- **New D51** — drafts are uploaded versions (Word + PDF) with per-version comments; approval
-  attaches to a version; the client sees the signed letter only once delivered.
+- **New D51** — drafts are uploaded versions (Word + PDF) on the existing `case_document` draft
+  versions, with per-version comments; approval attaches to a version; the client sees the signed
+  letter only once delivered.
 - **D33** — notes that drafts are now stored files alongside the request documents.
 - **Spec 57 §7** — the client-portal row now points here.
 - `data-model.md`, `workflows.md`, `implementation-status.md` and the Serena memories follow each
