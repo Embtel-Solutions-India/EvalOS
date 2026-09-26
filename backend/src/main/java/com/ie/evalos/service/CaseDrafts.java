@@ -59,7 +59,7 @@ public class CaseDrafts {
 
 	/** One version as the client sees it. No object key, no uploader, no PM comment. */
 	public record ClientDraftVersion(UUID id, int version, String status, Instant uploadedAt, boolean inReview,
-			boolean hasWord, boolean hasPdf, String reviewComment) {
+			boolean hasWord, boolean hasPdf) {
 	}
 
 	private final CaseDocumentRepository documents;
@@ -103,9 +103,7 @@ public class CaseDrafts {
 		UUID current = inReview(subject).map(CaseDocument::getId).orElse(null);
 		return clientVisible(subject).stream()
 				.map(d -> new ClientDraftVersion(d.getId(), d.getVersion(), d.getStatus().name(), d.getUploadedAt(),
-						d.getId().equals(current), d.getObjectKey() != null, d.hasPdf(),
-						// The client's own words on a version they sent back; never the PM's comment.
-						d.getStatus() == DocumentStatus.CHANGES_REQUESTED ? d.getReviewComment() : null))
+						d.getId().equals(current), d.getObjectKey() != null, d.hasPdf()))
 				.toList();
 	}
 
@@ -122,7 +120,8 @@ public class CaseDrafts {
 
 	@Transactional(readOnly = true)
 	public List<CommentView> comments(CaseDocument draft, boolean forStaff) {
-		List<DraftComment> thread = comments.findByDocumentIdOrderByCreatedAtAsc(draft.getId());
+		List<DraftComment> thread = comments.findByBrandIdAndDocumentIdOrderByCreatedAtAsc(draft.getBrandId(),
+				draft.getId());
 		Map<UUID, String> names = forStaff ? staffNames(thread) : Map.of();
 		return thread.stream().map(c -> view(c, names)).toList();
 	}

@@ -593,6 +593,15 @@ public class CaseLifecycleService {
 				});
 	}
 
+	/** The client's answer on the newest version — status only, tolerant of a missing row like the above. */
+	private void answerLatestDraft(Case subject, DocumentStatus answer) {
+		documents.findFirstByCaseIdAndKindOrderByVersionDesc(subject.getId(), DocumentKind.DRAFT)
+				.ifPresent(version -> {
+					version.answered(answer);
+					documents.save(version);
+				});
+	}
+
 	/**
 	 * One version and who wrote it.
 	 *
@@ -728,8 +737,9 @@ public class CaseLifecycleService {
 		requireState(subject.getClientApprovalStatus() == ClientApprovalStatus.PENDING,
 				"no draft is with the client");
 
-		// Unit 58: the version the client sent back says so, with their words on it.
-		stampLatestDraft(subject, DocumentStatus.CHANGES_REQUESTED, notes);
+		// Unit 58: the version the client sent back says so. Their words are on the trail, not over
+		// the PM's comment on the row.
+		answerLatestDraft(subject, DocumentStatus.CHANGES_REQUESTED);
 		return apply(subject, to, Action.CLIENT_REQUEST_REVISIONS, notes,
 				c -> c.setClientApprovalStatus(ClientApprovalStatus.REVISION_REQUESTED), actor);
 	}
@@ -761,7 +771,7 @@ public class CaseLifecycleService {
 		requireState(subject.getExpertId() != null, "no expert is on this case");
 
 		// Unit 58: this is the version the expert signs — locked by status, not only by stage.
-		stampLatestDraft(subject, DocumentStatus.CLIENT_APPROVED, null);
+		answerLatestDraft(subject, DocumentStatus.CLIENT_APPROVED);
 		return apply(subject, to, Action.CLIENT_APPROVE_DRAFT, null, c -> {
 			c.setClientApprovalStatus(ClientApprovalStatus.APPROVED);
 			c.setExpertSignStatus(ExpertSignStatus.PENDING);

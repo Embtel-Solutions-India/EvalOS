@@ -20,6 +20,7 @@ import com.ie.evalos.domain.Case;
 import com.ie.evalos.domain.CaseDocument;
 import com.ie.evalos.domain.DocumentChecklistItem;
 import com.ie.evalos.domain.DocumentKind;
+import com.ie.evalos.domain.DocumentStatus;
 import com.ie.evalos.domain.ExceptionState;
 import com.ie.evalos.domain.Expert;
 import com.ie.evalos.domain.ExpertSignStatus;
@@ -355,7 +356,13 @@ public class ExpertPortalService {
 		Case subject = authorized(principal);
 		String link = subject.getDraftLink();
 		if (link == null || link.isBlank()) {
-			throw new IllegalTransitionException("there is no letter on this case yet");
+			// Unit 58: a draft submitted as files has no link. The expert signs the version the client
+			// approved, handed over as its Word file on a five-minute link.
+			link = documents.findByCaseIdAndKindOrderByVersionDesc(subject.getId(), DocumentKind.DRAFT).stream()
+					.filter(d -> d.getStatus() == DocumentStatus.CLIENT_APPROVED && d.getObjectKey() != null)
+					.findFirst()
+					.map(d -> store.presignedUrl(d.getObjectKey()))
+					.orElseThrow(() -> new IllegalTransitionException("there is no letter on this case yet"));
 		}
 
 		audit.recordPortalEvent(subject.getBrandId(), PortalAudience.EXPERT, "CASE", subject.getId(),

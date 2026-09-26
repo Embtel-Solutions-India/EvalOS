@@ -44,6 +44,12 @@ sent to client → client approves (the case enters `EXPERT_SIGNING`) or request
 - **The expert later downloads exactly the approved version** (the expert portal unit).
 - **Legacy cases** whose draft is a pasted `draft_link` keep showing it as "Draft (link)" with
   View only; no data migration is attempted.
+- **Until the new portal ships (phase 3), the live screens keep working on uploaded drafts:** the
+  client view's `draftLink` carries a per-read 5-minute link to the newest client-visible version's
+  PDF, the expert's letter link hands over the `CLIENT_APPROVED` version's Word file, and the PM's
+  draft queue links to the case page's Word / PDF buttons.
+- **The client's answer stamps the version's status only**; the PM's review comment on it stays.
+  The client's words are on the audit trail and in the comment thread.
 
 ### Version status (the existing `DocumentStatus`, plus one value)
 

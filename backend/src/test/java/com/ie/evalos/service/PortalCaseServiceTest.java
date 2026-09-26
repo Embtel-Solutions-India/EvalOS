@@ -545,4 +545,31 @@ class PortalCaseServiceTest {
 		assertThat(view.stepIndex()).isEqualTo(1);
 		assertThat(view.milestones()).hasSize(1);
 	}
+
+	/** Final review #1: a draft uploaded as files, with no link, still opens in the live portal. */
+	@Test
+	void aDraftWithFilesAndNoLinkStillOpensInTheLivePortal() {
+		PortalPrincipal me = partyTokenFor(BRAND, "ghl-1");
+		subject.setDraftLink(null);
+		CaseDocument v3 = new CaseDocument(BRAND, CASE_ID, DocumentKind.DRAFT, 3, null, ActorType.STAFF, null);
+		v3.storedDraft("d.docx", "Draft.docx", 1, "d.pdf", "Draft.pdf", 1);
+		given(drafts.clientVisible(subject)).willReturn(java.util.List.of(v3));
+		given(drafts.fileUrl(v3, true)).willReturn("https://s3/draft-v3.pdf");
+
+		assertThat(portal.clientView(me, CASE_ID).draftLink()).isEqualTo("https://s3/draft-v3.pdf");
+	}
+
+	/** Final review #3: two simultaneous answers are serialised on the case row, before either reads it. */
+	@Test
+	void theClientsAnswersLockTheCaseFirst() {
+		PortalPrincipal me = partyTokenFor(BRAND, "ghl-1");
+		UUID v3 = UUID.randomUUID();
+		given(lifecycle.clientApproveDraftFromPortal(subject)).willReturn(subject);
+		given(lifecycle.clientRequestRevisionsFromPortal(subject, null)).willReturn(subject);
+
+		portal.approveDraft(me, CASE_ID, v3);
+		portal.requestChanges(me, CASE_ID, v3, null);
+
+		verify(cases, times(2)).lockById(CASE_ID);
+	}
 }

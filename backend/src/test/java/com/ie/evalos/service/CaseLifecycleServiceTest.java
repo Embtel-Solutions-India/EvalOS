@@ -1437,7 +1437,8 @@ class CaseLifecycleServiceTest {
 		lifecycle.clientRequestRevisionsFromPortal(subject, "Soften the conclusion");
 
 		assertEquals(DocumentStatus.CHANGES_REQUESTED, v1.getStatus());
-		assertEquals("Soften the conclusion", v1.getReviewComment());
+		// Final review #2: the version keeps the PM's comment; the client's words are on the trail.
+		assertEquals("Fix para 2 before sending", v1.getReviewComment());
 	}
 
 	@Test
@@ -1447,6 +1448,7 @@ class CaseLifecycleServiceTest {
 		lifecycle.clientApproveDraftFromPortal(subject);
 
 		assertEquals(DocumentStatus.CLIENT_APPROVED, v1.getStatus());
+		assertEquals("Fix para 2 before sending", v1.getReviewComment());
 	}
 
 	private CaseDocument draftWithTheClient() {
@@ -1457,7 +1459,7 @@ class CaseLifecycleServiceTest {
 		given(documents.findFirstByCaseIdAndKindOrderByVersionDesc(any(), eq(DocumentKind.DRAFT)))
 				.willReturn(Optional.of(v1));
 		actAs(Role.PROJECT_MANAGER);
-		lifecycle.pmApproveDraft(CASE_ID, null);
+		lifecycle.pmApproveDraft(CASE_ID, "Fix para 2 before sending");
 		actAs(Role.PROJECT_COORDINATOR);
 		lifecycle.sendDraftToClient(CASE_ID);
 		SecurityContextHolder.clearContext();

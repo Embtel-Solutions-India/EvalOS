@@ -1893,6 +1893,15 @@ class LocalPostgresIntegrationTest {
 				.hasMessageContaining("draft_comments_page_positive");
 	}
 
+	/** Final review #3: the client answers' row lock is a real statement Postgres accepts. */
+	@Test
+	@org.springframework.transaction.annotation.Transactional
+	void aCaseRowCanBeLockedForAClientAnswer() {
+		UUID id = anIeCase();
+		assertThat(cases.lockById(id)).contains(id);
+		assertThat(cases.lockById(UUID.randomUUID())).isEmpty();
+	}
+
 	private UUID anIeCase() {
 		return jdbc.queryForObject("SELECT id FROM evalos_case WHERE brand_id = ? ORDER BY id LIMIT 1",
 				UUID.class, BRAND_IE);

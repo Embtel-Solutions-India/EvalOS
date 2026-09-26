@@ -460,4 +460,18 @@ class ExpertPortalServiceTest {
 
 		assertThat(uploadValid().contentSha256()).isEqualTo(SHA_256_OF_PDF);
 	}
+
+	/** Final review #1: a draft uploaded as files, with no link, is the approved version's Word file. */
+	@Test
+	void aDraftWithFilesAndNoLinkHandsOverTheApprovedWordFile() {
+		subject.setDraftLink(null);
+		CaseDocument approved = new CaseDocument(BRAND, CASE_ID, DocumentKind.DRAFT, 2, null, ActorType.STAFF, null);
+		approved.storedDraft("approved.docx", "Draft.docx", 1, "approved.pdf", "Draft.pdf", 1);
+		approved.reviewed(com.ie.evalos.domain.DocumentStatus.CLIENT_APPROVED, null);
+		given(documents.findByCaseIdAndKindOrderByVersionDesc(CASE_ID, DocumentKind.DRAFT))
+				.willReturn(java.util.List.of(approved));
+		given(store.presignedUrl("approved.docx")).willReturn("https://s3/approved.docx");
+
+		assertThat(portal.letterLink(token())).isEqualTo("https://s3/approved.docx");
+	}
 }

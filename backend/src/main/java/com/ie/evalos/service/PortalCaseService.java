@@ -222,13 +222,26 @@ public class PortalCaseService {
 				clientName,
 				subject.getServiceType(),
 				subject.getCaseCode(),
-				subject.getDraftLink(),
+				draftLink(subject),
 				subject.getDraftVersionCount(),
 				subject.getClientApprovalStatus(),
 				subject.getClientApprovalStatus() == ClientApprovalStatus.PENDING,
 				PortalStageProjection.forClient(subject.getCurrentStage()).label(),
 				PortalStageProjection.clientStepIndex(subject.getCurrentStage()),
 				milestones.of(subject));
+	}
+
+	/**
+	 * The link the live portal opens (Unit 58, final review #1). A draft submitted as files has no
+	 * {@code draft_link}, so the newest client-visible version's PDF is minted for this read — five
+	 * minutes, never stored. A legacy pasted link still wins.
+	 */
+	private String draftLink(Case subject) {
+		if (subject.getDraftLink() != null && !subject.getDraftLink().isBlank()) {
+			return subject.getDraftLink();
+		}
+		return drafts.clientVisible(subject).stream().findFirst().filter(CaseDocument::hasPdf)
+				.map(d -> drafts.fileUrl(d, true)).orElse(null);
 	}
 
 	/**
@@ -553,6 +566,7 @@ public class PortalCaseService {
 	/** Approve names the version, so a stale tab cannot approve a newer one it never saw. */
 	@Transactional
 	public ClientDraftView approveDraft(PortalPrincipal principal, UUID caseId, UUID draftId) {
+		cases.lockById(caseId);
 		Case subject = authorized(principal, caseId);
 		drafts.requireInReview(subject, draftId);
 		return view(lifecycle.clientApproveDraftFromPortal(subject));
@@ -560,6 +574,7 @@ public class PortalCaseService {
 
 	@Transactional
 	public ClientDraftView requestChanges(PortalPrincipal principal, UUID caseId, UUID draftId, String notes) {
+		cases.lockById(caseId);
 		Case subject = authorized(principal, caseId);
 		drafts.requireInReview(subject, draftId);
 		return view(lifecycle.clientRequestRevisionsFromPortal(subject, notes));

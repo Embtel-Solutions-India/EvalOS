@@ -132,7 +132,7 @@ class CaseDraftsTest {
 	@Test
 	void theClientSeesTheCaseTeamNotAName() {
 		DraftComment staff = new DraftComment(BRAND, v3.getId(), DraftComment.AuthorKind.STAFF, UUID.randomUUID(), "Fixed", null);
-		given(comments.findByDocumentIdOrderByCreatedAtAsc(v3.getId())).willReturn(List.of(staff));
+		given(comments.findByBrandIdAndDocumentIdOrderByCreatedAtAsc(BRAND, v3.getId())).willReturn(List.of(staff));
 
 		assertThat(drafts.comments(v3, false)).singleElement()
 				.satisfies(view -> assertThat(view.authorName()).isNull());

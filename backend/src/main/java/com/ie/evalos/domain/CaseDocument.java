@@ -146,6 +146,14 @@ public class CaseDocument extends ScopedEntity {
 		this.reviewComment = comment == null || comment.isBlank() ? null : comment.strip();
 	}
 
+	/**
+	 * The client's answer on a draft (Unit 58). Status only: the PM's {@link #reviewComment} stays,
+	 * and the client's own words live on the audit trail and in the version's comment thread.
+	 */
+	public void answered(DocumentStatus answer) {
+		this.status = answer;
+	}
+
 	/** Closes a version nobody will rule on, because a newer one replaced it. */
 	public void superseded() {
 		this.status = DocumentStatus.SUPERSEDED;

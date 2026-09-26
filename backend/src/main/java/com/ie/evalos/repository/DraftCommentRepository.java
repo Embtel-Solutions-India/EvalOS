@@ -22,5 +22,5 @@ public interface DraftCommentRepository extends ScopedRepository<DraftComment> {
 		return SCOPE;
 	}
 
-	List<DraftComment> findByDocumentIdOrderByCreatedAtAsc(UUID documentId);
+	List<DraftComment> findByBrandIdAndDocumentIdOrderByCreatedAtAsc(UUID brandId, UUID documentId);
 }
