@@ -1,13 +1,16 @@
 package com.ie.evalos.web;
 
+import java.io.IOException;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 
 import com.ie.evalos.common.ApiResponse;
+import com.ie.evalos.common.UploadedFileType;
 import com.ie.evalos.domain.Case;
 import com.ie.evalos.domain.ClientApprovalStatus;
 import com.ie.evalos.domain.ExceptionState;
@@ -25,6 +28,7 @@ import com.ie.evalos.domain.Stage;
 import com.ie.evalos.security.TenantContext;
 import com.ie.evalos.service.CaseDetailService;
 import com.ie.evalos.service.CaseLifecycleService;
+import com.ie.evalos.service.DraftFile;
 import com.ie.evalos.service.RefundService;
 
 import jakarta.validation.Valid;
@@ -32,6 +36,7 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 
+import org.springframework.http.MediaType;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -41,6 +46,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MultipartFile;
 
 /**
  * One endpoint per transition, and nothing else. The role gate is the
@@ -315,12 +321,6 @@ public class CaseController {
 	public record ReasonRequest(@NotBlank String reason) {
 	}
 
-	/**
-	 * Where the drafted letter is (Unit 14). Optional: null or blank leaves whatever link the case
-	 * already carries, so re-submitting a revision filed in the same place needs nothing typed.
-	 */
-	public record SubmitDraftRequest(String draftLink) {
-	}
 
 	public record CaseManagerRequest(@NotNull UUID cmId) {
 	}
@@ -611,15 +611,17 @@ public class CaseController {
 	// --- the draft loops -----------------------------------------------------
 
 	/**
-	 * The body is optional and its one field is too: a second version filed in the same place needs
-	 * no new link, and omitting it leaves the existing one alone rather than taking the draft away
-	 * from a client mid-review.
+	 * The next draft version, as Word and PDF (Unit 58 §3). The Case Manager, Coordinator or PM of
+	 * the case — the scoped load inside the service is the "of the case". Both parts are sniffed
+	 * here, so a renamed file never reaches S3.
 	 */
-	@PostMapping("/{id}/draft/submit")
-	@PreAuthorize(GM_OR + "hasRole('CASE_MANAGER')")
-	public ApiResponse<CaseSummary> submitDraft(@PathVariable UUID id,
-			@RequestBody(required = false) SubmitDraftRequest request) {
-		return summary(lifecycle.submitDraft(id, request == null ? null : request.draftLink()));
+	@PostMapping(value = "/{id}/drafts", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+	@PreAuthorize(GM_OR + "hasAnyRole('CASE_MANAGER', 'PROJECT_COORDINATOR', 'PROJECT_MANAGER')")
+	public ApiResponse<CaseSummary> submitDraft(@PathVariable UUID id, @RequestParam("docx") MultipartFile docx,
+			@RequestParam("pdf") MultipartFile pdf) throws IOException {
+		UploadedFileType.require(docx, EnumSet.of(UploadedFileType.Kind.DOCX));
+		UploadedFileType.require(pdf, EnumSet.of(UploadedFileType.Kind.PDF));
+		return summary(lifecycle.submitDraft(id, DraftFile.of(docx), DraftFile.of(pdf)));
 	}
 
 	/**

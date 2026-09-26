@@ -502,19 +502,26 @@ public class CaseLifecycleService {
 
 	// --- the draft loops, all inside DRAFT_GENERATION -------------------------
 
+	private static final String DOCX = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+
 	/**
-	 * The Case Manager hands in a draft, and says where it is.
+	 * The Case Manager hands in a draft as two files, Word and PDF (Unit 58 §1).
 	 *
-	 * <p>{@code draftLink} is where {@code draft_link} comes from — the column the client portal
-	 * shows (Unit 14). Optional and only overwritten when given: a second version filed in the same
-	 * place needs no new link, and blanking one by omission would take the draft away from a client
-	 * mid-review. There is deliberately no fallback to the client's own uploads: those are their own
-	 * document folder, and a case with no draft link tells the portal "not ready".
+	 * <p>The transition is checked <strong>before</strong> anything reaches S3, so a refused click
+	 * leaves no object behind. After that the order is {@code upload}'s: objects first, row second —
+	 * a failed transaction leaves an invisible orphan, never a row pointing at nothing.
+	 *
+	 * <p>{@code draft_link} is no longer written: a legacy case keeps the link it has, shown view-only.
 	 */
 	@Transactional
-	public Case submitDraft(UUID caseId, String draftLink) {
+	public Case submitDraft(UUID caseId, DraftFile docx, DraftFile pdf) {
 		Case subject = load(caseId);
 		Stage to = CaseTransitions.target(subject, Action.SUBMIT_DRAFT);
+
+		String docxKey = DocumentStore.caseKey(subject.getBrandId(), subject.getId(), "draft", UUID.randomUUID());
+		String pdfKey = DocumentStore.caseKey(subject.getBrandId(), subject.getId(), "draft", UUID.randomUUID());
+		store.put(docxKey, docx.body(), docx.size(), DOCX);
+		store.put(pdfKey, pdf.body(), pdf.size(), "application/pdf");
 
 		// **The previous version is closed before the new one opens.** A version nobody ruled on —
 		// the CM resubmitting after a client revision, say — is SUPERSEDED rather than left
@@ -532,9 +539,6 @@ public class CaseLifecycleService {
 			c.setPmApprovalStatus(PmApprovalStatus.PENDING);
 			// A new draft is not the draft the client already saw.
 			c.setClientApprovalStatus(null);
-			if (draftLink != null && !draftLink.isBlank()) {
-				c.setDraftLink(draftLink.trim());
-			}
 		});
 
 		// **The version number comes off the case's own counter, not from counting rows.** Counting
@@ -543,6 +547,7 @@ public class CaseLifecycleService {
 		// duplicate if two submissions ever race.
 		CaseDocument version = new CaseDocument(saved.getBrandId(), saved.getId(), DocumentKind.DRAFT,
 				saved.getDraftVersionCount(), TenantContext.current().memberId(), ActorType.STAFF, null);
+		version.storedDraft(docxKey, docx.filename(), docx.size(), pdfKey, pdf.filename(), pdf.size());
 		documents.save(version);
 		return saved;
 	}
@@ -721,6 +726,8 @@ public class CaseLifecycleService {
 		requireState(subject.getClientApprovalStatus() == ClientApprovalStatus.PENDING,
 				"no draft is with the client");
 
+		// Unit 58: the version the client sent back says so, with their words on it.
+		stampLatestDraft(subject, DocumentStatus.CHANGES_REQUESTED, notes);
 		return apply(subject, to, Action.CLIENT_REQUEST_REVISIONS, notes,
 				c -> c.setClientApprovalStatus(ClientApprovalStatus.REVISION_REQUESTED), actor);
 	}
@@ -751,6 +758,8 @@ public class CaseLifecycleService {
 				"no draft is with the client");
 		requireState(subject.getExpertId() != null, "no expert is on this case");
 
+		// Unit 58: this is the version the expert signs — locked by status, not only by stage.
+		stampLatestDraft(subject, DocumentStatus.CLIENT_APPROVED, null);
 		return apply(subject, to, Action.CLIENT_APPROVE_DRAFT, null, c -> {
 			c.setClientApprovalStatus(ClientApprovalStatus.APPROVED);
 			c.setExpertSignStatus(ExpertSignStatus.PENDING);
