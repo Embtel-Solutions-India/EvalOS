@@ -62,7 +62,11 @@ class PortalCaseServiceTest {
 	private final CaseLifecycleService lifecycle = mock(CaseLifecycleService.class);
 	private final ObjectMapper objectMapper = new ObjectMapper();
 
-	private final PortalCaseService portal = new PortalCaseService(cases, contacts, lifecycle, checklistItems, documents, store, audit);
+	private final CaseDrafts drafts = mock(CaseDrafts.class);
+	private final CaseMilestones milestones = mock(CaseMilestones.class);
+
+	private final PortalCaseService portal = new PortalCaseService(cases, contacts, lifecycle, checklistItems, documents,
+			store, audit, drafts, milestones);
 
 	private Case subject;
 
@@ -259,7 +263,7 @@ class PortalCaseServiceTest {
 		assertThat(PortalCaseService.ClientDraftView.class.getRecordComponents())
 				.extracting(java.lang.reflect.RecordComponent::getName)
 				.containsExactly("clientName", "serviceType", "caseReference", "draftLink", "draftVersion",
-						"approvalStatus", "awaitingAnswer");
+						"approvalStatus", "awaitingAnswer", "step", "stepIndex", "milestones");
 	}
 
 	/**
@@ -439,5 +443,106 @@ class PortalCaseServiceTest {
 
 		verify(lifecycle).clientApproveDraftFromPortal(subject);
 		verify(lifecycle).clientRequestRevisionsFromPortal(subject, "soften the conclusion");
+	}
+
+	/** Review Focus 1: the draft id must be on this case and client-visible. */
+	@Test
+	void aClientCannotReachAReturnedVersionOrAnotherCasesDraft() {
+		PortalPrincipal me = partyTokenFor(BRAND, "ghl-1");
+		UUID returned = UUID.randomUUID();
+		given(drafts.clientVersion(subject, returned)).willThrow(new com.ie.evalos.common.NotFoundException("No such draft"));
+
+		assertThatThrownBy(() -> portal.draftFileUrl(me, CASE_ID, returned, true))
+				.isInstanceOf(com.ie.evalos.common.NotFoundException.class);
+		// Another client's case: the ownership check refuses before the draft is looked at.
+		assertThatThrownBy(() -> portal.draftFileUrl(partyTokenFor(BRAND, "ghl-someone-else"), CASE_ID, returned, true))
+				.isInstanceOf(ForbiddenException.class);
+		verify(drafts, times(1)).clientVersion(any(), any());
+	}
+
+	@Test
+	void approvingNamesTheVersionAndRunsTheExistingTransition() {
+		PortalPrincipal me = partyTokenFor(BRAND, "ghl-1");
+		UUID v3 = UUID.randomUUID();
+		given(lifecycle.clientApproveDraftFromPortal(subject)).willReturn(subject);
+
+		portal.approveDraft(me, CASE_ID, v3);
+
+		verify(drafts).requireInReview(subject, v3);
+		verify(lifecycle).clientApproveDraftFromPortal(subject);
+	}
+
+	@Test
+	void aStaleApprovalNeverReachesTheTransition() {
+		PortalPrincipal me = partyTokenFor(BRAND, "ghl-1");
+		UUID stale = UUID.randomUUID();
+		given(drafts.requireInReview(subject, stale)).willThrow(new com.ie.evalos.common.DraftNotCurrentException("stale"));
+
+		assertThatThrownBy(() -> portal.approveDraft(me, CASE_ID, stale))
+				.isInstanceOf(com.ie.evalos.common.DraftNotCurrentException.class);
+		assertThatThrownBy(() -> portal.requestChanges(me, CASE_ID, stale, "no"))
+				.isInstanceOf(com.ie.evalos.common.DraftNotCurrentException.class);
+		verify(lifecycle, never()).clientApproveDraftFromPortal(any());
+		verify(lifecycle, never()).clientRequestRevisionsFromPortal(any(), any());
+	}
+
+	@Test
+	void aClientCommentIsAttributedToTheirCredential() {
+		PortalPrincipal me = partyTokenFor(BRAND, "ghl-1");
+		UUID v3 = UUID.randomUUID();
+		CaseDocument draft = new CaseDocument(BRAND, CASE_ID, DocumentKind.DRAFT, 3, null, ActorType.STAFF, null);
+		given(drafts.requireInReview(subject, v3)).willReturn(draft);
+
+		portal.addDraftComment(me, CASE_ID, v3, "Page 2", 2);
+
+		verify(drafts).addComment(draft, com.ie.evalos.domain.DraftComment.AuthorKind.CLIENT, me.portalAccessId(),
+				"Page 2", 2, false);
+	}
+
+	/** Review Focus 4: the signed letter exists at FINAL_QC, and is still not the client's. */
+	@Test
+	void deliveredFilesAreRefusedBeforeDelivery() {
+		PortalPrincipal me = partyTokenFor(BRAND, "ghl-1");
+		subject.setCurrentStage(Stage.FINAL_QC);
+
+		assertThatThrownBy(() -> portal.delivered(me, CASE_ID)).isInstanceOf(com.ie.evalos.common.NotFoundException.class);
+		assertThatThrownBy(() -> portal.deliveredUrl(me, CASE_ID, UUID.randomUUID()))
+				.isInstanceOf(com.ie.evalos.common.NotFoundException.class);
+		verify(store, never()).presignedUrl(any());
+	}
+
+	@Test
+	void onceDeliveredTheClientGetsTheSignedLetterAndTheApprovedDraft() {
+		PortalPrincipal me = partyTokenFor(BRAND, "ghl-1");
+		subject.setCurrentStage(Stage.DELIVERED);
+		CaseDocument letter = new CaseDocument(BRAND, CASE_ID, DocumentKind.SIGNED_LETTER, 1, null, ActorType.EXPERT, null);
+		ReflectionTestUtils.setField(letter, "id", UUID.randomUUID());
+		letter.setObjectKey("signed.pdf");
+		letter.setFilename("Signed letter.pdf");
+		CaseDocument approved = new CaseDocument(BRAND, CASE_ID, DocumentKind.DRAFT, 2, null, ActorType.STAFF, null);
+		ReflectionTestUtils.setField(approved, "id", UUID.randomUUID());
+		approved.storedDraft("d.docx", "Draft.docx", 1, "d.pdf", "Draft.pdf", 1);
+		approved.reviewed(com.ie.evalos.domain.DocumentStatus.CLIENT_APPROVED, null);
+		given(documents.findFirstByCaseIdAndKindOrderByVersionDesc(CASE_ID, DocumentKind.SIGNED_LETTER))
+				.willReturn(Optional.of(letter));
+		given(documents.findByCaseIdAndKindOrderByVersionDesc(CASE_ID, DocumentKind.DRAFT)).willReturn(java.util.List.of(approved));
+		given(store.presignedUrl("signed.pdf")).willReturn("https://s3/signed");
+
+		assertThat(portal.delivered(me, CASE_ID)).extracting(PortalCaseService.DeliveredFile::kind)
+				.containsExactly("SIGNED_LETTER", "APPROVED_DRAFT");
+		assertThat(portal.deliveredUrl(me, CASE_ID, letter.getId())).isEqualTo("https://s3/signed");
+	}
+
+	@Test
+	void theCaseDetailCarriesTheStepAndMilestones() {
+		PortalPrincipal me = partyTokenFor(BRAND, "ghl-1");
+		subject.setCurrentStage(Stage.CLIENT_REVIEW);
+		given(milestones.of(subject)).willReturn(java.util.List.of(new CaseMilestones.Milestone("Case opened", Instant.now())));
+
+		PortalCaseService.ClientDraftView view = portal.clientView(me, CASE_ID);
+
+		assertThat(view.step()).isEqualTo("Review");
+		assertThat(view.stepIndex()).isEqualTo(1);
+		assertThat(view.milestones()).hasSize(1);
 	}
 }

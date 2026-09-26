@@ -1,6 +1,8 @@
 package com.ie.evalos.web;
 
 import com.ie.evalos.common.ApiResponse;
+import com.ie.evalos.service.CaseDrafts;
+import com.ie.evalos.common.InvalidRequestException;
 import com.ie.evalos.common.UploadedFileType;
 import com.ie.evalos.domain.PortalAudience;
 import com.ie.evalos.security.PortalPrincipal;
@@ -12,6 +14,8 @@ import com.ie.evalos.service.PortalMeetingService;
 
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Positive;
+import jakarta.validation.constraints.Size;
 
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -77,8 +81,11 @@ public class ClientPortalController {
 	 * exactly the mistake that invariant exists to prevent.
 	 */
 	@GetMapping("/invoices")
-	public ApiResponse<List<GhlInvoiceClient.ClientInvoice>> invoices() {
-		return ApiResponse.ok(portalInvoices.forCaller(client()));
+	public ApiResponse<List<GhlInvoiceClient.ClientInvoice>> invoices(@RequestParam(required = false) String status) {
+		List<GhlInvoiceClient.ClientInvoice> mine = portalInvoices.forCaller(client());
+		// Unit 58: the portal's Invoices page shows settled bills only — GHL's own `paid` status.
+		return ApiResponse.ok(status == null ? mine
+				: mine.stream().filter((invoice) -> status.equalsIgnoreCase(invoice.status())).toList());
 	}
 
 	/**
@@ -241,5 +248,89 @@ public class ClientPortalController {
 	public ApiResponse<PortalCaseService.ClientDraftView> requestRevisionsOnCase(
 			@PathVariable UUID caseId, @Valid @RequestBody RevisionsRequest request) {
 		return ApiResponse.ok(portal.requestRevisions(client(), caseId, request.notes()));
+	}
+
+	// --- Unit 58: per-case routes ---------------------------------------------
+	//
+	// Every one names its case, and PortalCaseService.authorized(principal, caseId) checks it against
+	// the credential before anything is read — another client's case answers 403.
+
+	@GetMapping("/cases/{caseId}/documents")
+	public ApiResponse<PortalCaseService.ClientDocumentsView> caseDocuments(@PathVariable UUID caseId) {
+		return ApiResponse.ok(portal.documents(client(), caseId));
+	}
+
+	/** The same trust boundary as {@link #upload}: not empty, sniffed, size-capped by Spring. */
+	@PostMapping("/cases/{caseId}/documents")
+	public ApiResponse<UploadedView> uploadToCase(@PathVariable UUID caseId, @RequestParam UUID checklistItemId,
+			@RequestParam("file") MultipartFile file) throws java.io.IOException {
+		if (file.isEmpty()) {
+			throw new IllegalTransitionException("an empty file is not a document");
+		}
+		UploadedFileType.require(file, UploadedFileType.CLIENT_DOCUMENT);
+		CaseDocument saved = portal.upload(client(), caseId, checklistItemId, file.getOriginalFilename(),
+				file.getContentType(), file.getSize(), file.getInputStream());
+		return ApiResponse.ok(new UploadedView(saved.getId(), saved.getFilename(), saved.getVersion()));
+	}
+
+	@GetMapping("/cases/{caseId}/documents/{documentId}/url")
+	public ApiResponse<ReadUrl> caseDocumentUrl(@PathVariable UUID caseId, @PathVariable UUID documentId) {
+		return ApiResponse.ok(new ReadUrl(portal.documentUrl(client(), caseId, documentId)));
+	}
+
+	@GetMapping("/cases/{caseId}/drafts")
+	public ApiResponse<List<CaseDrafts.ClientDraftVersion>> drafts(@PathVariable UUID caseId) {
+		return ApiResponse.ok(portal.drafts(client(), caseId));
+	}
+
+	@GetMapping("/cases/{caseId}/drafts/{draftId}/files/{file}/url")
+	public ApiResponse<ReadUrl> draftFileUrl(@PathVariable UUID caseId, @PathVariable UUID draftId,
+			@PathVariable String file) {
+		if (!file.equals("docx") && !file.equals("pdf")) {
+			throw new InvalidRequestException("file is docx or pdf");
+		}
+		return ApiResponse.ok(new ReadUrl(portal.draftFileUrl(client(), caseId, draftId, file.equals("pdf"))));
+	}
+
+	@GetMapping("/cases/{caseId}/drafts/{draftId}/comments")
+	public ApiResponse<List<CaseDrafts.CommentView>> draftComments(@PathVariable UUID caseId,
+			@PathVariable UUID draftId) {
+		return ApiResponse.ok(portal.draftComments(client(), caseId, draftId));
+	}
+
+	public record CommentRequest(@NotBlank @Size(max = 2000) String body, @Positive Integer page) {
+	}
+
+	@PostMapping("/cases/{caseId}/drafts/{draftId}/comments")
+	public ApiResponse<CaseDrafts.CommentView> addDraftComment(@PathVariable UUID caseId, @PathVariable UUID draftId,
+			@Valid @RequestBody CommentRequest request) {
+		return ApiResponse.ok(portal.addDraftComment(client(), caseId, draftId, request.body(), request.page()));
+	}
+
+	@PostMapping("/cases/{caseId}/drafts/{draftId}/approve")
+	public ApiResponse<PortalCaseService.ClientDraftView> approveDraft(@PathVariable UUID caseId,
+			@PathVariable UUID draftId) {
+		return ApiResponse.ok(portal.approveDraft(client(), caseId, draftId));
+	}
+
+	/** The note is optional here (the comment thread carries the detail), unlike the legacy route. */
+	public record ChangesRequest(@Size(max = 2000) String notes) {
+	}
+
+	@PostMapping("/cases/{caseId}/drafts/{draftId}/request-changes")
+	public ApiResponse<PortalCaseService.ClientDraftView> requestChanges(@PathVariable UUID caseId,
+			@PathVariable UUID draftId, @Valid @RequestBody(required = false) ChangesRequest request) {
+		return ApiResponse.ok(portal.requestChanges(client(), caseId, draftId,
+				request == null ? null : request.notes()));
+	}
+
+	@GetMapping("/cases/{caseId}/delivered")
+	public ApiResponse<List<PortalCaseService.DeliveredFile>> delivered(@PathVariable UUID caseId) {
+		return ApiResponse.ok(portal.delivered(client(), caseId));
+	}
+
+	@GetMapping("/cases/{caseId}/delivered/{documentId}/url")
+	public ApiResponse<ReadUrl> deliveredUrl(@PathVariable UUID caseId, @PathVariable UUID documentId) {
+		return ApiResponse.ok(new ReadUrl(portal.deliveredUrl(client(), caseId, documentId)));
 	}
 }
