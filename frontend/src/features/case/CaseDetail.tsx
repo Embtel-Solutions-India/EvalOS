@@ -11,6 +11,8 @@ import ExpertCard from './ExpertCard'
 import StageActions from './StageActions'
 import StrategyNotes from './StrategyNotes'
 import DraftHistory from './DraftHistory'
+import UploadDraft from './UploadDraft'
+import { mayUploadDraft } from './draftRules'
 import ExpertRationale from './ExpertRationale'
 import CaseFacts from './CaseFacts'
 import Timeline from './Timeline'
@@ -187,7 +189,14 @@ export default function CaseDetailPage() {
           <DocumentsPanel detail={detail} />
           <DraftPanel detail={detail} />
           {/* Immediately under the draft's status: the same subject at more depth. */}
-          <DraftHistory caseId={detail.summary.id} />
+          {mayUploadDraft(detail.summary.currentStage, me.role) && (
+            <UploadDraft caseId={detail.summary.id} onUploaded={() => load()} />
+          )}
+          <DraftHistory
+            caseId={detail.summary.id}
+            clientApprovalStatus={detail.summary.clientApprovalStatus}
+            reloadKey={detail.summary.draftVersionCount}
+          />
           {/* Above the expert and the notes: who the letter is about is what the rest of the
               column is in service of, and it is the one fact the header cannot carry. */}
           <CaseFacts detail={detail} role={me.role} onSave={onSaveFacts} />

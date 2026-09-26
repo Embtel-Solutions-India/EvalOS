@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
-import { fetchDraftVersions, type DraftVersion } from './caseApi'
+import { fetchDocumentUrl, fetchDraftVersions, type DraftVersion } from './caseApi'
+import DraftComments from './DraftComments'
+import { mayComment } from './draftRules'
 
 /**
  * Every version of the draft, newest first, with the PM's ruling and comment on each.
@@ -19,11 +21,23 @@ const STATUS_TONE: Record<string, { label: string; color: string }> = {
   RETURNED: { label: 'Returned', color: 'var(--status-red)' },
   PM_APPROVED: { label: 'PM approved', color: 'var(--status-green)' },
   CLIENT_APPROVED: { label: 'Client approved', color: 'var(--status-green)' },
+  CHANGES_REQUESTED: { label: 'Client asked for changes', color: 'var(--status-red)' },
   SIGNED: { label: 'Signed', color: 'var(--status-green)' },
   SUPERSEDED: { label: 'Superseded', color: 'var(--text-muted)' },
 }
 
-export default function DraftHistory({ caseId }: { caseId: string }) {
+/**
+ * @param reloadKey changes when a new version lands (the case's draft count), so the list refetches
+ */
+export default function DraftHistory({
+  caseId,
+  clientApprovalStatus,
+  reloadKey,
+}: {
+  caseId: string
+  clientApprovalStatus: string | null
+  reloadKey: number
+}) {
   const [state, setState] = useState<
     { status: 'loading' } | { status: 'ready'; versions: DraftVersion[] } | { status: 'failed' }
   >({ status: 'loading' })
@@ -36,7 +50,12 @@ export default function DraftHistory({ caseId }: { caseId: string }) {
         if (!controller.signal.aborted) setState({ status: 'failed' })
       })
     return () => controller.abort()
-  }, [caseId])
+  }, [caseId, reloadKey])
+
+  // Minted at the click, never stored: a held presigned URL expires while the page sits open.
+  async function open(documentId: string, pdf: boolean) {
+    window.open(await fetchDocumentUrl(caseId, documentId, pdf), '_blank', 'noopener')
+  }
 
   if (state.status === 'loading') return null
 
@@ -86,6 +105,25 @@ export default function DraftHistory({ caseId }: { caseId: string }) {
                   >
                     {version.reviewComment}
                   </p>
+                )}
+                {version.filename && (
+                  <p className="flex gap-3 text-sm">
+                    <button type="button" onClick={() => void open(version.id, false)} style={{ color: 'var(--accent-primary)' }}>
+                      Word
+                    </button>
+                    {version.hasPdf && (
+                      <button type="button" onClick={() => void open(version.id, true)} style={{ color: 'var(--accent-primary)' }}>
+                        PDF
+                      </button>
+                    )}
+                  </p>
+                )}
+                {version.hasPdf && (
+                  <DraftComments
+                    caseId={caseId}
+                    draftId={version.id}
+                    open={mayComment(version.status, clientApprovalStatus)}
+                  />
                 )}
               </li>
             )

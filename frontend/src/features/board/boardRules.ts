@@ -391,17 +391,6 @@ export const QUICK_ACTIONS: readonly QuickAction[] = [
       { name: 'expertRationale', label: 'Why this expert (optional)', kind: 'text' },
     ],
   },
-  {
-    path: 'draft/submit',
-    label: 'Submit draft',
-    roles: ['CASE_MANAGER'],
-    stages: ['DRAFT_IN_PROGRESS'],
-    // Where the letter is, which becomes `draft_link` — the one link the client's portal shows
-    // (Unit 14). Optional, and the label has to say so: the dialog makes a field required unless
-    // it does, and a second version filed in the same place needs no new link. Omitting it leaves
-    // whatever link the case already carries rather than taking the draft away mid-review.
-    fields: [{ name: 'draftLink', label: 'Link to the draft (optional)', kind: 'text' }],
-  },
   // Draft review is the Project Manager's alone, GM included (Unit 23a). Approving a draft is a
   // judgement about a Case Manager's work by the person who assigned it and will answer for it;
   // an escalation path around that reviewer is not oversight, it is a second reviewer. Both gates
