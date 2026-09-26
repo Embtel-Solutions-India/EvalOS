@@ -107,6 +107,9 @@ class ClientPortalTest {
 	CaseBoardService board;
 
 	@MockitoBean
+	com.ie.evalos.service.CaseDrafts drafts;
+
+	@MockitoBean
 	EvalOsUserDetailsService userDetailsService;
 
 	private String staffBearer(Role role) {
@@ -127,7 +130,8 @@ class ClientPortalTest {
 
 	private static PortalCaseService.ClientDraftView view(String reference) {
 		return new PortalCaseService.ClientDraftView("Anita Rao", ServiceType.EXPERT_OPINION_LETTER, reference,
-				"https://docs.google.com/document/d/draft/edit", 2, ClientApprovalStatus.PENDING, true);
+				"https://docs.google.com/document/d/draft/edit", 2, ClientApprovalStatus.PENDING, true, "Review", 1,
+				java.util.List.of());
 	}
 
 	/**
@@ -307,5 +311,60 @@ class ClientPortalTest {
 				.param("checklistItemId", itemId.toString())
 				.header(PortalTokenFilter.HEADER, IE_TOKEN))
 				.andExpect(status().isOk());
+	}
+
+	// --- Unit 58: per-case routes -------------------------------------------------------
+
+	/** The Invoices page shows settled bills only: GHL's own `paid` status, filtered on request. */
+	@Test
+	void invoicesCanBeNarrowedToPaid() throws Exception {
+		givenTwoLiveLinks();
+		given(portalInvoices.forCaller(any())).willReturn(java.util.List.of(
+				new com.ie.evalos.integration.GhlInvoiceClient.ClientInvoice("INV-1", "paid", java.math.BigDecimal.TEN,
+						java.math.BigDecimal.TEN, java.math.BigDecimal.ZERO, "USD", "2026-09-01", "2026-09-10"),
+				new com.ie.evalos.integration.GhlInvoiceClient.ClientInvoice("INV-2", "sent", java.math.BigDecimal.TEN,
+						java.math.BigDecimal.ZERO, java.math.BigDecimal.TEN, "USD", "2026-09-02", "2026-09-12")));
+
+		mockMvc.perform(get("/api/portal/client/invoices").param("status", "paid").header(PortalTokenFilter.HEADER, IE_TOKEN))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.data.length()").value(1))
+				.andExpect(jsonPath("$.data[0].invoiceNumber").value("INV-1"));
+		mockMvc.perform(get("/api/portal/client/invoices").header(PortalTokenFilter.HEADER, IE_TOKEN))
+				.andExpect(jsonPath("$.data.length()").value(2));
+	}
+
+	/** Only the two files a draft has can be named. */
+	@Test
+	void aDraftFileIsDocxOrPdfAndNothingElse() throws Exception {
+		givenTwoLiveLinks();
+		UUID draftId = UUID.randomUUID();
+		given(portal.draftFileUrl(any(), any(), any(), org.mockito.ArgumentMatchers.anyBoolean())).willReturn("https://s3/x");
+
+		mockMvc.perform(get("/api/portal/client/cases/{caseId}/drafts/{draftId}/files/exe/url", IE_CASE, draftId)
+				.header(PortalTokenFilter.HEADER, IE_TOKEN))
+				.andExpect(status().isBadRequest());
+		mockMvc.perform(get("/api/portal/client/cases/{caseId}/drafts/{draftId}/files/pdf/url", IE_CASE, draftId)
+				.header(PortalTokenFilter.HEADER, IE_TOKEN))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.data.url").value("https://s3/x"));
+		verify(portal).draftFileUrl(any(), org.mockito.ArgumentMatchers.eq(IE_CASE), org.mockito.ArgumentMatchers.eq(draftId),
+				org.mockito.ArgumentMatchers.eq(true));
+	}
+
+	/** Approve and request changes name the case and the version; the note is optional. */
+	@Test
+	void theClientAnswersANamedVersion() throws Exception {
+		givenTwoLiveLinks();
+		UUID draftId = UUID.randomUUID();
+
+		mockMvc.perform(post("/api/portal/client/cases/{caseId}/drafts/{draftId}/approve", IE_CASE, draftId)
+				.header(PortalTokenFilter.HEADER, IE_TOKEN))
+				.andExpect(status().isOk());
+		mockMvc.perform(post("/api/portal/client/cases/{caseId}/drafts/{draftId}/request-changes", IE_CASE, draftId)
+				.header(PortalTokenFilter.HEADER, IE_TOKEN))
+				.andExpect(status().isOk());
+		verify(portal).approveDraft(any(), org.mockito.ArgumentMatchers.eq(IE_CASE), org.mockito.ArgumentMatchers.eq(draftId));
+		verify(portal).requestChanges(any(), org.mockito.ArgumentMatchers.eq(IE_CASE), org.mockito.ArgumentMatchers.eq(draftId),
+				org.mockito.ArgumentMatchers.isNull());
 	}
 }

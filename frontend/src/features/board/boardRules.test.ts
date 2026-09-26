@@ -183,7 +183,8 @@ describe('actionsFor', () => {
   it('offers the stage action to the role that drives the stage', () => {
     expect(paths('DOC_COLLECTION', 'PROJECT_COORDINATOR')).toContain('docs-complete')
     expect(paths('PM_REVIEW', 'PROJECT_MANAGER')).toContain('assign-cm')
-    expect(paths('DRAFT_IN_PROGRESS', 'CASE_MANAGER')).toContain('draft/submit')
+    // Unit 58: a draft is uploaded as files on the case screen, not submitted as a link here.
+    expect(paths('DRAFT_IN_PROGRESS', 'CASE_MANAGER')).not.toContain('draft/submit')
     // QC is its own stage now, not a step inside signing.
     expect(paths('FINAL_QC', 'PROJECT_MANAGER')).toContain('qc-approve')
     expect(paths('FINAL_QC', 'PROJECT_MANAGER')).toContain('qc-fail')

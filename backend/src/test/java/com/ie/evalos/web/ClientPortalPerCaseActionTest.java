@@ -86,7 +86,8 @@ class ClientPortalPerCaseActionTest {
 
 	private static PortalCaseService.ClientDraftView approved() {
 		return new PortalCaseService.ClientDraftView("Ada Lovelace", ServiceType.EXPERT_OPINION_LETTER,
-				"IE-2026-0001", "https://docs.example.test/draft", 2, ClientApprovalStatus.APPROVED, false);
+				"IE-2026-0001", "https://docs.example.test/draft", 2, ClientApprovalStatus.APPROVED, false, "In progress", 2,
+				java.util.List.of());
 	}
 
 	/** The gap, closed: the client says which case, and it is approved. */

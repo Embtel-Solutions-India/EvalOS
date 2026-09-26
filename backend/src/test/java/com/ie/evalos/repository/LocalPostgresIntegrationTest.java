@@ -1858,6 +1858,50 @@ class LocalPostgresIntegrationTest {
 	// clean up after themselves. They share one IE case and reuse its conversations across runs:
 	// `conversationOn` finds the case's conversation of a type or creates it.
 
+	// --- Unit 58: drafts as files ---------------------------------------------------------
+
+	/**
+	 * Unit 58 §2: comments are a record, the draft carries its PDF, and the new status is legal. A
+	 * fresh case per run, because the comment row can never be deleted and pins its version row.
+	 */
+	@Test
+	void draftCommentsAreAppendOnlyAndADraftCarriesItsPdf() {
+		Case subject = new Case(BRAND_IE, "EV-" + UUID.randomUUID(), Stage.CLIENT_REVIEW);
+		cases.saveAndFlush(subject);
+		UUID documentId = UUID.randomUUID();
+		jdbc.update("""
+				INSERT INTO case_document (id, brand_id, case_id, kind, version, object_key, filename, size_bytes,
+				    pdf_object_key, pdf_filename, pdf_size_bytes, uploaded_by_type, status)
+				VALUES (?, ?, ?, 'DRAFT', 1, 'k.docx', 'Draft.docx', 10, 'k.pdf', 'Draft.pdf', 20, 'STAFF',
+				    'CHANGES_REQUESTED')
+				""", documentId, BRAND_IE, subject.getId());
+
+		UUID commentId = UUID.randomUUID();
+		jdbc.update("""
+				INSERT INTO draft_comments (id, brand_id, document_id, author_kind, author_id, body, page)
+				VALUES (?, ?, ?, 'CLIENT', ?, 'Please fix page 2', 2)
+				""", commentId, BRAND_IE, documentId, UUID.randomUUID());
+
+		assertThatThrownBy(() -> jdbc.update("UPDATE draft_comments SET body = 'edited' WHERE id = ?", commentId))
+				.hasMessageContaining("append-only");
+		assertThatThrownBy(() -> jdbc.update("DELETE FROM draft_comments WHERE id = ?", commentId))
+				.hasMessageContaining("append-only");
+		assertThatThrownBy(() -> jdbc.update("""
+				INSERT INTO draft_comments (id, brand_id, document_id, author_kind, author_id, body, page)
+				VALUES (?, ?, ?, 'CLIENT', ?, 'x', 0)
+				""", UUID.randomUUID(), BRAND_IE, documentId, UUID.randomUUID()))
+				.hasMessageContaining("draft_comments_page_positive");
+	}
+
+	/** Final review #3: the client answers' row lock is a real statement Postgres accepts. */
+	@Test
+	@org.springframework.transaction.annotation.Transactional
+	void aCaseRowCanBeLockedForAClientAnswer() {
+		UUID id = anIeCase();
+		assertThat(cases.lockById(id)).contains(id);
+		assertThat(cases.lockById(UUID.randomUUID())).isEmpty();
+	}
+
 	private UUID anIeCase() {
 		return jdbc.queryForObject("SELECT id FROM evalos_case WHERE brand_id = ? ORDER BY id LIMIT 1",
 				UUID.class, BRAND_IE);

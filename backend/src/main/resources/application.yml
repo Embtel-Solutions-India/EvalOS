@@ -81,7 +81,8 @@ spring:
       # and was rejected for being one form field too big — a limit that fires before the one the
       # user was told about.
       max-file-size: ${UPLOAD_MAX_SIZE:15MB}
-      max-request-size: ${UPLOAD_MAX_REQUEST_SIZE:16MB}
+      # 32MB: a draft is two files (Word + PDF) of up to max-file-size each, in one request (Unit 58).
+      max-request-size: ${UPLOAD_MAX_REQUEST_SIZE:32MB}
       file-size-threshold: ${UPLOAD_MAX_SIZE:15MB}
 
 evalos:

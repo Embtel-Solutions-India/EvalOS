@@ -18,6 +18,8 @@ public enum DocumentStatus {
 	PM_APPROVED,
 	/** The client accepted it. This is the version the expert signs; it is locked. */
 	CLIENT_APPROVED,
+	/** The client sent this version back (Unit 58). */
+	CHANGES_REQUESTED,
 	/** The expert signed it. */
 	SIGNED,
 	/** A newer version replaced it before anybody ruled on it. */

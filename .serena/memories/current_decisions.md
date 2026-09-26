@@ -104,7 +104,7 @@ The ones most often violated from memory:
 - **There is NO client questionnaire** (D13, Unit 55, 2026-09-25, business decision). The portal
   request is service + purpose + documents; Sales asks the rest on the call. No questions step, no
   `PUT /api/portal/applications/{id}`, no `answers` on the entity or the API. `client_application.answers`
-  is unmapped and awaits `V69` (drop held for an explicit go-ahead). Do not rebuild a questionnaire.
+  is unmapped and awaits `V71` (drop held for an explicit go-ahead). Do not rebuild a questionnaire.
 - **Documents arrive WITH the request**, before submit, keyed by the **GHL contact id**
   (D41). Reuses `DocumentStore.clientKey`; Handoff A carries them into `case_document` as row
   inserts over the **same S3 object**. Unit 53, spec `53-request-documents.md` (D33).
@@ -222,3 +222,9 @@ portal's `/` is a holding page that offers no door.
 Internal, Expert), membership computed from assignments, GM/BM as viewers, text only, read-only at
 CLOSED. PostgreSQL is the record; Ably relays live updates (one private channel per person, no
 browser publish); web push when the app is closed. Spec `57-case-chat.md`.
+
+**D51 (2026-09-27, Unit 58): drafts are uploaded versions.** Word + PDF on the existing
+`case_document` DRAFT versions (no new table); an immutable comment thread per version, open only on
+the version in client review; the client approves / requests changes on a named version (409
+`DRAFT_NOT_CURRENT` otherwise) and the answer is stamped on it; the signed letter reaches the client
+only once Delivered. D33 note: drafts are stored files alongside the request documents.

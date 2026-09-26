@@ -219,7 +219,7 @@ Vite alias. React is a peer dependency; the one new runtime dependency is `ably`
 | App | Placement | Shows |
 |---|---|---|
 | Staff | **Conversations** in the sidebar (full-width `ChatInbox`) and a **Chat** tab on the case screen (`CaseChatPanel`) | members: their conversations; Sales: the Client and Internal conversations of their pipeline's cases and nothing else of the case; GM / Brand Manager: everything in scope, read-only |
-| Client portal | a new **`/cases/:caseId`** page — case on the left, its Client conversation on the right (a **Messages** tab on phones) — plus **Messages** in the nav as the cross-case inbox. Dashboard case rows open the case page; `/draft` keeps its route | Client Communication only, grouped by the client's cases |
+| Client portal | **specified by Unit 58** (`58-client-portal.md`): the `/cases/:caseId` detail page with the Client conversation on the right (a **Messages** tab on phones), and **Conversations** in the nav as the cross-case inbox | Client Communication only, grouped by the client's cases |
 | Expert portal | the existing **`/case`** page gains the right-hand panel, plus **Messages** in the nav | Expert Communication only, for cases with an open or accepted offer |
 
 ## 8. Errors and security

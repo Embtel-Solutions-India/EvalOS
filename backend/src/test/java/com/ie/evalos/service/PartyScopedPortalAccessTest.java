@@ -69,7 +69,8 @@ class PartyScopedPortalAccessTest {
 	private final ObjectMapper objectMapper = new ObjectMapper();
 
 	private final PortalCaseService clientPortal = new PortalCaseService(
-			cases, contacts, lifecycle, checklistItems, documents, store, audit);
+			cases, contacts, lifecycle, checklistItems, documents, store, audit, mock(CaseDrafts.class),
+			mock(CaseMilestones.class));
 
 	private final ExpertPortalService expertPortal = new ExpertPortalService(
 			cases, contacts, experts, payouts, payments, checklistItems, documents, lifecycle, sla, store, audit);

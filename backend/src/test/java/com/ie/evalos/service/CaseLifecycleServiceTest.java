@@ -96,7 +96,10 @@ class CaseLifecycleServiceTest {
 	private static final UUID EXPERT_ID = UUID.randomUUID();
 	private static final UUID OTHER_EXPERT_ID = UUID.randomUUID();
 	private static final BigDecimal PAID = new BigDecimal("1450.00");
-	private static final String DRAFT_LINK = "https://docs.google.com/document/d/draft-one/edit";
+	private static final DraftFile WORD = new DraftFile("Draft v1.docx", 4,
+			new java.io.ByteArrayInputStream(new byte[] { 'P', 'K', 3, 4 }));
+	private static final DraftFile PDF = new DraftFile("Draft v1.pdf", 5,
+			new java.io.ByteArrayInputStream("%PDF-".getBytes()));
 
 	private final CaseRepository cases = mock(CaseRepository.class);
 	private final DocumentChecklistItemRepository checklistItems = mock(DocumentChecklistItemRepository.class);
@@ -255,9 +258,8 @@ class CaseLifecycleServiceTest {
 		assertEquals(TEAM, subject.getTeamId(), "the PM's team is what opens the case to that team");
 
 		actAs(Role.CASE_MANAGER);
-		lifecycle.submitDraft(CASE_ID, DRAFT_LINK);
+		lifecycle.submitDraft(CASE_ID, WORD, PDF);
 		assertEquals(1, subject.getDraftVersionCount());
-		assertEquals(DRAFT_LINK, subject.getDraftLink(), "the draft arrives with the link the client will read");
 
 		actAs(Role.PROJECT_MANAGER);
 		lifecycle.pmApproveDraft(CASE_ID, null);
@@ -460,7 +462,7 @@ class CaseLifecycleServiceTest {
 		assertNull(subject.getSlaStatus(), "a case on hold runs no clock");
 
 		actAs(Role.CASE_MANAGER);
-		assertThrows(IllegalTransitionException.class, () -> lifecycle.submitDraft(CASE_ID, DRAFT_LINK));
+		assertThrows(IllegalTransitionException.class, () -> lifecycle.submitDraft(CASE_ID, WORD, PDF));
 
 		actAs(Role.PROJECT_COORDINATOR);
 		lifecycle.resumeFromHold(CASE_ID);
@@ -486,7 +488,7 @@ class CaseLifecycleServiceTest {
 	void theClientsOwnApprovalIsTheSameTransitionButAuditedAsTheirs() {
 		walkToDraftGeneration();
 		actAs(Role.CASE_MANAGER);
-		lifecycle.submitDraft(CASE_ID, DRAFT_LINK);
+		lifecycle.submitDraft(CASE_ID, WORD, PDF);
 		actAs(Role.PROJECT_MANAGER);
 		lifecycle.pmApproveDraft(CASE_ID, null);
 		actAs(Role.PROJECT_COORDINATOR);
@@ -529,7 +531,7 @@ class CaseLifecycleServiceTest {
 	void aDeclinedExpertSendsTheCaseBackToAssignmentWithANewOne() {
 		walkToDraftGeneration();
 		actAs(Role.CASE_MANAGER);
-		lifecycle.submitDraft(CASE_ID, DRAFT_LINK);
+		lifecycle.submitDraft(CASE_ID, WORD, PDF);
 		actAs(Role.PROJECT_MANAGER);
 		lifecycle.pmApproveDraft(CASE_ID, null);
 		actAs(Role.PROJECT_COORDINATOR);
@@ -571,7 +573,7 @@ class CaseLifecycleServiceTest {
 	void aTimedOutExpertOpensTheSameRematchADeclineDoes() {
 		walkToDraftGeneration();
 		actAs(Role.CASE_MANAGER);
-		lifecycle.submitDraft(CASE_ID, DRAFT_LINK);
+		lifecycle.submitDraft(CASE_ID, WORD, PDF);
 		actAs(Role.PROJECT_MANAGER);
 		lifecycle.pmApproveDraft(CASE_ID, null);
 		actAs(Role.PROJECT_COORDINATOR);
@@ -614,7 +616,7 @@ class CaseLifecycleServiceTest {
 				.willReturn(Optional.of(v1));
 
 		actAs(Role.CASE_MANAGER);
-		lifecycle.submitDraft(CASE_ID, DRAFT_LINK);
+		lifecycle.submitDraft(CASE_ID, WORD, PDF);
 
 		actAs(Role.PROJECT_MANAGER);
 		lifecycle.pmReturnDraft(CASE_ID, "Section 2 needs the accreditation.");
@@ -667,7 +669,7 @@ class CaseLifecycleServiceTest {
 	void theSupplySideRoleReachesTheCaseButNotItsDocuments() {
 		actAs(Role.EXPERT_NETWORK_MANAGER);
 
-		assertThrows(ForbiddenException.class, () -> lifecycle.readUrl(CASE_ID, UUID.randomUUID()),
+		assertThrows(ForbiddenException.class, () -> lifecycle.readUrl(CASE_ID, UUID.randomUUID(), false),
 				"a presigned URL is the document, so this is the download");
 		assertThrows(ForbiddenException.class, () -> lifecycle.versionsOf(CASE_ID, DocumentKind.DRAFT),
 				"and the filenames alone would name the client");
@@ -939,7 +941,7 @@ class CaseLifecycleServiceTest {
 		Instant afterAssignment = subject.getStageEnteredAt();
 
 		actAs(Role.CASE_MANAGER);
-		lifecycle.submitDraft(CASE_ID, DRAFT_LINK);
+		lifecycle.submitDraft(CASE_ID, WORD, PDF);
 
 		assertTrue(!subject.getStageEnteredAt().isBefore(afterAssignment),
 				"the PM review round starts its own 12 hours");
@@ -1074,7 +1076,7 @@ class CaseLifecycleServiceTest {
 	void aClientRevisionRequestGetsItsOwnAuditActionRatherThanUpdated() {
 		walkToDraftGeneration();
 		actAs(Role.CASE_MANAGER);
-		lifecycle.submitDraft(CASE_ID, DRAFT_LINK);
+		lifecycle.submitDraft(CASE_ID, WORD, PDF);
 		actAs(Role.PROJECT_MANAGER);
 		lifecycle.pmApproveDraft(CASE_ID, null);
 		actAs(Role.PROJECT_COORDINATOR);
@@ -1178,7 +1180,7 @@ class CaseLifecycleServiceTest {
 	private void walkToExpertSigning() {
 		walkToDraftGeneration();
 		actAs(Role.CASE_MANAGER);
-		lifecycle.submitDraft(CASE_ID, DRAFT_LINK);
+		lifecycle.submitDraft(CASE_ID, WORD, PDF);
 		actAs(Role.PROJECT_MANAGER);
 		lifecycle.pmApproveDraft(CASE_ID, null);
 		actAs(Role.PROJECT_COORDINATOR);
@@ -1398,5 +1400,76 @@ class CaseLifecycleServiceTest {
 		actAs(Role.PROJECT_MANAGER);
 		lifecycle.assignCoordinator(CASE_ID, COORDINATOR_ID);
 		assertEquals(created, subject.getStageEnteredAt(), "and a second coordinator does not buy it more time");
+	}
+
+	/** Unit 58 §1: the version row carries both files, and both go to S3 under the case. */
+	@Test
+	void aSubmittedDraftStoresItsWordAndPdfOnTheVersion() {
+		walkToDraftGeneration();
+		actAs(Role.CASE_MANAGER);
+
+		lifecycle.submitDraft(CASE_ID, WORD, PDF);
+
+		verify(store).put(org.mockito.ArgumentMatchers.startsWith(BRAND + "/case/"), eq(WORD.body()), eq(4L),
+				eq("application/vnd.openxmlformats-officedocument.wordprocessingml.document"));
+		verify(store).put(org.mockito.ArgumentMatchers.startsWith(BRAND + "/case/"), eq(PDF.body()), eq(5L),
+				eq("application/pdf"));
+		CaseDocument version = lastSavedDraft();
+		assertEquals(DocumentKind.DRAFT, version.getKind());
+		assertEquals("Draft v1.docx", version.getFilename());
+		assertEquals("Draft v1.pdf", version.getPdfFilename());
+		assertTrue(version.hasPdf());
+	}
+
+	/** Nothing reaches S3 for a transition the state machine refuses — no orphan per bad click. */
+	@Test
+	void aDraftSubmittedAtTheWrongStageUploadsNothing() {
+		actAs(Role.CASE_MANAGER);
+		assertThrows(IllegalTransitionException.class, () -> lifecycle.submitDraft(CASE_ID, WORD, PDF));
+		verifyNoInteractions(store);
+	}
+
+	/** Unit 58 §1: the client's answer is stamped on the version, not only on the case. */
+	@Test
+	void theClientsAnswerIsStampedOnTheVersionTheyReviewed() {
+		CaseDocument v1 = draftWithTheClient();
+
+		lifecycle.clientRequestRevisionsFromPortal(subject, "Soften the conclusion");
+
+		assertEquals(DocumentStatus.CHANGES_REQUESTED, v1.getStatus());
+		// Final review #2: the version keeps the PM's comment; the client's words are on the trail.
+		assertEquals("Fix para 2 before sending", v1.getReviewComment());
+	}
+
+	@Test
+	void theClientsApprovalLocksTheVersion() {
+		CaseDocument v1 = draftWithTheClient();
+
+		lifecycle.clientApproveDraftFromPortal(subject);
+
+		assertEquals(DocumentStatus.CLIENT_APPROVED, v1.getStatus());
+		assertEquals("Fix para 2 before sending", v1.getReviewComment());
+	}
+
+	private CaseDocument draftWithTheClient() {
+		walkToDraftGeneration();
+		actAs(Role.CASE_MANAGER);
+		lifecycle.submitDraft(CASE_ID, WORD, PDF);
+		CaseDocument v1 = lastSavedDraft();
+		given(documents.findFirstByCaseIdAndKindOrderByVersionDesc(any(), eq(DocumentKind.DRAFT)))
+				.willReturn(Optional.of(v1));
+		actAs(Role.PROJECT_MANAGER);
+		lifecycle.pmApproveDraft(CASE_ID, "Fix para 2 before sending");
+		actAs(Role.PROJECT_COORDINATOR);
+		lifecycle.sendDraftToClient(CASE_ID);
+		SecurityContextHolder.clearContext();
+		return v1;
+	}
+
+	private CaseDocument lastSavedDraft() {
+		org.mockito.ArgumentCaptor<CaseDocument> saved = org.mockito.ArgumentCaptor.forClass(CaseDocument.class);
+		verify(documents, org.mockito.Mockito.atLeastOnce()).save(saved.capture());
+		return saved.getAllValues().stream().filter(d -> d.getKind() == DocumentKind.DRAFT)
+				.reduce((first, second) -> second).orElseThrow();
 	}
 }

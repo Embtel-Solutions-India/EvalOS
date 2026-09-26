@@ -69,6 +69,8 @@ class DomainInvariantsTest {
 				arguments(ContactSnapshotRepository.SCOPE, ContactSnapshot.class),
 				arguments(CaseRepository.SCOPE, Case.class),
 				arguments(CaseDocumentRepository.SCOPE, CaseDocument.class),
+				// Unit 58. Brand only: reached through its version, through an authorized case.
+				arguments(com.ie.evalos.repository.DraftCommentRepository.SCOPE, DraftComment.class),
 				// Unit 53. Brand only, like its sibling: a request document is reached either by the
 				// client who uploaded it (their own token, their own application) or by staff who
 				// can already open the opportunity, so there is no pipeline axis to declare.

@@ -165,6 +165,8 @@ export type DraftVersion = {
   reviewComment: string | null
   /** As uploaded. Null for a draft submitted before Unit 30, which carried a link and no file. */
   filename: string | null
+  /** A draft's second file (Unit 58). False on every other kind and on link-only drafts. */
+  hasPdf: boolean
 }
 
 /**
@@ -202,9 +204,42 @@ export async function fetchCaseDocuments(
  * would expire while the page sits open, and a user clicking a dead link cannot tell that from a
  * missing document. Ask, then open.
  */
-export async function fetchDocumentUrl(caseId: string, documentId: string): Promise<string> {
-  const { url } = await unwrap<{ url: string }>(api.get(`/cases/${caseId}/documents/${documentId}/url`))
+export async function fetchDocumentUrl(caseId: string, documentId: string, pdf = false): Promise<string> {
+  const { url } = await unwrap<{ url: string }>(
+    api.get(`/cases/${caseId}/documents/${documentId}/url`, { params: pdf ? { pdf: true } : {} }),
+  )
   return url
+}
+
+/** Both files of the next version in one request (Unit 58). The browser sets the multipart boundary. */
+export async function uploadDraft(caseId: string, docx: File, pdf: File): Promise<void> {
+  const body = new FormData()
+  body.append('docx', docx)
+  body.append('pdf', pdf)
+  await unwrap(api.post(`/cases/${caseId}/drafts`, body, { headers: { 'Content-Type': undefined } }))
+}
+
+export type DraftComment = {
+  id: string
+  authorKind: 'STAFF' | 'CLIENT'
+  /** The staff member's name; null for a client's comment. */
+  authorName: string | null
+  body: string
+  page: number | null
+  createdAt: string
+}
+
+export async function fetchDraftComments(caseId: string, draftId: string): Promise<DraftComment[]> {
+  return unwrap<DraftComment[]>(api.get(`/cases/${caseId}/drafts/${draftId}/comments`))
+}
+
+export async function postDraftComment(
+  caseId: string,
+  draftId: string,
+  body: string,
+  page: number | null,
+): Promise<DraftComment> {
+  return unwrap<DraftComment>(api.post(`/cases/${caseId}/drafts/${draftId}/comments`, { body, page }))
 }
 
 /** One case and the PM's guidance on it (Unit 32b). */

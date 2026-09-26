@@ -4,25 +4,30 @@ import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
 
+
 import com.ie.evalos.common.AmbiguousCaseException;
 import com.ie.evalos.common.ForbiddenException;
+import com.ie.evalos.common.NotFoundException;
 import com.ie.evalos.domain.ActorType;
-import com.ie.evalos.domain.PortalAudience;
 import com.ie.evalos.domain.AuditAction;
+import com.ie.evalos.domain.Case;
 import com.ie.evalos.domain.CaseDocument;
 import com.ie.evalos.domain.ChecklistItemStatus;
-import com.ie.evalos.domain.DocumentChecklistItem;
-import com.ie.evalos.domain.DocumentKind;
-import com.ie.evalos.domain.IllegalTransitionException;
-import com.ie.evalos.integration.DocumentStore;
-import com.ie.evalos.repository.CaseDocumentRepository;
-import com.ie.evalos.repository.DocumentChecklistItemRepository;
-import com.ie.evalos.domain.Case;
 import com.ie.evalos.domain.ClientApprovalStatus;
 import com.ie.evalos.domain.ContactSnapshot;
+import com.ie.evalos.domain.DocumentChecklistItem;
+import com.ie.evalos.domain.DocumentKind;
+import com.ie.evalos.domain.DocumentStatus;
+import com.ie.evalos.domain.DraftComment;
+import com.ie.evalos.domain.IllegalTransitionException;
+import com.ie.evalos.domain.PortalAudience;
 import com.ie.evalos.domain.ServiceType;
+import com.ie.evalos.domain.Stage;
+import com.ie.evalos.integration.DocumentStore;
+import com.ie.evalos.repository.CaseDocumentRepository;
 import com.ie.evalos.repository.CaseRepository;
 import com.ie.evalos.repository.ContactSnapshotRepository;
+import com.ie.evalos.repository.DocumentChecklistItemRepository;
 import com.ie.evalos.security.PortalPrincipal;
 
 import org.springframework.stereotype.Service;
@@ -76,7 +81,13 @@ public class PortalCaseService {
 			String draftLink,
 			int draftVersion,
 			ClientApprovalStatus approvalStatus,
-			boolean awaitingAnswer) {
+			boolean awaitingAnswer,
+			/** D5's projected label for the stage. */
+			String step,
+			/** Stepper position, Upload 0 → Delivered 3 (Unit 58 §4). */
+			int stepIndex,
+			/** Client-language history (Unit 58 §3). */
+			java.util.List<CaseMilestones.Milestone> milestones) {
 	}
 
 	/**
@@ -108,10 +119,15 @@ public class PortalCaseService {
 	private final CaseDocumentRepository documents;
 	private final DocumentStore store;
 	private final AuditService audit;
+	private final CaseDrafts drafts;
+	private final CaseMilestones milestones;
 
 	PortalCaseService(CaseRepository cases, ContactSnapshotRepository contacts,
 			CaseLifecycleService lifecycle, DocumentChecklistItemRepository checklistItems,
-			CaseDocumentRepository documents, DocumentStore store, AuditService audit) {
+			CaseDocumentRepository documents, DocumentStore store, AuditService audit, CaseDrafts drafts,
+			CaseMilestones milestones) {
+		this.drafts = drafts;
+		this.milestones = milestones;
 		this.cases = cases;
 		this.contacts = contacts;
 		this.lifecycle = lifecycle;
@@ -206,10 +222,26 @@ public class PortalCaseService {
 				clientName,
 				subject.getServiceType(),
 				subject.getCaseCode(),
-				subject.getDraftLink(),
+				draftLink(subject),
 				subject.getDraftVersionCount(),
 				subject.getClientApprovalStatus(),
-				subject.getClientApprovalStatus() == ClientApprovalStatus.PENDING);
+				subject.getClientApprovalStatus() == ClientApprovalStatus.PENDING,
+				PortalStageProjection.forClient(subject.getCurrentStage()).label(),
+				PortalStageProjection.clientStepIndex(subject.getCurrentStage()),
+				milestones.of(subject));
+	}
+
+	/**
+	 * The link the live portal opens (Unit 58, final review #1). A draft submitted as files has no
+	 * {@code draft_link}, so the newest client-visible version's PDF is minted for this read — five
+	 * minutes, never stored. A legacy pasted link still wins.
+	 */
+	private String draftLink(Case subject) {
+		if (subject.getDraftLink() != null && !subject.getDraftLink().isBlank()) {
+			return subject.getDraftLink();
+		}
+		return drafts.clientVisible(subject).stream().findFirst().filter(CaseDocument::hasPdf)
+				.map(d -> drafts.fileUrl(d, true)).orElse(null);
 	}
 
 	/**
@@ -282,8 +314,16 @@ public class PortalCaseService {
 			return new ClientDocumentsView(java.util.List.of(), java.util.List.of());
 		}
 
-		Case subject = authorized(principal);
+		return documentsOf(authorized(principal));
+	}
 
+	/** This case's checklist and the client's uploads to it (Unit 58 — replaces the case-less read). */
+	@Transactional(readOnly = true)
+	public ClientDocumentsView documents(PortalPrincipal principal, UUID caseId) {
+		return documentsOf(authorized(principal, caseId));
+	}
+
+	private ClientDocumentsView documentsOf(Case subject) {
 		java.util.List<ChecklistItemView> checklist = checklistItems.findByCaseId(subject.getId()).stream()
 				.map(item -> new ChecklistItemView(item.getId(), item.getLabel(), item.getStatus()))
 				.toList();
@@ -315,8 +355,15 @@ public class PortalCaseService {
 	 */
 	@Transactional
 	public String documentUrl(PortalPrincipal principal, UUID documentId) {
-		Case subject = authorized(principal);
+		return documentUrlOf(authorized(principal), documentId);
+	}
 
+	@Transactional
+	public String documentUrl(PortalPrincipal principal, UUID caseId, UUID documentId) {
+		return documentUrlOf(authorized(principal, caseId), documentId);
+	}
+
+	private String documentUrlOf(Case subject, UUID documentId) {
 		CaseDocument document = documents.findById(documentId)
 				.filter(row -> row.getCaseId().equals(subject.getId()))
 				.filter(row -> row.getKind() == DocumentKind.CLIENT_UPLOAD)
@@ -364,8 +411,17 @@ public class PortalCaseService {
 		// Unit 42 mints — `isPartyScoped()` *is defined as* `caseId == null` — so `findById(null)`
 		// threw and every signed-in client's upload answered 500. `authorized` also applies the
 		// brand check this path was skipping.
-		Case subject = authorized(principal);
+		return uploadTo(authorized(principal), checklistItemId, filename, contentType, size, body);
+	}
 
+	@Transactional
+	public CaseDocument upload(PortalPrincipal principal, UUID caseId, UUID checklistItemId, String filename,
+			String contentType, long size, java.io.InputStream body) {
+		return uploadTo(authorized(principal, caseId), checklistItemId, filename, contentType, size, body);
+	}
+
+	private CaseDocument uploadTo(Case subject, UUID checklistItemId, String filename, String contentType, long size,
+			java.io.InputStream body) {
 		DocumentChecklistItem item = checklistItems.findById(checklistItemId)
 				.filter(row -> row.getCaseId() != null && row.getCaseId().equals(subject.getId()))
 				.orElseThrow(() -> new IllegalTransitionException(
@@ -472,6 +528,106 @@ public class PortalCaseService {
 	@Transactional
 	public ClientDraftView requestRevisions(PortalPrincipal principal, UUID caseId, String notes) {
 		return view(lifecycle.clientRequestRevisionsFromPortal(authorized(principal, caseId), notes));
+	}
+
+	// --- Unit 58: drafts as uploaded versions ---------------------------------
+
+	@Transactional(readOnly = true)
+	public java.util.List<CaseDrafts.ClientDraftVersion> drafts(PortalPrincipal principal, UUID caseId) {
+		return drafts.clientVersions(authorized(principal, caseId));
+	}
+
+	/** A five-minute link to one client-visible version's Word or PDF, audited as the client's. */
+	@Transactional
+	public String draftFileUrl(PortalPrincipal principal, UUID caseId, UUID draftId, boolean pdf) {
+		Case subject = authorized(principal, caseId);
+		CaseDocument draft = drafts.clientVersion(subject, draftId);
+		String url = drafts.fileUrl(draft, pdf);
+		audit.recordPortalEvent(subject.getBrandId(), PortalAudience.CLIENT, "CASE_DOCUMENT", draft.getId(),
+				AuditAction.EXPORTED, null,
+				java.util.Map.of("opened", "draft v" + draft.getVersion() + (pdf ? " (PDF)" : " (Word)")));
+		return url;
+	}
+
+	@Transactional(readOnly = true)
+	public java.util.List<CaseDrafts.CommentView> draftComments(PortalPrincipal principal, UUID caseId,
+			UUID draftId) {
+		return drafts.comments(drafts.clientVersion(authorized(principal, caseId), draftId), false);
+	}
+
+	/** Author is the credential the client posted through — the one identity every token has. */
+	@Transactional
+	public CaseDrafts.CommentView addDraftComment(PortalPrincipal principal, UUID caseId, UUID draftId, String body,
+			Integer page) {
+		CaseDocument draft = drafts.requireInReview(authorized(principal, caseId), draftId);
+		return drafts.addComment(draft, DraftComment.AuthorKind.CLIENT, principal.portalAccessId(), body, page, false);
+	}
+
+	/** Approve names the version, so a stale tab cannot approve a newer one it never saw. */
+	@Transactional
+	public ClientDraftView approveDraft(PortalPrincipal principal, UUID caseId, UUID draftId) {
+		cases.lockById(caseId);
+		Case subject = authorized(principal, caseId);
+		drafts.requireInReview(subject, draftId);
+		return view(lifecycle.clientApproveDraftFromPortal(subject));
+	}
+
+	@Transactional
+	public ClientDraftView requestChanges(PortalPrincipal principal, UUID caseId, UUID draftId, String notes) {
+		cases.lockById(caseId);
+		Case subject = authorized(principal, caseId);
+		drafts.requireInReview(subject, draftId);
+		return view(lifecycle.clientRequestRevisionsFromPortal(subject, notes));
+	}
+
+	/** One file the client receives at delivery. {@code kind}: SIGNED_LETTER or APPROVED_DRAFT. */
+	public record DeliveredFile(UUID id, String kind, String filename, Instant at) {
+	}
+
+	/**
+	 * The signed letter and the approved draft — <strong>refused by the server before delivery</strong>
+	 * (Unit 58 §5), not merely hidden: the letter exists from signing onward, and FINAL_QC may still
+	 * send it back.
+	 */
+	@Transactional(readOnly = true)
+	public java.util.List<DeliveredFile> delivered(PortalPrincipal principal, UUID caseId) {
+		Case subject = deliveredCase(principal, caseId);
+		java.util.List<DeliveredFile> out = new java.util.ArrayList<>();
+		documents.findFirstByCaseIdAndKindOrderByVersionDesc(subject.getId(), DocumentKind.SIGNED_LETTER)
+				.filter(d -> d.getObjectKey() != null)
+				.ifPresent(d -> out.add(new DeliveredFile(d.getId(), "SIGNED_LETTER", d.getFilename(), d.getUploadedAt())));
+		approvedDraft(subject).ifPresent(
+				d -> out.add(new DeliveredFile(d.getId(), "APPROVED_DRAFT", d.getPdfFilename(), d.getUploadedAt())));
+		return out;
+	}
+
+	/** The approved draft is served as its PDF; the letter as itself. */
+	@Transactional
+	public String deliveredUrl(PortalPrincipal principal, UUID caseId, UUID documentId) {
+		Case subject = deliveredCase(principal, caseId);
+		String key = documents.findFirstByCaseIdAndKindOrderByVersionDesc(subject.getId(), DocumentKind.SIGNED_LETTER)
+				.filter(d -> d.getId().equals(documentId))
+				.map(CaseDocument::getObjectKey)
+				.or(() -> approvedDraft(subject).filter(d -> d.getId().equals(documentId))
+						.map(CaseDocument::getPdfObjectKey))
+				.orElseThrow(() -> new NotFoundException("No such delivered file"));
+		audit.recordPortalEvent(subject.getBrandId(), PortalAudience.CLIENT, "CASE_DOCUMENT", documentId,
+				AuditAction.EXPORTED, null, java.util.Map.of("opened", "delivered file"));
+		return store.presignedUrl(key);
+	}
+
+	private Case deliveredCase(PortalPrincipal principal, UUID caseId) {
+		Case subject = authorized(principal, caseId);
+		if (subject.getCurrentStage() != Stage.DELIVERED && subject.getCurrentStage() != Stage.CLOSED) {
+			throw new NotFoundException("Nothing has been delivered on this case yet");
+		}
+		return subject;
+	}
+
+	private Optional<CaseDocument> approvedDraft(Case subject) {
+		return documents.findByCaseIdAndKindOrderByVersionDesc(subject.getId(), DocumentKind.DRAFT).stream()
+				.filter(d -> d.getStatus() == DocumentStatus.CLIENT_APPROVED && d.hasPdf())
+				.findFirst();
 	}
 
 	/**
