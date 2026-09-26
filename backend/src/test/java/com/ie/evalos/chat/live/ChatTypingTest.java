@@ -73,4 +73,23 @@ class ChatTypingTest {
 		assertThatThrownBy(() -> typing.typing(who, id)).isInstanceOf(ForbiddenException.class);
 		verify(realtime, never()).publish(any(), any(), any());
 	}
+
+	/** M2: throttle entries older than the window are dropped once the map grows. */
+	@Test
+	void staleThrottleEntriesArePrunedOnceTheMapGrows() {
+		java.util.concurrent.atomic.AtomicReference<java.time.Instant> now =
+				new java.util.concurrent.atomic.AtomicReference<>(java.time.Instant.parse("2026-09-26T10:00:00Z"));
+		ChatTyping clocked = new ChatTyping(realtime, members, access, () -> now.get());
+		UUID id = conversation();
+		for (int i = 0; i <= ChatTyping.PRUNE_ABOVE; i++) {
+			ChatIdentity someone = new ChatIdentity(ParticipantKind.STAFF, UUID.randomUUID(), brand, Role.PROJECT_MANAGER);
+			when(access.requireWrite(someone, id)).thenReturn(new Conversation(brand, UUID.randomUUID(), ConversationType.CLIENT));
+			clocked.typing(someone, id);
+		}
+
+		now.set(now.get().plusSeconds(60));
+		clocked.typing(who, id);
+
+		org.assertj.core.api.Assertions.assertThat(clocked.tracked()).isEqualTo(1);
+	}
 }

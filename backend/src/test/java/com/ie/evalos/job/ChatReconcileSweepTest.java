@@ -1,6 +1,7 @@
 package com.ie.evalos.job;
 
 import java.util.List;
+import java.util.Set;
 
 import com.ie.evalos.chat.ConversationService;
 import com.ie.evalos.domain.Case;
@@ -23,7 +24,7 @@ class ChatReconcileSweepTest {
 		ConversationService conversations = mock(ConversationService.class);
 		SweepRunner runner = mock(SweepRunner.class);
 		Case open = mock(Case.class);
-		when(cases.findByCurrentStageNot(Stage.CLOSED)).thenReturn(List.of(open));
+		when(cases.findActiveForSweep(Set.of(Stage.CLOSED))).thenReturn(List.of(open));
 		when(runner.sweep(eq("CHAT_RECONCILE"), any(), any())).thenAnswer((call) -> {
 			java.util.function.Supplier<List<Case>> items = call.getArgument(1);
 			SweepRunner.ItemAction<Case> act = call.getArgument(2);

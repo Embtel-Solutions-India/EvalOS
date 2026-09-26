@@ -149,8 +149,8 @@ an app that missed something catches up over REST.
   one per three seconds per person, never stored).
 - **Presence:** each app enters presence on its own channel; "online" = present there, read by the
   backend when deciding on a push and for `GET presence?ids=`.
-- **Envelope:** the Ably message name is the event type, the data is
-  `{ type, conversationId, data }`, with `type` one of `message.created`, `message.edited`,
+- **Envelope:** the Ably message name is the event type, the data is a JSON **object** (not a
+  string) `{ type, conversationId, data }`, with `type` one of `message.created`, `message.edited`,
   `message.deleted`, `reactions.changed`, `read.moved`, `members.changed`,
   `conversation.read_only`, `access.granted`, `access.revoked`, `typing`, `unread.changed`.
 - **Reconnect:** ably-js reconnects on its own; on reconnect the app catches up over REST

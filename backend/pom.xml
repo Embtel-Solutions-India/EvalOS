@@ -110,11 +110,12 @@
 			<artifactId>web-push</artifactId>
 			<version>5.1.2</version>
 		</dependency>
-		<!-- web-push needs a BouncyCastle provider at runtime and does not bring one. -->
+		<!-- web-push needs a BouncyCastle provider at runtime and does not bring one. 1.86: 1.80-1.84 carry
+		     OSV advisories (GHSA-9pwp-9qqc-pr26, GHSA-qp49-qgx5-5m26 and others); 1.85+ carry none (2026-09-26). -->
 		<dependency>
 			<groupId>org.bouncycastle</groupId>
 			<artifactId>bcprov-jdk18on</artifactId>
-			<version>1.80</version>
+			<version>1.86</version>
 		</dependency>
 		<!-- web-push returns an org.apache.http response; the version already on the classpath, at compile scope. -->
 		<dependency>
@@ -122,7 +123,7 @@
 			<artifactId>httpcore</artifactId>
 			<version>4.4.16</version>
 		</dependency>
-		<!-- web-push signs VAPID with jose4j and brings 0.7.9 (known CVEs, fixed in 0.9.x); pinned newer, compile scope. -->
+		<!-- web-push signs VAPID with jose4j and brings 0.7.9 (four OSV advisories); 0.9.6 carries none (2026-09-26). Compile scope. -->
 		<dependency>
 			<groupId>org.bitbucket.b_c</groupId>
 			<artifactId>jose4j</artifactId>

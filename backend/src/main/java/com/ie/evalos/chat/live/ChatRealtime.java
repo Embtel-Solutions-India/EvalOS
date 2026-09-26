@@ -73,11 +73,20 @@ public class ChatRealtime {
 			return;
 		}
 		try {
-			rest.channels.get(channel).publish(event, data instanceof String s ? s : JSON.writeValueAsString(data));
+			rest.channels.get(channel).publish(event, ablyData(data));
 		}
 		catch (AblyException | JsonProcessingException failed) {
 			log.warn("Ably publish of {} to {} failed; the recipient catches up over REST", event, channel, failed);
 		}
+	}
+
+	/**
+	 * The message data as a JSON <em>object</em> (review M6): ably-js then hands the apps an object,
+	 * not a string to parse. Serialised by Jackson (so dates and records come out as the REST API's
+	 * do), re-read as Gson, which is what ably-java encodes as JSON on the wire.
+	 */
+	static Object ablyData(Object data) throws JsonProcessingException {
+		return data instanceof String text ? text : com.google.gson.JsonParser.parseString(JSON.writeValueAsString(data));
 	}
 
 	public boolean isPresent(String channel) {

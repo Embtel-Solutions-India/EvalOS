@@ -41,4 +41,18 @@ class ChatRealtimeTest {
 		assertThat(token.keyName()).isEqualTo("appid.keyid");
 		assertThat(token.mac()).isNotBlank();
 	}
+
+	/** M6: the envelope reaches ably-js as a JSON object, not a string it would have to parse. */
+	@Test
+	void envelopesArePublishedAsJsonObjectsNotStrings() throws Exception {
+		UUID conversation = UUID.randomUUID();
+
+		Object data = ChatRealtime.ablyData(new ChatEnvelope("typing", conversation, java.util.Map.of("id", "x")));
+
+		assertThat(data).isInstanceOf(com.google.gson.JsonObject.class);
+		com.google.gson.JsonObject json = (com.google.gson.JsonObject) data;
+		assertThat(json.get("type").getAsString()).isEqualTo("typing");
+		assertThat(json.get("conversationId").getAsString()).isEqualTo(conversation.toString());
+		assertThat(json.getAsJsonObject("data").get("id").getAsString()).isEqualTo("x");
+	}
 }

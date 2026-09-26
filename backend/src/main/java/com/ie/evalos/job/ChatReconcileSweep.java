@@ -1,5 +1,7 @@
 package com.ie.evalos.job;
 
+import java.util.Set;
+
 import com.ie.evalos.chat.ConversationService;
 import com.ie.evalos.domain.Stage;
 import com.ie.evalos.repository.CaseRepository;
@@ -17,8 +19,8 @@ import org.springframework.stereotype.Component;
  * existed before Unit 57.</strong> Cases already CLOSED are left alone: they get no conversations,
  * because nobody can talk in a closed case and backfilling history that never happened is noise.
  *
- * <p><strong>Paid or not.</strong> {@code findActiveForSweep} is the paid-cases list the SLA sweeps
- * use; chat starts at case creation, before payment, so this sweep reads every case not CLOSED.
+ * <p>{@code findActiveForSweep} returns paid cases only, which is every case: a case is created
+ * once the client has paid (business rule, 2026-09-26).
  */
 @Component
 public class ChatReconcileSweep implements Sweep {
@@ -43,7 +45,7 @@ public class ChatReconcileSweep implements Sweep {
 	@Scheduled(fixedDelayString = "${evalos.jobs.intervals.CHAT_RECONCILE}")
 	@Override
 	public boolean run() {
-		boolean ran = runner.sweep(JOB_TYPE, () -> cases.findByCurrentStageNot(Stage.CLOSED), (subject) -> {
+		boolean ran = runner.sweep(JOB_TYPE, () -> cases.findActiveForSweep(Set.of(Stage.CLOSED)), (subject) -> {
 			conversations.ensureAndSync(subject);
 			return true;
 		});
