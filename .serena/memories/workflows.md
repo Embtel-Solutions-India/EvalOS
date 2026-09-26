@@ -17,7 +17,8 @@ widened only to carry the documents beside the request (D34). No questionnaire s
 
 Production, and it is now a stated business rule rather than an accident of the code (D36):
 Handoff A creates the case → a **PM** takes it → the PM assigns **Coordinator**, **Case Manager**
-and **Expert** → the **CM drafts and uploads** → the **client approves in the portal** → only then
+and **Expert** → the **CM uploads the draft as Word + PDF** → the **client comments and approves that
+version in the portal** (Unit 58) → only then
 the **expert** downloads, signs and uploads back. `CaseLifecycleService` already implements all of
 it. **Sales sees none of this** (D19c).
 

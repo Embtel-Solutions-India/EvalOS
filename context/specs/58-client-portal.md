@@ -4,7 +4,7 @@
 case-first: a Home of cases, a case detail page that holds everything about one case, Invoices,
 and Conversations. Drafts stop being a pasted link and become **uploaded versions** (Word + PDF)
 that the client views, comments on, downloads and approves. The expert portal is a separate unit
-that follows this one. **Status: SPECCED 2026-09-27 — not built.**
+that follows this one. **Status: phase 1 (backend + staff upload) BUILT 2026-09-27; phases 2–4 not built.**
 
 ## 0. What was decided, and by whom
 
@@ -52,14 +52,15 @@ sent to the client (the case enters `CLIENT_REVIEW`) → `CLIENT_APPROVED` (the 
 signs, locked) or **`CHANGES_REQUESTED`** (new — stamped when the client requests changes; today
 that leaves the version unmarked). `SUPERSEDED` (a newer version replaced it unruled) and `SIGNED`
 stay as they are. **The version "in client review"** is the latest `PM_APPROVED` version while the
-case is at `CLIENT_REVIEW` / `CLIENT_APPROVAL`; only it can be commented on, approved or sent
-back. **Client-visible versions:** that one, plus every `CLIENT_APPROVED` and `CHANGES_REQUESTED`
+case's client answer is `PENDING` — the flag the approve / request-changes guards already use, so
+the two cannot disagree; only it can be commented on, approved or sent back. **Client-visible versions:** that one, plus every `CLIENT_APPROVED` and `CHANGES_REQUESTED`
 version. `SUBMITTED`, `RETURNED` and `SUPERSEDED` never reach the client.
 
 ### Comments
 
 - A thread per version, between the client and the case's staff (Case Manager, Coordinator, PM).
-- Each comment: author, text (1–2,000 characters), an optional page number, time.
+- Each comment: author, text (1–2,000 characters), an optional page number, time. A client's
+  comment records the portal credential it was posted through as its author.
 - **Only on the version currently in `CLIENT_REVIEW`**; earlier threads stay readable.
 - "Request changes" hands the thread to the Case Manager; the next version starts a fresh thread.
 - Comments are kept with the case (the Document Retention Policy's 7 years), never edited or
@@ -81,11 +82,14 @@ version. `SUBMITTED`, `RETURNED` and `SUPERSEDED` never reach the client.
 ### Staff (production)
 
 - `POST /api/cases/{id}/drafts` (multipart: `docx`, `pdf`) — the Case Manager submits the next
-  version; runs `SUBMIT_DRAFT`. Case Manager, Coordinator or PM of the case only.
+  version; runs `SUBMIT_DRAFT`. Case Manager, Coordinator or PM of the case only. It replaced
+  `POST /{id}/draft/submit` (the link). One request carries both files, so `max-request-size` is 32MB.
 - The PM's return / approve and the send-to-client steps stay as they are and move the version's
   status alongside the stage.
-- `GET /api/cases/{id}/drafts`, `GET …/drafts/{draftId}/files/{docx|pdf}/url` (5-minute link),
-  `GET/POST …/drafts/{draftId}/comments` — the production team sees every version and thread.
+- The versions and their files **reuse the existing document routes**: `GET /api/cases/{id}/documents?kind=DRAFT`
+  (each version now says `hasPdf`) and `GET …/documents/{docId}/url?pdf=true` (5-minute link; without
+  the flag, the Word file). `GET/POST /api/cases/{id}/drafts/{draftId}/comments` — the production team
+  sees every version and thread.
 - The staff case screen gains **"Upload draft"** (both files, one action) in place of the link
   field, and the draft versions with their comments.
 
@@ -94,7 +98,7 @@ version. `SUBMITTED`, `RETURNED` and `SUPERSEDED` never reach the client.
 | Route | Does |
 |---|---|
 | `GET cases` | active and delivered cases, each with case code, service, client-facing step, "needs you" |
-| `GET cases/{id}` | detail: step, stepper position, milestone timeline, checklist |
+| `GET cases/{id}` | detail: the existing view plus `step`, `stepIndex` (stepper position) and `milestones`; the checklist comes from `GET cases/{id}/documents` |
 | `GET cases/{id}/documents`, `POST cases/{id}/documents?checklistItemId=` | this case's checklist and uploads (replaces the case-less `/documents`) |
 | `GET cases/{id}/documents/{docId}/url` | 5-minute download link to the client's own file |
 | `GET cases/{id}/drafts` | client-visible versions only (§1) |
@@ -103,6 +107,7 @@ version. `SUBMITTED`, `RETURNED` and `SUPERSEDED` never reach the client.
 | `POST cases/{id}/drafts/{draftId}/approve` | `CLIENT_APPROVE_DRAFT` on that version |
 | `POST cases/{id}/drafts/{draftId}/request-changes` | `CLIENT_REQUEST_REVISIONS`, optional note |
 | `GET cases/{id}/delivered` | the `SIGNED_LETTER` and the `CLIENT_APPROVED` draft — **only at `DELIVERED` or `CLOSED`** |
+| `GET cases/{id}/delivered/{docId}/url` | 5-minute link to either delivered file (the approved draft as its PDF); same gate |
 | `GET invoices?status=paid` | paid invoices only (GHL's `paid` status) |
 
 The old token-scoped `/approve` and `/request-revisions` and the case-less `/documents` routes are

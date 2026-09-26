@@ -505,7 +505,7 @@ Service → Review (documents + send). Deleted: `lib/questionnaire.ts`, `constan
 route, `ClientApplication.answers`, `ApplicationView.answers`; portal CORS methods are now
 GET/POST/DELETE/OPTIONS (`ClientApplicationRoutesTest` refuses PUT and PATCH at preflight). Staff:
 `DealApplication` is "Portal request", no answers. **`client_application.answers` column NOT dropped
-yet — `V69` awaits an explicit go-ahead** (it destroys client data). Suites: backend 1179/0/4 skipped,
+yet — `V71` awaits an explicit go-ahead** (it destroys client data). Suites: backend 1179/0/4 skipped,
 staff 131, portals 30, all green.
 
 **2026-09-25 — client portal legal pages.** Public `/privacy`, `/disclaimer`, `/document-retention`
@@ -523,3 +523,9 @@ pipeline Sales, brand ENMs, client account, offered/accepted expert; follows cas
 Read-only at CLOSED. REST on /api/chat, /api/portal/client/chat, /api/portal/expert/chat (routes once in
 `ChatRoutes`). Live: Ably, one private channel per person, publish never granted. Push: web-push 5.1.2 to
 members not present. No UI yet (phases 2–3). Never run against a real Ably app. Full suite 1282/0/4 skipped.
+
+**Unit 58 phase 1 (2026-09-27): BUILT.** V70 draft files + comments; `POST /api/cases/{id}/drafts`
+(Word + PDF); `CaseDrafts`, `CaseMilestones`; per-case client routes (documents, drafts, comments,
+approve / request changes by version, delivered files gated to DELIVERED, paid invoices); staff
+Upload draft + comment thread. Client portal UI (phase 3), `packages/evalos-chat` (phase 2) and push
+(phase 4) not built.

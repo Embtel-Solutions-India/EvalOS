@@ -134,6 +134,8 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
   into `case_document` at Handoff A as a row insert over the **same S3 object**: nothing copies,
   nothing re-keys, and Production starts holding exactly what Sales read.
   Spec `53-request-documents.md`. _(Closes `open-decisions.md` Q4.)_
+  **Drafts are stored files too** (Unit 58, D51): Word + PDF on their `case_document` DRAFT versions,
+  alongside the request documents.
 - **D34.** **Sales clicks one opportunity and sees both** the request (service, purpose, status)
   and the documents. The documents are **a second screen on that same deal, never a second permission** —
   their own route and their own tab beside the application, reached by whoever could already open
@@ -286,6 +288,14 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
   Manager read as viewers. Text only; read-only at `CLOSED`. Spring Boot and PostgreSQL hold every
   message and rule; **Ably relays live updates only** (one private channel per person, publish never
   granted to a browser); web push for anyone without the app open. No chat platform owns the data.
+- **D51.** **Drafts are uploaded versions** (Unit 58, `58-client-portal.md`, 2026-09-27, business
+  decision). The Case Manager (or Coordinator / PM) uploads each version as **Word + PDF** onto the
+  existing `case_document` DRAFT versions — no second version table. Each version carries an
+  immutable comment thread (1–2,000 characters, optional page) open only while it is the one in
+  client review. The client approves or requests changes **on a named version** (409
+  `DRAFT_NOT_CURRENT` otherwise), and that answer is stamped on it (`CLIENT_APPROVED` /
+  `CHANGES_REQUESTED`). The client sees the signed letter only once the case is **Delivered**, refused
+  by the server before then. Legacy pasted draft links stay view-only.
 - **D18.** The target is an **id-faithful mirror** of GHL (same pipeline/stage/contact/opportunity
   ids both sides), synced both ways, that keeps working when sync is off. Units 44–48
   (`context/specs/00c-ghl-independence-programme.md`). EvalOS mints its own primary key and keeps

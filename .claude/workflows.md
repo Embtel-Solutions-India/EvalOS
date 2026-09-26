@@ -196,8 +196,8 @@ a new one. Whether that stays is `open-decisions.md` → Q1.
 ```
 DOC_COLLECTION ─ coordinator chases the checklist; client uploads to S3
  → PM_REVIEW ─ PM writes strategy notes, assigns an expert
- → DRAFT_IN_PROGRESS → DRAFT_REVIEW ─ PM approves or returns
- → READY_TO_SEND → CLIENT_REVIEW ─ client approves or requests revisions in the portal
+ → DRAFT_IN_PROGRESS → DRAFT_REVIEW ─ CM uploads the draft as Word + PDF (POST …/drafts); PM approves or returns
+ → READY_TO_SEND → CLIENT_REVIEW ─ client comments, then approves or requests changes on that version
  → CLIENT_APPROVAL → EXPERT_SIGNING ─ expert accepts / declines / signs via a staff-minted link
  → FINAL_QC ─ PM passes or fails
  → READY_TO_DELIVER → DELIVERED → CLOSED
@@ -205,6 +205,13 @@ DOC_COLLECTION ─ coordinator chases the checklist; client uploads to S3
 
 Orthogonal `exception_state` for holds and refunds. Every transition is a `POST /api/cases/{id}/…`
 route, goes through `CaseLifecycleService`, and writes an audit row.
+
+**Draft versions (Unit 58, D51).** `SUBMIT_DRAFT` puts both files in S3 (after the transition check,
+before the row) and stores them on the new DRAFT version. The PM's ruling stamps `RETURNED` /
+`PM_APPROVED`; the client's answer stamps `CLIENT_APPROVED` / `CHANGES_REQUESTED`. `CaseDrafts`
+decides which version is in client review (latest `PM_APPROVED` while the client answer is
+`PENDING`), which the client may see (that one, plus approved and sent-back versions) and owns the
+comment threads.
 
 Four sweeps run over this: `DOC_CHASE`, `DOC_ESCALATION`, `EXPERT_SIGN`, `STAGE_SLA`.
 
@@ -238,12 +245,24 @@ Client Portal /documents
         → checklist item → UPLOADED → audit
   GET  /api/portal/client/documents/{id}/url   5-minute presigned read, never stored, audited
 
-Staff     GET /api/cases/{id}/documents, …/{documentId}/url
+Client Portal, per case (Unit 58 — the routes above stay until the new portal ships)
+  GET  /api/portal/client/cases/{id}                    view + step, stepIndex, milestones
+  GET  /api/portal/client/cases/{id}/documents          POST …/documents?checklistItemId=  GET …/documents/{doc}/url
+  GET  /api/portal/client/cases/{id}/drafts             client-visible versions only
+  GET  …/drafts/{draft}/files/{docx|pdf}/url            GET|POST …/drafts/{draft}/comments
+  POST …/drafts/{draft}/approve                         POST …/drafts/{draft}/request-changes
+  GET  /api/portal/client/cases/{id}/delivered          + …/delivered/{doc}/url — 404 before DELIVERED
+  GET  /api/portal/client/invoices?status=paid
+
+Staff     GET /api/cases/{id}/documents, …/{documentId}/url[?pdf=true]
+          POST /api/cases/{id}/drafts (docx + pdf)      GET|POST /api/cases/{id}/drafts/{draft}/comments
 Expert    GET /api/portal/expert/letter, POST /api/portal/expert/signed-letter
 ```
 
-`PortalCaseService`, `DocumentStore`. A client with no case sees an empty screen, not a refusal.
-A client with two or more cases is **refused** — the per-case routes and picker do not exist.
+`PortalCaseService`, `CaseDrafts`, `CaseMilestones`, `DocumentStore`. A client with no case sees an
+empty screen, not a refusal. On the case-less routes a client with two or more cases is still
+**refused**; the per-case routes above are the way through, and the portal UI that uses them is
+Unit 58 phase 3.
 
 ### TARGET WORKFLOW
 
