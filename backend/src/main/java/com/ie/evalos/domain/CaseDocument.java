@@ -105,6 +105,16 @@ public class CaseDocument extends ScopedEntity {
 	@Column(name = "attested_name", updatable = false)
 	private String attestedName;
 
+	/** A DRAFT's PDF (Unit 58); {@link #objectKey} holds its Word file. Null on every other kind. */
+	@Column(name = "pdf_object_key", updatable = false)
+	private String pdfObjectKey;
+
+	@Column(name = "pdf_filename", updatable = false)
+	private String pdfFilename;
+
+	@Column(name = "pdf_size_bytes", updatable = false)
+	private Long pdfSizeBytes;
+
 	protected CaseDocument() {
 		// for JPA
 	}
@@ -152,6 +162,33 @@ public class CaseDocument extends ScopedEntity {
 		this.contentSha256 = contentSha256;
 		this.attestation = attestation;
 		this.attestedName = attestedName;
+	}
+
+	/**
+	 * The two files of one draft version (Unit 58), set once before the row is first saved — the
+	 * columns are not updatable, so a version's files can never be swapped under a comment thread.
+	 */
+	public void storedDraft(String docxKey, String docxFilename, long docxSize, String pdfKey, String pdfFilename,
+			long pdfSize) {
+		this.objectKey = docxKey;
+		this.filename = docxFilename;
+		this.sizeBytes = docxSize;
+		this.contentType = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+		this.pdfObjectKey = pdfKey;
+		this.pdfFilename = pdfFilename;
+		this.pdfSizeBytes = pdfSize;
+	}
+
+	public String getPdfObjectKey() {
+		return pdfObjectKey;
+	}
+
+	public String getPdfFilename() {
+		return pdfFilename;
+	}
+
+	public boolean hasPdf() {
+		return pdfObjectKey != null;
 	}
 
 	public String getContentSha256() {
