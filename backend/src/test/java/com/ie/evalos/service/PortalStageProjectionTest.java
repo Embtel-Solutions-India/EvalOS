@@ -88,4 +88,15 @@ class PortalStageProjectionTest {
 					.isEqualTo(new PortalStep("Submitted", false));
 		}
 	}
+
+	/** Unit 58 §4: the client stepper, Upload → Review → Signing → Delivered. */
+	@Test
+	void theClientStepperHasFourPositions() {
+		assertThat(PortalStageProjection.clientStepIndex(Stage.DOC_COLLECTION)).isZero();
+		assertThat(PortalStageProjection.clientStepIndex(Stage.DRAFT_REVIEW)).isEqualTo(1);
+		assertThat(PortalStageProjection.clientStepIndex(Stage.CLIENT_REVIEW)).isEqualTo(1);
+		assertThat(PortalStageProjection.clientStepIndex(Stage.CLIENT_APPROVAL)).isEqualTo(2);
+		assertThat(PortalStageProjection.clientStepIndex(Stage.READY_TO_DELIVER)).isEqualTo(2);
+		assertThat(PortalStageProjection.clientStepIndex(Stage.CLOSED)).isEqualTo(3);
+	}
 }
