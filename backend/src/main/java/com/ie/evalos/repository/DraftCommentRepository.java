@@ -4,13 +4,23 @@ import java.util.List;
 import java.util.UUID;
 
 import com.ie.evalos.domain.DraftComment;
+import com.ie.evalos.service.ScopePredicate;
 
-import org.springframework.data.repository.Repository;
+/**
+ * Draft comments (Unit 58). Brand only, like {@link CaseDocumentRepository}: a comment is reached
+ * through its version, which is reached through an already-authorized case.
+ *
+ * <p>The inherited update and delete methods exist but can never succeed — the V70 trigger refuses
+ * both, so a comment stays the record it was written as.
+ */
+public interface DraftCommentRepository extends ScopedRepository<DraftComment> {
 
-/** Only save and read exist: a comment is never edited or deleted (the V70 trigger agrees). */
-public interface DraftCommentRepository extends Repository<DraftComment, UUID> {
+	ScopePredicate.Fields SCOPE = ScopePredicate.Fields.brandOnly("brandId");
 
-	DraftComment save(DraftComment comment);
+	@Override
+	default ScopePredicate.Fields scopeFields() {
+		return SCOPE;
+	}
 
 	List<DraftComment> findByDocumentIdOrderByCreatedAtAsc(UUID documentId);
 }
