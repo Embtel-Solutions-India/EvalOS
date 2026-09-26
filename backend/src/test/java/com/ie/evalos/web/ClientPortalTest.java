@@ -107,6 +107,9 @@ class ClientPortalTest {
 	CaseBoardService board;
 
 	@MockitoBean
+	com.ie.evalos.service.CaseDrafts drafts;
+
+	@MockitoBean
 	EvalOsUserDetailsService userDetailsService;
 
 	private String staffBearer(Role role) {
