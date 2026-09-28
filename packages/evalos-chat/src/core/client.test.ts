@@ -147,4 +147,90 @@ describe('createChatClient', () => {
     await client.toggleReaction(client.getState().messages.v1[0], 'HEART')
     expect(api.react).toHaveBeenLastCalledWith('m9', 'HEART', false)
   })
+
+  /** Fix round 1, Important #1: the cursor for a not-yet-processed conversation is snapshotted
+   * before catch-up starts, so a live message that lands on it mid-catch-up cannot make catch-up
+   * skip the gap it exists to fill. */
+  it('a live message on a not-yet-processed conversation does not skip what catch-up must still fetch for it', async () => {
+    let resolveV1After: ((p: Page<Message>) => void) | null = null
+    const messages = vi.fn()
+      .mockResolvedValueOnce(page([msg('m1')]))                 // open v1
+      .mockResolvedValueOnce(page([msg('m2', 'v2')]))           // open v2
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveV1After = resolve })) // v1 after m1 (catch-up), held open
+      .mockResolvedValue(page([]))                              // everything after that
+    const api = fakeApi({ messages })
+    const rt = fakeRealtime()
+    const client = createChatClient(api, rt.realtime)
+    await client.start()
+    await client.openConversation('v1')
+    await client.openConversation('v2')
+
+    rt.handlers().onReconnect()
+    await vi.waitFor(() => expect(messages).toHaveBeenCalledTimes(3))
+    // v1's catch-up fetch is still pending; a live message lands on v2, which the loop hasn't reached yet.
+    rt.handlers().onEvent({ type: 'message.created', conversationId: 'v2', data: msg('m9', 'v2') })
+    resolveV1After!(page([]))
+    await vi.waitFor(() => expect(messages).toHaveBeenCalledTimes(4))
+
+    expect(messages.mock.calls[3]).toEqual(['v2', { after: '2026-09-27T10:00:02Z|m2' }])
+  })
+
+  /** Fix round 1, Important #2: the list exists as [] before the first fetch, so a live event
+   * that arrives while that fetch is in flight is appended instead of dropped. */
+  it('keeps a live message that arrives while the first page is still loading', async () => {
+    let resolveOpen: ((p: Page<Message>) => void) | null = null
+    const messages = vi.fn().mockImplementationOnce(() => new Promise((resolve) => { resolveOpen = resolve }))
+    const api = fakeApi({ messages })
+    const rt = fakeRealtime()
+    const client = createChatClient(api, rt.realtime)
+    await client.start()
+
+    const opening = client.openConversation('v1')
+    rt.handlers().onEvent({ type: 'message.created', conversationId: 'v1', data: msg('m5') })
+    resolveOpen!(page([msg('m1')]))
+    await opening
+
+    expect(client.getState().messages.v1.map((m) => m.id)).toEqual(['m1', 'm5'])
+  })
+
+  /** Fix round 1, Important #3: one conversation's failed catch-up fetch does not reject and does
+   * not stop the others from catching up. */
+  it('one conversation failing during catch-up does not stop the others, and nothing throws', async () => {
+    const messages = vi.fn()
+      .mockResolvedValueOnce(page([msg('m1')]))            // open v1
+      .mockResolvedValueOnce(page([msg('m2', 'v2')]))      // open v2
+      .mockRejectedValueOnce(new Error('network blip'))    // v1 after m1 (catch-up) fails
+      .mockResolvedValueOnce(page([msg('m9', 'v2')]))      // v2 after m2 (catch-up) succeeds
+    const api = fakeApi({ messages })
+    const rt = fakeRealtime()
+    const client = createChatClient(api, rt.realtime)
+    await client.start()
+    await client.openConversation('v1')
+    await client.openConversation('v2')
+
+    rt.handlers().onReconnect()
+    await vi.waitFor(() => expect(messages).toHaveBeenCalledTimes(4))
+
+    expect(client.getState().messages.v1.map((m) => m.id)).toEqual(['m1'])
+    expect(client.getState().messages.v2.map((m) => m.id)).toEqual(['m2', 'm9'])
+  })
+
+  /** Fix round 1, Important #4: stop() called while start() is still awaiting realtime.start()
+   * (StrictMode's mount-unmount-remount) closes the connection instead of leaking it. */
+  it('stop called before start resolves still closes the realtime connection', async () => {
+    const close = vi.fn()
+    let resolveRealtimeStart: ((stop: () => void) => void) | null = null
+    const realtime: Realtime = {
+      start: () => new Promise((resolve) => { resolveRealtimeStart = resolve }),
+    }
+    const client = createChatClient(fakeApi(), realtime)
+
+    const starting = client.start()
+    await vi.waitFor(() => expect(resolveRealtimeStart).not.toBeNull())
+    client.stop()
+    resolveRealtimeStart!(close)
+    await starting
+
+    expect(close).toHaveBeenCalledTimes(1)
+  })
 })

@@ -46,7 +46,9 @@ export function ablyRealtime(RealtimeClass: AblyRealtimeCtor, fetchToken: () => 
         },
       })
       const channel = client.channels.get(channelOf(first.clientId))
-      void channel.subscribe((message) => onEvent(message.data as Envelope))
+      // A rejected subscribe (attach refused) would otherwise be silent: status would still say
+      // 'live' while no events ever arrive.
+      void channel.subscribe((message) => onEvent(message.data as Envelope)).catch(() => onStatus('offline'))
       // Presence is how the backend decides between a live update and a push (§6).
       void channel.presence.enter().catch(() => {})
       let connectedBefore = false

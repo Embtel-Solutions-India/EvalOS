@@ -13,6 +13,8 @@ export function createChatClient(api: ChatApi, realtime: Realtime | null) {
   let inboxParams: InboxParams = {}
   let onScreen: string | null = null
   let stopRealtime: (() => void) | null = null
+  /** Set by `stop()`; guards against `start()` still being in flight (Review Focus: StrictMode). */
+  let stopped = false
 
   function dispatch(action: Action) {
     state = reduce(state, action)
@@ -29,6 +31,7 @@ export function createChatClient(api: ChatApi, realtime: Realtime | null) {
   }
 
   async function start(params: InboxParams = {}) {
+    stopped = false
     inboxParams = params
     try {
       dispatch({ type: 'me', me: await api.me() })
@@ -41,26 +44,33 @@ export function createChatClient(api: ChatApi, realtime: Realtime | null) {
       dispatch({ type: 'realtime', status: 'offline' })
       return
     }
-    stopRealtime = await realtime.start({
+    const close = await realtime.start({
       onEvent,
-      onReconnect: () => void catchUp(),
+      onReconnect: () => void catchUp().catch(() => {}),
       onStatus: (status) => dispatch({ type: 'realtime', status }),
     })
+    // stop() may have run while realtime.start() was still in flight (StrictMode's
+    // mount-unmount-remount): close what we just opened instead of leaking it.
+    if (stopped) {
+      close()
+      return
+    }
+    stopRealtime = close
   }
 
   function onEvent(envelope: Envelope) {
     dispatch({ type: 'event', envelope })
     switch (envelope.type) {
       case 'unread.changed':
-        void refreshUnread()
+        void refreshUnread().catch(() => {})
         break
       case 'members.changed':
       case 'access.granted':
       case 'access.revoked':
-        void refreshInbox()
+        void refreshInbox().catch(() => {})
         break
       case 'message.created':
-        if (envelope.conversationId === onScreen) void markRead(envelope.conversationId)
+        if (envelope.conversationId === onScreen) void markRead(envelope.conversationId).catch(() => {})
         break
     }
   }
@@ -68,8 +78,16 @@ export function createChatClient(api: ChatApi, realtime: Realtime | null) {
   async function openConversation(id: string) {
     onScreen = id
     if (!state.messages[id]) {
-      const page = await api.messages(id)
-      dispatch({ type: 'page', conversationId: id, items: page.items, nextCursor: page.nextCursor })
+      // The list exists as [] before the fetch starts, so a live event that arrives while the
+      // first page is in flight is appended instead of dropped (the reducer never starts a list
+      // from a lone live message). A conversation that was never opened still has no entry.
+      dispatch({ type: 'page', conversationId: id, items: [], nextCursor: null })
+      try {
+        const page = await api.messages(id)
+        dispatch({ type: 'page', conversationId: id, items: page.items, nextCursor: page.nextCursor })
+      } catch {
+        // Leave the placeholder; reopening or the next reconnect retries. No retry loop here.
+      }
     }
     await markRead(id)
   }
@@ -91,20 +109,32 @@ export function createChatClient(api: ChatApi, realtime: Realtime | null) {
 
   /** After a reconnect: the inbox, the total, and every conversation already on the page (§5). */
   async function catchUp() {
-    await Promise.all([refreshInbox(), refreshUnread()])
+    // Snapshot every loaded conversation's cursor (or "empty") synchronously, before any await,
+    // so a live message that lands mid-catch-up cannot move a not-yet-processed conversation's
+    // cursor past the gap catch-up exists to fill.
+    const cursors: Record<string, string | null> = {}
     for (const id of Object.keys(state.messages)) {
       const list = state.messages[id]
       const last = list[list.length - 1]
-      if (!last) {
-        const page = await api.messages(id)
-        dispatch({ type: 'page', conversationId: id, items: page.items, nextCursor: page.nextCursor })
-        continue
-      }
-      let after: string | null = cursorOf(last)
-      while (after) {
-        const page = await api.messages(id, { after })
-        dispatch({ type: 'newer', conversationId: id, items: page.items })
-        after = page.nextCursor
+      cursors[id] = last ? cursorOf(last) : null
+    }
+    await Promise.all([refreshInbox(), refreshUnread()])
+    for (const id of Object.keys(cursors)) {
+      try {
+        let after = cursors[id]
+        if (!after) {
+          const page = await api.messages(id)
+          dispatch({ type: 'page', conversationId: id, items: page.items, nextCursor: page.nextCursor })
+          continue
+        }
+        while (after) {
+          const page = await api.messages(id, { after })
+          dispatch({ type: 'newer', conversationId: id, items: page.items })
+          after = page.nextCursor
+        }
+      } catch {
+        // One conversation's failure must not stop the others. No retry loop: the next
+        // reconnect or reopen retries.
       }
     }
     if (onScreen) await markRead(onScreen)
@@ -141,7 +171,10 @@ export function createChatClient(api: ChatApi, realtime: Realtime | null) {
       }
     },
     start,
-    stop: () => stopRealtime?.(),
+    stop: () => {
+      stopped = true
+      stopRealtime?.()
+    },
     refreshInbox,
     openConversation,
     closeConversation,
