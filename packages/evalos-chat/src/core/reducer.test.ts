@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { initialState, reactedByMe, reduce, type ChatState } from './reducer'
+import { filterInbox, initialState, reactedByMe, reduce, seenBy, type ChatState } from './reducer'
 import type { Conversation, Message } from './types'
 
 const me = { kind: 'CLIENT' as const, id: 'client-1' }
@@ -49,6 +49,53 @@ function opened(): ChatState {
 }
 
 const created = (m: Message) => ({ type: 'event' as const, envelope: { type: 'message.created', conversationId: 'v1', data: m } })
+
+describe('read watermarks and seen-by', () => {
+  const mark = (id: string, last: string, name = id) => ({ kind: 'STAFF' as const, id, name, lastReadMessageId: last })
+  const mine = (id: string) => msg(id, { authorKind: 'CLIENT', authorId: 'client-1', mine: true })
+
+  it('names who read up to my latest message, never me, never someone behind it', () => {
+    const list = [msg('m1'), mine('m2'), msg('m3')]
+    const readers = [mark('cam', 'm3'), mark('pat', 'm1'), { ...mark('x', 'm3'), kind: 'CLIENT' as const, id: 'client-1' }]
+    expect(seenBy(list, readers, me)).toEqual(['cam'])
+  })
+
+  it('leaves out a watermark it cannot place', () => {
+    expect(seenBy([mine('m2')], [mark('cam', 'unknown')], me)).toEqual([])
+  })
+
+  it('keeps read.moved in the fetched readers, and ignores it before they are fetched', () => {
+    const moved = { type: 'event' as const, envelope: { type: 'read.moved', conversationId: 'v1', data: mark('cam', 'm2') } }
+    let s = reduce(opened(), moved)
+    expect(s.readers.v1).toBeUndefined()
+    s = reduce(s, { type: 'readState', conversationId: 'v1', readers: [mark('cam', 'm1')] })
+    s = reduce(s, moved)
+    expect(s.readers.v1).toEqual([mark('cam', 'm2')])
+  })
+})
+
+describe('filterInbox', () => {
+  it('narrows by type and status, keeping inbox order', () => {
+    const conversations = {
+      a: conv({ id: 'a', type: 'CLIENT' }),
+      b: conv({ id: 'b', type: 'INTERNAL' }),
+      c: conv({ id: 'c', type: 'INTERNAL', status: 'READ_ONLY' }),
+    }
+    const s = { order: ['c', 'b', 'a'], conversations }
+    expect(filterInbox(s, {})).toEqual(['c', 'b', 'a'])
+    expect(filterInbox(s, { type: 'INTERNAL' })).toEqual(['c', 'b'])
+    expect(filterInbox(s, { type: 'INTERNAL', status: 'ACTIVE' })).toEqual(['b'])
+  })
+})
+
+describe('typing', () => {
+  it('turns on and off, and a sent message ends it', () => {
+    let s = reduce(opened(), { type: 'typing', conversationId: 'v1', key: 'STAFF:staff-1', on: true })
+    expect(s.typing.v1).toEqual(['STAFF:staff-1'])
+    s = reduce(s, created(msg('m3')))
+    expect(s.typing.v1).toEqual([])
+  })
+})
 
 describe('reduce', () => {
   it('shows a page oldest first and remembers where older history starts', () => {

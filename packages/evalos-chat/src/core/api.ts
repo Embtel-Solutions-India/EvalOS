@@ -1,4 +1,4 @@
-import type { Conversation, ConversationType, Me, Message, Page, Reaction, TokenRequest } from './types'
+import type { Conversation, ConversationType, Me, Message, Page, Presence, Reaction, ReaderMark, TokenRequest } from './types'
 
 export type Method = 'GET' | 'POST' | 'PUT' | 'DELETE'
 export type Params = Record<string, string | number | undefined>
@@ -22,6 +22,16 @@ export function createChatApi(request: Request) {
     replies: (messageId: string) => request<Message[]>('GET', `/messages/${messageId}/replies`),
     send: (conversationId: string, body: string, parentId?: string) =>
       request<Message>('POST', `/conversations/${conversationId}/messages`, { body: { body, parentId: parentId ?? null } }),
+    /** Your own message only; the server refuses anyone else's. */
+    edit: (messageId: string, body: string) => request<Message>('PUT', `/messages/${messageId}`, { body: { body } }),
+    remove: (messageId: string) => request<void>('DELETE', `/messages/${messageId}`),
+    search: (q: string, params: { caseId?: string; type?: ConversationType } = {}) =>
+      request<Message[]>('GET', '/search', { params: { q, ...params } }),
+    readState: (conversationId: string) =>
+      request<{ conversationId: string; readers: ReaderMark[] }>('GET', `/conversations/${conversationId}/read-state`),
+    presence: (conversationId: string) => request<Presence>('GET', `/conversations/${conversationId}/presence`),
+    /** "I am typing" — the backend relays it (no token may publish) and drops repeats within 3s. */
+    typing: (conversationId: string) => request<void>('POST', `/conversations/${conversationId}/typing`),
     react: (messageId: string, reaction: Reaction, on: boolean) =>
       request<Message>(on ? 'PUT' : 'DELETE', `/messages/${messageId}/reactions/${reaction}`),
     read: (conversationId: string, messageId: string) =>

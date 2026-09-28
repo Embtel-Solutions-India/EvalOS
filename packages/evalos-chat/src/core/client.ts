@@ -1,7 +1,10 @@
 import { cursorOf, type ChatApi, type InboxParams } from './api'
 import { initialState, reactedByMe, reduce, type Action, type ChatState } from './reducer'
 import type { Realtime } from './realtime'
-import { MAX_BODY, type Envelope, type Message, type Reaction } from './types'
+import { keyOf, MAX_BODY, type Envelope, type Me, type Message, type Reaction } from './types'
+
+/** How long a "typing" lasts without another; the backend relays at most one per 3s. */
+export const TYPING_MS = 5000
 
 /**
  * The chat store (Unit 57 §7): REST for every read and write, Ably for live events, REST again to
@@ -11,6 +14,8 @@ export function createChatClient(api: ChatApi, realtime: Realtime | null) {
   let state: ChatState = initialState
   const listeners = new Set<() => void>()
   const incoming = new Set<(message: Message) => void>()
+  const typingTimers = new Map<string, ReturnType<typeof setTimeout>>()
+  const typingSent = new Map<string, number>()
   let inboxParams: InboxParams = {}
   let onScreen: string | null = null
   let stopRealtime: (() => void) | null = null
@@ -76,6 +81,17 @@ export function createChatClient(api: ChatApi, realtime: Realtime | null) {
   function onEvent(envelope: Envelope) {
     dispatch({ type: 'event', envelope })
     switch (envelope.type) {
+      case 'typing': {
+        const key = keyOf(envelope.data as Me)
+        const timer = `${envelope.conversationId}|${key}`
+        clearTimeout(typingTimers.get(timer))
+        dispatch({ type: 'typing', conversationId: envelope.conversationId, key, on: true })
+        typingTimers.set(timer, setTimeout(() => {
+          typingTimers.delete(timer)
+          dispatch({ type: 'typing', conversationId: envelope.conversationId, key, on: false })
+        }, TYPING_MS))
+        break
+      }
       case 'unread.changed':
         void refreshUnread().catch(() => {})
         break
@@ -131,6 +147,8 @@ export function createChatClient(api: ChatApi, realtime: Realtime | null) {
     // Only a failed first fetch should reject and show "Could not load messages.": a failed
     // read-mark is a transient watermark failure, not a reason to hide history that did load.
     await markRead(id).catch(() => {})
+    // "Seen by" is a nicety: without it the list simply shows none.
+    await loadReadState(id).catch(() => {})
   }
 
   function closeConversation(id: string) {
@@ -222,6 +240,31 @@ export function createChatClient(api: ChatApi, realtime: Realtime | null) {
     dispatch({ type: 'upsert', message: await api.send(id, text, parentId) })
   }
 
+  async function loadReadState(id: string) {
+    dispatch({ type: 'readState', conversationId: id, readers: (await api.readState(id)).readers })
+  }
+
+  /** Call on every keystroke; sends at most one "typing" per 3s per conversation, matching the relay. */
+  function typing(id: string) {
+    const now = Date.now()
+    if (now - (typingSent.get(id) ?? 0) < 3000) return
+    typingSent.set(id, now)
+    void api.typing(id).catch(() => {})
+  }
+
+  async function edit(message: Message, body: string) {
+    const text = body.trim()
+    if (!text) throw new Error('A message cannot be empty.')
+    if (text.length > MAX_BODY) throw new Error('A message is at most 4,000 characters.')
+    dispatch({ type: 'upsert', message: await api.edit(message.id, text) })
+  }
+
+  /** DELETE answers nothing; the live `message.deleted` carries the view, and REST-only needs this. */
+  async function remove(message: Message) {
+    await api.remove(message.id)
+    dispatch({ type: 'upsert', message: { ...message, deleted: true, body: '', reactions: {} } })
+  }
+
   async function toggleReaction(message: Message, reaction: Reaction) {
     const on = !reactedByMe(message, reaction, state.me)
     dispatch({ type: 'upsert', message: await api.react(message.id, reaction, on) })
@@ -249,6 +292,8 @@ export function createChatClient(api: ChatApi, realtime: Realtime | null) {
       generation++
       stopRealtime?.()
       stopRealtime = null
+      typingTimers.forEach(clearTimeout)
+      typingTimers.clear()
     },
     refreshInbox,
     openConversation,
@@ -257,6 +302,10 @@ export function createChatClient(api: ChatApi, realtime: Realtime | null) {
     loadReplies,
     send,
     toggleReaction,
+    typing,
+    edit,
+    remove,
+    loadReadState,
     catchUp,
   }
 }

@@ -198,11 +198,11 @@ A **source-only** local package imported through a Vite/TS alias (`@evalos/chat`
 `resolve.dedupe` making the app's `react` and `ably` the only copies — no `file:` dependency and no
 `node_modules` of its own. React is a peer; the app passes ably-js's `Realtime` constructor in.
 
-**Built (Unit 58 phase 2, 2026-09-28): the portal subset** — inbox, conversation panel, composer,
-replies, reactions, unread badge, the Ably connection and REST catch-up. Not built: search, type
-tabs/filters, typing, presence, participants list, seen-by, a responsive multi-pane layout,
-edit/delete UI (staff-only pieces, phase 3+) — see the component bullets below for what each one
-is missing.
+**Built (2026-09-28):** the portal subset (Unit 58 phase 2) — inbox, conversation panel, composer,
+replies, reactions, unread badge, the Ably connection and REST catch-up — and then the rest:
+inbox type tabs, an open-cases filter and search (staff), typing, participants with role labels and
+online dots, "seen by", and edit / delete of your own message. The multi-pane layouts live in each
+app's pages, not here.
 
 - **`core/`** (no React) — `createChatClient(api: ChatApi, realtime: Realtime | null)`, built from
   `createChatApi(request)` (the app's own HTTP call, already pointed at its chat surface) and
@@ -225,17 +225,26 @@ is missing.
   start→stop→start does not leak an Ably connection, and a retry of start keeps the last inbox
   filter. **Ably is used only for subscribe and presence** on the person's own channel — no token
   may publish (§5) — and a token route that fails (503 without `ABLY_API_KEY`) means REST-only: Ably
-  is never constructed.
+  is never constructed. **Typing** arrives as a `typing` event and is shown for `TYPING_MS` (5s)
+  after the last one; the client sends at most one `POST typing` per 3s per conversation, matching
+  the relay, and a sent message ends its author's typing. **Read state** (`GET read-state`) is
+  fetched on open and kept current by `read.moved` (only once fetched — a partial list would claim
+  the others read nothing); `seenBy` names who, besides me, has read up to my latest top-level
+  message, and leaves out a watermark it cannot place. **Edit / delete** go through REST and apply
+  the reply locally (delete answers nothing, so the client marks the message deleted itself).
+  `filterInbox` narrows the loaded inbox by type and status client-side (100 rows).
 - **`react/`** — `ChatProvider` (starts the client for its subtree, stops it on unmount) and two
   hooks, `useChatClient()` and `useChat(select)` (a slice of state via `useSyncExternalStore`).
   Components built for the portal subset:
-  - `ChatInbox` — grouped by case, unread badges. **Not built (phase 3+, staff-only): type tabs,
-    search, filters (type, status)**;
-  - `ConversationView` — case header (reference, service), read-only / oversight banner, message
-    list, composer, an offline banner when realtime is down. **Not built: participants with role
-    labels and online dots**;
+  - `ChatInbox` — grouped by case, unread badges; with `filters` (staff): type tabs, "open cases
+    only", and search (`GET search`, within the current tab) whose results open their conversation;
+  - `ConversationView` — case header (reference, service) with `Participants` (role labels, an
+    online dot from `GET presence`, re-read every 30s — presence has no live event), read-only /
+    oversight banner, message list, `TypingLine`, composer, an offline banner when realtime is down;
   - `MessageList` — scroll up for history, date separators, "edited" / "message deleted", reply
-    counts opening a `ThreadPanel`. **Not built: "seen by", typing indicator**;
+    counts opening a `ThreadPanel`, "Seen by …" under my latest message, and `OwnMessageActions`
+    (Edit inline, Delete behind a confirmation) on my own messages and replies — never in viewer
+    or read-only mode;
   - `Composer` — Enter sends, Shift+Enter breaks a line, reply-to (not shown in `ThreadPanel`,
     which always replies to its parent), 4,000-character limit, an **"Upload a document"** link
     that opens the app's own document flow for the case;
@@ -243,9 +252,9 @@ is missing.
   - `CaseChatPanel` — case id and one type in, that case's conversation of that type out. **Not
     built: a tabbed panel across types**;
   - `UnreadBadge` — the nav's unread total;
-  - loading, empty and error states with retry; viewer mode (no composer, no reactions, an
-    "oversight — read only" banner). **Not built: a responsive layout (three panes on desktop, one
-    at a time with Back on mobile) — left to phase 3's pages.**
+  - loading, empty and error states with retry; viewer mode (no composer, no reactions, no edit or
+    delete, an "oversight — read only" banner). The two-pane / one-at-a-time-with-Back layouts are
+    the apps' pages (staff and client Conversations).
 - **Theming** — `--chat-*` CSS variables, mapped by each app to its own tokens.
 - **Rendering** — message bodies as text; only http(s) URLs become links, trailing punctuation
   excluded from the link but a balanced `)` kept; no HTML.

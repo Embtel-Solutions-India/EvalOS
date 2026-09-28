@@ -51,3 +51,17 @@
 .ec-push p { margin: 0; }
 .ec-toast { position: fixed; right: 16px; bottom: 16px; z-index: 60; display: flex; align-items: center; gap: 8px; max-width: calc(100vw - 32px); padding: 10px 12px; border: 1px solid var(--chat-border); border-radius: var(--chat-radius); background: var(--chat-bg); color: var(--chat-text); box-shadow: 0 4px 16px rgb(0 0 0 / 0.12); font-size: 14px; }
 .ec-toast__open { background: none; border: 0; padding: 0; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.ec-tabs { display: flex; flex-wrap: wrap; gap: 4px; }
+.ec-tab { padding: 4px 10px; border: 1px solid transparent; border-radius: var(--chat-radius); background: none; color: var(--chat-muted); cursor: pointer; font: inherit; font-size: 13px; }
+.ec-tab--on { border-color: var(--chat-border); background: var(--chat-surface); color: var(--chat-text); font-weight: 600; }
+.ec-filter { display: flex; align-items: center; gap: 4px; font-size: 13px; }
+.ec-search { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.ec-search__input { flex: 1; min-width: 0; padding: 6px 8px; border: 1px solid var(--chat-border); border-radius: var(--chat-radius); background: var(--chat-bg); color: var(--chat-text); font: inherit; }
+.ec-results { display: flex; flex-direction: column; gap: 2px; }
+.ec-participants { display: flex; flex-wrap: wrap; gap: 4px 12px; margin: 6px 0 0; padding: 0; list-style: none; font-size: 13px; }
+.ec-participant { display: inline-flex; align-items: center; gap: 4px; }
+.ec-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--chat-border); }
+.ec-dot--on { background: #16a34a; }
+.ec-typing, .ec-seen { margin: 0; font-size: 12px; }
+.ec-seen { text-align: right; }
+.ec-edit { display: flex; flex-direction: column; gap: 4px; }

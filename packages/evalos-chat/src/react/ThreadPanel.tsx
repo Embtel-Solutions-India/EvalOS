@@ -3,6 +3,7 @@ import type { Message } from '../core/types'
 import { useChat, useChatClient } from './ChatProvider'
 import { Composer } from './Composer'
 import { MessageBody } from './MessageList'
+import { OwnMessageActions } from './OwnMessageActions'
 import { Reactions } from './Reactions'
 
 const EMPTY: Message[] = []
@@ -25,6 +26,7 @@ export function ThreadPanel({ parent, readOnly }: { parent: Message; readOnly: b
           </p>
           <MessageBody message={reply} />
           {!reply.deleted && <Reactions message={reply} disabled={readOnly} />}
+          {!readOnly && reply.mine && !reply.deleted && <OwnMessageActions message={reply} />}
         </div>
       ))}
       {!readOnly && <Composer conversationId={parent.conversationId} replyTo={parent} />}
