@@ -442,6 +442,20 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
 - **D54.** **Abandoned requests get a staff screen, not a sweep** (2026-09-28, closes Q11): one
   GM / Sales list of `client_application` rows still `DRAFT` after 48 hours, oldest first, read from
   rows EvalOS already has. No GHL write, no job, no opportunity opened for a draft.
+- **D55.** **Appointments are built on GHL's calendar APIs, to standard practice** (2026-09-29,
+  closes Q9): cancel, guests, blocked-off time and notes all go through GHL's own calendar /
+  appointment endpoints (GHL remains the calendar), searched in the GHL docs before any endpoint is
+  assumed; employee availability joins a GHL user to a `team_member` (`team_member.ghl_user_id`).
+- **D56.** **A marketing lead does not overwrite a queued one** (2026-09-29, closes Q1): if the
+  contact's open opportunity on that pipeline has a change still waiting in the sync queue, a new
+  lead does not overwrite it; otherwise `upsertOpportunity` may update it as today.
+- **D57.** **Sales reach the client through the Client conversation** (2026-09-29, closes 00d §12 b):
+  pipeline Sales are already members of it (Unit 57), so no separate ownership split is needed.
+- **D58.** **EvalOS sends four client emails beyond the auth mails** (2026-09-29, closes 00d §12 c,
+  the recommendation taken): checklist + link, draft ready, expert signing link (now: sign-in),
+  delivered — as one unit, with a written invariant-14 amendment. Not the chases.
+- **D59.** **Expert payments are managed manually by the Expert Network Manager** (2026-09-29): no
+  payouts view in the expert portal; the staff payout screens stay the ENM's tool.
 - **D52.** **No GHL conversation sidebar.** EvalOS does not mirror or send GHL conversations
   (SMS / email / WhatsApp / social); that stays in GHL. The only messaging in EvalOS is the case
   chat (Unit 57). Decided 2026-09-28. _(Closes Q10; drops tier 3 of the Unit 47 mirror.)_

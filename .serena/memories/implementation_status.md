@@ -586,3 +586,5 @@ an expert push opened with no tab open lands on `/case` without the fragment tok
 **2026-09-28 — staff-minted expert links REMOVED (Unit 59 complete).** `mintForExpert`, `mintPartyForExpert`, `statusForExpert`, `PortalLinkController`, the portal-links ledger (service, route, dashboard panel) and the expert card's Send-link button are gone; `/case` reads no URL token; `V73` revokes live expert links. Signing in (`mintForExpertAccount`) is the only mint. Backend 1282/0/0/4.
 
 **2026-09-28:** Q6b closed (no mail for unknown emails; the Welcome screen tells experts to use the email they joined with). Status rows fixed: Client Portal COMPLETE, Documents no longer cites Q8.
+
+**Next up (2026-09-29):** see the 'Next up' list at the top of `.claude/implementation-status.md` — D55 appointments on GHL APIs, D56 lead vs queue, D58 four client emails, D59 no expert payouts, then real-service verification.

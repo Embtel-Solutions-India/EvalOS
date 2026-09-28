@@ -5,6 +5,22 @@ backed by a file, endpoint, table or test. **Gap cells re-judged 2026-09-17** ag
 answers recorded as D33–D38 and D19c: three of them were never gaps (Sales case reads, a richer
 request status, portal deployment) and now say so.
 
+
+## Next up (queued 2026-09-29 — pick up here)
+
+1. **Appointments on GHL's APIs (D55).** Search `marketplace.gohighlevel.com/docs/ghl` for the
+   calendar / appointment / blocked-slot endpoints first; add `team_member.ghl_user_id` (Flyway);
+   then cancel, guests, blocked-off time and a notes UI on the Sales desk (`SalesCalendarController`,
+   `GhlCalendarClient`, `BookingForm.tsx`, `MeetingsPage`).
+2. **Marketing lead vs. the queue (D56).** `MarketingLeadService.openLead`: skip the upsert when the
+   open opportunity has a pending `sync_outbox` change; test both branches.
+3. **Four client emails (D58).** Checklist + link, draft ready, sign in to review, delivered —
+   through `ClientMailer`, with the invariant-14 amendment written into `architecture.md`.
+4. **Expert payments stay manual (D59).** Remove any expert-portal payouts wording / route stub;
+   no build beyond that.
+5. **Verify for real:** set `ABLY_API_KEY`, the `EVALOS_PUSH_*` keys, SMTP and S3, then click
+   through client + expert sign-in and chat against the staff app.
+
 **Build state (all four suites re-verified 2026-09-22 after the dead-code pass below; the browser checks against the live location remain 2026-09-17):** backend `1282 tests, 0 failures, 0 errors, 4 skipped` (2026-09-28, after Units 57–59, D54, D51 view; the link-mint and ledger tests left with the code) (the 4 are opt-in live checks, `SmtpMailTransportLiveTest` among them); the GM board draws **1,460 deals, synced**, and a Sales desk draws its own pipeline's four;
 staff SPA `135 tests` (2026-09-28), `oxlint` and `tsc -b` clean; portals `87 tests` (2026-09-28) and `tsc -b` clean in both `client/`
 and `expert/`. All green.

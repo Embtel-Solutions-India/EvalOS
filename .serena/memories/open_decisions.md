@@ -5,8 +5,8 @@
 
 Unresolved as of 2026-09-17:
 
-1. Does `MarketingLeadService` keep `upsertOpportunity`?
-9. Who owns an appointment, and how is employee availability modelled?
+
+**Resolved 2026-09-29:** ~~1~~ → D56, ~~9~~ → D55, ~~§12 b~~ → D57, ~~§12 c~~ → D58, expert payments → D59.
 
 **Resolved 2026-09-28:** ~~6b. unknown-email mail~~ → none (experts sign up only once hired). ~~6. expert sign-up~~ → D23; ~~11. abandoned requests~~ → D54; ~~13. inline PDF~~ → D51 (view first); outbound webhooks → D53 (dropped). ~~8. several cases~~ → Unit 58 phase 3, Home lists every case (D51). ~~10. conversation sidebar~~ → **D52**: none; GHL conversations stay in GHL.
 
