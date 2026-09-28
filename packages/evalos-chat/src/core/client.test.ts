@@ -295,7 +295,7 @@ describe('createChatClient', () => {
     const client = createChatClient(api, null)
     await client.start()
 
-    await client.openConversation('v1')
+    await expect(client.openConversation('v1')).rejects.toThrow()
     expect(client.getState().messages.v1).toEqual([])
 
     await client.openConversation('v1')

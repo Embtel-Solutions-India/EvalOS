@@ -101,13 +101,11 @@ export function createChatClient(api: ChatApi, realtime: Realtime | null) {
         // from a lone live message). A conversation that was never opened still has no entry.
         dispatch({ type: 'page', conversationId: id, items: [], nextCursor: null })
       }
-      try {
-        const page = await api.messages(id)
-        dispatch({ type: 'page', conversationId: id, items: page.items, nextCursor: page.nextCursor })
-        loaded.add(id)
-      } catch {
-        // Leave the placeholder; `loaded` was never marked, so the next open retries.
-      }
+      // No try/catch: a failed fetch leaves the placeholder and `loaded` unmarked (so the next
+      // open retries), and propagates so the caller's `.catch()` can show a retry affordance.
+      const page = await api.messages(id)
+      dispatch({ type: 'page', conversationId: id, items: page.items, nextCursor: page.nextCursor })
+      loaded.add(id)
     }
     await markRead(id)
   }

@@ -28,6 +28,7 @@
       "@/*": ["src/*"],
       "@shared/*": ["../shared/src/*"],
       "@evalos/chat": ["../../packages/evalos-chat/src/index.ts"],
+      "@evalos/chat/*": ["../../packages/evalos-chat/src/*"],
       "react": ["../node_modules/@types/react"],
       "react/*": ["../node_modules/@types/react/*"],
       "ably": ["../node_modules/ably"]

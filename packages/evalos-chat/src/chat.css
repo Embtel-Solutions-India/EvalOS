@@ -1,0 +1,49 @@
+/* EvalOS chat (Unit 57 §7). Every colour is a --chat-* variable; each app maps them to its tokens. */
+:root {
+  --chat-bg: #ffffff;
+  --chat-surface: #f7f7f8;
+  --chat-border: #e4e4e7;
+  --chat-text: #18181b;
+  --chat-muted: #71717a;
+  --chat-accent: #2563eb;
+  --chat-accent-text: #ffffff;
+  --chat-mine-bg: #eff6ff;
+  --chat-danger: #dc2626;
+  --chat-radius: 8px;
+}
+
+.ec-inbox, .ec-conversation { color: var(--chat-text); background: var(--chat-bg); display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.ec-inbox__case { display: flex; flex-direction: column; gap: 2px; }
+.ec-inbox__title { font-size: 12px; font-weight: 600; color: var(--chat-muted); margin: 8px 0 2px; }
+.ec-inbox__row { display: grid; grid-template-columns: auto 1fr auto; gap: 8px; align-items: center; text-align: left; padding: 8px; border-radius: var(--chat-radius); border: 1px solid transparent; background: none; cursor: pointer; }
+.ec-inbox__row--selected { border-color: var(--chat-border); background: var(--chat-surface); }
+.ec-inbox__type { font-weight: 500; }
+.ec-inbox__preview { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ec-header { padding-bottom: 8px; border-bottom: 1px solid var(--chat-border); }
+.ec-banner { margin: 0; padding: 6px 8px; font-size: 13px; background: var(--chat-surface); border-radius: var(--chat-radius); }
+.ec-list { display: flex; flex-direction: column; gap: 10px; overflow-y: auto; flex: 1; min-height: 0; }
+.ec-day { align-self: center; font-size: 12px; color: var(--chat-muted); margin: 6px 0; }
+.ec-message { padding: 8px 10px; border-radius: var(--chat-radius); background: var(--chat-surface); max-width: 85%; }
+.ec-message--mine { align-self: flex-end; background: var(--chat-mine-bg); }
+.ec-message--reply { max-width: 100%; }
+.ec-meta { margin: 0 0 2px; font-size: 13px; }
+.ec-body { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.ec-body a { color: var(--chat-accent); }
+.ec-actions { margin: 4px 0 0; display: flex; gap: 12px; font-size: 13px; }
+.ec-thread { margin-top: 8px; padding-left: 10px; border-left: 2px solid var(--chat-border); display: flex; flex-direction: column; gap: 6px; }
+.ec-reactions { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.ec-reaction { font-size: 13px; padding: 1px 6px; border-radius: 999px; border: 1px solid var(--chat-border); background: var(--chat-bg); cursor: pointer; }
+.ec-reaction--mine { border-color: var(--chat-accent); }
+.ec-composer { display: flex; flex-direction: column; gap: 4px; border-top: 1px solid var(--chat-border); padding-top: 8px; }
+.ec-composer__input { width: 100%; resize: vertical; padding: 8px; border-radius: var(--chat-radius); border: 1px solid var(--chat-border); font: inherit; color: inherit; background: var(--chat-bg); }
+.ec-composer__bar { display: flex; align-items: center; gap: 8px; }
+.ec-composer__bar .ec-send { margin-left: auto; }
+.ec-composer__reply { margin: 0; font-size: 13px; color: var(--chat-muted); display: flex; gap: 6px; align-items: center; }
+.ec-send { padding: 6px 14px; border: 0; border-radius: var(--chat-radius); background: var(--chat-accent); color: var(--chat-accent-text); cursor: pointer; }
+.ec-send:disabled { opacity: 0.5; cursor: default; }
+.ec-link { background: none; border: 0; padding: 0; color: var(--chat-accent); cursor: pointer; font: inherit; }
+.ec-older { align-self: center; }
+.ec-muted { color: var(--chat-muted); }
+.ec-empty { color: var(--chat-muted); font-size: 14px; }
+.ec-error { color: var(--chat-danger); font-size: 14px; }
+.ec-badge { min-width: 18px; padding: 0 5px; border-radius: 999px; background: var(--chat-accent); color: var(--chat-accent-text); font-size: 11px; font-weight: 600; text-align: center; line-height: 18px; }
