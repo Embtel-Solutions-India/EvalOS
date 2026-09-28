@@ -6,13 +6,10 @@
 Unresolved as of 2026-09-17:
 
 1. Does `MarketingLeadService` keep `upsertOpportunity`?
-6. Do experts get accounts? — **waiting on a stakeholder discussion the business will hold**, not
-   on a technical answer. Build nothing that assumes accounts (D23).
-13. May the client's draft PDF open inline? (presigned links are always `attachment`; recommend inline for staff-uploaded DRAFT PDFs only)
+6b. What mail does an expert sign-up with an unknown email get? (business to supply the text)
 9. Who owns an appointment, and how is employee availability modelled?
-11. Who chases an abandoned `DRAFT` request now D10 moved the opportunity to submit?
 
-**Resolved 2026-09-28:** ~~8. several cases~~ → Unit 58 phase 3, Home lists every case (D51). ~~10. conversation sidebar~~ → **D52**: none; GHL conversations stay in GHL.
+**Resolved 2026-09-28:** ~~6. expert sign-up~~ → D23; ~~11. abandoned requests~~ → D54; ~~13. inline PDF~~ → D51 (view first); outbound webhooks → D53 (dropped). ~~8. several cases~~ → Unit 58 phase 3, Home lists every case (D51). ~~10. conversation sidebar~~ → **D52**: none; GHL conversations stay in GHL.
 
 **Resolved 2026-09-26:** ~~h does the client see who works their case~~ → Unit 57: the case team by name in
 the Client conversation; the client never shares a conversation with the expert.

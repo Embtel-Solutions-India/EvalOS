@@ -33,7 +33,7 @@ construction, not a missing grant. The fix is a `PortalStageProjection.forSales`
 |---|---|---|---|
 | **A** | GHL → EvalOS | `opportunity.won` webhook → `GhlOpportunityHandler` → `CaseIntakeService` | **the only way a case is born**; live in code, see status doc for the operational caveat |
 | **B** | EvalOS → Expert | staff mints a `portal_access` link; expert accepts/declines/signs | built |
-| **C** | EvalOS → GHL/client | outbound dispatcher | **not implemented** — `event/CaseEvents.java` only; no `webhook.outbound` package exists |
+| **C** | EvalOS → GHL/client | — | **dropped (D53)** — no outbound webhooks; `event/CaseEvents.java` is in-process only |
 
 ## Integration layer
 
@@ -88,7 +88,7 @@ Transitions live in `CaseTransitions`/`CaseLifecycleService`; every one writes a
 8. **A case is created only by the per-brand GHL webhook.** Build-enforced.
 9. Schema changes are new Flyway migrations; applied migrations are never edited.
 10. Every inbound webhook is brand-resolved from its endpoint token.
-11. Outbound webhooks are HMAC-signed, retried, dead-lettered — *(design; not implemented)*.
+11. ~~Outbound webhooks are HMAC-signed, retried, dead-lettered~~ — dropped with Handoff C (D53).
 12. Webhook transport carries no business logic.
 13. Every state transition writes an append-only audit row.
 14. EvalOS hosts no files, and sends email for **two purposes and no others** — proving control of

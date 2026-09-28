@@ -298,6 +298,9 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
   by the server before then. Legacy pasted draft links stay view-only.
   **The client portal is case-first** (Unit 58 phase 3, 2026-09-28): Home lists every case, each
   opens its own page, and no client route resolves a case from the token — which closes Q8.
+  **The draft PDF is viewed first** (2026-09-28, closes Q13): it opens in the browser's own viewer,
+  with Download PDF and Download Word beside it. Only a staff-uploaded, sniffed `DRAFT` PDF is served
+  inline; everything a client or expert uploads stays `attachment`.
 - **D18.** The target is an **id-faithful mirror** of GHL (same pipeline/stage/contact/opportunity
   ids both sides), synced both ways, that keeps working when sync is off. Units 44–48
   (`context/specs/00c-ghl-independence-programme.md`). EvalOS mints its own primary key and keeps
@@ -376,10 +379,11 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
   an account because a password store needs a reset flow and a reset flow needs a mail channel
   invariant 14 denied, and **Unit 52 built that channel**. The premise expired before the answer
   did.
-  **What is decided is the direction, not the process** — see Q6, which is still open and still
-  gates any code. An expert is not a client: they are party-scoped, they exist on the roster
-  before they could sign in, and the same person may sit on two brands' panels, so the Unit 42
-  flow is a starting point rather than a template.
+  **The sign-up process was decided on 2026-09-28 (closes Q6):** an expert signs up with their
+  email, and EvalOS checks it against the expert database. **Found → a set-password email** through
+  the Unit 52 mail channel, the account bound to that `expert.id`; **not found → a different email,
+  whose wording the business will supply** (Q6b) — until then that path sends nothing, and the
+  screen answers the two cases identically so the form cannot be used to probe the roster.
   **Nothing is removed yet, and that ordering is deliberate.** `PortalAccessService.mintForExpert`
   and `mintForParty` are still wired into four staff screens and every link already in an
   expert's inbox points at `/case` on the expert portal, so minting and the route it feeds are
@@ -430,6 +434,13 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
 - **D38.** **Deploying and wiring the Client and Expert Portals is DevOps's, outside this
   repository.** No Dockerfile, compose service or CI job is owed here for either, and their
   absence stops being a gap in the status table. Decided 2026-09-17. _(Closes Q7.)_
+- **D53.** **No outbound webhooks and no Handoff C.** EvalOS does not dispatch events to GHL or
+  to clients; the design (a signed, retried, dead-lettered dispatcher, invariant 11) was dropped
+  earlier by the business and is recorded here on 2026-09-28. `event/CaseEvents.java` stays, as
+  in-process events only.
+- **D54.** **Abandoned requests get a staff screen, not a sweep** (2026-09-28, closes Q11): one
+  GM / Sales list of `client_application` rows still `DRAFT` after 48 hours, oldest first, read from
+  rows EvalOS already has. No GHL write, no job, no opportunity opened for a draft.
 - **D52.** **No GHL conversation sidebar.** EvalOS does not mirror or send GHL conversations
   (SMS / email / WhatsApp / social); that stays in GHL. The only messaging in EvalOS is the case
   chat (Unit 57). Decided 2026-09-28. _(Closes Q10; drops tier 3 of the Unit 47 mirror.)_

@@ -232,3 +232,10 @@ portal is case-first (phase 3): Home lists every case; no client route resolves 
 
 **D52 (2026-09-28): no GHL conversation sidebar.** GHL conversations (SMS/email/WhatsApp/social)
 stay in GHL; EvalOS messaging is the case chat (Unit 57) only. Closes Q10; drops Unit 47 tier 3.
+
+**2026-09-28 — four business answers.** **Q6 → D23:** expert sign-up checks the email against the
+expert database; found → set-password mail, account bound to that `expert.id`; not found → a mail
+whose text the business will give (Q6b; sends nothing until then), same screen answer either way.
+**Q13 → D51:** the draft PDF is viewed first (inline, staff-uploaded DRAFT PDFs only) with both
+downloads beside it. **Q11 → D54:** a GM/Sales screen of DRAFT requests older than 48h, no sweep.
+**D53:** no outbound webhooks, no Handoff C (invariant 11 struck).

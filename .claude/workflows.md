@@ -343,7 +343,7 @@ messaging is the case chat (Unit 57, spec `57-case-chat.md`).
 | **mirror** | GHL → EvalOS | `contact.*` and `opportunity.*` webhooks update `contact_snapshot` and `opportunity`; `MIRROR_DELTA` (15m) is the floor under them | code complete (45d, 2026-09-17) |
 | **contact backfill** | GHL → EvalOS | the deal screen reads `GET /contacts/{id}` when `contact_snapshot` has never seen the person, and keeps the row | code complete (2026-09-22) |
 | **B** | EvalOS → Expert | staff mints a portal link; expert signs | code complete |
-| **C** | EvalOS → GHL / client | outbound dispatcher | **not implemented** |
+| **C** | EvalOS → GHL / client | — | **dropped (D53)** |
 
 **The contact backfill exists because every other writer of `contact_snapshot` is an EvalOS-side
 event.** Handoff A writes one when a deal is won, the portal writes one at set-password, and 45d's
