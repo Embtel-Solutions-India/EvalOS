@@ -3,7 +3,7 @@
 **Decided 2026-09-25 by the business, in a brainstorming session.** Every case has three live
 conversations. EvalOS owns the data and every rule (Spring Boot + PostgreSQL); **Ably relays live
 updates** (2026-09-26); web push reaches anyone without the app open. No chat platform owns the data. Supersedes Unit 56 (`56-live-chat-setup.md`, the Stream token setup), whose code is
-removed in phase 1. **Status: PHASE 1 BUILT 2026-09-26 (backend: schema, membership, access, lifecycle, sweep, REST, Ably live delivery, web push). Phases 2–3 (the apps) not built.**
+removed in phase 1. **Status: PHASE 1 BUILT 2026-09-26 (backend: schema, membership, access, lifecycle, sweep, REST, Ably live delivery, web push). PHASE 2 BUILT 2026-09-28 (the package and the staff app: Conversations, the case screen's Chat panel, toast, push). The client portal half of phase 3 shipped as Unit 58; the expert portal half is not built.**
 
 ## 0. What was decided, and by whom
 

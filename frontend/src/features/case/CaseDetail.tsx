@@ -16,6 +16,7 @@ import { mayUploadDraft } from './draftRules'
 import ExpertRationale from './ExpertRationale'
 import CaseFacts from './CaseFacts'
 import Timeline from './Timeline'
+import CaseChat from './CaseChat'
 import {
   fetchCase,
   fetchTimeline,
@@ -211,7 +212,10 @@ export default function CaseDetailPage() {
           <ExpertRationale detail={detail} />
         </div>
 
-        <Timeline entries={timeline} onPostNote={onPostNote} />
+        <div className="flex flex-col gap-4">
+          <CaseChat caseId={detail.summary.id} />
+          <Timeline entries={timeline} onPostNote={onPostNote} />
+        </div>
       </div>
 
       {pending && (

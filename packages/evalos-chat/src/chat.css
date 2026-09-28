@@ -49,3 +49,5 @@
 .ec-badge { min-width: 18px; padding: 0 5px; border-radius: 999px; background: var(--chat-accent); color: var(--chat-accent-text); font-size: 11px; font-weight: 600; text-align: center; line-height: 18px; }
 .ec-push { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px 12px; margin-bottom: 8px; border: 1px solid var(--chat-border); border-radius: var(--chat-radius); background: var(--chat-surface); color: var(--chat-text); font-size: 14px; }
 .ec-push p { margin: 0; }
+.ec-toast { position: fixed; right: 16px; bottom: 16px; z-index: 60; display: flex; align-items: center; gap: 8px; max-width: calc(100vw - 32px); padding: 10px 12px; border: 1px solid var(--chat-border); border-radius: var(--chat-radius); background: var(--chat-bg); color: var(--chat-text); box-shadow: 0 4px 16px rgb(0 0 0 / 0.12); font-size: 14px; }
+.ec-toast__open { background: none; border: 0; padding: 0; color: inherit; font: inherit; text-align: left; cursor: pointer; }

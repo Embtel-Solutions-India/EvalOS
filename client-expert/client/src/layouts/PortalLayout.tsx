@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { ChatProvider } from '@evalos/chat'
+import { ChatProvider, ChatToast } from '@evalos/chat'
 import '@evalos/chat/chat.css'
 import { Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { usePortalToken } from '@shared/hooks/usePortalToken'
@@ -83,6 +83,13 @@ export function PortalLayout() {
           <SiteFooter />
         </div>
       </div>
+      {/* A message while the client is elsewhere in the portal: open that case's page. */}
+      <ChatToast
+        onOpen={(id) => {
+          const caseId = chat.getState().conversations[id]?.caseId
+          navigate(caseId ? `/cases/${caseId}` : '/conversations')
+        }}
+      />
     </ChatProvider>
   )
 }

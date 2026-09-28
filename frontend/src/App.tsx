@@ -24,8 +24,10 @@ import RoleDashboard from './features/dashboards/RoleDashboard'
 import AppShell from './features/shell/AppShell'
 import PlaceholderPage from './features/shell/PlaceholderPage'
 import CaseDetailPage from './features/case/CaseDetail'
+import ConversationsPage from './features/chat/ConversationsPage'
 import {
   CASE_DETAIL_PATH,
+  CONVERSATION_PATH,
   DEAL_DETAIL_PATH,
   EXPERT_PAYOUTS_PATH,
   NAV_ITEMS,
@@ -78,6 +80,7 @@ const SCREENS: Record<string, React.ReactNode> = {
   '/opportunities/new': <NewDealPage />,
   '/marketing/leads/new': <NewLeadPage />,
   '/meetings/new': <NewMeetingPage />,
+  '/conversations': <ConversationsPage />,
 }
 
 /**
@@ -154,6 +157,15 @@ function StaffApp() {
           element={
             <RoleRoute path={CASE_DETAIL_PATH}>
               <CaseDetailPage />
+            </RoleRoute>
+          }
+        />
+
+        <Route
+          path={CONVERSATION_PATH}
+          element={
+            <RoleRoute path={CONVERSATION_PATH}>
+              <ConversationsPage />
             </RoleRoute>
           }
         />

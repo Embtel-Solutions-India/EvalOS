@@ -42,6 +42,20 @@ function fakeRealtime() {
 }
 
 describe('createChatClient', () => {
+  it('tells the app about a message from someone else off screen, never mine or the open one', async () => {
+    const { realtime, handlers } = fakeRealtime()
+    const client = createChatClient(fakeApi(), realtime)
+    await client.start()
+    const seen: string[] = []
+    client.onIncoming((m) => seen.push(m.id))
+    await client.openConversation('v1')
+    const event = (m: Message) => handlers().onEvent({ type: 'message.created', conversationId: m.conversationId, data: m })
+    event(msg('m1', 'v1'))
+    event(msg('m2', 'v2', { authorKind: 'CLIENT', authorId: 'client-1' }))
+    event(msg('m3', 'v2'))
+    expect(seen).toEqual(['m3'])
+  })
+
   it('starts with who I am, the inbox and the unread total', async () => {
     const api = fakeApi({ unread: vi.fn().mockResolvedValue(3) })
     const client = createChatClient(api, null)

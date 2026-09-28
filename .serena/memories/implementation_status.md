@@ -562,3 +562,10 @@ notification tagged by conversation; click focuses an open tab and routes it by 
 reload drops the memory-only token, else opens one — same origin only); `evalos-chat` `core/push.ts`
 + `PushCard` on Conversations (permission only from a click; hidden without VAPID keys); sign-in
 returns to the bounced-from page. Staff and expert apps still have no service worker. Portals 76.
+
+**2026-09-28 — Unit 57 PHASE 2 (staff app) BUILT.** `frontend/` gains `ably` and the `@evalos/chat`
+alias; `ChatProvider` + `ChatToast` in `AppShell` (not for MARKETING — in no conversation); nav
+Conversations (production roles + SALES, unread badge) and `/conversations/:conversationId` (staff
+push target); case screen `CaseChat` (Client / Internal / Expert tabs); `public/sw.js`; `PushCard` on
+Conversations. Package `client.onIncoming` + `ChatToast`, also in the client portal. Staff suite 134,
+portals 77. Left: the expert portal (phase 3's other half).

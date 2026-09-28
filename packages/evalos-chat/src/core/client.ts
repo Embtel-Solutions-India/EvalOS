@@ -10,6 +10,7 @@ import { MAX_BODY, type Envelope, type Message, type Reaction } from './types'
 export function createChatClient(api: ChatApi, realtime: Realtime | null) {
   let state: ChatState = initialState
   const listeners = new Set<() => void>()
+  const incoming = new Set<(message: Message) => void>()
   let inboxParams: InboxParams = {}
   let onScreen: string | null = null
   let stopRealtime: (() => void) | null = null
@@ -83,9 +84,17 @@ export function createChatClient(api: ChatApi, realtime: Realtime | null) {
       case 'access.revoked':
         void refreshInbox().catch(() => {})
         break
-      case 'message.created':
-        if (envelope.conversationId === onScreen) void markRead(envelope.conversationId).catch(() => {})
+      case 'message.created': {
+        if (envelope.conversationId === onScreen) {
+          void markRead(envelope.conversationId).catch(() => {})
+          break
+        }
+        // Someone else's message in a conversation that is not on screen: the app's toast (57 §6).
+        const message = envelope.data as Message
+        const me = state.me
+        if (!me || message.authorKind !== me.kind || message.authorId !== me.id) incoming.forEach((listener) => listener(message))
         break
+      }
     }
   }
 
@@ -226,6 +235,13 @@ export function createChatClient(api: ChatApi, realtime: Realtime | null) {
       listeners.add(listener)
       return () => {
         listeners.delete(listener)
+      }
+    },
+    /** Fires for a live message from someone else in a conversation that is not on screen. */
+    onIncoming(listener: (message: Message) => void) {
+      incoming.add(listener)
+      return () => {
+        incoming.delete(listener)
       }
     },
     start,

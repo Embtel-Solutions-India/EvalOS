@@ -89,6 +89,16 @@ export const NAV_ITEMS: readonly NavItem[] = [
     group: 'Overview',
   },
 
+  // Case chat (Unit 57). Every role that sits in a conversation: the case team, pipeline Sales, and
+  // GM / Brand Manager read-only. Marketing is in none (`ChatMembership`), so it has no entry.
+  {
+    path: '/conversations',
+    label: 'Conversations',
+    roles: [...PRODUCTION_ROLES, 'SALES'],
+    becomes: 'Case conversations, grouped by case',
+    group: 'Overview',
+  },
+
   // **The two GHL funnel screens were removed on 2026-09-16, and the reason is the one the
   // business gave.** `/marketing/email` and `/sales/pipeline` rendered a GHL pipeline stage by
   // stage, and both were **GM-only** — `evalos.ghl.location-id` is a single global setting with
@@ -436,6 +446,9 @@ export const CASE_DETAIL_PATH = '/cases/:id'
  */
 export const DEAL_DETAIL_PATH = '/opportunities/:opportunityId'
 
+/** One conversation, open in the inbox. Where a staff push notification lands (`ChatPushNotifier`). */
+export const CONVERSATION_PATH = '/conversations/:conversationId'
+
 /** One expert's pending drafts and their payment history. Reached from the batch screen. */
 export const EXPERT_PAYOUTS_PATH = '/payouts/experts/:expertId'
 
@@ -453,6 +466,13 @@ export const PAYMENT_DETAIL_PATH = '/payouts/payments/:paymentId'
 const PAYOUT_ROLES: readonly Role[] = ['GM', 'BRAND_MANAGER', 'EXPERT_NETWORK_MANAGER']
 
 const PARAMETERIZED: readonly NavItem[] = [
+  {
+    path: CONVERSATION_PATH,
+    label: 'Conversation',
+    roles: [...PRODUCTION_ROLES, 'SALES'],
+    becomes: 'One conversation',
+    group: 'Overview',
+  },
   {
     path: DEAL_DETAIL_PATH,
     readsGhlLocation: true,
