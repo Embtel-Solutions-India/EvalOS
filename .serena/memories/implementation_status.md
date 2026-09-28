@@ -578,3 +578,5 @@ an expert push opened with no tab open lands on `/case` without the fragment tok
 **2026-09-28 — Q13 built (D51 view first):** `DocumentStore.presignedPdfView` (inline, application/pdf, DRAFT PDFs only), `?view=true` on the client draft file route and staff document route; View PDF first on both screens.
 
 **2026-09-28 — Q11 built (D54):** `AbandonedRequestService` + `GET /api/requests/abandoned` (GM, SALES; caller's brand, GM every brand) + staff `/requests/abandoned` "Unfinished requests".
+
+**2026-09-28 — chat features completed:** staff inbox tabs / open-only filter / search, typing line, participants with presence dots, seen-by, edit and delete of own messages (never for viewers). No backend change. Filters run client-side over the loaded 100.
