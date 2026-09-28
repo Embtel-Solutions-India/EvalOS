@@ -158,11 +158,15 @@ public class ClientPortalController {
 
 	@GetMapping("/cases/{caseId}/drafts/{draftId}/files/{file}/url")
 	public ApiResponse<ReadUrl> draftFileUrl(@PathVariable UUID caseId, @PathVariable UUID draftId,
-			@PathVariable String file) {
+			@PathVariable String file, @RequestParam(defaultValue = "false") boolean view) {
 		if (!file.equals("docx") && !file.equals("pdf")) {
 			throw new InvalidRequestException("file is docx or pdf");
 		}
-		return ApiResponse.ok(new ReadUrl(portal.draftFileUrl(client(), caseId, draftId, file.equals("pdf"))));
+		// `view` opens the PDF in the browser (D51); a Word file can only be downloaded.
+		if (view && !file.equals("pdf")) {
+			throw new InvalidRequestException("only the PDF can be viewed");
+		}
+		return ApiResponse.ok(new ReadUrl(portal.draftFileUrl(client(), caseId, draftId, file.equals("pdf"), view)));
 	}
 
 	@GetMapping("/cases/{caseId}/drafts/{draftId}/comments")

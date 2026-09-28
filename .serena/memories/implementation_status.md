@@ -574,3 +574,5 @@ portals 77. Left: the expert portal (phase 3's other half).
 on `/case` (Expert conversation by case code; `PushCard` in the panel — no nav, so no Messages page);
 `expert/public/sw.js`; `createPortalChat(audience)` now in `shared/src/services/portalChat.ts`. Limit:
 an expert push opened with no tab open lands on `/case` without the fragment token — closes with Q6.
+
+**2026-09-28 — Q13 built (D51 view first):** `DocumentStore.presignedPdfView` (inline, application/pdf, DRAFT PDFs only), `?view=true` on the client draft file route and staff document route; View PDF first on both screens.

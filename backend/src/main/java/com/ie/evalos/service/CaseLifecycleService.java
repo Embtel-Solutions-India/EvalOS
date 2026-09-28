@@ -36,6 +36,7 @@ import com.ie.evalos.event.CaseEvents;
 import com.ie.evalos.domain.ActorType;
 import com.ie.evalos.integration.DocumentStore;
 import com.ie.evalos.domain.CaseDocument;
+import com.ie.evalos.common.InvalidRequestException;
 import com.ie.evalos.domain.DocumentKind;
 import com.ie.evalos.domain.DocumentStatus;
 import com.ie.evalos.repository.CaseDocumentRepository;
@@ -654,7 +655,7 @@ public class CaseLifecycleService {
 	 * out to describe a presigned read exactly.
 	 */
 	@Transactional
-	public String readUrl(UUID caseId, UUID documentId, boolean pdf) {
+	public String readUrl(UUID caseId, UUID documentId, boolean pdf, boolean view) {
 		Case subject = load(caseId);
 		requireCaseContent();
 		// Forbidden, not NoSuchElement: the latter had no handler and answered 500 (Unit 58).
@@ -664,13 +665,17 @@ public class CaseLifecycleService {
 		// `pdf` names a draft's second file (Unit 58); every other document has only the one.
 		String key = pdf ? document.getPdfObjectKey() : document.getObjectKey();
 		requireState(key != null, "that document has no such file behind it");
+		// Viewing in the browser is a draft PDF's alone (D51); everything else stays a download.
+		if (view && !(pdf && document.getKind() == DocumentKind.DRAFT)) {
+			throw new InvalidRequestException("only a draft's PDF can be viewed");
+		}
 
 		// The brand is deliberately not passed: `recordEvent` takes it from the authenticated
 		// caller, never from an argument a caller could get wrong.
 		audit.recordEvent("CASE_DOCUMENT", document.getId(), AuditAction.EXPORTED,
 				TenantContext.current().memberId(), null,
 				Map.of("opened", String.valueOf(pdf ? document.getPdfFilename() : document.getFilename())));
-		return store.presignedUrl(key);
+		return view ? store.presignedPdfView(key) : store.presignedUrl(key);
 	}
 
 	/**

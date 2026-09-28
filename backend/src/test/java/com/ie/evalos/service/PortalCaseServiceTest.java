@@ -423,10 +423,10 @@ class PortalCaseServiceTest {
 		UUID returned = UUID.randomUUID();
 		given(drafts.clientVersion(subject, returned)).willThrow(new com.ie.evalos.common.NotFoundException("No such draft"));
 
-		assertThatThrownBy(() -> portal.draftFileUrl(me, CASE_ID, returned, true))
+		assertThatThrownBy(() -> portal.draftFileUrl(me, CASE_ID, returned, true, false))
 				.isInstanceOf(com.ie.evalos.common.NotFoundException.class);
 		// Another client's case: the ownership check refuses before the draft is looked at.
-		assertThatThrownBy(() -> portal.draftFileUrl(partyTokenFor(BRAND, "ghl-someone-else"), CASE_ID, returned, true))
+		assertThatThrownBy(() -> portal.draftFileUrl(partyTokenFor(BRAND, "ghl-someone-else"), CASE_ID, returned, true, false))
 				.isInstanceOf(ForbiddenException.class);
 		verify(drafts, times(1)).clientVersion(any(), any());
 	}

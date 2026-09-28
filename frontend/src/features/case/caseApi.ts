@@ -204,10 +204,10 @@ export async function fetchCaseDocuments(
  * would expire while the page sits open, and a user clicking a dead link cannot tell that from a
  * missing document. Ask, then open.
  */
-export async function fetchDocumentUrl(caseId: string, documentId: string, pdf = false): Promise<string> {
-  const { url } = await unwrap<{ url: string }>(
-    api.get(`/cases/${caseId}/documents/${documentId}/url`, { params: pdf ? { pdf: true } : {} }),
-  )
+export async function fetchDocumentUrl(caseId: string, documentId: string, pdf = false, view = false): Promise<string> {
+  // `view` opens a draft's PDF in the browser instead of downloading it (D51, view first).
+  const params = { ...(pdf ? { pdf: true } : {}), ...(view ? { view: true } : {}) }
+  const { url } = await unwrap<{ url: string }>(api.get(`/cases/${caseId}/documents/${documentId}/url`, { params }))
   return url
 }
 

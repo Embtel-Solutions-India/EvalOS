@@ -308,7 +308,8 @@ class ClientPortalTest {
 	void aDraftFileIsDocxOrPdfAndNothingElse() throws Exception {
 		givenTwoLiveLinks();
 		UUID draftId = UUID.randomUUID();
-		given(portal.draftFileUrl(any(), any(), any(), org.mockito.ArgumentMatchers.anyBoolean())).willReturn("https://s3/x");
+		given(portal.draftFileUrl(any(), any(), any(), org.mockito.ArgumentMatchers.anyBoolean(),
+				org.mockito.ArgumentMatchers.anyBoolean())).willReturn("https://s3/x");
 
 		mockMvc.perform(get("/api/portal/client/cases/{caseId}/drafts/{draftId}/files/exe/url", IE_CASE, draftId)
 				.header(PortalTokenFilter.HEADER, IE_TOKEN))
@@ -318,7 +319,17 @@ class ClientPortalTest {
 				.andExpect(status().isOk())
 				.andExpect(jsonPath("$.data.url").value("https://s3/x"));
 		verify(portal).draftFileUrl(any(), org.mockito.ArgumentMatchers.eq(IE_CASE), org.mockito.ArgumentMatchers.eq(draftId),
-				org.mockito.ArgumentMatchers.eq(true));
+				org.mockito.ArgumentMatchers.eq(true), org.mockito.ArgumentMatchers.eq(false));
+
+		// View first (D51): the PDF may be opened in the browser, the Word file may not.
+		mockMvc.perform(get("/api/portal/client/cases/{caseId}/drafts/{draftId}/files/pdf/url?view=true", IE_CASE, draftId)
+				.header(PortalTokenFilter.HEADER, IE_TOKEN))
+				.andExpect(status().isOk());
+		verify(portal).draftFileUrl(any(), org.mockito.ArgumentMatchers.eq(IE_CASE), org.mockito.ArgumentMatchers.eq(draftId),
+				org.mockito.ArgumentMatchers.eq(true), org.mockito.ArgumentMatchers.eq(true));
+		mockMvc.perform(get("/api/portal/client/cases/{caseId}/drafts/{draftId}/files/docx/url?view=true", IE_CASE, draftId)
+				.header(PortalTokenFilter.HEADER, IE_TOKEN))
+				.andExpect(status().isBadRequest());
 	}
 
 	/** Approve and request changes name the case and the version; the note is optional. */

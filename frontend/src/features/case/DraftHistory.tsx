@@ -53,8 +53,8 @@ export default function DraftHistory({
   }, [caseId, reloadKey])
 
   // Minted at the click, never stored: a held presigned URL expires while the page sits open.
-  async function open(documentId: string, pdf: boolean) {
-    window.open(await fetchDocumentUrl(caseId, documentId, pdf), '_blank', 'noopener')
+  async function open(documentId: string, pdf: boolean, view = false) {
+    window.open(await fetchDocumentUrl(caseId, documentId, pdf, view), '_blank', 'noopener')
   }
 
   if (state.status === 'loading') return null
@@ -108,6 +108,12 @@ export default function DraftHistory({
                 )}
                 {version.filename && (
                   <p className="flex gap-3 text-sm">
+                    {/* View first (D51): the PDF opens in the browser; both files still download. */}
+                    {version.hasPdf && (
+                      <button type="button" onClick={() => void open(version.id, true, true)} style={{ color: 'var(--accent-primary)' }}>
+                        View PDF
+                      </button>
+                    )}
                     <button type="button" onClick={() => void open(version.id, false)} style={{ color: 'var(--accent-primary)' }}>
                       Word
                     </button>

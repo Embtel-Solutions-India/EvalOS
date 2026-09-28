@@ -58,8 +58,10 @@ export function listDrafts(caseId: string, signal?: AbortSignal): Promise<Client
   return unwrap(apiClient.get<ApiResponse<ClientDraftVersion[]>>(`${base(caseId)}/drafts`, { signal }))
 }
 
-export async function draftFileUrl(caseId: string, draftId: string, file: 'docx' | 'pdf'): Promise<string> {
-  return (await unwrap(apiClient.get<ApiResponse<Url>>(`${base(caseId)}/drafts/${draftId}/files/${file}/url`))).url
+/** `view` opens the PDF in the browser's own viewer rather than downloading it (D51, view first). */
+export async function draftFileUrl(caseId: string, draftId: string, file: 'docx' | 'pdf', view = false): Promise<string> {
+  const url = `${base(caseId)}/drafts/${draftId}/files/${file}/url`
+  return (await unwrap(apiClient.get<ApiResponse<Url>>(url, { params: view ? { view: true } : {} }))).url
 }
 
 export function listComments(caseId: string, draftId: string, signal?: AbortSignal): Promise<DraftComment[]> {

@@ -442,10 +442,10 @@ public class PortalCaseService {
 
 	/** A five-minute link to one client-visible version's Word or PDF, audited as the client's. */
 	@Transactional
-	public String draftFileUrl(PortalPrincipal principal, UUID caseId, UUID draftId, boolean pdf) {
+	public String draftFileUrl(PortalPrincipal principal, UUID caseId, UUID draftId, boolean pdf, boolean view) {
 		Case subject = authorized(principal, caseId);
 		CaseDocument draft = drafts.clientVersion(subject, draftId);
-		String url = drafts.fileUrl(draft, pdf);
+		String url = view ? drafts.viewUrl(draft) : drafts.fileUrl(draft, pdf);
 		audit.recordPortalEvent(subject.getBrandId(), PortalAudience.CLIENT, "CASE_DOCUMENT", draft.getId(),
 				AuditAction.EXPORTED, null,
 				java.util.Map.of("opened", "draft v" + draft.getVersion() + (pdf ? " (PDF)" : " (Word)")));

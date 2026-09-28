@@ -164,6 +164,15 @@ public class CaseDrafts {
 		return store.presignedUrl(key);
 	}
 
+	/** The PDF opened in the browser's viewer rather than downloaded (D51, view first). */
+	public String viewUrl(CaseDocument draft) {
+		String key = draft.getPdfObjectKey();
+		if (key == null) {
+			throw new IllegalTransitionException("that draft has no PDF to view");
+		}
+		return store.presignedPdfView(key);
+	}
+
 	// --- staff ---------------------------------------------------------------
 
 	@Transactional(readOnly = true)

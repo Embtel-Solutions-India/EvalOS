@@ -542,7 +542,7 @@ class CaseControllerTest {
 		given(drafts.staffAddComment(CASE_ID, draftId, "See page 2", 2)).willReturn(
 				new com.ie.evalos.service.CaseDrafts.CommentView(UUID.randomUUID(), "STAFF", "Cam", "See page 2", 2,
 						java.time.Instant.now()));
-		given(lifecycle.readUrl(CASE_ID, draftId, true)).willReturn("https://s3/pdf");
+		given(lifecycle.readUrl(CASE_ID, draftId, true, false)).willReturn("https://s3/pdf");
 
 		mockMvc.perform(get("/api/cases/{id}/drafts/{draftId}/comments", CASE_ID, draftId)
 				.header(HttpHeaders.AUTHORIZATION, bearer(Role.CASE_MANAGER)))

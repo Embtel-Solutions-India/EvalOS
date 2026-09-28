@@ -81,6 +81,12 @@ function DraftVersion({ caseId, draft, legacyLink }: { caseId: string; draft: Cl
       </div>
 
       <div className="flex flex-wrap gap-2">
+        {/* View first (D51): the PDF opens in the browser's viewer; both files still download. */}
+        {draft.hasPdf && (
+          <Button size="sm" onClick={() => void openFile(() => draftFileUrl(caseId, draft.id, 'pdf', true))}>
+            View PDF
+          </Button>
+        )}
         {draft.hasPdf && (
           <Button variant="outline" size="sm" onClick={() => void openFile(() => draftFileUrl(caseId, draft.id, 'pdf'))}>
             Download PDF

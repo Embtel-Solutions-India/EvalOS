@@ -67,6 +67,11 @@ class DocumentStoreLocalModeTest {
 		String token = url.substring(url.lastIndexOf('/') + 1);
 		assertThat(store.resolveLocalRead(token)).hasValueSatisfying(
 				(file) -> assertThat(file).isEqualTo(dir.resolve(key).toAbsolutePath().normalize()));
+		assertThat(store.localReadIsPdfView(token)).isFalse();
+
+		// D51: only presignedPdfView mints a token that is served inline.
+		String view = store.presignedPdfView(key);
+		assertThat(store.localReadIsPdfView(view.substring(view.lastIndexOf('/') + 1))).isTrue();
 	}
 
 	/**

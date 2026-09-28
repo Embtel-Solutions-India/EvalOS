@@ -527,8 +527,8 @@ public class CaseController {
 	 */
 	@GetMapping("/{id}/documents/{documentId}/url")
 	public ApiResponse<ReadUrl> documentUrl(@PathVariable UUID id, @PathVariable UUID documentId,
-			@RequestParam(defaultValue = "false") boolean pdf) {
-		return ApiResponse.ok(new ReadUrl(lifecycle.readUrl(id, documentId, pdf)));
+			@RequestParam(defaultValue = "false") boolean pdf, @RequestParam(defaultValue = "false") boolean view) {
+		return ApiResponse.ok(new ReadUrl(lifecycle.readUrl(id, documentId, pdf, view)));
 	}
 
 	/** One version's thread (Unit 58). No {@code @PreAuthorize}: the scoped load decides, like every read here. */
