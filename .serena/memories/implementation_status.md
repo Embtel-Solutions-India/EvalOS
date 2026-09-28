@@ -569,3 +569,8 @@ Conversations (production roles + SALES, unread badge) and `/conversations/:conv
 push target); case screen `CaseChat` (Client / Internal / Expert tabs); `public/sw.js`; `PushCard` on
 Conversations. Package `client.onIncoming` + `ChatToast`, also in the client portal. Staff suite 134,
 portals 77. Left: the expert portal (phase 3's other half).
+
+**2026-09-28 — Unit 57 PHASE 3 (expert portal) BUILT — Unit 57 COMPLETE.** `ExpertChat` beside the case
+on `/case` (Expert conversation by case code; `PushCard` in the panel — no nav, so no Messages page);
+`expert/public/sw.js`; `createPortalChat(audience)` now in `shared/src/services/portalChat.ts`. Limit:
+an expert push opened with no tab open lands on `/case` without the fragment token — closes with Q6.

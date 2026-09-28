@@ -34,12 +34,14 @@ import {
   requestEvidence,
   uploadSignedLetter,
 } from '@/services/expertPortalService'
+import { ExpertChat } from '@/components/ExpertChat'
 
 /**
  * The expert's assigned case, against EvalOS (Unit 15, wired in 34e).
  *
- * **One column, because the expert has one decision to make and reads top to bottom**: the goal,
- * then the letter, then the evidence it rests on, then the answers. The account shell around the
+ * **One column for the case, because the expert has one decision to make and reads top to bottom**:
+ * the goal, then the letter, then the evidence it rests on, then the answers. The case team's
+ * conversation sits beside it (Unit 57). The account shell around the
  * rest of this app is deliberately not here — the credential is a scoped portal link naming one
  * case, not a session, and mounting this behind `ExpertAuthenticatedRoute` would answer Unit 34's
  * decision D1 by accident. Same reasoning, same shape as the client's `/documents` (34c).
@@ -79,13 +81,17 @@ export default function ExpertCasePortal() {
   }
 
   return (
-    <div className="mx-auto max-w-3xl p-6">
-      {isLoading && <ListSkeleton />}
-      {isError && (
-        <ErrorState description={expertFailureMessage(statusOf(error))} onRetry={() => void refetch()} />
-      )}
+    <div className="mx-auto grid max-w-6xl gap-6 p-6 lg:grid-cols-[minmax(0,1fr)_24rem]">
+      <div>
+        {isLoading && <ListSkeleton />}
+        {isError && (
+          <ErrorState description={expertFailureMessage(statusOf(error))} onRetry={() => void refetch()} />
+        )}
 
-      {!isLoading && !isError && data && <CaseBody view={data} onChanged={refresh} />}
+        {!isLoading && !isError && data && <CaseBody view={data} onChanged={refresh} />}
+      </div>
+      {/* Beside the case, below it on a phone (Unit 57 §7). */}
+      {data && <ExpertChat caseReference={data.caseReference} />}
     </div>
   )
 }

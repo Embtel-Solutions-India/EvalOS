@@ -10,7 +10,7 @@ import { PortalHeader } from '@/components/layout/PortalHeader'
 import { PortalSidebar } from '@/components/layout/PortalSidebar'
 import { SiteFooter } from '@/components/layout/SiteFooter'
 import { PRIMARY_NAV } from '@/constants/navigation'
-import { createPortalChat } from '@/services/chatService'
+import { createPortalChat } from '@shared/services/portalChat'
 
 /**
  * The title bar's text.
@@ -45,7 +45,7 @@ export function PortalLayout() {
   const location = useLocation()
   const tokenPresent = usePortalToken()
   // One chat client for the signed-in shell: the nav badge, the inbox and each case's panel share it.
-  const [chat] = useState(createPortalChat)
+  const [chat] = useState(() => createPortalChat('client'))
   const navigate = useNavigate()
 
   // A push notification clicked while this tab is open (public/sw.js): route in place, keeping the token.
