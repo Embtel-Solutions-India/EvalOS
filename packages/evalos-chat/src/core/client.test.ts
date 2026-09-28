@@ -233,4 +233,73 @@ describe('createChatClient', () => {
 
     expect(close).toHaveBeenCalledTimes(1)
   })
+
+  /** Fix round 2, Important A: the first requests after a reconnect (inbox, unread total) are the
+   * ones most likely to fail on a flaky network; that must not abandon paging every conversation. */
+  it('a failed inbox refresh during catch-up still pages the conversations', async () => {
+    const api = fakeApi({
+      messages: vi.fn().mockResolvedValue(page([msg('m1')])),
+      inbox: vi.fn()
+        .mockResolvedValueOnce({ items: [conv('v1')], nextCursor: null }) // start
+        .mockRejectedValueOnce(new Error('network blip')),               // catch-up's refreshInbox fails
+    })
+    const rt = fakeRealtime()
+    const client = createChatClient(api, rt.realtime)
+    await client.start()
+    await client.openConversation('v1')
+
+    rt.handlers().onReconnect()
+    await vi.waitFor(() => expect(api.messages).toHaveBeenCalledTimes(2))
+  })
+
+  /** Fix round 2, Important B: StrictMode runs start, stop, start on the SAME client. A plain
+   * boolean can't tell the first start from the second once stop resets it; a generation can. */
+  it('start, stop, start on the same client closes the first connection', async () => {
+    const close1 = vi.fn()
+    const close2 = vi.fn()
+    let resolveFirst: ((stop: () => void) => void) | null = null
+    let resolveSecond: ((stop: () => void) => void) | null = null
+    let calls = 0
+    const realtime: Realtime = {
+      start: () =>
+        new Promise((resolve) => {
+          calls += 1
+          if (calls === 1) resolveFirst = resolve
+          else resolveSecond = resolve
+        }),
+    }
+    const client = createChatClient(fakeApi(), realtime)
+
+    const starting1 = client.start()
+    await vi.waitFor(() => expect(resolveFirst).not.toBeNull())
+    client.stop()
+    const starting2 = client.start()
+    await vi.waitFor(() => expect(resolveSecond).not.toBeNull())
+
+    resolveFirst!(close1)
+    resolveSecond!(close2)
+    await Promise.all([starting1, starting2])
+
+    expect(close1).toHaveBeenCalledTimes(1)
+    expect(close2).not.toHaveBeenCalled()
+  })
+
+  /** Fix round 2, Important C: a failed first fetch must not look permanently loaded — reopening
+   * (e.g. "Try again") has to fetch again, not settle for the empty placeholder forever. */
+  it('retries the first fetch on a later open, after an earlier one failed', async () => {
+    const api = fakeApi({
+      messages: vi.fn()
+        .mockRejectedValueOnce(new Error('network blip')) // first open fails
+        .mockResolvedValueOnce(page([msg('m1')])),         // second open succeeds
+    })
+    const client = createChatClient(api, null)
+    await client.start()
+
+    await client.openConversation('v1')
+    expect(client.getState().messages.v1).toEqual([])
+
+    await client.openConversation('v1')
+    expect(client.getState().messages.v1.map((m) => m.id)).toEqual(['m1'])
+    expect(api.messages).toHaveBeenCalledTimes(2)
+  })
 })

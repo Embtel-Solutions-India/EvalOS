@@ -13,8 +13,15 @@ export function createChatClient(api: ChatApi, realtime: Realtime | null) {
   let inboxParams: InboxParams = {}
   let onScreen: string | null = null
   let stopRealtime: (() => void) | null = null
-  /** Set by `stop()`; guards against `start()` still being in flight (Review Focus: StrictMode). */
-  let stopped = false
+  /**
+   * Bumped by `stop()`, and on every `start()`. A `start()` whose generation is no longer current
+   * by the time `realtime.start()` resolves is stale — StrictMode's mount→unmount→remount runs
+   * start, stop, start on the very same client, and a plain boolean can't tell the first start
+   * from the second once stop has reset it.
+   */
+  let generation = 0
+  /** Conversations whose first page loaded (Review Focus: a failed first fetch must be retryable). */
+  const loaded = new Set<string>()
 
   function dispatch(action: Action) {
     state = reduce(state, action)
@@ -31,12 +38,16 @@ export function createChatClient(api: ChatApi, realtime: Realtime | null) {
   }
 
   async function start(params: InboxParams = {}) {
-    stopped = false
+    const gen = ++generation
     inboxParams = params
     try {
-      dispatch({ type: 'me', me: await api.me() })
+      const me = await api.me()
+      if (gen !== generation) return
+      dispatch({ type: 'me', me })
       await Promise.all([refreshInbox(), refreshUnread()])
+      if (gen !== generation) return
     } catch {
+      if (gen !== generation) return
       dispatch({ type: 'error', message: 'Could not load your conversations.' })
       return
     }
@@ -47,11 +58,14 @@ export function createChatClient(api: ChatApi, realtime: Realtime | null) {
     const close = await realtime.start({
       onEvent,
       onReconnect: () => void catchUp().catch(() => {}),
-      onStatus: (status) => dispatch({ type: 'realtime', status }),
+      onStatus: (status) => {
+        if (gen === generation) dispatch({ type: 'realtime', status })
+      },
     })
-    // stop() may have run while realtime.start() was still in flight (StrictMode's
-    // mount-unmount-remount): close what we just opened instead of leaking it.
-    if (stopped) {
+    // A stop(), or a second start() on the same client (StrictMode's mount→unmount→remount),
+    // may have run while realtime.start() was still in flight: close what this call just opened
+    // instead of leaking it, and dispatch nothing more for it.
+    if (gen !== generation) {
       close()
       return
     }
@@ -77,16 +91,22 @@ export function createChatClient(api: ChatApi, realtime: Realtime | null) {
 
   async function openConversation(id: string) {
     onScreen = id
-    if (!state.messages[id]) {
-      // The list exists as [] before the fetch starts, so a live event that arrives while the
-      // first page is in flight is appended instead of dropped (the reducer never starts a list
-      // from a lone live message). A conversation that was never opened still has no entry.
-      dispatch({ type: 'page', conversationId: id, items: [], nextCursor: null })
+    // Whether to fetch depends on whether the first page actually loaded, not on whether the
+    // list exists: the placeholder below makes it exist before that is known, so a failed fetch
+    // must stay retryable on the next open instead of looking permanently (silently) loaded.
+    if (!loaded.has(id)) {
+      if (!state.messages[id]) {
+        // The list exists as [] before the fetch starts, so a live event that arrives while the
+        // first page is in flight is appended instead of dropped (the reducer never starts a list
+        // from a lone live message). A conversation that was never opened still has no entry.
+        dispatch({ type: 'page', conversationId: id, items: [], nextCursor: null })
+      }
       try {
         const page = await api.messages(id)
         dispatch({ type: 'page', conversationId: id, items: page.items, nextCursor: page.nextCursor })
+        loaded.add(id)
       } catch {
-        // Leave the placeholder; reopening or the next reconnect retries. No retry loop here.
+        // Leave the placeholder; `loaded` was never marked, so the next open retries.
       }
     }
     await markRead(id)
@@ -118,7 +138,12 @@ export function createChatClient(api: ChatApi, realtime: Realtime | null) {
       const last = list[list.length - 1]
       cursors[id] = last ? cursorOf(last) : null
     }
-    await Promise.all([refreshInbox(), refreshUnread()])
+    try {
+      await Promise.all([refreshInbox(), refreshUnread()])
+    } catch {
+      // The inbox or unread refresh failing must not abandon paging every conversation: those
+      // are the first requests after a reconnect, and the most likely to fail on a flaky network.
+    }
     for (const id of Object.keys(cursors)) {
       try {
         let after = cursors[id]
@@ -172,8 +197,9 @@ export function createChatClient(api: ChatApi, realtime: Realtime | null) {
     },
     start,
     stop: () => {
-      stopped = true
+      generation++
       stopRealtime?.()
+      stopRealtime = null
     },
     refreshInbox,
     openConversation,
