@@ -106,6 +106,18 @@ export function createChatClient(api: ChatApi, realtime: Realtime | null) {
       const page = await api.messages(id)
       dispatch({ type: 'page', conversationId: id, items: page.items, nextCursor: page.nextCursor })
       loaded.add(id)
+    } else {
+      // Reopening an already-loaded conversation: without a reconnect there is otherwise no
+      // catch-up, so a case team reply posted while the panel was closed never appears (I2). Page
+      // it forward exactly as a reconnect would, and refresh the inbox/unread the same way.
+      const list = state.messages[id]
+      const last = list?.[list.length - 1]
+      await catchUpOne(id, last ? cursorOf(last) : null)
+      try {
+        await Promise.all([refreshInbox(), refreshUnread()])
+      } catch {
+        // Best-effort: the conversation's own page above already succeeded.
+      }
     }
     // Only a failed first fetch should reject and show "Could not load messages.": a failed
     // read-mark is a transient watermark failure, not a reason to hide history that did load.
@@ -146,17 +158,7 @@ export function createChatClient(api: ChatApi, realtime: Realtime | null) {
     }
     for (const id of Object.keys(cursors)) {
       try {
-        let after = cursors[id]
-        if (!after) {
-          const page = await api.messages(id)
-          dispatch({ type: 'page', conversationId: id, items: page.items, nextCursor: page.nextCursor })
-          continue
-        }
-        while (after) {
-          const page = await api.messages(id, { after })
-          dispatch({ type: 'newer', conversationId: id, items: page.items })
-          after = page.nextCursor
-        }
+        await catchUpOne(id, cursors[id])
       } catch {
         // One conversation's failure must not stop the others. No retry loop: the next
         // reconnect or reopen retries.
@@ -165,12 +167,41 @@ export function createChatClient(api: ChatApi, realtime: Realtime | null) {
     if (onScreen) await markRead(onScreen)
   }
 
-  /** Moves my watermark to the newest message on screen — only when there is something unread. */
+  /**
+   * Pages one conversation forward from `cursor` (its last known top-level message) until
+   * `nextCursor` is null, or fetches its first page when there is none yet. Shared by catch-up
+   * after a reconnect (§5) and by reopening an already-loaded conversation without one (I2).
+   */
+  async function catchUpOne(id: string, cursor: string | null) {
+    if (!cursor) {
+      const page = await api.messages(id)
+      dispatch({ type: 'page', conversationId: id, items: page.items, nextCursor: page.nextCursor })
+      loaded.add(id)
+      return
+    }
+    let after: string | null = cursor
+    while (after) {
+      const page = await api.messages(id, { after })
+      dispatch({ type: 'newer', conversationId: id, items: page.items })
+      after = page.nextCursor
+    }
+  }
+
+  /**
+   * Moves my watermark to the newest message this client knows for the conversation — only when
+   * there is something unread. `conversations[id].lastMessage` already includes replies (the
+   * inbox's own last message, and every live reply touches it too), so a reply that is the
+   * newest thing in the conversation gets marked read even though it is never the list's last
+   * top-level item (I1). The backend accepts either: `markRead` only checks the message is in
+   * this conversation.
+   */
   async function markRead(id: string) {
     const list = state.messages[id]
-    const last = list?.[list.length - 1]
-    if (!last || (state.conversations[id]?.unread ?? 0) === 0) return
-    await api.read(id, last.id)
+    const last = list?.[list.length - 1] ?? null
+    const lastMessage = state.conversations[id]?.lastMessage ?? null
+    const target = last && lastMessage ? (cursorOf(lastMessage) > cursorOf(last) ? lastMessage : last) : last ?? lastMessage
+    if (!target || (state.conversations[id]?.unread ?? 0) === 0) return
+    await api.read(id, target.id)
     dispatch({ type: 'read', conversationId: id })
     await refreshUnread()
   }

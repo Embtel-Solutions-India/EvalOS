@@ -103,9 +103,16 @@ function onEvent(state: ChatState, envelope: Envelope): ChatState {
     case 'reactions.changed':
       return upsert(state, envelope.data as Message, 'replace-only').state
     case 'read.moved': {
-      const reader = envelope.data as { kind: string; id: string }
+      const reader = envelope.data as { kind: string; id: string; lastReadMessageId: string }
       const mine = state.me && reader.kind === state.me.kind && reader.id === state.me.id
-      return mine ? patchConversation(state, envelope.conversationId, { unread: 0 }) : state
+      if (!mine) return state
+      // `ReaderMark` carries only the watermark's message id, not its time, so "at or after the
+      // conversation's newest message" is simplified to "is it the newest message": a watermark
+      // behind `lastMessage` (a stale echo, or one that missed a newer reply) must not zero the
+      // row, or it hides that message being unread (I1's fix relies on this).
+      const c = state.conversations[envelope.conversationId]
+      const caughtUp = !c?.lastMessage || reader.lastReadMessageId === c.lastMessage.id
+      return caughtUp ? patchConversation(state, envelope.conversationId, { unread: 0 }) : state
     }
     case 'conversation.read_only':
       return patchConversation(state, envelope.conversationId, { status: 'READ_ONLY' })

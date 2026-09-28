@@ -43,7 +43,9 @@ export function Composer({
 
   return (
     <div className="ec-composer">
-      {replyTo && (
+      {/* No onCancelReply means there is nothing to cancel to (the thread composer always
+          replies to its parent, M2): the banner would show a "×" that does nothing. */}
+      {replyTo && onCancelReply && (
         <p className="ec-composer__reply">
           Replying to {replyTo.mine ? 'yourself' : (replyTo.authorName ?? 'a message')}
           <button type="button" onClick={onCancelReply} aria-label="Cancel reply">×</button>

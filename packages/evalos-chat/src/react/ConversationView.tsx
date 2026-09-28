@@ -14,6 +14,7 @@ export function ConversationView({ conversationId, onUploadDocument }: { convers
 
   useEffect(() => {
     setFailed(false)
+    setReplyTo(null) // A pending reply is this conversation's; another one starts clean (M1).
     client.openConversation(conversationId).catch(() => setFailed(true))
     return () => client.closeConversation(conversationId)
   }, [client, conversationId])

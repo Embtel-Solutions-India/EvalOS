@@ -329,4 +329,46 @@ describe('createChatClient', () => {
     await expect(client.openConversation('v1')).resolves.toBeUndefined()
     expect(client.getState().messages.v1.map((m) => m.id)).toEqual(['m1'])
   })
+
+  /** Final review, Important #1: a reply is the newest thing in the conversation but never lands
+   * in the top-level list, so `markRead` must use `conversations[id].lastMessage` (which a reply
+   * touches too) rather than the list's last item, or the reply stays permanently unread. */
+  it('marks a reply read when it is the newest message, even though it never joins the top-level list', async () => {
+    const api = fakeApi({
+      inbox: vi.fn().mockResolvedValue({ items: [conv('v1', { unread: 1 })], nextCursor: null }),
+      messages: vi.fn().mockResolvedValue(page([msg('m1')])),
+    })
+    const rt = fakeRealtime()
+    const client = createChatClient(api, rt.realtime)
+    await client.start()
+    await client.openConversation('v1') // marks m1 read (the only message known so far)
+    await vi.waitFor(() => expect(api.read).toHaveBeenCalledWith('v1', 'm1'))
+
+    const reply = msg('m2', 'v1', { parentId: 'm1' })
+    rt.handlers().onEvent({ type: 'message.created', conversationId: 'v1', data: reply })
+
+    await vi.waitFor(() => expect(api.read).toHaveBeenLastCalledWith('v1', 'm2'))
+    // The reply never joins messages.v1 — proof the watermark did not come from the list's last item.
+    expect(client.getState().messages.v1.map((m) => m.id)).toEqual(['m1'])
+    expect(client.getState().conversations.v1.unread).toBe(0)
+  })
+
+  /** Final review, Important #2: without Ably, reopening an already-loaded conversation is the
+   * only chance to see a message the case team posted while it was closed — there is no reconnect
+   * to catch up on. */
+  it('a REST-only reopen fetches what was posted on the server while the conversation was closed', async () => {
+    const messages = vi.fn()
+      .mockResolvedValueOnce(page([msg('m1')])) // first open
+      .mockResolvedValueOnce(page([msg('m2')])) // reopen: after m1, one page, no more
+    const api = fakeApi({ messages })
+    const client = createChatClient(api, null) // REST-only: no realtime at all
+    await client.start()
+    await client.openConversation('v1')
+    client.closeConversation('v1')
+
+    await client.openConversation('v1')
+
+    expect(client.getState().messages.v1.map((m) => m.id)).toEqual(['m1', 'm2'])
+    expect(messages.mock.calls[1]).toEqual(['v1', { after: '2026-09-27T10:00:01Z|m1' }])
+  })
 })

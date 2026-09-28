@@ -124,6 +124,16 @@ describe('reduce', () => {
     expect(s.conversations.v1.unread).toBe(0)
   })
 
+  /** Final review, deferred #6 (folded into Important #1): `ReaderMark` carries only a message
+   * id, not a time, so a watermark behind the conversation's newest message must not zero the
+   * row — that is what let a permanently-unread reply (I1) look read on the client. */
+  it("does not clear unread when my watermark is behind the conversation's newest message", () => {
+    let s = reduce(opened(), created(msg('m3')))
+    expect(s.conversations.v1.lastMessage?.id).toBe('m3')
+    s = reduce(s, { type: 'event', envelope: { type: 'read.moved', conversationId: 'v1', data: { kind: 'CLIENT', id: 'client-1', name: 'Anita', lastReadMessageId: 'm2' } } })
+    expect(s.conversations.v1.unread).toBe(1)
+  })
+
   it('freezes a conversation that became read-only', () => {
     const s = reduce(opened(), { type: 'event', envelope: { type: 'conversation.read_only', conversationId: 'v1', data: null } })
     expect(s.conversations.v1.status).toBe('READ_ONLY')
