@@ -199,37 +199,53 @@ A **source-only** local package imported through a Vite/TS alias (`@evalos/chat`
 `node_modules` of its own. React is a peer; the app passes ably-js's `Realtime` constructor in.
 
 **Built (Unit 58 phase 2, 2026-09-28): the portal subset** — inbox, conversation panel, composer,
-replies, reactions, unread badge, the Ably connection and REST catch-up. Not built: search,
-typing, presence, seen-by, edit/delete UI (staff-only pieces, phase 3+).
+replies, reactions, unread badge, the Ably connection and REST catch-up. Not built: search, type
+tabs/filters, typing, presence, participants list, seen-by, a responsive multi-pane layout,
+edit/delete UI (staff-only pieces, phase 3+) — see the component bullets below for what each one
+is missing.
 
-- **`core/`** (no React) — `createChatClient({ apiBase, wsUrl, credentials })`: typed REST client,
-  Ably connection (token via `authCallback` to `realtime/token`, presence on the person's own
-  channel), event stream, REST catch-up on reconnect, and pure reducers that fold events into
+- **`core/`** (no React) — `createChatClient(api: ChatApi, realtime: Realtime | null)`, built from
+  `createChatApi(request)` (the app's own HTTP call, already pointed at its chat surface) and
+  `ablyRealtime(RealtimeClass, fetchToken)` (the app passes ably-js's `Realtime` constructor in,
+  token via `authCallback` to `realtime/token`, presence on the person's own channel — never
+  publish). Event stream, REST catch-up on reconnect, and pure reducers that fold events into
   state. **A reply for a thread that isn't loaded starts that thread's list**, so a REST reply and
   its live event count once, not twice. **Catch-up on reconnect** snapshots every conversation's
   cursor before fetching; a failed inbox/unread refresh or a failed conversation does not stop the
   rest, and there is no retry loop — the next reconnect or reopen retries. **Opening a conversation**
   creates its list before the first fetch, so a live event arriving mid-fetch is kept; a failed
   first fetch rejects (the view shows "Could not load messages / Try again") and stays retryable; a
-  failed read-mark never hides loaded history. **start/stop use a generation counter**, so
-  StrictMode's start→stop→start does not leak an Ably connection, and a retry of start keeps the
-  last inbox filter. **Ably is used only for subscribe and presence** on the person's own channel —
-  no token may publish (§5) — and a token route that fails (503 without `ABLY_API_KEY`) means
-  REST-only: Ably is never constructed.
-- **`react/`** — `ChatProvider`; hooks `useInbox`, `useConversation`, `useMessages`, `useThread`,
-  `useTyping`, `usePresence`, `useUnreadTotal`; components:
-  - `ChatInbox` — grouped by case, type tabs, unread badges, search, filters (type, status);
-  - `ConversationView` — case header (reference, service, stage, read-only banner), participants
-    with role labels and online dots, message list, composer;
-  - `MessageList` — scroll up for history, date separators, "edited" / "message deleted",
-    "seen by" under the latest message, typing indicator;
-  - `Composer` — Enter sends, Shift+Enter breaks a line, reply-to, 4,000-character limit, an
-    **"Upload a document"** link that opens the app's own document flow for the case;
+  failed read-mark never hides loaded history. **Reopening an already-loaded conversation** pages it
+  forward the same way catch-up does (same helper, `after` its last known message), and refreshes
+  the inbox/unread — REST-only has no reconnect to catch up on otherwise, so this is its only way to
+  see what was posted while it was closed. **The read watermark** moves to the newest message the
+  client knows for the conversation — the list's last item, or `conversations[id].lastMessage` when
+  that is newer (it already includes replies) — so a reply that is the newest thing in the
+  conversation is marked read too. **start/stop use a generation counter**, so StrictMode's
+  start→stop→start does not leak an Ably connection, and a retry of start keeps the last inbox
+  filter. **Ably is used only for subscribe and presence** on the person's own channel — no token
+  may publish (§5) — and a token route that fails (503 without `ABLY_API_KEY`) means REST-only: Ably
+  is never constructed.
+- **`react/`** — `ChatProvider` (starts the client for its subtree, stops it on unmount) and two
+  hooks, `useChatClient()` and `useChat(select)` (a slice of state via `useSyncExternalStore`).
+  Components built for the portal subset:
+  - `ChatInbox` — grouped by case, unread badges. **Not built (phase 3+, staff-only): type tabs,
+    search, filters (type, status)**;
+  - `ConversationView` — case header (reference, service), read-only / oversight banner, message
+    list, composer, an offline banner when realtime is down. **Not built: participants with role
+    labels and online dots**;
+  - `MessageList` — scroll up for history, date separators, "edited" / "message deleted", reply
+    counts opening a `ThreadPanel`. **Not built: "seen by", typing indicator**;
+  - `Composer` — Enter sends, Shift+Enter breaks a line, reply-to (not shown in `ThreadPanel`,
+    which always replies to its parent), 4,000-character limit, an **"Upload a document"** link
+    that opens the app's own document flow for the case;
   - `ThreadPanel`, `Reactions` (six emoji);
-  - `CaseChatPanel` — case id and allowed types in, a tabbed panel out;
+  - `CaseChatPanel` — case id and one type in, that case's conversation of that type out. **Not
+    built: a tabbed panel across types**;
+  - `UnreadBadge` — the nav's unread total;
   - loading, empty and error states with retry; viewer mode (no composer, no reactions, an
-    "oversight — read only" banner); responsive — three panes on desktop, one at a time with Back
-    on mobile.
+    "oversight — read only" banner). **Not built: a responsive layout (three panes on desktop, one
+    at a time with Back on mobile) — left to phase 3's pages.**
 - **Theming** — `--chat-*` CSS variables, mapped by each app to its own tokens.
 - **Rendering** — message bodies as text; only http(s) URLs become links, trailing punctuation
   excluded from the link but a balanced `)` kept; no HTML.
@@ -249,7 +265,7 @@ typing, presence, seen-by, edit/delete UI (staff-only pieces, phase 3+).
 | Editing or deleting someone else's message | 403 |
 | Empty body, or over 4,000 characters | 400 |
 | More than 30 messages a minute from one person | 429 |
-| Socket drops | "Reconnecting…" strip; sending still works over REST; catch-up on reconnect |
+| Socket drops | offline banner ("Live updates are paused; new messages appear when you reopen this"); sending still works over REST; catch-up on reconnect, and reopening a loaded conversation pages it forward the same way |
 | Lifecycle listener fails | logged; the case change stands; the sweep repairs it |
 
 - The browser has no route that creates a conversation or changes membership.

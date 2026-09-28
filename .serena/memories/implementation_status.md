@@ -534,9 +534,15 @@ the portal subset of `packages/evalos-chat` is BUILT — see the Unit 58 entry b
 DELIVERED, paid invoices); staff Upload draft + comment thread. Phase 2: `packages/evalos-chat` —
 the portal subset (inbox, conversation panel, composer, replies, reactions, unread badge, the Ably
 connection, REST catch-up), source-only, imported through a Vite/TS alias (`@evalos/chat`) with
-`resolve.dedupe` on `react`/`ably` — no `file:` dependency, no `node_modules` of its own. Tests:
-`api.test.ts`, `reducer.test.ts`, `realtime.test.ts`, `client.test.ts`, `text.test.ts`; frontend
-suite 69/69. **Not built:** client portal UI (phase 3, so no page mounts the chat package yet) and
-push (phase 4). **Known gaps:** no component tests (the portals have no Testing Library); never
-exercised against a real Ably app; `client-expert`'s `npm run lint` does not scan
-`packages/evalos-chat`.
+`resolve.dedupe` on `react`/`ably` — no `file:` dependency, no `node_modules` of its own.
+**Final-review fixes (2026-09-28):** `markRead` uses whichever of the list's last item and
+`conversations[id].lastMessage` is newer, so a reply (never in the top-level list) is marked read
+too; `read.moved` for me clears unread only when that watermark matches the conversation's newest
+message; reopening an already-loaded conversation now pages it forward the same way a reconnect's
+catch-up does (`catchUpOne`, shared), so REST-only — which has no reconnect — sees what was posted
+while it was closed; a pending reply is cleared when the conversation changes; the thread
+composer's dead reply-cancel "×" no longer renders. Tests: `api.test.ts`, `reducer.test.ts`,
+`realtime.test.ts`, `client.test.ts`, `text.test.ts`; frontend suite 72/72. **Not built:** client
+portal UI (phase 3, so no page mounts the chat package yet) and push (phase 4). **Known gaps:** no
+component tests (the portals have no Testing Library); never exercised against a real Ably app;
+`client-expert`'s `npm run lint` does not scan `packages/evalos-chat`.
