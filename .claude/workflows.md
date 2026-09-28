@@ -196,7 +196,9 @@ a new one. It stays (D56), except that a queued edit is never overwritten.
 ### CURRENT IMPLEMENTATION
 
 ```
-DOC_COLLECTION ─ coordinator chases the checklist; client uploads to S3
+DOC_COLLECTION ─ the PC or CM builds the checklist and SENDS it (Unit 61, D60: unsent items
+                  are not in the portal; later additions wait for the next Send); PC/CM chase;
+                  client uploads to S3 against each sent item
  → PM_REVIEW ─ PM writes strategy notes, assigns an expert
  → DRAFT_IN_PROGRESS → DRAFT_REVIEW ─ CM uploads the draft as Word + PDF (POST …/drafts); PM approves or returns
  → READY_TO_SEND → CLIENT_REVIEW ─ client comments, then approves or requests changes on that version
@@ -240,7 +242,7 @@ no unified timeline across the request, the opportunity and the case. **Sales is
 ```
 Client Portal /cases/:caseId (Unit 58 — every route names its case; the case-less ones are gone)
   POST /api/portal/client/cases/{id}/documents?checklistItemId=…
-        authorize the case → verify the item is on it
+        authorize the case → verify the item is on it AND sent (Unit 61)
         → S3 key built from brand + the GHL contact id + a fresh document uuid (D41)
         → PUT to S3 → INSERT case_document (CLIENT_UPLOAD, versioned)
         → checklist item → UPLOADED → audit

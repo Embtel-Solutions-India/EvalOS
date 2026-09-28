@@ -247,5 +247,5 @@ downloads beside it. **Q11 → D54:** a GM/Sales screen of DRAFT requests older 
 (cancel, guests, blocked time, notes; `team_member.ghl_user_id`) — built as Unit 60; guests have no GHL field (Q14). **D56 (Q1):** a marketing lead does
 not overwrite an opportunity with a change pending in the sync queue; otherwise upsert as today.
 **D57 (§12 b):** Sales reach the client in the Client conversation (already members). **D58 (§12 c):**
-four client emails — checklist+link, draft ready, sign in to review, delivered. **D59:** expert
+four client emails — checklist+link (sent on every checklist send, D60), draft ready, sign in to review, delivered. **D60:** the PC or CM adds documents to a case checklist; items are unsent (hidden from the portal) until one of them presses Send, which publishes all unsent items; later additions wait for the next Send; both see who sent and when; an expert's evidence-request item is unsent too (Q15); the CM also sets item status (Q16). **D59:** expert
 payments are managed manually by the ENM; no expert-portal payouts view.

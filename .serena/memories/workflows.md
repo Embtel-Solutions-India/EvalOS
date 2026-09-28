@@ -97,3 +97,5 @@ over REST, live via each member's private Ably channel, web push when the app is
 **Expert sign-in (Unit 59):** sign-up → roster match in the portal's brand → set/reset mail (else nothing, by decision; 204 always) → set-password → party-scoped token → `/cases` → `/case?caseId=`. No staff-minted links exist (V73 revoked the live ones).
 
 **Appointments (Unit 60, 2026-09-29).** Book, reschedule, **cancel** (GHL status `cancelled`), **notes** (live from GHL), **blocked time** (the caller's own, by `team_member.ghl_user_id`) and **per-member free slots**. Every per-meeting route requires a `meeting` row on that deal. No guests: GHL has no field (Q14).
+
+**Checklist send (Unit 61, D60, 2026-09-29).** PC or CM adds items (unsent, hidden from the portal) → **Send** publishes every unsent item, stamps `sent_at/sent_by`, publishes `CHECKLIST_REQUESTED` → client uploads against each sent item. Nothing unsent = "already sent by … on …". Evidence-request items are unsent too; the board lists any case with unsent items.

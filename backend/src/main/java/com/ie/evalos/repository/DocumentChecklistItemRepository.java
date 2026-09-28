@@ -41,6 +41,16 @@ public interface DocumentChecklistItemRepository extends ScopedRepository<Docume
 	List<DocumentChecklistItem> findByBrandIdInAndCaseIdIn(Collection<UUID> brandIds, Collection<UUID> caseIds);
 
 	/**
+	 * Unit 61: the cases in these brands with something the PC/CM has not sent yet, so the board can
+	 * list a case outside document collection (an expert's evidence request) that still needs a Send.
+	 * Brand-scoped in the signature, for the reason {@link #findByBrandIdInAndCaseIdIn} gives.
+	 */
+	@org.springframework.data.jpa.repository.Query("select distinct i.caseId from DocumentChecklistItem i "
+			+ "where i.brandId in :brandIds and i.sentAt is null")
+	java.util.Set<UUID> caseIdsWithUnsent(
+			@org.springframework.data.repository.query.Param("brandIds") Collection<UUID> brandIds);
+
+	/**
 	 * Whether every item asked for on this case has been approved.
 	 *
 	 * <p>Lives here rather than in each caller because two sweeps ask the same question and a

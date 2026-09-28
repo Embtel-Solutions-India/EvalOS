@@ -33,7 +33,7 @@ live in `backend/src/main/resources/db/migration/`.
 | `evalos_case` | the production case, 60 columns | yes |
 | `case_document` | DRAFT / CLIENT_UPLOAD / SIGNED_LETTER, versioned, S3 `object_key`. A DRAFT (`V70`, Unit 58) holds its Word file in `object_key`/`filename`/`size_bytes` and its PDF in `pdf_object_key`/`pdf_filename`/`pdf_size_bytes` | yes |
 | `draft_comments` | **one comment on one draft version** (`V70`, Unit 58): `document_id` → `case_document`, `author_kind` STAFF/CLIENT, `author_id` (team member, or the client's portal credential), body 1–2,000, `page` ≥ 1 or null. **A trigger refuses UPDATE and DELETE** | yes |
-| `document_checklist_item` | what the client still owes, per case | yes |
+| `document_checklist_item` | what the client still owes, per case; **`sent_at`/`sent_by`** (`V75`, Unit 61): null = unsent, not in the portal; `sent_by` null on a sent row = sent before D60 | yes |
 | `expert` | expert roster, 50 columns incl. taxonomy arrays and encrypted `payment_detail` | yes |
 | `expert_case_offer` | offer to ACCEPTED / DECLINED / TIMED_OUT / SUPERSEDED | yes |
 | `payout_ledger` | one row per case, links to a payment | yes |

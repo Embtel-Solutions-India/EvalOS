@@ -286,7 +286,9 @@ public class PortalCaseService {
 	}
 
 	private ClientDocumentsView documentsOf(Case subject) {
+		// Unit 61 (D60): an item the PC/CM has not sent yet is not the client's to see.
 		java.util.List<ChecklistItemView> checklist = checklistItems.findByCaseId(subject.getId()).stream()
+				.filter(DocumentChecklistItem::isSent)
 				.map(item -> new ChecklistItemView(item.getId(), item.getLabel(), item.getStatus()))
 				.toList();
 
@@ -369,6 +371,9 @@ public class PortalCaseService {
 			java.io.InputStream body) {
 		DocumentChecklistItem item = checklistItems.findById(checklistItemId)
 				.filter(row -> row.getCaseId() != null && row.getCaseId().equals(subject.getId()))
+				// Unit 61: an unsent item is refused exactly like one on another case. The client
+				// cannot see it, so it does not exist for them.
+				.filter(DocumentChecklistItem::isSent)
 				.orElseThrow(() -> new IllegalTransitionException(
 						"that checklist item is not on this case"));
 

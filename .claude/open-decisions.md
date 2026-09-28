@@ -10,7 +10,7 @@ _Q2 (request status model), Q3 (Sales approval rules) and Q4 (request documents)
 carried-forward item (a) for D19c. Q12 (stage moves across pipelines) was resolved on
 2026-09-24 and left for D44. Q10 (conversation sidebar) left for D52 on 2026-09-28. Q8 (a client with several cases) was
 settled by Unit 58 phase 3 on 2026-09-28 — Home lists every case and each opens its own page (D51).
-On 2026-09-28 the business also answered Q6 (D23, leaving Q6b), Q11 (D54) and Q13 (D51). On 2026-09-29: Q9 → D55, Q1 → D56, §12 b → D57, §12 c → D58, expert payments → D59._
+On 2026-09-28 the business also answered Q6 (D23, leaving Q6b), Q11 (D54) and Q13 (D51). On 2026-09-29: Q9 → D55, Q1 → D56, §12 b → D57, §12 c → D58, expert payments → D59. Q15 and Q16 (the checklist under D60) closed the same day into D60._
 
 ## Blocking the portals
 

@@ -593,4 +593,6 @@ an expert push opened with no tab open lands on `/case` without the fragment tok
 
 **2026-09-29 — Unit 60 (D55) BUILT, guests excepted.** Spec `context/specs/60-appointments.md`. `V74` re-adds `team_member.ghl_user_id` (unique), linked by email on REFERENCE_MIRROR. `GhlCalendarClient`: cancel (status `cancelled`), notes CRUD, block-slots create/list + event delete, free slots `userId`. Reschedule/cancel/notes require a `meeting` row on that deal (closes a cross-deal write). UI: `MeetingRow` (Cancel, Notes), `BlockedTimeCard`, `BookingForm` slots per member. Guests: GHL has no field → open Q14 (recommend drop).
 
-**Next up (2026-09-29):** see the 'Next up' list at the top of `.claude/implementation-status.md` — D58 four client emails, then real-service verification.
+**2026-09-29 — Unit 61 (D60) BUILT, email excepted.** Spec `context/specs/61-checklist-send.md`. `V75` adds `document_checklist_item.sent_at/sent_by` (existing rows backfilled sent; `V912`/`V952` do the same for the demo seeds). `POST /api/cases/{id}/checklist/send` publishes unsent items and `CHECKLIST_REQUESTED` (intake no longer does); refused when nothing is unsent. CM joins `COORDINATION` and the `/checklists` nav; the board also lists cases with unsent items; the portal hides unsent items and refuses uploads to them.
+
+**Next up (2026-09-29):** see the 'Next up' list at the top of `.claude/implementation-status.md` — D58 four client emails (the checklist one hangs off `CHECKLIST_REQUESTED` from Send), then real-service verification.

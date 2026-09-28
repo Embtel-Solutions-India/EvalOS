@@ -366,7 +366,8 @@ export const NAV_ITEMS: readonly NavItem[] = [
     //
     // The backend gate keeps `GM_OR`, so this is a listing decision and not a capability one: a
     // GM who needs to tick an item off can still reach it from the case.
-    roles: ['BRAND_MANAGER', 'PROJECT_COORDINATOR'],
+    // Unit 61 (D60): the CM sends a case's checklist too, so the CM gets the board.
+    roles: ['BRAND_MANAGER', 'PROJECT_COORDINATOR', 'CASE_MANAGER'],
     becomes: 'Document checklist tracking',
     group: 'Pipeline',
   },

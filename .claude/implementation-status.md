@@ -12,13 +12,15 @@ request status, portal deployment) and now say so.
    excepted: GHL has no guest field, logged as `open-decisions.md` Q14. See the Appointments row.
 2. ~~**Marketing lead vs. the queue (D56).**~~ **Done 2026-09-29** — see the GHL opportunity row.
 3. **Four client emails (D58).** Checklist + link, draft ready, sign in to review, delivered —
-   through `ClientMailer`, with the invariant-14 amendment written into `architecture.md`.
+   through `ClientMailer`, with the invariant-14 amendment written into `architecture.md`. **The
+   checklist email listens to `CHECKLIST_REQUESTED`, which only `ChecklistService.send` publishes
+   now (Unit 61, D60)**: one email per Send.
 4. ~~**Expert payments stay manual (D59).**~~ **Done 2026-09-29** — see the Payments row.
 5. **Verify for real:** set `ABLY_API_KEY`, the `EVALOS_PUSH_*` keys, SMTP and S3, then click
    through client + expert sign-in and chat against the staff app.
 
-**Build state (all four suites re-verified 2026-09-22 after the dead-code pass below; the browser checks against the live location remain 2026-09-17):** backend `1297 tests, 0 failures, 0 errors, 4 skipped` (2026-09-29, after D56, D59 and Unit 60) (the 4 are opt-in live checks, `SmtpMailTransportLiveTest` among them); the GM board draws **1,460 deals, synced**, and a Sales desk draws its own pipeline's four;
-staff SPA `135 tests` (2026-09-28), `oxlint` and `tsc -b` clean; portals `87 tests` (2026-09-28) and `tsc -b` clean in both `client/`
+**Build state (all four suites re-verified 2026-09-22 after the dead-code pass below; the browser checks against the live location remain 2026-09-17):** backend `1302 tests, 0 failures, 0 errors, 4 skipped` (2026-09-29, after D56, D59, Units 60 and 61) (the 4 are opt-in live checks, `SmtpMailTransportLiveTest` among them); the GM board draws **1,460 deals, synced**, and a Sales desk draws its own pipeline's four;
+staff SPA `138 tests` (2026-09-29), `oxlint` and `tsc -b` clean; portals `87 tests` (2026-09-28) and `tsc -b` clean in both `client/`
 and `expert/`. All green.
 
 > **Dead-code pass, 2026-09-22.** A repo-wide audit found code nothing reaches. Removed, with all
@@ -113,6 +115,7 @@ references, so `--noEmit` typechecks nothing and exits 0.)
 | **Payments (expert payouts)** | COMPLETE | `payout_ledger`, `payout_payment`, `PayoutService`, `PayoutController`, `PaymentController`, `PayoutBatch.tsx` | live settlement unexercised **D59 (2026-09-29): no expert-portal read.** `GET /api/portal/expert/payouts`, `ExpertPortalService.payoutRows` / `ExpertPayoutRow` (and their four tests) and `PayoutLedgerRepository.findByBrandIdAndExpertIdOrderByCreatedAtDesc` are removed, as are the expert app's dead `expertNavigation.ts` (a Payments link), `mock/expertMockData.ts` and `types/expert.ts`; the ENM settles on the staff screens |
 | **Cases** | COMPLETE | `evalos_case`, `CaseLifecycleService`, `CaseTransitions`, 30+ transition routes, `BoardView`, `CaseDetail` | — |
 | **Production** | COMPLETE | 12 stages, `exception_state`, `document_checklist_item`, `ChecklistService`, four sweeps | — |
+| **Checklist send (Unit 61, D60)** | COMPLETE except the email (2026-09-29) | `V75` (`document_checklist_item.sent_at`/`sent_by`, existing rows backfilled as sent), `V912`/`V952` (seed trees, same backfill); `ChecklistService.send` + `POST /api/cases/{id}/checklist/send`; `COORDINATION` gains `CASE_MANAGER`; the board also lists any case with unsent items; `PortalCaseService` hides unsent items and refuses an upload against one; intake no longer publishes `CHECKLIST_REQUESTED`; `CaseChecklist.tsx` (Not sent tag, "Send N…" / "Already sent by … on …"), `/checklists` nav adds the CM; tests in `ChecklistServiceTest`, `ChecklistControllerTest`, `PortalCaseServiceTest`, `CaseIntakeServiceTest`, `checklistRules.test.ts`, `navigation.test.ts` | the client is **not told** on a Send until D58's checklist email is built. Existing live cases: their items were already visible and stay sent; a new case's template items wait for the first Send |
 | **Expert workflow** | PARTIAL | `expert`, `expert_case_offer`, `ExpertMatchService`, `ExpertPortalService`, `/api/portal/expert/**`, `ExpertCasePortal.tsx`; the expert portal's `/` is a **holding page** as of 2026-09-18 (`expert/src/pages/Welcome.tsx`) — the app had no `/` at all, so the bare origin answered 404 and read as a broken portal | no staff screen shows whether an expert has set up their account |
 | **Notifications** | PARTIAL | `notification` table, 11 `NotificationType`s, `NotificationService`, `NotificationListeners`, `NotificationBell` | **Chat push is built** (Unit 57 backend; the client portal's service worker and opt-in, Unit 58 phase 4); every app has its service worker, and the bell's own notifications are still in-app only (D37 — in-app **and** push, and those two only). Needs a subscription table and a delivery step beside the existing write. No email and no SMS is now a decision, not a gap |
 | **RBAC** | COMPLETE | `Role` + `Tier`, `ScopePredicate`, `ScopedRepository`, `@PreAuthorize`, `OwnershipGuard`, `navigation.ts` mirror, `DomainInvariantsTest` | — (PIPELINE matching no case is D19c, intended) |

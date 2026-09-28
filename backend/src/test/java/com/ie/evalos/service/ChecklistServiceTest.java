@@ -63,8 +63,11 @@ class ChecklistServiceTest {
 	private final AuditService audit = mock(AuditService.class);
 	private final ApplicationEventPublisher events = mock(ApplicationEventPublisher.class);
 
+	private final com.ie.evalos.repository.TeamMemberRepository teamMembers =
+			mock(com.ie.evalos.repository.TeamMemberRepository.class);
+
 	private final ChecklistService checklists = new ChecklistService(
-			lifecycle, board, checklistItems, auditEvents, audit, events);
+			lifecycle, board, checklistItems, auditEvents, audit, events, teamMembers);
 
 	private Case subject;
 
@@ -318,5 +321,56 @@ class ChecklistServiceTest {
 
 		verify(subject, never()).setCurrentStage(any());
 		verify(subject, never()).setStageEnteredAt(any());
+	}
+
+	// --- Unit 61: the PC or CM sends the checklist ------------------------------------------
+
+	private DocumentChecklistItem real(String label) {
+		return new DocumentChecklistItem(BRAND, subject.getId(), label, ChecklistItemStatus.REQUIRED);
+	}
+
+	@Test
+	void aSendPublishesOnlyTheUnsentItemsAndAnnouncesTheChecklist() {
+		DocumentChecklistItem earlier = real("Passport");
+		earlier.markSent(UUID.randomUUID(), Instant.now().minus(1, ChronoUnit.DAYS));
+		Instant firstSend = earlier.getSentAt();
+		DocumentChecklistItem added = real("Marriage certificate");
+		given(checklistItems.findByCaseId(subject.getId())).willReturn(List.of(earlier, added));
+
+		checklists.send(CASE_ID);
+
+		assertThat(added.isSent()).isTrue();
+		assertThat(earlier.getSentAt()).isEqualTo(firstSend);
+		assertThat(recordedNote(AuditAction.UPDATED)).isEqualTo("Checklist sent to the client: Marriage certificate");
+		ArgumentCaptor<CaseEvents.CaseEvent> published = ArgumentCaptor.forClass(CaseEvents.CaseEvent.class);
+		verify(events).publishEvent(published.capture());
+		assertThat(published.getValue().type()).isEqualTo(CaseEvents.Type.CHECKLIST_REQUESTED);
+	}
+
+	/** The "already sent": whichever of the PC/CM sends second finds nothing to send. */
+	@Test
+	void aChecklistWithNothingUnsentCannotBeSentAgain() {
+		DocumentChecklistItem sent = real("Passport");
+		sent.markSent(UUID.randomUUID(), Instant.now());
+		given(checklistItems.findByCaseId(subject.getId())).willReturn(List.of(sent));
+
+		assertThrows(IllegalTransitionException.class, () -> checklists.send(CASE_ID));
+		verify(events, never()).publishEvent(any(CaseEvents.CaseEvent.class));
+	}
+
+	/** An expert's evidence request lands after document collection; the board must still show it. */
+	@Test
+	void aCasePastDocumentCollectionWithAnUnsentItemIsOnTheBoard() {
+		Case held = aCase(Stage.EXPERT_SIGNING, Instant.now());
+		Case drafting = aCase(Stage.DRAFT_IN_PROGRESS, Instant.now());
+		given(board.forCaller(null, null)).willReturn(List.of(
+				new CaseBoardService.BoardRow(held, "Anita Rao"),
+				new CaseBoardService.BoardRow(drafting, "Ben Cole")));
+		UUID heldId = held.getId();
+		given(checklistItems.caseIdsWithUnsent(anyList())).willReturn(java.util.Set.of(heldId));
+		given(checklistItems.findByBrandIdInAndCaseIdIn(anyList(), anyList())).willReturn(List.of());
+
+		assertThat(checklists.board(null)).extracting(ChecklistService.BoardRow::clientName)
+				.containsExactly("Anita Rao");
 	}
 }

@@ -47,7 +47,7 @@ export function CaseDocuments({ caseId }: { caseId: string }) {
   return (
     <div className="space-y-4">
       {data.checklist.length === 0 ? (
-        <EmptyState icon={FileText} title="Nothing outstanding" description="There is no document waiting on you right now." />
+        <EmptyState icon={FileText} title="Nothing outstanding" description="There is no document waiting on you right now. When your case team needs documents, the list appears here." />
       ) : (
         actionFirst(data.checklist).map((item) => (
           <ChecklistRow

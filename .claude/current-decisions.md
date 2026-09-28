@@ -455,7 +455,18 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
   pipeline Sales are already members of it (Unit 57), so no separate ownership split is needed.
 - **D58.** **EvalOS sends four client emails beyond the auth mails** (2026-09-29, closes 00d §12 c,
   the recommendation taken): checklist + link, draft ready, expert signing link (now: sign-in),
-  delivered — as one unit, with a written invariant-14 amendment. Not the chases.
+  delivered — as one unit, with a written invariant-14 amendment. Not the chases. **The checklist
+  email goes out on every checklist send (D60)**, first list or later additions: "you have N
+  documents to upload — sign in"; the upload itself stays in the portal.
+- **D60.** **The document checklist is sent to the client by the PC or the CM** (2026-09-29, the
+  business): either role may add any document to a case's checklist; items are **unsent** — not
+  visible in the client portal — until one of them presses **Send**, which publishes every unsent
+  item at once. Items added after a send stay unsent until the next Send, so a list is never
+  "sent twice": with nothing unsent there is nothing to send, and both roles see who sent what and
+  when. The client uploads against each published item, as today. Each send triggers D58's
+  checklist email. **An expert's evidence-request item is unsent like any other** (closes Q15) —
+  the coordinators are alerted and one Send publishes it. **The CM also sets item status**
+  (approve / incorrect / missing), the same as the PC (closes Q16).
 - **D59.** **Expert payments are managed manually by the Expert Network Manager** (2026-09-29): no
   payouts view in the expert portal; the staff payout screens stay the ENM's tool.
 - **D52.** **No GHL conversation sidebar.** EvalOS does not mirror or send GHL conversations

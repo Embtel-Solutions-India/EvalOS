@@ -96,3 +96,5 @@ left_at stamped once; trigger-guarded), messages (text ≤4000, parent_message_i
 message_reactions, message_reads (one watermark per member), push_subscriptions.
 
 **V72 (Unit 59):** `expert_account` (expert_id unique → expert, password_hash, last_sign_in_at) and `expert_credential_token` (token_hash unique, purpose SET|RESET, expires_at, used_at — single use).
+
+**`V75` (Unit 61):** `document_checklist_item.sent_at` / `sent_by` — null = unsent (not in the client portal). Existing rows backfilled as sent; seed trees `V912`/`V952` repeat the backfill for demo data seeded after V75.

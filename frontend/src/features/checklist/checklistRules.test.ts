@@ -6,6 +6,7 @@ import {
   applyChecklistToCard,
   completionPercent,
   needsChase,
+  sendLabel,
   splitByChase,
   type ChecklistCard,
   type ChecklistView,
@@ -52,6 +53,9 @@ function view(overrides: Partial<ChecklistView> = {}): ChecklistView {
     complete: 2,
     checklistSatisfied: false,
     lastChasedAt: null,
+    unsent: 0,
+    lastSentAt: null,
+    lastSentBy: null,
     ...overrides,
   }
 }
@@ -185,5 +189,29 @@ describe('the completeness bar', () => {
     // 0/0 is not "everything is in" — it is a case whose intake template produced nothing,
     // which is exactly what markDocsComplete refuses. A full bar would say the opposite.
     expect(completionPercent(0, 0)).toBe(0)
+  })
+})
+
+describe('sendLabel (Unit 61, D60)', () => {
+  it('counts what is unsent', () => {
+    expect(sendLabel({ unsent: 1, lastSentAt: null, lastSentBy: null })).toBe(
+      'Send 1 document to the client',
+    )
+    expect(sendLabel({ unsent: 3, lastSentAt: '2026-09-29T10:00:00Z', lastSentBy: 'Priya' })).toBe(
+      'Send 3 documents to the client',
+    )
+  })
+
+  it('says who already sent it when nothing is left', () => {
+    expect(
+      sendLabel({ unsent: 0, lastSentAt: '2026-09-29T10:00:00Z', lastSentBy: 'Priya' }, 'en-GB'),
+    ).toBe('Already sent by Priya on 29 Sept')
+  })
+
+  it('has no sender for a list sent before D60', () => {
+    expect(sendLabel({ unsent: 0, lastSentAt: '2026-09-29T10:00:00Z', lastSentBy: null }, 'en-GB')).toBe(
+      'Already sent on 29 Sept',
+    )
+    expect(sendLabel({ unsent: 0, lastSentAt: null, lastSentBy: null })).toBe('Nothing to send')
   })
 })

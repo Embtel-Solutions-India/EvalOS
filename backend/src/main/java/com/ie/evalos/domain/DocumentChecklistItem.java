@@ -30,6 +30,14 @@ public class DocumentChecklistItem extends ScopedEntity {
 	@Column(name = "updated_at")
 	private Instant updatedAt;
 
+	/** Unit 61 (D60): when the PC or CM sent it to the client. Null = unsent, not in the portal. */
+	@Column(name = "sent_at")
+	private Instant sentAt;
+
+	/** Who sent it. Null on a sent row means it was sent before D60 ({@code V75}'s backfill). */
+	@Column(name = "sent_by")
+	private UUID sentBy;
+
 	protected DocumentChecklistItem() {
 		// for JPA
 	}
@@ -51,6 +59,26 @@ public class DocumentChecklistItem extends ScopedEntity {
 	public void markStatus(ChecklistItemStatus status) {
 		this.status = status;
 		this.updatedAt = Instant.now();
+	}
+
+	/** Publishes the item to the client's portal. Once sent it stays sent; a second call is a no-op. */
+	public void markSent(UUID by, Instant at) {
+		if (sentAt == null) {
+			this.sentAt = at;
+			this.sentBy = by;
+		}
+	}
+
+	public boolean isSent() {
+		return sentAt != null;
+	}
+
+	public Instant getSentAt() {
+		return sentAt;
+	}
+
+	public UUID getSentBy() {
+		return sentBy;
 	}
 
 	public UUID getCaseId() {

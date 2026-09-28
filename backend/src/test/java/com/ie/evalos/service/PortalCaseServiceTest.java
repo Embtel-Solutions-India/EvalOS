@@ -140,6 +140,7 @@ class PortalCaseServiceTest {
 	private DocumentChecklistItem anItemOnThisCase() {
 		DocumentChecklistItem item = new DocumentChecklistItem(BRAND, CASE_ID, "Transcript",
 				ChecklistItemStatus.REQUIRED);
+		item.markSent(UUID.randomUUID(), java.time.Instant.now());
 		UUID itemId = UUID.randomUUID();
 		ReflectionTestUtils.setField(item, "id", itemId);
 		given(checklistItems.findById(itemId)).willReturn(Optional.of(item));
@@ -348,7 +349,11 @@ class PortalCaseServiceTest {
 		DocumentChecklistItem outstanding =
 				new DocumentChecklistItem(BRAND, CASE_ID, "Academic Transcript", ChecklistItemStatus.INCORRECT);
 		ReflectionTestUtils.setField(outstanding, "id", UUID.randomUUID());
-		given(checklistItems.findByCaseId(CASE_ID)).willReturn(java.util.List.of(outstanding));
+		outstanding.markSent(UUID.randomUUID(), java.time.Instant.now());
+		// Unit 61: an item the PC/CM has not sent is not in the client's list at all.
+		DocumentChecklistItem unsent =
+				new DocumentChecklistItem(BRAND, CASE_ID, "Marriage certificate", ChecklistItemStatus.REQUIRED);
+		given(checklistItems.findByCaseId(CASE_ID)).willReturn(java.util.List.of(outstanding, unsent));
 		given(documents.findByCaseIdAndKindOrderByVersionDesc(CASE_ID, DocumentKind.CLIENT_UPLOAD))
 				.willReturn(java.util.List.of(documentOn(CASE_ID, DocumentKind.CLIENT_UPLOAD,
 						"passport.pdf", "brand/client/ghl-1/doc")));
@@ -542,5 +547,16 @@ class PortalCaseServiceTest {
 		portal.requestChanges(me, CASE_ID, v3, null);
 
 		verify(cases, times(2)).lockById(CASE_ID);
+	}
+
+	/** Unit 61: an unsent item is refused exactly like one on another case. */
+	@Test
+	void anUnsentItemCannotBeUploadedAgainst() {
+		DocumentChecklistItem item = anItemOnThisCase();
+		ReflectionTestUtils.setField(item, "sentAt", null);
+
+		assertThatThrownBy(() -> portal.upload(partyTokenFor(BRAND, "ghl-1"), CASE_ID, item.getId(),
+				"x.pdf", "application/pdf", 3, new java.io.ByteArrayInputStream(new byte[3])))
+				.hasMessageContaining("not on this case");
 	}
 }
