@@ -2,7 +2,7 @@ import type { Message } from './types'
 
 export type Part = { text: string; href?: string }
 
-const URL = /\bhttps?:\/\/[^\s<>"']+/gi
+const URL_RE = /\bhttps?:\/\/[^\s<>"']+/gi
 const TRAILING = /[.,!?;:)\]}]+$/
 
 /**
@@ -12,9 +12,19 @@ const TRAILING = /[.,!?;:)\]}]+$/
 export function linkify(text: string): Part[] {
   const parts: Part[] = []
   let last = 0
-  for (const match of text.matchAll(URL)) {
-    const url = match[0].replace(TRAILING, '')
+  for (const match of text.matchAll(URL_RE)) {
+    let url = match[0]
     const start = match.index ?? 0
+    // Strip trailing punctuation, but keep ) only if balanced with (
+    while (url.match(TRAILING)) {
+      const lastChar = url[url.length - 1]
+      if (lastChar === ')') {
+        const opens = (url.match(/\(/g) ?? []).length
+        const closes = (url.match(/\)/g) ?? []).length
+        if (closes <= opens) break // balanced, keep it
+      }
+      url = url.slice(0, -1)
+    }
     if (start > last) parts.push({ text: text.slice(last, start) })
     parts.push({ text: url, href: url })
     last = start + url.length

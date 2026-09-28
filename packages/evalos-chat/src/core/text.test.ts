@@ -21,6 +21,18 @@ describe('linkify', () => {
     expect(linkify('no links here')).toEqual([{ text: 'no links here' }])
     expect(linkify('')).toEqual([])
   })
+
+  it('keeps balanced parentheses in URLs', () => {
+    expect(linkify('(see https://x.test/a).')).toEqual([
+      { text: '(see ' },
+      { text: 'https://x.test/a', href: 'https://x.test/a' },
+      { text: ').' },
+    ])
+    expect(linkify('https://en.wikipedia.org/wiki/Foo_(bar).')).toEqual([
+      { text: 'https://en.wikipedia.org/wiki/Foo_(bar)', href: 'https://en.wikipedia.org/wiki/Foo_(bar)' },
+      { text: '.' },
+    ])
+  })
 })
 
 describe('rowsWithDays', () => {
