@@ -520,18 +520,20 @@ public class OpportunityMirrorService {
 	}
 
 	/**
-	 * The contact's open, GHL-linked deal on this pipeline, if the mirror holds one (D56).
+	 * The contact's GHL-linked deals on this pipeline, as the mirror holds them (D56).
 	 *
-	 * <p>Brand-scoped through the pipeline lookup. Empty when the pipeline is not mirrored, which
-	 * leaves the caller doing what it did before D56 rather than refusing.
+	 * <p><strong>Any status, not only open.</strong> A deal closed on a desk but not yet pushed says
+	 * {@code won} here while GHL still has it open, and that is exactly the queued change D56
+	 * protects. Brand-scoped through the pipeline lookup; empty when the pipeline is not mirrored,
+	 * which leaves the caller doing what it did before D56.
 	 */
 	@Transactional(readOnly = true)
-	public Optional<Opportunity> openFor(String ghlPipelineId, String ghlContactId) {
-		return mirroredPipeline(ghlPipelineId).flatMap((pipeline) -> opportunities
+	public List<Opportunity> linkedFor(String ghlPipelineId, String ghlContactId) {
+		return mirroredPipeline(ghlPipelineId).map((pipeline) -> opportunities
 				.findByBrandIdAndGhlContactId(pipeline.getBrandId(), ghlContactId).stream()
-				.filter((row) -> pipeline.getId().equals(row.getPipelineId()) && row.getGhlId() != null
-						&& "open".equalsIgnoreCase(row.getStatus()))
-				.findFirst());
+				.filter((row) -> pipeline.getId().equals(row.getPipelineId()) && row.getGhlId() != null)
+				.toList())
+				.orElse(List.of());
 	}
 
 	/** GHL answered a create. The row keeps its id and gains GHL's — identity never changes. */

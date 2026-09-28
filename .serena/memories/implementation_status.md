@@ -587,7 +587,7 @@ an expert push opened with no tab open lands on `/case` without the fragment tok
 
 **2026-09-28:** Q6b closed (no mail for unknown emails; the Welcome screen tells experts to use the email they joined with). Status rows fixed: Client Portal COMPLETE, Documents no longer cites Q8.
 
-**2026-09-29 — D56 DONE.** `openLead` skips `upsertOpportunity` when the contact's open deal (`OpportunityMirrorService.openFor`) has a pending outbox push (`SyncOutboxService.isPending`); returns the mirror row, `created = false`. Backend 1284/0/0/4.
+**2026-09-29 — D56 DONE.** `openLead` skips `upsertOpportunity` when the contact's open deal (`OpportunityMirrorService.linkedFor`, any status — a queued close counts) has a pending outbox push (`SyncOutboxService.isPending`); returns the mirror row, `created = false`. Backend 1284/0/0/4.
 
 **2026-09-29 — D59 DONE.** Expert-portal payout read removed: `GET /api/portal/expert/payouts`, `payoutRows`/`ExpertPayoutRow`, the ledger's per-expert finder, and the expert app's dead nav/mock/types files. Staff payout screens unchanged. Backend 1280/0/0/4.
 

@@ -123,7 +123,7 @@ class MarketingLeadServiceTest {
 		org.springframework.test.util.ReflectionTestUtils.setField(row, "id", UUID.randomUUID());
 		row.syncFromGhl("c1", PIPELINE_ROW, "s1", "Ada (edited)", new BigDecimal("900"), "open", null,
 				null, null, null, null, null);
-		when(deals.openFor(MINE, "c1")).thenReturn(java.util.Optional.of(row));
+		when(deals.linkedFor(MINE, "c1")).thenReturn(java.util.List.of(row));
 		return row;
 	}
 
@@ -143,6 +143,18 @@ class MarketingLeadServiceTest {
 		assertThat(lead.name()).isEqualTo("Ada (edited)");
 		assertThat(lead.monetaryValue()).isEqualByComparingTo("900");
 		assertThat(lead.created()).isFalse();
+	}
+
+	/** D56: a close made on a desk and still queued says "won" here while GHL still has it open. */
+	@Test
+	void aQueuedCloseIsNotOverwrittenEither() {
+		authenticate(Role.MARKETING, MINE);
+		com.ie.evalos.domain.Opportunity row = givenAnOpenDealInTheMirror();
+		row.editedLocally(null, null, null, "won");
+		when(outbox.isPending(BRAND, row.getId())).thenReturn(true);
+
+		assertThat(service.openLead("Ada", null, "ada@example.test", null, "Ada", null).created()).isFalse();
+		verify(ghl, never()).upsertOpportunity(any(), any(), any(), any());
 	}
 
 	/** D56, the other branch: nothing queued, so the upsert updates the deal as before. */

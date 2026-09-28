@@ -70,8 +70,9 @@ public class MarketingLeadService {
 		// D56: an edit still waiting in the outbox would be overwritten by this upsert and then
 		// pushed back over GHL's answer — or lost. The queued edit wins; the desk hears "already
 		// had an open deal", which is what created = false already says.
-		java.util.Optional<Opportunity> queued = deals.openFor(pipelineId, contact.id())
-				.filter((row) -> outbox.isPending(row.getBrandId(), row.getId()));
+		java.util.Optional<Opportunity> queued = deals.linkedFor(pipelineId, contact.id()).stream()
+				.filter((row) -> outbox.isPending(row.getBrandId(), row.getId()))
+				.findFirst();
 		if (queued.isPresent()) {
 			Opportunity row = queued.get();
 			return new Lead(contact.id(), row.getGhlId(), row.getName(), row.getAmount(), false);
