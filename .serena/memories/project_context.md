@@ -14,6 +14,8 @@ Four apps in one repo:
 - `frontend/` — staff SPA, React 19 + Vite + TS. Deployed.
 - `client-expert/client/` — Client Portal. **Not deployed by this repo.**
 - `client-expert/expert/` — Expert Portal. **Not deployed by this repo.**
+- `packages/evalos-chat/` — source-only chat UI (Unit 57 §7); no `node_modules`, imported by
+  `client-expert/` through a Vite alias.
 
 Integrations: GoHighLevel (read and write), AWS S3 (documents), SMTP for two auth emails only —
 **the provider is `spring.mail.*`, not a class** (D3e, 2026-09-18), so Brevo, Resend, Mailgun,

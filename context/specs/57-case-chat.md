@@ -119,10 +119,11 @@ role with no conversations simply gets an empty inbox.
 | `GET messages/{id}/replies` | a thread |
 | `POST conversations/{id}/messages` `{ body, parentId? }` | send (members only) |
 | `PUT messages/{id}` `{ body }` / `DELETE messages/{id}` | edit / delete your own |
-| `PUT messages/{id}/reactions/{emoji}` / `DELETE …` | react / un-react |
+| `PUT messages/{id}/reactions/{emoji}` / `DELETE …` | react / un-react; a message's reactions list `{ kind, id, name }` per reactor |
 | `POST conversations/{id}/read` `{ messageId }` | move your watermark forward (never back) |
 | `GET search?q=&caseId=&type=` | full-text search over conversations the caller can open |
 | `GET unread` | total unread, for the nav badge |
+| `GET me` | the caller as `{ kind, id }`, so a client computes "mine" on live events built for their author |
 | `GET conversations/{id}/presence` | online state of that conversation's current participants (built this way so presence cannot probe arbitrary people) |
 | `POST conversations/{id}/typing` | "I am typing", relayed by the backend (§5) |
 | `GET realtime/token` | the caller's Ably TokenRequest (§5) |
@@ -193,12 +194,28 @@ an app that missed something catches up over REST.
 
 ## 7. Frontend — `packages/evalos-chat`
 
-A local package consumed by `frontend/` and `client-expert/` through a `file:` dependency and a
-Vite alias. React is a peer dependency; the one new runtime dependency is `ably` (ably-js).
+A **source-only** local package imported through a Vite/TS alias (`@evalos/chat`), with
+`resolve.dedupe` making the app's `react` and `ably` the only copies — no `file:` dependency and no
+`node_modules` of its own. React is a peer; the app passes ably-js's `Realtime` constructor in.
+
+**Built (Unit 58 phase 2, 2026-09-28): the portal subset** — inbox, conversation panel, composer,
+replies, reactions, unread badge, the Ably connection and REST catch-up. Not built: search,
+typing, presence, seen-by, edit/delete UI (staff-only pieces, phase 3+).
 
 - **`core/`** (no React) — `createChatClient({ apiBase, wsUrl, credentials })`: typed REST client,
   Ably connection (token via `authCallback` to `realtime/token`, presence on the person's own
-  channel), event stream, REST catch-up on reconnect, and pure reducers that fold events into state.
+  channel), event stream, REST catch-up on reconnect, and pure reducers that fold events into
+  state. **A reply for a thread that isn't loaded starts that thread's list**, so a REST reply and
+  its live event count once, not twice. **Catch-up on reconnect** snapshots every conversation's
+  cursor before fetching; a failed inbox/unread refresh or a failed conversation does not stop the
+  rest, and there is no retry loop — the next reconnect or reopen retries. **Opening a conversation**
+  creates its list before the first fetch, so a live event arriving mid-fetch is kept; a failed
+  first fetch rejects (the view shows "Could not load messages / Try again") and stays retryable; a
+  failed read-mark never hides loaded history. **start/stop use a generation counter**, so
+  StrictMode's start→stop→start does not leak an Ably connection, and a retry of start keeps the
+  last inbox filter. **Ably is used only for subscribe and presence** on the person's own channel —
+  no token may publish (§5) — and a token route that fails (503 without `ABLY_API_KEY`) means
+  REST-only: Ably is never constructed.
 - **`react/`** — `ChatProvider`; hooks `useInbox`, `useConversation`, `useMessages`, `useThread`,
   `useTyping`, `usePresence`, `useUnreadTotal`; components:
   - `ChatInbox` — grouped by case, type tabs, unread badges, search, filters (type, status);
@@ -214,7 +231,8 @@ Vite alias. React is a peer dependency; the one new runtime dependency is `ably`
     "oversight — read only" banner); responsive — three panes on desktop, one at a time with Back
     on mobile.
 - **Theming** — `--chat-*` CSS variables, mapped by each app to its own tokens.
-- **Rendering** — message bodies as text; URLs become links; no HTML.
+- **Rendering** — message bodies as text; only http(s) URLs become links, trailing punctuation
+  excluded from the link but a balanced `)` kept; no HTML.
 
 | App | Placement | Shows |
 |---|---|---|

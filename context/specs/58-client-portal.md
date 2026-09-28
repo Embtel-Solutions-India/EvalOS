@@ -4,7 +4,7 @@
 case-first: a Home of cases, a case detail page that holds everything about one case, Invoices,
 and Conversations. Drafts stop being a pasted link and become **uploaded versions** (Word + PDF)
 that the client views, comments on, downloads and approves. The expert portal is a separate unit
-that follows this one. **Status: phase 1 (backend + staff upload) BUILT 2026-09-27; phases 2–4 not built.**
+that follows this one. **Status: phases 1–2 BUILT 2026-09-28; phases 3–4 not built.**
 
 ## 0. What was decided, and by whom
 
@@ -191,7 +191,8 @@ Conversations; permission is never requested on its own.
 
 1. **Backend** — `V70` (draft PDF columns, `CHANGES_REQUESTED`, comments), per-case client routes, delivered gating,
    milestones, paid filter, staff upload and the staff "Upload draft" control.
-2. **`packages/evalos-chat`** — the portal subset.
+2. **`packages/evalos-chat`** — the portal subset (built: `packages/evalos-chat`, the portal subset — no
+   search, typing, presence, seen-by, edit/delete UI).
 3. **Client portal** — Home, case detail, Conversations, Invoices; Meetings and Documents removed;
    `/draft` redirects; old token-scoped routes removed.
 4. **Push** — service worker and opt-in.

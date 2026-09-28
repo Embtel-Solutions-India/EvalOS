@@ -522,10 +522,21 @@ pipeline Sales, brand ENMs, client account, offered/accepted expert; follows cas
 (new `CASE_MANAGER_REASSIGNED`) and the hourly `CHAT_RECONCILE` sweep (first run backfills open cases).
 Read-only at CLOSED. REST on /api/chat, /api/portal/client/chat, /api/portal/expert/chat (routes once in
 `ChatRoutes`). Live: Ably, one private channel per person, publish never granted. Push: web-push 5.1.2 to
-members not present. No UI yet (phases 2–3). Never run against a real Ably app. Full suite 1282/0/4 skipped.
+members not present. Never run against a real Ably app. Full suite 1282/0/4 skipped as of phase 1.
+**2026-09-28 additions:** `GET me` (`{ kind, id }`, so a client computes "mine" on its own live
+events) and reactions now carry `{ kind, id, name }` per reactor (`MessageServiceTest#reactionsCarryWhoReacted`,
+`StaffChatControllerTest#meNamesTheCallerInChatTerms`). No staff UI yet (phase 2's staff-app half);
+the portal subset of `packages/evalos-chat` is BUILT — see the Unit 58 entry below.
 
-**Unit 58 phase 1 (2026-09-27): BUILT.** V70 draft files + comments; `POST /api/cases/{id}/drafts`
-(Word + PDF); `CaseDrafts`, `CaseMilestones`; per-case client routes (documents, drafts, comments,
-approve / request changes by version, delivered files gated to DELIVERED, paid invoices); staff
-Upload draft + comment thread. Client portal UI (phase 3), `packages/evalos-chat` (phase 2) and push
-(phase 4) not built.
+**Unit 58 phases 1–2 (2026-09-27 / 2026-09-28): BUILT.** Phase 1: V70 draft files + comments;
+`POST /api/cases/{id}/drafts` (Word + PDF); `CaseDrafts`, `CaseMilestones`; per-case client routes
+(documents, drafts, comments, approve / request changes by version, delivered files gated to
+DELIVERED, paid invoices); staff Upload draft + comment thread. Phase 2: `packages/evalos-chat` —
+the portal subset (inbox, conversation panel, composer, replies, reactions, unread badge, the Ably
+connection, REST catch-up), source-only, imported through a Vite/TS alias (`@evalos/chat`) with
+`resolve.dedupe` on `react`/`ably` — no `file:` dependency, no `node_modules` of its own. Tests:
+`api.test.ts`, `reducer.test.ts`, `realtime.test.ts`, `client.test.ts`, `text.test.ts`; frontend
+suite 69/69. **Not built:** client portal UI (phase 3, so no page mounts the chat package yet) and
+push (phase 4). **Known gaps:** no component tests (the portals have no Testing Library); never
+exercised against a real Ably app; `client-expert`'s `npm run lint` does not scan
+`packages/evalos-chat`.
