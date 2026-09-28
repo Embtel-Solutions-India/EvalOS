@@ -50,8 +50,12 @@ class ReferenceMirrorServiceTest {
 	private final com.ie.evalos.repository.GhlTagRepository tags =
 			mock(com.ie.evalos.repository.GhlTagRepository.class);
 
+	private final com.ie.evalos.repository.TeamMemberRepository teamMembers =
+			mock(com.ie.evalos.repository.TeamMemberRepository.class);
+
 	private final ReferenceMirrorService mirror = new ReferenceMirrorService(fieldClient,
-			calendarClient, userClient, tagClient, fields, calendars, users, tags, new SellingBrand(BRAND));
+			calendarClient, userClient, tagClient, fields, calendars, users, tags, new SellingBrand(BRAND),
+			teamMembers);
 
 	private final List<Object> saved = new ArrayList<>();
 
@@ -200,7 +204,7 @@ class ReferenceMirrorServiceTest {
 	@Test
 	void noSellingBrandMeansNothingToMirror() {
 		ReferenceMirrorService none = new ReferenceMirrorService(fieldClient, calendarClient,
-				userClient, tagClient, fields, calendars, users, tags, new SellingBrand((java.util.UUID) null));
+				userClient, tagClient, fields, calendars, users, tags, new SellingBrand((java.util.UUID) null), teamMembers);
 
 		assertThat(none.refresh().total()).isZero();
 		assertThat(none.bookableCalendars()).isEmpty();
@@ -225,5 +229,19 @@ class ReferenceMirrorServiceTest {
 
 		assertThat(mirror.refresh().users()).isEqualTo(2);
 		assertThat(saved).extracting("name").contains("user-nameless", "Dana Okafor");
+	}
+
+	/** Unit 60: each GHL user with an email is offered to the brand's team member of that email. */
+	@Test
+	void aGhlUserIsLinkedToTheTeamMemberWithTheSameEmail() {
+		given(userClient.inLocation()).willReturn(List.of(
+				new GhlUserClient.User("user-1", "Aditya", "sales.ie@evalos.local"),
+				new GhlUserClient.User("user-2", "No email", null)));
+
+		mirror.refresh();
+
+		org.mockito.Mockito.verify(teamMembers).linkGhlUser(BRAND, "sales.ie@evalos.local", "user-1");
+		org.mockito.Mockito.verify(teamMembers, org.mockito.Mockito.never())
+				.linkGhlUser(any(), org.mockito.ArgumentMatchers.isNull(), any());
 	}
 }

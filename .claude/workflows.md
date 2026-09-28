@@ -283,8 +283,17 @@ GET  /api/sales/calendars                        list GHL calendars
 GET  /api/sales/calendars/{id}/slots             free slots for a date range and timezone
 POST /api/sales/opportunities/{id}/meetings      book
 PUT  /api/sales/opportunities/{id}/meetings/{a}  reschedule
+PUT  /api/sales/opportunities/{id}/meetings/{a}/cancel       cancel (GHL status `cancelled`)
+GET|POST /api/sales/opportunities/{id}/meetings/{a}/notes    internal notes, live from GHL
+PUT|DELETE /api/sales/opportunities/{id}/meetings/{a}/notes/{n}
+GET|POST /api/sales/blocked-time, DELETE /api/sales/blocked-time/{e}   the caller's own blocks
 GET  /api/sales/meetings                         the salesperson's diary
 ```
+
+**Unit 60:** every per-meeting route requires a `meeting` row for that appointment **on that
+deal** (spec `60` §1.2). Blocked time is keyed by the caller's `team_member.ghl_user_id`; removing
+one is checked against the caller's own blocks first, because GHL's only delete is the generic
+event delete.
 
 Booking sends: calendar, contact, start, end, title, description, `assignedUserId`,
 `meetingLocationType`, `address`, `appointmentStatus=confirmed`, optional
@@ -296,13 +305,13 @@ Booking sends: calendar, contact, start, end, title, description, `assignedUserI
 |---|---|
 | Calendar, title, description, date, available slots, timezone | **IMPLEMENTED** — the calendar **list** is mirrored (Unit 47); **slots stay live and must** (D48) |
 | Contact, meeting location, create, view, reschedule | **IMPLEMENTED** |
-| Team member on the appointment | **PARTIAL** — `assignedUserId` is a GHL user id; no column joins a GHL user to a `team_member` |
-| Employee-wise availability | **PARTIAL** — availability is per *calendar*, not per employee |
+| Team member on the appointment | **IMPLEMENTED** — `assignedUserId`; `team_member.ghl_user_id` (`V74`) links staff by email |
+| Employee-wise availability | **IMPLEMENTED** — free slots take the chosen member's `userId` |
 | Account vs calendar timezone | **PARTIAL** — one timezone is passed to free-slots; no account default is stored |
-| Guests | **MISSING** |
-| Internal notes | **PARTIAL** — `GhlCalendarClient.addNote` exists; no route or screen calls it |
-| Cancel | **MISSING** |
-| Blocked-off time | **MISSING** |
+| Guests | **NOT AVAILABLE IN GHL** — the appointment API takes one contact and no attendees; `open-decisions.md` Q14 |
+| Internal notes | **IMPLEMENTED** — list / add / delete on the diary row (edit route exists, no UI) |
+| Cancel | **IMPLEMENTED** — GHL status `cancelled`, so GHL notifies |
+| Blocked-off time | **IMPLEMENTED** — the caller's own, on the Meetings screen |
 
 ---
 

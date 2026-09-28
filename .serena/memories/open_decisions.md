@@ -6,6 +6,8 @@
 Unresolved as of 2026-09-17:
 
 
+**Open (2026-09-29): Q14 guests** — D55 names guests, GHL's appointment API has none (one contact; extra recipients only per calendar). Recommend: drop from EvalOS; add people in GHL notification settings / workflows. Spec 60 §4.
+
 **Resolved 2026-09-29:** ~~1~~ → D56, ~~9~~ → D55, ~~§12 b~~ → D57, ~~§12 c~~ → D58, expert payments → D59.
 
 **Resolved 2026-09-28:** ~~6b. unknown-email mail~~ → none (experts sign up only once hired). ~~6. expert sign-up~~ → D23; ~~11. abandoned requests~~ → D54; ~~13. inline PDF~~ → D51 (view first); outbound webhooks → D53 (dropped). ~~8. several cases~~ → Unit 58 phase 3, Home lists every case (D51). ~~10. conversation sidebar~~ → **D52**: none; GHL conversations stay in GHL.

@@ -1377,6 +1377,27 @@ class LocalPostgresIntegrationTest {
 		return jdbc.queryForObject("SELECT status FROM payout_ledger WHERE id = ?", String.class, payoutId);
 	}
 
+	@Autowired
+	private TeamMemberRepository teamMemberRepository;
+
+	/**
+	 * Unit 60: {@code linkGhlUser} links on a case-insensitive email in the brand, once, and never
+	 * overwrites — so a hand correction survives the next sweep.
+	 */
+	@Test
+	void aGhlUserLinksToTheTeamMemberWithTheSameEmailOnlyOnce() {
+		String email = "link-" + UUID.randomUUID() + "@evalos.local";
+		UUID id = UUID.randomUUID();
+		jdbc.update("INSERT INTO team_member (id, brand_id, role, email, password_hash, display_name) "
+				+ "VALUES (?, ?, 'PROJECT_MANAGER', ?, 'x', 'Link')", id, BRAND_IE, email);
+
+		String first = "ghl-" + UUID.randomUUID();
+		assertThat(teamMemberRepository.linkGhlUser(BRAND_IE, email.toUpperCase(), first)).isEqualTo(1);
+		assertThat(teamMemberRepository.linkGhlUser(BRAND_IE, email, "ghl-" + UUID.randomUUID())).isZero();
+		assertThat(jdbc.queryForObject("SELECT ghl_user_id FROM team_member WHERE id = ?", String.class, id))
+				.isEqualTo(first);
+	}
+
 	/**
 	 * <strong>V30's reversal of V29, against the real database.</strong>
 	 *
@@ -1402,9 +1423,17 @@ class LocalPostgresIntegrationTest {
 				UUID.randomUUID(), BRAND_IE, "sales-" + UUID.randomUUID() + "@evalos.local"))
 				.hasMessageContaining("team_member_role_valid");
 
-		// The mapping column left with the board that read it.
-		assertThatThrownBy(() -> jdbc.queryForObject("SELECT ghl_user_id FROM team_member LIMIT 1", String.class))
-				.hasMessageContaining("ghl_user_id");
+		// The mapping column left with the board that read it, and came back in V74 (Unit 60) with
+		// V29's rule: one GHL user is one person, so two staff rows cannot claim the same one.
+		String ghlUser = "ghl-" + UUID.randomUUID();
+		jdbc.update("INSERT INTO team_member (id, brand_id, role, email, password_hash, display_name, ghl_user_id) "
+				+ "VALUES (?, ?, 'PROJECT_MANAGER', ?, 'x', 'One', ?)",
+				UUID.randomUUID(), BRAND_IE, "one-" + UUID.randomUUID() + "@evalos.local", ghlUser);
+		assertThatThrownBy(() -> jdbc.update(
+				"INSERT INTO team_member (id, brand_id, role, email, password_hash, display_name, ghl_user_id) "
+						+ "VALUES (?, ?, 'PROJECT_MANAGER', ?, 'x', 'Two', ?)",
+				UUID.randomUUID(), BRAND_IE, "two-" + UUID.randomUUID() + "@evalos.local", ghlUser))
+				.hasMessageContaining("idx_team_member_ghl_user");
 
 		// **And the half of V3 that V29 had widened is narrow again.** Every role but the GM needs a
 		// brand: leaving "any role may have no brand" in place would let a mis-seeded Brand Manager

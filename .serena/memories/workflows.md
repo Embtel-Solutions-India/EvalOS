@@ -95,3 +95,5 @@ follows assignment and expert-offer events and the hourly CHAT_RECONCILE; read-o
 over REST, live via each member's private Ably channel, web push when the app is closed. No screens yet.
 
 **Expert sign-in (Unit 59):** sign-up → roster match in the portal's brand → set/reset mail (else nothing, by decision; 204 always) → set-password → party-scoped token → `/cases` → `/case?caseId=`. No staff-minted links exist (V73 revoked the live ones).
+
+**Appointments (Unit 60, 2026-09-29).** Book, reschedule, **cancel** (GHL status `cancelled`), **notes** (live from GHL), **blocked time** (the caller's own, by `team_member.ghl_user_id`) and **per-member free slots**. Every per-meeting route requires a `meeting` row on that deal. No guests: GHL has no field (Q14).

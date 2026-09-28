@@ -41,8 +41,27 @@ class SalesMeetingServiceTest {
 	private final PipelineScope scope = mock(PipelineScope.class);
 	private final com.ie.evalos.repository.MeetingRepository meetingRows =
 			mock(com.ie.evalos.repository.MeetingRepository.class);
+	private final com.ie.evalos.repository.TeamMemberRepository teamMembers =
+			mock(com.ie.evalos.repository.TeamMemberRepository.class);
 	private final SalesMeetingService meetings =
-			new SalesMeetingService(calendars, reference, scope, meetingRows);
+			new SalesMeetingService(calendars, reference, scope, meetingRows, teamMembers);
+
+	/** Unit 60: the mirror row that says appt_1 is on OPPORTUNITY. */
+	private com.ie.evalos.domain.Meeting givenTheMeetingIsOn(String opportunityId) {
+		com.ie.evalos.domain.Meeting row = new com.ie.evalos.domain.Meeting(BRAND, "appt_1", opportunityId,
+				"c1", "cal_1", MY_PIPELINE, "Discovery call", Instant.now().plus(1, ChronoUnit.DAYS),
+				Instant.now().plus(1, ChronoUnit.DAYS).plus(30, ChronoUnit.MINUTES), "confirmed", MEMBER);
+		when(meetingRows.findByBrandIdAndGhlAppointmentId(BRAND, "appt_1"))
+				.thenReturn(java.util.Optional.of(row));
+		return row;
+	}
+
+	/** Unit 60: the caller's team-member row, linked (or not) to a GHL user. */
+	private void givenMyGhlUserIs(String ghlUserId) {
+		com.ie.evalos.domain.TeamMember me = mock(com.ie.evalos.domain.TeamMember.class);
+		when(me.getGhlUserId()).thenReturn(ghlUserId);
+		when(teamMembers.findById(MEMBER)).thenReturn(java.util.Optional.of(me));
+	}
 
 	private static String inDays(int days) {
 		return Instant.now().plus(days, ChronoUnit.DAYS).toString();
@@ -166,6 +185,7 @@ class SalesMeetingServiceTest {
 	 */
 	@Test
 	void aRescheduleIntoThePastIsAllowedWhereABookingIsNot() {
+		givenTheMeetingIsOn(OPPORTUNITY);
 		meetings.reschedule(OPPORTUNITY, "appt_1", inDays(-2), inDays(-1));
 
 		verify(calendars).reschedule(eq("appt_1"), eq(OPPORTUNITY), eq(MY_PIPELINE), any(), any());
@@ -199,5 +219,99 @@ class SalesMeetingServiceTest {
 		meetings.calendars();
 
 		verify(calendars, never()).calendars();
+	}
+
+	// --- Unit 60 ---------------------------------------------------------------------------
+
+	/**
+	 * <strong>The hole this unit closes.</strong> {@code requireMine} proves the deal is the
+	 * caller's, not that the appointment hangs off it, so an appointment on somebody else's deal
+	 * could be moved from a URL naming your own.
+	 */
+	@Test
+	void anAppointmentOnAnotherDealCannotBeMovedCancelledOrNoted() {
+		givenTheMeetingIsOn("opp_someone_elses");
+
+		assertThatThrownBy(() -> meetings.reschedule(OPPORTUNITY, "appt_1", inDays(2), inDays(3)))
+				.isInstanceOf(ForbiddenException.class);
+		assertThatThrownBy(() -> meetings.cancel(OPPORTUNITY, "appt_1"))
+				.isInstanceOf(ForbiddenException.class);
+		assertThatThrownBy(() -> meetings.notes(OPPORTUNITY, "appt_1", 0))
+				.isInstanceOf(ForbiddenException.class);
+		assertThatThrownBy(() -> meetings.deleteNote(OPPORTUNITY, "appt_1", "n1"))
+				.isInstanceOf(ForbiddenException.class);
+		verify(calendars, never()).cancel(any(), any(), any());
+		verify(calendars, never()).deleteNote(any(), any());
+	}
+
+	@Test
+	void anAppointmentTheMirrorDoesNotHoldIsRefused() {
+		assertThatThrownBy(() -> meetings.cancel(OPPORTUNITY, "appt_unknown"))
+				.isInstanceOf(ForbiddenException.class);
+	}
+
+	@Test
+	void aCancelKeepsGhlsStatusOnTheMirrorRow() {
+		com.ie.evalos.domain.Meeting row = givenTheMeetingIsOn(OPPORTUNITY);
+		when(calendars.cancel("appt_1", OPPORTUNITY, MY_PIPELINE))
+				.thenReturn(new GhlCalendarClient.Meeting("appt_1", "cal_1", "c1", "Discovery call",
+						null, null, "cancelled"));
+
+		meetings.cancel(OPPORTUNITY, "appt_1");
+
+		assertThat(row.getStatus()).isEqualTo("cancelled");
+		verify(meetingRows).save(row);
+	}
+
+	@Test
+	void aNoteOverGhlsLimitIsRefusedHere() {
+		givenTheMeetingIsOn(OPPORTUNITY);
+
+		assertThatThrownBy(() -> meetings.addNote(OPPORTUNITY, "appt_1", "x".repeat(5001)))
+				.isInstanceOf(InvalidRequestException.class);
+		meetings.addNote(OPPORTUNITY, "appt_1", "  Wants the rush option  ");
+		verify(calendars).addNote("appt_1", "Wants the rush option");
+	}
+
+	@Test
+	void blockedTimeNeedsALinkedGhlUser() {
+		givenMyGhlUserIs(null);
+
+		assertThatThrownBy(() -> meetings.block("Leave", inDays(1), inDays(2)))
+				.isInstanceOf(InvalidRequestException.class)
+				.hasMessageContaining("not linked to a GHL user");
+		verify(calendars, never()).blockTime(any(), any(), any(), any());
+	}
+
+	@Test
+	void blockedTimeIsKeyedByTheCallersOwnGhlUser() {
+		givenMyGhlUserIs("ghl_me");
+
+		meetings.block("Leave", inDays(1), inDays(2));
+
+		verify(calendars).blockTime(eq("ghl_me"), eq("Leave"), any(), any());
+	}
+
+	/** GHL's delete takes any event id; only one of the caller's own blocks may reach it. */
+	@Test
+	void onlyTheCallersOwnBlockCanBeRemoved() {
+		givenMyGhlUserIs("ghl_me");
+		when(calendars.blockedTimes(eq("ghl_me"), org.mockito.ArgumentMatchers.anyLong(),
+				org.mockito.ArgumentMatchers.anyLong()))
+				.thenReturn(java.util.List.of(new GhlCalendarClient.BlockedTime("blk_mine", "Leave", null, null)));
+
+		assertThatThrownBy(() -> meetings.unblock("appt_of_a_client"))
+				.isInstanceOf(ForbiddenException.class);
+		verify(calendars, never()).unblock(any());
+
+		meetings.unblock("blk_mine");
+		verify(calendars).unblock("blk_mine");
+	}
+
+	@Test
+	void slotsCanBeNarrowedToOneTeamMember() {
+		meetings.slots("cal_1", 1L, 2L, "Asia/Kolkata", "ghl_dana");
+
+		verify(calendars).freeSlots("cal_1", 1L, 2L, "Asia/Kolkata", "ghl_dana");
 	}
 }

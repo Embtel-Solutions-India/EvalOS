@@ -208,4 +208,83 @@ class GhlCalendarClientHttpTest {
 				.isInstanceOf(GhlUnavailableException.class);
 		verify(audit, never()).recordEvent(any(), any(), any(), any(), any(), any());
 	}
+
+	// --- Unit 60: wire shapes, from GHL's OpenAPI spec -------------------------------------
+
+	@Test
+	void aCancelIsAStatusChangeNotADelete() {
+		body = BOOKED.replace("confirmed", "cancelled");
+
+		assertThat(client().cancel("appt_1", "opp_1", "pipe_1").status()).isEqualTo("cancelled");
+
+		assertThat(methods).containsExactly("PUT");
+		assertThat(paths).singleElement().asString().isEqualTo("/calendars/events/appointments/appt_1");
+		assertThat(bodies.get(0)).contains("\"appointmentStatus\":\"cancelled\"");
+	}
+
+	@Test
+	void notesArePagedTwentyAtATimeAndReadTheAuthor() {
+		body = """
+				{"notes":[{"id":"n1","body":"Wants rush","userId":"u1","dateAdded":"2026-09-29T10:00:00Z",
+				 "createdBy":{"id":"u1","name":"Aditya"}}],"hasMore":true}""";
+
+		GhlCalendarClient.NotePage page = client().notes("appt_1", 20);
+
+		assertThat(paths).singleElement().asString()
+				.startsWith("/calendars/appointments/appt_1/notes").contains("limit=20").contains("offset=20");
+		assertThat(page.hasMore()).isTrue();
+		assertThat(page.notes()).singleElement().satisfies((n) -> {
+			assertThat(n.body()).isEqualTo("Wants rush");
+			assertThat(n.author()).isEqualTo("Aditya");
+		});
+	}
+
+	@Test
+	void aNoteIsEditedAndDeletedByItsOwnPath() {
+		client().editNote("appt_1", "n1", "Updated");
+		client().deleteNote("appt_1", "n1");
+
+		assertThat(methods).containsExactly("PUT", "DELETE");
+		assertThat(paths).containsOnly("/calendars/appointments/appt_1/notes/n1");
+	}
+
+	/** "Either calendarId or assignedUserId can be set, not both" — a person's block is the user's. */
+	@Test
+	void aBlockIsTheUsersWithNoCalendar() {
+		body = """
+				{"id":"blk_1","locationId":"L","title":"Leave","startTime":"2026-10-01T09:00:00Z",
+				 "endTime":"2026-10-01T17:00:00Z","assignedUserId":"u1"}""";
+
+		assertThat(client().blockTime("u1", "Leave", "2026-10-01T09:00:00Z", "2026-10-01T17:00:00Z").id())
+				.isEqualTo("blk_1");
+
+		assertThat(paths).singleElement().asString().isEqualTo("/calendars/events/block-slots");
+		assertThat(bodies.get(0)).contains("\"assignedUserId\":\"u1\"")
+				.contains("\"locationId\":\"" + LOCATION + "\"").doesNotContain("calendarId");
+	}
+
+	@Test
+	void blocksAreListedForOneUserInMillisAndRemovedByTheEventDelete() {
+		body = """
+				{"events":[{"id":"blk_1","title":"Leave","startTime":"2026-10-01T09:00:00Z","endTime":"2026-10-01T17:00:00Z"}]}""";
+
+		assertThat(client().blockedTimes("u1", 1000L, 2000L)).extracting(GhlCalendarClient.BlockedTime::id)
+				.containsExactly("blk_1");
+		body = "{\"succeeded\":true}";
+		client().unblock("blk_1");
+
+		assertThat(paths.get(0)).startsWith("/calendars/blocked-slots").contains("userId=u1")
+				.contains("startTime=1000").contains("endTime=2000").contains("locationId=" + LOCATION);
+		assertThat(methods.get(1)).isEqualTo("DELETE");
+		assertThat(paths.get(1)).isEqualTo("/calendars/events/blk_1");
+	}
+
+	@Test
+	void freeSlotsCarryTheTeamMemberOnlyWhenOneIsChosen() {
+		client().freeSlots("cal_1", 1L, 2L, "UTC", "u1");
+		client().freeSlots("cal_1", 1L, 2L, "UTC", null);
+
+		assertThat(paths.get(0)).contains("userId=u1");
+		assertThat(paths.get(1)).doesNotContain("userId");
+	}
 }

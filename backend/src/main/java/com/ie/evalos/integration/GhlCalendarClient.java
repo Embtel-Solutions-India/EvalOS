@@ -93,6 +93,21 @@ public class GhlCalendarClient {
 			String startTime, String endTime, String status) {
 	}
 
+	/** One internal note on an appointment (Unit 60). {@code author} is GHL's {@code createdBy.name}. */
+	public record AppointmentNote(String id, String body, String author, String dateAdded) {
+	}
+
+	/** One page of notes; GHL caps a page at 20 and says whether there is another. */
+	public record NotePage(List<AppointmentNote> notes, boolean hasMore) {
+	}
+
+	/** A stretch of a team member's time GHL will not offer as a free slot (Unit 60). */
+	public record BlockedTime(String id, String title, String startTime, String endTime) {
+	}
+
+	/** GHL's page size for appointment notes, and its maximum. */
+	public static final int NOTE_PAGE = 20;
+
 	private final GhlHttp http;
 	private final AuditService audit;
 
@@ -143,13 +158,27 @@ public class GhlCalendarClient {
 	 *                 timezone by default, exactly as GHL's does.
 	 */
 	public FreeSlots freeSlots(String calendarId, long fromEpochMs, long toEpochMs, String timezone) {
+		return freeSlots(calendarId, fromEpochMs, toEpochMs, timezone, null);
+	}
+
+	/**
+	 * The same, for one team member (Unit 60): GHL's {@code userId} narrows the slots to that
+	 * person's availability. Null asks for the calendar as a whole, as before.
+	 */
+	public FreeSlots freeSlots(String calendarId, long fromEpochMs, long toEpochMs, String timezone,
+			String ghlUserId) {
 		try {
 			java.util.Map<?, ?> raw = http.get(java.util.Map.class,
-					(uri) -> uri.path("/calendars/{id}/free-slots")
-							.queryParam("startDate", fromEpochMs)
-							.queryParam("endDate", toEpochMs)
-							.queryParam("timezone", timezone)
-							.build(calendarId));
+					(uri) -> {
+						uri.path("/calendars/{id}/free-slots")
+								.queryParam("startDate", fromEpochMs)
+								.queryParam("endDate", toEpochMs)
+								.queryParam("timezone", timezone);
+						if (ghlUserId != null && !ghlUserId.isBlank()) {
+							uri.queryParam("userId", ghlUserId);
+						}
+						return uri.build(calendarId);
+					});
 
 			java.util.Map<String, List<String>> byDate = new java.util.LinkedHashMap<>();
 			Optional.ofNullable(raw).orElseGet(java.util.Map::of).forEach((key, value) -> {
@@ -297,6 +326,142 @@ public class GhlCalendarClient {
 		return toMeeting(moved);
 	}
 
+	/**
+	 * Cancels a meeting (Unit 60): GHL's own update, with {@code appointmentStatus: cancelled}.
+	 *
+	 * <p><strong>A status, not a delete.</strong> It is what a cancel in GHL's own screen does: the
+	 * appointment stays in the contact's history and GHL runs its cancellation automations, so the
+	 * client hears about it from GHL (invariant 14). {@code DELETE /calendars/events/{id}} is a hard
+	 * delete that GHL's docs do not say notifies anyone.
+	 */
+	public Meeting cancel(String appointmentId, String opportunityId, String pipelineId) {
+		AppointmentRow row;
+		try {
+			row = http.put(AppointmentRow.class,
+					(uri) -> uri.path("/calendars/events/appointments/{id}").build(appointmentId),
+					Map.of("appointmentStatus", "cancelled"));
+		}
+		catch (GhlUnavailableException refused) {
+			throw missingScopeHint(refused, WRITE_SCOPE);
+		}
+		AppointmentRow cancelled = require(row);
+
+		audit.recordEvent("GHL_OPPORTUNITY", auditKey("GHL_OPPORTUNITY", opportunityId),
+				AuditAction.UPDATED, actor(), null,
+				Map.of("ghlOpportunityId", opportunityId, "ghlPipelineId", pipelineId,
+						"ghlAppointmentId", appointmentId, "appointmentStatus", "cancelled"));
+		return toMeeting(cancelled);
+	}
+
+	/** One page of an appointment's internal notes, in GHL's order. */
+	public NotePage notes(String appointmentId, int offset) {
+		NotesResponse response;
+		try {
+			response = http.get(NotesResponse.class,
+					(uri) -> uri.path("/calendars/appointments/{id}/notes")
+							.queryParam("limit", NOTE_PAGE)
+							.queryParam("offset", Math.max(0, offset))
+							.build(appointmentId));
+		}
+		catch (GhlUnavailableException refused) {
+			throw missingScopeHint(refused, READ_SCOPE);
+		}
+		List<AppointmentNote> notes = Optional.ofNullable(response == null ? null : response.notes())
+				.orElse(List.of()).stream()
+				.map((n) -> new AppointmentNote(n.id(), n.body(),
+						n.createdBy() == null ? null : n.createdBy().name(), n.dateAdded()))
+				.toList();
+		return new NotePage(notes, response != null && Boolean.TRUE.equals(response.hasMore()));
+	}
+
+	/** Replaces a note's text. GHL enforces its 5000-character limit. */
+	public void editNote(String appointmentId, String noteId, String body) {
+		try {
+			http.put(Object.class,
+					(uri) -> uri.path("/calendars/appointments/{id}/notes/{noteId}").build(appointmentId, noteId),
+					Map.of("body", body));
+		}
+		catch (GhlUnavailableException refused) {
+			throw missingScopeHint(refused, WRITE_SCOPE);
+		}
+	}
+
+	public void deleteNote(String appointmentId, String noteId) {
+		try {
+			http.delete((uri) -> uri.path("/calendars/appointments/{id}/notes/{noteId}")
+					.build(appointmentId, noteId));
+		}
+		catch (GhlUnavailableException refused) {
+			throw missingScopeHint(refused, WRITE_SCOPE);
+		}
+	}
+
+	/**
+	 * Blocks off a team member's time (Unit 60).
+	 *
+	 * <p>{@code assignedUserId} and <strong>no {@code calendarId}</strong>: GHL's spec says "either
+	 * calendarId or assignedUserId can be set, not both", and a person's time off is theirs across
+	 * every calendar they sit on.
+	 */
+	public BlockedTime blockTime(String ghlUserId, String title, String startTime, String endTime) {
+		Map<String, Object> body = new LinkedHashMap<>();
+		body.put("locationId", http.locationId());
+		body.put("assignedUserId", ghlUserId);
+		body.put("startTime", startTime);
+		body.put("endTime", endTime);
+		putIfPresent(body, "title", title);
+		BlockRow row;
+		try {
+			row = http.post(BlockRow.class, (uri) -> uri.path("/calendars/events/block-slots").build(), body);
+		}
+		catch (GhlUnavailableException refused) {
+			throw missingScopeHint(refused, WRITE_SCOPE);
+		}
+		if (row == null || row.id() == null) {
+			throw new GhlUnavailableException("GHL returned no blocked-slot id", null,
+					GhlFailure.EMPTY_RESPONSE, null);
+		}
+		audit.recordEvent("GHL_BLOCKED_TIME", auditKey("GHL_BLOCKED_TIME", row.id()),
+				AuditAction.CREATED, actor(), null,
+				Map.of("ghlEventId", row.id(), "ghlUserId", ghlUserId, "startTime", startTime,
+						"endTime", endTime));
+		return toBlocked(row);
+	}
+
+	/** A team member's blocked time inside a window. GHL wants the window in epoch millis. */
+	public List<BlockedTime> blockedTimes(String ghlUserId, long fromEpochMs, long toEpochMs) {
+		BlockListResponse response;
+		try {
+			response = http.get(BlockListResponse.class,
+					(uri) -> uri.path("/calendars/blocked-slots")
+							.queryParam("locationId", http.locationId())
+							.queryParam("userId", ghlUserId)
+							.queryParam("startTime", fromEpochMs)
+							.queryParam("endTime", toEpochMs)
+							.build());
+		}
+		catch (GhlUnavailableException refused) {
+			throw missingScopeHint(refused, READ_SCOPE);
+		}
+		return Optional.ofNullable(response == null ? null : response.events()).orElse(List.of())
+				.stream().map(GhlCalendarClient::toBlocked).toList();
+	}
+
+	/**
+	 * Removes a block. GHL has no block-slot delete, so this is its generic event delete, which is
+	 * why the caller checks the id is one of the member's own blocks first.
+	 */
+	public void unblock(String eventId) {
+		try {
+			http.delete((uri) -> uri.path("/calendars/events/{id}").build(eventId));
+		}
+		catch (GhlUnavailableException refused) {
+			throw missingScopeHint(refused, WRITE_SCOPE);
+		}
+		audit.recordEvent("GHL_BLOCKED_TIME", auditKey("GHL_BLOCKED_TIME", eventId),
+				AuditAction.UPDATED, actor(), null, Map.of("ghlEventId", eventId, "removed", "true"));
+	}
+
 	// --- diagnostics and helpers -----------------------------------------------------
 
 	/**
@@ -329,6 +494,13 @@ public class GhlCalendarClient {
 					GhlFailure.EMPTY_RESPONSE, null);
 		}
 		return row;
+	}
+
+	/** GHL types these times as {@code object}; in practice a string, so it is passed through. */
+	private static BlockedTime toBlocked(BlockRow row) {
+		return new BlockedTime(row.id(), row.title(),
+				row.startTime() == null ? null : String.valueOf(row.startTime()),
+				row.endTime() == null ? null : String.valueOf(row.endTime()));
 	}
 
 	private static Meeting toMeeting(AppointmentRow row) {
@@ -375,5 +547,21 @@ public class GhlCalendarClient {
 	 */
 	record AppointmentRow(String id, String calendarId, String contactId, String title,
 			String startTime, String endTime, String appointmentStatus) {
+	}
+
+	record NotesResponse(List<NoteRow> notes, Boolean hasMore) {
+	}
+
+	record NoteRow(String id, String body, String dateAdded, NoteAuthor createdBy) {
+	}
+
+	record NoteAuthor(String id, String name) {
+	}
+
+	/** The block-slot create answers at the top level; the list wraps its rows in {@code events}. */
+	record BlockRow(String id, String title, Object startTime, Object endTime) {
+	}
+
+	record BlockListResponse(List<BlockRow> events) {
 	}
 }

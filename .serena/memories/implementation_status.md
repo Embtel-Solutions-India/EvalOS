@@ -591,4 +591,6 @@ an expert push opened with no tab open lands on `/case` without the fragment tok
 
 **2026-09-29 — D59 DONE.** Expert-portal payout read removed: `GET /api/portal/expert/payouts`, `payoutRows`/`ExpertPayoutRow`, the ledger's per-expert finder, and the expert app's dead nav/mock/types files. Staff payout screens unchanged. Backend 1280/0/0/4.
 
-**Next up (2026-09-29):** see the 'Next up' list at the top of `.claude/implementation-status.md` — D55 appointments on GHL APIs, D58 four client emails, then real-service verification.
+**2026-09-29 — Unit 60 (D55) BUILT, guests excepted.** Spec `context/specs/60-appointments.md`. `V74` re-adds `team_member.ghl_user_id` (unique), linked by email on REFERENCE_MIRROR. `GhlCalendarClient`: cancel (status `cancelled`), notes CRUD, block-slots create/list + event delete, free slots `userId`. Reschedule/cancel/notes require a `meeting` row on that deal (closes a cross-deal write). UI: `MeetingRow` (Cancel, Notes), `BlockedTimeCard`, `BookingForm` slots per member. Guests: GHL has no field → open Q14 (recommend drop).
+
+**Next up (2026-09-29):** see the 'Next up' list at the top of `.claude/implementation-status.md` — D58 four client emails, then real-service verification.

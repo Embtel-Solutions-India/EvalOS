@@ -244,7 +244,7 @@ downloads beside it. **Q11 → D54:** a GM/Sales screen of DRAFT requests older 
 **Q6b answered (2026-09-28):** an unknown email at expert sign-up gets NO mail — experts are told to sign up only after being hired. Same screen answer either way.
 
 **2026-09-29 — five answers.** **D55 (Q9):** appointments use GHL's calendar APIs, standard practice
-(cancel, guests, blocked time, notes; `team_member.ghl_user_id`). **D56 (Q1):** a marketing lead does
+(cancel, guests, blocked time, notes; `team_member.ghl_user_id`) — built as Unit 60; guests have no GHL field (Q14). **D56 (Q1):** a marketing lead does
 not overwrite an opportunity with a change pending in the sync queue; otherwise upsert as today.
 **D57 (§12 b):** Sales reach the client in the Client conversation (already members). **D58 (§12 c):**
 four client emails — checklist+link, draft ready, sign in to review, delivered. **D59:** expert

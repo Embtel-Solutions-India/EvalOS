@@ -14,7 +14,10 @@ import com.ie.evalos.service.SalesMeetingService;
 
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.format.annotation.DateTimeFormat;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -151,8 +154,37 @@ public class SalesCalendarController {
 	@GetMapping("/calendars/{calendarId}/slots")
 	@PreAuthorize("hasRole('SALES')")
 	public ApiResponse<GhlCalendarClient.FreeSlots> slots(@PathVariable String calendarId,
-			@RequestParam long from, @RequestParam long to, @RequestParam String timezone) {
-		return ApiResponse.ok(meetings.slots(calendarId, from, to, timezone));
+			@RequestParam long from, @RequestParam long to, @RequestParam String timezone,
+			@RequestParam(required = false) String userId) {
+		return ApiResponse.ok(meetings.slots(calendarId, from, to, timezone, userId));
+	}
+
+	/** Unit 60: time the caller has blocked off. {@code title} is optional, as in GHL. */
+	public record BlockTimeRequest(String title, @jakarta.validation.constraints.NotBlank String startTime,
+			@jakarta.validation.constraints.NotBlank String endTime) {
+	}
+
+	/** The caller's own blocked time inside a window, read live from GHL (Unit 60). */
+	@GetMapping("/blocked-time")
+	@PreAuthorize("hasRole('SALES')")
+	public ApiResponse<List<GhlCalendarClient.BlockedTime>> blockedTime(
+			@RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant from,
+			@RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant to) {
+		return ApiResponse.ok(meetings.blockedTime(from, to));
+	}
+
+	@PostMapping("/blocked-time")
+	@PreAuthorize("hasRole('SALES')")
+	public ApiResponse<GhlCalendarClient.BlockedTime> block(
+			@RequestBody @jakarta.validation.Valid BlockTimeRequest request) {
+		return ApiResponse.ok(meetings.block(request.title(), request.startTime(), request.endTime()));
+	}
+
+	@DeleteMapping("/blocked-time/{eventId}")
+	@PreAuthorize("hasRole('SALES')")
+	public ApiResponse<Void> unblock(@PathVariable String eventId) {
+		meetings.unblock(eventId);
+		return ApiResponse.ok(null);
 	}
 
 	/**

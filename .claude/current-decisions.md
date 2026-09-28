@@ -446,6 +446,8 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
   closes Q9): cancel, guests, blocked-off time and notes all go through GHL's own calendar /
   appointment endpoints (GHL remains the calendar), searched in the GHL docs before any endpoint is
   assumed; employee availability joins a GHL user to a `team_member` (`team_member.ghl_user_id`).
+  **Built as Unit 60 (2026-09-29).** Guests have no GHL endpoint to go through — see
+  `open-decisions.md` Q14.
 - **D56.** **A marketing lead does not overwrite a queued one** (2026-09-29, closes Q1): if the
   contact's open opportunity on that pipeline has a change still waiting in the sync queue, a new
   lead does not overwrite it; otherwise `upsertOpportunity` may update it as today.

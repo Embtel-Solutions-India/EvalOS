@@ -65,6 +65,10 @@ public class TeamMember {
 	 * Which kind of client this member handles. Display and reporting only — see {@link Segment},
 	 * and note that nothing may branch on it.
 	 */
+	/** Unit 60: this member's GHL user, linked by email on the reference sweep (V74). */
+	@Column(name = "ghl_user_id")
+	private String ghlUserId;
+
 	@Enumerated(EnumType.STRING)
 	@Column(name = "segment")
 	private Segment segment;
@@ -97,6 +101,10 @@ public class TeamMember {
 
 	public String getEmail() {
 		return email;
+	}
+
+	public String getGhlUserId() {
+		return ghlUserId;
 	}
 
 	public String getPasswordHash() {
