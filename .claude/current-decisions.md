@@ -296,6 +296,8 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
   `DRAFT_NOT_CURRENT` otherwise), and that answer is stamped on it (`CLIENT_APPROVED` /
   `CHANGES_REQUESTED`). The client sees the signed letter only once the case is **Delivered**, refused
   by the server before then. Legacy pasted draft links stay view-only.
+  **The client portal is case-first** (Unit 58 phase 3, 2026-09-28): Home lists every case, each
+  opens its own page, and no client route resolves a case from the token — which closes Q8.
 - **D18.** The target is an **id-faithful mirror** of GHL (same pipeline/stage/contact/opportunity
   ids both sides), synced both ways, that keeps working when sync is off. Units 44–48
   (`context/specs/00c-ghl-independence-programme.md`). EvalOS mints its own primary key and keeps

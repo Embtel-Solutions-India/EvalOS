@@ -1,4 +1,5 @@
 import { NavLink } from 'react-router-dom'
+import { UnreadBadge } from '@evalos/chat'
 import { Logo } from '@shared/components/common/Logo'
 import { PRIMARY_NAV, type NavItem } from '@/constants/navigation'
 import { cn } from '@shared/utils/cn'
@@ -21,7 +22,8 @@ function NavSection({ items, onNavigate }: { items: NavItem[]; onNavigate?: () =
           }
         >
           <item.icon className="h-4 w-4 shrink-0" />
-          {item.label}
+          <span className="flex-1">{item.label}</span>
+          {item.unread && <UnreadBadge />}
         </NavLink>
       ))}
     </div>

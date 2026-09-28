@@ -8,7 +8,8 @@ House rule: every question carries a recommendation.
 _Q2 (request status model), Q3 (Sales approval rules) and Q4 (request documents) were resolved on
 2026-09-17 and left for `current-decisions.md` D33–D35. Q7 (portal deployment) left for D38, and
 carried-forward item (a) for D19c. Q12 (stage moves across pipelines) was resolved on
-2026-09-24 and left for D44. Q10 (conversation sidebar) left for D52 on 2026-09-28._
+2026-09-24 and left for D44. Q10 (conversation sidebar) left for D52 on 2026-09-28. Q8 (a client with several cases) was
+settled by Unit 58 phase 3 on 2026-09-28 — Home lists every case and each opens its own page (D51)._
 
 **Q1 — Should `MarketingLeadService` keep `upsertOpportunity`?**
 It reuses the one open opportunity per contact per pipeline, so a second enquiry from the same
@@ -51,11 +52,14 @@ _Status:_ the expert portal's `/` is a holding page until this is specced; `/cas
 `mintForExpert` stay live so in-flight reviews are not stranded, and both retire in one change.
 _Gates:_ the expert's case list, payouts view (Unit 35, D6) and evidence access.
 
-**Q8 — What does a client with two or more cases see?**
-`PortalCaseService.authorized` refuses. `00d` §2b item 3 names the per-case routes and a picker.
-_Recommend:_ build the picker; the per-case routes already exist
-(`GET /api/portal/client/cases/{caseId}`).
-_Gates:_ any repeat client.
+**Q13 — May the client's draft PDF open in the browser rather than download?**
+Spec 58 §4 asks for "the PDF in the browser's own viewer"; `DocumentStore.presignedUrl` always
+sets `Content-Disposition: attachment` (gap G14's control — nothing uploaded is ever served
+inline), so today the portal offers **Download PDF / Download Word** only.
+_Recommend:_ allow `inline` for one case only — a `DRAFT` row's PDF key, which staff uploaded and
+`UploadedFileType` sniffed as a real PDF — through a separate `presignedInlineUrl` that sets
+`application/pdf`, and keep `attachment` for everything a client or expert uploads.
+_Gates:_ nothing; the downloads work.
 
 ## Appointments and conversations
 

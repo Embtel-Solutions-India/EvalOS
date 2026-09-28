@@ -1,4 +1,6 @@
 import { useState } from 'react'
+import { ChatProvider } from '@evalos/chat'
+import '@evalos/chat/chat.css'
 import { Navigate, useLocation } from 'react-router-dom'
 import { usePortalToken } from '@shared/hooks/usePortalToken'
 import { LiquidBackground } from '@shared/components/common/LiquidBackground'
@@ -8,16 +10,17 @@ import { PortalHeader } from '@/components/layout/PortalHeader'
 import { PortalSidebar } from '@/components/layout/PortalSidebar'
 import { SiteFooter } from '@/components/layout/SiteFooter'
 import { PRIMARY_NAV } from '@/constants/navigation'
+import { createPortalChat } from '@/services/chatService'
 
 /**
  * The title bar's text.
  *
  * One nav list now, since 34d left only real screens — the account and "More" groups went with
- * the shell. `/draft` is deliberately absent from the nav (it is reached from a case, not from
- * a menu) so it falls through to its own name here rather than to "Home".
+ * the shell. A case page is reached from Home, not from a menu, so it gets its own name here
+ * rather than falling through to "Home".
  */
 function getPageTitle(pathname: string): string {
-  if (pathname.startsWith('/draft')) return 'Your draft'
+  if (pathname.startsWith('/cases/')) return 'Your case'
   const match = PRIMARY_NAV.find((item) => pathname.startsWith(item.to))
   return match?.label ?? 'Home'
 }
@@ -41,29 +44,33 @@ export function PortalLayout() {
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
   const location = useLocation()
   const tokenPresent = usePortalToken()
+  // One chat client for the signed-in shell: the nav badge, the inbox and each case's panel share it.
+  const [chat] = useState(createPortalChat)
 
   if (!tokenPresent) {
     return <Navigate to="/signin" replace />
   }
 
   return (
-    <div className="min-h-dvh bg-muted/30 lg:grid lg:grid-cols-[16rem_1fr]">
-      <aside className="hidden lg:block">
-        <div className="fixed inset-y-0 left-0 w-64">
-          <PortalSidebar />
+    <ChatProvider client={chat}>
+      <div className="min-h-dvh bg-muted/30 lg:grid lg:grid-cols-[16rem_1fr]">
+        <aside className="hidden lg:block">
+          <div className="fixed inset-y-0 left-0 w-64">
+            <PortalSidebar />
+          </div>
+        </aside>
+
+        <MobileNavDrawer open={mobileNavOpen} onOpenChange={setMobileNavOpen} />
+
+        <div className="relative flex min-h-dvh flex-col overflow-hidden">
+          <LiquidBackground className="opacity-30" />
+          <PortalHeader title={getPageTitle(location.pathname)} onMenuClick={() => setMobileNavOpen(true)} />
+          <main className="relative flex-1 px-4 py-6 sm:px-6 lg:px-8">
+            <PageTransition />
+          </main>
+          <SiteFooter />
         </div>
-      </aside>
-
-      <MobileNavDrawer open={mobileNavOpen} onOpenChange={setMobileNavOpen} />
-
-      <div className="relative flex min-h-dvh flex-col overflow-hidden">
-        <LiquidBackground className="opacity-30" />
-        <PortalHeader title={getPageTitle(location.pathname)} onMenuClick={() => setMobileNavOpen(true)} />
-        <main className="relative flex-1 px-4 py-6 sm:px-6 lg:px-8">
-          <PageTransition />
-        </main>
-        <SiteFooter />
       </div>
-    </div>
+    </ChatProvider>
   )
 }

@@ -165,7 +165,7 @@ class PortalCaseServiceTest {
 	void aSignedInClientCanUploadWithAPartyScopedToken() {
 		DocumentChecklistItem item = anItemOnThisCase();
 
-		CaseDocument written = portal.upload(partyTokenFor(BRAND, "ghl-1"), item.getId(),
+		CaseDocument written = portal.upload(partyTokenFor(BRAND, "ghl-1"), CASE_ID, item.getId(),
 				"transcript.pdf", "application/pdf", 1024L,
 				new java.io.ByteArrayInputStream(new byte[] { 1 }));
 
@@ -186,7 +186,7 @@ class PortalCaseServiceTest {
 	void theObjectKeyIsNamespacedByTheGhlContactId() {
 		DocumentChecklistItem item = anItemOnThisCase();
 
-		CaseDocument written = portal.upload(partyTokenFor(BRAND, "ghl-1"), item.getId(),
+		CaseDocument written = portal.upload(partyTokenFor(BRAND, "ghl-1"), CASE_ID, item.getId(),
 				"transcript.pdf", "application/pdf", 1024L,
 				new java.io.ByteArrayInputStream(new byte[] { 1 }));
 
@@ -207,34 +207,18 @@ class PortalCaseServiceTest {
 		ReflectionTestUtils.setField(theContact, "ghlContactId", null);
 		DocumentChecklistItem item = anItemOnThisCase();
 
-		assertThatThrownBy(() -> portal.upload(partyTokenFor(BRAND, "ghl-1"), item.getId(),
+		// A case-scoped link: a party token names a GHL id, so it could never match this contact.
+		assertThatThrownBy(() -> portal.upload(tokenFor(BRAND, CASE_ID), CASE_ID, item.getId(),
 				"transcript.pdf", "application/pdf", 1024L,
 				new java.io.ByteArrayInputStream(new byte[] { 1 })))
 				.hasMessageContaining("no GHL contact id");
-	}
-
-	/**
-	 * <strong>A client who has just signed up sees an empty document screen, not a refusal.</strong>
-	 * Self-signup (2026-09-15) made this the ordinary first minute of an account's life: there is no
-	 * case yet, and {@code authorized} answers a party token with no case by throwing
-	 * {@code AmbiguousCaseException} — <em>"This link has no cases behind it"</em> — which is wrong
-	 * twice over on the portal's own front screen. They followed no link, and a list of nothing is
-	 * the truthful answer to "what have you sent us".
-	 */
-	@Test
-	void aClientWithNoCasesSeesAnEmptyDocumentScreen() {
-		PortalCaseService.ClientDocumentsView view =
-				portal.documents(partyTokenFor(BRAND, "ghl-nobody"));
-
-		assertThat(view.checklist()).isEmpty();
-		assertThat(view.uploaded()).isEmpty();
 	}
 
 	@Test
 	void theClientSeesTheirOwnDraftAndNothingAboutTheExpert() {
 		withAnAssignedExpert();
 
-		PortalCaseService.ClientDraftView view = portal.clientView(tokenFor(BRAND, CASE_ID));
+		PortalCaseService.ClientDraftView view = portal.clientView(tokenFor(BRAND, CASE_ID), CASE_ID);
 
 		assertThat(view.clientName()).isEqualTo("Anita Rao");
 		assertThat(view.caseReference()).isEqualTo("IE-2026-0001");
@@ -250,7 +234,7 @@ class PortalCaseServiceTest {
 	void theViewCarriesNoneOfWhatBelongsToSomebodyElse() {
 		withAnAssignedExpert();
 
-		String json = serialized(portal.clientView(tokenFor(BRAND, CASE_ID)));
+		String json = serialized(portal.clientView(tokenFor(BRAND, CASE_ID), CASE_ID));
 
 		assertThat(json)
 				.doesNotContain("1450.00")
@@ -276,7 +260,7 @@ class PortalCaseServiceTest {
 	void aCaseWithNoDraftLinkShowsNothingRatherThanTheDocumentsFolder() {
 		subject.setDraftLink(null);
 
-		PortalCaseService.ClientDraftView view = portal.clientView(tokenFor(BRAND, CASE_ID));
+		PortalCaseService.ClientDraftView view = portal.clientView(tokenFor(BRAND, CASE_ID), CASE_ID);
 
 		assertThat(view.draftLink()).isNull();
 		assertThat(serialized(view)).doesNotContain("client-documents");
@@ -294,7 +278,7 @@ class PortalCaseServiceTest {
 	void nothingAboutTheExpertReachesTheClient() {
 		withAnAssignedExpert();
 
-		PortalCaseService.ClientDraftView view = portal.clientView(tokenFor(BRAND, CASE_ID));
+		PortalCaseService.ClientDraftView view = portal.clientView(tokenFor(BRAND, CASE_ID), CASE_ID);
 
 		assertThat(serialized(view))
 				.doesNotContain("Ada Lovelace")
@@ -310,11 +294,11 @@ class PortalCaseServiceTest {
 	 */
 	@Test
 	void theReceiptIsStampedOnceAndDoesNotMoveOnTheSecondRead() {
-		portal.clientView(tokenFor(BRAND, CASE_ID));
+		portal.clientView(tokenFor(BRAND, CASE_ID), CASE_ID);
 		Instant first = subject.getClientPortalReadAt();
 		assertThat(first).isNotNull();
 
-		portal.clientView(tokenFor(BRAND, CASE_ID));
+		portal.clientView(tokenFor(BRAND, CASE_ID), CASE_ID);
 
 		assertThat(subject.getClientPortalReadAt()).isEqualTo(first);
 		// The second read writes nothing at all, so it is not a save that happens to be idempotent.
@@ -332,7 +316,7 @@ class PortalCaseServiceTest {
 	void aTokenWhoseBrandIsNotTheCasesIsRefused() {
 		PortalPrincipal crossed = tokenFor(UUID.randomUUID(), CASE_ID);
 
-		assertThatThrownBy(() -> portal.clientView(crossed)).isInstanceOf(ForbiddenException.class);
+		assertThatThrownBy(() -> portal.clientView(crossed, CASE_ID)).isInstanceOf(ForbiddenException.class);
 		verify(cases, never()).save(any(Case.class));
 	}
 
@@ -340,7 +324,7 @@ class PortalCaseServiceTest {
 	void aTokenPointingAtANonexistentCaseIsRefused() {
 		given(cases.findById(any())).willReturn(Optional.empty());
 
-		assertThatThrownBy(() -> portal.clientView(tokenFor(BRAND, CASE_ID)))
+		assertThatThrownBy(() -> portal.clientView(tokenFor(BRAND, CASE_ID), CASE_ID))
 				.isInstanceOf(ForbiddenException.class);
 	}
 
@@ -369,7 +353,7 @@ class PortalCaseServiceTest {
 				.willReturn(java.util.List.of(documentOn(CASE_ID, DocumentKind.CLIENT_UPLOAD,
 						"passport.pdf", "brand/client/ghl-1/doc")));
 
-		PortalCaseService.ClientDocumentsView view = portal.documents(tokenFor(BRAND, CASE_ID));
+		PortalCaseService.ClientDocumentsView view = portal.documents(tokenFor(BRAND, CASE_ID), CASE_ID);
 
 		assertThat(view.checklist()).singleElement()
 				.satisfies(item -> {
@@ -395,7 +379,7 @@ class PortalCaseServiceTest {
 		given(documents.findById(own.getId())).willReturn(Optional.of(own));
 		given(store.presignedUrl("key/passport")).willReturn("https://s3.example/presigned");
 
-		String url = portal.documentUrl(tokenFor(BRAND, CASE_ID), own.getId());
+		String url = portal.documentUrl(tokenFor(BRAND, CASE_ID), CASE_ID, own.getId());
 
 		assertThat(url).isEqualTo("https://s3.example/presigned");
 		verify(audit).recordPortalEvent(eq(BRAND), eq(PortalAudience.CLIENT), eq("CASE_DOCUMENT"),
@@ -414,7 +398,7 @@ class PortalCaseServiceTest {
 			CaseDocument notTheirs = documentOn(CASE_ID, kind, "letter.pdf", "key/letter");
 			given(documents.findById(notTheirs.getId())).willReturn(Optional.of(notTheirs));
 
-			assertThatThrownBy(() -> portal.documentUrl(tokenFor(BRAND, CASE_ID), notTheirs.getId()))
+			assertThatThrownBy(() -> portal.documentUrl(tokenFor(BRAND, CASE_ID), CASE_ID, notTheirs.getId()))
 					.isInstanceOf(ForbiddenException.class);
 		}
 		// Refused before anything was minted — a URL created ahead of the check has already leaked.
@@ -427,22 +411,9 @@ class PortalCaseServiceTest {
 				"someone-else.pdf", "key/other");
 		given(documents.findById(elsewhere.getId())).willReturn(Optional.of(elsewhere));
 
-		assertThatThrownBy(() -> portal.documentUrl(tokenFor(BRAND, CASE_ID), elsewhere.getId()))
+		assertThatThrownBy(() -> portal.documentUrl(tokenFor(BRAND, CASE_ID), CASE_ID, elsewhere.getId()))
 				.isInstanceOf(ForbiddenException.class);
 		verify(store, never()).presignedUrl(any());
-	}
-
-	/** Both writes go through Unit 04, on the case the token authorized — never on an id. */
-	@Test
-	void theTwoActionsDelegateToTheStateMachine() {
-		given(lifecycle.clientApproveDraftFromPortal(subject)).willReturn(subject);
-		given(lifecycle.clientRequestRevisionsFromPortal(subject, "soften the conclusion")).willReturn(subject);
-
-		portal.approve(tokenFor(BRAND, CASE_ID));
-		portal.requestRevisions(tokenFor(BRAND, CASE_ID), "soften the conclusion");
-
-		verify(lifecycle).clientApproveDraftFromPortal(subject);
-		verify(lifecycle).clientRequestRevisionsFromPortal(subject, "soften the conclusion");
 	}
 
 	/** Review Focus 1: the draft id must be on this case and client-visible. */

@@ -53,7 +53,7 @@ export default function Invoices() {
     <div className="mx-auto max-w-4xl p-6">
       <PageHeader
         title="Your invoices"
-        description="What you have been billed, and what has been received."
+        description="Invoices you have paid."
       />
 
       {isLoading && <TableSkeleton />}
@@ -76,8 +76,8 @@ export default function Invoices() {
         data.length === 0 ? (
           <EmptyState
             icon={Receipt}
-            title="No invoices yet"
-            description="Anything you are billed will appear here."
+            title="No paid invoices yet"
+            description="Once an invoice is paid it will appear here."
           />
         ) : (
           <Table>
@@ -85,9 +85,8 @@ export default function Invoices() {
               <TableRow>
                 <TableHead>Invoice</TableHead>
                 <TableHead>Issued</TableHead>
-                <TableHead>Due</TableHead>
                 <TableHead className="text-right">Total</TableHead>
-                <TableHead className="text-right">Outstanding</TableHead>
+                <TableHead className="text-right">Paid</TableHead>
                 <TableHead>Status</TableHead>
               </TableRow>
             </TableHeader>
@@ -108,9 +107,8 @@ function InvoiceRow({ invoice }: { invoice: ClientInvoice }) {
     <TableRow>
       <TableCell className="font-medium">{invoice.invoiceNumber ?? '—'}</TableCell>
       <TableCell>{invoice.issueDate ? formatDateShort(invoice.issueDate) : '—'}</TableCell>
-      <TableCell>{invoice.dueDate ? formatDateShort(invoice.dueDate) : '—'}</TableCell>
       <TableCell className="text-right">{money(invoice.total, invoice.currency)}</TableCell>
-      <TableCell className="text-right">{money(invoice.amountDue, invoice.currency)}</TableCell>
+      <TableCell className="text-right">{money(invoice.amountPaid, invoice.currency)}</TableCell>
       <TableCell>
         {/*
           GHL's own word, tidied for reading but never reinterpreted. Deciding here that

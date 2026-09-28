@@ -227,7 +227,8 @@ browser publish); web push when the app is closed. Spec `57-case-chat.md`.
 `case_document` DRAFT versions (no new table); an immutable comment thread per version, open only on
 the version in client review; the client approves / requests changes on a named version (409
 `DRAFT_NOT_CURRENT` otherwise) and the answer is stamped on it; the signed letter reaches the client
-only once Delivered. D33 note: drafts are stored files alongside the request documents.
+only once Delivered. D33 note: drafts are stored files alongside the request documents. The client
+portal is case-first (phase 3): Home lists every case; no client route resolves a case from the token.
 
 **D52 (2026-09-28): no GHL conversation sidebar.** GHL conversations (SMS/email/WhatsApp/social)
 stay in GHL; EvalOS messaging is the case chat (Unit 57) only. Closes Q10; drops Unit 47 tier 3.

@@ -4,7 +4,7 @@
 case-first: a Home of cases, a case detail page that holds everything about one case, Invoices,
 and Conversations. Drafts stop being a pasted link and become **uploaded versions** (Word + PDF)
 that the client views, comments on, downloads and approves. The expert portal is a separate unit
-that follows this one. **Status: phases 1–2 BUILT 2026-09-28; phases 3–4 not built.**
+that follows this one. **Status: phases 1–3 BUILT 2026-09-28; phase 4 (push) not built.** The draft PDF downloads rather than opening inline — `open-decisions.md` Q13.
 
 ## 0. What was decided, and by whom
 

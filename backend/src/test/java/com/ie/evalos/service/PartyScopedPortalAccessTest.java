@@ -7,7 +7,6 @@ import java.util.Optional;
 import java.util.UUID;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.ie.evalos.common.AmbiguousCaseException;
 import com.ie.evalos.common.ForbiddenException;
 import com.ie.evalos.domain.Case;
 import com.ie.evalos.domain.ContactSnapshot;
@@ -122,6 +121,9 @@ class PartyScopedPortalAccessTest {
 		assertThat(mine.get(0).actionRequired()).isTrue();
 		assertThat(mine.get(1).step()).isEqualTo("Ready to download");
 		assertThat(mine.get(1).actionRequired()).isFalse();
+		// The stepper position Home splits active from delivered on (Unit 58).
+		assertThat(mine.get(0).stepIndex()).isZero();
+		assertThat(mine.get(1).stepIndex()).isEqualTo(3);
 	}
 
 	@Test
@@ -181,31 +183,6 @@ class PartyScopedPortalAccessTest {
 		// "not yours", which is how one link becomes a way to count the brand's cases.
 		assertThatThrownBy(() -> clientPortal.clientView(clientParty(CONTACT), theirs.getId()))
 				.isInstanceOf(ForbiddenException.class);
-	}
-
-	@Test
-	void aPartyTokenOnASingleCaseRouteResolvesWhenThereIsOnlyOneCase() {
-		contactResolves();
-		Case only = caseAt(BRAND, "IE-2026-0001", Stage.CLIENT_REVIEW);
-		only.setContactId(CONTACT_ROW);
-		given(cases.findByBrandIdAndContactIdOrderByCreatedAtDesc(BRAND, CONTACT_ROW)).willReturn(List.of(only));
-		given(cases.findById(only.getId())).willReturn(Optional.of(only));
-
-		assertThat(clientPortal.clientView(clientParty(CONTACT)).caseReference()).isEqualTo("IE-2026-0001");
-	}
-
-	@Test
-	void aPartyTokenOnASingleCaseRouteRefusesToPickBetweenSeveral() {
-		contactResolves();
-		given(cases.findByBrandIdAndContactIdOrderByCreatedAtDesc(BRAND, CONTACT_ROW))
-				.willReturn(List.of(caseAt(BRAND, "IE-2026-0001", Stage.CLIENT_REVIEW),
-						caseAt(BRAND, "IE-2026-0002", Stage.CLIENT_REVIEW)));
-
-		// The single-case routes include approve. Guessing here approves a draft the client was not
-		// looking at, and the letter goes on toward delivery with no undo that reaches them.
-		assertThatThrownBy(() -> clientPortal.clientView(clientParty(CONTACT)))
-				.isInstanceOf(AmbiguousCaseException.class)
-				.hasMessageContaining("say which one");
 	}
 
 	// --- D1: the expert's list -------------------------------------------------

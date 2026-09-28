@@ -231,8 +231,7 @@ public class PortalAccessService {
 	 * removed" stops being a slogan: a self-signup who is not in GHL yet signs in and reaches
 	 * their documents with no GHL row anywhere. The principal that comes back from
 	 * {@link #resolve} then carries a null contact id, which the portal reads already fail closed
-	 * on ({@code PortalCaseService}) or answer empty for ({@code PortalInvoiceService},
-	 * {@code PortalMeetingService}).
+	 * on ({@code PortalCaseService}) or answer empty for ({@code PortalInvoiceService}).
 	 *
 	 * <p><strong>The account's previous token is retired whichever shape this mint takes</strong>,
 	 * and that is not symmetry for its own sake. {@code linkGhlContact} is a normal transition —

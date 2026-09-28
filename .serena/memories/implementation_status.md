@@ -270,7 +270,7 @@ BUILT 2026-09-15 (Unit 51): the GM dashboard — `GmDashboard.tsx` + `GET /api/m
 to its source and says which cannot be computed at all.
 
 PARTIAL and worth knowing (**re-judged 2026-09-17** — three of these were never gaps):
-a client with two or more cases is refused (Q8, still open); notifications are in-app only and
+notifications are in-app only and
 **push is owed** (D37 — in-app and push, never mail or SMS); request-stage documents do not exist
 and are **Unit 53** (D33). *No longer listed as gaps:* **SALES reading no case is correct** (D19c —
 their world ends at won, so `ScopePredicate`'s empty PIPELINE arm over `evalos_case` is the rule);
@@ -542,7 +542,17 @@ message; reopening an already-loaded conversation now pages it forward the same 
 catch-up does (`catchUpOne`, shared), so REST-only — which has no reconnect — sees what was posted
 while it was closed; a pending reply is cleared when the conversation changes; the thread
 composer's dead reply-cancel "×" no longer renders. Tests: `api.test.ts`, `reducer.test.ts`,
-`realtime.test.ts`, `client.test.ts`, `text.test.ts`; frontend suite 72/72. **Not built:** client
-portal UI (phase 3, so no page mounts the chat package yet) and push (phase 4). **Known gaps:** no
+`realtime.test.ts`, `client.test.ts`, `text.test.ts`; frontend suite 72/72. **Not built:** push (phase 4). **Known gaps:** no
 component tests (the portals have no Testing Library); never exercised against a real Ably app;
 `client-expert`'s `npm run lint` does not scan `packages/evalos-chat`.
+
+**2026-09-28 — Unit 58 PHASE 3 (client portal UI) BUILT.** Case-first: Home (active, then delivered
+— `ClientCaseSummary.stepIndex`), `/cases/:caseId` (stepper; Documents, Draft with version tabs,
+PDF/Word downloads, per-version comments with page, approve / request changes behind an inline
+confirmation; Delivered once delivered; History; `CaseChatPanel`, a Messages tab on phones),
+`/conversations` (`ChatInbox` + `ConversationView`), Invoices paid-only; nav Home · Invoices ·
+Conversations (unread badge) · My requests; `ChatProvider` in `PortalLayout`. Removed: Documents,
+Meetings, DraftReview pages; backend `/case`, `/approve`, `/request-revisions`, case-less
+`/documents`, version-less `cases/{id}/approve|request-revisions`, `/meetings` +
+`PortalMeetingService` + `GhlCalendarClient.forContact`. Q8 closed (Home is the picker). Draft PDF
+downloads, never inline — Q13. Backend 1298/0/0/4; portals 73. Push is phase 4.

@@ -12,7 +12,7 @@ import { usePortalToken } from '@shared/hooks/usePortalToken'
 import { failureMessage, NO_TOKEN, type ClientCaseSummary } from '@shared/lib/portal'
 import { statusOf } from '@shared/services/apiClient'
 import { listApplications, type ClientApplication } from '@/services/applicationService'
-import { listCases } from '@/services/draftService'
+import { listCases } from '@/services/caseService'
 import { formatDateShort } from '@shared/utils/formatters'
 
 /**
@@ -161,7 +161,7 @@ function ApplicationRow({ item }: { item: ClientApplication }) {
 
 function CaseRow({ item }: { item: ClientCaseSummary }) {
   return (
-    <Link to={`/draft/${item.caseId}`} className="block">
+    <Link to={`/cases/${item.caseId}`} className="block">
       <Card className="flex flex-wrap items-center justify-between gap-2 p-4 hover:bg-accent">
         <div>
           <p className="text-sm font-medium text-foreground">{item.caseReference}</p>

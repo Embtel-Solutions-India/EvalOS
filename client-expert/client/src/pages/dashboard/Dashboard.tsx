@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
-import { ArrowRight, FileCheck2, FileText, Receipt } from 'lucide-react'
+import { ArrowRight, FileCheck2, MessagesSquare, Receipt } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { Badge } from '@shared/components/ui/badge'
 import { Button } from '@shared/components/ui/button'
@@ -9,10 +9,10 @@ import { ErrorState } from '@shared/components/common/ErrorState'
 import { ListSkeleton } from '@shared/components/common/LoadingState'
 import { PageHeader } from '@shared/components/common/PageHeader'
 import { usePortalToken } from '@shared/hooks/usePortalToken'
-import { failureMessage, NO_TOKEN, type ClientCaseSummary } from '@shared/lib/portal'
+import { DELIVERED_STEP, failureMessage, NO_TOKEN, serviceLabel, type ClientCaseSummary } from '@shared/lib/portal'
 import { statusOf } from '@shared/services/apiClient'
 import { listApplications } from '@/services/applicationService'
-import { listCases } from '@/services/draftService'
+import { listCases } from '@/services/caseService'
 
 /**
  * Where the client lands: what needs them, then everything else (34d).
@@ -25,9 +25,10 @@ import { listCases } from '@/services/draftService'
  * What the credential is has also changed: a scoped portal link *or* a token minted by signing in,
  * and this screen cannot tell which, by design.
  *
- * **Action first.** `actionRequired` is the server's flag, from `PortalStageProjection` — the
- * one thing a client opening this page wants to know is whether anything is waiting on them,
- * and the server is the only thing entitled to answer that.
+ * **Active cases, then delivered ones (Unit 58 §4), and within active, action first.**
+ * `actionRequired` and `stepIndex` are the server's, from `PortalStageProjection` — the one thing
+ * a client opening this page wants to know is whether anything is waiting on them, and the server
+ * is the only thing entitled to answer that.
  */
 export default function Dashboard() {
   const tokenPresent = usePortalToken()
@@ -55,8 +56,10 @@ export default function Dashboard() {
     return <PageHeader title="Your cases" description={NO_TOKEN} />
   }
 
-  const needsYou = (data ?? []).filter((item) => item.actionRequired)
-  const running = (data ?? []).filter((item) => !item.actionRequired)
+  const active = (data ?? []).filter((item) => item.stepIndex < DELIVERED_STEP)
+  const needsYou = active.filter((item) => item.actionRequired)
+  const delivered = (data ?? []).filter((item) => item.stepIndex >= DELIVERED_STEP)
+  const byAction = [...needsYou, ...active.filter((item) => !item.actionRequired)]
 
   return (
     <div className="space-y-6">
@@ -114,17 +117,17 @@ export default function Dashboard() {
         />
       )}
 
-      {needsYou.length > 0 && (
+      {byAction.length > 0 && (
         <section className="space-y-2">
-          <h2 className="text-sm font-semibold text-foreground">Needs you</h2>
-          {needsYou.map((item) => <CaseRow key={item.caseId} item={item} highlight />)}
+          <h2 className="text-sm font-semibold text-foreground">Active cases</h2>
+          {byAction.map((item) => <CaseRow key={item.caseId} item={item} />)}
         </section>
       )}
 
-      {running.length > 0 && (
+      {delivered.length > 0 && (
         <section className="space-y-2">
-          <h2 className="text-sm font-semibold text-foreground">In progress</h2>
-          {running.map((item) => <CaseRow key={item.caseId} item={item} />)}
+          <h2 className="text-sm font-semibold text-foreground">Delivered cases</h2>
+          {delivered.map((item) => <CaseRow key={item.caseId} item={item} />)}
         </section>
       )}
 
@@ -133,17 +136,19 @@ export default function Dashboard() {
   )
 }
 
-function CaseRow({ item, highlight }: { item: ClientCaseSummary; highlight?: boolean }) {
+function CaseRow({ item }: { item: ClientCaseSummary }) {
   return (
-    <Link to={`/draft/${item.caseId}`} className="block">
+    <Link to={`/cases/${item.caseId}`} className="block">
       <Card
         className={`flex flex-wrap items-center justify-between gap-2 p-4 hover:bg-accent ${
-          highlight ? 'border-primary' : ''
+          item.actionRequired ? 'border-primary' : ''
         }`}
       >
         <div>
           <p className="text-sm font-medium text-foreground">{item.caseReference}</p>
-          <p className="text-xs text-muted-foreground">{item.step}</p>
+          <p className="text-xs text-muted-foreground">
+            {serviceLabel(item.serviceType)} · {item.step}
+          </p>
         </div>
         {item.actionRequired && <Badge>Needs you</Badge>}
       </Card>
@@ -151,15 +156,10 @@ function CaseRow({ item, highlight }: { item: ClientCaseSummary; highlight?: boo
   )
 }
 
-/**
- * The other three real screens.
- *
- * <p>Shown here rather than only in the sidebar because the sidebar is easy to miss on a phone,
- * and these are the whole app: send documents, read the draft, see the bill.
- */
+/** Shown here as well as in the sidebar, which is easy to miss on a phone. */
 function Shortcuts() {
   const links = [
-    { to: '/documents', label: 'Your documents', icon: FileText },
+    { to: '/conversations', label: 'Conversations', icon: MessagesSquare },
     { to: '/invoices', label: 'Your invoices', icon: Receipt },
   ]
   return (

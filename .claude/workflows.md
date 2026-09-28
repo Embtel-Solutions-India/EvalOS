@@ -236,16 +236,12 @@ no unified timeline across the request, the opportunity and the case. **Sales is
 ### CURRENT IMPLEMENTATION
 
 ```
-Client Portal /documents
-  GET  /api/portal/client/documents            checklist + this client's uploads
-  POST /api/portal/client/documents?checklistItemId=…
+Client Portal /cases/:caseId (Unit 58 — every route names its case; the case-less ones are gone)
+  POST /api/portal/client/cases/{id}/documents?checklistItemId=…
         authorize the case → verify the item is on it
         → S3 key built from brand + the GHL contact id + a fresh document uuid (D41)
         → PUT to S3 → INSERT case_document (CLIENT_UPLOAD, versioned)
         → checklist item → UPLOADED → audit
-  GET  /api/portal/client/documents/{id}/url   5-minute presigned read, never stored, audited
-
-Client Portal, per case (Unit 58 — the routes above stay until the new portal ships)
   GET  /api/portal/client/cases/{id}                    view + step, stepIndex, milestones
   GET  /api/portal/client/cases/{id}/documents          POST …/documents?checklistItemId=  GET …/documents/{doc}/url
   GET  /api/portal/client/cases/{id}/drafts             client-visible versions only
@@ -259,10 +255,9 @@ Staff     GET /api/cases/{id}/documents, …/{documentId}/url[?pdf=true]
 Expert    GET /api/portal/expert/letter, POST /api/portal/expert/signed-letter
 ```
 
-`PortalCaseService`, `CaseDrafts`, `CaseMilestones`, `DocumentStore`. A client with no case sees an
-empty screen, not a refusal. On the case-less routes a client with two or more cases is still
-**refused**; the per-case routes above are the way through, and the portal UI that uses them is
-Unit 58 phase 3.
+`PortalCaseService`, `CaseDrafts`, `CaseMilestones`, `DocumentStore`. The portal UI over them is
+Unit 58 phase 3: Home lists every case, and each case page holds its documents, drafts, delivered
+files, history and Client conversation.
 
 ### TARGET WORKFLOW
 
@@ -274,7 +269,6 @@ keyed by the **GHL contact id** — one id names a contact everywhere, and the d
 person rather than to a case that has not been won yet. Sales reads them on their own route and tab
 on the same opportunity (D34); Handoff A carries them forward into `case_document` over the same S3
 object, so Production starts holding what Sales already read. Spec `53`.
-The per-case picker (Q8) is separate and still open.
 
 ---
 
@@ -288,7 +282,6 @@ GET  /api/sales/calendars/{id}/slots             free slots for a date range and
 POST /api/sales/opportunities/{id}/meetings      book
 PUT  /api/sales/opportunities/{id}/meetings/{a}  reschedule
 GET  /api/sales/meetings                         the salesperson's diary
-GET  /api/portal/client/meetings                 the client's own appointments
 ```
 
 Booking sends: calendar, contact, start, end, title, description, `assignedUserId`,
