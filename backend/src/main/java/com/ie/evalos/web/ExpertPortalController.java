@@ -89,19 +89,6 @@ public class ExpertPortalController {
 	}
 
 	/**
-	 * This expert's own payout rows (Unit 35, D6).
-	 *
-	 * <p>Case reference, amount, currency, status and settlement date. <strong>Never
-	 * {@code payment_detail}</strong> — invariant 4, and this surface does not become the first
-	 * read path onto it. Works for both token shapes: a payout belongs to the expert, and V37 put
-	 * the expert on a case-scoped row too.
-	 */
-	@GetMapping("/payouts")
-	public ApiResponse<List<ExpertPortalService.ExpertPayoutRow>> payouts() {
-		return ApiResponse.ok(portal.payoutRows(expert()));
-	}
-
-	/**
 	 * "I will sign this." Idempotent — a second click answers 200 with the state as it stands.
 	 *
 	 * <p>Every action takes an optional {@code caseId} (Unit 59). Without it, a party token covering

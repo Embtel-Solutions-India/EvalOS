@@ -29,9 +29,8 @@ import { ErrorBoundary } from '@shared/components/common/ErrorBoundary'
  * `PortalAccessService.mintForParty`) so the client's flow is a starting point and not a
  * template. Tracked in `open-decisions.md`.
  *
- * **A payouts screen is still coming** (Unit 35, D6 — an expert reads their own ledger rows), but
- * off `GET /api/portal/expert/payouts` and a party-scoped EXPERT token. Do not restore the old
- * page from git to serve it: whatever lands is built against the process above once it exists.
+ * **No payouts screen (D59, 2026-09-29).** Expert payments are managed manually by the Expert
+ * Network Manager on the staff payout screens; `GET /api/portal/expert/payouts` was removed with it.
  */
 
 const Welcome = lazy(() => import('@/pages/Welcome'))

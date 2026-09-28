@@ -15,12 +15,11 @@ request status, portal deployment) and now say so.
 2. ~~**Marketing lead vs. the queue (D56).**~~ **Done 2026-09-29** — see the GHL opportunity row.
 3. **Four client emails (D58).** Checklist + link, draft ready, sign in to review, delivered —
    through `ClientMailer`, with the invariant-14 amendment written into `architecture.md`.
-4. **Expert payments stay manual (D59).** Remove any expert-portal payouts wording / route stub;
-   no build beyond that.
+4. ~~**Expert payments stay manual (D59).**~~ **Done 2026-09-29** — see the Payments row.
 5. **Verify for real:** set `ABLY_API_KEY`, the `EVALOS_PUSH_*` keys, SMTP and S3, then click
    through client + expert sign-in and chat against the staff app.
 
-**Build state (all four suites re-verified 2026-09-22 after the dead-code pass below; the browser checks against the live location remain 2026-09-17):** backend `1284 tests, 0 failures, 0 errors, 4 skipped` (2026-09-29, after D56) (the 4 are opt-in live checks, `SmtpMailTransportLiveTest` among them); the GM board draws **1,460 deals, synced**, and a Sales desk draws its own pipeline's four;
+**Build state (all four suites re-verified 2026-09-22 after the dead-code pass below; the browser checks against the live location remain 2026-09-17):** backend `1280 tests, 0 failures, 0 errors, 4 skipped` (2026-09-29, after D56 and D59 — D59 removed four payout-read tests) (the 4 are opt-in live checks, `SmtpMailTransportLiveTest` among them); the GM board draws **1,460 deals, synced**, and a Sales desk draws its own pipeline's four;
 staff SPA `135 tests` (2026-09-28), `oxlint` and `tsc -b` clean; portals `87 tests` (2026-09-28) and `tsc -b` clean in both `client/`
 and `expert/`. All green.
 
@@ -113,7 +112,7 @@ references, so `--noEmit` typechecks nothing and exits 0.)
 | **Employee-wise booking** | PARTIAL | `assignedUserId` on booking; `GET /api/sales/users` | availability is per *calendar*, not per employee; no column joins a GHL user to a `team_member` |
 | **Appointments** | PARTIAL | `meeting` table (V47), `SalesMeetingService`, `BookingForm.tsx`, `Meetings.tsx` | no cancel, no guests, no blocked-off time, no notes UI |
 | **Payments (client)** | NOT IMPLEMENTED | `evalos_case.paid` / `paid_at` set by Handoff A; `PortalInvoiceService` reads GHL invoices | deliberate — invoicing is GHL's (D15) |
-| **Payments (expert payouts)** | COMPLETE | `payout_ledger`, `payout_payment`, `PayoutService`, `PayoutController`, `PaymentController`, `PayoutBatch.tsx` | live settlement unexercised |
+| **Payments (expert payouts)** | COMPLETE | `payout_ledger`, `payout_payment`, `PayoutService`, `PayoutController`, `PaymentController`, `PayoutBatch.tsx` | live settlement unexercised **D59 (2026-09-29): no expert-portal read.** `GET /api/portal/expert/payouts`, `ExpertPortalService.payoutRows` / `ExpertPayoutRow` (and their four tests) and `PayoutLedgerRepository.findByBrandIdAndExpertIdOrderByCreatedAtDesc` are removed, as are the expert app's dead `expertNavigation.ts` (a Payments link), `mock/expertMockData.ts` and `types/expert.ts`; the ENM settles on the staff screens |
 | **Cases** | COMPLETE | `evalos_case`, `CaseLifecycleService`, `CaseTransitions`, 30+ transition routes, `BoardView`, `CaseDetail` | — |
 | **Production** | COMPLETE | 12 stages, `exception_state`, `document_checklist_item`, `ChecklistService`, four sweeps | — |
 | **Expert workflow** | PARTIAL | `expert`, `expert_case_offer`, `ExpertMatchService`, `ExpertPortalService`, `/api/portal/expert/**`, `ExpertCasePortal.tsx`; the expert portal's `/` is a **holding page** as of 2026-09-18 (`expert/src/pages/Welcome.tsx`) — the app had no `/` at all, so the bare origin answered 404 and read as a broken portal | no staff screen shows whether an expert has set up their account |

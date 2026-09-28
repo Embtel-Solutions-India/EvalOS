@@ -1,7 +1,6 @@
 package com.ie.evalos.service;
 
 import java.io.InputStream;
-import java.math.BigDecimal;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
@@ -25,8 +24,6 @@ import com.ie.evalos.domain.ExceptionState;
 import com.ie.evalos.domain.Expert;
 import com.ie.evalos.domain.ExpertSignStatus;
 import com.ie.evalos.domain.IllegalTransitionException;
-import com.ie.evalos.domain.PayoutPayment;
-import com.ie.evalos.domain.PayoutStatus;
 import com.ie.evalos.domain.PortalAudience;
 import com.ie.evalos.domain.ServiceType;
 import com.ie.evalos.domain.SlaStatus;
@@ -35,8 +32,6 @@ import com.ie.evalos.integration.DocumentStore;
 import com.ie.evalos.repository.CaseDocumentRepository;
 import com.ie.evalos.repository.CaseRepository;
 import com.ie.evalos.repository.ContactSnapshotRepository;
-import com.ie.evalos.repository.PayoutLedgerRepository;
-import com.ie.evalos.repository.PayoutPaymentRepository;
 import com.ie.evalos.repository.DocumentChecklistItemRepository;
 import com.ie.evalos.repository.ExpertRepository;
 import com.ie.evalos.security.PortalPrincipal;
@@ -132,27 +127,6 @@ public class ExpertPortalService {
 			boolean actionRequired) {
 	}
 
-	/**
-	 * One payout row as its expert sees it (Unit 35, D6).
-	 *
-	 * <p><strong>The field list is the whole point of this record.</strong> Invariant 4 says
-	 * {@code payment_detail} has no read path anywhere in EvalOS — not for the ENM who typed it,
-	 * not here. This is a new surface onto money, so it is a named whitelist rather than a
-	 * projection of the entity, and {@code ExpertPortalServiceTest} serializes it and asserts the
-	 * secret is absent. A record that merely happens not to include the field today is one an
-	 * innocent-looking widening breaks; a record with a test on its serialized form is not.
-	 *
-	 * @param settledOn the payment's paid date, null while the row is still owed — the one fact an
-	 *                  expert most wants and the ledger alone cannot answer
-	 */
-	public record ExpertPayoutRow(
-			String caseReference,
-			BigDecimal amount,
-			String currency,
-			PayoutStatus status,
-			Instant settledOn) {
-	}
-
 	/** What the expert gets back after signing. No object key — that is an internal address. */
 	public record SignedLetterView(UUID documentId, String filename, int version, Instant signedAt,
 			String contentSha256) {
@@ -172,8 +146,6 @@ public class ExpertPortalService {
 	private final CaseRepository cases;
 	private final ContactSnapshotRepository contacts;
 	private final ExpertRepository experts;
-	private final PayoutLedgerRepository payouts;
-	private final PayoutPaymentRepository payments;
 	private final DocumentChecklistItemRepository checklistItems;
 	private final CaseDocumentRepository documents;
 	private final CaseLifecycleService lifecycle;
@@ -182,14 +154,11 @@ public class ExpertPortalService {
 	private final AuditService audit;
 
 	ExpertPortalService(CaseRepository cases, ContactSnapshotRepository contacts, ExpertRepository experts,
-			PayoutLedgerRepository payouts, PayoutPaymentRepository payments,
 			DocumentChecklistItemRepository checklistItems, CaseDocumentRepository documents,
 			CaseLifecycleService lifecycle, SlaCalculator sla, DocumentStore store, AuditService audit) {
 		this.cases = cases;
 		this.contacts = contacts;
 		this.experts = experts;
-		this.payouts = payouts;
-		this.payments = payments;
 		this.checklistItems = checklistItems;
 		this.documents = documents;
 		this.lifecycle = lifecycle;
@@ -288,37 +257,6 @@ public class ExpertPortalService {
 	@Transactional
 	public ExpertCaseView view(PortalPrincipal principal, UUID caseId) {
 		return project(authorized(principal, caseId));
-	}
-
-	/**
-	 * This expert's payout rows (Unit 35, D6), newest first.
-	 *
-	 * <p>Answers for both token shapes: a payout belongs to the expert, not to a case, so a
-	 * case-scoped token names its expert just as well as a party one does ({@code V37} put the
-	 * expert on the row precisely so it could). The ledger is read for that expert in the token's
-	 * brand and nowhere wider.
-	 *
-	 * <p>The settlement date is a second read rather than a join, because {@code payment_id} is
-	 * null on most rows and a join would make the common case pay for the rare one.
-	 */
-	@Transactional(readOnly = true)
-	public List<ExpertPayoutRow> payoutRows(PortalPrincipal principal) {
-		UUID expertId = principal.expertId();
-		if (expertId == null) {
-			// V37's fail-closed rule: a token that names no expert is refused, not widened.
-			throw new ForbiddenException("This link no longer points at an expert");
-		}
-		return payouts.findByBrandIdAndExpertIdOrderByCreatedAtDesc(principal.brandId(), expertId).stream()
-				.map(row -> new ExpertPayoutRow(
-						cases.findById(row.getCaseId()).map(Case::getCaseCode).orElse(null),
-						row.getAmount(),
-						row.getCurrency(),
-						row.getStatus(),
-						row.getPaymentId() == null ? null
-								: payments.findById(row.getPaymentId())
-										.map(PayoutPayment::getPaidDate)
-										.orElse(null)))
-				.toList();
 	}
 
 	@Transactional
