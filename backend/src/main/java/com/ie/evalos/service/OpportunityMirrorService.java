@@ -519,6 +519,21 @@ public class OpportunityMirrorService {
 				: opportunities.findByBrandIdAndGhlId(sellingBrandId, ghlOpportunityId);
 	}
 
+	/**
+	 * The contact's open, GHL-linked deal on this pipeline, if the mirror holds one (D56).
+	 *
+	 * <p>Brand-scoped through the pipeline lookup. Empty when the pipeline is not mirrored, which
+	 * leaves the caller doing what it did before D56 rather than refusing.
+	 */
+	@Transactional(readOnly = true)
+	public Optional<Opportunity> openFor(String ghlPipelineId, String ghlContactId) {
+		return mirroredPipeline(ghlPipelineId).flatMap((pipeline) -> opportunities
+				.findByBrandIdAndGhlContactId(pipeline.getBrandId(), ghlContactId).stream()
+				.filter((row) -> pipeline.getId().equals(row.getPipelineId()) && row.getGhlId() != null
+						&& "open".equalsIgnoreCase(row.getStatus()))
+				.findFirst());
+	}
+
 	/** GHL answered a create. The row keeps its id and gains GHL's — identity never changes. */
 	@Transactional
 	public void linkGhl(UUID opportunityId, String ghlId) {

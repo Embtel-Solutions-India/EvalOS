@@ -115,6 +115,51 @@ class MarketingLeadServiceTest {
 		assertThat(service.openLead("Ada", null, "ada@example.test", null, null, null).created()).isFalse();
 	}
 
+	private com.ie.evalos.domain.Opportunity givenAnOpenDealInTheMirror() {
+		when(ghl.upsertContact(any(), any(), any(), any(), any()))
+				.thenReturn(new GhlWriteClient.UpsertedContact("c1", "Ada", "ada@example.test", null));
+		com.ie.evalos.domain.Opportunity row =
+				new com.ie.evalos.domain.Opportunity(BRAND, "o1", PIPELINE_ROW);
+		org.springframework.test.util.ReflectionTestUtils.setField(row, "id", UUID.randomUUID());
+		row.syncFromGhl("c1", PIPELINE_ROW, "s1", "Ada (edited)", new BigDecimal("900"), "open", null,
+				null, null, null, null, null);
+		when(deals.openFor(MINE, "c1")).thenReturn(java.util.Optional.of(row));
+		return row;
+	}
+
+	/** D56: a queued edit on the contact's open deal is not overwritten by a new lead. */
+	@Test
+	void aLeadDoesNotOverwriteADealWithAQueuedEdit() {
+		authenticate(Role.MARKETING, MINE);
+		com.ie.evalos.domain.Opportunity row = givenAnOpenDealInTheMirror();
+		when(outbox.isPending(BRAND, row.getId())).thenReturn(true);
+
+		MarketingLeadService.Lead lead = service.openLead("Ada", null, "ada@example.test", null, "Ada",
+				new BigDecimal("100"));
+
+		verify(ghl, never()).upsertOpportunity(any(), any(), any(), any());
+		verify(deals, never()).absorbCreated(any(), any(), any(), any(), any(), any(), any(), any());
+		assertThat(lead.opportunityId()).isEqualTo("o1");
+		assertThat(lead.name()).isEqualTo("Ada (edited)");
+		assertThat(lead.monetaryValue()).isEqualByComparingTo("900");
+		assertThat(lead.created()).isFalse();
+	}
+
+	/** D56, the other branch: nothing queued, so the upsert updates the deal as before. */
+	@Test
+	void aLeadStillUpsertsWhenNothingIsQueued() {
+		authenticate(Role.MARKETING, MINE);
+		com.ie.evalos.domain.Opportunity row = givenAnOpenDealInTheMirror();
+		when(outbox.isPending(BRAND, row.getId())).thenReturn(false);
+		when(ghl.upsertOpportunity(any(), any(), any(), any()))
+				.thenReturn(new GhlWriteClient.UpsertedOpportunity("o1", "c1", MINE, "s1", "open", "Ada",
+						new BigDecimal("100"), false));
+
+		service.openLead("Ada", null, "ada@example.test", null, "Ada", new BigDecimal("100"));
+
+		verify(ghl).upsertOpportunity(eq(MINE), eq("c1"), eq("Ada"), eq(new BigDecimal("100")));
+	}
+
 	/**
 	 * <strong>A lead with neither email nor phone is refused before anything is written.</strong>
 	 *

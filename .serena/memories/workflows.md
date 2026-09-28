@@ -44,8 +44,8 @@ keeps the draft. From there it is Sales': review → won → payment (D10c).
 Four GHL write paths, three verbs: `signUp` → `ensureCrmIdentity` (upsertContact), application
 **`submit`** (createOpportunity — `start` reaches GHL zero times under D10),
 `SalesDeskService.newDeal` (createOpportunity), and
-`MarketingLeadService.capture` (**upsertOpportunity** — the one place a repeat enquiry reuses an
-open deal).
+`MarketingLeadService.openLead` (**upsertOpportunity** — the one place a repeat enquiry reuses an
+open deal; **D56:** skipped when that deal has a pending `sync_outbox` push — the queued edit wins).
 
 **Documents** enter at the **case** today; D33 adds the request-stage upload keyed by the **GHL
 contact id** (D41 — one id names a contact everywhere; `DocumentStore.clientKey` moved back onto it

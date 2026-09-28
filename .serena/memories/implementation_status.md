@@ -587,4 +587,6 @@ an expert push opened with no tab open lands on `/case` without the fragment tok
 
 **2026-09-28:** Q6b closed (no mail for unknown emails; the Welcome screen tells experts to use the email they joined with). Status rows fixed: Client Portal COMPLETE, Documents no longer cites Q8.
 
-**Next up (2026-09-29):** see the 'Next up' list at the top of `.claude/implementation-status.md` — D55 appointments on GHL APIs, D56 lead vs queue, D58 four client emails, D59 no expert payouts, then real-service verification.
+**2026-09-29 — D56 DONE.** `openLead` skips `upsertOpportunity` when the contact's open deal (`OpportunityMirrorService.openFor`) has a pending outbox push (`SyncOutboxService.isPending`); returns the mirror row, `created = false`. Backend 1284/0/0/4.
+
+**Next up (2026-09-29):** see the 'Next up' list at the top of `.claude/implementation-status.md` — D55 appointments on GHL APIs, D58 four client emails, D59 no expert payouts, then real-service verification.

@@ -178,14 +178,16 @@ it the very next edit of a just-created deal was refused as "not in the mirror y
 full `MIRROR_DELTA`.
 
 `upsertOpportunity` means one open opportunity per contact per pipeline. It is correct for a
-marketing lead and would be wrong for a second sale.
+marketing lead and would be wrong for a second sale. **D56:** when that open deal has a push still
+waiting in `sync_outbox`, `openLead` does not upsert at all — the queued edit wins and the desk
+gets the mirror row back with `created = false`.
 
 ### TARGET WORKFLOW
 
 One contact, many opportunities. **Three of the four paths already do this.**
 `MarketingLeadService` is the divergence — deliberate and documented, but it is the one place a
 second enquiry from the same person overwrites the first lead's name and value instead of opening
-a new one. Whether that stays is `open-decisions.md` → Q1.
+a new one. It stays (D56), except that a queued edit is never overwritten.
 
 ---
 
