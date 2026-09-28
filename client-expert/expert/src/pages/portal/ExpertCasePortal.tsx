@@ -14,8 +14,7 @@ import { ErrorState } from '@shared/components/common/ErrorState'
 import { FileDropzone, validateFile } from '@shared/components/common/FileDropzone'
 import { ListSkeleton } from '@shared/components/common/LoadingState'
 import { PageHeader } from '@shared/components/common/PageHeader'
-import { NO_TOKEN, tokenFromFragment } from '@shared/lib/portal'
-import { hasPortalToken, setPortalToken, statusOf } from '@shared/services/apiClient'
+import { hasPortalToken, statusOf } from '@shared/services/apiClient'
 import { formatDate } from '@shared/utils/formatters'
 import {
   expertFailureMessage,
@@ -57,15 +56,8 @@ import { ExpertChat } from '@/components/ExpertChat'
 export default function ExpertCasePortal() {
   const queryClient = useQueryClient()
 
-  // Captured during the first render rather than in an effect: the token has to be on the client
-  // before the query fires, and an effect runs after.
-  const [tokenPresent] = useState(() => {
-    const token = tokenFromFragment(window.location.hash)
-    if (token) setPortalToken(token)
-    return hasPortalToken()
-  })
-
-  // A signed-in expert names the case (Unit 59); a staff-minted link names none and the token decides.
+  // Signing in is the only way to hold a token (Unit 59): there is no link to read one from.
+  const tokenPresent = hasPortalToken()
   const caseId = useSearchParams()[0].get('caseId')
   setOpenCase(caseId)
 
@@ -78,24 +70,17 @@ export default function ExpertCasePortal() {
 
   const refresh = () => void queryClient.invalidateQueries({ queryKey: ['expert-portal', 'case'] })
 
-  if (!tokenPresent) {
-    // A signed-in expert's token is memory-only, so a reload lands here: back to the door.
-    if (caseId) return <Navigate to="/" replace />
-    return (
-      <div className="mx-auto max-w-2xl p-6">
-        <PageHeader title="Your assigned case" description={NO_TOKEN} />
-      </div>
-    )
-  }
+  // The token is memory-only, so a reload lands here without one: back to the door.
+  if (!tokenPresent) return <Navigate to="/" replace />
+  // A case is always named; the list is where one is chosen.
+  if (!caseId) return <Navigate to="/cases" replace />
 
   return (
     <div className="mx-auto grid max-w-6xl gap-6 p-6 lg:grid-cols-[minmax(0,1fr)_24rem]">
       <div>
-        {caseId && (
-          <Link to="/cases" className="mb-4 inline-block text-sm text-primary underline">
-            All your cases
-          </Link>
-        )}
+        <Link to="/cases" className="mb-4 inline-block text-sm text-primary underline">
+          All your cases
+        </Link>
         {isLoading && <ListSkeleton />}
         {isError && (
           <ErrorState description={expertFailureMessage(statusOf(error))} onRetry={() => void refetch()} />

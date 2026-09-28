@@ -18,7 +18,6 @@ import com.ie.evalos.service.ExpertNetworkMetricsService;
 import com.ie.evalos.service.GmOverviewService;
 import com.ie.evalos.service.NavBadgeService;
 import com.ie.evalos.service.PmMetricsService;
-import com.ie.evalos.service.PortalLinkLedgerService;
 import com.ie.evalos.service.RevenueMetricsService;
 
 import org.junit.jupiter.api.Test;
@@ -76,9 +75,6 @@ class GmOverviewRouteTest {
 
 	@MockitoBean
 	GmOverviewService gmOverview;
-
-	@MockitoBean
-	PortalLinkLedgerService ledger;
 
 	@MockitoBean
 	PmMetricsService pm;

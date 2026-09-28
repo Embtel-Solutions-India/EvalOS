@@ -86,8 +86,8 @@ The ones most often violated from memory:
   brand-locked role to an unattributable figure. `/api/opportunities/board` is the one narrowed
   case: `evalos.ghl.sales-brand` names the owning brand and assignment refuses any other, so its
   brand *is* provable and SALES/MARKETING reach it.
-- Experts have **no accounts** — a staff-minted link is the only way in, and whether that changes
-  is **waiting on a stakeholder discussion**, not on code (D23, Q6).
+- Experts have **accounts** (D23, Unit 59): hired → added to the expert database → sign up → set
+  password → sign in. **No staff-minted link exists any more.**
 
 **The business answered five open questions on 2026-09-17 (D33–D38, D19c):**
 
@@ -213,10 +213,9 @@ than account-scoped, and one person may sit on two brands' panels. Recommendatio
 invitation-only sign-up bound to `expert.id`, party-scoped tokens kept underneath, brand on the
 token and not the account.
 
-**Nothing is deleted yet, and the ordering is deliberate.** `mintForExpert`/`mintForParty` are
-still wired into four staff screens and every link already in an expert's inbox points at `/case`,
-so minting and that route retire in ONE change once the replacement exists. Until then the expert
-portal's `/` is a holding page that offers no door.
+**Staff-minted expert links are removed (2026-09-28)** — `mintForExpert` / `mintPartyForExpert`,
+the staff "Send link" button, the portal-links ledger and the token-in-the-URL `/case` all went in
+Unit 59, and `V73` revoked the live links. Signing in is the only mint.
 
 **D50 (2026-09-25/26, Unit 57): case chat is EvalOS-owned.** Three conversations per case (Client,
 Internal, Expert), membership computed from assignments, GM/BM as viewers, text only, read-only at
@@ -240,4 +239,4 @@ whose text the business will give (Q6b; sends nothing until then), same screen a
 downloads beside it. **Q11 → D54:** a GM/Sales screen of DRAFT requests older than 48h, no sweep.
 **D53:** no outbound webhooks, no Handoff C (invariant 11 struck).
 
-**D23 built (Unit 59 phase 1):** one expert account per roster row, brand from `evalos.portal.expert-brand`; two panels = two accounts. Staff-minted links retire in phase 2.
+**D23 built (Unit 59):** one expert account per roster row, brand from `evalos.portal.expert-brand`; two panels = two accounts. No staff-minted links.

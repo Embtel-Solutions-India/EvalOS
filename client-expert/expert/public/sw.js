@@ -1,9 +1,8 @@
 /*
  * Chat push (Unit 57 §6) — the expert portal's copy of client/public/sw.js. Push only.
  *
- * **Known limit until experts have accounts (Q6):** the credential is the link's fragment, held in
- * memory, so a click with no portal tab open reaches /case without it and the page asks for the
- * link. With a tab open, that tab is focused and keeps its token.
+ * The expert's token is memory-only, so a click with no portal tab open reaches /case without it
+ * and the page sends them to sign in. With a tab open, that tab is focused and keeps its token.
  *
  * The payload is ChatPushNotifier's { title, body, url, tag }: who and where, never what. `tag` is
  * the conversation id, so a later message replaces the earlier notification rather than stacking.

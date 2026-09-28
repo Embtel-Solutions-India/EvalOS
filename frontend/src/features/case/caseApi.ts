@@ -265,20 +265,3 @@ export async function fetchPmNotes(brandId: string | null, signal?: AbortSignal)
   return unwrap<CaseNotes[]>(api.get('/cases/pm-notes', { params: brandId ? { brandId } : {}, signal }))
 }
 
-/**
- * Mint (or re-mint) the **expert's** portal link for this case (Unit 15).
- *
- * **The token exists exactly once, in this response.** Nothing reads it back — a staff member who
- * loses it re-mints, which revokes the previous one immediately. So the URL is shown, copied, and
- * never stored by this app.
- *
- * **The `audience` argument is gone, and it was always `'EXPERT'` here.** The route defaulted to
- * `CLIENT` and no caller ever asked for it: clients reach the portal from a button on the website
- * and sign in (Unit 42), so nothing mints them a link. The expert has no account and this link is
- * still the only way they are reached at all.
- */
-export async function mintPortalLink(caseId: string): Promise<{ url: string; expiresAt: string }> {
-  return unwrap<{ url: string; expiresAt: string }>(
-    api.post(`/cases/${caseId}/portal-link`),
-  )
-}

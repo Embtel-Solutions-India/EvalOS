@@ -198,7 +198,7 @@ DOC_COLLECTION ─ coordinator chases the checklist; client uploads to S3
  → PM_REVIEW ─ PM writes strategy notes, assigns an expert
  → DRAFT_IN_PROGRESS → DRAFT_REVIEW ─ CM uploads the draft as Word + PDF (POST …/drafts); PM approves or returns
  → READY_TO_SEND → CLIENT_REVIEW ─ client comments, then approves or requests changes on that version
- → CLIENT_APPROVAL → EXPERT_SIGNING ─ expert accepts / declines / signs via a staff-minted link
+ → CLIENT_APPROVAL → EXPERT_SIGNING ─ expert accepts / declines / signs, signed in (Unit 59)
  → FINAL_QC ─ PM passes or fails
  → READY_TO_DELIVER → DELIVERED → CLOSED
 ```
@@ -399,4 +399,4 @@ Expert Portal /  → POST /api/portal/auth/expert/sign-up   roster match in the 
 /set-password#token → POST …/set-password → party-scoped expert token
 /cases → /case?caseId=                     expert actions take ?caseId
 ```
-Staff-minted `/case#token` links still work until Unit 59 phase 2.
+**There is no other way in:** staff-minted expert links were removed and live ones revoked (`V73`).
