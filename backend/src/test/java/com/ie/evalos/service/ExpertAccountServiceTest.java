@@ -108,7 +108,7 @@ class ExpertAccountServiceTest {
 		verify(mailer).sendExpertLink(any(), any(), anyString(), eq(true));
 	}
 
-	/** Q6b: the other mail is not written yet, so an unknown email sends nothing and opens nothing. */
+	/** Q6b: an unknown email gets no mail and no account — experts sign up only once hired. */
 	@Test
 	void anUnknownEmailSendsNothingAndOpensNoAccount() {
 		given(experts.findByBrandIdAndEmailIgnoreCase(BRAND, "nobody@example.com")).willReturn(Optional.empty());

@@ -64,7 +64,8 @@ export default function Welcome() {
         {linkSent ? (
           <p className="text-sm text-muted-foreground" role="status">
             If that address is on our expert panel, a link to set your password is on its way. It works once and
-            expires in 30 minutes.
+            expires in 30 minutes. Nothing arrived? Use the email you joined the panel with — we invite you to
+            sign up once you are hired.
           </p>
         ) : (
           <form className="space-y-4" onSubmit={(event) => void onSignIn(event)}>

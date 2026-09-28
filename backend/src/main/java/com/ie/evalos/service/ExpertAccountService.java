@@ -84,8 +84,8 @@ public class ExpertAccountService {
 	public void sendLink(String email) {
 		Optional<Expert> found = roster(email);
 		if (found.isEmpty()) {
-			// Q6b: an unknown email gets a different mail, whose wording the business will supply.
-			// Until then nothing is sent — and the caller answers identically either way.
+			// Q6b (2026-09-28): nothing, by decision. An expert signs up only after being hired and
+			// told to, so an unknown address has nobody to write to. The caller answers identically.
 			return;
 		}
 		Expert expert = found.get();

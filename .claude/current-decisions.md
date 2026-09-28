@@ -381,9 +381,9 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
   did.
   **The sign-up process was decided on 2026-09-28 (closes Q6):** an expert signs up with their
   email, and EvalOS checks it against the expert database. **Found → a set-password email** through
-  the Unit 52 mail channel, the account bound to that `expert.id`; **not found → a different email,
-  whose wording the business will supply** (Q6b) — until then that path sends nothing, and the
-  screen answers the two cases identically so the form cannot be used to probe the roster.
+  the Unit 52 mail channel, the account bound to that `expert.id`;   **not found → no email at all**
+  (Q6b, 2026-09-28): an expert signs up only after being hired and told to. The screen answers the
+  two cases identically so the form cannot be used to probe the roster.
   **Built as Unit 59 (2026-09-28):** one account per roster row, brand from
   `evalos.portal.expert-brand`; an expert on two panels has two accounts, one per brand's portal.
   **Staff-minted expert links are removed (2026-09-28), not phased out.** The business set the

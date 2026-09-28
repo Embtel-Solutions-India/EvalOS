@@ -25,13 +25,7 @@ is now gated on whichever unit moves creates onto the queue.
 
 ## Blocking the portals
 
-**Q6b — What does an expert sign-up with an unknown email receive?**
-Q6 is decided (D23): a known email gets a set-password mail. The business will supply the wording
-for the other case.
-_Recommend:_ a short "we could not find you on our expert panel — reply to <panel address> to
-join" mail, sent through the same channel so both cases cost the same and look the same on screen.
-_Gates:_ only that mail; the path sends nothing until the text arrives. The hook is
-`ExpertAccountService.sendLink`'s not-found branch.
+_Nothing open here: Q6b (unknown-email mail) was answered on 2026-09-28 — no mail (D23)._
 
 ## Appointments and conversations
 

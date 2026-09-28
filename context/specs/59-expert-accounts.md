@@ -2,7 +2,7 @@
 
 **Decided 2026-09-28 by the business (D23, closing Q6):** an expert signs up with their email;
 EvalOS checks it against the expert database; a known email gets a set-password email, an unknown
-one gets a different email whose wording the business will supply (Q6b). **Status: BUILT
+one gets no email at all — experts sign up only once hired and told to (Q6b, 2026-09-28). **Status: BUILT
 2026-09-28.**
 
 **The flow is the only way in (business, 2026-09-28):** an expert is hired → staff add them to the
@@ -27,7 +27,7 @@ consume it unchanged. **Signing in is the only thing that mints one** (§5).
 | 3 | An expert on two brands' panels | **Two roster rows, so two accounts, one per brand's portal deployment.** Nothing crosses brands: `mintForParty`'s rule (minting one brand's link must not reach the other's) holds because each account mints in its own brand. |
 | 4 | Several cases after sign-in | **A case list** (`GET /api/portal/expert/cases`, already built) at `/cases`; each opens `/case?caseId=`. The five case actions (`accept`, `request-evidence`, `decline`, `letter`, `signed-letter`) and `GET /case` gain an **optional `caseId`**: with it, `authorized(principal, caseId)` (expert and brand checked); without it, the expert's only case if they have exactly one. |
 | 5 | Sign-up vs. forgot password | **One act, two doors.** Both send "a link for this address": a known expert with no password gets *set password*, one with a password gets *reset password*. The screen says the same thing either way. |
-| 6 | Unknown email | **Sends nothing until Q6b's wording arrives** — one marked hook in `ExpertAccountService.sendLink`. The HTTP answer is identical (204) whether or not the email is on the roster, so the form cannot probe the panel. |
+| 6 | Unknown email | **Sends nothing, by decision (Q6b)** — experts are told to sign up only after being hired. The HTTP answer is identical (204) whether or not the email is on the roster, so the form cannot probe the panel. |
 | 7 | Mail | The Unit 52 channel (`ClientMailer`, SMTP) and the existing set / reset templates, whose copy is account-neutral. Audited as `EXPERT`, not `CLIENT`. |
 
 ## 2. Data — migration `V72` (`V71` stays reserved for the answers drop)
@@ -42,7 +42,7 @@ consume it unchanged. **Signing in is the only thing that mints one** (§5).
 
 | Route (permitAll, per-IP limited like the client's) | Does |
 |---|---|
-| `POST /api/portal/auth/expert/sign-up` `{email}` | known expert → set / reset mail (account created on first use); unknown → nothing (Q6b hook). **204 always** |
+| `POST /api/portal/auth/expert/sign-up` `{email}` | known expert → set / reset mail (account created on first use); unknown → nothing, by decision (Q6b). **204 always** |
 | `POST /api/portal/auth/expert/forgot-password` `{email}` | the same call |
 | `POST /api/portal/auth/expert/sign-in` `{email, password}` | 200 `{token, expiresAt}` or **one** 400 for every refusal |
 | `POST /api/portal/auth/expert/set-password` `{token, password ≥ 8}` | spends the link, sets the hash, signs in |

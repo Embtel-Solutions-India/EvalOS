@@ -240,3 +240,5 @@ downloads beside it. **Q11 → D54:** a GM/Sales screen of DRAFT requests older 
 **D53:** no outbound webhooks, no Handoff C (invariant 11 struck).
 
 **D23 built (Unit 59):** one expert account per roster row, brand from `evalos.portal.expert-brand`; two panels = two accounts. No staff-minted links.
+
+**Q6b answered (2026-09-28):** an unknown email at expert sign-up gets NO mail — experts are told to sign up only after being hired. Same screen answer either way.

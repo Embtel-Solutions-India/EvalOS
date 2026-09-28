@@ -581,6 +581,8 @@ an expert push opened with no tab open lands on `/case` without the fragment tok
 
 **2026-09-28 — chat features completed:** staff inbox tabs / open-only filter / search, typing line, participants with presence dots, seen-by, edit and delete of own messages (never for viewers). No backend change. Filters run client-side over the loaded 100.
 
-**2026-09-28 — Unit 59 phase 1 (expert accounts) BUILT.** V72 `expert_account` (bound to `expert.id`) + `expert_credential_token`; `ExpertAccountService`, `/api/portal/auth/expert/{sign-up, forgot-password, sign-in, set-password}` (the first two 204 always); `mintForExpertAccount` = the same party-scoped token; expert portal door, `/set-password`, `/cases`, `/case?caseId=`. Unknown-email mail waits on Q6b.
+**2026-09-28 — Unit 59 phase 1 (expert accounts) BUILT.** V72 `expert_account` (bound to `expert.id`) + `expert_credential_token`; `ExpertAccountService`, `/api/portal/auth/expert/{sign-up, forgot-password, sign-in, set-password}` (the first two 204 always); `mintForExpertAccount` = the same party-scoped token; expert portal door, `/set-password`, `/cases`, `/case?caseId=`. Unknown-email: no mail (Q6b closed).
 
 **2026-09-28 — staff-minted expert links REMOVED (Unit 59 complete).** `mintForExpert`, `mintPartyForExpert`, `statusForExpert`, `PortalLinkController`, the portal-links ledger (service, route, dashboard panel) and the expert card's Send-link button are gone; `/case` reads no URL token; `V73` revokes live expert links. Signing in (`mintForExpertAccount`) is the only mint. Backend 1282/0/0/4.
+
+**2026-09-28:** Q6b closed (no mail for unknown emails; the Welcome screen tells experts to use the email they joined with). Status rows fixed: Client Portal COMPLETE, Documents no longer cites Q8.

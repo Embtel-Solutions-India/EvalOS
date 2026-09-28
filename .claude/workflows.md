@@ -395,7 +395,7 @@ it; it now has a table, two audiences and a carry-forward.
 
 ```
 Expert Portal /  → POST /api/portal/auth/expert/sign-up   roster match in the portal's brand
-                    → set / reset mail; else nothing (Q6b); 204 always
+                    → set / reset mail; else nothing (by decision, Q6b); 204 always
 /set-password#token → POST …/set-password → party-scoped expert token
 /cases → /case?caseId=                     expert actions take ?caseId
 ```

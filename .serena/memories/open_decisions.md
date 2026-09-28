@@ -6,10 +6,9 @@
 Unresolved as of 2026-09-17:
 
 1. Does `MarketingLeadService` keep `upsertOpportunity`?
-6b. What mail does an expert sign-up with an unknown email get? (business to supply the text)
 9. Who owns an appointment, and how is employee availability modelled?
 
-**Resolved 2026-09-28:** ~~6. expert sign-up~~ → D23; ~~11. abandoned requests~~ → D54; ~~13. inline PDF~~ → D51 (view first); outbound webhooks → D53 (dropped). ~~8. several cases~~ → Unit 58 phase 3, Home lists every case (D51). ~~10. conversation sidebar~~ → **D52**: none; GHL conversations stay in GHL.
+**Resolved 2026-09-28:** ~~6b. unknown-email mail~~ → none (experts sign up only once hired). ~~6. expert sign-up~~ → D23; ~~11. abandoned requests~~ → D54; ~~13. inline PDF~~ → D51 (view first); outbound webhooks → D53 (dropped). ~~8. several cases~~ → Unit 58 phase 3, Home lists every case (D51). ~~10. conversation sidebar~~ → **D52**: none; GHL conversations stay in GHL.
 
 **Resolved 2026-09-26:** ~~h does the client see who works their case~~ → Unit 57: the case team by name in
 the Client conversation; the client never shares a conversation with the expert.
