@@ -386,13 +386,12 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
   screen answers the two cases identically so the form cannot be used to probe the roster.
   **Built as Unit 59 phase 1 (2026-09-28):** one account per roster row, brand from
   `evalos.portal.expert-brand`; an expert on two panels has two accounts, one per brand's portal.
-  Staff-minted links retire in phase 2.
-  **Nothing is removed yet, and that ordering is deliberate.** `PortalAccessService.mintForExpert`
-  and `mintForParty` are still wired into four staff screens and every link already in an
-  expert's inbox points at `/case` on the expert portal, so minting and the route it feeds are
-  retired together, in one change, once the replacement exists. Until then the expert portal's `/`
-  is a **holding page** that offers no door, because offering a sign-in that does not exist is
-  worse than saying so.
+  Staff-minted links are removed in the same unit (below).
+  **Staff-minted expert links are removed (2026-09-28), not phased out.** The business set the
+  flow: hired → added to the expert database → sign up → set-password link → sign in. There is no
+  second door, so `mintForExpert` / `mintPartyForExpert`, the staff "portal link" button, the
+  token-in-the-URL `/case` and the portal-links ledger all go in Unit 59, and live expert links are
+  revoked by migration.
 
 ## Data
 
