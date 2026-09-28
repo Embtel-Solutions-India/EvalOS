@@ -1,3 +1,5 @@
 export * from './core/types'
 export * from './core/api'
 export * from './core/reducer'
+export * from './core/realtime'
+export * from './core/client'
