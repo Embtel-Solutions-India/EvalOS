@@ -43,6 +43,26 @@ describe('createChatApi', () => {
     expect(calls[7].options).toEqual({ body: { messageId: 'm2' } })
   })
 
+  it('speaks the edit, delete, search, read-state, presence and typing routes', async () => {
+    const { calls, api } = recorder()
+    await api.edit('m1', 'fixed')
+    await api.remove('m1')
+    await api.search('passport', { type: 'INTERNAL' })
+    await api.readState('v1')
+    await api.presence('v1')
+    await api.typing('v1')
+    expect(calls.map((c) => `${c.method} ${c.path}`)).toEqual([
+      'PUT /messages/m1',
+      'DELETE /messages/m1',
+      'GET /search',
+      'GET /conversations/v1/read-state',
+      'GET /conversations/v1/presence',
+      'POST /conversations/v1/typing',
+    ])
+    expect(calls[0].options).toEqual({ body: { body: 'fixed' } })
+    expect(calls[2].options).toEqual({ params: { q: 'passport', type: 'INTERNAL' } })
+  })
+
   it('builds the server cursor from a message', () => {
     expect(cursorOf({ id: 'm1', createdAt: '2026-09-27T10:00:00.123Z' } as Message)).toBe('2026-09-27T10:00:00.123Z|m1')
   })

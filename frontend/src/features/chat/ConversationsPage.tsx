@@ -19,7 +19,7 @@ export default function ConversationsPage() {
           className={`rounded-lg border p-3 ${conversationId ? 'hidden lg:block' : ''}`}
           style={{ background: 'var(--bg-surface)', borderColor: 'var(--border-default)' }}
         >
-          <ChatInbox selectedId={conversationId} onOpen={(id) => navigate(`/conversations/${id}`)} />
+          <ChatInbox filters selectedId={conversationId} onOpen={(id) => navigate(`/conversations/${id}`)} />
         </div>
         <div
           className={`flex h-[calc(100svh-10rem)] flex-col rounded-lg border p-4 ${conversationId ? '' : 'hidden lg:flex'}`}

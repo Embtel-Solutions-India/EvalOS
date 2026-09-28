@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { createChatClient } from './client'
+import { createChatClient, TYPING_MS } from './client'
 import type { ChatApi } from './api'
 import type { Realtime, RealtimeHandlers } from './realtime'
 import type { Conversation, Message, Page } from './types'
@@ -25,6 +25,9 @@ function fakeApi(over: Partial<ChatApi> = {}): ChatApi {
     read: vi.fn().mockResolvedValue(undefined),
     unread: vi.fn().mockResolvedValue(0),
     realtimeToken: vi.fn(),
+    readState: vi.fn().mockResolvedValue({ conversationId: 'v1', readers: [] }),
+    typing: vi.fn().mockResolvedValue(undefined),
+    remove: vi.fn().mockResolvedValue(undefined),
     ...over,
   } as ChatApi
 }
@@ -42,6 +45,47 @@ function fakeRealtime() {
 }
 
 describe('createChatClient', () => {
+  it('shows someone typing, then forgets them after TYPING_MS', async () => {
+    vi.useFakeTimers()
+    try {
+      const { realtime, handlers } = fakeRealtime()
+      const client = createChatClient(fakeApi(), realtime)
+      await client.start()
+      handlers().onEvent({ type: 'typing', conversationId: 'v1', data: { kind: 'STAFF', id: 'staff-1' } })
+      expect(client.getState().typing.v1).toEqual(['STAFF:staff-1'])
+      vi.advanceTimersByTime(TYPING_MS)
+      expect(client.getState().typing.v1).toEqual([])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('sends one typing per 3 seconds, whatever the keystrokes', async () => {
+    const api = fakeApi()
+    const client = createChatClient(api, null)
+    client.typing('v1')
+    client.typing('v1')
+    expect(api.typing).toHaveBeenCalledTimes(1)
+  })
+
+  it('marks a deleted message deleted even with no live event', async () => {
+    const api = fakeApi({ messages: vi.fn().mockResolvedValue(page([msg('m1', 'v1', { mine: true })])) })
+    const client = createChatClient(api, null)
+    await client.start()
+    await client.openConversation('v1')
+    await client.remove(client.getState().messages.v1[0])
+    expect(api.remove).toHaveBeenCalledWith('m1')
+    expect(client.getState().messages.v1[0].deleted).toBe(true)
+  })
+
+  it('loads who has read the conversation when it opens', async () => {
+    const readers = [{ kind: 'STAFF' as const, id: 'staff-1', name: 'Cam', lastReadMessageId: 'm1' }]
+    const client = createChatClient(fakeApi({ readState: vi.fn().mockResolvedValue({ conversationId: 'v1', readers }) }), null)
+    await client.start()
+    await client.openConversation('v1')
+    expect(client.getState().readers.v1).toEqual(readers)
+  })
+
   it('tells the app about a message from someone else off screen, never mine or the open one', async () => {
     const { realtime, handlers } = fakeRealtime()
     const client = createChatClient(fakeApi(), realtime)

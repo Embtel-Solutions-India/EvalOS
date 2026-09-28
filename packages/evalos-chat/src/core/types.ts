@@ -55,6 +55,17 @@ export type Conversation = {
 
 export type Page<T> = { items: T[]; nextCursor: string | null }
 
+/** `ChatViews.ReaderMark`: how far one participant has read. Also the `read.moved` event's data. */
+export type ReaderMark = { kind: ParticipantKind; id: string; name: string | null; lastReadMessageId: string }
+
+/** `GET conversations/{id}/presence`: `"KIND:uuid"` → online, for the current participants only. */
+export type Presence = Record<string, boolean>
+
+/** `"KIND:uuid"`, the key presence and typing use. */
+export function keyOf(who: { kind: ParticipantKind; id: string }): string {
+  return `${who.kind}:${who.id}`
+}
+
 /** The Ably message data (Unit 57 §5). */
 export type Envelope = { type: string; conversationId: string; data: unknown }
 

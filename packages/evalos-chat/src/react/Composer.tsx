@@ -58,7 +58,10 @@ export function Composer({
         value={body}
         placeholder="Write a message"
         aria-label="Message"
-        onChange={(e) => setBody(e.target.value)}
+        onChange={(e) => {
+          setBody(e.target.value)
+          client.typing(conversationId)
+        }}
         onKeyDown={onKeyDown}
       />
       <div className="ec-composer__bar">

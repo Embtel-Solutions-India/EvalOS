@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react'
 import type { Message } from '../core/types'
 import { useChat, useChatClient } from './ChatProvider'
 import { Composer } from './Composer'
-import { MessageList } from './MessageList'
+import { MessageList, TypingLine } from './MessageList'
+import { Participants } from './Participants'
 
 /** One conversation: case header, read-only / oversight banner, history, composer. */
 export function ConversationView({ conversationId, onUploadDocument }: { conversationId: string; onUploadDocument?: () => void }) {
@@ -28,6 +29,7 @@ export function ConversationView({ conversationId, onUploadDocument }: { convers
       <header className="ec-header">
         <strong>{conversation.caseCode}</strong>
         {conversation.serviceType && <span className="ec-muted"> · {conversation.serviceType.replaceAll('_', ' ').toLowerCase()}</span>}
+        <Participants conversationId={conversationId} />
       </header>
       {viewer && <p className="ec-banner">Oversight — read only</p>}
       {!viewer && conversation.status === 'READ_ONLY' && <p className="ec-banner">This case is closed. The conversation is kept as its history.</p>}
@@ -42,6 +44,7 @@ export function ConversationView({ conversationId, onUploadDocument }: { convers
       ) : (
         <MessageList conversationId={conversationId} readOnly={readOnly} onReply={setReplyTo} />
       )}
+      <TypingLine conversationId={conversationId} />
       {!readOnly && (
         <Composer conversationId={conversationId} replyTo={replyTo} onCancelReply={() => setReplyTo(null)} onUploadDocument={onUploadDocument} />
       )}

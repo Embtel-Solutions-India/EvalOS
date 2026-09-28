@@ -1,4 +1,4 @@
-import type { Conversation, Envelope, Me, Message, Reaction } from './types'
+import { keyOf, type Conversation, type Envelope, type Me, type Message, type Reaction, type ReaderMark } from './types'
 
 export type RealtimeStatus = 'connecting' | 'live' | 'offline'
 
@@ -17,6 +17,10 @@ export type ChatState = {
   replies: Record<string, Message[]>
   unreadTotal: number
   realtime: RealtimeStatus
+  /** Read watermarks per conversation, for "seen by". Absent = not fetched. */
+  readers: Record<string, ReaderMark[]>
+  /** Who is typing per conversation, as `"KIND:uuid"` keys. The client expires them. */
+  typing: Record<string, string[]>
 }
 
 export const initialState: ChatState = {
@@ -30,6 +34,8 @@ export const initialState: ChatState = {
   replies: {},
   unreadTotal: 0,
   realtime: 'connecting',
+  readers: {},
+  typing: {},
 }
 
 export type Action =
@@ -47,6 +53,8 @@ export type Action =
   | { type: 'realtime'; status: RealtimeStatus }
   | { type: 'error'; message: string | null }
   | { type: 'event'; envelope: Envelope }
+  | { type: 'readState'; conversationId: string; readers: ReaderMark[] }
+  | { type: 'typing'; conversationId: string; key: string; on: boolean }
 
 export function reactedByMe(message: Message, reaction: Reaction, me: Me | null): boolean {
   return !!me && (message.reactions[reaction] ?? []).some((r) => r.kind === me.kind && r.id === me.id)
@@ -86,13 +94,19 @@ export function reduce(state: ChatState, action: Action): ChatState {
       return { ...state, error: action.message }
     case 'event':
       return onEvent(state, action.envelope)
+    case 'readState':
+      return { ...state, readers: { ...state.readers, [action.conversationId]: action.readers } }
+    case 'typing':
+      return setTyping(state, action.conversationId, action.key, action.on)
   }
 }
 
 function onEvent(state: ChatState, envelope: Envelope): ChatState {
   switch (envelope.type) {
     case 'message.created': {
-      const { state: next, added } = upsert(state, envelope.data as Message, 'append')
+      // Whoever just sent has stopped typing.
+      const sent = setTyping(state, envelope.conversationId, keyOf({ kind: (envelope.data as Message).authorKind, id: (envelope.data as Message).authorId }), false)
+      const { state: next, added } = upsert(sent, envelope.data as Message, 'append')
       const message = own(state, envelope.data as Message)
       if (!added || message.mine) return next
       const c = next.conversations[envelope.conversationId]
@@ -103,7 +117,13 @@ function onEvent(state: ChatState, envelope: Envelope): ChatState {
     case 'reactions.changed':
       return upsert(state, envelope.data as Message, 'replace-only').state
     case 'read.moved': {
-      const reader = envelope.data as { kind: string; id: string; lastReadMessageId: string }
+      const reader = envelope.data as ReaderMark
+      const known = state.readers[envelope.conversationId]
+      if (known) {
+        // Only once fetched: a partial list would claim the others have read nothing.
+        const others = known.filter((r) => keyOf(r) !== keyOf(reader))
+        state = { ...state, readers: { ...state.readers, [envelope.conversationId]: [...others, reader] } }
+      }
       const mine = state.me && reader.kind === state.me.kind && reader.id === state.me.id
       if (!mine) return state
       // `ReaderMark` carries only the watermark's message id, not its time, so "at or after the
@@ -178,4 +198,44 @@ function touch(state: ChatState, m: Message): ChatState {
 function patchConversation(state: ChatState, id: string, patch: Partial<Conversation>): ChatState {
   const c = state.conversations[id]
   return c ? { ...state, conversations: { ...state.conversations, [id]: { ...c, ...patch } } } : state
+}
+
+export type InboxFilter = { type?: Conversation['type']; status?: Conversation['status'] }
+
+/**
+ * The inbox narrowed by type and status, in inbox order. Done over the loaded inbox (100 rows)
+ * rather than a refetch, so switching tabs is instant.
+ * ponytail: past 100 conversations per person this hides the rest; pass the filter to `inbox()` then.
+ */
+export function filterInbox(state: Pick<ChatState, 'order' | 'conversations'>, filter: InboxFilter): string[] {
+  return state.order.filter((id) => {
+    const c = state.conversations[id]
+    return !!c && (!filter.type || c.type === filter.type) && (!filter.status || c.status === filter.status)
+  })
+}
+
+function setTyping(state: ChatState, conversationId: string, key: string, on: boolean): ChatState {
+  const now = state.typing[conversationId] ?? []
+  if (on === now.includes(key)) return state
+  const next = on ? [...now, key] : now.filter((k) => k !== key)
+  return { ...state, typing: { ...state.typing, [conversationId]: next } }
+}
+
+/**
+ * Who, besides me, has read up to my latest top-level message — "Seen by" under it. A watermark on
+ * a message this list does not hold (an unloaded reply, older history) is compared by the times
+ * the list does know; one it cannot place is left out rather than guessed.
+ */
+export function seenBy(messages: Message[], readers: ReaderMark[] | undefined, me: Me | null, replies: Message[] = []): string[] {
+  if (!me || !readers) return []
+  const latestMine = [...messages].reverse().find((m) => m.mine && !m.deleted)
+  if (!latestMine) return []
+  const at = new Map([...messages, ...replies].map((m) => [m.id, m.createdAt]))
+  return readers
+    .filter((r) => keyOf(r) !== keyOf(me))
+    .filter((r) => {
+      const t = at.get(r.lastReadMessageId)
+      return t !== undefined && t >= latestMine.createdAt
+    })
+    .map((r) => r.name ?? 'Someone')
 }
