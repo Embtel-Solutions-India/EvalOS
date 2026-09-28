@@ -555,4 +555,10 @@ Conversations (unread badge) · My requests; `ChatProvider` in `PortalLayout`. R
 Meetings, DraftReview pages; backend `/case`, `/approve`, `/request-revisions`, case-less
 `/documents`, version-less `cases/{id}/approve|request-revisions`, `/meetings` +
 `PortalMeetingService` + `GhlCalendarClient.forContact`. Q8 closed (Home is the picker). Draft PDF
-downloads, never inline — Q13. Backend 1298/0/0/4; portals 73. Push is phase 4.
+downloads, never inline — Q13. Backend 1298/0/0/4; portals 73.
+
+**2026-09-28 — Unit 58 PHASE 4 (push) BUILT — Unit 58 COMPLETE.** `client/public/sw.js` (push →
+notification tagged by conversation; click focuses an open tab and routes it by postMessage, since a
+reload drops the memory-only token, else opens one — same origin only); `evalos-chat` `core/push.ts`
++ `PushCard` on Conversations (permission only from a click; hidden without VAPID keys); sign-in
+returns to the bounced-from page. Staff and expert apps still have no service worker. Portals 76.

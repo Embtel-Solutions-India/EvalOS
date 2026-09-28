@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { ChatInbox, ConversationView } from '@evalos/chat'
+import { ChatInbox, ConversationView, PushCard } from '@evalos/chat'
 import { Button } from '@shared/components/ui/button'
 import { Card } from '@shared/components/ui/card'
 import { PageHeader } from '@shared/components/common/PageHeader'
@@ -15,6 +15,8 @@ export default function Conversations() {
   return (
     <div className="mx-auto max-w-6xl space-y-6">
       <PageHeader title="Conversations" description="Talk to the team working on each of your cases." />
+      {/* The one place permission is asked — never on load (57 §6). */}
+      <PushCard workerUrl="/sw.js" />
       <div className="grid gap-4 lg:grid-cols-[20rem_1fr]">
         <Card className={cn('p-3', open && 'hidden lg:block')}>
           <ChatInbox onOpen={setOpen} selectedId={open ?? undefined} />

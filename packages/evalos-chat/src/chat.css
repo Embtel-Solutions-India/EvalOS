@@ -47,3 +47,5 @@
 .ec-empty { color: var(--chat-muted); font-size: 14px; }
 .ec-error { color: var(--chat-danger); font-size: 14px; }
 .ec-badge { min-width: 18px; padding: 0 5px; border-radius: 999px; background: var(--chat-accent); color: var(--chat-accent-text); font-size: 11px; font-weight: 600; text-align: center; line-height: 18px; }
+.ec-push { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px 12px; margin-bottom: 8px; border: 1px solid var(--chat-border); border-radius: var(--chat-radius); background: var(--chat-surface); color: var(--chat-text); font-size: 14px; }
+.ec-push p { margin: 0; }

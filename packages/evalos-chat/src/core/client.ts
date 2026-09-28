@@ -219,6 +219,8 @@ export function createChatClient(api: ChatApi, realtime: Realtime | null) {
   }
 
   return {
+    /** The REST calls, for what the store does not hold (push subscriptions). */
+    api,
     getState: () => state,
     subscribe(listener: () => void) {
       listeners.add(listener)

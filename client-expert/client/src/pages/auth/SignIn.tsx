@@ -58,7 +58,10 @@ export default function SignIn() {
   // have an account"), and on the two links back. The round trip between these two screens is
   // the most common thing a confused client does, and making them retype it each way is the
   // small insult at the end of being sent somewhere else.
-  const forwarded = (useLocation().state as { email?: string } | null)?.email ?? ''
+  const routed = useLocation().state as { email?: string; from?: string } | null
+  const forwarded = routed?.email ?? ''
+  // Where PortalLayout bounced them from (e.g. a push notification's case page); in-app paths only.
+  const after = routed?.from?.startsWith('/') && !routed.from.startsWith('//') ? routed.from : '/dashboard'
 
   const [email, setEmail] = useState(forwarded)
   const [state, setState] = useState<IdentifyState | null>(null)
@@ -113,7 +116,7 @@ export default function SignIn() {
     setSignInError(undefined)
     try {
       await signIn(email.trim(), password)
-      navigate('/dashboard')
+      navigate(after)
     } catch (error) {
       // **One message, because the server sends one refusal.** A wrong password, an account with
       // no password and an unknown email are deliberately indistinguishable here (`identify` is

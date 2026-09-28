@@ -28,6 +28,11 @@ export function createChatApi(request: Request) {
       request<void>('POST', `/conversations/${conversationId}/read`, { body: { messageId } }),
     unread: () => request<number>('GET', '/unread'),
     realtimeToken: () => request<TokenRequest>('GET', '/realtime/token'),
+    /** 503 when the server has no VAPID keys: push is off, chat still works (57 §6). */
+    pushPublicKey: async () => (await request<{ publicKey: string }>('GET', '/push/public-key')).publicKey,
+    subscribePush: (subscription: PushSubscriptionJSON) =>
+      request<void>('POST', '/push/subscriptions', { body: subscription }),
+    unsubscribePush: (endpoint: string) => request<void>('DELETE', '/push/subscriptions', { body: { endpoint } }),
   }
 }
 

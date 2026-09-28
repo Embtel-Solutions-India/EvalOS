@@ -1,7 +1,7 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { ChatProvider } from '@evalos/chat'
 import '@evalos/chat/chat.css'
-import { Navigate, useLocation } from 'react-router-dom'
+import { Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { usePortalToken } from '@shared/hooks/usePortalToken'
 import { LiquidBackground } from '@shared/components/common/LiquidBackground'
 import { PageTransition } from '@shared/components/common/PageTransition'
@@ -46,9 +46,21 @@ export function PortalLayout() {
   const tokenPresent = usePortalToken()
   // One chat client for the signed-in shell: the nav badge, the inbox and each case's panel share it.
   const [chat] = useState(createPortalChat)
+  const navigate = useNavigate()
+
+  // A push notification clicked while this tab is open (public/sw.js): route in place, keeping the token.
+  useEffect(() => {
+    if (!('serviceWorker' in navigator)) return
+    const onMessage = (event: MessageEvent) => {
+      const path = event.data?.type === 'evalos:open' ? event.data.path : null
+      if (typeof path === 'string' && path.startsWith('/')) navigate(path)
+    }
+    navigator.serviceWorker.addEventListener('message', onMessage)
+    return () => navigator.serviceWorker.removeEventListener('message', onMessage)
+  }, [navigate])
 
   if (!tokenPresent) {
-    return <Navigate to="/signin" replace />
+    return <Navigate to="/signin" replace state={{ from: location.pathname + location.search }} />
   }
 
   return (
