@@ -428,6 +428,9 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
 - **D38.** **Deploying and wiring the Client and Expert Portals is DevOps's, outside this
   repository.** No Dockerfile, compose service or CI job is owed here for either, and their
   absence stops being a gap in the status table. Decided 2026-09-17. _(Closes Q7.)_
+- **D52.** **No GHL conversation sidebar.** EvalOS does not mirror or send GHL conversations
+  (SMS / email / WhatsApp / social); that stays in GHL. The only messaging in EvalOS is the case
+  chat (Unit 57). Decided 2026-09-28. _(Closes Q10; drops tier 3 of the Unit 47 mirror.)_
 
 ## Resolved 2026-09-16
 

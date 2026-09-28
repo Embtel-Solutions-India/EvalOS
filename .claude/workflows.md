@@ -337,9 +337,8 @@ deal of that contact. **An EvalOS note's author may edit or delete it** (Unit 54
 queued and the drain overwrites (`PUT`) or deletes (`DELETE`) the GHL copy; GHL notes are changed in
 GHL only. Spec `54-two-way-note-sync.md`.
 
-A custom EvalOS conversation sidebar backed by GHL: list, search, unread, assignment, history,
-SMS / email / WhatsApp / social, attachments, internal comments, calls, and contact / opportunity /
-request / appointment context. This is tier 3 of the mirror (Unit 47) and has no spec of its own.
+**No GHL conversation sidebar (D52, 2026-09-28).** GHL conversations stay in GHL; EvalOS's only
+messaging is the case chat (Unit 57, spec `57-case-chat.md`).
 
 ---
 

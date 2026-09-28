@@ -10,8 +10,9 @@ Unresolved as of 2026-09-17:
    on a technical answer. Build nothing that assumes accounts (D23).
 8. What does a client with two or more cases see? (the per-case picker)
 9. Who owns an appointment, and how is employee availability modelled?
-10. What is the scope of the conversation sidebar, and when? (Unit 47)
 11. Who chases an abandoned `DRAFT` request now D10 moved the opportunity to submit?
+
+**Resolved 2026-09-28:** ~~10. conversation sidebar~~ → **D52**: none; GHL conversations stay in GHL.
 
 **Resolved 2026-09-26:** ~~h does the client see who works their case~~ → Unit 57: the case team by name in
 the Client conversation; the client never shares a conversation with the expert.

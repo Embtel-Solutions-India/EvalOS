@@ -67,7 +67,7 @@ own `Instant.now()`, so lateness cannot be tested at a fixed point in time.
 This paragraph said "uncommitted, 121 paths, HEAD `dee45c6`" until Units 51, 52, 44a-44d and
 45a-45c landed. **CI still runs on `main` only**, so none of it has been through CI.
 
-NOT IMPLEMENTED: conversations, outbound webhooks (Handoff C), expert accounts, the GHL mirror
+NOT IMPLEMENTED: outbound webhooks (Handoff C), expert accounts, the GHL mirror
 (Units 44 to 48), request-stage documents, client payments (deliberate — they are GHL's).
 
 REMOVED 2026-09-16, and do not restore it from git: the two GHL funnel screens, `/marketing/email`

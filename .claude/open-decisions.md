@@ -8,7 +8,7 @@ House rule: every question carries a recommendation.
 _Q2 (request status model), Q3 (Sales approval rules) and Q4 (request documents) were resolved on
 2026-09-17 and left for `current-decisions.md` D33–D35. Q7 (portal deployment) left for D38, and
 carried-forward item (a) for D19c. Q12 (stage moves across pipelines) was resolved on
-2026-09-24 and left for D44._
+2026-09-24 and left for D44. Q10 (conversation sidebar) left for D52 on 2026-09-28._
 
 **Q1 — Should `MarketingLeadService` keep `upsertOpportunity`?**
 It reuses the one open opportunity per contact per pipeline, so a second enquiry from the same
@@ -66,13 +66,6 @@ _Recommend:_ add `team_member.ghl_user_id` first — it unblocks ownership, empl
 availability and assignment in one column — then decide cancel/guests/blocked-time as a unit.
 _Gates:_ the GHL-like booking experience.
 Answer: completly copy from ghl how they schedule and meeting.
-
-**Q10 — What is the scope of the conversation sidebar, and when?**
-Nothing exists. It is tier 3 of the mirror (Unit 47) and has no spec.
-_Recommend:_ spec it as its own unit after Unit 45's sync engine; start read-only (list, history,
-context) and add sending later, because sending is an invariant-14 question.
-_Gates:_ Unit 47.
-Answer no coonversation sidebar remove this.
 
 **Q11 — Who, if anyone, chases an abandoned request now that D10 moved the opportunity to
 submit?**
