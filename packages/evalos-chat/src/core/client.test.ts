@@ -302,4 +302,31 @@ describe('createChatClient', () => {
     expect(client.getState().messages.v1.map((m) => m.id)).toEqual(['m1'])
     expect(api.messages).toHaveBeenCalledTimes(2)
   })
+
+  /** Task 6 review, Important #1: `start()`'s default must not overwrite the provider's inbox
+   * filter with `{}` — a "Try again" retry (a bare `client.start()`) has to keep the last filter. */
+  it('a retry with no params keeps the last inbox filter', async () => {
+    const api = fakeApi()
+    const client = createChatClient(api, null)
+    await client.start({ type: 'CLIENT' })
+    await client.start()
+    expect(api.inbox).toHaveBeenCalledTimes(2)
+    expect(api.inbox).toHaveBeenNthCalledWith(1, { type: 'CLIENT' })
+    expect(api.inbox).toHaveBeenNthCalledWith(2, { type: 'CLIENT' })
+  })
+
+  /** Task 6 review, Important #2: a failed read-mark after a successful first page must not make
+   * `openConversation` reject — that would hide history that already loaded behind a load error. */
+  it('does not reject when the first page loads but marking it read fails', async () => {
+    const api = fakeApi({
+      inbox: vi.fn().mockResolvedValue({ items: [conv('v1', { unread: 2 })], nextCursor: null }),
+      messages: vi.fn().mockResolvedValue(page([msg('m1')])),
+      read: vi.fn().mockRejectedValue(new Error('network blip')),
+    })
+    const client = createChatClient(api, null)
+    await client.start()
+
+    await expect(client.openConversation('v1')).resolves.toBeUndefined()
+    expect(client.getState().messages.v1.map((m) => m.id)).toEqual(['m1'])
+  })
 })

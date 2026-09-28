@@ -37,7 +37,7 @@ export function createChatClient(api: ChatApi, realtime: Realtime | null) {
     dispatch({ type: 'unread', total: await api.unread() })
   }
 
-  async function start(params: InboxParams = {}) {
+  async function start(params: InboxParams = inboxParams) {
     const gen = ++generation
     inboxParams = params
     try {
@@ -107,7 +107,9 @@ export function createChatClient(api: ChatApi, realtime: Realtime | null) {
       dispatch({ type: 'page', conversationId: id, items: page.items, nextCursor: page.nextCursor })
       loaded.add(id)
     }
-    await markRead(id)
+    // Only a failed first fetch should reject and show "Could not load messages.": a failed
+    // read-mark is a transient watermark failure, not a reason to hide history that did load.
+    await markRead(id).catch(() => {})
   }
 
   function closeConversation(id: string) {
