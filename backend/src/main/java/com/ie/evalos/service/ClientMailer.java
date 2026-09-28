@@ -113,6 +113,15 @@ public class ClientMailer {
 	}
 
 	/**
+	 * An expert's set / reset link (Unit 59). The same templates — their copy is account-neutral —
+	 * and the same channel; only the trail says EXPERT.
+	 */
+	public boolean sendExpertLink(MailTransport.Recipient to, String fullName, String link, boolean reset) {
+		return send(to, reset ? templates.resetPassword(fullName, link) : templates.setPassword(fullName, link),
+				PortalAudience.EXPERT);
+	}
+
+	/**
 	 * The confirmation a client gets when their request reaches Sales — 2026-09-19.
 	 *
 	 * <p><strong>This is the message that needed invariant 14 amended.</strong> The two above prove
@@ -130,6 +139,10 @@ public class ClientMailer {
 	}
 
 	private boolean send(MailTransport.Recipient to, MailTemplates.Message message) {
+		return send(to, message, PortalAudience.CLIENT);
+	}
+
+	private boolean send(MailTransport.Recipient to, MailTemplates.Message message, PortalAudience audience) {
 		String subject = message.subject();
 		if (!canReach(to)) {
 			// Not an exception: the caller has already decided what to tell the client, and a
@@ -156,8 +169,8 @@ public class ClientMailer {
 		// True, not false: the message left, and that is what this method's boolean means. A
 		// missing trail row is a real problem and it is logged as one, but it is not the client's.
 		try {
-			audit.recordPortalEvent(to.brandId(), PortalAudience.CLIENT, "CLIENT_MAIL",
-					UUID.nameUUIDFromBytes(("CLIENT_MAIL:" + to.email()).getBytes(StandardCharsets.UTF_8)),
+			audit.recordPortalEvent(to.brandId(), audience, audience + "_MAIL",
+					UUID.nameUUIDFromBytes((audience + "_MAIL:" + to.email()).getBytes(StandardCharsets.UTF_8)),
 					AuditAction.PORTAL_LINK_ISSUED, null,
 					"sent '" + subject + "' via " + transport.name());
 		}

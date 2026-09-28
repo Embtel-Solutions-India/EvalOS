@@ -211,6 +211,25 @@ public class PortalAccessService {
 	}
 
 	/**
+	 * Mints a party-scoped expert token for an account whose password has just been verified
+	 * (Unit 59) — the same row {@link #mintPartyForExpert} issues, so nothing downstream knows an
+	 * account exists. Takes the entity, for the reason {@link #mintForClientAccount} does. The
+	 * caller audits the sign-in.
+	 */
+	@Transactional
+	public MintedToken mintForExpertAccount(com.ie.evalos.domain.ExpertAccount account) {
+		if (account.getId() == null) {
+			throw new IllegalTransitionException("this account has not been persisted, so a token would name nobody");
+		}
+		Instant now = Instant.now();
+		String token = freshToken();
+		retirePreviousExpertParty(account.getBrandId(), account.getExpertId(), now);
+		PortalAccess minted = tokens.save(PortalAccess.forParty(account.getBrandId(), PortalAudience.EXPERT, null,
+				account.getExpertId(), hash(token), now.plus(partyTtl)));
+		return new MintedToken(token, minted.getExpiresAt());
+	}
+
+	/**
 	 * Mints a party-scoped client link for an account whose password has just been verified
 	 * (Unit 42).
 	 *

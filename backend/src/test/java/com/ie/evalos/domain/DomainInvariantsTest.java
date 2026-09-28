@@ -84,6 +84,8 @@ class DomainInvariantsTest {
 				arguments(NotificationRepository.SCOPE, Notification.class),
 				arguments(ClientAccountRepository.SCOPE, ClientAccount.class),
 				arguments(ClientCredentialTokenRepository.SCOPE, ClientCredentialToken.class),
+				arguments(com.ie.evalos.repository.ExpertAccountRepository.SCOPE, ExpertAccount.class),
+				arguments(com.ie.evalos.repository.ExpertCredentialTokenRepository.SCOPE, ExpertCredentialToken.class),
 				arguments(MeetingRepository.SCOPE, Meeting.class),
 				arguments(FollowUpRepository.SCOPE, FollowUp.class),
 				arguments(ClientApplicationRepository.SCOPE, ClientApplication.class),

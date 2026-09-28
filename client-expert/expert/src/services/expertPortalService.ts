@@ -1,5 +1,22 @@
 import { apiClient, unwrap, type ApiResponse } from '@shared/services/apiClient'
-import type { ExpertCaseView, SignedLetterView } from '@/lib/expertCase'
+import type { ExpertCaseSummary, ExpertCaseView, SignedLetterView } from '@/lib/expertCase'
+
+/**
+ * The case this page is on, when the expert signed in and named one (Unit 59). Held like the token:
+ * one page, one case at a time. Unset, every call is token-scoped, as a staff-minted link needs.
+ */
+let openCase: string | null = null
+
+export function setOpenCase(caseId: string | null): void {
+  openCase = caseId
+}
+
+const scoped = () => (openCase ? { params: { caseId: openCase } } : {})
+
+/** Every case this expert is on — a signed-in expert's home (Unit 59). */
+export async function listCases(): Promise<ExpertCaseSummary[]> {
+  return unwrap(apiClient.get<ApiResponse<ExpertCaseSummary[]>>('/expert/cases'))
+}
 
 /**
  * The expert's case, against EvalOS's real portal API (Unit 15, wired in 34e).
@@ -15,7 +32,7 @@ import type { ExpertCaseView, SignedLetterView } from '@/lib/expertCase'
 
 /** The whitelisted view. The first call also stamps the read receipt the case manager reads. */
 export async function getCase(): Promise<ExpertCaseView> {
-  return unwrap(apiClient.get<ApiResponse<ExpertCaseView>>('/expert/case'))
+  return unwrap(apiClient.get<ApiResponse<ExpertCaseView>>(openCase ? `/expert/cases/${openCase}` : '/expert/case'))
 }
 
 /**
@@ -26,7 +43,7 @@ export async function getCase(): Promise<ExpertCaseView> {
  * handle here.
  */
 export async function accept(): Promise<ExpertCaseView> {
-  return unwrap(apiClient.post<ApiResponse<ExpertCaseView>>('/expert/accept'))
+  return unwrap(apiClient.post<ApiResponse<ExpertCaseView>>('/expert/accept', undefined, scoped()))
 }
 
 /**
@@ -37,12 +54,12 @@ export async function accept(): Promise<ExpertCaseView> {
  * which is the point rather than a side effect.
  */
 export async function requestEvidence(missing: string): Promise<ExpertCaseView> {
-  return unwrap(apiClient.post<ApiResponse<ExpertCaseView>>('/expert/request-evidence', { missing }))
+  return unwrap(apiClient.post<ApiResponse<ExpertCaseView>>('/expert/request-evidence', { missing }, scoped()))
 }
 
 /** "I will not take this." The reason is required — it is what the rematch works from. */
 export async function decline(reason: string): Promise<ExpertCaseView> {
-  return unwrap(apiClient.post<ApiResponse<ExpertCaseView>>('/expert/decline', { reason }))
+  return unwrap(apiClient.post<ApiResponse<ExpertCaseView>>('/expert/decline', { reason }, scoped()))
 }
 
 /**
@@ -52,7 +69,7 @@ export async function decline(reason: string): Promise<ExpertCaseView> {
  * bytes. Fetched on the click and never stored.
  */
 export async function letterLink(): Promise<string> {
-  const { url } = await unwrap(apiClient.get<ApiResponse<{ url: string }>>('/expert/letter'))
+  const { url } = await unwrap(apiClient.get<ApiResponse<{ url: string }>>('/expert/letter', scoped()))
   return url
 }
 
@@ -81,6 +98,7 @@ export async function uploadSignedLetter(
 
   return unwrap(
     apiClient.post<ApiResponse<SignedLetterView>>('/expert/signed-letter', form, {
+      ...scoped(),
       // `total` is absent on some proxies; the file's own size is the honest denominator.
       onUploadProgress: (event) =>
         onProgress?.(Math.min(100, Math.round((event.loaded / (event.total || file.size)) * 100))),

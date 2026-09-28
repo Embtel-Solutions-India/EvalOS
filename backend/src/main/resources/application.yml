@@ -172,6 +172,9 @@ evalos:
     # on the normal chain. Nothing on the portal chain has roles. A second brand is a second
     # portal deployment with its own value here.
     client-brand: ${EVALOS_PORTAL_CLIENT_BRAND:}
+    # The expert portal's brand (Unit 59), the roster its sign-up checks. Same brand as the client
+    # portal unless a deployment says otherwise.
+    expert-brand: ${EVALOS_PORTAL_EXPERT_BRAND:${evalos.portal.client-brand}}
     # How long a set-password or reset-password link lives. Ten minutes: long enough to walk
     # to another device, short enough that a forwarded mailbox is not a standing credential.
     #

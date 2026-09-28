@@ -118,7 +118,10 @@ public class PortalSecurityConfig {
 						.requestMatchers(HttpMethod.POST, "/api/portal/auth/identify",
 								"/api/portal/auth/sign-up", "/api/portal/auth/sign-in",
 								"/api/portal/auth/forgot-password",
-								"/api/portal/auth/set-password").permitAll()
+								"/api/portal/auth/set-password",
+								// Unit 59: the expert portal's door, the same four acts.
+								"/api/portal/auth/expert/sign-up", "/api/portal/auth/expert/forgot-password",
+								"/api/portal/auth/expert/sign-in", "/api/portal/auth/expert/set-password").permitAll()
 						.anyRequest().authenticated())
 				.exceptionHandling(handling -> handling
 						.authenticationEntryPoint((request, response, ex) -> apiErrors.write(

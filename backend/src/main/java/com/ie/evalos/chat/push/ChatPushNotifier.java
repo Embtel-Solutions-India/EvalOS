@@ -112,7 +112,8 @@ public class ChatPushNotifier {
 			// The conversation, not the case screen: Sales take part in chat but read no case (D19c).
 			case STAFF -> settings.staffOrigin() + "/conversations/" + conversationId;
 			case CLIENT -> settings.clientBase() + "/cases/" + conversation.getCaseId();
-			case EXPERT -> settings.expertBase() + "/case";
+			// The case named, so a signed-in expert with several cases lands on the right one (Unit 59).
+			case EXPERT -> settings.expertBase() + "/case?caseId=" + conversation.getCaseId();
 		};
 		try {
 			return JSON.writeValueAsString(Map.of("title", "New message from " + sender,

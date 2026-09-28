@@ -47,7 +47,7 @@ public class PortalCleanupSweep implements Sweep {
 
 	/** What the sweep does, one per transaction — so a failing delete cannot take the other. */
 	private enum Target {
-		EXPIRED_CREDENTIALS, ABANDONED_SIGN_UPS
+		EXPIRED_CREDENTIALS, EXPIRED_EXPERT_CREDENTIALS, ABANDONED_SIGN_UPS
 	}
 
 	private final SweepRunner runner;
@@ -55,6 +55,9 @@ public class PortalCleanupSweep implements Sweep {
 	private final ClientCredentialTokenRepository credentials;
 
 	private final ClientAccountRepository accounts;
+
+	/** Unit 59's expert set / reset links, on the same clock as the client's. */
+	private final com.ie.evalos.repository.ExpertCredentialTokenRepository expertCredentials;
 
 	/**
 	 * How long a dead token is kept past its expiry.
@@ -77,12 +80,13 @@ public class PortalCleanupSweep implements Sweep {
 	private final Duration abandonedAfter;
 
 	PortalCleanupSweep(SweepRunner runner, ClientCredentialTokenRepository credentials,
-			ClientAccountRepository accounts,
+			ClientAccountRepository accounts, com.ie.evalos.repository.ExpertCredentialTokenRepository expertCredentials,
 			@Value("${evalos.portal.credential-ttl}") Duration credentialTtl,
 			@Value("${evalos.portal.abandoned-sign-up-after}") Duration abandonedAfter) {
 		this.runner = runner;
 		this.credentials = credentials;
 		this.accounts = accounts;
+		this.expertCredentials = expertCredentials;
 		this.credentialTtl = credentialTtl;
 		this.abandonedAfter = abandonedAfter;
 	}
@@ -106,6 +110,7 @@ public class PortalCleanupSweep implements Sweep {
 		Instant now = Instant.now();
 		long removed = switch (target) {
 			case EXPIRED_CREDENTIALS -> credentials.deleteExpiredBefore(now.minus(credentialTtl));
+			case EXPIRED_EXPERT_CREDENTIALS -> expertCredentials.deleteExpiredBefore(now.minus(credentialTtl));
 			case ABANDONED_SIGN_UPS -> accounts.deleteAbandonedSignUps(now.minus(abandonedAfter));
 		};
 		if (removed > 0) {
