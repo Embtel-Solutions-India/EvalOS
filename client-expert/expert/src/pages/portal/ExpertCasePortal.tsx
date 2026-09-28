@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { CheckCircle2, ExternalLink, FileText } from 'lucide-react'
 import { useState } from 'react'
+import { Link, Navigate, useSearchParams } from 'react-router-dom'
 import { toast } from 'sonner'
 import { Badge } from '@shared/components/ui/badge'
 import { Button } from '@shared/components/ui/button'
@@ -32,6 +33,7 @@ import {
   getCase,
   letterLink,
   requestEvidence,
+  setOpenCase,
   uploadSignedLetter,
 } from '@/services/expertPortalService'
 import { ExpertChat } from '@/components/ExpertChat'
@@ -63,8 +65,12 @@ export default function ExpertCasePortal() {
     return hasPortalToken()
   })
 
+  // A signed-in expert names the case (Unit 59); a staff-minted link names none and the token decides.
+  const caseId = useSearchParams()[0].get('caseId')
+  setOpenCase(caseId)
+
   const { data, isLoading, isError, error, refetch } = useQuery({
-    queryKey: ['expert-portal', 'case'],
+    queryKey: ['expert-portal', 'case', caseId],
     queryFn: getCase,
     enabled: tokenPresent,
     retry: false,
@@ -73,6 +79,8 @@ export default function ExpertCasePortal() {
   const refresh = () => void queryClient.invalidateQueries({ queryKey: ['expert-portal', 'case'] })
 
   if (!tokenPresent) {
+    // A signed-in expert's token is memory-only, so a reload lands here: back to the door.
+    if (caseId) return <Navigate to="/" replace />
     return (
       <div className="mx-auto max-w-2xl p-6">
         <PageHeader title="Your assigned case" description={NO_TOKEN} />
@@ -83,6 +91,11 @@ export default function ExpertCasePortal() {
   return (
     <div className="mx-auto grid max-w-6xl gap-6 p-6 lg:grid-cols-[minmax(0,1fr)_24rem]">
       <div>
+        {caseId && (
+          <Link to="/cases" className="mb-4 inline-block text-sm text-primary underline">
+            All your cases
+          </Link>
+        )}
         {isLoading && <ListSkeleton />}
         {isError && (
           <ErrorState description={expertFailureMessage(statusOf(error))} onRetry={() => void refetch()} />

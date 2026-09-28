@@ -196,7 +196,7 @@ class ExpertPortalTest {
 	@Test
 	void aSignedPdfWithTheAttestationIsAccepted() throws Exception {
 		givenBothLinks();
-		given(portal.uploadSignedLetter(any(), anyString(), anyLong(), any(), anyString()))
+		given(portal.uploadSignedLetter(any(), any(), anyString(), anyLong(), any(), anyString()))
 				.willReturn(new ExpertPortalService.SignedLetterView(UUID.randomUUID(), "signed.pdf", 1,
 						java.time.Instant.parse("2026-09-03T10:15:30Z"), "0".repeat(64)));
 
@@ -248,7 +248,7 @@ class ExpertPortalTest {
 	@Test
 	void anUploadCarryingItsOwnNameIsNotBelieved() throws Exception {
 		givenBothLinks();
-		given(portal.uploadSignedLetter(any(), anyString(), anyLong(), any(), anyString()))
+		given(portal.uploadSignedLetter(any(), any(), anyString(), anyLong(), any(), anyString()))
 				.willReturn(new ExpertPortalService.SignedLetterView(UUID.randomUUID(), "signed.pdf", 1,
 						java.time.Instant.parse("2026-09-03T10:15:30Z"), "0".repeat(64)));
 
@@ -260,6 +260,6 @@ class ExpertPortalTest {
 				.andExpect(status().isOk());
 
 		// Five arguments, and none of them is a name: the controller does not read that parameter.
-		verify(portal).uploadSignedLetter(any(), anyString(), anyLong(), any(), eq(ATTESTATION));
+		verify(portal).uploadSignedLetter(any(), any(), anyString(), anyLong(), any(), eq(ATTESTATION));
 	}
 }

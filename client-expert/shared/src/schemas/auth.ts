@@ -11,7 +11,7 @@ export const loginSchema = z.object({
 
 export type LoginFormValues = z.infer<typeof loginSchema>
 
-const passwordRules = z
+export const passwordRules = z
   .string()
   .min(8, 'Password must be at least 8 characters.')
   .regex(/[A-Z]/, 'Password must include an uppercase letter.')

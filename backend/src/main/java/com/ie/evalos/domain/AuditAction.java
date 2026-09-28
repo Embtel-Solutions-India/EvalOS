@@ -64,6 +64,10 @@ public enum AuditAction {
 	CLIENT_SIGN_IN_REFUSED,
 	/** A client set or reset their own password through an emailed single-use link (Unit 42). */
 	CLIENT_PASSWORD_SET,
+	/** The expert twins of the three above (Unit 59): signed in, refused, set a password. */
+	EXPERT_SIGNED_IN,
+	EXPERT_SIGN_IN_REFUSED,
+	EXPERT_PASSWORD_SET,
 	/**
 	 * A Case Manager raised a blocked case to the Project Managers on its brand (Unit 22, slice 3).
 	 *

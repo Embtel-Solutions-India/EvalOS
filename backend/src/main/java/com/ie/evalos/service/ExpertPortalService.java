@@ -322,20 +322,20 @@ public class ExpertPortalService {
 	}
 
 	@Transactional
-	public ExpertCaseView accept(PortalPrincipal principal) {
-		return project(lifecycle.expertAcceptedFromPortal(authorized(principal)));
+	public ExpertCaseView accept(PortalPrincipal principal, UUID caseId) {
+		return project(lifecycle.expertAcceptedFromPortal(authorized(principal, caseId)));
 	}
 
 	/** Not until the client sends this. Opens a required checklist item and holds the case. */
 	@Transactional
-	public ExpertCaseView requestEvidence(PortalPrincipal principal, String missing) {
-		return project(lifecycle.expertRequestEvidenceFromPortal(authorized(principal), missing));
+	public ExpertCaseView requestEvidence(PortalPrincipal principal, UUID caseId, String missing) {
+		return project(lifecycle.expertRequestEvidenceFromPortal(authorized(principal, caseId), missing));
 	}
 
 	/** The expert will not take it. The reason is required — it is what the rematch works from. */
 	@Transactional
-	public ExpertCaseView decline(PortalPrincipal principal, String reason) {
-		return project(lifecycle.expertDeclinedFromPortal(authorized(principal), reason));
+	public ExpertCaseView decline(PortalPrincipal principal, UUID caseId, String reason) {
+		return project(lifecycle.expertDeclinedFromPortal(authorized(principal, caseId), reason));
 	}
 
 	// --- the letter, out and back --------------------------------------------
@@ -352,8 +352,8 @@ public class ExpertPortalService {
 	 * the hash follows.
 	 */
 	@Transactional
-	public String letterLink(PortalPrincipal principal) {
-		Case subject = authorized(principal);
+	public String letterLink(PortalPrincipal principal, UUID caseId) {
+		Case subject = authorized(principal, caseId);
 		String link = subject.getDraftLink();
 		if (link == null || link.isBlank()) {
 			// Unit 58: a draft submitted as files has no link. The expert signs the version the client
@@ -397,10 +397,10 @@ public class ExpertPortalService {
 	 *             store; see below for why that is not one pass
 	 */
 	@Transactional
-	public SignedLetterView uploadSignedLetter(PortalPrincipal principal, String filename, long size,
+	public SignedLetterView uploadSignedLetter(PortalPrincipal principal, UUID caseId, String filename, long size,
 			InputStreamSource body, String attestation) {
 
-		Case subject = authorized(principal);
+		Case subject = authorized(principal, caseId);
 		requireGiven(attestation, "the attestation must be ticked before the letter can be uploaded");
 
 		// Whose signature this is, according to EvalOS rather than according to the request.
@@ -548,6 +548,14 @@ public class ExpertPortalService {
 	 * Every refusal here is the same message, for the reason the 401 is: which of the three it was
 	 * is not the holder's business.
 	 */
+	/**
+	 * The case an action names, or — with no {@code caseId}, as every staff-minted link still sends —
+	 * the one the token resolves to (Unit 59). A signed-in expert names it; phase 2 makes it required.
+	 */
+	private Case authorized(PortalPrincipal principal, @org.springframework.lang.Nullable UUID caseId) {
+		return caseId == null ? authorized(principal) : authorizedCase(principal, caseId);
+	}
+
 	private Case authorized(PortalPrincipal principal) {
 		if (principal.isPartyScoped()) {
 			List<Case> mine = partyCases(principal);
@@ -558,7 +566,7 @@ public class ExpertPortalService {
 					? "This link has no cases behind it"
 					: "You have several cases — say which one");
 		}
-		return authorized(principal, principal.caseId());
+		return authorizedCase(principal, principal.caseId());
 	}
 
 	/**
@@ -570,7 +578,7 @@ public class ExpertPortalService {
 	 * party check as well. A case-scoped token is additionally pinned to its own case, so the
 	 * narrow credential cannot reach a sibling case just because a path variable now exists.
 	 */
-	private Case authorized(PortalPrincipal principal, UUID caseId) {
+	private Case authorizedCase(PortalPrincipal principal, UUID caseId) {
 		Case subject = cases.findById(caseId)
 				.orElseThrow(() -> new ForbiddenException("This link no longer points at a case"));
 		if (!subject.getBrandId().equals(principal.brandId())) {

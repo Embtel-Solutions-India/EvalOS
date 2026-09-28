@@ -237,7 +237,7 @@ class ExpertPortalServiceTest {
 	}
 
 	private ExpertPortalService.SignedLetterView upload(byte[] body, String attestation) {
-		return portal.uploadSignedLetter(token(), "signed.pdf", body.length, part(body), attestation);
+		return portal.uploadSignedLetter(token(), null, "signed.pdf", body.length, part(body), attestation);
 	}
 
 	private ExpertPortalService.SignedLetterView uploadValid() {
@@ -361,7 +361,7 @@ class ExpertPortalServiceTest {
 
 	@Test
 	void theLetterIsHandedOverAndTheOpeningIsAudited() {
-		assertThat(portal.letterLink(token())).isEqualTo("https://docs.google.com/document/d/draft/edit");
+		assertThat(portal.letterLink(token(), null)).isEqualTo("https://docs.google.com/document/d/draft/edit");
 
 		verify(audit).recordPortalEvent(eq(BRAND), eq(PortalAudience.EXPERT), eq("CASE"), eq(CASE_ID),
 				eq(AuditAction.EXPORTED), eq(null), any());
@@ -371,7 +371,7 @@ class ExpertPortalServiceTest {
 	void aCaseWithNoLetterSaysSoRatherThanHandingOverSomethingElse() {
 		subject.setDraftLink(null);
 
-		assertThatThrownBy(() -> portal.letterLink(token())).isInstanceOf(IllegalTransitionException.class);
+		assertThatThrownBy(() -> portal.letterLink(token(), null)).isInstanceOf(IllegalTransitionException.class);
 	}
 
 	/**
@@ -416,9 +416,9 @@ class ExpertPortalServiceTest {
 		PortalPrincipal supersededLink = tokenFor(BRAND, CASE_ID, UUID.randomUUID());
 
 		assertThatThrownBy(() -> portal.view(supersededLink)).isInstanceOf(ForbiddenException.class);
-		assertThatThrownBy(() -> portal.accept(supersededLink)).isInstanceOf(ForbiddenException.class);
-		assertThatThrownBy(() -> portal.letterLink(supersededLink)).isInstanceOf(ForbiddenException.class);
-		assertThatThrownBy(() -> portal.uploadSignedLetter(supersededLink, "signed.pdf", PDF.length,
+		assertThatThrownBy(() -> portal.accept(supersededLink, null)).isInstanceOf(ForbiddenException.class);
+		assertThatThrownBy(() -> portal.letterLink(supersededLink, null)).isInstanceOf(ForbiddenException.class);
+		assertThatThrownBy(() -> portal.uploadSignedLetter(supersededLink, null, "signed.pdf", PDF.length,
 				part(PDF), ATTESTATION)).isInstanceOf(ForbiddenException.class);
 
 		verifyNoInteractions(store);
@@ -472,6 +472,6 @@ class ExpertPortalServiceTest {
 				.willReturn(java.util.List.of(approved));
 		given(store.presignedUrl("approved.docx")).willReturn("https://s3/approved.docx");
 
-		assertThat(portal.letterLink(token())).isEqualTo("https://s3/approved.docx");
+		assertThat(portal.letterLink(token(), null)).isEqualTo("https://s3/approved.docx");
 	}
 }

@@ -104,31 +104,33 @@ public class ExpertPortalController {
 	/**
 	 * "I will sign this." Idempotent — a second click answers 200 with the state as it stands.
 	 *
-	 * <p>On a party token covering several cases this answers <strong>409
-	 * {@code SAY_WHICH_CASE}</strong>: accepting commits this expert to a specific piece of work.
+	 * <p>Every action takes an optional {@code caseId} (Unit 59). Without it, a party token covering
+	 * several cases answers <strong>409 {@code SAY_WHICH_CASE}</strong>: accepting commits this expert
+	 * to a specific piece of work.
 	 */
 	@PostMapping("/accept")
-	public ApiResponse<ExpertPortalService.ExpertCaseView> accept() {
-		return ApiResponse.ok(portal.accept(expert()));
+	public ApiResponse<ExpertPortalService.ExpertCaseView> accept(@RequestParam(required = false) UUID caseId) {
+		return ApiResponse.ok(portal.accept(expert(), caseId));
 	}
 
 	/** "Not until the client sends this." Holds the case and opens a required checklist item. */
 	@PostMapping("/request-evidence")
-	public ApiResponse<ExpertPortalService.ExpertCaseView> requestEvidence(
+	public ApiResponse<ExpertPortalService.ExpertCaseView> requestEvidence(@RequestParam(required = false) UUID caseId,
 			@Valid @RequestBody EvidenceRequest request) {
-		return ApiResponse.ok(portal.requestEvidence(expert(), request.missing()));
+		return ApiResponse.ok(portal.requestEvidence(expert(), caseId, request.missing()));
 	}
 
 	/** "I will not take this." Sends the case to rematching with the expert's own reason. */
 	@PostMapping("/decline")
-	public ApiResponse<ExpertPortalService.ExpertCaseView> decline(@Valid @RequestBody DeclineRequest request) {
-		return ApiResponse.ok(portal.decline(expert(), request.reason()));
+	public ApiResponse<ExpertPortalService.ExpertCaseView> decline(@RequestParam(required = false) UUID caseId,
+			@Valid @RequestBody DeclineRequest request) {
+		return ApiResponse.ok(portal.decline(expert(), caseId, request.reason()));
 	}
 
 	/** Where the letter is, so the expert can sign it in whatever tool they already use. */
 	@GetMapping("/letter")
-	public ApiResponse<LetterLink> letter() {
-		return ApiResponse.ok(new LetterLink(portal.letterLink(expert())));
+	public ApiResponse<LetterLink> letter(@RequestParam(required = false) UUID caseId) {
+		return ApiResponse.ok(new LetterLink(portal.letterLink(expert(), caseId)));
 	}
 
 	/**
@@ -145,7 +147,7 @@ public class ExpertPortalController {
 	 */
 	@PostMapping("/signed-letter")
 	public ApiResponse<ExpertPortalService.SignedLetterView> signedLetter(
-			@RequestParam("file") MultipartFile file,
+			@RequestParam(required = false) UUID caseId, @RequestParam("file") MultipartFile file,
 			@RequestParam String attestation) throws IOException {
 
 		if (file.isEmpty()) {
@@ -165,7 +167,7 @@ public class ExpertPortalController {
 		// **No `attestedName` parameter, deliberately.** The name on the attestation is the case's
 		// own expert, read server-side: a caller-supplied name only ever proved the caller could
 		// spell their own claim twice.
-		return ApiResponse.ok(portal.uploadSignedLetter(expert(), file.getOriginalFilename(),
+		return ApiResponse.ok(portal.uploadSignedLetter(expert(), caseId, file.getOriginalFilename(),
 				file.getSize(), file, attestation));
 	}
 

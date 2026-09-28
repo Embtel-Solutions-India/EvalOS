@@ -32,11 +32,14 @@ class PortalCleanupSweepTest {
 
 	private final ClientAccountRepository accounts = mock(ClientAccountRepository.class);
 
+	private final com.ie.evalos.repository.ExpertCredentialTokenRepository expertCredentials =
+			mock(com.ie.evalos.repository.ExpertCredentialTokenRepository.class);
+
 	/** The real runner would take an advisory lock and write a ledger row; neither is under test. */
 	private final SweepRunner runner = mock(SweepRunner.class);
 
 	private final PortalCleanupSweep sweep =
-			new PortalCleanupSweep(runner, credentials, accounts, TTL, ABANDONED_AFTER);
+			new PortalCleanupSweep(runner, credentials, accounts, expertCredentials, TTL, ABANDONED_AFTER);
 
 	@Test
 	void bothCutoffsAreInThePastAndAreNotTheSameClock() {
@@ -49,6 +52,8 @@ class PortalCleanupSweepTest {
 
 		ArgumentCaptor<Instant> tokenCutoff = ArgumentCaptor.forClass(Instant.class);
 		verify(credentials).deleteExpiredBefore(tokenCutoff.capture());
+		ArgumentCaptor<Instant> expertCutoff = ArgumentCaptor.forClass(Instant.class);
+		verify(expertCredentials).deleteExpiredBefore(expertCutoff.capture());
 		ArgumentCaptor<Instant> accountCutoff = ArgumentCaptor.forClass(Instant.class);
 		verify(accounts).deleteAbandonedSignUps(accountCutoff.capture());
 
@@ -56,6 +61,7 @@ class PortalCleanupSweepTest {
 		// Bracketed rather than compared to one instant: the sweep reads its own clock, which is
 		// necessarily at or after `before`, so a one-sided assertion fails on a fast machine.
 		assertThat(tokenCutoff.getValue()).isBetween(before.minus(TTL), after.minus(TTL));
+		assertThat(expertCutoff.getValue()).isBetween(before.minus(TTL), after.minus(TTL));
 		// An abandoned sign-up is a judgement about a person, on its own and much longer clock.
 		assertThat(accountCutoff.getValue())
 				.isBetween(before.minus(ABANDONED_AFTER), after.minus(ABANDONED_AFTER));

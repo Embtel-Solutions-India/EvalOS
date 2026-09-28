@@ -36,6 +36,8 @@ import { ErrorBoundary } from '@shared/components/common/ErrorBoundary'
 
 const Welcome = lazy(() => import('@/pages/Welcome'))
 const ExpertCasePortal = lazy(() => import('@/pages/portal/ExpertCasePortal'))
+const SetPassword = lazy(() => import('@/pages/auth/SetPassword'))
+const Cases = lazy(() => import('@/pages/Cases'))
 const NotFound = lazy(() => import('@shared/pages/NotFound'))
 
 /**
@@ -54,7 +56,10 @@ const NotFound = lazy(() => import('@shared/pages/NotFound'))
 function AppRoutes() {
   return (
     <Routes>
+      {/* Unit 59: the door, the emailed link, and a signed-in expert's cases. */}
       <Route path="/" element={<Welcome />} />
+      <Route path="/set-password" element={<SetPassword />} />
+      <Route path="/cases" element={<Cases />} />
 
       {/* Unit 34e. The token comes out of the URL fragment; there is no shell to mount it in. */}
       <Route path="/case" element={<ExpertCasePortal />} />
