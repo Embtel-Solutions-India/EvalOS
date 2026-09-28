@@ -30,7 +30,8 @@ Q6 is decided (D23): a known email gets a set-password mail. The business will s
 for the other case.
 _Recommend:_ a short "we could not find you on our expert panel — reply to <panel address> to
 join" mail, sent through the same channel so both cases cost the same and look the same on screen.
-_Gates:_ only that mail; the path sends nothing until the text arrives.
+_Gates:_ only that mail; the path sends nothing until the text arrives. The hook is
+`ExpertAccountService.sendLink`'s not-found branch.
 
 ## Appointments and conversations
 

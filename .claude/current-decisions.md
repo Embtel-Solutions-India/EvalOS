@@ -384,6 +384,9 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
   the Unit 52 mail channel, the account bound to that `expert.id`; **not found → a different email,
   whose wording the business will supply** (Q6b) — until then that path sends nothing, and the
   screen answers the two cases identically so the form cannot be used to probe the roster.
+  **Built as Unit 59 phase 1 (2026-09-28):** one account per roster row, brand from
+  `evalos.portal.expert-brand`; an expert on two panels has two accounts, one per brand's portal.
+  Staff-minted links retire in phase 2.
   **Nothing is removed yet, and that ordering is deliberate.** `PortalAccessService.mintForExpert`
   and `mintForParty` are still wired into four staff screens and every link already in an
   expert's inbox points at `/case` on the expert portal, so minting and the route it feeds are

@@ -134,6 +134,11 @@ none, and nothing prevents two accounts naming one contact.
 
 ---
 
+
+**`expert_account`** (V72, Unit 59): `id`, `brand_id`, `expert_id` unique → `expert`, `password_hash`,
+`created_at`, `last_sign_in_at`. **`expert_credential_token`**: `id`, `brand_id`, `expert_account_id`,
+`token_hash` unique, `purpose` SET|RESET, `expires_at`, `used_at`, `created_at` — single use.
+
 ## REQUIRED FUTURE MODEL
 
 Not present today. Do not write code that assumes any of it exists.

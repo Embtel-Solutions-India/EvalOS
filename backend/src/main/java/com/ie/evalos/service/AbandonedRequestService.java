@@ -16,6 +16,7 @@ import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -44,6 +45,12 @@ public class AbandonedRequestService {
 	private final ClientAccountRepository accounts;
 	private final Clock clock;
 
+	@Autowired
+	AbandonedRequestService(ClientApplicationRepository applications, ClientAccountRepository accounts) {
+		this(applications, accounts, Clock.systemUTC());
+	}
+
+	/** For tests: a fixed clock. There is no Clock bean (see ChatRateLimiter for the same shape). */
 	AbandonedRequestService(ClientApplicationRepository applications, ClientAccountRepository accounts, Clock clock) {
 		this.applications = applications;
 		this.accounts = accounts;

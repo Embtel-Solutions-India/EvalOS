@@ -239,3 +239,5 @@ whose text the business will give (Q6b; sends nothing until then), same screen a
 **Q13 → D51:** the draft PDF is viewed first (inline, staff-uploaded DRAFT PDFs only) with both
 downloads beside it. **Q11 → D54:** a GM/Sales screen of DRAFT requests older than 48h, no sweep.
 **D53:** no outbound webhooks, no Handoff C (invariant 11 struck).
+
+**D23 built (Unit 59 phase 1):** one expert account per roster row, brand from `evalos.portal.expert-brand`; two panels = two accounts. Staff-minted links retire in phase 2.

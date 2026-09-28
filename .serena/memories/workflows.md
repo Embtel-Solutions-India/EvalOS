@@ -93,3 +93,5 @@ Sales reads them beside the request on the deal page, on their own route and the
 **Case chat (Unit 57 phase 1, backend).** Three conversations per case created at CASE_CREATED; membership
 follows assignment and expert-offer events and the hourly CHAT_RECONCILE; read-only at CLOSED. Messages
 over REST, live via each member's private Ably channel, web push when the app is closed. No screens yet.
+
+**Expert sign-in (Unit 59):** sign-up → roster match in the portal's brand → set/reset mail (else nothing, Q6b; 204 always) → set-password → party-scoped token → `/cases` → `/case?caseId=`. Staff-minted `/case#token` still works until phase 2.

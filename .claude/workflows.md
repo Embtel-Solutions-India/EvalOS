@@ -390,3 +390,13 @@ an unrecoverable one.
 
 Unchanged by this unit. DOCUMENT SUBMISSION was the one step of §2's lifecycle with nothing behind
 it; it now has a table, two audiences and a carry-forward.
+
+### Expert portal sign-in (Unit 59, 2026-09-28)
+
+```
+Expert Portal /  → POST /api/portal/auth/expert/sign-up   roster match in the portal's brand
+                    → set / reset mail; else nothing (Q6b); 204 always
+/set-password#token → POST …/set-password → party-scoped expert token
+/cases → /case?caseId=                     expert actions take ?caseId
+```
+Staff-minted `/case#token` links still work until Unit 59 phase 2.
