@@ -25,6 +25,14 @@ public interface ClientApplicationRepository extends ScopedRepository<ClientAppl
 		return SCOPE;
 	}
 
+	/** Abandoned requests (D54): still drafts, untouched since the cutoff, oldest first. */
+	List<ClientApplication> findByBrandIdAndStatusAndUpdatedAtBeforeOrderByUpdatedAtAsc(UUID brandId,
+			ClientApplication.Status status, java.time.Instant cutoff);
+
+	/** The same for the GM, who reads every brand (Tier.ALL). */
+	List<ClientApplication> findByStatusAndUpdatedAtBeforeOrderByUpdatedAtAsc(ClientApplication.Status status,
+			java.time.Instant cutoff);
+
 	/** Newest first, which is the order the dashboard shows them in. */
 	List<ClientApplication> findByClientAccountIdOrderByCreatedAtDesc(UUID clientAccountId);
 
