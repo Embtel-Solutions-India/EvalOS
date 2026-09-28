@@ -129,6 +129,21 @@ describe('reduce', () => {
     expect(s.conversations.v1.status).toBe('READ_ONLY')
   })
 
+  /** Review Focus 1 (replies): avoid double-counting when thread is not loaded. */
+  it('counts a reply once when its thread is not loaded (upsert + event in both orders)', () => {
+    const reply = msg('m4', { parentId: 'm1' })
+    // Case 1: upsert first, then event
+    let s = reduce(opened(), { type: 'upsert', message: reply })
+    s = reduce(s, created(reply))
+    expect(s.replies.m1.map((m) => m.id)).toEqual(['m4'])
+    expect(s.messages.v1[0].replyCount).toBe(1)
+    // Case 2: event first, then upsert
+    s = reduce(opened(), created(reply))
+    s = reduce(s, { type: 'upsert', message: reply })
+    expect(s.replies.m1.map((m) => m.id)).toEqual(['m4'])
+    expect(s.messages.v1[0].replyCount).toBe(1)
+  })
+
   it('knows whether I reacted', () => {
     const m = msg('m1', { reactions: { HEART: [{ kind: 'CLIENT', id: 'client-1', name: 'Anita' }], THANKS: [{ kind: 'STAFF', id: 'staff-1', name: 'Cam' }] } })
     expect(reactedByMe(m, 'HEART', me)).toBe(true)

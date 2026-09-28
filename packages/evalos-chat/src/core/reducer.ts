@@ -133,7 +133,7 @@ function upsert(state: ChatState, raw: Message, mode: 'append' | 'replace-only')
       return { state: { ...state, replies: { ...state.replies, [m.parentId]: next } }, added: false }
     }
     if (mode === 'replace-only') return { state, added: false }
-    let s: ChatState = thread ? { ...state, replies: { ...state.replies, [m.parentId]: [...thread, m] } } : state
+    let s: ChatState = thread ? { ...state, replies: { ...state.replies, [m.parentId]: [...thread, m] } } : { ...state, replies: { ...state.replies, [m.parentId]: [m] } }
     s = bumpReplyCount(s, m)
     return { state: touch(s, m), added: true }
   }
@@ -150,7 +150,7 @@ function upsert(state: ChatState, raw: Message, mode: 'append' | 'replace-only')
   return { state: touch(s, m), added: true }
 }
 
-/** A reply is counted once, on first sight — the REST reply and the event cannot both count it. */
+/** A reply is counted once: the thread is initialized on first sight, so the second arrival (REST or event) replaces instead of re-counting. */
 function bumpReplyCount(state: ChatState, reply: Message): ChatState {
   const list = state.messages[reply.conversationId]
   const at = list?.findIndex((x) => x.id === reply.parentId) ?? -1
