@@ -4,10 +4,12 @@ import java.time.Instant;
 import java.time.format.DateTimeParseException;
 import java.util.List;
 
+import com.ie.evalos.common.ForbiddenException;
 import com.ie.evalos.common.InvalidRequestException;
 import com.ie.evalos.domain.Meeting;
 import com.ie.evalos.integration.GhlCalendarClient;
 import com.ie.evalos.repository.MeetingRepository;
+import com.ie.evalos.repository.TeamMemberRepository;
 import com.ie.evalos.security.TenantContext;
 
 import org.slf4j.Logger;
@@ -59,10 +61,13 @@ public class SalesMeetingService {
 	private final ReferenceMirrorService reference;
 	private final PipelineScope scope;
 	private final MeetingRepository meetings;
+	/** Unit 60: the caller's GHL user, for their own blocked time. */
+	private final TeamMemberRepository teamMembers;
 
 	SalesMeetingService(GhlCalendarClient calendars, ReferenceMirrorService reference,
 			PipelineScope scope,
-			MeetingRepository meetings) {
+			MeetingRepository meetings, TeamMemberRepository teamMembers) {
+		this.teamMembers = teamMembers;
 		this.calendars = calendars;
 		this.reference = reference;
 		this.scope = scope;
@@ -95,12 +100,18 @@ public class SalesMeetingService {
 	 */
 	public GhlCalendarClient.FreeSlots slots(String calendarId, long fromEpochMs, long toEpochMs,
 			String timezone) {
+		return slots(calendarId, fromEpochMs, toEpochMs, timezone, null);
+	}
+
+	/** The same, narrowed to one team member's availability (Unit 60). Null means the calendar's. */
+	public GhlCalendarClient.FreeSlots slots(String calendarId, long fromEpochMs, long toEpochMs,
+			String timezone, String ghlUserId) {
 		requireText(calendarId, "Which calendar?");
 		requireText(timezone, "A slot list needs a timezone");
 		if (toEpochMs <= fromEpochMs) {
 			throw new InvalidRequestException("The window must end after it starts");
 		}
-		return calendars.freeSlots(calendarId, fromEpochMs, toEpochMs, timezone);
+		return calendars.freeSlots(calendarId, fromEpochMs, toEpochMs, timezone, ghlUserId);
 	}
 
 	/**
@@ -169,8 +180,7 @@ public class SalesMeetingService {
 	 */
 	public GhlCalendarClient.Meeting reschedule(String opportunityId, String appointmentId,
 			String startTime, String endTime) {
-		String pipelineId = scope.requireMine(opportunityId);
-		requireText(appointmentId, "Which meeting?");
+		Owned owned = requireAppointment(opportunityId, appointmentId);
 
 		Instant start = requireInstant(startTime, "start time");
 		Instant end = requireInstant(endTime, "end time");
@@ -179,19 +189,130 @@ public class SalesMeetingService {
 		}
 
 		GhlCalendarClient.Meeting moved = calendars.reschedule(appointmentId, opportunityId,
-				pipelineId, startTime, endTime);
+				owned.pipelineId(), startTime, endTime);
 
-		// Update only what GHL accepted, and only if we hold the row. A meeting booked before the
-		// mirror existed has no row: `findBy...` is empty, nothing is written, and the reschedule
-		// still succeeds in GHL. Failing the call because EvalOS lacks a copy would make the
-		// mirror load-bearing, which it is explicitly not.
-		TenantContext caller = TenantContext.current();
-		meetings.findByBrandIdAndGhlAppointmentId(caller.brandId(), appointmentId)
-				.ifPresent((row) -> {
-					row.movedTo(start, end, moved.status());
-					meetings.save(row);
-				});
+		// Only what GHL accepted. The row is now required (Unit 60, spec 60 §1.2): it is how EvalOS
+		// knows this appointment is on this deal at all.
+		owned.row().movedTo(start, end, moved.status());
+		meetings.save(owned.row());
 		return moved;
+	}
+
+	/**
+	 * Cancels a meeting on a deal the caller owns (Unit 60): GHL's own status change, so GHL tells
+	 * the client. The mirror keeps GHL's answer as the row's status.
+	 */
+	public GhlCalendarClient.Meeting cancel(String opportunityId, String appointmentId) {
+		Owned owned = requireAppointment(opportunityId, appointmentId);
+		GhlCalendarClient.Meeting cancelled = calendars.cancel(appointmentId, opportunityId,
+				owned.pipelineId());
+		owned.row().syncFromGhl(null, null, null, cancelled.status());
+		meetings.save(owned.row());
+		return cancelled;
+	}
+
+	/** A meeting's internal notes, one GHL page at a time. Read live; EvalOS stores none. */
+	public GhlCalendarClient.NotePage notes(String opportunityId, String appointmentId, int offset) {
+		requireAppointment(opportunityId, appointmentId);
+		return calendars.notes(appointmentId, offset);
+	}
+
+	public void addNote(String opportunityId, String appointmentId, String body) {
+		requireAppointment(opportunityId, appointmentId);
+		calendars.addNote(appointmentId, requireNoteBody(body));
+	}
+
+	public void editNote(String opportunityId, String appointmentId, String noteId, String body) {
+		requireAppointment(opportunityId, appointmentId);
+		requireText(noteId, "Which note?");
+		calendars.editNote(appointmentId, noteId, requireNoteBody(body));
+	}
+
+	public void deleteNote(String opportunityId, String appointmentId, String noteId) {
+		requireAppointment(opportunityId, appointmentId);
+		requireText(noteId, "Which note?");
+		calendars.deleteNote(appointmentId, noteId);
+	}
+
+	// --- blocked time: the caller's own (Unit 60) -------------------------------------------
+
+	/** The caller's blocked time inside a window. */
+	public List<GhlCalendarClient.BlockedTime> blockedTime(Instant from, Instant to) {
+		if (!to.isAfter(from)) {
+			throw new InvalidRequestException("The window must end after it starts");
+		}
+		return calendars.blockedTimes(myGhlUser(), from.toEpochMilli(), to.toEpochMilli());
+	}
+
+	public GhlCalendarClient.BlockedTime block(String title, String startTime, String endTime) {
+		Instant start = requireInstant(startTime, "start time");
+		Instant end = requireInstant(endTime, "end time");
+		if (!end.isAfter(start)) {
+			throw new InvalidRequestException("Blocked time must end after it starts");
+		}
+		return calendars.blockTime(myGhlUser(), title == null ? null : title.trim(), startTime, endTime);
+	}
+
+	/**
+	 * Removes one of the caller's own blocks.
+	 *
+	 * <p>GHL's only delete here is the generic event delete, which takes any event id, including
+	 * someone else's block or a client's appointment. So the id must be among the caller's own
+	 * blocks first.
+	 */
+	public void unblock(String eventId) {
+		requireText(eventId, "Which blocked time?");
+		String me = myGhlUser();
+		Instant now = Instant.now();
+		// ponytail: fixed window (yesterday to a year out). A block outside it cannot be removed
+		// here; widen it if anyone ever blocks time further ahead.
+		boolean mine = calendars.blockedTimes(me, now.minus(java.time.Duration.ofDays(1)).toEpochMilli(),
+				now.plus(java.time.Duration.ofDays(366)).toEpochMilli()).stream()
+				.anyMatch((block) -> eventId.equals(block.id()));
+		if (!mine) {
+			throw new ForbiddenException("That is not one of your blocked times");
+		}
+		calendars.unblock(eventId);
+	}
+
+	/** The appointment's mirror row, only if it is on this deal, and the deal's pipeline. */
+	private record Owned(String pipelineId, Meeting row) {
+	}
+
+	/**
+	 * The caller owns the deal AND the appointment is on it (spec 60 §1.2).
+	 *
+	 * <p>{@code requireMine} alone only proves the deal is the caller's. An appointment id is
+	 * GHL's and says nothing about which deal it hangs off, so without this, any appointment in
+	 * the location could be moved or cancelled from a URL naming one of the caller's own deals.
+	 * 403, never 404, like every other refusal here.
+	 */
+	private Owned requireAppointment(String opportunityId, String appointmentId) {
+		String pipelineId = scope.requireMine(opportunityId);
+		requireText(appointmentId, "Which meeting?");
+		Meeting row = meetings.findByBrandIdAndGhlAppointmentId(TenantContext.current().brandId(), appointmentId)
+				.filter((held) -> opportunityId.equals(held.getGhlOpportunityId()))
+				.orElseThrow(() -> new ForbiddenException("That meeting is not on this deal"));
+		return new Owned(pipelineId, row);
+	}
+
+	private String myGhlUser() {
+		return teamMembers.findById(TenantContext.current().memberId())
+				.map(com.ie.evalos.domain.TeamMember::getGhlUserId)
+				.filter((id) -> !id.isBlank())
+				.orElseThrow(() -> new InvalidRequestException(
+						"Your EvalOS account is not linked to a GHL user yet. It links on the next "
+								+ "reference sync once your EvalOS email matches your GHL user's email."));
+	}
+
+	private static String requireNoteBody(String body) {
+		requireText(body, "A note needs some text");
+		String trimmed = body.trim();
+		if (trimmed.length() > 5000) {
+			// GHL's own limit; refused here so the message is readable.
+			throw new InvalidRequestException("A note can be at most 5000 characters");
+		}
+		return trimmed;
 	}
 
 	/**

@@ -31,7 +31,10 @@ import org.springframework.test.web.servlet.MockMvc;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.willThrow;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -90,9 +93,7 @@ class CaseControllerTest {
 			new Route("/assign-coordinator", Role.PROJECT_MANAGER, Role.CASE_MANAGER,
 					"{\"coordinatorId\":\"%s\"}".formatted(SOME_ID)),
 			new Route("/docs-complete", Role.PROJECT_COORDINATOR, Role.CASE_MANAGER, null),
-			// The body is optional (a revision filed in the same place needs no new link), so this
-			// row deliberately sends none — which is also the shape every caller before Unit 14 sent.
-			new Route("/draft/submit", Role.CASE_MANAGER, Role.PROJECT_MANAGER, null),
+			// `/drafts` (Unit 58) is multipart and has its own test below.
 			// GM-excluded, not GM-also: reviewing a Case Manager's draft belongs to the PM who
 			// assigned it, and a superuser path around the reviewer makes "who approved this"
 			// ambiguous on the artefact the client pays for.
@@ -145,6 +146,9 @@ class CaseControllerTest {
 	CaseBoardService board;
 
 	@MockitoBean
+	com.ie.evalos.service.CaseDrafts drafts;
+
+	@MockitoBean
 	EvalOsUserDetailsService userDetailsService;
 
 	private String bearer(Role role) {
@@ -174,7 +178,6 @@ class CaseControllerTest {
 		given(lifecycle.assignCaseManager(any(), any(), any(), any(), any())).willReturn(result);
 		given(lifecycle.assignCoordinator(any(), any())).willReturn(result);
 		given(lifecycle.markDocsComplete(any())).willReturn(result);
-		given(lifecycle.submitDraft(any(), any())).willReturn(result);
 		given(lifecycle.pmApproveDraft(any(), any())).willReturn(result);
 		given(lifecycle.pmReturnDraft(any(), any())).willReturn(result);
 		given(lifecycle.sendDraftToClient(any())).willReturn(result);
@@ -496,5 +499,65 @@ class CaseControllerTest {
 				.content("{}"))
 				.andExpect(status().isBadRequest())
 				.andExpect(jsonPath("$.error.code").value("VALIDATION_FAILED"));
+	}
+
+	/** Unit 58 §3: the CM, Coordinator or PM uploads both files; nobody else. */
+	@Test
+	void aDraftIsUploadedAsWordAndPdfByTheCaseTeamOnly() throws Exception {
+		given(lifecycle.submitDraft(any(), any(), any())).willReturn(aCase());
+		var docx = new org.springframework.mock.web.MockMultipartFile("docx", "Draft.docx",
+				"application/octet-stream", new byte[] { 'P', 'K', 3, 4, 0 });
+		var pdf = new org.springframework.mock.web.MockMultipartFile("pdf", "Draft.pdf", "application/pdf",
+				"%PDF-1.7".getBytes());
+
+		for (Role role : List.of(Role.CASE_MANAGER, Role.PROJECT_COORDINATOR, Role.PROJECT_MANAGER, Role.GM)) {
+			mockMvc.perform(multipart("/api/cases/{id}/drafts", CASE_ID).file(docx).file(pdf)
+					.header(HttpHeaders.AUTHORIZATION, bearer(role)))
+					.andExpect(status().isOk());
+		}
+		mockMvc.perform(multipart("/api/cases/{id}/drafts", CASE_ID).file(docx).file(pdf)
+				.header(HttpHeaders.AUTHORIZATION, bearer(Role.EXPERT_NETWORK_MANAGER)))
+				.andExpect(status().isForbidden());
+	}
+
+	/** A renamed file is refused at the door, before the lifecycle is called. */
+	@Test
+	void aDraftWhosePdfIsNotAPdfIsRefused() throws Exception {
+		var docx = new org.springframework.mock.web.MockMultipartFile("docx", "Draft.docx",
+				"application/octet-stream", new byte[] { 'P', 'K', 3, 4, 0 });
+		var notPdf = new org.springframework.mock.web.MockMultipartFile("pdf", "Draft.pdf", "application/pdf",
+				"<html>".getBytes());
+
+		mockMvc.perform(multipart("/api/cases/{id}/drafts", CASE_ID).file(docx).file(notPdf)
+				.header(HttpHeaders.AUTHORIZATION, bearer(Role.CASE_MANAGER)))
+				.andExpect(status().isBadRequest());
+		verify(lifecycle, never()).submitDraft(any(), any(), any());
+	}
+
+	/** Unit 58 §3: the case team reads and writes a version's thread; the PDF link is one flag. */
+	@Test
+	void theCaseTeamReachesDraftCommentsAndThePdfLink() throws Exception {
+		UUID draftId = UUID.randomUUID();
+		given(drafts.staffComments(CASE_ID, draftId)).willReturn(List.of());
+		given(drafts.staffAddComment(CASE_ID, draftId, "See page 2", 2)).willReturn(
+				new com.ie.evalos.service.CaseDrafts.CommentView(UUID.randomUUID(), "STAFF", "Cam", "See page 2", 2,
+						java.time.Instant.now()));
+		given(lifecycle.readUrl(CASE_ID, draftId, true, false)).willReturn("https://s3/pdf");
+
+		mockMvc.perform(get("/api/cases/{id}/drafts/{draftId}/comments", CASE_ID, draftId)
+				.header(HttpHeaders.AUTHORIZATION, bearer(Role.CASE_MANAGER)))
+				.andExpect(status().isOk());
+		mockMvc.perform(post("/api/cases/{id}/drafts/{draftId}/comments", CASE_ID, draftId)
+				.header(HttpHeaders.AUTHORIZATION, bearer(Role.PROJECT_MANAGER))
+				.contentType(MediaType.APPLICATION_JSON).content("{\"body\":\"See page 2\",\"page\":2}"))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.data.page").value(2));
+		mockMvc.perform(post("/api/cases/{id}/drafts/{draftId}/comments", CASE_ID, draftId)
+				.header(HttpHeaders.AUTHORIZATION, bearer(Role.EXPERT_NETWORK_MANAGER))
+				.contentType(MediaType.APPLICATION_JSON).content("{\"body\":\"x\"}"))
+				.andExpect(status().isForbidden());
+		mockMvc.perform(get("/api/cases/{id}/documents/{documentId}/url", CASE_ID, draftId).param("pdf", "true")
+				.header(HttpHeaders.AUTHORIZATION, bearer(Role.CASE_MANAGER)))
+				.andExpect(jsonPath("$.data.url").value("https://s3/pdf"));
 	}
 }

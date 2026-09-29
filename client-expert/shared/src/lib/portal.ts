@@ -148,62 +148,19 @@ export type ClientInvoice = {
   dueDate: string | null
 }
 
-/**
- * A meeting the client has with the business.
- *
- * **`startsAt` and `endsAt` are NOT ISO-8601.** GHL sends `"2026-09-13 12:30:00"` — a space
- * instead of a `T`, and **no timezone offset at all**. `new Date(...)` on that string is
- * implementation-defined and will silently produce the wrong instant in some browsers, so the
- * portal formats these as text and does not construct a `Date` from them. Nothing downstream
- * may assume otherwise; see `GhlCalendarClient.forContact` for why the server does not parse
- * them either.
- *
- * **`location` is a join link for an online meeting and a street address for one in person.**
- * Named for what it is rather than assumed to be a URL, because the page has to render both.
- *
- * **What is deliberately absent:** the stage, the deal value and any sales note. The portal
- * shows a client their invoices and their meetings and nothing else of the opportunity —
- * decided 2026-09-11. Stage names are written for staff.
- */
-export type ClientMeeting = {
-  id: string | null
-  title: string | null
-  startsAt: string | null
-  endsAt: string | null
-  /** GHL's own word: `confirmed`, `cancelled`, `showed`, `noshow`, and whatever else it uses. */
-  status: string | null
-  location: string | null
-}
+// --- Unit 58: the case, its drafts and what is delivered ---------------------
 
-// --- 34b: the draft the client reviews -------------------------------------
-
-/**
- * Where a draft stands with the client.
- *
- * **The server's vocabulary, unmapped.** Like `ChecklistItemStatus`, this app holds a label
- * table for the values EvalOS can send and never derives one — a status this screen computed
- * would be a second opinion about whether a client has approved something.
- */
+/** The server's `ClientApprovalStatus`, carried on the case view. */
 export type ClientApprovalStatus = 'PENDING' | 'APPROVED' | 'REVISION_REQUESTED'
 
-/** How each status reads, and how it looks. A test fails if the server can send a fourth. */
-export const APPROVAL_STATUS: Record<
-  ClientApprovalStatus,
-  { label: string; variant: 'default' | 'secondary' | 'outline' }
-> = {
-  PENDING: { label: 'Awaiting your review', variant: 'default' },
-  APPROVED: { label: 'Approved', variant: 'secondary' },
-  REVISION_REQUESTED: { label: 'Revisions requested', variant: 'outline' },
-}
+/** One client-language milestone (`CaseMilestones.Milestone`). The label is the server's. */
+export type Milestone = { label: string; at: string }
 
 /**
- * The draft as the client sees it (Unit 14, `PortalCaseService.ClientDraftView`).
+ * One case as the client sees it (`PortalCaseService.ClientDraftView`).
  *
- * **No expert anywhere.** Unit 13's redacted profile was deleted with the unit, and withholding
- * the expert's identity entirely is the stronger position: there is no redaction to get wrong.
- *
- * `draftLink` is a link the Case Manager pasted, not an S3 key — only client *uploads* have
- * object keys today, so this cannot be presigned and must be rendered as an external link.
+ * **No expert anywhere.** Withholding the expert's identity entirely is the stronger position:
+ * there is no redaction to get wrong. `draftLink` is a legacy pasted link, or null.
  */
 export type ClientDraftView = {
   clientName: string | null
@@ -214,7 +171,23 @@ export type ClientDraftView = {
   approvalStatus: ClientApprovalStatus
   /** Whether EvalOS is waiting on the client right now — the server decides, not this app. */
   awaitingAnswer: boolean
+  step: string
+  /** Stepper position, 0–3 over `CLIENT_STEPS`. */
+  stepIndex: number
+  milestones: Milestone[]
 }
+
+/** The client stepper (58 §4). The server says which one a case is on (`stepIndex`). */
+export const CLIENT_STEPS = ['Upload', 'Review', 'Signing', 'Delivered'] as const
+
+/** A `ServiceType` name for reading: `COURSE_BY_COURSE` → "Course by course". */
+export function serviceLabel(serviceType: string): string {
+  const words = serviceType.replaceAll('_', ' ').toLowerCase()
+  return words.charAt(0).toUpperCase() + words.slice(1)
+}
+
+/** `stepIndex` of a delivered (or closed) case — Home lists those separately. */
+export const DELIVERED_STEP = CLIENT_STEPS.length - 1
 
 /** One row of "my cases" (Unit 35). `step` is a server-rendered phrase, never an enum. */
 export type ClientCaseSummary = {
@@ -223,4 +196,47 @@ export type ClientCaseSummary = {
   serviceType: string
   step: string
   actionRequired: boolean
+  stepIndex: number
+}
+
+/** The draft version statuses a client can be shown (`CaseDrafts`' client-visible set). */
+export type ClientDraftStatus = 'PM_APPROVED' | 'CLIENT_APPROVED' | 'CHANGES_REQUESTED'
+
+/** How each reads. A test fails if the set changes without this table. */
+export const DRAFT_STATUS: Record<ClientDraftStatus, { label: string; variant: 'default' | 'secondary' | 'outline' }> = {
+  PM_APPROVED: { label: 'Awaiting your review', variant: 'default' },
+  CLIENT_APPROVED: { label: 'Approved', variant: 'secondary' },
+  CHANGES_REQUESTED: { label: 'Changes requested', variant: 'outline' },
+}
+
+/** `CaseDrafts.ClientDraftVersion`. Only the version with `inReview` takes comments and answers. */
+export type ClientDraftVersion = {
+  id: string
+  version: number
+  status: ClientDraftStatus
+  uploadedAt: string
+  inReview: boolean
+  hasWord: boolean
+  hasPdf: boolean
+}
+
+/** `CaseDrafts.CommentView`. `authorName` is null for the client reader: staff read as "Your case team". */
+export type DraftComment = {
+  id: string
+  authorKind: 'STAFF' | 'CLIENT'
+  authorName: string | null
+  body: string
+  page: number | null
+  createdAt: string
+}
+
+/** The comment limit, mirroring the server's `@Size(max = 2000)`. */
+export const MAX_COMMENT = 2000
+
+/** `PortalCaseService.DeliveredFile` — served only once the case is delivered. */
+export type DeliveredFile = {
+  id: string
+  kind: 'SIGNED_LETTER' | 'APPROVED_DRAFT'
+  filename: string | null
+  at: string
 }

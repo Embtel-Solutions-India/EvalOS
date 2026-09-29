@@ -4,6 +4,7 @@ import { NavLink } from 'react-router-dom'
 import { useMe } from '../../lib/authContext'
 import { ROLE_LABELS } from '../../lib/session'
 import { navSectionsFor } from './navigation'
+import { UnreadBadge } from '@evalos/chat'
 import { BADGE_FOR_PATH, fetchNavBadges, isUrgentBadge, type NavBadges } from './navBadges'
 
 /**
@@ -100,6 +101,11 @@ export default function LeftNav() {
                     </span>
                     <span className="truncate">{item.label}</span>
                     <Badge path={item.path} badges={badges} />
+                    {item.path === '/conversations' && (
+                      <span className="ml-auto shrink-0">
+                        <UnreadBadge />
+                      </span>
+                    )}
                   </NavLink>
                 </li>
               ))}
@@ -167,6 +173,11 @@ function Badge({ path, badges }: { path: string; badges: NavBadges | null }) {
  * breaking the item. Purely presentational: `navigation.ts` is untouched.
  */
 const NAV_ICONS: Record<string, ReactNode> = {
+  '/conversations': (
+    <Glyph>
+      <path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12Z" />
+    </Glyph>
+  ),
   '/dashboard': (
     <Glyph>
       <rect x="3" y="3" width="7" height="9" rx="1.5" />

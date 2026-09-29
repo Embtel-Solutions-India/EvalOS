@@ -178,14 +178,16 @@ it the very next edit of a just-created deal was refused as "not in the mirror y
 full `MIRROR_DELTA`.
 
 `upsertOpportunity` means one open opportunity per contact per pipeline. It is correct for a
-marketing lead and would be wrong for a second sale.
+marketing lead and would be wrong for a second sale. **D56:** when that open deal has a push still
+waiting in `sync_outbox`, `openLead` does not upsert at all — the queued edit wins and the desk
+gets the mirror row back with `created = false`.
 
 ### TARGET WORKFLOW
 
 One contact, many opportunities. **Three of the four paths already do this.**
 `MarketingLeadService` is the divergence — deliberate and documented, but it is the one place a
 second enquiry from the same person overwrites the first lead's name and value instead of opening
-a new one. Whether that stays is `open-decisions.md` → Q1.
+a new one. It stays (D56), except that a queued edit is never overwritten.
 
 ---
 
@@ -194,17 +196,26 @@ a new one. Whether that stays is `open-decisions.md` → Q1.
 ### CURRENT IMPLEMENTATION
 
 ```
-DOC_COLLECTION ─ coordinator chases the checklist; client uploads to S3
+DOC_COLLECTION ─ the PC or CM builds the checklist and SENDS it (Unit 61, D60: unsent items
+                  are not in the portal; later additions wait for the next Send); PC/CM chase;
+                  client uploads to S3 against each sent item
  → PM_REVIEW ─ PM writes strategy notes, assigns an expert
- → DRAFT_IN_PROGRESS → DRAFT_REVIEW ─ PM approves or returns
- → READY_TO_SEND → CLIENT_REVIEW ─ client approves or requests revisions in the portal
- → CLIENT_APPROVAL → EXPERT_SIGNING ─ expert accepts / declines / signs via a staff-minted link
+ → DRAFT_IN_PROGRESS → DRAFT_REVIEW ─ CM uploads the draft as Word + PDF (POST …/drafts); PM approves or returns
+ → READY_TO_SEND → CLIENT_REVIEW ─ client comments, then approves or requests changes on that version
+ → CLIENT_APPROVAL → EXPERT_SIGNING ─ expert accepts / declines / signs, signed in (Unit 59)
  → FINAL_QC ─ PM passes or fails
  → READY_TO_DELIVER → DELIVERED → CLOSED
 ```
 
 Orthogonal `exception_state` for holds and refunds. Every transition is a `POST /api/cases/{id}/…`
 route, goes through `CaseLifecycleService`, and writes an audit row.
+
+**Draft versions (Unit 58, D51).** `SUBMIT_DRAFT` puts both files in S3 (after the transition check,
+before the row) and stores them on the new DRAFT version. The PM's ruling stamps `RETURNED` /
+`PM_APPROVED`; the client's answer stamps `CLIENT_APPROVED` / `CHANGES_REQUESTED`. `CaseDrafts`
+decides which version is in client review (latest `PM_APPROVED` while the client answer is
+`PENDING`), which the client may see (that one, plus approved and sent-back versions) and owns the
+comment threads.
 
 Four sweeps run over this: `DOC_CHASE`, `DOC_ESCALATION`, `EXPERT_SIGN`, `STAGE_SLA`.
 
@@ -229,21 +240,28 @@ no unified timeline across the request, the opportunity and the case. **Sales is
 ### CURRENT IMPLEMENTATION
 
 ```
-Client Portal /documents
-  GET  /api/portal/client/documents            checklist + this client's uploads
-  POST /api/portal/client/documents?checklistItemId=…
-        authorize the case → verify the item is on it
+Client Portal /cases/:caseId (Unit 58 — every route names its case; the case-less ones are gone)
+  POST /api/portal/client/cases/{id}/documents?checklistItemId=…
+        authorize the case → verify the item is on it AND sent (Unit 61)
         → S3 key built from brand + the GHL contact id + a fresh document uuid (D41)
         → PUT to S3 → INSERT case_document (CLIENT_UPLOAD, versioned)
         → checklist item → UPLOADED → audit
-  GET  /api/portal/client/documents/{id}/url   5-minute presigned read, never stored, audited
+  GET  /api/portal/client/cases/{id}                    view + step, stepIndex, milestones
+  GET  /api/portal/client/cases/{id}/documents          POST …/documents?checklistItemId=  GET …/documents/{doc}/url
+  GET  /api/portal/client/cases/{id}/drafts             client-visible versions only
+  GET  …/drafts/{draft}/files/{docx|pdf}/url            GET|POST …/drafts/{draft}/comments
+  POST …/drafts/{draft}/approve                         POST …/drafts/{draft}/request-changes
+  GET  /api/portal/client/cases/{id}/delivered          + …/delivered/{doc}/url — 404 before DELIVERED
+  GET  /api/portal/client/invoices?status=paid
 
-Staff     GET /api/cases/{id}/documents, …/{documentId}/url
+Staff     GET /api/cases/{id}/documents, …/{documentId}/url[?pdf=true]
+          POST /api/cases/{id}/drafts (docx + pdf)      GET|POST /api/cases/{id}/drafts/{draft}/comments
 Expert    GET /api/portal/expert/letter, POST /api/portal/expert/signed-letter
 ```
 
-`PortalCaseService`, `DocumentStore`. A client with no case sees an empty screen, not a refusal.
-A client with two or more cases is **refused** — the per-case routes and picker do not exist.
+`PortalCaseService`, `CaseDrafts`, `CaseMilestones`, `DocumentStore`. The portal UI over them is
+Unit 58 phase 3: Home lists every case, and each case page holds its documents, drafts, delivered
+files, history and Client conversation.
 
 ### TARGET WORKFLOW
 
@@ -255,7 +273,6 @@ keyed by the **GHL contact id** — one id names a contact everywhere, and the d
 person rather than to a case that has not been won yet. Sales reads them on their own route and tab
 on the same opportunity (D34); Handoff A carries them forward into `case_document` over the same S3
 object, so Production starts holding what Sales already read. Spec `53`.
-The per-case picker (Q8) is separate and still open.
 
 ---
 
@@ -268,9 +285,17 @@ GET  /api/sales/calendars                        list GHL calendars
 GET  /api/sales/calendars/{id}/slots             free slots for a date range and timezone
 POST /api/sales/opportunities/{id}/meetings      book
 PUT  /api/sales/opportunities/{id}/meetings/{a}  reschedule
+PUT  /api/sales/opportunities/{id}/meetings/{a}/cancel       cancel (GHL status `cancelled`)
+GET|POST /api/sales/opportunities/{id}/meetings/{a}/notes    internal notes, live from GHL
+PUT|DELETE /api/sales/opportunities/{id}/meetings/{a}/notes/{n}
+GET|POST /api/sales/blocked-time, DELETE /api/sales/blocked-time/{e}   the caller's own blocks
 GET  /api/sales/meetings                         the salesperson's diary
-GET  /api/portal/client/meetings                 the client's own appointments
 ```
+
+**Unit 60:** every per-meeting route requires a `meeting` row for that appointment **on that
+deal** (spec `60` §1.2). Blocked time is keyed by the caller's `team_member.ghl_user_id`; removing
+one is checked against the caller's own blocks first, because GHL's only delete is the generic
+event delete.
 
 Booking sends: calendar, contact, start, end, title, description, `assignedUserId`,
 `meetingLocationType`, `address`, `appointmentStatus=confirmed`, optional
@@ -282,13 +307,13 @@ Booking sends: calendar, contact, start, end, title, description, `assignedUserI
 |---|---|
 | Calendar, title, description, date, available slots, timezone | **IMPLEMENTED** — the calendar **list** is mirrored (Unit 47); **slots stay live and must** (D48) |
 | Contact, meeting location, create, view, reschedule | **IMPLEMENTED** |
-| Team member on the appointment | **PARTIAL** — `assignedUserId` is a GHL user id; no column joins a GHL user to a `team_member` |
-| Employee-wise availability | **PARTIAL** — availability is per *calendar*, not per employee |
+| Team member on the appointment | **IMPLEMENTED** — `assignedUserId`; `team_member.ghl_user_id` (`V74`) links staff by email |
+| Employee-wise availability | **IMPLEMENTED** — free slots take the chosen member's `userId` |
 | Account vs calendar timezone | **PARTIAL** — one timezone is passed to free-slots; no account default is stored |
-| Guests | **MISSING** |
-| Internal notes | **PARTIAL** — `GhlCalendarClient.addNote` exists; no route or screen calls it |
-| Cancel | **MISSING** |
-| Blocked-off time | **MISSING** |
+| Guests | **NOT AVAILABLE IN GHL** — the appointment API takes one contact and no attendees; `open-decisions.md` Q14 |
+| Internal notes | **IMPLEMENTED** — list / add / delete on the diary row (edit route exists, no UI) |
+| Cancel | **IMPLEMENTED** — GHL status `cancelled`, so GHL notifies |
+| Blocked-off time | **IMPLEMENTED** — the caller's own, on the Meetings screen |
 
 ---
 
@@ -318,9 +343,8 @@ deal of that contact. **An EvalOS note's author may edit or delete it** (Unit 54
 queued and the drain overwrites (`PUT`) or deletes (`DELETE`) the GHL copy; GHL notes are changed in
 GHL only. Spec `54-two-way-note-sync.md`.
 
-A custom EvalOS conversation sidebar backed by GHL: list, search, unread, assignment, history,
-SMS / email / WhatsApp / social, attachments, internal comments, calls, and contact / opportunity /
-request / appointment context. This is tier 3 of the mirror (Unit 47) and has no spec of its own.
+**No GHL conversation sidebar (D52, 2026-09-28).** GHL conversations stay in GHL; EvalOS's only
+messaging is the case chat (Unit 57, spec `57-case-chat.md`).
 
 ---
 
@@ -332,7 +356,7 @@ request / appointment context. This is tier 3 of the mirror (Unit 47) and has no
 | **mirror** | GHL → EvalOS | `contact.*` and `opportunity.*` webhooks update `contact_snapshot` and `opportunity`; `MIRROR_DELTA` (15m) is the floor under them | code complete (45d, 2026-09-17) |
 | **contact backfill** | GHL → EvalOS | the deal screen reads `GET /contacts/{id}` when `contact_snapshot` has never seen the person, and keeps the row | code complete (2026-09-22) |
 | **B** | EvalOS → Expert | staff mints a portal link; expert signs | code complete |
-| **C** | EvalOS → GHL / client | outbound dispatcher | **not implemented** |
+| **C** | EvalOS → GHL / client | — | **dropped (D53)** |
 
 **The contact backfill exists because every other writer of `contact_snapshot` is an EvalOS-side
 event.** Handoff A writes one when a deal is won, the portal writes one at set-password, and 45d's
@@ -379,3 +403,13 @@ an unrecoverable one.
 
 Unchanged by this unit. DOCUMENT SUBMISSION was the one step of §2's lifecycle with nothing behind
 it; it now has a table, two audiences and a carry-forward.
+
+### Expert portal sign-in (Unit 59, 2026-09-28)
+
+```
+Expert Portal /  → POST /api/portal/auth/expert/sign-up   roster match in the portal's brand
+                    → set / reset mail; else nothing (by decision, Q6b); 204 always
+/set-password#token → POST …/set-password → party-scoped expert token
+/cases → /case?caseId=                     expert actions take ?caseId
+```
+**There is no other way in:** staff-minted expert links were removed and live ones revoked (`V73`).

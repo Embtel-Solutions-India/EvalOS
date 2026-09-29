@@ -4,25 +4,29 @@ import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
 
-import com.ie.evalos.common.AmbiguousCaseException;
+
 import com.ie.evalos.common.ForbiddenException;
+import com.ie.evalos.common.NotFoundException;
 import com.ie.evalos.domain.ActorType;
-import com.ie.evalos.domain.PortalAudience;
 import com.ie.evalos.domain.AuditAction;
+import com.ie.evalos.domain.Case;
 import com.ie.evalos.domain.CaseDocument;
 import com.ie.evalos.domain.ChecklistItemStatus;
-import com.ie.evalos.domain.DocumentChecklistItem;
-import com.ie.evalos.domain.DocumentKind;
-import com.ie.evalos.domain.IllegalTransitionException;
-import com.ie.evalos.integration.DocumentStore;
-import com.ie.evalos.repository.CaseDocumentRepository;
-import com.ie.evalos.repository.DocumentChecklistItemRepository;
-import com.ie.evalos.domain.Case;
 import com.ie.evalos.domain.ClientApprovalStatus;
 import com.ie.evalos.domain.ContactSnapshot;
+import com.ie.evalos.domain.DocumentChecklistItem;
+import com.ie.evalos.domain.DocumentKind;
+import com.ie.evalos.domain.DocumentStatus;
+import com.ie.evalos.domain.DraftComment;
+import com.ie.evalos.domain.IllegalTransitionException;
+import com.ie.evalos.domain.PortalAudience;
 import com.ie.evalos.domain.ServiceType;
+import com.ie.evalos.domain.Stage;
+import com.ie.evalos.integration.DocumentStore;
+import com.ie.evalos.repository.CaseDocumentRepository;
 import com.ie.evalos.repository.CaseRepository;
 import com.ie.evalos.repository.ContactSnapshotRepository;
+import com.ie.evalos.repository.DocumentChecklistItemRepository;
 import com.ie.evalos.security.PortalPrincipal;
 
 import org.springframework.stereotype.Service;
@@ -38,11 +42,12 @@ import org.springframework.transaction.annotation.Transactional;
  * to {@code Case} in a later unit does not appear here, because the person adding it does not have
  * to remember a rule in a file they are not editing.
  *
- * <p><strong>The token is the scope.</strong> Both reads below take the case id off
- * {@link PortalPrincipal}, which came off the token's own row — so there is no case parameter
- * anywhere on this surface and nothing to enumerate. {@code ScopePredicate} is not involved and no
+ * <p><strong>Every method names its case, and the credential proves it.</strong>
+ * {@link #authorized} matches the case id against the token's party (or, for a case-scoped
+ * token, its one case) before anything is read. {@code ScopePredicate} is not involved and no
  * synthetic {@code TenantContext} is manufactured: a client is not a staff user with a narrower
- * tier.
+ * tier. The case-less overloads, which resolved the case from the token alone, went in Unit 58
+ * phase 3.
  */
 @Service
 public class PortalCaseService {
@@ -76,7 +81,13 @@ public class PortalCaseService {
 			String draftLink,
 			int draftVersion,
 			ClientApprovalStatus approvalStatus,
-			boolean awaitingAnswer) {
+			boolean awaitingAnswer,
+			/** D5's projected label for the stage. */
+			String step,
+			/** Stepper position, Upload 0 → Delivered 3 (Unit 58 §4). */
+			int stepIndex,
+			/** Client-language history (Unit 58 §3). */
+			java.util.List<CaseMilestones.Milestone> milestones) {
 	}
 
 	/**
@@ -98,7 +109,9 @@ public class PortalCaseService {
 			String caseReference,
 			ServiceType serviceType,
 			String step,
-			boolean actionRequired) {
+			boolean actionRequired,
+			/** Stepper position, Upload 0 → Delivered 3 — what Home splits active from delivered on. */
+			int stepIndex) {
 	}
 
 	private final CaseRepository cases;
@@ -108,10 +121,15 @@ public class PortalCaseService {
 	private final CaseDocumentRepository documents;
 	private final DocumentStore store;
 	private final AuditService audit;
+	private final CaseDrafts drafts;
+	private final CaseMilestones milestones;
 
 	PortalCaseService(CaseRepository cases, ContactSnapshotRepository contacts,
 			CaseLifecycleService lifecycle, DocumentChecklistItemRepository checklistItems,
-			CaseDocumentRepository documents, DocumentStore store, AuditService audit) {
+			CaseDocumentRepository documents, DocumentStore store, AuditService audit, CaseDrafts drafts,
+			CaseMilestones milestones) {
+		this.drafts = drafts;
+		this.milestones = milestones;
 		this.cases = cases;
 		this.contacts = contacts;
 		this.lifecycle = lifecycle;
@@ -125,28 +143,6 @@ public class PortalCaseService {
 		if (!condition) {
 			throw new IllegalTransitionException(why);
 		}
-	}
-
-	/**
-	 * The client's one screen, and the read receipt.
-	 *
-	 * <p>{@code client_portal_read_at} is stamped <strong>once</strong>, on the first read: it
-	 * answers "has the client seen this at all", which is what the Case Manager needs to know before
-	 * chasing. "When did they last look" is {@code portal_access.last_seen_at}, which
-	 * {@code PortalAccessService.resolve} moves on every request. Two fields because they are two
-	 * questions; one that did both would answer neither.
-	 *
-	 * <p>Not {@code readOnly} for exactly that stamp.
-	 */
-	@Transactional
-	public ClientDraftView clientView(PortalPrincipal principal) {
-		Case subject = authorized(principal);
-
-		if (subject.getClientPortalReadAt() == null) {
-			subject.setClientPortalReadAt(Instant.now());
-			cases.save(subject);
-		}
-		return view(subject);
 	}
 
 	/**
@@ -169,18 +165,23 @@ public class PortalCaseService {
 		return partyCases(principal).stream().map(subject -> {
 			PortalStageProjection.PortalStep step = PortalStageProjection.forClient(subject.getCurrentStage());
 			return new ClientCaseSummary(subject.getId(), subject.getCaseCode(), subject.getServiceType(),
-					step.label(), step.actionRequired());
+					step.label(), step.actionRequired(),
+					PortalStageProjection.clientStepIndex(subject.getCurrentStage()));
 		}).toList();
 	}
 
 	/**
-	 * One of the party's cases, named by the caller (Unit 35, D1).
+	 * The client's one screen, and the read receipt.
 	 *
-	 * <p>The id arrives from the request, which is only safe because it is matched against the
-	 * credential before anything is read — the same shape Unit 34c's document-kind filter uses. A
-	 * case that is not this party's answers <strong>403, not 404</strong>: 404 would confirm the
-	 * difference between "no such case" and "not yours", which is the oracle a client with one link
-	 * would use to count the brand's cases.
+	 * <p>{@code client_portal_read_at} is stamped <strong>once</strong>, on the first read: it
+	 * answers "has the client seen this at all", which is what the Case Manager needs to know before
+	 * chasing. "When did they last look" is {@code portal_access.last_seen_at}, which
+	 * {@code PortalAccessService.resolve} moves on every request. Two fields because they are two
+	 * questions; one that did both would answer neither.
+	 *
+	 * <p>Not {@code readOnly} for exactly that stamp. A case that is not this caller's answers
+	 * <strong>403, not 404</strong> — 404 would be the oracle a client would use to count the brand's
+	 * cases.
 	 */
 	@Transactional
 	public ClientDraftView clientView(PortalPrincipal principal, UUID caseId) {
@@ -206,10 +207,26 @@ public class PortalCaseService {
 				clientName,
 				subject.getServiceType(),
 				subject.getCaseCode(),
-				subject.getDraftLink(),
+				draftLink(subject),
 				subject.getDraftVersionCount(),
 				subject.getClientApprovalStatus(),
-				subject.getClientApprovalStatus() == ClientApprovalStatus.PENDING);
+				subject.getClientApprovalStatus() == ClientApprovalStatus.PENDING,
+				PortalStageProjection.forClient(subject.getCurrentStage()).label(),
+				PortalStageProjection.clientStepIndex(subject.getCurrentStage()),
+				milestones.of(subject));
+	}
+
+	/**
+	 * The link the live portal opens (Unit 58, final review #1). A draft submitted as files has no
+	 * {@code draft_link}, so the newest client-visible version's PDF is minted for this read — five
+	 * minutes, never stored. A legacy pasted link still wins.
+	 */
+	private String draftLink(Case subject) {
+		if (subject.getDraftLink() != null && !subject.getDraftLink().isBlank()) {
+			return subject.getDraftLink();
+		}
+		return drafts.clientVisible(subject).stream().findFirst().filter(CaseDocument::hasPdf)
+				.map(d -> drafts.fileUrl(d, true)).orElse(null);
 	}
 
 	/**
@@ -262,29 +279,16 @@ public class PortalCaseService {
 			String checklistLabel) {
 	}
 
-	/** Both lists for the client's document screen. Read-only: no receipt is stamped here. */
+	/** This case's checklist and the client's uploads to it. Read-only: no receipt is stamped here. */
 	@Transactional(readOnly = true)
-	public ClientDocumentsView documents(PortalPrincipal principal) {
-		// **A client with no cases sees an empty screen, not a refusal** — and this is the one
-		// caller of `authorized` where that is true, which is why the branch is here and not
-		// inside it. `approve` and `request-revisions` must still refuse, because there is no
-		// case to act on; a list of nothing is a truthful answer to "what have you sent us".
-		//
-		// It stopped being hypothetical when self-signup landed (2026-09-15): a client who has
-		// just created an account has no case by definition, and `AmbiguousCaseException`'s
-		// "This link has no cases behind it" is both wrong — they did not follow a link — and
-		// the first thing the portal would have said to them. `partyCases` already gives the
-		// same reasoning for the case list.
-		//
-		// **Two or more cases still refuses**, and still needs the picker `DraftReview` has:
-		// `00d` §2b item 3 is the route that closes it.
-		if (principal.isPartyScoped() && partyCases(principal).isEmpty()) {
-			return new ClientDocumentsView(java.util.List.of(), java.util.List.of());
-		}
+	public ClientDocumentsView documents(PortalPrincipal principal, UUID caseId) {
+		return documentsOf(authorized(principal, caseId));
+	}
 
-		Case subject = authorized(principal);
-
+	private ClientDocumentsView documentsOf(Case subject) {
+		// Unit 61 (D60): an item the PC/CM has not sent yet is not the client's to see.
 		java.util.List<ChecklistItemView> checklist = checklistItems.findByCaseId(subject.getId()).stream()
+				.filter(DocumentChecklistItem::isSent)
 				.map(item -> new ChecklistItemView(item.getId(), item.getLabel(), item.getStatus()))
 				.toList();
 
@@ -301,7 +305,7 @@ public class PortalCaseService {
 	 * A five-minute URL for one document the client themselves uploaded (Unit 34c).
 	 *
 	 * <p><strong>The token's case is the authorization and the kind filter is the second half of
-	 * it.</strong> {@link #authorized} proves which case this caller holds; the document is then
+	 * it.</strong> {@link #authorized} proves the caller holds the case; the document is then
 	 * matched against that case <em>and</em> against {@code CLIENT_UPLOAD}. Without the case match
 	 * a client could name any document id in the system; without the kind match they could name the
 	 * draft or the expert's signed letter on their own case and read it outside the approval flow.
@@ -314,9 +318,11 @@ public class PortalCaseService {
 	 * than an inference from a web log.
 	 */
 	@Transactional
-	public String documentUrl(PortalPrincipal principal, UUID documentId) {
-		Case subject = authorized(principal);
+	public String documentUrl(PortalPrincipal principal, UUID caseId, UUID documentId) {
+		return documentUrlOf(authorized(principal, caseId), documentId);
+	}
 
+	private String documentUrlOf(Case subject, UUID documentId) {
 		CaseDocument document = documents.findById(documentId)
 				.filter(row -> row.getCaseId().equals(subject.getId()))
 				.filter(row -> row.getKind() == DocumentKind.CLIENT_UPLOAD)
@@ -356,18 +362,18 @@ public class PortalCaseService {
 	 * is why this unit adds no status value.
 	 */
 	@Transactional
-	public CaseDocument upload(PortalPrincipal principal, UUID checklistItemId, String filename,
+	public CaseDocument upload(PortalPrincipal principal, UUID caseId, UUID checklistItemId, String filename,
 			String contentType, long size, java.io.InputStream body) {
+		return uploadTo(authorized(principal, caseId), checklistItemId, filename, contentType, size, body);
+	}
 
-		// **Authorize the way every other method on this class does.** This read used to be
-		// `cases.findById(principal.caseId())`, which is null by construction for every token
-		// Unit 42 mints — `isPartyScoped()` *is defined as* `caseId == null` — so `findById(null)`
-		// threw and every signed-in client's upload answered 500. `authorized` also applies the
-		// brand check this path was skipping.
-		Case subject = authorized(principal);
-
+	private CaseDocument uploadTo(Case subject, UUID checklistItemId, String filename, String contentType, long size,
+			java.io.InputStream body) {
 		DocumentChecklistItem item = checklistItems.findById(checklistItemId)
 				.filter(row -> row.getCaseId() != null && row.getCaseId().equals(subject.getId()))
+				// Unit 61: an unsent item is refused exactly like one on another case. The client
+				// cannot see it, so it does not exist for them.
+				.filter(DocumentChecklistItem::isSent)
 				.orElseThrow(() -> new IllegalTransitionException(
 						"that checklist item is not on this case"));
 
@@ -432,78 +438,113 @@ public class PortalCaseService {
 				.orElse(1);
 	}
 
-	/**
-	 * Handoff B. The guards, the stage change, the trail and the event are all Unit 04's.
-	 *
-	 * <p>Answers the page's new state, so the client's screen can say what happens next without a
-	 * second round trip — and so what it shows afterwards comes from the case rather than from the
-	 * client's assumption that the POST worked.
-	 */
+	// --- Unit 58: drafts as uploaded versions ---------------------------------
+
+	@Transactional(readOnly = true)
+	public java.util.List<CaseDrafts.ClientDraftVersion> drafts(PortalPrincipal principal, UUID caseId) {
+		return drafts.clientVersions(authorized(principal, caseId));
+	}
+
+	/** A five-minute link to one client-visible version's Word or PDF, audited as the client's. */
 	@Transactional
-	public ClientDraftView approve(PortalPrincipal principal) {
-		return view(lifecycle.clientApproveDraftFromPortal(authorized(principal)));
+	public String draftFileUrl(PortalPrincipal principal, UUID caseId, UUID draftId, boolean pdf, boolean view) {
+		Case subject = authorized(principal, caseId);
+		CaseDocument draft = drafts.clientVersion(subject, draftId);
+		String url = view ? drafts.viewUrl(draft) : drafts.fileUrl(draft, pdf);
+		audit.recordPortalEvent(subject.getBrandId(), PortalAudience.CLIENT, "CASE_DOCUMENT", draft.getId(),
+				AuditAction.EXPORTED, null,
+				java.util.Map.of("opened", "draft v" + draft.getVersion() + (pdf ? " (PDF)" : " (Word)")));
+		return url;
+	}
+
+	@Transactional(readOnly = true)
+	public java.util.List<CaseDrafts.CommentView> draftComments(PortalPrincipal principal, UUID caseId,
+			UUID draftId) {
+		return drafts.comments(drafts.clientVersion(authorized(principal, caseId), draftId), false);
+	}
+
+	/** Author is the credential the client posted through — the one identity every token has. */
+	@Transactional
+	public CaseDrafts.CommentView addDraftComment(PortalPrincipal principal, UUID caseId, UUID draftId, String body,
+			Integer page) {
+		CaseDocument draft = drafts.requireInReview(authorized(principal, caseId), draftId);
+		return drafts.addComment(draft, DraftComment.AuthorKind.CLIENT, principal.portalAccessId(), body, page, false);
+	}
+
+	/** Approve names the version, so a stale tab cannot approve a newer one it never saw. */
+	@Transactional
+	public ClientDraftView approveDraft(PortalPrincipal principal, UUID caseId, UUID draftId) {
+		cases.lockById(caseId);
+		Case subject = authorized(principal, caseId);
+		drafts.requireInReview(subject, draftId);
+		return view(lifecycle.clientApproveDraftFromPortal(subject));
+	}
+
+	@Transactional
+	public ClientDraftView requestChanges(PortalPrincipal principal, UUID caseId, UUID draftId, String notes) {
+		cases.lockById(caseId);
+		Case subject = authorized(principal, caseId);
+		drafts.requireInReview(subject, draftId);
+		return view(lifecycle.clientRequestRevisionsFromPortal(subject, notes));
+	}
+
+	/** One file the client receives at delivery. {@code kind}: SIGNED_LETTER or APPROVED_DRAFT. */
+	public record DeliveredFile(UUID id, String kind, String filename, Instant at) {
 	}
 
 	/**
-	 * Approves one named case (34b).
-	 *
-	 * <p><strong>This closes a gap Unit 35 left, and it is worth naming.</strong> D1 made a
-	 * credential able to name a <em>party</em> and gave the reads a case id —
-	 * {@code GET /cases/{'{'}caseId{'}'}} — but left the two <em>writes</em> resolving the case from
-	 * the token alone. So a client with two cases could read either draft and approve neither:
-	 * both actions answered 409 {@code SAY_WHICH_CASE} with no way to say which. The read half of
-	 * party scoping shipped and the write half did not.
-	 *
-	 * <p>{@link #approve(PortalPrincipal)} stays for the case-scoped token, which has no id to
-	 * pass and must not be made to invent one.
+	 * The signed letter and the approved draft — <strong>refused by the server before delivery</strong>
+	 * (Unit 58 §5), not merely hidden: the letter exists from signing onward, and FINAL_QC may still
+	 * send it back.
 	 */
-	@Transactional
-	public ClientDraftView approve(PortalPrincipal principal, UUID caseId) {
-		return view(lifecycle.clientApproveDraftFromPortal(authorized(principal, caseId)));
+	@Transactional(readOnly = true)
+	public java.util.List<DeliveredFile> delivered(PortalPrincipal principal, UUID caseId) {
+		Case subject = deliveredCase(principal, caseId);
+		java.util.List<DeliveredFile> out = new java.util.ArrayList<>();
+		documents.findFirstByCaseIdAndKindOrderByVersionDesc(subject.getId(), DocumentKind.SIGNED_LETTER)
+				.filter(d -> d.getObjectKey() != null)
+				.ifPresent(d -> out.add(new DeliveredFile(d.getId(), "SIGNED_LETTER", d.getFilename(), d.getUploadedAt())));
+		approvedDraft(subject).ifPresent(
+				d -> out.add(new DeliveredFile(d.getId(), "APPROVED_DRAFT", d.getPdfFilename(), d.getUploadedAt())));
+		return out;
 	}
 
-	/** Revisions carry the client's own words, which is what the Case Manager works from. */
+	/** The approved draft is served as its PDF; the letter as itself. */
 	@Transactional
-	public ClientDraftView requestRevisions(PortalPrincipal principal, String notes) {
-		return view(lifecycle.clientRequestRevisionsFromPortal(authorized(principal), notes));
+	public String deliveredUrl(PortalPrincipal principal, UUID caseId, UUID documentId) {
+		Case subject = deliveredCase(principal, caseId);
+		String key = documents.findFirstByCaseIdAndKindOrderByVersionDesc(subject.getId(), DocumentKind.SIGNED_LETTER)
+				.filter(d -> d.getId().equals(documentId))
+				.map(CaseDocument::getObjectKey)
+				.or(() -> approvedDraft(subject).filter(d -> d.getId().equals(documentId))
+						.map(CaseDocument::getPdfObjectKey))
+				.orElseThrow(() -> new NotFoundException("No such delivered file"));
+		audit.recordPortalEvent(subject.getBrandId(), PortalAudience.CLIENT, "CASE_DOCUMENT", documentId,
+				AuditAction.EXPORTED, null, java.util.Map.of("opened", "delivered file"));
+		return store.presignedUrl(key);
 	}
 
-	/** Revisions on one named case — see {@link #approve(PortalPrincipal, UUID)}. */
-	@Transactional
-	public ClientDraftView requestRevisions(PortalPrincipal principal, UUID caseId, String notes) {
-		return view(lifecycle.clientRequestRevisionsFromPortal(authorized(principal, caseId), notes));
-	}
-
-	/**
-	 * The case this token admits.
-	 *
-	 * <p>{@code findById} and not {@code findScoped}, which is the one deliberate exception to
-	 * {@code ScopedRepository}'s rule, and the reason is that there is nothing to scope <em>by</em>:
-	 * the id is not a parameter a caller supplied, it is the row the credential names. The brand
-	 * check below is what makes brand isolation a real predicate on this surface rather than an
-	 * argument from provenance — it cannot currently fail, because {@code brand_id} is
-	 * {@code updatable = false} on both rows, and it is one line that would catch it if that ever
-	 * stopped being true.
-	 */
-	private Case authorized(PortalPrincipal principal) {
-		if (principal.isPartyScoped()) {
-			// A party token on a route that acts on one case. Resolve it only when there is no
-			// choice to get wrong — see AmbiguousCaseException for why this refuses rather than
-			// picking the newest.
-			java.util.List<Case> mine = partyCases(principal);
-			if (mine.size() == 1) {
-				return mine.get(0);
-			}
-			throw new AmbiguousCaseException(mine.isEmpty()
-					? "This link has no cases behind it"
-					: "You have several cases — say which one");
+	private Case deliveredCase(PortalPrincipal principal, UUID caseId) {
+		Case subject = authorized(principal, caseId);
+		if (subject.getCurrentStage() != Stage.DELIVERED && subject.getCurrentStage() != Stage.CLOSED) {
+			throw new NotFoundException("Nothing has been delivered on this case yet");
 		}
-		return byId(principal, principal.caseId());
+		return subject;
+	}
+
+	private Optional<CaseDocument> approvedDraft(Case subject) {
+		return documents.findByCaseIdAndKindOrderByVersionDesc(subject.getId(), DocumentKind.DRAFT).stream()
+				.filter(d -> d.getStatus() == DocumentStatus.CLIENT_APPROVED && d.hasPdf())
+				.findFirst();
 	}
 
 	/**
-	 * The same check for a case the caller named, which is the party-scoped routes' whole
+	 * The case the caller named, checked against the credential — every route's whole
 	 * authorization.
+	 *
+	 * <p>{@code findById} and not {@code findScoped}, the one deliberate exception to
+	 * {@code ScopedRepository}'s rule: there is no {@code TenantContext} on this surface to scope
+	 * by, so the party match below and the brand check in {@link #byId} are the predicate.
 	 *
 	 * <p>A case-scoped token may also reach here, and must be pinned to its own case: without the
 	 * equality check, the narrow credential would gain the wide one's reach the moment a path

@@ -41,6 +41,11 @@ export async function addChecklistItem(caseId: string, label: string): Promise<C
   return unwrap<ChecklistView>(api.post(`/cases/${caseId}/checklist/items`, { label }))
 }
 
+/** Unit 61: publishes every unsent item to the client's portal. 409 when nothing is unsent. */
+export async function sendChecklist(caseId: string): Promise<ChecklistView> {
+  return unwrap<ChecklistView>(api.post(`/cases/${caseId}/checklist/send`, {}))
+}
+
 /** GHL delivers the message; EvalOS only says that it should. */
 export async function sendChase(caseId: string): Promise<ChecklistView> {
   return unwrap<ChecklistView>(api.post(`/cases/${caseId}/chase`, {}))

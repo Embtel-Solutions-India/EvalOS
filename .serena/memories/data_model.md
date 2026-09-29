@@ -61,7 +61,7 @@ called — a key minted in memory and lost to a timeout is a key no retry can se
 **Unit 47 (`V60`, BUILT 2026-09-17):** `ghl_custom_field`, `ghl_calendar`, `ghl_user` — the
 location's reference lists, upserted on GHL's id, `synced_at` stamped, never deleted
 (`missing_since`). Prefixed `ghl_` because `user` is reserved in Postgres. **No slots table, ever**
-(D48). **No custom field values** (D49).
+(D48). **`V74` (Unit 60):** `team_member.ghl_user_id`, unique where set, linked by email on `REFERENCE_MIRROR`, never overwritten. **No custom field values** (D49).
 
 **2026-09-18 review pass — two columns.**
 
@@ -86,6 +86,15 @@ reads; `carried_to_case_document_id` stamped once at Handoff A, which is the who
 `{brand}/client/{ghl_contact_id}/{doc}`, the person's prefix, so carrying a document onto a case is
 one new row and no copy. No status, no review, no checklist item: a request has no checklist.
 
+**Draft files (Unit 58, V70):** a DRAFT `case_document` holds Word in object_key/filename/size_bytes and
+PDF in pdf_object_key/pdf_filename/pdf_size_bytes; status gains CHANGES_REQUESTED; `draft_comments`
+(document_id, author_kind STAFF/CLIENT, author_id, body 1–2000, page ≥1) refuses UPDATE/DELETE by trigger.
+`client_application.answers` drop is V71 (held).
+
 **Case chat (Unit 57, V69):** conversations (UNIQUE case_id+type), conversation_members (never deleted;
 left_at stamped once; trigger-guarded), messages (text ≤4000, parent_message_id, deleted_at, search tsvector),
 message_reactions, message_reads (one watermark per member), push_subscriptions.
+
+**V72 (Unit 59):** `expert_account` (expert_id unique → expert, password_hash, last_sign_in_at) and `expert_credential_token` (token_hash unique, purpose SET|RESET, expires_at, used_at — single use).
+
+**`V75` (Unit 61):** `document_checklist_item.sent_at` / `sent_by` — null = unsent (not in the client portal). Existing rows backfilled as sent; seed trees `V912`/`V952` repeat the backfill for demo data seeded after V75.

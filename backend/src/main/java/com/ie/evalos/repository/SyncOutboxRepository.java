@@ -29,6 +29,10 @@ public interface SyncOutboxRepository
 
 	long countByBrandIdAndSentAtIsNullAndDeadAtIsNull(UUID brandId);
 
+	/** D56: is a push for this entity still waiting to be sent? */
+	boolean existsByBrandIdAndEntityTypeAndEntityIdAndSentAtIsNullAndDeadAtIsNull(UUID brandId,
+			com.ie.evalos.domain.SyncEntity entityType, UUID entityId);
+
 	long countByBrandIdAndDeadAtIsNotNull(UUID brandId);
 
 	/**

@@ -3,7 +3,6 @@ package com.ie.evalos.web;
 import java.util.Optional;
 import java.util.UUID;
 
-import com.ie.evalos.common.AmbiguousCaseException;
 import com.ie.evalos.common.ApiErrors;
 import com.ie.evalos.common.ForbiddenException;
 import com.ie.evalos.domain.ClientApprovalStatus;
@@ -15,7 +14,6 @@ import com.ie.evalos.security.PortalSecurityConfig;
 import com.ie.evalos.security.PortalTokenFilter;
 import com.ie.evalos.service.PortalAccessService;
 import com.ie.evalos.service.PortalCaseService;
-import com.ie.evalos.service.PortalMeetingService;
 import com.ie.evalos.service.PortalInvoiceService;
 
 import org.junit.jupiter.api.Test;
@@ -38,16 +36,12 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
- * The two writes a party-scoped client could not reach until 34b.
+ * The client's two answers to a draft, each naming the case and the version (Unit 58).
  *
- * <p><strong>Unit 35 gave party scoping to the reads and not to the writes.</strong> D1 added
- * {@code GET /cases/{caseId}} so a client with several cases could open any of their drafts —
- * and left {@code /approve} and {@code /request-revisions} resolving the case from the token
- * alone, so both answered 409 {@code SAY_WHICH_CASE} with nowhere to say which. A client with
- * two cases could read either draft and approve neither.
- *
- * <p>{@link #aPartyClientWithTwoCasesCanNowApproveTheOneTheyMean} is the test that closes it;
- * {@link #theTokenlessRouteStillRefusesToGuess} is the one that keeps the old behaviour honest.
+ * <p>The token-scoped {@code /approve} and {@code /request-revisions}, which answered 409
+ * {@code SAY_WHICH_CASE} on a party token with several cases, and 34b's version-less
+ * {@code /cases/{id}/approve}, were removed in Unit 58 phase 3: naming the version is what stops
+ * a stale tab approving a newer draft it never saw.
  */
 @WebMvcTest(controllers = ClientPortalController.class)
 @Import({ PortalSecurityConfig.class, JwtService.class, ApiErrors.class })
@@ -71,11 +65,6 @@ class ClientPortalPerCaseActionTest {
 	@MockitoBean
 	PortalCaseService portal;
 
-	// The meetings route (2026-09-11) gave ClientPortalController another collaborator, so this
-	// slice needs it even though nothing here exercises meetings — ClientPortalMeetingTest does.
-	@MockitoBean
-	PortalMeetingService portalMeetings;
-
 	@MockitoBean
 	PortalInvoiceService portalInvoices;
 
@@ -86,54 +75,51 @@ class ClientPortalPerCaseActionTest {
 
 	private static PortalCaseService.ClientDraftView approved() {
 		return new PortalCaseService.ClientDraftView("Ada Lovelace", ServiceType.EXPERT_OPINION_LETTER,
-				"IE-2026-0001", "https://docs.example.test/draft", 2, ClientApprovalStatus.APPROVED, false);
+				"IE-2026-0001", "https://docs.example.test/draft", 2, ClientApprovalStatus.APPROVED, false, "In progress", 2,
+				java.util.List.of());
 	}
 
-	/** The gap, closed: the client says which case, and it is approved. */
-	@Test
-	void aPartyClientWithTwoCasesCanNowApproveTheOneTheyMean() throws Exception {
-		givenAPartyLink();
-		given(portal.approve(any(), eq(FIRST_CASE))).willReturn(approved());
+	private static final UUID DRAFT = UUID.randomUUID();
 
-		mockMvc.perform(post("/api/portal/client/cases/{id}/approve", FIRST_CASE)
+	/** A client with several cases approves the version they mean. */
+	@Test
+	void aPartyClientApprovesTheNamedVersionOfTheNamedCase() throws Exception {
+		givenAPartyLink();
+		given(portal.approveDraft(any(), eq(FIRST_CASE), eq(DRAFT))).willReturn(approved());
+
+		mockMvc.perform(post("/api/portal/client/cases/{id}/drafts/{draftId}/approve", FIRST_CASE, DRAFT)
 				.header(PortalTokenFilter.HEADER, PARTY_TOKEN))
 				.andExpect(status().isOk())
 				.andExpect(jsonPath("$.data.approvalStatus").value("APPROVED"));
 
-		then(portal).should().approve(any(), eq(FIRST_CASE));
+		then(portal).should().approveDraft(any(), eq(FIRST_CASE), eq(DRAFT));
 	}
 
 	@Test
-	void aPartyClientCanRequestRevisionsOnTheCaseTheyMean() throws Exception {
+	void aPartyClientCanRequestChangesWithTheirWords() throws Exception {
 		givenAPartyLink();
-		given(portal.requestRevisions(any(), eq(FIRST_CASE), any())).willReturn(approved());
+		given(portal.requestChanges(any(), eq(FIRST_CASE), eq(DRAFT), any())).willReturn(approved());
 
-		mockMvc.perform(post("/api/portal/client/cases/{id}/request-revisions", FIRST_CASE)
+		mockMvc.perform(post("/api/portal/client/cases/{id}/drafts/{draftId}/request-changes", FIRST_CASE, DRAFT)
 				.header(PortalTokenFilter.HEADER, PARTY_TOKEN)
 				.contentType(MediaType.APPLICATION_JSON)
 				.content("{\"notes\":\"The dates on page two are wrong\"}"))
 				.andExpect(status().isOk());
 
-		then(portal).should().requestRevisions(any(), eq(FIRST_CASE), eq("The dates on page two are wrong"));
+		then(portal).should().requestChanges(any(), eq(FIRST_CASE), eq(DRAFT), eq("The dates on page two are wrong"));
 	}
 
-	/**
-	 * <strong>The old route still refuses to guess, and that is deliberate.</strong>
-	 *
-	 * <p>Approving is what sends a letter to an expert to sign, and there is no undo that reaches
-	 * the client. A route that picked the newest case rather than refusing would be guessing
-	 * about an irreversible act — so the ambiguity answer stays, and the new route is how a
-	 * client resolves it rather than a replacement for the refusal.
-	 */
+	/** The note is optional: the comment thread on the version carries the detail. */
 	@Test
-	void theTokenlessRouteStillRefusesToGuess() throws Exception {
+	void requestingChangesNeedsNoNote() throws Exception {
 		givenAPartyLink();
-		willThrow(new AmbiguousCaseException("This link covers more than one case"))
-				.given(portal).approve(any());
+		given(portal.requestChanges(any(), eq(FIRST_CASE), eq(DRAFT), any())).willReturn(approved());
 
-		mockMvc.perform(post("/api/portal/client/approve").header(PortalTokenFilter.HEADER, PARTY_TOKEN))
-				.andExpect(status().isConflict())
-				.andExpect(jsonPath("$.error.code").value("SAY_WHICH_CASE"));
+		mockMvc.perform(post("/api/portal/client/cases/{id}/drafts/{draftId}/request-changes", FIRST_CASE, DRAFT)
+				.header(PortalTokenFilter.HEADER, PARTY_TOKEN))
+				.andExpect(status().isOk());
+
+		then(portal).should().requestChanges(any(), eq(FIRST_CASE), eq(DRAFT), eq(null));
 	}
 
 	/**
@@ -146,31 +132,30 @@ class ClientPortalPerCaseActionTest {
 	void anotherPartysCaseIsForbiddenNotMissing() throws Exception {
 		givenAPartyLink();
 		willThrow(new ForbiddenException("That case is not yours"))
-				.given(portal).approve(any(), eq(THEIR_CASE));
+				.given(portal).approveDraft(any(), eq(THEIR_CASE), any());
 
-		mockMvc.perform(post("/api/portal/client/cases/{id}/approve", THEIR_CASE)
+		mockMvc.perform(post("/api/portal/client/cases/{id}/drafts/{draftId}/approve", THEIR_CASE, DRAFT)
 				.header(PortalTokenFilter.HEADER, PARTY_TOKEN))
 				.andExpect(status().isForbidden());
 	}
 
 	@Test
 	void noTokenIsRefusedWithoutReachingTheService() throws Exception {
-		mockMvc.perform(post("/api/portal/client/cases/{id}/approve", FIRST_CASE))
+		mockMvc.perform(post("/api/portal/client/cases/{id}/drafts/{draftId}/approve", FIRST_CASE, DRAFT))
 				.andExpect(status().isUnauthorized());
 
-		then(portal).should(never()).approve(any(), any());
+		then(portal).should(never()).approveDraft(any(), any(), any());
 	}
 
-	/** Revisions still need the client's words: an empty reason is useless to the Case Manager. */
+	/** The retired routes are gone, not quietly still answering. */
 	@Test
-	void revisionsStillNeedAReason() throws Exception {
+	void theRetiredRoutesNoLongerExist() throws Exception {
 		givenAPartyLink();
-
-		mockMvc.perform(post("/api/portal/client/cases/{id}/request-revisions", FIRST_CASE)
-				.header(PortalTokenFilter.HEADER, PARTY_TOKEN)
-				.contentType(MediaType.APPLICATION_JSON).content("{\"notes\":\"   \"}"))
-				.andExpect(status().isBadRequest());
-
-		then(portal).should(never()).requestRevisions(any(), any(), any());
+		for (String path : new String[] { "/api/portal/client/approve", "/api/portal/client/request-revisions",
+				"/api/portal/client/cases/" + FIRST_CASE + "/approve" }) {
+			mockMvc.perform(post(path).header(PortalTokenFilter.HEADER, PARTY_TOKEN))
+					.andExpect(status().is4xxClientError());
+		}
+		then(portal).shouldHaveNoInteractions();
 	}
 }

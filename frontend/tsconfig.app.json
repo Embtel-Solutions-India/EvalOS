@@ -10,7 +10,12 @@
 
     /* Path alias — mirrors resolve.alias in vite.config.ts */
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["./src/*"],
+      "@evalos/chat": ["../packages/evalos-chat/src/index.ts"],
+      "@evalos/chat/*": ["../packages/evalos-chat/src/*"],
+      "react": ["./node_modules/@types/react"],
+      "react/*": ["./node_modules/@types/react/*"],
+      "ably": ["./node_modules/ably"]
     },
 
     /* Bundler mode */
@@ -27,5 +32,6 @@
     "erasableSyntaxOnly": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["src"]
+  "include": ["src", "../packages/evalos-chat/src"],
+  "exclude": ["../packages/evalos-chat/src/**/*.test.ts"]
 }

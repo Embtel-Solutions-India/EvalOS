@@ -21,7 +21,6 @@ import com.ie.evalos.service.CaseLifecycleService;
 import com.ie.evalos.service.PortalAccessService;
 import com.ie.evalos.service.PortalCaseService;
 import com.ie.evalos.service.PortalInvoiceService;
-import com.ie.evalos.service.PortalMeetingService;
 import com.ie.evalos.service.RefundService;
 
 import org.junit.jupiter.api.Test;
@@ -79,10 +78,8 @@ class ClientPortalTest {
 	@MockitoBean
 	PortalCaseService portal;
 
-	// Unit 41 gave ClientPortalController an invoice route and the 2026-09-11 follow-on gave it a
-	// meetings route, so this slice needs both collaborators. Mocked rather than imported:
-	// nothing here exercises either — that is ClientPortalInvoiceTest's and
-	// ClientPortalMeetingTest's job — and importing the real services would drag GhlHttp and a
+	// Unit 41 gave ClientPortalController an invoice route, so this slice needs that collaborator.
+	// Mocked rather than imported: ClientPortalInvoiceTest exercises it, and importing the real services would drag GhlHttp and a
 	// GHL credential into a test about the two chains refusing each other's tokens.
 	//
 	// **This is the sixth time a @WebMvcTest slice has broken on a new constructor argument**,
@@ -90,9 +87,6 @@ class ClientPortalTest {
 	// controller, grep for its name in src/test before running anything narrower.
 	@MockitoBean
 	PortalInvoiceService portalInvoices;
-
-	@MockitoBean
-	PortalMeetingService portalMeetings;
 
 	@MockitoBean
 	CaseLifecycleService lifecycle;
@@ -107,6 +101,9 @@ class ClientPortalTest {
 	CaseBoardService board;
 
 	@MockitoBean
+	com.ie.evalos.service.CaseDrafts drafts;
+
+	@MockitoBean
 	EvalOsUserDetailsService userDetailsService;
 
 	private String staffBearer(Role role) {
@@ -119,31 +116,32 @@ class ClientPortalTest {
 				new PortalPrincipal(UUID.randomUUID(), BRAND_IE, IE_CASE, PortalAudience.CLIENT, null)));
 		given(portalAccess.resolve(XP_TOKEN)).willReturn(Optional.of(
 				new PortalPrincipal(UUID.randomUUID(), BRAND_XP, XP_CASE, PortalAudience.CLIENT, null)));
-		given(portal.clientView(any())).willAnswer(call -> {
-			PortalPrincipal principal = call.getArgument(0);
-			return view(principal.caseId() == IE_CASE ? "IE-2026-0001" : "XP-2026-0002");
+		given(portal.clientView(any(), any())).willAnswer(call -> {
+			UUID caseId = call.getArgument(1);
+			return view(IE_CASE.equals(caseId) ? "IE-2026-0001" : "XP-2026-0002");
 		});
 	}
 
 	private static PortalCaseService.ClientDraftView view(String reference) {
 		return new PortalCaseService.ClientDraftView("Anita Rao", ServiceType.EXPERT_OPINION_LETTER, reference,
-				"https://docs.google.com/document/d/draft/edit", 2, ClientApprovalStatus.PENDING, true);
+				"https://docs.google.com/document/d/draft/edit", 2, ClientApprovalStatus.PENDING, true, "Review", 1,
+				java.util.List.of());
 	}
 
 	/**
-	 * Two tokens, crossed. There is no case parameter to swap, so this is what "the same token on
-	 * another case is impossible" reduces to: each token reads its own case and there is no request
-	 * that could make it read the other.
+	 * Two tokens, each reading its own case. Whether a token may read the case it names is
+	 * {@code PortalCaseService.authorized}'s to decide (proved in {@code PortalCaseServiceTest});
+	 * this proves the route hands it the credential and the named case, and nothing else.
 	 */
 	@Test
-	void eachTokenReadsItsOwnCaseAndThereIsNoWayToAskForAnother() throws Exception {
+	void eachTokenReadsTheCaseItNames() throws Exception {
 		givenTwoLiveLinks();
 
-		mockMvc.perform(get("/api/portal/client/case").header(PortalTokenFilter.HEADER, IE_TOKEN))
+		mockMvc.perform(get("/api/portal/client/cases/{id}", IE_CASE).header(PortalTokenFilter.HEADER, IE_TOKEN))
 				.andExpect(status().isOk())
 				.andExpect(jsonPath("$.data.caseReference").value("IE-2026-0001"));
 
-		mockMvc.perform(get("/api/portal/client/case").header(PortalTokenFilter.HEADER, XP_TOKEN))
+		mockMvc.perform(get("/api/portal/client/cases/{id}", XP_CASE).header(PortalTokenFilter.HEADER, XP_TOKEN))
 				.andExpect(status().isOk())
 				.andExpect(jsonPath("$.data.caseReference").value("XP-2026-0002"));
 	}
@@ -158,7 +156,7 @@ class ClientPortalTest {
 	void theClientResponseCarriesNothingThatIsNotTheirs() throws Exception {
 		givenTwoLiveLinks();
 
-		String body = mockMvc.perform(get("/api/portal/client/case").header(PortalTokenFilter.HEADER, IE_TOKEN))
+		String body = mockMvc.perform(get("/api/portal/client/cases/{id}", IE_CASE).header(PortalTokenFilter.HEADER, IE_TOKEN))
 				.andExpect(status().isOk())
 				.andReturn().getResponse().getContentAsString();
 
@@ -175,7 +173,7 @@ class ClientPortalTest {
 	@Test
 	void aStaffTokenIsRefusedOnThePortalChain() throws Exception {
 		for (Role role : Role.values()) {
-			mockMvc.perform(get("/api/portal/client/case")
+			mockMvc.perform(get("/api/portal/client/cases/{id}", IE_CASE)
 					.header(HttpHeaders.AUTHORIZATION, staffBearer(role)))
 					.andExpect(status().isUnauthorized())
 					.andExpect(jsonPath("$.error.code").value("PORTAL_LINK_INVALID"));
@@ -215,7 +213,7 @@ class ClientPortalTest {
 		String[] bodies = new String[3];
 		String[] tokens = { "never-existed", "expired-yesterday", "revoked-by-a-re-mint" };
 		for (int i = 0; i < tokens.length; i++) {
-			bodies[i] = mockMvc.perform(get("/api/portal/client/case")
+			bodies[i] = mockMvc.perform(get("/api/portal/client/cases/{id}", IE_CASE)
 					.header(PortalTokenFilter.HEADER, tokens[i]))
 					.andExpect(status().isUnauthorized())
 					.andReturn().getResponse().getContentAsString();
@@ -224,7 +222,7 @@ class ClientPortalTest {
 		org.assertj.core.api.Assertions.assertThat(bodies[2]).isEqualTo(bodies[0]);
 
 		// A missing header is the same answer again, so "is that link known?" is unanswerable.
-		mockMvc.perform(get("/api/portal/client/case"))
+		mockMvc.perform(get("/api/portal/client/cases/{id}", IE_CASE))
 				.andExpect(status().isUnauthorized())
 				.andExpect(jsonPath("$.error.code").value("PORTAL_LINK_INVALID"));
 		verifyNoInteractions(portal);
@@ -236,33 +234,9 @@ class ClientPortalTest {
 		given(portalAccess.resolve("expert-token")).willReturn(Optional.of(
 				new PortalPrincipal(UUID.randomUUID(), BRAND_IE, IE_CASE, PortalAudience.EXPERT, UUID.randomUUID())));
 
-		mockMvc.perform(get("/api/portal/client/case").header(PortalTokenFilter.HEADER, "expert-token"))
+		mockMvc.perform(get("/api/portal/client/cases/{id}", IE_CASE).header(PortalTokenFilter.HEADER, "expert-token"))
 				.andExpect(status().isForbidden());
 		verifyNoInteractions(portal);
-	}
-
-	@Test
-	void theClientApprovesAndRequestsRevisionsThroughTheirOwnRoutes() throws Exception {
-		givenTwoLiveLinks();
-		given(portal.approve(any())).willReturn(view("IE-2026-0001"));
-		given(portal.requestRevisions(any(), any())).willReturn(view("IE-2026-0001"));
-
-		mockMvc.perform(post("/api/portal/client/approve").header(PortalTokenFilter.HEADER, IE_TOKEN))
-				.andExpect(status().isOk())
-				.andExpect(jsonPath("$.success").value(true));
-
-		mockMvc.perform(post("/api/portal/client/request-revisions")
-				.header(PortalTokenFilter.HEADER, IE_TOKEN)
-				.contentType(MediaType.APPLICATION_JSON)
-				.content("{\"notes\":\"please soften the conclusion\"}"))
-				.andExpect(status().isOk());
-
-		// Revisions with no reason are useless to the Case Manager, so the reason is required.
-		mockMvc.perform(post("/api/portal/client/request-revisions")
-				.header(PortalTokenFilter.HEADER, IE_TOKEN)
-				.contentType(MediaType.APPLICATION_JSON)
-				.content("{\"notes\":\"   \"}"))
-				.andExpect(status().isBadRequest());
 	}
 
 	/**
@@ -278,7 +252,7 @@ class ClientPortalTest {
 		givenTwoLiveLinks();
 
 		mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
-				.multipart("/api/portal/client/documents")
+				.multipart("/api/portal/client/cases/{id}/documents", IE_CASE)
 				.file(new org.springframework.mock.web.MockMultipartFile("file", "transcript.pdf",
 						MediaType.APPLICATION_PDF_VALUE, new byte[] { 'M', 'Z', (byte) 0x90, 0, 3, 0, 0, 0 }))
 				.param("checklistItemId", UUID.randomUUID().toString())
@@ -297,15 +271,81 @@ class ClientPortalTest {
 		com.ie.evalos.domain.CaseDocument saved = new com.ie.evalos.domain.CaseDocument(BRAND_IE, IE_CASE,
 				com.ie.evalos.domain.DocumentKind.CLIENT_UPLOAD, 1, null,
 				com.ie.evalos.domain.ActorType.CLIENT, "Passport");
-		given(portal.upload(any(), any(), any(), any(), org.mockito.ArgumentMatchers.anyLong(), any()))
+		given(portal.upload(any(), any(), any(), any(), any(), org.mockito.ArgumentMatchers.anyLong(), any()))
 				.willReturn(saved);
 
 		mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
-				.multipart("/api/portal/client/documents")
+				.multipart("/api/portal/client/cases/{id}/documents", IE_CASE)
 				.file(new org.springframework.mock.web.MockMultipartFile("file", "transcript.pdf",
 						MediaType.APPLICATION_PDF_VALUE, "%PDF-1.7 real".getBytes(java.nio.charset.StandardCharsets.UTF_8)))
 				.param("checklistItemId", itemId.toString())
 				.header(PortalTokenFilter.HEADER, IE_TOKEN))
 				.andExpect(status().isOk());
+	}
+
+	// --- Unit 58: per-case routes -------------------------------------------------------
+
+	/** The Invoices page shows settled bills only: GHL's own `paid` status, filtered on request. */
+	@Test
+	void invoicesCanBeNarrowedToPaid() throws Exception {
+		givenTwoLiveLinks();
+		given(portalInvoices.forCaller(any())).willReturn(java.util.List.of(
+				new com.ie.evalos.integration.GhlInvoiceClient.ClientInvoice("INV-1", "paid", java.math.BigDecimal.TEN,
+						java.math.BigDecimal.TEN, java.math.BigDecimal.ZERO, "USD", "2026-09-01", "2026-09-10"),
+				new com.ie.evalos.integration.GhlInvoiceClient.ClientInvoice("INV-2", "sent", java.math.BigDecimal.TEN,
+						java.math.BigDecimal.ZERO, java.math.BigDecimal.TEN, "USD", "2026-09-02", "2026-09-12")));
+
+		mockMvc.perform(get("/api/portal/client/invoices").param("status", "paid").header(PortalTokenFilter.HEADER, IE_TOKEN))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.data.length()").value(1))
+				.andExpect(jsonPath("$.data[0].invoiceNumber").value("INV-1"));
+		mockMvc.perform(get("/api/portal/client/invoices").header(PortalTokenFilter.HEADER, IE_TOKEN))
+				.andExpect(jsonPath("$.data.length()").value(2));
+	}
+
+	/** Only the two files a draft has can be named. */
+	@Test
+	void aDraftFileIsDocxOrPdfAndNothingElse() throws Exception {
+		givenTwoLiveLinks();
+		UUID draftId = UUID.randomUUID();
+		given(portal.draftFileUrl(any(), any(), any(), org.mockito.ArgumentMatchers.anyBoolean(),
+				org.mockito.ArgumentMatchers.anyBoolean())).willReturn("https://s3/x");
+
+		mockMvc.perform(get("/api/portal/client/cases/{caseId}/drafts/{draftId}/files/exe/url", IE_CASE, draftId)
+				.header(PortalTokenFilter.HEADER, IE_TOKEN))
+				.andExpect(status().isBadRequest());
+		mockMvc.perform(get("/api/portal/client/cases/{caseId}/drafts/{draftId}/files/pdf/url", IE_CASE, draftId)
+				.header(PortalTokenFilter.HEADER, IE_TOKEN))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.data.url").value("https://s3/x"));
+		verify(portal).draftFileUrl(any(), org.mockito.ArgumentMatchers.eq(IE_CASE), org.mockito.ArgumentMatchers.eq(draftId),
+				org.mockito.ArgumentMatchers.eq(true), org.mockito.ArgumentMatchers.eq(false));
+
+		// View first (D51): the PDF may be opened in the browser, the Word file may not.
+		mockMvc.perform(get("/api/portal/client/cases/{caseId}/drafts/{draftId}/files/pdf/url?view=true", IE_CASE, draftId)
+				.header(PortalTokenFilter.HEADER, IE_TOKEN))
+				.andExpect(status().isOk());
+		verify(portal).draftFileUrl(any(), org.mockito.ArgumentMatchers.eq(IE_CASE), org.mockito.ArgumentMatchers.eq(draftId),
+				org.mockito.ArgumentMatchers.eq(true), org.mockito.ArgumentMatchers.eq(true));
+		mockMvc.perform(get("/api/portal/client/cases/{caseId}/drafts/{draftId}/files/docx/url?view=true", IE_CASE, draftId)
+				.header(PortalTokenFilter.HEADER, IE_TOKEN))
+				.andExpect(status().isBadRequest());
+	}
+
+	/** Approve and request changes name the case and the version; the note is optional. */
+	@Test
+	void theClientAnswersANamedVersion() throws Exception {
+		givenTwoLiveLinks();
+		UUID draftId = UUID.randomUUID();
+
+		mockMvc.perform(post("/api/portal/client/cases/{caseId}/drafts/{draftId}/approve", IE_CASE, draftId)
+				.header(PortalTokenFilter.HEADER, IE_TOKEN))
+				.andExpect(status().isOk());
+		mockMvc.perform(post("/api/portal/client/cases/{caseId}/drafts/{draftId}/request-changes", IE_CASE, draftId)
+				.header(PortalTokenFilter.HEADER, IE_TOKEN))
+				.andExpect(status().isOk());
+		verify(portal).approveDraft(any(), org.mockito.ArgumentMatchers.eq(IE_CASE), org.mockito.ArgumentMatchers.eq(draftId));
+		verify(portal).requestChanges(any(), org.mockito.ArgumentMatchers.eq(IE_CASE), org.mockito.ArgumentMatchers.eq(draftId),
+				org.mockito.ArgumentMatchers.isNull());
 	}
 }

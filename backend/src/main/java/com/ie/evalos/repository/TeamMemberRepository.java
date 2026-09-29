@@ -56,6 +56,22 @@ public interface TeamMemberRepository extends JpaRepository<TeamMember, UUID>, J
 	 */
 	List<TeamMember> findByActiveTrueAndRole(Role role);
 
+	/**
+	 * Unit 60: links a GHL user to the brand's team member with the same email, if that member has
+	 * none yet and no other member holds that GHL user. Never overwrites, so a hand fix sticks.
+	 *
+	 * @return 1 if linked, 0 otherwise
+	 */
+	@org.springframework.transaction.annotation.Transactional
+	@org.springframework.data.jpa.repository.Modifying
+	@Query(nativeQuery = true, value = """
+			UPDATE team_member SET ghl_user_id = :ghlUserId
+			WHERE brand_id = :brandId AND lower(email) = lower(:email) AND ghl_user_id IS NULL
+			  AND NOT EXISTS (SELECT 1 FROM team_member t WHERE t.ghl_user_id = :ghlUserId)
+			""")
+	int linkGhlUser(@Param("brandId") UUID brandId, @Param("email") String email,
+			@Param("ghlUserId") String ghlUserId);
+
 	/** One brand's members in one role: the Brand Manager half of the pool notification. */
 	List<TeamMember> findByActiveTrueAndRoleAndBrandId(Role role, UUID brandId);
 }

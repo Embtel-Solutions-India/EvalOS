@@ -4,6 +4,7 @@ import {
   fetchChecklist,
   markDocsComplete,
   sendChase,
+  sendChecklist,
   setItemStatus,
 } from './checklistApi'
 import {
@@ -11,6 +12,7 @@ import {
   STATUS_META,
   agingHours,
   agingLabel,
+  sendLabel,
   type ChecklistItemStatus,
   type ChecklistView,
 } from './checklistRules'
@@ -28,7 +30,7 @@ import {
  * a status change, and recomputing that here would be a second copy of the server's answer.
  */
 
-type Busy = 'idle' | 'saving' | 'chasing' | 'completing'
+type Busy = 'idle' | 'saving' | 'chasing' | 'completing' | 'sending'
 
 export default function CaseChecklist({
   caseId,
@@ -89,6 +91,10 @@ export default function CaseChecklist({
 
   const onChase = useCallback(async () => {
     await run('chasing', () => sendChase(caseId))
+  }, [caseId, run])
+
+  const onSend = useCallback(async () => {
+    await run('sending', () => sendChecklist(caseId))
   }, [caseId, run])
 
   const onAdd = useCallback(async () => {
@@ -157,6 +163,15 @@ export default function CaseChecklist({
             style={{ background: 'var(--bg-base)' }}
           >
             <span className="min-w-0 flex-1 truncate text-sm">{item.label}</span>
+            {/* Unit 61: the client cannot see this item until the PC or CM sends it. */}
+            {!item.sentAt && (
+              <span
+                className="rounded-md px-1.5 py-0.5 text-[11px] font-semibold"
+                style={{ color: 'var(--text-muted)', background: 'var(--bg-raised)' }}
+              >
+                Not sent
+              </span>
+            )}
             <span
               className="rounded-md px-1.5 py-0.5 text-[11px] font-semibold"
               style={{ color: STATUS_META[item.status].fg, background: STATUS_META[item.status].bg }}
@@ -224,6 +239,18 @@ export default function CaseChecklist({
       )}
 
       <div className="flex flex-wrap items-center gap-2 border-t pt-3" style={{ borderColor: 'var(--border-default)' }}>
+        {/*
+          Unit 61 (D60): the PC or CM sends the list; only unsent items go, so a second press by
+          the other one finds nothing and the button says who already sent it.
+        */}
+        <button
+          type="button"
+          disabled={working || view.unsent === 0}
+          onClick={() => void onSend()}
+          className="rounded-md bg-(--accent-primary) px-2.5 py-1.5 text-sm font-medium text-white transition-colors enabled:hover:bg-(--accent-hover) disabled:opacity-40"
+        >
+          {busy === 'sending' ? 'Sending…' : sendLabel(view)}
+        </button>
         <button
           type="button"
           disabled={working}

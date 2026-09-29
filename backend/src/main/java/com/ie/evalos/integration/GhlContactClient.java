@@ -21,9 +21,8 @@ import org.springframework.stereotype.Component;
  * sweep's job rather than a screen's — see {@code ContactSnapshotService.findOrFetch}, which saves
  * what this returns so the second open costs no GHL call at all.
  *
- * <p><strong>{@code contacts.readonly}</strong>, the same grant
- * {@link GhlCalendarClient#CONTACT_READ_SCOPE} already uses for a contact's appointments — so this
- * needs no new permission on the token.
+ * <p><strong>{@code contacts.readonly}</strong>, a grant the token already holds (verified
+ * 2026-09-11) — so this needs no new permission.
  */
 @Component
 public class GhlContactClient {

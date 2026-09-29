@@ -9,8 +9,8 @@ The external portal frontends for the EvalOS production CRM, built with React, T
 > **The expert's `/case` is wired (Unit 34 slice 34e, 2026-09-03).** Open it as
 > `/case#<token>` in the expert app: the assigned case, the letter, the evidence it rests on, the
 > three answers, and the sign step — download, sign in your own tool, upload the PDF back with the
-> attestation ticked. Everything else in the expert app (the assignments list, login, payments,
-> profile) is still mock: the list needs decision D1 and payments needs D6.
+> attestation ticked. Experts now sign in (Unit 59) and list their cases at `/cases`. There
+> is no payments screen: expert payments are managed manually by the ENM (D59).
 >
 > **`/documents` is wired (Unit 34 slices 34a + 34c).** It reads the checklist, uploads through EvalOS to S3 with a real progress bar, and opens a document through a 5-minute presigned URL. It takes a scoped portal token out of the URL fragment, so open it as `/documents#<token>`; it sits outside the account shell on purpose.
 >
@@ -58,7 +58,7 @@ expert/               the expert portal — same shape, port 5175
 ├── src/
 │   ├── components/   expert/ (case card, signing badge), layout/ (expert shell)
 │   ├── layouts/      ExpertAuth, ExpertPortal
-│   ├── pages/expert/ dashboard, case detail, payments, profile
+│   ├── pages/expert/ dashboard, case detail, profile
 │   ├── routes/       expertGuards.tsx
 │   ├── context/      ExpertAuthContext
 │   └── services/     expertAuthService, expertCaseService (mock until Unit 15)

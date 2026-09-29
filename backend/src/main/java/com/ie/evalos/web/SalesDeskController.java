@@ -11,11 +11,14 @@ import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
@@ -93,6 +96,10 @@ public class SalesDeskController {
 	}
 
 	public record RescheduleMeetingRequest(@NotBlank String startTime, @NotBlank String endTime) {
+	}
+
+	/** Unit 60: an internal note on a meeting. GHL caps it at 5000 characters. */
+	public record MeetingNoteRequest(@NotBlank String body) {
 	}
 
 	private final SalesDeskService desk;
@@ -188,5 +195,45 @@ public class SalesDeskController {
 			@PathVariable String appointmentId, @RequestBody @Valid RescheduleMeetingRequest request) {
 		return ApiResponse.ok(meetings.reschedule(opportunityId, appointmentId, request.startTime(),
 				request.endTime()));
+	}
+
+	/** Unit 60: GHL's own cancel (status {@code cancelled}), so GHL tells the client. */
+	@PutMapping("/meetings/{appointmentId}/cancel")
+	@PreAuthorize("hasRole('SALES')")
+	public ApiResponse<GhlCalendarClient.Meeting> cancelMeeting(@PathVariable String opportunityId,
+			@PathVariable String appointmentId) {
+		return ApiResponse.ok(meetings.cancel(opportunityId, appointmentId));
+	}
+
+	@GetMapping("/meetings/{appointmentId}/notes")
+	@PreAuthorize("hasRole('SALES')")
+	public ApiResponse<GhlCalendarClient.NotePage> meetingNotes(@PathVariable String opportunityId,
+			@PathVariable String appointmentId, @RequestParam(defaultValue = "0") int offset) {
+		return ApiResponse.ok(meetings.notes(opportunityId, appointmentId, offset));
+	}
+
+	@PostMapping("/meetings/{appointmentId}/notes")
+	@PreAuthorize("hasRole('SALES')")
+	public ApiResponse<Void> addMeetingNote(@PathVariable String opportunityId,
+			@PathVariable String appointmentId, @RequestBody @Valid MeetingNoteRequest request) {
+		meetings.addNote(opportunityId, appointmentId, request.body());
+		return ApiResponse.ok(null);
+	}
+
+	@PutMapping("/meetings/{appointmentId}/notes/{noteId}")
+	@PreAuthorize("hasRole('SALES')")
+	public ApiResponse<Void> editMeetingNote(@PathVariable String opportunityId,
+			@PathVariable String appointmentId, @PathVariable String noteId,
+			@RequestBody @Valid MeetingNoteRequest request) {
+		meetings.editNote(opportunityId, appointmentId, noteId, request.body());
+		return ApiResponse.ok(null);
+	}
+
+	@DeleteMapping("/meetings/{appointmentId}/notes/{noteId}")
+	@PreAuthorize("hasRole('SALES')")
+	public ApiResponse<Void> deleteMeetingNote(@PathVariable String opportunityId,
+			@PathVariable String appointmentId, @PathVariable String noteId) {
+		meetings.deleteNote(opportunityId, appointmentId, noteId);
+		return ApiResponse.ok(null);
 	}
 }

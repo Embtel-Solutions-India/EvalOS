@@ -128,9 +128,13 @@ describe('the nav and route table', () => {
     // deliberate rather than drift: the backend gate still carries `GM_OR`, so a GM who needs to
     // tick an item reaches it from the case. What they no longer get is a stage-level worklist in
     // their sidebar. If the GM is re-added here, say why — it is not a bug fix.
+    //
+    // **The Case Manager joined in Unit 61 (D60):** the PC or the CM sends a case's checklist,
+    // and the CM's checklist access is the PC's (Q16), so the CM works this screen too.
     expect(ALL_ROLES.filter((role) => mayReach(role, '/checklists'))).toEqual([
       'BRAND_MANAGER',
       'PROJECT_COORDINATOR',
+      'CASE_MANAGER',
     ])
     // The Project Manager stays out, even though they may call docs-complete.
     expect(mayReach('PROJECT_MANAGER', '/checklists')).toBe(false)

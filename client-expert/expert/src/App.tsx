@@ -29,34 +29,31 @@ import { ErrorBoundary } from '@shared/components/common/ErrorBoundary'
  * `PortalAccessService.mintForParty`) so the client's flow is a starting point and not a
  * template. Tracked in `open-decisions.md`.
  *
- * **A payouts screen is still coming** (Unit 35, D6 — an expert reads their own ledger rows), but
- * off `GET /api/portal/expert/payouts` and a party-scoped EXPERT token. Do not restore the old
- * page from git to serve it: whatever lands is built against the process above once it exists.
+ * **No payouts screen (D59, 2026-09-29).** Expert payments are managed manually by the Expert
+ * Network Manager on the staff payout screens; `GET /api/portal/expert/payouts` was removed with it.
  */
 
 const Welcome = lazy(() => import('@/pages/Welcome'))
 const ExpertCasePortal = lazy(() => import('@/pages/portal/ExpertCasePortal'))
+const SetPassword = lazy(() => import('@/pages/auth/SetPassword'))
+const Cases = lazy(() => import('@/pages/Cases'))
 const NotFound = lazy(() => import('@shared/pages/NotFound'))
 
 /**
  * The expert portal, its own app on its own origin.
  *
- * **`/` is a holding page as of 2026-09-18.** Staff-minted expert links are being retired — the
- * decision is that an expert signs in the way a client does — and that process is not designed
- * yet. Until it is, the front door says so rather than offering a door that is not there. The app
- * had no `/` at all before this, so the bare origin answered 404 and read as a broken portal.
- *
- * **`/case` is still mounted, and that is on purpose rather than an oversight.** Every link staff
- * have already minted points at it, and `PortalAccessService.mintForExpert` is still wired into
- * four staff screens — so removing the route would strand experts mid-review on cases already in
- * flight, silently, with a 404. It goes when the minting goes, in one change, not before.
+ * **Signing in is the only way in (Unit 59, 2026-09-28).** An expert on the roster signs up at `/`,
+ * sets a password from the emailed link and signs in; `/cases` lists their cases and `/case?caseId=`
+ * opens one. Staff-minted links, and the token-in-the-URL `/case` they fed, were removed.
  */
 function AppRoutes() {
   return (
     <Routes>
+      {/* Unit 59: the door, the emailed link, and a signed-in expert's cases. */}
       <Route path="/" element={<Welcome />} />
+      <Route path="/set-password" element={<SetPassword />} />
+      <Route path="/cases" element={<Cases />} />
 
-      {/* Unit 34e. The token comes out of the URL fragment; there is no shell to mount it in. */}
       <Route path="/case" element={<ExpertCasePortal />} />
 
       <Route path="*" element={<NotFound />} />

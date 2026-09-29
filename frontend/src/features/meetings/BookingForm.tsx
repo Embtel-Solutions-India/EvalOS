@@ -93,9 +93,10 @@ export default function BookingForm({ onBooked }: { onBooked: () => void }) {
       if (calendarId === '' || mode === 'custom') return Promise.resolve(null)
       const from = new Date()
       const to = new Date(from.getTime() + 21 * 24 * 60 * 60 * 1000)
-      return fetchSlots(calendarId, from, to, timezone, signal)
+      // Unit 60: the chosen team member's availability, not just the calendar's.
+      return fetchSlots(calendarId, from, to, timezone, signal, assignedUserId)
     },
-    [calendarId, mode, timezone],
+    [calendarId, mode, timezone, assignedUserId],
   )
 
   const days = useMemo(() => Object.keys(slots?.byDate ?? {}).sort(), [slots])

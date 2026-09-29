@@ -38,6 +38,17 @@ export type ExpertCaseView = {
   attestation: string
 }
 
+/** `ExpertPortalService.ExpertCaseSummary`, exactly — one row of a signed-in expert's cases (Unit 59). */
+export type ExpertCaseSummary = {
+  caseId: string
+  caseReference: string | null
+  serviceType: string | null
+  signStatus: ExpertSignStatus | null
+  /** `PortalStageProjection.forExpert`'s label, or null before the case reaches the expert. */
+  step: string | null
+  actionRequired: boolean
+}
+
 /** `ExpertPortalService.SignedLetterView`, exactly. */
 export type SignedLetterView = {
   documentId: string

@@ -18,11 +18,11 @@ live in `backend/src/main/resources/db/migration/`.
 | Table | Purpose | Brand-scoped |
 |---|---|---|
 | `brand` | tenant; webhook endpoint token, GHL webhook secret, currency, payout terms | — |
-| `team_member` | staff login, role, `segment`; `ghl_pipeline_id` is **VESTIGIAL** as of 44b | yes (nullable for GM) |
+| `team_member` | staff login, role, `segment`; `ghl_pipeline_id` is **VESTIGIAL** as of 44b; **`ghl_user_id`** (`V74`, Unit 60): the member's GHL user, unique where set, linked by email on `REFERENCE_MIRROR` | yes (nullable for GM) |
 | `team_member_pipeline` | **which pipelines a member may work** (44b, `V54`): FK to `pipeline`, many-to-many, `granted_at`/`granted_by`, `revoked_at` (`V64`). **A revoke stamps, never deletes** — the row is what stops `backfillFromLegacyColumn` re-creating the grant from `team_member.ghl_pipeline_id`, which `V39` forbids emptying for SALES/MARKETING. Every read filters `revoked_at IS NULL` | via the member |
 | `client_account` | **portal identity**: email, password_hash, ghl_contact_id, `contact_id` (`V55` — FK to the CRM row), name, phone, `created_via` (`V59` — SEED / SIGNUP / STAFF, the only thing `PORTAL_CLEANUP` is allowed to delete on) | yes |
 | `client_credential_token` | single-use SET / RESET password links | yes |
-| `client_application` | **the client's request**: service, purpose, status (`answers` jsonb is unmapped since Unit 55 and awaits its drop, `V70`), ghl_opportunity_id, `opportunity_id` (`V53` — the row it opened, whose id is the GHL correlation key) | yes |
+| `client_application` | **the client's request**: service, purpose, status (`answers` jsonb is unmapped since Unit 55 and awaits its drop, `V71`), ghl_opportunity_id, `opportunity_id` (`V53` — the row it opened, whose id is the GHL correlation key) | yes |
 | `contact_snapshot` | CRM snapshot a case hangs off; utm / source fields | yes |
 | `conversations` | **case chat** (Unit 57, `V69`): three per case (`CLIENT`/`INTERNAL`/`EXPERT`, `UNIQUE (case_id, type)`), `ACTIVE`/`READ_ONLY` (at `CLOSED`), `last_message_at` | yes |
 | `conversation_members` | **membership history**: kind (`STAFF`/`CLIENT`/`EXPERT`) + member id + role label, `created_at` = joined, `left_at` + `left_reason`. **A trigger refuses DELETE** and allows an UPDATE only to stamp `left_at` once; one current row per person (partial unique index) | yes |
@@ -31,8 +31,9 @@ live in `backend/src/main/resources/db/migration/`.
 | `message_reads` | one read watermark per member per conversation, moved forward only; drives unread counts and "seen by" | yes |
 | `push_subscriptions` | web push (D37): one row per browser (`endpoint` unique), deleted on 404/410 | yes |
 | `evalos_case` | the production case, 60 columns | yes |
-| `case_document` | DRAFT / CLIENT_UPLOAD / SIGNED_LETTER, versioned, S3 `object_key` | yes |
-| `document_checklist_item` | what the client still owes, per case | yes |
+| `case_document` | DRAFT / CLIENT_UPLOAD / SIGNED_LETTER, versioned, S3 `object_key`. A DRAFT (`V70`, Unit 58) holds its Word file in `object_key`/`filename`/`size_bytes` and its PDF in `pdf_object_key`/`pdf_filename`/`pdf_size_bytes` | yes |
+| `draft_comments` | **one comment on one draft version** (`V70`, Unit 58): `document_id` → `case_document`, `author_kind` STAFF/CLIENT, `author_id` (team member, or the client's portal credential), body 1–2,000, `page` ≥ 1 or null. **A trigger refuses UPDATE and DELETE** | yes |
+| `document_checklist_item` | what the client still owes, per case; **`sent_at`/`sent_by`** (`V75`, Unit 61): null = unsent, not in the portal; `sent_by` null on a sent row = sent before D60 | yes |
 | `expert` | expert roster, 50 columns incl. taxonomy arrays and encrypted `payment_detail` | yes |
 | `expert_case_offer` | offer to ACCEPTED / DECLINED / TIMED_OUT / SUPERSEDED | yes |
 | `payout_ledger` | one row per case, links to a payment | yes |
@@ -98,7 +99,7 @@ FKs to `evalos_case`. No table, column or route attaches a file to a request.
 | `client_application.status` | **DRAFT, SUBMITTED — only two** |
 | `client_credential_token.purpose` | SET, RESET |
 | `case_document.kind` | DRAFT, CLIENT_UPLOAD, SIGNED_LETTER |
-| `case_document.status` | SUBMITTED, RETURNED, PM_APPROVED, CLIENT_APPROVED, SIGNED, SUPERSEDED |
+| `case_document.status` | SUBMITTED, RETURNED, PM_APPROVED, CLIENT_APPROVED, CHANGES_REQUESTED (`V70`), SIGNED, SUPERSEDED |
 | `case_document.uploaded_by_type` | STAFF, CLIENT, EXPERT, SYSTEM |
 | `portal_access.audience` | CLIENT, EXPERT |
 | `expert_case_offer.outcome` | OFFERED, ACCEPTED, DECLINED, TIMED_OUT, SUPERSEDED |
@@ -132,6 +133,11 @@ none, and nothing prevents two accounts naming one contact.
 `client_application.ghl_opportunity_id` is nullable, so a draft survives a GHL outage.
 
 ---
+
+
+**`expert_account`** (V72, Unit 59): `id`, `brand_id`, `expert_id` unique → `expert`, `password_hash`,
+`created_at`, `last_sign_in_at`. **`expert_credential_token`**: `id`, `brand_id`, `expert_account_id`,
+`token_hash` unique, `purpose` SET|RESET, `expires_at`, `used_at`, `created_at` — single use.
 
 ## REQUIRED FUTURE MODEL
 

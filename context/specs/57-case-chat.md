@@ -3,7 +3,7 @@
 **Decided 2026-09-25 by the business, in a brainstorming session.** Every case has three live
 conversations. EvalOS owns the data and every rule (Spring Boot + PostgreSQL); **Ably relays live
 updates** (2026-09-26); web push reaches anyone without the app open. No chat platform owns the data. Supersedes Unit 56 (`56-live-chat-setup.md`, the Stream token setup), whose code is
-removed in phase 1. **Status: PHASE 1 BUILT 2026-09-26 (backend: schema, membership, access, lifecycle, sweep, REST, Ably live delivery, web push). Phases 2–3 (the apps) not built.**
+removed in phase 1. **Status: PHASE 1 BUILT 2026-09-26 (backend: schema, membership, access, lifecycle, sweep, REST, Ably live delivery, web push). PHASE 2 BUILT 2026-09-28 (the package and the staff app: Conversations, the case screen's Chat panel, toast, push). PHASE 3 BUILT 2026-09-28 — the client portal as Unit 58, the expert portal as a panel beside `/case`.** The expert app has no nav, so there is no separate Messages page; push opt-in sits in the panel.
 
 ## 0. What was decided, and by whom
 
@@ -119,10 +119,11 @@ role with no conversations simply gets an empty inbox.
 | `GET messages/{id}/replies` | a thread |
 | `POST conversations/{id}/messages` `{ body, parentId? }` | send (members only) |
 | `PUT messages/{id}` `{ body }` / `DELETE messages/{id}` | edit / delete your own |
-| `PUT messages/{id}/reactions/{emoji}` / `DELETE …` | react / un-react |
+| `PUT messages/{id}/reactions/{emoji}` / `DELETE …` | react / un-react; a message's reactions list `{ kind, id, name }` per reactor |
 | `POST conversations/{id}/read` `{ messageId }` | move your watermark forward (never back) |
 | `GET search?q=&caseId=&type=` | full-text search over conversations the caller can open |
 | `GET unread` | total unread, for the nav badge |
+| `GET me` | the caller as `{ kind, id }`, so a client computes "mine" on live events built for their author |
 | `GET conversations/{id}/presence` | online state of that conversation's current participants (built this way so presence cannot probe arbitrary people) |
 | `POST conversations/{id}/typing` | "I am typing", relayed by the backend (§5) |
 | `GET realtime/token` | the caller's Ably TokenRequest (§5) |
@@ -193,33 +194,75 @@ an app that missed something catches up over REST.
 
 ## 7. Frontend — `packages/evalos-chat`
 
-A local package consumed by `frontend/` and `client-expert/` through a `file:` dependency and a
-Vite alias. React is a peer dependency; the one new runtime dependency is `ably` (ably-js).
+A **source-only** local package imported through a Vite/TS alias (`@evalos/chat`), with
+`resolve.dedupe` making the app's `react` and `ably` the only copies — no `file:` dependency and no
+`node_modules` of its own. React is a peer; the app passes ably-js's `Realtime` constructor in.
 
-- **`core/`** (no React) — `createChatClient({ apiBase, wsUrl, credentials })`: typed REST client,
-  Ably connection (token via `authCallback` to `realtime/token`, presence on the person's own
-  channel), event stream, REST catch-up on reconnect, and pure reducers that fold events into state.
-- **`react/`** — `ChatProvider`; hooks `useInbox`, `useConversation`, `useMessages`, `useThread`,
-  `useTyping`, `usePresence`, `useUnreadTotal`; components:
-  - `ChatInbox` — grouped by case, type tabs, unread badges, search, filters (type, status);
-  - `ConversationView` — case header (reference, service, stage, read-only banner), participants
-    with role labels and online dots, message list, composer;
-  - `MessageList` — scroll up for history, date separators, "edited" / "message deleted",
-    "seen by" under the latest message, typing indicator;
-  - `Composer` — Enter sends, Shift+Enter breaks a line, reply-to, 4,000-character limit, an
-    **"Upload a document"** link that opens the app's own document flow for the case;
+**Built (2026-09-28):** the portal subset (Unit 58 phase 2) — inbox, conversation panel, composer,
+replies, reactions, unread badge, the Ably connection and REST catch-up — and then the rest:
+inbox type tabs, an open-cases filter and search (staff), typing, participants with role labels and
+online dots, "seen by", and edit / delete of your own message. The multi-pane layouts live in each
+app's pages, not here.
+
+- **`core/`** (no React) — `createChatClient(api: ChatApi, realtime: Realtime | null)`, built from
+  `createChatApi(request)` (the app's own HTTP call, already pointed at its chat surface) and
+  `ablyRealtime(RealtimeClass, fetchToken)` (the app passes ably-js's `Realtime` constructor in,
+  token via `authCallback` to `realtime/token`, presence on the person's own channel — never
+  publish). Event stream, REST catch-up on reconnect, and pure reducers that fold events into
+  state. **A reply for a thread that isn't loaded starts that thread's list**, so a REST reply and
+  its live event count once, not twice. **Catch-up on reconnect** snapshots every conversation's
+  cursor before fetching; a failed inbox/unread refresh or a failed conversation does not stop the
+  rest, and there is no retry loop — the next reconnect or reopen retries. **Opening a conversation**
+  creates its list before the first fetch, so a live event arriving mid-fetch is kept; a failed
+  first fetch rejects (the view shows "Could not load messages / Try again") and stays retryable; a
+  failed read-mark never hides loaded history. **Reopening an already-loaded conversation** pages it
+  forward the same way catch-up does (same helper, `after` its last known message), and refreshes
+  the inbox/unread — REST-only has no reconnect to catch up on otherwise, so this is its only way to
+  see what was posted while it was closed. **The read watermark** moves to the newest message the
+  client knows for the conversation — the list's last item, or `conversations[id].lastMessage` when
+  that is newer (it already includes replies) — so a reply that is the newest thing in the
+  conversation is marked read too. **start/stop use a generation counter**, so StrictMode's
+  start→stop→start does not leak an Ably connection, and a retry of start keeps the last inbox
+  filter. **Ably is used only for subscribe and presence** on the person's own channel — no token
+  may publish (§5) — and a token route that fails (503 without `ABLY_API_KEY`) means REST-only: Ably
+  is never constructed. **Typing** arrives as a `typing` event and is shown for `TYPING_MS` (5s)
+  after the last one; the client sends at most one `POST typing` per 3s per conversation, matching
+  the relay, and a sent message ends its author's typing. **Read state** (`GET read-state`) is
+  fetched on open and kept current by `read.moved` (only once fetched — a partial list would claim
+  the others read nothing); `seenBy` names who, besides me, has read up to my latest top-level
+  message, and leaves out a watermark it cannot place. **Edit / delete** go through REST and apply
+  the reply locally (delete answers nothing, so the client marks the message deleted itself).
+  `filterInbox` narrows the loaded inbox by type and status client-side (100 rows).
+- **`react/`** — `ChatProvider` (starts the client for its subtree, stops it on unmount) and two
+  hooks, `useChatClient()` and `useChat(select)` (a slice of state via `useSyncExternalStore`).
+  Components built for the portal subset:
+  - `ChatInbox` — grouped by case, unread badges; with `filters` (staff): type tabs, "open cases
+    only", and search (`GET search`, within the current tab) whose results open their conversation;
+  - `ConversationView` — case header (reference, service) with `Participants` (role labels, an
+    online dot from `GET presence`, re-read every 30s — presence has no live event), read-only /
+    oversight banner, message list, `TypingLine`, composer, an offline banner when realtime is down;
+  - `MessageList` — scroll up for history, date separators, "edited" / "message deleted", reply
+    counts opening a `ThreadPanel`, "Seen by …" under my latest message, and `OwnMessageActions`
+    (Edit inline, Delete behind a confirmation) on my own messages and replies — never in viewer
+    or read-only mode;
+  - `Composer` — Enter sends, Shift+Enter breaks a line, reply-to (not shown in `ThreadPanel`,
+    which always replies to its parent), 4,000-character limit, an **"Upload a document"** link
+    that opens the app's own document flow for the case;
   - `ThreadPanel`, `Reactions` (six emoji);
-  - `CaseChatPanel` — case id and allowed types in, a tabbed panel out;
-  - loading, empty and error states with retry; viewer mode (no composer, no reactions, an
-    "oversight — read only" banner); responsive — three panes on desktop, one at a time with Back
-    on mobile.
+  - `CaseChatPanel` — case id and one type in, that case's conversation of that type out. **Not
+    built: a tabbed panel across types**;
+  - `UnreadBadge` — the nav's unread total;
+  - loading, empty and error states with retry; viewer mode (no composer, no reactions, no edit or
+    delete, an "oversight — read only" banner). The two-pane / one-at-a-time-with-Back layouts are
+    the apps' pages (staff and client Conversations).
 - **Theming** — `--chat-*` CSS variables, mapped by each app to its own tokens.
-- **Rendering** — message bodies as text; URLs become links; no HTML.
+- **Rendering** — message bodies as text; only http(s) URLs become links, trailing punctuation
+  excluded from the link but a balanced `)` kept; no HTML.
 
 | App | Placement | Shows |
 |---|---|---|
 | Staff | **Conversations** in the sidebar (full-width `ChatInbox`) and a **Chat** tab on the case screen (`CaseChatPanel`) | members: their conversations; Sales: the Client and Internal conversations of their pipeline's cases and nothing else of the case; GM / Brand Manager: everything in scope, read-only |
-| Client portal | a new **`/cases/:caseId`** page — case on the left, its Client conversation on the right (a **Messages** tab on phones) — plus **Messages** in the nav as the cross-case inbox. Dashboard case rows open the case page; `/draft` keeps its route | Client Communication only, grouped by the client's cases |
+| Client portal | **specified by Unit 58** (`58-client-portal.md`): the `/cases/:caseId` detail page with the Client conversation on the right (a **Messages** tab on phones), and **Conversations** in the nav as the cross-case inbox | Client Communication only, grouped by the client's cases |
 | Expert portal | the existing **`/case`** page gains the right-hand panel, plus **Messages** in the nav | Expert Communication only, for cases with an open or accepted offer |
 
 ## 8. Errors and security
@@ -231,7 +274,7 @@ Vite alias. React is a peer dependency; the one new runtime dependency is `ably`
 | Editing or deleting someone else's message | 403 |
 | Empty body, or over 4,000 characters | 400 |
 | More than 30 messages a minute from one person | 429 |
-| Socket drops | "Reconnecting…" strip; sending still works over REST; catch-up on reconnect |
+| Socket drops | offline banner ("Live updates are paused; new messages appear when you reopen this"); sending still works over REST; catch-up on reconnect, and reopening a loaded conversation pages it forward the same way |
 | Lifecycle listener fails | logged; the case change stands; the sweep repairs it |
 
 - The browser has no route that creates a conversation or changes membership.

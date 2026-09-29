@@ -221,12 +221,12 @@ public class CaseIntakeService {
 		// where things people said live (Unit 23).
 		audit.recordSystemEvent(brand.getId(), OBJECT_TYPE, created.getId(), AuditAction.CREATED,
 				null, CaseLifecycleService.CaseSnapshot.of(created, blankToNull(request.notes())));
-		// Unit 06 listens for these: CASE_CREATED is the pool arrival ("assign a project
-		// manager"), CHECKLIST_REQUESTED is GHL's to deliver. There is no separate paid
-		// announcement any more, because a case can no longer exist before the money.
-		// Nothing here decides who hears about it.
+		// Unit 06 listens for this: CASE_CREATED is the pool arrival ("assign a project manager").
+		// There is no separate paid announcement any more, because a case can no longer exist
+		// before the money. **CHECKLIST_REQUESTED is no longer published here** (Unit 61, D60):
+		// the seeded items are unsent until the PC or CM presses Send, and ChecklistService.send
+		// is what publishes it.
 		events.publishEvent(CaseEvents.CaseEvent.of(CaseEvents.Type.CASE_CREATED, created));
-		events.publishEvent(CaseEvents.CaseEvent.of(CaseEvents.Type.CHECKLIST_REQUESTED, created));
 		return created;
 	}
 

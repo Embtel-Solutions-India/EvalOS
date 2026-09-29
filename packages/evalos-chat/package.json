@@ -1,0 +1,10 @@
+{
+  "name": "@evalos/chat",
+  "private": true,
+  "type": "module",
+  "description": "EvalOS case chat UI (Unit 57 §7). Source-only: consumers import src/ through an alias and supply react and ably.",
+  "peerDependencies": {
+    "ably": "^2.29.0",
+    "react": "^19.2.0"
+  }
+}

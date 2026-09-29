@@ -165,6 +165,8 @@ export type DraftVersion = {
   reviewComment: string | null
   /** As uploaded. Null for a draft submitted before Unit 30, which carried a link and no file. */
   filename: string | null
+  /** A draft's second file (Unit 58). False on every other kind and on link-only drafts. */
+  hasPdf: boolean
 }
 
 /**
@@ -202,9 +204,42 @@ export async function fetchCaseDocuments(
  * would expire while the page sits open, and a user clicking a dead link cannot tell that from a
  * missing document. Ask, then open.
  */
-export async function fetchDocumentUrl(caseId: string, documentId: string): Promise<string> {
-  const { url } = await unwrap<{ url: string }>(api.get(`/cases/${caseId}/documents/${documentId}/url`))
+export async function fetchDocumentUrl(caseId: string, documentId: string, pdf = false, view = false): Promise<string> {
+  // `view` opens a draft's PDF in the browser instead of downloading it (D51, view first).
+  const params = { ...(pdf ? { pdf: true } : {}), ...(view ? { view: true } : {}) }
+  const { url } = await unwrap<{ url: string }>(api.get(`/cases/${caseId}/documents/${documentId}/url`, { params }))
   return url
+}
+
+/** Both files of the next version in one request (Unit 58). The browser sets the multipart boundary. */
+export async function uploadDraft(caseId: string, docx: File, pdf: File): Promise<void> {
+  const body = new FormData()
+  body.append('docx', docx)
+  body.append('pdf', pdf)
+  await unwrap(api.post(`/cases/${caseId}/drafts`, body, { headers: { 'Content-Type': undefined } }))
+}
+
+export type DraftComment = {
+  id: string
+  authorKind: 'STAFF' | 'CLIENT'
+  /** The staff member's name; null for a client's comment. */
+  authorName: string | null
+  body: string
+  page: number | null
+  createdAt: string
+}
+
+export async function fetchDraftComments(caseId: string, draftId: string): Promise<DraftComment[]> {
+  return unwrap<DraftComment[]>(api.get(`/cases/${caseId}/drafts/${draftId}/comments`))
+}
+
+export async function postDraftComment(
+  caseId: string,
+  draftId: string,
+  body: string,
+  page: number | null,
+): Promise<DraftComment> {
+  return unwrap<DraftComment>(api.post(`/cases/${caseId}/drafts/${draftId}/comments`, { body, page }))
 }
 
 /** One case and the PM's guidance on it (Unit 32b). */
@@ -230,20 +265,3 @@ export async function fetchPmNotes(brandId: string | null, signal?: AbortSignal)
   return unwrap<CaseNotes[]>(api.get('/cases/pm-notes', { params: brandId ? { brandId } : {}, signal }))
 }
 
-/**
- * Mint (or re-mint) the **expert's** portal link for this case (Unit 15).
- *
- * **The token exists exactly once, in this response.** Nothing reads it back — a staff member who
- * loses it re-mints, which revokes the previous one immediately. So the URL is shown, copied, and
- * never stored by this app.
- *
- * **The `audience` argument is gone, and it was always `'EXPERT'` here.** The route defaulted to
- * `CLIENT` and no caller ever asked for it: clients reach the portal from a button on the website
- * and sign in (Unit 42), so nothing mints them a link. The expert has no account and this link is
- * still the only way they are reached at all.
- */
-export async function mintPortalLink(caseId: string): Promise<{ url: string; expiresAt: string }> {
-  return unwrap<{ url: string; expiresAt: string }>(
-    api.post(`/cases/${caseId}/portal-link`),
-  )
-}

@@ -1,58 +1,95 @@
-import { Mail } from 'lucide-react'
+import { type FormEvent, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { Button } from '@shared/components/ui/button'
 import { Card } from '@shared/components/ui/card'
+import { Input } from '@shared/components/ui/input'
+import { FormField } from '@shared/components/common/FormField'
 import { Logo } from '@shared/components/common/Logo'
+import { statusOf } from '@shared/services/apiClient'
+import { authFailureMessage, sendLink, signIn } from '@/services/expertAuthService'
+
+const REFUSED = "That email and password don't match. Please try again."
 
 /**
- * The expert portal's front door — <strong>a holding page, and deliberately only that</strong>
- * (2026-09-18).
+ * The expert portal's front door (Unit 59, D23): sign in, or ask for a link.
  *
- * <p><strong>Why it exists at all.</strong> This app had no route at `/`. An expert who opened the
- * bare origin — or whose mail client dropped the URL fragment the case link carries — got the
- * 404 page, which reads as a broken portal rather than as a link problem. One honest screen is
- * worth more than a correct 404 here.
- *
- * <p><strong>Why it offers nothing.</strong> Staff-minted expert links are being retired: the
- * decision is that an expert signs in the same way a client does, and that process has not been
- * designed yet. So this page must not offer a sign-in that does not exist, and must not offer
- * "open the link we sent you" either, because that is the mechanism going away. It says where the
- * expert stands and stops. The two doors arrive when the process does.
- *
- * <p><strong>Do not grow this into an account shell.</strong> The one deleted on 2026-09-10 was
- * refused rather than parked (D1) — a password store needs a reset flow, and the mail channel that
- * makes one possible only arrived at Unit 52. Whatever replaces it is specced first; see
- * `open-decisions.md`.
+ * **"First time here" and "forgot your password" are one button**, because they are one act for an
+ * expert: whoever is on the panel gets a set-password or reset link at the address on the roster.
+ * The screen says the same thing whatever the email was, because the server does.
  */
 export default function Welcome() {
+  const navigate = useNavigate()
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string>()
+  const [linkSent, setLinkSent] = useState(false)
+
+  async function onSignIn(event: FormEvent) {
+    event.preventDefault()
+    setBusy(true)
+    setError(undefined)
+    try {
+      await signIn(email.trim(), password)
+      navigate('/cases')
+    } catch (failure) {
+      setError(authFailureMessage(statusOf(failure), REFUSED))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function onSendLink() {
+    setBusy(true)
+    setError(undefined)
+    try {
+      await sendLink(email.trim())
+      setLinkSent(true)
+    } catch (failure) {
+      setError(authFailureMessage(statusOf(failure), 'Please enter a valid email address.'))
+    } finally {
+      setBusy(false)
+    }
+  }
+
   return (
     <div className="flex min-h-dvh flex-col items-center justify-center gap-8 px-4 py-12">
       <div className="flex flex-col items-center gap-1">
         <Logo size="lg" />
-        <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-          Expert Portal
-        </span>
+        <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Expert Portal</span>
       </div>
 
-      <div className="w-full max-w-md">
-        <Card className="space-y-3 p-6 text-center">
-          <h1 className="text-base font-semibold text-foreground">Welcome</h1>
-          <p className="text-sm text-muted-foreground">
-            This is where you&rsquo;ll review and sign the evaluation letters assigned to you, and
-            track what you&rsquo;re owed.
+      <Card className="w-full max-w-md space-y-4 p-6">
+        <h1 className="text-base font-semibold text-foreground">Sign in</h1>
+        {linkSent ? (
+          <p className="text-sm text-muted-foreground" role="status">
+            If that address is on our expert panel, a link to set your password is on its way. It works once and
+            expires in 30 minutes. Nothing arrived? Use the email you joined the panel with — we invite you to
+            sign up once you are hired.
           </p>
-          <div className="flex items-start gap-3 rounded-md border border-border p-4 text-left">
-            <Mail className="mt-0.5 h-5 w-5 shrink-0 text-primary" aria-hidden="true" />
-            <p className="text-sm text-muted-foreground">
-              {/*
-                Named as a person rather than a process, because "sign-in is coming" invites an
-                expert to come back and try a door that still is not there. Someone contacting
-                them is a thing that actually happens next.
-              */}
-              Sign-in for experts isn&rsquo;t open yet. Your case manager will be in touch with
-              whatever you need for the case you&rsquo;re working on.
-            </p>
-          </div>
-        </Card>
-      </div>
+        ) : (
+          <form className="space-y-4" onSubmit={(event) => void onSignIn(event)}>
+            <FormField label="Email" htmlFor="email">
+              <Input id="email" type="email" autoComplete="email" required value={email}
+                onChange={(event) => setEmail(event.target.value)} />
+            </FormField>
+            <FormField label="Password" htmlFor="password" error={error}>
+              <Input id="password" type="password" autoComplete="current-password" value={password}
+                onChange={(event) => setPassword(event.target.value)} />
+            </FormField>
+            <Button type="submit" className="w-full" disabled={busy || !email.trim() || !password}>
+              {busy ? 'Signing in…' : 'Sign in'}
+            </Button>
+            <div className="border-t pt-4 text-center">
+              <p className="mb-2 text-xs text-muted-foreground">First time here, or forgot your password?</p>
+              <Button type="button" variant="outline" className="w-full" disabled={busy || !email.trim()}
+                onClick={() => void onSendLink()}>
+                Email me a link
+              </Button>
+            </div>
+          </form>
+        )}
+      </Card>
     </div>
   )
 }

@@ -115,6 +115,16 @@ public abstract class ChatRoutes {
 		return ApiResponse.ok(api.unread(who()));
 	}
 
+	/**
+	 * Who the caller is in chat terms (Unit 58 phase 2). Live payloads are built once, for their
+	 * author, so a client computes "mine" from this rather than from the payload's flag.
+	 */
+	@GetMapping("/me")
+	public ApiResponse<ChatViews.Me> me() {
+		ChatIdentity caller = who();
+		return ApiResponse.ok(new ChatViews.Me(caller.kind(), caller.id()));
+	}
+
 	/** "I am typing" — relayed by the backend, throttled, never stored. */
 	@PostMapping("/conversations/{id}/typing")
 	public ApiResponse<Void> typing(@PathVariable UUID id) {

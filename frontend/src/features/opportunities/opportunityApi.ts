@@ -359,10 +359,12 @@ export function fetchSlots(
   to: Date,
   timezone: string,
   signal?: AbortSignal,
+  /** Unit 60: a GHL user id narrows the slots to that team member. Omit for the calendar's own. */
+  userId?: string,
 ): Promise<FreeSlots> {
   return unwrap<FreeSlots>(
     api.get(`/sales/calendars/${calendarId}/slots`, {
-      params: { from: from.getTime(), to: to.getTime(), timezone },
+      params: { from: from.getTime(), to: to.getTime(), timezone, userId: userId || undefined },
       signal,
     }),
   )
@@ -453,6 +455,62 @@ export function fetchDiary(
       signal,
     }),
   )
+}
+
+/** Unit 60: cancels through GHL's own status change, so GHL tells the client. */
+export function cancelMeeting(opportunityId: string, appointmentId: string): Promise<Meeting> {
+  return unwrap<Meeting>(
+    api.put(`/sales/opportunities/${opportunityId}/meetings/${appointmentId}/cancel`),
+  )
+}
+
+/** One internal note on a meeting, read live from GHL. */
+export type MeetingNote = { id: string; body: string; author: string | null; dateAdded: string | null }
+
+export type MeetingNotePage = { notes: MeetingNote[]; hasMore: boolean }
+
+export function fetchMeetingNotes(
+  opportunityId: string,
+  appointmentId: string,
+  offset = 0,
+): Promise<MeetingNotePage> {
+  return unwrap<MeetingNotePage>(
+    api.get(`/sales/opportunities/${opportunityId}/meetings/${appointmentId}/notes`, {
+      params: { offset },
+    }),
+  )
+}
+
+export function addMeetingNote(opportunityId: string, appointmentId: string, body: string) {
+  return unwrap<void>(
+    api.post(`/sales/opportunities/${opportunityId}/meetings/${appointmentId}/notes`, { body }),
+  )
+}
+
+export function deleteMeetingNote(opportunityId: string, appointmentId: string, noteId: string) {
+  return unwrap<void>(
+    api.delete(`/sales/opportunities/${opportunityId}/meetings/${appointmentId}/notes/${noteId}`),
+  )
+}
+
+/** Time the caller has blocked off in GHL. Times are GHL's own strings. */
+export type BlockedTime = { id: string; title: string | null; startTime: string; endTime: string }
+
+export function fetchBlockedTime(from: Date, to: Date, signal?: AbortSignal) {
+  return unwrap<readonly BlockedTime[]>(
+    api.get('/sales/blocked-time', {
+      params: { from: from.toISOString(), to: to.toISOString() },
+      signal,
+    }),
+  )
+}
+
+export function blockTime(block: { title?: string; startTime: string; endTime: string }) {
+  return unwrap<BlockedTime>(api.post('/sales/blocked-time', block))
+}
+
+export function unblockTime(id: string) {
+  return unwrap<void>(api.delete(`/sales/blocked-time/${id}`))
 }
 
 /**

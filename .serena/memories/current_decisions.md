@@ -86,8 +86,8 @@ The ones most often violated from memory:
   brand-locked role to an unattributable figure. `/api/opportunities/board` is the one narrowed
   case: `evalos.ghl.sales-brand` names the owning brand and assignment refuses any other, so its
   brand *is* provable and SALES/MARKETING reach it.
-- Experts have **no accounts** — a staff-minted link is the only way in, and whether that changes
-  is **waiting on a stakeholder discussion**, not on code (D23, Q6).
+- Experts have **accounts** (D23, Unit 59): hired → added to the expert database → sign up → set
+  password → sign in. **No staff-minted link exists any more.**
 
 **The business answered five open questions on 2026-09-17 (D33–D38, D19c):**
 
@@ -104,7 +104,7 @@ The ones most often violated from memory:
 - **There is NO client questionnaire** (D13, Unit 55, 2026-09-25, business decision). The portal
   request is service + purpose + documents; Sales asks the rest on the call. No questions step, no
   `PUT /api/portal/applications/{id}`, no `answers` on the entity or the API. `client_application.answers`
-  is unmapped and awaits `V69` (drop held for an explicit go-ahead). Do not rebuild a questionnaire.
+  is unmapped and awaits `V71` (drop held for an explicit go-ahead). Do not rebuild a questionnaire.
 - **Documents arrive WITH the request**, before submit, keyed by the **GHL contact id**
   (D41). Reuses `DocumentStore.clientKey`; Handoff A carries them into `case_document` as row
   inserts over the **same S3 object**. Unit 53, spec `53-request-documents.md` (D33).
@@ -213,12 +213,39 @@ than account-scoped, and one person may sit on two brands' panels. Recommendatio
 invitation-only sign-up bound to `expert.id`, party-scoped tokens kept underneath, brand on the
 token and not the account.
 
-**Nothing is deleted yet, and the ordering is deliberate.** `mintForExpert`/`mintForParty` are
-still wired into four staff screens and every link already in an expert's inbox points at `/case`,
-so minting and that route retire in ONE change once the replacement exists. Until then the expert
-portal's `/` is a holding page that offers no door.
+**Staff-minted expert links are removed (2026-09-28)** — `mintForExpert` / `mintPartyForExpert`,
+the staff "Send link" button, the portal-links ledger and the token-in-the-URL `/case` all went in
+Unit 59, and `V73` revoked the live links. Signing in is the only mint.
 
 **D50 (2026-09-25/26, Unit 57): case chat is EvalOS-owned.** Three conversations per case (Client,
 Internal, Expert), membership computed from assignments, GM/BM as viewers, text only, read-only at
 CLOSED. PostgreSQL is the record; Ably relays live updates (one private channel per person, no
 browser publish); web push when the app is closed. Spec `57-case-chat.md`.
+
+**D51 (2026-09-27, Unit 58): drafts are uploaded versions.** Word + PDF on the existing
+`case_document` DRAFT versions (no new table); an immutable comment thread per version, open only on
+the version in client review; the client approves / requests changes on a named version (409
+`DRAFT_NOT_CURRENT` otherwise) and the answer is stamped on it; the signed letter reaches the client
+only once Delivered. D33 note: drafts are stored files alongside the request documents. The client
+portal is case-first (phase 3): Home lists every case; no client route resolves a case from the token.
+
+**D52 (2026-09-28): no GHL conversation sidebar.** GHL conversations (SMS/email/WhatsApp/social)
+stay in GHL; EvalOS messaging is the case chat (Unit 57) only. Closes Q10; drops Unit 47 tier 3.
+
+**2026-09-28 — four business answers.** **Q6 → D23:** expert sign-up checks the email against the
+expert database; found → set-password mail, account bound to that `expert.id`; not found → a mail
+whose text the business will give (Q6b; sends nothing until then), same screen answer either way.
+**Q13 → D51:** the draft PDF is viewed first (inline, staff-uploaded DRAFT PDFs only) with both
+downloads beside it. **Q11 → D54:** a GM/Sales screen of DRAFT requests older than 48h, no sweep.
+**D53:** no outbound webhooks, no Handoff C (invariant 11 struck).
+
+**D23 built (Unit 59):** one expert account per roster row, brand from `evalos.portal.expert-brand`; two panels = two accounts. No staff-minted links.
+
+**Q6b answered (2026-09-28):** an unknown email at expert sign-up gets NO mail — experts are told to sign up only after being hired. Same screen answer either way.
+
+**2026-09-29 — five answers.** **D55 (Q9):** appointments use GHL's calendar APIs, standard practice
+(cancel, guests, blocked time, notes; `team_member.ghl_user_id`) — built as Unit 60; guests have no GHL field (Q14). **D56 (Q1):** a marketing lead does
+not overwrite an opportunity with a change pending in the sync queue; otherwise upsert as today.
+**D57 (§12 b):** Sales reach the client in the Client conversation (already members). **D58 (§12 c):**
+four client emails — checklist+link (sent on every checklist send, D60), draft ready, sign in to review, delivered. **D60:** the PC or CM adds documents to a case checklist; items are unsent (hidden from the portal) until one of them presses Send, which publishes all unsent items; later additions wait for the next Send; both see who sent and when; an expert's evidence-request item is unsent too (Q15); the CM also sets item status (Q16). **D59:** expert
+payments are managed manually by the ENM; no expert-portal payouts view.

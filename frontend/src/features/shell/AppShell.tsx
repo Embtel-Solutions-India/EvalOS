@@ -1,4 +1,9 @@
-import { Outlet } from 'react-router-dom'
+import { useEffect, useState, type ReactNode } from 'react'
+import { Outlet, useNavigate } from 'react-router-dom'
+import { ChatProvider, ChatToast } from '@evalos/chat'
+import '@evalos/chat/chat.css'
+import { chatsFor, createStaffChat } from '../../lib/chat'
+import { useMe } from '../../lib/authContext'
 import FiltersProvider from './filters'
 import LeftNav from './LeftNav'
 import TopBar from './TopBar'
@@ -19,6 +24,7 @@ import TopBar from './TopBar'
  */
 export default function AppShell() {
   return (
+    <Chat>
     <FiltersProvider>
       <div className="min-h-svh" style={{ background: 'var(--bg-base)' }}>
         <LeftNav />
@@ -36,5 +42,35 @@ export default function AppShell() {
         </div>
       </div>
     </FiltersProvider>
+    </Chat>
+  )
+}
+
+/**
+ * One chat client for the signed-in shell (Unit 57): the nav badge, the inbox, each case's panel
+ * and the toast share it. A push notification clicked while the app is open routes here in place
+ * (public/sw.js posts `evalos:open`).
+ */
+function Chat({ children }: { children: ReactNode }) {
+  const me = useMe()
+  const navigate = useNavigate()
+  const [client] = useState(createStaffChat)
+
+  useEffect(() => {
+    if (!('serviceWorker' in navigator)) return
+    const onMessage = (event: MessageEvent) => {
+      const path = event.data?.type === 'evalos:open' ? event.data.path : null
+      if (typeof path === 'string' && path.startsWith('/')) navigate(path)
+    }
+    navigator.serviceWorker.addEventListener('message', onMessage)
+    return () => navigator.serviceWorker.removeEventListener('message', onMessage)
+  }, [navigate])
+
+  if (!chatsFor(me.role)) return children
+  return (
+    <ChatProvider client={client}>
+      {children}
+      <ChatToast onOpen={(id) => navigate(`/conversations/${id}`)} />
+    </ChatProvider>
   )
 }

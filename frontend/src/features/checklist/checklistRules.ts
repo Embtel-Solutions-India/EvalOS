@@ -21,6 +21,10 @@ export type ChecklistItem = {
   label: string
   status: ChecklistItemStatus
   updatedAt: string | null
+  /** Unit 61 (D60): null while unsent, which means the client cannot see it yet. */
+  sentAt: string | null
+  /** Who sent it; null when unsent or sent before D60. */
+  sentBy: string | null
 }
 
 export type ChecklistView = {
@@ -36,6 +40,26 @@ export type ChecklistView = {
   checklistSatisfied: boolean
   /** The trail's answer, not the browser's clock — see `needsChase`, which reads it. */
   lastChasedAt: string | null
+  /** Unit 61: items the PC/CM has not sent to the client yet. */
+  unsent: number
+  lastSentAt: string | null
+  lastSentBy: string | null
+}
+
+/**
+ * The Send button's words (Unit 61, D60): what it would send, or who already sent it and when.
+ * With nothing unsent the button is disabled, so whichever of the PC/CM comes second reads why.
+ */
+export function sendLabel(
+  view: Pick<ChecklistView, 'unsent' | 'lastSentAt' | 'lastSentBy'>,
+  locale?: string,
+): string {
+  if (view.unsent > 0) {
+    return `Send ${view.unsent} ${view.unsent === 1 ? 'document' : 'documents'} to the client`
+  }
+  if (!view.lastSentAt) return 'Nothing to send'
+  const on = new Date(view.lastSentAt).toLocaleDateString(locale, { day: 'numeric', month: 'short' })
+  return view.lastSentBy ? `Already sent by ${view.lastSentBy} on ${on}` : `Already sent on ${on}`
 }
 
 export type ChecklistCard = {

@@ -175,3 +175,20 @@
     animation: liquid-float-b 26s ease-in-out infinite;
   }
 }
+
+/*
+ * Case chat (Unit 57 §7) on this app's tokens. On `body`, not `:root`, so it wins over the
+ * package's own `:root` defaults whatever order the two stylesheets load in.
+ */
+body {
+  --chat-bg: hsl(var(--card));
+  --chat-surface: hsl(var(--muted));
+  --chat-border: hsl(var(--border));
+  --chat-text: hsl(var(--foreground));
+  --chat-muted: hsl(var(--muted-foreground));
+  --chat-accent: hsl(var(--primary));
+  --chat-accent-text: hsl(var(--primary-foreground));
+  --chat-mine-bg: hsl(var(--accent));
+  --chat-danger: hsl(var(--destructive));
+  --chat-radius: var(--radius);
+}

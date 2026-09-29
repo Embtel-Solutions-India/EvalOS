@@ -67,7 +67,7 @@ own `Instant.now()`, so lateness cannot be tested at a fixed point in time.
 This paragraph said "uncommitted, 121 paths, HEAD `dee45c6`" until Units 51, 52, 44a-44d and
 45a-45c landed. **CI still runs on `main` only**, so none of it has been through CI.
 
-NOT IMPLEMENTED: conversations, outbound webhooks (Handoff C), expert accounts, the GHL mirror
+NOT IMPLEMENTED: outbound webhooks (Handoff C), expert accounts, the GHL mirror
 (Units 44 to 48), request-stage documents, client payments (deliberate — they are GHL's).
 
 REMOVED 2026-09-16, and do not restore it from git: the two GHL funnel screens, `/marketing/email`
@@ -270,7 +270,7 @@ BUILT 2026-09-15 (Unit 51): the GM dashboard — `GmDashboard.tsx` + `GET /api/m
 to its source and says which cannot be computed at all.
 
 PARTIAL and worth knowing (**re-judged 2026-09-17** — three of these were never gaps):
-a client with two or more cases is refused (Q8, still open); notifications are in-app only and
+notifications are in-app only and
 **push is owed** (D37 — in-app and push, never mail or SMS); request-stage documents do not exist
 and are **Unit 53** (D33). *No longer listed as gaps:* **SALES reading no case is correct** (D19c —
 their world ends at won, so `ScopePredicate`'s empty PIPELINE arm over `evalos_case` is the rule);
@@ -505,7 +505,7 @@ Service → Review (documents + send). Deleted: `lib/questionnaire.ts`, `constan
 route, `ClientApplication.answers`, `ApplicationView.answers`; portal CORS methods are now
 GET/POST/DELETE/OPTIONS (`ClientApplicationRoutesTest` refuses PUT and PATCH at preflight). Staff:
 `DealApplication` is "Portal request", no answers. **`client_application.answers` column NOT dropped
-yet — `V69` awaits an explicit go-ahead** (it destroys client data). Suites: backend 1179/0/4 skipped,
+yet — `V71` awaits an explicit go-ahead** (it destroys client data). Suites: backend 1179/0/4 skipped,
 staff 131, portals 30, all green.
 
 **2026-09-25 — client portal legal pages.** Public `/privacy`, `/disclaimer`, `/document-retention`
@@ -522,4 +522,77 @@ pipeline Sales, brand ENMs, client account, offered/accepted expert; follows cas
 (new `CASE_MANAGER_REASSIGNED`) and the hourly `CHAT_RECONCILE` sweep (first run backfills open cases).
 Read-only at CLOSED. REST on /api/chat, /api/portal/client/chat, /api/portal/expert/chat (routes once in
 `ChatRoutes`). Live: Ably, one private channel per person, publish never granted. Push: web-push 5.1.2 to
-members not present. No UI yet (phases 2–3). Never run against a real Ably app. Full suite 1282/0/4 skipped.
+members not present. Never run against a real Ably app. Full suite 1282/0/4 skipped as of phase 1.
+**2026-09-28 additions:** `GET me` (`{ kind, id }`, so a client computes "mine" on its own live
+events) and reactions now carry `{ kind, id, name }` per reactor (`MessageServiceTest#reactionsCarryWhoReacted`,
+`StaffChatControllerTest#meNamesTheCallerInChatTerms`). No staff UI yet (phase 2's staff-app half);
+the portal subset of `packages/evalos-chat` is BUILT — see the Unit 58 entry below.
+
+**Unit 58 phases 1–2 (2026-09-27 / 2026-09-28): BUILT.** Phase 1: V70 draft files + comments;
+`POST /api/cases/{id}/drafts` (Word + PDF); `CaseDrafts`, `CaseMilestones`; per-case client routes
+(documents, drafts, comments, approve / request changes by version, delivered files gated to
+DELIVERED, paid invoices); staff Upload draft + comment thread. Phase 2: `packages/evalos-chat` —
+the portal subset (inbox, conversation panel, composer, replies, reactions, unread badge, the Ably
+connection, REST catch-up), source-only, imported through a Vite/TS alias (`@evalos/chat`) with
+`resolve.dedupe` on `react`/`ably` — no `file:` dependency, no `node_modules` of its own.
+**Final-review fixes (2026-09-28):** `markRead` uses whichever of the list's last item and
+`conversations[id].lastMessage` is newer, so a reply (never in the top-level list) is marked read
+too; `read.moved` for me clears unread only when that watermark matches the conversation's newest
+message; reopening an already-loaded conversation now pages it forward the same way a reconnect's
+catch-up does (`catchUpOne`, shared), so REST-only — which has no reconnect — sees what was posted
+while it was closed; a pending reply is cleared when the conversation changes; the thread
+composer's dead reply-cancel "×" no longer renders. Tests: `api.test.ts`, `reducer.test.ts`,
+`realtime.test.ts`, `client.test.ts`, `text.test.ts`; frontend suite 72/72. **Not built:** push (phase 4). **Known gaps:** no
+component tests (the portals have no Testing Library); never exercised against a real Ably app;
+`client-expert`'s `npm run lint` does not scan `packages/evalos-chat`.
+
+**2026-09-28 — Unit 58 PHASE 3 (client portal UI) BUILT.** Case-first: Home (active, then delivered
+— `ClientCaseSummary.stepIndex`), `/cases/:caseId` (stepper; Documents, Draft with version tabs,
+PDF/Word downloads, per-version comments with page, approve / request changes behind an inline
+confirmation; Delivered once delivered; History; `CaseChatPanel`, a Messages tab on phones),
+`/conversations` (`ChatInbox` + `ConversationView`), Invoices paid-only; nav Home · Invoices ·
+Conversations (unread badge) · My requests; `ChatProvider` in `PortalLayout`. Removed: Documents,
+Meetings, DraftReview pages; backend `/case`, `/approve`, `/request-revisions`, case-less
+`/documents`, version-less `cases/{id}/approve|request-revisions`, `/meetings` +
+`PortalMeetingService` + `GhlCalendarClient.forContact`. Q8 closed (Home is the picker). Draft PDF
+downloads, never inline — Q13. Backend 1298/0/0/4; portals 73.
+
+**2026-09-28 — Unit 58 PHASE 4 (push) BUILT — Unit 58 COMPLETE.** `client/public/sw.js` (push →
+notification tagged by conversation; click focuses an open tab and routes it by postMessage, since a
+reload drops the memory-only token, else opens one — same origin only); `evalos-chat` `core/push.ts`
++ `PushCard` on Conversations (permission only from a click; hidden without VAPID keys); sign-in
+returns to the bounced-from page. Staff and expert apps still have no service worker. Portals 76.
+
+**2026-09-28 — Unit 57 PHASE 2 (staff app) BUILT.** `frontend/` gains `ably` and the `@evalos/chat`
+alias; `ChatProvider` + `ChatToast` in `AppShell` (not for MARKETING — in no conversation); nav
+Conversations (production roles + SALES, unread badge) and `/conversations/:conversationId` (staff
+push target); case screen `CaseChat` (Client / Internal / Expert tabs); `public/sw.js`; `PushCard` on
+Conversations. Package `client.onIncoming` + `ChatToast`, also in the client portal. Staff suite 134,
+portals 77. Left: the expert portal (phase 3's other half).
+
+**2026-09-28 — Unit 57 PHASE 3 (expert portal) BUILT — Unit 57 COMPLETE.** `ExpertChat` beside the case
+on `/case` (Expert conversation by case code; `PushCard` in the panel — no nav, so no Messages page);
+`expert/public/sw.js`; `createPortalChat(audience)` now in `shared/src/services/portalChat.ts`. Limit:
+an expert push opened with no tab open lands on `/case` without the fragment token — closes with Q6.
+
+**2026-09-28 — Q13 built (D51 view first):** `DocumentStore.presignedPdfView` (inline, application/pdf, DRAFT PDFs only), `?view=true` on the client draft file route and staff document route; View PDF first on both screens.
+
+**2026-09-28 — Q11 built (D54):** `AbandonedRequestService` + `GET /api/requests/abandoned` (GM, SALES; caller's brand, GM every brand) + staff `/requests/abandoned` "Unfinished requests".
+
+**2026-09-28 — chat features completed:** staff inbox tabs / open-only filter / search, typing line, participants with presence dots, seen-by, edit and delete of own messages (never for viewers). No backend change. Filters run client-side over the loaded 100.
+
+**2026-09-28 — Unit 59 phase 1 (expert accounts) BUILT.** V72 `expert_account` (bound to `expert.id`) + `expert_credential_token`; `ExpertAccountService`, `/api/portal/auth/expert/{sign-up, forgot-password, sign-in, set-password}` (the first two 204 always); `mintForExpertAccount` = the same party-scoped token; expert portal door, `/set-password`, `/cases`, `/case?caseId=`. Unknown-email: no mail (Q6b closed).
+
+**2026-09-28 — staff-minted expert links REMOVED (Unit 59 complete).** `mintForExpert`, `mintPartyForExpert`, `statusForExpert`, `PortalLinkController`, the portal-links ledger (service, route, dashboard panel) and the expert card's Send-link button are gone; `/case` reads no URL token; `V73` revokes live expert links. Signing in (`mintForExpertAccount`) is the only mint. Backend 1282/0/0/4.
+
+**2026-09-28:** Q6b closed (no mail for unknown emails; the Welcome screen tells experts to use the email they joined with). Status rows fixed: Client Portal COMPLETE, Documents no longer cites Q8.
+
+**2026-09-29 — D56 DONE.** `openLead` skips `upsertOpportunity` when the contact's open deal (`OpportunityMirrorService.linkedFor`, any status — a queued close counts) has a pending outbox push (`SyncOutboxService.isPending`); returns the mirror row, `created = false`. Backend 1284/0/0/4.
+
+**2026-09-29 — D59 DONE.** Expert-portal payout read removed: `GET /api/portal/expert/payouts`, `payoutRows`/`ExpertPayoutRow`, the ledger's per-expert finder, and the expert app's dead nav/mock/types files. Staff payout screens unchanged. Backend 1280/0/0/4.
+
+**2026-09-29 — Unit 60 (D55) BUILT, guests excepted.** Spec `context/specs/60-appointments.md`. `V74` re-adds `team_member.ghl_user_id` (unique), linked by email on REFERENCE_MIRROR. `GhlCalendarClient`: cancel (status `cancelled`), notes CRUD, block-slots create/list + event delete, free slots `userId`. Reschedule/cancel/notes require a `meeting` row on that deal (closes a cross-deal write). UI: `MeetingRow` (Cancel, Notes), `BlockedTimeCard`, `BookingForm` slots per member. Guests: GHL has no field → open Q14 (recommend drop).
+
+**2026-09-29 — Unit 61 (D60) BUILT, email excepted.** Spec `context/specs/61-checklist-send.md`. `V75` adds `document_checklist_item.sent_at/sent_by` (existing rows backfilled sent; `V912`/`V952` do the same for the demo seeds). `POST /api/cases/{id}/checklist/send` publishes unsent items and `CHECKLIST_REQUESTED` (intake no longer does); refused when nothing is unsent. CM joins `COORDINATION` and the `/checklists` nav; the board also lists cases with unsent items; the portal hides unsent items and refuses uploads to them.
+
+**Next up (2026-09-29):** see the 'Next up' list at the top of `.claude/implementation-status.md` — D58 four client emails (the checklist one hangs off `CHECKLIST_REQUESTED` from Send), then real-service verification.

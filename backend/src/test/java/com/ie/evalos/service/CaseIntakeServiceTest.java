@@ -191,8 +191,9 @@ class CaseIntakeServiceTest {
 		intake.intake(brand, wonDeal("ghl-c-1", "anita@raolaw.example"));
 
 		assertThat(publishedTypes())
-				.containsExactly(CaseEvents.Type.CASE_CREATED, CaseEvents.Type.CHECKLIST_REQUESTED)
-				.doesNotContain(CaseEvents.Type.CASE_PAID);
+				.containsExactly(CaseEvents.Type.CASE_CREATED)
+				// Unit 61: the seeded items are unsent, so nothing may claim a checklist went out.
+				.doesNotContain(CaseEvents.Type.CASE_PAID, CaseEvents.Type.CHECKLIST_REQUESTED);
 	}
 
 	/**
@@ -337,10 +338,10 @@ class CaseIntakeServiceTest {
 				eq(AuditAction.CREATED), isNull(), any());
 
 		ArgumentCaptor<Object> published = ArgumentCaptor.forClass(Object.class);
-		verify(events, org.mockito.Mockito.times(2)).publishEvent(published.capture());
+		verify(events).publishEvent(published.capture());
 		assertThat(published.getAllValues())
 				.extracting(event -> ((CaseEvents.CaseEvent) event).type())
-				.containsExactly(CaseEvents.Type.CASE_CREATED, CaseEvents.Type.CHECKLIST_REQUESTED);
+				.containsExactly(CaseEvents.Type.CASE_CREATED);
 		// Nothing role-restricted rides on an event that leaves the building.
 		assertThat(published.getAllValues())
 				.allSatisfy(event -> assertThat(((CaseEvents.CaseEvent) event).brandId()).isEqualTo(BRAND));
