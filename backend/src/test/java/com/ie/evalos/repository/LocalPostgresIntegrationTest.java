@@ -984,6 +984,23 @@ class LocalPostgresIntegrationTest {
 				.extracting(ExpertCaseOffer::getId).containsExactly(openOffer);
 	}
 
+	/** Unit 65 (V79): the offer's fee round-trips, and the schema refuses a negative one. */
+	@Test
+	void anOffersFeeRoundTripsAndCannotBeNegative() {
+		UUID expertId = experts.save(new Expert(BRAND_IE, "Dr Fee " + UUID.randomUUID())).getId();
+		UUID caseId = cases.saveAndFlush(new Case(BRAND_IE, "EV-" + UUID.randomUUID(), Stage.CLIENT_APPROVAL)).getId();
+		ExpertCaseOffer offer = new ExpertCaseOffer(BRAND_IE, caseId, expertId);
+		offer.setFee(new java.math.BigDecimal("350.00"), null);
+		UUID offerId = offers.saveAndFlush(offer).getId();
+
+		ExpertCaseOffer read = offers.findById(offerId).orElseThrow();
+		assertThat(read.getFee()).isEqualByComparingTo("350.00");
+		assertThat(read.getFeeSetAt()).isNotNull();
+
+		assertThatThrownBy(() -> jdbc.update("UPDATE expert_case_offer SET fee = -1 WHERE id = ?", offerId))
+				.hasStackTraceContaining("expert_case_offer_fee_check");
+	}
+
 	private void resolved(UUID brandId, UUID caseId, UUID expertId, OfferOutcome outcome) {
 		ExpertCaseOffer offer = new ExpertCaseOffer(brandId, caseId, expertId);
 		offer.resolve(outcome, outcome == OfferOutcome.DECLINED ? "outside my field" : null);
