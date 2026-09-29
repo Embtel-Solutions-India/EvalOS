@@ -15,6 +15,8 @@ import com.ie.evalos.domain.Brand;
 import com.ie.evalos.domain.Case;
 import com.ie.evalos.domain.Expert;
 import com.ie.evalos.domain.IllegalTransitionException;
+import com.ie.evalos.domain.ExpertCaseOffer;
+import com.ie.evalos.domain.OfferOutcome;
 import com.ie.evalos.domain.PayoutLedger;
 import com.ie.evalos.domain.PayoutPayment;
 import com.ie.evalos.domain.PayoutStatus;
@@ -22,6 +24,7 @@ import com.ie.evalos.domain.Role;
 import com.ie.evalos.domain.TeamMember;
 import com.ie.evalos.repository.BrandRepository;
 import com.ie.evalos.repository.CaseRepository;
+import com.ie.evalos.repository.ExpertCaseOfferRepository;
 import com.ie.evalos.repository.ExpertRepository;
 import com.ie.evalos.repository.PayoutLedgerRepository;
 import com.ie.evalos.repository.PayoutPaymentRepository;
@@ -84,6 +87,8 @@ class PayoutServiceTest {
 
 	private PayoutService service;
 
+	private ExpertCaseOfferRepository offers;
+
 	private com.ie.evalos.notification.NotificationService notifications;
 
 	@BeforeEach
@@ -96,8 +101,9 @@ class PayoutServiceTest {
 		teamMembers = mock(TeamMemberRepository.class);
 		audit = mock(AuditService.class);
 		notifications = mock(com.ie.evalos.notification.NotificationService.class);
+		offers = mock(ExpertCaseOfferRepository.class);
 		service = new PayoutService(payouts, payments, experts, brands, cases, teamMembers, audit, notifications,
-				mock(com.ie.evalos.notification.RecipientResolver.class));
+				mock(com.ie.evalos.notification.RecipientResolver.class), offers);
 
 		given(payouts.save(any(PayoutLedger.class))).willAnswer(call -> call.getArgument(0));
 	}
@@ -130,6 +136,55 @@ class PayoutServiceTest {
 		ArgumentCaptor<Object> snapshot = ArgumentCaptor.forClass(Object.class);
 		verify(audit).recordEvent(eq("PAYOUT"), any(), eq(AuditAction.CREATED), any(), any(), snapshot.capture());
 		assertThat(snapshot.getValue()).isInstanceOf(java.util.Map.class).isNotInstanceOf(PayoutLedger.class);
+	}
+
+	/** Unit 65: the case pays what the expert accepted, not whatever the standard fee is today. */
+	@Test
+	void deliveryOpensThePayoutAtTheAcceptedFee() {
+		givenBrand("USD", 7);
+		givenExpert(new BigDecimal("350.00"));
+		ExpertCaseOffer accepted = new ExpertCaseOffer(BRAND_IE, CASE_ID, EXPERT_ID);
+		accepted.setFee(new BigDecimal("420.00"), ACTOR_ID);
+		accepted.resolve(OfferOutcome.ACCEPTED, null);
+		given(offers.findByCaseIdOrderByOfferedAtDesc(any())).willReturn(List.of(accepted));
+
+		service.openForDelivery(deliveredCase(EXPERT_ID));
+
+		ArgumentCaptor<PayoutLedger> saved = ArgumentCaptor.forClass(PayoutLedger.class);
+		verify(payouts).save(saved.capture());
+		assertThat(saved.getValue().getAmount()).isEqualByComparingTo("420.00");
+	}
+
+	@Test
+	void anOfferAcceptedBeforeV79FallsBackToTheStandardFee() {
+		givenBrand("USD", 7);
+		givenExpert(new BigDecimal("350.00"));
+		ExpertCaseOffer accepted = new ExpertCaseOffer(BRAND_IE, CASE_ID, EXPERT_ID);
+		accepted.resolve(OfferOutcome.ACCEPTED, null); // no fee
+		given(offers.findByCaseIdOrderByOfferedAtDesc(any())).willReturn(List.of(accepted));
+
+		service.openForDelivery(deliveredCase(EXPERT_ID));
+
+		ArgumentCaptor<PayoutLedger> saved = ArgumentCaptor.forClass(PayoutLedger.class);
+		verify(payouts).save(saved.capture());
+		assertThat(saved.getValue().getAmount()).isEqualByComparingTo("350.00");
+	}
+
+	@Test
+	void anotherExpertsAcceptedFeeIsNotThisPayout() {
+		// A case reassigned after an acceptance: only the delivering expert's offer prices it.
+		givenBrand("USD", 7);
+		givenExpert(new BigDecimal("350.00"));
+		ExpertCaseOffer someoneElses = new ExpertCaseOffer(BRAND_IE, CASE_ID, UUID.randomUUID());
+		someoneElses.setFee(new BigDecimal("999.00"), ACTOR_ID);
+		someoneElses.resolve(OfferOutcome.ACCEPTED, null);
+		given(offers.findByCaseIdOrderByOfferedAtDesc(any())).willReturn(List.of(someoneElses));
+
+		service.openForDelivery(deliveredCase(EXPERT_ID));
+
+		ArgumentCaptor<PayoutLedger> saved = ArgumentCaptor.forClass(PayoutLedger.class);
+		verify(payouts).save(saved.capture());
+		assertThat(saved.getValue().getAmount()).isEqualByComparingTo("350.00");
 	}
 
 	@Test
@@ -470,38 +525,43 @@ class PayoutServiceTest {
 				.isEqualTo(LocalDate.of(2026, 8, 24));
 	}
 
+	/** Unit 65: a pending row that opened with no amount can have it set, once. */
 	@Test
-	void anAmountMayBeCorrectedWhilePending() {
+	void aMissingAmountCanBeSetOnceAndAnExistingOneNever() {
 		givenEnmCaller();
-		PayoutLedger row = pending("350.00");
+		PayoutLedger row = pending(null);
 		givenScoped(row);
 
-		service.correctAmount(row.getId(), new BigDecimal("400.00"));
-
-		assertThat(row.getAmount()).isEqualByComparingTo("400.00");
+		service.setMissingAmount(row.getId(), new BigDecimal("300.00"));
+		assertThat(row.getAmount()).isEqualByComparingTo("300.00");
 		assertThat(row.getRecordedBy()).isEqualTo(ACTOR_ID);
+
+		// The agreed fee is final: the second call, and any call on a priced row, is refused.
+		assertThatThrownBy(() -> service.setMissingAmount(row.getId(), new BigDecimal("310.00")))
+				.isInstanceOf(IllegalTransitionException.class);
+		assertThat(row.getAmount()).isEqualByComparingTo("300.00");
 	}
 
 	@Test
 	void aSettledAmountIsFrozen() {
 		givenEnmCaller();
-		PayoutLedger row = pending("350.00");
+		PayoutLedger row = pending(null);
 		row.setStatus(PayoutStatus.PAID);
 		givenScoped(row);
 
-		assertThatThrownBy(() -> service.correctAmount(row.getId(), new BigDecimal("400.00")))
+		assertThatThrownBy(() -> service.setMissingAmount(row.getId(), new BigDecimal("400.00")))
 				.isInstanceOf(IllegalTransitionException.class);
 		// Its amount is part of a payment's sum; changing it would break that sum after the fact.
-		assertThat(row.getAmount()).isEqualByComparingTo("350.00");
+		assertThat(row.getAmount()).isNull();
 	}
 
 	@Test
 	void aNegativeAmountIsRefused() {
 		givenEnmCaller();
-		PayoutLedger row = pending("350.00");
+		PayoutLedger row = pending(null);
 		givenScoped(row);
 
-		assertThatThrownBy(() -> service.correctAmount(row.getId(), new BigDecimal("-1.00")))
+		assertThatThrownBy(() -> service.setMissingAmount(row.getId(), new BigDecimal("-1.00")))
 				.isInstanceOf(InvalidRequestException.class);
 	}
 
