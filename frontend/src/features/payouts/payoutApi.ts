@@ -42,8 +42,8 @@ export async function fetchBatch(weekOf: string | null, signal?: AbortSignal): P
   return unwrap<BatchView>(api.get('/payouts/batch', { params, signal }))
 }
 
-/** Correct what a draft is worth, before anything settles it. Refused once it is paid. */
-export async function correctAmount(payoutId: string, amount: number): Promise<LedgerRow> {
+/** Fill in a pending payout that opened with no amount (Unit 65). Refused once it has one. */
+export async function setMissingAmount(payoutId: string, amount: number): Promise<LedgerRow> {
   return unwrap<LedgerRow>(api.patch(`/payouts/${payoutId}`, { amount }))
 }
 
