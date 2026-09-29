@@ -24,6 +24,15 @@ request status, portal deployment) and now say so.
 7. **Unit 65 — case fee on the offer + Payouts module (D59 edited 2026-09-30).** Specced
    (`context/specs/65-case-fee-and-payouts-module.md`), **not built**: the docs run ahead of the
    code on purpose. Until it lands the Payments row below is still the truth.
+8. **Unit 66 — the case workspace (2026-09-30).** Specced (`context/specs/66-case-workspace.md`),
+   **not built**, frontend only. Gap audit of the staff SPA: the CM's draft upload is reachable only
+   mid-page in Drafting (no button on the board card or My drafts); the CM has no button for four
+   expert transitions the server admits (signed / declined / timed-out / reassign); the case page has
+   no checklist, no offer or fee, no deadline edit (`PATCH …/deadline` unused), a stale `draftLink`,
+   and no stage progress. Unit 66 adds a 12-stage progress strip derived from the timeline, one
+   header action bar, and Upload draft / Checklist / Offer history / Deadline overlays. Units 67
+   (role queues) and 68 (GM admin: staff directory, pipeline purpose + access, sync drift, the
+   `/brands` placeholder) are named, not specced.
 6. **Verify for real:** set `ABLY_API_KEY`, the `EVALOS_PUSH_*` keys, SMTP and S3, then click
    through client + expert sign-in and chat against the staff app.
 

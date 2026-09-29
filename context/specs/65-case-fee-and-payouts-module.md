@@ -157,8 +157,9 @@ stays where it is.
   `QuickActionDialog`, also reached from `ExpertAssignmentPage`) — *optional: blank uses the
   expert's standard fee*. The retake stays one click and keeps the declined offer's fee; any
   change is made with **Edit** on the case while the offer is open. A CM never gets an editable fee.
-- The case page's expert card (`ExpertCard`) shows the amount and its status, **Edit** while the
-  offer is open (GM / PM / PC / ENM), and *History* opening the same log panel as §4.2.
+- The case page's expert card shows the amount and its status, **Edit** while the offer is open
+  (GM / PM / PC / ENM), and *History* opening the offer's log. **Built by Unit 66** (spec `66` §3.7),
+  which redraws the case page; this unit builds the fee field in the dialogs and the module.
 
 **Design.** Existing tokens (`tokens.css`) and the dashboard tile / table patterns; charts, if any,
 stay inline SVG. Built with the frontend-design skill and Chrome-checked at 1440 and 390 wide.

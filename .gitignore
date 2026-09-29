@@ -47,3 +47,6 @@ mail-preview/
 
 # Claude Code agent worktrees
 .claude/worktrees/
+
+# Brainstorming visual companion mockups
+.superpowers/
