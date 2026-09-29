@@ -3,17 +3,17 @@
 **The authoritative file is `.claude/workflows.md`. It states CURRENT IMPLEMENTATION and TARGET
 WORKFLOW separately — never present a target as if it exists.**
 
-Target lifecycle:
+Target lifecycle (**Unit 64, specced 2026-09-29, not built** — spec `64-remove-client-requests.md`):
 
 ```
-CLIENT → PORTAL → REQUEST SERVICE → SERVICE DETAILS → DOCUMENT SUBMISSION → REQUEST CREATED
-       → SALES REVIEW → OPPORTUNITY → PAYMENT/WON → CASE → PRODUCTION → DELIVERY
+GHL (form · call · Sales · Marketing) → OPPORTUNITY → WON → CASE (+ portal account, set-password mail)
+  → PC / CM send checklist → CLIENT uploads on the case → PRODUCTION → DELIVERY
 ```
 
-**One step of it is missing** as of 2026-09-17: **document submission** at request stage (D33,
-Unit 53). *Sales review as an EvalOS state is NOT missing and NOT owed* — D35 makes it a GHL
-pipeline stage, so read-only on `GET /api/opportunities/{id}/application` is the finished shape,
-widened only to carry the documents beside the request (D34). No questionnaire since Unit 55 (D13).
+**There is no client request any more in the target.** The request, its documents, the opportunity
+EvalOS opens at submit, the `INTAKE` purpose, public sign-up, Sales' Application / Request documents
+tabs and the Unfinished requests screen are all removed by Unit 64. **Until it is built, the CURRENT
+paragraphs below (sign-up, `ClientApplicationService`, request documents) still describe live code.**
 
 Production, and it is now a stated business rule rather than an accident of the code (D36):
 Handoff A creates the case → a **PM** takes it → the PM assigns **Coordinator**, **Case Manager**

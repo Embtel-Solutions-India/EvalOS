@@ -30,7 +30,8 @@ no longer exist (Unit 44b, and the two funnel screens' removal).
 
 **Invariant 14 amended 2026-09-19.** EvalOS now sends client mail for TWO purposes: proving control
 of a mailbox (set password, reset password) and **confirming a request was received** (one message,
-at submit). It previously allowed "exactly one purpose ... (two messages)". Bounded by: the
+at submit). **Unit 64 (specced 2026-09-29, not built) removes the request and with it this
+confirmation**; the account created at a case uses the existing set-password mail. It previously allowed "exactly one purpose ... (two messages)". Bounded by: the
 confirmation promises nothing the flow can fail to keep (no price, no turnaround, no date), and
 nothing depends on it arriving — a failed send is logged and the submit still succeeds. This is NOT
 the four-message expansion open-decisions (c) recommends; those are mail a client ACTS on and still

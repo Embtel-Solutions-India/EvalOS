@@ -1,5 +1,8 @@
 # Unit 55 — The client questionnaire is removed
 
+> **Unit 64 (specced 2026-09-29) removes the request itself.** The pending `answers` drop (§3) is
+> done by `V78` dropping `client_application`. See `64-remove-client-requests.md`.
+
 **Decided 2026-09-25 by the business.** The client portal no longer asks a questionnaire, and the
 questionnaire no longer exists anywhere in EvalOS: not in the portal, not in the API, not in the
 database, not on the deal screen. Supersedes the questionnaire parts of Unit 43

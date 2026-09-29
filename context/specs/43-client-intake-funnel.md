@@ -1,5 +1,9 @@
 # Unit 43 — Get Started: the client intake funnel
 
+> **Superseded by Unit 64 (specced 2026-09-29): the client no longer requests a service at all.** The
+> whole funnel — service pick, documents, send, the opportunity opened on submit — is removed. See
+> `64-remove-client-requests.md`.
+
 > **The questionnaire in this spec no longer exists (Unit 55, 2026-09-25).** Every part below about
 > question groups, answers or the autosave is history; the funnel is Service → Review (documents +
 > send). See `55-remove-questionnaire.md` and D13.

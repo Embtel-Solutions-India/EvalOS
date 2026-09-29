@@ -65,13 +65,27 @@ reuses an existing GHL contact and never duplicates it; sign-in creates nothing.
 
 ### TARGET WORKFLOW
 
+**Unit 64 (specced 2026-09-29, not built): the account is born with the case.** No public sign-up.
+
+```
+opportunity.won → Handoff A → CASE_CREATED (after commit)
+  → case brand is the portal brand, contact has email + GHL id?
+      no  → flag the case, no account
+      yes → account for (brand, email)?
+              none                       → create (created_via CASE, linked to the contact) → set-password mail
+              linked to this contact     → no password: re-send set-password · password set: nothing
+              unlinked                   → link, then as above
+              linked to another contact  → flag the case, never relink
+sign-in, unknown email → "your account opens when your first case starts"
+```
+
 Two schema-level gaps remain (see `data-model.md` → REQUIRED FUTURE MODEL):
 `client_account.ghl_contact_id` should be unique per brand, and `client_account` should be joined
-to or merged with `contact_snapshot` so one person is one row.
+to or merged with `contact_snapshot` so one person is one row. Spec `64` §2–§3.
 
 ---
 
-## 2. Request to case
+## 2. Request to case (the request is removed by Unit 64 — see TARGET)
 
 ### CURRENT IMPLEMENTATION
 
@@ -121,23 +135,15 @@ working draft rather than being told something untrue.
 
 ### TARGET WORKFLOW
 
+**Unit 64 (specced 2026-09-29, not built): there is no client request.**
+
 ```
-CLIENT → PORTAL → REQUEST SERVICE → SERVICE DETAILS → DOCUMENT SUBMISSION → REQUEST CREATED
-       → SALES REVIEW → OPPORTUNITY PROCESS → PAYMENT / WON → CASE → PRODUCTION → DELIVERY
+GHL (form · call · Sales · Marketing) → OPPORTUNITY PROCESS → WON → CASE (+ portal account, §1)
+  → PC / CM send the checklist → CLIENT uploads on the case → PRODUCTION → DELIVERY
 ```
 
-**One step of this is missing, and it is one step rather than two as of 2026-09-17.**
-
-- **DOCUMENT SUBMISSION** — needs a request-scoped document table, routes and an S3 prefix keyed by
-  the **GHL contact id** (D41), and a carry-forward into `case_document` at Handoff A (D33,
-  spec `53`).
-  The client uploads with the request; the documents are the client's, held against the
-  person, before any case exists to hold them.
-- ~~**SALES REVIEW as a state**~~ — **not owed.** D35: review is a GHL pipeline stage, not an
-  EvalOS column. `client_application.status` stays `DRAFT` / `SUBMITTED`. What Sales *is* owed is
-  the documents beside the request on the one opportunity screen (D34).
-
-Everything else in the chain exists.
+Removed from the chain: REQUEST SERVICE, DOCUMENT SUBMISSION before a case, REQUEST CREATED, the
+opportunity EvalOS opened on submit, the `INTAKE` pipeline, and Sales' request tabs. Spec `64` §4.
 
 ---
 
@@ -265,14 +271,11 @@ files, history and Client conversation.
 
 ### TARGET WORKFLOW
 
-`Client Portal → S3 → Request → Sales → Case → Production → Expert`. The first hop into a
-**Request** does not exist; documents enter at the Case today.
+`Case → checklist sent (D60) → Client Portal upload → S3 (keyed by GHL contact id, D41) → Production → Expert`.
 
-**Decided 2026-09-17 (D33, D41):** the client uploads **with the request, before submit**, and the S3 key is
-keyed by the **GHL contact id** — one id names a contact everywhere, and the documents belong to the
-person rather than to a case that has not been won yet. Sales reads them on their own route and tab
-on the same opportunity (D34); Handoff A carries them forward into `case_document` over the same S3
-object, so Production starts holding what Sales already read. Spec `53`.
+**Unit 64 (specced 2026-09-29, not built):** documents enter **only at the Case**, against a sent
+checklist item. The request-document upload, Sales' Request documents tab and the carry-forward at
+Handoff A are removed. Spec `64` §4–§5.
 
 ---
 
@@ -401,8 +404,8 @@ an unrecoverable one.
 
 ### TARGET WORKFLOW
 
-Unchanged by this unit. DOCUMENT SUBMISSION was the one step of §2's lifecycle with nothing behind
-it; it now has a table, two audiences and a carry-forward.
+**Removed by Unit 64** (specced 2026-09-29, not built): the table, both routes and the
+carry-forward go; `V78` drops `application_document`. Documents enter only on a case (§5).
 
 ### Expert portal sign-in (Unit 59, 2026-09-28)
 

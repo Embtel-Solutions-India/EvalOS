@@ -25,11 +25,11 @@ _Nothing open here: Q6b (unknown-email mail) was answered on 2026-09-28 — no m
 ## Carried forward from `00d` §12, still unresolved
 
 _Item h was settled by Unit 57 (2026-09-26): the client sees the case team by name in the Client
-conversation and never shares a conversation with the expert._
+conversation and never shares a conversation with the expert. Item i2 closed on 2026-09-29: Unit 64
+removes the application table, so no lead shares it (D8)._
 
 | #   | Question                                                   | Recommendation                                                                                                                                      |
 | --- | ---------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| i2  | Do GHL-born leads share the application table?             | Decide with Q5 in Unit 44. A GHL lead has no service.                                                                                               |
 | i3  | Does the GM's board span every brand or the selected one?  | The selected brand, consistently.                                                                                                                   |
 | j   | Should brand isolation move to Postgres RLS?               | No. Composite FKs plus a test forbidding `findById` on a `ScopedRepository` outside a token-authorised path.                                        |
 | k   | Do the `…FromPortal` method twins collapse?                | Yes, while splitting `CaseLifecycleService`, not before.                                                                                            |
