@@ -126,7 +126,10 @@ public class ExpertSignSweep implements Sweep {
 			if (notifications.alreadyRaised(subject.getId(), NotificationType.EXPERT_SIGN_OVERDUE)) {
 				return false;
 			}
-			notifications.create(subject.getBrandId(), signingOwners(subject),
+			// Unit 63: the ENM hears about overdue signatures too — it is their expert.
+			notifications.create(subject.getBrandId(),
+					Stream.concat(signingOwners(subject).stream(), recipients.enms(subject.getBrandId()).stream())
+							.distinct().toList(),
 					NotificationType.EXPERT_SIGN_OVERDUE, subject.getId(),
 					"The signing deadline has passed. Chase the expert, or reassign — this sweep "
 							+ "will not time them out for you.");

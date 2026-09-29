@@ -88,6 +88,9 @@ class ExpertControllerTest {
 	ExpertImportService imports;
 
 	@MockitoBean
+	com.ie.evalos.service.ExpertCaseHistoryService history;
+
+	@MockitoBean
 	EvalOsUserDetailsService userDetailsService;
 
 	@BeforeEach

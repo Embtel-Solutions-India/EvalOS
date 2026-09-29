@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { useMe } from '../../lib/authContext'
 import { formatPayout } from '../../lib/money'
-import { confirmPayment, fetchPayment } from './payoutApi'
+import { fetchPayment } from './payoutApi'
+import { PAYOUT_STATUS_LABEL } from './payoutRules'
 import type { PaymentDetailView } from './payoutRules'
 
 /**
@@ -14,8 +14,9 @@ import type { PaymentDetailView } from './payoutRules'
  * **The reference is shown here and nowhere the expert can see.** It names a bank transfer and
  * belongs to the brand's records; the expert portal shows status and amount only.
  *
- * Confirming is terminal and cascades to every draft the payment settled: one transfer gets one
- * acknowledgement, so there is no route that confirms a single draft.
+ * **Only the expert confirms** (Unit 63), from their portal: every entry here is manual, so the
+ * person who typed it confirming it would prove nothing. That turns Processing into Paid for every
+ * draft the transfer settled.
  */
 
 type LoadState =
@@ -23,15 +24,9 @@ type LoadState =
   | { status: 'ready'; view: PaymentDetailView }
   | { status: 'failed'; message: string }
 
-const MAY_RECORD = ['GM', 'BRAND_MANAGER', 'EXPERT_NETWORK_MANAGER']
-
 export default function PaymentDetail() {
   const { paymentId = '' } = useParams()
-  const me = useMe()
   const [state, setState] = useState<LoadState>({ status: 'loading' })
-  const [refusal, setRefusal] = useState<string | null>(null)
-
-  const mayRecord = MAY_RECORD.includes(me.role)
 
   const load = useCallback(
     async (signal?: AbortSignal) => {
@@ -53,16 +48,6 @@ export default function PaymentDetail() {
     void load(controller.signal)
     return () => controller.abort()
   }, [load])
-
-  const confirm = async () => {
-    setRefusal(null)
-    try {
-      await confirmPayment(paymentId)
-      await load()
-    } catch (error: unknown) {
-      setRefusal(error instanceof Error ? error.message : 'The payment was not confirmed')
-    }
-  }
 
   if (state.status === 'loading') {
     return (
@@ -96,7 +81,9 @@ export default function PaymentDetail() {
           {formatPayout(payment.amount, payment.currency)}
         </h1>
         <p className="mt-0.5 text-sm" style={{ color: 'var(--text-muted)' }}>
-          {payment.confirmed ? 'Confirmed by the expert' : 'Sent, awaiting acknowledgement'}
+          {payment.confirmed
+            ? 'Paid — the expert confirmed receiving it'
+            : 'Processing — waiting for the expert to confirm receipt in their portal'}
         </p>
       </header>
 
@@ -136,7 +123,7 @@ export default function PaymentDetail() {
                 <td className="px-4 py-2">
                   <Link to={`/cases/${draft.caseId}`}>{draft.caseCode}</Link>
                 </td>
-                <td className="px-4 py-2">{draft.status.toLowerCase()}</td>
+                <td className="px-4 py-2">{PAYOUT_STATUS_LABEL[draft.status]}</td>
                 <td className="font-num px-4 py-2 text-right tabular-nums">
                   {draft.amount === null ? '—' : formatPayout(draft.amount, draft.currency)}
                 </td>
@@ -146,27 +133,7 @@ export default function PaymentDetail() {
         </table>
       </section>
 
-      {refusal && (
-        <p className="text-sm" style={{ color: 'var(--status-red)' }}>
-          {refusal}
-        </p>
-      )}
-
-      {mayRecord && !payment.confirmed && (
-        <div>
-          <button
-            type="button"
-            onClick={() => void confirm()}
-            className="rounded-md px-3 py-1.5 text-sm font-medium text-white"
-            style={{ background: 'var(--accent-primary)' }}
-          >
-            The expert confirmed receipt
-          </button>
-          <p className="mt-1 text-xs" style={{ color: 'var(--text-muted)' }}>
-            Terminal, and it confirms every draft above at once.
-          </p>
-        </div>
-      )}
+      {/* No staff confirm (Unit 63): every entry is manual, so only the expert confirms. */}
     </div>
   )
 }

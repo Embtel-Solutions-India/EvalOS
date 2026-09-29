@@ -115,7 +115,7 @@ class OpportunityBoardControllerTest {
 	 */
 	@ParameterizedTest
 	@EnumSource(value = Role.class, mode = EnumSource.Mode.EXCLUDE,
-			names = { "SALES", "MARKETING", "GM" })
+			names = { "SALES", "MARKETING", "GM", "EXPERT_NETWORK_MANAGER" })
 	void everyOtherRoleIsRefused(Role role) throws Exception {
 		mockMvc.perform(get("/api/opportunities/board").header(HttpHeaders.AUTHORIZATION, bearer(role)))
 				.andExpect(status().isForbidden());

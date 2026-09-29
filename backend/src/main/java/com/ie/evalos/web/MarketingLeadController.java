@@ -57,7 +57,8 @@ public class MarketingLeadController {
 	}
 
 	@PostMapping
-	@PreAuthorize("hasRole('MARKETING')")
+	// Unit 63: the ENM's "add candidate" is the same upsert on (contact, their hiring pipeline).
+	@PreAuthorize("hasAnyRole('MARKETING', 'EXPERT_NETWORK_MANAGER')")
 	public ApiResponse<MarketingLeadService.Lead> open(@RequestBody @Valid OpenLeadRequest request) {
 		return ApiResponse.ok(leads.openLead(request.firstName(), request.lastName(), request.email(),
 				request.phone(), request.name(), request.monetaryValue()));

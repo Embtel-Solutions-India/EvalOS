@@ -92,6 +92,10 @@ class ExpertPortalTest {
 	@MockitoBean
 	ExpertPortalService portal;
 
+	// Unit 63: the expert confirms a transfer through PayoutService.
+	@MockitoBean
+	com.ie.evalos.service.PayoutService payoutService;
+
 	@MockitoBean
 	com.ie.evalos.service.PortalCaseService clientPortal;
 

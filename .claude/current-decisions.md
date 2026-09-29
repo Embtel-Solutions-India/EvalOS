@@ -467,8 +467,34 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
   checklist email. **An expert's evidence-request item is unsent like any other** (closes Q15) —
   the coordinators are alerted and one Send publishes it. **The CM also sets item status**
   (approve / incorrect / missing), the same as the PC (closes Q16).
-- **D59.** **Expert payments are managed manually by the Expert Network Manager** (2026-09-29): no
-  payouts view in the expert portal; the staff payout screens stay the ENM's tool.
+- **D59.** **Expert payments are managed manually by the Expert Network Manager** (2026-09-29): the
+  staff payout screens stay the ENM's tool. **Edited 2026-09-29:** the expert portal shows the
+  expert a Payouts page of what the ENM has recorded (case, amount, status, date sent; never
+  `payment_detail`, never the transfer's method or reference) — spec `62`. **Edited again
+  2026-09-29 (Unit 63):** a payout is **Pending → Processing → Paid**, and **the expert confirms
+  receipt**, because every entry is manual: the ENM's recorded transfer (`PAID`) shows as
+  *Processing* until the expert presses *Confirm received* in the portal (`CONFIRMED`, shown as
+  *Paid*). **Staff no longer confirm** — that route is removed. The portal's one write is that
+  confirmation; nothing there pays, requests or disputes a payout. Weekly / monthly summaries and a
+  CSV are the ENM's reports. No approval step and no failed state (the business chose three).
+- **D61.** **The ENM runs the expert lifecycle in EvalOS, and the hiring pipeline is a GHL
+  pipeline** (2026-09-29, the business; Unit 63, spec `63-enm-workspace.md`). This reverses the two
+  written refusals `00d` §7 names and replaces `00d` Phase 5's `expert_application` design. A GM
+  tags a mirrored pipeline `EXPERT_HIRING` (stages *New Lead, Meeting Scheduled, Meeting Done, In
+  Process, Onboarded, Dropped* live in GHL; EvalOS hard-codes none). **Every ENM of that pipeline's
+  brand works it — the tag is the grant**, derived in `TeamMemberPipelineRepository.ghlIdsFor`.
+  The ENM uses the Sales desk's board, stage move (mirror + outbox, D44), candidate upsert and deal
+  notes; `PipelineScope` bounds every id. **A won hiring opportunity never opens a case**
+  (`CaseIntakeService`, a second lock on invariant 8). *Onboarded* leads to the expert database by
+  a pre-filled create form, never automatically. The directory adds credential verification
+  (`expert.credentials_verified_at`) and a per-expert case history (offered / accepted / submitted
+  / delivered / rejected / reassigned, derived). The ENM is told about GHL-side pipeline moves,
+  payouts due and confirmed, declines and overdue signatures (in-app, D37).
+- **D62.** **A declined case may be retaken** (2026-09-29, the business): the expert who declined or
+  timed out may be offered the same case again while it still waits for a rematch
+  (`EXPERT_DECLINED_REMATCHING`) and they are `AVAILABLE`. Whoever may reassign permits it (GM, PM,
+  ENM, CM — `POST /api/cases/{id}/expert/retake`); it is the rematch transition with the
+  same-expert guard lifted, back to `CLIENT_APPROVAL`, audited with a *retake* note.
 - **D52.** **No GHL conversation sidebar.** EvalOS does not mirror or send GHL conversations
   (SMS / email / WhatsApp / social); that stays in GHL. The only messaging in EvalOS is the case
   chat (Unit 57). Decided 2026-09-28. _(Closes Q10; drops tier 3 of the Unit 47 mirror.)_

@@ -26,6 +26,7 @@ import DealApplication from './DealApplication'
 import DealDocuments from './DealDocuments'
 import DealEditDialog from './DealEditDialog'
 import DealNotes from './DealNotes'
+import HiringActions from './HiringActions'
 import {
   fetchDealContact,
   fetchOpportunityBoard,
@@ -77,16 +78,18 @@ export default function DealPage() {
   const deal = column?.deals.find((d) => d.opportunityId === opportunityId)
 
   const name = deal?.name ?? contact?.name ?? 'Opportunity'
+  // Unit 63: the ENM's deals are hiring candidates on their brand's hiring pipeline.
+  const hiring = role === 'EXPERT_NETWORK_MANAGER'
 
   return (
     <section className="space-y-4">
       <Link
-        to="/opportunities/board"
+        to={hiring ? '/hiring' : '/opportunities/board'}
         className="inline-flex items-center gap-1.5 text-sm font-medium"
         style={{ color: 'var(--accent-primary)' }}
       >
         <ArrowLeft className="h-4 w-4" aria-hidden />
-        My pipeline
+        {hiring ? 'Hiring pipeline' : 'My pipeline'}
       </Link>
 
       {/* `items-start` so the sidebar does not stretch to the left column's height: the two are
@@ -167,6 +170,17 @@ export default function DealPage() {
         </div>
 
         <div className="space-y-4 xl:sticky xl:top-4">
+          {hiring && deal && (
+            <Panel title="Candidate" icon={<Zap />}>
+              <HiringActions
+                opportunityId={opportunityId}
+                stages={stages}
+                candidate={{ name, email: contact?.email ?? null, phone: contact?.phone ?? null }}
+                onChanged={() => window.location.reload()}
+              />
+            </Panel>
+          )}
+
           {role === 'SALES' && deal && (
             <Panel title="Actions" icon={<Zap />}>
               <DealActions

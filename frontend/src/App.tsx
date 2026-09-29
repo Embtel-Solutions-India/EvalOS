@@ -80,6 +80,9 @@ const SCREENS: Record<string, React.ReactNode> = {
   // 2026-09-17; the sidebar is the trigger now, so each is a screen of its own.
   '/opportunities/new': <NewDealPage />,
   '/marketing/leads/new': <NewLeadPage />,
+  // Unit 63: the ENM's hiring desk is the same board and lead form, on their hiring pipeline.
+  '/hiring': <OpportunityBoardPage />,
+  '/hiring/new': <NewLeadPage />,
   '/meetings/new': <NewMeetingPage />,
   '/conversations': <ConversationsPage />,
   '/requests/abandoned': <AbandonedRequestsPage />,

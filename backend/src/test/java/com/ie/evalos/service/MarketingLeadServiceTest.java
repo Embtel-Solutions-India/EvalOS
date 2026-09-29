@@ -103,6 +103,21 @@ class MarketingLeadServiceTest {
 	 * A second submission of the same lead reports {@code created = false} rather than making a
 	 * second deal — the whole reason §3a chose upsert over create.
 	 */
+	/** Unit 63: a candidate the ENM opens is labelled as the hiring desk's in GHL, not marketing's. */
+	@Test
+	void anEnmCandidateCarriesTheHiringDeskSource() {
+		authenticate(Role.EXPERT_NETWORK_MANAGER, MINE);
+		when(ghl.upsertContact(any(), any(), any(), any(), any()))
+				.thenReturn(new GhlWriteClient.UpsertedContact("c1", "Grace Hopper", "grace@example.test", null));
+		when(ghl.upsertOpportunity(any(), any(), any(), any()))
+				.thenReturn(new GhlWriteClient.UpsertedOpportunity("o1", "c1", MINE, "s1", "open", "Grace Hopper",
+						null, true));
+
+		service.openLead("Grace", "Hopper", "grace@example.test", null, null, null);
+
+		verify(ghl).upsertContact("Grace", "Hopper", "grace@example.test", null, GhlWriteClient.SOURCE_HIRING_DESK);
+	}
+
 	@Test
 	void aRepeatSubmissionIsNotASecondDeal() {
 		authenticate(Role.MARKETING, MINE);

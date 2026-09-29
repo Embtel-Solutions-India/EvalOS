@@ -89,7 +89,7 @@ public class OpportunityContactController {
 	}
 
 	@GetMapping
-	@PreAuthorize("hasAnyRole('SALES', 'MARKETING', 'GM')")
+	@PreAuthorize("hasAnyRole('SALES', 'MARKETING', 'GM', 'EXPERT_NETWORK_MANAGER')")
 	public ApiResponse<ContactView> read(@PathVariable String opportunityId) {
 		// `requireVisible` returns the deal it authorised, so this is one lookup rather than two —
 		// and it is the read-side check, which a GM and a Brand Manager pass. `requireMine` refused

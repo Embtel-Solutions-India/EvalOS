@@ -47,6 +47,11 @@ public class RecipientResolver {
 		return ids(teamMembers.findByActiveTrueAndRole(Role.GM));
 	}
 
+	/** That brand's Expert Network Managers (Unit 63). */
+	public List<UUID> enms(UUID brandId) {
+		return ids(teamMembers.findByActiveTrueAndRoleAndBrandId(Role.EXPERT_NETWORK_MANAGER, brandId));
+	}
+
 	/** That brand's Coordinators. Plural: the spec names the role, not one member. */
 	public List<UUID> coordinators(UUID brandId) {
 		return ids(teamMembers.findByActiveTrueAndRoleAndBrandId(Role.PROJECT_COORDINATOR, brandId));

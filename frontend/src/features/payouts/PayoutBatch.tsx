@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useMe } from '../../lib/authContext'
 import { formatPayout } from '../../lib/money'
 import PaymentForm from './PaymentForm'
+import PayoutSummary from './PayoutSummary'
 import { fetchBatch } from './payoutApi'
 import { mondayOf, weekLabel, type BatchView, type ExpertGroup } from './payoutRules'
 
@@ -111,7 +112,8 @@ export default function PayoutBatch() {
         <>
           <section className="grid gap-3 sm:grid-cols-4">
             <Total label="Due this week" value={view.due} currency={view.currency} />
-            <Total label="Paid" value={view.paid} currency={view.currency} />
+            {/* Processing + Paid (Unit 63): sent, whether or not the expert has confirmed yet. */}
+            <Total label="Sent" value={view.paid} currency={view.currency} />
             <Total label="Remaining" value={remaining} currency={view.currency} />
             <Total
               label="Overdue"
@@ -139,6 +141,8 @@ export default function PayoutBatch() {
           )}
         </>
       )}
+
+      <PayoutSummary />
 
       {settling && (
         <PaymentForm

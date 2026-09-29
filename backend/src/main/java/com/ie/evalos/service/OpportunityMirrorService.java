@@ -56,12 +56,14 @@ public class OpportunityMirrorService {
 	private final com.ie.evalos.repository.FollowUpRepository followUps;
 	private final com.ie.evalos.repository.MeetingRepository meetings;
 	private final UUID sellingBrandId;
+	private final com.ie.evalos.notification.HiringPipelineNotifier hiring;
 
 	OpportunityMirrorService(GhlPipelineClient ghl, OpportunityRepository opportunities,
 			PipelineRepository pipelines, com.ie.evalos.repository.GhlNoteRepository notes,
 			com.ie.evalos.repository.FollowUpRepository followUps,
 			com.ie.evalos.repository.MeetingRepository meetings,
-			SellingBrand sellingBrand) {
+			SellingBrand sellingBrand, com.ie.evalos.notification.HiringPipelineNotifier hiring) {
+		this.hiring = hiring;
 		this.ghl = ghl;
 		this.opportunities = opportunities;
 		this.pipelines = pipelines;
@@ -128,13 +130,16 @@ public class OpportunityMirrorService {
 				continue;
 			}
 			seen.add(row.id());
-			Opportunity held = opportunities.findByBrandIdAndGhlId(pipeline.getBrandId(), row.id())
+			Optional<Opportunity> found = opportunities.findByBrandIdAndGhlId(pipeline.getBrandId(), row.id());
+			Opportunity held = found
 					.orElseGet(() -> new Opportunity(pipeline.getBrandId(), row.id(), pipeline.getId()));
+			String stageBefore = held.getGhlStageId();
 			held.syncFromGhl(row.contactId(), pipeline.getId(), row.pipelineStageId(), row.name(),
 					row.monetaryValue(), row.status(), row.source(), row.assignedTo(), row.createdAt(),
 					row.updatedAt(), row.lastStatusChangeAt(), row.lastStageChangeAt());
 			absorbTier23(held, row);
 			opportunities.save(held);
+			hiring.absorbed(pipeline, held, stageBefore, found.isEmpty());
 		}
 
 		for (Opportunity held : opportunities.findByPipelineIdIn(List.of(pipeline.getId()))) {
@@ -201,13 +206,15 @@ public class OpportunityMirrorService {
 				continue;
 			}
 			UUID brandId = pipeline.get().getBrandId();
-			Opportunity held = opportunities.findByBrandIdAndGhlId(brandId, row.id())
-					.orElseGet(() -> new Opportunity(brandId, row.id(), pipeline.get().getId()));
+			Optional<Opportunity> found = opportunities.findByBrandIdAndGhlId(brandId, row.id());
+			Opportunity held = found.orElseGet(() -> new Opportunity(brandId, row.id(), pipeline.get().getId()));
+			String stageBefore = held.getGhlStageId();
 			held.syncFromGhl(row.contactId(), pipeline.get().getId(), row.pipelineStageId(), row.name(),
 					row.monetaryValue(), row.status(), row.source(), row.assignedTo(), row.createdAt(),
 					row.updatedAt(), row.lastStatusChangeAt(), row.lastStageChangeAt());
 			absorbTier23(held, row);
 			opportunities.save(held);
+			hiring.absorbed(pipeline.get(), held, stageBefore, found.isEmpty());
 			written++;
 		}
 		return written;

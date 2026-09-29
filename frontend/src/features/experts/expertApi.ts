@@ -1,6 +1,7 @@
 import { api, unwrap } from '../../lib/api'
 import type {
   Availability,
+  CaseHistoryRow,
   ExpertForm,
   ExpertProfile,
   FieldTag,
@@ -75,6 +76,21 @@ export async function fetchShortlist(
 export async function createExpert(brandId: string | null, form: ExpertForm): Promise<ExpertProfile> {
   const params = brandId ? { brandId } : {}
   return unwrap<ExpertProfile>(api.post('/experts', form, { params }))
+}
+
+/** Every case this expert was offered, newest first (Unit 63). */
+export async function fetchCaseHistory(id: string, signal?: AbortSignal): Promise<CaseHistoryRow[]> {
+  return unwrap<CaseHistoryRow[]>(api.get(`/experts/${id}/cases`, { signal }))
+}
+
+/** The ENM records that they checked the credentials (Unit 63). */
+export async function verifyCredentials(id: string): Promise<ExpertProfile> {
+  return unwrap<ExpertProfile>(api.post(`/experts/${id}/credentials-verified`))
+}
+
+/** D62: offer the case again to the expert who declined it. */
+export async function retakeCase(caseId: string): Promise<void> {
+  await unwrap(api.post(`/cases/${caseId}/expert/retake`))
 }
 
 export async function updateExpert(id: string, form: ExpertForm): Promise<ExpertProfile> {

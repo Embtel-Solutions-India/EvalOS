@@ -151,13 +151,14 @@ public class PipelineScope {
 				}
 				throw notYours();
 			}
-			case PIPELINE -> {
+			// SUPPLY is the ENM, whose pipelines are their brand's hiring pipelines (Unit 63).
+			case PIPELINE, SUPPLY -> {
 				// Delegated rather than reimplemented: a desk's reading and writing scope are the
 				// same set, and two copies of that check is one place for them to drift apart.
 				requireMine(opportunityId);
 				yield deal;
 			}
-			// SELF and SUPPLY work cases, not the CRM. They reach the portal request and its
+			// SELF works cases, not the CRM (SUPPLY's CRM is its hiring pipeline, above). It reaches the portal request and its
 			// documents through their own routes, which deliberately apply no pipeline scope
 			// (see ApplicationReviewController) — but a deal's notes and meetings are not theirs.
 			default -> throw notYours();

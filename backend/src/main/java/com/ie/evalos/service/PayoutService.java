@@ -71,8 +71,15 @@ public class PayoutService {
 
 	private final AuditService audit;
 
+	private final com.ie.evalos.notification.NotificationService notifications;
+	private final com.ie.evalos.notification.RecipientResolver recipients;
+
 	PayoutService(PayoutLedgerRepository payouts, PayoutPaymentRepository payments, ExpertRepository experts,
-			BrandRepository brands, CaseRepository cases, TeamMemberRepository teamMembers, AuditService audit) {
+			BrandRepository brands, CaseRepository cases, TeamMemberRepository teamMembers, AuditService audit,
+			com.ie.evalos.notification.NotificationService notifications,
+			com.ie.evalos.notification.RecipientResolver recipients) {
+		this.notifications = notifications;
+		this.recipients = recipients;
 		this.payouts = payouts;
 		this.payments = payments;
 		this.experts = experts;
@@ -124,6 +131,9 @@ public class PayoutService {
 
 		audit.recordEvent("PAYOUT", row.getId(), AuditAction.CREATED, null,
 				null, Map.of("caseId", delivered.getId(), "expertId", expertId, "status", "PENDING"));
+		notifications.create(delivered.getBrandId(), recipients.enms(delivered.getBrandId()),
+				com.ie.evalos.domain.NotificationType.PAYOUT_DUE, delivered.getId(),
+				delivered.getCaseCode() + " was delivered — its expert payout is pending.");
 		return Optional.of(row);
 	}
 
@@ -520,22 +530,84 @@ public class PayoutService {
 	}
 
 	/**
-	 * The expert acknowledged the transfer.
+	 * The expert confirms they received the transfer (Unit 63) — Processing becomes Paid.
 	 *
-	 * <p>Set on the payment and cascaded, because one transfer gets one acknowledgement.
-	 * There is no route that confirms a single draft.
+	 * <p><strong>Only the expert, from their portal.</strong> Every entry is manual, so the person
+	 * who typed the transfer confirming it would prove nothing; the staff route is gone. Set on the
+	 * payment and cascaded, because one transfer gets one acknowledgement.
+	 *
+	 * @param brandId  and {@code expertId} come off the portal token, never a request body
 	 */
 	@Transactional
-	public void confirm(UUID paymentId) {
-		TenantContext ctx = TenantContext.current();
-		requireMayRecord(ctx);
-
-		PayoutPayment payment = loadUnconfirmed(ctx, paymentId, "confirmed twice");
+	public PayoutPayment confirmByExpert(UUID brandId, UUID expertId, UUID paymentId) {
+		// 403 for "not yours" and "no such payment" alike, so the id is no oracle.
+		PayoutPayment payment = payments.findById(paymentId)
+				.filter(p -> brandId.equals(p.getBrandId()) && expertId.equals(p.getExpertId()))
+				.orElseThrow(() -> new ForbiddenException("That payment is not yours"));
+		if (payment.getConfirmedAt() != null) {
+			throw new IllegalTransitionException("You have already confirmed this payment");
+		}
 		payment.setConfirmedAt(Instant.now());
 		payments.save(payment);
 		int confirmed = payouts.confirmForPayment(paymentId);
-		audit.recordEvent("PAYOUT_PAYMENT", paymentId, AuditAction.UPDATED, ctx.memberId(),
-				Map.of("confirmed", false), Map.of("confirmed", true, "draftCount", confirmed));
+		audit.recordPortalEvent(brandId, com.ie.evalos.domain.PortalAudience.EXPERT, "PAYOUT_PAYMENT", paymentId,
+				AuditAction.UPDATED, Map.of("confirmed", false), Map.of("confirmed", true, "draftCount", confirmed));
+		notifications.create(brandId, List.of(payment.getRecordedBy()),
+				com.ie.evalos.domain.NotificationType.PAYOUT_CONFIRMED, null,
+				"The expert confirmed receiving " + payment.getAmount() + " " + payment.getCurrency()
+						+ " (ref " + payment.getReference() + ").");
+		return payment;
+	}
+
+	/** How a summary groups payouts: by the week or the month the payout opened in. */
+	public enum Period {
+		WEEK, MONTH
+	}
+
+	/** One period and currency: Pending, Processing ({@code PAID}) and Paid ({@code CONFIRMED}). */
+	public record SummaryRow(LocalDate periodStart, String currency, int pendingCount, BigDecimal pending,
+			int processingCount, BigDecimal processing, int paidCount, BigDecimal paid) {
+	}
+
+	/**
+	 * Weekly or monthly totals, newest period first (Unit 63). {@code VOIDED} rows are left out,
+	 * as every other total leaves them out.
+	 *
+	 * @param from and {@code to} bound the period start, inclusive; either may be null
+	 */
+	@Transactional(readOnly = true)
+	public List<SummaryRow> summary(Period period, LocalDate from, LocalDate to) {
+		Map<LocalDate, Map<String, List<PayoutLedger>>> grouped = payouts.findScoped(TenantContext.current())
+				.stream()
+				.filter(row -> row.getStatus() != PayoutStatus.VOIDED)
+				.collect(Collectors.groupingBy((PayoutLedger row) -> periodStart(period, row.getCreatedAt()),
+						() -> new java.util.TreeMap<LocalDate, Map<String, List<PayoutLedger>>>(Comparator.reverseOrder()),
+						Collectors.groupingBy(PayoutLedger::getCurrency, java.util.TreeMap::new, Collectors.toList())));
+		return grouped.entrySet().stream()
+				.filter(e -> (from == null || !e.getKey().isBefore(from)) && (to == null || !e.getKey().isAfter(to)))
+				.flatMap(e -> e.getValue().entrySet().stream().map(c -> {
+					List<PayoutLedger> rows = c.getValue();
+					return new SummaryRow(e.getKey(), c.getKey(),
+							count(rows, PayoutStatus.PENDING), total(rows, PayoutStatus.PENDING),
+							count(rows, PayoutStatus.PAID), total(rows, PayoutStatus.PAID),
+							count(rows, PayoutStatus.CONFIRMED), total(rows, PayoutStatus.CONFIRMED));
+				}))
+				.toList();
+	}
+
+	static LocalDate periodStart(Period period, Instant at) {
+		return period == Period.WEEK ? weekStart(at)
+				: at.atZone(BusinessCalendar.ZONE).toLocalDate().withDayOfMonth(1);
+	}
+
+	private static int count(List<PayoutLedger> rows, PayoutStatus status) {
+		return (int) rows.stream().filter(r -> r.getStatus() == status).count();
+	}
+
+	private static BigDecimal total(List<PayoutLedger> rows, PayoutStatus status) {
+		// A PENDING row may have no amount yet (no fee on the expert); it counts, it adds nothing.
+		return rows.stream().filter(r -> r.getStatus() == status && r.getAmount() != null)
+				.map(PayoutLedger::getAmount).reduce(BigDecimal.ZERO, BigDecimal::add);
 	}
 
 	/**

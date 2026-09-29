@@ -135,6 +135,10 @@ public class Expert extends ScopedEntity {
 	@Column(name = "notes")
 	private String notes;
 
+	/** When the ENM checked this expert's credentials (Unit 63); null = not yet. */
+	@Column(name = "credentials_verified_at")
+	private java.time.Instant credentialsVerifiedAt;
+
 	/**
 	 * How this expert is paid, in free text. The only encrypted field in EvalOS:
 	 * it is written and read exclusively through {@link PaymentDetailConverter},
@@ -425,6 +429,14 @@ public class Expert extends ScopedEntity {
 
 	public LocalDate getDateOnboarded() {
 		return dateOnboarded;
+	}
+
+	public java.time.Instant getCredentialsVerifiedAt() {
+		return credentialsVerifiedAt;
+	}
+
+	public void markCredentialsVerified(java.time.Instant at) {
+		credentialsVerifiedAt = at;
 	}
 
 	public void setDateOnboarded(LocalDate dateOnboarded) {

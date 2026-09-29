@@ -1,6 +1,7 @@
 package com.ie.evalos.service;
 
 import java.io.InputStream;
+import java.math.BigDecimal;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
@@ -8,6 +9,7 @@ import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 import com.ie.evalos.common.AmbiguousCaseException;
@@ -24,6 +26,8 @@ import com.ie.evalos.domain.ExceptionState;
 import com.ie.evalos.domain.Expert;
 import com.ie.evalos.domain.ExpertSignStatus;
 import com.ie.evalos.domain.IllegalTransitionException;
+import com.ie.evalos.domain.PayoutPayment;
+import com.ie.evalos.domain.PayoutStatus;
 import com.ie.evalos.domain.PortalAudience;
 import com.ie.evalos.domain.ServiceType;
 import com.ie.evalos.domain.SlaStatus;
@@ -33,7 +37,10 @@ import com.ie.evalos.repository.CaseDocumentRepository;
 import com.ie.evalos.repository.CaseRepository;
 import com.ie.evalos.repository.ContactSnapshotRepository;
 import com.ie.evalos.repository.DocumentChecklistItemRepository;
+import com.ie.evalos.repository.ExpertCaseOfferRepository;
 import com.ie.evalos.repository.ExpertRepository;
+import com.ie.evalos.repository.PayoutLedgerRepository;
+import com.ie.evalos.repository.PayoutPaymentRepository;
 import com.ie.evalos.security.PortalPrincipal;
 
 import org.springframework.core.io.InputStreamSource;
@@ -117,6 +124,7 @@ public class ExpertPortalService {
 	 *
 	 * @param step           D5's projected label, or null before the case reaches this expert
 	 * @param actionRequired whether this case is waiting on the expert to sign
+	 * @param offered        whether this expert has an offer on the case they have not yet answered
 	 */
 	public record ExpertCaseSummary(
 			UUID caseId,
@@ -124,8 +132,36 @@ public class ExpertPortalService {
 			ServiceType serviceType,
 			ExpertSignStatus signStatus,
 			String step,
-			boolean actionRequired) {
+			boolean actionRequired,
+			boolean offered) {
 	}
+
+	/**
+	 * One payout row as its expert sees it (Unit 35, D6).
+	 *
+	 * <p><strong>The field list is the whole point of this record.</strong> Invariant 4 says
+	 * {@code payment_detail} has no read path anywhere in EvalOS — not for the ENM who typed it,
+	 * not here. This is a new surface onto money, so it is a named whitelist rather than a
+	 * projection of the entity, and {@code ExpertPortalServiceTest} serializes it and asserts the
+	 * secret is absent. A record that merely happens not to include the field today is one an
+	 * innocent-looking widening breaks; a record with a test on its serialized form is not.
+	 *
+	 * @param settledOn the payment's paid date, null while the row is still owed — the one fact an
+	 *                  expert most wants and the ledger alone cannot answer
+	 */
+	public record ExpertPayoutRow(
+			String caseReference,
+			BigDecimal amount,
+			String currency,
+			PayoutStatus status,
+			Instant settledOn,
+			/**
+			 * The transfer this row was paid in (Unit 63), so the expert can confirm it; null while
+			 * owed. Its method and reference stay off this record — they are the brand's records.
+			 */
+			UUID paymentId) {
+	}
+
 
 	/** What the expert gets back after signing. No object key — that is an internal address. */
 	public record SignedLetterView(UUID documentId, String filename, int version, Instant signedAt,
@@ -152,10 +188,14 @@ public class ExpertPortalService {
 	private final SlaCalculator sla;
 	private final DocumentStore store;
 	private final AuditService audit;
+	private final ExpertCaseOfferRepository offers;
+	private final PayoutLedgerRepository payouts;
+	private final PayoutPaymentRepository payments;
 
 	ExpertPortalService(CaseRepository cases, ContactSnapshotRepository contacts, ExpertRepository experts,
 			DocumentChecklistItemRepository checklistItems, CaseDocumentRepository documents,
-			CaseLifecycleService lifecycle, SlaCalculator sla, DocumentStore store, AuditService audit) {
+			CaseLifecycleService lifecycle, SlaCalculator sla, DocumentStore store, AuditService audit,
+			ExpertCaseOfferRepository offers, PayoutLedgerRepository payouts, PayoutPaymentRepository payments) {
 		this.cases = cases;
 		this.contacts = contacts;
 		this.experts = experts;
@@ -165,6 +205,9 @@ public class ExpertPortalService {
 		this.sla = sla;
 		this.store = store;
 		this.audit = audit;
+		this.offers = offers;
+		this.payouts = payouts;
+		this.payments = payments;
 	}
 
 	// --- the one screen ------------------------------------------------------
@@ -244,12 +287,14 @@ public class ExpertPortalService {
 		if (!principal.isPartyScoped()) {
 			throw new ForbiddenException("This link admits you to one case, not a list");
 		}
+		Set<UUID> open = offers.openOfferCaseIds(principal.brandId(), principal.expertId());
 		return partyCases(principal).stream().map(subject -> {
 			PortalStageProjection.PortalStep step = PortalStageProjection.forExpert(subject.getCurrentStage());
 			return new ExpertCaseSummary(subject.getId(), subject.getCaseCode(), subject.getServiceType(),
 					subject.getExpertSignStatus(),
 					step == null ? null : step.label(),
-					step != null && step.actionRequired());
+					step != null && step.actionRequired(),
+					open.contains(subject.getId()));
 		}).toList();
 	}
 
@@ -257,6 +302,39 @@ public class ExpertPortalService {
 	@Transactional
 	public ExpertCaseView view(PortalPrincipal principal, UUID caseId) {
 		return project(authorized(principal, caseId));
+	}
+
+	/**
+	 * This expert's payout rows (Unit 35, D6), newest first.
+	 *
+	 * <p>Answers for both token shapes: a payout belongs to the expert, not to a case, so a
+	 * case-scoped token names its expert just as well as a party one does ({@code V37} put the
+	 * expert on the row precisely so it could). The ledger is read for that expert in the token's
+	 * brand and nowhere wider.
+	 *
+	 * <p>The settlement date is a second read rather than a join, because {@code payment_id} is
+	 * null on most rows and a join would make the common case pay for the rare one.
+	 */
+	@Transactional(readOnly = true)
+	public List<ExpertPayoutRow> payoutRows(PortalPrincipal principal) {
+		UUID expertId = principal.expertId();
+		if (expertId == null) {
+			// V37's fail-closed rule: a token that names no expert is refused, not widened.
+			throw new ForbiddenException("This link no longer points at an expert");
+		}
+		return payouts.findByBrandIdAndExpertIdOrderByCreatedAtDesc(principal.brandId(), expertId).stream()
+				.map(row -> {
+					Optional<PayoutPayment> paid = row.getPaymentId() == null ? Optional.empty()
+							: payments.findById(row.getPaymentId());
+					return new ExpertPayoutRow(
+							cases.findById(row.getCaseId()).map(Case::getCaseCode).orElse(null),
+							row.getAmount(),
+							row.getCurrency(),
+							row.getStatus(),
+							paid.map(PayoutPayment::getPaidDate).orElse(null),
+							row.getPaymentId());
+				})
+				.toList();
 	}
 
 	@Transactional

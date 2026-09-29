@@ -258,7 +258,7 @@ class PayoutControllerTest {
 				patch("/api/payments/" + PAYMENT_ID).header(HttpHeaders.AUTHORIZATION, bearer(role))
 						.contentType(MediaType.APPLICATION_JSON)
 						.content("{\"method\":\"Wire\",\"reference\":\"REF-1001\"}"),
-				post("/api/payments/" + PAYMENT_ID + "/confirm").header(HttpHeaders.AUTHORIZATION, bearer(role)));
+				get("/api/payouts/summary?period=MONTH").header(HttpHeaders.AUTHORIZATION, bearer(role)));
 	}
 
 	private String bearer(Role role) {

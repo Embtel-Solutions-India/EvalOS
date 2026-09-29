@@ -269,7 +269,10 @@ describe('the nav and route table', () => {
         // role with no binding to the selling brand. Asserted as a subset rather than an exact
         // list, because these screens differ in audience: the board is all three, opening a deal
         // is SALES, capturing a lead is MARKETING.
-        expect(reachers.every((role) => role === 'GM' || role === 'SALES' || role === 'MARKETING'),
+        // Unit 63: the ENM too — their pipelines are derived server-side from their own brand's
+        // EXPERT_HIRING pipelines, so they carry the same binding a desk's assignment does.
+        const bound = ['GM', 'SALES', 'MARKETING', 'EXPERT_NETWORK_MANAGER']
+        expect(reachers.every((role) => bound.includes(role)),
           `${item.path} reached by ${reachers.join(', ')}`).toBe(true)
         continue
       }

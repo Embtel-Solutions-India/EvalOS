@@ -11,6 +11,37 @@
 
 export type PayoutStatus = 'PENDING' | 'PAID' | 'CONFIRMED' | 'VOIDED'
 
+/**
+ * The words the business uses (Unit 63): a recorded transfer is Processing until **the expert**
+ * confirms receipt in their portal, and only then Paid. The stored names are unchanged.
+ */
+export const PAYOUT_STATUS_LABEL: Record<PayoutStatus, string> = {
+  PENDING: 'Pending',
+  PAID: 'Processing',
+  CONFIRMED: 'Paid',
+  VOIDED: 'Voided',
+}
+
+/** One week or month of payouts by state (`PayoutService.SummaryRow`). */
+export type SummaryRow = {
+  periodStart: string
+  currency: string
+  pendingCount: number
+  pending: number
+  processingCount: number
+  processing: number
+  paidCount: number
+  paid: number
+}
+
+/** The summary as CSV, for the ENM's reports. Plain RFC 4180; no field here holds a comma. */
+export function summaryCsv(rows: readonly SummaryRow[]): string {
+  const header = 'period_start,currency,pending_count,pending,processing_count,processing,paid_count,paid'
+  return [header, ...rows.map((r) =>
+    [r.periodStart, r.currency, r.pendingCount, r.pending, r.processingCount, r.processing, r.paidCount, r.paid].join(','),
+  )].join('\n')
+}
+
 export type LedgerRow = {
   id: string
   caseId: string
