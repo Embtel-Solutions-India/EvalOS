@@ -103,8 +103,8 @@ jobs:
           set -e
           cd /home/ubuntu/EvalOS
           git pull --ff-only origin main
-          docker compose --env-file ./backend/.env build frontend backend
-          docker compose --env-file ./backend/.env up -d frontend backend
+          docker compose --env-file ./backend/.env build frontend client expert backend
+          docker compose --env-file ./backend/.env up -d frontend client expert backend
           docker compose --env-file ./backend/.env ps
           SCRIPT
 
