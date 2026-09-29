@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Role } from '../../lib/session'
-import { CASE_DETAIL_PATH, NAV_ITEMS, boardPathFor, homePathFor, itemFor, mayReach, navFor, navSectionsFor } from './navigation'
+import { CASE_DETAIL_PATH, NAV_ITEMS, boardPathFor, homePathFor, itemFor, matchesExactly, mayReach, navFor, navSectionsFor } from './navigation'
 
 /**
  * The nav table is also the route allow-list, so a mistake here is a screen that is either
@@ -302,5 +302,16 @@ describe('the payouts module (Unit 65)', () => {
     for (const role of ['PROJECT_MANAGER', 'PROJECT_COORDINATOR', 'CASE_MANAGER', 'SALES'] as const) {
       expect(navSectionsFor(role).some((s) => s.group === 'Payouts')).toBe(false)
     }
+  })
+})
+
+describe('which nav links light up only on their own path', () => {
+  it('matches exactly where another nav item lives underneath', () => {
+    expect(matchesExactly('/payouts')).toBe(true) // /payouts/cases must not light Overview
+    expect(matchesExactly('/hiring')).toBe(true) // /hiring/new must not light the pipeline
+  })
+  it('keeps prefix matching elsewhere, so a detail page lights its parent', () => {
+    expect(matchesExactly('/conversations')).toBe(false) // /conversations/:id lights Conversations
+    expect(matchesExactly('/payouts/experts')).toBe(false) // /payouts/experts/:id lights Experts
   })
 })

@@ -529,6 +529,16 @@ const PARAMETERIZED: readonly NavItem[] = [
   },
 ]
 
+/**
+ * Whether a nav link lights up only on its own path. True where another nav item lives beneath it
+ * (`/payouts` over `/payouts/cases`, `/hiring` over `/hiring/new`) — otherwise the parent would light
+ * up beside the child. False elsewhere, so a detail page such as `/conversations/:id` still lights
+ * its parent.
+ */
+export function matchesExactly(path: string): boolean {
+  return NAV_ITEMS.some((item) => item.path.startsWith(`${path}/`))
+}
+
 export function navFor(role: Role): readonly NavItem[] {
   return NAV_ITEMS.filter((item) => item.roles.includes(role))
 }

@@ -3,7 +3,7 @@ import type { ReactNode } from 'react'
 import { NavLink } from 'react-router-dom'
 import { useMe } from '../../lib/authContext'
 import { ROLE_LABELS } from '../../lib/session'
-import { navSectionsFor } from './navigation'
+import { matchesExactly, navSectionsFor } from './navigation'
 import { UnreadBadge } from '@evalos/chat'
 import { BADGE_FOR_PATH, fetchNavBadges, isUrgentBadge, type NavBadges } from './navBadges'
 
@@ -87,8 +87,8 @@ export default function LeftNav() {
                 <li key={item.path}>
                   <NavLink
                     to={item.path}
-                    // Exact match: `/payouts` must not light up on `/payouts/cases`, nor `/hiring` on `/hiring/new`.
-                    end
+                    // Exact only where a sibling nav item lives beneath this one (`matchesExactly`).
+                    end={matchesExactly(item.path)}
                     className="flex items-center gap-2.5 px-3 text-sm transition-colors"
                     style={({ isActive }) => ({
                       height: '2.25rem',
