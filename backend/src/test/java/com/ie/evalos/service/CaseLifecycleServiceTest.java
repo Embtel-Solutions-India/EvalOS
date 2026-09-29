@@ -65,6 +65,8 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.clearInvocations;
@@ -188,6 +190,7 @@ class CaseLifecycleServiceTest {
 		Expert value = mock(Expert.class);
 		given(value.getId()).willReturn(id);
 		given(value.getAvailability()).willReturn(availability);
+		given(value.getStandardFee()).willReturn(new BigDecimal("350.00"));
 		return value;
 	}
 
@@ -204,7 +207,7 @@ class CaseLifecycleServiceTest {
 		actAs(Role.PROJECT_COORDINATOR);
 		lifecycle.markDocsComplete(CASE_ID);
 		actAs(Role.PROJECT_MANAGER);
-		lifecycle.assignCaseManager(CASE_ID, CM_ID, EXPERT_ID, "strongest ophthalmology record on the roster", null);
+		lifecycle.assignCaseManager(CASE_ID, CM_ID, EXPERT_ID, "strongest ophthalmology record on the roster", null, null);
 	}
 
 	private List<CaseEvents.Type> publishedEventTypes(int expected) {
@@ -228,7 +231,7 @@ class CaseLifecycleServiceTest {
 
 		// Unit 12 takes the tag as an argument and throws it away; the assignment is where it
 		// becomes a fact about the case, so a delivered case can still say what it was about.
-		lifecycle.assignCaseManager(CASE_ID, CM_ID, EXPERT_ID, null, FieldTag.MEDICINE);
+		lifecycle.assignCaseManager(CASE_ID, CM_ID, EXPERT_ID, null, FieldTag.MEDICINE, null);
 		assertEquals(FieldTag.MEDICINE, subject.getFieldOfExpertise());
 
 	}
@@ -293,8 +296,9 @@ class CaseLifecycleServiceTest {
 
 		// Exactly one audit entry and one event per hop, and in the declared order. Twelve as of
 		// Unit 31 — the CM's send-to-expert is a hop of its own, because it is what starts the
-		// signing clock. (It was eleven once the walk stopped opening with a payment.)
-		verify(audit, times(12)).recordEvent(any(), any(), any(), any(), any(), any());
+		// signing clock. (It was eleven once the walk stopped opening with a payment.) Counted on the
+		// case alone: since Unit 65 the offer writes its own rows beside them (asserted below).
+		verify(audit, times(12)).recordEvent(eq("CASE"), any(), any(), any(), any(), any());
 		assertEquals(List.of(
 				CaseEvents.Type.PM_ASSIGNED,
 				CaseEvents.Type.DOCUMENTS_COMPLETED,
@@ -544,10 +548,10 @@ class CaseLifecycleServiceTest {
 		lifecycle.expertDeclined(CASE_ID, "outside my field");
 		assertEquals(ExceptionState.EXPERT_DECLINED_REMATCHING, subject.getExceptionState());
 
-		assertThrows(IllegalTransitionException.class, () -> lifecycle.reassignExpert(CASE_ID, EXPERT_ID, null, null),
+		assertThrows(IllegalTransitionException.class, () -> lifecycle.reassignExpert(CASE_ID, EXPERT_ID, null, null, null),
 				"the expert who declined is not a rematch");
 
-		lifecycle.reassignExpert(CASE_ID, OTHER_EXPERT_ID, null, null);
+		lifecycle.reassignExpert(CASE_ID, OTHER_EXPERT_ID, null, null, null);
 		// **Unit 31: a rematch returns to CLIENT_APPROVAL, not to assignment.** The letter is
 		// written, client-approved and locked — nothing about it changed because an expert walked
 		// away, so re-running PM review would ask somebody to re-approve untouched work. What has
@@ -579,13 +583,93 @@ class CaseLifecycleServiceTest {
 		lifecycle.expertDeclined(CASE_ID, "busy this week");
 
 		actAs(Role.EXPERT_NETWORK_MANAGER);
-		lifecycle.retakeExpert(CASE_ID);
+		lifecycle.retakeExpert(CASE_ID, null);
 
 		assertEquals(Stage.CLIENT_APPROVAL, subject.getCurrentStage());
 		assertEquals(ExceptionState.NONE, subject.getExceptionState());
 		assertEquals(EXPERT_ID, subject.getExpertId());
 		// Only while it waits for a rematch: a second retake has nothing to retake.
-		assertThrows(IllegalTransitionException.class, () -> lifecycle.retakeExpert(CASE_ID));
+		assertThrows(IllegalTransitionException.class, () -> lifecycle.retakeExpert(CASE_ID, null));
+	}
+
+	@Test
+	void theOfferIsPricedAtTheStandardFeeWhenLeftBlankAndAudited() {
+		walkToDraftGeneration();
+
+		ExpertCaseOffer offer = savedOffers().getLast();
+		assertEquals(0, new BigDecimal("350.00").compareTo(offer.getFee()));
+		verify(audit).recordEvent(eq("OFFER"), any(), eq(AuditAction.CREATED), any(), isNull(),
+				argThat(after -> after instanceof java.util.Map<?, ?> m && m.get("fee") != null));
+	}
+
+	@Test
+	void theOfferCarriesTheFeeThePmNamed() {
+		actAs(Role.BRAND_MANAGER);
+		lifecycle.assignPm(CASE_ID, PM_ID);
+		actAs(Role.PROJECT_COORDINATOR);
+		lifecycle.markDocsComplete(CASE_ID);
+		actAs(Role.PROJECT_MANAGER);
+		lifecycle.assignCaseManager(CASE_ID, CM_ID, EXPERT_ID, null, null, new BigDecimal("420.00"));
+
+		assertEquals(0, new BigDecimal("420.00").compareTo(savedOffers().getLast().getFee()));
+	}
+
+	@Test
+	void aRefusedPriceChangesNothing() {
+		Expert noFee = expertWithoutFee(EXPERT_ID);
+		given(experts.findScoped(any(TenantContext.class), eq(EXPERT_ID))).willReturn(Optional.of(noFee));
+		actAs(Role.BRAND_MANAGER);
+		lifecycle.assignPm(CASE_ID, PM_ID);
+		actAs(Role.PROJECT_COORDINATOR);
+		lifecycle.markDocsComplete(CASE_ID);
+		Stage before = subject.getCurrentStage();
+		actAs(Role.PROJECT_MANAGER);
+
+		assertThrows(IllegalTransitionException.class,
+				() -> lifecycle.assignCaseManager(CASE_ID, CM_ID, EXPERT_ID, null, null, null));
+		assertEquals(before, subject.getCurrentStage());
+		verify(offers, never()).save(any(ExpertCaseOffer.class));
+	}
+
+	@Test
+	void aRetakeKeepsTheDeclinedOffersFee() {
+		actAs(Role.BRAND_MANAGER);
+		lifecycle.assignPm(CASE_ID, PM_ID);
+		actAs(Role.PROJECT_COORDINATOR);
+		lifecycle.markDocsComplete(CASE_ID);
+		actAs(Role.PROJECT_MANAGER);
+		lifecycle.assignCaseManager(CASE_ID, CM_ID, EXPERT_ID, null, null, new BigDecimal("420.00"));
+		ExpertCaseOffer first = savedOffers().getLast();
+		// any(): the case built in setUp has no id outside JPA, so the service asks for null.
+		given(offers.findByCaseIdAndOutcome(any(), eq(OfferOutcome.OFFERED))).willReturn(List.of(first));
+		given(offers.findByCaseIdOrderByOfferedAtDesc(any())).willReturn(List.of(first));
+		actAs(Role.CASE_MANAGER);
+		lifecycle.submitDraft(CASE_ID, WORD, PDF);
+		actAs(Role.PROJECT_MANAGER);
+		lifecycle.pmApproveDraft(CASE_ID, null);
+		actAs(Role.PROJECT_COORDINATOR);
+		lifecycle.sendDraftToClient(CASE_ID);
+		lifecycle.clientApproveDraft(CASE_ID);
+		actAs(Role.CASE_MANAGER);
+		lifecycle.sendToExpert(CASE_ID);
+		actAs(Role.PROJECT_MANAGER);
+		lifecycle.expertDeclined(CASE_ID, "busy");
+		given(offers.findByCaseIdAndOutcome(any(), eq(OfferOutcome.OFFERED))).willReturn(List.of());
+
+		actAs(Role.EXPERT_NETWORK_MANAGER);
+		lifecycle.retakeExpert(CASE_ID, null);
+
+		assertEquals(0, new BigDecimal("420.00").compareTo(savedOffers().getLast().getFee()));
+		verify(audit).recordEvent(eq("OFFER"), any(), eq(AuditAction.UPDATED), any(), any(),
+				argThat(after -> after instanceof java.util.Map<?, ?> m
+						&& OfferOutcome.DECLINED.equals(m.get("outcome"))));
+	}
+
+	private static Expert expertWithoutFee(UUID id) {
+		Expert value = mock(Expert.class);
+		given(value.getId()).willReturn(id);
+		given(value.getAvailability()).willReturn(Availability.AVAILABLE);
+		return value;
 	}
 
 	/**
@@ -619,7 +703,7 @@ class CaseLifecycleServiceTest {
 		assertEquals(OfferOutcome.TIMED_OUT, open.getOutcome(), "not DECLINED — the expert never answered");
 		assertNull(open.getDeclineReason(), "the absence of an answer is the reason");
 
-		lifecycle.reassignExpert(CASE_ID, OTHER_EXPERT_ID, null, null);
+		lifecycle.reassignExpert(CASE_ID, OTHER_EXPERT_ID, null, null, null);
 		assertEquals(Stage.CLIENT_APPROVAL, subject.getCurrentStage());
 		assertEquals(OTHER_EXPERT_ID, subject.getExpertId());
 	}
@@ -669,12 +753,12 @@ class CaseLifecycleServiceTest {
 		subject.setExceptionState(ExceptionState.EXPERT_DECLINED_REMATCHING);
 		actAs(Role.PROJECT_MANAGER);
 
-		lifecycle.reassignExpert(CASE_ID, OTHER_EXPERT_ID, null, null);
+		lifecycle.reassignExpert(CASE_ID, OTHER_EXPERT_ID, null, null, null);
 		assertEquals("strongest ophthalmology record on the roster",
 				subject.getExpertSelectionRationale(), "a null does not erase what was there");
 
 		subject.setExceptionState(ExceptionState.EXPERT_DECLINED_REMATCHING);
-		lifecycle.reassignExpert(CASE_ID, EXPERT_ID, "first choice went silent; this one has signed for us twice", null);
+		lifecycle.reassignExpert(CASE_ID, EXPERT_ID, "first choice went silent; this one has signed for us twice", null, null);
 		assertEquals("first choice went silent; this one has signed for us twice",
 				subject.getExpertSelectionRationale(), "and a new reason replaces the old one");
 	}
@@ -718,7 +802,7 @@ class CaseLifecycleServiceTest {
 
 		actAs(Role.PROJECT_MANAGER);
 		assertThrows(IllegalTransitionException.class,
-				() -> lifecycle.assignCaseManager(CASE_ID, CM_ID, EXPERT_ID, null, null));
+				() -> lifecycle.assignCaseManager(CASE_ID, CM_ID, EXPERT_ID, null, null, null));
 		assertEquals(Stage.PM_REVIEW, subject.getCurrentStage());
 	}
 
@@ -756,7 +840,7 @@ class CaseLifecycleServiceTest {
 		// still null here, while CASE_ID is only the key the scoped read is stubbed against.
 		given(offers.findByCaseIdAndOutcome(any(), eq(OfferOutcome.OFFERED))).willReturn(List.of(stillOpen));
 
-		lifecycle.reassignExpert(CASE_ID, OTHER_EXPERT_ID, null, null);
+		lifecycle.reassignExpert(CASE_ID, OTHER_EXPERT_ID, null, null, null);
 		assertEquals(OfferOutcome.SUPERSEDED, stillOpen.getOutcome());
 		assertNull(stillOpen.getDeclineReason(), "nobody declined — the offer was withdrawn");
 		assertFalse(stillOpen.getOutcome().countsTowardAcceptanceRate(),
@@ -881,7 +965,7 @@ class CaseLifecycleServiceTest {
 		lifecycle.markDocsComplete(CASE_ID);
 
 		actAs(Role.PROJECT_MANAGER);
-		lifecycle.assignCaseManager(CASE_ID, CM_ID, OTHER_EXPERT_ID, null, null);
+		lifecycle.assignCaseManager(CASE_ID, CM_ID, OTHER_EXPERT_ID, null, null, null);
 
 		assertEquals(Stage.DRAFT_IN_PROGRESS, subject.getCurrentStage());
 		assertEquals(OTHER_EXPERT_ID, subject.getExpertId());
@@ -971,7 +1055,7 @@ class CaseLifecycleServiceTest {
 
 		assertTrue(!subject.getStageEnteredAt().isBefore(afterAssignment),
 				"the PM review round starts its own 12 hours");
-		verify(audit, times(4)).recordEvent(anyString(), any(), any(), any(), any(), any());
+		verify(audit, times(4)).recordEvent(eq("CASE"), any(), any(), any(), any(), any());
 	}
 
 	/** Doc collection budgets three business days; thirty calendar days is past it however you count. */
@@ -1379,7 +1463,7 @@ class CaseLifecycleServiceTest {
 
 		actAs(Role.PROJECT_MANAGER);
 		lifecycle.expertDeclined(CASE_ID, "outside my field");
-		lifecycle.reassignExpert(CASE_ID, OTHER_EXPERT_ID, null, null);
+		lifecycle.reassignExpert(CASE_ID, OTHER_EXPERT_ID, null, null, null);
 
 		assertNotNull(issued.getRevokedAt(), "the link the previous expert holds must stop working");
 		assertFalse(issued.isLive(Instant.now()));
