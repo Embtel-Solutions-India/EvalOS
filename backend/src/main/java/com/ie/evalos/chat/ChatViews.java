@@ -33,7 +33,7 @@ public final class ChatViews {
 	}
 
 	/** An inbox row: the conversation with its case context. {@code unread} is 0 for a viewer. */
-	public record ConversationView(UUID id, UUID caseId, String caseCode, String serviceType, String stage,
+	public record ConversationView(UUID id, UUID caseId, String caseCode, String clientName, String serviceType, String stage,
 			ConversationType type, ConversationStatus status, ChatAccessLevel access, long unread,
 			MessageView lastMessage, List<Participant> participants, Instant lastMessageAt) {
 	}

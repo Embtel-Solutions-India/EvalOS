@@ -1,3 +1,4 @@
+import { caseTitle } from '../core/text'
 import { useEffect, useState } from 'react'
 import type { Message } from '../core/types'
 import { useChat, useChatClient } from './ChatProvider'
@@ -19,7 +20,8 @@ export function ChatToast({ onOpen }: { onOpen(conversationId: string): void }) 
   }, [latest])
 
   if (!latest) return null
-  const where = conversations[latest.conversationId]?.caseCode
+  const c = conversations[latest.conversationId]
+  const where = c ? caseTitle(c) : undefined
   return (
     <div className="ec-toast" role="status">
       <button

@@ -25,7 +25,7 @@ import { apiClient, setPortalToken, unwrap, type ApiResponse } from '@shared/ser
  * Where a client is sent when the portal cannot help them itself.
  *
  * **It exists because "please contact us" did not resolve to anything.** Two screens said it —
- * `SignIn` and `SignUp`, both on `MAIL_UNAVAILABLE`, which is the one state where the portal has
+ * `SignIn` on `MAIL_UNAVAILABLE` (and `SignUp`, until Unit 64 removed it), the one state where the portal has
  * no action left to offer — and neither gave an address, a number or a link. A dead end that
  * *sounds* like a way forward is worse than one that admits it: the client believes they have
  * somewhere to go and finds out they do not.
@@ -47,32 +47,6 @@ export const LINK_LIFETIME = '30 minutes'
 export type IdentifyState = 'PASSWORD_SET' | 'NO_PASSWORD' | 'MAIL_UNAVAILABLE' | 'UNKNOWN'
 
 export type Session = { token: string; expiresAt: string }
-
-/**
- * What a new client sends. Only the email is required — GHL's contact upsert matches on email
- * then phone, and the server refuses a submission it cannot match on.
- */
-export type SignUpDetails = {
-  email: string
-  firstName?: string
-  lastName?: string
-  phone?: string
-}
-
-/**
- * Create the account, or recognise the client who already had one.
- *
- * **Returns an `IdentifyState`, not a `Session`, and that is deliberate.** Signing up does not
- * sign you in: the address may be one GHL already holds, so a token here would be account
- * takeover by typing a stranger's email. Every path ends at the emailed set-password link, which
- * is the same door a seeded client comes through. `UNKNOWN` is the one answer this cannot give.
- */
-export async function signUp(details: SignUpDetails): Promise<IdentifyState> {
-  const { state } = await unwrap(
-    apiClient.post<ApiResponse<{ state: IdentifyState }>>('/auth/sign-up', details),
-  )
-  return state
-}
 
 export async function identify(email: string): Promise<IdentifyState> {
   const { state } = await unwrap(

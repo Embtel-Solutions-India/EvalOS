@@ -97,9 +97,12 @@ export default function OpportunityBoardPage() {
     setSyncing(true)
     try {
       await refreshOpportunityBoard()
-      reload()
+    } catch {
+      // Even a failed or timed-out press may have synced some pipelines server-side; the reload
+      // below shows whatever the mirror now holds, and the button stays amber if it is still behind.
     } finally {
       setSyncing(false)
+      reload()
     }
   }
 
@@ -180,6 +183,8 @@ export default function OpportunityBoardPage() {
     }
   }
 
+  const stale = !!data?.stale && data.syncConfigured
+
   return (
     <div className="flex min-h-0 flex-col gap-4">
       <header className="flex flex-wrap items-end justify-between gap-x-6 gap-y-2">
@@ -219,17 +224,37 @@ export default function OpportunityBoardPage() {
             aria-label="Find a deal by name"
             className="field h-9 w-48"
           />
-          <button type="button" onClick={syncNow} disabled={syncing || !data} className="btn">
+          {/* Behind on sync (past `board-stale-after`: new GHL deals are not arriving here) is
+              shown on the button that fixes it — an amber dot and border, the reason on hover —
+              rather than as a banner across the board. */}
+          <button
+            type="button"
+            onClick={syncNow}
+            disabled={syncing || !data}
+            className="btn relative"
+            style={stale ? { borderColor: 'var(--status-amber)', color: 'var(--status-amber)' } : undefined}
+            title={
+              stale
+                ? `Sync delayed — last confirmed ${data?.lastSyncedAt ? new Date(data.lastSyncedAt).toLocaleTimeString() : 'never'}. New GHL deals may be missing. Click to refresh.`
+                : undefined
+            }
+            aria-label={stale ? 'Refresh — sync delayed, new GoHighLevel deals may be missing' : undefined}
+          >
+            {stale && (
+              <span
+                aria-hidden="true"
+                className="absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full"
+                style={{ background: 'var(--status-amber)' }}
+              />
+            )}
             {syncing ? 'Syncing…' : 'Refresh'}
           </button>
         </div>
       </header>
 
       {/*
-        The banner, not a tooltip. Past `board-stale-after` the sweep has missed three passes, which
-        means new GHL leads are NOT arriving on this screen — that is a working assumption a
-        salesperson would otherwise make wrongly all morning. Saying it plainly beats a stamp they
-        have to interpret.
+        Not configured at all is still a banner: the board is empty for that reason, and no button
+        press fixes it. A merely delayed sync is marked on the Refresh button instead.
       */}
       {data && !data.syncConfigured && (
         <p
@@ -243,20 +268,6 @@ export default function OpportunityBoardPage() {
         </p>
       )}
 
-      {data?.stale && data.syncConfigured && (
-        <p
-          className="rounded border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900"
-          role="status"
-        >
-          <strong>Sync delayed.</strong>{' '}
-          {data.lastSyncedAt
-            ? `The mirror was last confirmed against GoHighLevel at ${new Date(
-                data.lastSyncedAt,
-              ).toLocaleTimeString()}. Deals created in GHL since then are not on this board yet.`
-            : 'This board has never been synced with GoHighLevel, so deals created there are not on it yet.'}{' '}
-          Press Refresh, or ask a GM to check the MIRROR_DELTA sweep.
-        </p>
-      )}
 
       {/* The two "open something" actions moved to the sidebar on 2026-09-17. They were here as a
           button and an inline form, which put the thing a desk opens the app to do behind first
@@ -308,7 +319,7 @@ export default function OpportunityBoardPage() {
           // for a pool lane and an "Off the pipeline" row this screen does not have; the chrome
           // here is the 4.5rem top bar, the page heading, the column header with its value line and
           // the gutter — about 15rem. The variable is inherited, so overriding it on this strip
-          // changes only this board. A stale-sync banner, when shown, costs one short page scroll.
+          // changes only this board.
           style={{ '--board-column-max': 'max(14rem, calc(100svh - 16rem))' } as React.CSSProperties}
           onDragStart={canMove ? onDragStart : undefined}
           onDragOver={canMove ? onDragOver : undefined}

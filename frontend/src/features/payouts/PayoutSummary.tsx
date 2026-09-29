@@ -1,16 +1,17 @@
 import { useEffect, useState } from 'react'
 
 import { formatPayout } from '../../lib/money'
-import { fetchSummary } from './payoutApi'
+import { exportPayoutRows, fetchSummary, type ReportPeriod } from './payoutApi'
 import { summaryCsv, type SummaryRow } from './payoutRules'
 
 /**
- * Weekly or monthly payouts by state (Unit 63): Pending, Processing (recorded, waiting for the
- * expert) and Paid (the expert confirmed), by the period the payout opened in — with a CSV of the
- * same rows for reports.
+ * The ENM's payout reports (Unit 63): weekly, monthly or yearly, Pending / Processing (recorded,
+ * waiting for the expert) / Paid (the expert confirmed), by due date — the same week the batch pays
+ * it in. Two exports: the totals shown, and every row behind them.
  */
 export default function PayoutSummary() {
-  const [period, setPeriod] = useState<'WEEK' | 'MONTH'>('MONTH')
+  const [period, setPeriod] = useState<ReportPeriod>('MONTH')
+  const [exporting, setExporting] = useState(false)
   const [rows, setRows] = useState<SummaryRow[] | null>(null)
   const [failure, setFailure] = useState<string | null>(null)
 
@@ -26,14 +27,25 @@ export default function PayoutSummary() {
     return () => controller.abort()
   }, [period])
 
-  function download() {
-    if (!rows) return
-    const url = URL.createObjectURL(new Blob([summaryCsv(rows)], { type: 'text/csv' }))
+  function save(blob: Blob, name: string) {
+    const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
     link.href = url
-    link.download = `payouts-by-${period.toLowerCase()}.csv`
+    link.download = name
     link.click()
     URL.revokeObjectURL(url)
+  }
+
+  async function exportRows() {
+    setExporting(true)
+    setFailure(null)
+    try {
+      save(await exportPayoutRows(period), `payout-rows-by-${period.toLowerCase()}.csv`)
+    } catch (error: unknown) {
+      setFailure(error instanceof Error ? error.message : 'Could not export the rows')
+    } finally {
+      setExporting(false)
+    }
   }
 
   return (
@@ -48,7 +60,7 @@ export default function PayoutSummary() {
       >
         <h2 className="text-sm font-semibold">Summary</h2>
         <div className="flex items-center gap-2 text-sm">
-          {(['WEEK', 'MONTH'] as const).map((p) => (
+          {(['WEEK', 'MONTH', 'YEAR'] as const).map((p) => (
             <button
               key={p}
               type="button"
@@ -56,11 +68,19 @@ export default function PayoutSummary() {
               aria-pressed={period === p}
               onClick={() => setPeriod(p)}
             >
-              {p === 'WEEK' ? 'Weekly' : 'Monthly'}
+              {PERIOD_LABEL[p]}
             </button>
           ))}
-          <button type="button" className="btn" disabled={!rows?.length} onClick={download}>
-            Download CSV
+          <button
+            type="button"
+            className="btn"
+            disabled={!rows?.length}
+            onClick={() => rows && save(new Blob([summaryCsv(rows)], { type: 'text/csv' }), `payout-totals-by-${period.toLowerCase()}.csv`)}
+          >
+            Export totals
+          </button>
+          <button type="button" className="btn" disabled={!rows?.length || exporting} onClick={() => void exportRows()}>
+            {exporting ? 'Exporting…' : 'Export rows'}
           </button>
         </div>
       </header>
@@ -75,7 +95,7 @@ export default function PayoutSummary() {
           <table className="w-full text-sm">
             <thead>
               <tr className="text-left text-xs" style={{ color: 'var(--text-muted)' }}>
-                <th className="px-4 py-2 font-medium">{period === 'WEEK' ? 'Week of' : 'Month'}</th>
+                <th className="px-4 py-2 font-medium">{period === 'WEEK' ? 'Week of' : period === 'MONTH' ? 'Month' : 'Year'}</th>
                 <th className="px-4 py-2 text-right font-medium">Pending</th>
                 <th className="px-4 py-2 text-right font-medium">Processing</th>
                 <th className="px-4 py-2 text-right font-medium">Paid</th>
@@ -84,7 +104,7 @@ export default function PayoutSummary() {
             <tbody>
               {rows.map((row) => (
                 <tr key={`${row.periodStart}-${row.currency}`} className="border-t" style={{ borderColor: 'var(--border-default)' }}>
-                  <td className="font-num px-4 py-2">{period === 'WEEK' ? row.periodStart : row.periodStart.slice(0, 7)}</td>
+                  <td className="font-num px-4 py-2">{periodLabel(period, row.periodStart)}</td>
                   <Cell count={row.pendingCount} amount={row.pending} currency={row.currency} />
                   <Cell count={row.processingCount} amount={row.processing} currency={row.currency} />
                   <Cell count={row.paidCount} amount={row.paid} currency={row.currency} />
@@ -96,6 +116,12 @@ export default function PayoutSummary() {
       )}
     </section>
   )
+}
+
+const PERIOD_LABEL: Record<ReportPeriod, string> = { WEEK: 'Weekly', MONTH: 'Monthly', YEAR: 'Yearly' }
+
+function periodLabel(period: ReportPeriod, start: string): string {
+  return period === 'WEEK' ? start : period === 'MONTH' ? start.slice(0, 7) : start.slice(0, 4)
 }
 
 function Cell({ count, amount, currency }: { count: number; amount: number; currency: string }) {

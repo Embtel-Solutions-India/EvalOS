@@ -132,5 +132,5 @@ describe('transfersToConfirm (Unit 63)', () => {
 })
 
 function row(amount: number, currency: string, status: 'PENDING' | 'PAID' | 'CONFIRMED' | 'VOIDED', paymentId: string | null = null) {
-  return { caseReference: null, amount, currency, status, settledOn: null, paymentId }
+  return { caseReference: null, amount, currency, status, settledOn: null, paymentId, dueDate: null }
 }

@@ -50,23 +50,14 @@ class ClientAuthRoutesTest {
 	PortalAccessService portalAccess;
 
 	@Test
-	void allFiveRoutesAreReachableWithNoPortalToken() throws Exception {
+	void allFourRoutesAreReachableWithNoPortalToken() throws Exception {
 		given(accounts.identify("ana@example.com")).willReturn(ClientAccountService.IdentifyState.UNKNOWN);
-		given(accounts.signUp("ana@example.com", null, null, null))
-				.willReturn(ClientAccountService.IdentifyState.NO_PASSWORD);
 		given(accounts.signIn("ana@example.com", "Correct!1")).willReturn(
 				new PortalAccessService.MintedToken("abc", Instant.now()));
 		given(accounts.setPassword("a-token", "Correct!1")).willReturn(
 				new PortalAccessService.MintedToken("def", Instant.now()));
 
 		mockMvc.perform(post("/api/portal/auth/identify")
-				.contentType(MediaType.APPLICATION_JSON)
-				.content("{\"email\":\"ana@example.com\"}"))
-				.andExpect(status().isOk());
-
-		// The one that matters most here: a stranger has no token by definition, so a sign-up
-		// behind `anyRequest().authenticated()` would be unreachable by exactly the people it is for.
-		mockMvc.perform(post("/api/portal/auth/sign-up")
 				.contentType(MediaType.APPLICATION_JSON)
 				.content("{\"email\":\"ana@example.com\"}"))
 				.andExpect(status().isOk());

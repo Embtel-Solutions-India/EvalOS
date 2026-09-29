@@ -359,7 +359,8 @@ public class MessageService {
 							lastRow.editedAt(), lastRow.deletedAt() != null, Map.of(),
 							lastRow.authorKind() == who.kind() && lastRow.authorId().equals(who.id()));
 			views.add(new ChatViews.ConversationView(c.getId(), c.getCaseId(),
-					context == null ? null : context.caseCode(), context == null ? null : context.serviceType(),
+					context == null ? null : context.caseCode(), context == null ? null : context.clientName(),
+					context == null ? null : context.serviceType(),
 					context == null ? null : context.stage(), c.getType(), c.getStatus(),
 					viewer ? ChatAccessLevel.VIEWER : ChatAccessLevel.MEMBER, unread.getOrDefault(c.getId(), 0L),
 					lastView, participants.getOrDefault(c.getId(), List.of()), c.getLastMessageAt()));

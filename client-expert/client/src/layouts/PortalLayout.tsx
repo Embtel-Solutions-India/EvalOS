@@ -44,7 +44,7 @@ export function PortalLayout() {
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
   const location = useLocation()
   const tokenPresent = usePortalToken()
-  // One chat client for the signed-in shell: the nav badge, the inbox and each case's panel share it.
+  // One chat client for the signed-in shell: the nav badge and the inbox share it.
   const [chat] = useState(() => createPortalChat('client'))
   const navigate = useNavigate()
 
@@ -65,31 +65,29 @@ export function PortalLayout() {
 
   return (
     <ChatProvider client={chat}>
-      <div className="min-h-dvh bg-muted/30 lg:grid lg:grid-cols-[16rem_1fr]">
-        <aside className="hidden lg:block">
-          <div className="fixed inset-y-0 left-0 w-64">
-            <PortalSidebar />
+      {/* The footer runs the full width under the sidebar, at the foot of the screen or the page. */}
+      <div className="flex min-h-dvh flex-col bg-muted/30">
+        <div className="flex-1 lg:grid lg:grid-cols-[16rem_1fr]">
+          <aside className="hidden bg-sidebar lg:block">
+            <div className="sticky top-0 flex max-h-dvh flex-col">
+              <PortalSidebar />
+            </div>
+          </aside>
+
+          <MobileNavDrawer open={mobileNavOpen} onOpenChange={setMobileNavOpen} />
+
+          <div className="relative flex h-full flex-col overflow-hidden">
+            <LiquidBackground className="opacity-30" />
+            <PortalHeader title={getPageTitle(location.pathname)} onMenuClick={() => setMobileNavOpen(true)} />
+            <main className="relative flex-1 px-4 py-6 sm:px-6 lg:px-8">
+              <PageTransition />
+            </main>
           </div>
-        </aside>
-
-        <MobileNavDrawer open={mobileNavOpen} onOpenChange={setMobileNavOpen} />
-
-        <div className="relative flex min-h-dvh flex-col overflow-hidden">
-          <LiquidBackground className="opacity-30" />
-          <PortalHeader title={getPageTitle(location.pathname)} onMenuClick={() => setMobileNavOpen(true)} />
-          <main className="relative flex-1 px-4 py-6 sm:px-6 lg:px-8">
-            <PageTransition />
-          </main>
-          <SiteFooter />
         </div>
+        <SiteFooter />
       </div>
-      {/* A message while the client is elsewhere in the portal: open that case's page. */}
-      <ChatToast
-        onOpen={(id) => {
-          const caseId = chat.getState().conversations[id]?.caseId
-          navigate(caseId ? `/cases/${caseId}` : '/conversations')
-        }}
-      />
+      {/* A message while the client is elsewhere in the portal: open that conversation. */}
+      <ChatToast onOpen={(id) => navigate(`/conversations?c=${id}`)} />
     </ChatProvider>
   )
 }

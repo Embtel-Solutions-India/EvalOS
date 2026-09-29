@@ -15,6 +15,7 @@ import java.util.UUID;
 import com.ie.evalos.config.SellingBrand;
 import com.ie.evalos.common.DateRange;
 import com.ie.evalos.common.DateWindow;
+import com.ie.evalos.common.InvalidRequestException;
 import com.ie.evalos.domain.Case;
 import com.ie.evalos.domain.Role;
 import com.ie.evalos.domain.ServiceType;
@@ -27,6 +28,7 @@ import com.ie.evalos.repository.TeamMemberRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -97,12 +99,14 @@ public class GmOverviewService {
 	private final UUID sellingBrandId;
 	private final BigDecimal monthlyGoal;
 	private final int wonLookbackDays;
+	private final JdbcTemplate jdbc;
 
 	GmOverviewService(CaseLifecycleService lifecycle, TeamMemberRepository teamMembers, GhlPipelineClient ghl,
-			SellingBrand sellingBrand,
+			SellingBrand sellingBrand, JdbcTemplate jdbc,
 			@Value("${evalos.sales.monthly-goal}") BigDecimal monthlyGoal,
 			@Value("${evalos.sales.won-lookback-days}") int wonLookbackDays) {
 		this.lifecycle = lifecycle;
+		this.jdbc = jdbc;
 		this.teamMembers = teamMembers;
 		this.ghl = ghl;
 		this.monthlyGoal = monthlyGoal;
@@ -119,8 +123,15 @@ public class GmOverviewService {
 	 * month</strong>, and that is the whole reason they are boxed. The target is a monthly number;
 	 * printing "12% to goal" over a week, or "430%" over a year, would be arithmetic dressed as a
 	 * business figure. The tile drops to the bare amount instead of lying about the denominator.
+	 *
+	 * <p>{@code won} is <strong>the sales desks' wins only</strong>. Marketing nurtures the same
+	 * lead Sales closes, so adding a marketing desk's won value counts that deal twice; the
+	 * marketing desk's own figure stays on its row under "By desk".
+	 *
+	 * @param goalMonth the first of the month {@code goal} belongs to — what {@code PUT
+	 *                  /metrics/gm/goal} takes — or null on a window that is not a calendar month
 	 */
-	public record Headline(BigDecimal won, BigDecimal goal, Integer pctToGoal) {
+	public record Headline(BigDecimal won, BigDecimal goal, Integer pctToGoal, LocalDate goalMonth) {
 	}
 
 	/** One row of a group-by, as deals and money. Used for both source and service. */
@@ -224,7 +235,6 @@ public class GmOverviewService {
 		BigDecimal salesNewValue = BigDecimal.ZERO;
 		BigDecimal marketingNewValue = BigDecimal.ZERO;
 		BigDecimal salesWonValue = BigDecimal.ZERO;
-		BigDecimal headlineWon = BigDecimal.ZERO;
 		BigDecimal previousWonValue = BigDecimal.ZERO;
 
 		for (TeamMember desk : desks) {
@@ -257,7 +267,10 @@ public class GmOverviewService {
 				if (!at.isBefore(windowStart) && at.isBefore(windowEnd)) {
 					deskWon++;
 					deskWonValue = deskWonValue.add(amountOf(win));
-					merge(sourceTotals, win);
+					// Sales wins only, same rule as the headline these bars split.
+					if (desk.getRole() != Role.MARKETING) {
+						merge(sourceTotals, win);
+					}
 				}
 				else if (!at.isBefore(previousStart) && at.isBefore(windowStart)) {
 					previousWon++;
@@ -265,7 +278,6 @@ public class GmOverviewService {
 				}
 			}
 
-			headlineWon = headlineWon.add(deskWonValue);
 			if (desk.getRole() == Role.MARKETING) {
 				marketingNew += deskNew;
 				marketingNewValue = marketingNewValue.add(deskNewValue);
@@ -286,7 +298,7 @@ public class GmOverviewService {
 				.toList());
 
 		return new GmOverview(
-				headline(window, headlineWon),
+				headline(window, salesWonValue),
 				bySource,
 				byService,
 				new Sales(salesNew, salesNewValue, salesWon, salesWonValue,
@@ -320,11 +332,42 @@ public class GmOverviewService {
 
 	private Headline headline(DateWindow window, BigDecimal won) {
 		boolean monthly = window.range() == DateRange.MONTH || window.range() == DateRange.LAST_MONTH;
-		if (!monthly || monthlyGoal.signum() <= 0) {
-			return new Headline(won, null, null);
+		if (!monthly) {
+			return new Headline(won, null, null, null);
 		}
-		return new Headline(won, monthlyGoal,
-				won.multiply(BigDecimal.valueOf(100)).divide(monthlyGoal, 0, RoundingMode.HALF_UP).intValue());
+		LocalDate month = window.from().withDayOfMonth(1);
+		BigDecimal goal = goalFor(month);
+		if (goal.signum() <= 0) {
+			return new Headline(won, null, null, month);
+		}
+		return new Headline(won, goal,
+				won.multiply(BigDecimal.valueOf(100)).divide(goal, 0, RoundingMode.HALF_UP).intValue(), month);
+	}
+
+	/** The newest target the GM set for this month, else {@code SALES_MONTHLY_GOAL}. */
+	private BigDecimal goalFor(LocalDate month) {
+		if (sellingBrandId == null) {
+			return monthlyGoal;
+		}
+		return jdbc.query("SELECT amount FROM sales_monthly_goal WHERE brand_id = ? AND month = ? "
+				+ "ORDER BY set_at DESC LIMIT 1", (rs, n) -> rs.getBigDecimal(1), sellingBrandId, month)
+				.stream().findFirst().orElse(monthlyGoal);
+	}
+
+	/**
+	 * Sets the selling brand's target for one month. A new row every time — the older ones are
+	 * who moved the goal and when, and are never updated (append-only truth).
+	 */
+	@Transactional
+	public void setGoal(LocalDate month, BigDecimal amount, UUID setBy) {
+		if (sellingBrandId == null) {
+			throw new InvalidRequestException("No selling brand is configured (evalos.ghl.sales-brand)");
+		}
+		if (amount == null || amount.signum() < 0) {
+			throw new InvalidRequestException("A monthly target is zero or more");
+		}
+		jdbc.update("INSERT INTO sales_monthly_goal (brand_id, month, amount, set_by) VALUES (?, ?, ?, ?)",
+				sellingBrandId, month.withDayOfMonth(1), amount, setBy);
 	}
 
 	private static Integer deltaPct(BigDecimal previous, BigDecimal current, int previousDeals) {

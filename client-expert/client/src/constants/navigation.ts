@@ -1,4 +1,4 @@
-import { FileCheck2, LayoutDashboard, MessagesSquare, Receipt } from 'lucide-react'
+import { FileCheck2, House, MessagesSquare, Receipt } from 'lucide-react'
 import type { ComponentType } from 'react'
 
 export interface NavItem {
@@ -16,9 +16,9 @@ export interface NavItem {
  * a credential. A case is reached from Home rather than from a menu, so it has no entry here.
  */
 export const PRIMARY_NAV: NavItem[] = [
-  { label: 'Home', to: '/dashboard', icon: LayoutDashboard },
+  { label: 'Home', to: '/dashboard', icon: House },
   // Unit 58 (2026-09-26): Documents moved into each case, and Meetings left the portal.
   { label: 'Invoices', to: '/invoices', icon: Receipt },
   { label: 'Conversations', to: '/conversations', icon: MessagesSquare, unread: true },
-  { label: 'My requests', to: '/requests', icon: FileCheck2 },
+  { label: 'My cases', to: '/cases', icon: FileCheck2 },
 ]

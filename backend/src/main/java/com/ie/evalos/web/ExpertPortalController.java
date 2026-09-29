@@ -74,6 +74,12 @@ public class ExpertPortalController {
 		return ApiResponse.ok(portal.view(expert()));
 	}
 
+	/** The signed-in expert's name, for the greeting and the top bar. */
+	@GetMapping("/me")
+	public ApiResponse<ExpertPortalService.ExpertMe> me() {
+		return ApiResponse.ok(portal.me(expert()));
+	}
+
 	/** Every case this expert is on, behind a party-scoped link (Unit 35, D1). */
 	@GetMapping("/cases")
 	public ApiResponse<List<ExpertPortalService.ExpertCaseSummary>> cases() {

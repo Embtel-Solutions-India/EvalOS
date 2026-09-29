@@ -1,5 +1,9 @@
 # Unit 53 — Request documents
 
+> **Superseded by Unit 64 (specced 2026-09-29).** Request documents, both routes and the
+> carry-forward are removed and `V78` drops `application_document`. Client documents arrive only on
+> a case, against the checklist the PC or CM sends (D60). See `64-remove-client-requests.md`.
+
 **Decided 2026-09-17 (D33, D34).** The client uploads documents **with the request**, at
 questionnaire submit. Sales opens the opportunity and sees the answers and the documents together.
 Handoff A carries them into the case.

@@ -54,7 +54,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
- * The ledger's and its payments' nine routes, gated on the three roles that pay people.
+ * The ledger's and its payments' ten routes (Unit 63: summary and export in, the staff confirm out), gated on the three roles that pay people.
  *
  * <p>{@link #theControllersAuthorizeExactlyWhoMayRecordAPayout} is the Unit 10 lesson as a
  * test: {@link PayoutService#MAY_RECORD} is the single authority for who may touch this
@@ -231,7 +231,7 @@ class PayoutControllerTest {
 		// Without this, deleting @PreAuthorize from a method — or all of them — just
 		// shrinks the loop to nothing and the test passes on the pinned three-name
 		// assertion above alone, having checked zero methods. Nine routes, nine gates.
-		assertThat(gated).as("every one of the nine routes must be @PreAuthorize-gated").hasSize(9);
+		assertThat(gated).as("every one of the ten routes must be @PreAuthorize-gated").hasSize(10);
 	}
 
 	private static Set<String> rolesIn(String preAuthorizeExpression) {
@@ -258,7 +258,8 @@ class PayoutControllerTest {
 				patch("/api/payments/" + PAYMENT_ID).header(HttpHeaders.AUTHORIZATION, bearer(role))
 						.contentType(MediaType.APPLICATION_JSON)
 						.content("{\"method\":\"Wire\",\"reference\":\"REF-1001\"}"),
-				get("/api/payouts/summary?period=MONTH").header(HttpHeaders.AUTHORIZATION, bearer(role)));
+				get("/api/payouts/summary?period=YEAR").header(HttpHeaders.AUTHORIZATION, bearer(role)),
+				get("/api/payouts/export?period=WEEK").header(HttpHeaders.AUTHORIZATION, bearer(role)));
 	}
 
 	private String bearer(Role role) {

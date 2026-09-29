@@ -1,5 +1,5 @@
 import { apiClient, unwrap, type ApiResponse } from '@shared/services/apiClient'
-import type { ExpertCaseSummary, ExpertCaseView, ExpertPayoutRow, SignedLetterView } from '@/lib/expertCase'
+import type { ExpertCaseSummary, ExpertCaseView, ExpertMe, ExpertPayoutRow, SignedLetterView } from '@/lib/expertCase'
 
 /**
  * The case this page is on, when the expert signed in and named one (Unit 59). Held like the token:
@@ -12,6 +12,11 @@ export function setOpenCase(caseId: string | null): void {
 }
 
 const scoped = () => (openCase ? { params: { caseId: openCase } } : {})
+
+/** Who is signed in — the dashboard greeting and the top bar. */
+export async function getMe(): Promise<ExpertMe> {
+  return unwrap(apiClient.get<ApiResponse<ExpertMe>>('/expert/me'))
+}
 
 /** Every case this expert is on — a signed-in expert's home (Unit 59). */
 export async function listCases(): Promise<ExpertCaseSummary[]> {

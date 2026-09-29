@@ -19,6 +19,7 @@ import com.ie.evalos.integration.GhlUnavailableException;
 import com.ie.evalos.repository.TeamMemberRepository;
 
 import org.junit.jupiter.api.Test;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -48,7 +49,10 @@ class GmOverviewServiceTest {
 	private final GhlPipelineClient ghl = mock(GhlPipelineClient.class);
 
 	private GmOverviewService service(String goal) {
-		return new GmOverviewService(lifecycle, teamMembers, ghl, new SellingBrand(BRAND), new BigDecimal(goal), 180);
+		// A mocked JdbcTemplate answers every query with an empty list: no goal set on the
+		// dashboard, so SALES_MONTHLY_GOAL (`goal`) is the fallback these tests exercise.
+		return new GmOverviewService(lifecycle, teamMembers, ghl, new SellingBrand(BRAND), mock(JdbcTemplate.class),
+				new BigDecimal(goal), 180);
 	}
 
 	private static DateWindow window(String range) {
@@ -56,16 +60,49 @@ class GmOverviewServiceTest {
 	}
 
 	private void givenOneSalesDesk() {
+		given(teamMembers.findByActiveTrueAndRoleAndBrandId(Role.SALES, BRAND))
+				.willReturn(List.of(desk(Role.SALES, PIPELINE)));
+		given(teamMembers.findByActiveTrueAndRoleAndBrandId(Role.MARKETING, BRAND)).willReturn(List.of());
+	}
+
+	private static TeamMember desk(Role role, String pipeline) {
 		TeamMember desk = new TeamMember() {
 		};
 		ReflectionTestUtils.setField(desk, "id", UUID.randomUUID());
-		ReflectionTestUtils.setField(desk, "role", Role.SALES);
+		ReflectionTestUtils.setField(desk, "role", role);
 		ReflectionTestUtils.setField(desk, "brandId", BRAND);
-		ReflectionTestUtils.setField(desk, "displayName", "Nischay");
-		ReflectionTestUtils.setField(desk, "ghlPipelineId", PIPELINE);
+		ReflectionTestUtils.setField(desk, "displayName", role + " desk");
+		ReflectionTestUtils.setField(desk, "ghlPipelineId", pipeline);
 		ReflectionTestUtils.setField(desk, "active", true);
-		given(teamMembers.findByActiveTrueAndRoleAndBrandId(Role.SALES, BRAND)).willReturn(List.of(desk));
-		given(teamMembers.findByActiveTrueAndRoleAndBrandId(Role.MARKETING, BRAND)).willReturn(List.of());
+		return desk;
+	}
+
+	/**
+	 * Marketing nurtures the lead Sales closes, so a marketing desk's win is the same deal again.
+	 * Adding it to "Business won" counted the revenue twice.
+	 */
+	@Test
+	void countsOnlySalesWinsInTheHeadline() {
+		given(teamMembers.findByActiveTrueAndRoleAndBrandId(Role.SALES, BRAND))
+				.willReturn(List.of(desk(Role.SALES, PIPELINE)));
+		given(teamMembers.findByActiveTrueAndRoleAndBrandId(Role.MARKETING, BRAND))
+				.willReturn(List.of(desk(Role.MARKETING, "pipe-marketing")));
+		given(ghl.opportunitiesIn(any(), any(), any())).willReturn(List.of());
+		given(ghl.opportunitiesIn(eq(PIPELINE), any(), any(), eq("won")))
+				.willReturn(List.of(won("5000", at("2026-09-04"), at("2026-09-01"), "Referral")));
+		given(ghl.opportunitiesIn(eq("pipe-marketing"), any(), any(), eq("won")))
+				.willReturn(List.of(won("5000", at("2026-09-04"), at("2026-08-01"), "Newsletter")));
+
+		var overview = service("0").forCaller(window("month"), BRAND);
+
+		assertThat(overview.headline().won()).isEqualByComparingTo("5000");
+		assertThat(overview.bySource()).singleElement()
+				.satisfies((row) -> assertThat(row.source()).isEqualTo("Referral"));
+		// The marketing desk still shows its own figure on its row.
+		assertThat(overview.desks()).anySatisfy((row) -> {
+			assertThat(row.role()).isEqualTo(Role.MARKETING);
+			assertThat(row.wonValue()).isEqualByComparingTo("5000");
+		});
 	}
 
 	private static GhlPipelineClient.Opportunity won(String amount, Instant wonAt, Instant createdAt,

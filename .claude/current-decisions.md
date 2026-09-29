@@ -1,6 +1,6 @@
 # EvalOS — Current Decisions
 
-Confirmed and in force as of **2026-09-17**. Short and explicit. No history, no abandoned
+Confirmed and in force as of **2026-09-29**. Short and explicit. No history, no abandoned
 approaches, no proposals. Unresolved items are in `open-decisions.md`.
 
 ## Identity
@@ -13,24 +13,15 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
   portal client.
 - **D3.** GHL decides whether a contact is new. EvalOS asks via `POST /contacts/upsert` (matches
   on email, then phone) rather than deciding itself.
-- **D3a.** **A stranger must not be able to drive unbounded writes into the live CRM.**
-  `/auth/sign-up` is `permitAll` behind one per-IP counter, so a contact write there is an
-  unauthenticated write — an IP-rotating script fills the sub-account Sales works in and spends
-  GHL's 100-req/10s location budget, which 502s every GHL-backed staff screen. **This is the
-  property; D3d changed how it is held.** From 2026-09-16 morning to 2026-09-16 evening it was held
-  by ordering (contact created at `setPassword`); it is now held by the route's own gate plus
-  `PORTAL_CLEANUP`. Spec `52` §8.
-- **D3d.** **Sign-up creates no GHL contact — D3a's ordering, restored.** The contact lived on
-  `/auth/sign-up` for exactly as long as GHL carried the set-password mail, which required a
-  `contactId` and would not take a bare address. Every transport since takes the address, so the
-  reason is gone and the exposure is not worth keeping: that route is `permitAll` behind one
-  per-IP counter, so a CRM
-  write there is a stranger's write — an IP-rotating script fills the sub-account Sales works in
-  and spends GHL's shared 100-req/10s location budget, which 502s every GHL-backed staff screen.
-  **Two call sites had to go, not one:** `signUp` itself, and `issueCredential` — because `signUp`
-  falls through to `identify`, so removing only the first would have looked fixed and changed
-  nothing. `signingUpReachesGhlZeroTimes` pins both. The contact is created at `setPassword`, at
-  the next sign-in, or at the first request that needs one (D3c). Spec `52` §11.
+- **D3a.** **No unauthenticated route creates an account or a CRM row.** Public sign-up was the
+  last one and is gone (Unit 64, 2026-09-29): a `permitAll` write there was a stranger's write into
+  the sub-account Sales works in, spending GHL's shared 100-req/10s location budget. Spec `64` §3.
+- **D3d.** **A portal account is created by EvalOS when the client's case is created** (Unit 64),
+  from the case's contact — its email, names, `contact_snapshot` id and GHL contact id — and the
+  set-password link is mailed. An existing account linked to the same contact is reminded (no
+  password) or left alone (password set); one linked to a **different** contact is never relinked
+  and the case is flagged. A contact with no email or no GHL id gets no account and a flag.
+  `created_via = 'CASE'`. Failures never fail the case. Spec `64` §2.
 - **D3e.** **Mail leaves over SMTP, and the provider is configuration — never a class**
   (rewritten 2026-09-18). `SmtpMailTransport` is the only `MailTransport` there is; which provider
   carries the mail is `spring.mail.host/port/username/password` plus `EVALOS_MAIL_FROM`, so moving
@@ -52,11 +43,12 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
   `SmtpMailTransportLiveTest` (opt-in, `MAIL_LIVE_TEST=true`) is the only check that proves a real
   credential, a verified sender and the deploy's egress — and unlike the one it replaced, it
   survives changing provider.
-- **D4.** Signup never signs anyone in. It returns a state; control of the mailbox is proved by
-  the set-password link. Signing up with a known email creates nothing and cannot overwrite.
+- **D4.** **There is no public sign-up** (Unit 64). Control of the mailbox is proved by the
+  set-password link; sign-in with a known email and no password re-sends it, and an unknown email is
+  told the account opens when their first case starts.
 - **D5.** Sign-in creates no contact and no account.
-- **D6.** One GHL Contact, many opportunities. A repeat request creates a **new opportunity on the
-  existing contact**, never a second contact.
+- **D6.** One GHL Contact, many opportunities. A repeat deal is a **new opportunity on the existing
+  contact** in GHL, never a second contact; its case lands on the same portal account.
 - **D41.** **One id represents a contact everywhere in the system, and it is the GHL
   `contact_id`.** Decided 2026-09-17, for client-id consistency across EvalOS, GHL and anything
   built on either. Where a contact is _named_ — an S3 prefix, a route parameter, a payload field —
@@ -66,9 +58,8 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
   foreign keys to `contact_snapshot`. An internal join is not a name.
   **This reverses the 2026-09-14 narrowing** that moved `DocumentStore.clientKey` onto
   `contact_snapshot.id` after IE's sub-account swap left post-swap clients with no GHL id to build
-  a key from. What makes the id safe to name again is D3d and D3c: the contact is created at
-  set-password, at the next sign-in, or at the first request that needs one, and a document is
-  uploaded with the request, which already ensures the id before it opens the deal.
+  a key from. What makes the id safe to name again is D3d: every portal account is created from a
+  case's contact, which Handoff A holds together with its GHL id (Unit 64).
   **Two consequences stated rather than hidden:** a contact with no GHL id yet is _refused_ with a
   message naming the repair instead of being filed under a guessed prefix, and a second sub-account
   swap would orphan the namespace again — reads resolve through the stored `object_key`, so nothing
@@ -76,74 +67,35 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
 - **D7.** `client_account.email` is unique per brand (case-insensitive). Portal brand is fixed by
   `evalos.portal.client-brand` — the portal is single-brand today.
 
-## The request → case lifecycle
+## The deal → case lifecycle
 
-- **D8.** Request ≠ Case. A **Request** (`client_application`) is what the client asked for. A
-  **Case** (`evalos_case`) is production work. An **Opportunity** (GHL) is the commercial process
-  between them.
+- **D8.** **There is no client request** (Unit 64, 2026-09-29). An **Opportunity** (GHL) is the
+  commercial process and starts in GHL — a form, a call, Sales or Marketing. A **Case**
+  (`evalos_case`) is production work. The portal never opens a deal. Spec `64`.
 - **D9.** A case is created **only** by the `opportunity.won` GHL webhook (Handoff A). No other
   code path may create one; `DomainInvariantsTest` fails the build if a second class injects
-  `CaseIntakeService`. (Invariant 8.)
-- **D10.** The opportunity is created **when the client submits the request**, not when they pick
-  a service. **Changed 2026-09-16, third time of asking.** It opened at service-pick until then, so that a
-  client who abandoned the questionnaire (since removed, D13) still reached a salesperson; the requirement said submit from the start,
-  EvalOS refused it twice, and the third asking carries it. The deal on the board is now a **finished
-  request** and nothing else — which is what makes Sales' review step mean something, and is the
-  trade taken knowingly: **an abandoned request now reaches nobody.** Recovering those is a
-  separate job (nothing sweeps `DRAFT` applications today) and is in `open-decisions.md`.
-- **D10c.** The funnel is **submit → opportunity → Sales review → won → payment**. EvalOS creates
-  the deal at submit and stops; review, win and invoicing are GHL's and Sales', exactly as D11
-  already said about placement. A case is still born only of `opportunity.won` (D9, invariant 8).
-- **D10a.** EvalOS sends GHL the **requested service id** as an opportunity custom field
-  (`evalos.ghl.opportunity-service-field`) and nothing else about placement. A GHL workflow routes
-  the deal to a pipeline from it. The `SUBMITTED` marker rides on that same create now — under D10
-  every opportunity is a submitted one, so a second call to announce it would say nothing.
-  Mapping services onto pipelines is a business rule and lives in
-  the workflow — the same ruling that deleted `hot-stage-name`. No stage, no assignee, no price.
-- **D11.** EvalOS puts the opportunity on the intake pipeline and **stops**. Stage placement and
-  assignee are GHL automation's job. There is deliberately no "hot stage" setting.
-- **D10b.** The client's request lands on the pipeline a GM marked `INTAKE`, not on one matched by
-  name. `evalos.ghl.intake-pipeline-name` is retired (Unit 44b) — a rename in GHL silently stopped
-  every request reaching Sales. Zero or two `INTAKE` pipelines are both refusals that name the fix.
+  `CaseIntakeService`. (Invariant 8.) The service type comes from the webhook's
+  `customData.serviceType`.
+- **D10, D10a, D10b, D10c, D12, D13 — retired by Unit 64.** EvalOS opens no opportunity, writes no
+  requested-service or submitted field, and has no `INTAKE` pipeline purpose (`V78` moves any to
+  `UNASSIGNED`); there is no request, questionnaire or submit. The funnel is GHL's end to end until
+  `opportunity.won`.
+- **D11.** Stage placement and assignee are GHL automation's job. There is deliberately no "hot
+  stage" setting.
 - **D11a.** GHL's pipelines and stages are **mirrored** as EvalOS rows using GHL's own ids
   (Unit 44a, `V50`). GHL owns every column except `pipeline.purpose`, which EvalOS owns and a
   sweep never writes. Rows are upserted and **never deleted** — one GHL stops returning is
   stamped `missing_since`, because `purpose` is EvalOS's judgement and a pipeline archived for
   an afternoon must not come back meaning nothing. Nothing infers a purpose from a pipeline's
   name: a GM sets it, or it stays `UNASSIGNED`.
-- **D12.** Submit changes `client_application.status` **and is what opens the opportunity** (D10).
-  The `SUBMITTED` custom field is written **on that create**, not by a follow-up call — every
-  opportunity is now a submitted one, so announcing it separately would say nothing, and
-  `setOpportunityFields` is no longer on this path. It still moves no stage, sends no pipeline and
-  writes no note. **A GHL failure refuses the submit (502) and leaves the draft intact**, which is
-  stricter than the swallow this decision used to describe: under D10 a failed create means Sales
-  has no deal at all, and telling a client "sent" for that would be a lie.
-- **D13.** **There is no client questionnaire** (Unit 55, 2026-09-25, business decision). The portal
-  request is the service, the purpose and the documents; Sales asks everything else on the call.
-  The questions step, its autosave route (`PUT /api/portal/applications/{id}`) and
-  `client_application.answers` are gone. Sales reads the request through
-  `GET /api/opportunities/{id}/application`, which answers `null` + 200 for deals that did not come
-  from the portal, and the documents beside it (D34). Spec `55-remove-questionnaire.md`.
 
-- **D33.** **Documents arrive with the request, before submit, and are stored against the
-  contact** — the person — not against a case, which does not exist yet. This is the DOCUMENT
-  SUBMISSION step the target lifecycle always named and Unit 43 deferred, because every upload
-  route EvalOS had took a checklist item on a **case**. Decided 2026-09-17.
-  **"Contact" means the GHL contact id** (D41). The request upload reuses `DocumentStore.clientKey`
-  unchanged in shape — `{brand}/client/{ghl_contact_id}/{doc}` — and the upload set carries forward
-  into `case_document` at Handoff A as a row insert over the **same S3 object**: nothing copies,
-  nothing re-keys, and Production starts holding exactly what Sales read.
-  Spec `53-request-documents.md`. _(Closes `open-decisions.md` Q4.)_
-  **Drafts are stored files too** (Unit 58, D51): Word + PDF on their `case_document` DRAFT versions,
-  alongside the request documents.
-- **D34.** **Sales clicks one opportunity and sees both** the request (service, purpose, status)
-  and the documents. The documents are **a second screen on that same deal, never a second permission** —
-  their own route and their own tab beside the application, reached by whoever could already open
-  the opportunity. Nothing about them asks a new authorisation question.
-- **D35.** **There is no EvalOS sales-review state.** `client_application.status` stays `DRAFT` /
-  `SUBMITTED`. Review, approval and rejection are GHL **pipeline stages** — D10c said that of the
-  funnel and it now settles the request row too. The business named the shorter flow on 2026-09-17:
-  submitted → Sales reads → won → case. _(Closes Q2 and Q3, which both recommended adding states.)_
+- **D33.** **Client documents arrive only on a case**, uploaded in the portal against the checklist
+  the PC or the CM sends (D60). There is no pre-case upload (Unit 64 removed Unit 53's request
+  documents). Case documents live at `DocumentStore.clientKey` — `{brand}/client/{ghl_contact_id}/{doc}`
+  (D41). **Drafts are stored files too** (Unit 58, D51): Word + PDF on their `case_document` DRAFT
+  versions.
+- **D34, D35 — retired by Unit 64.** There is no request for Sales to read beside the deal, and no
+  request status. Review, approval and rejection are GHL pipeline stages.
 - **D36.** **The case is staffed PM-first, and the PM staffs the rest.** Handoff A creates the case,
   a PM takes it, and the PM assigns the **Project Coordinator**, the **Case Manager** and the
   **Expert**. The CM drafts and uploads; the client sees and approves it in the portal; only then
@@ -359,7 +311,7 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
   The set is read at sign-in and carried in the token, so a reassignment takes effect on next
   sign-in; unchanged in kind from the single-claim model it replaced.
 - **D19c.** **Sales reads their own pipelines and nothing else, and their world ends at won.**
-  A SALES member reads the opportunities and requests on the pipelines they hold (D19b) and **no
+  A SALES member reads the opportunities on the pipelines they hold (D19b) and **no
   case at all**. `ScopePredicate`'s PIPELINE arm matching no `evalos_case` row is therefore
   **correct**, not the gap `implementation-status.md` called it until 2026-09-17.
   _(Closes `00d` §12a, which asked how much of a case SALES gets: none.)_
@@ -439,9 +391,7 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
   to clients; the design (a signed, retried, dead-lettered dispatcher, invariant 11) was dropped
   earlier by the business and is recorded here on 2026-09-28. `event/CaseEvents.java` stays, as
   in-process events only.
-- **D54.** **Abandoned requests get a staff screen, not a sweep** (2026-09-28, closes Q11): one
-  GM / Sales list of `client_application` rows still `DRAFT` after 48 hours, oldest first, read from
-  rows EvalOS already has. No GHL write, no job, no opportunity opened for a draft.
+- **D54 — retired by Unit 64.** There are no requests, so there is no unfinished-requests screen.
 - **D55.** **Appointments are built on GHL's calendar APIs, to standard practice** (2026-09-29,
   closes Q9): cancel, guests, blocked-off time and notes all go through GHL's own calendar /
   appointment endpoints (GHL remains the calendar), searched in the GHL docs before any endpoint is
@@ -475,8 +425,8 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
   receipt**, because every entry is manual: the ENM's recorded transfer (`PAID`) shows as
   *Processing* until the expert presses *Confirm received* in the portal (`CONFIRMED`, shown as
   *Paid*). **Staff no longer confirm** — that route is removed. The portal's one write is that
-  confirmation; nothing there pays, requests or disputes a payout. Weekly / monthly summaries and a
-  CSV are the ENM's reports. No approval step and no failed state (the business chose three).
+  confirmation; nothing there pays, requests or disputes a payout. The ENM pays weekly (the batch) and
+  reports weekly, monthly or yearly by due date, with two exports: totals and every row (CSV). No approval step and no failed state (the business chose three).
 - **D61.** **The ENM runs the expert lifecycle in EvalOS, and the hiring pipeline is a GHL
   pipeline** (2026-09-29, the business; Unit 63, spec `63-enm-workspace.md`). This reverses the two
   written refusals `00d` §7 names and replaces `00d` Phase 5's `expert_application` design. A GM

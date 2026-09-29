@@ -30,7 +30,7 @@ export default function SetPassword() {
     setError(undefined)
     try {
       await setPassword(token as string, password)
-      navigate('/cases')
+      navigate('/dashboard')
     } catch (failure) {
       setError(authFailureMessage(statusOf(failure), SPENT))
     } finally {

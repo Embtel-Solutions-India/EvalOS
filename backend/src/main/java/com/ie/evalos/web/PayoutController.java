@@ -92,7 +92,7 @@ public class PayoutController {
 		return ApiResponse.ok(payouts.batch(weekOf));
 	}
 
-	/** Weekly or monthly Pending / Processing / Paid totals (Unit 63). */
+	/** Weekly, monthly or yearly Pending / Processing / Paid totals (Unit 63). */
 	@GetMapping("/summary")
 	@PreAuthorize(PAYOUTS)
 	public ApiResponse<List<PayoutService.SummaryRow>> summary(
@@ -100,6 +100,20 @@ public class PayoutController {
 			@RequestParam(required = false) @DateTimeFormat(iso = ISO.DATE) LocalDate from,
 			@RequestParam(required = false) @DateTimeFormat(iso = ISO.DATE) LocalDate to) {
 		return ApiResponse.ok(payouts.summary(period, from, to));
+	}
+
+	/** Every payout row, tagged with its week / month / year, as a CSV download (Unit 63). */
+	@GetMapping(value = "/export", produces = "text/csv")
+	@PreAuthorize(PAYOUTS)
+	public org.springframework.http.ResponseEntity<String> export(
+			@RequestParam(defaultValue = "MONTH") PayoutService.Period period,
+			@RequestParam(required = false) @DateTimeFormat(iso = ISO.DATE) LocalDate from,
+			@RequestParam(required = false) @DateTimeFormat(iso = ISO.DATE) LocalDate to) {
+		return org.springframework.http.ResponseEntity.ok()
+				.header(org.springframework.http.HttpHeaders.CONTENT_DISPOSITION,
+						"attachment; filename=\"payouts-by-" + period.name().toLowerCase(java.util.Locale.ROOT) + ".csv\"")
+				.contentType(new org.springframework.http.MediaType("text", "csv", java.nio.charset.StandardCharsets.UTF_8))
+				.body(payouts.exportCsv(period, from, to));
 	}
 
 	/** Corrects a still-{@code PENDING} draft's amount, audited, then answers the refreshed row. */

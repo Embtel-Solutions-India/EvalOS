@@ -42,6 +42,8 @@ export type Conversation = {
   id: string
   caseId: string
   caseCode: string
+  /** The applicant, the conversation's title; null when the case holds no name yet. */
+  clientName: string | null
   serviceType: string | null
   stage: string
   type: ConversationType

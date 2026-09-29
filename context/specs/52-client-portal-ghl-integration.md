@@ -1,5 +1,9 @@
 # Unit 52 — The Client Portal ↔ GHL integration
 
+> **Unit 64 (specced 2026-09-29) removes public sign-up and the request.** §4 and §8–§11 (sign-up,
+> its gate, the contact at sign-up / first request) are history once it lands; the portal account is
+> created when the client's case is created. See `64-remove-client-requests.md` §2–§3.
+
 **Status: PARTIALLY BUILT (2026-09-16).** §4 is built and tested. §5 is the delta, and most of it
 is **Units 44–48**, not this unit — decided 2026-09-16, see §6.
 

@@ -69,11 +69,14 @@ public class ExpertCaseHistoryService {
 		Set<UUID> seen = new HashSet<>();
 		return history.stream().map(offer -> {
 			Case subject = byId.get(offer.getCaseId());
-			boolean latest = seen.add(offer.getCaseId());
+			// The case, not the offer, says whether this expert walked away: an expert who accepted
+			// and then declined leaves their offer ACCEPTED, because a decline only closes an open one.
+			boolean walkedAway = seen.add(offer.getCaseId()) && waitingForRematch(subject, expert);
 			return new Row(offer.getCaseId(), subject == null ? null : subject.getCaseCode(),
 					subject == null ? null : subject.getCurrentStage(), offer.getOfferedAt(), offer.getOutcomeAt(),
-					offer.getOutcome(), offer.getDeclineReason(), status(offer.getOutcome(), subject),
-					latest && retakeEligible(offer, subject, expert));
+					offer.getOutcome(), offer.getDeclineReason(),
+					walkedAway ? WorkStatus.REJECTED : status(offer.getOutcome(), subject),
+					walkedAway && expert.getAvailability() == Availability.AVAILABLE);
 		}).toList();
 	}
 
@@ -96,13 +99,14 @@ public class ExpertCaseHistoryService {
 		};
 	}
 
-	/** D62: still waiting for a rematch, still this expert's, and the expert can take work. */
-	static boolean retakeEligible(ExpertCaseOffer offer, Case subject, Expert expert) {
-		return (offer.getOutcome() == OfferOutcome.DECLINED || offer.getOutcome() == OfferOutcome.TIMED_OUT)
-				&& subject != null
+	/**
+	 * D62: this expert declined or timed out and the case still waits for a rematch naming them.
+	 * A retake is then offered when they are {@code AVAILABLE}.
+	 */
+	static boolean waitingForRematch(Case subject, Expert expert) {
+		return subject != null
 				&& expert.getId().equals(subject.getExpertId())
 				&& subject.getCurrentStage() == Stage.EXPERT_SIGNING
-				&& subject.getExceptionState() == ExceptionState.EXPERT_DECLINED_REMATCHING
-				&& expert.getAvailability() == Availability.AVAILABLE;
+				&& subject.getExceptionState() == ExceptionState.EXPERT_DECLINED_REMATCHING;
 	}
 }

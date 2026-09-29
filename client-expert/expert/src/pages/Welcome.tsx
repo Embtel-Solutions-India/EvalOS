@@ -31,7 +31,7 @@ export default function Welcome() {
     setError(undefined)
     try {
       await signIn(email.trim(), password)
-      navigate('/cases')
+      navigate('/dashboard')
     } catch (failure) {
       setError(authFailureMessage(statusOf(failure), REFUSED))
     } finally {

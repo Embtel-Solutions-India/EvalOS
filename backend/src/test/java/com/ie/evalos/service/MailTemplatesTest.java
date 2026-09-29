@@ -20,8 +20,7 @@ class MailTemplatesTest {
 
 	private List<MailTemplates.Message> all() {
 		return List.of(templates.setPassword("Ana Ruiz", "https://portal.test/set-password#tok"),
-				templates.resetPassword("Ana Ruiz", "https://portal.test/set-password#tok"),
-				templates.requestSubmitted("Ana Ruiz", "Academic Evaluation", 2));
+				templates.resetPassword("Ana Ruiz", "https://portal.test/set-password#tok"));
 	}
 
 	@Test
@@ -93,42 +92,6 @@ class MailTemplatesTest {
 	}
 
 	/**
-	 * <strong>Zero documents reads as an invitation, never a warning.</strong>
-	 *
-	 * <p>Submit is deliberately not gated on documents ({@code 43} §5). A confirmation that scolded
-	 * a client for sending none would undo that decision in the one message they actually read.
-	 */
-	@Test
-	void zeroDocumentsIsAnInvitationAndTheCountIsOtherwiseStated() {
-		// Not a blanket ban on the word "missing" — the body legitimately says "if anything is
-		// missing or unclear, we will ask", which is the opposite of a warning. What is pinned is
-		// that the zero case offers rather than demands.
-		assertThat(templates.requestSubmitted("Ana", "Academic Evaluation", 0).html())
-				.contains("not attached any documents yet")
-				.contains("whenever you like")
-				.doesNotContain("required").doesNotContain("must ");
-		assertThat(templates.requestSubmitted("Ana", "Academic Evaluation", 1).html())
-				.contains("1 document with your request");
-		assertThat(templates.requestSubmitted("Ana", "Academic Evaluation", 3).html())
-				.contains("3 documents with your request");
-	}
-
-	/**
-	 * The confirmation promises nothing the flow can fail to keep.
-	 *
-	 * <p>No price, no turnaround, no date: EvalOS holds no price list and the work is quoted by a
-	 * person. This pins the absence, because the pressure to add "within 48 hours" to a
-	 * confirmation is exactly the kind of sentence that gets added without anyone owning it.
-	 */
-	@Test
-	void theConfirmationPromisesNoPriceAndNoTurnaround() {
-		String html = templates.requestSubmitted("Ana", "Academic Evaluation", 1).html().toLowerCase();
-
-		assertThat(html).doesNotContain("$").doesNotContain("hours").doesNotContain("business day")
-				.doesNotContain("within");
-	}
-
-	/**
 	 * The logo is an absolute URL on the marketing site, at the mark's own aspect ratio.
 	 *
 	 * <p><strong>The apex host is asserted, not just the path.</strong> The {@code www} host 301s,
@@ -164,8 +127,7 @@ class MailTemplatesTest {
 	void theAccentIsThePortalsCrimsonAndTheNeutralsAreNot() {
 		for (String html : java.util.List.of(
 				templates.setPassword("Ana", "https://portal.test/x").html(),
-				templates.resetPassword("Ana", "https://portal.test/x").html(),
-				templates.requestSubmitted("Ana", "Academic Evaluation", 1).html())) {
+				templates.resetPassword("Ana", "https://portal.test/x").html())) {
 
 			assertThat(html.toUpperCase())
 					.contains("#C8102E")

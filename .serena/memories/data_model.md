@@ -3,7 +3,7 @@
 **The authoritative file is `.claude/data-model.md`. It separates CURRENT DATABASE from REQUIRED
 FUTURE MODEL — never mix them.**
 
-25 tables, Flyway V1 to V65 all applied (V1–V49 verified against a live Postgres instance on
+25 tables, Flyway V1 to V65 all applied (see `.claude/data-model.md` for the current count — latest `V77` `sales_monthly_goal`, the GM's append-only monthly target) (V1–V49 verified against a live Postgres instance on
 2026-09-16; V50–V62 are Units 44–47b, V63–V64 the 2026-09-18 review pass).
 Migrations live in `backend/src/main/resources/db/migration/`. New schema means a new migration; an
 applied one is never edited.
@@ -100,3 +100,5 @@ message_reactions, message_reads (one watermark per member), push_subscriptions.
 **`V75` (Unit 61):** `document_checklist_item.sent_at` / `sent_by` — null = unsent (not in the client portal). Existing rows backfilled as sent; seed trees `V912`/`V952` repeat the backfill for demo data seeded after V75.
 
 **`V76` (Unit 63):** `pipeline.purpose` gains `EXPERT_HIRING` (the ENM's hiring pipeline); `expert.credentials_verified_at` (null = not verified; who is on the `CREDENTIALS_VERIFIED` audit row). No candidate table — candidates are mirrored GHL opportunities (D61 replaces the Unit 50 `expert_application` idea).
+
+**Unit 64 (built 2026-09-29):** `V78` dropped `application_document` and `client_application`, moved `INTAKE` pipelines to `UNASSIGNED` and dropped it from the CHECK, and added `'CASE'` to `client_account.created_via`. The two tables described above no longer exist. See `.claude/data-model.md` → REQUIRED FUTURE MODEL.

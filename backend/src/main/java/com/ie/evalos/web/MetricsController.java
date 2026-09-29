@@ -1,5 +1,7 @@
 package com.ie.evalos.web;
 
+import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.util.UUID;
 
 import com.ie.evalos.common.ApiResponse;
@@ -14,8 +16,16 @@ import com.ie.evalos.service.NavBadgeService;
 import com.ie.evalos.service.PmMetricsService;
 import com.ie.evalos.service.RevenueMetricsService;
 import com.ie.evalos.service.PmMetricsService.PmMetrics;
+import com.ie.evalos.security.StaffPrincipal;
+
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.PositiveOrZero;
 
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -119,6 +129,22 @@ public class MetricsController {
 			@RequestParam(required = false) UUID brandId) {
 		return ApiResponse.ok(
 				gmOverview.forCaller(DateWindow.of(range, from, to, BusinessCalendar.clock()), brandId));
+	}
+
+	/** A month's sales target. {@code month} is any day of it; the first is what is stored. */
+	public record GoalRequest(@NotNull LocalDate month, @NotNull @PositiveOrZero BigDecimal amount) {
+	}
+
+	/**
+	 * The GM sets the month's sales target from the dashboard. Same gate as {@code /gm}, the only
+	 * screen that shows it. Append-only: each call is a new row, the newest one counts.
+	 */
+	@PutMapping("/gm/goal")
+	@PreAuthorize("hasRole('GM')")
+	public ApiResponse<Void> setGmGoal(@Valid @RequestBody GoalRequest request,
+			@AuthenticationPrincipal StaffPrincipal principal) {
+		gmOverview.setGoal(request.month(), request.amount(), principal.memberId());
+		return ApiResponse.ok(null);
 	}
 
 	/**

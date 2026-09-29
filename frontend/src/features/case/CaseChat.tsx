@@ -16,7 +16,7 @@ export default function CaseChat({ caseId }: { caseId: string }) {
 
   return (
     <section
-      className="flex h-[32rem] flex-col gap-2 rounded-lg border p-4"
+      className="flex h-[40rem] max-h-[calc(100svh-6rem)] flex-col gap-2 rounded-lg border p-4"
       style={{ background: 'var(--bg-surface)', borderColor: 'var(--border-default)' }}
     >
       <div className="flex gap-1" role="tablist" aria-label="Conversations">

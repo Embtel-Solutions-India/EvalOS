@@ -1,8 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
-import { ArrowRight, FileCheck2, MessagesSquare, Receipt } from 'lucide-react'
+import { FileCheck2, MessagesSquare, Receipt } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { Badge } from '@shared/components/ui/badge'
-import { Button } from '@shared/components/ui/button'
 import { Card } from '@shared/components/ui/card'
 import { EmptyState } from '@shared/components/common/EmptyState'
 import { ErrorState } from '@shared/components/common/ErrorState'
@@ -11,16 +10,15 @@ import { PageHeader } from '@shared/components/common/PageHeader'
 import { usePortalToken } from '@shared/hooks/usePortalToken'
 import { DELIVERED_STEP, failureMessage, NO_TOKEN, serviceLabel, type ClientCaseSummary } from '@shared/lib/portal'
 import { statusOf } from '@shared/services/apiClient'
-import { listApplications } from '@/services/applicationService'
 import { listCases } from '@/services/caseService'
 
 /**
  * Where the client lands: what needs them, then everything else (34d).
  *
- * **Real cases, and no greeting by name.** This screen used to open with "Good morning,
+ * **Real cases, and a greeting by time of day only.** This screen used to open with "Good morning,
  * {firstName}" from a mock account session over mock data. **There is an account now** — Unit 42
- * brought one back and 2026-09-15 let a client create their own — and `client_account` even holds
- * a first name. The greeting still does not come back: EvalOS does not hand the portal a client's
+ * brought one back, and since Unit 64 it is opened when the client's case is — and `client_account` even holds
+ * a first name. The name still does not come back: EvalOS does not hand the portal a client's
  * name for decoration, and the objection that killed it was never only that the session was fake.
  * What the credential is has also changed: a scoped portal link *or* a token minted by signing in,
  * and this screen cannot tell which, by design.
@@ -40,18 +38,6 @@ export default function Dashboard() {
     retry: false,
   })
 
-  // **The one state `43` §4 asked this screen to gain.** A client with an unfinished request and
-  // no case used to land on "nothing here yet", which is both false and a dead end — the thing
-  // they were in the middle of was invisible. Its own query rather than a field on the case list:
-  // a request is not a case, and a failure to load one must not blank the other.
-  const applications = useQuery({
-    queryKey: ['portal', 'applications'],
-    queryFn: ({ signal }) => listApplications(signal),
-    enabled: tokenPresent,
-    retry: false,
-  })
-  const unfinished = applications.data?.find((item) => item.status === 'DRAFT')
-
   if (!tokenPresent) {
     return <PageHeader title="Your cases" description={NO_TOKEN} />
   }
@@ -63,6 +49,8 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-6">
+      <p className="text-2xl font-bold tracking-tight text-foreground sm:text-3xl">{greeting()}!</p>
+
       <PageHeader
         title="Your cases"
         description={
@@ -85,47 +73,22 @@ export default function Dashboard() {
         />
       )}
 
-      {unfinished && (
-        <Card className="flex flex-wrap items-center justify-between gap-3 p-4">
-          <div>
-            <p className="text-sm font-medium text-foreground">
-              Your {unfinished.serviceName} request isn&rsquo;t finished
-            </p>
-            <p className="text-xs text-muted-foreground">
-              Pick up where you left off — your answers are saved.
-            </p>
-          </div>
-          <Button asChild>
-            <Link to="/requests/new">
-              Continue
-              <ArrowRight className="ml-2 h-4 w-4" aria-hidden="true" />
-            </Link>
-          </Button>
-        </Card>
-      )}
-
-      {!isLoading && !isError && data && data.length === 0 && !unfinished && (
+      {!isLoading && !isError && data && data.length === 0 && (
         <EmptyState
           icon={FileCheck2}
-          title="Nothing here yet"
-          description="Tell us what you need evaluated and we'll come back to you with a price."
-          action={
-            <Button asChild>
-              <Link to="/requests/new">Request a service</Link>
-            </Button>
-          }
+          title="No cases yet"
+          description="Your cases appear here once our team starts one."
         />
       )}
 
       {byAction.length > 0 && (
-        <section className="space-y-2">
-          <h2 className="text-sm font-semibold text-foreground">Active cases</h2>
+        <section className="-mt-3 space-y-3">
           {byAction.map((item) => <CaseRow key={item.caseId} item={item} />)}
         </section>
       )}
 
       {delivered.length > 0 && (
-        <section className="space-y-2">
+        <section className="space-y-3">
           <h2 className="text-sm font-semibold text-foreground">Delivered cases</h2>
           {delivered.map((item) => <CaseRow key={item.caseId} item={item} />)}
         </section>
@@ -136,34 +99,41 @@ export default function Dashboard() {
   )
 }
 
+/** By the client's own clock — the greeting names nobody (see above). */
+function greeting(hour = new Date().getHours()): string {
+  if (hour < 12) return 'Good morning'
+  if (hour < 18) return 'Good afternoon'
+  return 'Good evening'
+}
+
 function CaseRow({ item }: { item: ClientCaseSummary }) {
   return (
     <Link to={`/cases/${item.caseId}`} className="block">
       <Card
-        className={`flex flex-wrap items-center justify-between gap-2 p-4 hover:bg-accent ${
-          item.actionRequired ? 'border-primary' : ''
+        className={`flex flex-wrap items-center justify-between gap-2 border-l-4 px-6 py-5 shadow-sm transition hover:bg-accent ${
+          item.actionRequired ? 'border-l-primary' : 'border-l-transparent'
         }`}
       >
-        <div>
-          <p className="text-sm font-medium text-foreground">{item.caseReference}</p>
-          <p className="text-xs text-muted-foreground">
+        <div className="space-y-1">
+          <p className="text-lg font-medium text-foreground">{item.caseReference}</p>
+          <p className="text-sm text-muted-foreground">
             {serviceLabel(item.serviceType)} · {item.step}
           </p>
         </div>
-        {item.actionRequired && <Badge>Needs you</Badge>}
+        {item.actionRequired && <Badge className="rounded-full px-3 py-1 text-sm">Needs you</Badge>}
       </Card>
     </Link>
   )
 }
 
-/** Shown here as well as in the sidebar, which is easy to miss on a phone. */
+/** For a phone, where the sidebar is a drawer and easy to miss; the desktop sidebar is always there. */
 function Shortcuts() {
   const links = [
     { to: '/conversations', label: 'Conversations', icon: MessagesSquare },
     { to: '/invoices', label: 'Your invoices', icon: Receipt },
   ]
   return (
-    <section className="grid gap-3 sm:grid-cols-2">
+    <section className="grid gap-3 sm:grid-cols-2 lg:hidden">
       {links.map(({ to, label, icon: Icon }) => (
         <Link key={to} to={to}>
           <Card className="flex items-center gap-3 p-4 hover:bg-accent">

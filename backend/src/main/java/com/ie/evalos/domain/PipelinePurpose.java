@@ -31,9 +31,6 @@ public enum PipelinePurpose {
 	 */
 	DELIVERY,
 
-	/** Where a client's own request lands when the portal opens it. */
-	INTAKE,
-
 	/**
 	 * The ENM's hiring pipeline (Unit 63): candidates, not clients. Every ENM of the pipeline's brand
 	 * works it, and a won opportunity on it never opens a case ({@code CaseIntakeService}).

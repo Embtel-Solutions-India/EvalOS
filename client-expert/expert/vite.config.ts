@@ -15,6 +15,9 @@ export default defineConfig({
     // Same as the client portal: the chat package's react and ably must be THIS app's copies.
     dedupe: ["react", "react-dom", "ably"],
   },
+  // Only the lazy /case route imports it (via @shared), so the dep scan misses it and Vite
+  // re-optimizes on first visit — the page then dies on "504 Outdated Optimize Dep".
+  optimizeDeps: { include: ["@radix-ui/react-checkbox"] },
   server: {
     port: 5175,
     // **strictPort, because 5175 was answering with the CLIENT portal.** Vite silently increments

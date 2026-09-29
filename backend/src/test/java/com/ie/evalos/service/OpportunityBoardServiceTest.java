@@ -22,7 +22,6 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import com.ie.evalos.config.SellingBrand;
-import com.ie.evalos.domain.ClientApplication;
 import com.ie.evalos.domain.GhlReference;
 import com.ie.evalos.domain.Opportunity;
 import com.ie.evalos.domain.Pipeline;
@@ -52,12 +51,10 @@ class OpportunityBoardServiceTest {
 			mock(com.ie.evalos.repository.TeamMemberPipelineRepository.class);
 	private final com.ie.evalos.repository.GhlCustomFieldRepository customFields =
 			mock(com.ie.evalos.repository.GhlCustomFieldRepository.class);
-	private final com.ie.evalos.repository.ClientApplicationRepository applications =
-			mock(com.ie.evalos.repository.ClientApplicationRepository.class);
 
 	private OpportunityBoardService service() {
 		return new OpportunityBoardService(deals, pipelines, assignments, STALE_AFTER,
-				new SellingBrand(SELLING_BRAND), customFields, applications);
+				new SellingBrand(SELLING_BRAND), customFields);
 	}
 
 	private void authenticate(Role role, String pipelineId) {
@@ -159,18 +156,15 @@ class OpportunityBoardServiceTest {
 
 		Opportunity fromGhl = mirrored("a", MINE, "s1", "100", Instant.now());
 		fromGhl.syncCustomFields(java.util.Map.of("f_service", "PERM", "f_source", "Referral"));
-		Opportunity fromPortal = mirrored("b", MINE, "s1", "100", Instant.now());
-		ClientApplication request = new ClientApplication(SELLING_BRAND, UUID.randomUUID(), "svc",
-				"Credential evaluation", null);
-		request.linkOpportunity("b");
-		when(applications.findByBrandIdAndGhlOpportunityIdIn(eq(SELLING_BRAND), any()))
-				.thenReturn(List.of(request));
-		givenMirrored(List.of(fromGhl, fromPortal), MINE);
+		// A deal whose service field GHL does not hold shows no service — there is no request to
+		// fall back on since Unit 64.
+		Opportunity unset = mirrored("b", MINE, "s1", "100", Instant.now());
+		givenMirrored(List.of(fromGhl, unset), MINE);
 
 		List<OpportunityBoardService.Deal> cards = service().forCaller().columns().get(0).deals();
 
 		assertThat(cards).extracting(OpportunityBoardService.Deal::service)
-				.containsExactly("PERM", "Credential evaluation");
+				.containsExactly("PERM", null);
 		assertThat(cards).extracting(OpportunityBoardService.Deal::source)
 				.containsExactly("Referral", null);
 	}

@@ -20,7 +20,7 @@ Every row below is a business answer from the session, not an inference.
 | 7 | Edit and delete? | **Own messages only.** An edit shows "edited"; a delete leaves a "message deleted" placeholder; the original text is kept in `audit_event`. Nobody deletes another person's message |
 | 8 | Files? | **None. Text only.** Documents have their own flow; the composer links to it |
 | 9 | Push? | **Yes** — web push, the push D37 already owes |
-| 10 | Where the chat sits | **Client portal:** a new case page with the case on the left and its conversation on the right. **Expert portal:** the same on `/case`. **Staff:** a **Conversations** sidebar item and a **Chat** tab on the case screen |
+| 10 | Where the chat sits | **Client portal:** the **Conversations** page only (since 2026-09-30; the case page carries the document checklist and draft instead). **Expert portal:** the same on `/case`. **Staff:** a **Conversations** sidebar item and a **Chat** tab on the case screen |
 
 ## 1. Conversations and members
 
@@ -262,7 +262,7 @@ app's pages, not here.
 | App | Placement | Shows |
 |---|---|---|
 | Staff | **Conversations** in the sidebar (full-width `ChatInbox`) and a **Chat** tab on the case screen (`CaseChatPanel`) | members: their conversations; Sales: the Client and Internal conversations of their pipeline's cases and nothing else of the case; GM / Brand Manager: everything in scope, read-only |
-| Client portal | **specified by Unit 58** (`58-client-portal.md`): the `/cases/:caseId` detail page with the Client conversation on the right (a **Messages** tab on phones), and **Conversations** in the nav as the cross-case inbox | Client Communication only, grouped by the client's cases |
+| Client portal | **specified by Unit 58** (`58-client-portal.md`): **Conversations** in the nav as the cross-case inbox, opening one conversation by `?c=`; since 2026-09-30 the `/cases/:caseId` page carries no conversation | Client Communication only, grouped by the client's cases |
 | Expert portal | the existing **`/case`** page gains the right-hand panel, plus **Messages** in the nav | Expert Communication only, for cases with an open or accepted offer |
 
 ## 8. Errors and security

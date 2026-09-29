@@ -121,23 +121,6 @@ public class ClientMailer {
 				PortalAudience.EXPERT);
 	}
 
-	/**
-	 * The confirmation a client gets when their request reaches Sales — 2026-09-19.
-	 *
-	 * <p><strong>This is the message that needed invariant 14 amended.</strong> The two above prove
-	 * control of a mailbox, which is the one purpose that invariant allowed; this one does not. It
-	 * was added on the business's instruction and the invariant was EDITED to say so rather than
-	 * quietly widened — see {@code architecture.md}.
-	 *
-	 * <p>Unlike the two above, <strong>nothing depends on it arriving.</strong> The request is
-	 * already submitted and already visible in the portal, so a failure here is logged and the
-	 * submit still succeeds — which is why its caller ignores the boolean.
-	 */
-	public boolean sendRequestSubmitted(MailTransport.Recipient to, String fullName,
-			String serviceName, int documentCount) {
-		return send(to, templates.requestSubmitted(fullName, serviceName, documentCount));
-	}
-
 	private boolean send(MailTransport.Recipient to, MailTemplates.Message message) {
 		return send(to, message, PortalAudience.CLIENT);
 	}

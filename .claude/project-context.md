@@ -28,7 +28,7 @@ Since the Units 36–41 pivot it is **also** the interface Sales and Marketing w
 
 | Package | Holds | Count |
 |---|---|---|
-| `domain` | entities + enums (`Case`, `ClientAccount`, `ClientApplication`, `Expert`, `Stage`, `Role`…) | 58 |
+| `domain` | entities + enums (`Case`, `ClientAccount`, `Expert`, `Stage`, `Role`…) | 58 |
 | `repository` | Spring Data repos; `ScopedRepository` declares each entity's brand scope | 24 |
 | `service` | all business logic | 50 |
 | `web` | thin REST controllers, `/api/**` | 30 |

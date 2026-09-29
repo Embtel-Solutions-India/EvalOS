@@ -72,8 +72,7 @@ public class ChatApi {
 
 	/**
 	 * A client, by account. An account token names the account; a party link names only a GHL
-	 * contact, resolved inside the token's own brand — the two arms {@code ClientApplicationService}
-	 * uses.
+	 * contact, resolved inside the token's own brand.
 	 */
 	@Transactional(readOnly = true)
 	public ChatIdentity client() {

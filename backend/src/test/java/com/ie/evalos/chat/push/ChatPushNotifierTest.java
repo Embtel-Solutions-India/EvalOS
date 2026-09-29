@@ -84,7 +84,7 @@ class ChatPushNotifierTest {
 		ArgumentCaptor<String> payload = ArgumentCaptor.forClass(String.class);
 		verify(sender).send(eq(phone), payload.capture());
 		assertThat(payload.getValue()).contains("Your case team").contains("IE-1042")
-				.contains("http://client.test/cases/" + caseId).contains(conversation.toString())
+				.contains("http://client.test/conversations?c=" + conversation).contains(conversation.toString())
 				.doesNotContain("passport");
 	}
 

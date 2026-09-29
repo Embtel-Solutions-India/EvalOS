@@ -6,7 +6,7 @@ import { COMPANY, LEGAL_UPDATED } from '@/constants/legal'
 
 /**
  * The shell for the three legal pages: public, outside `PortalLayout`, because a policy a client
- * agrees to at sign-up has to be readable before they have an account.
+ * relies on has to be readable before they first sign in.
  *
  * Content is JSX rather than a Markdown renderer: three static pages do not earn a parser
  * dependency, and JSX keeps the links to each other real `<Link>`s.

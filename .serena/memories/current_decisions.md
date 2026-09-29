@@ -6,13 +6,13 @@ The ones most often violated from memory:
 
 - A GHL Contact is not an EvalOS ClientAccount. A contact existing is **not** proof of portal
   registration. All three states (no contact and no account; contact only; both) are legal.
-- One GHL Contact, many opportunities. A repeat request makes a new **opportunity**, never a
+- One GHL Contact, many opportunities. A repeat deal is a new **opportunity** in GHL, never a
   second contact.
-- **Sign-up creates NO GHL contact** (D3d) — D3a's ordering, restored once Brevo replaced GHL mail
-  and removed the `contactId` requirement that forced it there. `/auth/sign-up` is `permitAll`, so a
-  CRM write behind it is a stranger's write. **Two call sites, not one:** `signUp` and
-  `issueCredential` (sign-up falls through to `identify`, which lands there). The contact is created
-  at `setPassword`, the next sign-in, or the first request that needs one (D3c).
+- **No public sign-up; the portal account is born with the case** (D3d, D4, Unit 64 — built
+  2026-09-29, `CasePortalAccountListener` → `ClientAccountService.openForCase`). On `CASE_CREATED` after commit: portal brand + contact with email and GHL id
+  → create (`created_via = 'CASE'`) or link the account, mail set-password; an account linked to a
+  **different** contact is never relinked (flag the case); no email/GHL id → flag, no account.
+  Failures never fail the case. D3a now reads: no unauthenticated route creates an account or CRM row.
 - **`PORTAL_CLEANUP` only ever deletes `created_via = 'SIGNUP'` rows** (D3f, V59). The earlier
   predicate also matched every V45-seeded client and would have deleted the seeded backlog after
   30 days. Column defaults to `SEED` — a writer that forgets gets a row that survives.
@@ -22,7 +22,7 @@ The ones most often violated from memory:
   500 on an unauthenticated route.
 - **A GHL outage never refuses a sign-up, a set-password or a sign-in.** The account stands with no
   contact, `identify` answers `MAIL_UNAVAILABLE`, and `ensureCrmIdentity` repairs it at the next
-  sign-in or the first request (D3c).
+  sign-in (D3c).
 - **Mail leaves over SMTP and the provider is configuration** (D3e, rewritten 2026-09-18):
   `SmtpMailTransport` is the only `MailTransport`, and Brevo / Resend / Mailgun / Postmark / SES are
   `spring.mail.host/port/username/password` + `EVALOS_MAIL_FROM` — **four variables and a restart,
@@ -40,16 +40,12 @@ The ones most often violated from memory:
   `attributionSource` on a write — it fills those from its own form tracking, which an API caller
   never passes through — so the documented `source` string is the whole of what provenance can be.
   Every `upsertContact` caller names itself.
-- **Request is not Case.** `client_application` is the request, `evalos_case` is production work,
-  and the GHL opportunity is the commercial process between them.
-- **The opportunity opens when the client SUBMITS** (D10) — changed 2026-09-16 on the second
-  asking, having been reaffirmed against the first. It opened at service-pick so a half-finished
-  request still reached Sales; it no longer does, and that cost is accepted rather than overlooked.
-  The `SUBMITTED` custom field rides the create now, not a follow-up call. A failed create refuses
-  the submit and keeps the draft. Then: Sales review → won → payment (D10c).
+- **There is NO client request** (D8, Unit 64 — built 2026-09-29). Deals start in GHL
+  (form, call, Sales, Marketing); a case is born only of `opportunity.won`. The portal opens no
+  opportunity — D10, D10a, D10b, D10c, D12, D13 are retired.
 - **Abandoned portal rows are swept** (`PORTAL_CLEANUP`, daily). Expired `client_credential_token`
-  rows go one TTL past expiry; `client_account` rows with no password, no GHL contact, no token, no
-  application and no session go after `abandoned-sign-up-after` (30d). **Audit is never swept** —
+  rows go one TTL past expiry; old `SIGNUP` `client_account` rows with no password, no GHL contact,
+  no token and no session go after `abandoned-sign-up-after` (30d). `CASE` accounts are never swept. **Audit is never swept** —
   append-only by invariant, so a flood still grows `audit_event` and that is the one place growth
   is the feature.
 - **GHL's pipelines and stages are MIRRORED rows now** (Unit 44a, `V50`), keyed on GHL's own ids.
@@ -61,12 +57,8 @@ The ones most often violated from memory:
   refuses rather than guessing when a desk holds several. **A revoke stamps `revoked_at` rather than
   deleting the row** (`V64`, 2026-09-18) — otherwise `backfillFromLegacyColumn` re-created the grant
   on the next `PIPELINE_MIRROR` pass, and `V39` forbids emptying the legacy column it reads.
-- **The client's request lands on the pipeline marked `INTAKE`**, not one matched by name.
-  `evalos.ghl.intake-pipeline-name` is retired: a rename in GHL used to stop every request silently.
-- **EvalOS sends GHL the requested SERVICE ID as an opportunity custom field and nothing else about
-  placement** (D10a). A GHL workflow routes the deal to a pipeline from it. Mapping services onto
-  pipelines is a business rule and lives in the workflow — the same ruling that deleted
-  `hot-stage-name`. No stage, no assignee, no price: EvalOS holds no price list.
+- **`INTAKE` is retired** (Unit 64): `V78` moves any `INTAKE` pipeline to `UNASSIGNED` and drops it
+  from the CHECK. EvalOS writes no requested-service or submitted field on any opportunity.
 - **A case is created only by the `opportunity.won` webhook.** Build-enforced by
   `DomainInvariantsTest`. Never add a second creator.
 - Invoicing is GHL's, full stop. EvalOS reads invoices and raises none.
@@ -97,22 +89,15 @@ The ones most often violated from memory:
   stands, EvalOS mints its own UUID, and `client_account.contact_id` / `evalos_case.contact_id`
   stay real FKs to `contact_snapshot` — an internal join is not a name. **This reverses the
   2026-09-14 narrowing** of `DocumentStore.clientKey` onto `contact_snapshot.id`; what makes the
-  GHL id safe to name again is D3d + D3c — the contact is created at set-password, sign-in or the
-  first request, so it exists by the time anything needs to name it. A
+  GHL id safe to name again is D3d — every portal account is created from a case's contact, which
+  Handoff A holds with its GHL id. A
   contact with no GHL id is **refused** with a message naming the repair, never filed under a
   guessed prefix.
-- **There is NO client questionnaire** (D13, Unit 55, 2026-09-25, business decision). The portal
-  request is service + purpose + documents; Sales asks the rest on the call. No questions step, no
-  `PUT /api/portal/applications/{id}`, no `answers` on the entity or the API. `client_application.answers`
-  is unmapped and awaits `V71` (drop held for an explicit go-ahead). Do not rebuild a questionnaire.
-- **Documents arrive WITH the request**, before submit, keyed by the **GHL contact id**
-  (D41). Reuses `DocumentStore.clientKey`; Handoff A carries them into `case_document` as row
-  inserts over the **same S3 object**. Unit 53, spec `53-request-documents.md` (D33).
-- **Sales clicks one opportunity and sees the request AND documents** — the documents are **their own
-  route and tab on that deal, never a second permission** (D34).
-- **There is NO EvalOS sales-review state** (D35). `client_application.status` stays
-  `DRAFT`/`SUBMITTED`; review, approval and rejection are GHL **pipeline stages**. Do not add
-  `IN_REVIEW`/`ACCEPTED`/`REJECTED` — an earlier recommendation said to, and the business said no.
+- **Client documents arrive only on a case**, uploaded against the checklist the PC or CM sends
+  (D33, D60), keyed by the **GHL contact id** (D41). No request documents, no Sales request tabs
+  (D34 retired), no carry-forward; `V78` drops `client_application` and `application_document`.
+  Spec `64-remove-client-requests.md`. Do not rebuild a request or questionnaire.
+- **D35 retired with the request (Unit 64):** review, approval and rejection are GHL pipeline stages.
 - **Sales reads their own pipelines and NO case at all** (D19c). `ScopePredicate`'s PIPELINE arm
   returning `cb.disjunction()` over `evalos_case` is **correct**, not a bug to fix. **Chat is the one
   exception** (Unit 57): Sales takes part in the Client and Internal conversations of their pipeline's
@@ -236,7 +221,7 @@ stay in GHL; EvalOS messaging is the case chat (Unit 57) only. Closes Q10; drops
 expert database; found → set-password mail, account bound to that `expert.id`; not found → a mail
 whose text the business will give (Q6b; sends nothing until then), same screen answer either way.
 **Q13 → D51:** the draft PDF is viewed first (inline, staff-uploaded DRAFT PDFs only) with both
-downloads beside it. **Q11 → D54:** a GM/Sales screen of DRAFT requests older than 48h, no sweep.
+downloads beside it. **Q11 → D54** (a DRAFT-requests screen) — **retired by Unit 64**, there are no requests.
 **D53:** no outbound webhooks, no Handoff C (invariant 11 struck).
 
 **D23 built (Unit 59):** one expert account per roster row, brand from `evalos.portal.expert-brand`; two panels = two accounts. No staff-minted links.
@@ -248,4 +233,4 @@ downloads beside it. **Q11 → D54:** a GM/Sales screen of DRAFT requests older 
 not overwrite an opportunity with a change pending in the sync queue; otherwise upsert as today.
 **D57 (§12 b):** Sales reach the client in the Client conversation (already members). **D58 (§12 c):**
 four client emails — checklist+link (sent on every checklist send, D60), draft ready, sign in to review, delivered. **D60:** the PC or CM adds documents to a case checklist; items are unsent (hidden from the portal) until one of them presses Send, which publishes all unsent items; later additions wait for the next Send; both see who sent and when; an expert's evidence-request item is unsent too (Q15); the CM also sets item status (Q16). **D59:** expert
-payments are managed manually by the ENM; the expert portal shows what was recorded (spec 62), and **since Unit 63 a payout is Pending → Processing → Paid: the ENM's recorded transfer is Processing until the expert confirms receipt in the portal** (staff confirm removed; no approval or failed state). **D61 (Unit 63):** the ENM runs the expert lifecycle in EvalOS; the hiring pipeline is a GHL pipeline a GM tags `EXPERT_HIRING`, which every ENM of its brand works through the Sales desk machinery (derived claim, no assignment row); a won hiring opportunity never opens a case; Onboarded → pre-filled expert create form; credential verification and a derived per-expert case history. **D62:** a declined / timed-out case may be offered again to the same expert while it awaits a rematch and they are available (GM / PM / ENM / CM).
+payments are managed manually by the ENM; the expert portal shows what was recorded (spec 62), and **since Unit 63 a payout is Pending → Processing → Paid: the ENM's recorded transfer is Processing until the expert confirms receipt in the portal** (staff confirm removed; no approval or failed state); the ENM pays weekly and reports weekly / monthly / yearly by due date with totals and row CSV exports. **D61 (Unit 63):** the ENM runs the expert lifecycle in EvalOS; the hiring pipeline is a GHL pipeline a GM tags `EXPERT_HIRING`, which every ENM of its brand works through the Sales desk machinery (derived claim, no assignment row); a won hiring opportunity never opens a case; Onboarded → pre-filled expert create form; credential verification and a derived per-expert case history. **D62:** a declined / timed-out case may be offered again to the same expert while it awaits a rematch and they are available (GM / PM / ENM / CM).

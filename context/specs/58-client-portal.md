@@ -146,7 +146,7 @@ reassignments, holds) appears.
   **Download Word**; the comment thread with an optional "page N"; **Approve** and **Request
   changes**, each with an inline confirmation) · *Delivered* (signed letter and approved draft, once
   delivered) · *History* (the milestone timeline).
-- **Right:** the case's Client conversation (Unit 57), live; a **Messages** tab on phones.
+- **Right:** the document checklist (label and status per item), with the draft under it. The case's Client conversation is not on this page since 2026-09-30 — it lives in **Conversations** (`?c=` opens one).
 - A browser that cannot show the PDF inline still offers both downloads.
 
 **Chat** is built as `packages/evalos-chat` (Unit 57 §7) — in this unit only the pieces the portal

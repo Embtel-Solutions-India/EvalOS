@@ -27,9 +27,8 @@ export function Surface({ children }: { children: ReactNode }) {
  * A {@link Surface} with a heading and an icon.
  *
  * **It lives here, and each panel's own component renders it, because a panel has to be able to
- * render nothing at all.** `DealApplication` and `DealDocuments` return null for a deal that did
- * not come through the portal — which is most of the board — and when the page owned the wrapper
- * instead, that null left a titled empty box behind. A heading with nothing under it is worse than
+ * render nothing at all.** A panel with nothing to show returns null, and when the page owned the
+ * wrapper instead, that null left a titled empty box behind. A heading with nothing under it is worse than
  * either outcome it was meant to distinguish: it reads as a panel that failed to load.
  */
 export function Panel({

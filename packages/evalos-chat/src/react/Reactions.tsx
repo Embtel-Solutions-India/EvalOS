@@ -1,14 +1,16 @@
-import { useState } from 'react'
 import { reactedByMe } from '../core/reducer'
 import { REACTIONS, type Message, type Reaction } from '../core/types'
 import { useChat, useChatClient } from './ChatProvider'
 
-/** The six reactions: counts for any given, a picker when the caller may react. */
-export function Reactions({ message, disabled }: { message: Message; disabled: boolean }) {
+/**
+ * The six reactions: a chip per reaction given (click to toggle yours), and the picker while
+ * `picking` — opened from the message's "⋮".
+ */
+export function Reactions({ message, disabled, picking = false, onPicked }: { message: Message; disabled: boolean; picking?: boolean; onPicked?: () => void }) {
   const client = useChatClient()
   const me = useChat((s) => s.me)
-  const [picking, setPicking] = useState(false)
   const given = (Object.keys(REACTIONS) as Reaction[]).filter((r) => (message.reactions[r]?.length ?? 0) > 0)
+  if (given.length === 0 && !(picking && !disabled)) return null
 
   return (
     <div className="ec-reactions">
@@ -24,25 +26,26 @@ export function Reactions({ message, disabled }: { message: Message; disabled: b
           {REACTIONS[r]} {message.reactions[r]!.length}
         </button>
       ))}
-      {!disabled && (
-        <button type="button" className="ec-reaction ec-reaction--add" aria-label="Add a reaction" onClick={() => setPicking(!picking)}>
-          +
-        </button>
-      )}
-      {picking &&
-        (Object.keys(REACTIONS) as Reaction[]).map((r) => (
-          <button
-            key={`pick-${r}`}
-            type="button"
-            className="ec-reaction"
-            onClick={() => {
-              setPicking(false)
-              void client.toggleReaction(message, r)
-            }}
-          >
-            {REACTIONS[r]}
+      {picking && !disabled && (
+        <span className="ec-picker" role="group" aria-label="Pick a reaction">
+          {(Object.keys(REACTIONS) as Reaction[]).map((r) => (
+            <button
+              key={`pick-${r}`}
+              type="button"
+              className="ec-reaction"
+              onClick={() => {
+                onPicked?.()
+                void client.toggleReaction(message, r)
+              }}
+            >
+              {REACTIONS[r]}
+            </button>
+          ))}
+          <button type="button" className="ec-link" onClick={onPicked}>
+            Close
           </button>
-        ))}
+        </span>
+      )}
     </div>
   )
 }

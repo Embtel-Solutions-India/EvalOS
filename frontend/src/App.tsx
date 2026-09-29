@@ -25,7 +25,6 @@ import AppShell from './features/shell/AppShell'
 import PlaceholderPage from './features/shell/PlaceholderPage'
 import CaseDetailPage from './features/case/CaseDetail'
 import ConversationsPage from './features/chat/ConversationsPage'
-import AbandonedRequestsPage from './features/requests/AbandonedRequestsPage'
 import {
   CASE_DETAIL_PATH,
   CONVERSATION_PATH,
@@ -85,7 +84,6 @@ const SCREENS: Record<string, React.ReactNode> = {
   '/hiring/new': <NewLeadPage />,
   '/meetings/new': <NewMeetingPage />,
   '/conversations': <ConversationsPage />,
-  '/requests/abandoned': <AbandonedRequestsPage />,
 }
 
 /**

@@ -180,14 +180,14 @@ class PipelineMirrorServiceTest {
 	 */
 	@Test
 	void aRoutineSyncLeavesTheGmsPurposeAlone() {
-		Pipeline intake = held("p-1", "Client Intake");
-		intake.setPurpose(PipelinePurpose.INTAKE);
+		Pipeline sales = held("p-1", "Sales Desk");
+		sales.setPurpose(PipelinePurpose.SALES);
 
-		given(ghl.pipelines()).willReturn(List.of(fromGhl("p-1", "Client Intake renamed")));
+		given(ghl.pipelines()).willReturn(List.of(fromGhl("p-1", "Sales Desk renamed")));
 		mirror.sync();
 
-		assertThat(intake.getPurpose()).isEqualTo(PipelinePurpose.INTAKE);
-		assertThat(intake.getName()).isEqualTo("Client Intake renamed");
+		assertThat(sales.getPurpose()).isEqualTo(PipelinePurpose.SALES);
+		assertThat(sales.getName()).isEqualTo("Sales Desk renamed");
 	}
 
 	/**

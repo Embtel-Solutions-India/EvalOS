@@ -1,5 +1,5 @@
 import { type FormEvent, type ReactNode, useState } from 'react'
-import { Link, useLocation, useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { Button } from '@shared/components/ui/button'
 import { Card } from '@shared/components/ui/card'
 import { FormField } from '@shared/components/common/FormField'
@@ -35,12 +35,9 @@ import {
  *
  * <h2>The UX pass of 2026-09-17: four defects, not four opinions</h2>
  *
- * **1. There was no way to register from this screen.** "Create an account" appeared only once
- * the server had answered `UNKNOWN` — so a client who had never registered had to type an
- * address, submit it, and be told we had never heard of them BEFORE being shown the thing they
- * came for. Discovering the front door by failing at the back one is not a flow. It is a
- * permanent line under the form now, which is where thirty years of auth screens have trained
- * people to look.
+ * **1. There is no register link, since Unit 64 (2026-09-29).** An account is opened when the
+ * client's case starts, so `UNKNOWN` says exactly that — and where to write — instead of offering
+ * a sign-up that no longer exists.
  *
  * **2. `NO_PASSWORD` and `MAIL_UNAVAILABLE` rendered a sentence and no control.** The submit
  * button renders only for `null` and `PASSWORD_SET`, so both states left a filled-in form with
@@ -48,16 +45,14 @@ import {
  *
  * **3. "Please contact us" named no way to contact us.** See {@link SUPPORT_EMAIL}.
  *
- * **4. This was the only auth screen with no {@link Logo}.** `Welcome` and `SignUp` both carry
- * one, so the most-visited of the three was the one that looked like it belonged to nobody.
+ * **4. This was the only auth screen with no {@link Logo}.** `Welcome` carries one, so the
+ * most-visited screen was the one that looked like it belonged to nobody.
  */
 export default function SignIn() {
   const navigate = useNavigate()
 
-  // `SignUp` forwards the address somebody has already typed — on `PASSWORD_SET` ("you already
-  // have an account"), and on the two links back. The round trip between these two screens is
-  // the most common thing a confused client does, and making them retype it each way is the
-  // small insult at the end of being sent somewhere else.
+  // An address another screen already has (a link back to sign-in) arrives here rather than
+  // being typed twice.
   const routed = useLocation().state as { email?: string; from?: string } | null
   const forwarded = routed?.email ?? ''
   // Where PortalLayout bounced them from (e.g. a push notification's case page); in-app paths only.
@@ -197,23 +192,20 @@ export default function SignIn() {
     UNKNOWN: (
       <div className="space-y-3 rounded-md bg-muted/50 p-3">
         <p className="text-sm text-foreground">
-          We couldn&rsquo;t find <span className="font-medium">{email.trim()}</span> in our system.
-          Check it for typos, or create an account with it.
+          We couldn&rsquo;t find <span className="font-medium">{email.trim()}</span>. Check it for
+          typos. Your portal account opens when our team starts your first case — look for the email
+          we sent you, or write to{' '}
+          <a className="font-medium text-primary underline-offset-4 hover:underline" href={`mailto:${SUPPORT_EMAIL}`}>
+            {SUPPORT_EMAIL}
+          </a>
+          .
         </p>
-        <Button
-          type="button"
-          variant="outline"
-          className="w-full"
-          onClick={() => navigate('/signup', { state: { email: email.trim() } })}
-        >
-          Create an account
-        </Button>
       </div>
     ),
   }
 
   return (
-    <div className="flex min-h-dvh flex-col items-center justify-center gap-8 px-4 py-12">
+    <div className="flex flex-1 flex-col items-center justify-center gap-8 px-4 py-8">
       <Logo size="lg" showTagline />
 
       <Card className="w-full max-w-sm space-y-5 p-6">
@@ -280,24 +272,6 @@ export default function SignIn() {
           )}
         </form>
 
-        {/*
-          **Permanent, not conditional, and that is the whole fix.** This lived inside the
-          `UNKNOWN` branch, so the only way to learn you could register was to submit an address
-          and be told we had never heard of you. Hidden on `UNKNOWN` alone, because that state
-          already renders the same offer as a button two lines up.
-        */}
-        {state !== 'UNKNOWN' && (
-          <p className="border-t border-border pt-4 text-center text-sm text-muted-foreground">
-            New here?{' '}
-            <Link
-              to="/signup"
-              state={{ email: email.trim() }}
-              className="font-medium text-primary underline-offset-4 hover:underline"
-            >
-              Create an account
-            </Link>
-          </p>
-        )}
       </Card>
     </div>
   )

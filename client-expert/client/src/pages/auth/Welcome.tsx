@@ -1,4 +1,4 @@
-import { LogIn, UserPlus } from 'lucide-react'
+import { LogIn } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { Card } from '@shared/components/ui/card'
 import { Logo } from '@shared/components/common/Logo'
@@ -21,32 +21,16 @@ import { Logo } from '@shared/components/common/Logo'
  * label said it was not for them. Sign-in is the door for everyone who exists: `identify` sorts
  * out which of them has a password and mails a link to whoever does not.
  *
- * **The two doors are sign up and sign in**, which is what the client flow asks for. The first
- * pointed at `/start` — a placeholder saying we could not take a new client — until 2026-09-15,
- * because nothing created a `client_account` at runtime. It creates one now, along with the GHL
- * contact. **Requesting an evaluation is a separate step** reached from the dashboard, and is
- * Unit 43; this card must not promise it.
+ * **One door since Unit 64 (2026-09-29): sign in.** There is no sign-up and no request: a
+ * client's account is opened when their case starts, and the set-password email is how they first
+ * arrive. The note under the card says so, for the client who finds the portal before that email.
  */
 export default function Welcome() {
   return (
-    <div className="flex min-h-dvh flex-col items-center justify-center gap-8 px-4 py-12">
+    <div className="flex flex-1 flex-col items-center justify-center gap-8 px-4 py-8">
       <Logo size="lg" showTagline />
 
       <div className="w-full max-w-md space-y-4">
-        <Link to="/signup" className="block">
-          <Card className="p-5 transition-colors hover:bg-accent">
-            <div className="flex items-center gap-4">
-              <UserPlus className="h-6 w-6 shrink-0 text-primary" aria-hidden="true" />
-              <div>
-                <p className="text-sm font-semibold text-foreground">Create an account</p>
-                <p className="text-sm text-muted-foreground">
-                  New here? Set up an account and request your evaluation from inside.
-                </p>
-              </div>
-            </div>
-          </Card>
-        </Link>
-
         <Link to="/signin" className="block">
           <Card className="p-5 transition-colors hover:bg-accent">
             <div className="flex items-center gap-4">
@@ -54,13 +38,18 @@ export default function Welcome() {
               <div>
                 <p className="text-sm font-semibold text-foreground">Sign in</p>
                 <p className="text-sm text-muted-foreground">
-                  Already have an account? Sign in — or we&rsquo;ll email you a link if you
+                  Sign in to follow your case — or we&rsquo;ll email you a link if you
                   haven&rsquo;t set a password yet.
                 </p>
               </div>
             </div>
           </Card>
         </Link>
+
+        <p className="text-center text-sm text-muted-foreground">
+          New to International Evaluations? Your portal account opens when our team starts your
+          case — we&rsquo;ll email you a link to set your password.
+        </p>
 
         {/*
           **The "opened a link we sent you?" note is deleted, reversing a rule this file used to

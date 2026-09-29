@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { linkify, rowsWithDays } from './text'
+import { caseTitle, initials, linkify, rowsWithDays, serviceLabel } from './text'
 import type { Message } from './types'
 
 describe('linkify', () => {
@@ -43,5 +43,21 @@ describe('rowsWithDays', () => {
     expect(rows.map((r) => (r.kind === 'day' ? `day:${r.key}` : r.message.id))).toEqual([
       'day:2026-09-26', 'a', 'b', 'day:2026-09-27', 'c',
     ])
+  })
+})
+
+describe('labels', () => {
+  it('initialsTakeTheFirstAndLastWord', () => {
+    expect(initials('Dr Miriam Osei')).toBe('DO')
+    expect(initials('priya')).toBe('P')
+    expect(initials('  ')).toBe('?')
+    expect(initials(null)).toBe('?')
+  })
+
+  it('aCaseReadsAsItsClientThenItsCode', () => {
+    expect(caseTitle({ clientName: 'Ana Ruiz', caseCode: 'IE-1' })).toBe('Ana Ruiz (IE-1)')
+    expect(caseTitle({ clientName: null, caseCode: 'IE-1' })).toBe('IE-1')
+    expect(serviceLabel('EXPERT_OPINION_LETTER')).toBe('Expert opinion letter')
+    expect(serviceLabel(null)).toBeNull()
   })
 })

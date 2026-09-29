@@ -10,7 +10,7 @@ Unresolved as of 2026-09-17:
 
 **Resolved 2026-09-29:** ~~1~~ → D56, ~~9~~ → D55, ~~§12 b~~ → D57, ~~§12 c~~ → D58, expert payments → D59.
 
-**Resolved 2026-09-28:** ~~6b. unknown-email mail~~ → none (experts sign up only once hired). ~~6. expert sign-up~~ → D23; ~~11. abandoned requests~~ → D54; ~~13. inline PDF~~ → D51 (view first); outbound webhooks → D53 (dropped). ~~8. several cases~~ → Unit 58 phase 3, Home lists every case (D51). ~~10. conversation sidebar~~ → **D52**: none; GHL conversations stay in GHL.
+**Resolved 2026-09-28:** ~~6b. unknown-email mail~~ → none (experts sign up only once hired). ~~6. expert sign-up~~ → D23; ~~11. abandoned requests~~ → D54 (retired by Unit 64); ~~13. inline PDF~~ → D51 (view first); outbound webhooks → D53 (dropped). ~~8. several cases~~ → Unit 58 phase 3, Home lists every case (D51). ~~10. conversation sidebar~~ → **D52**: none; GHL conversations stay in GHL.
 
 **Resolved 2026-09-26:** ~~h does the client see who works their case~~ → Unit 57: the case team by name in
 the Client conversation; the client never shares a conversation with the expert.
@@ -32,3 +32,5 @@ the Client conversation; the client never shares a conversation with the expert.
 Plus eight carried forward from `context/specs/00d-platform-audit-and-alignment.md` section 12.
 
 **If a requirement is ambiguous, add it here — never invent behaviour.**
+
+**Closed 2026-09-29:** carried-forward **i2** (GHL leads and the application table) — Unit 64 removes the table.

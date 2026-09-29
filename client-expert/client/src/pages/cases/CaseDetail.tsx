@@ -1,8 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { Check } from 'lucide-react'
-import { useState, type ReactNode } from 'react'
+import type { ReactNode } from 'react'
 import { useParams } from 'react-router-dom'
-import { CaseChatPanel } from '@evalos/chat'
 import { Card } from '@shared/components/ui/card'
 import { ErrorState } from '@shared/components/common/ErrorState'
 import { ListSkeleton } from '@shared/components/common/LoadingState'
@@ -12,20 +11,20 @@ import { statusOf } from '@shared/services/apiClient'
 import { cn } from '@shared/utils/cn'
 import { formatDateShort } from '@shared/utils/formatters'
 import { CaseDelivered } from '@/components/case/CaseDelivered'
-import { CaseDocuments } from '@/components/case/CaseDocuments'
+import { CaseChecklist, CaseDocuments } from '@/components/case/CaseDocuments'
 import { CaseDraft } from '@/components/case/CaseDraft'
 import { readCase } from '@/services/caseService'
 
 /**
- * One case, everything about it (Unit 58 §4): documents, draft, delivered files and history on the
- * left, the case's Client conversation on the right — a **Messages** tab on phones.
+ * One case, everything about it (Unit 58 §4): uploads, delivered files and history on the left; the
+ * document checklist with the draft under it on the right. The case's conversation is not on this
+ * page — it lives in Conversations (2026-09-30).
  *
  * **Every step, label and flag is the server's.** `stepIndex` places the stepper, `milestones` are
  * already in client words, and which draft version is answerable is `inReview`.
  */
 export default function CaseDetail() {
   const { caseId = '' } = useParams<{ caseId: string }>()
-  const [tab, setTab] = useState<'case' | 'messages'>('case')
 
   const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['portal', 'case', caseId],
@@ -44,38 +43,15 @@ export default function CaseDetail() {
   }
   if (!data) return null
 
-  const showDocuments = () => {
-    setTab('case')
-    requestAnimationFrame(() => document.getElementById('documents')?.scrollIntoView({ behavior: 'smooth' }))
-  }
-
   return (
     <div className="mx-auto max-w-6xl space-y-6">
       <PageHeader title={`Case #${data.caseReference}`} description={serviceLabel(data.serviceType)} />
       <Stepper index={data.stepIndex} />
 
-      <div className="flex gap-2 lg:hidden" role="tablist">
-        {(['case', 'messages'] as const).map((t) => (
-          <button
-            key={t}
-            type="button"
-            role="tab"
-            aria-selected={tab === t}
-            onClick={() => setTab(t)}
-            className={cn('flex-1 rounded border px-3 py-2 text-sm', tab === t ? 'border-primary bg-accent' : 'border-border')}
-          >
-            {t === 'case' ? 'Case' : 'Messages'}
-          </button>
-        ))}
-      </div>
-
-      <div className="grid gap-6 lg:grid-cols-[1fr_24rem]">
-        <div className={cn('space-y-6', tab !== 'case' && 'hidden lg:block')}>
+      <div className="grid items-start gap-6 lg:grid-cols-[1fr_24rem]">
+        <div className="space-y-6">
           <Section id="documents" title="Documents">
             <CaseDocuments caseId={caseId} />
-          </Section>
-          <Section title="Draft">
-            <CaseDraft caseId={caseId} legacyLink={data.draftLink} />
           </Section>
           {data.stepIndex === DELIVERED_STEP && (
             <Section title="Delivered">
@@ -87,9 +63,14 @@ export default function CaseDetail() {
           </Section>
         </div>
 
-        <Card className={cn('flex h-[70vh] flex-col p-4 lg:sticky lg:top-20', tab !== 'messages' && 'hidden lg:flex')}>
-          <CaseChatPanel caseId={caseId} onUploadDocument={showDocuments} />
-        </Card>
+        <div className="order-first space-y-6 lg:order-none">
+          <Section title="Document checklist">
+            <CaseChecklist caseId={caseId} />
+          </Section>
+          <Section title="Draft">
+            <CaseDraft caseId={caseId} legacyLink={data.draftLink} />
+          </Section>
+        </div>
       </div>
     </div>
   )
