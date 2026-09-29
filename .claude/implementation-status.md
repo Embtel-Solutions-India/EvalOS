@@ -21,6 +21,9 @@ request status, portal deployment) and now say so.
    `EXPERT_HIRING` on the pipelines screen; make sure no GHL workflow fires Handoff A for it. The ENM
    then signs in again (the claim is read at sign-in) and sees `/hiring`.
 0. ~~**Unit 64 — remove client requests.**~~ **Built 2026-09-29** (spec `64`): see the Client portal account, Client request, Service request and Abandoned requests rows. Restart the backend to apply `V78`.
+7. **Unit 65 — case fee on the offer + Payouts module (D59 edited 2026-09-30).** Specced
+   (`context/specs/65-case-fee-and-payouts-module.md`), **not built**: the docs run ahead of the
+   code on purpose. Until it lands the Payments row below is still the truth.
 6. **Verify for real:** set `ABLY_API_KEY`, the `EVALOS_PUSH_*` keys, SMTP and S3, then click
    through client + expert sign-in and chat against the staff app.
 

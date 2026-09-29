@@ -428,6 +428,14 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
   *Paid*). **Staff no longer confirm** — that route is removed. The portal's one write is that
   confirmation; nothing there pays, requests or disputes a payout. The ENM pays weekly (the batch) and
   reports weekly, monthly or yearly by due date, with two exports: totals and every row (CSV). No approval step and no failed state (the business chose three).
+  **Edited 2026-09-30 (Unit 65, spec `65-case-fee-and-payouts-module.md` — specced, not built):**
+  **every offer carries the amount the case pays** (required, pre-filled with the standard fee, set
+  by GM / PM / PC / ENM; a CM offers at the standard fee only), **editable only while the offer is
+  open**, **shown to the expert before they accept**, and frozen at acceptance. Delivery opens the
+  payout at that amount; the pending-payout amount correction is **removed**. **No adjustments** —
+  no bonus, deduction, advance or change after acceptance: per case it is offered amount, status,
+  done or not. Every set, edit and outcome is in `audit_event`. Payouts becomes its own staff module
+  (Overview, Cases register, Experts, Pay run).
 - **D61.** **The ENM runs the expert lifecycle in EvalOS, and the hiring pipeline is a GHL
   pipeline** (2026-09-29, the business; Unit 63, spec `63-enm-workspace.md`). This reverses the two
   written refusals `00d` §7 names and replaces `00d` Phase 5's `expert_application` design. A GM

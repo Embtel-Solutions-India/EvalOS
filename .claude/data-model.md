@@ -165,6 +165,10 @@ must not become one** (D48). **Custom field values are not columns** (D49).
 
 ### From other approved-but-unbuilt work
 
+- **Unit 65 (D59 edited 2026-09-30, spec `65`):** `V79__offer_fee.sql` — `expert_case_offer.fee
+  numeric(12,2) CHECK (fee >= 0)` + `fee_currency`, nullable (closed historical offers stay null),
+  open offers backfilled from `expert.standard_fee`. The service requires it on every new offer;
+  delivery opens `payout_ledger.amount` from the accepted offer's fee. No new table.
 
 - ~~`expert_application` plus recruitment stages — Unit 50~~ — **replaced by D61 (Unit 63)**: hiring candidates are GHL opportunities on an `EXPERT_HIRING` pipeline, mirrored like every other; no candidate table.
 - Expert accounts on the Unit 42 pattern — no table exists, **and none is designed until the

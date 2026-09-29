@@ -383,6 +383,18 @@ Reports: /payouts Summary, weekly / monthly / yearly by due date, Pending / Proc
 
 ### TARGET WORKFLOW
 
-The same. Not built by choice: booking or follow-ups from a hiring deal, an outreach log, a payout
-approval step or failed state, disputes.
+Unit 65 (D59 edited 2026-09-30, spec `65`, **not built**) changes the payout half:
+
+```
+PM / PC / ENM / GM offers the case with an amount (pre-filled standard fee; CM: standard fee only)
+  → editable while the offer is open (audited, before → after)
+  → expert sees "Fee for this case" and accepts it (a stale fee → 409) → amount frozen
+Delivered → payout PENDING at the accepted amount (no correction) → Processing → Paid as today
+Staff Payouts module: Overview (Committed / Pending / Processing / Paid + needs attention)
+  · Cases register (amount, status, done, per-offer log) · Experts (totals) · Pay run (the batch)
+```
+
+Not built by choice: booking or follow-ups from a hiring deal, an outreach log, a payout
+approval step or failed state, disputes, any payout adjustment (bonus, deduction, advance), a change
+to the amount after acceptance.
 
