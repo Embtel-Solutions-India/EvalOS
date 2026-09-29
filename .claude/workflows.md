@@ -373,28 +373,21 @@ Directory: credentials verified (stamp + audit) · fee · availability · worklo
   · case history (offered / accepted / submitted / delivered / rejected / reassigned)
 Rejected (declined / timed out) while EXPERT_DECLINED_REMATCHING + expert AVAILABLE
   → "Offer again" (GM / PM / ENM / CM) → same rematch transition → CLIENT_APPROVAL → CM sends again
-Delivered → payout PENDING (fee) → PAYOUT_DUE to ENMs
+PM / PC / ENM / GM offers the case with a fee (blank = standard fee; retake keeps the declined fee;
+  CM: standard fee only) → editable while the offer is open (audited, before → after)
+  → the expert sees "Fee for this case" and accepts it (a changed or missing fee → 409) → final
+Delivered → payout PENDING at the accepted fee (a missing amount can be set once) → PAYOUT_DUE to ENMs
   → ENM records the transfer → PAID, shown "Processing"
   → expert presses "Confirm received" in the portal → CONFIRMED, shown "Paid" → PAYOUT_CONFIRMED to the recorder
-ENM pays weekly from the /payouts batch (one week's due payouts, one transfer per expert)
-Reports: /payouts Summary, weekly / monthly / yearly by due date, Pending / Processing / Paid;
-  Export totals (CSV) and Export rows (GET /api/payouts/export, every row with its period)
+ENM pays weekly from Pay run (/payouts/pay: one week's due payouts, one transfer per expert)
+Payouts module: Overview (/payouts: Committed / Pending / Processing / Paid per currency on the
+  shell's period and brand, needs attention, the weekly / monthly / yearly Summary and its two CSVs)
+  · Cases (/payouts/cases: fee, status, done, per-offer log, CSV) · Experts (/payouts/experts)
 ```
 
 ### TARGET WORKFLOW
 
-Unit 65 (D59 edited 2026-09-30, spec `65`, **not built**) changes the payout half:
-
-```
-PM / PC / ENM / GM offers the case with an amount (pre-filled standard fee; CM: standard fee only)
-  → editable while the offer is open (audited, before → after)
-  → expert sees "Fee for this case" and accepts it (a stale fee → 409) → amount frozen
-Delivered → payout PENDING at the accepted amount (no correction; a missing amount can be set once) → Processing → Paid as today
-Staff Payouts module: Overview (Committed / Pending / Processing / Paid + needs attention)
-  · Cases register (amount, status, done, per-offer log) · Experts (totals) · Pay run (the batch)
-```
-
-Not built by choice: booking or follow-ups from a hiring deal, an outreach log, a payout
+The same. Not built by choice: booking or follow-ups from a hiring deal, an outreach log, a payout
 approval step or failed state, disputes, any payout adjustment (bonus, deduction, advance), a change
 to the amount after acceptance.
 

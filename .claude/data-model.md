@@ -34,7 +34,7 @@ live in `backend/src/main/resources/db/migration/`.
 | `draft_comments` | **one comment on one draft version** (`V70`, Unit 58): `document_id` → `case_document`, `author_kind` STAFF/CLIENT, `author_id` (team member, or the client's portal credential), body 1–2,000, `page` ≥ 1 or null. **A trigger refuses UPDATE and DELETE** | yes |
 | `document_checklist_item` | what the client still owes, per case; **`sent_at`/`sent_by`** (`V75`, Unit 61): null = unsent, not in the portal; `sent_by` null on a sent row = sent before D60 | yes |
 | `expert` | expert roster, 50 columns incl. taxonomy arrays and encrypted `payment_detail`; **`credentials_verified_at`** (`V76`, Unit 63): when the ENM checked the credentials, null = not yet (who is on the `CREDENTIALS_VERIFIED` audit row) | yes |
-| `expert_case_offer` | offer to ACCEPTED / DECLINED / TIMED_OUT / SUPERSEDED | yes |
+| `expert_case_offer` | offer to ACCEPTED / DECLINED / TIMED_OUT / SUPERSEDED; **`fee` / `fee_set_by` / `fee_set_at`** (`V79`, Unit 65): what the case pays the expert, editable only while `OFFERED`, nullable only for offers closed before V79 (open and accepted ones were backfilled from the payout, else `expert.standard_fee`; `V914` / `V953` do the same for the seed trees). Delivery opens `payout_ledger.amount` from the accepted offer's fee | yes |
 | `payout_ledger` | one row per case, links to a payment | yes |
 | `payout_payment` | one transfer | yes |
 | `portal_access` | opaque tokens for CLIENT / EXPERT, case- or party-scoped | yes |
@@ -164,11 +164,6 @@ three are named consistently rather than one being the odd one out. **Free slots
 must not become one** (D48). **Custom field values are not columns** (D49).
 
 ### From other approved-but-unbuilt work
-
-- **Unit 65 (D59 edited 2026-09-30, spec `65`):** `V79__offer_fee.sql` — `expert_case_offer.fee
-  numeric(12,2) CHECK (fee >= 0)` + `fee_set_by` / `fee_set_at`, nullable (closed historical offers
-  stay null), open and accepted offers backfilled (from the payout, else `expert.standard_fee`). The service requires it on every new offer;
-  delivery opens `payout_ledger.amount` from the accepted offer's fee. No new table.
 
 - ~~`expert_application` plus recruitment stages — Unit 50~~ — **replaced by D61 (Unit 63)**: hiring candidates are GHL opportunities on an `EXPERT_HIRING` pipeline, mirrored like every other; no candidate table.
 - Expert accounts on the Unit 42 pattern — no table exists, **and none is designed until the

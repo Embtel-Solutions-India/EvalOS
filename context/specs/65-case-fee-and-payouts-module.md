@@ -1,6 +1,6 @@
 # Unit 65 — The case fee on the offer, and Payouts as its own module
 
-**Decided 2026-09-30 by the business.** **Status: SPECCED 2026-09-30, not built** (branch
+**Decided 2026-09-30 by the business.** **Status: BUILT 2026-09-30** (branch
 `feature/unit-65-case-fee-payouts`).
 
 Edits decision **D59** (expert payments). Builds on **`62-expert-payouts-view.md`** and the payout
@@ -102,7 +102,7 @@ UPDATE expert_case_offer o
 | Register CSV | `GET /api/payouts/cases/export` (same params) | GM, BM, ENM | through the existing `csvField` (quoted, formula-safe) |
 | One offer's log | `GET /api/payouts/cases/{offerId}/history` | GM, BM, ENM | `audit_event` rows for the offer, its payout and its payment, oldest first |
 | Per-expert totals | `GET /api/payouts/experts` | GM, BM, ENM | committed / pending / processing / paid + oldest pending due date, per expert and currency |
-| Overview | `GET /api/payouts/overview?from&to` | GM, BM, ENM | the four tiles + the attention list (§4.1) |
+| Overview | `GET /api/payouts/overview?range&from&to&brandId` | GM, BM, ENM | the four tiles + the attention list (§4.1); `range` is the shell's `DateWindow` (a named period, or `custom` with `from` / `to`) |
 | Current offer on a case | `GET /api/cases/{id}/expert/offer` → `{offerId, fee, currency, outcome, feeSetByName, feeSetAt, log}` | every production role (scoped case load) | for the case page's expert card |
 | Expert accepts | `POST /api/portal/expert/accept` gains query param `fee` (beside `caseId`) | expert token | must equal the open offer's current fee, else **409** *"The fee for this case changed — review it."* |
 | Expert case read | `ExpertCaseSummary` and `ExpertCaseView` gain `offeredFee`, `currency` | expert token | the open or accepted offer's amount |
@@ -117,7 +117,7 @@ offer's outcome until a payout exists, then the payout's status mapped through t
 `PENDING / PAID→Processing / CONFIRMED→Paid` labels. `VOIDED` payouts are ignored, as
 `uq_payout_per_case` already does.
 
-**Every query is brand-scoped** through `findScoped` / `ScopedRepository`; the register and totals
+**Every query is brand-scoped** through `findScoped` / `ScopedRepository`, and every read takes the shell's optional `brandId`, which narrows within that scope; the register and totals
 are one query each (offers full-joined to the non-voided payout by case and expert), not per-row lookups.
 
 ## 4. Staff screens — the Payouts module
@@ -126,7 +126,7 @@ The single `/payouts` nav entry becomes a **Payouts** group in `navigation.ts` (
 
 ### 4.1 Overview — `/payouts`
 
-*Where does the money stand?* A range menu (this week / month / year / custom). Four tiles, each a
+*Where does the money stand?* On the shell's own period and brand filters (no second range menu). Four tiles, each a
 count and an amount: **Committed** (accepted, not delivered), **Pending**, **Processing**, **Paid**.
 A **Needs attention** list: pending past its due date; processing with no confirmation after
 **7 days** (a constant, `CONFIRM_NUDGE_DAYS`). Below, the existing `PayoutSummary` and both exports
