@@ -81,8 +81,8 @@ services:
 
   frontend:
     build:
-      context: ./frontend
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: frontend/Dockerfile
 
     container_name: evalos-frontend
     restart: unless-stopped

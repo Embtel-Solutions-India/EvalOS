@@ -2,23 +2,26 @@ FROM node:20-alpine AS build
 
 WORKDIR /app
 
-COPY package*.json ./
+COPY frontend/package*.json ./
 
 RUN npm install
 
-COPY . .
+COPY frontend/ ./frontend/
+COPY packages/ ./packages/
+
+WORKDIR /app/frontend
 
 RUN npm run build
 
 
 FROM nginx:alpine
 
-COPY --from=build /app/dist /usr/share/nginx/html
+COPY --from=build /app/frontend/dist /usr/share/nginx/html
 
-COPY nginx.conf /etc/nginx/conf.d/default.conf
+COPY frontend/nginx.conf /etc/nginx/conf.d/default.conf
 
-COPY ssl/origin-cert.pem /etc/nginx/ssl/origin-cert.pem
-COPY ssl/origin-key.pem /etc/nginx/ssl/origin-key.pem
+COPY frontend/ssl/origin-cert.pem /etc/nginx/ssl/origin-cert.pem
+COPY frontend/ssl/origin-key.pem /etc/nginx/ssl/origin-key.pem
 
 EXPOSE 80
 
