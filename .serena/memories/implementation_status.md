@@ -549,7 +549,9 @@ component tests (the portals have no Testing Library); never exercised against a
 **2026-09-28 — Unit 58 PHASE 3 (client portal UI) BUILT.** Case-first: Home (active, then delivered
 — `ClientCaseSummary.stepIndex`), `/cases/:caseId` (stepper; Documents, Draft with version tabs,
 PDF/Word downloads, per-version comments with page, approve / request changes behind an inline
-confirmation; Delivered once delivered; History; `CaseChatPanel`, a Messages tab on phones),
+confirmation; Delivered once delivered; History; `CaseChatPanel`, a Messages tab on phones —
+**removed 2026-09-30:** the right column is now a Document checklist with the Draft under it, and
+the chat lives only in Conversations, `?c=` opening one; toast and client push land there),
 `/conversations` (`ChatInbox` + `ConversationView`), Invoices paid-only; nav Home · Invoices ·
 Conversations (unread badge) · My requests; `ChatProvider` in `PortalLayout`. Removed: Documents,
 Meetings, DraftReview pages; backend `/case`, `/approve`, `/request-revisions`, case-less

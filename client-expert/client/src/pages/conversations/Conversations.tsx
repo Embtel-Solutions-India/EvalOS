@@ -1,5 +1,4 @@
-import { useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { ChatScreen } from '@evalos/chat'
 
 /**
@@ -8,7 +7,10 @@ import { ChatScreen } from '@evalos/chat'
  * case, where documents are uploaded.
  */
 export default function Conversations() {
-  const [open, setOpen] = useState<string | null>(null)
+  // The open conversation is `?c=`, so a push notification or the message toast can land on one.
+  const [params, setParams] = useSearchParams()
+  const open = params.get('c')
+  const setOpen = (id: string | null) => setParams(id ? { c: id } : {})
   const navigate = useNavigate()
 
   return (

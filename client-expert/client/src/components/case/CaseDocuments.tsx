@@ -81,6 +81,48 @@ export function CaseDocuments({ caseId }: { caseId: string }) {
   )
 }
 
+/**
+ * The same checklist at a glance, beside the uploads: label and status only, each a jump to its
+ * upload row. Shares the documents query, so it costs no second request.
+ */
+export function CaseChecklist({ caseId }: { caseId: string }) {
+  const { data, isLoading } = useQuery({
+    queryKey: ['portal', 'case', caseId, 'documents'],
+    queryFn: ({ signal }) => listDocuments(caseId, signal),
+    retry: false,
+  })
+
+  if (isLoading) return <ListSkeleton />
+  if (!data || data.checklist.length === 0) {
+    return <p className="text-sm text-muted-foreground">Nothing is waiting on you right now.</p>
+  }
+
+  return (
+    <ul className="divide-y">
+      {actionFirst(data.checklist).map((item) => {
+        const status = CHECKLIST_STATUS[item.status]
+        return (
+          <li key={item.id}>
+            <a
+              href={`#doc-${item.id}`}
+              onClick={(event) => {
+                event.preventDefault()
+                document.getElementById(`doc-${item.id}`)?.scrollIntoView({ behavior: 'smooth' })
+              }}
+              className="flex items-center justify-between gap-3 py-2.5 text-sm hover:text-primary"
+            >
+              <span className="min-w-0">{item.label}</span>
+              <Badge variant={status.variant} className="shrink-0">
+                {status.label}
+              </Badge>
+            </a>
+          </li>
+        )
+      })}
+    </ul>
+  )
+}
+
 function ChecklistRow({ caseId, item, onUploaded }: { caseId: string; item: ChecklistItem; onUploaded: () => void }) {
   const [progress, setProgress] = useState<number | null>(null)
   const [rejection, setRejection] = useState<string | undefined>()
@@ -106,7 +148,7 @@ function ChecklistRow({ caseId, item, onUploaded }: { caseId: string; item: Chec
   }
 
   return (
-    <Card className="p-4">
+    <Card id={`doc-${item.id}`} className="scroll-mt-20 p-4">
       <div className="mb-3 flex items-center justify-between gap-3">
         <p className="text-sm font-medium text-foreground">{item.label}</p>
         <Badge variant={status.variant}>{status.label}</Badge>

@@ -205,7 +205,7 @@ export default function SignIn() {
   }
 
   return (
-    <div className="flex min-h-dvh flex-col items-center justify-center gap-8 px-4 py-12">
+    <div className="flex flex-1 flex-col items-center justify-center gap-8 px-4 py-8">
       <Logo size="lg" showTagline />
 
       <Card className="w-full max-w-sm space-y-5 p-6">

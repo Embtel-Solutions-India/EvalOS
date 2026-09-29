@@ -111,7 +111,8 @@ public class ChatPushNotifier {
 		String url = switch (recipient.getKind()) {
 			// The conversation, not the case screen: Sales take part in chat but read no case (D19c).
 			case STAFF -> settings.staffOrigin() + "/conversations/" + conversationId;
-			case CLIENT -> settings.clientBase() + "/cases/" + conversation.getCaseId();
+			// The conversation: the client's case page carries no chat since 2026-09-30.
+			case CLIENT -> settings.clientBase() + "/conversations?c=" + conversationId;
 			// The case named, so a signed-in expert with several cases lands on the right one (Unit 59).
 			case EXPERT -> settings.expertBase() + "/case?caseId=" + conversation.getCaseId();
 		};

@@ -15,10 +15,10 @@ import { listCases } from '@/services/caseService'
 /**
  * Where the client lands: what needs them, then everything else (34d).
  *
- * **Real cases, and no greeting by name.** This screen used to open with "Good morning,
+ * **Real cases, and a greeting by time of day only.** This screen used to open with "Good morning,
  * {firstName}" from a mock account session over mock data. **There is an account now** — Unit 42
  * brought one back, and since Unit 64 it is opened when the client's case is — and `client_account` even holds
- * a first name. The greeting still does not come back: EvalOS does not hand the portal a client's
+ * a first name. The name still does not come back: EvalOS does not hand the portal a client's
  * name for decoration, and the objection that killed it was never only that the session was fake.
  * What the credential is has also changed: a scoped portal link *or* a token minted by signing in,
  * and this screen cannot tell which, by design.
@@ -49,6 +49,8 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-6">
+      <p className="text-2xl font-bold tracking-tight text-foreground sm:text-3xl">{greeting()}!</p>
+
       <PageHeader
         title="Your cases"
         description={
@@ -80,14 +82,13 @@ export default function Dashboard() {
       )}
 
       {byAction.length > 0 && (
-        <section className="space-y-2">
-          <h2 className="text-sm font-semibold text-foreground">Active cases</h2>
+        <section className="-mt-3 space-y-3">
           {byAction.map((item) => <CaseRow key={item.caseId} item={item} />)}
         </section>
       )}
 
       {delivered.length > 0 && (
-        <section className="space-y-2">
+        <section className="space-y-3">
           <h2 className="text-sm font-semibold text-foreground">Delivered cases</h2>
           {delivered.map((item) => <CaseRow key={item.caseId} item={item} />)}
         </section>
@@ -98,34 +99,41 @@ export default function Dashboard() {
   )
 }
 
+/** By the client's own clock — the greeting names nobody (see above). */
+function greeting(hour = new Date().getHours()): string {
+  if (hour < 12) return 'Good morning'
+  if (hour < 18) return 'Good afternoon'
+  return 'Good evening'
+}
+
 function CaseRow({ item }: { item: ClientCaseSummary }) {
   return (
     <Link to={`/cases/${item.caseId}`} className="block">
       <Card
-        className={`flex flex-wrap items-center justify-between gap-2 p-4 hover:bg-accent ${
-          item.actionRequired ? 'border-primary' : ''
+        className={`flex flex-wrap items-center justify-between gap-2 border-l-4 px-6 py-5 shadow-sm transition hover:bg-accent ${
+          item.actionRequired ? 'border-l-primary' : 'border-l-transparent'
         }`}
       >
-        <div>
-          <p className="text-sm font-medium text-foreground">{item.caseReference}</p>
-          <p className="text-xs text-muted-foreground">
+        <div className="space-y-1">
+          <p className="text-lg font-medium text-foreground">{item.caseReference}</p>
+          <p className="text-sm text-muted-foreground">
             {serviceLabel(item.serviceType)} · {item.step}
           </p>
         </div>
-        {item.actionRequired && <Badge>Needs you</Badge>}
+        {item.actionRequired && <Badge className="rounded-full px-3 py-1 text-sm">Needs you</Badge>}
       </Card>
     </Link>
   )
 }
 
-/** Shown here as well as in the sidebar, which is easy to miss on a phone. */
+/** For a phone, where the sidebar is a drawer and easy to miss; the desktop sidebar is always there. */
 function Shortcuts() {
   const links = [
     { to: '/conversations', label: 'Conversations', icon: MessagesSquare },
     { to: '/invoices', label: 'Your invoices', icon: Receipt },
   ]
   return (
-    <section className="grid gap-3 sm:grid-cols-2">
+    <section className="grid gap-3 sm:grid-cols-2 lg:hidden">
       {links.map(({ to, label, icon: Icon }) => (
         <Link key={to} to={to}>
           <Card className="flex items-center gap-3 p-4 hover:bg-accent">

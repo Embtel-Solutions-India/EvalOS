@@ -98,10 +98,10 @@ const NotFound = lazy(() => import('@shared/pages/NotFound'))
 /** The signed-out screens, with the legal footer under them (2026-09-25). */
 function PublicLayout() {
   return (
-    <>
+    <div className="flex min-h-dvh flex-col">
       <Outlet />
       <SiteFooter />
-    </>
+    </div>
   )
 }
 
