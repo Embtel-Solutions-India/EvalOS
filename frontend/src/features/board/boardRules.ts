@@ -389,6 +389,9 @@ export const QUICK_ACTIONS: readonly QuickAction[] = [
       // common value. It is asked here, where the choice is made, rather than in an edit box on
       // the case: a reason written after the fact is the one kind worth nothing.
       { name: 'expertRationale', label: 'Why this expert (optional)', kind: 'text' },
+      // Unit 65. Blank = the expert's standard fee; "(optional" is what keeps the dialog from
+      // requiring it. The expert sees this amount before accepting, and it is final once they do.
+      { name: 'fee', label: "Fee (optional — blank uses the expert's standard fee)", kind: 'amount' },
     ],
   },
   // Draft review is the Project Manager's alone, GM included (Unit 23a). Approving a draft is a
@@ -552,6 +555,9 @@ export const QUICK_ACTIONS: readonly QuickAction[] = [
       // Left blank, the previous rationale stands rather than being erased — losing a recorded
       // reason because somebody reassigned in a hurry is the worse of the two failures.
       { name: 'expertRationale', label: 'Why this expert (optional)', kind: 'text' },
+      // Unit 65. Blank = the expert's standard fee; "(optional" is what keeps the dialog from
+      // requiring it. The expert sees this amount before accepting, and it is final once they do.
+      { name: 'fee', label: "Fee (optional — blank uses the expert's standard fee)", kind: 'amount' },
     ],
   },
   {

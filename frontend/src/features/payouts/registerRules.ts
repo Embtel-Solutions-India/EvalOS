@@ -100,6 +100,11 @@ export type OfferView = {
 /** Mirrors `OfferFeeService.MAY_SET_FEE`: who sees Edit on an open offer. The CM is absent on purpose. */
 export const MAY_SET_FEE: readonly Role[] = ['GM', 'PROJECT_MANAGER', 'PROJECT_COORDINATOR', 'EXPERT_NETWORK_MANAGER']
 
+/** Whether this role sees Edit on this offer: a fee setter, and only while nobody has answered. */
+export function mayEditFee(role: Role, outcome: OfferOutcome): boolean {
+  return outcome === 'OFFERED' && MAY_SET_FEE.includes(role)
+}
+
 /** Snapshot keys that are ids — the offer's own row already names the case and the expert. */
 const HIDDEN_KEYS = new Set(['caseId', 'expertId', 'payoutIds'])
 

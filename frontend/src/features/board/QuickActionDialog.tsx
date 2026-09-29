@@ -160,7 +160,7 @@ function Field({
           required={required}
           type={field.kind === 'amount' ? 'number' : 'text'}
           step={field.kind === 'amount' ? '0.01' : undefined}
-          min={field.kind === 'amount' ? '0.01' : undefined}
+          min={field.kind === 'amount' ? '0' : undefined}
           value={value}
           onChange={(event) => onChange(event.target.value)}
           className={`${INPUT_CLASS} ${field.kind === 'amount' ? 'font-num tabular-nums' : ''}`}

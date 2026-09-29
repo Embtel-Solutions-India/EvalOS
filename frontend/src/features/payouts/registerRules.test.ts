@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { REGISTER_STATUS_LABEL, describeChange, registerParams } from './registerRules'
+import { REGISTER_STATUS_LABEL, describeChange, mayEditFee, registerParams } from './registerRules'
 
 describe('REGISTER_STATUS_LABEL', () => {
   it('uses the business words (the server already mapped stored PAID / CONFIRMED)', () => {
@@ -31,5 +31,16 @@ describe('describeChange', () => {
 describe('registerParams', () => {
   it('drops empty filters so the URL stays clean', () => {
     expect(registerParams({ status: 'PENDING', q: '  ' })).toEqual({ status: 'PENDING' })
+  })
+})
+
+describe('mayEditFee', () => {
+  it('lets a fee setter edit only while the offer is open', () => {
+    expect(mayEditFee('PROJECT_COORDINATOR', 'OFFERED')).toBe(true)
+    expect(mayEditFee('EXPERT_NETWORK_MANAGER', 'ACCEPTED')).toBe(false)
+  })
+  it('never lets a case manager or brand manager edit', () => {
+    expect(mayEditFee('CASE_MANAGER', 'OFFERED')).toBe(false)
+    expect(mayEditFee('BRAND_MANAGER', 'OFFERED')).toBe(false)
   })
 })
