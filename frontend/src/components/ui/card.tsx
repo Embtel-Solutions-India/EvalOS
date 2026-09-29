@@ -203,6 +203,7 @@ export function KpiCard({
   denominator,
   delta,
   tone,
+  action,
 }: Omit<CardProps, "children"> & {
   value: number | null;
   /**
@@ -223,6 +224,8 @@ export function KpiCard({
   /** Change against the previous comparable period. Omitted when there is nothing to compare. */
   delta?: { value: number; better: "up" | "down" };
   tone?: KpiTone;
+  /** A control under the figure, e.g. the GM's "Set monthly target". */
+  action?: ReactNode;
 }) {
   return (
     <Card title={title} note={note} state={state} to={to} wide={wide}>
@@ -244,6 +247,7 @@ export function KpiCard({
           {denominator}
         </p>
       )}
+      {action}
     </Card>
   );
 }

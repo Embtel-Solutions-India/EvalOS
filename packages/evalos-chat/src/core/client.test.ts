@@ -10,7 +10,7 @@ function msg(id: string, conversationId = 'v1', over: Partial<Message> = {}): Me
   return { id, conversationId, authorKind: 'STAFF', authorId: 'staff-1', authorName: 'Cam', body: id, parentId: null, replyCount: 0, createdAt: `2026-09-27T10:00:0${id.slice(-1)}Z`, editedAt: null, deleted: false, reactions: {}, mine: false, ...over }
 }
 function conv(id: string, over: Partial<Conversation> = {}): Conversation {
-  return { id, caseId: `case-${id}`, caseCode: 'IE-1', serviceType: null, stage: 'CLIENT_REVIEW', type: 'CLIENT', status: 'ACTIVE', access: 'MEMBER', unread: 0, lastMessage: null, participants: [], lastMessageAt: null, ...over }
+  return { id, caseId: `case-${id}`, caseCode: 'IE-1', clientName: null, serviceType: null, stage: 'CLIENT_REVIEW', type: 'CLIENT', status: 'ACTIVE', access: 'MEMBER', unread: 0, lastMessage: null, participants: [], lastMessageAt: null, ...over }
 }
 const page = (items: Message[], nextCursor: string | null = null): Page<Message> => ({ items, nextCursor })
 

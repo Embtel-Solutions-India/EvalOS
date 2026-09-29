@@ -50,3 +50,32 @@ export function rowsWithDays(messages: Message[]): Row[] {
   }
   return rows
 }
+
+/** "Dr Miriam Osei" → "DO": first and last word. "?" when there is no name. */
+export function initials(name: string | null | undefined): string {
+  const words = (name ?? '').trim().split(/\s+/).filter(Boolean)
+  if (words.length === 0) return '?'
+  const first = words[0]!.charAt(0)
+  const last = words.length > 1 ? words[words.length - 1]!.charAt(0) : ''
+  return (first + last).toUpperCase()
+}
+
+/** `EXPERT_OPINION_LETTER` → "Expert opinion letter". */
+export function serviceLabel(serviceType: string | null | undefined): string | null {
+  if (!serviceType) return null
+  const words = serviceType.replaceAll('_', ' ').toLowerCase()
+  return words.charAt(0).toUpperCase() + words.slice(1)
+}
+
+/** A case as a person reads it: "Client name (IE-2026-4807)", or the code alone with no name. */
+export function caseTitle(c: { clientName: string | null; caseCode: string }): string {
+  return c.clientName ? `${c.clientName} (${c.caseCode})` : c.caseCode
+}
+
+/** Inbox time: the clock time today, "Sep 28" before today. */
+export function inboxTime(iso: string, now: Date = new Date()): string {
+  const d = new Date(iso)
+  return d.toDateString() === now.toDateString()
+    ? d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
+    : d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+}

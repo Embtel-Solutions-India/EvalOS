@@ -1,9 +1,11 @@
-import { Fragment, useMemo, useState } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import { seenBy } from '../core/reducer'
-import { linkify, rowsWithDays } from '../core/text'
+import { initials, linkify, rowsWithDays } from '../core/text'
 import { keyOf, type Message } from '../core/types'
 import { useChat, useChatClient } from './ChatProvider'
-import { OwnMessageActions } from './OwnMessageActions'
+import { ReplyIcon } from './icons'
+import { Menu, type MenuItem } from './Menu'
+import { OwnMessageActions, type OwnMode } from './OwnMessageActions'
 import { Reactions } from './Reactions'
 import { ThreadPanel } from './ThreadPanel'
 
@@ -41,7 +43,12 @@ export function TypingLine({ conversationId }: { conversationId: string }) {
   )
 }
 
-/** One conversation's history: earlier on request, day separators, reactions, replies inline. */
+/**
+ * One conversation's history, scrolling on its own: earlier on request, day separators, avatars,
+ * a "⋮" per message (react; edit and delete on your own), Reply, and replies inline.
+ *
+ * Stays pinned to the newest message when one arrives, unless you have scrolled up to read.
+ */
 export function MessageList({ conversationId, readOnly, onReply }: { conversationId: string; readOnly: boolean; onReply(m: Message): void }) {
   const client = useChatClient()
   const messages = useChat((s) => s.messages[conversationId] ?? EMPTY)
@@ -51,11 +58,30 @@ export function MessageList({ conversationId, readOnly, onReply }: { conversatio
   const [thread, setThread] = useState<string | null>(null)
   const seen = useMemo(() => seenBy(messages, readers, me), [messages, readers, me])
   const latestMine = useMemo(() => [...messages].reverse().find((m) => m.mine && !m.deleted)?.id, [messages])
+  const list = useRef<HTMLDivElement>(null)
+  const pinned = useRef(true)
+  const newest = messages[messages.length - 1]?.id
 
-  if (messages.length === 0) return <p className="ec-empty">No messages yet.</p>
+  useEffect(() => {
+    pinned.current = true
+  }, [conversationId])
+
+  useEffect(() => {
+    const el = list.current
+    if (el && pinned.current) el.scrollTop = el.scrollHeight
+  }, [newest, conversationId])
+
+  if (messages.length === 0) return <p className="ec-empty ec-list ec-list--empty">No messages yet. Say hello.</p>
 
   return (
-    <div className="ec-list">
+    <div
+      className="ec-list"
+      ref={list}
+      onScroll={(e) => {
+        const el = e.currentTarget
+        pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 48
+      }}
+    >
       {older && (
         <button type="button" className="ec-link ec-older" onClick={() => void client.loadOlder(conversationId)}>
           Show earlier messages
@@ -63,33 +89,104 @@ export function MessageList({ conversationId, readOnly, onReply }: { conversatio
       )}
       {rowsWithDays(messages).map((row) =>
         row.kind === 'day' ? (
-          <p key={`day-${row.key}`} className="ec-day">
-            {new Date(row.iso).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })}
-          </p>
-        ) : (
-          <div key={row.message.id} className={row.message.mine ? 'ec-message ec-message--mine' : 'ec-message'}>
-            <p className="ec-meta">
-              <strong>{row.message.mine ? 'You' : (row.message.authorName ?? 'Unknown')}</strong>{' '}
-              <span className="ec-muted">{new Date(row.message.createdAt).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}</span>
-            </p>
-            <MessageBody message={row.message} />
-            {!row.message.deleted && <Reactions message={row.message} disabled={readOnly} />}
-            <p className="ec-actions">
-              {!readOnly && !row.message.deleted && (
-                <button type="button" className="ec-link" onClick={() => onReply(row.message)}>Reply</button>
-              )}
-              {row.message.replyCount > 0 && (
-                <button type="button" className="ec-link" onClick={() => setThread(thread === row.message.id ? null : row.message.id)}>
-                  {row.message.replyCount} {row.message.replyCount === 1 ? 'reply' : 'replies'}
-                </button>
-              )}
-            </p>
-            {!readOnly && row.message.mine && !row.message.deleted && <OwnMessageActions message={row.message} />}
-            {row.message.id === latestMine && seen.length > 0 && <p className="ec-seen ec-muted">Seen by {seen.join(', ')}</p>}
-            {thread === row.message.id && <ThreadPanel parent={row.message} readOnly={readOnly} />}
+          <div key={`day-${row.key}`} className="ec-day">
+            <span>{new Date(row.iso).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })}</span>
           </div>
+        ) : (
+          <MessageRow
+            key={row.message.id}
+            message={row.message}
+            readOnly={readOnly}
+            onReply={onReply}
+            threadOpen={thread === row.message.id}
+            onToggleThread={() => setThread(thread === row.message.id ? null : row.message.id)}
+            seen={row.message.id === latestMine && seen.length > 0 ? seen : null}
+          />
         ),
       )}
+    </div>
+  )
+}
+
+/**
+ * One message with its avatar, name, time, bubble and "⋮". Also a reply inside a thread
+ * (`nested`): no Reply of its own and no thread, since replies go one level deep.
+ */
+export function MessageRow({
+  message,
+  readOnly,
+  onReply,
+  threadOpen = false,
+  onToggleThread,
+  seen = null,
+  nested = false,
+}: {
+  message: Message
+  readOnly: boolean
+  onReply?: (m: Message) => void
+  threadOpen?: boolean
+  onToggleThread?: () => void
+  seen?: string[] | null
+  nested?: boolean
+}) {
+  const me = useChat((s) => s.me)
+  const myName = useChat((s) => (me ? s.conversations[message.conversationId]?.participants.find((p) => keyOf(p) === keyOf(me))?.name : undefined))
+  const [mode, setMode] = useState<OwnMode>('idle')
+  const [picking, setPicking] = useState(false)
+  const canAct = !readOnly && !message.deleted
+  const mine = message.mine
+
+  const items: MenuItem[] = canAct
+    ? [
+        { label: 'Add reaction', onSelect: () => setPicking(true) },
+        ...(mine
+          ? [
+              { label: 'Edit', onSelect: () => setMode('editing') },
+              { label: 'Delete', danger: true, onSelect: () => setMode('confirming') },
+            ]
+          : []),
+      ]
+    : []
+
+  return (
+    <div className={`ec-msg${mine ? ' ec-msg--mine' : ''}${nested ? ' ec-msg--nested' : ''}`}>
+      <span className="ec-avatar" aria-hidden="true">
+        {initials(mine ? (myName ?? 'You') : message.authorName)}
+      </span>
+      <div className="ec-msg__col">
+        <div className="ec-msg__line">
+          <div className="ec-bubble">
+            <p className="ec-meta">
+              <strong>{mine ? 'You' : (message.authorName ?? 'Unknown')}</strong>{' '}
+              <span className="ec-muted">{new Date(message.createdAt).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}</span>
+            </p>
+            {mode === 'editing' ? (
+              <OwnMessageActions message={message} mode={mode} onDone={() => setMode('idle')} />
+            ) : (
+              <MessageBody message={message} />
+            )}
+          </div>
+          <Menu label="Message options" items={items} />
+        </div>
+        {mode === 'confirming' && <OwnMessageActions message={message} mode={mode} onDone={() => setMode('idle')} />}
+        {!message.deleted && <Reactions message={message} disabled={readOnly} picking={picking} onPicked={() => setPicking(false)} />}
+        {!nested && (canAct || message.replyCount > 0) && (
+          <p className="ec-msg__actions">
+            {canAct && onReply && (
+              <button type="button" className="ec-link ec-link--quiet" onClick={() => onReply(message)}>
+                <ReplyIcon size={14} /> Reply
+              </button>
+            )}
+            {message.replyCount > 0 && (
+              <button type="button" className="ec-link" onClick={onToggleThread}>
+                {threadOpen ? 'Hide replies' : `${message.replyCount} ${message.replyCount === 1 ? 'reply' : 'replies'}`}
+              </button>
+            )}
+          </p>
+        )}
+        {seen && <p className="ec-seen ec-muted">Seen by {seen.join(', ')}</p>}
+        {!nested && threadOpen && <ThreadPanel parent={message} readOnly={readOnly} />}
+      </div>
     </div>
   )
 }

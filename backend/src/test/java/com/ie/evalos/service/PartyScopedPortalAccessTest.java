@@ -65,7 +65,8 @@ class PartyScopedPortalAccessTest {
 	private final ExpertCaseOfferRepository offers = mock(ExpertCaseOfferRepository.class);
 	private final PayoutLedgerRepository payouts = mock(PayoutLedgerRepository.class);
 	private final PayoutPaymentRepository payments = mock(PayoutPaymentRepository.class);
-	private final ObjectMapper objectMapper = new ObjectMapper();
+	// Registers java.time like the app's own mapper: payout rows carry dates.
+	private final ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
 	private final CaseLifecycleService lifecycle = mock(CaseLifecycleService.class);
 	private final ExpertRepository experts = mock(ExpertRepository.class);
 	private final SlaCalculator sla = mock(SlaCalculator.class);

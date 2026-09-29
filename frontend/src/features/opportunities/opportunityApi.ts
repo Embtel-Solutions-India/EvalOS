@@ -118,8 +118,16 @@ export function fetchDealContact(
   )
 }
 
+/**
+ * Two minutes, not the client's 15s: a GM's press syncs every live pipeline in the request and took
+ * ~45s locally. At 15s the browser gave up while the server finished, so the board stayed "delayed".
+ */
+const REFRESH_TIMEOUT_MS = 120_000
+
 export function refreshOpportunityBoard(signal?: AbortSignal): Promise<OpportunityBoard> {
-  return unwrap<OpportunityBoard>(api.post('/opportunities/board/refresh', undefined, { signal }))
+  return unwrap<OpportunityBoard>(
+    api.post('/opportunities/board/refresh', undefined, { signal, timeout: REFRESH_TIMEOUT_MS }),
+  )
 }
 
 // --- Unit 39: the marketing desk --------------------------------------------

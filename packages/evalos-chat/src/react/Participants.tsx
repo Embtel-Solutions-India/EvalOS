@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { initials } from '../core/text'
 import { keyOf, type Presence } from '../core/types'
 import { useChat, useChatClient } from './ChatProvider'
 
@@ -42,13 +43,19 @@ export function Participants({ conversationId }: { conversationId: string }) {
 
   if (!participants?.length) return null
   return (
-    <ul className="ec-participants" aria-label="Participants">
+    <ul className="ec-people" aria-label="Participants">
       {participants.map((p) => {
         const on = online[keyOf(p)] === true
         return (
-          <li key={keyOf(p)} className="ec-participant">
-            <span className={on ? 'ec-dot ec-dot--on' : 'ec-dot'} aria-label={on ? 'online' : 'offline'} />
-            {p.name} <span className="ec-muted">· {ROLE_LABEL[p.role] ?? p.role}</span>
+          <li key={keyOf(p)} className="ec-person">
+            <span className="ec-avatar ec-avatar--sm">
+              {initials(p.name)}
+              <span className={on ? 'ec-presence ec-presence--on' : 'ec-presence'} aria-label={on ? 'online' : 'offline'} />
+            </span>
+            <span className="ec-person__text">
+              <strong>{p.name}</strong>
+              <span className="ec-muted">{ROLE_LABEL[p.role] ?? p.role}</span>
+            </span>
           </li>
         )
       })}

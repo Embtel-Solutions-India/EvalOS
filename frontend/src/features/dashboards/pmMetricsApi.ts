@@ -217,7 +217,8 @@ export async function fetchRevenueMetrics(
 // `GmOverviewService`.
 
 /** `null` on any window that is not a calendar month: a monthly target has no other denominator. */
-export type GmHeadline = { won: number; goal: number | null; pctToGoal: number | null }
+/** `goalMonth` is the first of the month the target applies to; null off a calendar month. */
+export type GmHeadline = { won: number; goal: number | null; pctToGoal: number | null; goalMonth: string | null }
 
 export type GmSourceRow = { source: string; deals: number; value: number }
 
@@ -280,4 +281,9 @@ export async function fetchGmOverview(
   const params: Record<string, string> = rangeParams(range)
   if (brandId) params.brandId = brandId
   return unwrap<GmOverview>(api.get('/metrics/gm', { params, signal }))
+}
+
+/** The GM sets a month's sales target. Append-only on the server: the newest one counts. */
+export async function setGmGoal(month: string, amount: number): Promise<void> {
+  await unwrap<null>(api.put('/metrics/gm/goal', { month, amount }))
 }

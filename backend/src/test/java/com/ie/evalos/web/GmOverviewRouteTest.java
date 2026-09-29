@@ -59,7 +59,8 @@ class GmOverviewRouteTest {
 	private static final UUID BRAND_IE = UUID.fromString("11111111-1111-1111-1111-111111111111");
 
 	private static final GmOverviewService.GmOverview OVERVIEW = new GmOverviewService.GmOverview(
-			new GmOverviewService.Headline(new BigDecimal("38400"), new BigDecimal("55000"), 70),
+			new GmOverviewService.Headline(new BigDecimal("38400"), new BigDecimal("55000"), 70,
+					java.time.LocalDate.parse("2026-09-01")),
 			List.of(new GmOverviewService.SourceRow("Referral", 3, new BigDecimal("14000"))),
 			List.of(),
 			new GmOverviewService.Sales(142, new BigDecimal("61000"), 9, new BigDecimal("22000"), 12),
@@ -126,6 +127,20 @@ class GmOverviewRouteTest {
 				.andExpect(status().isForbidden());
 
 		then(gmOverview).should(never()).forCaller(any(), any());
+	}
+
+	/** The monthly target is GM-only, like the screen it sits on. */
+	@ParameterizedTest
+	@EnumSource(Role.class)
+	void onlyTheGmSetsTheMonthlyGoal(Role role) throws Exception {
+		mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put("/api/metrics/gm/goal")
+				.header(HttpHeaders.AUTHORIZATION, bearer(role))
+				.contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+				.content("{\"month\":\"2026-09-01\",\"amount\":55000}"))
+				.andExpect(role == Role.GM ? status().isOk() : status().isForbidden());
+
+		then(gmOverview).should(role == Role.GM ? org.mockito.Mockito.times(1) : never())
+				.setGoal(any(), any(), any());
 	}
 
 	@Test

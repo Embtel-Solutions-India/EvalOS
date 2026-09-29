@@ -125,6 +125,8 @@ public class ExpertPortalService {
 	 * @param step           D5's projected label, or null before the case reaches this expert
 	 * @param actionRequired whether this case is waiting on the expert to sign
 	 * @param offered        whether this expert has an offer on the case they have not yet answered
+	 * @param signedAt       when the signed letter came back (its upload time), or null — what the
+	 *                       portal dashboard dates "completed" by
 	 */
 	public record ExpertCaseSummary(
 			UUID caseId,
@@ -133,7 +135,12 @@ public class ExpertPortalService {
 			ExpertSignStatus signStatus,
 			String step,
 			boolean actionRequired,
-			boolean offered) {
+			boolean offered,
+			Instant signedAt) {
+	}
+
+	/** Who is signed in, for the portal's greeting and top bar. The name only. */
+	public record ExpertMe(String name) {
 	}
 
 	/**
@@ -148,6 +155,7 @@ public class ExpertPortalService {
 	 *
 	 * @param settledOn the payment's paid date, null while the row is still owed — the one fact an
 	 *                  expert most wants and the ledger alone cannot answer
+	 * @param dueDate   the ledger's due date (the payout batch's week) — what dates an owed row
 	 */
 	public record ExpertPayoutRow(
 			String caseReference,
@@ -159,7 +167,8 @@ public class ExpertPortalService {
 			 * The transfer this row was paid in (Unit 63), so the expert can confirm it; null while
 			 * owed. Its method and reference stay off this record — they are the brand's records.
 			 */
-			UUID paymentId) {
+			UUID paymentId,
+			Instant dueDate) {
 	}
 
 
@@ -294,7 +303,10 @@ public class ExpertPortalService {
 					subject.getExpertSignStatus(),
 					step == null ? null : step.label(),
 					step != null && step.actionRequired(),
-					open.contains(subject.getId()));
+					open.contains(subject.getId()),
+					// ponytail: one document read per case; an expert holds a handful. Batch by case
+					// ids if a roster ever carries hundreds per expert.
+					signedLetter(subject).map(CaseDocument::getUploadedAt).orElse(null));
 		}).toList();
 	}
 
@@ -315,6 +327,19 @@ public class ExpertPortalService {
 	 * <p>The settlement date is a second read rather than a join, because {@code payment_id} is
 	 * null on most rows and a join would make the common case pay for the rare one.
 	 */
+	/** The signed-in expert's name, from their own roster row in the token's brand. */
+	@Transactional(readOnly = true)
+	public ExpertMe me(PortalPrincipal principal) {
+		UUID expertId = principal.expertId();
+		if (expertId == null) {
+			throw new ForbiddenException("This link no longer points at an expert");
+		}
+		return experts.findById(expertId)
+				.filter(expert -> principal.brandId().equals(expert.getBrandId()))
+				.map(expert -> new ExpertMe(expert.getFullName()))
+				.orElseThrow(() -> new ForbiddenException("This link no longer points at an expert"));
+	}
+
 	@Transactional(readOnly = true)
 	public List<ExpertPayoutRow> payoutRows(PortalPrincipal principal) {
 		UUID expertId = principal.expertId();
@@ -332,7 +357,8 @@ public class ExpertPortalService {
 							row.getCurrency(),
 							row.getStatus(),
 							paid.map(PayoutPayment::getPaidDate).orElse(null),
-							row.getPaymentId());
+							row.getPaymentId(),
+							row.getDueDate());
 				})
 				.toList();
 	}

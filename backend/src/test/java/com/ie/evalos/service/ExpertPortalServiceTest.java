@@ -476,4 +476,12 @@ class ExpertPortalServiceTest {
 
 		assertThat(portal.letterLink(token(), null)).isEqualTo("https://s3/approved.docx");
 	}
+	/** The greeting names the expert, and only from their own brand's roster row. */
+	@Test
+	void meNamesTheExpertOnlyInTheirOwnBrand() {
+		assertThat(portal.me(tokenFor(BRAND, null)).name()).isEqualTo("Dr Ada Lovelace");
+		assertThatThrownBy(() -> portal.me(tokenFor(OTHER_BRAND, null))).isInstanceOf(ForbiddenException.class);
+		assertThatThrownBy(() -> portal.me(tokenFor(BRAND, null, null))).isInstanceOf(ForbiddenException.class);
+	}
+
 }

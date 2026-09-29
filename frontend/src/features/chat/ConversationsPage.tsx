@@ -1,44 +1,31 @@
-import { ChatInbox, ConversationView, PushCard } from '@evalos/chat'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { ChatScreen } from '@evalos/chat'
+import { useNavigate, useParams } from 'react-router-dom'
+import { useMe } from '../../lib/authContext'
+import { mayReach } from '../shell/navigation'
 
 /**
- * Every conversation the caller can open, grouped by case (Unit 57 §7). The conversation is in the
- * URL, so a push notification opens it directly — and Sales, who read no case (D19c), get there
- * without a case screen.
+ * Every conversation the caller can open, one row per case (Unit 57 §7), on one screen. The
+ * conversation is in the URL, so a push notification opens it directly — and Sales, who read no
+ * case (D19c), get there without a case screen. The paperclip opens the case's documents, for the
+ * roles that may open a case at all.
  */
 export default function ConversationsPage() {
   const { conversationId } = useParams<{ conversationId: string }>()
   const navigate = useNavigate()
+  const me = useMe()
+  const readsCases = mayReach(me.role, '/cases/:id')
 
   return (
-    <div className="flex flex-col gap-4 pt-4">
-      {/* The one place permission is asked — never on load (57 §6). */}
-      <PushCard workerUrl="/sw.js" />
-      <div className="grid gap-4 lg:grid-cols-[20rem_minmax(0,1fr)]">
-        <div
-          className={`rounded-lg border p-3 ${conversationId ? 'hidden lg:block' : ''}`}
-          style={{ background: 'var(--bg-surface)', borderColor: 'var(--border-default)' }}
-        >
-          <ChatInbox filters selectedId={conversationId} onOpen={(id) => navigate(`/conversations/${id}`)} />
-        </div>
-        <div
-          className={`flex h-[calc(100svh-10rem)] flex-col rounded-lg border p-4 ${conversationId ? '' : 'hidden lg:flex'}`}
-          style={{ background: 'var(--bg-surface)', borderColor: 'var(--border-default)' }}
-        >
-          {conversationId ? (
-            <>
-              <Link to="/conversations" className="mb-2 self-start text-sm lg:hidden" style={{ color: 'var(--accent-primary)' }}>
-                Back
-              </Link>
-              <ConversationView conversationId={conversationId} />
-            </>
-          ) : (
-            <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
-              Choose a conversation.
-            </p>
-          )}
-        </div>
-      </div>
+    <div className="pt-4" style={{ height: 'calc(100svh - var(--header-height) - var(--shell-gutter))' }}>
+      <ChatScreen
+        title="Messages"
+        description="Coordinate with your team on every case."
+        filters
+        selectedId={conversationId}
+        onOpen={(id) => navigate(`/conversations/${id}`)}
+        onBack={() => navigate('/conversations')}
+        onUploadDocument={readsCases ? (c) => navigate(`/cases/${c.caseId}`) : undefined}
+      />
     </div>
   )
 }

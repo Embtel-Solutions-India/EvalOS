@@ -13,7 +13,7 @@ live in `backend/src/main/resources/db/migration/`.
 > migrations produce, confirmed against a real applied instance. Row counts cited anywhere are the
 > **local seeded** database and say nothing about production.
 
-### Tables (27, including `flyway_schema_history`)
+### Tables (28, including `flyway_schema_history`)
 
 | Table | Purpose | Brand-scoped |
 |---|---|---|
@@ -44,6 +44,7 @@ live in `backend/src/main/resources/db/migration/`.
 | `pipeline` | **mirror of a GHL pipeline** (Unit 44a): `ghl_id` verbatim, `name`, `position`, `purpose` (MARKETING / SALES / DELIVERY / INTAKE / **EXPERT_HIRING** (`V76`, Unit 63 — the ENM's hiring pipeline; every ENM of its brand works it) / UNASSIGNED), `synced_at`, `missing_since`. Upserted, never deleted | yes |
 | `pipeline_stage` | **mirror of a GHL stage** (Unit 44a): FK to `pipeline`, `ghl_id` verbatim (mutable — see below), natural key `(pipeline_id, position, name)` | yes |
 | `opportunity` | **mirror of a GHL opportunity** (Unit 44d, `V51`): EvalOS's `id` is also the GHL correlation key; `ghl_id` is null until GHL has seen the row; `ghl_stage_id` is text, not a FK, so one sweep being behind cannot fail another. `local_updated_at` says an edit is outstanding and `locally_edited_fields` (`V63`) says **which of the four shared fields it is about**, so a push sends only those. Upserted, never deleted | yes |
+| `sales_monthly_goal` | **the GM's sales target per month** (`V77`, 2026-09-29): `brand_id` (the selling brand), `month` (the 1st, CHECKed), `amount` ≥ 0, `set_by` → `team_member`, `set_at`. **Append-only by convention** — a change is a new row and the newest per (brand, month) counts; `SALES_MONTHLY_GOAL` is the fallback | yes |
 | `ghl_funnel_cache` | **orphaned 2026-09-16** — its only reader went with the funnel screens; the drop has nowhere to live (see `52`/`51` notes) | **no** |
 | `meeting` | mirror of a GHL appointment booked from the Sales desk | yes |
 | `follow_up` | mirror of a GHL contact task | yes |
@@ -143,15 +144,20 @@ none, and nothing prevents two accounts naming one contact.
 
 Not present today. Do not write code that assumes any of it exists.
 
-### From the target request lifecycle (this reset's business model)
+### From Unit 64 — remove client requests (specced 2026-09-29, not built)
 
-| Needed | Why | Nearest thing today |
-|---|---|---|
-| ~~**`application_document`**~~ — **BUILT 2026-09-18, `V65`; see CURRENT above** | D33 (2026-09-17): the client uploads *with the request*, before a case exists, and the files belong to the **person** — so the key is the contact, not the application. `contact_id` stays a real FK to `contact_snapshot`; naming a contact by GHL's id does not change a primary key (D18). Sales reads them on their own route on the opportunity (D34). Spec `53` | `case_document.case_id NOT NULL` |
-| **A join from `client_application` to the case it became** | nothing records that a request turned into a case | both hold `ghl_opportunity_id` as text, unjoined |
-| ~~A richer `client_application.status`~~ | **NOT NEEDED — D35, 2026-09-17.** Review, approval and rejection are GHL pipeline stages, not EvalOS columns. Two values are the right two | `DRAFT` / `SUBMITTED` stays |
-| ~~`client_account` merged with or joined to `contact_snapshot`~~ | **DONE at 44c** — `contact_id`, `V55` | the *rename* to `contact` is still deferred, §4.1 |
-| ~~Unique `ghl_contact_id` per brand on `client_account`~~ | **DONE at 44c** — partial unique index | |
+`V78__remove_client_requests.sql` will:
+
+| Change | Why |
+|---|---|
+| `DROP TABLE application_document`, then `DROP TABLE client_application` (with its unmapped `answers`) | there is no client request (D8, D33). Nothing references either table. Rows already carried onto cases are ordinary `case_document` rows and stay |
+| `pipeline.purpose`: `INTAKE` rows → `UNASSIGNED`, CHECK recreated without `INTAKE` | nothing reads the purpose once submit is gone (D10b retired) |
+| `client_account.created_via` CHECK gains `'CASE'` | the account is created at case creation (D3d). `PORTAL_CLEANUP` deletes only `SIGNUP` rows |
+
+No seed tree holds rows in either table. Until `V78` lands, CURRENT above is the truth. Spec `64`.
+
+The two remaining request-lifecycle items that were here (a join from request to case, a richer
+request status) **leave with the request**.
 
 ### From the mirror programme (Units 44–48, `context/specs/00c-ghl-independence-programme.md`)
 

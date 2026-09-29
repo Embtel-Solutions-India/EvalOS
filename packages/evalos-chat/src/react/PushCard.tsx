@@ -1,10 +1,22 @@
 import { useEffect, useState } from 'react'
 import { disablePush, enablePush, pushState, type PushState } from '../core/push'
 import { useChatClient } from './ChatProvider'
+import { BellIcon, CloseIcon } from './icons'
+
+const DISMISSED = 'evalos-chat-push-dismissed'
+
+function wasDismissed(): boolean {
+  try {
+    return localStorage.getItem(DISMISSED) === '1'
+  } catch {
+    return false
+  }
+}
 
 /**
- * "Turn on notifications" (Unit 57 §6): the only place permission is asked, and only on a click.
- * Renders nothing where push cannot work (no Push API, or no VAPID keys on the server).
+ * "Enable notifications" (Unit 57 §6): the only place permission is asked, and only on a click.
+ * Renders nothing where push cannot work (no Push API, or no VAPID keys on the server). The ×
+ * hides it in this browser; that is a per-viewer convenience, so it lives in localStorage.
  *
  * @param workerUrl the app's service worker, e.g. `/sw.js`
  */
@@ -13,6 +25,7 @@ export function PushCard({ workerUrl }: { workerUrl: string }) {
   const [state, setState] = useState<PushState | null>(null)
   const [busy, setBusy] = useState(false)
   const [failed, setFailed] = useState(false)
+  const [dismissed, setDismissed] = useState(wasDismissed)
 
   useEffect(() => {
     let live = true
@@ -25,7 +38,7 @@ export function PushCard({ workerUrl }: { workerUrl: string }) {
     }
   }, [api, workerUrl])
 
-  if (state === null || state === 'unavailable') return null
+  if (dismissed || state === null || state === 'unavailable') return null
 
   const run = (action: typeof enablePush) => {
     setBusy(true)
@@ -35,35 +48,46 @@ export function PushCard({ workerUrl }: { workerUrl: string }) {
       .finally(() => setBusy(false))
   }
 
+  const dismiss = () => {
+    setDismissed(true)
+    try {
+      localStorage.setItem(DISMISSED, '1')
+    } catch {
+      // Private mode: it stays hidden for this visit only.
+    }
+  }
+
+  const [title, detail] =
+    state === 'unsupported'
+      ? ['Notifications are not available here', 'On an iPhone or iPad, add this site to your Home Screen first.']
+      : state === 'denied'
+        ? ['Notifications are blocked', "You can allow them in your browser's settings."]
+        : state === 'on'
+          ? ['Notifications are on', 'You will hear about new messages even when this site is closed.']
+          : ['Get notified when new messages arrive', "Stay updated even when you're away."]
+
   return (
     <div className="ec-push" role="region" aria-label="Notifications">
-      {state === 'unsupported' && (
-        <p className="ec-muted">
-          This browser cannot show notifications. On an iPhone or iPad, add this site to your Home Screen first.
-        </p>
-      )}
-      {state === 'denied' && <p className="ec-muted">Notifications are blocked. You can allow them in your browser's settings.</p>}
+      <span className="ec-push__icon">
+        <BellIcon size={18} />
+      </span>
+      <div className="ec-push__text">
+        <p className="ec-push__title">{title}</p>
+        <p className="ec-muted">{failed ? 'That did not work. Please try again.' : detail}</p>
+      </div>
       {state === 'off' && (
-        <>
-          <p>Get a notification when someone writes to you while this site is closed.</p>
-          <button type="button" className="ec-send" disabled={busy} onClick={() => run(enablePush)}>
-            {busy ? 'Turning on…' : 'Turn on notifications'}
-          </button>
-        </>
+        <button type="button" className="ec-send" disabled={busy} onClick={() => run(enablePush)}>
+          {busy ? 'Turning on…' : 'Enable notifications'}
+        </button>
       )}
       {state === 'on' && (
-        <p className="ec-muted">
-          Notifications are on.{' '}
-          <button type="button" className="ec-link" disabled={busy} onClick={() => run(disablePush)}>
-            Turn off
-          </button>
-        </p>
+        <button type="button" className="ec-link" disabled={busy} onClick={() => run(disablePush)}>
+          Turn off
+        </button>
       )}
-      {failed && (
-        <p className="ec-error" role="alert">
-          That did not work. Please try again.
-        </p>
-      )}
+      <button type="button" className="ec-icon-btn" aria-label="Dismiss" onClick={dismiss}>
+        <CloseIcon />
+      </button>
     </div>
   )
 }

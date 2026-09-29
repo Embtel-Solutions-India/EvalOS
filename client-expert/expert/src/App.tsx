@@ -40,6 +40,7 @@ const Cases = lazy(() => import('@/pages/Cases'))
 const Messages = lazy(() => import('@/pages/Messages'))
 const NewCases = lazy(() => import('@/pages/NewCases'))
 const Payouts = lazy(() => import('@/pages/Payouts'))
+const Dashboard = lazy(() => import('@/pages/Dashboard'))
 const NotFound = lazy(() => import('@shared/pages/NotFound'))
 
 /**
@@ -57,6 +58,7 @@ function AppRoutes() {
       <Route path="/set-password" element={<SetPassword />} />
       {/* Signed-in screens share the sidebar shell, which also guards the token. */}
       <Route element={<ExpertLayout />}>
+        <Route path="/dashboard" element={<Dashboard />} />
         <Route path="/new" element={<NewCases />} />
         <Route path="/cases" element={<Cases />} />
         <Route path="/case" element={<ExpertCasePortal />} />

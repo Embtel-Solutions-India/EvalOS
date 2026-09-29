@@ -1,35 +1,32 @@
 import { useState } from 'react'
-import { ChatInbox, ConversationView, PushCard } from '@evalos/chat'
-import { Button } from '@shared/components/ui/button'
-import { Card } from '@shared/components/ui/card'
-import { PageHeader } from '@shared/components/common/PageHeader'
-import { cn } from '@shared/utils/cn'
+import { Link, useNavigate } from 'react-router-dom'
+import { ChatScreen } from '@evalos/chat'
 
-/** Every case conversation with the case team (Unit 57), in one inbox. Same shape as the client's. */
+/**
+ * Every case conversation with the case team (Unit 57), on one screen. Same shape as the
+ * client's. The height leaves room for the layout's padding (and its phone header below lg).
+ */
 export default function Messages() {
   const [open, setOpen] = useState<string | null>(null)
+  const navigate = useNavigate()
 
   return (
-    <div className="mx-auto max-w-7xl space-y-6">
-      <PageHeader title="Messages" description="Your conversations with the team on each case." />
-      <PushCard workerUrl="/sw.js" />
-      <div className="grid gap-4 lg:grid-cols-[20rem_1fr]">
-        <Card className={cn('p-3', open && 'hidden lg:block')}>
-          <ChatInbox onOpen={setOpen} selectedId={open ?? undefined} />
-        </Card>
-        <Card className={cn('flex h-[70vh] flex-col p-4', !open && 'hidden lg:flex')}>
-          {open ? (
-            <>
-              <Button variant="ghost" size="sm" className="mb-2 self-start lg:hidden" onClick={() => setOpen(null)}>
-                Back
-              </Button>
-              <ConversationView conversationId={open} />
-            </>
-          ) : (
-            <p className="text-sm text-muted-foreground">Choose a conversation.</p>
-          )}
-        </Card>
-      </div>
+    <div className="mx-auto h-[calc(100dvh-6.5rem)] max-w-7xl lg:h-[calc(100dvh-4rem)]">
+      <ChatScreen
+        title="Messages"
+        description="Coordinate with your team on every case."
+        breadcrumb={
+          <>
+            <Link to="/cases">Cases</Link>
+            <span aria-hidden="true">/</span>
+            <strong>Messages</strong>
+          </>
+        }
+        selectedId={open ?? undefined}
+        onOpen={setOpen}
+        onBack={() => setOpen(null)}
+        onUploadDocument={(c) => navigate(`/case?caseId=${c.caseId}`)}
+      />
     </div>
   )
 }

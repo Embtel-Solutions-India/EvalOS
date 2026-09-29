@@ -1,9 +1,9 @@
 import * as DialogPrimitive from '@radix-ui/react-dialog'
 import { useQuery } from '@tanstack/react-query'
-import { ChatProvider, ChatToast, UnreadBadge } from '@evalos/chat'
+import { ChatProvider, ChatToast, UnreadBadge, useChat } from '@evalos/chat'
 import '@evalos/chat/chat.css'
-import { BriefcaseBusiness, Inbox, LifeBuoy, LogOut, Menu, MessagesSquare, Wallet, X } from 'lucide-react'
-import { useState } from 'react'
+import { Bell, BriefcaseBusiness, ChevronDown, Inbox, LayoutDashboard, LifeBuoy, LogOut, Menu, MessagesSquare, Wallet, X } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
 import { Navigate, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { Button } from '@shared/components/ui/button'
 import { Logo } from '@shared/components/common/Logo'
@@ -11,13 +11,14 @@ import { hasPortalToken } from '@shared/services/apiClient'
 import { createPortalChat } from '@shared/services/portalChat'
 import { cn } from '@shared/utils/cn'
 import { transfersToConfirm } from '@/lib/expertCase'
-import { listCases, listPayouts } from '@/services/expertPortalService'
+import { getMe, listCases, listPayouts } from '@/services/expertPortalService'
 
 /**
  * The signed-in expert's shell (Unit 59): a sidebar with the two real screens, and one chat client
  * shared by the nav badge, the inbox and each case's panel.
  *
- * New cases (open offers) · Your cases · Messages · Payouts (spec 62; the expert confirms receipt, Unit 63).
+ * Dashboard · New cases (open offers) · Your cases · Messages · Payouts (spec 62; the expert confirms
+ * receipt, Unit 63). On desktop a top bar carries the bell (unread messages) and who is signed in.
  *
  * **Only what exists is in the nav.** No profile, no resources — each would be a page with nothing
  * behind it.
@@ -31,7 +32,7 @@ export function ExpertLayout() {
   // The token is memory-only, so a reload lands here without one: back to the door.
   if (!hasPortalToken()) return <Navigate to="/" replace />
 
-  const title = pathname === '/new' ? 'New cases' : pathname === '/messages' ? 'Messages' : pathname === '/payouts' ? 'Payouts' : pathname === '/case' ? 'Case' : 'Your cases'
+  const title = pathname === '/dashboard' ? 'Dashboard' : pathname === '/new' ? 'New cases' : pathname === '/messages' ? 'Messages' : pathname === '/payouts' ? 'Payouts' : pathname === '/case' ? 'Case' : 'Your cases'
 
   return (
     <ChatProvider client={chat}>
@@ -64,7 +65,11 @@ export function ExpertLayout() {
             <Button variant="ghost" size="icon" onClick={() => setMenuOpen(true)} aria-label="Open menu">
               <Menu className="h-5 w-5" />
             </Button>
-            <span className="text-base font-semibold text-foreground">{title}</span>
+            <span className="flex-1 text-base font-semibold text-foreground">{title}</span>
+            <TopBarActions />
+          </header>
+          <header className="sticky top-0 z-30 hidden h-16 items-center justify-end gap-4 border-b bg-background/95 px-8 backdrop-blur lg:flex">
+            <TopBarActions />
           </header>
           <main className="flex-1 px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
             <Outlet />
@@ -105,6 +110,10 @@ function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
       </div>
 
       <nav className="flex-1 space-y-1 px-3 py-5" aria-label="Main">
+        <NavLink to="/dashboard" onClick={onNavigate} className={({ isActive }) => item(isActive)}>
+          <LayoutDashboard className="h-4 w-4 shrink-0" />
+          <span className="flex-1">Dashboard</span>
+        </NavLink>
         <NavLink to="/new" onClick={onNavigate} className={({ isActive }) => item(isActive)}>
           <Inbox className="h-4 w-4 shrink-0" />
           <span className="flex-1">New cases</span>
@@ -160,6 +169,54 @@ function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
           <LogOut className="h-4 w-4" />
           Sign out
         </button>
+      </div>
+    </div>
+  )
+}
+
+/**
+ * The bell and the signed-in expert. The bell is the chat's unread count — the only notification an
+ * expert receives in the portal — and opens Messages. The name opens a menu with Sign out.
+ */
+function TopBarActions() {
+  const unread = useChat((s) => s.order.reduce((sum, id) => sum + (s.conversations[id]?.unread ?? 0), 0))
+  const { data: me } = useQuery({ queryKey: ['expert-portal', 'me'], queryFn: getMe, retry: false, staleTime: Infinity })
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+  const initials = (me?.name ?? '').replace(/^(Dr|Prof)\.?\s+/i, '').split(/\s+/).filter(Boolean).map((w, i, all) => (i === 0 || i === all.length - 1 ? w[0] : '')).join('').toUpperCase() || '?'
+
+  useEffect(() => {
+    if (!open) return
+    const outside = (e: MouseEvent) => {
+      if (!ref.current?.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', outside)
+    return () => document.removeEventListener('mousedown', outside)
+  }, [open])
+
+  return (
+    <div className="flex items-center gap-3">
+      <NavLink to="/messages" className="relative rounded-full p-2 text-muted-foreground hover:bg-muted hover:text-foreground" aria-label={unread > 0 ? `Messages, ${unread} unread` : 'Messages'}>
+        <Bell className="h-5 w-5" />
+        {unread > 0 && <span className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-destructive ring-2 ring-background" aria-hidden="true" />}
+      </NavLink>
+      <div className="relative" ref={ref}>
+        <button type="button" onClick={() => setOpen(!open)} aria-haspopup="menu" aria-expanded={open} className="flex items-center gap-3 rounded-lg px-2 py-1 hover:bg-muted">
+          <span className="flex h-9 w-9 items-center justify-center rounded-full bg-primary text-sm font-semibold text-primary-foreground">{initials}</span>
+          <span className="hidden text-left sm:block">
+            <span className="block text-sm font-semibold leading-tight text-foreground">{me?.name ?? 'Expert'}</span>
+            <span className="block text-xs text-muted-foreground">Expert</span>
+          </span>
+          <ChevronDown className="hidden h-4 w-4 text-muted-foreground sm:block" />
+        </button>
+        {open && (
+          <div role="menu" className="absolute right-0 z-40 mt-1 w-44 rounded-lg border bg-popover p-1 shadow-lg">
+            {/* The token lives only in memory, so a full load of the door is the whole of signing out. */}
+            <button type="button" role="menuitem" onClick={() => window.location.assign('/')} className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-foreground hover:bg-muted">
+              <LogOut className="h-4 w-4" /> Sign out
+            </button>
+          </div>
+        )}
       </div>
     </div>
   )

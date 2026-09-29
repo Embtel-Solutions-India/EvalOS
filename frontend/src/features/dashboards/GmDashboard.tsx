@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { Card, ChartCard, KpiCard } from '../../components/ui/card'
 import type { CardState } from '../../components/ui/card'
@@ -10,6 +11,7 @@ import {
   fetchGmOverview,
   fetchPmMetrics,
   fetchRevenueMetrics,
+  setGmGoal,
   type ExpertNetworkMetrics,
   type GmOverview,
   type PmMetrics,
@@ -102,7 +104,12 @@ export default function GmDashboard() {
           denominator={
             data?.headline?.goal
               ? `${formatMoney(Math.round(data.headline.goal))} goal · ${data.headline.pctToGoal}% there`
-              : 'No monthly goal set — SALES_MONTHLY_GOAL'
+              : 'No monthly target set'
+          }
+          action={
+            data?.headline?.goalMonth ? (
+              <GoalButton month={data.headline.goalMonth} current={data.headline.goal} onSaved={gm.reload} />
+            ) : undefined
           }
           tone={
             data?.headline?.pctToGoal == null
@@ -113,14 +120,14 @@ export default function GmDashboard() {
                   ? 'warn'
                   : 'bad'
           }
-          note="Opportunities GHL marked won in this period, across every desk of the selling brand."
+          note="Sales desks' wins only — marketing nurtures the same leads, so counting its wins too would count each deal twice."
         />
 
         <ChartCard
           title="Business by source"
           wide
           state={emptyWhen(pipelineState, (data?.bySource.length ?? 0) === 0, `No wins ${period}.`)}
-          note="The same won money, split by the source GHL holds on the opportunity."
+          note="The same sales wins, split by the source GHL holds on the opportunity."
         >
           <MoneyBars
             rows={(data?.bySource ?? []).map((row) => ({
@@ -445,6 +452,91 @@ export default function GmDashboard() {
         />
       </div>
     </section>
+  )
+}
+
+/** "Set monthly target": an inline amount field for the month the headline is showing. */
+function GoalButton({ month, current, onSaved }: { month: string; current: number | null; onSaved(): void }) {
+  const [editing, setEditing] = useState(false)
+  const [amount, setAmount] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [refusal, setRefusal] = useState<string | null>(null)
+  const label = new Date(`${month}T12:00:00Z`).toLocaleDateString(undefined, { month: 'long', year: 'numeric' })
+
+  async function save() {
+    setSaving(true)
+    setRefusal(null)
+    try {
+      await setGmGoal(month, Number(amount))
+      setEditing(false)
+      onSaved()
+    } catch (error: unknown) {
+      setRefusal(error instanceof Error ? error.message : 'The target was not saved')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  if (!editing) {
+    return (
+      <button
+        type="button"
+        onClick={() => {
+          setAmount(current ? String(Math.round(current)) : '')
+          setEditing(true)
+        }}
+        className="mt-3 rounded-md border px-3 py-1.5 text-sm font-medium"
+        style={{ borderColor: 'var(--border-default)' }}
+      >
+        {current ? 'Change monthly target' : 'Set monthly target'}
+      </button>
+    )
+  }
+
+  return (
+    <form
+      className="mt-3 flex flex-wrap items-center gap-2"
+      onSubmit={(event) => {
+        event.preventDefault()
+        void save()
+      }}
+    >
+      <label className="text-sm" style={{ color: 'var(--text-muted)' }}>
+        Target for {label}{' '}
+        <input
+          type="number"
+          min={0}
+          step={1}
+          required
+          autoFocus
+          value={amount}
+          onChange={(event) => setAmount(event.target.value)}
+          className="font-num ml-1 w-32 rounded-md border px-2 py-1 text-sm tabular-nums"
+          style={{ borderColor: 'var(--border-default)', background: 'var(--bg-surface)', color: 'var(--text-primary)' }}
+        />
+      </label>
+      <button
+        type="submit"
+        disabled={saving || amount === ''}
+        className="rounded-md px-3 py-1.5 text-sm font-medium text-white disabled:opacity-60"
+        style={{ background: 'var(--accent-primary)' }}
+      >
+        Save
+      </button>
+      <button
+        type="button"
+        onClick={() => setEditing(false)}
+        className="rounded-md border px-3 py-1.5 text-sm font-medium"
+        style={{ borderColor: 'var(--border-default)' }}
+      >
+        Cancel
+      </button>
+      {refusal && (
+        <p className="w-full text-sm" style={{ color: 'var(--status-red)' }}>
+          {refusal}
+        </p>
+      )}
+    </form>
   )
 }
 

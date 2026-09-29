@@ -264,21 +264,23 @@ public class ChatInboxQuery {
 		return names;
 	}
 
-	/** What an inbox row shows about its case. */
-	public record CaseContext(String caseCode, String serviceType, String stage) {
+	/** What an inbox row shows about its case. {@code clientName} is the applicant, else the case's contact — the row's title. */
+	public record CaseContext(String caseCode, String clientName, String serviceType, String stage) {
 	}
 
-	/** Case code, service and stage for these cases. Ids come from conversations already scoped. */
+	/** Case code, applicant, service and stage for these cases. Ids come from conversations already scoped. */
 	public Map<UUID, CaseContext> caseContext(Collection<UUID> caseIds) {
 		if (caseIds.isEmpty()) {
 			return Map.of();
 		}
 		Map<UUID, CaseContext> context = new HashMap<>();
 		List<UUID> distinct = caseIds.stream().distinct().toList();
-		jdbc.query("SELECT id, case_code, service_type, current_stage FROM evalos_case WHERE id IN ("
-				+ placeholders(distinct) + ")", (rs) -> {
+		jdbc.query("SELECT c.id, c.case_code, coalesce(nullif(trim(c.applicant_name), ''), s.full_name), "
+				+ "c.service_type, c.current_stage FROM evalos_case c "
+				+ "LEFT JOIN contact_snapshot s ON s.id = c.contact_id AND s.brand_id = c.brand_id "
+				+ "WHERE c.id IN (" + placeholders(distinct) + ")", (rs) -> {
 					context.put(rs.getObject(1, UUID.class),
-							new CaseContext(rs.getString(2), rs.getString(3), rs.getString(4)));
+							new CaseContext(rs.getString(2), rs.getString(3), rs.getString(4), rs.getString(5)));
 				}, distinct.toArray());
 		return context;
 	}

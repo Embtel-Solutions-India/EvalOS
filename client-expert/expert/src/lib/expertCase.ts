@@ -49,7 +49,12 @@ export type ExpertCaseSummary = {
   actionRequired: boolean
   /** An offer on this case the expert has not answered yet — the "New cases" list. */
   offered: boolean
+  /** When the signed letter came back, or null. The dashboard dates "completed" by it. */
+  signedAt: string | null
 }
+
+/** `ExpertPortalService.ExpertMe`: who is signed in, for the greeting and the top bar. */
+export type ExpertMe = { name: string | null }
 
 /** EvalOS's `PayoutStatus`, verbatim. */
 export type PayoutStatus = 'PENDING' | 'PAID' | 'CONFIRMED' | 'VOIDED'
@@ -63,6 +68,8 @@ export type ExpertPayoutRow = {
   settledOn: string | null
   /** The transfer this row was paid in (Unit 63) — what "Confirm received" names. Null while owed. */
   paymentId: string | null
+  /** The ledger's due date (the payout batch's week) — what dates a row that is still owed. */
+  dueDate: string | null
 }
 
 /**

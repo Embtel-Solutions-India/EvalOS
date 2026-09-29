@@ -96,8 +96,8 @@ Legend: **✓** built · **⚠** built, but a definition or a setting is the bus
 
 | PDF widget | Status | Source | How it is computed |
 |---|---|---|---|
-| **Money vs goal** — `$38.4k / $55k`, `70% to goal` | ⚠ | GHL opportunities + config | Σ `monetaryValue` of opportunities with `status=won` whose `lastStatusChangeAt` falls in the window, across every desk pipeline. Goal is `evalos.sales.monthly-goal` (`SALES_MONTHLY_GOAL`). **⚠ Nobody has set the goal** — it defaults to `0`, and the tile then shows the amount with *"No monthly goal set"* instead of a percentage of nothing. **The percentage is suppressed on any window that is not a calendar month**: a monthly target against a week is arithmetic dressed as a business figure. |
-| **Business by source** — Referral / Website / Cold email / Unknown | ✓ | GHL `opportunity.source` | The same won set, grouped by `source`, blank → *Unattributed*. Sorted by value. Sums exactly to the tile above. |
+| **Money vs goal** — `$38.4k / $55k`, `70% to goal` | ⚠ | GHL opportunities + config | Σ `monetaryValue` of opportunities with `status=won` whose `lastStatusChangeAt` falls in the window, **on the sales desks only** (2026-09-29: marketing nurtures the same lead Sales closes, so a marketing desk's win is the same deal counted twice; it stays on its own *By desk* row). Goal is the newest `sales_monthly_goal` row for the month, set by the GM with *Set monthly target* on the tile (`PUT /api/metrics/gm/goal`, `V77`), else `evalos.sales.monthly-goal` (`SALES_MONTHLY_GOAL`). Unset, the tile shows the amount with *"No monthly target set"* instead of a percentage of nothing. **The percentage is suppressed on any window that is not a calendar month**: a monthly target against a week is arithmetic dressed as a business figure. |
+| **Business by source** — Referral / Website / Cold email / Unknown | ✓ | GHL `opportunity.source` | The same won set (sales desks only), grouped by `source`, blank → *Unattributed*. Sorted by value. Sums exactly to the tile above. |
 | **Business by service** — Letters / Evaluations / RFE-NOID / PERM | ✓ | `case.service_type` + `case.deal_value` | Σ open value + delivered-in-window value per `ServiceType`. **Deliberately a different denominator from "by source" and the tile says so**: a source lives on a GHL opportunity, a service lives on an EvalOS case, and a case exists only after a deal is won. They will never sum to the same total. |
 
 ### 3.2 SALES
@@ -161,11 +161,9 @@ evalos:
 
 Both follow the shape `evalos.workload.cases-per-cm` and
 `evalos.roster.monthly-onboarding-target` already set: the figure was always computable, only the
-target had nowhere to live. **One number for the selling brand**, not a column — per-brand goals
-need an admin screen to maintain and a second selling brand to justify, and neither exists.
-
-**`SALES_MONTHLY_GOAL` is the one setting the business owes this unit.** Until it is set, the
-headline tile is honest and incomplete.
+target had nowhere to live. **Since 2026-09-29 the GM sets the target per month from the tile** (`sales_monthly_goal`,
+`V77`, append-only: the newest row for the selling brand's month counts). `SALES_MONTHLY_GOAL` is
+the fallback for a month nobody has set.
 
 ---
 

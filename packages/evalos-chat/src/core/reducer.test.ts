@@ -28,6 +28,7 @@ function conv(over: Partial<Conversation> = {}): Conversation {
     id: 'v1',
     caseId: 'c1',
     caseCode: 'IE-1042',
+    clientName: null,
     serviceType: 'EXPERT_OPINION_LETTER',
     stage: 'CLIENT_REVIEW',
     type: 'CLIENT',
