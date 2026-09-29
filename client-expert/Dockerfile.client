@@ -2,20 +2,23 @@ FROM node:20-alpine AS build
 
 WORKDIR /app
 
-COPY package*.json ./
+COPY client-expert/package*.json ./
 
 RUN npm ci
 
-COPY . .
+COPY client-expert/ ./client-expert/
+COPY packages/ ./packages/
+
+WORKDIR /app/client-expert
 
 RUN npm run build:client
 
 
 FROM nginx:alpine
 
-COPY --from=build /app/client/dist /usr/share/nginx/html
+COPY --from=build /app/client-expert/client/dist /usr/share/nginx/html
 
-COPY nginx-portal.conf /etc/nginx/conf.d/default.conf
+COPY client-expert/nginx-portal.conf /etc/nginx/conf.d/default.conf
 
 EXPOSE 80
 

@@ -98,8 +98,8 @@ services:
       - evalos-network
   client:
     build:
-      context: ./client-expert
-      dockerfile: Dockerfile.client
+      context: .
+      dockerfile: client-expert/Dockerfile.client
 
     container_name: evalos-client
     restart: unless-stopped
@@ -116,8 +116,8 @@ services:
 
   expert:
     build:
-      context: ./client-expert
-      dockerfile: Dockerfile.expert
+      context: .
+      dockerfile: client-expert/Dockerfile.expert
 
     container_name: evalos-expert
     restart: unless-stopped
