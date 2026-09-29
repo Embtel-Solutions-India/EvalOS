@@ -91,6 +91,8 @@ UPDATE expert_case_offer o
   it such a row could never be settled (`settle` refuses a row with no amount) and the expert would
   never be paid. Correcting an amount that exists stays removed (rule 5).
 - No new table. No change to `payout_ledger`, `payout_payment` or `PayoutStatus`.
+- **`V80__offer_version.sql`** (added after review): `expert_case_offer.version`, an optimistic lock. The fee (staff) and the outcome (the expert) change on one row; a stale write is 409 `CHANGED_MEANWHILE`.
+- **Committed means the live acceptance only:** the latest acceptance by the case's current expert, whose payout is not voided. An older acceptance (a retake) or a replaced expert's reads *Superseded*.
 
 ## 3. API
 
@@ -128,7 +130,7 @@ The single `/payouts` nav entry becomes a **Payouts** group in `navigation.ts` (
 
 *Where does the money stand?* On the shell's own period and brand filters (no second range menu). Four tiles, each a
 count and an amount: **Committed** (accepted, not delivered), **Pending**, **Processing**, **Paid**.
-A **Needs attention** list: pending past its due date; processing with no confirmation after
+A **Needs attention** list, **not** limited to the period: pending past its due date; processing with no confirmation after
 **7 days** (a constant, `CONFIRM_NUDGE_DAYS`). Below, the existing `PayoutSummary` and both exports
 move here unchanged.
 

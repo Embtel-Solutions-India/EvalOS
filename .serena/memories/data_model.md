@@ -103,4 +103,4 @@ message_reactions, message_reads (one watermark per member), push_subscriptions.
 
 **Unit 64 (built 2026-09-29):** `V78` dropped `application_document` and `client_application`, moved `INTAKE` pipelines to `UNASSIGNED` and dropped it from the CHECK, and added `'CASE'` to `client_account.created_via`. The two tables described above no longer exist. See `.claude/data-model.md` → REQUIRED FUTURE MODEL.
 
-**Unit 65 (built 2026-09-30):** `V79` added `expert_case_offer.fee` (numeric(12,2), >= 0) + `fee_set_by` / `fee_set_at`, nullable, open and accepted offers backfilled (payout amount, else `expert.standard_fee`); delivery reads the accepted offer's fee. No new table.
+**Unit 65 (built 2026-09-30):** `V80` added `expert_case_offer.version` (@Version, a lost race is 409 CHANGED_MEANWHILE). `V79` added `expert_case_offer.fee` (numeric(12,2), >= 0) + `fee_set_by` / `fee_set_at`, nullable, open and accepted offers backfilled (payout amount, else `expert.standard_fee`); delivery reads the accepted offer's fee. No new table.
