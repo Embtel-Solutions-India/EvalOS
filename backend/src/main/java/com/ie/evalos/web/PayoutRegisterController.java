@@ -5,6 +5,8 @@ import java.util.List;
 import java.util.UUID;
 
 import com.ie.evalos.common.ApiResponse;
+import com.ie.evalos.common.DateWindow;
+import com.ie.evalos.service.BusinessCalendar;
 import com.ie.evalos.service.OfferLog;
 import com.ie.evalos.service.PayoutRegisterService;
 import com.ie.evalos.service.PayoutRegisterService.Filter;
@@ -42,8 +44,8 @@ public class PayoutRegisterController {
 			@RequestParam(required = false) RegisterStatus status, @RequestParam(required = false) UUID expertId,
 			@RequestParam(required = false) @DateTimeFormat(iso = ISO.DATE) LocalDate from,
 			@RequestParam(required = false) @DateTimeFormat(iso = ISO.DATE) LocalDate to,
-			@RequestParam(required = false) String q) {
-		return ApiResponse.ok(register.rows(new Filter(status, expertId, from, to, q)));
+			@RequestParam(required = false) String q, @RequestParam(required = false) UUID brandId) {
+		return ApiResponse.ok(register.rows(new Filter(status, expertId, from, to, q, brandId)));
 	}
 
 	/** The register exactly as filtered, as a CSV download. */
@@ -52,10 +54,10 @@ public class PayoutRegisterController {
 			@RequestParam(required = false) UUID expertId,
 			@RequestParam(required = false) @DateTimeFormat(iso = ISO.DATE) LocalDate from,
 			@RequestParam(required = false) @DateTimeFormat(iso = ISO.DATE) LocalDate to,
-			@RequestParam(required = false) String q) {
+			@RequestParam(required = false) String q, @RequestParam(required = false) UUID brandId) {
 		return ResponseEntity.ok()
 				.header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"payout-cases.csv\"")
-				.body(register.exportCsv(new Filter(status, expertId, from, to, q)));
+				.body(register.exportCsv(new Filter(status, expertId, from, to, q, brandId)));
 	}
 
 	@GetMapping("/cases/{offerId}/history")
@@ -64,14 +66,21 @@ public class PayoutRegisterController {
 	}
 
 	@GetMapping("/experts")
-	public ApiResponse<List<PayoutRegisterService.ExpertTotals>> experts() {
-		return ApiResponse.ok(register.experts());
+	public ApiResponse<List<PayoutRegisterService.ExpertTotals>> experts(
+			@RequestParam(required = false) UUID brandId) {
+		return ApiResponse.ok(register.experts(brandId));
 	}
 
+	/**
+	 * The shell's period, the same contract as {@code MetricsController}: {@code range} is a named
+	 * period or {@code custom}, and explicit dates are accepted only with {@code custom} (400
+	 * otherwise, see {@link DateWindow#of}).
+	 */
 	@GetMapping("/overview")
 	public ApiResponse<List<PayoutRegisterService.Overview>> overview(
-			@RequestParam(required = false) @DateTimeFormat(iso = ISO.DATE) LocalDate from,
-			@RequestParam(required = false) @DateTimeFormat(iso = ISO.DATE) LocalDate to) {
-		return ApiResponse.ok(register.overview(from, to));
+			@RequestParam(defaultValue = "month") String range, @RequestParam(required = false) String from,
+			@RequestParam(required = false) String to, @RequestParam(required = false) UUID brandId) {
+		DateWindow window = DateWindow.of(range, from, to, BusinessCalendar.clock());
+		return ApiResponse.ok(register.overview(window.from(), window.to(), brandId));
 	}
 }

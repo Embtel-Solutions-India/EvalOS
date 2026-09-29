@@ -152,10 +152,10 @@ class PayoutRegisterServiceTest {
 		given(named.getFullName()).willReturn("Dr Ada Lovelace");
 		given(experts.findAllById(anyIterable())).willReturn(List.of(named));
 
-		assertThat(service.rows(new PayoutRegisterService.Filter(RegisterStatus.OFFERED, null, null, null, null)))
+		assertThat(service.rows(new PayoutRegisterService.Filter(RegisterStatus.OFFERED, null, null, null, null, null)))
 				.extracting(PayoutRegisterService.RegisterRow::status).containsExactly(RegisterStatus.OFFERED);
-		assertThat(service.rows(new PayoutRegisterService.Filter(null, null, null, null, "lovelace"))).hasSize(2);
-		assertThat(service.rows(new PayoutRegisterService.Filter(null, null, null, null, "nobody"))).isEmpty();
+		assertThat(service.rows(new PayoutRegisterService.Filter(null, null, null, null, "lovelace", null))).hasSize(2);
+		assertThat(service.rows(new PayoutRegisterService.Filter(null, null, null, null, "nobody", null))).isEmpty();
 	}
 
 	@Test
@@ -165,7 +165,7 @@ class PayoutRegisterServiceTest {
 		offerRows.add(accepted(IE, pendingCase, "200.00"));
 		payoutRows.add(new PayoutLedger(IE, pendingCase, EXPERT, new BigDecimal("200.00"), "USD", Instant.now()));
 
-		PayoutRegisterService.ExpertTotals totals = service.experts().getFirst();
+		PayoutRegisterService.ExpertTotals totals = service.experts(null).getFirst();
 
 		assertThat(totals.committed()).isEqualByComparingTo("100.00");
 		assertThat(totals.pending()).isEqualByComparingTo("200.00");
@@ -184,7 +184,7 @@ class PayoutRegisterServiceTest {
 		payoutRows.add(new PayoutLedger(IE, a, EXPERT, new BigDecimal("100.00"), "USD",
 				Instant.now().minus(3, ChronoUnit.DAYS))); // due in the past → overdue
 
-		List<PayoutRegisterService.Overview> overviews = service.overview(null, null);
+		List<PayoutRegisterService.Overview> overviews = service.overview(null, null, null);
 
 		assertThat(overviews).extracting(PayoutRegisterService.Overview::currency)
 				.containsExactlyInAnyOrder("USD", "INR");
@@ -196,6 +196,21 @@ class PayoutRegisterServiceTest {
 				.findFirst().orElseThrow();
 		assertThat(inr.committed().amount()).isEqualByComparingTo("5000.00");
 		assertThat(inr.attention()).isEmpty();
+	}
+
+	@Test
+	void theShellsBrandSwitcherNarrowsEveryRead() {
+		// The GM's "All brands" switcher: brandId narrows within the scope, never widens it.
+		offerRows.add(accepted(IE, UUID.randomUUID(), "100.00"));
+		offerRows.add(accepted(XP, UUID.randomUUID(), "5000.00"));
+
+		assertThat(service.rows(new PayoutRegisterService.Filter(null, null, null, null, null, XP)))
+				.extracting(PayoutRegisterService.RegisterRow::currency).containsExactly("INR");
+		assertThat(service.experts(XP)).extracting(PayoutRegisterService.ExpertTotals::currency)
+				.containsExactly("INR");
+		assertThat(service.overview(null, null, IE)).extracting(PayoutRegisterService.Overview::currency)
+				.containsExactly("USD");
+		assertThat(service.rows(PayoutRegisterService.Filter.none())).hasSize(2);
 	}
 
 	@Test

@@ -87,6 +87,8 @@ export default function LeftNav() {
                 <li key={item.path}>
                   <NavLink
                     to={item.path}
+                    // Exact match: `/payouts` must not light up on `/payouts/cases`, nor `/hiring` on `/hiring/new`.
+                    end
                     className="flex items-center gap-2.5 px-3 text-sm transition-colors"
                     style={({ isActive }) => ({
                       height: '2.25rem',

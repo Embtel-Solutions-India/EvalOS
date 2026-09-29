@@ -141,3 +141,30 @@ export function registerParams(filter: RegisterFilter): Record<string, string> {
   }
   return params
 }
+
+/** The colour a status is drawn in. Answered-but-unpaid outcomes stay muted: nothing is owed. */
+export const STATUS_TONE: Record<RegisterStatus, string> = {
+  OFFERED: 'var(--text-muted)',
+  ACCEPTED: 'var(--chart-4)',
+  DECLINED: 'var(--text-muted)',
+  TIMED_OUT: 'var(--text-muted)',
+  SUPERSEDED: 'var(--text-muted)',
+  PENDING: 'var(--status-amber)',
+  PROCESSING: 'var(--accent-primary)',
+  PAID: 'var(--status-green)',
+}
+
+/** Hands the browser a file to save — the same way `PayoutSummary` saves its exports. */
+export function downloadBlob(blob: Blob, name: string) {
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = name
+  link.click()
+  URL.revokeObjectURL(url)
+}
+
+/** A calendar date for a table cell, or a dash. */
+export function day(iso: string | null): string {
+  return iso ? new Date(iso).toLocaleDateString() : '—'
+}

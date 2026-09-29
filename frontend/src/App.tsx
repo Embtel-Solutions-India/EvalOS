@@ -17,6 +17,9 @@ import NewDealPage from './features/opportunities/NewDealPage'
 import NewLeadPage from './features/opportunities/NewLeadPage'
 import OpportunityBoardPage from './features/opportunities/OpportunityBoardPage'
 import PayoutBatch from './features/payouts/PayoutBatch'
+import PayoutsOverview from './features/payouts/PayoutsOverview'
+import PayoutRegister from './features/payouts/PayoutRegister'
+import ExpertBalances from './features/payouts/ExpertBalances'
 import ExpertPayouts from './features/payouts/ExpertPayouts'
 import PaymentDetail from './features/payouts/PaymentDetail'
 import LoginPage from './features/auth/LoginPage'
@@ -59,7 +62,11 @@ const SCREENS: Record<string, React.ReactNode> = {
   '/checklists': <ChecklistBoard />,
   '/contacts': <ContactsPage />,
   '/experts': <ExpertRoster />,
-  '/payouts': <PayoutBatch />,
+  // Unit 65: the Payouts module. The weekly batch moved to Pay run.
+  '/payouts': <PayoutsOverview />,
+  '/payouts/cases': <PayoutRegister />,
+  '/payouts/experts': <ExpertBalances />,
+  '/payouts/pay': <PayoutBatch />,
   '/admin/jobs': <JobRunsPage />,
   // The diary. Its own screen rather than a panel on the board: a meeting booked from a deal card
   // was invisible the moment the card scrolled away, and EvalOS kept no record of it at all until

@@ -63,10 +63,14 @@ public class PayoutRegisterService {
 			Instant feeSetAt, Instant offeredAt, Instant dueDate, Instant sentAt, Instant confirmedAt, boolean done) {
 	}
 
-	/** Every field optional; {@code from} / {@code to} bound the offer date, inclusive. */
-	public record Filter(RegisterStatus status, UUID expertId, LocalDate from, LocalDate to, String q) {
+	/**
+	 * Every field optional; {@code from} / {@code to} bound the offer date, inclusive. {@code brandId}
+	 * is the shell's brand switcher: it narrows within the caller's scope and can never widen it.
+	 */
+	public record Filter(RegisterStatus status, UUID expertId, LocalDate from, LocalDate to, String q,
+			UUID brandId) {
 		public static Filter none() {
-			return new Filter(null, null, null, null, null);
+			return new Filter(null, null, null, null, null, null);
 		}
 	}
 
@@ -119,7 +123,7 @@ public class PayoutRegisterService {
 
 	@Transactional(readOnly = true)
 	public List<RegisterRow> rows(Filter filter) {
-		return allRows().stream().filter(row -> matches(row, filter)).toList();
+		return allRows(filter.brandId()).stream().filter(row -> matches(row, filter)).toList();
 	}
 
 	/** The register exactly as filtered, as CSV — quoted and formula-safe through {@code csvField}. */
@@ -138,8 +142,8 @@ public class PayoutRegisterService {
 
 	/** Who is owed how much, per expert and currency; most pending first. */
 	@Transactional(readOnly = true)
-	public List<ExpertTotals> experts() {
-		Map<List<Object>, List<RegisterRow>> byExpert = allRows().stream()
+	public List<ExpertTotals> experts(UUID brandId) {
+		Map<List<Object>, List<RegisterRow>> byExpert = allRows(brandId).stream()
 				.collect(Collectors.groupingBy(r -> List.of(r.expertId(), Objects.toString(r.currency(), ""))));
 		return byExpert.values().stream().map(rows -> {
 			RegisterRow first = rows.getFirst();
@@ -153,10 +157,10 @@ public class PayoutRegisterService {
 
 	/** The four tiles and the attention list, per currency, for offers made in the window. */
 	@Transactional(readOnly = true)
-	public List<Overview> overview(LocalDate from, LocalDate to) {
+	public List<Overview> overview(LocalDate from, LocalDate to, UUID brandId) {
 		Instant now = Instant.now();
 		Instant nudge = now.minus(CONFIRM_NUDGE_DAYS, ChronoUnit.DAYS);
-		Map<String, List<RegisterRow>> byCurrency = rows(new Filter(null, null, from, to, null)).stream()
+		Map<String, List<RegisterRow>> byCurrency = rows(new Filter(null, null, from, to, null, brandId)).stream()
 				.collect(Collectors.groupingBy(r -> Objects.toString(r.currency(), "")));
 		return byCurrency.entrySet().stream().map(e -> {
 			List<RegisterRow> rows = e.getValue();
@@ -200,7 +204,7 @@ public class PayoutRegisterService {
 		}
 	}
 
-	private List<RegisterRow> allRows() {
+	private List<RegisterRow> allRows(UUID brandId) {
 		TenantContext ctx = TenantContext.current();
 		Map<List<UUID>, PayoutLedger> payoutByCaseAndExpert = new HashMap<>();
 		payouts.findScoped(ctx).stream().filter(p -> p.getStatus() != PayoutStatus.VOIDED)
@@ -215,6 +219,9 @@ public class PayoutRegisterService {
 			}
 		}
 		payoutByCaseAndExpert.values().forEach(p -> pairs.add(new Pair(null, p)));
+		if (brandId != null) {
+			pairs.removeIf(x -> !brandId.equals(x.brandId())); // after the scope: narrows only
+		}
 
 		// One query per lookup for the whole set, never one per row. Every id came off a scoped row.
 		Map<UUID, String> caseCodes = byId(cases.findAllById(ids(pairs, Pair::caseId)), Case::getId, Case::getCaseCode);

@@ -79,18 +79,27 @@ class PayoutRegisterControllerTest {
 				.header(HttpHeaders.AUTHORIZATION, bearer(Role.EXPERT_NETWORK_MANAGER)))
 				.andExpect(status().isOk());
 
-		verify(register).rows(new Filter(RegisterStatus.PENDING, expert, null, null, "ada"));
+		verify(register).rows(new Filter(RegisterStatus.PENDING, expert, null, null, "ada", null));
 	}
 
 	@Test
 	void theExpertsAndOverviewRoutesAnswer() throws Exception {
-		given(register.experts()).willReturn(List.of());
-		given(register.overview(any(), any())).willReturn(List.of());
+		given(register.experts(any())).willReturn(List.of());
+		given(register.overview(any(), any(), any())).willReturn(List.of());
 		mockMvc.perform(get("/api/payouts/experts").header(HttpHeaders.AUTHORIZATION, bearer(Role.GM)))
 				.andExpect(status().isOk());
-		mockMvc.perform(get("/api/payouts/overview?from=2026-09-01&to=2026-09-30")
+		mockMvc.perform(get("/api/payouts/overview?range=custom&from=2026-09-01&to=2026-09-30")
 				.header(HttpHeaders.AUTHORIZATION, bearer(Role.BRAND_MANAGER)))
 				.andExpect(status().isOk());
+		verify(register).overview(java.time.LocalDate.parse("2026-09-01"), java.time.LocalDate.parse("2026-09-30"), null);
+	}
+
+	@Test
+	void theOverviewRefusesDatesOnANamedRange() throws Exception {
+		// The shell's contract (DateWindow): explicit dates only with range=custom.
+		mockMvc.perform(get("/api/payouts/overview?range=month&from=2026-09-01&to=2026-09-30")
+				.header(HttpHeaders.AUTHORIZATION, bearer(Role.GM)))
+				.andExpect(status().isBadRequest());
 	}
 
 	@ParameterizedTest

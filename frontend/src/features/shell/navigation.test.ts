@@ -292,3 +292,15 @@ describe('the nav and route table', () => {
     expect(boardPathFor('EXPERT_NETWORK_MANAGER').path).toBe('/dashboard')
   })
 })
+
+describe('the payouts module (Unit 65)', () => {
+  it('gives payouts its own group of four screens for the three payout roles', () => {
+    for (const role of ['GM', 'BRAND_MANAGER', 'EXPERT_NETWORK_MANAGER'] as const) {
+      const section = navSectionsFor(role).find((s) => s.group === 'Payouts')
+      expect(section?.items.map((i) => i.path)).toEqual(['/payouts', '/payouts/cases', '/payouts/experts', '/payouts/pay'])
+    }
+    for (const role of ['PROJECT_MANAGER', 'PROJECT_COORDINATOR', 'CASE_MANAGER', 'SALES'] as const) {
+      expect(navSectionsFor(role).some((s) => s.group === 'Payouts')).toBe(false)
+    }
+  })
+})
