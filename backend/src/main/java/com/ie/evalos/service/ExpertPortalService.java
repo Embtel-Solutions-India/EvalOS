@@ -17,6 +17,7 @@ import com.ie.evalos.common.ForbiddenException;
 import com.ie.evalos.common.InvalidRequestException;
 import com.ie.evalos.domain.ActorType;
 import com.ie.evalos.domain.AuditAction;
+import com.ie.evalos.domain.Brand;
 import com.ie.evalos.domain.Case;
 import com.ie.evalos.domain.CaseDocument;
 import com.ie.evalos.domain.DocumentChecklistItem;
@@ -25,14 +26,17 @@ import com.ie.evalos.domain.DocumentStatus;
 import com.ie.evalos.domain.ExceptionState;
 import com.ie.evalos.domain.Expert;
 import com.ie.evalos.domain.ExpertSignStatus;
+import com.ie.evalos.domain.ExpertCaseOffer;
 import com.ie.evalos.domain.IllegalTransitionException;
 import com.ie.evalos.domain.PayoutPayment;
+import com.ie.evalos.domain.OfferOutcome;
 import com.ie.evalos.domain.PayoutStatus;
 import com.ie.evalos.domain.PortalAudience;
 import com.ie.evalos.domain.ServiceType;
 import com.ie.evalos.domain.SlaStatus;
 import com.ie.evalos.domain.VisaCategory;
 import com.ie.evalos.integration.DocumentStore;
+import com.ie.evalos.repository.BrandRepository;
 import com.ie.evalos.repository.CaseDocumentRepository;
 import com.ie.evalos.repository.CaseRepository;
 import com.ie.evalos.repository.ContactSnapshotRepository;
@@ -111,7 +115,11 @@ public class ExpertPortalService {
 			boolean onHold,
 			boolean signed,
 			Instant signedAt,
-			String attestation) {
+			String attestation,
+			/** What this case pays the expert (Unit 65): the open or accepted offer's fee, or null. */
+			BigDecimal offeredFee,
+			/** The brand's currency, the fee's unit. */
+			String currency) {
 	}
 
 	/**
@@ -136,7 +144,10 @@ public class ExpertPortalService {
 			String step,
 			boolean actionRequired,
 			boolean offered,
-			Instant signedAt) {
+			Instant signedAt,
+			/** Unit 65: the open or accepted offer's fee, shown before the expert can accept. */
+			BigDecimal offeredFee,
+			String currency) {
 	}
 
 	/** Who is signed in, for the portal's greeting and top bar. The name only. */
@@ -200,11 +211,14 @@ public class ExpertPortalService {
 	private final ExpertCaseOfferRepository offers;
 	private final PayoutLedgerRepository payouts;
 	private final PayoutPaymentRepository payments;
+	private final BrandRepository brands;
 
 	ExpertPortalService(CaseRepository cases, ContactSnapshotRepository contacts, ExpertRepository experts,
 			DocumentChecklistItemRepository checklistItems, CaseDocumentRepository documents,
 			CaseLifecycleService lifecycle, SlaCalculator sla, DocumentStore store, AuditService audit,
-			ExpertCaseOfferRepository offers, PayoutLedgerRepository payouts, PayoutPaymentRepository payments) {
+			ExpertCaseOfferRepository offers, PayoutLedgerRepository payouts, PayoutPaymentRepository payments,
+			BrandRepository brands) {
+		this.brands = brands;
 		this.cases = cases;
 		this.contacts = contacts;
 		this.experts = experts;
@@ -279,7 +293,27 @@ public class ExpertPortalService {
 				subject.getExceptionState() == ExceptionState.ON_HOLD_AWAITING_CLIENT,
 				signedLetter.isPresent(),
 				signedLetter.map(CaseDocument::getUploadedAt).orElse(null),
-				attestationFor(expertName == null ? "the assigned expert" : expertName));
+				attestationFor(expertName == null ? "the assigned expert" : expertName),
+				offeredFee(subject.getId(), subject.getExpertId()),
+				currency(subject.getBrandId()));
+	}
+
+	/**
+	 * The fee of this expert's open or accepted offer on the case, or null (Unit 65). The case id
+	 * came off an authorized case, the only way the unscoped finder may be called.
+	 */
+	private BigDecimal offeredFee(UUID caseId, UUID expertId) {
+		if (expertId == null) {
+			return null;
+		}
+		return offers.findByCaseIdOrderByOfferedAtDesc(caseId).stream()
+				.filter(o -> o.getExpertId().equals(expertId)
+						&& (o.getOutcome() == OfferOutcome.OFFERED || o.getOutcome() == OfferOutcome.ACCEPTED))
+				.map(ExpertCaseOffer::getFee).findFirst().orElse(null);
+	}
+
+	private String currency(UUID brandId) {
+		return brands.findById(brandId).map(Brand::getCurrency).orElse(null);
 	}
 
 	// --- the three answers ---------------------------------------------------
@@ -297,6 +331,7 @@ public class ExpertPortalService {
 			throw new ForbiddenException("This link admits you to one case, not a list");
 		}
 		Set<UUID> open = offers.openOfferCaseIds(principal.brandId(), principal.expertId());
+		String currency = currency(principal.brandId());
 		return partyCases(principal).stream().map(subject -> {
 			PortalStageProjection.PortalStep step = PortalStageProjection.forExpert(subject.getCurrentStage());
 			return new ExpertCaseSummary(subject.getId(), subject.getCaseCode(), subject.getServiceType(),
@@ -306,7 +341,10 @@ public class ExpertPortalService {
 					open.contains(subject.getId()),
 					// ponytail: one document read per case; an expert holds a handful. Batch by case
 					// ids if a roster ever carries hundreds per expert.
-					signedLetter(subject).map(CaseDocument::getUploadedAt).orElse(null));
+					signedLetter(subject).map(CaseDocument::getUploadedAt).orElse(null),
+					// ponytail: one offer read per case, like signedLetter; batch by case ids if a roster
+					// ever carries hundreds per expert.
+					offeredFee(subject.getId(), principal.expertId()), currency);
 		}).toList();
 	}
 
@@ -363,9 +401,26 @@ public class ExpertPortalService {
 				.toList();
 	}
 
+	/**
+	 * The expert takes the case at the fee they were shown (Unit 65): a fee changed since the page
+	 * loaded, or none set yet, is refused before anything moves. With no open offer left — the
+	 * second click — there is nothing to compare, and the lifecycle's own idempotency answers.
+	 */
 	@Transactional
-	public ExpertCaseView accept(PortalPrincipal principal, UUID caseId) {
-		return project(lifecycle.expertAcceptedFromPortal(authorized(principal, caseId)));
+	public ExpertCaseView accept(PortalPrincipal principal, UUID caseId, BigDecimal fee) {
+		Case authorized = authorized(principal, caseId);
+		offers.findByCaseIdAndOutcome(authorized.getId(), OfferOutcome.OFFERED).stream()
+				.filter(o -> o.getExpertId().equals(authorized.getExpertId()))
+				.findFirst()
+				.ifPresent(open -> {
+					if (open.getFee() == null) {
+						throw new IllegalTransitionException("The fee for this case is not set yet.");
+					}
+					if (fee == null || open.getFee().compareTo(fee) != 0) {
+						throw new IllegalTransitionException("The fee for this case changed — review it.");
+					}
+				});
+		return project(lifecycle.expertAcceptedFromPortal(authorized));
 	}
 
 	/** Not until the client sends this. Opens a required checklist item and holds the case. */

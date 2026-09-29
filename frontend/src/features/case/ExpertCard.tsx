@@ -1,5 +1,6 @@
 import type { CaseDetail } from './caseApi'
 import DocumentList from './DocumentList'
+import OfferFee from '../payouts/OfferFee'
 
 /**
  * Who is signing and where their signature stands.
@@ -48,6 +49,9 @@ export default function ExpertCard({ detail }: { detail: CaseDetail }) {
               {tone.label}
             </span>
           )}
+
+          {/* Unit 65: what this case pays the expert, and whether they have agreed to it. */}
+          <OfferFee caseId={detail.summary.id} />
 
           {/*
             The read receipt, and it is worth its line: "they have not opened it" and "they opened

@@ -1,5 +1,6 @@
 package com.ie.evalos.domain;
 
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.UUID;
 
@@ -8,6 +9,7 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.Table;
+import jakarta.persistence.Version;
 
 /**
  * One offer of one case to one expert, and what became of it.
@@ -18,9 +20,10 @@ import jakarta.persistence.Table;
  * by a reassignment. This table is the aggregable form of a fact the trail already records —
  * not a second history, a queryable projection of one.
  *
- * <p><strong>Append-only in spirit, one mutable field in fact.</strong> {@link #outcome} moves
- * off {@link OfferOutcome#OFFERED} exactly once, through {@link #resolve}; every other column
- * is {@code updatable = false}. The rows are written by the transitions that already exist —
+ * <p><strong>Append-only in spirit, two mutable facts in fact.</strong> {@link #outcome} moves
+ * off {@link OfferOutcome#OFFERED} exactly once, through {@link #resolve}, and the {@link #fee}
+ * may change only while it is still {@code OFFERED} (Unit 65); every other column is
+ * {@code updatable = false}. The rows are written by the transitions that already exist —
  * {@code assignCaseManager} and {@code reassignExpert} open one, {@code expertDeclined} and
  * {@code expertSigned} close it — inside those transactions, so an offer and the transition
  * that caused it commit together or not at all.
@@ -47,6 +50,30 @@ public class ExpertCaseOffer extends ScopedEntity {
 
 	@Column(name = "decline_reason")
 	private String declineReason;
+
+	/**
+	 * What this case pays the expert, in the brand's currency (Unit 65). Nullable only for offers
+	 * closed before V79 and for an open one whose expert had no standard fee at migration time;
+	 * every offer made since is priced by {@code OfferFees.price}.
+	 */
+	@Column(name = "fee")
+	private BigDecimal fee;
+
+	/** Who set the current {@link #fee}; null when the migration did. The history is in audit_event. */
+	@Column(name = "fee_set_by")
+	private UUID feeSetBy;
+
+	@Column(name = "fee_set_at")
+	private Instant feeSetAt;
+
+	/**
+	 * Optimistic lock (V80). The fee and the outcome both change on this row, from different people
+	 * (staff edit the fee, the expert answers); without a version the later write would silently put
+	 * back what the earlier one changed. A lost race is a 409, see {@code ApiExceptionHandler}.
+	 */
+	@Version
+	@Column(name = "version", nullable = false)
+	private long version;
 
 	protected ExpertCaseOffer() {
 		// for JPA
@@ -117,5 +144,30 @@ public class ExpertCaseOffer extends ScopedEntity {
 
 	public String getDeclineReason() {
 		return declineReason;
+	}
+
+	/**
+	 * Sets the amount, only while nobody has answered (Unit 65 rule 3): an accepted fee is the
+	 * agreed price, and a declined or superseded offer has nothing left to price.
+	 */
+	public void setFee(BigDecimal fee, UUID actor) {
+		if (outcome != OfferOutcome.OFFERED) {
+			throw new IllegalTransitionException("This offer is " + outcome + " and its fee is final");
+		}
+		this.fee = fee;
+		this.feeSetBy = actor;
+		this.feeSetAt = Instant.now();
+	}
+
+	public BigDecimal getFee() {
+		return fee;
+	}
+
+	public UUID getFeeSetBy() {
+		return feeSetBy;
+	}
+
+	public Instant getFeeSetAt() {
+		return feeSetAt;
 	}
 }

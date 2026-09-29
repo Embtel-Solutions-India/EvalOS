@@ -1,7 +1,9 @@
 package com.ie.evalos.service;
 
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -264,13 +266,15 @@ public class CaseLifecycleService {
 	 */
 	@Transactional
 	public Case assignCaseManager(UUID caseId, UUID cmId, UUID expertId, String expertRationale,
-			FieldTag fieldOfExpertise) {
+			FieldTag fieldOfExpertise, BigDecimal fee) {
 		Case subject = load(caseId);
 		Stage to = CaseTransitions.target(subject, Action.ASSIGN_CASE_MANAGER);
 		TeamMember cm = member(cmId, Role.CASE_MANAGER, subject.getBrandId());
 		requireState(cm.getTeamId() != null && cm.getTeamId().equals(subject.getTeamId()),
 				"case manager is not on this case's team");
 		Expert expert = availableExpert(expertId);
+		// Priced before anything moves (Unit 65): a refused price must leave the case where it was.
+		BigDecimal price = OfferFees.price(TenantContext.current().role(), fee, expert.getStandardFee());
 
 		Case saved = apply(subject, to, Action.ASSIGN_CASE_MANAGER, null, c -> {
 			c.setAssignedCm(cm.getId());
@@ -286,7 +290,7 @@ public class CaseLifecycleService {
 				c.setFieldOfExpertise(fieldOfExpertise);
 			}
 		});
-		offers.save(new ExpertCaseOffer(saved.getBrandId(), saved.getId(), expert.getId()));
+		openOffer(saved, expert.getId(), price);
 		return saved;
 	}
 
@@ -828,7 +832,7 @@ public class CaseLifecycleService {
 
 		Stage to = CaseTransitions.target(subject, Action.EXPERT_SIGNED);
 
-		resolveOpenOffer(subject, OfferOutcome.ACCEPTED, null);
+		resolveOpenOffer(subject, OfferOutcome.ACCEPTED, null, actor);
 		// The signature is the expert's last act on this case; the link has nothing left to open.
 		revokeExpertLink(subject);
 		return apply(subject, to, Action.EXPERT_SIGNED, null,
@@ -851,7 +855,7 @@ public class CaseLifecycleService {
 
 		// The reason goes to two places for two purposes: the audit trail, which is the history,
 		// and the offer row, which is what the acceptance rate is aggregated from.
-		resolveOpenOffer(subject, OfferOutcome.DECLINED, reason);
+		resolveOpenOffer(subject, OfferOutcome.DECLINED, reason, actor);
 		revokeExpertLink(subject);
 		return apply(subject, to, Action.EXPERT_DECLINED, reason,
 				c -> c.setExceptionState(ExceptionState.EXPERT_DECLINED_REMATCHING), actor);
@@ -898,7 +902,7 @@ public class CaseLifecycleService {
 			}
 		}
 
-		resolveOpenOffer(authorized, OfferOutcome.ACCEPTED, null);
+		resolveOpenOffer(authorized, OfferOutcome.ACCEPTED, null, PortalAudience.EXPERT);
 		return apply(authorized, to, Action.EXPERT_ACCEPTED, null, c -> {
 		}, PortalAudience.EXPERT);
 	}
@@ -959,7 +963,7 @@ public class CaseLifecycleService {
 		Case subject = load(caseId);
 		Stage to = CaseTransitions.target(subject, Action.EXPERT_TIMED_OUT);
 
-		resolveOpenOffer(subject, OfferOutcome.TIMED_OUT, null);
+		resolveOpenOffer(subject, OfferOutcome.TIMED_OUT, null, null);
 		// Taking the case off an expert has to take the link with it, or it was not taken off them.
 		revokeExpertLink(subject);
 		return apply(subject, to, Action.EXPERT_TIMED_OUT, null,
@@ -978,12 +982,13 @@ public class CaseLifecycleService {
 	 */
 	@Transactional
 	public Case reassignExpert(UUID caseId, UUID expertId, String expertRationale,
-			FieldTag fieldOfExpertise) {
+			FieldTag fieldOfExpertise, BigDecimal fee) {
 		Case subject = load(caseId);
 		Expert replacement = availableExpert(expertId);
 		requireState(!replacement.getId().equals(subject.getExpertId()),
 				"that is the expert who declined — offer it again with retake");
-		return rematch(subject, replacement, expertRationale, fieldOfExpertise, null);
+		return rematch(subject, replacement, expertRationale, fieldOfExpertise, null,
+				OfferFees.price(TenantContext.current().role(), fee, replacement.getStandardFee()));
 	}
 
 	/**
@@ -993,17 +998,22 @@ public class CaseLifecycleService {
 	 * is available; permitted by whoever may reassign.
 	 */
 	@Transactional
-	public Case retakeExpert(UUID caseId) {
+	public Case retakeExpert(UUID caseId, BigDecimal fee) {
 		Case subject = load(caseId);
 		requireState(subject.getExpertId() != null, "the case names no expert to offer it back to");
-		return rematch(subject, availableExpert(subject.getExpertId()), null, null,
-				"Offered again to the expert who declined (retake)");
+		Expert again = availableExpert(subject.getExpertId());
+		// The retake is the same case to the same expert, so the base is what they were last offered.
+		BigDecimal previous = offers.findByCaseIdOrderByOfferedAtDesc(subject.getId()).stream()
+				.filter(o -> o.getExpertId().equals(again.getId()) && o.getFee() != null)
+				.map(ExpertCaseOffer::getFee).findFirst().orElse(again.getStandardFee());
+		return rematch(subject, again, null, null, "Offered again to the expert who declined (retake)",
+				OfferFees.price(TenantContext.current().role(), fee, previous));
 	}
 
 	private Case rematch(Case subject, Expert replacement, String expertRationale, FieldTag fieldOfExpertise,
-			String note) {
+			String note, BigDecimal price) {
 		Stage to = CaseTransitions.target(subject, Action.REASSIGN_EXPERT);
-		resolveOpenOffer(subject, OfferOutcome.SUPERSEDED, null);
+		resolveOpenOffer(subject, OfferOutcome.SUPERSEDED, null, null);
 		// **The one that matters.** The case is about to name a different expert; the outgoing one's
 		// link must stop working before that is true, not whenever somebody remembers to re-mint.
 		revokeExpertLink(subject);
@@ -1024,7 +1034,7 @@ public class CaseLifecycleService {
 				c.setFieldOfExpertise(fieldOfExpertise);
 			}
 		});
-		offers.save(new ExpertCaseOffer(saved.getBrandId(), saved.getId(), replacement.getId()));
+		openOffer(saved, replacement.getId(), price);
 		return saved;
 	}
 
@@ -1052,13 +1062,42 @@ public class CaseLifecycleService {
 	 * <p>The case id has come out of {@link #load}, which is scoped, so the unscoped finder
 	 * underneath is being called the only way its javadoc permits.
 	 */
-	private void resolveOpenOffer(Case subject, OfferOutcome resolution, String reason) {
+	private void resolveOpenOffer(Case subject, OfferOutcome resolution, String reason, PortalAudience actor) {
 		offers.findByCaseIdAndOutcome(subject.getId(), OfferOutcome.OFFERED).forEach(offer -> {
 			boolean subjects = offer.getExpertId().equals(subject.getExpertId());
 			if (offer.resolve(subjects ? resolution : OfferOutcome.SUPERSEDED, subjects ? reason : null)) {
 				offers.save(offer);
+				auditResolved(offer, actor);
 			}
 		});
+	}
+
+	/** Opens the priced offer and logs it (Unit 65 rule 8). */
+	private void openOffer(Case saved, UUID expertId, BigDecimal price) {
+		UUID actor = TenantContext.current().memberId();
+		ExpertCaseOffer offer = new ExpertCaseOffer(saved.getBrandId(), saved.getId(), expertId);
+		offer.setFee(price, actor);
+		offers.save(offer);
+		Map<String, Object> after = new HashMap<>();
+		after.put("caseId", saved.getId());
+		after.put("expertId", expertId);
+		after.put("fee", price);
+		audit.recordEvent("OFFER", offer.getId(), AuditAction.CREATED, actor, null, after);
+	}
+
+	/** Logs an offer's answer with the fee it was answered at — which amount was agreed (Unit 65). */
+	private void auditResolved(ExpertCaseOffer offer, PortalAudience actor) {
+		Map<String, Object> after = new HashMap<>();
+		after.put("outcome", offer.getOutcome());
+		after.put("fee", offer.getFee()); // HashMap: a pre-V79 offer's fee is null
+		Map<String, Object> before = Map.of("outcome", OfferOutcome.OFFERED);
+		if (actor == null) {
+			audit.recordEvent("OFFER", offer.getId(), AuditAction.UPDATED,
+					TenantContext.find().map(TenantContext::memberId).orElse(null), before, after);
+		} else {
+			audit.recordPortalEvent(offer.getBrandId(), actor, "OFFER", offer.getId(), AuditAction.UPDATED,
+					before, after);
+		}
 	}
 
 	@Transactional

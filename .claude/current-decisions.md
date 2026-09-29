@@ -36,9 +36,10 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
   reads the provider's own message id, and SMTP gives back a protocol accept — "it left EvalOS" is
   the whole of what `send` can promise, and delivery, bounces and suppression are read in the
   provider's dashboard. For two messages whose failure a support conversation recovers, that is the
-  cheaper side. **What is kept:** the `MailTransport` interface and `evalos.mail.transport`, at one
-  implementation, because it is the seam `ClientMailerTest` fakes and a name matching nothing
-  **fails at startup** naming what it found. `ClientMailer` still owns the wording and the one
+  cheaper side. **What is kept:** the `MailTransport` interface, at one
+  implementation, because it is the seam `ClientMailerTest` fakes. **The `evalos.mail.transport`
+  switch is gone (2026-09-30)** — a choice among one; `ClientMailer` takes the one bean, and a
+  second provider brings its own way to pick it. `ClientMailer` still owns the wording and the one
   `PORTAL_LINK_ISSUED` audit row, so the trail is not a property of whoever carries the mail.
   `SmtpMailTransportLiveTest` (opt-in, `MAIL_LIVE_TEST=true`) is the only check that proves a real
   credential, a verified sender and the deploy's egress — and unlike the one it replaced, it
@@ -427,6 +428,14 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
   *Paid*). **Staff no longer confirm** — that route is removed. The portal's one write is that
   confirmation; nothing there pays, requests or disputes a payout. The ENM pays weekly (the batch) and
   reports weekly, monthly or yearly by due date, with two exports: totals and every row (CSV). No approval step and no failed state (the business chose three).
+  **Edited 2026-09-30 (Unit 65, spec `65-case-fee-and-payouts-module.md` — built 2026-09-30):**
+  **every offer carries the amount the case pays** (a blank fee means the expert's standard fee, a
+  retake keeps the declined offer's fee, no fee at all is refused; set by GM / PM / PC / ENM; a CM
+  offers at the standard fee only), **editable only while the offer is open**, **shown to the expert before they accept**, and frozen at acceptance. Delivery opens the
+  payout at that amount; the pending-payout amount correction is **removed** (only a *missing* amount can still be set, once). **No adjustments** —
+  no bonus, deduction, advance or change after acceptance: per case it is offered amount, status,
+  done or not. Every set, edit and outcome is in `audit_event`. Payouts becomes its own staff module
+  (Overview, Cases register, Experts, Pay run) on the shell's period and brand filters.
 - **D61.** **The ENM runs the expert lifecycle in EvalOS, and the hiring pipeline is a GHL
   pipeline** (2026-09-29, the business; Unit 63, spec `63-enm-workspace.md`). This reverses the two
   written refusals `00d` §7 names and replaces `00d` Phase 5's `expert_application` design. A GM

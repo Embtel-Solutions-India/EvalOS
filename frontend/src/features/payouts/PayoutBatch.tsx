@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useMe } from '../../lib/authContext'
 import { formatPayout } from '../../lib/money'
 import PaymentForm from './PaymentForm'
-import PayoutSummary from './PayoutSummary'
 import { fetchBatch } from './payoutApi'
 import { mondayOf, weekLabel, type BatchView, type ExpertGroup } from './payoutRules'
 
@@ -75,7 +74,7 @@ export default function PayoutBatch() {
             className="text-[11px] font-semibold tracking-[0.08em] uppercase"
             style={{ color: 'var(--text-muted)' }}
           >
-            Expert payouts
+            Pay run
           </p>
           <h1 className="mt-1 text-xl font-semibold tracking-tight">
             {view ? weekLabel(view.weekStart, view.weekEnd) : 'Weekly payouts'}
@@ -141,8 +140,6 @@ export default function PayoutBatch() {
           )}
         </>
       )}
-
-      <PayoutSummary />
 
       {settling && (
         <PaymentForm

@@ -58,8 +58,8 @@ public class PayoutController {
 		this.payouts = payouts;
 	}
 
-	/** The one field a draft's amount can be corrected to, before anything settles it. */
-	public record CorrectAmountRequest(
+	/** The amount a pending payout that opened with none is given, once (Unit 65). */
+	public record MissingAmountRequest(
 			@NotNull @DecimalMin("0.00") @Digits(integer = 10, fraction = 2) BigDecimal amount) {
 	}
 
@@ -116,12 +116,15 @@ public class PayoutController {
 				.body(payouts.exportCsv(period, from, to));
 	}
 
-	/** Corrects a still-{@code PENDING} draft's amount, audited, then answers the refreshed row. */
+	/**
+	 * Sets a still-{@code PENDING} payout's missing amount, audited, then answers the refreshed row.
+	 * 409 once it has one: an existing amount is the fee the expert accepted (Unit 65).
+	 */
 	@PatchMapping("/{id}")
 	@PreAuthorize(PAYOUTS)
-	public ApiResponse<PayoutService.LedgerRow> correctAmount(@PathVariable UUID id,
-			@Valid @RequestBody CorrectAmountRequest request) {
-		payouts.correctAmount(id, request.amount());
+	public ApiResponse<PayoutService.LedgerRow> setMissingAmount(@PathVariable UUID id,
+			@Valid @RequestBody MissingAmountRequest request) {
+		payouts.setMissingAmount(id, request.amount());
 		return ApiResponse.ok(payouts.payout(id));
 	}
 

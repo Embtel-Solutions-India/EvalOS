@@ -208,6 +208,18 @@ class PayoutControllerTest {
 	 * hand-typed copy of the list, which would only ever catch itself agreeing with
 	 * itself. A role added to one side and not the other fails this test.
 	 */
+	/** Unit 65: an amount that exists is the agreed fee, so filling it in again is a conflict. */
+	@Test
+	void settingAnAmountThatExistsIsAConflict() throws Exception {
+		org.mockito.BDDMockito.willThrow(new com.ie.evalos.domain.IllegalTransitionException("already has its amount"))
+				.given(payoutService).setMissingAmount(any(), any());
+
+		mockMvc.perform(patch("/api/payouts/" + PAYOUT_ID)
+				.header(HttpHeaders.AUTHORIZATION, bearer(Role.EXPERT_NETWORK_MANAGER))
+				.contentType(MediaType.APPLICATION_JSON).content("{\"amount\":10.00}"))
+				.andExpect(status().isConflict());
+	}
+
 	@Test
 	void theControllersAuthorizeExactlyWhoMayRecordAPayout() {
 		Set<String> expected =

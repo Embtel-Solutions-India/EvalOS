@@ -33,6 +33,8 @@ import com.ie.evalos.service.DraftFile;
 import com.ie.evalos.service.RefundService;
 
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.DecimalMin;
+import jakarta.validation.constraints.Digits;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Positive;
@@ -167,9 +169,10 @@ public class CaseController {
 	 *                        recorded, not enforced: the PM is the only person who knows it
 	 *                        and they know it here, but a case must still be staffable by
 	 *                        someone who skipped the shortlist.
+	 * @param fee             what the case pays the expert (Unit 65); blank = their standard fee
 	 */
 	public record AssignCmRequest(@NotNull UUID cmId, @NotNull UUID expertId, String expertRationale,
-			FieldTag fieldOfExpertise) {
+			FieldTag fieldOfExpertise, @DecimalMin("0") @Digits(integer = 10, fraction = 2) BigDecimal fee) {
 	}
 
 	public record AssignCoordinatorRequest(@NotNull UUID coordinatorId) {
@@ -311,8 +314,16 @@ public class CaseController {
 	/** The PM owns the notes; the GM is a superuser here as on every other write. */
 	private static final Set<Role> MAY_EDIT_STRATEGY_NOTES = Set.of(Role.GM, Role.PROJECT_MANAGER);
 
-	/** @param expertRationale why the replacement (Unit 32). Optional; null leaves the previous text. */
-	public record ExpertRequest(@NotNull UUID expertId, String expertRationale, FieldTag fieldOfExpertise) {
+	/**
+	 * @param expertRationale why the replacement (Unit 32). Optional; null leaves the previous text.
+	 * @param fee             what the case pays the replacement (Unit 65); blank = their standard fee
+	 */
+	public record ExpertRequest(@NotNull UUID expertId, String expertRationale, FieldTag fieldOfExpertise,
+			@DecimalMin("0") @Digits(integer = 10, fraction = 2) BigDecimal fee) {
+	}
+
+	/** Unit 65: blank keeps the fee the expert declined at. */
+	public record RetakeRequest(@DecimalMin("0") @Digits(integer = 10, fraction = 2) BigDecimal fee) {
 	}
 
 	/** Return comments, hold reasons, decline reasons, revision notes — all free text. */
@@ -600,7 +611,7 @@ public class CaseController {
 	@PreAuthorize(GM_OR + "hasRole('PROJECT_MANAGER')")
 	public ApiResponse<CaseSummary> assignCm(@PathVariable UUID id, @Valid @RequestBody AssignCmRequest request) {
 		return summary(lifecycle.assignCaseManager(id, request.cmId(), request.expertId(), request.expertRationale(),
-				request.fieldOfExpertise()));
+				request.fieldOfExpertise(), request.fee()));
 	}
 
 	/**
@@ -744,14 +755,16 @@ public class CaseController {
 	// CASE_MANAGER added in Unit 31: the CM acts on a timeout and the ENM is notified and supports.
 	@PreAuthorize(GM_OR + "hasAnyRole('PROJECT_MANAGER', 'EXPERT_NETWORK_MANAGER', 'CASE_MANAGER')")
 	public ApiResponse<CaseSummary> reassignExpert(@PathVariable UUID id, @Valid @RequestBody ExpertRequest request) {
-		return summary(lifecycle.reassignExpert(id, request.expertId(), request.expertRationale(), request.fieldOfExpertise()));
+		return summary(lifecycle.reassignExpert(id, request.expertId(), request.expertRationale(),
+				request.fieldOfExpertise(), request.fee()));
 	}
 
 	/** Offer the case again to the expert who declined it (Unit 63, D62) — the reassign gate. */
 	@PostMapping("/{id}/expert/retake")
 	@PreAuthorize(GM_OR + "hasAnyRole('PROJECT_MANAGER', 'EXPERT_NETWORK_MANAGER', 'CASE_MANAGER')")
-	public ApiResponse<CaseSummary> retakeExpert(@PathVariable UUID id) {
-		return summary(lifecycle.retakeExpert(id));
+	public ApiResponse<CaseSummary> retakeExpert(@PathVariable UUID id,
+			@Valid @RequestBody(required = false) RetakeRequest request) {
+		return summary(lifecycle.retakeExpert(id, request == null ? null : request.fee()));
 	}
 
 	/**

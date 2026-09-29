@@ -81,8 +81,7 @@ cd backend
 ./mvnw spring-boot:run
 ```
 
-- `GET /api/health` → `{"success":true,"data":{"status":"UP","service":"evalos","time":"…"}}`
-- `GET /actuator/health`
+- `GET /actuator/health` → `{"status":"UP"}`
 
 The `local` profile also applies `db/seed-local`, which seeds two brands and
 five staff logins — all with the password `DevPassw0rd!`:

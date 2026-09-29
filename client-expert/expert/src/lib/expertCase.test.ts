@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
+  acceptFailureMessage,
   expertFailureMessage,
+  feeLine,
   payoutTotals,
   transfersToConfirm,
   goalOf,
@@ -33,6 +35,8 @@ function view(overrides: Partial<ExpertCaseView> = {}): ExpertCaseView {
     signed: false,
     signedAt: null,
     attestation: 'I, Dr Ada Lovelace, confirm this is my signature on this letter.',
+    offeredFee: 400,
+    currency: 'USD',
     ...overrides,
   }
 }
@@ -134,3 +138,17 @@ describe('transfersToConfirm (Unit 63)', () => {
 function row(amount: number, currency: string, status: 'PENDING' | 'PAID' | 'CONFIRMED' | 'VOIDED', paymentId: string | null = null) {
   return { caseReference: null, amount, currency, status, settledOn: null, paymentId, dueDate: null }
 }
+
+describe('the case fee (Unit 65)', () => {
+  it('names the amount in the brand currency', () => {
+    expect(feeLine(350, 'USD')).toMatch(/^Fee for this case: .*350\.00$/)
+  })
+  it('says when no fee is set yet', () => {
+    expect(feeLine(null, 'USD')).toBe('Fee not set yet')
+    expect(feeLine(350, null)).toBe('Fee not set yet')
+  })
+  it('explains a refused accept and says the case was reloaded', () => {
+    expect(acceptFailureMessage(409)).toMatch(/fee or the case changed/)
+    expect(acceptFailureMessage(401)).toBe(expertFailureMessage(401))
+  })
+})

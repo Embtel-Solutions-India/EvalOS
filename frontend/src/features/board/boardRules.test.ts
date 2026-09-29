@@ -370,3 +370,14 @@ describe('dueBeforeFor', () => {
     expect(oneYearOn.getDate()).toBe(28)
   })
 })
+
+describe('the case fee on an offer (Unit 65)', () => {
+  it('asks for an optional fee on every action that makes an offer', () => {
+    for (const path of ['assign-cm', 'reassign-expert']) {
+      const action = QUICK_ACTIONS.find((a) => a.path === path)
+      const fee = action?.fields?.find((f) => f.name === 'fee')
+      expect(fee?.kind).toBe('amount')
+      expect(fee?.label).toMatch(/\(optional/)
+    }
+  })
+})

@@ -4,22 +4,35 @@ import { Button } from '@shared/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@shared/components/ui/card'
 import { Textarea } from '@shared/components/ui/textarea'
 import { statusOf } from '@shared/services/apiClient'
-import { expertFailureMessage } from '@/lib/expertCase'
+import { acceptFailureMessage, expertFailureMessage, feeLine } from '@/lib/expertCase'
 import { accept, decline, requestEvidence } from '@/services/expertPortalService'
 
-/** Accept · Ask for more evidence · Decline. Each one says plainly what it does to the case. */
-export function Answers({ caseId, onChanged }: { caseId: string; onChanged: () => void }) {
+/**
+ * Accept · Ask for more evidence · Decline. Each one says plainly what it does to the case.
+ *
+ * The fee comes first (Unit 65): accepting is agreeing to it, so it is shown above the buttons and
+ * Accept is disabled until one is set.
+ */
+export function Answers({ caseId, fee, currency, onChanged }: {
+  caseId: string
+  fee: number | null
+  currency: string | null
+  onChanged: () => void
+}) {
   const [missing, setMissing] = useState('')
   const [reason, setReason] = useState('')
 
-  const act = (call: () => Promise<unknown>, done: string) => async () => {
+  const act = (call: () => Promise<unknown>, done: string, failure = expertFailureMessage) => async () => {
     try {
       await call()
       toast.success(done)
       onChanged()
     }
     catch (actionError: unknown) {
-      toast.error(expertFailureMessage(statusOf(actionError)))
+      const status = statusOf(actionError)
+      toast.error(failure(status))
+      // A refused accept is most often a changed fee: reload so the new amount is on screen.
+      if (status === 409 && failure === acceptFailureMessage) onChanged()
     }
   }
 
@@ -27,14 +40,22 @@ export function Answers({ caseId, onChanged }: { caseId: string; onChanged: () =
     <Card>
       <CardHeader>
         <CardTitle className="text-sm">Your answer</CardTitle>
+        <p className="text-base font-semibold text-foreground tabular-nums">{feeLine(fee, currency)}</p>
       </CardHeader>
       <CardContent className="grid gap-6 lg:grid-cols-3">
         <div className="flex flex-col">
-          <Button className="bg-success text-success-foreground hover:bg-success/90" onClick={() => void act(() => accept(caseId), 'Thank you — the case manager has been told.')()}>
+          <Button
+            className="bg-success text-success-foreground hover:bg-success/90"
+            disabled={fee === null}
+            title={fee === null ? 'The fee for this case is not set yet' : undefined}
+            onClick={() => void act(() => accept(caseId, fee), 'Thank you — the case manager has been told.', acceptFailureMessage)()}
+          >
             I will sign this
           </Button>
           <p className="mt-2 text-xs text-muted-foreground">
-            Tells the case manager you have taken it. You can still upload the signed letter later.
+            {fee === null
+              ? 'You can accept once the team has set the fee for this case.'
+              : 'Accepts the case at this fee and tells the case manager. You can still upload the signed letter later.'}
           </p>
         </div>
 

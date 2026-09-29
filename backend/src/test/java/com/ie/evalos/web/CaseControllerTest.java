@@ -175,7 +175,7 @@ class CaseControllerTest {
 	void everyTransitionRouteAnswersItsDeclaredRoleAndNobodyElse() throws Exception {
 		Case result = aCase();
 		given(lifecycle.assignPm(any(), any())).willReturn(result);
-		given(lifecycle.assignCaseManager(any(), any(), any(), any(), any())).willReturn(result);
+		given(lifecycle.assignCaseManager(any(), any(), any(), any(), any(), any())).willReturn(result);
 		given(lifecycle.assignCoordinator(any(), any())).willReturn(result);
 		given(lifecycle.markDocsComplete(any())).willReturn(result);
 		given(lifecycle.pmApproveDraft(any(), any())).willReturn(result);
@@ -185,7 +185,7 @@ class CaseControllerTest {
 		given(lifecycle.clientRequestRevisions(any(), any())).willReturn(result);
 		given(lifecycle.expertSigned(any())).willReturn(result);
 		given(lifecycle.expertDeclined(any(), any())).willReturn(result);
-		given(lifecycle.reassignExpert(any(), any(), any(), any())).willReturn(result);
+		given(lifecycle.reassignExpert(any(), any(), any(), any(), any())).willReturn(result);
 		given(lifecycle.pmQcApprove(any())).willReturn(result);
 		given(lifecycle.pmQcFail(any(), any())).willReturn(result);
 		given(lifecycle.sendToExpert(any())).willReturn(result);

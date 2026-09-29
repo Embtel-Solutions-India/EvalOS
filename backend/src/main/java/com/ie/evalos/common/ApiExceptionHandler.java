@@ -151,6 +151,18 @@ public class ApiExceptionHandler {
 						ex.getMessage() + " (" + ex.existingOpportunityId() + ")"));
 	}
 
+	/**
+	 * Two people changed one row at once and this request lost (a {@code @Version} check). A 409 the
+	 * screen can act on: reload, see what the other person did, try again. Unit 65: a fee edit racing
+	 * the expert's answer lands here instead of silently undoing the answer.
+	 */
+	@ExceptionHandler(org.springframework.orm.ObjectOptimisticLockingFailureException.class)
+	public ResponseEntity<ApiResponse<Void>> onConcurrentChange(
+			org.springframework.orm.ObjectOptimisticLockingFailureException ex) {
+		return ResponseEntity.status(HttpStatus.CONFLICT).body(ApiResponse.error("CHANGED_MEANWHILE",
+				"Someone else changed this at the same time. Reload to see it, then try again."));
+	}
+
 	@ExceptionHandler(IllegalTransitionException.class)
 	public ResponseEntity<ApiResponse<Void>> onIllegalTransition(IllegalTransitionException ex) {
 		return ResponseEntity.status(HttpStatus.CONFLICT)

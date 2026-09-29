@@ -1,21 +1,18 @@
 package com.ie.evalos.service;
 
-import java.util.List;
 
 import com.ie.evalos.integration.MailTransport;
 
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * The transport seam: who carries the mail is an environment setting, not a build.
+ * The transport seam: this class owns the words, a {@link MailTransport} owns the wire.
  *
- * <p>The seam exists because the answer has already changed once (SMTP → GHL) and is expected to
- * change again (→ Brevo). What these pin is the three things that make the switch safe — the right
- * one is picked, a wrong name is loud, and a transport that cannot address a particular person
- * says so rather than reporting a send that never happened.
+ * <p>What these pin is that the mailer never reports a send that did not happen — a transport that
+ * cannot address a particular person says so, an unconfigured one degrades, and a failed audit
+ * write does not undo a send that already left.
  */
 class ClientMailerTest {
 
@@ -70,32 +67,6 @@ class ClientMailerTest {
 	private static final MailTransport.Recipient ANA =
 			new MailTransport.Recipient(BRAND, "ana@example.com");
 
-	@Test
-	void theConfiguredTransportIsTheOneThatCarriesIt() {
-		Fake smtp = new Fake("smtp", true, true);
-		Fake brevo = new Fake("brevo", true, true);
-
-		new ClientMailer(List.of(smtp, brevo), audit, TEMPLATES, "brevo").sendSetPassword(ANA, "Ana", "https://portal/set#tok");
-
-		assertThat(brevo.sentTo).isEqualTo(ANA);
-		assertThat(smtp.sentTo).isNull();
-	}
-
-	/**
-	 * <strong>A name matching nothing fails at startup, and names what it found.</strong>
-	 *
-	 * <p>The alternative — falling back to whichever transport happens to be first — is discovered
-	 * by a client who never received their link, weeks later, on an environment nobody is watching.
-	 * A typo in a deployment variable should stop the deployment.
-	 */
-	@Test
-	void anUnknownTransportNameRefusesToStart() {
-		assertThatThrownBy(() -> new ClientMailer(List.of(new Fake("smtp", true, true)), audit, TEMPLATES, "sendgrid"))
-				.isInstanceOf(IllegalStateException.class)
-				.hasMessageContaining("sendgrid")
-				.hasMessageContaining("smtp");
-	}
-
 	/**
 	 * <strong>Configured is not the same as able to reach this person</strong>, and conflating them
 	 * is what the GHL transport made dangerous. GHL addresses a contact id; an account whose
@@ -105,7 +76,7 @@ class ClientMailerTest {
 	@Test
 	void aTransportThatCannotAddressThisPersonSendsNothingAndSaysSo() {
 		Fake brevo = new Fake("brevo", true, false);
-		ClientMailer mailer = new ClientMailer(List.of(brevo), audit, TEMPLATES, "brevo");
+		ClientMailer mailer = new ClientMailer(brevo, audit, TEMPLATES);
 
 		assertThat(mailer.isConfigured()).isTrue();
 		assertThat(mailer.canReach(new MailTransport.Recipient(BRAND, ""))).isFalse();
@@ -116,7 +87,7 @@ class ClientMailerTest {
 	/** An unconfigured transport is the MAIL_UNAVAILABLE path, not a boot failure. */
 	@Test
 	void anUnconfiguredTransportDegradesRatherThanThrowing() {
-		ClientMailer mailer = new ClientMailer(List.of(new Fake("smtp", false, true)), audit, TEMPLATES, "smtp");
+		ClientMailer mailer = new ClientMailer(new Fake("smtp", false, true), audit, TEMPLATES);
 
 		assertThat(mailer.isConfigured()).isFalse();
 		assertThat(mailer.sendResetPassword(ANA, "Ana", "https://portal/set#tok")).isFalse();
@@ -138,7 +109,7 @@ class ClientMailerTest {
 	@Test
 	void aFailedAuditWriteDoesNotFailTheSendThatAlreadyHappened() {
 		Fake brevo = new Fake("brevo", true, true);
-		ClientMailer mailer = new ClientMailer(List.of(brevo), audit, TEMPLATES, "brevo");
+		ClientMailer mailer = new ClientMailer(brevo, audit, TEMPLATES);
 		org.mockito.Mockito.doThrow(new org.springframework.dao.DataAccessResourceFailureException("pool"))
 				.when(audit).recordPortalEvent(org.mockito.ArgumentMatchers.any(),
 						org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.anyString(),

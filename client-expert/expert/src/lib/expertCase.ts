@@ -1,3 +1,5 @@
+import { money } from './dashboard'
+
 /**
  * The expert seam's wire shapes and the judgements its one screen makes (Unit 34e).
  *
@@ -36,6 +38,9 @@ export type ExpertCaseView = {
   signedAt: string | null
   /** The exact wording the API requires back. Composed by the server because it is the evidence. */
   attestation: string
+  /** What this case pays the expert (Unit 65) — shown before they accept; null until it is set. */
+  offeredFee: number | null
+  currency: string | null
 }
 
 /** `ExpertPortalService.ExpertCaseSummary`, exactly — one row of a signed-in expert's cases (Unit 59). */
@@ -51,6 +56,9 @@ export type ExpertCaseSummary = {
   offered: boolean
   /** When the signed letter came back, or null. The dashboard dates "completed" by it. */
   signedAt: string | null
+  /** Unit 65: the open or accepted offer's fee, and its currency. */
+  offeredFee: number | null
+  currency: string | null
 }
 
 /** `ExpertPortalService.ExpertMe`: who is signed in, for the greeting and the top bar. */
@@ -207,4 +215,19 @@ export function expertFailureMessage(status: number | undefined): string {
     return 'Our document store is temporarily unavailable. Nothing was lost, and nothing was recorded — please try again in a few minutes.'
   }
   return 'We could not complete that. Please try again in a moment, or contact the case manager who sent you this link.'
+}
+
+/** What the expert is offered for a case (Unit 65) — the line above the answer buttons. */
+export function feeLine(fee: number | null, currency: string | null): string {
+  return fee === null || !currency ? 'Fee not set yet' : `Fee for this case: ${money(fee, currency)}`
+}
+
+/**
+ * Why Accept was refused. A 409 on Accept is most often the fee changing while the page was open
+ * (the server refuses a fee the expert was not shown), so the page reloads and says so.
+ */
+export function acceptFailureMessage(status: number | undefined): string {
+  return status === 409
+    ? 'The fee or the case changed since you opened it, so we reloaded it. Please review it before you accept.'
+    : expertFailureMessage(status)
 }

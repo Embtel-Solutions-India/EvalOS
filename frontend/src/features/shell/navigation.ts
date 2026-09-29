@@ -55,7 +55,7 @@ export type NavItem = {
   brandProven?: true
 }
 
-export type NavGroup = 'Overview' | 'Marketing' | 'Sales' | 'Hiring' | 'Pipeline' | 'Records' | 'Admin'
+export type NavGroup = 'Overview' | 'Marketing' | 'Sales' | 'Hiring' | 'Pipeline' | 'Records' | 'Payouts' | 'Admin'
 
 /**
  * Every role that works EvalOS's own cases — which is **no longer every role**.
@@ -74,6 +74,16 @@ const PRODUCTION_ROLES: readonly Role[] = [
   'CASE_MANAGER',
   'EXPERT_NETWORK_MANAGER',
 ]
+
+/**
+ * The three payout roles, named once.
+ *
+ * The same list the `/payouts` nav entry carries and the same list
+ * `PayoutService.MAY_RECORD` holds on the server — a test in `PayoutControllerTest` pins the
+ * controller's `@PreAuthorize` to that constant, so the server side cannot drift; this is the
+ * client half of the same fact.
+ */
+const PAYOUT_ROLES: readonly Role[] = ['GM', 'BRAND_MANAGER', 'EXPERT_NETWORK_MANAGER']
 
 export const NAV_ITEMS: readonly NavItem[] = [
   // **`PRODUCTION_ROLES` plus the two pipeline roles, spelled out rather than widened.**
@@ -420,13 +430,13 @@ export const NAV_ITEMS: readonly NavItem[] = [
     becomes: 'Expert roster + sheet upload',
     group: 'Records',
   },
-  {
-    path: '/payouts',
-    label: 'Payouts',
-    roles: ['GM', 'BRAND_MANAGER', 'EXPERT_NETWORK_MANAGER'],
-    becomes: 'Weekly payout batch + payment history',
-    group: 'Records',
-  },
+
+  // Unit 65: payouts is its own module — one question per screen. The Overview keeps `/payouts`,
+  // so an old bookmark lands on the module's front page rather than a 404.
+  { path: '/payouts', label: 'Overview', roles: PAYOUT_ROLES, becomes: 'Where the money stands', group: 'Payouts' },
+  { path: '/payouts/cases', label: 'Cases', roles: PAYOUT_ROLES, becomes: 'Every case: fee, status, done', group: 'Payouts' },
+  { path: '/payouts/experts', label: 'Experts', roles: PAYOUT_ROLES, becomes: 'Who is owed how much', group: 'Payouts' },
+  { path: '/payouts/pay', label: 'Pay run', roles: PAYOUT_ROLES, becomes: 'Weekly payout batch', group: 'Payouts' },
 
   { path: '/brands', label: 'Brands', roles: ['GM'], becomes: 'Brand administration', group: 'Admin' },
 
@@ -472,21 +482,12 @@ export const DEAL_DETAIL_PATH = '/opportunities/:opportunityId'
 /** One conversation, open in the inbox. Where a staff push notification lands (`ChatPushNotifier`). */
 export const CONVERSATION_PATH = '/conversations/:conversationId'
 
-/** One expert's pending drafts and their payment history. Reached from the batch screen. */
+/** One expert's pending drafts and their payment history. Reached from the Experts screen and the pay run. */
 export const EXPERT_PAYOUTS_PATH = '/payouts/experts/:expertId'
 
 /** One transfer and every draft it settled. Reached from a payment history row. */
 export const PAYMENT_DETAIL_PATH = '/payouts/payments/:paymentId'
 
-/**
- * The three payout roles, named once.
- *
- * The same list the `/payouts` nav entry carries and the same list
- * `PayoutService.MAY_RECORD` holds on the server — a test in `PayoutControllerTest` pins the
- * controller's `@PreAuthorize` to that constant, so the server side cannot drift; this is the
- * client half of the same fact.
- */
-const PAYOUT_ROLES: readonly Role[] = ['GM', 'BRAND_MANAGER', 'EXPERT_NETWORK_MANAGER']
 
 const PARAMETERIZED: readonly NavItem[] = [
   {
@@ -517,16 +518,26 @@ const PARAMETERIZED: readonly NavItem[] = [
     label: 'Expert payouts',
     roles: PAYOUT_ROLES,
     becomes: 'One expert: pending drafts and payment history',
-    group: 'Records',
+    group: 'Payouts',
   },
   {
     path: PAYMENT_DETAIL_PATH,
     label: 'Payment',
     roles: PAYOUT_ROLES,
     becomes: 'One transfer and the drafts it settled',
-    group: 'Records',
+    group: 'Payouts',
   },
 ]
+
+/**
+ * Whether a nav link lights up only on its own path. True where another nav item lives beneath it
+ * (`/payouts` over `/payouts/cases`, `/hiring` over `/hiring/new`) — otherwise the parent would light
+ * up beside the child. False elsewhere, so a detail page such as `/conversations/:id` still lights
+ * its parent.
+ */
+export function matchesExactly(path: string): boolean {
+  return NAV_ITEMS.some((item) => item.path.startsWith(`${path}/`))
+}
 
 export function navFor(role: Role): readonly NavItem[] {
   return NAV_ITEMS.filter((item) => item.roles.includes(role))

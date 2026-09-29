@@ -40,7 +40,7 @@ public class SecurityConfig {
 				.csrf(csrf -> csrf.disable())
 				.sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
 				.authorizeHttpRequests(auth -> auth
-						.requestMatchers("/api/auth/login", "/api/health", "/actuator/health").permitAll()
+						.requestMatchers("/api/auth/login", "/actuator/health").permitAll()
 						// Inbound webhooks carry no EvalOS token: the source is a machine in
 						// another company. They are authenticated by the per-brand endpoint
 						// token in the path, resolved in WebhookGateway. Nothing here reads

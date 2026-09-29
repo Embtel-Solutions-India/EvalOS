@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft, CheckCircle2, Clock, ExternalLink, FileSignature, FileText, Hash } from 'lucide-react'
+import { ArrowLeft, Banknote, CheckCircle2, Clock, ExternalLink, FileSignature, FileText, Hash } from 'lucide-react'
 import type { ComponentType, ReactNode } from 'react'
 import { useState } from 'react'
 import { Link, Navigate, useSearchParams } from 'react-router-dom'
@@ -28,6 +28,7 @@ import {
 } from '@/lib/expertCase'
 import { getCase, letterLink, setOpenCase, uploadSignedLetter } from '@/services/expertPortalService'
 import { Answers } from '@/components/Answers'
+import { money } from '@/lib/dashboard'
 import { ExpertChat } from '@/components/ExpertChat'
 
 /**
@@ -107,7 +108,11 @@ function CaseBody({ caseId, view, onChanged }: { caseId: string; view: ExpertCas
         }
       />
 
-      <Card className="mb-6 grid divide-y sm:grid-cols-3 sm:divide-x sm:divide-y-0">
+      <Card className="mb-6 grid divide-y sm:grid-cols-2 sm:divide-x sm:divide-y-0 lg:grid-cols-4">
+        {/* Unit 65: what this case pays the expert — shown before they accept, final once they do. */}
+        <Fact icon={Banknote} label="Fee">
+          {view.offeredFee !== null && view.currency ? money(view.offeredFee, view.currency) : 'Not set yet'}
+        </Fact>
         <Fact icon={FileText} label="Letter">
           {view.draftLink ? 'Ready to open' : 'Not ready yet'}
         </Fact>
@@ -190,7 +195,7 @@ function CaseBody({ caseId, view, onChanged }: { caseId: string; view: ExpertCas
       {state === 'OPEN' && (
         <>
           <SignPanel view={view} onSigned={onChanged} />
-          <Answers caseId={caseId} onChanged={onChanged} />
+          <Answers caseId={caseId} fee={view.offeredFee} currency={view.currency} onChanged={onChanged} />
         </>
       )}
     </>

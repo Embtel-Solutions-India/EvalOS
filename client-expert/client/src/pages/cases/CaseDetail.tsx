@@ -9,7 +9,7 @@ import { PageHeader } from '@shared/components/common/PageHeader'
 import { CLIENT_STEPS, DELIVERED_STEP, failureMessage, serviceLabel, type Milestone } from '@shared/lib/portal'
 import { statusOf } from '@shared/services/apiClient'
 import { cn } from '@shared/utils/cn'
-import { formatDateShort } from '@shared/utils/formatters'
+import { formatDate } from '@shared/utils/formatters'
 import { CaseDelivered } from '@/components/case/CaseDelivered'
 import { CaseChecklist, CaseDocuments } from '@/components/case/CaseDocuments'
 import { CaseDraft } from '@/components/case/CaseDraft'
@@ -108,7 +108,7 @@ function History({ milestones }: { milestones: Milestone[] }) {
       {milestones.map((m, i) => (
         <li key={`${m.label}-${i}`} className="text-sm">
           <span className="font-medium text-foreground">{m.label}</span>
-          <span className="ml-2 text-xs text-muted-foreground">{formatDateShort(m.at)}</span>
+          <span className="ml-2 text-xs text-muted-foreground">{formatDate(m.at, 'short')}</span>
         </li>
       ))}
     </ol>

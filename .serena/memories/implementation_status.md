@@ -45,6 +45,13 @@ Tooltip halves had no callers, and `AssignPopover` and `DateFilter` were repoint
 dependencies left `client-expert/package.json`; `@radix-ui/react-dialog` stays because
 `MobileNavDrawer` uses it directly.
 
+**Over-engineering pass 2026-09-30.** Untracked the gitignored `client-expert/expert/.vite/` and
+`mail-preview/` (~29k lines). Deleted unimported `select`, `radio-group`, `date-picker`,
+`mock/mockDelay.ts`, and deps `@radix-ui/react-select`, `@radix-ui/react-radio-group`,
+`framer-motion` (`PageTransition` = CSS `page-enter` keyframe). `HealthController`/`/api/health`
+gone — `/actuator/health`. `ClientMailer` injects its one `MailTransport`; `evalos.mail.transport`
+removed. `docs/seed-desks.sql` deleted. `formatDateShort` → `formatDate(value, 'short')`.
+
 **Deliberately kept:** `TeamMemberPipelineRepository.membersOn` (no production caller, but a test
 covers it). **Deliberately deferred**, as refactors rather than deletions: `MailTransport` is an
 interface over one implementation, `ScopedRepository` is inherited by seven repositories that
@@ -481,8 +488,8 @@ locally while the seeds still said `sales.attorney...`.
 
 **Production seeds them through `db/seed-prod/V960__seed_ie_desks.sql` since 2026-09-19** — a
 Flyway migration in a tree only `application-prod.yml` names, the sibling-directory mechanism
-`MigrationTreeTest` enforces. It replaces the hand-run `docs/seed-desks.sql`, now a pointer (kept,
-because applied V911 names it). The password is the `desk-password-hash` placeholder from
+`MigrationTreeTest` enforces. It replaced the hand-run `docs/seed-desks.sql` (the pointer left behind was
+deleted 2026-09-30; applied V911/V960 still name it, git history holds it). The password is the `desk-password-hash` placeholder from
 `DESK_PASSWORD_HASH`, **no default**, so `DevPassw0rd!` — a PUBLISHED credential, hash in V908 and
 plaintext in its comments — never reaches a real database. Costs: prod now needs
 `out-of-order: true` (a seed numbered above every migration makes the next V-N look out of order),
@@ -610,3 +617,7 @@ an expert push opened with no tab open lands on `/case` without the fragment tok
 **2026-09-29 — expert Dashboard + Payouts redesign.** `/dashboard` (landing after sign-in): greeting via new `GET /api/portal/expert/me`, range menu, 4 tiles, cases + payouts donuts with 6-month bars, recent activity. `/payouts`: range tiles, earnings trend, status ring, full table (never range-filtered, keeps Confirm received reachable). Desktop top bar: bell (chat unread) + name menu. Backend: `ExpertCaseSummary.signedAt`, `ExpertPayoutRow.dueDate`. SVG charts, no new deps. Chrome-checked.
 
 **2026-09-29 — Unit 64 (remove client requests) SPECCED, then BUILT the same day** (branch `feature/unit-64-remove-client-requests`: `V78`, `CasePortalAccountListener` + `openForCase`, request code / sign-up / staff tabs / Unfinished requests deleted, "My cases"; backend 1288/0/0/4, staff 138, portals 97, Chrome-checked). Spec `context/specs/64-remove-client-requests.md`. Business: no service request from the portal; documents only on a case via the PC/CM checklist; portal account auto-created at case creation (set-password mail), public sign-up removed; `INTAKE` retired; "My requests" → "My cases". Decisions D3a, D3d, D4, D6, D8, D10–D13, D33–D35, D41, D54 edited; i2 closed; specs 43/52/53/55 bannered. Docs and code agree.
+
+**2026-09-30 — Unit 65 (case fee on the offer + Payouts module, D59 edited) BUILT** (branch `feature/unit-65-case-fee-payouts`, spec `context/specs/65-case-fee-and-payouts-module.md`). Built the same day: backend 1333 / staff 149 / portals 100 tests green; the overview uses the shell's period + brand switcher (DateWindow), every register read narrows by brandId, LeftNav links match exactly. Chrome-checked at 1440 on an isolated schema; not at 390, and the expert portal screen not in a browser (its guard via the API). Review fixes the same day: committed money only for the live acceptance (refund / retake / replaced expert), attention list not period-filtered, V80 offer @Version (fee-edit vs accept race → 409), LeftNav exact-match only over a child item. Suites: backend 1339 / staff 151 / portals 100. Restart the backend to apply V79 / V80 / V914. Delivered: `V79` offer fee, fee on assign / reassign / retake, `PATCH /api/cases/{id}/expert/offer/fee`, register / experts / overview / history endpoints, correct-amount removed, portal shows the fee and accept carries it.
+
+**2026-09-30 — Unit 66 (case workspace) SPECCED, not built** (spec `context/specs/66-case-workspace.md`, frontend only, no migration). 12-stage progress strip from the timeline in the case header; one action bar (primary + More); Upload draft dialog (+ optional note to PM, also from the CM board card and My drafts); Checklist sheet on the case; Expert & offer panel with Edit fee + History (the case-page half of Unit 65 §4.5); Deadline dialog; CM gets expert signed / declined / timed-out / reassign buttons (server already admits them); stale `draftLink` removed. Next: Unit 67 role queues, Unit 68 GM admin.

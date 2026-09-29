@@ -35,7 +35,7 @@ public interface MailTransport {
 	record Recipient(java.util.UUID brandId, String email) {
 	}
 
-	/** A name for logs and for {@code evalos.mail.transport}. Lowercase, one word. */
+	/** A name for logs. Lowercase, one word. */
 	String name();
 
 	/**

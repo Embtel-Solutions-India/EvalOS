@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useMe } from '../../lib/authContext'
 import { formatPayout } from '../../lib/money'
-import { correctAmount, fetchPayments, fetchPayouts } from './payoutApi'
+import { fetchPayments, fetchPayouts, setMissingAmount } from './payoutApi'
 import type { LedgerRow, PaymentRow } from './payoutRules'
 
 /**
@@ -12,9 +12,9 @@ import type { LedgerRow, PaymentRow } from './payoutRules'
  * tables — pending drafts are ledger rows, history is payments. Putting them on one screen is
  * what lets somebody answer "why is this expert chasing us" without opening two.
  *
- * The pending list is the one place a draft's amount can be corrected. It is editable only
- * while `PENDING`: once a draft is settled its amount is part of a payment's sum, and changing
- * it would break that sum after the fact. The server refuses it either way.
+ * A pending row with no amount (an expert with no standard fee, from before Unit 65) can have it
+ * filled in once, here; an amount that exists is the fee the expert accepted and is read-only.
+ * The server refuses anything else either way.
  */
 
 type LoadState =
@@ -62,7 +62,7 @@ export default function ExpertPayouts() {
   const save = async (payoutId: string) => {
     setRefusal(null)
     try {
-      await correctAmount(payoutId, Number(draftAmount))
+      await setMissingAmount(payoutId, Number(draftAmount))
       setEditing(null)
       await load()
     } catch (error: unknown) {
@@ -155,18 +155,18 @@ export default function ExpertPayouts() {
                             <button type="button" onClick={() => void save(draft.id)} className="text-xs underline">
                               Save
                             </button>
-                          ) : (
+                          ) : draft.amount === null ? (
                             <button
                               type="button"
                               onClick={() => {
                                 setEditing(draft.id)
-                                setDraftAmount(draft.amount === null ? '' : String(draft.amount))
+                                setDraftAmount('')
                               }}
                               className="text-xs underline"
                             >
-                              {draft.amount === null ? 'Set amount' : 'Edit'}
+                              Set amount
                             </button>
-                          )}
+                          ) : null}
                         </td>
                       )}
                     </tr>

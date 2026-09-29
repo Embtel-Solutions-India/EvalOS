@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Role } from '../../lib/session'
-import { CASE_DETAIL_PATH, NAV_ITEMS, boardPathFor, homePathFor, itemFor, mayReach, navFor, navSectionsFor } from './navigation'
+import { CASE_DETAIL_PATH, NAV_ITEMS, boardPathFor, homePathFor, itemFor, matchesExactly, mayReach, navFor, navSectionsFor } from './navigation'
 
 /**
  * The nav table is also the route allow-list, so a mistake here is a screen that is either
@@ -290,5 +290,28 @@ describe('the nav and route table', () => {
     expect(boardPathFor('CASE_MANAGER').path).toBe('/my-cases')
     // No board of their own today, so they get their dashboard rather than somebody else's board.
     expect(boardPathFor('EXPERT_NETWORK_MANAGER').path).toBe('/dashboard')
+  })
+})
+
+describe('the payouts module (Unit 65)', () => {
+  it('gives payouts its own group of four screens for the three payout roles', () => {
+    for (const role of ['GM', 'BRAND_MANAGER', 'EXPERT_NETWORK_MANAGER'] as const) {
+      const section = navSectionsFor(role).find((s) => s.group === 'Payouts')
+      expect(section?.items.map((i) => i.path)).toEqual(['/payouts', '/payouts/cases', '/payouts/experts', '/payouts/pay'])
+    }
+    for (const role of ['PROJECT_MANAGER', 'PROJECT_COORDINATOR', 'CASE_MANAGER', 'SALES'] as const) {
+      expect(navSectionsFor(role).some((s) => s.group === 'Payouts')).toBe(false)
+    }
+  })
+})
+
+describe('which nav links light up only on their own path', () => {
+  it('matches exactly where another nav item lives underneath', () => {
+    expect(matchesExactly('/payouts')).toBe(true) // /payouts/cases must not light Overview
+    expect(matchesExactly('/hiring')).toBe(true) // /hiring/new must not light the pipeline
+  })
+  it('keeps prefix matching elsewhere, so a detail page lights its parent', () => {
+    expect(matchesExactly('/conversations')).toBe(false) // /conversations/:id lights Conversations
+    expect(matchesExactly('/payouts/experts')).toBe(false) // /payouts/experts/:id lights Experts
   })
 })

@@ -30,7 +30,9 @@ import com.ie.evalos.domain.AuditAction;
 import com.ie.evalos.domain.Brand;
 import com.ie.evalos.domain.Case;
 import com.ie.evalos.domain.Expert;
+import com.ie.evalos.domain.ExpertCaseOffer;
 import com.ie.evalos.domain.IllegalTransitionException;
+import com.ie.evalos.domain.OfferOutcome;
 import com.ie.evalos.domain.PayoutLedger;
 import com.ie.evalos.domain.PayoutPayment;
 import com.ie.evalos.domain.PayoutStatus;
@@ -38,6 +40,7 @@ import com.ie.evalos.domain.Role;
 import com.ie.evalos.domain.TeamMember;
 import com.ie.evalos.repository.BrandRepository;
 import com.ie.evalos.repository.CaseRepository;
+import com.ie.evalos.repository.ExpertCaseOfferRepository;
 import com.ie.evalos.repository.ExpertRepository;
 import com.ie.evalos.repository.PayoutLedgerRepository;
 import com.ie.evalos.repository.PayoutPaymentRepository;
@@ -74,10 +77,13 @@ public class PayoutService {
 	private final com.ie.evalos.notification.NotificationService notifications;
 	private final com.ie.evalos.notification.RecipientResolver recipients;
 
+	private final ExpertCaseOfferRepository offers;
+
 	PayoutService(PayoutLedgerRepository payouts, PayoutPaymentRepository payments, ExpertRepository experts,
 			BrandRepository brands, CaseRepository cases, TeamMemberRepository teamMembers, AuditService audit,
 			com.ie.evalos.notification.NotificationService notifications,
-			com.ie.evalos.notification.RecipientResolver recipients) {
+			com.ie.evalos.notification.RecipientResolver recipients, ExpertCaseOfferRepository offers) {
+		this.offers = offers;
 		this.notifications = notifications;
 		this.recipients = recipients;
 		this.payouts = payouts;
@@ -122,12 +128,19 @@ public class PayoutService {
 		// to" the way a GM's cross-brand context would not. An expert id from another
 		// brand — should be impossible, since no expert is shared across brands — is
 		// simply absent here, the same way an out-of-scope row is absent everywhere else.
-		BigDecimal standardFee = experts.findByIdAndBrandId(expertId, delivered.getBrandId())
-				.map(Expert::getStandardFee).orElse(null);
+		// Unit 65: the case pays what its expert accepted. An offer accepted before V79 has no fee, and
+		// then the standard fee stands as before — which may itself be null (see setMissingAmount).
+		// The case id came off the delivering transition's scoped load.
+		BigDecimal acceptedFee = offers.findByCaseIdOrderByOfferedAtDesc(delivered.getId()).stream()
+				.filter(o -> o.getOutcome() == OfferOutcome.ACCEPTED && expertId.equals(o.getExpertId()))
+				.map(ExpertCaseOffer::getFee).filter(Objects::nonNull).findFirst().orElse(null);
+		BigDecimal fee = acceptedFee != null ? acceptedFee
+				: experts.findByIdAndBrandId(expertId, delivered.getBrandId()).map(Expert::getStandardFee)
+						.orElse(null);
 		Instant dueDate = delivered.getDeliveryDate().plus(brand.getPayoutTermDays(), ChronoUnit.DAYS);
 
 		PayoutLedger row = payouts.save(new PayoutLedger(delivered.getBrandId(), delivered.getId(), expertId,
-				standardFee, brand.getCurrency(), dueDate));
+				fee, brand.getCurrency(), dueDate));
 
 		audit.recordEvent("PAYOUT", row.getId(), AuditAction.CREATED, null,
 				null, Map.of("caseId", delivered.getId(), "expertId", expertId, "status", "PENDING"));
@@ -464,7 +477,7 @@ public class PayoutService {
 	/**
 	 * One payout row, on its own — the same projection {@link #batch} builds for a whole
 	 * week, for the single-draft read (Task 6's {@code GET /api/payouts/{id}}) and for
-	 * handing the refreshed row back after {@link #correctAmount}.
+	 * handing the refreshed row back after {@link #setMissingAmount}.
 	 */
 	@Transactional(readOnly = true)
 	public LedgerRow payout(UUID payoutId) {
@@ -477,14 +490,14 @@ public class PayoutService {
 	}
 
 	/**
-	 * Correct what a draft is worth, before anything settles it.
+	 * Fill in the amount of a pending payout that opened with none (Unit 65) — an expert with no
+	 * standard fee whose offer predates V79. Without it such a row could never be settled.
 	 *
-	 * <p>Frozen once settled: the amount is part of a payment's sum, and changing it would
-	 * break that sum after the fact. The fix for a wrong settled amount is a
-	 * void-and-re-record, not an edit.
+	 * <p>An amount that exists is the agreed fee and is never changed here: the expert accepted it,
+	 * and once settled it is part of a payment's sum.
 	 */
 	@Transactional
-	public void correctAmount(UUID payoutId, BigDecimal amount) {
+	public void setMissingAmount(UUID payoutId, BigDecimal amount) {
 		TenantContext ctx = TenantContext.current();
 		requireMayRecord(ctx);
 		if (amount == null || amount.signum() < 0) {
@@ -496,6 +509,9 @@ public class PayoutService {
 		if (row.getStatus() != PayoutStatus.PENDING) {
 			throw new IllegalTransitionException("Draft " + payoutId + " is " + row.getStatus()
 					+ " and its amount is part of a payment");
+		}
+		if (row.getAmount() != null) {
+			throw new IllegalTransitionException("Payout " + payoutId + " already has its amount; it is the agreed fee");
 		}
 
 		BigDecimal before = row.getAmount();
