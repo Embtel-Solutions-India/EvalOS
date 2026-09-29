@@ -55,7 +55,7 @@ export type NavItem = {
   brandProven?: true
 }
 
-export type NavGroup = 'Overview' | 'Marketing' | 'Sales' | 'Pipeline' | 'Records' | 'Admin'
+export type NavGroup = 'Overview' | 'Marketing' | 'Sales' | 'Hiring' | 'Pipeline' | 'Records' | 'Admin'
 
 /**
  * Every role that works EvalOS's own cases — which is **no longer every role**.
@@ -217,6 +217,28 @@ export const NAV_ITEMS: readonly NavItem[] = [
     roles: ['SALES'],
     becomes: 'Book an appointment in GHL',
     group: 'Sales',
+  },
+
+  // The ENM's hiring desk (Unit 63): the same board and lead form over their brand's EXPERT_HIRING
+  // pipelines, which the server derives from the purpose tag. Brand-proven for the reason the Sales
+  // board is: the pipeline's brand is the ENM's own, and the server refuses any other.
+  {
+    path: '/hiring',
+    readsGhlLocation: true,
+    brandProven: true,
+    label: 'Hiring pipeline',
+    roles: ['EXPERT_NETWORK_MANAGER'],
+    becomes: 'Expert candidates in GHL, by stage',
+    group: 'Hiring',
+  },
+  {
+    path: '/hiring/new',
+    readsGhlLocation: true,
+    brandProven: true,
+    label: 'Add candidate',
+    roles: ['EXPERT_NETWORK_MANAGER'],
+    becomes: 'Open a candidate on the hiring pipeline',
+    group: 'Hiring',
   },
 
   // The production board. Four roles, one screen: the spec's per-role wording ("all
@@ -489,7 +511,7 @@ const PARAMETERIZED: readonly NavItem[] = [
     readsGhlLocation: true,
     brandProven: true,
     label: 'Opportunity',
-    roles: ['SALES', 'MARKETING', 'GM'],
+    roles: ['SALES', 'MARKETING', 'GM', 'EXPERT_NETWORK_MANAGER'],
     becomes: 'One deal: contact, request, notes',
     group: 'Sales',
   },

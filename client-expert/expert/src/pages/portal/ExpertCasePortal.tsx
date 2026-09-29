@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { CheckCircle2, ExternalLink, FileText } from 'lucide-react'
+import { ArrowLeft, CheckCircle2, Clock, ExternalLink, FileSignature, FileText, Hash } from 'lucide-react'
+import type { ComponentType, ReactNode } from 'react'
 import { useState } from 'react'
 import { Link, Navigate, useSearchParams } from 'react-router-dom'
 import { toast } from 'sonner'
@@ -8,13 +9,12 @@ import { Button } from '@shared/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@shared/components/ui/card'
 import { Checkbox } from '@shared/components/ui/checkbox'
 import { Progress } from '@shared/components/ui/progress'
-import { Textarea } from '@shared/components/ui/textarea'
 import { EmptyState } from '@shared/components/common/EmptyState'
 import { ErrorState } from '@shared/components/common/ErrorState'
 import { FileDropzone, validateFile } from '@shared/components/common/FileDropzone'
 import { ListSkeleton } from '@shared/components/common/LoadingState'
 import { PageHeader } from '@shared/components/common/PageHeader'
-import { hasPortalToken, statusOf } from '@shared/services/apiClient'
+import { statusOf } from '@shared/services/apiClient'
 import { formatDate } from '@shared/utils/formatters'
 import {
   expertFailureMessage,
@@ -26,15 +26,8 @@ import {
   stateOf,
   type ExpertCaseView,
 } from '@/lib/expertCase'
-import {
-  accept,
-  decline,
-  getCase,
-  letterLink,
-  requestEvidence,
-  setOpenCase,
-  uploadSignedLetter,
-} from '@/services/expertPortalService'
+import { getCase, letterLink, setOpenCase, uploadSignedLetter } from '@/services/expertPortalService'
+import { Answers } from '@/components/Answers'
 import { ExpertChat } from '@/components/ExpertChat'
 
 /**
@@ -56,29 +49,26 @@ import { ExpertChat } from '@/components/ExpertChat'
 export default function ExpertCasePortal() {
   const queryClient = useQueryClient()
 
-  // Signing in is the only way to hold a token (Unit 59): there is no link to read one from.
-  const tokenPresent = hasPortalToken()
+  // The shell (`ExpertLayout`) guards the token; signing in is the only way to hold one (Unit 59).
   const caseId = useSearchParams()[0].get('caseId')
   setOpenCase(caseId)
 
   const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['expert-portal', 'case', caseId],
     queryFn: getCase,
-    enabled: tokenPresent,
     retry: false,
   })
 
   const refresh = () => void queryClient.invalidateQueries({ queryKey: ['expert-portal', 'case'] })
 
-  // The token is memory-only, so a reload lands here without one: back to the door.
-  if (!tokenPresent) return <Navigate to="/" replace />
   // A case is always named; the list is where one is chosen.
   if (!caseId) return <Navigate to="/cases" replace />
 
   return (
-    <div className="mx-auto grid max-w-6xl gap-6 p-6 lg:grid-cols-[minmax(0,1fr)_24rem]">
-      <div>
-        <Link to="/cases" className="mb-4 inline-block text-sm text-primary underline">
+    <div className="mx-auto grid max-w-7xl gap-6 xl:grid-cols-[minmax(0,1fr)_24rem]">
+      <div className="min-w-0">
+        <Link to="/cases" className="mb-4 inline-flex items-center gap-1.5 text-sm text-primary hover:underline">
+          <ArrowLeft className="h-4 w-4" />
           All your cases
         </Link>
         {isLoading && <ListSkeleton />}
@@ -86,7 +76,7 @@ export default function ExpertCasePortal() {
           <ErrorState description={expertFailureMessage(statusOf(error))} onRetry={() => void refetch()} />
         )}
 
-        {!isLoading && !isError && data && <CaseBody view={data} onChanged={refresh} />}
+        {!isLoading && !isError && data && <CaseBody caseId={caseId} view={data} onChanged={refresh} />}
       </div>
       {/* Beside the case, below it on a phone (Unit 57 §7). */}
       {data && <ExpertChat caseReference={data.caseReference} />}
@@ -94,7 +84,7 @@ export default function ExpertCasePortal() {
   )
 }
 
-function CaseBody({ view, onChanged }: { view: ExpertCaseView; onChanged: () => void }) {
+function CaseBody({ caseId, view, onChanged }: { caseId: string; view: ExpertCaseView; onChanged: () => void }) {
   const state = stateOf(view)
   const signStatus = view.signStatus ? SIGN_STATUS[view.signStatus] : null
   const sla = view.signSla ? SIGN_SLA[view.signSla] : null
@@ -116,6 +106,18 @@ function CaseBody({ view, onChanged }: { view: ExpertCaseView; onChanged: () => 
           </div>
         }
       />
+
+      <Card className="mb-6 grid divide-y sm:grid-cols-3 sm:divide-x sm:divide-y-0">
+        <Fact icon={FileText} label="Letter">
+          {view.draftLink ? 'Ready to open' : 'Not ready yet'}
+        </Fact>
+        <Fact icon={FileSignature} label="Your signature">
+          {view.signed ? `Signed${view.signedAt ? ` ${formatDate(view.signedAt)}` : ''}` : (signStatus?.label ?? 'Not yet asked')}
+        </Fact>
+        <Fact icon={state === 'ON_HOLD' ? Clock : Hash} label={state === 'ON_HOLD' ? 'Clock' : 'Case'}>
+          {state === 'ON_HOLD' ? 'Paused while on hold' : (view.caseReference ?? '—')}
+        </Fact>
+      </Card>
 
       {state === 'ON_HOLD' && (
         <Card className="mb-6 border-warning/40 bg-warning/5">
@@ -188,10 +190,22 @@ function CaseBody({ view, onChanged }: { view: ExpertCaseView; onChanged: () => 
       {state === 'OPEN' && (
         <>
           <SignPanel view={view} onSigned={onChanged} />
-          <Answers onChanged={onChanged} />
+          <Answers caseId={caseId} onChanged={onChanged} />
         </>
       )}
     </>
+  )
+}
+
+function Fact({ icon: Icon, label, children }: { icon: ComponentType<{ className?: string }>; label: string; children: ReactNode }) {
+  return (
+    <div className="flex items-start gap-3 p-4">
+      <Icon className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+      <div>
+        <p className="text-xs text-muted-foreground">{label}</p>
+        <p className="text-sm font-medium text-foreground">{children}</p>
+      </div>
+    </div>
   )
 }
 
@@ -321,83 +335,6 @@ function SignPanel({ view, onSigned }: { view: ExpertCaseView; onSigned: () => v
         {!confirmed && (
           <p className="text-xs text-muted-foreground">Tick the confirmation to enable the upload.</p>
         )}
-      </CardContent>
-    </Card>
-  )
-}
-
-/** Accept · Ask for more evidence · Decline. Each one says plainly what it does to the case. */
-function Answers({ onChanged }: { onChanged: () => void }) {
-  const [missing, setMissing] = useState('')
-  const [reason, setReason] = useState('')
-
-  const act = (call: () => Promise<unknown>, done: string) => async () => {
-    try {
-      await call()
-      toast.success(done)
-      onChanged()
-    }
-    catch (actionError: unknown) {
-      toast.error(expertFailureMessage(statusOf(actionError)))
-    }
-  }
-
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-sm">Your answer</CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-6">
-        <div>
-          <Button onClick={() => void act(accept, 'Thank you — the case manager has been told.')()}>
-            I will sign this
-          </Button>
-          <p className="mt-2 text-xs text-muted-foreground">
-            Tells the case manager you have taken it. You can still upload the signed letter later.
-          </p>
-        </div>
-
-        <div>
-          <p className="mb-2 text-sm font-medium text-foreground">Ask for more evidence</p>
-          <Textarea
-            value={missing}
-            onChange={(event) => setMissing(event.target.value)}
-            placeholder="What do you need before you can sign? Be specific — the client is asked for exactly this."
-            rows={3}
-          />
-          <Button
-            variant="outline"
-            className="mt-2"
-            disabled={missing.trim().length === 0}
-            onClick={() => void act(() => requestEvidence(missing.trim()), 'We will ask the client for it.')()}
-          >
-            Ask for it
-          </Button>
-          <p className="mt-2 text-xs text-muted-foreground">
-            Puts the case on hold with the client. You will not be able to sign until it comes back.
-          </p>
-        </div>
-
-        <div>
-          <p className="mb-2 text-sm font-medium text-foreground">Decline this case</p>
-          <Textarea
-            value={reason}
-            onChange={(event) => setReason(event.target.value)}
-            placeholder="Why can you not take it? This goes to the case manager, who will find another expert."
-            rows={3}
-          />
-          <Button
-            variant="outline"
-            className="mt-2"
-            disabled={reason.trim().length === 0}
-            onClick={() => void act(() => decline(reason.trim()), 'Understood — the case goes back for rematching.')()}
-          >
-            Decline
-          </Button>
-          <p className="mt-2 text-xs text-muted-foreground">
-            This sends the case back to be matched with another expert. It cannot be undone from here.
-          </p>
-        </div>
       </CardContent>
     </Card>
   )

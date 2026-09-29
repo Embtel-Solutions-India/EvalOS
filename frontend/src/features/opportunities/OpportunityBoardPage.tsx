@@ -52,7 +52,10 @@ export default function OpportunityBoardPage() {
   const { data, state, reload } = useMetrics((signal) => fetchOpportunityBoard(signal), [])
   const [syncing, setSyncing] = useState(false)
   // The server refuses a stage move to anyone else, and a drag that 403s is worse than none.
-  const canMove = useMe().role === 'SALES'
+  const role = useMe().role
+  // Unit 63: the ENM moves candidates on their hiring pipeline, through the same stage route.
+  const canMove = role === 'SALES' || role === 'EXPERT_NETWORK_MANAGER'
+  const hiring = role === 'EXPERT_NETWORK_MANAGER'
 
   // The columns as drawn: the last read, plus any moves made since. A new read replaces them —
   // adjusted during render rather than in an effect, so no frame shows the old board.
@@ -181,9 +184,11 @@ export default function OpportunityBoardPage() {
     <div className="flex min-h-0 flex-col gap-4">
       <header className="flex flex-wrap items-end justify-between gap-x-6 gap-y-2">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">My pipeline</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">{hiring ? 'Hiring pipeline' : 'My pipeline'}</h1>
           <p className="mt-0.5 text-sm" style={{ color: 'var(--text-muted)' }}>
-            Opportunities in GoHighLevel. EvalOS shows them; GHL owns them.
+            {hiring
+              ? 'Expert candidates in GoHighLevel. A move here reaches GHL, and a move in GHL shows here.'
+              : 'Opportunities in GoHighLevel. EvalOS shows them; GHL owns them.'}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-3 text-sm" style={{ color: 'var(--text-muted)' }}>

@@ -70,6 +70,12 @@ DOC_COLLECTION → PM_REVIEW → DRAFT_IN_PROGRESS → DRAFT_REVIEW → READY_TO
   → DELIVERED → CLOSED
 ```
 Plus an orthogonal `exception_state` (default `NONE`) for holds/refunds.
+
+**The ENM is a desk on one kind of pipeline** (Unit 63, D61). `Tier.SUPPLY` still reads every
+expert and case of the brand; in addition an ENM's pipeline claim is derived from their brand's
+`EXPERT_HIRING` pipelines (`TeamMemberPipelineRepository.ghlIdsFor`), so `PipelineScope` bounds
+their board, stage moves, candidate creates and deal notes exactly as it bounds a Sales desk. A won
+opportunity on such a pipeline is refused by `CaseIntakeService` — invariant 8's second lock.
 Transitions live in `CaseTransitions`/`CaseLifecycleService`; every one writes audit.
 
 ## The 15 invariants (compact — full reasoning archived)

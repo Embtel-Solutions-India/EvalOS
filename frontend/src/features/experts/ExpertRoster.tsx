@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { useMe } from '../../lib/authContext'
 import { useFilters } from '../shell/filtersContext'
 import AvailabilityBoard from './AvailabilityBoard'
@@ -49,7 +50,20 @@ export default function ExpertRoster() {
   const [filters, setFilters] = useState<RosterFilters>(NO_FILTERS)
   const [page, setPage] = useState(0)
   const [state, setState] = useState<LoadState>({ status: 'loading' })
-  const [open, setOpen] = useState<string | 'new' | null>(null)
+  // Unit 63: `?new=1&fullName=…` opens the create form pre-filled — the hiring pipeline's
+  // "Add to expert database". Read once; closing the sheet does not reopen it.
+  const [search] = useSearchParams()
+  const [prefill] = useState(() =>
+    search.get('new') === '1'
+      ? {
+          fullName: search.get('fullName') ?? '',
+          email: search.get('email'),
+          phone: search.get('phone'),
+          recruitmentSource: search.get('source'),
+        }
+      : undefined,
+  )
+  const [open, setOpen] = useState<string | 'new' | null>(prefill ? 'new' : null)
 
   const mayWrite = me.role !== 'PROJECT_MANAGER'
 
@@ -278,6 +292,7 @@ export default function ExpertRoster() {
               mayWrite={mayWrite}
               onSaved={() => void load()}
               onClose={() => setOpen(null)}
+              prefill={open === 'new' ? prefill : undefined}
             />
           )}
         </>

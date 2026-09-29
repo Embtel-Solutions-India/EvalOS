@@ -413,3 +413,30 @@ Expert Portal /  → POST /api/portal/auth/expert/sign-up   roster match in the 
 /cases → /case?caseId=                     expert actions take ?caseId
 ```
 **There is no other way in:** staff-minted expert links were removed and live ones revoked (`V73`).
+
+## 9. Expert lifecycle — the ENM (Unit 63, D61 / D62 / D59)
+
+### CURRENT IMPLEMENTATION
+
+```
+GHL "Expert Hiring" pipeline (GM tags it EXPERT_HIRING)
+  New Lead → Meeting Scheduled → Meeting Done → In Process → Onboarded | Dropped   (stages are GHL's)
+    ENM: /hiring board (drag = stage move → mirror + outbox → GHL), /hiring/new (lead upsert)
+    GHL-side move or new candidate → mirror absorb → HIRING_PIPELINE_UPDATED to the brand's ENMs
+    won on this pipeline → CaseIntakeService refuses: never a case
+  Onboarded → "Add to expert database" → /experts create form, pre-filled → expert row
+Directory: credentials verified (stamp + audit) · fee · availability · workload · quality
+  · case history (offered / accepted / submitted / delivered / rejected / reassigned)
+Rejected (declined / timed out) while EXPERT_DECLINED_REMATCHING + expert AVAILABLE
+  → "Offer again" (GM / PM / ENM / CM) → same rematch transition → CLIENT_APPROVAL → CM sends again
+Delivered → payout PENDING (fee) → PAYOUT_DUE to ENMs
+  → ENM records the transfer → PAID, shown "Processing"
+  → expert presses "Confirm received" in the portal → CONFIRMED, shown "Paid" → PAYOUT_CONFIRMED to the recorder
+Reports: /payouts Summary, weekly or monthly, Pending / Processing / Paid, CSV
+```
+
+### TARGET WORKFLOW
+
+The same. Not built by choice: booking or follow-ups from a hiring deal, an outreach log, a payout
+approval step or failed state, disputes.
+

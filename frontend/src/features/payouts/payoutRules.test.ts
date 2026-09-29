@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { mondayOf, settleBlocker, sumSelected, weekLabel } from './payoutRules'
+import { mondayOf, settleBlocker, sumSelected, summaryCsv, weekLabel } from './payoutRules'
 import type { LedgerRow } from './payoutRules'
 
 const draft = (id: string, amount: number | null, over: Partial<LedgerRow> = {}): LedgerRow => ({
@@ -100,5 +100,17 @@ describe('mondayOf', () => {
 
   it('walks back across a month boundary', () => {
     expect(mondayOf('2026-09-02')).toBe('2026-08-31')
+  })
+})
+
+describe('summaryCsv (Unit 63)', () => {
+  it('writes one line per period and currency under a fixed header', () => {
+    const csv = summaryCsv([
+      { periodStart: '2026-09-01', currency: 'USD', pendingCount: 1, pending: 100, processingCount: 2, processing: 250.5, paidCount: 0, paid: 0 },
+    ])
+    expect(csv.split('\n')).toEqual([
+      'period_start,currency,pending_count,pending,processing_count,processing,paid_count,paid',
+      '2026-09-01,USD,1,100,2,250.5,0,0',
+    ])
   })
 })

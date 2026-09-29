@@ -747,6 +747,13 @@ public class CaseController {
 		return summary(lifecycle.reassignExpert(id, request.expertId(), request.expertRationale(), request.fieldOfExpertise()));
 	}
 
+	/** Offer the case again to the expert who declined it (Unit 63, D62) — the reassign gate. */
+	@PostMapping("/{id}/expert/retake")
+	@PreAuthorize(GM_OR + "hasAnyRole('PROJECT_MANAGER', 'EXPERT_NETWORK_MANAGER', 'CASE_MANAGER')")
+	public ApiResponse<CaseSummary> retakeExpert(@PathVariable UUID id) {
+		return summary(lifecycle.retakeExpert(id));
+	}
+
 	/**
 	 * The failed half of final QC (Unit 31), gated exactly like its approving twin.
 	 *

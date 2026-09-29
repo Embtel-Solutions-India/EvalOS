@@ -102,7 +102,8 @@ class MarketingLeadControllerTest {
 	 * not a convenience to add because the two desks look similar.
 	 */
 	@ParameterizedTest
-	@EnumSource(value = Role.class, mode = EnumSource.Mode.EXCLUDE, names = "MARKETING")
+	// Unit 63: the ENM opens candidates on their hiring pipeline through the same upsert.
+	@EnumSource(value = Role.class, mode = EnumSource.Mode.EXCLUDE, names = { "MARKETING", "EXPERT_NETWORK_MANAGER" })
 	void everyOtherRoleIsRefused(Role role) throws Exception {
 		mockMvc.perform(post("/api/marketing/leads").header(HttpHeaders.AUTHORIZATION, bearer(role))
 				.contentType(MediaType.APPLICATION_JSON).content(OPEN_BODY))

@@ -68,7 +68,7 @@ No AI anywhere in the system. No Google Drive (removed, `V34`).
 ## Where things live
 
 ```
-backend/src/main/resources/db/migration/     V1..V65, all applied; prod scans this and only this
+backend/src/main/resources/db/migration/     V1..V76, all applied; prod scans this and only this
 backend/src/main/resources/db/seed-local/    V900..V911, local profile only
 backend/src/main/resources/db/seed-testprod/ V950..V951, testprod profile only
 backend/src/main/resources/db/seed-prod/     V960, prod profile only (the six IE desk logins)

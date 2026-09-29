@@ -41,3 +41,5 @@ from `resources/mail/` with `{{placeholder}}` substitution — no template engin
 logo is served by the portal at `{client-base-url}/brand/logo.png`: a `cid:` attachment is stripped
 by several webmail clients and a `data:` URI is blocked outright by Gmail and Outlook.com.
 **2026-09-28:** Handoff C and outbound webhooks are dropped (D53); invariant 11 is struck.
+
+**2026-09-29 (Unit 63):** the ENM (`Tier.SUPPLY`) also carries a pipeline claim — their brand's `EXPERT_HIRING` pipelines, derived in `TeamMemberPipelineRepository.ghlIdsFor` — so `PipelineScope` bounds their hiring desk like a Sales desk; `CaseIntakeService` refuses a won hiring opportunity (second lock on invariant 8).

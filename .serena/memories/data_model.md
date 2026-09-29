@@ -98,3 +98,5 @@ message_reactions, message_reads (one watermark per member), push_subscriptions.
 **V72 (Unit 59):** `expert_account` (expert_id unique → expert, password_hash, last_sign_in_at) and `expert_credential_token` (token_hash unique, purpose SET|RESET, expires_at, used_at — single use).
 
 **`V75` (Unit 61):** `document_checklist_item.sent_at` / `sent_by` — null = unsent (not in the client portal). Existing rows backfilled as sent; seed trees `V912`/`V952` repeat the backfill for demo data seeded after V75.
+
+**`V76` (Unit 63):** `pipeline.purpose` gains `EXPERT_HIRING` (the ENM's hiring pipeline); `expert.credentials_verified_at` (null = not verified; who is on the `CREDENTIALS_VERIFIED` audit row). No candidate table — candidates are mirrored GHL opportunities (D61 replaces the Unit 50 `expert_application` idea).

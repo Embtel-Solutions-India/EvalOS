@@ -75,6 +75,9 @@ public class GhlWriteClient {
 
 	public static final String SOURCE_SALES_DESK = "EvalOS Sales Desk";
 
+	/** Unit 63: a candidate the ENM opened on the expert hiring pipeline. */
+	public static final String SOURCE_HIRING_DESK = "EvalOS Expert Hiring";
+
 	private final GhlHttp http;
 	private final AuditService audit;
 

@@ -80,7 +80,8 @@ class OpportunityNoteControllerTest {
 	 * desk currently holds it.
 	 */
 	@ParameterizedTest
-	@EnumSource(value = Role.class, mode = EnumSource.Mode.INCLUDE, names = { "SALES", "MARKETING" })
+	// Unit 63: the ENM is a desk on their hiring pipeline.
+	@EnumSource(value = Role.class, mode = EnumSource.Mode.INCLUDE, names = { "SALES", "MARKETING", "EXPERT_NETWORK_MANAGER" })
 	void bothDesksReadAndWriteTheStream(Role role) throws Exception {
 		given(notes.on(OPPORTUNITY)).willReturn(List.of(NOTE));
 		given(notes.add(any(), any())).willReturn(NOTE);
@@ -133,7 +134,7 @@ class OpportunityNoteControllerTest {
 	 */
 	@ParameterizedTest
 	@EnumSource(value = Role.class, mode = EnumSource.Mode.EXCLUDE,
-			names = { "SALES", "MARKETING", "GM", "BRAND_MANAGER" })
+			names = { "SALES", "MARKETING", "GM", "BRAND_MANAGER", "EXPERT_NETWORK_MANAGER" })
 	void everyProductionRoleIsRefused(Role role) throws Exception {
 		mockMvc.perform(get("/api/opportunities/{id}/notes", OPPORTUNITY)
 				.header(HttpHeaders.AUTHORIZATION, bearer(role)))

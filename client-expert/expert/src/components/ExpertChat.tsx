@@ -1,23 +1,17 @@
-import { useState } from 'react'
-import { ChatProvider, ConversationView, PushCard, useChat } from '@evalos/chat'
-import '@evalos/chat/chat.css'
+import { ConversationView, useChat } from '@evalos/chat'
 import { Card } from '@shared/components/ui/card'
-import { createPortalChat } from '@shared/services/portalChat'
 
 /**
  * The case's Expert conversation beside the case (Unit 57 §7): the expert and the case team, never
  * the client. The expert view names its case by reference only, so the conversation is found by
- * case code. Push opt-in sits above it — this app has no nav to put a Messages page in.
+ * case code. The chat client is the shell's (`ExpertLayout`); push opt-in lives on Messages.
  */
 export function ExpertChat({ caseReference }: { caseReference: string | null }) {
-  const [client] = useState(() => createPortalChat('expert'))
   return (
-    <ChatProvider client={client}>
-      <Card className="flex h-[70vh] flex-col gap-2 p-4 lg:sticky lg:top-6">
-        <PushCard workerUrl="/sw.js" />
-        <Conversation caseReference={caseReference} />
-      </Card>
-    </ChatProvider>
+    <Card className="flex h-[70vh] flex-col gap-2 p-4 xl:sticky xl:top-8">
+      <h2 className="font-semibold text-foreground">Case team</h2>
+      <Conversation caseReference={caseReference} />
+    </Card>
   )
 }
 

@@ -4,7 +4,8 @@ import { SheetContent, SheetRoot } from '../../components/ui/dialog'
 import { useMe } from '../../lib/authContext'
 import { formatMoney } from '../../lib/money'
 import { useFilters } from '../shell/filtersContext'
-import { createExpert, fetchExpert, putPaymentDetail, setAvailability, updateExpert } from './expertApi'
+import CaseHistory from './CaseHistory'
+import { createExpert, fetchExpert, putPaymentDetail, setAvailability, updateExpert, verifyCredentials } from './expertApi'
 import {
   AFFILIATION_TYPES,
   AVAILABILITIES,
@@ -65,6 +66,7 @@ export default function ExpertProfile({
   mayWrite,
   onSaved,
   onClose,
+  prefill,
 }: {
   /** An id, or `new` for the create form. */
   expertId: string | 'new'
@@ -81,6 +83,8 @@ export default function ExpertProfile({
   mayWrite: boolean
   onSaved: () => void
   onClose: () => void
+  /** Unit 63: a hired candidate's details, carried from the hiring pipeline into the create form. */
+  prefill?: Partial<ExpertForm>
 }) {
   const me = useMe()
   const { activeBrandId } = useFilters()
@@ -96,7 +100,7 @@ export default function ExpertProfile({
   const creating = targetId === 'new'
 
   const [profile, setProfile] = useState<Profile | null>(null)
-  const [form, setForm] = useState<ExpertForm>(EMPTY_FORM)
+  const [form, setForm] = useState<ExpertForm>({ ...EMPTY_FORM, ...prefill })
   const [state, setState] = useState<'loading' | 'ready' | 'saving'>(
     expertId === 'new' ? 'ready' : 'loading',
   )
@@ -319,6 +323,33 @@ export default function ExpertProfile({
               {/* Unit 33. Everything below is on the profile and on no list: the roster table
                   stays a table, and this is what somebody opens an expert to read. */}
               <Section title="Credentials">
+                {/* Unit 63: the ENM records having checked them; who did is on the audit row. */}
+                <p className="mb-2.5 flex flex-wrap items-center gap-2 text-sm">
+                  {profile?.credentialsVerifiedAt ? (
+                    <span className="chip">Verified {profile.credentialsVerifiedAt.slice(0, 10)}</span>
+                  ) : (
+                    <span className="chip">Not verified</span>
+                  )}
+                  {mayWrite && (
+                    <button
+                      type="button"
+                      className="btn"
+                      onClick={() => {
+                        setFailure(null)
+                        verifyCredentials(targetId)
+                          .then((saved) => {
+                            setProfile(saved)
+                            onSaved()
+                          })
+                          .catch((error: unknown) =>
+                            setFailure(error instanceof Error ? error.message : 'Could not record the check'),
+                          )
+                      }}
+                    >
+                      {profile?.credentialsVerifiedAt ? 'Verify again' : 'Mark verified'}
+                    </button>
+                  )}
+                </p>
                 <Facts>
                   <Fact term="Expert ID" value={dossier?.expertCode ?? '—'} />
                   <Fact term="Highest degree" value={dossier?.highestDegree ?? '—'} />
@@ -398,6 +429,11 @@ export default function ExpertProfile({
                   <Fact term="Agreement" value={label(profile?.agreementStatus ?? null)} />
                   <Fact term="Payment status" value={label(profile?.paymentStatus ?? null)} />
                 </Facts>
+              </Section>
+
+              {/* Unit 63: accepted, submitted, delivered and rejected work, with D62's retake. */}
+              <Section title="Cases">
+                <CaseHistory expertId={targetId} mayRetake={me.role !== 'BRAND_MANAGER'} />
               </Section>
 
               <Section

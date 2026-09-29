@@ -320,6 +320,18 @@ public class ExpertService {
 	 * offer this expert at all: it lists {@code AVAILABLE} only, because
 	 * {@code CaseLifecycleService.availableExpert} refuses anything else.
 	 */
+	/** The ENM records that they checked this expert's credentials (Unit 63). Re-verifying restamps. */
+	@Transactional
+	public Expert verifyCredentials(UUID id) {
+		Expert expert = readForWrite(id);
+		ExpertSnapshot before = ExpertSnapshot.of(expert);
+		expert.markCredentialsVerified(Instant.now());
+		Expert saved = experts.save(expert);
+		audit.recordEvent(OBJECT_TYPE, saved.getId(), AuditAction.CREDENTIALS_VERIFIED, actor(), before,
+				ExpertSnapshot.of(saved, "Credentials verified"));
+		return saved;
+	}
+
 	@Transactional
 	public Expert setAvailability(UUID id, Availability availability) {
 		Expert expert = readForWrite(id);

@@ -54,7 +54,7 @@ class OpportunityMirrorSyncTest {
 
 	private final OpportunityMirrorService mirror =
 			new OpportunityMirrorService(ghl, opportunities, pipelines, notes, followUps, meetings,
-					new SellingBrand(BRAND));
+					new SellingBrand(BRAND), mock(com.ie.evalos.notification.HiringPipelineNotifier.class));
 
 	private final List<Opportunity> saved = new ArrayList<>();
 

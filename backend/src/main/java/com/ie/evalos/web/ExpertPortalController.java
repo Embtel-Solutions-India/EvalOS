@@ -57,8 +57,11 @@ public class ExpertPortalController {
 
 	private final ExpertPortalService portal;
 
-	ExpertPortalController(ExpertPortalService portal) {
+	private final com.ie.evalos.service.PayoutService payoutService;
+
+	ExpertPortalController(ExpertPortalService portal, com.ie.evalos.service.PayoutService payoutService) {
 		this.portal = portal;
+		this.payoutService = payoutService;
 	}
 
 	private static PortalPrincipal expert() {
@@ -86,6 +89,33 @@ public class ExpertPortalController {
 	@GetMapping("/cases/{caseId}")
 	public ApiResponse<ExpertPortalService.ExpertCaseView> readCase(@PathVariable UUID caseId) {
 		return ApiResponse.ok(portal.view(expert(), caseId));
+	}
+
+	/**
+	 * This expert's own payout rows (Unit 35, D6).
+	 *
+	 * <p>Case reference, amount, currency, status and settlement date. <strong>Never
+	 * {@code payment_detail}</strong> — invariant 4, and this surface does not become the first
+	 * read path onto it. Works for both token shapes: a payout belongs to the expert, and V37 put
+	 * the expert on a case-scoped row too.
+	 */
+	@GetMapping("/payouts")
+	public ApiResponse<List<ExpertPortalService.ExpertPayoutRow>> payouts() {
+		return ApiResponse.ok(portal.payoutRows(expert()));
+	}
+
+	/**
+	 * "I received this transfer" (Unit 63) — Processing becomes Paid for every case it settled.
+	 * Only the expert confirms; the payment must be theirs, in the token's brand.
+	 */
+	@PostMapping("/payments/{paymentId}/confirm")
+	public ApiResponse<List<ExpertPortalService.ExpertPayoutRow>> confirmPayment(@PathVariable UUID paymentId) {
+		PortalPrincipal principal = expert();
+		if (principal.expertId() == null) {
+			throw new com.ie.evalos.common.ForbiddenException("This link no longer points at an expert");
+		}
+		payoutService.confirmByExpert(principal.brandId(), principal.expertId(), paymentId);
+		return ApiResponse.ok(portal.payoutRows(principal));
 	}
 
 	/**

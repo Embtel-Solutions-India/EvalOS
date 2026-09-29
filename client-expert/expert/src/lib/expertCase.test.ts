@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
   expertFailureMessage,
+  payoutTotals,
+  transfersToConfirm,
   goalOf,
   humanize,
   SIGN_SLA,
@@ -111,3 +113,24 @@ describe('expertFailureMessage', () => {
     expect(expertFailureMessage(503)).toContain('nothing was recorded')
   })
 })
+
+describe('payoutTotals', () => {
+  it('keeps currencies apart and counts voided rows nowhere', () => {
+    expect(payoutTotals([row(100, 'USD', 'PENDING'), row(50, 'USD', 'PAID'), row(25, 'USD', 'CONFIRMED'),
+      row(999, 'USD', 'VOIDED'), row(10, 'GBP', 'PENDING')])).toEqual([
+      ['USD', { owed: 100, processing: 50, paid: 25 }],
+      ['GBP', { owed: 10, processing: 0, paid: 0 }],
+    ])
+  })
+})
+
+describe('transfersToConfirm (Unit 63)', () => {
+  it('counts each processing transfer once, however many cases it settled', () => {
+    expect(transfersToConfirm([row(1, 'USD', 'PAID', 'p1'), row(2, 'USD', 'PAID', 'p1'),
+      row(3, 'USD', 'PAID', 'p2'), row(4, 'USD', 'CONFIRMED', 'p3'), row(5, 'USD', 'PENDING')])).toBe(2)
+  })
+})
+
+function row(amount: number, currency: string, status: 'PENDING' | 'PAID' | 'CONFIRMED' | 'VOIDED', paymentId: string | null = null) {
+  return { caseReference: null, amount, currency, status, settledOn: null, paymentId }
+}

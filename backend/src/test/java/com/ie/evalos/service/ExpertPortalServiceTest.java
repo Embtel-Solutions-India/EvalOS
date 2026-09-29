@@ -33,7 +33,10 @@ import com.ie.evalos.repository.CaseDocumentRepository;
 import com.ie.evalos.repository.CaseRepository;
 import com.ie.evalos.repository.ContactSnapshotRepository;
 import com.ie.evalos.repository.DocumentChecklistItemRepository;
+import com.ie.evalos.repository.ExpertCaseOfferRepository;
 import com.ie.evalos.repository.ExpertRepository;
+import com.ie.evalos.repository.PayoutLedgerRepository;
+import com.ie.evalos.repository.PayoutPaymentRepository;
 import com.ie.evalos.security.PortalPrincipal;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -86,10 +89,13 @@ class ExpertPortalServiceTest {
 	private final SlaCalculator sla = mock(SlaCalculator.class);
 	private final DocumentStore store = mock(DocumentStore.class);
 	private final AuditService audit = mock(AuditService.class);
+	private final ExpertCaseOfferRepository offers = mock(ExpertCaseOfferRepository.class);
+	private final PayoutLedgerRepository payouts = mock(PayoutLedgerRepository.class);
+	private final PayoutPaymentRepository payments = mock(PayoutPaymentRepository.class);
 	private final ObjectMapper objectMapper = new ObjectMapper();
 
 	private final ExpertPortalService portal = new ExpertPortalService(cases, contacts, experts,
-			checklistItems, documents, lifecycle, sla, store, audit);
+			checklistItems, documents, lifecycle, sla, store, audit, offers, payouts, payments);
 
 	private Case subject;
 

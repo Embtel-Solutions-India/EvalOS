@@ -10,7 +10,7 @@ The external portal frontends for the EvalOS production CRM, built with React, T
 > `/case#<token>` in the expert app: the assigned case, the letter, the evidence it rests on, the
 > three answers, and the sign step — download, sign in your own tool, upload the PDF back with the
 > attestation ticked. Experts now sign in (Unit 59) and list their cases at `/cases`. There
-> is no payments screen: expert payments are managed manually by the ENM (D59).
+> is a read-only Payouts page; the ENM still settles payments by hand (D59, spec 62).
 >
 > **`/documents` is wired (Unit 34 slices 34a + 34c).** It reads the checklist, uploads through EvalOS to S3 with a real progress bar, and opens a document through a 5-minute presigned URL. It takes a scoped portal token out of the URL fragment, so open it as `/documents#<token>`; it sits outside the account shell on purpose.
 >

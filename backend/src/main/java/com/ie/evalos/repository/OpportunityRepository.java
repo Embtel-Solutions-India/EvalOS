@@ -74,6 +74,12 @@ public interface OpportunityRepository
 
 	boolean existsByBrandIdAndGhlIdAndPipelineId(UUID brandId, String ghlId, UUID pipelineId);
 
+	/** Whether this deal sits on an ENM hiring pipeline (Unit 63) — a candidate, never a client. */
+	@Query("select count(o) > 0 from Opportunity o, Pipeline p where p.id = o.pipelineId "
+			+ "and o.brandId = :brandId and o.ghlId = :ghlId "
+			+ "and p.purpose = com.ie.evalos.domain.PipelinePurpose.EXPERT_HIRING")
+	boolean isOnHiringPipeline(@Param("brandId") UUID brandId, @Param("ghlId") String ghlId);
+
 	/**
 	 * One contact's deals — the EvalOS half of the retry question (`00d` §6.1).
 	 *

@@ -65,8 +65,10 @@ public class MarketingLeadService {
 							+ "those, and without either every save creates a new one.");
 		}
 
-		GhlWriteClient.UpsertedContact contact = ghl.upsertContact(firstName, lastName, email, phone,
-				GhlWriteClient.SOURCE_MARKETING_DESK);
+		// Unit 63: the ENM opens candidates through this same upsert; GHL is told which desk it was.
+		String source = com.ie.evalos.security.TenantContext.current().role() == com.ie.evalos.domain.Role.EXPERT_NETWORK_MANAGER
+				? GhlWriteClient.SOURCE_HIRING_DESK : GhlWriteClient.SOURCE_MARKETING_DESK;
+		GhlWriteClient.UpsertedContact contact = ghl.upsertContact(firstName, lastName, email, phone, source);
 		// D56: an edit still waiting in the outbox would be overwritten by this upsert and then
 		// pushed back over GHL's answer — or lost. The queued edit wins; the desk hears "already
 		// had an open deal", which is what created = false already says.
@@ -87,8 +89,7 @@ public class MarketingLeadService {
 		// valuation of a lead just opened answered 400 for up to a full MIRROR_DELTA. From GHL's
 		// own reply rather than a second read: it has just told us what it stored.
 		deals.absorbCreated(pipelineId, opportunity.id(), contact.id(), opportunity.name(),
-				opportunity.monetaryValue(), opportunity.status(), opportunity.stageId(),
-				GhlWriteClient.SOURCE_MARKETING_DESK);
+				opportunity.monetaryValue(), opportunity.status(), opportunity.stageId(), source);
 
 		return new Lead(contact.id(), opportunity.id(), opportunity.name(), opportunity.monetaryValue(),
 				opportunity.isNew());

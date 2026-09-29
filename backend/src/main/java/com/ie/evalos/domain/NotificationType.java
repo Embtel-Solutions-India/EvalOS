@@ -48,5 +48,11 @@ public enum NotificationType {
 	 * other paths — a refund request, a CM's flag, an expert declining. Any one of them would
 	 * silence this prompt for the life of the case.
 	 */
-	EXPERT_SIGN_OVERDUE
+	EXPERT_SIGN_OVERDUE,
+	/** Unit 63: a hiring candidate arrived or changed stage in GHL. To the brand's ENMs. */
+	HIRING_PIPELINE_UPDATED,
+	/** Unit 63: a payout opened at delivery and is waiting to be paid. To the brand's ENMs. */
+	PAYOUT_DUE,
+	/** Unit 63: the expert confirmed they received a transfer. To whoever recorded it. */
+	PAYOUT_CONFIRMED
 }
