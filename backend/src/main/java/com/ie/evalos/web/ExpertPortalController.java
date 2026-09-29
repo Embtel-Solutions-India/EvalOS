@@ -1,6 +1,7 @@
 package com.ie.evalos.web;
 
 import java.io.IOException;
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.UUID;
 
@@ -132,8 +133,9 @@ public class ExpertPortalController {
 	 * to a specific piece of work.
 	 */
 	@PostMapping("/accept")
-	public ApiResponse<ExpertPortalService.ExpertCaseView> accept(@RequestParam(required = false) UUID caseId) {
-		return ApiResponse.ok(portal.accept(expert(), caseId));
+	public ApiResponse<ExpertPortalService.ExpertCaseView> accept(@RequestParam(required = false) UUID caseId,
+			@RequestParam(required = false) BigDecimal fee) {
+		return ApiResponse.ok(portal.accept(expert(), caseId, fee));
 	}
 
 	/** "Not until the client sends this." Holds the case and opens a required checklist item. */

@@ -20,9 +20,11 @@ import com.ie.evalos.domain.ContactSnapshot;
 import com.ie.evalos.domain.DocumentChecklistItem;
 import com.ie.evalos.domain.DocumentKind;
 import com.ie.evalos.domain.ExceptionState;
+import com.ie.evalos.domain.ExpertCaseOffer;
 import com.ie.evalos.domain.Expert;
 import com.ie.evalos.domain.ExpertSignStatus;
 import com.ie.evalos.domain.IllegalTransitionException;
+import com.ie.evalos.domain.OfferOutcome;
 import com.ie.evalos.domain.PortalAudience;
 import com.ie.evalos.domain.ServiceType;
 import com.ie.evalos.domain.Stage;
@@ -94,8 +96,9 @@ class ExpertPortalServiceTest {
 	private final PayoutPaymentRepository payments = mock(PayoutPaymentRepository.class);
 	private final ObjectMapper objectMapper = new ObjectMapper();
 
+	private final com.ie.evalos.repository.BrandRepository brands = mock(com.ie.evalos.repository.BrandRepository.class);
 	private final ExpertPortalService portal = new ExpertPortalService(cases, contacts, experts,
-			checklistItems, documents, lifecycle, sla, store, audit, offers, payouts, payments);
+			checklistItems, documents, lifecycle, sla, store, audit, offers, payouts, payments, brands);
 
 	private Case subject;
 
@@ -413,12 +416,79 @@ class ExpertPortalServiceTest {
 	 * names B. Revoking on those four transitions closes the paths that exist; this closes the ones
 	 * nobody has written yet.
 	 */
+	// --- Unit 65: the expert accepts the fee they were shown ------------------
+
+	private ExpertCaseOffer openOffer(String fee) {
+		ExpertCaseOffer open = new ExpertCaseOffer(BRAND, CASE_ID, EXPERT_ID);
+		if (fee != null) {
+			open.setFee(new BigDecimal(fee), null);
+		}
+		given(offers.findByCaseIdAndOutcome(CASE_ID, OfferOutcome.OFFERED)).willReturn(List.of(open));
+		return open;
+	}
+
+	@Test
+	void acceptingAStaleFeeIsRefused() {
+		openOffer("400.00");
+
+		assertThatThrownBy(() -> portal.accept(token(), null, new BigDecimal("350.00")))
+				.isInstanceOf(IllegalTransitionException.class)
+				.hasMessage("The fee for this case changed — review it.");
+		verify(lifecycle, never()).expertAcceptedFromPortal(any());
+	}
+
+	@Test
+	void acceptingWithNoFeeIsRefused() {
+		openOffer(null);
+
+		assertThatThrownBy(() -> portal.accept(token(), null, null))
+				.isInstanceOf(IllegalTransitionException.class)
+				.hasMessage("The fee for this case is not set yet.");
+		verify(lifecycle, never()).expertAcceptedFromPortal(any());
+	}
+
+	@Test
+	void acceptingTheShownFeeAccepts() {
+		openOffer("400.00");
+		given(lifecycle.expertAcceptedFromPortal(any())).willReturn(subject);
+
+		portal.accept(token(), null, new BigDecimal("400")); // 400 == 400.00 by compareTo
+
+		verify(lifecycle).expertAcceptedFromPortal(any());
+	}
+
+	@Test
+	void aSecondAcceptAfterTheFirstIsNotRefused() {
+		// Review focus 1: the double click. No open offer any more → no fee check → the lifecycle's
+		// own idempotency answers.
+		given(offers.findByCaseIdAndOutcome(CASE_ID, OfferOutcome.OFFERED)).willReturn(List.of());
+		given(lifecycle.expertAcceptedFromPortal(any())).willReturn(subject);
+
+		portal.accept(token(), null, new BigDecimal("400.00"));
+
+		verify(lifecycle).expertAcceptedFromPortal(any());
+	}
+
+	@Test
+	void theCaseViewCarriesTheOfferedFeeInTheBrandsCurrency() {
+		ExpertCaseOffer open = openOffer("400.00");
+		given(offers.findByCaseIdOrderByOfferedAtDesc(CASE_ID)).willReturn(List.of(open));
+		com.ie.evalos.domain.Brand brand = mock(com.ie.evalos.domain.Brand.class);
+		given(brand.getCurrency()).willReturn("USD");
+		given(brands.findById(BRAND)).willReturn(java.util.Optional.of(brand));
+
+		ExpertPortalService.ExpertCaseView view = portal.view(token());
+
+		assertThat(view.offeredFee()).isEqualByComparingTo("400.00");
+		assertThat(view.currency()).isEqualTo("USD");
+	}
+
 	@Test
 	void aTokenNamingAnotherExpertReachesNothing() {
 		PortalPrincipal supersededLink = tokenFor(BRAND, CASE_ID, UUID.randomUUID());
 
 		assertThatThrownBy(() -> portal.view(supersededLink)).isInstanceOf(ForbiddenException.class);
-		assertThatThrownBy(() -> portal.accept(supersededLink, null)).isInstanceOf(ForbiddenException.class);
+		assertThatThrownBy(() -> portal.accept(supersededLink, null, null)).isInstanceOf(ForbiddenException.class);
 		assertThatThrownBy(() -> portal.letterLink(supersededLink, null)).isInstanceOf(ForbiddenException.class);
 		assertThatThrownBy(() -> portal.uploadSignedLetter(supersededLink, null, "signed.pdf", PDF.length,
 				part(PDF), ATTESTATION)).isInstanceOf(ForbiddenException.class);

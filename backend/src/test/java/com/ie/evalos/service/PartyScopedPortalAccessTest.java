@@ -76,7 +76,8 @@ class PartyScopedPortalAccessTest {
 			mock(CaseMilestones.class));
 
 	private final ExpertPortalService expertPortal = new ExpertPortalService(
-			cases, contacts, experts, checklistItems, documents, lifecycle, sla, store, audit, offers, payouts, payments);
+			cases, contacts, experts, checklistItems, documents, lifecycle, sla, store, audit, offers, payouts, payments,
+			mock(com.ie.evalos.repository.BrandRepository.class));
 
 	// --- fixtures ------------------------------------------------------------
 
