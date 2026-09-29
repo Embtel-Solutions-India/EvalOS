@@ -23,8 +23,10 @@ half of **`63-enm-workspace.md`**; supersedes neither — Pending → Processing
 
 ## 1. The decision
 
-1. **Every offer carries the amount that case pays the expert** — the *offered amount*. It is
-   required, pre-filled with the expert's `standard_fee`, in the brand's currency.
+1. **Every offer carries the amount that case pays the expert** — the *offered amount*, in the
+   brand's (single) currency. The dialog's Fee field left blank means the expert's `standard_fee`;
+   a retake keeps the declined offer's fee. An offer with neither is refused (*"Set a fee for this
+   case — this expert has no standard fee."*).
 2. **Who sets it: GM, PM, PC, ENM.** A CM who makes an offer (a reassignment) offers at the expert's
    standard fee and cannot change it; if that expert has no standard fee, the CM's offer is refused
    with *"Ask a PM, PC or ENM to set the fee for this case."*
@@ -50,20 +52,21 @@ One Flyway migration in the main tree, **`V79__offer_fee.sql`**:
 
 ```sql
 ALTER TABLE expert_case_offer
-    ADD COLUMN fee          numeric(12,2) CHECK (fee >= 0),
-    ADD COLUMN fee_currency text;
+    ADD COLUMN fee        numeric(12,2) CHECK (fee >= 0),
+    ADD COLUMN fee_set_by uuid REFERENCES team_member (id),
+    ADD COLUMN fee_set_at timestamptz;
 
 -- Open and accepted offers get the fee they would have been paid at delivery, so none is
 -- left unpriced and today's payouts appear in the register.
 UPDATE expert_case_offer o
-   SET fee = e.standard_fee, fee_currency = b.currency
-  FROM expert e, brand b
- WHERE o.outcome IN ('OFFERED', 'ACCEPTED') AND e.id = o.expert_id AND b.id = o.brand_id;
+   SET fee = e.standard_fee, fee_set_at = now()
+  FROM expert e
+ WHERE o.outcome IN ('OFFERED', 'ACCEPTED') AND e.id = o.expert_id;
 
 -- An accepted offer that already has a payout takes the payout's amount: that is what was agreed
 -- in practice (the standard fee, possibly corrected before this unit).
 UPDATE expert_case_offer o
-   SET fee = p.amount, fee_currency = p.currency
+   SET fee = p.amount, fee_set_at = now()
   FROM payout_ledger p
  WHERE o.outcome = 'ACCEPTED' AND p.case_id = o.case_id AND p.expert_id = o.expert_id
    AND p.status <> 'VOIDED' AND p.amount IS NOT NULL;
@@ -73,8 +76,13 @@ UPDATE expert_case_offer o
   have no fee and never will, and an open offer whose expert has no standard fee stays null until a
   PM / PC / ENM sets one — the portal shows it as *"Fee not set yet"* and **Accept is refused while
   it is null**.
-- `ExpertCaseOffer` gains `fee`, `feeCurrency` and a `setFee(BigDecimal)` that throws
-  `IllegalTransitionException` unless `outcome == OFFERED`.
+- The currency is the brand's; the offer does not repeat it. `fee_set_by` / `fee_set_at` hold who
+  set the current amount and when (null `fee_set_by` = the migration); the history is in the log.
+- `ExpertCaseOffer` gains `fee`, `feeSetBy`, `feeSetAt` and `setFee(BigDecimal, UUID actor)` that
+  throws `IllegalTransitionException` unless `outcome == OFFERED`.
+- **Seed trees:** `V914__seed_local_offer_fee.sql` and `V953__seed_testprod_offer_fee.sql` repeat
+  the backfill `WHERE fee IS NULL`, because on a fresh database the seeds insert their offers after
+  `V79` has run.
 - **Existing `payout_ledger` rows are untouched.** A delivery whose accepted offer has no fee (an
   offer accepted before `V79` whose expert had no standard fee) falls back to `standard_fee`, as
   today — which may be null.
@@ -88,22 +96,23 @@ UPDATE expert_case_offer o
 
 | Change | Endpoint | Roles | Rule |
 |---|---|---|---|
-| Amount on each offer | `fee` added to the bodies of `POST /api/cases/{id}/assign-cm`, `/reassign-expert`, `/expert/retake` | unchanged | required; a CM's value must equal the standard fee (or be omitted), else 403 |
+| Amount on each offer | `fee` added to the bodies of `POST /api/cases/{id}/assign-cm`, `/reassign-expert`, `/expert/retake` | unchanged | optional `fee`: blank → standard fee (retake: the declined offer's fee); neither → 409; a CM's value must be blank or equal the standard fee, else 403 |
 | Edit an open offer's amount | `PATCH /api/cases/{id}/expert/offer/fee` `{fee}` | GM, PM, PC, ENM | the case's open offer only, else 409; scoped load (a PC only on cases assigned to them) |
 | Register | `GET /api/payouts/cases?status&expertId&from&to&q` | GM, BM, ENM | one row per offer that has a fee **or** a non-voided payout (so no payout owed today is missing); amount = the payout's when one exists, else the offer's fee; brand-scoped |
 | Register CSV | `GET /api/payouts/cases/export` (same params) | GM, BM, ENM | through the existing `csvField` (quoted, formula-safe) |
 | One offer's log | `GET /api/payouts/cases/{offerId}/history` | GM, BM, ENM | `audit_event` rows for the offer, its payout and its payment, oldest first |
 | Per-expert totals | `GET /api/payouts/experts` | GM, BM, ENM | committed / pending / processing / paid + oldest pending due date, per expert and currency |
 | Overview | `GET /api/payouts/overview?from&to` | GM, BM, ENM | the four tiles + the attention list (§4.1) |
-| Expert accepts | `POST /api/portal/expert/accept` body gains `fee` | expert token | must equal the open offer's current fee, else **409** *"The fee for this case changed — review it."* |
-| Expert case read | `ExpertCaseSummary` gains `offeredFee`, `offeredCurrency` | expert token | the open or accepted offer's amount |
+| Current offer on a case | `GET /api/cases/{id}/expert/offer` → `{offerId, fee, currency, outcome, feeSetByName, feeSetAt, log}` | every production role (scoped case load) | for the case page's expert card |
+| Expert accepts | `POST /api/portal/expert/accept` gains query param `fee` (beside `caseId`) | expert token | must equal the open offer's current fee, else **409** *"The fee for this case changed — review it."* |
+| Expert case read | `ExpertCaseSummary` and `ExpertCaseView` gain `offeredFee`, `currency` | expert token | the open or accepted offer's amount |
 | **Narrowed** | `PATCH /api/payouts/{id}` → *set a missing amount* (`PayoutService.setMissingAmount`, was `correctAmount`) | GM, BM, ENM | `PENDING` and amount null only, else 409; audited |
 
 **Audit.** New `AuditAction`s are not needed: `CREATED` / `UPDATED` on entity type `OFFER` with
 `{fee}` before → after, and the accept / decline / timeout already written by the lifecycle gain
 `fee` in their snapshot, so the log shows *which* amount was agreed.
 
-**Status derivation** lives in one place, `PayoutService.offerStatus(offer, payoutOrNull)`: the
+**Status derivation** lives in one place, `PayoutRegisterService.status(outcome, payoutStatusOrNull)`: the
 offer's outcome until a payout exists, then the payout's status mapped through the existing
 `PENDING / PAID→Processing / CONFIRMED→Paid` labels. `VOIDED` payouts are ignored, as
 `uq_payout_per_case` already does.
@@ -144,9 +153,10 @@ stays where it is.
 
 ### 4.5 Where the amount is entered (outside the module)
 
-- **Amount** field (pre-filled, required) in the PM's assign dialog (`QuickActionDialog`,
-  `AssignPopover`, `ExpertAssignmentPage`), the reassign dialog and the retake action — read-only
-  for a CM.
+- **Fee** field in the assign and reassign quick actions (`boardRules.ts`, rendered by
+  `QuickActionDialog`, also reached from `ExpertAssignmentPage`) — *optional: blank uses the
+  expert's standard fee*. The retake stays one click and keeps the declined offer's fee; any
+  change is made with **Edit** on the case while the offer is open. A CM never gets an editable fee.
 - The case page's expert card (`ExpertCard`) shows the amount and its status, **Edit** while the
   offer is open (GM / PM / PC / ENM), and *History* opening the same log panel as §4.2.
 
