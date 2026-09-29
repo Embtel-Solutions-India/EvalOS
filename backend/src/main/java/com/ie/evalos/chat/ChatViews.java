@@ -15,13 +15,21 @@ public final class ChatViews {
 	public record Participant(ParticipantKind kind, UUID id, ChatRole role, String name) {
 	}
 
+	/** One person who reacted (Unit 58 phase 2): identity, so a client can tell its own reaction apart. */
+	public record Reactor(ParticipantKind kind, UUID id, String name) {
+	}
+
+	/** The caller in chat terms, for a client computing "mine" on live events built for their author. */
+	public record Me(ParticipantKind kind, UUID id) {
+	}
+
 	/**
-	 * One message. {@code reactions} maps each reaction to who gave it, by display name.
+	 * One message. {@code reactions} maps each reaction to who gave it.
 	 * {@code mine} is true when the caller wrote it — the only person who may edit or delete it.
 	 */
 	public record MessageView(UUID id, UUID conversationId, ParticipantKind authorKind, UUID authorId,
 			String authorName, String body, UUID parentId, int replyCount, Instant createdAt, Instant editedAt,
-			boolean deleted, Map<Reaction, List<String>> reactions, boolean mine) {
+			boolean deleted, Map<Reaction, List<Reactor>> reactions, boolean mine) {
 	}
 
 	/** An inbox row: the conversation with its case context. {@code unread} is 0 for a viewer. */

@@ -74,7 +74,24 @@ public class ChecklistService {
 	 * own clock after a chase, which is a second copy of a fact the trail already holds and
 	 * showed the browser's time rather than the recorded one.
 	 */
-	public record CaseChecklist(Case subject, List<DocumentChecklistItem> items, Instant lastChasedAt) {
+	public record CaseChecklist(Case subject, List<DocumentChecklistItem> items, Instant lastChasedAt,
+			Map<UUID, String> senders) {
+
+		/** Unit 61: items the PC/CM has not sent to the client yet. */
+		public int unsent() {
+			return (int) items.stream().filter(item -> !item.isSent()).count();
+		}
+
+		/** The most recent send, for "already sent by … on …". */
+		public java.util.Optional<DocumentChecklistItem> lastSent() {
+			return items.stream().filter(DocumentChecklistItem::isSent)
+					.max(Comparator.comparing(DocumentChecklistItem::getSentAt));
+		}
+
+		/** A sender's display name; null for a pre-D60 send, which has no sender. */
+		public String senderOf(DocumentChecklistItem item) {
+			return item.getSentBy() == null ? null : senders.get(item.getSentBy());
+		}
 
 		public int complete() {
 			return (int) items.stream().filter(item -> item.getStatus().isComplete()).count();
@@ -103,10 +120,13 @@ public class ChecklistService {
 	private final AuditEventRepository auditEvents;
 	private final AuditService audit;
 	private final ApplicationEventPublisher events;
+	/** Unit 61: senders' display names for "sent by". */
+	private final com.ie.evalos.repository.TeamMemberRepository teamMembers;
 
 	ChecklistService(CaseLifecycleService lifecycle, CaseBoardService board,
 			DocumentChecklistItemRepository checklistItems, AuditEventRepository auditEvents, AuditService audit,
-			ApplicationEventPublisher events) {
+			ApplicationEventPublisher events, com.ie.evalos.repository.TeamMemberRepository teamMembers) {
+		this.teamMembers = teamMembers;
 		this.lifecycle = lifecycle;
 		this.board = board;
 		this.checklistItems = checklistItems;
@@ -133,8 +153,15 @@ public class ChecklistService {
 	 */
 	@Transactional(readOnly = true)
 	public List<BoardRow> board(UUID brandId) {
-		List<CaseBoardService.BoardRow> waiting = board.forCaller(null, brandId).stream()
-				.filter(row -> row.subject().getCurrentStage() == Stage.DOC_COLLECTION)
+		List<CaseBoardService.BoardRow> visible = board.forCaller(null, brandId);
+		// Unit 61: also any case with something still to send. An expert's evidence request lands
+		// after document collection, and a board that hid it would leave that item unsendable.
+		java.util.Set<UUID> needsSend = visible.isEmpty() ? java.util.Set.of()
+				: checklistItems.caseIdsWithUnsent(
+						visible.stream().map(row -> row.subject().getBrandId()).distinct().toList());
+		List<CaseBoardService.BoardRow> waiting = visible.stream()
+				.filter(row -> row.subject().getCurrentStage() == Stage.DOC_COLLECTION
+						|| needsSend.contains(row.subject().getId()))
 				.toList();
 
 		List<UUID> caseIds = waiting.stream().map(row -> row.subject().getId()).toList();
@@ -189,8 +216,46 @@ public class ChecklistService {
 	@Transactional(readOnly = true)
 	public CaseChecklist forCase(UUID caseId) {
 		Case subject = lifecycle.read(caseId);
-		return new CaseChecklist(subject, checklistItems.findByCaseId(subject.getId()),
-				lastChased(List.of(subject.getId()), List.of(subject.getBrandId())).get(subject.getId()));
+		List<DocumentChecklistItem> items = checklistItems.findByCaseId(subject.getId());
+		java.util.Set<UUID> senderIds = items.stream().map(DocumentChecklistItem::getSentBy)
+				.filter(java.util.Objects::nonNull).collect(Collectors.toSet());
+		Map<UUID, String> senders = senderIds.isEmpty() ? Map.of()
+				: teamMembers.findAllById(senderIds).stream()
+						.collect(Collectors.toMap(com.ie.evalos.domain.TeamMember::getId,
+								com.ie.evalos.domain.TeamMember::getDisplayName));
+		return new CaseChecklist(subject, items,
+				lastChased(List.of(subject.getId()), List.of(subject.getBrandId())).get(subject.getId()),
+				senders);
+	}
+
+	/**
+	 * Sends the case's unsent items to the client (Unit 61, D60): the PC's or the CM's one act.
+	 *
+	 * <p><strong>Only what is unsent, and refused when there is none.</strong> That is how a list
+	 * is never sent twice: whichever of the two presses Send first publishes it, and the other then
+	 * sees "already sent". Items added afterwards wait for the next Send.
+	 *
+	 * <p>Not stage-guarded, unlike the chase: an expert's evidence request adds an item after
+	 * document collection, and it has to be sendable there. Publishes {@code CHECKLIST_REQUESTED}
+	 * inside the transaction, which D58's checklist email will listen to.
+	 */
+	@Transactional
+	public void send(UUID caseId) {
+		Case subject = lifecycle.read(caseId);
+		List<DocumentChecklistItem> unsent = checklistItems.findByCaseId(subject.getId()).stream()
+				.filter(item -> !item.isSent())
+				.toList();
+		if (unsent.isEmpty()) {
+			throw new IllegalTransitionException("the checklist has already been sent; add a document first");
+		}
+		UUID by = TenantContext.current().memberId();
+		Instant now = Instant.now();
+		unsent.forEach(item -> item.markSent(by, now));
+		checklistItems.saveAll(unsent);
+
+		record(subject, AuditAction.UPDATED, "Checklist sent to the client: " + unsent.stream()
+				.map(DocumentChecklistItem::getLabel).collect(Collectors.joining(", ")));
+		events.publishEvent(CaseEvents.CaseEvent.of(CaseEvents.Type.CHECKLIST_REQUESTED, subject));
 	}
 
 	/**
@@ -217,7 +282,8 @@ public class ChecklistService {
 	}
 
 	/**
-	 * Adds a document the template did not know about.
+	 * Adds a document the template did not know about. It opens <strong>unsent</strong> (Unit 61):
+	 * the client sees it only after the next {@link #send}.
 	 *
 	 * <p>Opens as {@code REQUIRED}, which is what makes the case incomplete again — no extra
 	 * rule is needed for that, because {@code markDocsComplete} already refuses a case with any

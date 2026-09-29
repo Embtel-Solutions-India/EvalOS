@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { CheckCircle2, ExternalLink, FileText } from 'lucide-react'
 import { useState } from 'react'
+import { Link, Navigate, useSearchParams } from 'react-router-dom'
 import { toast } from 'sonner'
 import { Badge } from '@shared/components/ui/badge'
 import { Button } from '@shared/components/ui/button'
@@ -13,8 +14,7 @@ import { ErrorState } from '@shared/components/common/ErrorState'
 import { FileDropzone, validateFile } from '@shared/components/common/FileDropzone'
 import { ListSkeleton } from '@shared/components/common/LoadingState'
 import { PageHeader } from '@shared/components/common/PageHeader'
-import { NO_TOKEN, tokenFromFragment } from '@shared/lib/portal'
-import { hasPortalToken, setPortalToken, statusOf } from '@shared/services/apiClient'
+import { hasPortalToken, statusOf } from '@shared/services/apiClient'
 import { formatDate } from '@shared/utils/formatters'
 import {
   expertFailureMessage,
@@ -32,14 +32,17 @@ import {
   getCase,
   letterLink,
   requestEvidence,
+  setOpenCase,
   uploadSignedLetter,
 } from '@/services/expertPortalService'
+import { ExpertChat } from '@/components/ExpertChat'
 
 /**
  * The expert's assigned case, against EvalOS (Unit 15, wired in 34e).
  *
- * **One column, because the expert has one decision to make and reads top to bottom**: the goal,
- * then the letter, then the evidence it rests on, then the answers. The account shell around the
+ * **One column for the case, because the expert has one decision to make and reads top to bottom**:
+ * the goal, then the letter, then the evidence it rests on, then the answers. The case team's
+ * conversation sits beside it (Unit 57). The account shell around the
  * rest of this app is deliberately not here — the credential is a scoped portal link naming one
  * case, not a session, and mounting this behind `ExpertAuthenticatedRoute` would answer Unit 34's
  * decision D1 by accident. Same reasoning, same shape as the client's `/documents` (34c).
@@ -53,16 +56,13 @@ import {
 export default function ExpertCasePortal() {
   const queryClient = useQueryClient()
 
-  // Captured during the first render rather than in an effect: the token has to be on the client
-  // before the query fires, and an effect runs after.
-  const [tokenPresent] = useState(() => {
-    const token = tokenFromFragment(window.location.hash)
-    if (token) setPortalToken(token)
-    return hasPortalToken()
-  })
+  // Signing in is the only way to hold a token (Unit 59): there is no link to read one from.
+  const tokenPresent = hasPortalToken()
+  const caseId = useSearchParams()[0].get('caseId')
+  setOpenCase(caseId)
 
   const { data, isLoading, isError, error, refetch } = useQuery({
-    queryKey: ['expert-portal', 'case'],
+    queryKey: ['expert-portal', 'case', caseId],
     queryFn: getCase,
     enabled: tokenPresent,
     retry: false,
@@ -70,22 +70,26 @@ export default function ExpertCasePortal() {
 
   const refresh = () => void queryClient.invalidateQueries({ queryKey: ['expert-portal', 'case'] })
 
-  if (!tokenPresent) {
-    return (
-      <div className="mx-auto max-w-2xl p-6">
-        <PageHeader title="Your assigned case" description={NO_TOKEN} />
-      </div>
-    )
-  }
+  // The token is memory-only, so a reload lands here without one: back to the door.
+  if (!tokenPresent) return <Navigate to="/" replace />
+  // A case is always named; the list is where one is chosen.
+  if (!caseId) return <Navigate to="/cases" replace />
 
   return (
-    <div className="mx-auto max-w-3xl p-6">
-      {isLoading && <ListSkeleton />}
-      {isError && (
-        <ErrorState description={expertFailureMessage(statusOf(error))} onRetry={() => void refetch()} />
-      )}
+    <div className="mx-auto grid max-w-6xl gap-6 p-6 lg:grid-cols-[minmax(0,1fr)_24rem]">
+      <div>
+        <Link to="/cases" className="mb-4 inline-block text-sm text-primary underline">
+          All your cases
+        </Link>
+        {isLoading && <ListSkeleton />}
+        {isError && (
+          <ErrorState description={expertFailureMessage(statusOf(error))} onRetry={() => void refetch()} />
+        )}
 
-      {!isLoading && !isError && data && <CaseBody view={data} onChanged={refresh} />}
+        {!isLoading && !isError && data && <CaseBody view={data} onChanged={refresh} />}
+      </div>
+      {/* Beside the case, below it on a phone (Unit 57 §7). */}
+      {data && <ExpertChat caseReference={data.caseReference} />}
     </div>
   )
 }

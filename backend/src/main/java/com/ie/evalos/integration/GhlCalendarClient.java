@@ -49,15 +49,6 @@ public class GhlCalendarClient {
 	/** The scope listing calendars needs. Verified granted 2026-09-11. */
 	public static final String READ_SCOPE = "calendars.readonly";
 
-	/**
-	 * Reading a contact's appointments needs {@code contacts.readonly}, not a calendar scope.
-	 *
-	 * <p>GHL hangs that read off {@code /contacts/{id}/appointments}, which is the endpoint the
-	 * Client Portal wants: it is keyed on the contact, which is exactly what a party-scoped
-	 * portal credential holds. Verified granted 2026-09-11.
-	 */
-	public static final String CONTACT_READ_SCOPE = "contacts.readonly";
-
 	/** A calendar a meeting can be booked into: a label and the id the booking needs. */
 	/**
 	 * One calendar, as the booking form needs it.
@@ -86,42 +77,36 @@ public class GhlCalendarClient {
 	 *
 	 * <p><strong>Passed through as GHL's own offset-bearing string</strong> ({@code
 	 * 2026-09-15T15:00:00-07:00}) and never re-zoned here. The slot exists in the calendar's
-	 * timezone, and converting it would move the meeting — the same discipline
-	 * {@link ClientMeeting} applies for the opposite reason.
+	 * timezone, and converting it would move the meeting.
 	 */
 	public record FreeSlots(String timezone, java.util.Map<String, List<String>> byDate) {
 	}
 
 	/**
-	 * A booked meeting, narrowed to what a desk and a client portal need.
+	 * A booked meeting, narrowed to what a desk needs.
 	 *
 	 * <p>GHL's appointment payload carries assignment, recurrence, location configuration and
-	 * more. Neither screen shows any of it, and the narrowing is the same discipline every other
+	 * more. The desk shows none of it, and the narrowing is the same discipline every other
 	 * client here applies.
 	 */
 	public record Meeting(String id, String calendarId, String contactId, String title,
 			String startTime, String endTime, String status) {
 	}
 
-	/**
-	 * One meeting, narrowed to what a <em>client</em> is owed sight of.
-	 *
-	 * <p>The narrowing is the point and it drops more than it keeps. GHL's event carries
-	 * {@code assignedUserId} (an internal staff id), {@code notes} (written by staff, for
-	 * staff — the same reason `opportunity_note` never reaches a client) and
-	 * {@code appointmentMeta.defaultFormDetails} with the contact's own email and phone. None
-	 * of it belongs on a portal page.
-	 *
-	 * <p>{@code location} is GHL's {@code address}, which is a join link for an online meeting
-	 * and a street address for one in person. Named for what it is rather than assumed to be a
-	 * URL, because the portal has to render both.
-	 *
-	 * <p><strong>{@code startsAt} and {@code endsAt} are passed through as GHL's own strings and
-	 * are NOT ISO-8601.</strong> See {@link #forContact}.
-	 */
-	public record ClientMeeting(String id, String title, String startsAt, String endsAt,
-			String status, String location) {
+	/** One internal note on an appointment (Unit 60). {@code author} is GHL's {@code createdBy.name}. */
+	public record AppointmentNote(String id, String body, String author, String dateAdded) {
 	}
+
+	/** One page of notes; GHL caps a page at 20 and says whether there is another. */
+	public record NotePage(List<AppointmentNote> notes, boolean hasMore) {
+	}
+
+	/** A stretch of a team member's time GHL will not offer as a free slot (Unit 60). */
+	public record BlockedTime(String id, String title, String startTime, String endTime) {
+	}
+
+	/** GHL's page size for appointment notes, and its maximum. */
+	public static final int NOTE_PAGE = 20;
 
 	private final GhlHttp http;
 	private final AuditService audit;
@@ -173,13 +158,27 @@ public class GhlCalendarClient {
 	 *                 timezone by default, exactly as GHL's does.
 	 */
 	public FreeSlots freeSlots(String calendarId, long fromEpochMs, long toEpochMs, String timezone) {
+		return freeSlots(calendarId, fromEpochMs, toEpochMs, timezone, null);
+	}
+
+	/**
+	 * The same, for one team member (Unit 60): GHL's {@code userId} narrows the slots to that
+	 * person's availability. Null asks for the calendar as a whole, as before.
+	 */
+	public FreeSlots freeSlots(String calendarId, long fromEpochMs, long toEpochMs, String timezone,
+			String ghlUserId) {
 		try {
 			java.util.Map<?, ?> raw = http.get(java.util.Map.class,
-					(uri) -> uri.path("/calendars/{id}/free-slots")
-							.queryParam("startDate", fromEpochMs)
-							.queryParam("endDate", toEpochMs)
-							.queryParam("timezone", timezone)
-							.build(calendarId));
+					(uri) -> {
+						uri.path("/calendars/{id}/free-slots")
+								.queryParam("startDate", fromEpochMs)
+								.queryParam("endDate", toEpochMs)
+								.queryParam("timezone", timezone);
+						if (ghlUserId != null && !ghlUserId.isBlank()) {
+							uri.queryParam("userId", ghlUserId);
+						}
+						return uri.build(calendarId);
+					});
 
 			java.util.Map<String, List<String>> byDate = new java.util.LinkedHashMap<>();
 			Optional.ofNullable(raw).orElseGet(java.util.Map::of).forEach((key, value) -> {
@@ -328,45 +327,139 @@ public class GhlCalendarClient {
 	}
 
 	/**
-	 * Every meeting GHL holds for one contact, for the Client Portal.
+	 * Cancels a meeting (Unit 60): GHL's own update, with {@code appointmentStatus: cancelled}.
 	 *
-	 * <p><strong>Three things about GHL's payload that are traps, all pinned by tests.</strong>
-	 *
-	 * <ol>
-	 * <li><strong>The times are not ISO-8601.</strong> GHL returns {@code "2026-09-13 12:30:00"}
-	 * — a space instead of a {@code T}, and <em>no offset at all</em>. {@code Instant.parse}
-	 * throws on it. They are passed through as strings rather than parsed into a wrong instant:
-	 * with no zone in the payload, any parse would be inventing one, and inventing UTC would
-	 * show a Pacific client a meeting seven hours out. The same endpoint's <em>write</em> side
-	 * takes proper ISO with an offset, which is how easy it is to assume symmetry here.</li>
-	 * <li><strong>{@code deleted} must be honoured.</strong> A removed appointment still comes
-	 * back in the list, and showing a client a meeting that is not happening is worse than
-	 * showing none.</li>
-	 * <li><strong>GHL sends the status twice</strong>, as {@code appointmentStatus} and as
-	 * {@code appoinmentStatus} — its own typo, present in the live payload. The correctly
-	 * spelled one is read; the misspelling is ignored rather than used as a fallback, because a
-	 * fallback onto a typo is a dependency on GHL never fixing it.</li>
-	 * </ol>
-	 *
-	 * <p><strong>{@code contactId} never comes from a request.</strong> The caller passes the id
-	 * off the portal credential — the same access model, word for word, as
-	 * {@code GhlInvoiceClient.forContact}.
+	 * <p><strong>A status, not a delete.</strong> It is what a cancel in GHL's own screen does: the
+	 * appointment stays in the contact's history and GHL runs its cancellation automations, so the
+	 * client hears about it from GHL (invariant 14). {@code DELETE /calendars/events/{id}} is a hard
+	 * delete that GHL's docs do not say notifies anyone.
 	 */
-	public List<ClientMeeting> forContact(String contactId) {
+	public Meeting cancel(String appointmentId, String opportunityId, String pipelineId) {
+		AppointmentRow row;
 		try {
-			ContactEventsResponse response = http.get(ContactEventsResponse.class,
-					(uri) -> uri.path("/contacts/{contactId}/appointments").build(contactId));
-
-			return Optional.ofNullable(response == null ? null : response.events()).orElse(List.of())
-					.stream()
-					.filter((event) -> !Boolean.TRUE.equals(event.deleted()))
-					.map((event) -> new ClientMeeting(event.id(), event.title(), event.startTime(),
-							event.endTime(), event.appointmentStatus(), event.address()))
-					.toList();
+			row = http.put(AppointmentRow.class,
+					(uri) -> uri.path("/calendars/events/appointments/{id}").build(appointmentId),
+					Map.of("appointmentStatus", "cancelled"));
 		}
 		catch (GhlUnavailableException refused) {
-			throw missingScopeHint(refused, CONTACT_READ_SCOPE);
+			throw missingScopeHint(refused, WRITE_SCOPE);
 		}
+		AppointmentRow cancelled = require(row);
+
+		audit.recordEvent("GHL_OPPORTUNITY", auditKey("GHL_OPPORTUNITY", opportunityId),
+				AuditAction.UPDATED, actor(), null,
+				Map.of("ghlOpportunityId", opportunityId, "ghlPipelineId", pipelineId,
+						"ghlAppointmentId", appointmentId, "appointmentStatus", "cancelled"));
+		return toMeeting(cancelled);
+	}
+
+	/** One page of an appointment's internal notes, in GHL's order. */
+	public NotePage notes(String appointmentId, int offset) {
+		NotesResponse response;
+		try {
+			response = http.get(NotesResponse.class,
+					(uri) -> uri.path("/calendars/appointments/{id}/notes")
+							.queryParam("limit", NOTE_PAGE)
+							.queryParam("offset", Math.max(0, offset))
+							.build(appointmentId));
+		}
+		catch (GhlUnavailableException refused) {
+			throw missingScopeHint(refused, READ_SCOPE);
+		}
+		List<AppointmentNote> notes = Optional.ofNullable(response == null ? null : response.notes())
+				.orElse(List.of()).stream()
+				.map((n) -> new AppointmentNote(n.id(), n.body(),
+						n.createdBy() == null ? null : n.createdBy().name(), n.dateAdded()))
+				.toList();
+		return new NotePage(notes, response != null && Boolean.TRUE.equals(response.hasMore()));
+	}
+
+	/** Replaces a note's text. GHL enforces its 5000-character limit. */
+	public void editNote(String appointmentId, String noteId, String body) {
+		try {
+			http.put(Object.class,
+					(uri) -> uri.path("/calendars/appointments/{id}/notes/{noteId}").build(appointmentId, noteId),
+					Map.of("body", body));
+		}
+		catch (GhlUnavailableException refused) {
+			throw missingScopeHint(refused, WRITE_SCOPE);
+		}
+	}
+
+	public void deleteNote(String appointmentId, String noteId) {
+		try {
+			http.delete((uri) -> uri.path("/calendars/appointments/{id}/notes/{noteId}")
+					.build(appointmentId, noteId));
+		}
+		catch (GhlUnavailableException refused) {
+			throw missingScopeHint(refused, WRITE_SCOPE);
+		}
+	}
+
+	/**
+	 * Blocks off a team member's time (Unit 60).
+	 *
+	 * <p>{@code assignedUserId} and <strong>no {@code calendarId}</strong>: GHL's spec says "either
+	 * calendarId or assignedUserId can be set, not both", and a person's time off is theirs across
+	 * every calendar they sit on.
+	 */
+	public BlockedTime blockTime(String ghlUserId, String title, String startTime, String endTime) {
+		Map<String, Object> body = new LinkedHashMap<>();
+		body.put("locationId", http.locationId());
+		body.put("assignedUserId", ghlUserId);
+		body.put("startTime", startTime);
+		body.put("endTime", endTime);
+		putIfPresent(body, "title", title);
+		BlockRow row;
+		try {
+			row = http.post(BlockRow.class, (uri) -> uri.path("/calendars/events/block-slots").build(), body);
+		}
+		catch (GhlUnavailableException refused) {
+			throw missingScopeHint(refused, WRITE_SCOPE);
+		}
+		if (row == null || row.id() == null) {
+			throw new GhlUnavailableException("GHL returned no blocked-slot id", null,
+					GhlFailure.EMPTY_RESPONSE, null);
+		}
+		audit.recordEvent("GHL_BLOCKED_TIME", auditKey("GHL_BLOCKED_TIME", row.id()),
+				AuditAction.CREATED, actor(), null,
+				Map.of("ghlEventId", row.id(), "ghlUserId", ghlUserId, "startTime", startTime,
+						"endTime", endTime));
+		return toBlocked(row);
+	}
+
+	/** A team member's blocked time inside a window. GHL wants the window in epoch millis. */
+	public List<BlockedTime> blockedTimes(String ghlUserId, long fromEpochMs, long toEpochMs) {
+		BlockListResponse response;
+		try {
+			response = http.get(BlockListResponse.class,
+					(uri) -> uri.path("/calendars/blocked-slots")
+							.queryParam("locationId", http.locationId())
+							.queryParam("userId", ghlUserId)
+							.queryParam("startTime", fromEpochMs)
+							.queryParam("endTime", toEpochMs)
+							.build());
+		}
+		catch (GhlUnavailableException refused) {
+			throw missingScopeHint(refused, READ_SCOPE);
+		}
+		return Optional.ofNullable(response == null ? null : response.events()).orElse(List.of())
+				.stream().map(GhlCalendarClient::toBlocked).toList();
+	}
+
+	/**
+	 * Removes a block. GHL has no block-slot delete, so this is its generic event delete, which is
+	 * why the caller checks the id is one of the member's own blocks first.
+	 */
+	public void unblock(String eventId) {
+		try {
+			http.delete((uri) -> uri.path("/calendars/events/{id}").build(eventId));
+		}
+		catch (GhlUnavailableException refused) {
+			throw missingScopeHint(refused, WRITE_SCOPE);
+		}
+		audit.recordEvent("GHL_BLOCKED_TIME", auditKey("GHL_BLOCKED_TIME", eventId),
+				AuditAction.UPDATED, actor(), null, Map.of("ghlEventId", eventId, "removed", "true"));
 	}
 
 	// --- diagnostics and helpers -----------------------------------------------------
@@ -403,6 +496,13 @@ public class GhlCalendarClient {
 		return row;
 	}
 
+	/** GHL types these times as {@code object}; in practice a string, so it is passed through. */
+	private static BlockedTime toBlocked(BlockRow row) {
+		return new BlockedTime(row.id(), row.title(),
+				row.startTime() == null ? null : String.valueOf(row.startTime()),
+				row.endTime() == null ? null : String.valueOf(row.endTime()));
+	}
+
 	private static Meeting toMeeting(AppointmentRow row) {
 		return new Meeting(row.id(), row.calendarId(), row.contactId(), row.title(),
 				row.startTime(), row.endTime(), row.appointmentStatus());
@@ -436,18 +536,6 @@ public class GhlCalendarClient {
 	record CalendarListResponse(List<CalendarRow> calendars) {
 	}
 
-	record ContactEventsResponse(List<ContactEventRow> events) {
-	}
-
-	/**
-	 * Deliberately a subset of the fields GHL sends. Jackson ignores the rest, which is what
-	 * keeps {@code assignedUserId}, {@code notes} and the contact's own details from ever
-	 * reaching a record this codebase could accidentally serialise.
-	 */
-	record ContactEventRow(String id, String title, String startTime, String endTime,
-			String appointmentStatus, String address, Boolean deleted) {
-	}
-
 	record CalendarRow(String id, String name, Boolean isActive, Integer slotDuration,
 			String eventTitle) {
 	}
@@ -459,5 +547,21 @@ public class GhlCalendarClient {
 	 */
 	record AppointmentRow(String id, String calendarId, String contactId, String title,
 			String startTime, String endTime, String appointmentStatus) {
+	}
+
+	record NotesResponse(List<NoteRow> notes, Boolean hasMore) {
+	}
+
+	record NoteRow(String id, String body, String dateAdded, NoteAuthor createdBy) {
+	}
+
+	record NoteAuthor(String id, String name) {
+	}
+
+	/** The block-slot create answers at the top level; the list wraps its rows in {@code events}. */
+	record BlockRow(String id, String title, Object startTime, Object endTime) {
+	}
+
+	record BlockListResponse(List<BlockRow> events) {
 	}
 }

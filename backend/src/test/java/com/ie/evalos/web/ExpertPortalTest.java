@@ -18,7 +18,6 @@ import com.ie.evalos.security.PortalSecurityConfig;
 import com.ie.evalos.security.PortalTokenFilter;
 import com.ie.evalos.service.ExpertPortalService;
 import com.ie.evalos.service.PortalInvoiceService;
-import com.ie.evalos.service.PortalMeetingService;
 import com.ie.evalos.service.PortalAccessService;
 
 import org.junit.jupiter.api.Test;
@@ -80,10 +79,8 @@ class ExpertPortalTest {
 	@MockitoBean
 	PortalAccessService portalAccess;
 
-	// Unit 41 gave ClientPortalController an invoice route and the 2026-09-11 follow-on gave it a
-	// meetings route, so this slice needs both collaborators. Mocked rather than imported:
-	// nothing here exercises either — that is ClientPortalInvoiceTest's and
-	// ClientPortalMeetingTest's job — and importing the real services would drag GhlHttp and a
+	// Unit 41 gave ClientPortalController an invoice route, so this slice needs that collaborator.
+	// Mocked rather than imported: ClientPortalInvoiceTest exercises it, and importing the real service would drag GhlHttp and a
 	// GHL credential into a test about the two chains refusing each other's tokens.
 	//
 	// **This is the sixth time a @WebMvcTest slice has broken on a new constructor argument**,
@@ -91,9 +88,6 @@ class ExpertPortalTest {
 	// controller, grep for its name in src/test before running anything narrower.
 	@MockitoBean
 	PortalInvoiceService portalInvoices;
-
-	@MockitoBean
-	PortalMeetingService portalMeetings;
 
 	@MockitoBean
 	ExpertPortalService portal;
@@ -149,9 +143,10 @@ class ExpertPortalTest {
 	void anExpertTokenIsRefusedOnTheClientRoutes() throws Exception {
 		givenBothLinks();
 
-		mockMvc.perform(get("/api/portal/client/case").header(PortalTokenFilter.HEADER, EXPERT_TOKEN))
+		mockMvc.perform(get("/api/portal/client/cases/{id}", CASE_ID).header(PortalTokenFilter.HEADER, EXPERT_TOKEN))
 				.andExpect(status().isForbidden());
-		mockMvc.perform(post("/api/portal/client/approve").header(PortalTokenFilter.HEADER, EXPERT_TOKEN))
+		mockMvc.perform(post("/api/portal/client/cases/{id}/drafts/{draftId}/approve", CASE_ID, UUID.randomUUID())
+				.header(PortalTokenFilter.HEADER, EXPERT_TOKEN))
 				.andExpect(status().isForbidden());
 
 		verifyNoInteractions(clientPortal);
@@ -201,7 +196,7 @@ class ExpertPortalTest {
 	@Test
 	void aSignedPdfWithTheAttestationIsAccepted() throws Exception {
 		givenBothLinks();
-		given(portal.uploadSignedLetter(any(), anyString(), anyLong(), any(), anyString()))
+		given(portal.uploadSignedLetter(any(), any(), anyString(), anyLong(), any(), anyString()))
 				.willReturn(new ExpertPortalService.SignedLetterView(UUID.randomUUID(), "signed.pdf", 1,
 						java.time.Instant.parse("2026-09-03T10:15:30Z"), "0".repeat(64)));
 
@@ -253,7 +248,7 @@ class ExpertPortalTest {
 	@Test
 	void anUploadCarryingItsOwnNameIsNotBelieved() throws Exception {
 		givenBothLinks();
-		given(portal.uploadSignedLetter(any(), anyString(), anyLong(), any(), anyString()))
+		given(portal.uploadSignedLetter(any(), any(), anyString(), anyLong(), any(), anyString()))
 				.willReturn(new ExpertPortalService.SignedLetterView(UUID.randomUUID(), "signed.pdf", 1,
 						java.time.Instant.parse("2026-09-03T10:15:30Z"), "0".repeat(64)));
 
@@ -265,6 +260,6 @@ class ExpertPortalTest {
 				.andExpect(status().isOk());
 
 		// Five arguments, and none of them is a name: the controller does not read that parameter.
-		verify(portal).uploadSignedLetter(any(), anyString(), anyLong(), any(), eq(ATTESTATION));
+		verify(portal).uploadSignedLetter(any(), any(), anyString(), anyLong(), any(), eq(ATTESTATION));
 	}
 }

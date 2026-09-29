@@ -130,3 +130,19 @@
    --radius-xl: 0.75rem;
    /* 12px — modals, drawers */
 }
+/*
+ * Case chat (Unit 57 §7) on this app's tokens. On `body`, not `:root`, so it wins over the
+ * package's own `:root` defaults whatever order the two stylesheets load in.
+ */
+body {
+  --chat-bg: var(--bg-surface);
+  --chat-surface: var(--bg-raised);
+  --chat-border: var(--border-default);
+  --chat-text: var(--text-primary);
+  --chat-muted: var(--text-muted);
+  --chat-accent: var(--accent-primary);
+  --chat-accent-text: #fff;
+  --chat-mine-bg: var(--accent-soft);
+  --chat-danger: var(--status-red);
+  --chat-radius: var(--radius-md);
+}

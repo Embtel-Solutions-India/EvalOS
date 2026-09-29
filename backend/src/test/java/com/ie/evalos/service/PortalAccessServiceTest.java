@@ -52,16 +52,8 @@ class PortalAccessServiceTest {
 	private final CaseLifecycleService lifecycle = mock(CaseLifecycleService.class);
 	private final AuditService audit = mock(AuditService.class);
 
-	/**
-	 * <strong>One origin now, and the trailing slash is the assertion.</strong> This took a client
-	 * base too, and every mint test below asked for a CLIENT link. Nothing mints one any more —
-	 * clients reach their own portal and sign in — so the only URL this service builds is the
-	 * expert's. {@code resolve} is untouched and still admits a legacy CLIENT row, which several
-	 * tests below still exercise on purpose.
-	 */
-	private final PortalAccessService links = new PortalAccessService(
-			tokens, lifecycle, audit, Duration.ofDays(30), Duration.ofDays(7),
-			"https://experts.evalos.test/");
+	/** Signing in is the only mint left (Unit 59): staff-minted expert links were removed. */
+	private final PortalAccessService links = new PortalAccessService(tokens, Duration.ofDays(7));
 
 	private Case subject;
 
@@ -85,192 +77,13 @@ class PortalAccessServiceTest {
 		SecurityContextHolder.clearContext();
 	}
 
-	private PortalAccess minted() {
-		links.mintForExpert(CASE_ID);
-		org.mockito.ArgumentCaptor<PortalAccess> saved = org.mockito.ArgumentCaptor.forClass(PortalAccess.class);
-		verify(tokens).save(saved.capture());
-		return saved.getValue();
-	}
-
-	/**
-	 * The property the whole model rests on: a database read yields no working link.
-	 *
-	 * <p>Asserted by taking the URL apart — the token is in the <strong>fragment</strong>, and the
-	 * row must not contain it in any form. The fragment matters as well as the hashing: a query
-	 * parameter would land in access logs and {@code Referer} headers on the way to the server.
-	 */
-	@Test
-	void theTokenIsReturnedOnceAndStoredOnlyAsAHash() {
-		PortalAccessService.MintedLink link = links.mintForExpert(CASE_ID);
-
-		assertThat(link.url()).startsWith("https://experts.evalos.test/case#");
-		String token = link.url().substring(link.url().indexOf('#') + 1);
-		// 256 bits of base64url without padding.
-		assertThat(token).hasSize(43).matches("[A-Za-z0-9_-]+");
-
-		org.mockito.ArgumentCaptor<PortalAccess> saved = org.mockito.ArgumentCaptor.forClass(PortalAccess.class);
-		verify(tokens).save(saved.capture());
-		PortalAccess row = saved.getValue();
-
-		assertThat(row.matches(PortalAccessService.hash(token))).isTrue();
-		assertThat(row.matches(token)).as("the row holds the hash, never the token").isFalse();
-		assertThat(row.getBrandId()).as("the brand comes off the case, never a request").isEqualTo(BRAND);
-		assertThat(row.getCaseId()).isEqualTo(subject.getId());
-		assertThat(row.getAudience()).isEqualTo(PortalAudience.EXPERT);
-		assertThat(row.getRevokedAt()).isNull();
-		assertThat(row.getLastSeenAt()).as("nobody has opened it yet").isNull();
-	}
-
-	/** Expiry is real, and it is absolute rather than a sliding window every visit extends. */
-	@Test
-	void aLinkExpires() {
-		PortalAccess row = minted();
-
-		assertThat(row.getExpiresAt()).isAfter(Instant.now().plus(Duration.ofDays(29)));
-		assertThat(row.isLive(Instant.now())).isTrue();
-		assertThat(row.isLive(Instant.now().plus(Duration.ofDays(31)))).isFalse();
-	}
-
-	/**
-	 * Re-minting revokes, inside the same transaction.
-	 *
-	 * <p>Not a nicety: without it every "the link doesn't work" support request would permanently
-	 * add another live credential pointing at the same case. The <em>invariant</em> is V23's partial
-	 * unique index — this is what keeps the winner of a concurrent mint legal, not what enforces the
-	 * rule; see {@code aPortalTokenIsUniqueAndItsAudienceIsClosed} for the constraint itself.
-	 */
-	@Test
-	void reMintingRevokesTheLinkItSupersedes() {
-		PortalAccess previous = new PortalAccess(BRAND, CASE_ID, PortalAudience.EXPERT, EXPERT_ID,
-				"old-hash", Instant.now().plus(Duration.ofDays(10)));
-		given(tokens.findByCaseIdAndAudienceOrderByCreatedAtDesc(any(), eq(PortalAudience.EXPERT)))
-				.willReturn(List.of(previous));
-
-		links.mintForExpert(CASE_ID);
-
-		assertThat(previous.getRevokedAt()).isNotNull();
-		assertThat(previous.isLive(Instant.now())).isFalse();
-		// saveAndFlush, not save: the revocation must reach the database before the insert the
-		// unique index checks — see PortalAccessService.retire.
-		verify(tokens).saveAndFlush(previous);
-	}
-
 	// --- Unit 35, D1: the party-scoped credential -----------------------------
-
-	/**
-	 * A party link lives <strong>7 days</strong>, not 30.
-	 *
-	 * <p>It opens every case that person has, so it is the wider of the two credentials and must
-	 * not outlive the narrow one by four times. Asserted against both bounds rather than just the
-	 * lower one: a party TTL that silently picked up {@code link-ttl} would still be "after 6 days"
-	 * and would be exactly the bug this exists to catch.
-	 */
-	@Test
-	void aPartyLinkLivesSevenDaysAndNotThirty() {
-		links.mintPartyForExpert(CASE_ID);
-
-		PortalAccess row = savedRow();
-		assertThat(row.getExpiresAt()).isAfter(Instant.now().plus(Duration.ofDays(6)));
-		assertThat(row.getExpiresAt()).isBefore(Instant.now().plus(Duration.ofDays(8)));
-		assertThat(row.isPartyScoped()).isTrue();
-		assertThat(row.getExpertId()).isEqualTo(EXPERT_ID);
-		assertThat(row.getCaseId()).isNull();
-	}
-
-	/**
-	 * Re-minting a party link revokes the previous <em>party</em> link — and leaves a case link
-	 * alone.
-	 *
-	 * <p>The two shapes are separate credentials with separate indexes ({@code V38}), so issuing a
-	 * party link must not kill a case link the Case Manager already sent. The finder this asserts
-	 * is the brand-scoped, {@code caseId IS NULL} one, which is what keeps the two apart.
-	 */
-	@Test
-	void reMintingAPartyLinkRevokesOnlyThePreviousPartyLink() {
-		PortalAccess previousParty = PortalAccess.forParty(BRAND, PortalAudience.EXPERT, null, EXPERT_ID,
-				"old-party-hash", Instant.now().plus(Duration.ofDays(3)));
-		given(tokens.findByBrandIdAndExpertIdAndAudienceAndCaseIdIsNullOrderByCreatedAtDesc(
-				eq(BRAND), eq(EXPERT_ID), eq(PortalAudience.EXPERT)))
-				.willReturn(List.of(previousParty));
-
-		links.mintPartyForExpert(CASE_ID);
-
-		assertThat(previousParty.getRevokedAt()).isNotNull();
-		// The case-scoped finder is never consulted on this path: a case link already in somebody's
-		// inbox keeps working.
-		verify(tokens, never()).findByCaseIdAndAudienceOrderByCreatedAtDesc(any(), any());
-	}
-
-	/**
-	 * A party mint refuses an unassigned case, exactly as the case-scoped one does.
-	 *
-	 * <p>The client half of this method is gone — it used to resolve the case's GHL contact and
-	 * refuse when there was none. Nothing mints a client link now, so the only party a case can
-	 * name is its expert, and the only way to name nobody is to have none assigned.
-	 */
-	@Test
-	void aCaseWithNoExpertCannotMintAPartyLink() {
-		subject.setExpertId(null);
-
-		assertThatThrownBy(() -> links.mintPartyForExpert(CASE_ID))
-				.isInstanceOf(IllegalTransitionException.class)
-				.hasMessageContaining("no expert is assigned");
-	}
 
 	/** The row handed to {@code save}, which is where the minted credential's shape is visible. */
 	private PortalAccess savedRow() {
 		org.mockito.ArgumentCaptor<PortalAccess> saved = org.mockito.ArgumentCaptor.forClass(PortalAccess.class);
 		verify(tokens).save(saved.capture());
 		return saved.getValue();
-	}
-
-	/**
-	 * An <strong>already-expired</strong> row is retired too, and that is what V23's index needs.
-	 *
-	 * <p>Retiring only the live rows would leave an expired one unrevoked, so it would still occupy
-	 * {@code (case_id, audience) WHERE revoked_at IS NULL} and the next mint after a natural expiry
-	 * would collide with the index — a client who waited out their link would be unable to get a new
-	 * one. Nothing about who may read a token changes, because {@code isLive} already refused it.
-	 */
-	@Test
-	void anExpiredLinkIsRetiredSoTheNextMintDoesNotCollideWithTheIndex() {
-		PortalAccess expired = new PortalAccess(BRAND, CASE_ID, PortalAudience.EXPERT, EXPERT_ID,
-				"stale-hash", Instant.now().minus(Duration.ofDays(1)));
-		given(tokens.findByCaseIdAndAudienceOrderByCreatedAtDesc(any(), eq(PortalAudience.EXPERT)))
-				.willReturn(List.of(expired));
-
-		links.mintForExpert(CASE_ID);
-
-		assertThat(expired.getRevokedAt()).as("an expired row must not stay unrevoked").isNotNull();
-		verify(tokens).saveAndFlush(expired);
-	}
-
-	/** A row already retired is left exactly as it was — first revocation wins. */
-	@Test
-	void anAlreadyRetiredLinkIsNotRestamped() {
-		PortalAccess retired = new PortalAccess(BRAND, CASE_ID, PortalAudience.EXPERT, EXPERT_ID,
-				"older-hash", Instant.now().plus(Duration.ofDays(10)));
-		Instant revokedAt = Instant.now().minus(Duration.ofHours(3));
-		retired.revoke(revokedAt);
-		given(tokens.findByCaseIdAndAudienceOrderByCreatedAtDesc(any(), eq(PortalAudience.EXPERT)))
-				.willReturn(List.of(retired));
-
-		links.mintForExpert(CASE_ID);
-
-		assertThat(retired.getRevokedAt()).isEqualTo(revokedAt);
-		verify(tokens, never()).saveAndFlush(retired);
-	}
-
-	/** Minting is audited, and the row must not carry the credential it issued. */
-	@Test
-	void mintingIsAuditedWithoutTheToken() {
-		PortalAccessService.MintedLink link = links.mintForExpert(CASE_ID);
-		String token = link.url().substring(link.url().indexOf('#') + 1);
-
-		org.mockito.ArgumentCaptor<Object> after = org.mockito.ArgumentCaptor.forClass(Object.class);
-		verify(audit).recordEvent(eq("CASE"), any(), eq(AuditAction.PORTAL_LINK_ISSUED), eq(PM), any(),
-				after.capture());
-		assertThat(after.getValue().toString()).doesNotContain(token).contains("portal link issued");
 	}
 
 	/**
@@ -316,54 +129,6 @@ class PortalAccessServiceTest {
 		});
 		assertThat(live.getLastSeenAt()).isNotNull();
 		verify(tokens).save(live);
-	}
-
-	/**
-	 * The staff panel is told whether a link is live and never what it is.
-	 *
-	 * <p>Asserted structurally: {@code LinkStatus} has no component that could carry a token or a
-	 * hash, so no future edit to the panel can start showing one without changing this record.
-	 */
-	@Test
-	void theStatusReadCannotLeakTheToken() {
-		PortalAccess live = new PortalAccess(BRAND, CASE_ID, PortalAudience.EXPERT, EXPERT_ID, "hash",
-				Instant.now().plus(Duration.ofDays(5)));
-		given(tokens.findByCaseIdAndAudienceOrderByCreatedAtDesc(any(), eq(PortalAudience.EXPERT)))
-				.willReturn(List.of(live));
-
-		assertThat(links.statusForExpert(CASE_ID).live()).isTrue();
-
-		given(tokens.findByCaseIdAndAudienceOrderByCreatedAtDesc(any(), eq(PortalAudience.EXPERT)))
-				.willReturn(List.of());
-		assertThat(links.statusForExpert(CASE_ID))
-				.isEqualTo(new PortalAccessService.LinkStatus(false, null, null));
-
-		assertThat(PortalAccessService.LinkStatus.class.getRecordComponents())
-				.extracting(java.lang.reflect.RecordComponent::getName)
-				.containsExactly("live", "expiresAt", "lastSeenAt");
-	}
-
-	/**
-	 * <strong>The expert portal is its own deployment, and now the only one this service builds a
-	 * URL for.</strong> A link to the wrong host reads to its holder exactly like a revoked token,
-	 * and the holder here is the participant EvalOS cannot train. The configured base carries a
-	 * trailing slash, so this also pins that it is trimmed rather than doubled.
-	 */
-	@Test
-	void theExpertsLinkPointsAtTheExpertsOwnApp() {
-		assertThat(links.mintForExpert(CASE_ID).url())
-				.startsWith("https://experts.evalos.test/case#");
-	}
-
-	/** An expert link with no expert on the case is a credential naming nobody. */
-	@Test
-	void anExpertLinkIsRefusedWhenNoExpertIsAssigned() {
-		subject.setExpertId(null);
-
-		assertThatThrownBy(() -> links.mintForExpert(CASE_ID))
-				.isInstanceOf(com.ie.evalos.domain.IllegalTransitionException.class);
-
-		verify(tokens, never()).save(any());
 	}
 
 	/**

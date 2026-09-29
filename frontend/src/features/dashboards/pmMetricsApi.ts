@@ -209,52 +209,6 @@ export async function fetchRevenueMetrics(
   )
 }
 
-// --- G16: the portal links ledger -------------------------------------------
-
-/** `ui-context.md`'s RAG vocabulary. The server bands the row; this app never re-derives it. */
-export type LinkState = 'RED' | 'AMBER' | 'GREEN'
-
-/**
- * One (case, audience) pair.
- *
- * **There is no `sentAt` and there must never be one.** EvalOS cannot observe a staff member
- * pasting a URL into somebody else's mail client, and a field claiming otherwise would be
- * reported by this very screen as if it were true. `openedAt` is the honest proxy: it is
- * evidence the link *arrived*, which is the thing worth knowing.
- */
-export type PortalLinkRow = {
-  caseId: string
-  caseCode: string | null
-  stage: string
-  audience: 'CLIENT' | 'EXPERT'
-  state: LinkState
-  live: boolean
-  /** When the recipient first opened it, or null for never. */
-  openedAt: string | null
-  expiresAt: string | null
-  reMints: number
-  /** Whether this stage wants this audience at all — the server derives it from the stage. */
-  needed: boolean
-}
-
-export type PortalLinkLedger = {
-  red: number
-  amber: number
-  rows: readonly PortalLinkRow[]
-}
-
-/**
- * Which portal links exist and whether anyone opened them (gap G16).
- *
- * **A safety net for a channel that does not exist.** EvalOS sends no mail, so a link reaches
- * its recipient because somebody sent it by hand — and nothing records that they did. The
- * 20h/24h expert signing clock runs regardless, which makes "a link nobody sent" the likeliest
- * way that SLA is breached.
- */
-export async function fetchPortalLinkLedger(signal?: AbortSignal): Promise<PortalLinkLedger> {
-  return unwrap<PortalLinkLedger>(api.get('/metrics/portal-links', { signal }))
-}
-
 // --- the GM overview --------------------------------------------------------
 //
 // One payload, two halves. The production half is EvalOS's own rows and is always present; the

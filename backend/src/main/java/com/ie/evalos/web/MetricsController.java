@@ -12,7 +12,6 @@ import com.ie.evalos.service.ExpertNetworkMetricsService;
 import com.ie.evalos.service.GmOverviewService;
 import com.ie.evalos.service.NavBadgeService;
 import com.ie.evalos.service.PmMetricsService;
-import com.ie.evalos.service.PortalLinkLedgerService;
 import com.ie.evalos.service.RevenueMetricsService;
 import com.ie.evalos.service.PmMetricsService.PmMetrics;
 
@@ -43,7 +42,6 @@ import org.springframework.web.bind.annotation.RestController;
 public class MetricsController {
 
 	private final PmMetricsService metrics;
-	private final PortalLinkLedgerService portalLinks;
 	private final CoordinatorMetricsService coordinator;
 	private final CaseManagerMetricsService caseManager;
 	private final ExpertNetworkMetricsService network;
@@ -55,9 +53,8 @@ public class MetricsController {
 	MetricsController(PmMetricsService metrics, CoordinatorMetricsService coordinator,
 			CaseManagerMetricsService caseManager, ExpertNetworkMetricsService network,
 			RevenueMetricsService revenue, NavBadgeService navBadges, DraftReviewService drafts,
-			PortalLinkLedgerService portalLinks, GmOverviewService gmOverview) {
+			GmOverviewService gmOverview) {
 		this.gmOverview = gmOverview;
-		this.portalLinks = portalLinks;
 		this.metrics = metrics;
 		this.coordinator = coordinator;
 		this.caseManager = caseManager;
@@ -149,39 +146,6 @@ public class MetricsController {
 	@PreAuthorize("hasAnyRole('GM', 'CASE_MANAGER')")
 	public ApiResponse<CaseManagerMetricsService.CaseManagerMetrics> caseManager() {
 		return ApiResponse.ok(caseManager.forCaller());
-	}
-
-	/**
-	 * The supply side: roster health, coverage gaps, acceptance, onboarding.
-	 *
-	 * <p>Carries no case content and no client identity — the axis {@code architecture.md} draws.
-	 * The Project Manager is on the gate because they pick experts and need to know where the
-	 * bench is thin; the Coordinator and Case Manager are not, because they work the case an
-	 * expert was already chosen for.
-	 */
-	/**
-	 * Which portal links exist, whether anyone opened them, and whether a clock is running
-	 * against one nobody has — gap <strong>G16</strong>.
-	 *
-	 * <p><strong>Read this as a safety net, not a report.</strong> EvalOS sends no mail
-	 * (invariant 14), so a link reaches its recipient because a staff member sent it by hand.
-	 * Nothing records that they did. For an expert that matters: the 20h/24h signing clock runs
-	 * regardless, so <strong>the likeliest way EvalOS breaches that SLA is a link nobody
-	 * sent</strong>, and until this route nothing could show it.
-	 *
-	 * <p><strong>Gated to the roles that can act on a red row.</strong> The Coordinator mints and
-	 * chases the client's link; the Case Manager owns the expert-signing step and its clock; the
-	 * PM oversees both. The Expert Network Manager is <em>absent</em>, and that is the one worth
-	 * stating: {@code Tier.SUPPLY} deliberately withholds case content, and every row here names
-	 * a case.
-	 *
-	 * <p>No {@code brandId} and no {@code range}: the rows are whatever the caller's own scoped
-	 * case list already contains, and a link is either live now or it is not.
-	 */
-	@GetMapping("/portal-links")
-	@PreAuthorize("hasAnyRole('GM', 'BRAND_MANAGER', 'PROJECT_MANAGER', 'PROJECT_COORDINATOR', 'CASE_MANAGER')")
-	public ApiResponse<PortalLinkLedgerService.Summary> portalLinks() {
-		return ApiResponse.ok(portalLinks.summaryForCaller());
 	}
 
 	@GetMapping("/expert-network")

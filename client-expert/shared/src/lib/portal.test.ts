@@ -1,14 +1,15 @@
 import { describe, expect, it } from 'vitest'
 import {
   actionFirst,
-  APPROVAL_STATUS,
+  DRAFT_STATUS,
+  serviceLabel,
   CHECKLIST_STATUS,
   failureMessage,
   needsClientAction,
   tokenFromFragment,
   type ChecklistItem,
   type ChecklistItemStatus,
-  type ClientApprovalStatus,
+  type ClientDraftStatus,
 } from '@shared/lib/portal'
 
 const ALL_STATUSES: ChecklistItemStatus[] = ['REQUIRED', 'UPLOADED', 'APPROVED', 'MISSING', 'INCORRECT']
@@ -83,26 +84,24 @@ describe('failureMessage', () => {
   })
 })
 
-describe('APPROVAL_STATUS', () => {
-  const ALL: ClientApprovalStatus[] = ['PENDING', 'APPROVED', 'REVISION_REQUESTED']
+describe('DRAFT_STATUS', () => {
+  const ALL: ClientDraftStatus[] = ['PM_APPROVED', 'CLIENT_APPROVED', 'CHANGES_REQUESTED']
 
-  // Same rule as CHECKLIST_STATUS above, and the same reason: this is presentation of a
-  // server-owned vocabulary. If EvalOS adds a fourth ClientApprovalStatus, this fails rather
-  // than a blank badge shipping to a client on the one screen where the words are about
-  // whether they have agreed to something.
-  it('names every status EvalOS can send', () => {
-    for (const status of ALL) {
-      expect(APPROVAL_STATUS[status]?.label, status).toBeTruthy()
-    }
-    expect(Object.keys(APPROVAL_STATUS).sort()).toEqual([...ALL].sort())
+  // Presentation of a server-owned vocabulary: a status the client can be shown with no label
+  // would ship a blank badge on the one screen where the words are about what they agreed to.
+  it('names every draft status a client can be shown', () => {
+    expect(Object.keys(DRAFT_STATUS).sort()).toEqual([...ALL].sort())
   })
 
-  // The labels are the client's words, not the enum's. "REVISION_REQUESTED" on a screen is a
-  // database value that escaped.
   it('reads as English rather than as an enum', () => {
     for (const status of ALL) {
-      expect(APPROVAL_STATUS[status].label).not.toMatch(/_/)
-      expect(APPROVAL_STATUS[status].label).not.toEqual(status)
+      expect(DRAFT_STATUS[status].label).not.toMatch(/_/)
     }
+  })
+})
+
+describe('serviceLabel', () => {
+  it('reads an enum name as a sentence', () => {
+    expect(serviceLabel('COURSE_BY_COURSE')).toBe('Course by course')
   })
 })

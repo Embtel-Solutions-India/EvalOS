@@ -56,17 +56,30 @@ public class ChecklistController {
 	 * would need a second permission concept for no stated need, and every write here names
 	 * its actor in the trail.
 	 *
+	 * <p><strong>The Case Manager joined in Unit 61 (D60, Q16)</strong>: the PC or the CM sends a
+	 * case's checklist, and either may add to it and set an item's status. The CM's checklist
+	 * access is the PC's; the scoped reads still decide which cases each of them sees.
+	 *
 	 * <p>The Project Manager is deliberately not on this list even though they may call
 	 * {@code docs-complete}. They act on the outcome, not on the chase; the per-case read
 	 * below is open to them, as it is to every role that can open the case.
 	 */
-	private static final String COORDINATION = "hasAnyRole('GM', 'BRAND_MANAGER', 'PROJECT_COORDINATOR')";
+	private static final String COORDINATION =
+			"hasAnyRole('GM', 'BRAND_MANAGER', 'PROJECT_COORDINATOR', 'CASE_MANAGER')";
 
 	/** One item, as the checklist draws it. */
-	public record ChecklistItemView(UUID id, String label, ChecklistItemStatus status, Instant updatedAt) {
+	/**
+	 * One item, as the checklist draws it.
+	 *
+	 * @param sentAt null while the item is unsent: not yet in the client's portal (Unit 61)
+	 * @param sentBy who sent it; null for an unsent item or one sent before D60
+	 */
+	public record ChecklistItemView(UUID id, String label, ChecklistItemStatus status, Instant updatedAt,
+			Instant sentAt, String sentBy) {
 
-		static ChecklistItemView of(DocumentChecklistItem item) {
-			return new ChecklistItemView(item.getId(), item.getLabel(), item.getStatus(), item.getUpdatedAt());
+		static ChecklistItemView of(DocumentChecklistItem item, ChecklistService.CaseChecklist checklist) {
+			return new ChecklistItemView(item.getId(), item.getLabel(), item.getStatus(), item.getUpdatedAt(),
+					item.getSentAt(), checklist.senderOf(item));
 		}
 	}
 
@@ -92,7 +105,10 @@ public class ChecklistController {
 			int total,
 			int complete,
 			boolean checklistSatisfied,
-			Instant lastChasedAt) {
+			Instant lastChasedAt,
+			int unsent,
+			Instant lastSentAt,
+			String lastSentBy) {
 	}
 
 	/**
@@ -179,6 +195,17 @@ public class ChecklistController {
 	}
 
 	/**
+	 * Sends the case's unsent items to the client's portal (Unit 61, D60). Refused with 409 when
+	 * nothing is unsent, which is the "already sent" the other of the PC/CM sees.
+	 */
+	@PostMapping("/cases/{id}/checklist/send")
+	@PreAuthorize(COORDINATION)
+	public ApiResponse<ChecklistView> send(@PathVariable UUID id) {
+		checklists.send(id);
+		return ApiResponse.ok(view(id));
+	}
+
+	/**
 	 * Sends the client a chase — via GHL, which is the only thing that talks to clients.
 	 * EvalOS emits {@code checklist.reminder} and nothing else (invariant 14).
 	 *
@@ -206,12 +233,16 @@ public class ChecklistController {
 	 */
 	private ChecklistView view(UUID caseId) {
 		ChecklistService.CaseChecklist checklist = checklists.forCase(caseId);
+		java.util.Optional<DocumentChecklistItem> lastSent = checklist.lastSent();
 		return new ChecklistView(
 				checklist.subject().getId(),
-				checklist.items().stream().map(ChecklistItemView::of).toList(),
+				checklist.items().stream().map((item) -> ChecklistItemView.of(item, checklist)).toList(),
 				checklist.items().size(),
 				checklist.complete(),
 				checklist.satisfied(),
-				checklist.lastChasedAt());
+				checklist.lastChasedAt(),
+				checklist.unsent(),
+				lastSent.map(DocumentChecklistItem::getSentAt).orElse(null),
+				lastSent.map(checklist::senderOf).orElse(null));
 	}
 }

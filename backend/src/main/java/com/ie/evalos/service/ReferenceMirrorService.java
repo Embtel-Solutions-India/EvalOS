@@ -59,12 +59,14 @@ public class ReferenceMirrorService {
 	private final GhlCalendarRepository calendars;
 	private final GhlUserRepository users;
 	private final GhlTagRepository tags;
+	private final com.ie.evalos.repository.TeamMemberRepository teamMembers;
 	private final UUID sellingBrandId;
 
 	ReferenceMirrorService(GhlCustomFieldClient customFieldClient, GhlCalendarClient calendarClient,
 			GhlUserClient userClient, GhlTagClient tagClient, GhlCustomFieldRepository customFields,
 			GhlCalendarRepository calendars, GhlUserRepository users, GhlTagRepository tags,
-			SellingBrand sellingBrand) {
+			SellingBrand sellingBrand, com.ie.evalos.repository.TeamMemberRepository teamMembers) {
+		this.teamMembers = teamMembers;
 		this.customFieldClient = customFieldClient;
 		this.calendarClient = calendarClient;
 		this.userClient = userClient;
@@ -199,6 +201,10 @@ public class ReferenceMirrorService {
 					.orElseGet(() -> new GhlReference.User(sellingBrandId, row.id(), nameOf(row.name(), row.id())));
 			held.seen(nameOf(row.name(), row.id()), row.email());
 			users.save(held);
+			// Unit 60: the staff member with this email gets this GHL user, once (V74).
+			if (!blank(row.email())) {
+				teamMembers.linkGhlUser(sellingBrandId, row.email(), row.id());
+			}
 		}
 		stampMissing(users.findByBrandIdOrderByNameAsc(sellingBrandId), seen, users::save);
 		return seen.size();

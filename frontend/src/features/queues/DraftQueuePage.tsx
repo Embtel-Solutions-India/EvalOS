@@ -460,12 +460,15 @@ function DraftDetail({
             View draft
           </a>
         ) : (
-          <span
-            className="inline-flex h-9 flex-1 items-center justify-center text-sm"
-            style={{ color: 'var(--text-muted)' }}
+          // Unit 58: a draft uploaded as files has no link; its Word and PDF open on the case page.
+          <Link
+            to={`/cases/${row.id}`}
+            className="inline-flex h-9 flex-1 items-center justify-center gap-1.5 text-sm font-medium"
+            style={{ border: '1px solid var(--border-default)', borderRadius: 'var(--radius-md)' }}
           >
-            No link recorded
-          </span>
+            <Eye className="h-3.5 w-3.5" aria-hidden />
+            Open the draft files
+          </Link>
         )}
 
         {/* Approve and return only exist while the draft is actually with the PM. Rendering them

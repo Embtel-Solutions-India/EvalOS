@@ -1,7 +1,6 @@
 package com.ie.evalos.service;
 
 import java.io.InputStream;
-import java.math.BigDecimal;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
@@ -20,12 +19,11 @@ import com.ie.evalos.domain.Case;
 import com.ie.evalos.domain.CaseDocument;
 import com.ie.evalos.domain.DocumentChecklistItem;
 import com.ie.evalos.domain.DocumentKind;
+import com.ie.evalos.domain.DocumentStatus;
 import com.ie.evalos.domain.ExceptionState;
 import com.ie.evalos.domain.Expert;
 import com.ie.evalos.domain.ExpertSignStatus;
 import com.ie.evalos.domain.IllegalTransitionException;
-import com.ie.evalos.domain.PayoutPayment;
-import com.ie.evalos.domain.PayoutStatus;
 import com.ie.evalos.domain.PortalAudience;
 import com.ie.evalos.domain.ServiceType;
 import com.ie.evalos.domain.SlaStatus;
@@ -34,8 +32,6 @@ import com.ie.evalos.integration.DocumentStore;
 import com.ie.evalos.repository.CaseDocumentRepository;
 import com.ie.evalos.repository.CaseRepository;
 import com.ie.evalos.repository.ContactSnapshotRepository;
-import com.ie.evalos.repository.PayoutLedgerRepository;
-import com.ie.evalos.repository.PayoutPaymentRepository;
 import com.ie.evalos.repository.DocumentChecklistItemRepository;
 import com.ie.evalos.repository.ExpertRepository;
 import com.ie.evalos.security.PortalPrincipal;
@@ -131,27 +127,6 @@ public class ExpertPortalService {
 			boolean actionRequired) {
 	}
 
-	/**
-	 * One payout row as its expert sees it (Unit 35, D6).
-	 *
-	 * <p><strong>The field list is the whole point of this record.</strong> Invariant 4 says
-	 * {@code payment_detail} has no read path anywhere in EvalOS — not for the ENM who typed it,
-	 * not here. This is a new surface onto money, so it is a named whitelist rather than a
-	 * projection of the entity, and {@code ExpertPortalServiceTest} serializes it and asserts the
-	 * secret is absent. A record that merely happens not to include the field today is one an
-	 * innocent-looking widening breaks; a record with a test on its serialized form is not.
-	 *
-	 * @param settledOn the payment's paid date, null while the row is still owed — the one fact an
-	 *                  expert most wants and the ledger alone cannot answer
-	 */
-	public record ExpertPayoutRow(
-			String caseReference,
-			BigDecimal amount,
-			String currency,
-			PayoutStatus status,
-			Instant settledOn) {
-	}
-
 	/** What the expert gets back after signing. No object key — that is an internal address. */
 	public record SignedLetterView(UUID documentId, String filename, int version, Instant signedAt,
 			String contentSha256) {
@@ -171,8 +146,6 @@ public class ExpertPortalService {
 	private final CaseRepository cases;
 	private final ContactSnapshotRepository contacts;
 	private final ExpertRepository experts;
-	private final PayoutLedgerRepository payouts;
-	private final PayoutPaymentRepository payments;
 	private final DocumentChecklistItemRepository checklistItems;
 	private final CaseDocumentRepository documents;
 	private final CaseLifecycleService lifecycle;
@@ -181,14 +154,11 @@ public class ExpertPortalService {
 	private final AuditService audit;
 
 	ExpertPortalService(CaseRepository cases, ContactSnapshotRepository contacts, ExpertRepository experts,
-			PayoutLedgerRepository payouts, PayoutPaymentRepository payments,
 			DocumentChecklistItemRepository checklistItems, CaseDocumentRepository documents,
 			CaseLifecycleService lifecycle, SlaCalculator sla, DocumentStore store, AuditService audit) {
 		this.cases = cases;
 		this.contacts = contacts;
 		this.experts = experts;
-		this.payouts = payouts;
-		this.payments = payments;
 		this.checklistItems = checklistItems;
 		this.documents = documents;
 		this.lifecycle = lifecycle;
@@ -289,52 +259,21 @@ public class ExpertPortalService {
 		return project(authorized(principal, caseId));
 	}
 
-	/**
-	 * This expert's payout rows (Unit 35, D6), newest first.
-	 *
-	 * <p>Answers for both token shapes: a payout belongs to the expert, not to a case, so a
-	 * case-scoped token names its expert just as well as a party one does ({@code V37} put the
-	 * expert on the row precisely so it could). The ledger is read for that expert in the token's
-	 * brand and nowhere wider.
-	 *
-	 * <p>The settlement date is a second read rather than a join, because {@code payment_id} is
-	 * null on most rows and a join would make the common case pay for the rare one.
-	 */
-	@Transactional(readOnly = true)
-	public List<ExpertPayoutRow> payoutRows(PortalPrincipal principal) {
-		UUID expertId = principal.expertId();
-		if (expertId == null) {
-			// V37's fail-closed rule: a token that names no expert is refused, not widened.
-			throw new ForbiddenException("This link no longer points at an expert");
-		}
-		return payouts.findByBrandIdAndExpertIdOrderByCreatedAtDesc(principal.brandId(), expertId).stream()
-				.map(row -> new ExpertPayoutRow(
-						cases.findById(row.getCaseId()).map(Case::getCaseCode).orElse(null),
-						row.getAmount(),
-						row.getCurrency(),
-						row.getStatus(),
-						row.getPaymentId() == null ? null
-								: payments.findById(row.getPaymentId())
-										.map(PayoutPayment::getPaidDate)
-										.orElse(null)))
-				.toList();
-	}
-
 	@Transactional
-	public ExpertCaseView accept(PortalPrincipal principal) {
-		return project(lifecycle.expertAcceptedFromPortal(authorized(principal)));
+	public ExpertCaseView accept(PortalPrincipal principal, UUID caseId) {
+		return project(lifecycle.expertAcceptedFromPortal(authorized(principal, caseId)));
 	}
 
 	/** Not until the client sends this. Opens a required checklist item and holds the case. */
 	@Transactional
-	public ExpertCaseView requestEvidence(PortalPrincipal principal, String missing) {
-		return project(lifecycle.expertRequestEvidenceFromPortal(authorized(principal), missing));
+	public ExpertCaseView requestEvidence(PortalPrincipal principal, UUID caseId, String missing) {
+		return project(lifecycle.expertRequestEvidenceFromPortal(authorized(principal, caseId), missing));
 	}
 
 	/** The expert will not take it. The reason is required — it is what the rematch works from. */
 	@Transactional
-	public ExpertCaseView decline(PortalPrincipal principal, String reason) {
-		return project(lifecycle.expertDeclinedFromPortal(authorized(principal), reason));
+	public ExpertCaseView decline(PortalPrincipal principal, UUID caseId, String reason) {
+		return project(lifecycle.expertDeclinedFromPortal(authorized(principal, caseId), reason));
 	}
 
 	// --- the letter, out and back --------------------------------------------
@@ -351,11 +290,17 @@ public class ExpertPortalService {
 	 * the hash follows.
 	 */
 	@Transactional
-	public String letterLink(PortalPrincipal principal) {
-		Case subject = authorized(principal);
+	public String letterLink(PortalPrincipal principal, UUID caseId) {
+		Case subject = authorized(principal, caseId);
 		String link = subject.getDraftLink();
 		if (link == null || link.isBlank()) {
-			throw new IllegalTransitionException("there is no letter on this case yet");
+			// Unit 58: a draft submitted as files has no link. The expert signs the version the client
+			// approved, handed over as its Word file on a five-minute link.
+			link = documents.findByCaseIdAndKindOrderByVersionDesc(subject.getId(), DocumentKind.DRAFT).stream()
+					.filter(d -> d.getStatus() == DocumentStatus.CLIENT_APPROVED && d.getObjectKey() != null)
+					.findFirst()
+					.map(d -> store.presignedUrl(d.getObjectKey()))
+					.orElseThrow(() -> new IllegalTransitionException("there is no letter on this case yet"));
 		}
 
 		audit.recordPortalEvent(subject.getBrandId(), PortalAudience.EXPERT, "CASE", subject.getId(),
@@ -390,10 +335,10 @@ public class ExpertPortalService {
 	 *             store; see below for why that is not one pass
 	 */
 	@Transactional
-	public SignedLetterView uploadSignedLetter(PortalPrincipal principal, String filename, long size,
+	public SignedLetterView uploadSignedLetter(PortalPrincipal principal, UUID caseId, String filename, long size,
 			InputStreamSource body, String attestation) {
 
-		Case subject = authorized(principal);
+		Case subject = authorized(principal, caseId);
 		requireGiven(attestation, "the attestation must be ticked before the letter can be uploaded");
 
 		// Whose signature this is, according to EvalOS rather than according to the request.
@@ -541,6 +486,14 @@ public class ExpertPortalService {
 	 * Every refusal here is the same message, for the reason the 401 is: which of the three it was
 	 * is not the holder's business.
 	 */
+	/**
+	 * The case an action names, or — with no {@code caseId}, as every staff-minted link still sends —
+	 * the one the token resolves to (Unit 59). A signed-in expert names it; phase 2 makes it required.
+	 */
+	private Case authorized(PortalPrincipal principal, @org.springframework.lang.Nullable UUID caseId) {
+		return caseId == null ? authorized(principal) : authorizedCase(principal, caseId);
+	}
+
 	private Case authorized(PortalPrincipal principal) {
 		if (principal.isPartyScoped()) {
 			List<Case> mine = partyCases(principal);
@@ -551,7 +504,7 @@ public class ExpertPortalService {
 					? "This link has no cases behind it"
 					: "You have several cases — say which one");
 		}
-		return authorized(principal, principal.caseId());
+		return authorizedCase(principal, principal.caseId());
 	}
 
 	/**
@@ -563,7 +516,7 @@ public class ExpertPortalService {
 	 * party check as well. A case-scoped token is additionally pinned to its own case, so the
 	 * narrow credential cannot reach a sibling case just because a path variable now exists.
 	 */
-	private Case authorized(PortalPrincipal principal, UUID caseId) {
+	private Case authorizedCase(PortalPrincipal principal, UUID caseId) {
 		Case subject = cases.findById(caseId)
 				.orElseThrow(() -> new ForbiddenException("This link no longer points at a case"));
 		if (!subject.getBrandId().equals(principal.brandId())) {

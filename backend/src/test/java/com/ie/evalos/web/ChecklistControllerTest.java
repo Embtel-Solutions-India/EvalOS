@@ -64,11 +64,14 @@ class ChecklistControllerTest {
 	 * they cannot open is an inconsistency rather than a safeguard.
 	 */
 	private static final List<Role> COORDINATION = List.of(
-			Role.GM, Role.BRAND_MANAGER, Role.PROJECT_COORDINATOR);
+			Role.GM, Role.BRAND_MANAGER, Role.PROJECT_COORDINATOR, Role.CASE_MANAGER);
 
-	/** Everyone else. The PM is here even though they may call {@code docs-complete}. */
+	/**
+	 * Everyone else. The PM is here even though they may call {@code docs-complete}. The CM left
+	 * this list in Unit 61 (D60): the PC or the CM sends the checklist.
+	 */
 	private static final List<Role> REFUSED = List.of(
-			Role.PROJECT_MANAGER, Role.CASE_MANAGER, Role.EXPERT_NETWORK_MANAGER);
+			Role.PROJECT_MANAGER, Role.EXPERT_NETWORK_MANAGER);
 
 	@Autowired
 	MockMvc mockMvc;
@@ -101,7 +104,7 @@ class ChecklistControllerTest {
 
 		Instant chasedYesterday = Instant.now().minus(1, ChronoUnit.DAYS);
 		given(checklists.forCase(any()))
-				.willReturn(new ChecklistService.CaseChecklist(subject, items, chasedYesterday));
+				.willReturn(new ChecklistService.CaseChecklist(subject, items, chasedYesterday, java.util.Map.of()));
 		given(checklists.board(any())).willReturn(List.of(
 				new ChecklistService.BoardRow(subject, "Anita Rao", 4, 3, chasedYesterday)));
 	}
@@ -114,7 +117,8 @@ class ChecklistControllerTest {
 						.contentType(MediaType.APPLICATION_JSON).content("{\"status\":\"UPLOADED\"}"),
 				post("/api/cases/{id}/checklist/items", CASE_ID)
 						.contentType(MediaType.APPLICATION_JSON).content("{\"label\":\"Marriage certificate\"}"),
-				post("/api/cases/{id}/chase", CASE_ID));
+				post("/api/cases/{id}/chase", CASE_ID),
+				post("/api/cases/{id}/checklist/send", CASE_ID));
 	}
 
 	@Test
@@ -227,5 +231,15 @@ class ChecklistControllerTest {
 		mockMvc.perform(get("/api/checklists/board"))
 				.andExpect(status().isUnauthorized())
 				.andExpect(jsonPath("$.error.code").value("UNAUTHENTICATED"));
+	}
+
+	/** Unit 61: an unsent item says so, and the view counts what is left to send. */
+	@Test
+	void theChecklistSaysWhatIsStillUnsent() throws Exception {
+		mockMvc.perform(get("/api/cases/{id}/checklist", CASE_ID)
+				.header(HttpHeaders.AUTHORIZATION, bearer(Role.CASE_MANAGER)))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.data.unsent").value(4))
+				.andExpect(jsonPath("$.data.items[0].sentAt").doesNotExist());
 	}
 }

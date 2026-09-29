@@ -72,6 +72,7 @@ backend/src/main/resources/db/migration/     V1..V65, all applied; prod scans th
 backend/src/main/resources/db/seed-local/    V900..V911, local profile only
 backend/src/main/resources/db/seed-testprod/ V950..V951, testprod profile only
 backend/src/main/resources/db/seed-prod/     V960, prod profile only (the six IE desk logins)
+packages/evalos-chat/                      source-only chat UI (Unit 57 §7); no node_modules, imported by client-expert/ through a Vite alias
 context/specs/                             unit specs 01..51 + programmes 00b/00c/00d
 context/audit/2026-09-13/                  six senior audit reports (evidence)
 context/ui-context.md                      design tokens, RAG colours, density

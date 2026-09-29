@@ -142,6 +142,13 @@ public class SyncOutboxService {
 		}
 	}
 
+	/** D56: an opportunity with a push still waiting — a new lead must not overwrite it. */
+	@Transactional(readOnly = true)
+	public boolean isPending(UUID brandId, UUID opportunityId) {
+		return outbox.existsByBrandIdAndEntityTypeAndEntityIdAndSentAtIsNullAndDeadAtIsNull(brandId,
+				SyncEntity.OPPORTUNITY, opportunityId);
+	}
+
 	/**
 	 * Sends what is pending, oldest first.
 	 *

@@ -1,5 +1,5 @@
 import { Suspense, lazy } from 'react'
-import { Navigate, Outlet, Route, BrowserRouter, Routes } from 'react-router-dom'
+import { Navigate, Outlet, Route, BrowserRouter, Routes, useParams } from 'react-router-dom'
 import { Toaster } from '@shared/components/ui/sonner'
 import { AppLoadingScreen } from '@shared/components/common/AppLoadingScreen'
 import { ErrorBoundary } from '@shared/components/common/ErrorBoundary'
@@ -89,10 +89,9 @@ const SignUp = lazy(() => import('@/pages/auth/SignUp'))
 const Dashboard = lazy(() => import('@/pages/dashboard/Dashboard'))
 const Requests = lazy(() => import('@/pages/requests/Requests'))
 const NewRequest = lazy(() => import('@/pages/requests/NewRequest'))
-const Documents = lazy(() => import('@/pages/documents/Documents'))
 const Invoices = lazy(() => import('@/pages/invoices/Invoices'))
-const Meetings = lazy(() => import('@/pages/meetings/Meetings'))
-const DraftReview = lazy(() => import('@/pages/draft/DraftReview'))
+const CaseDetail = lazy(() => import('@/pages/cases/CaseDetail'))
+const Conversations = lazy(() => import('@/pages/conversations/Conversations'))
 const PrivacyPolicy = lazy(() => import('@/pages/legal/PrivacyPolicy'))
 const Disclaimer = lazy(() => import('@/pages/legal/Disclaimer'))
 const DocumentRetention = lazy(() => import('@/pages/legal/DocumentRetention'))
@@ -106,6 +105,12 @@ function PublicLayout() {
       <SiteFooter />
     </>
   )
+}
+
+/** `/draft/:caseId` was the draft screen until Unit 58; the draft lives on the case now. */
+function DraftRedirect() {
+  const { caseId } = useParams<{ caseId: string }>()
+  return <Navigate to={`/cases/${caseId}`} replace />
 }
 
 function AppRoutes() {
@@ -151,12 +156,15 @@ function AppRoutes() {
           sign-up, and resumption is a server row rather than a browser.
         */}
         <Route path="/requests/new" element={<NewRequest />} />
-        <Route path="/documents" element={<Documents />} />
+        {/*
+          Unit 58: the portal is case-first. Documents moved into each case and Meetings went
+          (the business's call, 2026-09-26); `/draft` survives only as redirects for old links.
+        */}
+        <Route path="/cases/:caseId" element={<CaseDetail />} />
+        <Route path="/conversations" element={<Conversations />} />
         <Route path="/invoices" element={<Invoices />} />
-        <Route path="/meetings" element={<Meetings />} />
-        {/* Both, so the case list can link straight to one and the picker still has a home. */}
-        <Route path="/draft" element={<DraftReview />} />
-        <Route path="/draft/:caseId" element={<DraftReview />} />
+        <Route path="/draft" element={<Navigate to="/dashboard" replace />} />
+        <Route path="/draft/:caseId" element={<DraftRedirect />} />
       </Route>
 
       <Route path="*" element={<NotFound />} />

@@ -185,4 +185,13 @@ public interface CaseRepository extends ScopedRepository<Case> {
 	 */
 	@Query("select c from Case c where c.paid = true and c.currentStage not in :terminal")
 	List<Case> findActiveForSweep(@Param("terminal") Collection<Stage> terminal);
+
+	/**
+	 * Takes the case row's write lock for the rest of the transaction (Unit 58, final review #3), so
+	 * two simultaneous client answers run one after the other and the second meets the first's guard.
+	 * Native, like the rest of this file, because {@code Case} collides with JPQL's {@code CASE}.
+	 * Called before the case is loaded, so the load that follows reads the locked row.
+	 */
+	@Query(nativeQuery = true, value = "SELECT id FROM evalos_case WHERE id = :id FOR UPDATE")
+	java.util.Optional<UUID> lockById(@Param("id") UUID id);
 }

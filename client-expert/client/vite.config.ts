@@ -11,7 +11,11 @@ export default defineConfig({
     alias: {
       "@": path.resolve(import.meta.dirname, "./src"),
       "@shared": path.resolve(import.meta.dirname, "../shared/src"),
+      "@evalos/chat": path.resolve(import.meta.dirname, "../../packages/evalos-chat/src"),
     },
+    // The chat package lives outside this app and has no node_modules: its imports of react and
+    // ably must resolve to THIS app's copies, or React would run twice (Unit 58 phase 2).
+    dedupe: ["react", "react-dom", "ably"],
   },
   server: {
     port: 5174,

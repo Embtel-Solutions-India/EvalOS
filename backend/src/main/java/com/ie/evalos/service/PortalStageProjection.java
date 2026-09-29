@@ -60,6 +60,16 @@ public final class PortalStageProjection {
 		};
 	}
 
+	/** The client stepper: Upload → Review → Signing → Delivered (Unit 58 §4). */
+	public static int clientStepIndex(Stage stage) {
+		return switch (stage) {
+			case DOC_COLLECTION -> 0;
+			case PM_REVIEW, DRAFT_IN_PROGRESS, DRAFT_REVIEW, READY_TO_SEND, CLIENT_REVIEW -> 1;
+			case CLIENT_APPROVAL, EXPERT_SIGNING, FINAL_QC, READY_TO_DELIVER -> 2;
+			case DELIVERED, CLOSED -> 3;
+		};
+	}
+
 	/**
 	 * What the expert sees, or {@code null} before the case reaches them.
 	 *

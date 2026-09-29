@@ -67,6 +67,17 @@ public class MarketingLeadService {
 
 		GhlWriteClient.UpsertedContact contact = ghl.upsertContact(firstName, lastName, email, phone,
 				GhlWriteClient.SOURCE_MARKETING_DESK);
+		// D56: an edit still waiting in the outbox would be overwritten by this upsert and then
+		// pushed back over GHL's answer — or lost. The queued edit wins; the desk hears "already
+		// had an open deal", which is what created = false already says.
+		java.util.Optional<Opportunity> queued = deals.linkedFor(pipelineId, contact.id()).stream()
+				.filter((row) -> outbox.isPending(row.getBrandId(), row.getId()))
+				.findFirst();
+		if (queued.isPresent()) {
+			Opportunity row = queued.get();
+			return new Lead(contact.id(), row.getGhlId(), row.getName(), row.getAmount(), false);
+		}
+
 		GhlWriteClient.UpsertedOpportunity opportunity = ghl.upsertOpportunity(pipelineId, contact.id(),
 				name == null || name.isBlank() ? contact.name() : name, monetaryValue);
 

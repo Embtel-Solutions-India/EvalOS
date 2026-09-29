@@ -10,7 +10,10 @@ export default defineConfig({
     alias: {
       "@": path.resolve(import.meta.dirname, "./src"),
       "@shared": path.resolve(import.meta.dirname, "../shared/src"),
+      "@evalos/chat": path.resolve(import.meta.dirname, "../../packages/evalos-chat/src"),
     },
+    // Same as the client portal: the chat package's react and ably must be THIS app's copies.
+    dedupe: ["react", "react-dom", "ably"],
   },
   server: {
     port: 5175,

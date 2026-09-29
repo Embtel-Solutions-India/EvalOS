@@ -2,6 +2,8 @@ import { useMemo } from 'react'
 import { Card, KpiCard } from '../../components/ui/card'
 import { fetchDiary, type DiaryMeeting } from '../opportunities/opportunityApi'
 import { useMetrics } from '../dashboards/useMetrics'
+import { BlockedTimeCard } from './BlockedTimeCard'
+import { MeetingRow } from './MeetingRow'
 
 /**
  * The salesperson's diary: what is booked.
@@ -33,17 +35,17 @@ export default function MeetingsPage() {
     return { from, to }
   }, [])
 
-  // The refetch counter went with the booking sheet: nothing on this screen writes any more, so
-  // there is nothing here to reload after. `NewMeetingPage` navigates back and the diary reads
-  // fresh on mount.
-  const { data, state } = useMetrics<readonly DiaryMeeting[]>(
+  // Unit 60: a cancel writes from this screen again, so the diary reloads after one.
+  const { data, state, reload } = useMetrics<readonly DiaryMeeting[]>(
     (signal) => fetchDiary(window30.from, window30.to, signal),
     [window30],
   )
 
   const meetings = data ?? []
-  const today = meetings.filter((m) => isSameDay(new Date(m.startsAt), new Date()))
-  const week = meetings.filter((m) => withinDays(m.startsAt, 7))
+  // The counts are of meetings still happening; a cancelled one stays in the diary, struck through.
+  const live = meetings.filter((m) => m.status?.toLowerCase() !== 'cancelled')
+  const today = live.filter((m) => isSameDay(new Date(m.startsAt), new Date()))
+  const week = live.filter((m) => withinDays(m.startsAt, 7))
   const byDay = groupByDay(meetings)
 
   return (
@@ -61,7 +63,7 @@ export default function MeetingsPage() {
         <KpiCard
           title="Next 30 days"
           state={state}
-          value={data ? meetings.length : null}
+          value={data ? live.length : null}
           note="Booked through EvalOS. A meeting created directly in GHL appears once the sync lands."
         />
       </div>
@@ -89,17 +91,7 @@ export default function MeetingsPage() {
                 </h3>
                 <ul className="mt-1 divide-y" style={{ borderColor: 'var(--border-subtle)' }}>
                   {rows.map((m) => (
-                    <li key={m.appointmentId} className="flex items-baseline gap-3 py-1.5">
-                      <span className="font-num w-28 shrink-0 text-sm tabular-nums">
-                        {timeOf(m.startsAt)}–{timeOf(m.endsAt)}
-                      </span>
-                      <span className="flex-1 truncate text-sm">{m.title}</span>
-                      {m.status && (
-                        <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
-                          {m.status}
-                        </span>
-                      )}
-                    </li>
+                    <MeetingRow key={m.appointmentId} meeting={m} onChanged={reload} />
                   ))}
                 </ul>
               </div>
@@ -108,6 +100,9 @@ export default function MeetingsPage() {
         </Card>
       </div>
 
+      <div className="mt-4">
+        <BlockedTimeCard />
+      </div>
     </section>
   )
 }
@@ -118,10 +113,6 @@ function isSameDay(a: Date, b: Date): boolean {
 
 function withinDays(iso: string, days: number): boolean {
   return Date.parse(iso) <= Date.now() + days * 24 * 60 * 60 * 1000
-}
-
-function timeOf(iso: string): string {
-  return new Date(iso).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
 }
 
 /** Day heading → that day's meetings, in the order the server already sorted them. */

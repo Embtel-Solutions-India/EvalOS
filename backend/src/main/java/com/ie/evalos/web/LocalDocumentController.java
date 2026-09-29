@@ -49,15 +49,16 @@ public class LocalDocumentController {
 
 	@GetMapping("/{token}")
 	public ResponseEntity<Resource> read(@PathVariable String token) {
+		boolean pdfView = store.localReadIsPdfView(token);
 		return store.resolveLocalRead(token)
-				.map(LocalDocumentController::attachment)
+				.map((file) -> serve(file, pdfView))
 				// One answer for "no such token", "expired" and "the file is gone". They are the
 				// same to the reader, and distinguishing them would tell a guesser which tokens
 				// once existed.
 				.orElseGet(() -> ResponseEntity.notFound().build());
 	}
 
-	private static ResponseEntity<Resource> attachment(Path file) {
+	private static ResponseEntity<Resource> serve(Path file, boolean pdfView) {
 		long length;
 		try {
 			length = Files.size(file);
@@ -66,11 +67,12 @@ public class LocalDocumentController {
 			return ResponseEntity.notFound().build();
 		}
 		return ResponseEntity.ok()
-				.contentType(MediaType.APPLICATION_OCTET_STREAM)
+				// A draft PDF opened to view (D51) is the one inline read; see DocumentStore.presignedPdfView.
+				.contentType(pdfView ? MediaType.APPLICATION_PDF : MediaType.APPLICATION_OCTET_STREAM)
 				.contentLength(length)
 				// The filename is the key's last segment, a UUID — never client-supplied text in a
 				// response header, which is the same rule the presigned path follows.
-				.header(HttpHeaders.CONTENT_DISPOSITION, "attachment")
+				.header(HttpHeaders.CONTENT_DISPOSITION, pdfView ? "inline" : "attachment")
 				.body(new FileSystemResource(file));
 	}
 }

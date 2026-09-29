@@ -1377,6 +1377,27 @@ class LocalPostgresIntegrationTest {
 		return jdbc.queryForObject("SELECT status FROM payout_ledger WHERE id = ?", String.class, payoutId);
 	}
 
+	@Autowired
+	private TeamMemberRepository teamMemberRepository;
+
+	/**
+	 * Unit 60: {@code linkGhlUser} links on a case-insensitive email in the brand, once, and never
+	 * overwrites — so a hand correction survives the next sweep.
+	 */
+	@Test
+	void aGhlUserLinksToTheTeamMemberWithTheSameEmailOnlyOnce() {
+		String email = "link-" + UUID.randomUUID() + "@evalos.local";
+		UUID id = UUID.randomUUID();
+		jdbc.update("INSERT INTO team_member (id, brand_id, role, email, password_hash, display_name) "
+				+ "VALUES (?, ?, 'PROJECT_MANAGER', ?, 'x', 'Link')", id, BRAND_IE, email);
+
+		String first = "ghl-" + UUID.randomUUID();
+		assertThat(teamMemberRepository.linkGhlUser(BRAND_IE, email.toUpperCase(), first)).isEqualTo(1);
+		assertThat(teamMemberRepository.linkGhlUser(BRAND_IE, email, "ghl-" + UUID.randomUUID())).isZero();
+		assertThat(jdbc.queryForObject("SELECT ghl_user_id FROM team_member WHERE id = ?", String.class, id))
+				.isEqualTo(first);
+	}
+
 	/**
 	 * <strong>V30's reversal of V29, against the real database.</strong>
 	 *
@@ -1402,9 +1423,17 @@ class LocalPostgresIntegrationTest {
 				UUID.randomUUID(), BRAND_IE, "sales-" + UUID.randomUUID() + "@evalos.local"))
 				.hasMessageContaining("team_member_role_valid");
 
-		// The mapping column left with the board that read it.
-		assertThatThrownBy(() -> jdbc.queryForObject("SELECT ghl_user_id FROM team_member LIMIT 1", String.class))
-				.hasMessageContaining("ghl_user_id");
+		// The mapping column left with the board that read it, and came back in V74 (Unit 60) with
+		// V29's rule: one GHL user is one person, so two staff rows cannot claim the same one.
+		String ghlUser = "ghl-" + UUID.randomUUID();
+		jdbc.update("INSERT INTO team_member (id, brand_id, role, email, password_hash, display_name, ghl_user_id) "
+				+ "VALUES (?, ?, 'PROJECT_MANAGER', ?, 'x', 'One', ?)",
+				UUID.randomUUID(), BRAND_IE, "one-" + UUID.randomUUID() + "@evalos.local", ghlUser);
+		assertThatThrownBy(() -> jdbc.update(
+				"INSERT INTO team_member (id, brand_id, role, email, password_hash, display_name, ghl_user_id) "
+						+ "VALUES (?, ?, 'PROJECT_MANAGER', ?, 'x', 'Two', ?)",
+				UUID.randomUUID(), BRAND_IE, "two-" + UUID.randomUUID() + "@evalos.local", ghlUser))
+				.hasMessageContaining("idx_team_member_ghl_user");
 
 		// **And the half of V3 that V29 had widened is narrow again.** Every role but the GM needs a
 		// brand: leaving "any role may have no brand" in place would let a mis-seeded Brand Manager
@@ -1857,6 +1886,50 @@ class LocalPostgresIntegrationTest {
 	// Member rows can never be deleted (that is the point of the trigger), so these tests cannot
 	// clean up after themselves. They share one IE case and reuse its conversations across runs:
 	// `conversationOn` finds the case's conversation of a type or creates it.
+
+	// --- Unit 58: drafts as files ---------------------------------------------------------
+
+	/**
+	 * Unit 58 §2: comments are a record, the draft carries its PDF, and the new status is legal. A
+	 * fresh case per run, because the comment row can never be deleted and pins its version row.
+	 */
+	@Test
+	void draftCommentsAreAppendOnlyAndADraftCarriesItsPdf() {
+		Case subject = new Case(BRAND_IE, "EV-" + UUID.randomUUID(), Stage.CLIENT_REVIEW);
+		cases.saveAndFlush(subject);
+		UUID documentId = UUID.randomUUID();
+		jdbc.update("""
+				INSERT INTO case_document (id, brand_id, case_id, kind, version, object_key, filename, size_bytes,
+				    pdf_object_key, pdf_filename, pdf_size_bytes, uploaded_by_type, status)
+				VALUES (?, ?, ?, 'DRAFT', 1, 'k.docx', 'Draft.docx', 10, 'k.pdf', 'Draft.pdf', 20, 'STAFF',
+				    'CHANGES_REQUESTED')
+				""", documentId, BRAND_IE, subject.getId());
+
+		UUID commentId = UUID.randomUUID();
+		jdbc.update("""
+				INSERT INTO draft_comments (id, brand_id, document_id, author_kind, author_id, body, page)
+				VALUES (?, ?, ?, 'CLIENT', ?, 'Please fix page 2', 2)
+				""", commentId, BRAND_IE, documentId, UUID.randomUUID());
+
+		assertThatThrownBy(() -> jdbc.update("UPDATE draft_comments SET body = 'edited' WHERE id = ?", commentId))
+				.hasMessageContaining("append-only");
+		assertThatThrownBy(() -> jdbc.update("DELETE FROM draft_comments WHERE id = ?", commentId))
+				.hasMessageContaining("append-only");
+		assertThatThrownBy(() -> jdbc.update("""
+				INSERT INTO draft_comments (id, brand_id, document_id, author_kind, author_id, body, page)
+				VALUES (?, ?, ?, 'CLIENT', ?, 'x', 0)
+				""", UUID.randomUUID(), BRAND_IE, documentId, UUID.randomUUID()))
+				.hasMessageContaining("draft_comments_page_positive");
+	}
+
+	/** Final review #3: the client answers' row lock is a real statement Postgres accepts. */
+	@Test
+	@org.springframework.transaction.annotation.Transactional
+	void aCaseRowCanBeLockedForAClientAnswer() {
+		UUID id = anIeCase();
+		assertThat(cases.lockById(id)).contains(id);
+		assertThat(cases.lockById(UUID.randomUUID())).isEmpty();
+	}
 
 	private UUID anIeCase() {
 		return jdbc.queryForObject("SELECT id FROM evalos_case WHERE brand_id = ? ORDER BY id LIMIT 1",

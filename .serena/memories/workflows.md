@@ -17,7 +17,8 @@ widened only to carry the documents beside the request (D34). No questionnaire s
 
 Production, and it is now a stated business rule rather than an accident of the code (D36):
 Handoff A creates the case → a **PM** takes it → the PM assigns **Coordinator**, **Case Manager**
-and **Expert** → the **CM drafts and uploads** → the **client approves in the portal** → only then
+and **Expert** → the **CM uploads the draft as Word + PDF** → the **client comments and approves that
+version in the portal** (Unit 58) → only then
 the **expert** downloads, signs and uploads back. `CaseLifecycleService` already implements all of
 it. **Sales sees none of this** (D19c).
 
@@ -43,8 +44,8 @@ keeps the draft. From there it is Sales': review → won → payment (D10c).
 Four GHL write paths, three verbs: `signUp` → `ensureCrmIdentity` (upsertContact), application
 **`submit`** (createOpportunity — `start` reaches GHL zero times under D10),
 `SalesDeskService.newDeal` (createOpportunity), and
-`MarketingLeadService.capture` (**upsertOpportunity** — the one place a repeat enquiry reuses an
-open deal).
+`MarketingLeadService.openLead` (**upsertOpportunity** — the one place a repeat enquiry reuses an
+open deal; **D56:** skipped when that deal has a pending `sync_outbox` push — the queued edit wins).
 
 **Documents** enter at the **case** today; D33 adds the request-stage upload keyed by the **GHL
 contact id** (D41 — one id names a contact everywhere; `DocumentStore.clientKey` moved back onto it
@@ -92,3 +93,9 @@ Sales reads them beside the request on the deal page, on their own route and the
 **Case chat (Unit 57 phase 1, backend).** Three conversations per case created at CASE_CREATED; membership
 follows assignment and expert-offer events and the hourly CHAT_RECONCILE; read-only at CLOSED. Messages
 over REST, live via each member's private Ably channel, web push when the app is closed. No screens yet.
+
+**Expert sign-in (Unit 59):** sign-up → roster match in the portal's brand → set/reset mail (else nothing, by decision; 204 always) → set-password → party-scoped token → `/cases` → `/case?caseId=`. No staff-minted links exist (V73 revoked the live ones).
+
+**Appointments (Unit 60, 2026-09-29).** Book, reschedule, **cancel** (GHL status `cancelled`), **notes** (live from GHL), **blocked time** (the caller's own, by `team_member.ghl_user_id`) and **per-member free slots**. Every per-meeting route requires a `meeting` row on that deal. No guests: GHL has no field (Q14).
+
+**Checklist send (Unit 61, D60, 2026-09-29).** PC or CM adds items (unsent, hidden from the portal) → **Send** publishes every unsent item, stamps `sent_at/sent_by`, publishes `CHECKLIST_REQUESTED` → client uploads against each sent item. Nothing unsent = "already sent by … on …". Evidence-request items are unsent too; the board lists any case with unsent items.

@@ -182,4 +182,13 @@ class StaffChatControllerTest {
 				.header(HttpHeaders.AUTHORIZATION, bearer(Role.PROJECT_MANAGER)))
 				.andExpect(status().isBadRequest());
 	}
+
+	/** Unit 58 phase 2: the portal computes "mine" from this, since live payloads are built for their author. */
+	@Test
+	void meNamesTheCallerInChatTerms() throws Exception {
+		mockMvc.perform(get("/api/chat/me").header(HttpHeaders.AUTHORIZATION, bearer(Role.PROJECT_MANAGER)))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.data.kind").value("STAFF"))
+				.andExpect(jsonPath("$.data.id").isNotEmpty());
+	}
 }

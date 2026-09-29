@@ -312,11 +312,12 @@ public class MessageService {
 		given.forEach((r) -> people.add(entry(r.getReactorKind(), r.getReactorId())));
 		Map<String, String> names = query.names(people);
 
-		Map<UUID, Map<Reaction, List<String>>> byMessage = new LinkedHashMap<>();
+		Map<UUID, Map<Reaction, List<ChatViews.Reactor>>> byMessage = new LinkedHashMap<>();
 		for (MessageReaction r : given) {
 			byMessage.computeIfAbsent(r.getMessageId(), (k) -> new EnumMap<>(Reaction.class))
 					.computeIfAbsent(r.getReaction(), (k) -> new ArrayList<>())
-					.add(names.getOrDefault(r.getReactorKind() + ":" + r.getReactorId(), ""));
+					.add(new ChatViews.Reactor(r.getReactorKind(), r.getReactorId(),
+							names.getOrDefault(r.getReactorKind() + ":" + r.getReactorId(), "")));
 		}
 		return rows.stream().map((row) -> new ChatViews.MessageView(row.id(), row.conversationId(), row.authorKind(),
 				row.authorId(), names.get(row.authorKind() + ":" + row.authorId()), row.body(), row.parentId(),

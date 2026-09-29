@@ -1,19 +1,12 @@
 package com.ie.evalos.service;
 
-import java.math.BigDecimal;
-import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.ie.evalos.common.AmbiguousCaseException;
 import com.ie.evalos.common.ForbiddenException;
 import com.ie.evalos.domain.Case;
 import com.ie.evalos.domain.ContactSnapshot;
-import com.ie.evalos.domain.PayoutLedger;
-import com.ie.evalos.domain.PayoutPayment;
-import com.ie.evalos.domain.PayoutStatus;
 import com.ie.evalos.domain.PortalAudience;
 import com.ie.evalos.domain.ServiceType;
 import com.ie.evalos.domain.Stage;
@@ -23,8 +16,6 @@ import com.ie.evalos.repository.CaseRepository;
 import com.ie.evalos.repository.ContactSnapshotRepository;
 import com.ie.evalos.repository.DocumentChecklistItemRepository;
 import com.ie.evalos.repository.ExpertRepository;
-import com.ie.evalos.repository.PayoutLedgerRepository;
-import com.ie.evalos.repository.PayoutPaymentRepository;
 import com.ie.evalos.security.PortalPrincipal;
 
 import org.junit.jupiter.api.Test;
@@ -36,7 +27,7 @@ import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.mock;
 
 /**
- * Unit 35, D1 and D6: what a <strong>party</strong>-scoped token reaches, and what it must not.
+ * Unit 35 and D1: what a <strong>party</strong>-scoped token reaches, and what it must not.
  *
  * <p>The case-scoped token's behaviour is not re-asserted here — {@code PortalCaseServiceTest} and
  * {@code ExpertPortalServiceTest} already own it, and "nothing regresses" is a claim those two make
@@ -64,15 +55,13 @@ class PartyScopedPortalAccessTest {
 	private final CaseLifecycleService lifecycle = mock(CaseLifecycleService.class);
 	private final ExpertRepository experts = mock(ExpertRepository.class);
 	private final SlaCalculator sla = mock(SlaCalculator.class);
-	private final PayoutLedgerRepository payouts = mock(PayoutLedgerRepository.class);
-	private final PayoutPaymentRepository payments = mock(PayoutPaymentRepository.class);
-	private final ObjectMapper objectMapper = new ObjectMapper();
 
 	private final PortalCaseService clientPortal = new PortalCaseService(
-			cases, contacts, lifecycle, checklistItems, documents, store, audit);
+			cases, contacts, lifecycle, checklistItems, documents, store, audit, mock(CaseDrafts.class),
+			mock(CaseMilestones.class));
 
 	private final ExpertPortalService expertPortal = new ExpertPortalService(
-			cases, contacts, experts, payouts, payments, checklistItems, documents, lifecycle, sla, store, audit);
+			cases, contacts, experts, checklistItems, documents, lifecycle, sla, store, audit);
 
 	// --- fixtures ------------------------------------------------------------
 
@@ -121,6 +110,9 @@ class PartyScopedPortalAccessTest {
 		assertThat(mine.get(0).actionRequired()).isTrue();
 		assertThat(mine.get(1).step()).isEqualTo("Ready to download");
 		assertThat(mine.get(1).actionRequired()).isFalse();
+		// The stepper position Home splits active from delivered on (Unit 58).
+		assertThat(mine.get(0).stepIndex()).isZero();
+		assertThat(mine.get(1).stepIndex()).isEqualTo(3);
 	}
 
 	@Test
@@ -182,31 +174,6 @@ class PartyScopedPortalAccessTest {
 				.isInstanceOf(ForbiddenException.class);
 	}
 
-	@Test
-	void aPartyTokenOnASingleCaseRouteResolvesWhenThereIsOnlyOneCase() {
-		contactResolves();
-		Case only = caseAt(BRAND, "IE-2026-0001", Stage.CLIENT_REVIEW);
-		only.setContactId(CONTACT_ROW);
-		given(cases.findByBrandIdAndContactIdOrderByCreatedAtDesc(BRAND, CONTACT_ROW)).willReturn(List.of(only));
-		given(cases.findById(only.getId())).willReturn(Optional.of(only));
-
-		assertThat(clientPortal.clientView(clientParty(CONTACT)).caseReference()).isEqualTo("IE-2026-0001");
-	}
-
-	@Test
-	void aPartyTokenOnASingleCaseRouteRefusesToPickBetweenSeveral() {
-		contactResolves();
-		given(cases.findByBrandIdAndContactIdOrderByCreatedAtDesc(BRAND, CONTACT_ROW))
-				.willReturn(List.of(caseAt(BRAND, "IE-2026-0001", Stage.CLIENT_REVIEW),
-						caseAt(BRAND, "IE-2026-0002", Stage.CLIENT_REVIEW)));
-
-		// The single-case routes include approve. Guessing here approves a draft the client was not
-		// looking at, and the letter goes on toward delivery with no undo that reaches them.
-		assertThatThrownBy(() -> clientPortal.clientView(clientParty(CONTACT)))
-				.isInstanceOf(AmbiguousCaseException.class)
-				.hasMessageContaining("say which one");
-	}
-
 	// --- D1: the expert's list -------------------------------------------------
 
 	@Test
@@ -235,81 +202,4 @@ class PartyScopedPortalAccessTest {
 				.isInstanceOf(ForbiddenException.class);
 	}
 
-	// --- D6: the payout rows ----------------------------------------------------
-
-	@Test
-	void anExpertReadsTheirOwnPayoutRowsWithTheSettlementDateWhenThereIsOne() {
-		Case subject = caseAt(BRAND, "IE-2026-0004", Stage.DELIVERED);
-		UUID paymentId = UUID.randomUUID();
-
-		Instant paidOn = Instant.parse("2026-09-01T00:00:00Z");
-
-		PayoutLedger settled = new PayoutLedger(BRAND, subject.getId(), EXPERT,
-				new BigDecimal("350.00"), "USD", paidOn);
-		// Status and the payment link are set by the settlement flow, which is Unit 16b's and not
-		// this test's subject — reflection rather than driving that whole path to reach one field.
-		ReflectionTestUtils.setField(settled, "status", PayoutStatus.PAID);
-		ReflectionTestUtils.setField(settled, "paymentId", paymentId);
-
-		PayoutPayment payment = new PayoutPayment(BRAND, EXPERT, new BigDecimal("350.00"), "USD",
-				"bank transfer", "REF-1", paidOn, null, UUID.randomUUID());
-
-		given(payouts.findByBrandIdAndExpertIdOrderByCreatedAtDesc(BRAND, EXPERT)).willReturn(List.of(settled));
-		given(cases.findById(subject.getId())).willReturn(Optional.of(subject));
-		given(payments.findById(paymentId)).willReturn(Optional.of(payment));
-
-		List<ExpertPortalService.ExpertPayoutRow> rows = expertPortal.payoutRows(expertParty(EXPERT));
-
-		assertThat(rows).hasSize(1);
-		assertThat(rows.get(0).caseReference()).isEqualTo("IE-2026-0004");
-		assertThat(rows.get(0).amount()).isEqualByComparingTo("350.00");
-		assertThat(rows.get(0).currency()).isEqualTo("USD");
-		assertThat(rows.get(0).status()).isEqualTo(PayoutStatus.PAID);
-		assertThat(rows.get(0).settledOn()).isEqualTo(paidOn);
-	}
-
-	@Test
-	void anUnsettledRowCarriesNoSettlementDateAndCostsNoSecondRead() {
-		Case subject = caseAt(BRAND, "IE-2026-0005", Stage.EXPERT_SIGNING);
-		// PENDING is the constructor's own default, so nothing is forced here.
-		PayoutLedger owed = new PayoutLedger(BRAND, subject.getId(), EXPERT,
-				new BigDecimal("350.00"), "USD", Instant.parse("2026-09-30T00:00:00Z"));
-
-		given(payouts.findByBrandIdAndExpertIdOrderByCreatedAtDesc(BRAND, EXPERT)).willReturn(List.of(owed));
-		given(cases.findById(subject.getId())).willReturn(Optional.of(subject));
-
-		assertThat(expertPortal.payoutRows(expertParty(EXPERT)).get(0).settledOn()).isNull();
-		// The payment table is not touched for a row that has no payment — the common case does not
-		// pay for the rare one.
-		org.mockito.Mockito.verifyNoInteractions(payments);
-	}
-
-	@Test
-	void thePayoutRowCarriesNoPaymentDetailInAnyForm() throws Exception {
-		Case subject = caseAt(BRAND, "IE-2026-0004", Stage.DELIVERED);
-		PayoutLedger row = new PayoutLedger(BRAND, subject.getId(), EXPERT,
-				new BigDecimal("350.00"), "USD", Instant.parse("2026-09-30T00:00:00Z"));
-
-		given(payouts.findByBrandIdAndExpertIdOrderByCreatedAtDesc(BRAND, EXPERT)).willReturn(List.of(row));
-		given(cases.findById(subject.getId())).willReturn(Optional.of(subject));
-
-		String json = objectMapper.writeValueAsString(expertPortal.payoutRows(expertParty(EXPERT)));
-
-		// Invariant 4, asserted on the serialized form rather than the field list: a nested DTO that
-		// carried the secret would pass a field-name check and fail this one. Unit 14's and Unit
-		// 15's whitelists are proved the same way.
-		assertThat(json).doesNotContain("paymentDetail", "payment_detail", "paymentdetail");
-		assertThat(json).contains("IE-2026-0004", "350.00", "USD");
-	}
-
-	@Test
-	void aTokenThatNamesNoExpertReadsNoPayouts() {
-		// V37's fail-closed rule reaches D6 too: a pre-column token is refused, not widened into
-		// somebody's payment history.
-		PortalPrincipal nameless = new PortalPrincipal(
-				UUID.randomUUID(), BRAND, null, PortalAudience.EXPERT, null, null);
-
-		assertThatThrownBy(() -> expertPortal.payoutRows(nameless))
-				.isInstanceOf(ForbiddenException.class);
-	}
 }

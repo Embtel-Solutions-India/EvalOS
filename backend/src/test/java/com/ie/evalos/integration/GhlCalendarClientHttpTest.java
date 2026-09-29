@@ -209,91 +209,82 @@ class GhlCalendarClientHttpTest {
 		verify(audit, never()).recordEvent(any(), any(), any(), any(), any(), any());
 	}
 
-	// --- the contact-scoped read the Client Portal uses ------------------------------
-
-	/**
-	 * The live payload, trimmed. Every oddity in it is real and was copied from GHL on
-	 * 2026-09-11 — including the misspelled {@code appoinmentStatus}, which GHL sends
-	 * <em>alongside</em> the correct spelling.
-	 */
-	private static final String CONTACT_EVENTS = """
-			{"events":[
-			 {"id":"appt_1","title":"RFE Meeting","startTime":"2026-09-13 12:30:00",
-			  "endTime":"2026-09-13 13:00:00","appointmentStatus":"confirmed",
-			  "appoinmentStatus":"confirmed","address":"https://meet.google.com/osk-fwdz-pty",
-			  "assignedUserId":"UyzVHyoEYr3uTDjRBRUm","notes":"internal only",
-			  "calendarId":"cal_1","contactId":"c1","deleted":false,
-			  "appointmentMeta":{"defaultFormDetails":{"email":"someone@example.com"}}},
-			 {"id":"appt_gone","title":"Cancelled and removed","startTime":"2026-09-14 09:00:00",
-			  "endTime":"2026-09-14 09:30:00","appointmentStatus":"cancelled","deleted":true}
-			]}""";
+	// --- Unit 60: wire shapes, from GHL's OpenAPI spec -------------------------------------
 
 	@Test
-	void aContactsMeetingsAreReadFromTheContactsEndpoint() {
-		body = CONTACT_EVENTS;
+	void aCancelIsAStatusChangeNotADelete() {
+		body = BOOKED.replace("confirmed", "cancelled");
 
-		List<GhlCalendarClient.ClientMeeting> found = client().forContact("c1");
+		assertThat(client().cancel("appt_1", "opp_1", "pipe_1").status()).isEqualTo("cancelled");
 
-		assertThat(found).hasSize(1);
-		assertThat(found.get(0).title()).isEqualTo("RFE Meeting");
-		assertThat(found.get(0).location()).isEqualTo("https://meet.google.com/osk-fwdz-pty");
-		// `/contacts/{id}/appointments`, not a calendars path — and it needs contacts.readonly,
-		// not a calendar scope. Pinned because the class name suggests otherwise.
-		assertThat(paths).singleElement().asString().isEqualTo("/contacts/c1/appointments");
+		assertThat(methods).containsExactly("PUT");
+		assertThat(paths).singleElement().asString().isEqualTo("/calendars/events/appointments/appt_1");
+		assertThat(bodies.get(0)).contains("\"appointmentStatus\":\"cancelled\"");
 	}
 
-	/**
-	 * <strong>A deleted appointment still comes back in the list.</strong> Showing a client a
-	 * meeting that is not happening is worse than showing none, so it is filtered.
-	 */
 	@Test
-	void aDeletedAppointmentIsNotShownToTheClient() {
-		body = CONTACT_EVENTS;
-
-		assertThat(client().forContact("c1"))
-				.extracting(GhlCalendarClient.ClientMeeting::id)
-				.containsExactly("appt_1")
-				.doesNotContain("appt_gone");
-	}
-
-	/**
-	 * <strong>GHL's times are not ISO-8601 and must survive unparsed.</strong> A space instead
-	 * of a {@code T} and no offset at all — {@code Instant.parse} throws on them. Passing them
-	 * through is deliberate: with no zone in the payload, any parse invents one, and inventing
-	 * UTC would show a Pacific client a meeting seven hours out. The write side of the same API
-	 * takes proper ISO with an offset, which is exactly how easy it is to assume symmetry.
-	 */
-	@Test
-	void ghlsNonIsoTimesArePassedThroughRatherThanParsedIntoTheWrongInstant() {
-		body = CONTACT_EVENTS;
-
-		GhlCalendarClient.ClientMeeting meeting = client().forContact("c1").get(0);
-
-		assertThat(meeting.startsAt()).isEqualTo("2026-09-13 12:30:00");
-		assertThatThrownBy(() -> java.time.Instant.parse(meeting.startsAt()))
-				.isInstanceOf(java.time.format.DateTimeParseException.class);
-	}
-
-	/**
-	 * The correctly spelled {@code appointmentStatus} is read. GHL also sends
-	 * {@code appoinmentStatus} — its own typo — and that is ignored rather than used as a
-	 * fallback, because a fallback onto a typo is a dependency on GHL never fixing it.
-	 */
-	@Test
-	void theStatusIsReadFromTheCorrectlySpelledField() {
+	void notesArePagedTwentyAtATimeAndReadTheAuthor() {
 		body = """
-				{"events":[{"id":"a","appointmentStatus":"confirmed","appoinmentStatus":"WRONG",
-				 "startTime":"2026-09-13 12:30:00","endTime":"2026-09-13 13:00:00"}]}""";
+				{"notes":[{"id":"n1","body":"Wants rush","userId":"u1","dateAdded":"2026-09-29T10:00:00Z",
+				 "createdBy":{"id":"u1","name":"Aditya"}}],"hasMore":true}""";
 
-		assertThat(client().forContact("c1").get(0).status()).isEqualTo("confirmed");
+		GhlCalendarClient.NotePage page = client().notes("appt_1", 20);
+
+		assertThat(paths).singleElement().asString()
+				.startsWith("/calendars/appointments/appt_1/notes").contains("limit=20").contains("offset=20");
+		assertThat(page.hasMore()).isTrue();
+		assertThat(page.notes()).singleElement().satisfies((n) -> {
+			assertThat(n.body()).isEqualTo("Wants rush");
+			assertThat(n.author()).isEqualTo("Aditya");
+		});
 	}
 
-	/** No meetings is an empty list, not a failure — a client with none is the normal case. */
 	@Test
-	void aContactWithNoMeetingsIsAnEmptyList() {
-		body = """
-				{"events":[]}""";
+	void aNoteIsEditedAndDeletedByItsOwnPath() {
+		client().editNote("appt_1", "n1", "Updated");
+		client().deleteNote("appt_1", "n1");
 
-		assertThat(client().forContact("c1")).isEmpty();
+		assertThat(methods).containsExactly("PUT", "DELETE");
+		assertThat(paths).containsOnly("/calendars/appointments/appt_1/notes/n1");
+	}
+
+	/** "Either calendarId or assignedUserId can be set, not both" — a person's block is the user's. */
+	@Test
+	void aBlockIsTheUsersWithNoCalendar() {
+		body = """
+				{"id":"blk_1","locationId":"L","title":"Leave","startTime":"2026-10-01T09:00:00Z",
+				 "endTime":"2026-10-01T17:00:00Z","assignedUserId":"u1"}""";
+
+		assertThat(client().blockTime("u1", "Leave", "2026-10-01T09:00:00Z", "2026-10-01T17:00:00Z").id())
+				.isEqualTo("blk_1");
+
+		assertThat(paths).singleElement().asString().isEqualTo("/calendars/events/block-slots");
+		assertThat(bodies.get(0)).contains("\"assignedUserId\":\"u1\"")
+				.contains("\"locationId\":\"" + LOCATION + "\"").doesNotContain("calendarId");
+	}
+
+	@Test
+	void blocksAreListedForOneUserInMillisAndRemovedByTheEventDelete() {
+		body = """
+				{"events":[{"id":"blk_1","title":"Leave","startTime":"2026-10-01T09:00:00Z","endTime":"2026-10-01T17:00:00Z"}]}""";
+
+		assertThat(client().blockedTimes("u1", 1000L, 2000L)).extracting(GhlCalendarClient.BlockedTime::id)
+				.containsExactly("blk_1");
+		body = "{\"succeeded\":true}";
+		client().unblock("blk_1");
+
+		assertThat(paths.get(0)).startsWith("/calendars/blocked-slots").contains("userId=u1")
+				.contains("startTime=1000").contains("endTime=2000").contains("locationId=" + LOCATION);
+		assertThat(methods.get(1)).isEqualTo("DELETE");
+		assertThat(paths.get(1)).isEqualTo("/calendars/events/blk_1");
+	}
+
+	@Test
+	void freeSlotsCarryTheTeamMemberOnlyWhenOneIsChosen() {
+		client().freeSlots("cal_1", 1L, 2L, "UTC", "u1");
+		client().freeSlots("cal_1", 1L, 2L, "UTC", null);
+
+		assertThat(paths.get(0)).contains("userId=u1");
+		assertThat(paths.get(1)).doesNotContain("userId");
 	}
 }

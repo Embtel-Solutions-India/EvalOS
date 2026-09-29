@@ -204,6 +204,21 @@ class MessageServiceTest {
 		verify(reactions).delete(held);
 	}
 
+	/** Unit 58 phase 2: a portal must know whether IT reacted, which a display name cannot say. */
+	@Test
+	void reactionsCarryWhoReacted() {
+		Message m = existing(pm, "hi", null);
+		when(reactions.findByMessageIdIn(any())).thenReturn(
+				List.of(new MessageReaction(brand, m.getId(), ParticipantKind.CLIENT, client.id(), Reaction.THANKS)));
+
+		ChatViews.MessageView view = service.react(client, m.getId(), Reaction.THANKS, true);
+
+		assertThat(view.reactions().get(Reaction.THANKS)).singleElement().satisfies((reactor) -> {
+			assertThat(reactor.kind()).isEqualTo(ParticipantKind.CLIENT);
+			assertThat(reactor.id()).isEqualTo(client.id());
+		});
+	}
+
 	@Test
 	void aMalformedCursorIsRefused() {
 		assertThatThrownBy(() -> service.messages(pm, conversationId, "not-a-cursor", null, 20))

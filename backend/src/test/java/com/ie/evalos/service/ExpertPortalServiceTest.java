@@ -31,8 +31,6 @@ import com.ie.evalos.integration.DocumentStore;
 import com.ie.evalos.integration.DocumentStoreUnavailableException;
 import com.ie.evalos.repository.CaseDocumentRepository;
 import com.ie.evalos.repository.CaseRepository;
-import com.ie.evalos.repository.PayoutLedgerRepository;
-import com.ie.evalos.repository.PayoutPaymentRepository;
 import com.ie.evalos.repository.ContactSnapshotRepository;
 import com.ie.evalos.repository.DocumentChecklistItemRepository;
 import com.ie.evalos.repository.ExpertRepository;
@@ -88,11 +86,9 @@ class ExpertPortalServiceTest {
 	private final SlaCalculator sla = mock(SlaCalculator.class);
 	private final DocumentStore store = mock(DocumentStore.class);
 	private final AuditService audit = mock(AuditService.class);
-	private final PayoutLedgerRepository payouts = mock(PayoutLedgerRepository.class);
-	private final PayoutPaymentRepository payments = mock(PayoutPaymentRepository.class);
 	private final ObjectMapper objectMapper = new ObjectMapper();
 
-	private final ExpertPortalService portal = new ExpertPortalService(cases, contacts, experts, payouts, payments,
+	private final ExpertPortalService portal = new ExpertPortalService(cases, contacts, experts,
 			checklistItems, documents, lifecycle, sla, store, audit);
 
 	private Case subject;
@@ -237,7 +233,7 @@ class ExpertPortalServiceTest {
 	}
 
 	private ExpertPortalService.SignedLetterView upload(byte[] body, String attestation) {
-		return portal.uploadSignedLetter(token(), "signed.pdf", body.length, part(body), attestation);
+		return portal.uploadSignedLetter(token(), null, "signed.pdf", body.length, part(body), attestation);
 	}
 
 	private ExpertPortalService.SignedLetterView uploadValid() {
@@ -361,7 +357,7 @@ class ExpertPortalServiceTest {
 
 	@Test
 	void theLetterIsHandedOverAndTheOpeningIsAudited() {
-		assertThat(portal.letterLink(token())).isEqualTo("https://docs.google.com/document/d/draft/edit");
+		assertThat(portal.letterLink(token(), null)).isEqualTo("https://docs.google.com/document/d/draft/edit");
 
 		verify(audit).recordPortalEvent(eq(BRAND), eq(PortalAudience.EXPERT), eq("CASE"), eq(CASE_ID),
 				eq(AuditAction.EXPORTED), eq(null), any());
@@ -371,7 +367,7 @@ class ExpertPortalServiceTest {
 	void aCaseWithNoLetterSaysSoRatherThanHandingOverSomethingElse() {
 		subject.setDraftLink(null);
 
-		assertThatThrownBy(() -> portal.letterLink(token())).isInstanceOf(IllegalTransitionException.class);
+		assertThatThrownBy(() -> portal.letterLink(token(), null)).isInstanceOf(IllegalTransitionException.class);
 	}
 
 	/**
@@ -416,9 +412,9 @@ class ExpertPortalServiceTest {
 		PortalPrincipal supersededLink = tokenFor(BRAND, CASE_ID, UUID.randomUUID());
 
 		assertThatThrownBy(() -> portal.view(supersededLink)).isInstanceOf(ForbiddenException.class);
-		assertThatThrownBy(() -> portal.accept(supersededLink)).isInstanceOf(ForbiddenException.class);
-		assertThatThrownBy(() -> portal.letterLink(supersededLink)).isInstanceOf(ForbiddenException.class);
-		assertThatThrownBy(() -> portal.uploadSignedLetter(supersededLink, "signed.pdf", PDF.length,
+		assertThatThrownBy(() -> portal.accept(supersededLink, null)).isInstanceOf(ForbiddenException.class);
+		assertThatThrownBy(() -> portal.letterLink(supersededLink, null)).isInstanceOf(ForbiddenException.class);
+		assertThatThrownBy(() -> portal.uploadSignedLetter(supersededLink, null, "signed.pdf", PDF.length,
 				part(PDF), ATTESTATION)).isInstanceOf(ForbiddenException.class);
 
 		verifyNoInteractions(store);
@@ -459,5 +455,19 @@ class ExpertPortalServiceTest {
 		}).given(store).put(anyString(), any(InputStream.class), anyLong(), anyString());
 
 		assertThat(uploadValid().contentSha256()).isEqualTo(SHA_256_OF_PDF);
+	}
+
+	/** Final review #1: a draft uploaded as files, with no link, is the approved version's Word file. */
+	@Test
+	void aDraftWithFilesAndNoLinkHandsOverTheApprovedWordFile() {
+		subject.setDraftLink(null);
+		CaseDocument approved = new CaseDocument(BRAND, CASE_ID, DocumentKind.DRAFT, 2, null, ActorType.STAFF, null);
+		approved.storedDraft("approved.docx", "Draft.docx", 1, "approved.pdf", "Draft.pdf", 1);
+		approved.reviewed(com.ie.evalos.domain.DocumentStatus.CLIENT_APPROVED, null);
+		given(documents.findByCaseIdAndKindOrderByVersionDesc(CASE_ID, DocumentKind.DRAFT))
+				.willReturn(java.util.List.of(approved));
+		given(store.presignedUrl("approved.docx")).willReturn("https://s3/approved.docx");
+
+		assertThat(portal.letterLink(token(), null)).isEqualTo("https://s3/approved.docx");
 	}
 }

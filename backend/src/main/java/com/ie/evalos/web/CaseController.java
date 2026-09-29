@@ -1,13 +1,16 @@
 package com.ie.evalos.web;
 
+import java.io.IOException;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 
 import com.ie.evalos.common.ApiResponse;
+import com.ie.evalos.common.UploadedFileType;
 import com.ie.evalos.domain.Case;
 import com.ie.evalos.domain.ClientApprovalStatus;
 import com.ie.evalos.domain.ExceptionState;
@@ -24,14 +27,18 @@ import com.ie.evalos.domain.SlaStatus;
 import com.ie.evalos.domain.Stage;
 import com.ie.evalos.security.TenantContext;
 import com.ie.evalos.service.CaseDetailService;
+import com.ie.evalos.service.CaseDrafts;
 import com.ie.evalos.service.CaseLifecycleService;
+import com.ie.evalos.service.DraftFile;
 import com.ie.evalos.service.RefundService;
 
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.Size;
 
+import org.springframework.http.MediaType;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -41,6 +48,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MultipartFile;
 
 /**
  * One endpoint per transition, and nothing else. The role gate is the
@@ -315,12 +323,6 @@ public class CaseController {
 	public record ReasonRequest(@NotBlank String reason) {
 	}
 
-	/**
-	 * Where the drafted letter is (Unit 14). Optional: null or blank leaves whatever link the case
-	 * already carries, so re-submitting a revision filed in the same place needs nothing typed.
-	 */
-	public record SubmitDraftRequest(String draftLink) {
-	}
 
 	public record CaseManagerRequest(@NotNull UUID cmId) {
 	}
@@ -343,12 +345,14 @@ public class CaseController {
 	}
 
 	private final CaseLifecycleService lifecycle;
+	private final CaseDrafts drafts;
 	private final RefundService refunds;
 	private final CaseDetailService details;
 	private final CaseBoardService board;
 
 	CaseController(CaseLifecycleService lifecycle, RefundService refunds, CaseDetailService details,
-			CaseBoardService board) {
+			CaseBoardService board, CaseDrafts drafts) {
+		this.drafts = drafts;
 		this.lifecycle = lifecycle;
 		this.refunds = refunds;
 		this.details = details;
@@ -503,7 +507,7 @@ public class CaseController {
 	 *                       roster endpoint it may not be allowed to read.
 	 */
 	public record DocumentVersion(UUID id, int version, String status, String uploadedByName,
-			Instant uploadedAt, String notes, String reviewComment, String filename) {
+			Instant uploadedAt, String notes, String reviewComment, String filename, boolean hasPdf) {
 
 		static DocumentVersion of(CaseLifecycleService.Version version) {
 			CaseDocument document = version.document();
@@ -511,7 +515,7 @@ public class CaseController {
 			// somebody will eventually try to turn into a URL. The filename is what a human reads.
 			return new DocumentVersion(document.getId(), document.getVersion(), document.getStatus().name(),
 					version.uploadedByName(), document.getUploadedAt(), document.getNotes(),
-					document.getReviewComment(), document.getFilename());
+					document.getReviewComment(), document.getFilename(), document.hasPdf());
 		}
 	}
 
@@ -522,8 +526,26 @@ public class CaseController {
 	 * the service, which runs before the URL exists. See {@code CaseLifecycleService.readUrl}.
 	 */
 	@GetMapping("/{id}/documents/{documentId}/url")
-	public ApiResponse<ReadUrl> documentUrl(@PathVariable UUID id, @PathVariable UUID documentId) {
-		return ApiResponse.ok(new ReadUrl(lifecycle.readUrl(id, documentId)));
+	public ApiResponse<ReadUrl> documentUrl(@PathVariable UUID id, @PathVariable UUID documentId,
+			@RequestParam(defaultValue = "false") boolean pdf, @RequestParam(defaultValue = "false") boolean view) {
+		return ApiResponse.ok(new ReadUrl(lifecycle.readUrl(id, documentId, pdf, view)));
+	}
+
+	/** One version's thread (Unit 58). No {@code @PreAuthorize}: the scoped load decides, like every read here. */
+	@GetMapping("/{id}/drafts/{draftId}/comments")
+	public ApiResponse<List<CaseDrafts.CommentView>> draftComments(@PathVariable UUID id, @PathVariable UUID draftId) {
+		return ApiResponse.ok(drafts.staffComments(id, draftId));
+	}
+
+	public record CommentRequest(@NotBlank @Size(max = 2000) String body, @Positive Integer page) {
+	}
+
+	/** The case team's side of the thread — only on the version in client review (409 otherwise). */
+	@PostMapping("/{id}/drafts/{draftId}/comments")
+	@PreAuthorize(GM_OR + "hasAnyRole('CASE_MANAGER', 'PROJECT_COORDINATOR', 'PROJECT_MANAGER')")
+	public ApiResponse<CaseDrafts.CommentView> addDraftComment(@PathVariable UUID id, @PathVariable UUID draftId,
+			@Valid @RequestBody CommentRequest request) {
+		return ApiResponse.ok(drafts.staffAddComment(id, draftId, request.body(), request.page()));
 	}
 
 	/** @param url expires in five minutes. Never stored — a stored one is a stored credential. */
@@ -611,15 +633,17 @@ public class CaseController {
 	// --- the draft loops -----------------------------------------------------
 
 	/**
-	 * The body is optional and its one field is too: a second version filed in the same place needs
-	 * no new link, and omitting it leaves the existing one alone rather than taking the draft away
-	 * from a client mid-review.
+	 * The next draft version, as Word and PDF (Unit 58 §3). The Case Manager, Coordinator or PM of
+	 * the case — the scoped load inside the service is the "of the case". Both parts are sniffed
+	 * here, so a renamed file never reaches S3.
 	 */
-	@PostMapping("/{id}/draft/submit")
-	@PreAuthorize(GM_OR + "hasRole('CASE_MANAGER')")
-	public ApiResponse<CaseSummary> submitDraft(@PathVariable UUID id,
-			@RequestBody(required = false) SubmitDraftRequest request) {
-		return summary(lifecycle.submitDraft(id, request == null ? null : request.draftLink()));
+	@PostMapping(value = "/{id}/drafts", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+	@PreAuthorize(GM_OR + "hasAnyRole('CASE_MANAGER', 'PROJECT_COORDINATOR', 'PROJECT_MANAGER')")
+	public ApiResponse<CaseSummary> submitDraft(@PathVariable UUID id, @RequestParam("docx") MultipartFile docx,
+			@RequestParam("pdf") MultipartFile pdf) throws IOException {
+		UploadedFileType.require(docx, EnumSet.of(UploadedFileType.Kind.DOCX));
+		UploadedFileType.require(pdf, EnumSet.of(UploadedFileType.Kind.PDF));
+		return summary(lifecycle.submitDraft(id, DraftFile.of(docx), DraftFile.of(pdf)));
 	}
 
 	/**

@@ -16,5 +16,6 @@ import type { ClientInvoice } from '@shared/lib/portal'
  * engagement, and an invoice belongs to the client, who may have several.
  */
 export async function listInvoices(): Promise<ClientInvoice[]> {
-  return unwrap(apiClient.get<ApiResponse<ClientInvoice[]>>('/client/invoices'))
+  // Paid only (Unit 58 §4) — GHL's own `paid` status, filtered server-side.
+  return unwrap(apiClient.get<ApiResponse<ClientInvoice[]>>('/client/invoices', { params: { status: 'paid' } }))
 }

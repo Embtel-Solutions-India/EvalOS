@@ -119,6 +119,16 @@ public class ApiExceptionHandler {
 	 * one asks the caller to name a case, and a portal that cannot tell the two apart tells a
 	 * client "not allowed" when the answer is "which one".
 	 */
+	@ExceptionHandler(DraftNotCurrentException.class)
+	public ResponseEntity<ApiResponse<Void>> onDraftNotCurrent(DraftNotCurrentException ex) {
+		return ResponseEntity.status(HttpStatus.CONFLICT).body(ApiResponse.error("DRAFT_NOT_CURRENT", ex.getMessage()));
+	}
+
+	@ExceptionHandler(NotFoundException.class)
+	public ResponseEntity<ApiResponse<Void>> onNotFound(NotFoundException ex) {
+		return ResponseEntity.status(HttpStatus.NOT_FOUND).body(ApiResponse.error("NOT_FOUND", ex.getMessage()));
+	}
+
 	@ExceptionHandler(AmbiguousCaseException.class)
 	public ResponseEntity<ApiResponse<Void>> onAmbiguousCase(AmbiguousCaseException ex) {
 		return ResponseEntity.status(HttpStatus.CONFLICT)

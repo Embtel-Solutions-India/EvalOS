@@ -250,9 +250,24 @@ public class DocumentStore {
 	 * rule each caller has to remember.
 	 */
 	public String presignedUrl(String key) {
+		return presign(key, false);
+	}
+
+	/**
+	 * The one exception to "always an attachment" (D51, 2026-09-28): a draft's PDF opens in the
+	 * browser's own viewer. <strong>Only for a {@code DRAFT} row's PDF</strong> — staff uploaded it and
+	 * {@code UploadedFileType} sniffed it as a real PDF — and served as {@code application/pdf}, so the
+	 * browser renders it with its PDF viewer and never as a page. Anything a client or expert uploads
+	 * keeps {@link #presignedUrl}.
+	 */
+	public String presignedPdfView(String key) {
+		return presign(key, true);
+	}
+
+	private String presign(String key, boolean inlinePdf) {
 		requireConfigured();
 		if (localDir != null) {
-			return localUrl(key);
+			return localUrl(key, inlinePdf);
 		}
 		try {
 			return presigner.presignGetObject(GetObjectPresignRequest.builder()
@@ -263,7 +278,8 @@ public class DocumentStore {
 							// The filename is deliberately not set: it would put client-supplied text
 							// into a response header, and the browser's own default (the key's last
 							// segment, a UUID) is safe and sufficient.
-							.responseContentDisposition("attachment")
+							.responseContentDisposition(inlinePdf ? "inline" : "attachment")
+							.responseContentType(inlinePdf ? "application/pdf" : null)
 							.build())
 					.build())
 					.url()
@@ -354,7 +370,7 @@ public class DocumentStore {
 	 * <p>Held in memory on purpose: these are capability URLs with a five-minute life, and a
 	 * restart invalidating them is correct rather than a limitation.
 	 */
-	private record LocalRead(String key, Instant expiresAt) {
+	private record LocalRead(String key, Instant expiresAt, boolean inlinePdf) {
 	}
 
 	private final Map<String, LocalRead> localReads = new ConcurrentHashMap<>();
@@ -381,9 +397,9 @@ public class DocumentStore {
 	 * is already on and reaches the same route through the same proxy — and every caller opens it
 	 * with {@code window.open}, which handles both.
 	 */
-	private String localUrl(String key) {
+	private String localUrl(String key, boolean inlinePdf) {
 		String token = UUID.randomUUID().toString().replace("-", "");
-		localReads.put(token, new LocalRead(key, Instant.now().plus(READ_WINDOW)));
+		localReads.put(token, new LocalRead(key, Instant.now().plus(READ_WINDOW), inlinePdf));
 		// Swept here rather than on a timer: the map is bounded by how often somebody clicks a
 		// document on a laptop, and a scheduled job for that would be machinery with no user.
 		localReads.values().removeIf((held) -> held.expiresAt().isBefore(Instant.now()));
@@ -396,6 +412,12 @@ public class DocumentStore {
 	 * <p>Expiry is enforced here and not only at mint time, which is the whole point of the window:
 	 * a URL that was forwarded rather than clicked has to stop working.
 	 */
+	/** Whether a handed-out token was minted by {@link #presignedPdfView}. */
+	public boolean localReadIsPdfView(String token) {
+		LocalRead held = localReads.get(token);
+		return held != null && held.inlinePdf();
+	}
+
 	public java.util.Optional<Path> resolveLocalRead(String token) {
 		LocalRead held = localReads.get(token);
 		if (held == null || held.expiresAt().isBefore(Instant.now())) {
