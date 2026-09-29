@@ -58,9 +58,14 @@ export async function getCase(): Promise<ExpertCaseView> {
  * Safe to send twice: the server answers 200 with the state as it stands when the offer is already
  * accepted, and 409 only when the offer is genuinely over. So a double click is not an error to
  * handle here.
+ *
+ * **Sends the fee the expert was shown (Unit 65).** The server refuses (409) a fee that changed
+ * since the page loaded, so an expert never agrees to an amount they did not see.
  */
-export async function accept(caseId: string): Promise<ExpertCaseView> {
-  return unwrap(apiClient.post<ApiResponse<ExpertCaseView>>('/expert/accept', undefined, { params: { caseId } }))
+export async function accept(caseId: string, fee: number | null): Promise<ExpertCaseView> {
+  const params: Record<string, string | number> = { caseId }
+  if (fee !== null) params.fee = fee
+  return unwrap(apiClient.post<ApiResponse<ExpertCaseView>>('/expert/accept', undefined, { params }))
 }
 
 /**

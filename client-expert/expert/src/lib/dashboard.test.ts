@@ -16,7 +16,7 @@ import type { ExpertCaseSummary, ExpertPayoutRow } from './expertCase'
 const NOW = new Date(2026, 8, 15) // 15 Sep 2026, local
 
 function kase(over: Partial<ExpertCaseSummary>): ExpertCaseSummary {
-  return { caseId: 'c1', caseReference: 'IE-1', serviceType: null, signStatus: 'PENDING', step: null, actionRequired: false, offered: false, signedAt: null, ...over }
+  return { caseId: 'c1', caseReference: 'IE-1', serviceType: null, signStatus: 'PENDING', step: null, actionRequired: false, offered: false, signedAt: null, offeredFee: null, currency: null, ...over }
 }
 
 function payout(over: Partial<ExpertPayoutRow>): ExpertPayoutRow {
