@@ -9,6 +9,7 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.Table;
+import jakarta.persistence.Version;
 
 /**
  * One offer of one case to one expert, and what became of it.
@@ -64,6 +65,15 @@ public class ExpertCaseOffer extends ScopedEntity {
 
 	@Column(name = "fee_set_at")
 	private Instant feeSetAt;
+
+	/**
+	 * Optimistic lock (V80). The fee and the outcome both change on this row, from different people
+	 * (staff edit the fee, the expert answers); without a version the later write would silently put
+	 * back what the earlier one changed. A lost race is a 409, see {@code ApiExceptionHandler}.
+	 */
+	@Version
+	@Column(name = "version", nullable = false)
+	private long version;
 
 	protected ExpertCaseOffer() {
 		// for JPA

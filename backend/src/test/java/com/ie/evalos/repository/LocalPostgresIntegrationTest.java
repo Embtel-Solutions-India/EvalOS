@@ -1001,6 +1001,30 @@ class LocalPostgresIntegrationTest {
 				.hasStackTraceContaining("expert_case_offer_fee_check");
 	}
 
+	/**
+	 * Unit 65 review I2: a stale copy of an offer cannot be written back. Without it, a fee edit read
+	 * before the expert accepted would rewrite the row whole and set the outcome back to OFFERED.
+	 */
+	@Test
+	void aStaleOfferCannotOverwriteTheExpertsAnswer() {
+		UUID expertId = experts.save(new Expert(BRAND_IE, "Dr Race " + UUID.randomUUID())).getId();
+		UUID caseId = cases.saveAndFlush(new Case(BRAND_IE, "EV-" + UUID.randomUUID(), Stage.CLIENT_APPROVAL)).getId();
+		ExpertCaseOffer offer = new ExpertCaseOffer(BRAND_IE, caseId, expertId);
+		offer.setFee(new java.math.BigDecimal("100.00"), null);
+		UUID offerId = offers.saveAndFlush(offer).getId();
+
+		ExpertCaseOffer staleEdit = offers.findById(offerId).orElseThrow(); // the PM's edit reads it
+
+		ExpertCaseOffer answer = offers.findById(offerId).orElseThrow(); // meanwhile the expert accepts
+		answer.resolve(OfferOutcome.ACCEPTED, null);
+		offers.saveAndFlush(answer);
+
+		staleEdit.setFee(new java.math.BigDecimal("120.00"), null); // still OFFERED in its copy
+		assertThatThrownBy(() -> offers.saveAndFlush(staleEdit))
+				.isInstanceOf(org.springframework.orm.ObjectOptimisticLockingFailureException.class);
+		assertThat(offers.findById(offerId).orElseThrow().getOutcome()).isEqualTo(OfferOutcome.ACCEPTED);
+	}
+
 	private void resolved(UUID brandId, UUID caseId, UUID expertId, OfferOutcome outcome) {
 		ExpertCaseOffer offer = new ExpertCaseOffer(brandId, caseId, expertId);
 		offer.resolve(outcome, outcome == OfferOutcome.DECLINED ? "outside my field" : null);
