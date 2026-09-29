@@ -33,7 +33,7 @@ half of **`63-enm-workspace.md`**; supersedes neither — Pending → Processing
 4. **The expert sees the amount before accepting**, and accepting is agreeing to it.
 5. **No change after acceptance, and no adjustments.** No bonus, deduction, advance or correction:
    the business wants *offered amount, status, done or not* — not bookkeeping. The pending-payout
-   **correct-amount action is removed.**
+   **correct-amount action is removed** — except filling in an amount that is missing (§2).
 6. **At delivery the payout opens at the accepted offer's amount**, not the standard fee.
 7. **Status per case**, derived, one word: **Offered → Accepted** (committed) **→ Pending**
    (delivered, not sent) **→ Processing** (ENM recorded the transfer) **→ Paid** (expert confirmed —
@@ -53,11 +53,20 @@ ALTER TABLE expert_case_offer
     ADD COLUMN fee          numeric(12,2) CHECK (fee >= 0),
     ADD COLUMN fee_currency text;
 
--- Offers still open get the fee they would have been paid at delivery, so none is left unpriced.
+-- Open and accepted offers get the fee they would have been paid at delivery, so none is
+-- left unpriced and today's payouts appear in the register.
 UPDATE expert_case_offer o
    SET fee = e.standard_fee, fee_currency = b.currency
   FROM expert e, brand b
- WHERE o.outcome = 'OFFERED' AND e.id = o.expert_id AND b.id = o.brand_id;
+ WHERE o.outcome IN ('OFFERED', 'ACCEPTED') AND e.id = o.expert_id AND b.id = o.brand_id;
+
+-- An accepted offer that already has a payout takes the payout's amount: that is what was agreed
+-- in practice (the standard fee, possibly corrected before this unit).
+UPDATE expert_case_offer o
+   SET fee = p.amount, fee_currency = p.currency
+  FROM payout_ledger p
+ WHERE o.outcome = 'ACCEPTED' AND p.case_id = o.case_id AND p.expert_id = o.expert_id
+   AND p.status <> 'VOIDED' AND p.amount IS NOT NULL;
 ```
 
 - **Nullable in the schema**, required by the service on every new offer: closed historical offers
@@ -67,7 +76,12 @@ UPDATE expert_case_offer o
 - `ExpertCaseOffer` gains `fee`, `feeCurrency` and a `setFee(BigDecimal)` that throws
   `IllegalTransitionException` unless `outcome == OFFERED`.
 - **Existing `payout_ledger` rows are untouched.** A delivery whose accepted offer has no fee (an
-  offer accepted before `V79`) falls back to `standard_fee`, as today.
+  offer accepted before `V79` whose expert had no standard fee) falls back to `standard_fee`, as
+  today — which may be null.
+- **A payout with no amount can have it set once.** `PATCH /api/payouts/{id}` stays, narrowed: it
+  sets the amount only while the row is `PENDING` **and its amount is null**, otherwise 409. Without
+  it such a row could never be settled (`settle` refuses a row with no amount) and the expert would
+  never be paid. Correcting an amount that exists stays removed (rule 5).
 - No new table. No change to `payout_ledger`, `payout_payment` or `PayoutStatus`.
 
 ## 3. API
@@ -76,14 +90,14 @@ UPDATE expert_case_offer o
 |---|---|---|---|
 | Amount on each offer | `fee` added to the bodies of `POST /api/cases/{id}/assign-cm`, `/reassign-expert`, `/expert/retake` | unchanged | required; a CM's value must equal the standard fee (or be omitted), else 403 |
 | Edit an open offer's amount | `PATCH /api/cases/{id}/expert/offer/fee` `{fee}` | GM, PM, PC, ENM | the case's open offer only, else 409; scoped load (a PC only on cases assigned to them) |
-| Register | `GET /api/payouts/cases?status&expertId&from&to&q` | GM, BM, ENM | one row per offer that has a fee; brand-scoped |
+| Register | `GET /api/payouts/cases?status&expertId&from&to&q` | GM, BM, ENM | one row per offer that has a fee **or** a non-voided payout (so no payout owed today is missing); amount = the payout's when one exists, else the offer's fee; brand-scoped |
 | Register CSV | `GET /api/payouts/cases/export` (same params) | GM, BM, ENM | through the existing `csvField` (quoted, formula-safe) |
 | One offer's log | `GET /api/payouts/cases/{offerId}/history` | GM, BM, ENM | `audit_event` rows for the offer, its payout and its payment, oldest first |
 | Per-expert totals | `GET /api/payouts/experts` | GM, BM, ENM | committed / pending / processing / paid + oldest pending due date, per expert and currency |
 | Overview | `GET /api/payouts/overview?from&to` | GM, BM, ENM | the four tiles + the attention list (§4.1) |
 | Expert accepts | `POST /api/portal/expert/accept` body gains `fee` | expert token | must equal the open offer's current fee, else **409** *"The fee for this case changed — review it."* |
 | Expert case read | `ExpertCaseSummary` gains `offeredFee`, `offeredCurrency` | expert token | the open or accepted offer's amount |
-| **Removed** | `PATCH /api/payouts/{id}` and `PayoutService.correctAmount` | — | rule 5 |
+| **Narrowed** | `PATCH /api/payouts/{id}` → *set a missing amount* (`PayoutService.setMissingAmount`, was `correctAmount`) | GM, BM, ENM | `PENDING` and amount null only, else 409; audited |
 
 **Audit.** New `AuditAction`s are not needed: `CREATED` / `UPDATED` on entity type `OFFER` with
 `{fee}` before → after, and the accept / decline / timeout already written by the lifecycle gain
@@ -95,7 +109,7 @@ offer's outcome until a payout exists, then the payout's status mapped through t
 `uq_payout_per_case` already does.
 
 **Every query is brand-scoped** through `findScoped` / `ScopedRepository`; the register and totals
-are one query each (offers left-joined to the non-voided payout by case), not per-row lookups.
+are one query each (offers full-joined to the non-voided payout by case and expert), not per-row lookups.
 
 ## 4. Staff screens — the Payouts module
 
@@ -120,8 +134,8 @@ each line *who · date and time · what · old → new*. *Export CSV* exports ex
 ### 4.3 Experts — `/payouts/experts`
 
 *Who is owed how much?* One row per expert: Committed, Pending, Processing, Paid, oldest pending.
-Sortable by any column. A row opens the existing `/payouts/experts/:id` page, which **loses its
-amount-correction input** (rule 5) and keeps pending items + payment history.
+Sortable by any column. A row opens the existing `/payouts/experts/:id` page, whose amount input now
+appears **only on a row with no amount** (§2) and keeps pending items + payment history.
 
 ### 4.4 Pay run — `/payouts/pay`
 
@@ -153,12 +167,13 @@ Backend:
 - `#aCaseManagerOffersAtTheStandardFeeOnly`
 - `#theFeeCanBeEditedWhileTheOfferIsOpenAndNotAfter` (accepted, declined, timed out, superseded → 409)
 - `ExpertPortalServiceTest#acceptingAStaleFeeIsRefused`, `#acceptingWithNoFeeIsRefused`
+- `PayoutServiceTest#aMissingAmountCanBeSetOnceAndAnExistingOneNever`
 - `PayoutServiceTest#deliveryOpensThePayoutAtTheAcceptedFee`, `#anOfferAcceptedBeforeV79FallsBackToTheStandardFee`
 - `#everyFeeSetEditAndAcceptIsAudited` (before → after, actor, time)
 - `#theRegisterDerivesOneStatusPerOffer`, `#expertTotalsAddUpByStatus`, `#theOverviewFlagsOverdueAndUnconfirmed`
 - `PartyScopedPortalAccessTest` / a scoped-read test: register, experts, overview never return another brand's rows
-- `PayoutControllerTest`: the new routes on the role matrix; `PATCH /api/payouts/{id}` is gone
-- `LocalPostgresIntegrationTest`: `V79` applies and backfills open offers
+- `PayoutControllerTest`: the new routes on the role matrix; `PATCH /api/payouts/{id}` refuses a row that already has an amount (409)
+- `LocalPostgresIntegrationTest`: `V79` applies, backfills open and accepted offers, and an accepted offer with a payout takes the payout's amount
 
 Frontend: `payoutRules.test.ts` (status derivation and labels), `navigation.test.ts` (the Payouts
 group and its roles), and in `client-expert` a fee-display test beside `expertCase.test.ts`.

@@ -432,7 +432,7 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
   **every offer carries the amount the case pays** (required, pre-filled with the standard fee, set
   by GM / PM / PC / ENM; a CM offers at the standard fee only), **editable only while the offer is
   open**, **shown to the expert before they accept**, and frozen at acceptance. Delivery opens the
-  payout at that amount; the pending-payout amount correction is **removed**. **No adjustments** —
+  payout at that amount; the pending-payout amount correction is **removed** (only a *missing* amount can still be set, once). **No adjustments** —
   no bonus, deduction, advance or change after acceptance: per case it is offered amount, status,
   done or not. Every set, edit and outcome is in `audit_event`. Payouts becomes its own staff module
   (Overview, Cases register, Experts, Pay run).

@@ -389,7 +389,7 @@ Unit 65 (D59 edited 2026-09-30, spec `65`, **not built**) changes the payout hal
 PM / PC / ENM / GM offers the case with an amount (pre-filled standard fee; CM: standard fee only)
   → editable while the offer is open (audited, before → after)
   → expert sees "Fee for this case" and accepts it (a stale fee → 409) → amount frozen
-Delivered → payout PENDING at the accepted amount (no correction) → Processing → Paid as today
+Delivered → payout PENDING at the accepted amount (no correction; a missing amount can be set once) → Processing → Paid as today
 Staff Payouts module: Overview (Committed / Pending / Processing / Paid + needs attention)
   · Cases register (amount, status, done, per-offer log) · Experts (totals) · Pay run (the batch)
 ```
