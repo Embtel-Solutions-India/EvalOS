@@ -12,7 +12,7 @@ Expert SPA ─portal token─► same chain, audience=EXPERT
 GHL ───────HMAC + token─► /api/webhooks/ghl/{endpointToken}  (permitAll, brand from token)
 ```
 
-`permitAll` on the portal chain: exactly five POSTs under `/api/portal/auth/**`, plus a per-IP
+`permitAll` on the portal chain: exactly nine POSTs under `/api/portal/auth/**` — the client's five and the expert's four (`expert/{sign-up, forgot-password, sign-in, set-password}`, Unit 59) — plus a per-IP
 limiter (60/min) in `PortalTokenFilter`. `permitAll` on the staff chain: `/api/auth/login`,
 `/api/health`, `/actuator/health`, `/api/webhooks/**`.
 
