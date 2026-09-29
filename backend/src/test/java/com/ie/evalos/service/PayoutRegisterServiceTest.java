@@ -228,6 +228,85 @@ class PayoutRegisterServiceTest {
 		assertThat(csv).contains("'=HYPERLINK");
 	}
 
+	// --- review fixes: an accepted offer is committed money only while it is the live one -----------
+
+	private final List<com.ie.evalos.domain.Case> caseRows = new ArrayList<>();
+
+	private UUID caseOn(UUID expertId) {
+		UUID id = UUID.randomUUID();
+		com.ie.evalos.domain.Case c = new com.ie.evalos.domain.Case(IE, "IE-" + id.toString().substring(0, 4),
+				com.ie.evalos.domain.Stage.EXPERT_SIGNING);
+		org.springframework.test.util.ReflectionTestUtils.setField(c, "id", id);
+		c.setExpertId(expertId);
+		caseRows.add(c);
+		given(cases.findAllById(anyIterable())).willReturn(caseRows);
+		return id;
+	}
+
+	@Test
+	void aRefundedCasesAcceptedOfferIsNotCommitted() {
+		// (a) The payout was voided by a refund: the offer's money is not owed any more.
+		UUID caseId = caseOn(EXPERT);
+		offerRows.add(accepted(IE, caseId, "400.00"));
+		PayoutLedger voided = new PayoutLedger(IE, caseId, EXPERT, new BigDecimal("400.00"), "USD", Instant.now());
+		voided.setStatus(PayoutStatus.VOIDED);
+		payoutRows.add(voided);
+
+		assertThat(service.experts(null)).allSatisfy(t -> assertThat(t.committed()).isEqualByComparingTo("0"));
+		assertThat(service.rows(PayoutRegisterService.Filter.none()))
+				.noneMatch(r -> r.status() == RegisterStatus.ACCEPTED);
+	}
+
+	@Test
+	void anAcceptedOfferWhoseExpertWasReplacedIsSuperseded() {
+		// (b) A accepted, then the case went to B: A's acceptance is not committed money.
+		UUID other = UUID.randomUUID();
+		UUID caseId = caseOn(other);
+		offerRows.add(accepted(IE, caseId, "400.00"));
+
+		assertThat(service.rows(PayoutRegisterService.Filter.none())).singleElement()
+				.satisfies(r -> assertThat(r.status()).isEqualTo(RegisterStatus.SUPERSEDED));
+		assertThat(service.overview(null, null, null).getFirst().committed().amount()).isEqualByComparingTo("0");
+	}
+
+	@Test
+	void aRetakenCaseCountsOnlyTheLatestAcceptance() {
+		// (c) Two acceptances by the same expert on one case: only the latest is the live one.
+		UUID caseId = caseOn(EXPERT);
+		ExpertCaseOffer first = accepted(IE, caseId, "400.00");
+		org.springframework.test.util.ReflectionTestUtils.setField(first, "offeredAt",
+				Instant.now().minus(10, ChronoUnit.DAYS));
+		ExpertCaseOffer latest = accepted(IE, caseId, "450.00");
+		offerRows.add(latest);
+		offerRows.add(first); // order the repository returns them in must not matter
+		payoutRows.add(new PayoutLedger(IE, caseId, EXPERT, new BigDecimal("450.00"), "USD", Instant.now()));
+
+		List<PayoutRegisterService.RegisterRow> rows = service.rows(PayoutRegisterService.Filter.none());
+		assertThat(rows).filteredOn(r -> r.status() == RegisterStatus.PENDING).singleElement()
+				.satisfies(r -> assertThat(r.amount()).isEqualByComparingTo("450.00"));
+		assertThat(rows).noneMatch(r -> r.status() == RegisterStatus.ACCEPTED);
+	}
+
+	@Test
+	void needsAttentionIgnoresThePeriodFilter() {
+		// I3: an overdue payout on a case offered months ago is still overdue today.
+		UUID caseId = caseOn(EXPERT);
+		ExpertCaseOffer old = accepted(IE, caseId, "300.00");
+		org.springframework.test.util.ReflectionTestUtils.setField(old, "offeredAt",
+				Instant.now().minus(70, ChronoUnit.DAYS));
+		offerRows.add(old);
+		payoutRows.add(new PayoutLedger(IE, caseId, EXPERT, new BigDecimal("300.00"), "USD",
+				Instant.now().minus(5, ChronoUnit.DAYS)));
+		java.time.LocalDate today = java.time.LocalDate.now(BusinessCalendar.ZONE);
+
+		List<PayoutRegisterService.Overview> thisMonth = service.overview(today.withDayOfMonth(1), today, null);
+
+		assertThat(thisMonth).singleElement().satisfies(o -> {
+			assertThat(o.pending().count()).isZero(); // the tiles keep the period
+			assertThat(o.attention()).hasSize(1); // the attention list does not
+		});
+	}
+
 	private static ExpertCaseOffer accepted(UUID brand, UUID caseId, String fee) {
 		ExpertCaseOffer offer = new ExpertCaseOffer(brand, caseId, EXPERT);
 		offer.setFee(new BigDecimal(fee), null);

@@ -155,19 +155,25 @@ public class PayoutRegisterService {
 		}).sorted(Comparator.comparing(ExpertTotals::pending).reversed()).toList();
 	}
 
-	/** The four tiles and the attention list, per currency, for offers made in the window. */
+	/** Per currency: the four tiles for offers made in the window, and the attention list regardless of it. */
 	@Transactional(readOnly = true)
 	public List<Overview> overview(LocalDate from, LocalDate to, UUID brandId) {
 		Instant now = Instant.now();
 		Instant nudge = now.minus(CONFIRM_NUDGE_DAYS, ChronoUnit.DAYS);
-		Map<String, List<RegisterRow>> byCurrency = rows(new Filter(null, null, from, to, null, brandId)).stream()
+		// The tiles answer for the period; the attention list does not — an old overdue payout is still
+		// overdue today, and "nothing needs attention" must be true, not true-for-this-month.
+		List<RegisterRow> everything = allRows(brandId);
+		Map<String, List<RegisterRow>> byCurrency = everything.stream()
+				.filter(row -> matches(row, new Filter(null, null, from, to, null, null)))
 				.collect(Collectors.groupingBy(r -> Objects.toString(r.currency(), "")));
+		Map<String, List<RegisterRow>> attentionByCurrency = everything.stream()
+				.filter(r -> (r.status() == RegisterStatus.PENDING && r.dueDate() != null && r.dueDate().isBefore(now))
+						|| (r.status() == RegisterStatus.PROCESSING && r.sentAt() != null && r.sentAt().isBefore(nudge)))
+				.collect(Collectors.groupingBy(r -> Objects.toString(r.currency(), "")));
+		attentionByCurrency.keySet().forEach(currency -> byCurrency.putIfAbsent(currency, List.of()));
 		return byCurrency.entrySet().stream().map(e -> {
 			List<RegisterRow> rows = e.getValue();
-			List<RegisterRow> attention = rows.stream()
-					.filter(r -> (r.status() == RegisterStatus.PENDING && r.dueDate() != null && r.dueDate().isBefore(now))
-							|| (r.status() == RegisterStatus.PROCESSING && r.sentAt() != null && r.sentAt().isBefore(nudge)))
-					.toList();
+			List<RegisterRow> attention = attentionByCurrency.getOrDefault(e.getKey(), List.of());
 			return new Overview(e.getKey(), tile(rows, RegisterStatus.ACCEPTED), tile(rows, RegisterStatus.PENDING),
 					tile(rows, RegisterStatus.PROCESSING), tile(rows, RegisterStatus.PAID), attention);
 		}).toList();
@@ -189,7 +195,8 @@ public class PayoutRegisterService {
 
 	// --- building the rows ------------------------------------------------------
 
-	private record Pair(ExpertCaseOffer offer, PayoutLedger payout) {
+	/** {@code superseded}: an acceptance that is no longer the live one — see {@link #allRows}. */
+	private record Pair(ExpertCaseOffer offer, PayoutLedger payout, boolean superseded) {
 
 		UUID caseId() {
 			return offer != null ? offer.getCaseId() : payout.getCaseId();
@@ -206,19 +213,51 @@ public class PayoutRegisterService {
 
 	private List<RegisterRow> allRows(UUID brandId) {
 		TenantContext ctx = TenantContext.current();
+		// A voided payout still pairs, so the acceptance it belonged to is dropped with it (a refund)
+		// rather than resurfacing as committed money. A live payout wins over a voided one.
 		Map<List<UUID>, PayoutLedger> payoutByCaseAndExpert = new HashMap<>();
-		payouts.findScoped(ctx).stream().filter(p -> p.getStatus() != PayoutStatus.VOIDED)
-				.forEach(p -> payoutByCaseAndExpert.put(List.of(p.getCaseId(), p.getExpertId()), p));
+		payouts.findScoped(ctx).forEach(p -> payoutByCaseAndExpert.merge(List.of(p.getCaseId(), p.getExpertId()), p,
+				(a, b) -> a.getStatus() == PayoutStatus.VOIDED ? b : a));
+
+		List<ExpertCaseOffer> offerRows = new ArrayList<>(offers.findScoped(ctx));
+		// Newest first, so on a retaken case the latest acceptance is the one that takes the payout.
+		offerRows.sort(Comparator.comparing(ExpertCaseOffer::getOfferedAt,
+				Comparator.nullsLast(Comparator.reverseOrder())));
+		Map<UUID, Case> caseById = byId(cases.findAllById(offerRows.stream().map(ExpertCaseOffer::getCaseId)
+				.distinct().toList()), Case::getId, Function.identity());
 
 		List<Pair> pairs = new ArrayList<>();
-		for (ExpertCaseOffer o : offers.findScoped(ctx)) {
-			PayoutLedger p = o.getOutcome() == OfferOutcome.ACCEPTED
-					? payoutByCaseAndExpert.remove(List.of(o.getCaseId(), o.getExpertId())) : null;
+		java.util.Set<List<UUID>> accepted = new java.util.HashSet<>();
+		for (ExpertCaseOffer o : offerRows) {
+			List<UUID> key = List.of(o.getCaseId(), o.getExpertId());
+			if (o.getOutcome() != OfferOutcome.ACCEPTED) {
+				if (o.getFee() != null) {
+					pairs.add(new Pair(o, null, false));
+				}
+				continue;
+			}
+			// **An acceptance is committed money only while it is the live one.** An older acceptance
+			// by the same expert (a retake), or one whose expert the case no longer names (declined or
+			// timed out after accepting, then reassigned), reads as superseded. A case not in the scoped
+			// load is taken on trust rather than guessed about.
+			Case subject = caseById.get(o.getCaseId());
+			boolean replaced = subject != null && !o.getExpertId().equals(subject.getExpertId());
+			if (!accepted.add(key) || replaced) {
+				if (o.getFee() != null) {
+					pairs.add(new Pair(o, null, true));
+				}
+				continue;
+			}
+			PayoutLedger p = payoutByCaseAndExpert.remove(key);
+			if (p != null && p.getStatus() == PayoutStatus.VOIDED) {
+				continue; // refunded: nothing is owed, nothing is committed
+			}
 			if (o.getFee() != null || p != null) {
-				pairs.add(new Pair(o, p));
+				pairs.add(new Pair(o, p, false));
 			}
 		}
-		payoutByCaseAndExpert.values().forEach(p -> pairs.add(new Pair(null, p)));
+		payoutByCaseAndExpert.values().stream().filter(p -> p.getStatus() != PayoutStatus.VOIDED)
+				.forEach(p -> pairs.add(new Pair(null, p, false)));
 		if (brandId != null) {
 			pairs.removeIf(x -> !brandId.equals(x.brandId())); // after the scope: narrows only
 		}
@@ -238,7 +277,8 @@ public class PayoutRegisterService {
 			ExpertCaseOffer o = x.offer();
 			PayoutLedger p = x.payout();
 			PayoutPayment pay = p == null || p.getPaymentId() == null ? null : paymentById.get(p.getPaymentId());
-			RegisterStatus status = status(o == null ? null : o.getOutcome(), p == null ? null : p.getStatus());
+			RegisterStatus status = x.superseded() ? RegisterStatus.SUPERSEDED
+					: status(o == null ? null : o.getOutcome(), p == null ? null : p.getStatus());
 			// What is paid is the payout's amount once one exists; before that, the offered fee.
 			BigDecimal amount = p != null && p.getAmount() != null ? p.getAmount() : o == null ? null : o.getFee();
 			return new RegisterRow(o == null ? null : o.getId(), p == null ? null : p.getId(), x.caseId(),
