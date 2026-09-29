@@ -76,7 +76,15 @@ export async function editPayment(paymentId: string, edit: PaymentEditRequest): 
 }
 
 /** The expert acknowledged the transfer. Cascades to every draft it settled; terminal. */
-/** Weekly or monthly Pending / Processing / Paid totals (Unit 63). */
-export async function fetchSummary(period: 'WEEK' | 'MONTH', signal?: AbortSignal): Promise<SummaryRow[]> {
+export type ReportPeriod = 'WEEK' | 'MONTH' | 'YEAR'
+
+/** Weekly, monthly or yearly Pending / Processing / Paid totals, by due date (Unit 63). */
+export async function fetchSummary(period: ReportPeriod, signal?: AbortSignal): Promise<SummaryRow[]> {
   return unwrap<SummaryRow[]>(api.get('/payouts/summary', { params: { period }, signal }))
+}
+
+/** Every payout row, tagged with its period, as the server's CSV (Unit 63). */
+export async function exportPayoutRows(period: ReportPeriod): Promise<Blob> {
+  const response = await api.get('/payouts/export', { params: { period }, responseType: 'blob' })
+  return response.data as Blob
 }

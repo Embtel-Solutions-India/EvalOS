@@ -54,6 +54,9 @@ dashboard. This unit is mostly assembly; the new pieces are listed per phase.
   | Rejected | offer `DECLINED` / `TIMED_OUT` |
   | Reassigned | offer `SUPERSEDED` |
 
+  **Rejected is read off the case, not the offer** (found in a local run-through, 2026-09-29): an
+  expert who accepted and then declined keeps an `ACCEPTED` offer, so the latest row of a case
+  that is waiting for a rematch naming this expert is Rejected whatever the offer says.
   Workload and quality stay the figures the profile already shows (`ExpertLoadService`, quality
   score, performance flags).
 - **Retake (D62)** — an expert who declined or timed out on a case may be offered it again.
@@ -86,9 +89,16 @@ confirming party change.
 - **Expert portal Payouts** (spec 62) gains the transfer's id (never its method or reference —
   those are the brand's records — and never `payment_detail`) and a *Confirm received* button on
   each Processing transfer; the sidebar counts transfers waiting for them.
-- **Summaries** — `GET /api/payouts/summary?period=WEEK|MONTH&from=&to=` (PAYOUTS): per period and
-  currency, the count and total Pending / Processing / Paid, by the date the payout was opened.
-  A *Summary* tab on `/payouts` with a week/month switch and a CSV download (client-side).
+- **The ENM pays weekly** — the existing batch on `/payouts` is one week of due payouts, grouped by
+  expert, one recorded transfer each.
+- **Reports: weekly, monthly, yearly, with export** (edited 2026-09-29, the business) —
+  `GET /api/payouts/summary?period=WEEK|MONTH|YEAR&from=&to=` (PAYOUTS): per period and currency,
+  the count and total Pending / Processing / Paid. **Grouped by due date**, so a weekly report is
+  the same week the batch paid it in. Two exports on the Summary panel: *Export totals* (the table,
+  client-side) and *Export rows* — `GET /api/payouts/export?period=…` (PAYOUTS), a `text/csv`
+  download of every payout row with its period, case, expert, amount, currency, state word and
+  due date (voided rows included and named). Fields are quoted, and a leading `= + - @` is
+  neutralised so a name cannot run as a spreadsheet formula.
 - Not built: an approval step, a failed state, disputes — the business chose three states.
 
 ## Phase 4 — notifications
@@ -119,7 +129,7 @@ link to the Summary tab. No new endpoint.
 | `POST /api/experts/{id}/credentials-verified` | ROSTER_WRITE (GM, BM, ENM) |
 | `GET /api/experts/{id}/cases` | ROSTER_READ |
 | `POST /api/cases/{id}/expert/retake` | GM, PM, ENM, CM (the reassign gate) |
-| `GET /api/payouts/summary` | PAYOUTS (GM, BM, ENM) |
+| `GET /api/payouts/summary`, `GET /api/payouts/export` | PAYOUTS (GM, BM, ENM) |
 | `POST /api/portal/expert/payments/{id}/confirm` | the expert, own payments only |
 
 Every write above records an `audit_event`; the stage move and candidate create already do

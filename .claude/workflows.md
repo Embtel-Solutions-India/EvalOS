@@ -432,7 +432,9 @@ Rejected (declined / timed out) while EXPERT_DECLINED_REMATCHING + expert AVAILA
 Delivered → payout PENDING (fee) → PAYOUT_DUE to ENMs
   → ENM records the transfer → PAID, shown "Processing"
   → expert presses "Confirm received" in the portal → CONFIRMED, shown "Paid" → PAYOUT_CONFIRMED to the recorder
-Reports: /payouts Summary, weekly or monthly, Pending / Processing / Paid, CSV
+ENM pays weekly from the /payouts batch (one week's due payouts, one transfer per expert)
+Reports: /payouts Summary, weekly / monthly / yearly by due date, Pending / Processing / Paid;
+  Export totals (CSV) and Export rows (GET /api/payouts/export, every row with its period)
 ```
 
 ### TARGET WORKFLOW

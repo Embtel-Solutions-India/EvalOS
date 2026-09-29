@@ -559,9 +559,13 @@ public class PayoutService {
 		return payment;
 	}
 
-	/** How a summary groups payouts: by the week or the month the payout opened in. */
+	/**
+	 * How a report groups payouts: by the week, month or year of the payout's <strong>due
+	 * date</strong> — the same week the batch screen puts it in, so a weekly report is the week
+	 * the ENM paid (Unit 63).
+	 */
 	public enum Period {
-		WEEK, MONTH
+		WEEK, MONTH, YEAR
 	}
 
 	/** One period and currency: Pending, Processing ({@code PAID}) and Paid ({@code CONFIRMED}). */
@@ -570,7 +574,7 @@ public class PayoutService {
 	}
 
 	/**
-	 * Weekly or monthly totals, newest period first (Unit 63). {@code VOIDED} rows are left out,
+	 * Weekly, monthly or yearly totals, newest period first (Unit 63). {@code VOIDED} rows are left out,
 	 * as every other total leaves them out.
 	 *
 	 * @param from and {@code to} bound the period start, inclusive; either may be null
@@ -580,7 +584,7 @@ public class PayoutService {
 		Map<LocalDate, Map<String, List<PayoutLedger>>> grouped = payouts.findScoped(TenantContext.current())
 				.stream()
 				.filter(row -> row.getStatus() != PayoutStatus.VOIDED)
-				.collect(Collectors.groupingBy((PayoutLedger row) -> periodStart(period, row.getCreatedAt()),
+				.collect(Collectors.groupingBy((PayoutLedger row) -> periodStart(period, reportDate(row)),
 						() -> new java.util.TreeMap<LocalDate, Map<String, List<PayoutLedger>>>(Comparator.reverseOrder()),
 						Collectors.groupingBy(PayoutLedger::getCurrency, java.util.TreeMap::new, Collectors.toList())));
 		return grouped.entrySet().stream()
@@ -596,8 +600,61 @@ public class PayoutService {
 	}
 
 	static LocalDate periodStart(Period period, Instant at) {
-		return period == Period.WEEK ? weekStart(at)
-				: at.atZone(BusinessCalendar.ZONE).toLocalDate().withDayOfMonth(1);
+		LocalDate day = at.atZone(BusinessCalendar.ZONE).toLocalDate();
+		return switch (period) {
+			case WEEK -> weekStart(at);
+			case MONTH -> day.withDayOfMonth(1);
+			case YEAR -> day.withDayOfYear(1);
+		};
+	}
+
+	/** The date a payout is reported under: its due date, or when it opened if it has none. */
+	private static Instant reportDate(PayoutLedger row) {
+		return row.getDueDate() != null ? row.getDueDate() : row.getCreatedAt();
+	}
+
+	/**
+	 * Every payout row as CSV, each tagged with its report period (Unit 63) — the detail behind
+	 * {@link #summary}, for the ENM's weekly / monthly / yearly reports. Voided rows are included
+	 * and say so. Newest period first.
+	 */
+	@Transactional(readOnly = true)
+	public String exportCsv(Period period, LocalDate from, LocalDate to) {
+		List<PayoutLedger> rows = payouts.findScoped(TenantContext.current()).stream()
+				.filter(row -> {
+					LocalDate start = periodStart(period, reportDate(row));
+					return (from == null || !start.isBefore(from)) && (to == null || !start.isAfter(to));
+				})
+				.sorted(Comparator.comparing(PayoutService::reportDate).reversed())
+				.toList();
+		Map<UUID, String> expertNames = expertNames(rows.stream().map(PayoutLedger::getExpertId).toList());
+		Map<UUID, String> caseCodes = caseCodes(rows.stream().map(PayoutLedger::getCaseId).toList());
+		StringBuilder csv = new StringBuilder("period_start,case,expert,amount,currency,status,due_date\r\n");
+		for (PayoutLedger row : rows) {
+			csv.append(String.join(",", periodStart(period, reportDate(row)).toString(),
+					csvField(caseCodes.get(row.getCaseId())), csvField(expertNames.get(row.getExpertId())),
+					row.getAmount() == null ? "" : row.getAmount().toPlainString(), row.getCurrency(),
+					STATUS_WORD.get(row.getStatus()),
+					row.getDueDate() == null ? "" : row.getDueDate().atZone(BusinessCalendar.ZONE).toLocalDate().toString()))
+					.append("\r\n");
+		}
+		return csv.toString();
+	}
+
+	/** The business's words for the stored states (Unit 63). */
+	private static final Map<PayoutStatus, String> STATUS_WORD = Map.of(PayoutStatus.PENDING, "Pending",
+			PayoutStatus.PAID, "Processing", PayoutStatus.CONFIRMED, "Paid", PayoutStatus.VOIDED, "Voided");
+
+	/**
+	 * One CSV field: quoted when it holds a comma, quote or line break, and a leading
+	 * {@code = + - @} neutralised so a spreadsheet does not run an expert's name as a formula.
+	 */
+	static String csvField(String value) {
+		if (value == null) {
+			return "";
+		}
+		String safe = !value.isEmpty() && "=+-@".indexOf(value.charAt(0)) >= 0 ? "'" + value : value;
+		return safe.matches("(?s).*[\",\r\n].*") ? "\"" + safe.replace("\"", "\"\"") + "\"" : safe;
 	}
 
 	private static int count(List<PayoutLedger> rows, PayoutStatus status) {

@@ -475,8 +475,8 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
   receipt**, because every entry is manual: the ENM's recorded transfer (`PAID`) shows as
   *Processing* until the expert presses *Confirm received* in the portal (`CONFIRMED`, shown as
   *Paid*). **Staff no longer confirm** — that route is removed. The portal's one write is that
-  confirmation; nothing there pays, requests or disputes a payout. Weekly / monthly summaries and a
-  CSV are the ENM's reports. No approval step and no failed state (the business chose three).
+  confirmation; nothing there pays, requests or disputes a payout. The ENM pays weekly (the batch) and
+  reports weekly, monthly or yearly by due date, with two exports: totals and every row (CSV). No approval step and no failed state (the business chose three).
 - **D61.** **The ENM runs the expert lifecycle in EvalOS, and the hiring pipeline is a GHL
   pipeline** (2026-09-29, the business; Unit 63, spec `63-enm-workspace.md`). This reverses the two
   written refusals `00d` §7 names and replaces `00d` Phase 5's `expert_application` design. A GM

@@ -505,7 +505,7 @@ class PayoutServiceTest {
 				.isInstanceOf(InvalidRequestException.class);
 	}
 
-	/** Unit 63: weekly and monthly totals by state, VOIDED left out, newest period first. */
+	/** Unit 63: weekly / monthly / yearly totals by state and due date, VOIDED left out, newest first. */
 	@Test
 	void theSummaryTotalsEachPeriodByState() {
 		givenEnmCaller();
@@ -529,12 +529,40 @@ class PayoutServiceTest {
 		assertThat(service.summary(PayoutService.Period.WEEK, java.time.LocalDate.of(2026, 9, 1), null))
 				.extracting(PayoutService.SummaryRow::periodStart)
 				.containsExactly(java.time.LocalDate.of(2026, 9, 14));
+
+		List<PayoutService.SummaryRow> years = service.summary(PayoutService.Period.YEAR, null, null);
+		assertThat(years).extracting(PayoutService.SummaryRow::periodStart)
+				.containsExactly(java.time.LocalDate.of(2026, 1, 1));
+		assertThat(years.get(0).paid()).isEqualByComparingTo("300.00");
 	}
 
-	private PayoutLedger opened(String amount, String createdAt, PayoutStatus status) {
+	/** Unit 63: the rows behind the report, one line each, tagged with their period. */
+	@Test
+	void theExportListsEveryRowUnderItsPeriodWithTheBusinessWords() {
+		givenEnmCaller();
+		PayoutLedger processing = opened("200.00", "2026-09-16T15:00:00Z", PayoutStatus.PAID);
+		given(payouts.findScoped(any())).willReturn(List.of(processing));
+
+		String csv = service.exportCsv(PayoutService.Period.MONTH, null, null);
+
+		assertThat(csv.split("\r\n")).hasSize(2);
+		assertThat(csv).startsWith("period_start,case,expert,amount,currency,status,due_date\r\n2026-09-01,")
+				.contains(",200.00,USD,Processing,2026-09-16");
+	}
+
+	@Test
+	void aCsvFieldIsQuotedAndCannotRunAsAFormula() {
+		assertThat(PayoutService.csvField("Dr Osei, PhD")).isEqualTo("\"Dr Osei, PhD\"");
+		assertThat(PayoutService.csvField("=HYPERLINK(\"x\")")).isEqualTo("\"'=HYPERLINK(\"\"x\"\")\"");
+		assertThat(PayoutService.csvField("Plain")).isEqualTo("Plain");
+		assertThat(PayoutService.csvField(null)).isEmpty();
+	}
+
+	/** A row due on {@code due} — reports group by due date, the week the batch pays it in. */
+	private PayoutLedger opened(String amount, String due, PayoutStatus status) {
 		PayoutLedger row = pending(amount);
 		row.setStatus(status);
-		ReflectionTestUtils.setField(row, "createdAt", Instant.parse(createdAt));
+		ReflectionTestUtils.setField(row, "dueDate", Instant.parse(due));
 		return row;
 	}
 
