@@ -7,6 +7,7 @@ import type {
   PaymentRow,
   PayoutStatus,
   SettleRequest,
+  SummaryRow,
 } from './payoutRules'
 
 /**
@@ -75,6 +76,7 @@ export async function editPayment(paymentId: string, edit: PaymentEditRequest): 
 }
 
 /** The expert acknowledged the transfer. Cascades to every draft it settled; terminal. */
-export async function confirmPayment(paymentId: string): Promise<PaymentRow> {
-  return unwrap<PaymentRow>(api.post(`/payments/${paymentId}/confirm`, {}))
+/** Weekly or monthly Pending / Processing / Paid totals (Unit 63). */
+export async function fetchSummary(period: 'WEEK' | 'MONTH', signal?: AbortSignal): Promise<SummaryRow[]> {
+  return unwrap<SummaryRow[]>(api.get('/payouts/summary', { params: { period }, signal }))
 }

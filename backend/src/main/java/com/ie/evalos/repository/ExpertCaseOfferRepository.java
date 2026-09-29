@@ -3,6 +3,7 @@ package com.ie.evalos.repository;
 import java.time.Instant;
 import java.util.Collection;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 import com.ie.evalos.domain.ExpertCaseOffer;
@@ -59,6 +60,19 @@ public interface ExpertCaseOfferRepository extends ScopedRepository<ExpertCaseOf
 	 * id has already come out of an authorized read.
 	 */
 	List<ExpertCaseOffer> findByCaseIdOrderByOfferedAtDesc(UUID caseId);
+
+	/** Every offer one expert has had, newest first (Unit 63's case history). */
+	List<ExpertCaseOffer> findByBrandIdAndExpertIdOrderByOfferedAtDesc(UUID brandId, UUID expertId);
+
+	/**
+	 * The cases this expert has an offer on that they have not yet answered — the expert portal's
+	 * "New cases" (2026-09-29). One query per list rather than one per case; brand is a real
+	 * predicate, and V19's {@code (brand_id, expert_id, outcome)} index applies.
+	 */
+	@Query("select distinct o.caseId from ExpertCaseOffer o "
+			+ "where o.brandId = :brandId and o.expertId = :expertId "
+			+ "and o.outcome = com.ie.evalos.domain.OfferOutcome.OFFERED")
+	Set<UUID> openOfferCaseIds(@Param("brandId") UUID brandId, @Param("expertId") UUID expertId);
 
 	/**
 	 * How many offers each of these experts resolved which way — the aggregate the acceptance

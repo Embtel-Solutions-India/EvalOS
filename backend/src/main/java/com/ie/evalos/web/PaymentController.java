@@ -12,7 +12,6 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -69,11 +68,6 @@ public class PaymentController {
 		return ApiResponse.ok(payouts.payment(id));
 	}
 
-	/** The expert acknowledged the transfer; cascades to every draft it settled. */
-	@PostMapping("/{id}/confirm")
-	@PreAuthorize(PAYOUTS)
-	public ApiResponse<PayoutService.PaymentDetailView> confirm(@PathVariable UUID id) {
-		payouts.confirm(id);
-		return ApiResponse.ok(payouts.payment(id));
-	}
+	// No staff confirm (Unit 63): the expert confirms receipt in their portal, because every entry
+	// here is manual and the person who typed it confirming it would prove nothing.
 }

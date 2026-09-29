@@ -980,16 +980,34 @@ public class CaseLifecycleService {
 	public Case reassignExpert(UUID caseId, UUID expertId, String expertRationale,
 			FieldTag fieldOfExpertise) {
 		Case subject = load(caseId);
-		Stage to = CaseTransitions.target(subject, Action.REASSIGN_EXPERT);
 		Expert replacement = availableExpert(expertId);
 		requireState(!replacement.getId().equals(subject.getExpertId()),
-				"that is the expert who declined");
+				"that is the expert who declined — offer it again with retake");
+		return rematch(subject, replacement, expertRationale, fieldOfExpertise, null);
+	}
 
+	/**
+	 * The retake (Unit 63, D62): the expert who declined or timed out is offered the same case
+	 * again. The rematch path with the same-expert guard lifted — eligible only while the case is
+	 * still waiting for a rematch ({@code REASSIGN_EXPERT}'s own exception guard) and the expert
+	 * is available; permitted by whoever may reassign.
+	 */
+	@Transactional
+	public Case retakeExpert(UUID caseId) {
+		Case subject = load(caseId);
+		requireState(subject.getExpertId() != null, "the case names no expert to offer it back to");
+		return rematch(subject, availableExpert(subject.getExpertId()), null, null,
+				"Offered again to the expert who declined (retake)");
+	}
+
+	private Case rematch(Case subject, Expert replacement, String expertRationale, FieldTag fieldOfExpertise,
+			String note) {
+		Stage to = CaseTransitions.target(subject, Action.REASSIGN_EXPERT);
 		resolveOpenOffer(subject, OfferOutcome.SUPERSEDED, null);
 		// **The one that matters.** The case is about to name a different expert; the outgoing one's
 		// link must stop working before that is true, not whenever somebody remembers to re-mint.
 		revokeExpertLink(subject);
-		Case saved = apply(subject, to, Action.REASSIGN_EXPERT, null, c -> {
+		Case saved = apply(subject, to, Action.REASSIGN_EXPERT, note, c -> {
 			c.setExpertId(replacement.getId());
 			c.setExpertSignStatus(ExpertSignStatus.REASSIGNED);
 			c.setExceptionState(ExceptionState.NONE);

@@ -94,10 +94,12 @@ public class CaseIntakeService {
 	private final AuditService audit;
 	private final SlaCalculator sla;
 	private final ApplicationEventPublisher events;
+	private final com.ie.evalos.repository.OpportunityRepository opportunities;
 
 	CaseIntakeService(CaseRepository cases, ContactSnapshotService contacts,
 			DocumentChecklistItemRepository checklistItems, AuditService audit, SlaCalculator sla,
-			ApplicationEventPublisher events) {
+			ApplicationEventPublisher events, com.ie.evalos.repository.OpportunityRepository opportunities) {
+		this.opportunities = opportunities;
 		this.cases = cases;
 		this.contacts = contacts;
 		this.checklistItems = checklistItems;
@@ -116,6 +118,13 @@ public class CaseIntakeService {
 	 */
 	@Transactional
 	public Case intake(Brand brand, NewCase request) {
+		// Unit 63: a candidate won on the ENM's hiring pipeline is an expert, not a client. The GHL
+		// workflow should never fire for that pipeline; this is the second lock (invariant 8).
+		if (request.ghlOpportunityId() != null
+				&& opportunities.isOnHiringPipeline(brand.getId(), request.ghlOpportunityId())) {
+			throw new com.ie.evalos.common.InvalidRequestException(
+					"Opportunity " + request.ghlOpportunityId() + " is on the expert hiring pipeline; no case opened");
+		}
 		ContactSnapshot contact = syncContact(brand.getId(), request.contact());
 
 		Optional<Case> open = cases

@@ -47,6 +47,54 @@ export type ExpertCaseSummary = {
   /** `PortalStageProjection.forExpert`'s label, or null before the case reaches the expert. */
   step: string | null
   actionRequired: boolean
+  /** An offer on this case the expert has not answered yet — the "New cases" list. */
+  offered: boolean
+}
+
+/** EvalOS's `PayoutStatus`, verbatim. */
+export type PayoutStatus = 'PENDING' | 'PAID' | 'CONFIRMED' | 'VOIDED'
+
+/** `ExpertPortalService.ExpertPayoutRow`, exactly (spec 62). No payment detail, by invariant 4. */
+export type ExpertPayoutRow = {
+  caseReference: string | null
+  amount: number
+  currency: string
+  status: PayoutStatus
+  settledOn: string | null
+  /** The transfer this row was paid in (Unit 63) — what "Confirm received" names. Null while owed. */
+  paymentId: string | null
+}
+
+/**
+ * The business's three words (Unit 63): a transfer the ENM recorded is **Processing** until the
+ * expert confirms receipt here, and only then **Paid**.
+ */
+export const PAYOUT_STATUS: Record<PayoutStatus, { label: string; variant: 'muted' | 'success' | 'warning' }> = {
+  PENDING: { label: 'Pending', variant: 'warning' },
+  PAID: { label: 'Processing', variant: 'muted' },
+  CONFIRMED: { label: 'Paid', variant: 'success' },
+  VOIDED: { label: 'Voided', variant: 'muted' },
+}
+
+type Totals = { owed: number; processing: number; paid: number }
+
+/** Pending, processing and paid per currency — currencies do not add up. Voided rows count nowhere. */
+export function payoutTotals(rows: ExpertPayoutRow[]): [string, Totals][] {
+  const byCurrency = new Map<string, Totals>()
+  for (const row of rows) {
+    if (row.status === 'VOIDED') continue
+    const t = byCurrency.get(row.currency) ?? { owed: 0, processing: 0, paid: 0 }
+    if (row.status === 'PENDING') t.owed += row.amount
+    else if (row.status === 'PAID') t.processing += row.amount
+    else t.paid += row.amount
+    byCurrency.set(row.currency, t)
+  }
+  return [...byCurrency]
+}
+
+/** How many transfers are waiting for this expert to confirm — one transfer may settle several cases. */
+export function transfersToConfirm(rows: readonly ExpertPayoutRow[]): number {
+  return new Set(rows.filter((row) => row.status === 'PAID' && row.paymentId).map((row) => row.paymentId)).size
 }
 
 /** `ExpertPortalService.SignedLetterView`, exactly. */

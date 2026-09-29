@@ -65,13 +65,13 @@ public class OpportunityNoteController {
 	 * voice in a thread the desk owns and the client's answers come back to.
 	 */
 	@GetMapping
-	@PreAuthorize("hasAnyRole('SALES', 'MARKETING', 'GM', 'BRAND_MANAGER')")
+	@PreAuthorize("hasAnyRole('SALES', 'MARKETING', 'GM', 'BRAND_MANAGER', 'EXPERT_NETWORK_MANAGER')")
 	public ApiResponse<List<OpportunityNoteService.Note>> list(@PathVariable String opportunityId) {
 		return ApiResponse.ok(notes.on(opportunityId));
 	}
 
 	@PostMapping
-	@PreAuthorize("hasAnyRole('SALES', 'MARKETING')")
+	@PreAuthorize("hasAnyRole('SALES', 'MARKETING', 'EXPERT_NETWORK_MANAGER')")
 	public ApiResponse<OpportunityNoteService.Note> add(@PathVariable String opportunityId,
 			@RequestBody @Valid AddNoteRequest request) {
 		return ApiResponse.ok(notes.add(opportunityId, request.body()));
@@ -82,7 +82,7 @@ public class OpportunityNoteController {
 	 * service: <strong>only the note's author</strong>, which no role list can express.
 	 */
 	@PutMapping("/{noteId}")
-	@PreAuthorize("hasAnyRole('SALES', 'MARKETING')")
+	@PreAuthorize("hasAnyRole('SALES', 'MARKETING', 'EXPERT_NETWORK_MANAGER')")
 	public ApiResponse<OpportunityNoteService.Note> edit(@PathVariable String opportunityId,
 			@PathVariable UUID noteId, @RequestBody @Valid AddNoteRequest request) {
 		return ApiResponse.ok(notes.edit(opportunityId, noteId, request.body()));
@@ -90,7 +90,7 @@ public class OpportunityNoteController {
 
 	/** Deletes a note outright (Unit 54a) — its author only, as the edit. */
 	@DeleteMapping("/{noteId}")
-	@PreAuthorize("hasAnyRole('SALES', 'MARKETING')")
+	@PreAuthorize("hasAnyRole('SALES', 'MARKETING', 'EXPERT_NETWORK_MANAGER')")
 	public ApiResponse<Void> delete(@PathVariable String opportunityId, @PathVariable UUID noteId) {
 		notes.delete(opportunityId, noteId);
 		return ApiResponse.ok(null);

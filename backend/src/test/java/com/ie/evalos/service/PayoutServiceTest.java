@@ -84,6 +84,8 @@ class PayoutServiceTest {
 
 	private PayoutService service;
 
+	private com.ie.evalos.notification.NotificationService notifications;
+
 	@BeforeEach
 	void setUp() {
 		payouts = mock(PayoutLedgerRepository.class);
@@ -93,7 +95,9 @@ class PayoutServiceTest {
 		cases = mock(CaseRepository.class);
 		teamMembers = mock(TeamMemberRepository.class);
 		audit = mock(AuditService.class);
-		service = new PayoutService(payouts, payments, experts, brands, cases, teamMembers, audit);
+		notifications = mock(com.ie.evalos.notification.NotificationService.class);
+		service = new PayoutService(payouts, payments, experts, brands, cases, teamMembers, audit, notifications,
+				mock(com.ie.evalos.notification.RecipientResolver.class));
 
 		given(payouts.save(any(PayoutLedger.class))).willAnswer(call -> call.getArgument(0));
 	}
@@ -501,27 +505,66 @@ class PayoutServiceTest {
 				.isInstanceOf(InvalidRequestException.class);
 	}
 
+	/** Unit 63: weekly and monthly totals by state, VOIDED left out, newest period first. */
 	@Test
-	void confirmingAPaymentConfirmsEveryDraftItSettled() {
+	void theSummaryTotalsEachPeriodByState() {
 		givenEnmCaller();
+		PayoutLedger septPending = opened("100.00", "2026-09-15T15:00:00Z", PayoutStatus.PENDING);
+		PayoutLedger septProcessing = opened("200.00", "2026-09-16T15:00:00Z", PayoutStatus.PAID);
+		PayoutLedger septVoided = opened("999.00", "2026-09-16T15:00:00Z", PayoutStatus.VOIDED);
+		PayoutLedger augPaid = opened("300.00", "2026-08-20T15:00:00Z", PayoutStatus.CONFIRMED);
+		given(payouts.findScoped(any())).willReturn(List.of(septPending, septProcessing, septVoided, augPaid));
+
+		List<PayoutService.SummaryRow> months = service.summary(PayoutService.Period.MONTH, null, null);
+
+		assertThat(months).extracting(PayoutService.SummaryRow::periodStart)
+				.containsExactly(java.time.LocalDate.of(2026, 9, 1), java.time.LocalDate.of(2026, 8, 1));
+		PayoutService.SummaryRow sept = months.get(0);
+		assertThat(sept.pending()).isEqualByComparingTo("100.00");
+		assertThat(sept.processing()).isEqualByComparingTo("200.00");
+		assertThat(sept.paidCount()).isZero();
+		assertThat(months.get(1).paid()).isEqualByComparingTo("300.00");
+
+		// Mon 14 Sep and Tue 15 Sep are one week; the August row is its own.
+		assertThat(service.summary(PayoutService.Period.WEEK, java.time.LocalDate.of(2026, 9, 1), null))
+				.extracting(PayoutService.SummaryRow::periodStart)
+				.containsExactly(java.time.LocalDate.of(2026, 9, 14));
+	}
+
+	private PayoutLedger opened(String amount, String createdAt, PayoutStatus status) {
+		PayoutLedger row = pending(amount);
+		row.setStatus(status);
+		ReflectionTestUtils.setField(row, "createdAt", Instant.parse(createdAt));
+		return row;
+	}
+
+	/** Unit 63: the expert confirms receipt, which cascades and tells whoever recorded the transfer. */
+	@Test
+	void theExpertConfirmingAPaymentConfirmsEveryDraftItSettled() {
 		PayoutPayment payment = paidPayment();
-		given(payments.findScoped(any(), eq(payment.getId()))).willReturn(Optional.of(payment));
+		given(payments.findById(payment.getId())).willReturn(Optional.of(payment));
 		given(payouts.confirmForPayment(payment.getId())).willReturn(3);
 
-		service.confirm(payment.getId());
+		service.confirmByExpert(BRAND_IE, EXPERT_ID, payment.getId());
 
 		assertThat(payment.getConfirmedAt()).isNotNull();
 		verify(payouts).confirmForPayment(payment.getId());
+		verify(notifications).create(eq(BRAND_IE), eq(List.of(ACTOR_ID)),
+				eq(com.ie.evalos.domain.NotificationType.PAYOUT_CONFIRMED), any(), any());
 	}
 
 	@Test
-	void aConfirmedPaymentIsTerminal() {
-		givenEnmCaller();
+	void anExpertCannotConfirmSomebodyElsesPaymentOrOneTwice() {
 		PayoutPayment payment = paidPayment();
-		payment.setConfirmedAt(Instant.parse("2026-08-27T10:00:00Z"));
-		given(payments.findScoped(any(), eq(payment.getId()))).willReturn(Optional.of(payment));
+		given(payments.findById(payment.getId())).willReturn(Optional.of(payment));
 
-		assertThatThrownBy(() -> service.confirm(payment.getId()))
+		assertThatThrownBy(() -> service.confirmByExpert(BRAND_IE, UUID.randomUUID(), payment.getId()))
+				.isInstanceOf(ForbiddenException.class);
+		assertThatThrownBy(() -> service.confirmByExpert(UUID.randomUUID(), EXPERT_ID, payment.getId()))
+				.isInstanceOf(ForbiddenException.class);
+
+		payment.setConfirmedAt(Instant.parse("2026-08-27T10:00:00Z"));
+		assertThatThrownBy(() -> service.confirmByExpert(BRAND_IE, EXPERT_ID, payment.getId()))
 				.isInstanceOf(IllegalTransitionException.class);
 	}
 

@@ -1,5 +1,5 @@
 import { apiClient, unwrap, type ApiResponse } from '@shared/services/apiClient'
-import type { ExpertCaseSummary, ExpertCaseView, SignedLetterView } from '@/lib/expertCase'
+import type { ExpertCaseSummary, ExpertCaseView, ExpertPayoutRow, SignedLetterView } from '@/lib/expertCase'
 
 /**
  * The case this page is on, when the expert signed in and named one (Unit 59). Held like the token:
@@ -16,6 +16,16 @@ const scoped = () => (openCase ? { params: { caseId: openCase } } : {})
 /** Every case this expert is on — a signed-in expert's home (Unit 59). */
 export async function listCases(): Promise<ExpertCaseSummary[]> {
   return unwrap(apiClient.get<ApiResponse<ExpertCaseSummary[]>>('/expert/cases'))
+}
+
+/** What the ENM has recorded as owed or paid to this expert (spec 62). */
+export async function listPayouts(): Promise<ExpertPayoutRow[]> {
+  return unwrap(apiClient.get<ApiResponse<ExpertPayoutRow[]>>('/expert/payouts'))
+}
+
+/** "I received this transfer" (Unit 63) — the one write on this page. Answers the refreshed rows. */
+export async function confirmPayment(paymentId: string): Promise<ExpertPayoutRow[]> {
+  return unwrap(apiClient.post<ApiResponse<ExpertPayoutRow[]>>(`/expert/payments/${paymentId}/confirm`))
 }
 
 /**
@@ -35,6 +45,8 @@ export async function getCase(): Promise<ExpertCaseView> {
   return unwrap(apiClient.get<ApiResponse<ExpertCaseView>>(openCase ? `/expert/cases/${openCase}` : '/expert/case'))
 }
 
+// The three answers name their case rather than reading `openCase`: New cases answers several from one page.
+
 /**
  * "I will sign this."
  *
@@ -42,8 +54,8 @@ export async function getCase(): Promise<ExpertCaseView> {
  * accepted, and 409 only when the offer is genuinely over. So a double click is not an error to
  * handle here.
  */
-export async function accept(): Promise<ExpertCaseView> {
-  return unwrap(apiClient.post<ApiResponse<ExpertCaseView>>('/expert/accept', undefined, scoped()))
+export async function accept(caseId: string): Promise<ExpertCaseView> {
+  return unwrap(apiClient.post<ApiResponse<ExpertCaseView>>('/expert/accept', undefined, { params: { caseId } }))
 }
 
 /**
@@ -53,13 +65,13 @@ export async function accept(): Promise<ExpertCaseView> {
  * Coordinator's board. The case is held until they resume it, so signing is refused in between —
  * which is the point rather than a side effect.
  */
-export async function requestEvidence(missing: string): Promise<ExpertCaseView> {
-  return unwrap(apiClient.post<ApiResponse<ExpertCaseView>>('/expert/request-evidence', { missing }, scoped()))
+export async function requestEvidence(caseId: string, missing: string): Promise<ExpertCaseView> {
+  return unwrap(apiClient.post<ApiResponse<ExpertCaseView>>('/expert/request-evidence', { missing }, { params: { caseId } }))
 }
 
 /** "I will not take this." The reason is required — it is what the rematch works from. */
-export async function decline(reason: string): Promise<ExpertCaseView> {
-  return unwrap(apiClient.post<ApiResponse<ExpertCaseView>>('/expert/decline', { reason }, scoped()))
+export async function decline(caseId: string, reason: string): Promise<ExpertCaseView> {
+  return unwrap(apiClient.post<ApiResponse<ExpertCaseView>>('/expert/decline', { reason }, { params: { caseId } }))
 }
 
 /**

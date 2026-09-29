@@ -3,6 +3,7 @@ import { Route, BrowserRouter, Routes } from 'react-router-dom'
 import { Toaster } from '@shared/components/ui/sonner'
 import { AppLoadingScreen } from '@shared/components/common/AppLoadingScreen'
 import { ErrorBoundary } from '@shared/components/common/ErrorBoundary'
+import { ExpertLayout } from '@/layouts/ExpertLayout'
 
 /*
  * 2026-09-10 — the expert account shell was DELETED, not parked.
@@ -23,20 +24,22 @@ import { ErrorBoundary } from '@shared/components/common/ErrorBoundary'
  * store needs a reset flow and a reset flow needs a mail channel, and Unit 52 built that channel.
  * So the refusal is spent, not repeated.
  *
- * **What has NOT been decided is the process**, which is why `/` is a holding page and not a
- * sign-in. It is specced before it is coded — an expert is not a client (they are party-scoped,
+ * **What had NOT been decided was the process** (settled by Unit 59: `/` is the sign-in). It is specced before it is coded — an expert is not a client (they are party-scoped,
  * they exist on the roster before they can sign in, and they may sit on two brands' panels, see
  * `PortalAccessService.mintForParty`) so the client's flow is a starting point and not a
  * template. Tracked in `open-decisions.md`.
  *
- * **No payouts screen (D59, 2026-09-29).** Expert payments are managed manually by the Expert
- * Network Manager on the staff payout screens; `GET /api/portal/expert/payouts` was removed with it.
+ * **Payouts are read-only (D59 as edited, spec 62).** The Expert Network Manager settles by hand on
+ * the staff screens; `/payouts` shows the expert what has been recorded.
  */
 
 const Welcome = lazy(() => import('@/pages/Welcome'))
 const ExpertCasePortal = lazy(() => import('@/pages/portal/ExpertCasePortal'))
 const SetPassword = lazy(() => import('@/pages/auth/SetPassword'))
 const Cases = lazy(() => import('@/pages/Cases'))
+const Messages = lazy(() => import('@/pages/Messages'))
+const NewCases = lazy(() => import('@/pages/NewCases'))
+const Payouts = lazy(() => import('@/pages/Payouts'))
 const NotFound = lazy(() => import('@shared/pages/NotFound'))
 
 /**
@@ -52,9 +55,14 @@ function AppRoutes() {
       {/* Unit 59: the door, the emailed link, and a signed-in expert's cases. */}
       <Route path="/" element={<Welcome />} />
       <Route path="/set-password" element={<SetPassword />} />
-      <Route path="/cases" element={<Cases />} />
-
-      <Route path="/case" element={<ExpertCasePortal />} />
+      {/* Signed-in screens share the sidebar shell, which also guards the token. */}
+      <Route element={<ExpertLayout />}>
+        <Route path="/new" element={<NewCases />} />
+        <Route path="/cases" element={<Cases />} />
+        <Route path="/case" element={<ExpertCasePortal />} />
+        <Route path="/messages" element={<Messages />} />
+        <Route path="/payouts" element={<Payouts />} />
+      </Route>
 
       <Route path="*" element={<NotFound />} />
     </Routes>

@@ -173,7 +173,9 @@ public class ExpertController {
 			 * When this expert was last approached — derived from the offer table, never stored.
 			 * Null means never offered a case, which the UI must not draw as a date.
 			 */
-			Instant lastActiveAt) {
+			Instant lastActiveAt,
+			/** When the ENM checked the credentials (Unit 63); null = not verified. */
+			Instant credentialsVerifiedAt) {
 
 		static ExpertProfileView of(ExpertService.ProfileEntry profile) {
 			RosterEntry entry = profile.entry();
@@ -181,7 +183,7 @@ public class ExpertController {
 			return new ExpertProfileView(RosterRow.of(entry), expert.getNotes(), expert.getRecruitmentSource(),
 					expert.getDateOnboarded(), expert.getAvgResponseHours(), expert.getAgreementStatus(),
 					expert.getPaymentStatus(), expert.getPerformanceFlags(), expert.getCreatedAt(),
-					Dossier.of(expert), profile.lastActiveAt());
+					Dossier.of(expert), profile.lastActiveAt(), expert.getCredentialsVerifiedAt());
 		}
 	}
 
@@ -253,10 +255,13 @@ public class ExpertController {
 
 	private final ExpertService experts;
 	private final ExpertImportService imports;
+	private final com.ie.evalos.service.ExpertCaseHistoryService history;
 
-	ExpertController(ExpertService experts, ExpertImportService imports) {
+	ExpertController(ExpertService experts, ExpertImportService imports,
+			com.ie.evalos.service.ExpertCaseHistoryService history) {
 		this.experts = experts;
 		this.imports = imports;
+		this.history = history;
 	}
 
 	/**
@@ -318,6 +323,21 @@ public class ExpertController {
 	@PreAuthorize(ROSTER_WRITE)
 	public ApiResponse<ExpertProfileView> update(@PathVariable UUID id, @Valid @RequestBody ExpertForm form) {
 		experts.update(id, form);
+		return ApiResponse.ok(ExpertProfileView.of(experts.profile(id)));
+	}
+
+	/** Every case this expert was offered and where the work stands (Unit 63). */
+	@GetMapping("/{id}/cases")
+	@PreAuthorize(ROSTER_READ)
+	public ApiResponse<List<com.ie.evalos.service.ExpertCaseHistoryService.Row>> cases(@PathVariable UUID id) {
+		return ApiResponse.ok(history.of(id));
+	}
+
+	/** The ENM checked this expert's credentials (Unit 63). */
+	@PostMapping("/{id}/credentials-verified")
+	@PreAuthorize(ROSTER_WRITE)
+	public ApiResponse<ExpertProfileView> verifyCredentials(@PathVariable UUID id) {
+		experts.verifyCredentials(id);
 		return ApiResponse.ok(ExpertProfileView.of(experts.profile(id)));
 	}
 

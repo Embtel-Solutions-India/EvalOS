@@ -1,5 +1,8 @@
 import { AlertTriangle } from 'lucide-react'
 import { Card, KpiCard } from '../../components/ui/card'
+import { formatPayout } from '../../lib/money'
+import { fetchOpportunityBoard } from '../opportunities/opportunityApi'
+import { fetchSummary } from '../payouts/payoutApi'
 import { fetchExpertNetworkMetrics, type ExpertNetworkMetrics } from './pmMetricsApi'
 import { emptyWhen, useMetrics, warnWhen } from './useMetrics'
 
@@ -16,6 +19,10 @@ export default function ExpertNetworkDashboard() {
   )
 
   const gaps = data?.coverage.filter((row) => row.gap) ?? []
+  // Unit 63: the hiring pipeline by stage, and this month's payouts — both existing reads.
+  const { data: hiring, state: hiringState } = useMetrics((signal) => fetchOpportunityBoard(signal), [])
+  const { data: months, state: payState } = useMetrics((signal) => fetchSummary('MONTH', signal), [])
+  const thisMonth = months?.filter((row) => row.periodStart === months[0]?.periodStart) ?? []
 
   return (
     <section>
@@ -194,8 +201,49 @@ export default function ExpertNetworkDashboard() {
           </ul>
         </Card>
 
+        <Card
+          title="Hiring pipeline"
+          wide
+          to="/hiring"
+          state={emptyWhen(hiringState, (hiring?.totalDeals ?? 0) === 0, 'No candidates on the hiring pipeline')}
+        >
+          <ul className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm sm:grid-cols-3">
+            {hiring?.columns.map((column) => (
+              <li key={column.stageId} className="flex justify-between gap-2">
+                <span className="truncate">{column.stageName}</span>
+                <span className="font-num tabular-nums">{column.deals.length}</span>
+              </li>
+            ))}
+          </ul>
+        </Card>
+
+        <Card
+          title="Payouts this month"
+          note="Processing = recorded, waiting for the expert to confirm"
+          to="/payouts#summary"
+          state={emptyWhen(payState, thisMonth.length === 0, 'No payouts yet')}
+        >
+          <ul className="space-y-1 text-sm">
+            {thisMonth.map((row) => (
+              <li key={row.currency} className="space-y-0.5">
+                <div className="flex justify-between gap-2">
+                  <span>Pending</span>
+                  <span className="font-num tabular-nums">{formatPayout(row.pending, row.currency)}</span>
+                </div>
+                <div className="flex justify-between gap-2">
+                  <span>Processing</span>
+                  <span className="font-num tabular-nums">{formatPayout(row.processing, row.currency)}</span>
+                </div>
+                <div className="flex justify-between gap-2">
+                  <span>Paid</span>
+                  <span className="font-num tabular-nums">{formatPayout(row.paid, row.currency)}</span>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </Card>
+
         <Card title="Response time" state={{ kind: 'unavailable', blockedBy: 'Unit 15' }} />
-        <Card title="Payments" state={{ kind: 'unavailable', blockedBy: 'Unit 16' }} />
       </div>
     </section>
   )

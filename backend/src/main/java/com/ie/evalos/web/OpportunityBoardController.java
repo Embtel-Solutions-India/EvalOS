@@ -37,7 +37,7 @@ public class OpportunityBoardController {
 	}
 
 	@GetMapping("/board")
-	@PreAuthorize("hasAnyRole('SALES', 'MARKETING', 'GM')")
+	@PreAuthorize("hasAnyRole('SALES', 'MARKETING', 'GM', 'EXPERT_NETWORK_MANAGER')")
 	public ApiResponse<OpportunityBoardService.Board> board() {
 		return ApiResponse.ok(board.forCaller());
 	}
@@ -56,7 +56,7 @@ public class OpportunityBoardController {
 	 * one round trip instead of refreshing and then re-reading.
 	 */
 	@PostMapping("/board/refresh")
-	@PreAuthorize("hasAnyRole('SALES', 'MARKETING', 'GM')")
+	@PreAuthorize("hasAnyRole('SALES', 'MARKETING', 'GM', 'EXPERT_NETWORK_MANAGER')")
 	public ApiResponse<OpportunityBoardService.Board> refresh() {
 		return ApiResponse.ok(board.syncNow());
 	}

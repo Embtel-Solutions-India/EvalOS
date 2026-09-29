@@ -98,8 +98,10 @@ public class NotificationListeners {
 			// Unit 15. Nothing routes `expert.declined` or `expert.timed_out`, and that is still
 			// deliberate: staff fire those and already know. An expert declining in their own
 			// portal is new, and it is the one nobody is watching for — so it is routed.
+			// Unit 63: and the brand's ENMs, who may offer it again (retake, D62) or find another.
 			route(CaseEvents.Type.EXPERT_DECLINED, NotificationType.EXCEPTION_RAISED,
-					(c, r) -> r.assignedCm(c),
+					(c, r) -> java.util.stream.Stream.concat(r.assignedCm(c).stream(),
+							r.enms(c.getBrandId()).stream()).distinct().toList(),
 					"The expert declined %s — it needs a rematch."),
 
 			route(CaseEvents.Type.EXPERT_SIGNED, NotificationType.STAGE_CHANGED,

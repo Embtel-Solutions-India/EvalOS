@@ -179,6 +179,33 @@ export type ExpertProfile = {
    * offered a case, which is not dormancy** — render it as "never", never as a date.
    */
   lastActiveAt: string | null
+  /** When the ENM checked the credentials (Unit 63); null = not verified. */
+  credentialsVerifiedAt: string | null
+}
+
+/** Where an expert's work on one case stands (Unit 63), derived server-side from offer + case. */
+export type WorkStatus = 'OFFERED' | 'ACCEPTED' | 'SUBMITTED' | 'DELIVERED' | 'REJECTED' | 'REASSIGNED'
+
+export type CaseHistoryRow = {
+  caseId: string
+  caseCode: string | null
+  stage: string | null
+  offeredAt: string
+  answeredAt: string | null
+  outcome: string
+  declineReason: string | null
+  status: WorkStatus
+  /** D62: this expert declined, the case still waits for a rematch, and they are available. */
+  retakeEligible: boolean
+}
+
+export const WORK_STATUS_LABEL: Record<WorkStatus, string> = {
+  OFFERED: 'Offered',
+  ACCEPTED: 'Accepted',
+  SUBMITTED: 'Submitted',
+  DELIVERED: 'Delivered',
+  REJECTED: 'Rejected',
+  REASSIGNED: 'Reassigned',
 }
 
 export type AvailabilityColumn = { availability: Availability; count: number; experts: RosterRow[] }

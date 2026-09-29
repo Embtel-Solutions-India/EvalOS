@@ -117,6 +117,9 @@ public interface CaseRepository extends ScopedRepository<Case> {
 	 */
 	List<Case> findByBrandIdAndExpertIdOrderByCreatedAtDesc(UUID brandId, UUID expertId);
 
+	/** Several cases at once, within one brand (Unit 63's expert case history). */
+	List<Case> findByBrandIdAndIdIn(UUID brandId, java.util.Collection<UUID> ids);
+
 	@Query(nativeQuery = true, value = """
 			SELECT expert_id,
 			       count(*) FILTER (WHERE current_stage <> 'CLOSED')                     AS active,

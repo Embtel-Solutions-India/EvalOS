@@ -151,5 +151,8 @@ public enum AuditAction {
 	 *
 	 * <p>Never reaches the case timeline: the object acted on is a payment, not a case.
 	 */
-	PAYOUT_SETTLED
+	PAYOUT_SETTLED,
+
+	/** The ENM checked an expert's credentials (Unit 63). The actor is the "who". */
+	CREDENTIALS_VERIFIED
 }

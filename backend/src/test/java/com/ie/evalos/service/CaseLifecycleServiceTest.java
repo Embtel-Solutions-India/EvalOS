@@ -562,6 +562,32 @@ class CaseLifecycleServiceTest {
 		assertNull(subject.getFieldOfExpertise());
 	}
 
+	/** D62 (Unit 63): the expert who declined may be offered the same case again — the retake. */
+	@Test
+	void theExpertWhoDeclinedCanBeOfferedTheCaseAgain() {
+		walkToDraftGeneration();
+		actAs(Role.CASE_MANAGER);
+		lifecycle.submitDraft(CASE_ID, WORD, PDF);
+		actAs(Role.PROJECT_MANAGER);
+		lifecycle.pmApproveDraft(CASE_ID, null);
+		actAs(Role.PROJECT_COORDINATOR);
+		lifecycle.sendDraftToClient(CASE_ID);
+		lifecycle.clientApproveDraft(CASE_ID);
+		actAs(Role.CASE_MANAGER);
+		lifecycle.sendToExpert(CASE_ID);
+		actAs(Role.PROJECT_MANAGER);
+		lifecycle.expertDeclined(CASE_ID, "busy this week");
+
+		actAs(Role.EXPERT_NETWORK_MANAGER);
+		lifecycle.retakeExpert(CASE_ID);
+
+		assertEquals(Stage.CLIENT_APPROVAL, subject.getCurrentStage());
+		assertEquals(ExceptionState.NONE, subject.getExceptionState());
+		assertEquals(EXPERT_ID, subject.getExpertId());
+		// Only while it waits for a rematch: a second retake has nothing to retake.
+		assertThrows(IllegalTransitionException.class, () -> lifecycle.retakeExpert(CASE_ID));
+	}
+
 	/**
 	 * The 24h prompt's answer, and the property that matters is which door it opens.
 	 *

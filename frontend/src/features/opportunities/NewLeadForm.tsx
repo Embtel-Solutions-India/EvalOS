@@ -13,7 +13,7 @@ import { openLead, type Lead } from './opportunityApi'
  * **No pipeline field.** The server takes it from the caller's token. A pipeline the form could
  * name would make the whole access model advisory.
  */
-export default function NewLeadForm({ onOpened }: { onOpened: () => void }) {
+export default function NewLeadForm({ onOpened, candidate = false }: { onOpened: () => void; candidate?: boolean }) {
   const [firstName, setFirstName] = useState('')
   const [lastName, setLastName] = useState('')
   const [email, setEmail] = useState('')
@@ -63,7 +63,8 @@ export default function NewLeadForm({ onOpened }: { onOpened: () => void }) {
         <Field label="Last name" value={lastName} onChange={setLastName} />
         <Field label="Email" value={email} onChange={setEmail} type="email" />
         <Field label="Phone" value={phone} onChange={setPhone} />
-        <Field label="Valuation" value={value} onChange={setValue} type="number" />
+        {/* A candidate has no deal value (Unit 63). */}
+        {!candidate && <Field label="Valuation" value={value} onChange={setValue} type="number" />}
       </div>
 
       {!reachable && (

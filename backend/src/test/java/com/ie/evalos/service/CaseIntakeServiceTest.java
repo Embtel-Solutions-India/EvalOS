@@ -66,6 +66,8 @@ class CaseIntakeServiceTest {
 	private final TeamMemberRepository teamMembers = mock(TeamMemberRepository.class);
 	private final AuditService audit = mock(AuditService.class);
 	private final ApplicationEventPublisher events = mock(ApplicationEventPublisher.class);
+	private final com.ie.evalos.repository.OpportunityRepository opportunities =
+			mock(com.ie.evalos.repository.OpportunityRepository.class);
 
 	private final SlaCalculator sla = new SlaCalculator(new BusinessCalendar());
 	/**
@@ -84,7 +86,7 @@ class CaseIntakeServiceTest {
 	 */
 	private final CaseIntakeService intake = new CaseIntakeService(
 			cases, new ContactSnapshotService(contacts, mock(GhlContactClient.class)),
-			checklistItems, audit, sla, events);
+			checklistItems, audit, sla, events, opportunities);
 
 	private final Brand brand = mock(Brand.class);
 
@@ -130,6 +132,18 @@ class CaseIntakeServiceTest {
 				serviceType, null, VisaCategory.EB2_NIW, OTHER_EXPERT, opportunityId,
 				amount, Instant.now().plusSeconds(86_400), "INV-99123", "eb2-niw-q3",
 				"Client needs this by the visa filing date — transcripts already with them.");
+	}
+
+	/** Unit 63: a candidate won on the ENM's hiring pipeline is never a client's case. */
+	@Test
+	void aWonHiringCandidateOpensNoCase() {
+		given(opportunities.isOnHiringPipeline(BRAND, "opp-4711")).willReturn(true);
+
+		org.assertj.core.api.Assertions.assertThatThrownBy(
+				() -> intake.intake(brand, wonDeal("ghl-c-1", "anita@raolaw.example")))
+				.isInstanceOf(com.ie.evalos.common.InvalidRequestException.class)
+				.hasMessageContaining("hiring pipeline");
+		verify(cases, org.mockito.Mockito.never()).save(any(Case.class));
 	}
 
 	@Test

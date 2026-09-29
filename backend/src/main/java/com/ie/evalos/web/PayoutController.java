@@ -92,6 +92,16 @@ public class PayoutController {
 		return ApiResponse.ok(payouts.batch(weekOf));
 	}
 
+	/** Weekly or monthly Pending / Processing / Paid totals (Unit 63). */
+	@GetMapping("/summary")
+	@PreAuthorize(PAYOUTS)
+	public ApiResponse<List<PayoutService.SummaryRow>> summary(
+			@RequestParam(defaultValue = "WEEK") PayoutService.Period period,
+			@RequestParam(required = false) @DateTimeFormat(iso = ISO.DATE) LocalDate from,
+			@RequestParam(required = false) @DateTimeFormat(iso = ISO.DATE) LocalDate to) {
+		return ApiResponse.ok(payouts.summary(period, from, to));
+	}
+
 	/** Corrects a still-{@code PENDING} draft's amount, audited, then answers the refreshed row. */
 	@PatchMapping("/{id}")
 	@PreAuthorize(PAYOUTS)

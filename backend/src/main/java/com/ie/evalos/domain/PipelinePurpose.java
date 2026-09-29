@@ -35,6 +35,12 @@ public enum PipelinePurpose {
 	INTAKE,
 
 	/**
+	 * The ENM's hiring pipeline (Unit 63): candidates, not clients. Every ENM of the pipeline's brand
+	 * works it, and a won opportunity on it never opens a case ({@code CaseIntakeService}).
+	 */
+	EXPERT_HIRING,
+
+	/**
 	 * GHL has this pipeline and EvalOS has not been told what it is for.
 	 *
 	 * <p>The default, and the safe one: a pipeline that appears in GHL tomorrow arrives meaning
