@@ -84,10 +84,11 @@ public interface ClientAccountRepository extends ScopedRepository<ClientAccount>
 	 * about an EvalOS row, is not a decision this sweep gets to make. Clearing them up is a GHL-side
 	 * job, and the `source: "Client Portal"` on every one of them is what makes that filterable.
 	 *
-	 * <p><strong>The three {@code not exists} clauses are what keep this from being a footgun.</strong>
+	 * <p><strong>The two {@code not exists} clauses are what keep this from being a footgun.</strong>
 	 * Each is a foreign key into this table — a live credential token means somebody is mid-flow
-	 * right now, an application means they filed a request, a portal access means they hold a
-	 * session. None should be reachable for a null-password account, and that is exactly why they
+	 * right now, a portal access means they hold a session. (A third, for filed requests, left with
+	 * the request table in Unit 64.) Since Unit 64 nothing writes {@code SIGNUP} any more; this
+	 * clears the rows the removed sign-up left behind. None should be reachable for a null-password account, and that is exactly why they
 	 * are checked: a delete whose safety rests on "should be unreachable" is one schema change away
 	 * from removing a real client. Postgres would refuse the delete anyway; this makes it skip the
 	 * row instead of failing the sweep.
@@ -106,7 +107,6 @@ public interface ClientAccountRepository extends ScopedRepository<ClientAccount>
 			   and a.password_hash is null
 			   and a.created_at < :cutoff
 			   and not exists (select 1 from client_credential_token t where t.client_account_id = a.id)
-			   and not exists (select 1 from client_application p where p.client_account_id = a.id)
 			   and not exists (select 1 from portal_access x where x.client_account_id = a.id)
 			""")
 	int deleteAbandonedSignUps(@Param("cutoff") java.time.Instant cutoff);

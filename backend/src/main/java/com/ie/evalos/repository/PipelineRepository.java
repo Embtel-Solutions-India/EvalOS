@@ -34,9 +34,8 @@ public interface PipelineRepository extends JpaRepository<Pipeline, UUID>, JpaSp
 	 * Every pipeline a brand uses for one purpose, live ones only.
 	 *
 	 * <p>A list rather than an {@code Optional}, and that is the shape {@code 00d} §6.7 asks for:
-	 * there are three marketing pipelines and four sales ones. A caller that needs exactly one —
-	 * {@code INTAKE} — says so at its own call site, where it can also say what it does about
-	 * none and about two.
+	 * there are three marketing pipelines and four sales ones. A caller that needs exactly one says
+	 * so at its own call site, where it can also say what it does about none and about two.
 	 */
 	List<Pipeline> findByBrandIdAndPurposeAndMissingSinceIsNullOrderByPositionAsc(UUID brandId,
 			PipelinePurpose purpose);

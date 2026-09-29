@@ -20,5 +20,5 @@ export const PRIMARY_NAV: NavItem[] = [
   // Unit 58 (2026-09-26): Documents moved into each case, and Meetings left the portal.
   { label: 'Invoices', to: '/invoices', icon: Receipt },
   { label: 'Conversations', to: '/conversations', icon: MessagesSquare, unread: true },
-  { label: 'My requests', to: '/requests', icon: FileCheck2 },
+  { label: 'My cases', to: '/cases', icon: FileCheck2 },
 ]

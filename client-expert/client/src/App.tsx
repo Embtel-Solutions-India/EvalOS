@@ -85,10 +85,8 @@ import { LEGAL } from '@/constants/legal'
 const Welcome = lazy(() => import('@/pages/auth/Welcome'))
 const SignIn = lazy(() => import('@/pages/auth/SignIn'))
 const SetPassword = lazy(() => import('@/pages/auth/SetPassword'))
-const SignUp = lazy(() => import('@/pages/auth/SignUp'))
 const Dashboard = lazy(() => import('@/pages/dashboard/Dashboard'))
-const Requests = lazy(() => import('@/pages/requests/Requests'))
-const NewRequest = lazy(() => import('@/pages/requests/NewRequest'))
+const MyCases = lazy(() => import('@/pages/cases/MyCases'))
 const Invoices = lazy(() => import('@/pages/invoices/Invoices'))
 const CaseDetail = lazy(() => import('@/pages/cases/CaseDetail'))
 const Conversations = lazy(() => import('@/pages/conversations/Conversations'))
@@ -119,8 +117,8 @@ function AppRoutes() {
       {/* A link that names them still works; this is only where an empty visit lands. */}
       <Route path="/" element={<Navigate to="/welcome" replace />} />
       {/*
-        The legal pages are public on purpose: sign-up asks a client to agree to them, so they
-        have to be readable before an account exists. `LegalPage` carries its own footer.
+        The legal pages are public on purpose: a client reads them before signing in for the
+        first time. `LegalPage` carries its own footer.
       */}
       <Route path={LEGAL.privacy.to} element={<PrivacyPolicy />} />
       <Route path={LEGAL.disclaimer.to} element={<Disclaimer />} />
@@ -131,15 +129,11 @@ function AppRoutes() {
         <Route path="/signin" element={<SignIn />} />
         <Route path="/set-password" element={<SetPassword />} />
         {/*
-          `/signup` is the real second door (2026-09-15). It was `/start`, a placeholder apologising
-          that we could not take a new client at all — accurate at the time, because nothing created
-          a `client_account` outside V45's one-shot backfill. It creates the account and the GHL
-          contact; choosing a service and sending the request are Unit 43 and happen from the
-          dashboard afterwards.
+          No sign-up since Unit 64 (2026-09-29): the account is opened when the client's case is.
+          Old links land on sign-in, which tells an unknown address exactly that.
         */}
-        <Route path="/signup" element={<SignUp />} />
-        {/* One release of grace for a link already typed or bookmarked. */}
-        <Route path="/start" element={<Navigate to="/signup" replace />} />
+        <Route path="/signup" element={<Navigate to="/signin" replace />} />
+        <Route path="/start" element={<Navigate to="/signin" replace />} />
       </Route>
 
       {/*
@@ -149,13 +143,10 @@ function AppRoutes() {
       */}
       <Route element={<PortalLayout />}>
         <Route path="/dashboard" element={<Dashboard />} />
-        <Route path="/requests" element={<Requests />} />
-        {/*
-          Unit 43's funnel, and it is one route rather than the seven the deleted version had:
-          the client is signed in before it opens, so no step needs its own URL to survive a
-          sign-up, and resumption is a server row rather than a browser.
-        */}
-        <Route path="/requests/new" element={<NewRequest />} />
+        <Route path="/cases" element={<MyCases />} />
+        {/* "My requests" and the request wizard went with the request (Unit 64). */}
+        <Route path="/requests" element={<Navigate to="/cases" replace />} />
+        <Route path="/requests/new" element={<Navigate to="/dashboard" replace />} />
         {/*
           Unit 58: the portal is case-first. Documents moved into each case and Meetings went
           (the business's call, 2026-09-26); `/draft` survives only as redirects for old links.

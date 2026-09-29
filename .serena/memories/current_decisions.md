@@ -8,8 +8,8 @@ The ones most often violated from memory:
   registration. All three states (no contact and no account; contact only; both) are legal.
 - One GHL Contact, many opportunities. A repeat deal is a new **opportunity** in GHL, never a
   second contact.
-- **No public sign-up; the portal account is born with the case** (D3d, D4, Unit 64 — specced
-  2026-09-29, not built). On `CASE_CREATED` after commit: portal brand + contact with email and GHL id
+- **No public sign-up; the portal account is born with the case** (D3d, D4, Unit 64 — built
+  2026-09-29, `CasePortalAccountListener` → `ClientAccountService.openForCase`). On `CASE_CREATED` after commit: portal brand + contact with email and GHL id
   → create (`created_via = 'CASE'`) or link the account, mail set-password; an account linked to a
   **different** contact is never relinked (flag the case); no email/GHL id → flag, no account.
   Failures never fail the case. D3a now reads: no unauthenticated route creates an account or CRM row.
@@ -40,7 +40,7 @@ The ones most often violated from memory:
   `attributionSource` on a write — it fills those from its own form tracking, which an API caller
   never passes through — so the documented `source` string is the whole of what provenance can be.
   Every `upsertContact` caller names itself.
-- **There is NO client request** (D8, Unit 64 — specced 2026-09-29, not built). Deals start in GHL
+- **There is NO client request** (D8, Unit 64 — built 2026-09-29). Deals start in GHL
   (form, call, Sales, Marketing); a case is born only of `opportunity.won`. The portal opens no
   opportunity — D10, D10a, D10b, D10c, D12, D13 are retired.
 - **Abandoned portal rows are swept** (`PORTAL_CLEANUP`, daily). Expired `client_credential_token`

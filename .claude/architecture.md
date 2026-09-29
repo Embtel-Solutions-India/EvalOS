@@ -13,7 +13,7 @@ GHL ───────HMAC + token─► /api/webhooks/ghl/{endpointToken}  (
 ```
 
 `permitAll` on the portal chain: exactly nine POSTs under `/api/portal/auth/**` — the client's five and the expert's four (`expert/{sign-up, forgot-password, sign-in, set-password}`, Unit 59) — plus a per-IP
-limiter (60/min) in `PortalTokenFilter`. **Unit 64 (specced 2026-09-29, not built) removes the client's `sign-up`**, leaving eight. `permitAll` on the staff chain: `/api/auth/login`,
+limiter (60/min) in `PortalTokenFilter`. **The client's `sign-up` was removed by Unit 64 (2026-09-29)**, leaving eight. `permitAll` on the staff chain: `/api/auth/login`,
 `/api/health`, `/actuator/health`, `/api/webhooks/**`.
 
 ## Multi-tenancy
@@ -31,7 +31,7 @@ construction, not a missing grant. The fix is a `PortalStageProjection.forSales`
 
 | | Direction | Mechanism | State |
 |---|---|---|---|
-| **A** | GHL → EvalOS | `opportunity.won` webhook → `GhlOpportunityHandler` → `CaseIntakeService` | **the only way a case is born**; live in code, see status doc for the operational caveat. **Unit 64 (specced, not built):** `CASE_CREATED` after commit also creates the client's portal account (D3d) |
+| **A** | GHL → EvalOS | `opportunity.won` webhook → `GhlOpportunityHandler` → `CaseIntakeService` | **the only way a case is born**; live in code, see status doc for the operational caveat. **Unit 64:** `CASE_CREATED` after commit also opens the client's portal account (`CasePortalAccountListener`, D3d) |
 | **B** | EvalOS → Expert | staff mints a `portal_access` link; expert accepts/declines/signs | built |
 | **C** | EvalOS → GHL/client | — | **dropped (D53)** — no outbound webhooks; `event/CaseEvents.java` is in-process only |
 
@@ -99,9 +99,9 @@ Transitions live in `CaseTransitions`/`CaseLifecycleService`; every one writes a
 13. Every state transition writes an append-only audit row.
 14. EvalOS hosts no files, and sends email for **two purposes and no others** — proving control of
     a mailbox (set password, reset password) and **confirming that a client's request was
-    received** (one message, at submit). **Unit 64 (specced 2026-09-29, not built) removes the
-    request and so the confirmation**; the account created at a case uses the existing set-password
-    mail, so the invariant narrows back to mailbox proof plus D58's case emails. **A push notification is not mail** and does not touch this
+    received** (one message, at submit). **Unit 64 (2026-09-29) removed the request and so the
+    confirmation**; the account opened at a case uses the existing set-password mail, so the
+    invariant is back to mailbox proof (plus D58's case emails when they ship). **A push notification is not mail** and does not touch this
     invariant (D37: notifications are in-app and push, and nothing else).
     **Amended 2026-09-19, on the business's instruction.** It read *"exactly one purpose: proving
     control of a mailbox (two messages)"*, and the submission confirmation is not a mailbox proof —

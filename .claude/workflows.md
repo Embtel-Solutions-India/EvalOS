@@ -18,15 +18,15 @@ POST /api/portal/auth/identify   { email }
                                         (no relay or no sender configured — an address is all
                                          any transport needs to reach a person)
 
-POST /api/portal/auth/sign-up    { email, firstName?, lastName?, phone? }
-  → account already exists?  yes → fall through to identify()   (creates nothing, no GHL call)
-                             no  → INSERT client_account (created_via SIGNUP, NO contact — D3d)
-                                     NOTHING LEAVES THE JVM on this route
-                                 → audit CREATED
-                                 → fall through to identify()   → returns a state, NEVER a token
-                             The contact is created at set-password, the next sign-in, or the
-                             first request that needs one (D3c). Until then it is an EvalOS row
-                             PORTAL_CLEANUP can sweep.
+There is NO sign-up (Unit 64, 2026-09-29). The account is opened with the case:
+
+CASE_CREATED (after commit) → CasePortalAccountListener  (portal brand only, new transaction, never throws)
+  → ClientAccountService.openForCase(case contact)
+      no email / no GHL id              → no account; case FLAGGED
+      account for this GHL contact      → no password: mail a SET link (REMINDED) · password: nothing
+      account for the email, unlinked   → link it to the contact (LINKED), then as above
+      account for the email, other contact → never relinked; case FLAGGED (OTHER_CONTACT)
+      none                              → INSERT client_account (created_via CASE, linked) → mail a SET link
 
 POST /api/portal/auth/sign-in    { email, password }
   → verify hash → audit CLIENT_SIGNED_IN | CLIENT_SIGN_IN_REFUSED
@@ -47,25 +47,22 @@ POST /api/portal/auth/sign-in         → verify, then ensureCrmIdentity — "lo
                                         if something missing". Idempotent and silent.
 ```
 
-`ClientAccountService`, `ClientAuthController`.
+`ClientAccountService`, `ClientAuthController`, `CasePortalAccountListener`.
 
-**The CRM write is off sign-up again (D3d, spec `52` §11).** It was there only while GHL carried
-the mail and demanded a `contactId`; SMTP needs an address, so the ordering that holds D3a's
-property costs nothing and is back. Two call sites had to go — `signUp` and `issueCredential` —
-because sign-up falls through to `identify`, so removing one would have looked fixed and changed
-nothing.
+**No unauthenticated route creates an account or a CRM row (D3a).** `identify` answers `UNKNOWN`
+with "your portal account opens when your first case starts". An account opened for a case is born
+linked to its contact, so no GHL call is needed there.
 
-**A GHL outage never refuses anything here.** Sign-up stands with no contact, `identify` answers
-`MAIL_UNAVAILABLE` (the transport genuinely cannot reach them), and `ensureCrmIdentity` repairs it
-at the next sign-in — or at the first request, via `ClientApplicationService` (D3c). Same repair
-covers `V45` accounts seeded without an id.
+**A GHL outage never refuses anything here.** `identify` answers `MAIL_UNAVAILABLE` when the
+transport cannot reach someone, and `ensureCrmIdentity` repairs a missing contact link at the next
+sign-in (D3c). Same repair covers `V45` accounts seeded without an id.
 
 **This already matches the target identity model.** All three states are supported; the upsert
 reuses an existing GHL contact and never duplicates it; sign-in creates nothing.
 
 ### TARGET WORKFLOW
 
-**Unit 64 (specced 2026-09-29, not built): the account is born with the case.** No public sign-up.
+**Built as CURRENT above (Unit 64, 2026-09-29): the account is born with the case.** No public sign-up.
 
 ```
 opportunity.won → Handoff A → CASE_CREATED (after commit)
@@ -85,78 +82,46 @@ to or merged with `contact_snapshot` so one person is one row. Spec `64` §2–�
 
 ---
 
-## 2. Request to case (the request is removed by Unit 64 — see TARGET)
+## 2. Deal to case (no client request since Unit 64)
 
 ### CURRENT IMPLEMENTATION
 
 ```
-Client Portal /requests/new
-  step 1  pick a service          → POST /api/portal/applications
-                                       INSERT client_application (status DRAFT)
-                                       NOTHING LEAVES THE JVM — D10
-  step 2  review + documents      → POST /api/portal/applications/{id}/documents   (D33)
-                                       still nothing; no questionnaire since Unit 55 (D13)
-  submit                          → POST /api/portal/applications/{id}/submit
-                                       ensure ghl_contact_id (D3c backfill, if it is missing)
-                                       open the local opportunity row (correlation key first)
-                                       GHL POST /opportunities/  ← createOpportunity, NOT upsert
-                                         on the pipeline a GM marked INTAKE
-                                         NO stage, NO assignee — GHL automation places it
-                                         custom fields: service id, correlation key, SUBMITTED
-                                       store ghl_opportunity_id
-                                       status → SUBMITTED, submitted_at set
-                                       refuses 502 if GHL would not open the deal — the draft
-                                         survives and the next attempt retries
-
-Sales reviews, then wins          → GET /api/opportunities/{id}/application
-                                       200 + null when the deal did not come from the portal
-                                       review → won → payment are GHL's and Sales' (D10c)
+A deal starts in GHL               form · call · Sales (`SalesDeskService.newDeal`) · Marketing
+                                    (`MarketingLeadService.openLead`). The portal opens none.
+Sales works it                     GHL pipeline stages; review → won → payment are GHL's (D11)
 
 GHL marks the opportunity won     → POST /api/webhooks/ghl/{endpointToken}
                                        WebhookGateway → WebhookRouter → GhlOpportunityHandler
                                        → CaseIntakeService → INSERT evalos_case (paid = true)
+                                       service type from customData.serviceType
+                                  → CASE_CREATED (after commit)
+                                       → chat conversations (Unit 57)
+                                       → the client's portal account + set-password mail (§1)
+PC / CM send the checklist (D60)  → the client uploads on the case (§5)
 ```
 
-`ClientApplicationService`, `ClientApplicationController`, `ApplicationReviewController`,
-`GhlOpportunityHandler`.
+`GhlOpportunityHandler`, `CaseIntakeService`, `CasePortalAccountListener`.
 
-**The deal opens at SUBMIT, not at service-pick (D10, changed 2026-09-16, third time of asking).**
-It opened at the first screen until then, so that a client who abandoned the questionnaire (removed, D13) still
-reached a salesperson. A deal on the board is now a finished request and nothing else, which is
-what gives Sales' review step something to review. **The cost is stated rather than hidden: an
-abandoned request now reaches nobody** — the `DRAFT` rows are still there and nothing sweeps
-them or tells anyone, which is an open decision, not a silent gap.
-
-**Documents are not part of this flow.** `NewRequest.tsx` says so in the UI: *"you can send us
-your documents once your case is open."* Every upload route takes a checklist item on a case.
-
-**A GHL outage is swallowed on start and save and refused on submit** — the client keeps a
-working draft rather than being told something untrue.
+**Removed by Unit 64 (2026-09-29):** the portal request (`/requests/new`, `client_application`),
+its documents (`application_document`), the opportunity EvalOS opened at submit on the `INTAKE`
+pipeline with the service and submitted fields, the confirmation mail, Sales' Application and
+Request documents tabs, and the Unfinished requests screen. `V78` dropped both tables. Spec `64`.
 
 ### TARGET WORKFLOW
 
-**Unit 64 (specced 2026-09-29, not built): there is no client request.**
-
-```
-GHL (form · call · Sales · Marketing) → OPPORTUNITY PROCESS → WON → CASE (+ portal account, §1)
-  → PC / CM send the checklist → CLIENT uploads on the case → PRODUCTION → DELIVERY
-```
-
-Removed from the chain: REQUEST SERVICE, DOCUMENT SUBMISSION before a case, REQUEST CREATED, the
-opportunity EvalOS opened on submit, the `INTAKE` pipeline, and Sales' request tabs. Spec `64` §4.
+Matches CURRENT above (Unit 64 built 2026-09-29).
 
 ---
 
 ## 3. Contact and opportunity write semantics
 
-### CURRENT IMPLEMENTATION — four create paths, three verbs; every *edit* is queued
+### CURRENT IMPLEMENTATION — two create paths, two verbs; every *edit* is queued
 
 **Creates still call GHL inline** (D46):
 
 | Path | Contact | Opportunity | Effect on a repeat client |
 |---|---|---|---|
-| `ClientAccountService.signUp` | none (D3d) | none | — |
-| `ClientApplicationService.submit` | `upsertContact` if missing (D3c) | **`createOpportunity`** | **new opportunity, same contact** |
 | `SalesDeskService.createDeal` | `upsertContact` | **`createOpportunity`** | new opportunity; refuses a second open deal unless confirmed |
 | `MarketingLeadService.openLead` | `upsertContact` | **`upsertOpportunity`** | **reuses the open opportunity on that pipeline** |
 
@@ -273,9 +238,9 @@ files, history and Client conversation.
 
 `Case → checklist sent (D60) → Client Portal upload → S3 (keyed by GHL contact id, D41) → Production → Expert`.
 
-**Unit 64 (specced 2026-09-29, not built):** documents enter **only at the Case**, against a sent
-checklist item. The request-document upload, Sales' Request documents tab and the carry-forward at
-Handoff A are removed. Spec `64` §4–§5.
+Matches CURRENT: documents enter **only at the Case**, against a sent checklist item. The
+request-document upload, Sales' Request documents tab and the carry-forward at Handoff A were
+removed by Unit 64 (2026-09-29).
 
 ---
 
@@ -378,34 +343,10 @@ failure returns empty and logs rather than throwing: an upstream blip must not t
 questionnaire and the actions down with the contact card. Scope `contacts.readonly`, already granted
 — `GhlCalendarClient` uses it for a contact's appointments.
 
-## Request documents (Unit 53, built 2026-09-18)
+## Request documents (Unit 53) — removed by Unit 64 (2026-09-29)
 
-### CURRENT IMPLEMENTATION
-
-The client attaches documents on the **review** step of the request, before sending
-(`RequestDocuments`, portal). **Submit is not gated on them** (`43` §5, unchanged) — the copy says
-"if you have them to hand" because a missing transcript is something Sales asks about on the call,
-not a wall in front of a lead.
-
-Sales reads them on the deal page beside the request (`DealDocuments`), through
-`GET /api/opportunities/{id}/documents` and a five-minute presigned URL per click. Its own route
-and the same permission as the application read (D34): the documents ask no new authorisation
-question, because Sales reaches them by already being able to open the opportunity.
-
-At Handoff A the documents follow the request onto the case. **Nothing is copied in S3 and nothing
-is re-keyed** — the key is `{brand}/client/{ghl_contact_id}/{doc}`, the person's prefix, so the
-`case_document` row points at the object the client already uploaded. `carried_to_case_document_id`
-is stamped once, which is what makes a replayed `opportunity.won` skip rather than duplicate.
-
-The carry-forward is a listener on `CASE_CREATED`, not a call inside `CaseIntakeService` — a
-deliberate deviation from `53` §4 that buys the isolation §4 demands: `opportunity.won` is the only
-door into a case (invariant 8), so a carry-forward that threw would turn a recoverable problem into
-an unrecoverable one.
-
-### TARGET WORKFLOW
-
-**Removed by Unit 64** (specced 2026-09-29, not built): the table, both routes and the
-carry-forward go; `V78` drops `application_document`. Documents enter only on a case (§5).
+The pre-case upload, Sales' tab and the carry-forward at Handoff A are gone, and `V78` dropped
+`application_document`. Client documents enter only on a case (§5). Spec `64`.
 
 ### Expert portal sign-in (Unit 59, 2026-09-28)
 

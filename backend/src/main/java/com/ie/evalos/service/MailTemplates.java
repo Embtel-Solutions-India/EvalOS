@@ -147,56 +147,6 @@ public class MailTemplates {
 						""".formatted(greeting(fullName), link, SITE_URL, SUPPORT_EMAIL));
 	}
 
-	/**
-	 * The confirmation a client gets when their request reaches Sales.
-	 *
-	 * <p><strong>It promises nothing the flow cannot keep.</strong> No price, no turnaround and no
-	 * date: EvalOS holds no price list and the work is quoted by a person. "We will read it and come
-	 * back to you" is exactly what the portal says on screen, and a mail that said more would be the
-	 * first place the two disagreed.
-	 */
-	public Message requestSubmitted(String fullName, String serviceName, int documentCount) {
-		Map<String, String> values = base(fullName);
-		values.put("serviceName", serviceName);
-		values.put("documentLine", documentLine(documentCount));
-		values.put("footerNote", "You are receiving this because you submitted a request from your "
-				+ "International Evaluations portal.");
-		return render("We have your request", "request-submitted",
-				"Your request has reached us — here is what happens next.", values, """
-						Thank you%s — your request has reached us.
-
-						What you asked for: %s
-						%s
-
-						What happens next: we read what you sent, price the work and contact you with \
-						the details. If anything is missing or unclear we will ask; you do not need to \
-						do anything in the meantime.
-
-						Your portal: %s
-
-						International Evaluations
-						%s
-						%s
-						""".formatted(greeting(fullName), serviceName, documentLine(documentCount),
-						portalBaseUrl, SITE_URL, SUPPORT_EMAIL));
-	}
-
-	/**
-	 * Zero documents is an invitation, never a warning.
-	 *
-	 * <p>Submit is deliberately not gated on documents ({@code 43} §5) — a missing transcript is
-	 * something Sales asks about on the call. A confirmation that read as a telling-off for sending
-	 * none would undo that decision in the one message the client actually reads.
-	 */
-	private static String documentLine(int count) {
-		return switch (count) {
-			case 0 -> "You have not attached any documents yet. You can add them from your portal "
-					+ "whenever you like — we will ask if we need something specific.";
-			case 1 -> "We received 1 document with your request.";
-			default -> "We received " + count + " documents with your request.";
-		};
-	}
-
 	private Map<String, String> base(String fullName) {
 		Map<String, String> values = new LinkedHashMap<>();
 		values.put("greetingName", greeting(fullName));

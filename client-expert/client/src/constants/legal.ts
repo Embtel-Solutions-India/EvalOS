@@ -1,7 +1,7 @@
 /**
  * The three legal pages and the contact block they share (2026-09-25).
  *
- * One place for the paths, so the footer, sign-up, the uploader and the send step cannot drift
+ * One place for the paths, so the footer and the case uploader cannot drift
  * from the routes in `App.tsx`. The contact is the one the policies themselves name — `info@`,
  * not the portal's `SUPPORT_EMAIL` — because a policy's "contact us" is the business's legal
  * address, not the help desk.

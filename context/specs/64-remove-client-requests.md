@@ -1,7 +1,6 @@
 # Unit 64 — The client no longer requests a service from the portal
 
-**Decided 2026-09-29 by the business.** **Status: SPECCED 2026-09-29, not built.** The docs run
-ahead of the code on purpose until this unit lands (see `implementation-status.md` → Next up).
+**Decided 2026-09-29 by the business.** **Status: BUILT 2026-09-29** (branch `feature/unit-64-remove-client-requests`).
 
 Supersedes **`43-client-intake-funnel.md`** (the whole funnel), **`53-request-documents.md`** (the
 whole unit), **`55-remove-questionnaire.md`** (its pending `answers` drop becomes this unit's table
@@ -63,7 +62,8 @@ out for a case that rolled back).
 ## 3. Sign-in without sign-up
 
 - `/signup` (client portal) and `POST /api/portal/auth/sign-up` are **removed**, with
-  `ClientAccountService.signUp`, its per-IP gate and its proof-of-human check.
+  `ClientAccountService.signUp`. (The route's own tighter gate and proof-of-human check were designed
+  for it and never built; the shared per-IP limiter stays over every portal route.)
 - `identify` is unchanged, so it is the recovery path: an email with an account and no password
   gets a fresh SET link; an unknown email is told **"We couldn't find that email. Your portal account
   opens when your first case starts — check the email we sent you, or contact us."**

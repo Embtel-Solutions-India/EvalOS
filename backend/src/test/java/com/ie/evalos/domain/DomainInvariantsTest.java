@@ -9,11 +9,9 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import com.ie.evalos.repository.AuditEventRepository;
-import com.ie.evalos.repository.ApplicationDocumentRepository;
 import com.ie.evalos.repository.CaseDocumentRepository;
 import com.ie.evalos.repository.CaseRepository;
 import com.ie.evalos.repository.ClientAccountRepository;
-import com.ie.evalos.repository.ClientApplicationRepository;
 import com.ie.evalos.repository.OpportunityRepository;
 import com.ie.evalos.repository.PipelineRepository;
 import com.ie.evalos.repository.SyncDriftRepository;
@@ -71,10 +69,6 @@ class DomainInvariantsTest {
 				arguments(CaseDocumentRepository.SCOPE, CaseDocument.class),
 				// Unit 58. Brand only: reached through its version, through an authorized case.
 				arguments(com.ie.evalos.repository.DraftCommentRepository.SCOPE, DraftComment.class),
-				// Unit 53. Brand only, like its sibling: a request document is reached either by the
-				// client who uploaded it (their own token, their own application) or by staff who
-				// can already open the opportunity, so there is no pipeline axis to declare.
-				arguments(ApplicationDocumentRepository.SCOPE, ApplicationDocument.class),
 				arguments(DocumentChecklistItemRepository.SCOPE, DocumentChecklistItem.class),
 				arguments(ExpertRepository.SCOPE, Expert.class),
 				arguments(ExpertCaseOfferRepository.SCOPE, ExpertCaseOffer.class),
@@ -88,7 +82,6 @@ class DomainInvariantsTest {
 				arguments(com.ie.evalos.repository.ExpertCredentialTokenRepository.SCOPE, ExpertCredentialToken.class),
 				arguments(MeetingRepository.SCOPE, Meeting.class),
 				arguments(FollowUpRepository.SCOPE, FollowUp.class),
-				arguments(ClientApplicationRepository.SCOPE, ClientApplication.class),
 				arguments(PipelineRepository.SCOPE, Pipeline.class),
 				arguments(PipelineStageRepository.SCOPE, PipelineStage.class),
 				arguments(OpportunityRepository.SCOPE, Opportunity.class),

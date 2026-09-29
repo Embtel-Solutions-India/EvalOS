@@ -1706,6 +1706,28 @@ class LocalPostgresIntegrationTest {
 				note)).isEqualTo("The deal we lost");
 	}
 
+	/**
+	 * Unit 64's {@code V78}: the request tables are gone, a pipeline can no longer be marked
+	 * {@code INTAKE}, and an account opened for a case is a legal row.
+	 */
+	@Test
+	void v78RemovesTheRequestAndAllowsCaseAccounts() {
+		assertThat(jdbc.queryForObject("SELECT count(*) FROM information_schema.tables "
+				+ "WHERE table_schema = current_schema() AND table_name IN ('client_application', 'application_document')",
+				Integer.class)).isZero();
+
+		UUID pipeline = insertMirroredPipeline(uniqueId("v78"));
+		assertThatThrownBy(() -> jdbc.update("UPDATE pipeline SET purpose = 'INTAKE' WHERE id = ?", pipeline))
+				.isInstanceOf(org.springframework.dao.DataIntegrityViolationException.class);
+
+		UUID account = UUID.randomUUID();
+		jdbc.update("INSERT INTO client_account (id, brand_id, email, created_via, created_at) VALUES (?, ?, ?, 'CASE', now())",
+				account, BRAND_IE, uniqueId("v78") + "@example.test");
+		assertThat(jdbc.queryForObject("SELECT created_via FROM client_account WHERE id = ?", String.class, account))
+				.isEqualTo("CASE");
+		jdbc.update("DELETE FROM client_account WHERE id = ?", account);
+	}
+
 	/** A mirrored pipeline to hang an opportunity off - `pipeline_id` is a real FK (Unit 44a). */
 	private UUID insertMirroredPipeline(String ghlId) {
 		UUID id = UUID.randomUUID();

@@ -73,7 +73,7 @@ class ClientAccountServiceTest {
 			"https://client.example.com");
 
 	/**
-	 * <strong>Signing up creates the CRM row, which is Unit 44c closing the prospect gap.</strong>
+	 * <strong>Setting a password creates the CRM row, which is Unit 44c closing the prospect gap.</strong>
 	 *
 	 * <p>{@code 00d} §5.4: before this, the only writer of {@code contact_snapshot} was Handoff A,
 	 * so it held <em>only contacts that won an opportunity</em> — every prospect, and every lead
@@ -127,39 +127,6 @@ class ClientAccountServiceTest {
 
 		verify(ghlContacts).upsertContact("Ana", null, "ana@example.com", "+15550100",
 				GhlWriteClient.SOURCE_CLIENT_PORTAL);
-	}
-
-	/**
-	 * D3d restored to D3a: <strong>sign-up reaches GHL zero times.</strong>
-	 *
-	 * <p>The contact lived on this route for exactly as long as GHL carried the set-password mail,
-	 * which required a {@code contactId}. Brevo takes the address, so the reason is gone and the
-	 * exposure is not worth keeping: {@code /auth/sign-up} is {@code permitAll} behind one per-IP
-	 * counter, so a CRM write here is a stranger's write — an IP-rotating script fills the
-	 * sub-account Sales works in and spends GHL's shared 100-per-10-seconds location budget, which
-	 * makes every GHL-backed staff screen answer 502.
-	 *
-	 * <p><strong>A hundred sign-ups, and the assertion is none rather than fewer.</strong> It also
-	 * covers the second path, which is the one that would have survived a careless fix: sign-up
-	 * falls through to {@code identify}, and {@code issueCredential} used to repair the CRM link
-	 * there — so removing the direct call alone would have looked fixed and changed nothing.
-	 */
-	@Test
-	void signingUpReachesGhlZeroTimes() {
-		given(mailer.canReach(any())).willReturn(true);
-		given(mailer.sendSetPassword(any(), any(), any())).willReturn(true);
-		given(credentials.save(any())).willAnswer((call) -> call.getArgument(0));
-		given(accounts.saveAndFlush(any())).willAnswer((call) -> call.getArgument(0));
-		// Absent on the first read, present on the second — identify() re-reads after the insert.
-		given(accounts.findByBrandIdAndEmailIgnoreCase(eq(BRAND), any()))
-				.willAnswer((call) -> Optional.empty())
-				.willAnswer((call) -> Optional.of(new ClientAccount(BRAND, "flood@example.com", "SIGNUP")));
-
-		for (int attempt = 0; attempt < 100; attempt++) {
-			service.signUp("flood" + attempt + "@example.com", "Flood", null, null);
-		}
-
-		verifyNoInteractions(ghlContacts);
 	}
 
 	/**
@@ -504,114 +471,6 @@ class ClientAccountServiceTest {
 	}
 
 	/**
-	 * The gap this route closes: before 2026-09-15 nothing created a {@code client_account} at
-	 * runtime, so a client acquired after V45's backfill was told "we couldn't find that email"
-	 * for ever. Signing up must therefore actually write the row and send the link — and
-	 * <strong>link no contact</strong>, which is D3a restored now that Brevo can mail an address
-	 * without one.
-	 *
-	 * <p><strong>And it must answer a STATE, never a session.</strong> That property never moved
-	 * while the contact did: the address is unproven at this moment, so a token here would be
-	 * account takeover by typing a stranger's email. The name and phone are kept so
-	 * {@code setPassword} has something to send to GHL once the mailbox is proved.
-	 */
-	@Test
-	void aStrangerGetsAnAccountAndNoContactUntilTheyProveTheMailbox() {
-		given(mailer.canReach(any())).willReturn(true);
-		given(mailer.sendSetPassword(any(), any(), any())).willReturn(true);
-		given(credentials.save(any())).willAnswer(call -> call.getArgument(0));
-		// Absent before the insert, present after it — identify() re-reads through the same finder.
-		given(accounts.findByBrandIdAndEmailIgnoreCase(BRAND, "ana@example.com"))
-				.willReturn(Optional.empty())
-				.willReturn(Optional.of(new ClientAccount(BRAND, "ana@example.com", "SIGNUP")));
-
-		assertThat(service.signUp("ana@example.com", "Ana", "Okafor", "+15550100"))
-				.isEqualTo(ClientAccountService.IdentifyState.NO_PASSWORD);
-
-		ArgumentCaptor<ClientAccount> saved = ArgumentCaptor.forClass(ClientAccount.class);
-		verify(accounts).saveAndFlush(saved.capture());
-		assertThat(saved.getValue().getEmail()).isEqualTo("ana@example.com");
-		assertThat(saved.getValue().hasPassword()).isFalse();
-		assertThat(saved.getValue().getGhlContactId()).isNull();
-		assertThat(saved.getValue().getCreatedVia()).isEqualTo("SIGNUP");
-		assertThat(saved.getValue().getFirstName()).isEqualTo("Ana");
-		assertThat(saved.getValue().getPhone()).isEqualTo("+15550100");
-
-		verifyNoInteractions(ghlContacts);
-		verify(mailer).sendSetPassword(addressed("ana@example.com"), any(), any());
-		verify(links, never()).mintForClientAccount(any());
-	}
-
-	/**
-	 * <strong>Signing up with an address we already hold must not create a second account, and
-	 * must not touch GHL.</strong> It is the most ordinary mistake a person makes — they cannot
-	 * remember whether they registered — and the wrong answer is two contacts for one client,
-	 * which invariant 7 exists to prevent.
-	 */
-	@Test
-	void anAddressWeAlreadyHoldCreatesNothingAndAnswersLikeSignIn() {
-		ClientAccount existing = new ClientAccount(BRAND, "ana@example.com");
-		existing.setPasswordHash(encoder.encode("Correct!1"));
-		given(accounts.findByBrandIdAndEmailIgnoreCase(BRAND, "ana@example.com"))
-				.willReturn(Optional.of(existing));
-
-		assertThat(service.signUp("ana@example.com", "Ana", "Okafor", null))
-				.isEqualTo(ClientAccountService.IdentifyState.PASSWORD_SET);
-
-		verify(ghlContacts, never()).upsertContact(any(), any(), any(), any(), any());
-		verify(accounts, never()).saveAndFlush(any());
-		verify(mailer, never()).sendSetPassword(any(), any(), any());
-	}
-
-	/**
-	 * <strong>Signing up never returns a session, and this is the test that says why.</strong>
-	 * The address may be one GHL already holds — a client Sales logged last week, whose cases sit
-	 * behind it — so a token here would be account takeover by typing a stranger's email. Control
-	 * of the mailbox is proved by the set-password link and by nothing else.
-	 */
-	@Test
-	void signingUpMintsNoToken() {
-		given(mailer.canReach(any())).willReturn(true);
-		given(mailer.sendSetPassword(any(), any(), any())).willReturn(true);
-		given(credentials.save(any())).willAnswer(call -> call.getArgument(0));
-		given(ghlContacts.upsertContact(any(), any(), any(), any(), any()))
-				.willReturn(new GhlWriteClient.UpsertedContact("ghl-1", null, "ana@example.com", null));
-		given(accounts.findByBrandIdAndEmailIgnoreCase(BRAND, "ana@example.com"))
-				.willReturn(Optional.empty())
-				.willReturn(Optional.of(new ClientAccount(BRAND, "ana@example.com")));
-
-		service.signUp("ana@example.com", null, null, null);
-
-		verify(links, never()).mintForClientAccount(any());
-	}
-
-	/**
-	 * A double-submitted form races on {@code client_account_brand_email_key}. The loser must
-	 * answer what the winner's row says, not 500 on the front door.
-	 */
-	@Test
-	void aRacedSecondSubmissionAnswersRatherThanFailing() {
-		given(mailer.canReach(any())).willReturn(true);
-		given(mailer.sendSetPassword(any(), any(), any())).willReturn(true);
-		given(credentials.save(any())).willAnswer(call -> call.getArgument(0));
-		given(ghlContacts.upsertContact(any(), any(), any(), any(), any()))
-				.willReturn(new GhlWriteClient.UpsertedContact("ghl-1", null, "ana@example.com", null));
-		given(accounts.saveAndFlush(any()))
-				.willThrow(new org.springframework.dao.DataIntegrityViolationException("duplicate key"));
-		// The winner's row, as the database would hand it back: it ran ensureCrmIdentity before
-		// saving, so it carries a contact. A blank instance here would make the loser repair a row
-		// that needs no repair, which is a state the race cannot actually produce.
-		ClientAccount winner = new ClientAccount(BRAND, "ana@example.com", "SIGNUP");
-		winner.linkGhlContact("ghl-1");
-		given(accounts.findByBrandIdAndEmailIgnoreCase(BRAND, "ana@example.com"))
-				.willReturn(Optional.empty())
-				.willReturn(Optional.of(winner));
-
-		assertThat(service.signUp("ana@example.com", null, null, null))
-				.isEqualTo(ClientAccountService.IdentifyState.NO_PASSWORD);
-	}
-
-	/**
 	 * The repair is best-effort and must never reach the client as a 500.
 	 *
 	 * <p>{@code identify} is unauthenticated and {@code forgot-password} answers 204 whether or not
@@ -636,4 +495,97 @@ class ClientAccountServiceTest {
 		assertThat(service.identify("ana@example.com"))
 				.isEqualTo(ClientAccountService.IdentifyState.NO_PASSWORD);
 	}
+
+	// --- Unit 64: the account is opened when the client's case is created -------------------
+
+	private static ContactSnapshot caseContact(String email) {
+		ContactSnapshot contact = new ContactSnapshot(BRAND, "ghl-ana");
+		contact.syncFromGhl("Ana María Okafor", email, "+15550100", null, null, null, null, null, null);
+		ReflectionTestUtils.setField(contact, "id", UUID.randomUUID());
+		return contact;
+	}
+
+	private void mailWorks() {
+		given(mailer.canReach(any())).willReturn(true);
+		given(mailer.sendSetPassword(any(), any(), any())).willReturn(true);
+		given(credentials.save(any())).willAnswer((call) -> call.getArgument(0));
+		given(accounts.saveAndFlush(any())).willAnswer((call) -> call.getArgument(0));
+	}
+
+	/** Row 4: a new client gets an account linked to their contact, and the set-password link. */
+	@Test
+	void aCaseOpensALinkedAccountAndMailsTheSetLink() {
+		mailWorks();
+		ContactSnapshot contact = caseContact("Ana@Example.com");
+
+		assertThat(service.openForCase(contact)).isEqualTo(ClientAccountService.CaseAccountOutcome.CREATED);
+
+		ArgumentCaptor<ClientAccount> saved = ArgumentCaptor.forClass(ClientAccount.class);
+		verify(accounts).saveAndFlush(saved.capture());
+		// Trimmed, case kept: matching is case-insensitive (D7), as for every other account.
+		assertThat(saved.getValue().getEmail()).isEqualTo("Ana@Example.com");
+		assertThat(saved.getValue().getCreatedVia()).isEqualTo("CASE");
+		assertThat(saved.getValue().getGhlContactId()).isEqualTo("ghl-ana");
+		assertThat(saved.getValue().getContactId()).isEqualTo(contact.getId());
+		assertThat(saved.getValue().getFirstName()).isEqualTo("Ana");
+		assertThat(saved.getValue().getLastName()).isEqualTo("María Okafor");
+		verify(mailer).sendSetPassword(any(), any(), any());
+		// Opening an account is not a CRM write: the contact already exists in GHL.
+		verifyNoInteractions(ghlContacts);
+	}
+
+	/** Rows 6–7: the contact's own account is reminded without a password, left alone with one. */
+	@Test
+	void theContactsOwnAccountIsRemindedOnlyWithoutAPassword() {
+		mailWorks();
+		ClientAccount existing = new ClientAccount(BRAND, "ana@example.com", "SEED");
+		existing.linkGhlContact("ghl-ana");
+		given(accounts.findByBrandIdAndGhlContactId(BRAND, "ghl-ana")).willReturn(Optional.of(existing));
+
+		assertThat(service.openForCase(caseContact("ana@example.com")))
+				.isEqualTo(ClientAccountService.CaseAccountOutcome.REMINDED);
+
+		existing.setPasswordHash("hash");
+		assertThat(service.openForCase(caseContact("ana@example.com")))
+				.isEqualTo(ClientAccountService.CaseAccountOutcome.ALREADY_ACTIVE);
+		verify(mailer).sendSetPassword(any(), any(), any());
+	}
+
+	/** Row 5: an unlinked account with the email is linked to this contact. */
+	@Test
+	void anUnlinkedAccountWithTheEmailIsLinked() {
+		mailWorks();
+		ClientAccount existing = new ClientAccount(BRAND, "ana@example.com", "SIGNUP");
+		given(accounts.findByBrandIdAndEmailIgnoreCase(eq(BRAND), eq("ana@example.com"))).willReturn(Optional.of(existing));
+		ContactSnapshot contact = caseContact("ana@example.com");
+
+		assertThat(service.openForCase(contact)).isEqualTo(ClientAccountService.CaseAccountOutcome.LINKED);
+		assertThat(existing.getGhlContactId()).isEqualTo("ghl-ana");
+		assertThat(existing.getContactId()).isEqualTo(contact.getId());
+	}
+
+	/** Row 8: an account linked to another contact is never relinked — that would show one person's cases to another. */
+	@Test
+	void anAccountBelongingToAnotherContactIsNeverRelinked() {
+		ClientAccount someoneElse = new ClientAccount(BRAND, "ana@example.com", "SEED");
+		someoneElse.linkGhlContact("ghl-somebody-else");
+		given(accounts.findByBrandIdAndEmailIgnoreCase(eq(BRAND), eq("ana@example.com"))).willReturn(Optional.of(someoneElse));
+
+		assertThat(service.openForCase(caseContact("ana@example.com")))
+				.isEqualTo(ClientAccountService.CaseAccountOutcome.OTHER_CONTACT);
+		assertThat(someoneElse.getGhlContactId()).isEqualTo("ghl-somebody-else");
+		verify(accounts, never()).saveAndFlush(any());
+		verifyNoInteractions(mailer);
+	}
+
+	/** Rows 2–3: no email or no GHL id means no account, and nothing written. */
+	@Test
+	void aContactWithNoEmailOrNoGhlIdGetsNoAccount() {
+		assertThat(service.openForCase(caseContact(null))).isEqualTo(ClientAccountService.CaseAccountOutcome.NO_EMAIL);
+		ContactSnapshot noId = new ContactSnapshot(BRAND, null);
+		noId.syncFromGhl("Ana", "ana@example.com", null, null, null, null, null, null, null);
+		assertThat(service.openForCase(noId)).isEqualTo(ClientAccountService.CaseAccountOutcome.NO_GHL_CONTACT);
+		verifyNoInteractions(accounts, mailer);
+	}
+
 }

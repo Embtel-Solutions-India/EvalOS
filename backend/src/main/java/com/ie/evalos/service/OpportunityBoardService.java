@@ -150,19 +150,16 @@ public class OpportunityBoardService {
 
 	/** Where the two card fields are resolved from — one read each per board, never per card. */
 	private final com.ie.evalos.repository.GhlCustomFieldRepository customFields;
-	private final com.ie.evalos.repository.ClientApplicationRepository applications;
 
 	OpportunityBoardService(OpportunityMirrorService deals, PipelineMirrorService mirroredPipelines,
 			com.ie.evalos.repository.TeamMemberPipelineRepository assignments,
 			@Value("${evalos.ghl.board-stale-after}") Duration staleAfter,
 			SellingBrand sellingBrand,
-			com.ie.evalos.repository.GhlCustomFieldRepository customFields,
-			com.ie.evalos.repository.ClientApplicationRepository applications) {
+			com.ie.evalos.repository.GhlCustomFieldRepository customFields) {
 		this.deals = deals;
 		this.mirroredPipelines = mirroredPipelines;
 		this.assignments = assignments;
 		this.customFields = customFields;
-		this.applications = applications;
 		this.staleAfter = staleAfter;
 		this.sellingBrandId = sellingBrand.id();
 	}
@@ -337,24 +334,15 @@ public class OpportunityBoardService {
 				.add(row));
 
 		// The card's service and source, resolved once for the whole board. Custom field values are
-		// keyed by GHL field *id*, so the two keys are turned into ids first; a portal-born deal has
-		// no service field until a salesperson sets one, so its request's service fills in. Both
-		// reads are brand-scoped to the selling brand, the only one a board draws.
+		// keyed by GHL field *id*, so the two keys are turned into ids first. The read is
+		// brand-scoped to the selling brand, the only one a board draws.
 		Map<String, String> fieldIds = new java.util.HashMap<>();
-		Map<String, String> requested = new java.util.HashMap<>();
 		if (sellingBrandId != null && !rows.isEmpty()) {
 			customFields.findByBrandIdAndModelOrderByNameAsc(sellingBrandId,
 					ReferenceMirrorService.OPPORTUNITY_MODEL)
 					.forEach((field) -> {
 						if (field.getFieldKey() != null) fieldIds.put(field.getFieldKey(), field.getGhlId());
 					});
-			List<String> ghlIds = rows.stream().map(Opportunity::getGhlId)
-					.filter(java.util.Objects::nonNull).toList();
-			if (!ghlIds.isEmpty()) {
-				applications.findByBrandIdAndGhlOpportunityIdIn(sellingBrandId, ghlIds)
-						.forEach((application) -> requested.putIfAbsent(
-								application.getGhlOpportunityId(), application.getServiceName()));
-			}
 		}
 		String serviceField = fieldIds.get(SERVICE_FIELD);
 		String leadSourceField = fieldIds.get(LEAD_SOURCE_FIELD);
@@ -367,8 +355,7 @@ public class OpportunityBoardService {
 									row.getGhlContactId(), row.getStatus(), row.getAmount(),
 									row.getGhlUpdatedAt(),
 									firstOf(row.getSource(), row.getCustomFields().get(leadSourceField)),
-									firstOf(row.getCustomFields().get(serviceField),
-											requested.get(row.getGhlId()))))
+									row.getCustomFields().get(serviceField)))
 							.toList();
 					return new BoardColumn(entry.getKey(),
 							// A stage GHL no longer lists still holds cards until the next

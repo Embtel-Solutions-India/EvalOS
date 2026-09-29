@@ -1,8 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
-import { ArrowRight, FileCheck2, MessagesSquare, Receipt } from 'lucide-react'
+import { FileCheck2, MessagesSquare, Receipt } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { Badge } from '@shared/components/ui/badge'
-import { Button } from '@shared/components/ui/button'
 import { Card } from '@shared/components/ui/card'
 import { EmptyState } from '@shared/components/common/EmptyState'
 import { ErrorState } from '@shared/components/common/ErrorState'
@@ -11,7 +10,6 @@ import { PageHeader } from '@shared/components/common/PageHeader'
 import { usePortalToken } from '@shared/hooks/usePortalToken'
 import { DELIVERED_STEP, failureMessage, NO_TOKEN, serviceLabel, type ClientCaseSummary } from '@shared/lib/portal'
 import { statusOf } from '@shared/services/apiClient'
-import { listApplications } from '@/services/applicationService'
 import { listCases } from '@/services/caseService'
 
 /**
@@ -19,7 +17,7 @@ import { listCases } from '@/services/caseService'
  *
  * **Real cases, and no greeting by name.** This screen used to open with "Good morning,
  * {firstName}" from a mock account session over mock data. **There is an account now** — Unit 42
- * brought one back and 2026-09-15 let a client create their own — and `client_account` even holds
+ * brought one back, and since Unit 64 it is opened when the client's case is — and `client_account` even holds
  * a first name. The greeting still does not come back: EvalOS does not hand the portal a client's
  * name for decoration, and the objection that killed it was never only that the session was fake.
  * What the credential is has also changed: a scoped portal link *or* a token minted by signing in,
@@ -39,18 +37,6 @@ export default function Dashboard() {
     enabled: tokenPresent,
     retry: false,
   })
-
-  // **The one state `43` §4 asked this screen to gain.** A client with an unfinished request and
-  // no case used to land on "nothing here yet", which is both false and a dead end — the thing
-  // they were in the middle of was invisible. Its own query rather than a field on the case list:
-  // a request is not a case, and a failure to load one must not blank the other.
-  const applications = useQuery({
-    queryKey: ['portal', 'applications'],
-    queryFn: ({ signal }) => listApplications(signal),
-    enabled: tokenPresent,
-    retry: false,
-  })
-  const unfinished = applications.data?.find((item) => item.status === 'DRAFT')
 
   if (!tokenPresent) {
     return <PageHeader title="Your cases" description={NO_TOKEN} />
@@ -85,35 +71,11 @@ export default function Dashboard() {
         />
       )}
 
-      {unfinished && (
-        <Card className="flex flex-wrap items-center justify-between gap-3 p-4">
-          <div>
-            <p className="text-sm font-medium text-foreground">
-              Your {unfinished.serviceName} request isn&rsquo;t finished
-            </p>
-            <p className="text-xs text-muted-foreground">
-              Pick up where you left off — your answers are saved.
-            </p>
-          </div>
-          <Button asChild>
-            <Link to="/requests/new">
-              Continue
-              <ArrowRight className="ml-2 h-4 w-4" aria-hidden="true" />
-            </Link>
-          </Button>
-        </Card>
-      )}
-
-      {!isLoading && !isError && data && data.length === 0 && !unfinished && (
+      {!isLoading && !isError && data && data.length === 0 && (
         <EmptyState
           icon={FileCheck2}
-          title="Nothing here yet"
-          description="Tell us what you need evaluated and we'll come back to you with a price."
-          action={
-            <Button asChild>
-              <Link to="/requests/new">Request a service</Link>
-            </Button>
-          }
+          title="No cases yet"
+          description="Your cases appear here once our team starts one."
         />
       )}
 

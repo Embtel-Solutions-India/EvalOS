@@ -146,16 +146,6 @@ export const NAV_ITEMS: readonly NavItem[] = [
     group: 'Sales',
   },
 
-  // Requests a client started and never sent (D54). GM and Sales: a draft has no pipeline yet, so
-  // a salesperson reads their brand's (`AbandonedRequestService`); the GM reads every brand.
-  {
-    path: '/requests/abandoned',
-    label: 'Unfinished requests',
-    roles: ['SALES', 'GM'],
-    becomes: 'Portal requests started and not sent for 48h',
-    group: 'Sales',
-  },
-
   // **Opening a deal is a nav entry, not a button on the board** (2026-09-17, on the business's
   // instruction). It was a button above the cards, which put the one thing a salesperson opens the
   // app to do behind first loading the board and then finding the button on it.

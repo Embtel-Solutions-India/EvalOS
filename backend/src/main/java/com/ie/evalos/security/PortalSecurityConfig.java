@@ -60,10 +60,10 @@ public class PortalSecurityConfig {
 		// plain-text body** -- a 403 the client cannot read an error out of. That is how the
 		// questionnaire's autosave broke on 2026-09-18, when PUT was missing.
 		//
-		// **DELETE is here for Unit 53**, `DELETE /applications/{id}/documents/{d}` -- a client
-		// taking a document back off a draft. **PUT left with the questionnaire (Unit 55)** and came
-		// back with case chat (Unit 57): editing a message and reacting to one. The list is enumerated rather than a
-		// standard set so that `ClientApplicationRoutesTest` fails when a route adds or drops a verb.
+		// **PUT and DELETE are case chat's (Unit 57)**: editing a message, reacting and un-reacting,
+		// deleting one's own message. DELETE first came for Unit 53's request documents, which went
+		// with the request (Unit 64). The list is enumerated rather than a standard set so a verb no
+		// route serves is refused at preflight.
 		config.setAllowedMethods(java.util.List.of("GET", "POST", "PUT", "DELETE", "OPTIONS"));
 		config.setAllowedHeaders(java.util.List.of("Content-Type", PortalTokenFilter.HEADER));
 		// No cookies are used and none should be: the credential is a header, and allowing
@@ -114,9 +114,9 @@ public class PortalSecurityConfig {
 						// here means the next route anyone adds under that prefix is open the
 						// moment it is written, silently — this list makes it arrive as a 401 in
 						// that route's own test instead, which is a question rather than a hole.
-						// POST-only for the same reason: none of the five reads.
+						// POST-only for the same reason: none of the four reads.
 						.requestMatchers(HttpMethod.POST, "/api/portal/auth/identify",
-								"/api/portal/auth/sign-up", "/api/portal/auth/sign-in",
+								"/api/portal/auth/sign-in",
 								"/api/portal/auth/forgot-password",
 								"/api/portal/auth/set-password",
 								// Unit 59: the expert portal's door, the same four acts.
