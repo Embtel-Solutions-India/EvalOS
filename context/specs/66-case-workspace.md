@@ -44,10 +44,12 @@ placeholder). 67 and 68 get their own specs.
    `boardRules.actionsFor` stays the single table — the header only splits its answer.
 4. **Overlays follow `dialog.tsx`'s existing rule**: a `Dialog` for a decision, a `Sheet` for
    working or inspecting a record without losing your place.
-5. **The CM gets the four expert buttons** by adding `CASE_MANAGER` to those `QUICK_ACTIONS`
-   roles — matching the server's gates, which is what the table's comment says it must do.
-   `STAGE_ACCESS.CASE_MANAGER.EXPERT_SIGNING` is already `full`. No fee field for the CM on
-   reassign (D59: a CM offers at the standard fee only).
+5. **The CM gets three of the four expert buttons** — signed, declined, timed-out — by adding
+   `CASE_MANAGER` to those `QUICK_ACTIONS` roles, matching the server's gates.
+   `STAGE_ACCESS.CASE_MANAGER.EXPERT_SIGNING` is already `full`. **Not reassign**: its dialog's
+   expert picker reads `GET /api/experts`, gated GM / BM / PM / ENM (`ExpertPickerController:79`),
+   so the button would open a picker that 403s. Opening that read to the CM is a server decision
+   for Unit 67, not a UI fix.
 6. **The case-page half of Unit 65 §4.5 is built here** (the Expert & offer panel, Edit fee,
    History). The fee field in the assign / reassign dialogs stays Unit 65's. One place per rule.
 7. **The upload dialog carries an optional "Note to PM"**, posted after a successful upload as a
@@ -61,7 +63,7 @@ placeholder). 67 and 68 get their own specs.
 ┌ sticky header ───────────────────────────────────────────────────────────────┐
 │ IE-2026-0412  [Stage SLA chip] [Due 4 Oct]           [Primary…] [More ▾]      │
 │ Maria Gonzalez                                       Your next step: …        │
-│ Expert opinion letter · PM … · CM … · PC …                                    │
+│ Expert opinion letter                                                         │
 │ ●──●──◉──●──○──○──○──○──○──○──○──○   (12 stages, §3)                          │
 └──────────────────────────────────────────────────────────────────────────────┘
 left column                                   right column (unchanged)
@@ -76,7 +78,8 @@ left column                                   right column (unchanged)
 - **"Your next step"**: `STAGE_NEXT_ACTION[stage]` when `STAGE_OWNER[stage] === me.role` (GM and BM
   read it as the owner's); otherwise *"Waiting on the {owner}"*. Hidden in an exception state,
   where the exception chip already says it.
-- **Team line**: assigned PM / CM / PC names already on `summary`.
+- **No team line.** `summary.assignedPm / assignedCm / assignedCoordinator` are ids, not names
+  (`CaseSummary`); naming them needs a backend field — left for Unit 67.
 - **Client withheld** for the ENM stays exactly as today (`maySeeCaseContent`).
 
 ## 3. Components
@@ -131,9 +134,10 @@ reload. The note is posted only after the upload succeeds; if the note fails the
 the dialog says *"Draft submitted; the note was not saved"* with the text still in the box.
 Existing error copy (real Word/PDF, 15MB) kept.
 
-Opened from: the header button, the Draft panel's *Upload new version*, **the CM's board card**
-(`CaseCard`, when `mayUploadDraft`) and **each My drafts row**. Same component, `caseId` +
-`onUploaded` props, so the two queue entry points are two call sites and not a Unit 67 dependency.
+Opened from: the header button, the Draft panel's *Upload new version* and **each My drafts row**.
+Same component, a `trigger` prop, so the queue entry point is one call site and not a Unit 67
+dependency. **Not the board card**: `CaseCard` is deliberately a link that does not act — quick
+actions on the card were tried twice and removed (its own header comment).
 
 ### 3.5 `DraftPanel.tsx` — merged
 
@@ -166,7 +170,7 @@ GM / PM. Native `<input type="date">`, optional reason posted as a note after th
 
 ### 3.9 `boardRules.ts`
 
-`CASE_MANAGER` added to `expert/signed`, `expert/declined`, `expert/timed-out`, `reassign-expert`.
+`CASE_MANAGER` added to `expert/signed`, `expert/declined`, `expert/timed-out` (§1.5).
 
 ## 4. Files
 
@@ -174,7 +178,7 @@ New: `features/case/caseProgress.ts`, `CaseProgress.tsx`, `CaseHeader.tsx`,
 `UploadDraftDialog.tsx`, `ChecklistSheet.tsx`, `OfferHistorySheet.tsx`, `DeadlineDialog.tsx`.
 Changed: `CaseDetail.tsx`, `DraftPanel.tsx`, `DocumentsPanel.tsx`, `ExpertCard.tsx`,
 `caseApi.ts` (`fetchOffer`, `editOfferFee`, `changeDeadline`), `board/boardRules.ts`,
-`board/CaseCard.tsx`, `queues/MyDraftsPage.tsx`.
+`queues/MyDraftsPage.tsx`, `checklist/…` untouched (`CaseChecklist` is reused as is).
 Deleted: `StageActions.tsx`, `UploadDraft.tsx` (absorbed).
 
 ## 5. Tests — one per rule
@@ -182,10 +186,10 @@ Deleted: `StageActions.tsx`, `UploadDraft.tsx` (absorbed).
 - `caseProgress.test.ts`: straight run; a PM return (Drafting ×2, Draft review reached but not
   current); null-stage rows skipped; open visit runs to `now`; `lastNote` is the returning note.
 - `boardRules.test.ts`: a CM at `EXPERT_SIGNING` is offered signed / declined / timed-out; a CM in
-  `EXPERT_DECLINED_REMATCHING` is offered reassign.
+  `EXPERT_DECLINED_REMATCHING` is still not offered reassign.
 - `splitActions` test: stage actions primary, stage-preserving ones in More, exception exits primary.
-- `UploadDraftDialog.test.tsx`: note posted only after a successful upload; note failure keeps the
-  draft and the text.
+- `draftRules.test.ts` (`submitDraft`, pure — the SPA has no DOM test setup and this unit adds no
+  dependency): note posted only after a successful upload; note failure keeps the draft.
 - `npx vitest run` and `npx tsc -b` green; the four nav/route guard tests untouched.
 - **Chrome check at 1440 and 390 wide** as a CM (drafting, returned draft), PC (doc collection,
   send checklist), PM (deadline, QC), ENM (offer, client withheld).
