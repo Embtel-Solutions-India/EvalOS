@@ -45,6 +45,13 @@ Tooltip halves had no callers, and `AssignPopover` and `DateFilter` were repoint
 dependencies left `client-expert/package.json`; `@radix-ui/react-dialog` stays because
 `MobileNavDrawer` uses it directly.
 
+**Over-engineering pass 2026-09-30.** Untracked the gitignored `client-expert/expert/.vite/` and
+`mail-preview/` (~29k lines). Deleted unimported `select`, `radio-group`, `date-picker`,
+`mock/mockDelay.ts`, and deps `@radix-ui/react-select`, `@radix-ui/react-radio-group`,
+`framer-motion` (`PageTransition` = CSS `page-enter` keyframe). `HealthController`/`/api/health`
+gone — `/actuator/health`. `ClientMailer` injects its one `MailTransport`; `evalos.mail.transport`
+removed. `docs/seed-desks.sql` deleted. `formatDateShort` → `formatDate(value, 'short')`.
+
 **Deliberately kept:** `TeamMemberPipelineRepository.membersOn` (no production caller, but a test
 covers it). **Deliberately deferred**, as refactors rather than deletions: `MailTransport` is an
 interface over one implementation, `ScopedRepository` is inherited by seven repositories that
@@ -481,8 +488,8 @@ locally while the seeds still said `sales.attorney...`.
 
 **Production seeds them through `db/seed-prod/V960__seed_ie_desks.sql` since 2026-09-19** — a
 Flyway migration in a tree only `application-prod.yml` names, the sibling-directory mechanism
-`MigrationTreeTest` enforces. It replaces the hand-run `docs/seed-desks.sql`, now a pointer (kept,
-because applied V911 names it). The password is the `desk-password-hash` placeholder from
+`MigrationTreeTest` enforces. It replaced the hand-run `docs/seed-desks.sql` (the pointer left behind was
+deleted 2026-09-30; applied V911/V960 still name it, git history holds it). The password is the `desk-password-hash` placeholder from
 `DESK_PASSWORD_HASH`, **no default**, so `DevPassw0rd!` — a PUBLISHED credential, hash in V908 and
 plaintext in its comments — never reaches a real database. Costs: prod now needs
 `out-of-order: true` (a seed numbered above every migration makes the next V-N look out of order),

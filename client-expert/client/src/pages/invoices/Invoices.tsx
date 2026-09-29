@@ -10,7 +10,7 @@ import { failureMessage, NO_TOKEN, type ClientInvoice } from '@shared/lib/portal
 import { usePortalToken } from '@shared/hooks/usePortalToken'
 import { statusOf } from '@shared/services/apiClient'
 import { listInvoices } from '@/services/invoiceService'
-import { formatDateShort } from '@shared/utils/formatters'
+import { formatDate } from '@shared/utils/formatters'
 
 /**
  * The client's invoices and what has been paid (Unit 41).
@@ -106,7 +106,7 @@ function InvoiceRow({ invoice }: { invoice: ClientInvoice }) {
   return (
     <TableRow>
       <TableCell className="font-medium">{invoice.invoiceNumber ?? '—'}</TableCell>
-      <TableCell>{invoice.issueDate ? formatDateShort(invoice.issueDate) : '—'}</TableCell>
+      <TableCell>{invoice.issueDate ? formatDate(invoice.issueDate, 'short') : '—'}</TableCell>
       <TableCell className="text-right">{money(invoice.total, invoice.currency)}</TableCell>
       <TableCell className="text-right">{money(invoice.amountPaid, invoice.currency)}</TableCell>
       <TableCell>

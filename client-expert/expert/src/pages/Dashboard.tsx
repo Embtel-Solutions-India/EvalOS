@@ -6,7 +6,7 @@ import { Card } from '@shared/components/ui/card'
 import { ErrorState } from '@shared/components/common/ErrorState'
 import { ListSkeleton } from '@shared/components/common/LoadingState'
 import { statusOf } from '@shared/services/apiClient'
-import { formatDateShort } from '@shared/utils/formatters'
+import { formatDate } from '@shared/utils/formatters'
 import { cn } from '@shared/utils/cn'
 import { Donut, MonthBars } from '@/components/charts'
 import { Panel, Stat } from '@/components/Tiles'
@@ -259,7 +259,7 @@ function ActivityRow({ item }: { item: Activity }) {
           <span className="block truncate text-xs text-muted-foreground">{item.label}</span>
         </span>
         <span className="hidden text-sm font-semibold tabular-nums text-foreground sm:block">{item.amount ? money(item.amount.value, item.amount.currency) : ''}</span>
-        <span className="text-right text-xs text-muted-foreground sm:text-sm">{formatDateShort(item.at)}</span>
+        <span className="text-right text-xs text-muted-foreground sm:text-sm">{formatDate(item.at, 'short')}</span>
         <ChevronRight className="hidden h-4 w-4 text-muted-foreground sm:block" />
       </Link>
     </li>

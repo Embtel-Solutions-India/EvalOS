@@ -14,7 +14,7 @@ GHL ───────HMAC + token─► /api/webhooks/ghl/{endpointToken}  (
 
 `permitAll` on the portal chain: exactly nine POSTs under `/api/portal/auth/**` — the client's five and the expert's four (`expert/{sign-up, forgot-password, sign-in, set-password}`, Unit 59) — plus a per-IP
 limiter (60/min) in `PortalTokenFilter`. **The client's `sign-up` was removed by Unit 64 (2026-09-29)**, leaving eight. `permitAll` on the staff chain: `/api/auth/login`,
-`/api/health`, `/actuator/health`, `/api/webhooks/**`.
+`/actuator/health`, `/api/webhooks/**` (`/api/health` and its `HealthController` deleted 2026-09-30 — a hard-coded `UP` beside actuator's real one).
 
 ## Multi-tenancy
 
@@ -133,7 +133,7 @@ classpath. `backend/config/` is gitignored and is where a real GHL token goes.
 
 Key settings: `evalos.ghl.{location-id, token, sales-brand, opportunity-service-field,
 opportunity-correlation-field, board-stale-after, delta-ttl}` (`intake-pipeline-name` is retired — Unit 44b, D10b; the two funnel
-screens took `sales-pipeline-name` and `email-pipeline-name` with them), `evalos.mail.transport`, `evalos.portal.{client-brand, client-base-url,
+screens took `sales-pipeline-name` and `email-pipeline-name` with them), `evalos.mail.from`, `evalos.portal.{client-brand, client-base-url,
 expert-base-url, allowed-origins, credential-ttl}`, `evalos.s3.{bucket, region}`,
 `evalos.security.jwt.secret`, `evalos.field-key`, `SALES_MONTHLY_GOAL` (fallback only — the GM sets each month's target on the dashboard, `sales_monthly_goal`).
 

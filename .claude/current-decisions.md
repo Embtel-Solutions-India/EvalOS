@@ -36,9 +36,10 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
   reads the provider's own message id, and SMTP gives back a protocol accept — "it left EvalOS" is
   the whole of what `send` can promise, and delivery, bounces and suppression are read in the
   provider's dashboard. For two messages whose failure a support conversation recovers, that is the
-  cheaper side. **What is kept:** the `MailTransport` interface and `evalos.mail.transport`, at one
-  implementation, because it is the seam `ClientMailerTest` fakes and a name matching nothing
-  **fails at startup** naming what it found. `ClientMailer` still owns the wording and the one
+  cheaper side. **What is kept:** the `MailTransport` interface, at one
+  implementation, because it is the seam `ClientMailerTest` fakes. **The `evalos.mail.transport`
+  switch is gone (2026-09-30)** — a choice among one; `ClientMailer` takes the one bean, and a
+  second provider brings its own way to pick it. `ClientMailer` still owns the wording and the one
   `PORTAL_LINK_ISSUED` audit row, so the trail is not a property of whoever carries the mail.
   `SmtpMailTransportLiveTest` (opt-in, `MAIL_LIVE_TEST=true`) is the only check that proves a real
   credential, a verified sender and the deploy's egress — and unlike the one it replaced, it

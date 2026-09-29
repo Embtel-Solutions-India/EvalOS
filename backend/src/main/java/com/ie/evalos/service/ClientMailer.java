@@ -1,7 +1,6 @@
 package com.ie.evalos.service;
 
 import java.nio.charset.StandardCharsets;
-import java.util.List;
 import java.util.UUID;
 
 import com.ie.evalos.domain.AuditAction;
@@ -10,7 +9,6 @@ import com.ie.evalos.integration.MailTransport;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 /**
@@ -41,9 +39,9 @@ import org.springframework.stereotype.Service;
  * than throwing, and a caller that cannot say something true is given the means to say nothing.
  *
  * <p><strong>This class owns the words; {@link MailTransport} owns the wire.</strong> The split
- * arrived when GHL took over sending and is kept because the next provider (Brevo) is expected —
- * adding one is a new {@code MailTransport} and a changed {@code evalos.mail.transport}, and this
- * class does not move. What a set-password mail <em>says</em> has nothing to do with who carries
+ * arrived when GHL took over sending and is kept as the test seam; a second provider (Brevo) would
+ * be a new {@code MailTransport} plus a way to pick it, added the day it exists, and this class
+ * does not move. What a set-password mail <em>says</em> has nothing to do with who carries
  * it, and before the split those two facts lived in one method.
  */
 @Service
@@ -51,16 +49,7 @@ public class ClientMailer {
 
 	private static final Logger log = LoggerFactory.getLogger(ClientMailer.class);
 
-	/**
-	 * The one that sends. Chosen by {@code evalos.mail.transport} from every
-	 * {@link MailTransport} on the classpath.
-	 *
-	 * <p><strong>Chosen by name rather than by {@code @Primary} or a profile.</strong> Switching
-	 * providers is an environment change — the day GHL's sending domain is being re-verified, the
-	 * fix is a variable and a restart, not a build. A name that matches nothing fails at startup
-	 * and names what it found, because a typo that silently fell back to SMTP would be discovered
-	 * by a client who never got their link.
-	 */
+	/** The one that sends — the only {@link MailTransport} there is (SMTP). */
 	private final MailTransport transport;
 
 	/**
@@ -76,15 +65,10 @@ public class ClientMailer {
 
 	private final MailTemplates templates;
 
-	ClientMailer(List<MailTransport> transports, AuditService audit, MailTemplates templates,
-			@Value("${evalos.mail.transport}") String choice) {
+	ClientMailer(MailTransport transport, AuditService audit, MailTemplates templates) {
 		this.audit = audit;
 		this.templates = templates;
-		this.transport = transports.stream()
-				.filter((candidate) -> candidate.name().equalsIgnoreCase(choice.trim()))
-				.findFirst()
-				.orElseThrow(() -> new IllegalStateException("evalos.mail.transport is '" + choice
-						+ "', which is not one of " + transports.stream().map(MailTransport::name).toList()));
+		this.transport = transport;
 		if (!this.transport.isConfigured()) {
 			log.warn("Mail transport '{}' is not configured — client password mail is disabled. "
 					+ "Sign-in still works for accounts that already have a password.",

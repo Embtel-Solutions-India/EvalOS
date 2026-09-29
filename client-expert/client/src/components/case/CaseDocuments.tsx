@@ -19,7 +19,7 @@ import {
   type ChecklistItem,
 } from '@shared/lib/portal'
 import { statusOf } from '@shared/services/apiClient'
-import { formatDateShort } from '@shared/utils/formatters'
+import { formatDate } from '@shared/utils/formatters'
 import { openFile } from '@/lib/openFile'
 import { documentUrl, listDocuments, uploadDocument } from '@/services/caseService'
 
@@ -67,7 +67,7 @@ export function CaseDocuments({ caseId }: { caseId: string }) {
               <span className="min-w-0 truncate">
                 {document.filename ?? 'Document'}
                 <span className="ml-2 text-xs text-muted-foreground">
-                  v{document.version} · {document.checklistLabel ?? '—'} · {formatDateShort(document.uploadedAt)}
+                  v{document.version} · {document.checklistLabel ?? '—'} · {formatDate(document.uploadedAt, 'short')}
                 </span>
               </span>
               <Button variant="ghost" size="sm" onClick={() => void openFile(() => documentUrl(caseId, document.id))}>

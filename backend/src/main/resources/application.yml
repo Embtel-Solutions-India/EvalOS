@@ -157,15 +157,9 @@ evalos:
     # GHL_API_TOKEN an empty default rather than a fatal one. A password reset is recoverable by
     # a support conversation; a refused boot is not recoverable by anyone.
     from: ${EVALOS_MAIL_FROM:}
-    # Who carries the two messages EvalOS sends, by MailTransport bean name. **`smtp` is the only
-    # one there is** (2026-09-18), and the provider it reaches is `spring.mail.*` above — see the
-    # table there. A `ghl` transport and a `brevo` transport each existed for a few months and are
-    # deleted: both were a class, a config block, a credential and a live test proving one vendor.
-    #
-    # **The setting stays even at one implementation.** It is the seam ClientMailerTest fakes, and
-    # a name that matches nothing fails at startup saying what it found — falling back silently
-    # would be discovered by a client who never got their link.
-    transport: ${EVALOS_MAIL_TRANSPORT:smtp}
+    # SMTP carries both messages (SmtpMailTransport, the only MailTransport); the provider it
+    # reaches is `spring.mail.*` above — see the table there. The `evalos.mail.transport` switch
+    # went with the `ghl` and `brevo` transports: a choice among one is not a setting.
   portal:
     # Which brand this portal deployment serves. **NOT evalos.ghl.sales-brand** — that one names
     # which brand's STAFF may hold the SALES and MARKETING roles, a staff-authorization ceiling

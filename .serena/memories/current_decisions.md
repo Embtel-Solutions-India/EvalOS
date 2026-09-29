@@ -30,9 +30,9 @@ The ones most often violated from memory:
   the account email on most of them and a wrong one is a 535 that reads like a wrong password.
   Both vendor transports are deleted (`ghl` 2026-09-16, `brevo` 2026-09-18) — each was a class, a
   config block, a credential and a live test proving one vendor. **Given up knowingly:** no provider
-  message id, so `send` promises only that the message left EvalOS. **Kept:** the interface and
-  `evalos.mail.transport` at one implementation, because `ClientMailerTest` fakes that seam and an
-  unmatched name fails the boot. `isConfigured()` needs **both** relay and sender. Proved live by
+  message id, so `send` promises only that the message left EvalOS. **Kept:** the interface at one
+  implementation, because `ClientMailerTest` fakes that seam; the `evalos.mail.transport` switch is
+  gone (2026-09-30) — a choice among one. `isConfigured()` needs **both** relay and sender. Proved live by
   `SmtpMailTransportLiveTest` (opt-in `MAIL_LIVE_TEST=true`) — every failure is a swallowed `false`,
   so nothing short of a real send separates working from silent, and blocked egress or an
   authorised-IP list looks exactly like a bad password from inside the app.

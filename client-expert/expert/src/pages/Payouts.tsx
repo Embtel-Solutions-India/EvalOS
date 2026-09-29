@@ -8,7 +8,7 @@ import { EmptyState } from '@shared/components/common/EmptyState'
 import { ErrorState } from '@shared/components/common/ErrorState'
 import { ListSkeleton } from '@shared/components/common/LoadingState'
 import { statusOf } from '@shared/services/apiClient'
-import { formatDateShort } from '@shared/utils/formatters'
+import { formatDate } from '@shared/utils/formatters'
 import { Donut, MonthBars } from '@/components/charts'
 import { RangeMenu } from '@/components/RangeMenu'
 import { Panel, Stat } from '@/components/Tiles'
@@ -179,7 +179,7 @@ export default function Payouts() {
                     <span className="font-medium text-foreground">{row.caseReference ?? 'Case'}</span>
                     <span className="text-right tabular-nums text-foreground sm:text-left">{money(row.amount, row.currency)}</span>
                     <span><Badge variant={status.variant}>{status.label}</Badge></span>
-                    <span className="text-right text-muted-foreground sm:text-left">{row.settledOn ? formatDateShort(row.settledOn) : '—'}</span>
+                    <span className="text-right text-muted-foreground sm:text-left">{row.settledOn ? formatDate(row.settledOn, 'short') : '—'}</span>
                     <span className="col-span-2 sm:col-span-1">
                       {/* One transfer may settle several cases; confirming it confirms all of them. */}
                       {row.status === 'PAID' && row.paymentId ? (

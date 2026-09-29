@@ -167,7 +167,15 @@
   50% { transform: translate(-4%, 4%) scale(1.08); }
 }
 
+/* PageTransition: each route fades and rises in. */
+@keyframes page-enter {
+  from { opacity: 0; transform: translateY(10px); }
+}
+
 @media (prefers-reduced-motion: no-preference) {
+  .animate-page-enter {
+    animation: page-enter 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+  }
   .animate-liquid-a {
     animation: liquid-float-a 22s ease-in-out infinite;
   }

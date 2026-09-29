@@ -53,9 +53,8 @@ evalos:
     field-key: ${EVALOS_FIELD_KEY:bG9jYWwtZGV2LWZpZWxkLWtleS1ub3QtZm9yLXByb2Q=}
   mail:
     from: ${EVALOS_MAIL_FROM:}
-    # Who carries the two messages EvalOS sends, by MailTransport bean name. **`smtp` is the only
-    # one there is** (2026-09-18); which provider that reaches is `spring.mail.*`, and the table
-    # over it in `application.yml` gives the host, port and username for each.
+    # SMTP carries the two messages EvalOS sends; which provider that reaches is `spring.mail.*`,
+    # and the table over it in `application.yml` gives the host, port and username for each.
     #
     # **THE CREDENTIAL DOES NOT GO IN THIS FILE. It goes in the repo-root `.env`**, which is
     # gitignored and which VS Code loads as real environment variables — and an environment
@@ -66,7 +65,6 @@ evalos:
     # profile, which is how it was caught. **A live Brevo API key sat here until 2026-09-17 and
     # must be treated as disclosed** — rotate or delete it in Brevo; it was readable by anyone
     # with the working tree.
-    transport: ${EVALOS_MAIL_TRANSPORT:smtp}
   portal:
     # The two portal dev servers: client on 5174, expert on 5175. They are separate
     # apps under client-expert/ so they can be deployed to separate subdomains, and a

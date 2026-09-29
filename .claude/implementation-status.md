@@ -24,7 +24,7 @@ request status, portal deployment) and now say so.
 6. **Verify for real:** set `ABLY_API_KEY`, the `EVALOS_PUSH_*` keys, SMTP and S3, then click
    through client + expert sign-in and chat against the staff app.
 
-**Build state (all four suites re-verified 2026-09-22 after the dead-code pass below; the browser checks against the live location remain 2026-09-17):** backend `1288 tests, 0 failures, 0 errors, 4 skipped` (2026-09-29, after Unit 64 removed the request suites; `LocalPostgresIntegrationTest` 56 on a real Postgres) (the 4 are opt-in live checks, `SmtpMailTransportLiveTest` among them); the GM board draws **1,460 deals, synced**, and a Sales desk draws its own pipeline's four;
+**Build state (all four suites re-verified 2026-09-22 after the dead-code pass below; the browser checks against the live location remain 2026-09-17):** backend `1285 tests, 0 failures, 0 errors, 4 skipped` (2026-09-30, after the over-engineering pass; `LocalPostgresIntegrationTest` 56 on a real Postgres) (the 4 are opt-in live checks, `SmtpMailTransportLiveTest` among them); the GM board draws **1,460 deals, synced**, and a Sales desk draws its own pipeline's four;
 staff SPA `138 tests` (2026-09-29, Unit 64), `oxlint` and `tsc -b` clean; portals `97 tests` (2026-09-29, Unit 64) and `tsc -b` clean in both `client/`
 and `expert/`. All green.
 
@@ -39,7 +39,7 @@ and `expert/`. All green.
 > `frontend/src/components/ui/menu.tsx` is now **`popover.tsx`**: the DropdownMenu and Tooltip
 > halves (`MenuRoot`, `MenuTrigger`, `MenuContent`, `MenuItem`, `TooltipProvider`, `InfoTip`) had
 > no callers; `AssignPopover` and `DateFilter` use the Popover half and were repointed.
-> `shared/src/utils/formatters.ts` keeps `formatDate` and `formatDateShort` and drops the five
+> `shared/src/utils/formatters.ts` keeps `formatDate` (`formatDateShort` folded in as its `'short'` month, 2026-09-30) and drops the five
 > nothing called — including a hand-rolled `relativeTime` that `Intl.RelativeTimeFormat` covers.
 > **Nine repository finders with no caller are gone** (`AuditEventRepository`,
 > `FollowUpRepository` ×2, `MeetingRepository`, `PayoutPaymentRepository`,
@@ -56,6 +56,15 @@ and `expert/`. All green.
 > `MailTransport` being an interface over one implementation, `ScopedRepository` on seven
 > repositories that never call `findScoped`, and comment blocks that retell git history — are
 > refactors rather than deletions and are **not** part of this pass.
+
+> **Over-engineering pass, 2026-09-30.** Untracked the committed Vite dep cache
+> (`client-expert/expert/.vite/`) and `mail-preview/` — both gitignored, ~29k lines. Deleted the
+> unimported `select`, `radio-group`, `date-picker` and `mock/mockDelay.ts`, with
+> `@radix-ui/react-select`, `@radix-ui/react-radio-group` and `framer-motion` (`PageTransition` is
+> now a CSS `page-enter` keyframe, entry only). `HealthController` and `/api/health` are gone —
+> `/actuator/health` answers. `ClientMailer` takes its one `MailTransport` directly; the
+> `evalos.mail.transport` setting is removed. `docs/seed-desks.sql` (a SUPERSEDED pointer) is
+> deleted. `formatDateShort` became `formatDate(value, 'short')`.
 
 > **Use `mvnw clean test`, not `mvnw test`, when a signature has changed.** The VS Code Java
 > extension compiles into the same `target/classes`, and its error-tolerant output — methods whose
@@ -156,8 +165,9 @@ references, so `--noEmit` typechecks nothing and exits 0.)
   since 2026-09-19.** It replaces `docs/seed-desks.sql`, which was an operator script run by hand
   on the argument that "who works at a company is not schema" — answered by putting it in a tree
   only `application-prod.yml` names, the same sibling-directory mechanism `db/seed-local` and
-  `db/seed-testprod` already use and `MigrationTreeTest` enforces. `docs/seed-desks.sql` is now a
-  pointer, kept rather than deleted because applied `V911` names it in a comment.
+  `db/seed-testprod` already use and `MigrationTreeTest` enforces. `docs/seed-desks.sql` was a
+  pointer until 2026-09-30 and is deleted; applied `V911`/`V960` still name it in comments, and git
+  history holds it.
   **The published password is gone with it.** V960 takes its hash from the `desk-password-hash`
   Flyway placeholder (`DESK_PASSWORD_HASH`, no default), so a forgotten variable fails the migrate
   instead of seeding `DevPassw0rd!` — whose hash is committed in `V908`, whose plaintext is in that

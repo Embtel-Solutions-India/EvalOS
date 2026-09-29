@@ -11,7 +11,7 @@ import { ErrorState } from '@shared/components/common/ErrorState'
 import { ListSkeleton } from '@shared/components/common/LoadingState'
 import { DRAFT_STATUS, failureMessage, MAX_COMMENT, type ClientDraftVersion } from '@shared/lib/portal'
 import { statusOf } from '@shared/services/apiClient'
-import { formatDateShort } from '@shared/utils/formatters'
+import { formatDate } from '@shared/utils/formatters'
 import { openFile } from '@/lib/openFile'
 import { addComment, approveDraft, draftFileUrl, listComments, listDrafts, requestChanges } from '@/services/caseService'
 
@@ -75,7 +75,7 @@ function DraftVersion({ caseId, draft, legacyLink }: { caseId: string; draft: Cl
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-sm text-muted-foreground">
-          Version {draft.version} · {formatDateShort(draft.uploadedAt)}
+          Version {draft.version} · {formatDate(draft.uploadedAt, 'short')}
         </p>
         <Badge variant={status.variant}>{status.label}</Badge>
       </div>
@@ -149,7 +149,7 @@ function Comments({ caseId, draft }: { caseId: string; draft: ClientDraftVersion
         <div key={c.id} className="rounded bg-muted/50 p-2 text-sm">
           <p className="text-xs text-muted-foreground">
             {c.authorKind === 'CLIENT' ? 'You' : (c.authorName ?? 'Your case team')}
-            {c.page != null && ` · page ${c.page}`} · {formatDateShort(c.createdAt)}
+            {c.page != null && ` · page ${c.page}`} · {formatDate(c.createdAt, 'short')}
           </p>
           <p className="whitespace-pre-wrap">{c.body}</p>
         </div>

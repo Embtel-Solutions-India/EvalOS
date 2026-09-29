@@ -103,7 +103,7 @@ class SmtpMailTransportTest {
 		assertThat(message.getContent()).isInstanceOf(jakarta.mail.Multipart.class);
 	}
 
-	/** The name is what {@code evalos.mail.transport} matches, so it is pinned. */
+	/** The name is what the logs print, so it is pinned. */
 	@Test
 	void theNameIsSmtp() {
 		JavaMailSender sender = mock(JavaMailSender.class);
