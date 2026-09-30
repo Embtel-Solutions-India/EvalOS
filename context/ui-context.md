@@ -422,9 +422,14 @@ case transitions) does not apply there; the production board still does not drag
   Because `components/ui/dialog.tsx` is a protected path, the footer's Save reaches the
   body's form through a plain HTML `form="expert-profile-form"` rather than a new prop
   on `SheetContent`.
-- **Case detail**: two-column — left is documents (S3, opened via a short-lived
-  presigned link) + draft + expert,
-  right is **Notes & timeline**. Stage actions sit in a sticky header.
+- **Case detail**: two-column. The **sticky header** (Unit 66, `CaseHeader`) holds the case
+  code, SLA / exception / due chips (the due chip opens Change deadline for GM/PM), the name,
+  the action bar (Upload draft, the stage's actions, then **More ▾** for the stage-preserving
+  ones), the next-step line and the 12-stage progress strip (a dot per stage, `×n` for a
+  re-entered one, a popover with dates, time spent and the "why back" note). Left column:
+  **Documents & checklist** (S3 documents via short-lived presigned links, the checklist
+  summary, Manage checklist → Sheet), **Draft** (status + versions + upload, one panel), Case
+  facts, **Expert & offer**, Strategy notes, Expert rationale. Right is **Notes & timeline**.
   - **Notes and history are one panel, not two tabs** (Unit 23). A note is almost always
     *about* the transition beside it, so splitting them puts the sentence on one screen
     and the event it explains on another and leaves the reader merging two orderings.

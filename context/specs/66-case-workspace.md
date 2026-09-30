@@ -1,5 +1,10 @@
 # Unit 66 — The case workspace: progress strip, one action bar, overlays
 
+**Built 2026-09-30** (branch `feature/unit-66-case-workspace`). Where the build differs from this
+spec: the strip component is `ProgressStrip.tsx` (a `CaseProgress.tsx` collides with
+`caseProgress.ts` on Windows); §3.7 is Unit 65's existing `OfferFee` rather than a second card and
+sheet; stages before the current one read as passed even with no trail row.
+
 Specced 2026-09-30 from a gap audit of the staff SPA against every staff route. **Frontend only —
 no migration, no new endpoint.** Every write below already exists on the server; what is missing
 is the screen that reaches it.
