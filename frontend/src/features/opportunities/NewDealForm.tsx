@@ -132,7 +132,8 @@ export function NewDealFields({
   const [phone, setPhone] = useState('')
   const [name, setName] = useState('')
   const [value, setValue] = useState('')
-  const [stageId, setStageId] = useState('')
+  // Preset by the board's column "+" (`?stage=`); any stage not on the caller's pipeline just isn't offered.
+  const [stageId, setStageId] = useState(() => new URLSearchParams(window.location.search).get('stage') ?? '')
   const [closeDate, setCloseDate] = useState('')
   const [owner, setOwner] = useState('')
   // GHL's own users, as the booking dialog lists them. A failed read leaves only "Unassigned".

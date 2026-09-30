@@ -12,6 +12,7 @@ import CaseCard from './CaseCard'
 import PoolLane from './PoolLane'
 import QuickActionDialog from './QuickActionDialog'
 import StageColumn from './StageColumn'
+import { LANE_COLOR, stageColor } from './stageColors'
 import { performAction } from './boardApi'
 import { useBoard } from './useBoard'
 import {
@@ -332,11 +333,12 @@ export default function BoardView() {
       )}
 
       <div className="scroll-slim flex gap-3 overflow-x-auto pb-2">
-        {columns.map(({ stages, label, access, step, cards }) => (
+        {columns.map(({ stages, label, access, step, cards }, index) => (
           <StageColumn
             key={stages.join('+')}
             label={label}
             step={step}
+            color={stageColor(index)}
             count={cards.length}
             mix={slaMix(cards)}
             readOnly={access === 'status'}
@@ -359,7 +361,14 @@ export default function BoardView() {
         </summary>
         <div className="scroll-slim mt-3 flex gap-3 overflow-x-auto pb-2">
           {lanes.map(({ state: lane, label, cards }) => (
-            <StageColumn key={lane} label={label} count={cards.length} mix={slaMix(cards)} tone="lane">
+            <StageColumn
+              key={lane}
+              label={label}
+              count={cards.length}
+              mix={slaMix(cards)}
+              tone="lane"
+              color={LANE_COLOR}
+            >
               {cards.map((card) => (
                 <CaseCard key={card.id} card={card} mine={isMine(card)} />
               ))}

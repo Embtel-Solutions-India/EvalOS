@@ -5,6 +5,7 @@ import {
   STAGE_ACCESS,
   STAGE_COLUMNS,
   actionsFor,
+  cardDate,
   admits,
   allInsideSla,
   columnsFor,
@@ -399,5 +400,13 @@ describe('the Case Manager on expert signing (Unit 66)', () => {
   })
   it('still does not offer reassign — its expert picker is gated away from the CM', () => {
     expect(paths('EXPERT_SIGNING', 'CASE_MANAGER', 'EXPERT_DECLINED_REMATCHING')).not.toContain('reassign-expert')
+  })
+})
+
+describe('cardDate', () => {
+  it('drops the year for this year and keeps it otherwise', () => {
+    const now = new Date('2026-10-01T12:00:00Z')
+    expect(cardDate('2026-09-25T12:00:00Z', now)).toBe('Sep 25')
+    expect(cardDate('2025-02-25T12:00:00Z', now)).toBe('Feb 25, 2025')
   })
 })
