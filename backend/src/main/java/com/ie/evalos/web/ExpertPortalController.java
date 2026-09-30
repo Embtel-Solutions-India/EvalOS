@@ -158,6 +158,15 @@ public class ExpertPortalController {
 		return ApiResponse.ok(new LetterLink(portal.letterLink(expert(), caseId)));
 	}
 
+	/** One of the case's files the expert may open (Unit 66b, D63), on a five-minute URL. */
+	@GetMapping("/documents/{documentId}/url")
+	public ApiResponse<LetterLink> documentUrl(@PathVariable UUID documentId,
+			@RequestParam(required = false) UUID caseId,
+			@RequestParam(defaultValue = "false") boolean pdf,
+			@RequestParam(defaultValue = "false") boolean view) {
+		return ApiResponse.ok(new LetterLink(portal.documentUrl(expert(), caseId, documentId, pdf, view)));
+	}
+
 	/**
 	 * <strong>The signature.</strong> Multipart, PDF only, attestation required.
 	 *

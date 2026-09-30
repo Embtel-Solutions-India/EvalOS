@@ -11,6 +11,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Stream;
 
 import com.ie.evalos.common.AmbiguousCaseException;
 import com.ie.evalos.common.ForbiddenException;
@@ -119,7 +120,18 @@ public class ExpertPortalService {
 			/** What this case pays the expert (Unit 65): the open or accepted offer's fee, or null. */
 			BigDecimal offeredFee,
 			/** The brand's currency, the fee's unit. */
-			String currency) {
+			String currency,
+			/** The files this expert may open (Unit 66b, D63): see {@code expertDocuments}. */
+			List<ExpertDocument> documents) {
+	}
+
+	/**
+	 * One file the expert may open (Unit 66b). No object key, like the staff listing.
+	 *
+	 * @param kind {@code CLIENT_UPLOAD} or {@code LETTER} — the approved draft, named for what the
+	 *             expert signs rather than for its lifecycle
+	 */
+	public record ExpertDocument(UUID id, String kind, String filename, Instant uploadedAt, boolean hasPdf) {
 	}
 
 	/**
@@ -295,7 +307,56 @@ public class ExpertPortalService {
 				signedLetter.map(CaseDocument::getUploadedAt).orElse(null),
 				attestationFor(expertName == null ? "the assigned expert" : expertName),
 				offeredFee(subject.getId(), subject.getExpertId()),
-				currency(subject.getBrandId()));
+				currency(subject.getBrandId()),
+				expertDocuments(subject).stream()
+						.map(d -> new ExpertDocument(d.getId(),
+								d.getKind() == DocumentKind.DRAFT ? "LETTER" : d.getKind().name(),
+								d.getFilename(), d.getUploadedAt(), d.hasPdf()))
+						.toList());
+	}
+
+	/**
+	 * What the case's expert may open (Unit 66b, D63): the approved draft, then the client's current
+	 * uploads. Earlier draft versions, returns and change requests stay with the case team; a
+	 * superseded upload is not evidence any more.
+	 */
+	private List<CaseDocument> expertDocuments(Case subject) {
+		Optional<CaseDocument> letter = documents
+				.findByCaseIdAndKindOrderByVersionDesc(subject.getId(), DocumentKind.DRAFT).stream()
+				.filter(d -> d.getStatus() == DocumentStatus.CLIENT_APPROVED && d.getObjectKey() != null)
+				.findFirst();
+		List<CaseDocument> uploads = documents
+				.findByCaseIdAndKindOrderByVersionDesc(subject.getId(), DocumentKind.CLIENT_UPLOAD).stream()
+				.filter(d -> d.getStatus() != DocumentStatus.SUPERSEDED && d.getObjectKey() != null)
+				.toList();
+		return Stream.concat(letter.stream(), uploads.stream()).toList();
+	}
+
+	/**
+	 * A five-minute URL for one of the files {@link #expertDocuments} lists (Unit 66b).
+	 *
+	 * <p>The case gate runs first and the document is then matched against <em>that list</em>, not
+	 * merely against the case: a document id from this case that the expert may not see (a returned
+	 * draft) is refused the same as one from another case. Only the letter's PDF opens inline (D51).
+	 */
+	@Transactional
+	public String documentUrl(PortalPrincipal principal, UUID caseId, UUID documentId, boolean pdf, boolean view) {
+		Case subject = authorized(principal, caseId);
+		CaseDocument document = expertDocuments(subject).stream()
+				.filter(d -> d.getId().equals(documentId))
+				.findFirst()
+				.orElseThrow(() -> new ForbiddenException("No such document on this case"));
+		if (view && !(pdf && document.getKind() == DocumentKind.DRAFT)) {
+			throw new InvalidRequestException("only the letter's PDF can be viewed");
+		}
+		String key = pdf ? document.getPdfObjectKey() : document.getObjectKey();
+		if (key == null) {
+			throw new IllegalTransitionException("that document has no such file behind it");
+		}
+		audit.recordPortalEvent(subject.getBrandId(), PortalAudience.EXPERT, "CASE_DOCUMENT", document.getId(),
+				AuditAction.EXPORTED, null,
+				Map.of("opened", String.valueOf(pdf ? document.getPdfFilename() : document.getFilename())));
+		return view ? store.presignedPdfView(key) : store.presignedUrl(key);
 	}
 
 	/**
