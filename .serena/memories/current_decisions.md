@@ -159,8 +159,11 @@ a live board read.
 contains (`00d` §6.6 over `00c` §2c). Three lists got tables: custom field **definitions**,
 calendars, location users. **Mirror the structure, never the availability** — free slots are never
 mirrored, and Unit 48 inherits "the business runs without sync and cannot take a new booking".
-**Values are not mirrored, only definitions**: values are what a queued desk create would need
-(D46), so they arrive with that unit and its reader.
+**D49 (47b) mirrors tier 2/3 in full minus free slots**: custom field **values** on
+`opportunity.custom_fields` keyed by field id, GHL notes, tags, task/appointment read-back. Since
+2026-09-30 also the deal's **contact's** custom field values, country and tags on `contact_snapshot`
+(`V81`), with `model=contact` definitions in `ghl_custom_field` — the deal screen shows everything
+GHL holds on the deal and its contact.
 
 **D19d/e/f (2026-09-17).** `evalos.ghl.sales-brand` takes a **brand slug** — a UUID is right in one
 database only (IE = 1111… local, 3333… testprod) — resolved once by `SellingBrand`, which replaced

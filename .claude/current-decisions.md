@@ -214,7 +214,10 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
   production and **cannot take a new booking**. That belongs on 48's list of what degrades.
 - **D49.** **Tier 2 and tier 3 are mirrored in full, minus free slots** (Unit 47b, 2026-09-17).
   Custom field **values** (`opportunity.custom_fields`, keyed by GHL **field id** so a rename cannot
-  lose them), **GHL notes** (`ghl_note`), **tags** (`ghl_tag`), and **read-back for tasks and
+  lose them — and, since 2026-09-30, the deal's **contact's** custom field values, country and tags
+  on `contact_snapshot` (`V81`), with `model=contact` definitions in `ghl_custom_field`, because the
+  deal screen now shows everything GHL holds on the deal and its contact; D47's rule, a screen
+  reads them), **GHL notes** (`ghl_note`), **tags** (`ghl_tag`), and **read-back for tasks and
   appointments** — a task completed or an appointment cancelled in GHL now reaches EvalOS.
   *(This reverses 47 §4's cuts, which the business overruled. One of them was also wrong on the
   facts: §4 claimed tasks could only be listed per contact, but `getNotes`/`getTasks`/

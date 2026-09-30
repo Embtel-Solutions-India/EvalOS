@@ -60,14 +60,16 @@ public class GhlCustomFieldClient {
 	}
 
 	/**
-	 * Every custom field this location defines on an opportunity, in GHL's own order.
+	 * Every custom field this location defines on one model, in GHL's own order.
 	 *
+	 * @param model GHL's model name: {@code opportunity}, or {@code contact} (since 2026-09-30, for
+	 *              the deal screen's contact card)
 	 * @throws GhlUnavailableException if GHL is not configured here or refused the request
 	 */
-	public List<CustomField> forOpportunities() {
+	public List<CustomField> forModel(String model) {
 		FieldsResponse response = http.get(FieldsResponse.class,
 				(uri) -> uri.path("/locations/{locationId}/customFields")
-						.queryParam("model", "opportunity")
+						.queryParam("model", model)
 						.build(http.locationId()));
 
 		return Optional.ofNullable(response)

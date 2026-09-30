@@ -274,11 +274,7 @@ public class OpportunityMirrorService {
 	 * {@code missing_since}, because notes are enumerated per opportunity rather than filtered.
 	 */
 	private void absorbTier23(Opportunity held, GhlPipelineClient.Opportunity row) {
-		held.syncCustomFields(row.customFields().stream()
-				.filter((field) -> field.id() != null && field.value() != null)
-				.collect(java.util.stream.Collectors.toMap(GhlPipelineClient.CustomFieldValue::id,
-						GhlPipelineClient.CustomFieldValue::value, (first, second) -> second,
-						java.util.LinkedHashMap::new)));
+		held.syncCustomFields(GhlPipelineClient.CustomFieldValue.toMap(row.customFields()));
 
 		absorbNotes(held, row);
 		absorbTasks(held.getBrandId(), row);

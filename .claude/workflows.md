@@ -322,15 +322,15 @@ messaging is the case chat (Unit 57, spec `57-case-chat.md`).
 |---|---|---|---|
 | **A** | GHL → EvalOS | `opportunity.won` webhook creates the case | code complete |
 | **mirror** | GHL → EvalOS | `contact.*` and `opportunity.*` webhooks update `contact_snapshot` and `opportunity`; `MIRROR_DELTA` (15m) is the floor under them | code complete (45d, 2026-09-17) |
-| **contact backfill** | GHL → EvalOS | the deal screen reads `GET /contacts/{id}` when `contact_snapshot` has never seen the person, and keeps the row | code complete (2026-09-22) |
+| **contact backfill** | GHL → EvalOS | the deal screen reads `GET /contacts/{id}` when `contact_snapshot` has never seen the person, and keeps the row — country, tags and custom field values included (2026-09-30; `CONTACT_MIRROR` fills them for every contact) | code complete (2026-09-22) |
 | **B** | EvalOS → Expert | staff mints a portal link; expert signs | code complete |
 | **C** | EvalOS → GHL / client | — | **dropped (D53)** |
 
 **The contact backfill exists because every other writer of `contact_snapshot` is an EvalOS-side
 event.** Handoff A writes one when a deal is won, the portal writes one at set-password, and 45d's
 `contact.created`/`contact.updated` webhook writes one when GHL tells us something changed. None of
-those fires for a contact that already existed in GHL before EvalOS met it, and **no sweep pulls
-contacts** — `MIRROR_DELTA` refreshes opportunities. So a deal a salesperson typed into GHL arrived
+those fires for a contact that already existed in GHL before EvalOS met it, and **no sweep pulled
+contacts** then — `MIRROR_DELTA` refreshes opportunities; `CONTACT_MIRROR` came later. So a deal a salesperson typed into GHL arrived
 in the mirror carrying a `ghl_contact_id` and nothing else, and the deal screen said *"no contact on
 this deal yet — it arrives with the next sync"* indefinitely, which was a sentence about a sync that
 was never going to run.

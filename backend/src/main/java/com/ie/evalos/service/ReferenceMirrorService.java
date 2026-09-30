@@ -45,8 +45,11 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class ReferenceMirrorService {
 
-	/** The only GHL object whose fields anything reads today. The endpoint takes it as `?model=`. */
+	/** The two GHL objects whose fields a screen reads. The endpoint takes each as `?model=`. */
 	public static final String OPPORTUNITY_MODEL = "opportunity";
+
+	/** The deal screen's contact card names the contact's custom fields (2026-09-30). */
+	public static final String CONTACT_MODEL = "contact";
 
 	private static final Logger log = LoggerFactory.getLogger(ReferenceMirrorService.class);
 
@@ -104,12 +107,12 @@ public class ReferenceMirrorService {
 				refreshTags());
 	}
 
+	/** Each model guarded on its own, like the lists: a refused contact read keeps the deal form's fields. */
 	private int refreshCustomFields() {
-		return guarded("custom fields", () -> {
-			List<GhlCustomFieldClient.CustomField> fromGhl =
-					customFieldClient.forOpportunities();
-			return absorbCustomFields(fromGhl);
-		});
+		return guarded("opportunity custom fields", () -> absorbCustomFields(OPPORTUNITY_MODEL,
+				customFieldClient.forModel(OPPORTUNITY_MODEL)))
+				+ guarded("contact custom fields", () -> absorbCustomFields(CONTACT_MODEL,
+						customFieldClient.forModel(CONTACT_MODEL)));
 	}
 
 	private int refreshCalendars() {
@@ -153,7 +156,7 @@ public class ReferenceMirrorService {
 	}
 
 	@Transactional
-	public int absorbCustomFields(List<GhlCustomFieldClient.CustomField> fromGhl) {
+	public int absorbCustomFields(String model, List<GhlCustomFieldClient.CustomField> fromGhl) {
 		Set<String> seen = new HashSet<>();
 		for (GhlCustomFieldClient.CustomField row : fromGhl) {
 			if (blank(row.id())) {
@@ -163,11 +166,11 @@ public class ReferenceMirrorService {
 			GhlReference.CustomField held = customFields
 					.findByBrandIdAndGhlId(sellingBrandId, row.id())
 					.orElseGet(() -> new GhlReference.CustomField(sellingBrandId, row.id(),
-							OPPORTUNITY_MODEL, nameOf(row.name(), row.id())));
+							model, nameOf(row.name(), row.id())));
 			held.seen(nameOf(row.name(), row.id()), row.fieldKey(), row.dataType(), row.picklistOptions());
 			customFields.save(held);
 		}
-		stampMissing(customFields.findByBrandIdAndModelOrderByNameAsc(sellingBrandId, OPPORTUNITY_MODEL),
+		stampMissing(customFields.findByBrandIdAndModelOrderByNameAsc(sellingBrandId, model),
 				seen, customFields::save);
 		return seen.size();
 	}

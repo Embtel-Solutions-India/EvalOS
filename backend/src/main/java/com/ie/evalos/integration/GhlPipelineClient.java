@@ -179,21 +179,66 @@ public class GhlPipelineClient {
 	}
 
 	/**
-	 * One custom field value on an opportunity.
+	 * One custom field value on an opportunity, as text.
 	 *
-	 * <p>GHL returns the value under whichever key fits its type — a string in {@code fieldValue},
-	 * a list in {@code fieldValueArray} — so {@link #value()} is where that is resolved once
-	 * instead of at every reader.
+	 * <p><strong>GHL sends two shapes and documents one.</strong> The docs, and
+	 * {@code GET /opportunities/{id}}, give {@code {id, fieldValue}} with {@code fieldValue} a string,
+	 * an object or a list. The search the mirror runs sends {@code {id, type, fieldValueString}} —
+	 * a key per type, verified live 2026-09-30. This record read only {@code fieldValue} (typed as a
+	 * string) until then, so every search value was dropped and a list-valued one failed the whole
+	 * page. So the item is read as a map: {@code fieldValue} first, else the first
+	 * {@code fieldValue*} key — which also covers a typed key nobody has seen yet — else
+	 * {@code value}, which is where a <em>contact's</em> custom field carries it
+	 * ({@code GhlContactClient} binds the same record).
+	 *
+	 * @param value null when GHL sent no value or a blank one
 	 */
-	public record CustomFieldValue(String id, String fieldValue, List<String> fieldValueArray) {
+	public record CustomFieldValue(String id, String value) {
 
-		/** The value as text, whichever shape GHL used. Null when it sent neither. */
-		public String value() {
-			if (fieldValue != null && !fieldValue.isBlank()) {
-				return fieldValue;
+		private static final com.fasterxml.jackson.databind.ObjectMapper JSON =
+				new com.fasterxml.jackson.databind.ObjectMapper();
+
+		@com.fasterxml.jackson.annotation.JsonCreator(mode = com.fasterxml.jackson.annotation.JsonCreator.Mode.DELEGATING)
+		static CustomFieldValue fromGhl(java.util.Map<String, Object> raw) {
+			Object value = raw.containsKey("fieldValue") ? raw.get("fieldValue")
+					: raw.entrySet().stream()
+							.filter((entry) -> entry.getKey().startsWith("fieldValue"))
+							.map(java.util.Map.Entry::getValue)
+							.findFirst().orElse(raw.get("value"));
+			return new CustomFieldValue((String) raw.get("id"), asText(value));
+		}
+
+		/** Field id to value, in GHL's order, dropping items with no id or no value. */
+		public static java.util.Map<String, String> toMap(List<CustomFieldValue> fields) {
+			java.util.Map<String, String> values = new java.util.LinkedHashMap<>();
+			if (fields != null) {
+				for (CustomFieldValue field : fields) {
+					if (field.id() != null && field.value() != null) {
+						values.put(field.id(), field.value());
+					}
+				}
 			}
-			return fieldValueArray == null || fieldValueArray.isEmpty() ? null
-					: String.join(", ", fieldValueArray);
+			return values;
+		}
+
+		private static String asText(Object value) {
+			String text = switch (value) {
+				case null -> null;
+				case String string -> string;
+				case List<?> list when list.stream().allMatch((item) -> !(item instanceof java.util.Map)) ->
+						String.join(", ", list.stream().map(String::valueOf).toList());
+				case Number number -> number.toString();
+				case Boolean bool -> bool.toString();
+				default -> {
+					try {
+						yield JSON.writeValueAsString(value);
+					}
+					catch (com.fasterxml.jackson.core.JsonProcessingException unwritable) {
+						yield null;
+					}
+				}
+			};
+			return text == null || text.isBlank() ? null : text;
 		}
 	}
 

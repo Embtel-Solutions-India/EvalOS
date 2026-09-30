@@ -1,15 +1,19 @@
 package com.ie.evalos.web;
 
 import java.time.Instant;
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import com.ie.evalos.common.ApiResponse;
 import com.ie.evalos.domain.ContactSnapshot;
 import com.ie.evalos.domain.GhlReference;
 import com.ie.evalos.domain.Opportunity;
+import com.ie.evalos.repository.GhlCustomFieldRepository;
 import com.ie.evalos.repository.GhlUserRepository;
 import com.ie.evalos.service.ContactSnapshotService;
 import com.ie.evalos.service.PipelineScope;
+import com.ie.evalos.service.ReferenceMirrorService;
 
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -72,20 +76,32 @@ public class OpportunityContactController {
 	 *                   should: "nobody is on this" and "we cannot name who is" are equally
 	 *                   actionable to a salesperson looking at their own board
 	 * @param createdAt  when GHL opened the deal, not when EvalOS mirrored it
+	 * @param dealFields every custom field value the mirror holds on the deal, named (2026-09-30).
+	 *                   Here rather than on the board for the reason above: one open deal, not
+	 *                   1,500 cards
+	 * @param country    the contact's, with {@code tags} and {@code contactFields} — what GHL holds
+	 *                   on the person beyond the four identity fields
 	 */
 	public record ContactView(String name, String email, String phone, String company,
-			String source, String assignedTo, Instant createdAt) {
+			String source, String assignedTo, Instant createdAt, List<Field> dealFields,
+			String country, List<String> tags, List<Field> contactFields) {
+	}
+
+	/** A custom field value under its GHL name. The field id stays server-side, like the user id. */
+	public record Field(String label, String value) {
 	}
 
 	private final PipelineScope scope;
 	private final ContactSnapshotService contacts;
 	private final GhlUserRepository ghlUsers;
+	private final GhlCustomFieldRepository customFields;
 
 	OpportunityContactController(PipelineScope scope, ContactSnapshotService contacts,
-			GhlUserRepository ghlUsers) {
+			GhlUserRepository ghlUsers, GhlCustomFieldRepository customFields) {
 		this.scope = scope;
 		this.contacts = contacts;
 		this.ghlUsers = ghlUsers;
+		this.customFields = customFields;
 	}
 
 	@GetMapping
@@ -108,9 +124,30 @@ public class OpportunityContactController {
 					contact == null || contact.getSourceChannel() == null
 							? null : contact.getSourceChannel().name(),
 					assigneeName(deal),
-					deal.getGhlCreatedAt());
+					deal.getGhlCreatedAt(),
+					named(deal, ReferenceMirrorService.OPPORTUNITY_MODEL, deal.getCustomFields()),
+					contact == null ? null : contact.getCountry(),
+					contact == null ? List.of() : contact.getTags(),
+					contact == null ? List.of()
+							: named(deal, ReferenceMirrorService.CONTACT_MODEL, contact.getCustomFields()));
 		});
 		return ApiResponse.ok(found.orElse(null));
+	}
+
+	/**
+	 * Held values under their field names, in the mirror's name order.
+	 *
+	 * <p>A value whose definition the mirror does not hold is <strong>dropped, not shown by id</strong>
+	 * — the assignee rule below: an id is not a label. Brand-scoped from the deal.
+	 */
+	private List<Field> named(Opportunity deal, String model, Map<String, String> values) {
+		if (values.isEmpty()) {
+			return List.of();
+		}
+		return customFields.findByBrandIdAndModelOrderByNameAsc(deal.getBrandId(), model).stream()
+				.filter((field) -> values.containsKey(field.getGhlId()))
+				.map((field) -> new Field(field.getName(), values.get(field.getGhlId())))
+				.toList();
 	}
 
 	/**

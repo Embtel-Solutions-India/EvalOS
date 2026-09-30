@@ -124,9 +124,7 @@ public class ContactMirrorService {
 			}
 
 			for (GhlContactClient.Contact contact : page.contacts()) {
-				contacts.findOrCreate(sellingBrandId, new ContactSnapshotService.Details(
-						contact.id(), contact.name(), contact.email(), contact.phone(),
-						contact.company(), null, null, null, null, null));
+				contacts.findOrCreate(sellingBrandId, ContactSnapshotService.Details.fromGhl(contact));
 				seen++;
 			}
 
