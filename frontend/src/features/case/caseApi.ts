@@ -205,6 +205,11 @@ export async function fetchDocumentUrl(caseId: string, documentId: string, pdf =
 }
 
 /** Both files of the next version in one request (Unit 58). The browser sets the multipart boundary. */
+/** The date promised to the client (GM, PM). Not a transition; `DeadlineRisk` recomputes on read. */
+export async function changeDeadline(caseId: string, deadline: string): Promise<void> {
+  await unwrap(api.patch(`/cases/${caseId}/deadline`, { deadline }))
+}
+
 export async function uploadDraft(caseId: string, docx: File, pdf: File): Promise<void> {
   const body = new FormData()
   body.append('docx', docx)

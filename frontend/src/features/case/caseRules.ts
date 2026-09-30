@@ -27,12 +27,6 @@ export function nextStep(stage: Stage, exception: ExceptionState, role: Role): s
   return `Waiting on the ${ROLE_LABELS[owner]}`
 }
 
-/** `OfferFeeController` PATCH …/offer/fee: GM, PM, PC, ENM, and only while the offer is open (D59). */
-const FEE_SETTERS: readonly Role[] = ['GM', 'PROJECT_MANAGER', 'PROJECT_COORDINATOR', 'EXPERT_NETWORK_MANAGER']
-export function mayEditFee(role: Role, outcome: string | null): boolean {
-  return outcome === 'OFFERED' && FEE_SETTERS.includes(role)
-}
-
 /** `CaseController` PATCH /{id}/deadline: GM or PM. */
 export function maySetDeadline(role: Role): boolean {
   return role === 'GM' || role === 'PROJECT_MANAGER'

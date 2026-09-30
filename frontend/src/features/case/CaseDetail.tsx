@@ -189,7 +189,7 @@ export default function CaseDetailPage() {
           {/* Above the expert and the notes: who the letter is about is what the rest of the
               column is in service of, and it is the one fact the header cannot carry. */}
           <CaseFacts detail={detail} role={me.role} onSave={onSaveFacts} />
-          <ExpertCard detail={detail} />
+          <ExpertCard detail={detail} reloadKey={timeline.length} />
           <StrategyNotes detail={detail} onSave={onSaveNotes} />
           {/*
             Below the notes and separate from them, which is the visible half of the decision to

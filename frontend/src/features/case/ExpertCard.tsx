@@ -20,7 +20,7 @@ const SIGN_TONE: Record<string, { fg: string; bg: string; label: string }> = {
   REASSIGNED: { fg: 'var(--text-muted)', bg: 'var(--bg-raised)', label: 'reassigned' },
 }
 
-export default function ExpertCard({ detail }: { detail: CaseDetail }) {
+export default function ExpertCard({ detail, reloadKey }: { detail: CaseDetail; reloadKey: number }) {
   const status = detail.summary.expertSignStatus
   const tone = status ? SIGN_TONE[status] : null
 
@@ -29,7 +29,7 @@ export default function ExpertCard({ detail }: { detail: CaseDetail }) {
       className="rounded-lg border p-4"
       style={{ background: 'var(--bg-surface)', borderColor: 'var(--border-default)' }}
     >
-      <h2 className="text-sm font-semibold tracking-tight">Expert</h2>
+      <h2 className="text-sm font-semibold tracking-tight">Expert &amp; offer</h2>
 
       {detail.expertName ? (
         <>
@@ -51,7 +51,7 @@ export default function ExpertCard({ detail }: { detail: CaseDetail }) {
           )}
 
           {/* Unit 65: what this case pays the expert, and whether they have agreed to it. */}
-          <OfferFee caseId={detail.summary.id} />
+          <OfferFee caseId={detail.summary.id} reloadKey={reloadKey} />
 
           {/*
             The read receipt, and it is worth its line: "they have not opened it" and "they opened

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { QUICK_ACTIONS } from '../board/boardRules'
-import { endOfDayIso, mayEditFee, mayManageChecklist, maySetDeadline, nextStep, splitActions, toDateInput } from './caseRules'
+import { endOfDayIso, mayManageChecklist, maySetDeadline, nextStep, splitActions, toDateInput } from './caseRules'
 
 // `lib/session` (ROLE_LABELS) reads sessionStorage on import; vitest runs in node.
 vi.hoisted(() => {
@@ -35,14 +35,6 @@ describe('nextStep', () => {
 })
 
 describe('permissions mirrored from the server', () => {
-  it('lets the fee setters edit only an open offer (OfferFeeController, D59)', () => {
-    expect(mayEditFee('PROJECT_COORDINATOR', 'OFFERED')).toBe(true)
-    expect(mayEditFee('EXPERT_NETWORK_MANAGER', 'OFFERED')).toBe(true)
-    expect(mayEditFee('PROJECT_MANAGER', 'ACCEPTED')).toBe(false)
-    expect(mayEditFee('CASE_MANAGER', 'OFFERED')).toBe(false)
-    expect(mayEditFee('BRAND_MANAGER', 'OFFERED')).toBe(false)
-    expect(mayEditFee('GM', null)).toBe(false)
-  })
   it('matches PATCH /deadline (GM, PM) and the checklist COORDINATION gate (GM, BM, PC, CM)', () => {
     expect((['GM', 'PROJECT_MANAGER'] as const).every((r) => maySetDeadline(r))).toBe(true)
     expect(maySetDeadline('PROJECT_COORDINATOR')).toBe(false)
