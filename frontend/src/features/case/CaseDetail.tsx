@@ -184,7 +184,7 @@ export default function CaseDetailPage() {
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
         <div className="flex flex-col gap-4">
-          <DocumentsPanel detail={detail} />
+          <DocumentsPanel detail={detail} role={me.role} onChanged={() => void load()} />
           <DraftPanel detail={detail} role={me.role} onUploaded={() => void load()} />
           {/* Above the expert and the notes: who the letter is about is what the rest of the
               column is in service of, and it is the one fact the header cannot carry. */}
