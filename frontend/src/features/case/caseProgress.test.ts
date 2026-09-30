@@ -57,6 +57,13 @@ describe('progress', () => {
     expect(steps.find((s) => s.stage === 'FINAL_QC')?.state).toBe('current')
   })
 
+  it('counts every stage before the current one as reached, even with no row for it', () => {
+    const steps = progress([], 'DRAFT_REVIEW', new Date())
+    expect(steps.slice(0, 3).map((s) => s.state)).toEqual(['reached', 'reached', 'reached'])
+    expect(steps[0]).toMatchObject({ visits: 0, firstAt: null })
+    expect(steps[4].state).toBe('not-reached')
+  })
+
   it('stops the clock once the case is closed', () => {
     const steps = progress([e('2026-09-01T00:00:00Z', 'CLOSED')], 'CLOSED', new Date('2026-09-09T00:00:00Z'))
     expect(steps[11].spentMs).toBe(0)

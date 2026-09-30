@@ -220,10 +220,11 @@ function Row({
 
           <div className="flex items-center gap-3">
             {/* The upload from where the CM works (Unit 66); the board card stays a link that does not act. */}
-            {mayUploadDraft(card.currentStage, me.role) && (
+            {/* Numbered off the case's own count, as on the case page — the history can have gaps. */}
+            {detail && mayUploadDraft(card.currentStage, me.role) && (
               <UploadDraftDialog
                 caseId={card.id}
-                nextVersion={(versions?.length ?? 0) + 1}
+                nextVersion={detail.summary.draftVersionCount + 1}
                 onUploaded={onUploaded}
                 trigger={
                   <button

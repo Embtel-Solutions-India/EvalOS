@@ -8,7 +8,7 @@ import type { QuickAction } from '../board/boardRules'
 import DocumentsPanel from './DocumentsPanel'
 import DraftPanel from './DraftPanel'
 import ExpertCard from './ExpertCard'
-import StageActions from './StageActions'
+import CaseHeader from './CaseHeader'
 import StrategyNotes from './StrategyNotes'
 import ExpertRationale from './ExpertRationale'
 import CaseFacts from './CaseFacts'
@@ -174,12 +174,14 @@ export default function CaseDetailPage() {
 
   return (
     <div>
-      <StageActions
+      <CaseHeader
         detail={detail}
+        timeline={timeline}
         role={me.role}
         busy={busy}
         error={actionError}
         onAction={onAction}
+        onChanged={() => void load()}
       />
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">

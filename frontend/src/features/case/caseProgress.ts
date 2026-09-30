@@ -51,9 +51,13 @@ export function progress(entries: readonly TimelineEntry[], current: Stage, now:
   }
   if (open && open.stage !== 'CLOSED') steps.get(open.stage)!.spentMs += now.getTime() - open.at
 
-  return STAGE_ORDER.map((stage) => {
+  // The pipeline is linear, so every stage before the current one was passed through — even on a
+  // case whose trail predates stage snapshots and has no row for it (it just has no date).
+  const at = STAGE_ORDER.indexOf(current)
+  return STAGE_ORDER.map((stage, index) => {
     const step = steps.get(stage)!
-    return { ...step, state: stage === current ? 'current' : step.visits > 0 ? 'reached' : 'not-reached' }
+    const state = stage === current ? 'current' : step.visits > 0 || index < at ? 'reached' : 'not-reached'
+    return { ...step, state }
   })
 }
 

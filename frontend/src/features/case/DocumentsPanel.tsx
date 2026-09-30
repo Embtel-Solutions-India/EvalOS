@@ -93,7 +93,7 @@ export default function DocumentsPanel({
           </ul>
           <p className="mt-1 text-xs" style={{ color: 'var(--text-muted)' }}>
             {[
-              view.unsent > 0 ? `${view.unsent} item${view.unsent === 1 ? '' : 's'} wait for the next Send` : null,
+              view.unsent > 0 ? `${view.unsent} item${view.unsent === 1 ? ' waits' : 's wait'} for the next Send` : null,
               view.lastChasedAt ? `chased ${new Date(view.lastChasedAt).toLocaleDateString()}` : null,
             ]
               .filter(Boolean)
