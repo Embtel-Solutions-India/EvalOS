@@ -432,16 +432,18 @@ export const QUICK_ACTIONS: readonly QuickAction[] = [
     stages: ['CLIENT_REVIEW'],
     fields: REASON,
   },
+  // The CM is admitted by `CaseController` on all three (Unit 66) — they own EXPERT_SIGNING. Not on
+  // `reassign-expert` below: its picker reads GET /api/experts, which the CM may not.
   {
     path: 'expert/signed',
     label: 'Expert signed',
-    roles: ['PROJECT_MANAGER', 'EXPERT_NETWORK_MANAGER'],
+    roles: ['PROJECT_MANAGER', 'EXPERT_NETWORK_MANAGER', 'CASE_MANAGER'],
     stages: ['EXPERT_SIGNING'],
   },
   {
     path: 'expert/declined',
     label: 'Expert declined',
-    roles: ['PROJECT_MANAGER', 'EXPERT_NETWORK_MANAGER'],
+    roles: ['PROJECT_MANAGER', 'EXPERT_NETWORK_MANAGER', 'CASE_MANAGER'],
     stages: ['EXPERT_SIGNING'],
     fields: REASON,
   },
@@ -532,7 +534,7 @@ export const QUICK_ACTIONS: readonly QuickAction[] = [
   {
     path: 'expert/timed-out',
     label: 'Mark expert overdue',
-    roles: ['BRAND_MANAGER', 'PROJECT_MANAGER'],
+    roles: ['BRAND_MANAGER', 'PROJECT_MANAGER', 'CASE_MANAGER'],
     stages: ['EXPERT_SIGNING'],
   },
 

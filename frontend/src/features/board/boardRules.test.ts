@@ -381,3 +381,13 @@ describe('the case fee on an offer (Unit 65)', () => {
     }
   })
 })
+
+describe('the Case Manager on expert signing (Unit 66)', () => {
+  it('offers the three signing answers the server admits a CM to', () => {
+    const offered = paths('EXPERT_SIGNING', 'CASE_MANAGER')
+    expect(offered).toEqual(expect.arrayContaining(['expert/signed', 'expert/declined', 'expert/timed-out']))
+  })
+  it('still does not offer reassign — its expert picker is gated away from the CM', () => {
+    expect(paths('EXPERT_SIGNING', 'CASE_MANAGER', 'EXPERT_DECLINED_REMATCHING')).not.toContain('reassign-expert')
+  })
+})
