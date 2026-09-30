@@ -240,9 +240,8 @@ class OpportunityMirrorSyncTest {
 		given(opportunities.findByBrandIdAndGhlId(BRAND, "opp-1")).willReturn(Optional.empty());
 
 		mirror.absorbForContact(List.of(withCollections(
-				List.of(new GhlPipelineClient.CustomFieldValue("f_visa", "H-1B", null),
-						new GhlPipelineClient.CustomFieldValue("f_docs", null,
-								List.of("Transcript", "Degree"))),
+				List.of(new GhlPipelineClient.CustomFieldValue("f_visa", "H-1B"),
+						new GhlPipelineClient.CustomFieldValue("f_docs", "Transcript, Degree")),
 				List.of(), List.of(), List.of())));
 
 		assertThat(saved).singleElement().satisfies((row) -> assertThat(row.getCustomFields())

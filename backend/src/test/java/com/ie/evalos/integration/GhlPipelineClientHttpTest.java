@@ -314,6 +314,37 @@ class GhlPipelineClientHttpTest {
 	}
 
 	/**
+	 * <strong>Custom field values bind from the shape GHL actually sends, not only the documented
+	 * one.</strong>
+	 *
+	 * <p>The docs give every item as {@code {id, fieldValue}}, and {@code GET /opportunities/{id}}
+	 * agrees. The <em>search</em> the mirror runs sends {@code {id, type, fieldValueString}} instead
+	 * — verified live 2026-09-30 — and a record reading only {@code fieldValue} dropped every value,
+	 * so all 1,860 mirrored deals held {@code {}}. Both shapes are pinned here.
+	 */
+	@Test
+	void bindsCustomFieldValuesInTheSearchShapeAndTheDocumentedOne() {
+		responses.add(searchPage(opportunity("s-new", "1000", null).replace("\"customFields\":[]", """
+				"customFields":[
+				 {"id":"f_service","type":"string","fieldValueString":"Course-by-Course Evaluation"},
+				 {"id":"f_amount","type":"number","fieldValueNumber":250},
+				 {"id":"f_docs","fieldValue":["Diploma","Transcript"]},
+				 {"id":"f_single","fieldValue":"Individual"},
+				 {"id":"f_empty","fieldValue":""}]"""), LAST_PAGE_META));
+
+		GhlPipelineClient.Opportunity found = client().opportunitiesIn(ADS_PIPELINE, FROM, TO).getFirst();
+
+		assertThat(found.customFields())
+				.extracting(GhlPipelineClient.CustomFieldValue::id, GhlPipelineClient.CustomFieldValue::value)
+				.containsExactly(
+						org.assertj.core.groups.Tuple.tuple("f_service", "Course-by-Course Evaluation"),
+						org.assertj.core.groups.Tuple.tuple("f_amount", "250"),
+						org.assertj.core.groups.Tuple.tuple("f_docs", "Diploma, Transcript"),
+						org.assertj.core.groups.Tuple.tuple("f_single", "Individual"),
+						org.assertj.core.groups.Tuple.tuple("f_empty", null));
+	}
+
+	/**
 	 * The status filter goes on the wire, and only when asked for.
 	 *
 	 * <p>The three-arg overload must stay unfiltered: the funnel screens count every status, and a

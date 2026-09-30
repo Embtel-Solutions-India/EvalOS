@@ -64,6 +64,19 @@ public class ContactSnapshot extends ScopedEntity {
 	@Column(name = "date_first_captured")
 	private Instant dateFirstCaptured;
 
+	/** GHL's country code, e.g. {@code US}. Shown on the deal screen, as are the two below. */
+	@Column(name = "country")
+	private String country;
+
+	@org.hibernate.annotations.JdbcTypeCode(org.hibernate.type.SqlTypes.ARRAY)
+	@Column(name = "tags", nullable = false)
+	private String[] tags = new String[0];
+
+	/** Keyed by GHL field id, like {@code opportunity.custom_fields}; {@code ghl_custom_field} names them. */
+	@org.hibernate.annotations.JdbcTypeCode(org.hibernate.type.SqlTypes.JSON)
+	@Column(name = "custom_fields", nullable = false)
+	private java.util.Map<String, String> customFields = new java.util.LinkedHashMap<>();
+
 	/** When this snapshot was last refreshed from GHL. */
 	@Column(name = "synced_at")
 	private Instant syncedAt;
@@ -146,6 +159,38 @@ public class ContactSnapshot extends ScopedEntity {
 			this.utmCampaign = utmCampaign;
 		}
 		this.syncedAt = Instant.now();
+	}
+
+	/**
+	 * Country, tags and custom field values from a GHL read of the contact.
+	 *
+	 * <p>Separate from {@link #syncFromGhl} because only a full GHL read carries them — the contact
+	 * sweep and the deal screen's backfill. A webhook or sign-up passes null, and <strong>null
+	 * leaves the held value alone</strong>, the same rule as a blank name. A non-null tag list or
+	 * field map replaces the held one, empty included: from a full read, "no tags" is a real answer.
+	 */
+	public void syncDetails(String country, java.util.List<String> tags, java.util.Map<String, String> customFields) {
+		if (country != null && !country.isBlank()) {
+			this.country = country;
+		}
+		if (tags != null) {
+			this.tags = tags.toArray(String[]::new);
+		}
+		if (customFields != null) {
+			this.customFields = new java.util.LinkedHashMap<>(customFields);
+		}
+	}
+
+	public String getCountry() {
+		return country;
+	}
+
+	public java.util.List<String> getTags() {
+		return java.util.List.of(tags);
+	}
+
+	public java.util.Map<String, String> getCustomFields() {
+		return java.util.Collections.unmodifiableMap(customFields);
 	}
 
 	public String getGhlContactId() {

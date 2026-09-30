@@ -22,7 +22,7 @@ live in `backend/src/main/resources/db/migration/`.
 | `team_member_pipeline` | **which pipelines a member may work** (44b, `V54`): FK to `pipeline`, many-to-many, `granted_at`/`granted_by`, `revoked_at` (`V64`). **A revoke stamps, never deletes** — the row is what stops `backfillFromLegacyColumn` re-creating the grant from `team_member.ghl_pipeline_id`, which `V39` forbids emptying for SALES/MARKETING. Every read filters `revoked_at IS NULL` | via the member |
 | `client_account` | **portal identity**: email, password_hash, ghl_contact_id, `contact_id` (`V55` — FK to the CRM row), name, phone, `created_via` (`V59` — SEED / SIGNUP / STAFF, **CASE** since `V78`: opened when the client's case was created, Unit 64; the only thing `PORTAL_CLEANUP` is allowed to delete on) | yes |
 | `client_credential_token` | single-use SET / RESET password links | yes |
-| `contact_snapshot` | CRM snapshot a case hangs off; utm / source fields | yes |
+| `contact_snapshot` | CRM snapshot a case hangs off; utm / source fields; `country`, `tags text[]`, `custom_fields jsonb` keyed by GHL field id (`V81`, shown on the deal screen) | yes |
 | `conversations` | **case chat** (Unit 57, `V69`): three per case (`CLIENT`/`INTERNAL`/`EXPERT`, `UNIQUE (case_id, type)`), `ACTIVE`/`READ_ONLY` (at `CLOSED`), `last_message_at` | yes |
 | `conversation_members` | **membership history**: kind (`STAFF`/`CLIENT`/`EXPERT`) + member id + role label, `created_at` = joined, `left_at` + `left_reason`. **A trigger refuses DELETE** and allows an UPDATE only to stamp `left_at` once; one current row per person (partial unique index) | yes |
 | `messages` | text only (≤4,000), `parent_message_id` (replies one level), `edited_at`, `deleted_at` (body cleared, original in `audit_event`), generated `search` tsvector (GIN) | yes |
@@ -161,7 +161,9 @@ Slice order and the reasoning behind it: `context/specs/44-ghl-tier1-mirror.md`.
 GHL's own ids, stamped `synced_at`, never deleted (`missing_since` instead). Prefixed `ghl_` because
 `user` is reserved in Postgres and `calendar` collides with vocabulary the app already uses; the
 three are named consistently rather than one being the odd one out. **Free slots are not a table and
-must not become one** (D48). **Custom field values are not columns** (D49).
+must not become one** (D48). **Custom field values are not columns** (D49): a `jsonb` map keyed by
+field id on `opportunity` and, since `V81`, on `contact_snapshot`. `ghl_custom_field.model` holds
+`opportunity` and `contact` definitions side by side; every reader filters by model.
 
 ### From other approved-but-unbuilt work
 

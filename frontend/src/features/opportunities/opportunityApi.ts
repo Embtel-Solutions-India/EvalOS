@@ -93,7 +93,16 @@ export type DealContact = {
   assignedTo: string | null
   /** When GHL opened the deal, not when EvalOS mirrored it. */
   createdAt: string | null
+  /** Every custom field value the mirror holds on the deal, under its GHL name. */
+  dealFields: readonly CustomFieldValue[]
+  /** The contact's country code (`US`), or null. */
+  country: string | null
+  tags: readonly string[]
+  /** The contact's own custom field values, named. */
+  contactFields: readonly CustomFieldValue[]
 }
+
+export type CustomFieldValue = { label: string; value: string }
 
 /**
  * `GOOGLE_ADS` -> `Google ads`.

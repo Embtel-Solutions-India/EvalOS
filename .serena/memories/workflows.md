@@ -53,7 +53,9 @@ exist:** every writer of `contact_snapshot` is an EvalOS-side event (Handoff A, 
 typed straight into GHL therefore carried a `ghl_contact_id` and no contact row, and the deal screen
 read "it arrives with the next sync", naming a sync that does not exist. A GHL failure returns empty
 and logs rather than throwing, so a blip does not take the whole screen down with the contact card.
-It is a backfill, not a mirror: a contact CHANGED in GHL still only updates via the webhook.
+It is a backfill, not a mirror; `CONTACT_MIRROR` is the bulk pull. Since 2026-09-30 both write the
+contact's country, tags and custom field values (`Details.fromGhl`); a webhook or sign-up never
+clears them.
 
 **Desk writes (46, 2026-09-17).** Edits — `update`, `moveToStage`, `close`, Marketing's `value` —
 are `editLocally` + `enqueue(UPSERT|CLOSE)` and return the local row. Creates — `createDeal`,

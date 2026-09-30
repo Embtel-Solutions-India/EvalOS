@@ -55,4 +55,26 @@ class ContactSnapshotTest {
 		assertThat(contact.getPhone()).isEqualTo("+1 555 0200");
 		assertThat(contact.getCompany()).isEqualTo("Ruiz Delgado");
 	}
+
+	/**
+	 * The deal screen's extras follow the same rule: null means the caller did not read them (a
+	 * webhook, a sign-up), so the held values stay. A GHL read that says "no tags" is non-null and
+	 * does replace them — an emptied tag list is a real change.
+	 */
+	@Test
+	void detailsTheCallerDidNotReadAreKeptAndAnEmptiedTagListIsNot() {
+		ContactSnapshot contact = held();
+		contact.syncDetails("US", java.util.List.of("stage:hot"), java.util.Map.of("f_type", "Individual"));
+
+		contact.syncDetails(null, null, null);
+
+		assertThat(contact.getCountry()).isEqualTo("US");
+		assertThat(contact.getTags()).containsExactly("stage:hot");
+		assertThat(contact.getCustomFields()).containsEntry("f_type", "Individual");
+
+		contact.syncDetails("", java.util.List.of(), null);
+
+		assertThat(contact.getCountry()).isEqualTo("US");
+		assertThat(contact.getTags()).isEmpty();
+	}
 }
