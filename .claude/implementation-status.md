@@ -37,9 +37,13 @@ request status, portal deployment) and now say so.
    summary and a Manage checklist sheet around `CaseChecklist` (GM/BM/PC/CM); Expert & offer is
    Unit 65's `OfferFee` (fee, Edit, History), now re-read when the trail grows; the CM is offered
    expert signed / declined / timed-out (not reassign — its picker is gated). Staff SPA 171 tests,
-   `tsc -b` and `oxlint` clean. **Browser-checked at 1440** as PM, CM, PC and ENM; **not yet at
-   390**, not dark mode, and the CM's signing buttons only by test (no seeded case in
-   EXPERT_SIGNING). Units 67 (role queues) and 68 (GM admin) are named, not specced.
+   `tsc -b` and `oxlint` clean. **Browser-checked at 1440** as PM, CM, PC and ENM. **At 390** the
+   header fits its column and the strip scrolls with the current step in view, but the page as a
+   whole overflows: the staff `AppShell` has no responsive breakpoints (the sidebar does not
+   collapse, the top bar's filters are ~630px) and `CaseChat`'s header is ~575px — the staff SPA
+   has no phone layout at all, only the portals do. No dark theme exists in the staff SPA
+   (`tokens.css` is light only). The CM's signing buttons are proved by test only (no seeded
+   case in EXPERT_SIGNING). Units 67 (role queues) and 68 (GM admin) are named, not specced.
 6. **Verify for real:** set `ABLY_API_KEY`, the `EVALOS_PUSH_*` keys, SMTP and S3, then click
    through client + expert sign-in and chat against the staff app.
 
