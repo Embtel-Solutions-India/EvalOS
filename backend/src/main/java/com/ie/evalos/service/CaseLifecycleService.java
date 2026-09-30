@@ -268,7 +268,8 @@ public class CaseLifecycleService {
 	 */
 	@Transactional
 	public Case assignCaseManager(UUID caseId, UUID cmId, UUID expertId, String expertRationale,
-			FieldTag fieldOfExpertise, BigDecimal fee) {
+			FieldTag fieldOfExpertise, BigDecimal fee, String expertNote) {
+		String note = requireExpertNote(expertNote);
 		Case subject = load(caseId);
 		Stage to = CaseTransitions.target(subject, Action.ASSIGN_CASE_MANAGER);
 		TeamMember cm = member(cmId, Role.CASE_MANAGER, subject.getBrandId());
@@ -292,7 +293,7 @@ public class CaseLifecycleService {
 				c.setFieldOfExpertise(fieldOfExpertise);
 			}
 		});
-		openOffer(saved, expert.getId(), price);
+		openOffer(saved, expert.getId(), price, note);
 		return saved;
 	}
 
@@ -982,13 +983,14 @@ public class CaseLifecycleService {
 	 */
 	@Transactional
 	public Case reassignExpert(UUID caseId, UUID expertId, String expertRationale,
-			FieldTag fieldOfExpertise, BigDecimal fee) {
+			FieldTag fieldOfExpertise, BigDecimal fee, String expertNote) {
+		String note = requireExpertNote(expertNote);
 		Case subject = load(caseId);
 		Expert replacement = availableExpert(expertId);
 		requireState(!replacement.getId().equals(subject.getExpertId()),
 				"that is the expert who declined — offer it again with retake");
 		return rematch(subject, replacement, expertRationale, fieldOfExpertise, null,
-				OfferFees.price(TenantContext.current().role(), fee, replacement.getStandardFee()));
+				OfferFees.price(TenantContext.current().role(), fee, replacement.getStandardFee()), note);
 	}
 
 	/**
@@ -1003,15 +1005,19 @@ public class CaseLifecycleService {
 		requireState(subject.getExpertId() != null, "the case names no expert to offer it back to");
 		Expert again = availableExpert(subject.getExpertId());
 		// The retake is the same case to the same expert, so the base is what they were last offered.
-		BigDecimal previous = offers.findByCaseIdOrderByOfferedAtDesc(subject.getId()).stream()
-				.filter(o -> o.getExpertId().equals(again.getId()) && o.getFee() != null)
-				.map(ExpertCaseOffer::getFee).findFirst().orElse(again.getStandardFee());
+		List<ExpertCaseOffer> theirs = offers.findByCaseIdOrderByOfferedAtDesc(subject.getId()).stream()
+				.filter(o -> o.getExpertId().equals(again.getId())).toList();
+		BigDecimal previous = theirs.stream().map(ExpertCaseOffer::getFee).filter(java.util.Objects::nonNull)
+				.findFirst().orElse(again.getStandardFee());
+		// D69: the same case to the same expert, so the note they were given comes back with it.
+		String note = theirs.stream().map(ExpertCaseOffer::getNote).filter(java.util.Objects::nonNull)
+				.findFirst().orElse(null);
 		return rematch(subject, again, null, null, "Offered again to the expert who declined (retake)",
-				OfferFees.price(TenantContext.current().role(), fee, previous));
+				OfferFees.price(TenantContext.current().role(), fee, previous), note);
 	}
 
 	private Case rematch(Case subject, Expert replacement, String expertRationale, FieldTag fieldOfExpertise,
-			String note, BigDecimal price) {
+			String note, BigDecimal price, String expertNote) {
 		Stage to = CaseTransitions.target(subject, Action.REASSIGN_EXPERT);
 		resolveOpenOffer(subject, OfferOutcome.SUPERSEDED, null, null);
 		// **The one that matters.** The case is about to name a different expert; the outgoing one's
@@ -1034,7 +1040,7 @@ public class CaseLifecycleService {
 				c.setFieldOfExpertise(fieldOfExpertise);
 			}
 		});
-		openOffer(saved, replacement.getId(), price);
+		openOffer(saved, replacement.getId(), price, expertNote);
 		return saved;
 	}
 
@@ -1073,10 +1079,19 @@ public class CaseLifecycleService {
 	}
 
 	/** Opens the priced offer and logs it (Unit 65 rule 8). */
-	private void openOffer(Case saved, UUID expertId, BigDecimal price) {
+	/** D69: an offer tells its expert something. Checked before anything moves. */
+	private static String requireExpertNote(String note) {
+		if (note == null || note.isBlank()) {
+			throw new InvalidRequestException("Write a note for the expert: every offer carries one");
+		}
+		return note.strip();
+	}
+
+	private void openOffer(Case saved, UUID expertId, BigDecimal price, String note) {
 		UUID actor = TenantContext.current().memberId();
 		ExpertCaseOffer offer = new ExpertCaseOffer(saved.getBrandId(), saved.getId(), expertId);
 		offer.setFee(price, actor);
+		offer.setNote(note);
 		offers.save(offer);
 		Map<String, Object> after = new HashMap<>();
 		after.put("caseId", saved.getId());

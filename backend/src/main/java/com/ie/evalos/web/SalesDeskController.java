@@ -52,11 +52,14 @@ public class SalesDeskController {
 			String expectedCloseDate, String assignedTo, java.util.Map<String, String> customFields) {
 	}
 
-	public record MoveStageRequest(@NotBlank String stageId) {
+	/** {@code note} is required when the stage is the pipeline's Won stage (D70), ignored otherwise. */
+	public record MoveStageRequest(@NotBlank String stageId,
+			@jakarta.validation.constraints.Size(max = 4000) String note) {
 	}
 
 	/** {@code won}, {@code lost} or {@code abandoned}. The service refuses anything else. */
-	public record CloseDealRequest(@NotBlank String status) {
+	/** {@code note} is required when {@code status} is won (D70), ignored otherwise. */
+	public record CloseDealRequest(@NotBlank String status, @jakarta.validation.constraints.Size(max = 4000) String note) {
 	}
 
 	/**
@@ -136,7 +139,7 @@ public class SalesDeskController {
 	@PreAuthorize("hasAnyRole('SALES', 'EXPERT_NETWORK_MANAGER')")
 	public ApiResponse<SalesDeskService.Deal> moveStage(@PathVariable String opportunityId,
 			@RequestBody @Valid MoveStageRequest request) {
-		return ApiResponse.ok(desk.moveToStage(opportunityId, request.stageId()));
+		return ApiResponse.ok(desk.moveToStage(opportunityId, request.stageId(), request.note()));
 	}
 
 	/**
@@ -151,7 +154,7 @@ public class SalesDeskController {
 	@PreAuthorize("hasRole('SALES')")
 	public ApiResponse<SalesDeskService.Deal> close(@PathVariable String opportunityId,
 			@RequestBody @Valid CloseDealRequest request) {
-		return ApiResponse.ok(desk.close(opportunityId, request.status()));
+		return ApiResponse.ok(desk.close(opportunityId, request.status(), request.note()));
 	}
 
 	/** The GHL task id, so the caller can say what was created rather than just "done". */

@@ -319,7 +319,8 @@ export const EXCEPTION_LANES: readonly { state: Exclude<ExceptionState, 'NONE'>;
 export type ActionField = {
   name: string
   label: string
-  kind: 'text' | 'amount' | 'member' | 'expert'
+  /** `note` is multi-line text: a textarea rather than an input. */
+  kind: 'text' | 'note' | 'amount' | 'member' | 'expert'
   /** Which role to list, for `member` fields. */
   memberRole?: Role
 }
@@ -396,6 +397,9 @@ export const QUICK_ACTIONS: readonly QuickAction[] = [
       // Unit 65. Blank = the expert's standard fee; "(optional" is what keeps the dialog from
       // requiring it. The expert sees this amount before accepting, and it is final once they do.
       { name: 'fee', label: "Fee (optional — blank uses the expert's standard fee)", kind: 'amount' },
+      // D69: the expert reads this with the offer, before answering. Required, unlike the
+      // rationale above, which is the team's own record.
+      { name: 'expertNote', label: 'Note for the expert (they see this with the offer)', kind: 'note' },
     ],
   },
   // Draft review is the Project Manager's alone, GM included (Unit 23a). Approving a draft is a
@@ -577,6 +581,9 @@ export const QUICK_ACTIONS: readonly QuickAction[] = [
       // Unit 65. Blank = the expert's standard fee; "(optional" is what keeps the dialog from
       // requiring it. The expert sees this amount before accepting, and it is final once they do.
       { name: 'fee', label: "Fee (optional — blank uses the expert's standard fee)", kind: 'amount' },
+      // D69: the expert reads this with the offer, before answering. Required, unlike the
+      // rationale above, which is the team's own record.
+      { name: 'expertNote', label: 'Note for the expert (they see this with the offer)', kind: 'note' },
     ],
   },
   {

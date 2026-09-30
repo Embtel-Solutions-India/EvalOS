@@ -90,6 +90,9 @@ to or merged with `contact_snapshot` so one person is one row. Spec `64` §2–�
 A deal starts in GHL               form · call · Sales (`SalesDeskService.newDeal`) · Marketing
                                     (`MarketingLeadService.openLead`). The portal opens none.
 Sales works it                     GHL pipeline stages; review → won → payment are GHL's (D11)
+Won in EvalOS (D70)                Won button, or a move to the Won stage (board or picker):
+                                   Sales writes a required note for production: a deal note
+                                   flagged `handoff` (synced to GHL), shown on the case
 
 GHL marks the opportunity won     → POST /api/webhooks/ghl/{endpointToken}
                                        WebhookGateway → WebhookRouter → GhlOpportunityHandler
@@ -393,7 +396,8 @@ Directory: credentials verified (stamp + audit) · fee · availability · worklo
 Rejected (declined / timed out) while EXPERT_DECLINED_REMATCHING + expert AVAILABLE
   → "Offer again" (GM / PM / ENM / CM) → same rematch transition → CLIENT_APPROVAL → CM sends again
 PM / PC / ENM / GM offers the case with a fee (blank = standard fee; retake keeps the declined fee;
-  CM: standard fee only) → editable while the offer is open (audited, before → after)
+  CM: standard fee only) and a required note to the expert (D69; a retake re-sends the last one)
+  → editable while the offer is open (audited, before → after)
   → the expert sees "Fee for this case" and accepts it (a changed or missing fee → 409) → final
 Delivered → payout PENDING at the accepted fee (a missing amount can be set once) → PAYOUT_DUE to ENMs
   → ENM records the transfer → PAID, shown "Processing"

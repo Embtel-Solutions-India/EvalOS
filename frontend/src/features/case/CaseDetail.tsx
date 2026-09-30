@@ -11,6 +11,7 @@ import ExpertCard from './ExpertCard'
 import CaseHeader from './CaseHeader'
 import StrategyNotes from './StrategyNotes'
 import ExpertRationale from './ExpertRationale'
+import SalesNote from './SalesNote'
 import CaseFacts from './CaseFacts'
 import Timeline from './Timeline'
 import CaseChat from './CaseChat'
@@ -191,6 +192,7 @@ export default function CaseDetailPage() {
           {/* Above the expert and the notes: who the letter is about is what the rest of the
               column is in service of, and it is the one fact the header cannot carry. */}
           <CaseFacts detail={detail} role={me.role} onSave={onSaveFacts} />
+          <SalesNote detail={detail} />
           <ExpertCard detail={detail} reloadKey={timeline.length} />
           <StrategyNotes detail={detail} onSave={onSaveNotes} />
           {/*

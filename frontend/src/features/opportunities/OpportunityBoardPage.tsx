@@ -4,7 +4,8 @@ import { useMe } from '../../lib/authContext'
 import { useMetrics } from '../dashboards/useMetrics'
 import { formatCount, formatMoney } from '../../lib/money'
 import StageColumn from '../board/StageColumn'
-import { moveDeal } from './boardMove'
+import { isWonStage, moveDeal } from './boardMove'
+import WinNote from './WinNote'
 import {
   fetchOpportunityBoard,
   moveStage,
@@ -77,6 +78,8 @@ export default function OpportunityBoardPage() {
   )
 
   const [moveError, setMoveError] = useState<string | null>(null)
+  // D70: a drop on the Won column waits here for the production team's note.
+  const [pendingWin, setPendingWin] = useState<{ id: string; from: string; to: string } | null>(null)
   const [over, setOver] = useState<string | null>(null)
   // Refs, not state: none of this is drawn, and writing it must not render anything mid-drag.
   const dragging = useRef<{ id: string; from: string; card: HTMLElement } | null>(null)
@@ -150,7 +153,10 @@ export default function OpportunityBoardPage() {
     const drag = dragging.current
     const to = (event.target as HTMLElement).closest<HTMLElement>('[data-stage]')?.dataset.stage
     endDrag()
-    if (drag && to && to !== drag.from) void move(drag.id, drag.from, to)
+    if (!drag || !to || to === drag.from) return
+    const target = columns?.find((column) => column.stageId === to)
+    if (target && isWonStage(target.stageName)) setPendingWin({ id: drag.id, from: drag.from, to })
+    else void move(drag.id, drag.from, to)
   }
 
   /**
@@ -160,12 +166,12 @@ export default function OpportunityBoardPage() {
    * says why. The search and both scroll positions survive all of it, because no column remounts
    * and nothing refetches.
    */
-  async function move(id: string, from: string, to: string) {
+  async function move(id: string, from: string, to: string, note?: string) {
     saving.current.add(id)
     setMoveError(null)
     setColumns((current) => current && moveDeal(current, id, to))
     try {
-      const saved = await moveStage(id, to)
+      const saved = await moveStage(id, to, note)
       setColumns(
         (current) =>
           current &&
@@ -187,6 +193,31 @@ export default function OpportunityBoardPage() {
 
   return (
     <div className="flex min-h-0 flex-col gap-4">
+      {pendingWin && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Win this deal"
+          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          style={{ background: 'rgb(0 0 0 / 0.4)' }}
+        >
+          <div
+            className="w-full max-w-md rounded-lg border p-5"
+            style={{ background: 'var(--bg-surface)', borderColor: 'var(--border-default)' }}
+          >
+            <h2 className="mb-3 text-base font-semibold">Win this deal</h2>
+            <WinNote
+              busy={false}
+              onCancel={() => setPendingWin(null)}
+              onConfirm={(note) => {
+                const { id, from, to } = pendingWin
+                setPendingWin(null)
+                void move(id, from, to, note)
+              }}
+            />
+          </div>
+        </div>
+      )}
       <header className="flex flex-wrap items-end justify-between gap-x-6 gap-y-2">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">{hiring ? 'Hiring pipeline' : 'My pipeline'}</h1>

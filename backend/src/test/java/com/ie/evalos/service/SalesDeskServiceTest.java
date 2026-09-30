@@ -48,8 +48,9 @@ class SalesDeskServiceTest {
 			mock(com.ie.evalos.repository.FollowUpRepository.class);
 	private final com.ie.evalos.repository.PipelineStageRepository stages =
 			mock(com.ie.evalos.repository.PipelineStageRepository.class);
+	private final OpportunityNoteService notes = mock(OpportunityNoteService.class);
 	private final SalesDeskService desk =
-			new SalesDeskService(ghl, new PipelineScope(deals), deals, outbox, followUps, stages);
+			new SalesDeskService(ghl, new PipelineScope(deals), deals, outbox, followUps, stages, notes);
 
 	private void authenticateAsSales(String pipelineId) {
 		StaffPrincipal principal = new StaffPrincipal(UUID.randomUUID(), "sales@ie.test", "Desk",
@@ -83,8 +84,12 @@ class SalesDeskServiceTest {
 	/** Unit 46: the desk edits the mirror and queues the push, so that is what the stub does. */
 	/** A mirrored stage on {@code pipeline}, live or retired — what the Q12 guard reads. */
 	private void givenStage(String ghlStageId, UUID pipeline, boolean live) {
+		givenStage(ghlStageId, pipeline, live, "Stage");
+	}
+
+	private void givenStage(String ghlStageId, UUID pipeline, boolean live, String name) {
 		com.ie.evalos.domain.PipelineStage stage =
-				new com.ie.evalos.domain.PipelineStage(BRAND, pipeline, ghlStageId, "Stage", 2);
+				new com.ie.evalos.domain.PipelineStage(BRAND, pipeline, ghlStageId, name, 2);
 		if (!live) {
 			stage.markMissing(java.time.Instant.now());
 		}
@@ -306,10 +311,39 @@ class SalesDeskServiceTest {
 		givenTheMirrorHasIt();
 		givenStage("s2", PIPELINE_ROW, true);
 
-		assertThat(desk.moveToStage(OPPORTUNITY, "s2").stageId()).isEqualTo("s2");
+		assertThat(desk.moveToStage(OPPORTUNITY, "s2", null).stageId()).isEqualTo("s2");
 
 		verify(outbox).enqueue(eq(BRAND), any(), eq(SyncOutboxEntry.Intent.UPSERT));
 		verify(ghl, never()).moveStage(any(), any(), any());
+	}
+
+	/** D70: dropping a deal on the Won stage is winning it — it needs the note, and closes the deal won. */
+	@Test
+	void aMoveToTheWonStageWinsTheDealAndNeedsTheNote() {
+		authenticateAsSales(MINE);
+		givenItIsMine();
+		givenTheMirrorHasIt();
+		givenStage("s_won", PIPELINE_ROW, true, " Won ");
+
+		desk.moveToStage(OPPORTUNITY, "s_won", "Rush: RFE due 10 Oct");
+
+		verify(notes).addHandoff(OPPORTUNITY, "Rush: RFE due 10 Oct");
+		verify(outbox).enqueue(eq(BRAND), any(), eq(SyncOutboxEntry.Intent.UPSERT));
+		verify(outbox).enqueue(eq(BRAND), any(), eq(SyncOutboxEntry.Intent.CLOSE));
+		verify(deals).editLocally(OPPORTUNITY, null, null, null, "won");
+	}
+
+	@Test
+	void anOrdinaryStageWritesNoNote() {
+		authenticateAsSales(MINE);
+		givenItIsMine();
+		givenTheMirrorHasIt();
+		givenStage("s2", PIPELINE_ROW, true);
+
+		desk.moveToStage(OPPORTUNITY, "s2", "ignored");
+
+		org.mockito.Mockito.verifyNoInteractions(notes);
+		verify(outbox, never()).enqueue(any(), any(), eq(SyncOutboxEntry.Intent.CLOSE));
 	}
 
 	/**
@@ -326,7 +360,7 @@ class SalesDeskServiceTest {
 		givenTheMirrorHasIt();
 		givenStage("s2", PIPELINE_ROW, true);
 
-		desk.moveToStage(OPPORTUNITY, "s2");
+		desk.moveToStage(OPPORTUNITY, "s2", null);
 
 		// The edit names a stage and nothing else — there is no pipeline argument to pass, here or
 		// on the queued push, which reads the row's own pipeline.
@@ -344,7 +378,7 @@ class SalesDeskServiceTest {
 		givenTheMirrorHasIt();
 		givenStage("s_other", UUID.randomUUID(), true);
 
-		assertThatThrownBy(() -> desk.moveToStage(OPPORTUNITY, "s_other"))
+		assertThatThrownBy(() -> desk.moveToStage(OPPORTUNITY, "s_other", null))
 				.isInstanceOf(InvalidRequestException.class)
 				.hasMessageContaining("not on this deal's pipeline");
 
@@ -360,9 +394,9 @@ class SalesDeskServiceTest {
 		givenTheMirrorHasIt();
 		givenStage("s_gone", PIPELINE_ROW, false);
 
-		assertThatThrownBy(() -> desk.moveToStage(OPPORTUNITY, "s_gone"))
+		assertThatThrownBy(() -> desk.moveToStage(OPPORTUNITY, "s_gone", null))
 				.isInstanceOf(InvalidRequestException.class);
-		assertThatThrownBy(() -> desk.moveToStage(OPPORTUNITY, "s_never_mirrored"))
+		assertThatThrownBy(() -> desk.moveToStage(OPPORTUNITY, "s_never_mirrored", null))
 				.isInstanceOf(InvalidRequestException.class);
 
 		verify(outbox, never()).enqueue(any(), any(), any());
@@ -375,7 +409,7 @@ class SalesDeskServiceTest {
 		givenItIsMine();
 		givenTheMirrorHasIt();
 
-		assertThat(desk.close(OPPORTUNITY, status).status()).isEqualTo(status);
+		assertThat(desk.close(OPPORTUNITY, status, "Client wants it before the 15th.").status()).isEqualTo(status);
 		verify(outbox).enqueue(eq(BRAND), any(), eq(SyncOutboxEntry.Intent.CLOSE));
 	}
 
@@ -387,13 +421,27 @@ class SalesDeskServiceTest {
 	 * structural half of the guarantee is {@code DomainInvariantsTest}, which refuses anything
 	 * but {@code GhlOpportunityHandler} to depend on {@code CaseIntakeService}.
 	 */
+	/** D70: a win carries the production team's note; lost and abandoned write none. */
+	@Test
+	void aWinWritesTheHandoffNoteAndOnlyAWinDoes() {
+		authenticateAsSales(MINE);
+		givenItIsMine();
+		givenTheMirrorHasIt();
+
+		desk.close(OPPORTUNITY, "won", "Client wants it before the 15th.");
+		verify(notes).addHandoff(OPPORTUNITY, "Client wants it before the 15th.");
+
+		desk.close(OPPORTUNITY, "lost", null);
+		org.mockito.Mockito.verifyNoMoreInteractions(notes);
+	}
+
 	@Test
 	void winningDoesNotCreateACase() {
 		authenticateAsSales(MINE);
 		givenItIsMine();
 		givenTheMirrorHasIt();
 
-		desk.close(OPPORTUNITY, "won");
+		desk.close(OPPORTUNITY, "won", "Client wants it before the 15th.");
 
 		// Unit 46: the win becomes a local status plus one queued CLOSE. The webhook is still what
 		// creates the case — the queue changes when GHL hears, never who opens custody.
@@ -416,7 +464,7 @@ class SalesDeskServiceTest {
 		authenticateAsSales(MINE);
 		givenItIsMine();
 
-		assertThatThrownBy(() -> desk.close(OPPORTUNITY, status))
+		assertThatThrownBy(() -> desk.close(OPPORTUNITY, status, "Client wants it before the 15th."))
 				.isInstanceOf(InvalidRequestException.class)
 				.hasMessageContaining("won, lost, abandoned");
 
@@ -459,9 +507,9 @@ class SalesDeskServiceTest {
 				.isInstanceOf(ForbiddenException.class);
 		assertThatThrownBy(() -> desk.delete("opp_theirs"))
 				.isInstanceOf(ForbiddenException.class);
-		assertThatThrownBy(() -> desk.moveToStage("opp_theirs", "s2"))
+		assertThatThrownBy(() -> desk.moveToStage("opp_theirs", "s2", null))
 				.isInstanceOf(ForbiddenException.class);
-		assertThatThrownBy(() -> desk.close("opp_theirs", "won"))
+		assertThatThrownBy(() -> desk.close("opp_theirs", "won", "Client wants it before the 15th."))
 				.isInstanceOf(ForbiddenException.class);
 		assertThatThrownBy(() -> desk.followUp("opp_theirs", "c1", "Call", "2026-09-18T09:00:00Z", null, null))
 				.isInstanceOf(ForbiddenException.class);
@@ -475,6 +523,6 @@ class SalesDeskServiceTest {
 	void aCallerWithNoPipelineIsRefused() {
 		authenticateAsSales(null);
 
-		assertThatThrownBy(() -> desk.close(OPPORTUNITY, "won")).isInstanceOf(ForbiddenException.class);
+		assertThatThrownBy(() -> desk.close(OPPORTUNITY, "won", "Client wants it before the 15th.")).isInstanceOf(ForbiddenException.class);
 	}
 }

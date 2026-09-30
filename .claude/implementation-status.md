@@ -87,7 +87,36 @@ request status, portal deployment) and now say so.
    so the dialog cannot show the current one. Restart the backend.
 14. **Fix 2026-09-30 — the ENM dashboard answered 500.** `ExpertCaseOfferRepository.resolvedTurnaroundSeconds` (Unit 63) was JPQL `date_part('epoch', outcomeAt - offeredAt)`; Hibernate 6 renders the difference as numeric nanoseconds and Postgres has no `date_part(numeric)`. Now native `extract(epoch …)::float8`. Mocked service tests could not see it; `LocalPostgresIntegrationTest.resolvedTurnaroundIsSecondsAndBrandIsolated` now does. `GET /api/metrics/expert-network` verified 200 locally as the seed ENM.
 6. **Verify for real:** set `ABLY_API_KEY`, the `EVALOS_PUSH_*` keys, SMTP and S3, then click
-   through client + expert sign-in and chat against the staff app.
+   through client + expert sign-in and chat against the staff app. **Reported 2026-10-01:**
+   production has the Ably key and both VAPID keys but not `EVALOS_PUSH_SUBJECT`, so push is off
+   (`GET …/push/public-key` → 404 `PUSH_UNAVAILABLE`, the card hidden), and chat is not live
+   although the Ably key is set — cause not yet found (token status, websocket, Ably error code).
+15. **Unit 70 — screens that update themselves (D68).** **Specced 2026-10-01**
+   (`70-live-screens.md`), **not built**; docs run ahead of the code on purpose. Needs item 6's
+   Ably cause found first.
+16. **Fix 2026-10-01 — staffing a case (D36).** A PM's assignment of a PC worked (the PC's SELF
+   scope reads the case; verified locally: board, checklist board, case list), but nobody could
+   tell: no alert (`COORDINATOR_ASSIGNED` had no route), the menu still said "Assign coordinator",
+   and the timeline said only "<PM> assigned". Now `NotificationListeners` routes
+   `COORDINATOR_ASSIGNED` → the case's coordinator and `CASE_MANAGER_REASSIGNED` → its CM
+   (`CASE_ASSIGNED`); `assignPm` / `assignCoordinator` / `assignCaseManager` / `reassignCaseManager`
+   write "Project manager: / Coordinator: / Case manager: <name>" as the audit note (the reassign
+   row is now a `CaseSnapshot`; `CaseManagerSnapshot` removed); `boardRules` gains
+   `case-manager` (PATCH, PM, any stage) and `fills`, so a filled slot reads "Change …". Tests:
+   `NotificationListenersTest#whoeverIsPutOnTheCaseIsTold`,
+   `CaseLifecycleServiceTest#aCoordinatorCanBeAssignedAndReassignedAtAnyActiveStage`,
+   `boardRules.test.ts`. Backend 1369/0/0/4, staff 172. **Not browser-checked.** Restart the
+   backend. A PC already on a case before this fix got no alert; their screens show it after a reload.
+17. **Unit 71 — offer and win notes (D69, D70).** **Built 2026-10-01** (spec `71`, `V82`):
+   `expert_case_offer.note` (required by `assignCaseManager` / `reassignExpert`, carried by
+   `retakeExpert`; `ExpertCaseView` / `ExpertCaseSummary.offerNote`; the expert's `Answers` shows it);
+   `opportunity_note.handoff` (`SalesDeskService.close(id, "won", note)` →
+   `OpportunityNoteService.addHandoff`, one transaction; `CaseDetail.salesNote` behind
+   `maySeeCaseContent`; staff `SalesNote` card; the Won note (`WinNote`) on the Won button, the stage picker and a drop on the board's Won column —
+   `moveToStage(id, stage, note)` wins the deal when the stage is named Won; a `note` field
+   kind in `QuickActionDialog`). Backend 1374/0/0/4, staff 173, portals 100. **Not
+   browser-checked.** Restart the backend (Flyway applies `V82`). A deal won in GHL directly still
+   has no note, and the case says so.
 
 **Build state (all four suites re-verified 2026-09-22 after the dead-code pass below; the browser checks against the live location remain 2026-09-17):** backend `1339 tests, 0 failures, 0 errors, 4 skipped` (2026-09-30, Unit 65 after its review; `LocalPostgresIntegrationTest` on a real Postgres) (the 4 are opt-in live checks, `SmtpMailTransportLiveTest` among them); the GM board draws **1,460 deals, synced**, and a Sales desk draws its own pipeline's four;
 staff SPA `171 tests` (2026-09-30, Unit 66), `oxlint` and `tsc -b` clean; portals `100 tests` (2026-09-30, Unit 66b) and `tsc -b` clean in both `client/`

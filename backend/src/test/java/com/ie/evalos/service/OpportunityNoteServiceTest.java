@@ -131,6 +131,24 @@ class OpportunityNoteServiceTest {
 		assertThat(saved.getValue().getBody()).isEqualTo("Client wants expedited");
 	}
 
+	/** D70: the win's note is flagged for the case page; a blank one is refused before anything is saved. */
+	@Test
+	void aHandoffNoteIsFlaggedAndNeedsWords() {
+		authenticate(Role.SALES, MINE);
+		when(deals.isOnPipeline(OPPORTUNITY, MINE)).thenReturn(true);
+		givenTheDealExists();
+		when(notes.save(any())).thenAnswer((call) -> call.getArgument(0));
+
+		service.addHandoff(OPPORTUNITY, "Rush: RFE due 10 Oct");
+
+		ArgumentCaptor<OpportunityNote> saved = ArgumentCaptor.forClass(OpportunityNote.class);
+		verify(notes).save(saved.capture());
+		assertThat(saved.getValue().isHandoff()).isTrue();
+		assertThatThrownBy(() -> service.addHandoff(OPPORTUNITY, "  "))
+				.isInstanceOf(com.ie.evalos.common.InvalidRequestException.class)
+				.hasMessageContaining("production team");
+	}
+
 	@Test
 	void anotherDesksStreamIsRefused() {
 		authenticate(Role.SALES, MINE);

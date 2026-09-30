@@ -182,14 +182,29 @@ public class OpportunityNoteService {
 	 */
 	@Transactional
 	public Note add(String opportunityId, String body) {
+		return add(opportunityId, body, false);
+	}
+
+	/** The note a win carries for the production team (D70): the case page reads it back. */
+	@Transactional
+	public Note addHandoff(String opportunityId, String body) {
+		return add(opportunityId, body, true);
+	}
+
+	private Note add(String opportunityId, String body, boolean handoff) {
 		String pipelineId = scope.requireMine(opportunityId);
 		if (body == null || body.isBlank()) {
-			throw new InvalidRequestException("A note needs a body");
+			throw new InvalidRequestException(handoff ? "Winning a deal needs a note for the production team"
+					: "A note needs a body");
 		}
 
 		TenantContext caller = TenantContext.current();
-		OpportunityNote saved = notes.save(new OpportunityNote(opportunityId, caller.brandId(), pipelineId,
-				caller.memberId(), body.strip()));
+		OpportunityNote note = new OpportunityNote(opportunityId, caller.brandId(), pipelineId, caller.memberId(),
+				body.strip());
+		if (handoff) {
+			note.markHandoff();
+		}
+		OpportunityNote saved = notes.save(note);
 		enqueueAfterCommit(caller.brandId(), saved.getId(), SyncOutboxEntry.Intent.UPSERT);
 		String author = teamMembers.findById(caller.memberId()).map(TeamMember::getDisplayName).orElse(null);
 		return new Note(saved.getId(), saved.getBody(), saved.getAuthorId(), saved.getCreatedAt(),

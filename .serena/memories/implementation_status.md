@@ -7,7 +7,13 @@ Build is green: backend **1177 tests, 0 failures, 4 skipped** (2026-09-24); staf
 and oxlint; portals 30 tests plus clean tsc and a clean `npm run build`. Re-run 2026-09-22 after
 the dead-code pass below.
 
-**Unit 64c, 2026-09-30 (D58).** Case progress emails: `mail/case-update.html`, `MailTemplates.CaseUpdate`, `CaseMailListener` (checklist / draft ready / signing / delivered, + expert offer D67); not sent to a real inbox yet.
+**Unit 71 (D69/D70), built 2026-10-01:** `V82` adds `expert_case_offer.note` + `opportunity_note.handoff`; offers refuse a blank note, retake carries it; the expert's Answers shows it; Won needs a note (`SalesDeskService.close(id, status, note)`, and `moveToStage(id, stage, note)` for a stage named Won: board drop / picker open `WinNote`); case page `SalesNote` card. Not browser-checked.
+
+**Fix 2026-10-01 (D36 staffing):** COORDINATOR_ASSIGNED / CASE_MANAGER_REASSIGNED now notify the assignee; assignment audit notes name who ("Coordinator: X"); More menu gains PM "Assign/Change case manager" (PATCH case-manager, any stage) and says "Change …" once filled. Not browser-checked.
+
+**Unit 70 (D68), specced 2026-10-01, NOT built:** live screens (`70-live-screens.md`). Prod 2026-10-01: push off for want of `EVALOS_PUSH_SUBJECT` (404 `PUSH_UNAVAILABLE`); chat not live although the Ably key is set, cause not found yet.
+
+**Unit 64c, 2026-09-30 (D58).** Case progress emails: `mail/case-update.html`, `MailTemplates.CaseUpdate`, `CaseMailListener` (checklist / draft ready / signing / delivered, + expert offer D67); not sent to a real inbox yet. **2026-10-01:** Send chase publishes `CHECKLIST_CHASED` → `CaseUpdate.CHASE` reminder mail (before, nothing listened and no client was contacted); the sweep's `CHECKLIST_REMINDER` still mails nobody.
 
 **Unit 64b, 2026-09-30 (D65).** Case-opened emails: `case-started.html` / `case-signin.html`, `openForCase(contact, caseCode, service)`, 7-day `CASE_LINK_TTL`; not sent to a real inbox yet.
 

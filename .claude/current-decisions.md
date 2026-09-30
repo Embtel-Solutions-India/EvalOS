@@ -495,6 +495,20 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
   opens an offer — the case's expert gets *A new case is offered to you*: service, case code, the
   open offer's fee in the brand's currency (left out when unpriced), a deep link to the case in the
   expert portal, no credential. No answer deadline is stated: none is enforced on the offer.
+- **D69.** **Every expert offer carries a note to the expert** (2026-10-01, the business). Assign CM +
+  expert and Reassign expert refuse a blank note; a retake re-sends the expert's last note. The
+  expert reads it with the offer, above Accept. Built as Unit 71 (`71-offer-and-win-notes.md`).
+- **D70.** **A deal won in EvalOS carries a Sales note for production** (2026-10-01, the business;
+  GHL's won has no place for one). Won refuses a blank note — **and so does moving the deal to its
+  pipeline's Won stage** (board drag or stage picker), which wins the deal (stage + status won); the note is a deal note flagged
+  `handoff`, synced to GHL like any other, and shown on the case page as the Sales handoff note.
+  Built as Unit 71.
+- **D68.** **EvalOS screens update themselves** (2026-10-01, the business). A committed write to a
+  case (the case, its documents, checklist, offers, payouts, draft comments) sends a **signal, never
+  data**, over Ably: `case.changed {caseId}` to a per-brand staff channel and to the case's client
+  and experts, and `notifications.changed` to a bell's owner. Open screens re-read over REST in
+  the background, and also on tab focus and on reconnect. GHL-mirrored screens and chat are out of
+  scope. **Specced as Unit 70** (`70-live-screens.md`), **not built**.
 - **D52.** **No GHL conversation sidebar.** EvalOS does not mirror or send GHL conversations
   (SMS / email / WhatsApp / social); that stays in GHL. The only messaging in EvalOS is the case
   chat (Unit 57). Decided 2026-09-28. _(Closes Q10; drops tier 3 of the Unit 47 mirror.)_

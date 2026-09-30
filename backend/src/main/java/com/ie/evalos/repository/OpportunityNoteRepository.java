@@ -34,6 +34,10 @@ public interface OpportunityNoteRepository
 	 * <p><strong>Brand-scoped as well</strong> (2026-09-24): the brand is the deal's, which the
 	 * service has just authorised, so a GHL id colliding across brands cannot mix two streams.
 	 */
+	/** The win's note for the production team (D70), newest if the deal was won twice. */
+	java.util.Optional<OpportunityNote> findFirstByBrandIdAndGhlOpportunityIdAndHandoffTrueOrderByCreatedAtDesc(
+			UUID brandId, String ghlOpportunityId);
+
 	List<OpportunityNote> findByBrandIdAndGhlOpportunityIdOrderByCreatedAtDesc(UUID brandId,
 			String ghlOpportunityId);
 }

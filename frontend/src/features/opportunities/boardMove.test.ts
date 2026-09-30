@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { moveDeal } from './boardMove'
+import { isWonStage, moveDeal } from './boardMove'
 import type { BoardColumn, Deal } from './opportunityApi'
 
 const deal = (id: string, amount: number | null): Deal => ({
@@ -39,5 +39,14 @@ describe('moveDeal', () => {
     expect(next[0].deals[0].amount).toBe(120)
     expect(next[0].total).toBe(120)
     expect(next[1]).toBe(board[1])
+  })
+})
+
+describe('isWonStage', () => {
+  it('matches the Won stage however it is spaced or cased, and nothing else', () => {
+    expect(isWonStage(' Won ')).toBe(true)
+    expect(isWonStage('WON')).toBe(true)
+    expect(isWonStage('Invoice Sent')).toBe(false)
+    expect(isWonStage('Lost')).toBe(false)
   })
 })
