@@ -293,6 +293,8 @@ public class ExpertPortalService {
 				.toList();
 
 		Optional<CaseDocument> signedLetter = signedLetter(subject);
+		// One read for both the fee and the note (D69): they are the same offer.
+		Optional<ExpertCaseOffer> offer = currentOffer(subject.getId(), subject.getExpertId());
 
 		return new ExpertCaseView(
 				subject.getCaseCode(),
@@ -310,14 +312,14 @@ public class ExpertPortalService {
 				signedLetter.isPresent(),
 				signedLetter.map(CaseDocument::getUploadedAt).orElse(null),
 				attestationFor(expertName == null ? "the assigned expert" : expertName),
-				currentOffer(subject.getId(), subject.getExpertId()).map(ExpertCaseOffer::getFee).orElse(null),
+				offer.map(ExpertCaseOffer::getFee).orElse(null),
 				currency(subject.getBrandId()),
 				expertDocuments(subject).stream()
 						.map(d -> new ExpertDocument(d.getId(),
 								d.getKind() == DocumentKind.DRAFT ? "LETTER" : d.getKind().name(),
 								d.getFilename(), d.getUploadedAt(), d.hasPdf()))
 						.toList(),
-				currentOffer(subject.getId(), subject.getExpertId()).map(ExpertCaseOffer::getNote).orElse(null));
+				offer.map(ExpertCaseOffer::getNote).orElse(null));
 	}
 
 	/**

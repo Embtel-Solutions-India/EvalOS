@@ -198,6 +198,7 @@ export default function OpportunityBoardPage() {
           role="dialog"
           aria-modal="true"
           aria-label="Win this deal"
+          onKeyDown={(event) => event.key === 'Escape' && setPendingWin(null)}
           className="fixed inset-0 z-50 flex items-center justify-center p-4"
           style={{ background: 'rgb(0 0 0 / 0.4)' }}
         >

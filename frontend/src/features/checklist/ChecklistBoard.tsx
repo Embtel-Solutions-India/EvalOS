@@ -42,7 +42,10 @@ export default function ChecklistBoard() {
     queryFn: ({ signal }) => fetchChecklistBoard(activeBrandId, signal),
   })
   const cards = board.data
-  const load = useCallback(() => queryClient.invalidateQueries({ queryKey: ['checklists'] }), [queryClient])
+  const load = useCallback(
+    () => queryClient.invalidateQueries({ queryKey: ['checklists'] }, { cancelRefetch: false }),
+    [queryClient],
+  )
 
   /** A completed case leaves this stage, so it has to leave this board too. */
   const onCaseLeftTheStage = useCallback(() => {

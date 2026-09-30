@@ -243,11 +243,10 @@ public class SalesDeskService {
 	 * send another pipeline's stage id — which GHL would take as a pipeline move. The stage must be
 	 * a live mirrored stage of the row's pipeline; anything else, including a stage the mirror has
 	 * not seen yet, is refused rather than pushed.
-	 */
-	/**
-	 * Moves the deal to a stage. <strong>A stage named "Won" is winning the deal</strong> (D70): the
-	 * move needs the production team's note, and closes the deal won with it — otherwise a drag onto
-	 * the Won column would leave an open deal in a Won stage and a case with no word from Sales.
+	 *
+	 * <p><strong>A stage named "Won" is winning the deal</strong> (D70): the move needs the
+	 * production team's note, and closes the deal won with it — otherwise a drag onto the Won
+	 * column would leave an open deal in a Won stage and a case with no word from Sales.
 	 */
 	@org.springframework.transaction.annotation.Transactional
 	public Deal moveToStage(String opportunityId, String stageId, String note) {

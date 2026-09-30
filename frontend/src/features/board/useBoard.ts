@@ -16,7 +16,11 @@ export function useBoard(dueBefore: string | null, brandId: string | null) {
     queryKey: ['board', dueBefore, brandId],
     queryFn: ({ signal }) => fetchBoard(dueBefore, brandId, signal),
   })
-  const load = useCallback(() => queryClient.invalidateQueries({ queryKey: ['board'] }), [queryClient])
+  // Joins a re-read the `api` interceptor already started after a write, rather than repeating it.
+  const load = useCallback(
+    () => queryClient.invalidateQueries({ queryKey: ['board'] }, { cancelRefetch: false }),
+    [queryClient],
+  )
   const error = query.data || !query.error ? null : query.error instanceof Error ? query.error.message : 'Could not load the board'
   return { data: query.data ?? null, error, load }
 }

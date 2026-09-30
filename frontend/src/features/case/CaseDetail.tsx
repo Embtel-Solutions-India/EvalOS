@@ -57,7 +57,12 @@ export default function CaseDetailPage() {
     queryFn: ({ signal }) => fetchTimeline(id!, signal),
     enabled: !!id,
   })
-  const load = useCallback(() => queryClient.invalidateQueries({ queryKey: ['case', id] }), [queryClient, id])
+  // `cancelRefetch: false`: the interceptor has usually just started this re-read after a write, so
+  // join it rather than cancel it and fetch the case and timeline a second time.
+  const load = useCallback(
+    () => queryClient.invalidateQueries({ queryKey: ['case', id] }, { cancelRefetch: false }),
+    [queryClient, id],
+  )
 
   const run = useCallback(
     async (action: QuickAction, values: Record<string, string>) => {

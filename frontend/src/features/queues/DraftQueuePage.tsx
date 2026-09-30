@@ -41,7 +41,7 @@ export default function DraftQueuePage() {
   })
   const data = review.data ?? null
   const error = data || !review.error ? null : review.error.message
-  const load = () => void queryClient.invalidateQueries({ queryKey: ['draft-review'] })
+  const load = () => void queryClient.invalidateQueries({ queryKey: ['draft-review'] }, { cancelRefetch: false })
   const [tab, setTab] = useState<DraftStatus | 'ALL'>('ALL')
   const [selectedId, setSelectedId] = useState<string | null>(null)
 
