@@ -510,6 +510,28 @@ public class OpportunityMirrorService {
 				});
 	}
 
+	/** A desk's inline owner / custom-field edit landed in GHL (Unit 69); the row takes it now. */
+	@Transactional
+	public void absorbDetails(String ghlOpportunityId, String assignedTo,
+			java.util.Map<String, String> customFields) {
+		byGhlId(ghlOpportunityId).ifPresent((row) -> {
+			row.absorbDetails(assignedTo, customFields);
+			opportunities.save(row);
+		});
+	}
+
+	/**
+	 * A desk deleted the deal in GHL (Unit 69). <strong>Stamped missing, never deleted</strong> — the
+	 * board drops it at once, and its notes and history keep the row they hang off.
+	 */
+	@Transactional
+	public void markDeleted(String ghlOpportunityId) {
+		byGhlId(ghlOpportunityId).ifPresent((row) -> {
+			row.markMissing(java.time.Instant.now());
+			opportunities.save(row);
+		});
+	}
+
 	/**
 	 * One mirrored deal, by GHL's id — what every desk route carries.
 	 *

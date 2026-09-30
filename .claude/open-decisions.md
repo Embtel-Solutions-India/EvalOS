@@ -22,6 +22,10 @@ _Nothing open here: Q6b (unknown-email mail) was answered on 2026-09-28 — no m
 | --- | -------- | -------------- |
 | Q14 | D55 names **guests** on an appointment, but GHL's appointment API has no guest field (one `contactId`; `users[]` is response-only; extra recipients exist only per calendar in `/calendars/{id}/notifications`). What should "guests" mean? | **Drop guests from EvalOS.** Extra people are added in GHL — the calendar's notification settings or a GHL workflow — so GHL stays the sender (invariant 14). Revisit only if GHL adds an attendee field. Spec `60` §4. |
 
+## Client and expert mail
+
+_Q17 (expert offer mail) was answered on 2026-09-30 — yes, D67, built with Unit 64c._
+
 ## Carried forward from `00d` §12, still unresolved
 
 _Item h was settled by Unit 57 (2026-09-26): the client sees the case team by name in the Client

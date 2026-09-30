@@ -141,8 +141,10 @@ public class GhlWriteClient {
 	 * where the scope check lives, because that is where the caller's principal is.
 	 */
 	public UpsertedOpportunity upsertOpportunity(String pipelineId, String contactId, String name,
-			BigDecimal monetaryValue) {
+			BigDecimal monetaryValue, String stageId, String expectedCloseDate, String assignedTo) {
 		Map<String, Object> body = new LinkedHashMap<>();
+		// Required by GHL on this endpoint (docs: Upsert Opportunity), like on the contact upsert.
+		body.put("locationId", http.locationId());
 		body.put("pipelineId", pipelineId);
 		body.put("contactId", contactId);
 		body.put("status", "open");
@@ -150,6 +152,17 @@ public class GhlWriteClient {
 		if (monetaryValue != null) {
 			body.put("monetaryValue", monetaryValue);
 		}
+		// Upsert takes both; it does NOT take customFields — see MarketingLeadService.openLead.
+		putIfPresent(body, "pipelineStageId", stageId);
+		putIfPresent(body, "forecastExpectedCloseDate", expectedCloseDate);
+		// Blank = GHL's own round-robin assigns it.
+		putIfPresent(body, "assignedTo", assignedTo);
+		// GHL's docs list these three as required on upsert. Sent as a no-op — add nobody, remove
+		// nobody — because `isRemoveAllFollowers: true` would strip the followers a colleague set
+		// on the open lead a repeat enquiry lands on.
+		body.put("followers", List.of());
+		body.put("isRemoveAllFollowers", false);
+		body.put("followersActionType", "add");
 
 		OpportunityEnvelope response = http.post(OpportunityEnvelope.class,
 				(uri) -> uri.path("/opportunities/upsert").build(), body);
@@ -192,8 +205,11 @@ public class GhlWriteClient {
 	 */
 	public UpsertedOpportunity createOpportunity(String pipelineId, String contactId, String name,
 			BigDecimal monetaryValue, String stageId, String expectedCloseDate,
-			Map<String, String> customFields) {
+			Map<String, String> customFields, String assignedTo) {
 		Map<String, Object> body = new LinkedHashMap<>();
+		// **Required by GHL (docs: Create Opportunity).** Its absence is why "Add opportunity"
+		// answered 502 in production: GHL refused the create and GhlHttp maps a refusal to 502.
+		body.put("locationId", http.locationId());
 		body.put("pipelineId", pipelineId);
 		body.put("contactId", contactId);
 		body.put("status", "open");
@@ -203,6 +219,7 @@ public class GhlWriteClient {
 		}
 		putIfPresent(body, "pipelineStageId", stageId);
 		putIfPresent(body, "forecastExpectedCloseDate", expectedCloseDate);
+		putIfPresent(body, "assignedTo", assignedTo);
 
 		// GHL takes custom fields as a list of {id, fieldValue}, keyed by the LOCATION's own field
 		// ids. Nothing here knows or hardcodes them — `GhlCustomFieldClient` reads the definitions
@@ -309,6 +326,55 @@ public class GhlWriteClient {
 
 		return new UpsertedOpportunity(row.id(), row.contactId(), pipelineId, row.pipelineStageId(),
 				row.status(), row.name(), row.monetaryValue(), false);
+	}
+
+	/**
+	 * Sets the fields a desk edit carries that the outbox cannot (Unit 69): expected close, owner,
+	 * custom fields. Null / blank is left alone in GHL. No {@code pipelineId}, no {@code status} —
+	 * see {@link #setOpportunityFields} for why a pipeline in this body would undo routing.
+	 */
+	public void updateOpportunityDetails(String opportunityId, String pipelineId,
+			String expectedCloseDate, String assignedTo, Map<String, String> customFields) {
+		Map<String, Object> body = new LinkedHashMap<>();
+		putIfPresent(body, "forecastExpectedCloseDate", expectedCloseDate);
+		putIfPresent(body, "assignedTo", assignedTo);
+		List<Map<String, String>> fields = customFields == null ? List.of()
+				: customFields.entrySet().stream()
+						.filter((entry) -> entry.getValue() != null && !entry.getValue().isBlank())
+						.map((entry) -> Map.of("id", entry.getKey(), "fieldValue", entry.getValue()))
+						.toList();
+		if (!fields.isEmpty()) {
+			body.put("customFields", fields);
+		}
+		if (body.isEmpty()) {
+			return;
+		}
+
+		http.put(OpportunityEnvelope.class, (uri) -> uri.path("/opportunities/{id}").build(opportunityId),
+				body);
+
+		audit.recordEvent("GHL_OPPORTUNITY", auditKey("GHL_OPPORTUNITY", opportunityId),
+				AuditAction.UPDATED, actor(), null,
+				Map.of("ghlOpportunityId", opportunityId, "ghlPipelineId", pipelineId,
+						"fields", body.keySet()));
+	}
+
+	/**
+	 * Deletes an opportunity in GHL — {@code DELETE /opportunities/{id}} (Unit 69). GHL's 404 is
+	 * done: the deal being gone is what was asked for.
+	 */
+	public void deleteOpportunity(String opportunityId, String pipelineId) {
+		try {
+			http.delete((uri) -> uri.path("/opportunities/{id}").build(opportunityId));
+		}
+		catch (GhlUnavailableException refused) {
+			if (!Integer.valueOf(404).equals(refused.status())) {
+				throw refused;
+			}
+		}
+		audit.recordEvent("GHL_OPPORTUNITY", auditKey("GHL_OPPORTUNITY", opportunityId),
+				AuditAction.DELETED, actor(), null,
+				Map.of("ghlOpportunityId", opportunityId, "ghlPipelineId", pipelineId));
 	}
 
 	/**

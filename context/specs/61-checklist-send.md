@@ -1,7 +1,8 @@
 # Unit 61 — The checklist is sent by the PC or the CM
 
 **Decided 2026-09-29 by the business (D60, with Q15 and Q16 closed into it).** **Status: BUILT
-2026-09-29**, without the email: the checklist email is D58's and ships with the other three.
+2026-09-29**, without the email: the checklist email is D58's and shipped with the other three as
+Unit 64c on 2026-09-30 (`64c-case-progress-emails.md`).
 
 ## 0. Today, before this unit
 

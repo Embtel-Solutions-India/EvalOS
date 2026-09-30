@@ -100,11 +100,11 @@ public class SalesCalendarController {
 	/**
 	 * The location's users, for the booking dialog's "Team member" picker.
 	 *
-	 * <p>SALES, like the calendar list: a colleague's name and work address is not client data,
-	 * and the salesperson is choosing who takes the call.
+	 * <p>SALES and MARKETING: a colleague's name and work address is not client data. Sales picks
+	 * who takes the call; both desks pick the opportunity's owner (D64).
 	 */
 	@GetMapping("/users")
-	@PreAuthorize("hasRole('SALES')")
+	@PreAuthorize("hasAnyRole('SALES', 'MARKETING')")
 	public ApiResponse<List<GhlUserClient.User>> ghlUsers() {
 		return ApiResponse.ok(reference.locationUsers().stream()
 				.map((row) -> new GhlUserClient.User(row.getGhlId(), row.getName(), row.getEmail()))
@@ -122,11 +122,12 @@ public class SalesCalendarController {
 	 * {@code REFERENCE_MIRROR} on the hour instead of by this request. A field renamed in GHL still
 	 * shows up on the form with no deploy, one sweep later.
 	 *
-	 * <p><strong>SALES, like the calendar list.</strong> These are definitions, not data: knowing
-	 * that a location has a "Visa Category" field discloses nothing about any client.
+	 * <p><strong>SALES and MARKETING.</strong> These are definitions, not data: knowing that a
+	 * location has a "Visa Category" field discloses nothing about any client. The BDE's "Add lead"
+	 * asks the same intake questions as the sales form (Unit 39b).
 	 */
 	@GetMapping("/opportunity-fields")
-	@PreAuthorize("hasRole('SALES')")
+	@PreAuthorize("hasAnyRole('SALES', 'MARKETING')")
 	public ApiResponse<List<GhlCustomFieldClient.CustomField>> opportunityFields() {
 		return ApiResponse.ok(reference.opportunityFields().stream()
 				.map((row) -> new GhlCustomFieldClient.CustomField(row.getGhlId(), row.getName(),

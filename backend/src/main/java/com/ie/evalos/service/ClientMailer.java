@@ -14,6 +14,10 @@ import org.springframework.stereotype.Service;
 /**
  * The only mail EvalOS sends (Unit 42).
  *
+ * <p><strong>Since Unit 64b (D65) also the case-opened mail</strong> — set a password, or sign in —
+ * sent once per case from {@code CasePortalAccountListener}. What follows was written for the
+ * original two and still holds for anything further: a new client email is its own decision.
+ *
  * <p><strong>Two messages, and this is the boundary.</strong> Invariant 14 used to read "EvalOS
  * hosts no files and sends no email"; it now reads "…and sends email for exactly one purpose:
  * proving control of a client's own address". Set a password, reset a password. A status update,
@@ -94,6 +98,25 @@ public class ClientMailer {
 	/** @return whether the message left; see the class javadoc for why this is not a throw */
 	public boolean sendResetPassword(MailTransport.Recipient to, String fullName, String link) {
 		return send(to, templates.resetPassword(fullName, link));
+	}
+
+	/** A first case opened: set-password link (Unit 64b, D65). */
+	public boolean sendCaseStarted(MailTransport.Recipient to, String fullName, String link, String service,
+			String caseCode) {
+		return send(to, templates.caseStarted(fullName, link, service, caseCode));
+	}
+
+	/** Another case opened for a client with a password: sign in, no credential (D65). */
+	public boolean sendCaseStartedSignIn(MailTransport.Recipient to, String fullName, String service,
+			String caseCode) {
+		return send(to, templates.caseStartedSignIn(fullName, service, caseCode));
+	}
+
+	/** A case progress mail (Unit 64c, D58). The trail says EXPERT for the signing mail. */
+	public boolean sendCaseUpdate(MailTransport.Recipient to, MailTemplates.CaseUpdate kind, String fullName,
+			String service, String caseCode, int documents, String fee, String link) {
+		return send(to, templates.caseUpdate(kind, fullName, service, caseCode, documents, fee, link),
+				kind.expert ? PortalAudience.EXPERT : PortalAudience.CLIENT);
 	}
 
 	/**

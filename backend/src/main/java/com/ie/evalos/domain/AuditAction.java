@@ -5,6 +5,8 @@ public enum AuditAction {
 
 	CREATED,
 	UPDATED,
+	/** A GHL object EvalOS removed on a desk's request (Unit 69: a deal). */
+	DELETED,
 	STAGE_CHANGED,
 	ASSIGNED,
 	/**

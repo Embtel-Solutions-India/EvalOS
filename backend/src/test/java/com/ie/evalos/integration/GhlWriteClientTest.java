@@ -103,16 +103,42 @@ class GhlWriteClientTest {
 		assertThat(contact.id()).isEqualTo("c1");
 	}
 
+	/**
+	 * GHL requires {@code locationId} on a create. Without it the sales "Add opportunity" was
+	 * refused and answered 502 in production (2026-09-30).
+	 */
+	@Test
+	void aCreatedOpportunityNamesTheLocationAndTheOwner() {
+		responses.add("{\"opportunity\":{\"id\":\"o2\",\"name\":\"Acme\",\"contactId\":\"c1\","
+				+ "\"pipelineStageId\":\"s1\",\"status\":\"open\"}}");
+
+		client().createOpportunity(PIPELINE, "c1", "Acme", null, "s1", null, java.util.Map.of("f1", "x"), "u1");
+
+		assertThat(paths).containsExactly("POST /opportunities/");
+		assertThat(bodies.get(0)).contains("\"locationId\":\"" + LOCATION + "\"")
+				.contains("\"assignedTo\":\"u1\"")
+				.contains("\"customFields\":[{").contains("\"id\":\"f1\"").contains("\"fieldValue\":\"x\"");
+	}
+
 	@Test
 	void anOpportunityIsUpsertedOnTheGivenPipeline() {
 		responses.add("{\"opportunity\":{\"id\":\"o1\",\"name\":\"Ada\",\"contactId\":\"c1\","
 				+ "\"pipelineStageId\":\"s1\",\"status\":\"open\",\"monetaryValue\":500},\"new\":true}");
 
 		GhlWriteClient.UpsertedOpportunity opportunity = client().upsertOpportunity(PIPELINE, "c1", "Ada",
-				new BigDecimal("500"));
+				new BigDecimal("500"), "s1", "2026-10-15", "u1");
 
 		assertThat(paths).containsExactly("POST /opportunities/upsert");
 		assertThat(bodies.get(0)).contains("\"pipelineId\":\"" + PIPELINE + "\"");
+		// GHL requires locationId on the upsert; the owner rides it too (D64).
+		assertThat(bodies.get(0)).contains("\"locationId\":\"" + LOCATION + "\"")
+				.contains("\"assignedTo\":\"u1\"")
+				// The docs' required follower trio, as a no-op.
+				.contains("\"followers\":[]").contains("\"isRemoveAllFollowers\":false")
+				.contains("\"followersActionType\":\"add\"");
+		// Unit 39b: the BDE's stage and expected close ride the upsert itself.
+		assertThat(bodies.get(0)).contains("\"pipelineStageId\":\"s1\"")
+				.contains("\"forecastExpectedCloseDate\":\"2026-10-15\"");
 		assertThat(bodies.get(0)).contains("\"contactId\":\"c1\"");
 		assertThat(bodies.get(0)).contains("\"status\":\"open\"");
 		assertThat(opportunity.isNew()).isTrue();
@@ -127,7 +153,7 @@ class GhlWriteClientTest {
 		responses.add("{\"opportunity\":{\"id\":\"o1\",\"name\":\"Ada\",\"contactId\":\"c1\","
 				+ "\"pipelineStageId\":\"s1\",\"status\":\"open\",\"monetaryValue\":null},\"new\":false}");
 
-		client().upsertOpportunity(PIPELINE, "c1", "Ada", null);
+		client().upsertOpportunity(PIPELINE, "c1", "Ada", null, null, null, null);
 
 		verify(audit).recordEvent(eq("GHL_OPPORTUNITY"), any(UUID.class), eq(AuditAction.UPDATED),
 				any(), any(), any());
@@ -138,7 +164,7 @@ class GhlWriteClientTest {
 		responses.add("{\"opportunity\":{\"id\":\"o1\",\"name\":\"Ada\",\"contactId\":\"c1\","
 				+ "\"pipelineStageId\":\"s1\",\"status\":\"open\",\"monetaryValue\":null},\"new\":true}");
 
-		client().upsertOpportunity(PIPELINE, "c1", "Ada", null);
+		client().upsertOpportunity(PIPELINE, "c1", "Ada", null, null, null, null);
 
 		verify(audit).recordEvent(eq("GHL_OPPORTUNITY"), any(UUID.class), eq(AuditAction.CREATED),
 				any(), any(), any());
@@ -159,7 +185,7 @@ class GhlWriteClientTest {
 				+ "\"pipelineStageId\":\"s1\",\"status\":\"open\",\"monetaryValue\":null}}");
 
 		GhlWriteClient client = client();
-		client.upsertOpportunity(PIPELINE, "c1", "A", null);
+		client.upsertOpportunity(PIPELINE, "c1", "A", null, null, null, null);
 		client.updateOpportunity("o1", PIPELINE, "B", null, null);
 
 		ArgumentCaptor<UUID> keys = ArgumentCaptor.forClass(UUID.class);
@@ -177,7 +203,7 @@ class GhlWriteClientTest {
 
 		GhlWriteClient client = client();
 		client.upsertContact("A", null, "a@b.test", null, GhlWriteClient.SOURCE_SALES_DESK);
-		client.upsertOpportunity(PIPELINE, "same", "A", null);
+		client.upsertOpportunity(PIPELINE, "same", "A", null, null, null, null);
 
 		ArgumentCaptor<UUID> contactKey = ArgumentCaptor.forClass(UUID.class);
 		ArgumentCaptor<UUID> opportunityKey = ArgumentCaptor.forClass(UUID.class);
@@ -283,7 +309,7 @@ class GhlWriteClientTest {
 	void anEmptyResponseBodyIsAFailureNotAnEmptyResult() {
 		responses.add("{}");
 
-		assertThatThrownBy(() -> client().upsertOpportunity(PIPELINE, "c1", "Ada", null))
+		assertThatThrownBy(() -> client().upsertOpportunity(PIPELINE, "c1", "Ada", null, null, null, null))
 				.isInstanceOf(GhlUnavailableException.class)
 				.hasMessageContaining("returned no opportunity");
 	}

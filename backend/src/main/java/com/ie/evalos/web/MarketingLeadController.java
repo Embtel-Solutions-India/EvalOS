@@ -43,7 +43,11 @@ public class MarketingLeadController {
 	 * the service with the explanation rather than as a bare annotation here.
 	 */
 	public record OpenLeadRequest(String firstName, String lastName, String email, String phone,
-			String name, BigDecimal monetaryValue) {
+			String name, BigDecimal monetaryValue, String stageId, String expectedCloseDate,
+			/** GHL custom field values keyed by the location's field id, from /api/sales/opportunity-fields. */
+			java.util.Map<String, String> customFields,
+			/** The owner — a GHL user id from /api/sales/users. Blank = GHL's round-robin. */
+			String assignedTo) {
 	}
 
 	/** A valuation, and optionally a better name for the deal. */
@@ -61,7 +65,8 @@ public class MarketingLeadController {
 	@PreAuthorize("hasAnyRole('MARKETING', 'EXPERT_NETWORK_MANAGER')")
 	public ApiResponse<MarketingLeadService.Lead> open(@RequestBody @Valid OpenLeadRequest request) {
 		return ApiResponse.ok(leads.openLead(request.firstName(), request.lastName(), request.email(),
-				request.phone(), request.name(), request.monetaryValue()));
+				request.phone(), request.name(), request.monetaryValue(), request.stageId(),
+				request.expectedCloseDate(), request.customFields(), request.assignedTo()));
 	}
 
 	@PutMapping("/{opportunityId}")

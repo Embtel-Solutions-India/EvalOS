@@ -69,8 +69,8 @@ opportunity.won → Handoff A → CASE_CREATED (after commit)
   → case brand is the portal brand, contact has email + GHL id?
       no  → flag the case, no account
       yes → account for (brand, email)?
-              none                       → create (created_via CASE, linked to the contact) → set-password mail
-              linked to this contact     → no password: re-send set-password · password set: nothing
+              none                       → create (created_via CASE, linked to the contact) → case-started mail (D65)
+              linked to this contact     → no password: case-started mail · password set: new-case sign-in mail
               unlinked                   → link, then as above
               linked to another contact  → flag the case, never relink
 sign-in, unknown email → "your account opens when your first case starts"
@@ -97,7 +97,8 @@ GHL marks the opportunity won     → POST /api/webhooks/ghl/{endpointToken}
                                        service type from customData.serviceType
                                   → CASE_CREATED (after commit)
                                        → chat conversations (Unit 57)
-                                       → the client's portal account + set-password mail (§1)
+                                       → the client's portal account + case-opened mail (§1, D65:
+                                         set-password link valid 7 days, or sign-in if set)
 PC / CM send the checklist (D60)  → the client uploads on the case (§5)
 ```
 
@@ -123,7 +124,7 @@ Matches CURRENT above (Unit 64 built 2026-09-29).
 | Path | Contact | Opportunity | Effect on a repeat client |
 |---|---|---|---|
 | `SalesDeskService.createDeal` | `upsertContact` | **`createOpportunity`** | new opportunity; refuses a second open deal unless confirmed |
-| `MarketingLeadService.openLead` | `upsertContact` | **`upsertOpportunity`** | **reuses the open opportunity on that pipeline** |
+| `MarketingLeadService.openLead` | `upsertContact` | **`upsertOpportunity`** (+ stage, close), then `setOpportunityFields` for intake (D64) | **reuses the open opportunity on that pipeline** |
 
 **Edits do not call GHL at all** (D44, Unit 46). `SalesDeskService.update` / `moveToStage` /
 `close` and `MarketingLeadService.value` each edit the mirror row, stamp `local_updated_at` **and
@@ -131,6 +132,15 @@ record which of the four shared fields they touched** (`locally_edited_fields`, 
 `UPSERT` or `CLOSE`, and answer from the row. `SYNC_OUTBOX` (2m) sends it. `moveToStage` first
 refuses a stage that is not a live `pipeline_stage` of the row's own pipeline (Q12, 2026-09-24),
 so the merged board strip cannot turn a drag into a pipeline move.
+
+**Sales edits every field, and deletes (Unit 69, D66, 2026-09-30).** `PUT
+/api/sales/opportunities/{id}` also takes `stageId`, `expectedCloseDate`, `assignedTo` and
+`customFields`. Name / value / stage keep the queued path above; close date, owner and custom
+fields go to GHL **inline** first (`GhlWriteClient.updateOpportunityDetails`, no pipeline, no
+status), then `OpportunityMirrorService.absorbDetails` writes owner + fields onto the row.
+`DELETE /api/sales/opportunities/{id}` refuses a won deal and one with a pending outbox push,
+calls `GhlWriteClient.deleteOpportunity` (404 = done, audited `DELETED`) and stamps the row
+`missing_since` (`markDeleted`) — never a row delete. UI: `DealEditDialog` ("Edit or delete").
 
 **The push carries the edited fields only.** `updateOpportunity` omits a null from the body, so an
 unedited field is left alone in GHL rather than overwritten by whatever the mirror happens to hold

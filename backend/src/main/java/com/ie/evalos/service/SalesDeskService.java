@@ -79,7 +79,7 @@ public class SalesDeskService {
 	 */
 	public Deal createDeal(String firstName, String lastName, String email, String phone,
 			String name, BigDecimal monetaryValue, String stageId, String expectedCloseDate,
-			java.util.Map<String, String> customFields, boolean confirmSecondDeal) {
+			java.util.Map<String, String> customFields, String assignedTo, boolean confirmSecondDeal) {
 		// A create has to land on exactly one pipeline and the caller must not choose it — see
 		// PipelineScope.mineForWrite, which refuses rather than guessing when a desk holds several.
 		String pipelineId = scope.mineForWrite();
@@ -106,7 +106,7 @@ public class SalesDeskService {
 		}
 
 		GhlWriteClient.UpsertedOpportunity created = ghl.createOpportunity(pipelineId, contact.id(),
-				name, monetaryValue, stageId, expectedCloseDate, customFields);
+				name, monetaryValue, stageId, expectedCloseDate, customFields, assignedTo);
 
 		// Same reason as the marketing desk's: `queue` below refuses a deal the mirror has not
 		// absorbed, so a salesperson who creates a deal and immediately moves or re-prices it would
@@ -167,18 +167,65 @@ public class SalesDeskService {
 	}
 
 	/**
-	 * Renames a deal or re-prices it.
+	 * Every field of the deal a desk may change (Unit 69).
 	 *
-	 * <p><strong>The mirror is written and the push is queued</strong> (Unit 46). Both fields are
-	 * shared with GHL under 45e, so the local edit is defended until the drain confirms it — and
-	 * the salesperson sees the new value at once instead of waiting for a round trip.
+	 * <p><strong>Two paths, and GHL goes first.</strong> Name, value and stage are 45e's shared
+	 * fields and take the outbox (D44). Expected close, owner and custom fields are not in the outbox's
+	 * vocabulary — the close date is not even mirrored — so they go to GHL inline, D46's reason. The
+	 * inline call runs before anything is queued, so a GHL refusal leaves the deal untouched.
 	 */
-	public Deal update(String opportunityId, String name, BigDecimal monetaryValue) {
-		scope.requireMine(opportunityId);
-		if ((name == null || name.isBlank()) && monetaryValue == null) {
-			throw new InvalidRequestException("Nothing to change: send a name, a value, or both");
+	public Deal update(String opportunityId, String name, BigDecimal monetaryValue, String stageId,
+			String expectedCloseDate, String assignedTo, java.util.Map<String, String> customFields) {
+		String pipelineId = scope.requireMine(opportunityId);
+		boolean shared = !blank(name) || monetaryValue != null || !blank(stageId);
+		boolean details = !blank(expectedCloseDate) || !blank(assignedTo)
+				|| (customFields != null && customFields.values().stream().anyMatch((v) -> !blank(v)));
+		if (!shared && !details) {
+			throw new InvalidRequestException("Nothing to change: send at least one field");
 		}
-		return queue(opportunityId, name, monetaryValue, null, null, SyncOutboxEntry.Intent.UPSERT);
+		Opportunity row = deals.byGhlId(opportunityId)
+				.orElseThrow(() -> new InvalidRequestException(
+						"That deal is not in the mirror yet, so it cannot be edited here. It arrives "
+								+ "with the next sync — run the MIRROR_DELTA job to pull it now."));
+		if (!blank(stageId)) {
+			requireStageOf(row, stageId);
+		}
+		if (details) {
+			ghl.updateOpportunityDetails(opportunityId, pipelineId, expectedCloseDate, assignedTo,
+					customFields);
+			deals.absorbDetails(opportunityId, assignedTo, customFields);
+		}
+		return shared ? queue(opportunityId, name, monetaryValue, stageId, null,
+				SyncOutboxEntry.Intent.UPSERT) : asDeal(deals.byGhlId(opportunityId).orElse(row));
+	}
+
+	/**
+	 * Deletes the deal in GHL, then stamps the mirror row missing (Unit 69).
+	 *
+	 * <p><strong>A won deal is refused</strong>: Handoff A has made, or is making, its case, and the
+	 * case names this opportunity. <strong>So is one with a push still queued</strong> — the drain
+	 * would send it to a deleted opportunity and dead-letter it; the salesperson retries after the
+	 * next drain.
+	 */
+	public void delete(String opportunityId) {
+		String pipelineId = scope.requireMine(opportunityId);
+		Opportunity row = deals.byGhlId(opportunityId)
+				.orElseThrow(() -> new InvalidRequestException(
+						"That deal is not in the mirror yet, so it cannot be deleted here."));
+		if ("won".equalsIgnoreCase(row.getStatus())) {
+			throw new InvalidRequestException(
+					"A won deal cannot be deleted: its case has been opened from it.");
+		}
+		if (outbox.isPending(row.getBrandId(), row.getId())) {
+			throw new InvalidRequestException("An edit to this deal is still on its way to GHL. "
+					+ "Try again in a couple of minutes, once it has landed.");
+		}
+		ghl.deleteOpportunity(opportunityId, pipelineId);
+		deals.markDeleted(opportunityId);
+	}
+
+	private static boolean blank(String value) {
+		return value == null || value.isBlank();
 	}
 
 	/**

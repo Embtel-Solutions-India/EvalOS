@@ -217,7 +217,8 @@ public class ClientAccountService {
 	 *
 	 * @param contact the case's contact, already in the portal's brand
 	 */
-	public CaseAccountOutcome openForCase(com.ie.evalos.domain.ContactSnapshot contact) {
+	public CaseAccountOutcome openForCase(com.ie.evalos.domain.ContactSnapshot contact, String caseCode,
+			String service) {
 		if (contact.getEmail() == null || contact.getEmail().isBlank()) {
 			return CaseAccountOutcome.NO_EMAIL;
 		}
@@ -226,7 +227,7 @@ public class ClientAccountService {
 		}
 		Optional<ClientAccount> byContact = accounts.findByBrandIdAndGhlContactId(brandId, contact.getGhlContactId());
 		if (byContact.isPresent()) {
-			return remind(byContact.get(), CaseAccountOutcome.REMINDED);
+			return remind(byContact.get(), CaseAccountOutcome.REMINDED, caseCode, service);
 		}
 		String email = normalize(contact.getEmail());
 		Optional<ClientAccount> byEmail = accounts.findByBrandIdAndEmailIgnoreCase(brandId, email);
@@ -241,7 +242,7 @@ public class ClientAccountService {
 			accounts.saveAndFlush(account);
 			audit.recordSystemEvent(brandId, "CLIENT_ACCOUNT", account.getId(), AuditAction.UPDATED, null,
 					"linked to contact " + contact.getGhlContactId() + " when their case was created");
-			return remind(account, CaseAccountOutcome.LINKED);
+			return remind(account, CaseAccountOutcome.LINKED, caseCode, service);
 		}
 		ClientAccount account = new ClientAccount(brandId, email, "CASE");
 		String[] names = splitName(contact.getFullName());
@@ -253,17 +254,60 @@ public class ClientAccountService {
 		accounts.saveAndFlush(account);
 		audit.recordSystemEvent(brandId, "CLIENT_ACCOUNT", account.getId(), AuditAction.CREATED, null,
 				"opened for " + email + " when their case was created");
-		return issueCredential(account, CredentialPurpose.SET) ? CaseAccountOutcome.CREATED
+		return sendCaseStarted(account, caseCode, service) ? CaseAccountOutcome.CREATED
 				: CaseAccountOutcome.MAIL_UNAVAILABLE;
 	}
 
-	/** An account that is this contact's: nothing when it has a password, a set-password link when not. */
-	private CaseAccountOutcome remind(ClientAccount account, CaseAccountOutcome sent) {
+	/**
+	 * An account that is this contact's (D65): with a password, the "new case — sign in" mail;
+	 * without one, the case-started set-password mail.
+	 *
+	 * <p>A failed sign-in mail is only logged, never flagged: the client can already reach the case.
+	 */
+	private CaseAccountOutcome remind(ClientAccount account, CaseAccountOutcome sent, String caseCode,
+			String service) {
 		if (account.hasPassword()) {
+			MailTransport.Recipient recipient =
+					new MailTransport.Recipient(account.getBrandId(), account.getEmail());
+			if (!mailer.canReach(recipient)
+					|| !mailer.sendCaseStartedSignIn(recipient, account.getFirstName(), service, caseCode)) {
+				log.warn("New-case mail for case {} was not sent to account {}", caseCode, account.getId());
+			}
 			return sent == CaseAccountOutcome.LINKED ? CaseAccountOutcome.LINKED : CaseAccountOutcome.ALREADY_ACTIVE;
 		}
-		return issueCredential(account, CredentialPurpose.SET) ? sent : CaseAccountOutcome.MAIL_UNAVAILABLE;
+		return sendCaseStarted(account, caseCode, service) ? sent : CaseAccountOutcome.MAIL_UNAVAILABLE;
 	}
+
+	/**
+	 * The case-started set-password mail, with a {@link #CASE_LINK_TTL} link (D65).
+	 *
+	 * <p><strong>Always a fresh token, no cooldown</strong> — unlike {@link #issueCredential}. That
+	 * cooldown bounds an unauthenticated route; this runs once per case (the webhook gateway
+	 * dedupes redeliveries by event id), and an outstanding 30-minute sign-in link must not
+	 * swallow the case mail. Same send-then-save order as {@code issueCredential}, for its reason.
+	 */
+	private boolean sendCaseStarted(ClientAccount account, String caseCode, String service) {
+		MailTransport.Recipient recipient =
+				new MailTransport.Recipient(account.getBrandId(), account.getEmail());
+		if (!mailer.canReach(recipient)) {
+			return false;
+		}
+		String token = PortalAccessService.freshCredentialToken();
+		if (!mailer.sendCaseStarted(recipient, account.getFirstName(),
+				clientAppBaseUrl + "/set-password#" + token, service, caseCode)) {
+			return false;
+		}
+		credentials.save(new ClientCredentialToken(account.getBrandId(), account.getId(),
+				PortalAccessService.hash(token), CredentialPurpose.SET, Instant.now().plus(CASE_LINK_TTL)));
+		return true;
+	}
+
+	/**
+	 * How long the case-started link works. The client did not ask for this mail, so it may be
+	 * opened days later; sign-in and reset links keep {@code credential-ttl}. The copy in
+	 * {@code case-started.html} and {@link MailTemplates#caseStarted} says "7 days" — change both.
+	 */
+	static final Duration CASE_LINK_TTL = Duration.ofDays(7);
 
 	/** "Ana María Ruiz" → ["Ana", "María Ruiz"]; blank → [null, null]. */
 	static String[] splitName(String fullName) {

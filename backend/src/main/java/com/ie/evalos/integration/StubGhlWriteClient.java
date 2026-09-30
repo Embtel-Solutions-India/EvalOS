@@ -75,20 +75,20 @@ public class StubGhlWriteClient extends GhlWriteClient {
 
 	@Override
 	public UpsertedOpportunity upsertOpportunity(String pipelineId, String contactId, String name,
-			BigDecimal monetaryValue) {
+			BigDecimal monetaryValue, String stageId, String expectedCloseDate, String assignedTo) {
 		String id = stubId("opp");
 		log.info("STUB upsertOpportunity -> {} on pipeline {} for contact {}", id, pipelineId, contactId);
 		// `isNew` true: an upsert that matched an existing deal is a real outcome the marketing desk
 		// reports, but a stub has no history to match against and claiming a match would be a lie
 		// with a visible consequence on screen.
-		return new UpsertedOpportunity(id, contactId, pipelineId, null, "open", name, monetaryValue,
+		return new UpsertedOpportunity(id, contactId, pipelineId, stageId, "open", name, monetaryValue,
 				true);
 	}
 
 	@Override
 	public UpsertedOpportunity createOpportunity(String pipelineId, String contactId, String name,
 			BigDecimal monetaryValue, String stageId, String expectedCloseDate,
-			Map<String, String> customFields) {
+			Map<String, String> customFields, String assignedTo) {
 		String id = stubId("opp");
 		log.info("STUB createOpportunity -> {} on pipeline {} for contact {} ({} custom field(s))", id,
 				pipelineId, contactId, customFields == null ? 0 : customFields.size());
@@ -104,6 +104,18 @@ public class StubGhlWriteClient extends GhlWriteClient {
 		// `moveStage` delegates here, so it is stubbed by this override rather than by its own.
 		return new UpsertedOpportunity(opportunityId, null, pipelineId, stageId, "open", name,
 				monetaryValue, false);
+	}
+
+	@Override
+	public void updateOpportunityDetails(String opportunityId, String pipelineId,
+			String expectedCloseDate, String assignedTo, Map<String, String> customFields) {
+		log.info("STUB updateOpportunityDetails {} (close={}, owner={}, {} field(s))", opportunityId,
+				expectedCloseDate, assignedTo, customFields == null ? 0 : customFields.size());
+	}
+
+	@Override
+	public void deleteOpportunity(String opportunityId, String pipelineId) {
+		log.info("STUB deleteOpportunity {} — not sent", opportunityId);
 	}
 
 	@Override

@@ -381,6 +381,24 @@ public class Opportunity extends ScopedEntity {
 				: new java.util.LinkedHashMap<>(values);
 	}
 
+	/**
+	 * GHL has just accepted a desk's owner / custom-field edit inline (Unit 69), so the mirror takes
+	 * it without waiting for the sweep. <strong>Merged, not replaced</strong>: the edit names only
+	 * the fields it changed. Blank means "left alone", as in the GHL call.
+	 */
+	public void absorbDetails(String assignedTo, java.util.Map<String, String> values) {
+		if (assignedTo != null && !assignedTo.isBlank()) {
+			this.ghlAssignedTo = assignedTo;
+		}
+		if (values != null) {
+			values.forEach((id, value) -> {
+				if (value != null && !value.isBlank()) {
+					customFields.put(id, value);
+				}
+			});
+		}
+	}
+
 	public java.util.Map<String, String> getCustomFields() {
 		return java.util.Collections.unmodifiableMap(customFields);
 	}

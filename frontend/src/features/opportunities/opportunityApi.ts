@@ -100,6 +100,10 @@ export type DealContact = {
   tags: readonly string[]
   /** The contact's own custom field values, named. */
   contactFields: readonly CustomFieldValue[]
+  /** Unit 69: the owner's GHL user id, for the edit dialog's picker. */
+  assignedToId: string | null
+  /** Unit 69: the deal's custom field values keyed by GHL field id, for the edit dialog. */
+  dealFieldValues: Record<string, string>
 }
 
 export type CustomFieldValue = { label: string; value: string }
@@ -187,6 +191,12 @@ export type NewLead = {
   phone?: string
   name?: string
   monetaryValue?: number
+  /** Unit 39b: the rest of GHL's opportunity form — same meaning as on {@link NewDeal}. */
+  stageId?: string
+  expectedCloseDate?: string
+  customFields?: Record<string, string>
+  /** A GHL user id from {@link fetchGhlUsers}; omit for GHL's round-robin. */
+  assignedTo?: string
 }
 
 /**
@@ -259,11 +269,27 @@ export type SalesDeal = {
  */
 export type CloseStatus = 'won' | 'lost' | 'abandoned'
 
+/**
+ * Changes any of the deal's fields (Unit 69); omit what is unchanged. Name, value and stage are
+ * queued for GHL; close date, owner and custom fields go to GHL inside the request.
+ */
 export function updateDeal(
   opportunityId: string,
-  update: { name?: string; monetaryValue?: number },
+  update: {
+    name?: string
+    monetaryValue?: number
+    stageId?: string
+    expectedCloseDate?: string
+    assignedTo?: string
+    customFields?: Record<string, string>
+  },
 ): Promise<SalesDeal> {
   return unwrap<SalesDeal>(api.put(`/sales/opportunities/${opportunityId}`, update))
+}
+
+/** Deletes the deal in GHL (Unit 69). Refused for a won deal and while an edit is still queued. */
+export function deleteDeal(opportunityId: string): Promise<void> {
+  return unwrap<void>(api.delete(`/sales/opportunities/${opportunityId}`))
 }
 
 /**
@@ -536,9 +562,8 @@ export function unblockTime(id: string) {
  *
  * Absent on purpose, each mirrored from `SalesOpportunityController.NewDealRequest`:
  * `pipelineId` (the caller's own, never a field), `status` (forced to `open` — GHL accepts `won`
- * on create, which fires Handoff A and mints a *paid* case), `assignedTo` (a GHL user id EvalOS
- * does not hold), `customFields` (definitions arrive with the tier-2 mirror) and
- * `forecastProbability` (GHL derives it from the stage).
+ * on create, which fires Handoff A and mints a *paid* case) and `forecastProbability` (GHL
+ * derives it from the stage).
  */
 export type NewDeal = {
   firstName?: string
@@ -558,6 +583,8 @@ export type NewDeal = {
    * turnaround, and the client's own description of the case.
    */
   customFields?: Record<string, string>
+  /** The owner (D64): a GHL user id from {@link fetchGhlUsers}; omit for GHL's round-robin. */
+  assignedTo?: string
   /** Set only after the caller has been shown the contact's existing open deal. */
   confirmSecondDeal?: boolean
 }

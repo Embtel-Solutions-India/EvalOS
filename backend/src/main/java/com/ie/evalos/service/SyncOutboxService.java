@@ -335,7 +335,7 @@ public class SyncOutboxService {
 				? null
 				: java.util.Map.of(correlationFieldId, row.getId().toString());
 		GhlWriteClient.UpsertedOpportunity created = ghl.createOpportunity(ghlPipelineOf(row),
-				row.getGhlContactId(), row.getName(), row.getAmount(), null, null, fields);
+				row.getGhlContactId(), row.getName(), row.getAmount(), null, null, fields, null);
 		row.linkGhl(created.id());
 		opportunities.save(row);
 	}

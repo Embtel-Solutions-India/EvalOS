@@ -411,7 +411,10 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
   the recommendation taken): checklist + link, draft ready, expert signing link (now: sign-in),
   delivered — as one unit, with a written invariant-14 amendment. Not the chases. **The checklist
   email goes out on every checklist send (D60)**, first list or later additions: "you have N
-  documents to upload — sign in"; the upload itself stays in the portal.
+  documents to upload — sign in"; the upload itself stays in the portal. **Built 2026-09-30 as
+  Unit 64c** (spec `64c-case-progress-emails.md`): `CaseMailListener` on `CHECKLIST_REQUESTED`,
+  `DRAFT_READY_FOR_CLIENT`, `EXPERT_SENT_FOR_SIGNING` (to the case's expert) and `CASE_DELIVERED`;
+  each a deep link into the portal, never a credential; portal brand only; a failed send is logged.
 - **D60.** **The document checklist is sent to the client by the PC or the CM** (2026-09-29, the
   business): either role may add any document to a case's checklist; items are **unsent** — not
   visible in the client portal — until one of them presses **Send**, which publishes every unsent
@@ -466,6 +469,29 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
   (`GET /api/portal/expert/documents/{id}/url`, audited); earlier draft versions stay internal. The
   **ENM** reads no case documents (`Tier.SUPPLY`): they staff experts, and a file name alone can
   name the client.
+- **D64.** **The BDE's "Add lead" is GHL's full opportunity form** (2026-09-30, the business;
+  Unit 39b, spec `39b-complete-lead-form.md`): contact, name, value, expected close, stage of the
+  BDE's own pipeline, **owner** and the sales form's intake custom fields, still an upsert on
+  (contact, pipeline). **The sales "Add opportunity" gains the same owner picker** (a GHL user from
+  the mirrored location users; blank = GHL's round-robin). Pipeline, status and production-state
+  fields stay off both forms.
+- **D66.** **Sales edits every field of its deal and may delete it** (2026-09-30, the business;
+  Unit 69, spec `69-deal-edit-delete.md`). Editable: name, value, stage (own pipeline), expected
+  close, owner, intake custom fields; never pipeline or status (status stays Won / Lost /
+  Abandoned). Name / value / stage stay queued (D44); close, owner and custom fields go to GHL
+  inline, D46's reason — the owner is still GHL's under D42, EvalOS just writes it there. **Delete**
+  is inline `DELETE /opportunities/{id}`, refused on a **won** deal (its case exists) and while a
+  push is still queued; the mirror row is stamped missing, never deleted. Sales only.
+- **D65.** **A case opening emails the client, once** (2026-09-30, the business; Unit 64b, spec
+  `64b-case-opened-emails.md`). No password yet → *Your case has started — set your password*,
+  naming the service and case code, with a set-password link valid **7 days** (sign-in and reset
+  links keep `credential-ttl`). Password already set → *Your new case has started*, a sign-in link
+  and no credential. The generic set / reset password mails stay for sign-in and forgot-password.
+- **D67.** **An expert is emailed when a case is offered to them** (2026-09-30, the business; closes
+  Q17; Unit 64c). On every `EXPERT_ASSIGNED` — first assignment, rematch and retake, each of which
+  opens an offer — the case's expert gets *A new case is offered to you*: service, case code, the
+  open offer's fee in the brand's currency (left out when unpriced), a deep link to the case in the
+  expert portal, no credential. No answer deadline is stated: none is enforced on the offer.
 - **D52.** **No GHL conversation sidebar.** EvalOS does not mirror or send GHL conversations
   (SMS / email / WhatsApp / social); that stays in GHL. The only messaging in EvalOS is the case
   chat (Unit 57). Decided 2026-09-28. _(Closes Q10; drops tier 3 of the Unit 47 mirror.)_
