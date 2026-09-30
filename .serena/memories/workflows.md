@@ -19,7 +19,7 @@ Handoff A creates the case → a **PM** takes it → the PM assigns **Coordinato
 and **Expert** → the **CM uploads the draft as Word + PDF** → the **client comments and approves that
 version in the portal** (Unit 58) → only then
 the **expert** downloads, signs and uploads back. `CaseLifecycleService` already implements all of
-it. **Sales sees none of this** (D19c).
+it. From the offer on, the expert also opens the client's current files and the approved draft (D63). **Sales sees none of this** (D19c).
 
 Client identity (`ClientAccountService`): `identify` answers three ways (plus `UNKNOWN`: "your
 account opens when your first case starts"); `signIn` creates nothing; **there is no sign-up**.

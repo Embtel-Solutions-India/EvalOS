@@ -95,6 +95,18 @@ export async function letterLink(): Promise<string> {
   return url
 }
 
+/**
+ * One of the case's files (Unit 66b), on a five-minute URL fetched at the click. `view` opens the
+ * letter's PDF in the browser; everything else downloads.
+ */
+export async function documentUrl(documentId: string, pdf = false, view = false): Promise<string> {
+  const params = { ...(openCase ? { caseId: openCase } : {}), pdf, view }
+  const { url } = await unwrap(
+    apiClient.get<ApiResponse<{ url: string }>>(`/expert/documents/${documentId}/url`, { params }),
+  )
+  return url
+}
+
 export interface UploadProgressHandler {
   (percent: number): void
 }

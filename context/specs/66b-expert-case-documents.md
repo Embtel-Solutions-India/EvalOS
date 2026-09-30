@@ -1,5 +1,8 @@
 # Unit 66b — The expert opens the case's documents
 
+**Built 2026-09-30** (branch `feature/unit-66-case-workspace`), as specced. Not browser-checked:
+no local case has an approved draft or a client file.
+
 Specced 2026-09-30 from a business decision in chat: *every person associated with a case can see
 and download its documents and the draft; the Case Manager uploads the draft and its versions.*
 Recommendation taken: the **Expert** gains the files, the **ENM** stays out (D63).
