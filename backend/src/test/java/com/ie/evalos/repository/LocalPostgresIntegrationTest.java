@@ -965,6 +965,13 @@ class LocalPostgresIntegrationTest {
 				.singleElement()
 				.satisfies(row -> assertThat((UUID) row[0]).isEqualTo(xpExpert));
 
+		// Turnaround (G9) on real Postgres: the stubbed tests never ran this JPQL, and Hibernate's
+		// timestamp difference is a number, not an interval `date_part` would take. One per resolved
+		// offer in this brand; the open one has no turnaround yet.
+		assertThat(offers.resolvedTurnaroundSeconds(BRAND_IE, List.of(ieExpert, xpExpert)))
+				.hasSize(4)
+				.allSatisfy(seconds -> assertThat(seconds).isGreaterThanOrEqualTo(0.0));
+
 		// The open-offer finder the three resolving transitions use.
 		assertThat(offers.findByCaseIdAndOutcome(ieCase, OfferOutcome.OFFERED))
 				.extracting(ExpertCaseOffer::getId).containsExactly(openOffer);

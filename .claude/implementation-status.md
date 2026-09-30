@@ -47,6 +47,7 @@ request status, portal deployment) and now say so.
 9. ~~**Unit 66b — the expert opens the case's documents (D63).**~~ **Built 2026-09-30** (spec
    `66b`, branch `feature/unit-66-case-workspace`, no migration): see the Expert workflow row.
    Restart the backend to serve `GET /api/portal/expert/documents/{id}/url`.
+   **Fix (same day):** the expert-network turnaround query (`ExpertCaseOfferRepository.resolvedTurnaroundSeconds`) failed on every call on Postgres; now `… by second`, asserted in `LocalPostgresIntegrationTest`.
 6. **Verify for real:** set `ABLY_API_KEY`, the `EVALOS_PUSH_*` keys, SMTP and S3, then click
    through client + expert sign-in and chat against the staff app.
 
