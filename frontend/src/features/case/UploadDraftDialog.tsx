@@ -105,7 +105,13 @@ export default function UploadDraftDialog({
         : <form onSubmit={submit} className="flex flex-col gap-3 text-sm">
             <label className="flex flex-col gap-1">
               <span style={{ color: 'var(--text-muted)' }}>Word file (.docx)</span>
-              <input type="file" accept=".docx" required onChange={(e) => setDocx(e.target.files?.[0] ?? null)} />
+              <input
+                type="file"
+                accept=".docx"
+                required
+                onChange={(e) => setDocx(e.target.files?.[0] ?? null)}
+                className="field w-full"
+              />
             </label>
             <label className="flex flex-col gap-1">
               <span style={{ color: 'var(--text-muted)' }}>PDF of the same draft</span>
@@ -114,6 +120,7 @@ export default function UploadDraftDialog({
                 accept="application/pdf,.pdf"
                 required
                 onChange={(e) => setPdf(e.target.files?.[0] ?? null)}
+                className="field w-full"
               />
             </label>
             <label className="flex flex-col gap-1">
@@ -122,8 +129,7 @@ export default function UploadDraftDialog({
                 value={note}
                 onChange={(e) => setNote(e.target.value)}
                 rows={3}
-                className="rounded-md border p-2"
-                style={{ borderColor: 'var(--border-default)' }}
+                className="field w-full"
               />
             </label>
             {state === 'failed' && (
