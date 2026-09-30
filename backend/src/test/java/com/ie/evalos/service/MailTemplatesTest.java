@@ -24,6 +24,7 @@ class MailTemplatesTest {
 				templates.caseStarted("Ana Ruiz", "https://portal.test/set-password#tok", "Credential evaluation", "IE-0001"),
 				templates.caseStartedSignIn("Ana Ruiz", "Credential evaluation", "IE-0001"),
 				templates.caseUpdate(MailTemplates.CaseUpdate.CHECKLIST, "Ana Ruiz", "Credential evaluation", "IE-0001", 3, "https://portal.test/cases/1"),
+				templates.caseUpdate(MailTemplates.CaseUpdate.CHASE, "Ana Ruiz", "Credential evaluation", "IE-0001", 2, "https://portal.test/cases/1"),
 				templates.caseUpdate(MailTemplates.CaseUpdate.DRAFT_READY, "Ana Ruiz", "Credential evaluation", "IE-0001", 0, "https://portal.test/cases/1"),
 				templates.caseUpdate(MailTemplates.CaseUpdate.SIGNING, "Chidi Okafor", "Credential evaluation", "IE-0001", 0, "https://expert.test/case?caseId=1"),
 				templates.caseUpdate(MailTemplates.CaseUpdate.DELIVERED, "Ana Ruiz", "Credential evaluation", "IE-0001", 0, "https://portal.test/cases/1"),

@@ -409,7 +409,10 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
   pipeline Sales are already members of it (Unit 57), so no separate ownership split is needed.
 - **D58.** **EvalOS sends four client emails beyond the auth mails** (2026-09-29, closes 00d §12 c,
   the recommendation taken): checklist + link, draft ready, expert signing link (now: sign-in),
-  delivered — as one unit, with a written invariant-14 amendment. Not the chases. **The checklist
+  delivered — as one unit, with a written invariant-14 amendment. **Plus the Send chase button
+  (2026-10-01, the business):** a PC/CM chase emails the client a reminder with the same count
+  (`CHECKLIST_CHASED` → `CaseUpdate.CHASE`); the 24h/48h `DOC_CHASE` sweep still emails nobody and
+  prompts the Coordinator in the bell. **The checklist
   email goes out on every checklist send (D60)**, first list or later additions: "you have N
   documents to upload — sign in"; the upload itself stays in the portal. **Built 2026-09-30 as
   Unit 64c** (spec `64c-case-progress-emails.md`): `CaseMailListener` on `CHECKLIST_REQUESTED`,

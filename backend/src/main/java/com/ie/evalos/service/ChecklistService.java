@@ -36,9 +36,9 @@ import org.springframework.transaction.annotation.Transactional;
  * {@link CaseLifecycleService#read}, so scope is decided in the one place the rest of the
  * system decides it and an out-of-scope case is refused before a single item is fetched.
  *
- * <p><strong>The chase sends nothing.</strong> It writes an audit row and publishes
- * {@code checklist.reminder}; GHL delivers the message to the client (invariant 14). EvalOS
- * has no mail server and this is not the place one would go.
+ * <p><strong>The chase sends nothing itself.</strong> It writes an audit row and publishes
+ * {@code checklist.chased}; {@link CaseMailListener} emails the client after commit (D58,
+ * invariant 14).
  */
 @Service
 public class ChecklistService {
@@ -319,9 +319,9 @@ public class ChecklistService {
 		}
 
 		record(subject, AuditAction.CHASED, "Document chase sent to the client");
-		// GHL delivers it. Published inside this transaction, so a rolled-back chase cannot
-		// leave an event claiming the client was contacted.
-		events.publishEvent(CaseEvents.CaseEvent.of(CaseEvents.Type.CHECKLIST_REMINDER, subject));
+		// CaseMailListener emails the reminder after commit (D58). Published inside this
+		// transaction, so a rolled-back chase cannot leave an event claiming the client was contacted.
+		events.publishEvent(CaseEvents.CaseEvent.of(CaseEvents.Type.CHECKLIST_CHASED, subject));
 	}
 
 	// --- shared plumbing -----------------------------------------------------

@@ -68,7 +68,13 @@ request status, portal deployment) and now say so.
    a read-only transaction, sends outside it). Checklist count = sent and not complete; zero sends
    nothing. **Plus the expert offer mail (D67)** on `EXPERT_ASSIGNED`, with the open offer's fee.
    Tests: `MailTemplatesTest`, `CaseMailListenerTest`. **Not sent through a real inbox yet.**
-   Restart the backend.
+   Restart the backend. **2026-10-01: Send chase now emails the client** — it used to publish
+   `CHECKLIST_REMINDER`, which nothing subscribed to since Unit 18 was cut, so the trail said
+   "chase sent" and nobody was contacted. `ChecklistService.chase` publishes the new
+   `CHECKLIST_CHASED`; `CaseMailListener` sends `CaseUpdate.CHASE` ("Reminder: documents needed").
+   The `DOC_CHASE` sweep is unchanged (bell prompt only, by the business's choice). Tests:
+   `CaseMailListenerTest#aChaseRemindsTheClientButTheSweepsReminderDoesNot`,
+   `ChecklistServiceTest#aChaseEmitsTheChasedEventAndRecordsIt`, `MailTemplatesTest`.
 13. ~~**Unit 69 — edit every deal field, and delete (D66).**~~ **Built 2026-09-30** (spec `69`,
    no migration): `SalesDeskService.update` (7 fields) / `delete`, `DELETE
    /api/sales/opportunities/{id}` (SALES), `GhlWriteClient.updateOpportunityDetails` /
