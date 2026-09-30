@@ -503,6 +503,11 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
   pipeline's Won stage** (board drag or stage picker), which wins the deal (stage + status won); the note is a deal note flagged
   `handoff`, synced to GHL like any other, and shown on the case page as the Sales handoff note.
   Built as Unit 71.
+- **D71.** **Clients and experts accept the portal's policies on first sign-in** (2026-10-01, the
+  business): the Privacy Policy, Disclaimer and Document Retention Policy, once per account and
+  policy version, recorded on the account and as a `TERMS_ACCEPTED` audit row; fail closed. Both
+  portals' sign-in screens carry the portal artwork on the right half. Built as Unit 72
+  (`72-portal-terms-acceptance.md`).
 - **D68.** **EvalOS screens update themselves** (2026-10-01, the business). A committed write to a
   case (the case, its documents, checklist, offers, payouts, draft comments) sends a **signal, never
   data**, over Ably: `case.changed {caseId}` to a per-brand staff channel and to the case's client

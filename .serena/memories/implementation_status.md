@@ -7,6 +7,10 @@ Build is green: backend **1177 tests, 0 failures, 4 skipped** (2026-09-24); staf
 and oxlint; portals 30 tests plus clean tsc and a clean `npm run build`. Re-run 2026-09-22 after
 the dead-code pass below.
 
+**Unit 72 (D71), built 2026-10-01:** `V83` terms columns on client/expert accounts; `PortalTermsService` + `/api/portal/{client,expert}/terms`; `shared/src/legal/` (pages, `PolicySummary`, `TermsGate`); `AuthSplit` sign-in artwork on both portals; the portal `SiteFooter` removed (policies accepted once instead). Chrome-checked.
+
+**Board look 2026-10-01:** both boards: outlined stage-colour header (icon, name, count, Sales "+" → `/opportunities/new?stage=`), no column panel, stage-tinted cards (tag pill, title, muted line, footer: date + white chip — SLA bars+word / deal value); `board/stageColors.ts` ten non-RAG hues, Won green / Lost rose / lanes slate; `--card-text-muted` on tints.
+
 **Unit 70a phase 1, built + Chrome-checked 2026-10-01:** `lib/queryClient.ts` + `api` interceptor (`afterRequest`); bell, case page panels, board + queues (`board/useBoard.ts`), draft review, PM notes, checklists on `useQuery`. Phase 2 (payouts, experts, meetings, dashboards) not started.
 
 **Unit 71 (D69/D70), built 2026-10-01:** `V82` adds `expert_case_offer.note` + `opportunity_note.handoff`; offers refuse a blank note, retake carries it; the expert's Answers shows it; Won needs a note (`SalesDeskService.close(id, status, note)`, and `moveToStage(id, stage, note)` for a stage named Won: board drop / picker open `WinNote`); case page `SalesNote` card. Not browser-checked.
@@ -531,7 +535,7 @@ staff 131, portals 30, all green.
 
 **2026-09-25 — client portal legal pages.** Public `/privacy`, `/disclaimer`, `/document-retention`
 (`client/src/pages/legal/`, JSX content, no markdown dependency; paths + contact in
-`constants/legal.ts`). `SiteFooter` (three summary paragraphs + links + address) under every screen
+`constants/legal.ts`). ~~`SiteFooter`~~ (removed 2026-10-01, Unit 72: the summaries are accepted on first sign-in) — was: (three summary paragraphs + links + address) under every screen
 via `PortalLayout`, a `PublicLayout` route for the signed-out screens, and `LegalPage`. Linked in
 place at sign-up, the document uploader and the send step. The business's "not reviewed by an
 attorney" drafting notes are NOT published; attorney review before go-live is theirs to decide.

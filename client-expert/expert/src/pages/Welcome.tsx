@@ -53,7 +53,7 @@ export default function Welcome() {
   }
 
   return (
-    <div className="flex min-h-dvh flex-col items-center justify-center gap-8 px-4 py-12">
+    <div className="flex flex-1 flex-col items-center justify-center gap-8 px-4 py-12">
       <div className="flex flex-col items-center gap-1">
         <Logo size="lg" />
         <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Expert Portal</span>
