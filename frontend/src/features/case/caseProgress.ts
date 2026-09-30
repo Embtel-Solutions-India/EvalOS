@@ -37,7 +37,7 @@ export function progress(entries: readonly TimelineEntry[], current: Stage, now:
       { stage, state: 'not-reached', firstAt: null, lastAt: null, visits: 0, spentMs: 0, lastNote: null },
     ]),
   )
-  let open: { stage: Stage; at: number } | null = null
+  let open = null as { stage: Stage; at: number } | null
   for (const entry of entries) {
     const step = entry.stage ? steps.get(entry.stage as Stage) : undefined
     if (!step || open?.stage === step.stage) continue

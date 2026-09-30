@@ -22,13 +22,6 @@ export type CaseDetail = {
     revenueRecognized: boolean
   }
   clientName: string | null
-  /** The client's own document folder. Staff-only — it is never sent to the client portal. */
-  /**
-   * The drafted letter (Unit 14). What `DraftPanel` links to, and the only link the client's own
-   * portal shows. It is deliberately not a fallback for the client's own documents, which are
-   * the folder holding this client's passport scans, whose sharing EvalOS does not control.
-   */
-  draftLink: string | null
   expertName: string | null
   expertTier: string | null
   checklistTotal: number
@@ -53,7 +46,7 @@ export type CaseDetail = {
   expertSelectionRationale: string | null
   maySeeExpertRationale: boolean
   /**
-   * Whether the server sent `clientName` and `draftLink` at all.
+   * Whether the server sent `clientName` at all.
    *
    * Stated for the same reason `maySeeStrategyNotes` is, and here it is load-bearing rather
    * than tidy: `clientName` is null both when withheld and when no contact is linked to the
