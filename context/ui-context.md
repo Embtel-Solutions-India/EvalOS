@@ -186,7 +186,8 @@ not a second formatter. Asserted in `lib/money.test.ts`.
 | Context                                        | Class          | Value |
 | ---------------------------------------------- | -------------- | ----- |
 | Inline / small UI — badges, chips, **controls** | `rounded-md`   | 6px   |
-| Cards / panels / Kanban                        | `rounded-lg`   | 8px   |
+| Cards / panels / board column headers          | `rounded-lg`   | 8px   |
+| Kanban cards on the boards (stage-tinted)      | `rounded-xl`   | 12px  |
 | Modals / drawers / overlays                    | `rounded-xl`   | 12px  |
 
 **Nothing exceeds 12px, and controls take `md`.** `--radius-xl` was 30px under the
@@ -336,6 +337,16 @@ case transitions) does not apply there; the production board still does not drag
   true of every stage whatever order the upstream puts them in. This is the same rule as
   the RAG table's "two clocks must never share a label": a number that looks like a rate
   and is not one is worse than no number.
+- **Board look (2026-10-01, both the production and the opportunity board, `StageColumn`):** each
+  column is headed by an **outlined bar in the stage's colour** — icon, name, count, and a "+" for
+  Sales that opens Add opportunity on that stage — with no panel behind the cards. **Cards are
+  tinted with the stage's colour** (`--stage`, a top-to-bottom wash): a white tag pill (service /
+  source) and the case code or deal status, a bold title and one muted line, then a ruled footer
+  with a calendar date on the left and a white chip on the right (the SLA as bars **plus the
+  word** on a case, the value on a deal). **Each stage has its own colour** (`board/stageColors.ts`,
+  ten hues with **no red, amber, orange or green**, because RAG stays status-only): Won is green,
+  Lost rose, Refunded and exception lanes slate. Secondary text on the tint is `--card-text-muted`
+  (5.3:1), not `--text-muted` (3.4:1 there). Each production column keeps its SLA rail.
 - **Production board (Kanban)**: horizontal columns for the EvalOS-owned stages —
   Doc Collection · Expert Assignment · Draft / Report · Expert Signing · Final
   Delivery — with exception lanes (On Hold · Rematching · Refund Requested). The
@@ -444,11 +455,12 @@ case transitions) does not apply there; the production board still does not drag
 - **Client portal** (built in Unit 14): single centered column, one case, the
   drafted letter with big Approve / Request revisions actions and a visible
   "changes requested" note field.
-  - **Every client-portal screen ends in `SiteFooter`** (2026-09-25): three short
-    paragraphs — not a law firm, never sold, kept seven years — each ending in a link
-    to the policy that says it in full, then the three links and the address. The
-    policies live at public routes (`/privacy`, `/disclaimer`, `/document-retention`)
-    because sign-up asks a client to agree to them before an account exists. Where data
+  - **The policies are accepted, not footnoted** (Unit 72, D71, 2026-10-01): the three
+    short paragraphs — not a law firm, never sold, kept seven years — each ending in a link
+    to the policy that says it in full (`PolicySummary`), are shown on the first-sign-in
+    acceptance screen of both portals. **The `SiteFooter` that repeated them under every
+    screen was removed the same day.** The policies live at public routes (`/privacy`,
+    `/disclaimer`, `/document-retention`) on both portals. Where data
     is handed over — sign-up, the uploader, the send step — the relevant policy is
     linked in place as well.
   - **No shell, no nav, no brand switcher, and no auth provider** — `App` answers

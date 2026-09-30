@@ -39,7 +39,7 @@ export default function SetPassword() {
   }
 
   return (
-    <div className="flex min-h-dvh items-center justify-center px-4 py-12">
+    <div className="flex flex-1 items-center justify-center px-4 py-12">
       <Card className="w-full max-w-md space-y-4 p-6">
         <h1 className="text-base font-semibold text-foreground">Set your password</h1>
         {!token ? (

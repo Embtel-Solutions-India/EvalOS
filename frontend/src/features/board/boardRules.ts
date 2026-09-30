@@ -739,3 +739,16 @@ function addMonths(date: Date, months: number): void {
   const lastDay = new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate()
   date.setDate(Math.min(day, lastDay))
 }
+
+/**
+ * A card's date: "Sep 25" this year, "Sep 25, 2025" otherwise — the year only when it tells the
+ * reader something, so the line fits a 15rem card.
+ */
+export function cardDate(iso: string, now: Date = new Date()): string {
+  const date = new Date(iso)
+  return date.toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    ...(date.getFullYear() === now.getFullYear() ? {} : { year: 'numeric' }),
+  })
+}

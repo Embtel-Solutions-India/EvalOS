@@ -60,6 +60,11 @@ sign-in (D3c). Same repair covers `V45` accounts seeded without an id.
 **This already matches the target identity model.** All three states are supported; the upsert
 reuses an existing GHL contact and never duplicates it; sign-in creates nothing.
 
+**First sign-in (Unit 72, D71):** after any client or expert sign-in, `TermsGate` asks
+`GET …/{client|expert}/terms`; while `required`, the portal shows only the acceptance screen (the
+three policies, a checkbox, Accept) and `POST …/terms` records the version. Asked once per account
+and policy version; a case-scoped link is never asked.
+
 ### TARGET WORKFLOW
 
 **Built as CURRENT above (Unit 64, 2026-09-29): the account is born with the case.** No public sign-up.

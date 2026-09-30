@@ -8,7 +8,7 @@ import { PageTransition } from '@shared/components/common/PageTransition'
 import { MobileNavDrawer } from '@/components/layout/MobileNavDrawer'
 import { PortalHeader } from '@/components/layout/PortalHeader'
 import { PortalSidebar } from '@/components/layout/PortalSidebar'
-import { SiteFooter } from '@/components/layout/SiteFooter'
+import { TermsGate } from '@shared/legal/TermsGate'
 import { PRIMARY_NAV } from '@/constants/navigation'
 import { createPortalChat } from '@shared/services/portalChat'
 
@@ -63,9 +63,11 @@ export function PortalLayout() {
     return <Navigate to="/signin" replace state={{ from: location.pathname + location.search }} />
   }
 
+  // Unit 72 (D71): the policies are accepted once, before anything else; a reload of `/signin`
+  // drops the memory-only token, which is how this portal signs out.
   return (
+    <TermsGate audience="client" onSignOut={() => window.location.assign('/signin')}>
     <ChatProvider client={chat}>
-      {/* The footer runs the full width under the sidebar, at the foot of the screen or the page. */}
       <div className="flex min-h-dvh flex-col bg-muted/30">
         <div className="flex-1 lg:grid lg:grid-cols-[16rem_1fr]">
           <aside className="hidden bg-sidebar lg:block">
@@ -84,10 +86,10 @@ export function PortalLayout() {
             </main>
           </div>
         </div>
-        <SiteFooter />
       </div>
       {/* A message while the client is elsewhere in the portal: open that conversation. */}
       <ChatToast onOpen={(id) => navigate(`/conversations?c=${id}`)} />
     </ChatProvider>
+    </TermsGate>
   )
 }

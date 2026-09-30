@@ -1,4 +1,4 @@
-import { LEGAL } from '@/constants/legal'
+import { LEGAL } from './legal'
 import { ContactBlock, LegalPage } from './LegalPage'
 
 /** The schedule in §3, as rows so the table and any future reader share one list. */
