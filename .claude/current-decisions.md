@@ -409,7 +409,10 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
   pipeline Sales are already members of it (Unit 57), so no separate ownership split is needed.
 - **D58.** **EvalOS sends four client emails beyond the auth mails** (2026-09-29, closes 00d §12 c,
   the recommendation taken): checklist + link, draft ready, expert signing link (now: sign-in),
-  delivered — as one unit, with a written invariant-14 amendment. Not the chases. **The checklist
+  delivered — as one unit, with a written invariant-14 amendment. **Plus the Send chase button
+  (2026-10-01, the business):** a PC/CM chase emails the client a reminder with the same count
+  (`CHECKLIST_CHASED` → `CaseUpdate.CHASE`); the 24h/48h `DOC_CHASE` sweep still emails nobody and
+  prompts the Coordinator in the bell. **The checklist
   email goes out on every checklist send (D60)**, first list or later additions: "you have N
   documents to upload — sign in"; the upload itself stays in the portal. **Built 2026-09-30 as
   Unit 64c** (spec `64c-case-progress-emails.md`): `CaseMailListener` on `CHECKLIST_REQUESTED`,
@@ -492,6 +495,24 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
   opens an offer — the case's expert gets *A new case is offered to you*: service, case code, the
   open offer's fee in the brand's currency (left out when unpriced), a deep link to the case in the
   expert portal, no credential. No answer deadline is stated: none is enforced on the offer.
+- **D69.** **Every expert offer carries a note to the expert** (2026-10-01, the business). Assign CM +
+  expert and Reassign expert refuse a blank note; a retake re-sends the expert's last note. The
+  expert reads it with the offer, above Accept. Built as Unit 71 (`71-offer-and-win-notes.md`).
+- **D70.** **A deal won in EvalOS carries a Sales note for production** (2026-10-01, the business;
+  GHL's won has no place for one). Won refuses a blank note — **and so does moving the deal to its
+  pipeline's Won stage** (board drag or stage picker), which wins the deal (stage + status won); the note is a deal note flagged
+  `handoff`, synced to GHL like any other, and shown on the case page as the Sales handoff note.
+  Built as Unit 71.
+- **D68.** **EvalOS screens update themselves** (2026-10-01, the business). A committed write to a
+  case (the case, its documents, checklist, offers, payouts, draft comments) sends a **signal, never
+  data**, over Ably: `case.changed {caseId}` to a per-brand staff channel and to the case's client
+  and experts, and `notifications.changed` to a bell's owner. Open screens re-read over REST in
+  the background, and also on tab focus and on reconnect. GHL-mirrored screens and chat are out of
+  scope. **Specced as Unit 70** (`70-live-screens.md`), **not built**. **Amended 2026-10-01 (the
+  business): the staff app reads through TanStack Query (Unit 70a, phase 1 built)** — any
+  successful write refreshes every case-shaped screen, from one interceptor; screens re-read on tab
+  focus; the bell count every 60 s. That covers the acting person's own screens now and other
+  people's on focus; Unit 70's push then becomes one invalidation.
 - **D52.** **No GHL conversation sidebar.** EvalOS does not mirror or send GHL conversations
   (SMS / email / WhatsApp / social); that stays in GHL. The only messaging in EvalOS is the case
   chat (Unit 57). Decided 2026-09-28. _(Closes Q10; drops tier 3 of the Unit 47 mirror.)_

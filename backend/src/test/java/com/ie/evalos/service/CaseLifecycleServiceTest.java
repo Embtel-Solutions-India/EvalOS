@@ -183,6 +183,7 @@ class CaseLifecycleServiceTest {
 		given(member.getRole()).willReturn(role);
 		given(member.getBrandId()).willReturn(BRAND);
 		given(member.getTeamId()).willReturn(teamId);
+		given(member.getDisplayName()).willReturn(role + " " + id.toString().substring(0, 4));
 		return member;
 	}
 
@@ -207,7 +208,7 @@ class CaseLifecycleServiceTest {
 		actAs(Role.PROJECT_COORDINATOR);
 		lifecycle.markDocsComplete(CASE_ID);
 		actAs(Role.PROJECT_MANAGER);
-		lifecycle.assignCaseManager(CASE_ID, CM_ID, EXPERT_ID, "strongest ophthalmology record on the roster", null, null);
+		lifecycle.assignCaseManager(CASE_ID, CM_ID, EXPERT_ID, "strongest ophthalmology record on the roster", null, null, "Please review the transcript.");
 	}
 
 	private List<CaseEvents.Type> publishedEventTypes(int expected) {
@@ -231,7 +232,7 @@ class CaseLifecycleServiceTest {
 
 		// Unit 12 takes the tag as an argument and throws it away; the assignment is where it
 		// becomes a fact about the case, so a delivered case can still say what it was about.
-		lifecycle.assignCaseManager(CASE_ID, CM_ID, EXPERT_ID, null, FieldTag.MEDICINE, null);
+		lifecycle.assignCaseManager(CASE_ID, CM_ID, EXPERT_ID, null, FieldTag.MEDICINE, null, "Please review the transcript.");
 		assertEquals(FieldTag.MEDICINE, subject.getFieldOfExpertise());
 
 	}
@@ -347,6 +348,11 @@ class CaseLifecycleServiceTest {
 		// Stage-preserving: staffing a case is not moving it.
 		assertEquals(Stage.DOC_COLLECTION, subject.getCurrentStage());
 		assertEquals(List.of(CaseEvents.Type.COORDINATOR_ASSIGNED), publishedEventTypes(1));
+		// The timeline's actor is the PM, so the row names who was put on the case.
+		ArgumentCaptor<Object> after = ArgumentCaptor.forClass(Object.class);
+		verify(audit).recordEvent(eq("CASE"), any(), eq(AuditAction.ASSIGNED), any(), any(), after.capture());
+		assertEquals("Coordinator: PROJECT_COORDINATOR " + COORDINATOR_ID.toString().substring(0, 4),
+				((CaseLifecycleService.CaseSnapshot) after.getValue()).note());
 
 		// Later in the pipeline, and to somebody else, both still legal.
 		walkToDraftGeneration();
@@ -548,10 +554,10 @@ class CaseLifecycleServiceTest {
 		lifecycle.expertDeclined(CASE_ID, "outside my field");
 		assertEquals(ExceptionState.EXPERT_DECLINED_REMATCHING, subject.getExceptionState());
 
-		assertThrows(IllegalTransitionException.class, () -> lifecycle.reassignExpert(CASE_ID, EXPERT_ID, null, null, null),
+		assertThrows(IllegalTransitionException.class, () -> lifecycle.reassignExpert(CASE_ID, EXPERT_ID, null, null, null, "Please review the transcript."),
 				"the expert who declined is not a rematch");
 
-		lifecycle.reassignExpert(CASE_ID, OTHER_EXPERT_ID, null, null, null);
+		lifecycle.reassignExpert(CASE_ID, OTHER_EXPERT_ID, null, null, null, "Please review the transcript.");
 		// **Unit 31: a rematch returns to CLIENT_APPROVAL, not to assignment.** The letter is
 		// written, client-approved and locked — nothing about it changed because an expert walked
 		// away, so re-running PM review would ask somebody to re-approve untouched work. What has
@@ -609,9 +615,26 @@ class CaseLifecycleServiceTest {
 		actAs(Role.PROJECT_COORDINATOR);
 		lifecycle.markDocsComplete(CASE_ID);
 		actAs(Role.PROJECT_MANAGER);
-		lifecycle.assignCaseManager(CASE_ID, CM_ID, EXPERT_ID, null, null, new BigDecimal("420.00"));
+		lifecycle.assignCaseManager(CASE_ID, CM_ID, EXPERT_ID, null, null, new BigDecimal("420.00"), "Please review the transcript.");
 
 		assertEquals(0, new BigDecimal("420.00").compareTo(savedOffers().getLast().getFee()));
+		assertEquals("Please review the transcript.", savedOffers().getLast().getNote());
+	}
+
+	/** D69: no offer without a note to the expert, refused before the case moves. */
+	@Test
+	void anOfferWithoutANoteIsRefused() {
+		actAs(Role.BRAND_MANAGER);
+		lifecycle.assignPm(CASE_ID, PM_ID);
+		actAs(Role.PROJECT_COORDINATOR);
+		lifecycle.markDocsComplete(CASE_ID);
+		Stage before = subject.getCurrentStage();
+		actAs(Role.PROJECT_MANAGER);
+
+		assertThrows(com.ie.evalos.common.InvalidRequestException.class,
+				() -> lifecycle.assignCaseManager(CASE_ID, CM_ID, EXPERT_ID, null, null, null, "  "));
+		assertEquals(before, subject.getCurrentStage());
+		verify(offers, never()).save(any(ExpertCaseOffer.class));
 	}
 
 	@Test
@@ -626,7 +649,7 @@ class CaseLifecycleServiceTest {
 		actAs(Role.PROJECT_MANAGER);
 
 		assertThrows(IllegalTransitionException.class,
-				() -> lifecycle.assignCaseManager(CASE_ID, CM_ID, EXPERT_ID, null, null, null));
+				() -> lifecycle.assignCaseManager(CASE_ID, CM_ID, EXPERT_ID, null, null, null, "Please review the transcript."));
 		assertEquals(before, subject.getCurrentStage());
 		verify(offers, never()).save(any(ExpertCaseOffer.class));
 	}
@@ -638,7 +661,7 @@ class CaseLifecycleServiceTest {
 		actAs(Role.PROJECT_COORDINATOR);
 		lifecycle.markDocsComplete(CASE_ID);
 		actAs(Role.PROJECT_MANAGER);
-		lifecycle.assignCaseManager(CASE_ID, CM_ID, EXPERT_ID, null, null, new BigDecimal("420.00"));
+		lifecycle.assignCaseManager(CASE_ID, CM_ID, EXPERT_ID, null, null, new BigDecimal("420.00"), "Please review the transcript.");
 		ExpertCaseOffer first = savedOffers().getLast();
 		// any(): the case built in setUp has no id outside JPA, so the service asks for null.
 		given(offers.findByCaseIdAndOutcome(any(), eq(OfferOutcome.OFFERED))).willReturn(List.of(first));
@@ -660,6 +683,8 @@ class CaseLifecycleServiceTest {
 		lifecycle.retakeExpert(CASE_ID, null);
 
 		assertEquals(0, new BigDecimal("420.00").compareTo(savedOffers().getLast().getFee()));
+		// D69: the same case to the same expert keeps the note they were given.
+		assertEquals("Please review the transcript.", savedOffers().getLast().getNote());
 		verify(audit).recordEvent(eq("OFFER"), any(), eq(AuditAction.UPDATED), any(), any(),
 				argThat(after -> after instanceof java.util.Map<?, ?> m
 						&& OfferOutcome.DECLINED.equals(m.get("outcome"))));
@@ -703,7 +728,7 @@ class CaseLifecycleServiceTest {
 		assertEquals(OfferOutcome.TIMED_OUT, open.getOutcome(), "not DECLINED — the expert never answered");
 		assertNull(open.getDeclineReason(), "the absence of an answer is the reason");
 
-		lifecycle.reassignExpert(CASE_ID, OTHER_EXPERT_ID, null, null, null);
+		lifecycle.reassignExpert(CASE_ID, OTHER_EXPERT_ID, null, null, null, "Please review the transcript.");
 		assertEquals(Stage.CLIENT_APPROVAL, subject.getCurrentStage());
 		assertEquals(OTHER_EXPERT_ID, subject.getExpertId());
 	}
@@ -753,12 +778,12 @@ class CaseLifecycleServiceTest {
 		subject.setExceptionState(ExceptionState.EXPERT_DECLINED_REMATCHING);
 		actAs(Role.PROJECT_MANAGER);
 
-		lifecycle.reassignExpert(CASE_ID, OTHER_EXPERT_ID, null, null, null);
+		lifecycle.reassignExpert(CASE_ID, OTHER_EXPERT_ID, null, null, null, "Please review the transcript.");
 		assertEquals("strongest ophthalmology record on the roster",
 				subject.getExpertSelectionRationale(), "a null does not erase what was there");
 
 		subject.setExceptionState(ExceptionState.EXPERT_DECLINED_REMATCHING);
-		lifecycle.reassignExpert(CASE_ID, EXPERT_ID, "first choice went silent; this one has signed for us twice", null, null);
+		lifecycle.reassignExpert(CASE_ID, EXPERT_ID, "first choice went silent; this one has signed for us twice", null, null, "Please review the transcript.");
 		assertEquals("first choice went silent; this one has signed for us twice",
 				subject.getExpertSelectionRationale(), "and a new reason replaces the old one");
 	}
@@ -802,7 +827,7 @@ class CaseLifecycleServiceTest {
 
 		actAs(Role.PROJECT_MANAGER);
 		assertThrows(IllegalTransitionException.class,
-				() -> lifecycle.assignCaseManager(CASE_ID, CM_ID, EXPERT_ID, null, null, null));
+				() -> lifecycle.assignCaseManager(CASE_ID, CM_ID, EXPERT_ID, null, null, null, "Please review the transcript."));
 		assertEquals(Stage.PM_REVIEW, subject.getCurrentStage());
 	}
 
@@ -840,7 +865,7 @@ class CaseLifecycleServiceTest {
 		// still null here, while CASE_ID is only the key the scoped read is stubbed against.
 		given(offers.findByCaseIdAndOutcome(any(), eq(OfferOutcome.OFFERED))).willReturn(List.of(stillOpen));
 
-		lifecycle.reassignExpert(CASE_ID, OTHER_EXPERT_ID, null, null, null);
+		lifecycle.reassignExpert(CASE_ID, OTHER_EXPERT_ID, null, null, null, "Please review the transcript.");
 		assertEquals(OfferOutcome.SUPERSEDED, stillOpen.getOutcome());
 		assertNull(stillOpen.getDeclineReason(), "nobody declined — the offer was withdrawn");
 		assertFalse(stillOpen.getOutcome().countsTowardAcceptanceRate(),
@@ -965,7 +990,7 @@ class CaseLifecycleServiceTest {
 		lifecycle.markDocsComplete(CASE_ID);
 
 		actAs(Role.PROJECT_MANAGER);
-		lifecycle.assignCaseManager(CASE_ID, CM_ID, OTHER_EXPERT_ID, null, null, null);
+		lifecycle.assignCaseManager(CASE_ID, CM_ID, OTHER_EXPERT_ID, null, null, null, "Please review the transcript.");
 
 		assertEquals(Stage.DRAFT_IN_PROGRESS, subject.getCurrentStage());
 		assertEquals(OTHER_EXPERT_ID, subject.getExpertId());
@@ -1463,7 +1488,7 @@ class CaseLifecycleServiceTest {
 
 		actAs(Role.PROJECT_MANAGER);
 		lifecycle.expertDeclined(CASE_ID, "outside my field");
-		lifecycle.reassignExpert(CASE_ID, OTHER_EXPERT_ID, null, null, null);
+		lifecycle.reassignExpert(CASE_ID, OTHER_EXPERT_ID, null, null, null, "Please review the transcript.");
 
 		assertNotNull(issued.getRevokedAt(), "the link the previous expert holds must stop working");
 		assertFalse(issued.isLive(Instant.now()));

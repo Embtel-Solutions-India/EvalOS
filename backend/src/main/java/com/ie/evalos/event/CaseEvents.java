@@ -54,6 +54,11 @@ public final class CaseEvents {
 		 */
 		CHECKLIST_REMINDER("checklist.reminder"),
 		/**
+		 * A PC or CM pressed Send chase (D58): the client is emailed a reminder. Its own type
+		 * because {@link #CHECKLIST_REMINDER} is also the 24h/48h sweep's, which emails nobody.
+		 */
+		CHECKLIST_CHASED("checklist.chased"),
+		/**
 		 * A case still short of its documents after three business days.
 		 *
 		 * <p>Declared here and published by nothing yet: Unit 19 owns the timer, and Unit 10

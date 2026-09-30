@@ -103,6 +103,20 @@ class CaseMailListenerTest {
 		verify(mailer).sendCaseUpdate(any(), eq(CaseUpdate.CHECKLIST), any(), any(), any(), eq(2), any(), any());
 	}
 
+	/** D58: the Send chase button reminds the client with the same count; the sweep's reminder does not mail. */
+	@Test
+	void aChaseRemindsTheClientButTheSweepsReminderDoesNot() {
+		List<DocumentChecklistItem> items = List.of(item(true, ChecklistItemStatus.REQUIRED));
+		given(checklist.findByCaseId(CASE_ID)).willReturn(items);
+
+		fire(CaseEvents.Type.CHECKLIST_REMINDER, BRAND);
+		verify(mailer, never()).sendCaseUpdate(any(), any(), any(), any(), any(), anyInt(), any(), any());
+
+		fire(CaseEvents.Type.CHECKLIST_CHASED, BRAND);
+		verify(mailer).sendCaseUpdate(eq(new MailTransport.Recipient(BRAND, "ana@example.com")), eq(CaseUpdate.CHASE),
+				eq("Ana"), any(), eq("IE-0001"), eq(1), eq(null), eq("https://client.test/cases/" + CASE_ID));
+	}
+
 	@Test
 	void nothingOwedMeansNoChecklistMail() {
 		List<DocumentChecklistItem> items = List.of(item(true, ChecklistItemStatus.UPLOADED));

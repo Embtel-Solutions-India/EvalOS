@@ -299,8 +299,9 @@ export function deleteDeal(opportunityId: string): Promise<void> {
  * pipelines is GHL's workflow, and a second path here would race the automation the business
  * already owns.
  */
-export function moveStage(opportunityId: string, stageId: string): Promise<SalesDeal> {
-  return unwrap<SalesDeal>(api.put(`/sales/opportunities/${opportunityId}/stage`, { stageId }))
+/** `note` is required when the stage is Won (D70): the move wins the deal. */
+export function moveStage(opportunityId: string, stageId: string, note?: string): Promise<SalesDeal> {
+  return unwrap<SalesDeal>(api.put(`/sales/opportunities/${opportunityId}/stage`, { stageId, note }))
 }
 
 /**
@@ -310,8 +311,9 @@ export function moveStage(opportunityId: string, stageId: string): Promise<Sales
  * creates the case (invariant 8, Handoff A). The screen must show that gap as pending rather
  * than as nothing, or a salesperson presses Won twice.
  */
-export function closeDeal(opportunityId: string, status: CloseStatus): Promise<SalesDeal> {
-  return unwrap<SalesDeal>(api.put(`/sales/opportunities/${opportunityId}/status`, { status }))
+/** `note` is required for `won` (D70): it is the production team's handoff, shown on the case. */
+export function closeDeal(opportunityId: string, status: CloseStatus, note?: string): Promise<SalesDeal> {
+  return unwrap<SalesDeal>(api.put(`/sales/opportunities/${opportunityId}/status`, { status, note }))
 }
 
 /**

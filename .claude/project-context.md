@@ -17,7 +17,7 @@ Since the Units 36–41 pivot it is **also** the interface Sales and Marketing w
 | App | Path | Stack | Audience | Deployed? |
 |---|---|---|---|---|
 | Backend API | `backend/` | Java 21, Spring Boot, JPA, Flyway, Postgres 16 | all | yes (Docker → EC2) |
-| Staff SPA | `frontend/` | React 19 + Vite + TS, React Router, vitest | 8 staff roles | yes (nginx image) |
+| Staff SPA | `frontend/` | React 19 + Vite + TS, React Router, TanStack Query (Unit 70a), vitest | 8 staff roles | yes (nginx image) |
 | Client Portal | `client-expert/client/` | React + Vite + TS | clients | **no** — no Dockerfile, no CI, not in compose |
 | Expert Portal | `client-expert/expert/` | React + Vite + TS | experts | **no** — same |
 

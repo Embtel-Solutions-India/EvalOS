@@ -280,17 +280,17 @@ class ChecklistServiceTest {
 	// --- the chase -----------------------------------------------------------
 
 	/**
-	 * Acceptance criterion 3. The chase is an event for GHL to deliver and an audit row —
-	 * EvalOS sends no mail (invariant 14), so there is nothing else to assert happened.
+	 * Acceptance criterion 3. The chase is its own event (the sweep's reminder emails nobody, D58)
+	 * and an audit row; CaseMailListener sends the mail.
 	 */
 	@Test
-	void aChaseEmitsTheReminderEventAndRecordsIt() {
+	void aChaseEmitsTheChasedEventAndRecordsIt() {
 		checklists.chase(CASE_ID);
 
 		ArgumentCaptor<CaseEvents.CaseEvent> published = ArgumentCaptor.forClass(CaseEvents.CaseEvent.class);
 		verify(events).publishEvent(published.capture());
-		assertThat(published.getValue().type()).isEqualTo(CaseEvents.Type.CHECKLIST_REMINDER);
-		assertThat(published.getValue().type().wireName()).isEqualTo("checklist.reminder");
+		assertThat(published.getValue().type()).isEqualTo(CaseEvents.Type.CHECKLIST_CHASED);
+		assertThat(published.getValue().type().wireName()).isEqualTo("checklist.chased");
 		assertThat(recordedNote(AuditAction.CHASED)).isEqualTo("Document chase sent to the client");
 	}
 

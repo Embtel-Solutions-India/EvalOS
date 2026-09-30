@@ -1,7 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useBoard } from '../board/useBoard'
 import { Link, useSearchParams } from 'react-router-dom'
-import { fetchBoard } from '../board/boardApi'
-import type { BoardCard, BoardData } from '../board/boardRules'
+import type { BoardCard } from '../board/boardRules'
 import { useFilters } from '../shell/filtersContext'
 import { INBOX_VIEWS, inboxQueue, isInboxView, riskColor, riskLabel } from './queueRules'
 import AssignPopover from './AssignPopover'
@@ -29,26 +28,14 @@ export default function InboxPage() {
   // a custom interval this screen would never apply.
   const { activeBrandId } = useFilters()
   const [params, setParams] = useSearchParams()
-  const [data, setData] = useState<BoardData | null>(null)
-  const [error, setError] = useState<string | null>(null)
+  // Unit 70a: the cached board read, shared with the board and the other queues.
+  const { data, error, load } = useBoard(null, activeBrandId)
+  // No dueBefore: the presets below answer the date question, and passing the shell's filter
+  // as well would silently intersect two date windows and hide work from "overdue".
 
   const raw = params.get('view')
   const view = isInboxView(raw) ? raw : 'all'
 
-  const load = () => {
-    const controller = new AbortController()
-    setError(null)
-    // No dueBefore: the presets below answer the date question, and passing the shell's filter
-    // as well would silently intersect two date windows and hide work from "overdue".
-    fetchBoard(null, activeBrandId, controller.signal)
-      .then(setData)
-      .catch((cause: Error) => {
-        if (!controller.signal.aborted) setError(cause.message)
-      })
-    return () => controller.abort()
-  }
-
-  useEffect(load, [activeBrandId])
 
   const rows = data ? inboxQueue(data, view) : []
 

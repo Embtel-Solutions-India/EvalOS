@@ -56,5 +56,5 @@ export async function performAction(
     if (!raw) continue
     body[field.name] = field.kind === 'amount' ? Number(raw) : raw
   }
-  await unwrap(api.post(`/cases/${caseId}/${action.path}`, body))
+  await unwrap(api[action.method ?? 'post'](`/cases/${caseId}/${action.path}`, body))
 }

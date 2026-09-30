@@ -125,6 +125,14 @@ class NotificationListenersTest {
 		assertThat(recipientsOf(CaseEvents.Type.EXPERT_ASSIGNED)).containsExactly(CM);
 	}
 
+	/** Assigning a PC or moving the CM tells the person now on the case (D36). */
+	@Test
+	void whoeverIsPutOnTheCaseIsTold() {
+		subject.setAssignedCoordinator(COORDINATOR);
+		assertThat(recipientsOf(CaseEvents.Type.COORDINATOR_ASSIGNED)).containsExactly(COORDINATOR);
+		assertThat(recipientsOf(CaseEvents.Type.CASE_MANAGER_REASSIGNED)).containsExactly(CM);
+	}
+
 	@Test
 	void theCoordinatorIsToldWhenADraftIsReadyToSend() {
 		assertThat(recipientsOf(CaseEvents.Type.DRAFT_PM_APPROVED)).containsExactly(COORDINATOR);

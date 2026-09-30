@@ -61,6 +61,16 @@ public class NotificationListeners {
 					(c, r) -> r.assignedCm(c),
 					"You are the case manager on %s."),
 
+			// Their SELF scope opens the case the moment the column names them; this is how they
+			// learn it did.
+			route(CaseEvents.Type.COORDINATOR_ASSIGNED, NotificationType.CASE_ASSIGNED,
+					(c, r) -> r.assignedCoordinator(c),
+					"You are the coordinator on %s."),
+
+			route(CaseEvents.Type.CASE_MANAGER_REASSIGNED, NotificationType.CASE_ASSIGNED,
+					(c, r) -> r.assignedCm(c),
+					"You are the case manager on %s."),
+
 			route(CaseEvents.Type.DRAFT_SUBMITTED, NotificationType.STAGE_CHANGED,
 					(c, r) -> r.assignedPm(c),
 					"A draft on %s is waiting for your review."),

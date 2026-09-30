@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import {
   DEADLINE_WINDOWS,
   DEFAULT_DEADLINE_WINDOW,
@@ -12,7 +12,8 @@ import CaseCard from './CaseCard'
 import PoolLane from './PoolLane'
 import QuickActionDialog from './QuickActionDialog'
 import StageColumn from './StageColumn'
-import { fetchBoard, performAction } from './boardApi'
+import { performAction } from './boardApi'
+import { useBoard } from './useBoard'
 import {
   EXCEPTION_LANES,
   actionsFor,
@@ -21,7 +22,6 @@ import {
   dueBeforeFor,
   slaMix,
   type BoardCard,
-  type BoardData,
   type QuickAction,
   type ServiceType,
   cardsInColumn,
@@ -36,10 +36,6 @@ import {
  * the first unit that actually sends them anywhere, which is what Unit 07 held them for.
  */
 
-type LoadState =
-  | { status: 'loading' }
-  | { status: 'ready'; data: BoardData }
-  | { status: 'failed'; message: string }
 
 /**
  * Who gets the pool lane.
@@ -64,7 +60,6 @@ export default function BoardView() {
   // longer silently widen the board's deadline horizon.
   const { activeBrandId } = useFilters()
 
-  const [state, setState] = useState<LoadState>({ status: 'loading' })
   const [pending, setPending] = useState<{ card: BoardCard; action: QuickAction } | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
 
@@ -90,26 +85,9 @@ export default function BoardView() {
 
   const dueBefore = dueBeforeFor(deadlineWindow)
 
-  const load = useCallback(
-    async (signal?: AbortSignal) => {
-      try {
-        setState({ status: 'ready', data: await fetchBoard(dueBefore, activeBrandId, signal) })
-      } catch (error: unknown) {
-        if (signal?.aborted) return
-        setState({
-          status: 'failed',
-          message: error instanceof Error ? error.message : 'Could not load the board',
-        })
-      }
-    },
-    [dueBefore, activeBrandId],
-  )
-
-  useEffect(() => {
-    const controller = new AbortController()
-    void load(controller.signal)
-    return () => controller.abort()
-  }, [load])
+  // Unit 70a: cached, refreshed by any write and on tab focus — the card a PM just staffed moves
+  // here without a reload.
+  const { data: board, error: loadError, load } = useBoard(dueBefore, activeBrandId)
 
   /**
    * Runs a transition, then re-reads the board.
@@ -164,17 +142,17 @@ export default function BoardView() {
   )
 
   const pool = useMemo(() => {
-    if (state.status !== 'ready') return []
+    if (!board) return []
     // Lanes as well as columns: the server puts a case holding an exception state in its lane
     // *instead of* its stage column, and an unassigned case awaiting client documents is
     // exactly the kind that gets held. Reading only `stages` understated the one number this
     // lane exists to give.
-    return [...Object.values(state.data.stages), ...Object.values(state.data.exceptions)]
+    return [...Object.values(board.stages), ...Object.values(board.exceptions)]
       .flat()
       .filter((card) => card.poolStatus === 'IN_POOL')
-  }, [state])
+  }, [board])
 
-  if (state.status === 'loading') {
+  if (!board && !loadError) {
     return (
       <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
         Loading the board…
@@ -182,14 +160,14 @@ export default function BoardView() {
     )
   }
 
-  if (state.status === 'failed') {
+  if (!board) {
     return (
       <div
         className="rounded-lg border p-4"
         style={{ background: 'var(--status-red-bg)', borderColor: 'var(--border-default)' }}
       >
         <p className="text-sm font-medium" style={{ color: 'var(--status-red)' }}>
-          {state.message}
+          {loadError}
         </p>
         <p className="mt-1 text-sm" style={{ color: 'var(--text-muted)' }}>
           Nothing was changed. Try the read again — if it keeps failing, your session may have expired.
@@ -206,7 +184,6 @@ export default function BoardView() {
     )
   }
 
-  const board = state.data
   const columns = columnsFor(me.role).map((column) => ({
     ...column,
     // A column can hold two stages (Unit 31), so its cards are the union.

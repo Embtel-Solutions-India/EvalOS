@@ -90,6 +90,9 @@ to or merged with `contact_snapshot` so one person is one row. Spec `64` §2–�
 A deal starts in GHL               form · call · Sales (`SalesDeskService.newDeal`) · Marketing
                                     (`MarketingLeadService.openLead`). The portal opens none.
 Sales works it                     GHL pipeline stages; review → won → payment are GHL's (D11)
+Won in EvalOS (D70)                Won button, or a move to the Won stage (board or picker):
+                                   Sales writes a required note for production: a deal note
+                                   flagged `handoff` (synced to GHL), shown on the case
 
 GHL marks the opportunity won     → POST /api/webhooks/ghl/{endpointToken}
                                        WebhookGateway → WebhookRouter → GhlOpportunityHandler
@@ -206,7 +209,11 @@ Four sweeps run over this: `DOC_CHASE`, `DOC_ESCALATION`, `EXPERT_SIGN`, `STAGE_
 happens to do** (D36). Read as staffing: the case is born at Handoff A, a **PM** takes it, and the
 PM assigns the **Project Coordinator**, the **Case Manager** and the **Expert**
 (`POST /api/cases/{id}/assign-coordinator`, `…/assign-cm` — which names the CM and the expert in
-one transaction and writes the expert offer). The **CM drafts and uploads**; the **client sees and
+one transaction and writes the expert offer). **Since 2026-10-01 the PM may also put a CM on the
+case at any stage** from the case's More menu ("Assign / Change case manager",
+`PATCH …/case-manager`, stage-preserving, no offer); once a slot is filled its action reads
+"Change …". The PC and the CM are each notified when they are put on a case (`CASE_ASSIGNED`), and
+the timeline row names who was assigned. The **CM drafts and uploads**; the **client sees and
 approves** it in the portal (`CLIENT_REVIEW` → `CLIENT_APPROVAL`); **only then** does it reach the
 **expert**, who downloads, signs and uploads it back (`EXPERT_SIGNING`, Handoff B).
 
@@ -251,6 +258,11 @@ files, history and Client conversation.
 Matches CURRENT: documents enter **only at the Case**, against a sent checklist item. The
 request-document upload, Sales' Request documents tab and the carry-forward at Handoff A were
 removed by Unit 64 (2026-09-29).
+
+**Differs from CURRENT in one way (D68, Unit 70, specced 2026-10-01, not built):** a committed
+document, checklist or draft change shows on every open screen of that case, staff and portal,
+without a reload: `case.changed` over Ably, then a background REST re-read. Today each screen
+loads once.
 
 ---
 
@@ -384,7 +396,8 @@ Directory: credentials verified (stamp + audit) · fee · availability · worklo
 Rejected (declined / timed out) while EXPERT_DECLINED_REMATCHING + expert AVAILABLE
   → "Offer again" (GM / PM / ENM / CM) → same rematch transition → CLIENT_APPROVAL → CM sends again
 PM / PC / ENM / GM offers the case with a fee (blank = standard fee; retake keeps the declined fee;
-  CM: standard fee only) → editable while the offer is open (audited, before → after)
+  CM: standard fee only) and a required note to the expert (D69; a retake re-sends the last one)
+  → editable while the offer is open (audited, before → after)
   → the expert sees "Fee for this case" and accepts it (a changed or missing fee → 409) → final
 Delivered → payout PENDING at the accepted fee (a missing amount can be set once) → PAYOUT_DUE to ENMs
   → ENM records the transfer → PAID, shown "Processing"

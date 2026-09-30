@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
+import { useState } from 'react'
+import { useBoard } from '../board/useBoard'
 import { Link } from 'react-router-dom'
 import { useMe } from '../../lib/authContext'
-import { fetchBoard } from '../board/boardApi'
-import type { BoardCard, BoardData } from '../board/boardRules'
+import type { BoardCard } from '../board/boardRules'
 import { fetchCase, fetchDraftVersions, type CaseDetail, type DraftVersion } from '../case/caseApi'
 import UploadDraftDialog from '../case/UploadDraftDialog'
 import { mayUploadDraft } from '../case/draftRules'
@@ -23,28 +24,12 @@ import { myDrafts } from './queueRules'
  */
 export default function MyDraftsPage() {
   const { activeBrandId } = useFilters()
-  const [data, setData] = useState<BoardData | null>(null)
-  const [error, setError] = useState<string | null>(null)
+  // Unit 70a: the cached board read, shared with the board and the other queues.
+  const { data, error, load } = useBoard(null, activeBrandId)
+  // No `dueBefore`: this is "what do I owe", not "what is due when", and a date window would
+  // silently hide a returned draft with no deadline set.
   const [open, setOpen] = useState<string | null>(null)
 
-  const load = useCallback(
-    (signal?: AbortSignal) => {
-      // No `dueBefore`: this is "what do I owe", not "what is due when", and a date window would
-      // silently hide a returned draft with no deadline set.
-      fetchBoard(null, activeBrandId, signal)
-        .then(setData)
-        .catch((cause: Error) => {
-          if (!signal?.aborted) setError(cause.message)
-        })
-    },
-    [activeBrandId],
-  )
-
-  useEffect(() => {
-    const controller = new AbortController()
-    load(controller.signal)
-    return () => controller.abort()
-  }, [load])
 
   const rows = data ? myDrafts(data) : []
 
@@ -115,23 +100,20 @@ function Row({
   onUploaded: () => void
 }) {
   const me = useMe()
-  const [detail, setDetail] = useState<CaseDetail | null>(null)
-  const [versions, setVersions] = useState<DraftVersion[] | null>(null)
-  const [failed, setFailed] = useState(false)
-
-  useEffect(() => {
-    if (!expanded || detail) return
-    const controller = new AbortController()
-    Promise.all([fetchCase(card.id, controller.signal), fetchDraftVersions(card.id, controller.signal)])
-      .then(([loadedCase, loadedVersions]) => {
-        setDetail(loadedCase)
-        setVersions(loadedVersions)
-      })
-      .catch(() => {
-        if (!controller.signal.aborted) setFailed(true)
-      })
-    return () => controller.abort()
-  }, [expanded, detail, card.id])
+  // Unit 70a: fetched on expand, under the same keys as the case page, so either screen warms the other.
+  const detailQuery = useQuery<CaseDetail>({
+    queryKey: ['case', card.id],
+    queryFn: ({ signal }) => fetchCase(card.id, signal),
+    enabled: expanded,
+  })
+  const versionsQuery = useQuery<DraftVersion[]>({
+    queryKey: ['case', card.id, 'drafts'],
+    queryFn: ({ signal }) => fetchDraftVersions(card.id, signal),
+    enabled: expanded,
+  })
+  const detail = detailQuery.data ?? null
+  const versions = versionsQuery.data ?? null
+  const failed = (detailQuery.isError && !detail) || (versionsQuery.isError && !versions)
 
   const returned = returnedFrom(card)
 

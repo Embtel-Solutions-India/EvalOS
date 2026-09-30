@@ -206,8 +206,8 @@ public class ChecklistController {
 	}
 
 	/**
-	 * Sends the client a chase — via GHL, which is the only thing that talks to clients.
-	 * EvalOS emits {@code checklist.reminder} and nothing else (invariant 14).
+	 * Sends the client a chase: {@code checklist.chased}, which {@code CaseMailListener} emails
+	 * as a reminder (D58, invariant 14).
 	 *
 	 * <p>Answers the refreshed checklist rather than a timestamp, so the caller re-reads the
 	 * one authoritative view instead of holding a value the trail would have to agree with.

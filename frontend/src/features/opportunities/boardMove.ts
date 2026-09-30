@@ -42,3 +42,11 @@ export function moveDeal(
 function sumOf(deals: readonly Deal[], replaced: Deal, next: Deal): number {
   return deals.reduce((total, d) => total + ((d === replaced ? next : d).amount ?? 0), 0)
 }
+
+/**
+ * Every GHL pipeline here has a stage called "Won"; moving a deal there is winning it (D70), so it
+ * asks for the production team's note. Mirrors `SalesDeskService.isWonStage`.
+ */
+export function isWonStage(stageName: string): boolean {
+  return stageName.trim().toLowerCase() === 'won'
+}

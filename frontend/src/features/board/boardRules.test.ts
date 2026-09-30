@@ -180,6 +180,16 @@ describe('slaMix', () => {
 })
 
 describe('actionsFor', () => {
+  it('lets the PM staff the CM at any stage, and says Change once a slot is filled (D36)', () => {
+    const labels = (c: BoardCard) => actionsFor(c, 'PROJECT_MANAGER').map((action) => action.label)
+    const empty = card({ currentStage: 'DOC_COLLECTION', assignedCm: null, assignedCoordinator: null })
+    expect(labels(empty)).toEqual(expect.arrayContaining(['Assign coordinator', 'Assign case manager']))
+    const staffed = card({ currentStage: 'DOC_COLLECTION', assignedCm: 'm1', assignedCoordinator: 'm2' })
+    expect(labels(staffed)).toEqual(expect.arrayContaining(['Change coordinator', 'Change case manager']))
+    expect(actionsFor(staffed, 'PROJECT_MANAGER').find((a) => a.path === 'case-manager')?.method).toBe('patch')
+    expect(paths('DOC_COLLECTION', 'PROJECT_COORDINATOR')).not.toContain('case-manager')
+  })
+
   it('offers the stage action to the role that drives the stage', () => {
     expect(paths('DOC_COLLECTION', 'PROJECT_COORDINATOR')).toContain('docs-complete')
     expect(paths('PM_REVIEW', 'PROJECT_MANAGER')).toContain('assign-cm')

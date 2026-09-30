@@ -129,10 +129,12 @@ public class SalesDeskService {
 	private final SyncOutboxService outbox;
 	private final com.ie.evalos.repository.FollowUpRepository followUps;
 	private final com.ie.evalos.repository.PipelineStageRepository stages;
+	private final OpportunityNoteService notes;
 
 	SalesDeskService(GhlWriteClient ghl, PipelineScope scope, OpportunityMirrorService deals,
 			SyncOutboxService outbox, com.ie.evalos.repository.FollowUpRepository followUps,
-			com.ie.evalos.repository.PipelineStageRepository stages) {
+			com.ie.evalos.repository.PipelineStageRepository stages, OpportunityNoteService notes) {
+		this.notes = notes;
 		this.stages = stages;
 		this.deals = deals;
 		this.outbox = outbox;
@@ -241,26 +243,39 @@ public class SalesDeskService {
 	 * send another pipeline's stage id — which GHL would take as a pipeline move. The stage must be
 	 * a live mirrored stage of the row's pipeline; anything else, including a stage the mirror has
 	 * not seen yet, is refused rather than pushed.
+	 *
+	 * <p><strong>A stage named "Won" is winning the deal</strong> (D70): the move needs the
+	 * production team's note, and closes the deal won with it — otherwise a drag onto the Won
+	 * column would leave an open deal in a Won stage and a case with no word from Sales.
 	 */
-	public Deal moveToStage(String opportunityId, String stageId) {
+	@org.springframework.transaction.annotation.Transactional
+	public Deal moveToStage(String opportunityId, String stageId, String note) {
 		scope.requireMine(opportunityId);
 		if (stageId == null || stageId.isBlank()) {
 			throw new InvalidRequestException("A stage is required");
 		}
 		// A deal the mirror does not hold falls through to `queue`, whose refusal says so.
-		deals.byGhlId(opportunityId).ifPresent((row) -> requireStageOf(row, stageId));
-		return queue(opportunityId, null, null, stageId, null, SyncOutboxEntry.Intent.UPSERT);
+		boolean wins = deals.byGhlId(opportunityId).map((row) -> requireStageOf(row, stageId))
+				.map(SalesDeskService::isWonStage).orElse(false);
+		if (wins) {
+			notes.addHandoff(opportunityId, note);
+		}
+		Deal moved = queue(opportunityId, null, null, stageId, null, SyncOutboxEntry.Intent.UPSERT);
+		return wins ? queue(opportunityId, null, null, null, "won", SyncOutboxEntry.Intent.CLOSE) : moved;
 	}
 
-	private void requireStageOf(Opportunity row, String stageId) {
-		boolean onItsPipeline = stages.findByBrandIdAndGhlId(row.getBrandId(), stageId)
+	// ponytail: matched by name — every GHL pipeline here has a stage called "Won". A renamed one
+	// ("Closed won") slips through as a plain move; mark stages explicitly if that ever happens.
+	private static boolean isWonStage(com.ie.evalos.domain.PipelineStage stage) {
+		return "won".equalsIgnoreCase(stage.getName().strip());
+	}
+
+	private com.ie.evalos.domain.PipelineStage requireStageOf(Opportunity row, String stageId) {
+		return stages.findByBrandIdAndGhlId(row.getBrandId(), stageId)
 				.filter(com.ie.evalos.domain.PipelineStage::isLive)
 				.filter((stage) -> stage.getPipelineId().equals(row.getPipelineId()))
-				.isPresent();
-		if (!onItsPipeline) {
-			throw new InvalidRequestException("That stage is not on this deal's pipeline. Moving a "
-					+ "deal between pipelines is GHL's workflow, not a move here.");
-		}
+				.orElseThrow(() -> new InvalidRequestException("That stage is not on this deal's pipeline. "
+						+ "Moving a deal between pipelines is GHL's workflow, not a move here."));
 	}
 
 	/**
@@ -275,12 +290,18 @@ public class SalesDeskService {
 	 * behind it — arrives up to a couple of minutes later. Taken deliberately: what it buys is that
 	 * a win is no longer lost when GHL is unreachable, which is the more expensive failure by far.
 	 */
-	public Deal close(String opportunityId, String status) {
+	@org.springframework.transaction.annotation.Transactional
+	public Deal close(String opportunityId, String status, String note) {
 		scope.requireMine(opportunityId);
 		if (status == null || !CLOSABLE.contains(status)) {
 			// The message names what is allowed rather than what was sent: a caller who typed
 			// "closed" needs the vocabulary, not their own word repeated back.
 			throw new InvalidRequestException("Status must be one of: won, lost, abandoned");
+		}
+		// D70: GHL has no place for it, so the win carries the production team's note. One
+		// transaction with the close: a win the mirror refuses leaves no orphan note behind.
+		if ("won".equals(status)) {
+			notes.addHandoff(opportunityId, note);
 		}
 		return queue(opportunityId, null, null, null, status, SyncOutboxEntry.Intent.CLOSE);
 	}

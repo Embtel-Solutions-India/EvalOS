@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { Role } from '../../lib/session'
 import { fetchChecklist } from '../checklist/checklistApi'
 import type { ChecklistView } from '../checklist/checklistRules'
@@ -26,14 +26,14 @@ export default function DocumentsPanel({
   role: Role
   onChanged: () => void
 }) {
-  const [view, setView] = useState<ChecklistView | null>(null)
-  useEffect(() => {
-    const controller = new AbortController()
-    fetchChecklist(detail.summary.id, controller.signal)
-      .then(setView)
-      .catch(() => undefined)
-    return () => controller.abort()
-  }, [detail.summary.id, detail.checklistComplete, detail.checklistTotal])
+  // Unit 70a: the case's checklist key, shared with the checklist screen; a write refreshes it.
+  const queryClient = useQueryClient()
+  const checklistKey = ['case', detail.summary.id, 'checklist']
+  const { data: view } = useQuery<ChecklistView>({
+    queryKey: checklistKey,
+    queryFn: ({ signal }) => fetchChecklist(detail.summary.id, signal),
+  })
+  const setView = (fresh: ChecklistView) => queryClient.setQueryData(checklistKey, fresh)
 
   // The sheet's writes hand back a fresh view before the page reloads, so prefer it.
   const checklistTotal = view?.total ?? detail.checklistTotal

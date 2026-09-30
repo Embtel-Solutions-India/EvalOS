@@ -32,7 +32,9 @@ set-password flow; the copy says so.
   (`ChecklistItemStatus.isComplete`). Zero → no mail.
 - **One template**, `mail/case-update.html` (heading, intro, service + case box, button, note).
   The four differ only in words, so four HTML files would be four copies of one layout.
-- **Not the chases** (D58): `CHECKLIST_REMINDER` stays GHL's.
+- **The manual chase, not the automatic ones** (D58, amended 2026-10-01): Send chase publishes
+  `CHECKLIST_CHASED`, mailed as `CaseUpdate.CHASE` (a reminder, same count rule). The `DOC_CHASE`
+  sweep's `CHECKLIST_REMINDER` sends no mail.
 - Sender is `no-reply@`: no "reply to this"; the support address is in the footer.
 
 ## The offer mail (D67, closed Q17 the same day)

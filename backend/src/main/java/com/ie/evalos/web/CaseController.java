@@ -171,8 +171,10 @@ public class CaseController {
 	 *                        someone who skipped the shortlist.
 	 * @param fee             what the case pays the expert (Unit 65); blank = their standard fee
 	 */
+	/** {@code expertNote} is the offer's note to the expert (D69), required. */
 	public record AssignCmRequest(@NotNull UUID cmId, @NotNull UUID expertId, String expertRationale,
-			FieldTag fieldOfExpertise, @DecimalMin("0") @Digits(integer = 10, fraction = 2) BigDecimal fee) {
+			FieldTag fieldOfExpertise, @DecimalMin("0") @Digits(integer = 10, fraction = 2) BigDecimal fee,
+			@NotBlank @jakarta.validation.constraints.Size(max = 4000) String expertNote) {
 	}
 
 	public record AssignCoordinatorRequest(@NotNull UUID coordinatorId) {
@@ -280,7 +282,9 @@ public class CaseController {
 			 * replaces the signature provider's viewed callback. A production fact about staffing
 			 * rather than client identity, so it is ungated like the sign status beside it.
 			 */
-			Instant expertPortalReadAt) {
+			Instant expertPortalReadAt,
+			/** D70: the win's note for production. Client-facing content, so behind {@code maySeeCaseContent}. */
+			CaseDetailService.SalesNote salesNote) {
 
 		static CaseDetail of(CaseDetailService.CaseWithContext context, TenantContext ctx) {
 			Case subject = context.subject();
@@ -307,7 +311,8 @@ public class CaseController {
 					seesContent ? subject.getApplicantName() : null,
 					subject.getFieldOfExpertise(),
 					subject.getRfeDate(),
-					subject.getExpertPortalReadAt());
+					subject.getExpertPortalReadAt(),
+					seesContent ? context.salesNote() : null);
 		}
 	}
 
@@ -319,7 +324,8 @@ public class CaseController {
 	 * @param fee             what the case pays the replacement (Unit 65); blank = their standard fee
 	 */
 	public record ExpertRequest(@NotNull UUID expertId, String expertRationale, FieldTag fieldOfExpertise,
-			@DecimalMin("0") @Digits(integer = 10, fraction = 2) BigDecimal fee) {
+			@DecimalMin("0") @Digits(integer = 10, fraction = 2) BigDecimal fee,
+			@NotBlank @jakarta.validation.constraints.Size(max = 4000) String expertNote) {
 	}
 
 	/** Unit 65: blank keeps the fee the expert declined at. */
@@ -611,7 +617,7 @@ public class CaseController {
 	@PreAuthorize(GM_OR + "hasRole('PROJECT_MANAGER')")
 	public ApiResponse<CaseSummary> assignCm(@PathVariable UUID id, @Valid @RequestBody AssignCmRequest request) {
 		return summary(lifecycle.assignCaseManager(id, request.cmId(), request.expertId(), request.expertRationale(),
-				request.fieldOfExpertise(), request.fee()));
+				request.fieldOfExpertise(), request.fee(), request.expertNote()));
 	}
 
 	/**
@@ -756,7 +762,7 @@ public class CaseController {
 	@PreAuthorize(GM_OR + "hasAnyRole('PROJECT_MANAGER', 'EXPERT_NETWORK_MANAGER', 'CASE_MANAGER')")
 	public ApiResponse<CaseSummary> reassignExpert(@PathVariable UUID id, @Valid @RequestBody ExpertRequest request) {
 		return summary(lifecycle.reassignExpert(id, request.expertId(), request.expertRationale(),
-				request.fieldOfExpertise(), request.fee()));
+				request.fieldOfExpertise(), request.fee(), request.expertNote()));
 	}
 
 	/** Offer the case again to the expert who declined it (Unit 63, D62) — the reassign gate. */

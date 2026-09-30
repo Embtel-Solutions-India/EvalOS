@@ -39,16 +39,26 @@ public class CaseDetailService {
 			String clientName,
 			String expertName,
 			String expertTier,
-			ChecklistSummary checklist) {
+			ChecklistSummary checklist,
+			SalesNote salesNote) {
+	}
+
+	/** What Sales wrote when they won the deal (D70). Null when it was won in GHL instead. */
+	public record SalesNote(String body, String author, java.time.Instant writtenAt) {
 	}
 
 	private final CaseLifecycleService lifecycle;
 	private final ContactSnapshotRepository contacts;
 	private final ExpertRepository experts;
 	private final DocumentChecklistItemRepository checklistItems;
+	private final com.ie.evalos.repository.OpportunityNoteRepository notes;
+	private final com.ie.evalos.repository.TeamMemberRepository members;
 
 	CaseDetailService(CaseLifecycleService lifecycle, ContactSnapshotRepository contacts, ExpertRepository experts,
-			DocumentChecklistItemRepository checklistItems) {
+			DocumentChecklistItemRepository checklistItems, com.ie.evalos.repository.OpportunityNoteRepository notes,
+			com.ie.evalos.repository.TeamMemberRepository members) {
+		this.notes = notes;
+		this.members = members;
 		this.lifecycle = lifecycle;
 		this.contacts = contacts;
 		this.experts = experts;
@@ -80,9 +90,21 @@ public class CaseDetailService {
 		ChecklistSummary checklist = new ChecklistSummary(items.size(),
 				(int) items.stream().filter(item -> item.getStatus().isComplete()).count());
 
+		// Brand from the case, which the scoped read above already admitted; the author is read in the
+		// same brand, so a note can never name somebody from elsewhere.
+		SalesNote salesNote = Optional.ofNullable(subject.getGhlOpportunityId())
+				.flatMap(ghlId -> notes.findFirstByBrandIdAndGhlOpportunityIdAndHandoffTrueOrderByCreatedAtDesc(
+						subject.getBrandId(), ghlId))
+				.map(note -> new SalesNote(note.getBody(),
+						members.findById(note.getAuthorId())
+								.filter(m -> subject.getBrandId().equals(m.getBrandId()))
+								.map(com.ie.evalos.domain.TeamMember::getDisplayName).orElse(null),
+						note.getCreatedAt()))
+				.orElse(null);
+
 		return new CaseWithContext(subject, clientName,
 				expert.map(Expert::getFullName).orElse(null),
 				expert.map(Expert::getTier).map(Enum::name).orElse(null),
-				checklist);
+				checklist, salesNote);
 	}
 }

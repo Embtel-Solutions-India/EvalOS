@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
+import { useState } from 'react'
 import { fetchCaseDocuments, fetchDocumentUrl, type DraftVersion } from './caseApi'
 
 /**
@@ -28,21 +29,13 @@ export default function DocumentList({
   kind?: 'DRAFT' | 'CLIENT_UPLOAD' | 'SIGNED_LETTER'
   emptyMessage?: string
 }) {
-  const [state, setState] = useState<
-    { status: 'loading' } | { status: 'ready'; docs: DraftVersion[] } | { status: 'failed' }
-  >({ status: 'loading' })
+  // Unit 70a: under the case's key, so an upload anywhere refreshes this list.
+  const docs = useQuery<DraftVersion[]>({
+    queryKey: ['case', caseId, 'documents', kind],
+    queryFn: ({ signal }) => fetchCaseDocuments(caseId, kind, signal),
+    enabled: maySee,
+  })
   const [error, setError] = useState<string | null>(null)
-
-  useEffect(() => {
-    if (!maySee) return
-    const controller = new AbortController()
-    fetchCaseDocuments(caseId, kind, controller.signal)
-      .then((docs) => setState({ status: 'ready', docs }))
-      .catch(() => {
-        if (!controller.signal.aborted) setState({ status: 'failed' })
-      })
-    return () => controller.abort()
-  }, [caseId, maySee, kind])
 
   const open = async (documentId: string) => {
     // **The tab is opened synchronously and WITHOUT `noopener`, and both halves matter.**
@@ -73,9 +66,9 @@ export default function DocumentList({
     )
   }
 
-  if (state.status === 'loading') return null
+  if (!docs.data && !docs.isError) return null
 
-  if (state.status === 'failed') {
+  if (!docs.data) {
     return (
       <p className="mt-2 text-sm" style={{ color: 'var(--status-red)' }}>
         Documents could not be loaded.
@@ -85,14 +78,14 @@ export default function DocumentList({
 
   return (
     <>
-      {state.docs.length === 0 ? (
+      {docs.data.length === 0 ? (
         // Operational copy: an empty list is a statement about the case, not about the screen.
         <p className="mt-2 text-sm" style={{ color: 'var(--text-muted)' }}>
           {emptyMessage}
         </p>
       ) : (
         <ul className="mt-2 flex flex-col gap-1">
-          {state.docs.map((doc) => (
+          {docs.data.map((doc) => (
             <li key={doc.id}>
               <button
                 type="button"

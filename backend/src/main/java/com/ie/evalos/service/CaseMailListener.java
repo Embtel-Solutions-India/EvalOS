@@ -81,6 +81,7 @@ public class CaseMailListener {
 			// rematch and retake alike (CaseLifecycleService.openOffer).
 			case EXPERT_ASSIGNED -> CaseUpdate.OFFER;
 			case CHECKLIST_REQUESTED -> CaseUpdate.CHECKLIST;
+			case CHECKLIST_CHASED -> CaseUpdate.CHASE;
 			case DRAFT_READY_FOR_CLIENT -> CaseUpdate.DRAFT_READY;
 			case EXPERT_SENT_FOR_SIGNING -> CaseUpdate.SIGNING;
 			case CASE_DELIVERED -> CaseUpdate.DELIVERED;
@@ -135,7 +136,7 @@ public class CaseMailListener {
 					.orElse(null);
 		}
 		int documents = 0;
-		if (kind == CaseUpdate.CHECKLIST) {
+		if (kind.countsDocuments()) {
 			documents = (int) checklist.findByCaseId(subject.getId()).stream()
 					.filter((item) -> item.isSent() && !item.getStatus().isComplete()).count();
 			if (documents == 0) {

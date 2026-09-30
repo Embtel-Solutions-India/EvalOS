@@ -105,8 +105,10 @@ Transitions live in `CaseTransitions`/`CaseLifecycleService`; every one writes a
     client without a password, "your new case has started — sign in" (no credential) for one with.
     **Unit 64c (D58, D67, 2026-09-30) adds the case progress mails** — checklist (N documents to
     upload), draft ready, delivered (to the client), and the offer and signing mails (to the
-    expert) — each once per transition, a deep link and never a credential. So the invariant is:
-    mailbox proof, the case-opened mail and those five, and nothing else; the chases stay GHL's. **A push notification is not mail** and does not touch this
+    expert) — each once per transition, a deep link and never a credential — **and (2026-10-01)
+    the chase reminder, sent only when a PC/CM presses Send chase** (`checklist.chased`). So the
+    invariant is: mailbox proof, the case-opened mail, those five and the manual chase, and nothing
+    else; the `DOC_CHASE` sweep's automatic reminders send no mail. **A push notification is not mail** and does not touch this
     invariant (D37: notifications are in-app and push, and nothing else).
     **Amended 2026-09-19, on the business's instruction.** It read *"exactly one purpose: proving
     control of a mailbox (two messages)"*, and the submission confirmation is not a mailbox proof —

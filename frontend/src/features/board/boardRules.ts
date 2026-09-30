@@ -319,7 +319,8 @@ export const EXCEPTION_LANES: readonly { state: Exclude<ExceptionState, 'NONE'>;
 export type ActionField = {
   name: string
   label: string
-  kind: 'text' | 'amount' | 'member' | 'expert'
+  /** `note` is multi-line text: a textarea rather than an input. */
+  kind: 'text' | 'note' | 'amount' | 'member' | 'expert'
   /** Which role to list, for `member` fields. */
   memberRole?: Role
 }
@@ -350,6 +351,10 @@ export type QuickAction = {
    */
   gm?: 'only' | 'never'
   fields?: readonly ActionField[]
+  /** `patch` for the stage-preserving routes that are not transitions. Absent is `post`. */
+  method?: 'patch'
+  /** The slot this action fills: once the card names someone there, "Assign" reads "Change". */
+  fills?: 'assignedCoordinator' | 'assignedCm'
 }
 
 /**
@@ -392,6 +397,9 @@ export const QUICK_ACTIONS: readonly QuickAction[] = [
       // Unit 65. Blank = the expert's standard fee; "(optional" is what keeps the dialog from
       // requiring it. The expert sees this amount before accepting, and it is final once they do.
       { name: 'fee', label: "Fee (optional — blank uses the expert's standard fee)", kind: 'amount' },
+      // D69: the expert reads this with the offer, before answering. Required, unlike the
+      // rationale above, which is the team's own record.
+      { name: 'expertNote', label: 'Note for the expert (they see this with the offer)', kind: 'note' },
     ],
   },
   // Draft review is the Project Manager's alone, GM included (Unit 23a). Approving a draft is a
@@ -502,6 +510,19 @@ export const QUICK_ACTIONS: readonly QuickAction[] = [
     fields: [
       { name: 'coordinatorId', label: 'Coordinator', kind: 'member', memberRole: 'PROJECT_COORDINATOR' },
     ],
+    fills: 'assignedCoordinator',
+  },
+  // D36: the PM staffs the CM too, at any stage. `CaseController.reassignCaseManager` keeps the
+  // stage and mints no expert offer; `assign-cm` above is the PM_REVIEW step that also picks the
+  // expert. The server refuses a CM from another team, or the one already on the case.
+  {
+    path: 'case-manager',
+    method: 'patch',
+    label: 'Assign case manager',
+    roles: ['PROJECT_MANAGER'],
+    stages: null,
+    fields: [{ name: 'cmId', label: 'Case manager', kind: 'member', memberRole: 'CASE_MANAGER' }],
+    fills: 'assignedCm',
   },
   {
     path: 'hold',
@@ -560,6 +581,9 @@ export const QUICK_ACTIONS: readonly QuickAction[] = [
       // Unit 65. Blank = the expert's standard fee; "(optional" is what keeps the dialog from
       // requiring it. The expert sees this amount before accepting, and it is final once they do.
       { name: 'fee', label: "Fee (optional — blank uses the expert's standard fee)", kind: 'amount' },
+      // D69: the expert reads this with the offer, before answering. Required, unlike the
+      // rationale above, which is the team's own record.
+      { name: 'expertNote', label: 'Note for the expert (they see this with the offer)', kind: 'note' },
     ],
   },
   {
@@ -601,7 +625,9 @@ export function actionsFor(card: BoardCard, role: Role): readonly QuickAction[] 
     // *from* this stage are withheld. The stage-preserving ones returned above are not.
     if (access === 'status') return false
     return action.stages.includes(card.currentStage)
-  })
+  }).map((action) =>
+    action.fills && card[action.fills] ? { ...action, label: action.label.replace('Assign', 'Change') } : action,
+  )
 }
 
 /**

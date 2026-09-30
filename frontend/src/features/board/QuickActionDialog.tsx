@@ -155,6 +155,16 @@ function Field({
       </span>
       {isPicker ? (
         <Picker field={field} caseId={caseId} value={value} onChange={onChange} required={required} />
+      ) : field.kind === 'note' ? (
+        <textarea
+          required={required}
+          rows={4}
+          maxLength={4000}
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          className={INPUT_CLASS}
+          style={INPUT_STYLE}
+        />
       ) : (
         <input
           required={required}

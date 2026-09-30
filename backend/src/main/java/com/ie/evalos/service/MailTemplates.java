@@ -216,6 +216,10 @@ public class MailTemplates {
 				"Thank you%s. To move your case forward we need %d document%s from you. Sign in to see "
 						+ "the list and upload them.",
 				"Upload my documents"),
+		CHASE(false, "Reminder: documents needed for your case", "A reminder about your documents",
+				"Hello%s. We are still waiting for %d document%s from you before we can move your case "
+						+ "forward. Sign in to see the list and upload them.",
+				"Upload my documents"),
 		DRAFT_READY(false, "Your draft is ready to review", "Your draft is ready",
 				"Good news%s — the draft for your case is ready. Sign in to read it, then approve it or "
 						+ "tell us what to change.",
@@ -243,10 +247,15 @@ public class MailTemplates {
 			this.intro = intro;
 			this.button = button;
 		}
+
+		/** The checklist and its chase name how many documents are still owed. */
+		public boolean countsDocuments() {
+			return this == CHECKLIST || this == CHASE;
+		}
 	}
 
 	/**
-	 * One case progress mail. {@code documents} is read by {@link CaseUpdate#CHECKLIST} only.
+	 * One case progress mail. {@code documents} is read by {@link CaseUpdate#CHECKLIST} and {@link CaseUpdate#CHASE} only.
 	 *
 	 * @param link a deep link into the recipient's portal; never a credential
 	 */
@@ -261,7 +270,7 @@ public class MailTemplates {
 	 */
 	public Message caseUpdate(CaseUpdate kind, String fullName, String service, String caseCode, int documents,
 			String fee, String link) {
-		String intro = kind == CaseUpdate.CHECKLIST
+		String intro = kind.countsDocuments()
 				? kind.intro.formatted(greeting(fullName), documents, documents == 1 ? "" : "s")
 				: kind.intro.formatted(greeting(fullName));
 		if (kind == CaseUpdate.OFFER && fee != null) {

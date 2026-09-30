@@ -1,4 +1,6 @@
 import { useEffect, useState } from 'react'
+import WinNote from './WinNote'
+import { isWonStage } from './boardMove'
 import {
   bookMeeting,
   closeDeal,
@@ -44,6 +46,9 @@ export default function DealActions({
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [awaitingCase, setAwaitingCase] = useState(false)
+  // D70: Won — the button, or the Won stage — asks for the production team's note first.
+  // `stageId` set = the win came from the stage picker, so it moves the deal there too.
+  const [winning, setWinning] = useState<{ stageId: string | null } | null>(null)
   const [followUpTitle, setFollowUpTitle] = useState('')
   const [followUpDue, setFollowUpDue] = useState('')
   const [followUpSet, setFollowUpSet] = useState<string | null>(null)
@@ -92,7 +97,9 @@ export default function DealActions({
           defaultValue=""
           onChange={(event) => {
             const stageId = event.target.value
-            if (stageId) run(() => moveStage(opportunityId, stageId))
+            const stage = stages.find((s) => s.stageId === stageId)
+            if (stage && isWonStage(stage.stageName)) setWinning({ stageId })
+            else if (stageId) run(() => moveStage(opportunityId, stageId))
           }}
           className="field mt-1 w-full"
         >
@@ -111,20 +118,30 @@ export default function DealActions({
             key={status}
             type="button"
             disabled={busy}
-            onClick={() =>
-              run(
-                () => closeDeal(opportunityId, status),
-                // Only winning starts a case. Lost and abandoned end the deal and nothing
-                // downstream happens, so promising a case for those would be a lie.
-                () => setAwaitingCase(status === 'won'),
-              )
-            }
+            onClick={() => (status === 'won' ? setWinning({ stageId: null }) : run(() => closeDeal(opportunityId, status)))}
             className="btn flex-1 capitalize"
           >
             {status}
           </button>
         ))}
       </div>
+
+      {winning && (
+        <WinNote
+          busy={busy}
+          onCancel={() => setWinning(null)}
+          onConfirm={(note) =>
+            // Only winning starts a case, so only winning promises one.
+            run(
+              () => (winning.stageId ? moveStage(opportunityId, winning.stageId, note) : closeDeal(opportunityId, 'won', note)),
+              () => {
+                setAwaitingCase(true)
+                setWinning(null)
+              },
+            )
+          }
+        />
+      )}
 
       {awaitingCase && (
         <p className="text-xs" style={{ color: 'var(--text-muted)' }}>

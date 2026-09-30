@@ -122,7 +122,9 @@ public class ExpertPortalService {
 			/** The brand's currency, the fee's unit. */
 			String currency,
 			/** The files this expert may open (Unit 66b, D63): see {@code expertDocuments}. */
-			List<ExpertDocument> documents) {
+			List<ExpertDocument> documents,
+			/** What the PM told this expert with the offer (D69), or null on an offer before V82. */
+			String offerNote) {
 	}
 
 	/**
@@ -159,7 +161,9 @@ public class ExpertPortalService {
 			Instant signedAt,
 			/** Unit 65: the open or accepted offer's fee, shown before the expert can accept. */
 			BigDecimal offeredFee,
-			String currency) {
+			String currency,
+			/** D69: the offer's note, read before the expert answers. */
+			String offerNote) {
 	}
 
 	/** Who is signed in, for the portal's greeting and top bar. The name only. */
@@ -289,6 +293,8 @@ public class ExpertPortalService {
 				.toList();
 
 		Optional<CaseDocument> signedLetter = signedLetter(subject);
+		// One read for both the fee and the note (D69): they are the same offer.
+		Optional<ExpertCaseOffer> offer = currentOffer(subject.getId(), subject.getExpertId());
 
 		return new ExpertCaseView(
 				subject.getCaseCode(),
@@ -306,13 +312,14 @@ public class ExpertPortalService {
 				signedLetter.isPresent(),
 				signedLetter.map(CaseDocument::getUploadedAt).orElse(null),
 				attestationFor(expertName == null ? "the assigned expert" : expertName),
-				offeredFee(subject.getId(), subject.getExpertId()),
+				offer.map(ExpertCaseOffer::getFee).orElse(null),
 				currency(subject.getBrandId()),
 				expertDocuments(subject).stream()
 						.map(d -> new ExpertDocument(d.getId(),
 								d.getKind() == DocumentKind.DRAFT ? "LETTER" : d.getKind().name(),
 								d.getFilename(), d.getUploadedAt(), d.hasPdf()))
-						.toList());
+						.toList(),
+				offer.map(ExpertCaseOffer::getNote).orElse(null));
 	}
 
 	/**
@@ -363,14 +370,14 @@ public class ExpertPortalService {
 	 * The fee of this expert's open or accepted offer on the case, or null (Unit 65). The case id
 	 * came off an authorized case, the only way the unscoped finder may be called.
 	 */
-	private BigDecimal offeredFee(UUID caseId, UUID expertId) {
+	private Optional<ExpertCaseOffer> currentOffer(UUID caseId, UUID expertId) {
 		if (expertId == null) {
-			return null;
+			return Optional.empty();
 		}
 		return offers.findByCaseIdOrderByOfferedAtDesc(caseId).stream()
 				.filter(o -> o.getExpertId().equals(expertId)
 						&& (o.getOutcome() == OfferOutcome.OFFERED || o.getOutcome() == OfferOutcome.ACCEPTED))
-				.map(ExpertCaseOffer::getFee).findFirst().orElse(null);
+				.findFirst();
 	}
 
 	private String currency(UUID brandId) {
@@ -395,6 +402,7 @@ public class ExpertPortalService {
 		String currency = currency(principal.brandId());
 		return partyCases(principal).stream().map(subject -> {
 			PortalStageProjection.PortalStep step = PortalStageProjection.forExpert(subject.getCurrentStage());
+			Optional<ExpertCaseOffer> offer = currentOffer(subject.getId(), principal.expertId());
 			return new ExpertCaseSummary(subject.getId(), subject.getCaseCode(), subject.getServiceType(),
 					subject.getExpertSignStatus(),
 					step == null ? null : step.label(),
@@ -405,7 +413,8 @@ public class ExpertPortalService {
 					signedLetter(subject).map(CaseDocument::getUploadedAt).orElse(null),
 					// ponytail: one offer read per case, like signedLetter; batch by case ids if a roster
 					// ever carries hundreds per expert.
-					offeredFee(subject.getId(), principal.expertId()), currency);
+					offer.map(ExpertCaseOffer::getFee).orElse(null), currency,
+					offer.map(ExpertCaseOffer::getNote).orElse(null));
 		}).toList();
 	}
 
