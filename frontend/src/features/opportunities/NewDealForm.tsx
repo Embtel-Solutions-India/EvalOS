@@ -3,7 +3,10 @@ import { SheetContent, SheetRoot } from '../../components/ui/dialog'
 import { useMetrics } from '../dashboards/useMetrics'
 import {
   createDeal,
+  openLead,
+  fetchGhlUsers,
   fetchOpportunityFields,
+  type GhlUser,
   type BoardColumn,
   type OpportunityField,
 } from './opportunityApi'
@@ -30,7 +33,7 @@ import {
  * adds that is not on this list simply does not appear — the form shows what sales is asked to
  * know, not everything the field set happens to contain.
  */
-const INTAKE_FIELD_KEYS: readonly string[] = [
+export const INTAKE_FIELD_KEYS: readonly string[] = [
   'opportunity.service_requested',
   'opportunity.visa_category_if_applicable',
   'opportunity.service_turn_around_time',
@@ -109,13 +112,19 @@ export default function NewDealForm({
  *
  * <p>Exported because the sidebar is now the trigger (2026-09-17): `NewDealPage` renders these
  * fields directly, so the sheet's own button is not a second entry point competing with the nav.
+ *
+ * <p>`lead` (Unit 39b) is the BDE's "Add lead": the same GHL opportunity form, sent as the marketing
+ * upsert on (contact, pipeline). So the name is optional (GHL gets the contact's) and there is no
+ * second-deal question — a repeat enquiry updates the open lead, which is what upsert means.
  */
 export function NewDealFields({
   columns,
   onCreated,
+  lead = false,
 }: {
   columns: readonly BoardColumn[]
   onCreated: () => void
+  lead?: boolean
 }) {
   const [firstName, setFirstName] = useState('')
   const [lastName, setLastName] = useState('')
@@ -125,6 +134,9 @@ export function NewDealFields({
   const [value, setValue] = useState('')
   const [stageId, setStageId] = useState('')
   const [closeDate, setCloseDate] = useState('')
+  const [owner, setOwner] = useState('')
+  // GHL's own users, as the booking dialog lists them. A failed read leaves only "Unassigned".
+  const { data: users } = useMetrics<readonly GhlUser[]>((signal) => fetchGhlUsers(signal), [])
 
   /**
    * GHL's own field definitions. A failure here is not fatal: the standard fields still submit,
@@ -152,26 +164,27 @@ export function NewDealFields({
   const [duplicate, setDuplicate] = useState<string | null>(null)
 
   const hasContact = email.trim() !== '' || phone.trim() !== ''
-  const ready = name.trim() !== '' && hasContact
+  const ready = (lead || name.trim() !== '') && hasContact
 
   async function submit(event: React.FormEvent, confirmSecondDeal: boolean) {
     event.preventDefault()
     if (!ready) return
     setBusy(true)
     setError(null)
+    const common = {
+      firstName: firstName.trim() || undefined,
+      lastName: lastName.trim() || undefined,
+      email: email.trim() || undefined,
+      phone: phone.trim() || undefined,
+      monetaryValue: value.trim() === '' ? undefined : Number(value),
+      stageId: stageId || undefined,
+      expectedCloseDate: closeDate || undefined,
+      customFields: custom,
+      assignedTo: owner || undefined,
+    }
     try {
-      await createDeal({
-        firstName: firstName.trim() || undefined,
-        lastName: lastName.trim() || undefined,
-        email: email.trim() || undefined,
-        phone: phone.trim() || undefined,
-        name: name.trim(),
-        monetaryValue: value.trim() === '' ? undefined : Number(value),
-        stageId: stageId || undefined,
-        expectedCloseDate: closeDate || undefined,
-        customFields: custom,
-        confirmSecondDeal,
-      })
+      if (lead) await openLead({ ...common, name: name.trim() || undefined })
+      else await createDeal({ ...common, name: name.trim(), confirmSecondDeal })
       onCreated()
     } catch (cause) {
       const message = cause instanceof Error ? cause.message : 'The deal could not be opened.'
@@ -207,7 +220,7 @@ export function NewDealFields({
         <legend className="text-xs font-medium uppercase tracking-wide" style={{ color: 'var(--text-muted)' }}>
           Opportunity
         </legend>
-        <Field label="Name" value={name} onChange={setName} />
+        <Field label={lead ? 'Name (defaults to the contact)' : 'Name'} value={name} onChange={setName} />
         <div className="grid grid-cols-2 gap-3">
           <Field label="Value" value={value} onChange={setValue} type="number" />
           <Field label="Expected close" value={closeDate} onChange={setCloseDate} type="date" />
@@ -231,6 +244,23 @@ export function NewDealFields({
                   {column.stageName}
                 </option>
               ))}
+          </select>
+        </label>
+        <label className="grid gap-1 text-sm">
+          <span style={{ color: 'var(--text-muted)' }}>Owner</span>
+          <select
+            value={owner}
+            onChange={(e) => setOwner(e.target.value)}
+            className="rounded-lg border px-2 py-1.5"
+            style={{ borderColor: 'var(--border-default)', background: 'var(--bg-surface)' }}
+          >
+            {/* Blank = GHL's own round-robin, which is what happened before there was a picker. */}
+            <option value="">Unassigned (GHL assigns)</option>
+            {(users ?? []).map((user) => (
+              <option key={user.id} value={user.id}>
+                {user.name}
+              </option>
+            ))}
           </select>
         </label>
       </fieldset>
@@ -291,8 +321,9 @@ export function NewDealFields({
       )}
 
       <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
-        Opens on your own pipeline, as an open deal. Winning it is a separate step — that is what
-        creates the case.
+        {lead
+          ? 'Opens on your own pipeline in GHL. A contact who already has an open lead there is updated, not duplicated.'
+          : 'Opens on your own pipeline, as an open deal. Winning it is a separate step — that is what creates the case.'}
       </p>
 
       <button
@@ -301,7 +332,7 @@ export function NewDealFields({
         className="rounded-lg px-3 py-1.5 text-sm font-medium disabled:opacity-50"
         style={{ background: 'var(--accent-primary)', color: '#fff' }}
       >
-        {busy ? 'Opening…' : 'Open deal'}
+        {busy ? 'Opening…' : lead ? 'Open lead' : 'Open deal'}
       </button>
     </form>
   )
@@ -313,7 +344,7 @@ export function NewDealFields({
  * <p>An unknown type falls through to a text input rather than being skipped: GHL can add a type,
  * and silently dropping a field the location asked for is worse than rendering it plainly.
  */
-function CustomFieldInput({
+export function CustomFieldInput({
   field,
   value,
   onChange,

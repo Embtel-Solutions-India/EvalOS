@@ -119,15 +119,15 @@ class SalesDeskServiceTest {
 		authenticateAsSales(MINE);
 		when(ghl.upsertContact(any(), any(), any(), any(), any()))
 				.thenReturn(new GhlWriteClient.UpsertedContact("c1", "Acme", "a@b.test", null));
-		when(ghl.createOpportunity(any(), any(), any(), any(), any(), any(), any()))
+		when(ghl.createOpportunity(any(), any(), any(), any(), any(), any(), any(), any()))
 				.thenReturn(answer("open"));
 
 		desk.createDeal("A", "Client", "a@b.test", null, "Acme evaluation",
-				new BigDecimal("1200"), null, null, null, false);
+				new BigDecimal("1200"), null, null, null, null, false);
 
 		verify(ghl).createOpportunity(eq(MINE), eq("c1"), eq("Acme evaluation"),
-				eq(new BigDecimal("1200")), any(), any(), any());
-		verify(ghl, never()).upsertOpportunity(any(), any(), any(), any());
+				eq(new BigDecimal("1200")), any(), any(), any(), any());
+		verify(ghl, never()).upsertOpportunity(any(), any(), any(), any(), any(), any(), any());
 	}
 
 	/**
@@ -149,11 +149,11 @@ class SalesDeskServiceTest {
 		when(deals.onPipelines(any())).thenReturn(java.util.List.of(existing));
 
 		assertThatThrownBy(() -> desk.createDeal("A", "Client", "a@b.test", null, "Second deal",
-				null, null, null, null, false))
+				null, null, null, null, null, false))
 				.isInstanceOf(DuplicateDealException.class)
 				.hasMessageContaining("already has an open deal");
 
-		verify(ghl, never()).createOpportunity(any(), any(), any(), any(), any(), any(), any());
+		verify(ghl, never()).createOpportunity(any(), any(), any(), any(), any(), any(), any(), any());
 	}
 
 	@Test
@@ -161,14 +161,14 @@ class SalesDeskServiceTest {
 		authenticateAsSales(MINE);
 		when(ghl.upsertContact(any(), any(), any(), any(), any()))
 				.thenReturn(new GhlWriteClient.UpsertedContact("c1", "Acme", "a@b.test", null));
-		when(ghl.createOpportunity(any(), any(), any(), any(), any(), any(), any()))
+		when(ghl.createOpportunity(any(), any(), any(), any(), any(), any(), any(), any()))
 				.thenReturn(answer("open"));
 
-		desk.createDeal("A", "Client", "a@b.test", null, "Second deal", null, null, null, null, true);
+		desk.createDeal("A", "Client", "a@b.test", null, "Second deal", null, null, null, null, null, true);
 
 		// The mirror is not even consulted once the caller has confirmed.
 		verify(deals, never()).onPipelines(any());
-		verify(ghl).createOpportunity(eq(MINE), eq("c1"), eq("Second deal"), any(), any(), any(), any());
+		verify(ghl).createOpportunity(eq(MINE), eq("c1"), eq("Second deal"), any(), any(), any(), any(), any());
 	}
 
 	/**
@@ -180,11 +180,11 @@ class SalesDeskServiceTest {
 		authenticateAsSales(MINE);
 
 		assertThatThrownBy(() -> desk.createDeal("A", "Client", null, null, "Acme", null, null,
-				null, null, false))
+				null, null, null, false))
 				.isInstanceOf(InvalidRequestException.class);
 
 		verify(ghl, never()).upsertContact(any(), any(), any(), any(), any());
-		verify(ghl, never()).createOpportunity(any(), any(), any(), any(), any(), any(), any());
+		verify(ghl, never()).createOpportunity(any(), any(), any(), any(), any(), any(), any(), any());
 	}
 
 	/**
@@ -197,7 +197,7 @@ class SalesDeskServiceTest {
 		givenItIsMine();
 		givenTheMirrorHasIt();
 
-		SalesDeskService.Deal deal = desk.update(OPPORTUNITY, "Renamed", new BigDecimal("1500"));
+		SalesDeskService.Deal deal = desk.update(OPPORTUNITY, "Renamed", new BigDecimal("1500"), null, null, null, null);
 
 		assertThat(deal.name()).isEqualTo("Renamed");
 		assertThat(deal.monetaryValue()).isEqualByComparingTo("1500");
@@ -215,11 +215,76 @@ class SalesDeskServiceTest {
 		givenItIsMine();
 		when(deals.editLocally(any(), any(), any(), any(), any())).thenReturn(java.util.Optional.empty());
 
-		assertThatThrownBy(() -> desk.update(OPPORTUNITY, "Renamed", null))
+		assertThatThrownBy(() -> desk.update(OPPORTUNITY, "Renamed", null, null, null, null, null))
 				.isInstanceOf(InvalidRequestException.class)
 				.hasMessageContaining("not in the mirror yet");
 
 		verify(outbox, never()).enqueue(any(), any(), any());
+	}
+
+	/**
+	 * Unit 69: owner and custom fields go to GHL inline and land on the mirror; name still takes
+	 * the outbox. GHL is called before anything is queued.
+	 */
+	@Test
+	void theFieldsTheOutboxCannotCarryGoToGhlInlineAndTheSharedOnesAreQueued() {
+		authenticateAsSales(MINE);
+		givenItIsMine();
+		givenTheMirrorHasIt();
+		java.util.Map<String, String> fields = java.util.Map.of("f_service", "Course-by-Course");
+
+		desk.update(OPPORTUNITY, "Renamed", null, null, "2026-10-31", "u_owner", fields);
+
+		org.mockito.InOrder order = org.mockito.Mockito.inOrder(ghl, outbox);
+		order.verify(ghl).updateOpportunityDetails(OPPORTUNITY, MINE, "2026-10-31", "u_owner", fields);
+		order.verify(outbox).enqueue(eq(BRAND), any(), eq(SyncOutboxEntry.Intent.UPSERT));
+		verify(deals).absorbDetails(OPPORTUNITY, "u_owner", fields);
+	}
+
+	/** An owner-only edit queues nothing: there is no shared field to push. */
+	@Test
+	void anOwnerOnlyEditQueuesNothing() {
+		authenticateAsSales(MINE);
+		givenItIsMine();
+		givenTheMirrorHasIt();
+
+		desk.update(OPPORTUNITY, null, null, null, null, "u_owner", null);
+
+		verify(ghl).updateOpportunityDetails(OPPORTUNITY, MINE, null, "u_owner", null);
+		verify(outbox, never()).enqueue(any(), any(), any());
+	}
+
+	/** Unit 69: an open deal is deleted in GHL and stamped missing in the mirror. */
+	@Test
+	void deletingAnOpenDealRemovesItInGhlAndMarksTheMirrorRow() {
+		authenticateAsSales(MINE);
+		givenItIsMine();
+		givenTheMirrorHasIt();
+
+		desk.delete(OPPORTUNITY);
+
+		verify(ghl).deleteOpportunity(OPPORTUNITY, MINE);
+		verify(deals).markDeleted(OPPORTUNITY);
+	}
+
+	/** A won deal has a case behind it, and a queued push would land on nothing: both refused. */
+	@Test
+	void aWonDealOrOneWithAPendingPushIsNotDeleted() {
+		authenticateAsSales(MINE);
+		givenItIsMine();
+		com.ie.evalos.domain.Opportunity won = mirrored();
+		won.editedLocally(null, null, null, "won");
+		when(deals.byGhlId(OPPORTUNITY)).thenReturn(java.util.Optional.of(won));
+
+		assertThatThrownBy(() -> desk.delete(OPPORTUNITY))
+				.isInstanceOf(InvalidRequestException.class).hasMessageContaining("won");
+
+		givenTheMirrorHasIt();
+		when(outbox.isPending(eq(BRAND), any())).thenReturn(true);
+		assertThatThrownBy(() -> desk.delete(OPPORTUNITY))
+				.isInstanceOf(InvalidRequestException.class).hasMessageContaining("on its way");
+
+		verify(ghl, never()).deleteOpportunity(any(), any());
 	}
 
 	/** An update that changes nothing is a mistake worth naming, not a no-op write to GHL. */
@@ -228,7 +293,7 @@ class SalesDeskServiceTest {
 		authenticateAsSales(MINE);
 		givenItIsMine();
 
-		assertThatThrownBy(() -> desk.update(OPPORTUNITY, "  ", null))
+		assertThatThrownBy(() -> desk.update(OPPORTUNITY, "  ", null, null, null, null, null))
 				.isInstanceOf(InvalidRequestException.class);
 
 		verify(outbox, never()).enqueue(any(), any(), any());
@@ -334,7 +399,7 @@ class SalesDeskServiceTest {
 		// creates the case — the queue changes when GHL hears, never who opens custody.
 		verify(outbox).enqueue(eq(BRAND), any(), eq(SyncOutboxEntry.Intent.CLOSE));
 		verify(ghl, never()).setStatus(any(), any(), any());
-		verify(ghl, never()).upsertOpportunity(any(), any(), any(), any());
+		verify(ghl, never()).upsertOpportunity(any(), any(), any(), any(), any(), any(), any());
 		verify(ghl, never()).upsertContact(any(), any(), any(), any(), any());
 	}
 
@@ -390,7 +455,9 @@ class SalesDeskServiceTest {
 		authenticateAsSales(MINE);
 		when(deals.isOnPipeline("opp_theirs", MINE)).thenReturn(false);
 
-		assertThatThrownBy(() -> desk.update("opp_theirs", "x", null))
+		assertThatThrownBy(() -> desk.update("opp_theirs", "x", null, null, null, null, null))
+				.isInstanceOf(ForbiddenException.class);
+		assertThatThrownBy(() -> desk.delete("opp_theirs"))
 				.isInstanceOf(ForbiddenException.class);
 		assertThatThrownBy(() -> desk.moveToStage("opp_theirs", "s2"))
 				.isInstanceOf(ForbiddenException.class);

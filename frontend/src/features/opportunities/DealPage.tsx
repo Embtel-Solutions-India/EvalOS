@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams } from 'react-router-dom'
 import {
   ArrowLeft,
   Building2,
@@ -66,6 +66,7 @@ export default function DealPage() {
   const { opportunityId = '' } = useParams()
   const role = useMe().role
   const [editing, setEditing] = useState(false)
+  const navigate = useNavigate()
 
   const { data: contact, state: contactState } = useMetrics<DealContact | null>(
     (signal) => fetchDealContact(opportunityId, signal),
@@ -140,7 +141,7 @@ export default function DealPage() {
               {role === 'SALES' && deal && (
                 <button type="button" className="btn" onClick={() => setEditing(true)}>
                   <Pencil className="h-3.5 w-3.5" aria-hidden />
-                  Edit
+                  Edit or delete
                 </button>
               )}
             </div>
@@ -218,13 +219,19 @@ export default function DealPage() {
         </div>
       </div>
 
-      {editing && deal && (
+      {/* Not while the contact read is in flight: the dialog seeds owner and custom fields from it. */}
+      {editing && deal && contactState.kind !== 'loading' && (
         <DealEditDialog
           opportunityId={opportunityId}
           name={deal.name}
           amount={deal.amount}
+          stageId={column?.stageId ?? null}
+          stages={stages}
+          assignedToId={contact?.assignedToId ?? null}
+          fieldValues={contact?.dealFieldValues ?? {}}
           onClose={() => setEditing(false)}
           onSaved={() => window.location.reload()}
+          onDeleted={() => navigate('/opportunities/board')}
         />
       )}
     </section>

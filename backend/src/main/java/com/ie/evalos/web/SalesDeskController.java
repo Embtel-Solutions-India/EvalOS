@@ -44,8 +44,12 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/sales/opportunities/{opportunityId}")
 public class SalesDeskController {
 
-	/** Rename, re-price, or both. The service refuses "neither". */
-	public record UpdateDealRequest(String name, BigDecimal monetaryValue) {
+	/**
+	 * Any of the deal's fields (Unit 69); absent means "leave it". The service refuses "none".
+	 * No pipeline and no status: the one is GHL's routing, the other is {@code /status}.
+	 */
+	public record UpdateDealRequest(String name, BigDecimal monetaryValue, String stageId,
+			String expectedCloseDate, String assignedTo, java.util.Map<String, String> customFields) {
 	}
 
 	public record MoveStageRequest(@NotBlank String stageId) {
@@ -114,7 +118,17 @@ public class SalesDeskController {
 	@PreAuthorize("hasRole('SALES')")
 	public ApiResponse<SalesDeskService.Deal> update(@PathVariable String opportunityId,
 			@RequestBody @Valid UpdateDealRequest request) {
-		return ApiResponse.ok(desk.update(opportunityId, request.name(), request.monetaryValue()));
+		return ApiResponse.ok(desk.update(opportunityId, request.name(), request.monetaryValue(),
+				request.stageId(), request.expectedCloseDate(), request.assignedTo(),
+				request.customFields()));
+	}
+
+	/** Unit 69: deletes the deal in GHL. The service refuses a won deal and one with a push queued. */
+	@DeleteMapping
+	@PreAuthorize("hasRole('SALES')")
+	public ApiResponse<Void> delete(@PathVariable String opportunityId) {
+		desk.delete(opportunityId);
+		return ApiResponse.ok(null);
 	}
 
 	@PutMapping("/stage")

@@ -1,8 +1,12 @@
 import { useNavigate } from 'react-router-dom'
 
+import { Card } from '../../components/ui/card'
 import { useMe } from '../../lib/authContext'
+import { useMetrics } from '../dashboards/useMetrics'
 
+import { NewDealFields } from './NewDealForm'
 import NewLeadForm from './NewLeadForm'
+import { fetchOpportunityBoard, type OpportunityBoard } from './opportunityApi'
 
 /**
  * Capturing a lead, as its own screen.
@@ -15,9 +19,38 @@ import NewLeadForm from './NewLeadForm'
  * it; see `open-decisions.md` Q1.
  */
 export default function NewLeadPage() {
+  // Unit 63: the ENM's "Add candidate" is this same upsert, on their hiring pipeline — and keeps
+  // the short form: the intake questions are about a client's case, not a candidate.
+  return useMe().role === 'EXPERT_NETWORK_MANAGER' ? <NewCandidatePage /> : <NewBdeLeadPage />
+}
+
+/**
+ * Unit 39b: the BDE's "Add lead" is GHL's full opportunity form — stage, value, expected close and
+ * the intake fields — opened on their own pipeline. The board is read for its stages, as on
+ * `NewDealPage`.
+ */
+function NewBdeLeadPage() {
   const navigate = useNavigate()
-  // Unit 63: the ENM's "Add candidate" is this same upsert, on their hiring pipeline.
-  const candidate = useMe().role === 'EXPERT_NETWORK_MANAGER'
+  const { data, state } = useMetrics<OpportunityBoard>((signal) => fetchOpportunityBoard(signal), [])
+
+  return (
+    <section className="max-w-3xl space-y-4">
+      <header>
+        <h1 className="text-xl font-semibold text-slate-900">Add lead</h1>
+        <p className="text-sm text-slate-500">Opens the opportunity in GoHighLevel, on your own pipeline.</p>
+      </header>
+      <Card title="" state={state}>
+        <div className="p-4">
+          <NewDealFields lead columns={data?.columns ?? []} onCreated={() => navigate('/opportunities/board')} />
+        </div>
+      </Card>
+    </section>
+  )
+}
+
+function NewCandidatePage() {
+  const navigate = useNavigate()
+  const candidate = true
 
   return (
     <section className="max-w-3xl space-y-4">

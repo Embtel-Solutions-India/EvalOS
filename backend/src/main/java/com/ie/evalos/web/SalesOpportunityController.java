@@ -49,10 +49,7 @@ public class SalesOpportunityController {
 	 *     would let a salesperson write into a colleague's pipeline.</li>
 	 * <li>{@code status} — forced to {@code open}. GHL accepts {@code won} on create, which fires
 	 *     Handoff A and mints a <strong>paid</strong> case with no payment behind it.</li>
-	 * <li>{@code assignedTo} — GHL's user id, which EvalOS does not hold on {@code team_member}.
-	 *     Sending a guess would assign the deal to nobody or to the wrong person; GHL's own
-	 *     round-robin assigns it correctly when the field is absent.</li>
-	 * <li>{@code forecastProbability} — GHL derives it from the stage. A second, manual number
+		 * <li>{@code forecastProbability} — GHL derives it from the stage. A second, manual number
 	 *     would disagree with the first.</li>
 	 * </ul>
 	 *
@@ -87,6 +84,11 @@ public class SalesOpportunityController {
 			 * them rather than leaving a PM to chase the client for the same answers later.
 			 */
 			java.util.Map<String, String> customFields,
+			/**
+			 * The owner (D64): a GHL user id from {@code GET /api/sales/users}, the location's
+			 * mirrored users. Blank leaves it to GHL's own round-robin, as before.
+			 */
+			String assignedTo,
 			boolean confirmSecondDeal) {
 	}
 
@@ -96,6 +98,6 @@ public class SalesOpportunityController {
 		return ApiResponse.ok(desk.createDeal(request.firstName(), request.lastName(),
 				request.email(), request.phone(), request.name(), request.monetaryValue(),
 				request.stageId(), request.expectedCloseDate(), request.customFields(),
-				request.confirmSecondDeal()));
+				request.assignedTo(), request.confirmSecondDeal()));
 	}
 }

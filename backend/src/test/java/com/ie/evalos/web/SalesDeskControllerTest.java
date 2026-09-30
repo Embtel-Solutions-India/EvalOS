@@ -87,13 +87,28 @@ class SalesDeskControllerTest {
 
 	@Test
 	void aSalespersonUpdatesTheirDeal() throws Exception {
-		given(desk.update(any(), any(), any())).willReturn(DEAL);
+		given(desk.update(any(), any(), any(), any(), any(), any(), any())).willReturn(DEAL);
 
 		mockMvc.perform(put("/api/sales/opportunities/{id}", OPPORTUNITY)
 				.header(HttpHeaders.AUTHORIZATION, bearer(Role.SALES))
 				.contentType(MediaType.APPLICATION_JSON).content("{\"monetaryValue\":1200}"))
 				.andExpect(status().isOk())
 				.andExpect(jsonPath("$.data.monetaryValue").value(1200));
+	}
+
+	/** Unit 69: SALES deletes their deal; nobody else reaches the service. */
+	@Test
+	void onlyASalespersonDeletesADeal() throws Exception {
+		mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+				.delete("/api/sales/opportunities/{id}", OPPORTUNITY)
+				.header(HttpHeaders.AUTHORIZATION, bearer(Role.SALES)))
+				.andExpect(status().isOk());
+		then(desk).should().delete(OPPORTUNITY);
+
+		mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+				.delete("/api/sales/opportunities/{id}", OPPORTUNITY)
+				.header(HttpHeaders.AUTHORIZATION, bearer(Role.MARKETING)))
+				.andExpect(status().isForbidden());
 	}
 
 	@Test

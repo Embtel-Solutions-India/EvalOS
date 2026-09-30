@@ -73,7 +73,7 @@ class MarketingLeadControllerTest {
 
 	@Test
 	void aMarketerOpensALead() throws Exception {
-		given(leads.openLead(any(), any(), any(), any(), any(), any())).willReturn(LEAD);
+		given(leads.openLead(any(), any(), any(), any(), any(), any(), any(), any(), any(), any())).willReturn(LEAD);
 
 		mockMvc.perform(post("/api/marketing/leads").header(HttpHeaders.AUTHORIZATION, bearer(Role.MARKETING))
 				.contentType(MediaType.APPLICATION_JSON).content(OPEN_BODY))
@@ -109,7 +109,7 @@ class MarketingLeadControllerTest {
 				.contentType(MediaType.APPLICATION_JSON).content(OPEN_BODY))
 				.andExpect(status().isForbidden());
 
-		then(leads).should(never()).openLead(any(), any(), any(), any(), any(), any());
+		then(leads).should(never()).openLead(any(), any(), any(), any(), any(), any(), any(), any(), any(), any());
 	}
 
 	@Test

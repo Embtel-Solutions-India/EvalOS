@@ -147,7 +147,7 @@ class SyncOutboxServiceTest {
 
 		assertThat(result.sent()).isEqualTo(1);
 		assertThat(row.getGhlId()).isEqualTo("opp-already-there");
-		then(ghl).should(never()).createOpportunity(any(), any(), any(), any(), any(), any(), any());
+		then(ghl).should(never()).createOpportunity(any(), any(), any(), any(), any(), any(), any(), any());
 	}
 
 	/** When the contact genuinely has no such deal, the create goes out — carrying the key. */
@@ -156,7 +156,7 @@ class SyncOutboxServiceTest {
 		Opportunity row = local(null);
 		queued(row);
 		given(ghlReads.forContact("contact-1")).willReturn(List.of());
-		given(ghl.createOpportunity(any(), any(), any(), any(), any(), any(), any()))
+		given(ghl.createOpportunity(any(), any(), any(), any(), any(), any(), any(), any()))
 				.willReturn(new GhlWriteClient.UpsertedOpportunity("opp-new", "contact-1", "pipe-1", "s1",
 						"open", "Ana", null, true));
 
@@ -164,7 +164,7 @@ class SyncOutboxServiceTest {
 
 		org.mockito.ArgumentCaptor<java.util.Map<String, String>> fields = org.mockito.ArgumentCaptor.captor();
 		then(ghl).should().createOpportunity(eq("pipe-1"), eq("contact-1"), anyString(), any(), any(),
-				any(), fields.capture());
+				any(), fields.capture(), any());
 		assertThat(fields.getValue()).containsEntry(CORRELATION_FIELD, row.getId().toString());
 		assertThat(row.getGhlId()).isEqualTo("opp-new");
 	}
@@ -180,14 +180,14 @@ class SyncOutboxServiceTest {
 	void anUnconfiguredCorrelationFieldSkipsTheLookupRatherThanRefusingToRetry() {
 		Opportunity row = local(null);
 		queued(row);
-		given(ghl.createOpportunity(any(), any(), any(), any(), any(), any(), any()))
+		given(ghl.createOpportunity(any(), any(), any(), any(), any(), any(), any(), any()))
 				.willReturn(new GhlWriteClient.UpsertedOpportunity("opp-new", "contact-1", "pipe-1", "s1",
 						"open", "Ana", null, true));
 
 		newService("").drain();
 
 		then(ghlReads).should(never()).forContact(any());
-		then(ghl).should().createOpportunity(any(), any(), any(), any(), any(), any(), any());
+		then(ghl).should().createOpportunity(any(), any(), any(), any(), any(), any(), any(), any());
 	}
 
 	/** A row GHL already knows is an update, not a second create. */
@@ -202,7 +202,7 @@ class SyncOutboxServiceTest {
 		assertThat(service.drain().sent()).isEqualTo(1);
 
 		then(ghl).should().updateOpportunity(eq("opp-1"), eq("pipe-1"), anyString(), any(), any());
-		then(ghl).should(never()).createOpportunity(any(), any(), any(), any(), any(), any(), any());
+		then(ghl).should(never()).createOpportunity(any(), any(), any(), any(), any(), any(), any(), any());
 	}
 
 	/**

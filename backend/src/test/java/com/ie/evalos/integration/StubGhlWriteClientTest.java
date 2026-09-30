@@ -45,8 +45,8 @@ class StubGhlWriteClientTest {
 		StubGhlWriteClient stub = local();
 
 		stub.upsertContact("Ana", "Ruiz", "ana@example.test", null, "Client Portal");
-		stub.upsertOpportunity("pipe-1", "c1", "Ana — Academic Evaluation", BigDecimal.TEN);
-		stub.createOpportunity("pipe-1", "c1", "Ana", BigDecimal.TEN, null, null, Map.of());
+		stub.upsertOpportunity("pipe-1", "c1", "Ana — Academic Evaluation", BigDecimal.TEN, null, null, null);
+		stub.createOpportunity("pipe-1", "c1", "Ana", BigDecimal.TEN, null, null, Map.of(), null);
 		stub.updateOpportunity("opp-1", "pipe-1", "renamed", BigDecimal.ONE, "s2");
 		stub.moveStage("opp-1", "pipe-1", "s3");
 		stub.setStatus("opp-1", "pipe-1", "won");
@@ -68,8 +68,8 @@ class StubGhlWriteClientTest {
 	void theIdsAreObviouslyFakeAndStillUnique() {
 		StubGhlWriteClient stub = local();
 
-		String first = stub.createOpportunity("p", "c", "n", null, null, null, null).id();
-		String second = stub.createOpportunity("p", "c", "n", null, null, null, null).id();
+		String first = stub.createOpportunity("p", "c", "n", null, null, null, null, null).id();
+		String second = stub.createOpportunity("p", "c", "n", null, null, null, null, null).id();
 
 		assertThat(first).startsWith("stub-");
 		assertThat(second).startsWith("stub-");
