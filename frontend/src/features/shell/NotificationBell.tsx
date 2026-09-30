@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
+import { useState } from 'react'
 import { api, unwrap } from '../../lib/api'
 
 type NotificationView = {
@@ -10,72 +11,43 @@ type NotificationView = {
   createdAt: string
 }
 
-type ListState =
-  | { status: 'idle' }
-  | { status: 'loading' }
-  | { status: 'ready'; items: readonly NotificationView[] }
-  | { status: 'failed'; message: string }
-
 /**
  * The staff notification channel over Unit 06's four endpoints. EvalOS sends no email,
  * so this is the only place a staff member is told anything (invariant 14).
  *
  * A native `<details>` element is the dropdown: it already gives a toggle, keyboard
- * activation and a closed-by-default panel. The list is fetched when the panel opens
- * rather than on mount — a bell nobody clicks should cost one count query, not a page
- * of rows.
+ * activation and a closed-by-default panel. The list is fetched only while the panel is open
+ * — a bell nobody clicks should cost one count query, not a page of rows.
+ *
+ * **The count re-reads every minute and on tab focus** (Unit 70a): somebody else's action — a PM
+ * putting a coordinator on a case — raises the notification, and nothing else would tell this
+ * browser. Marking read is a POST, so the `api` interceptor refreshes both queries.
  */
 export default function NotificationBell() {
-  const [unread, setUnread] = useState(0)
-  const [list, setList] = useState<ListState>({ status: 'idle' })
   const [open, setOpen] = useState(false)
 
-  const refreshCount = useCallback(async (signal?: AbortSignal) => {
-    setUnread(await unwrap<number>(api.get('/notifications/unread-count', { signal })))
-  }, [])
+  const count = useQuery({
+    queryKey: ['notifications', 'count'],
+    queryFn: ({ signal }) => unwrap<number>(api.get('/notifications/unread-count', { signal })),
+    refetchInterval: 60_000,
+  })
+  // A failed badge is not worth a visible error: the count stays at its last value.
+  const unread = count.data ?? 0
 
-  useEffect(() => {
-    const controller = new AbortController()
-    refreshCount(controller.signal).catch(() => {
-      // A failed badge is not worth a visible error: the count stays at its last value
-      // and the next open re-reads it.
-    })
-    return () => controller.abort()
-  }, [refreshCount])
+  const list = useQuery({
+    queryKey: ['notifications', 'list'],
+    queryFn: ({ signal }) => unwrap<NotificationView[]>(api.get('/notifications', { signal })),
+    enabled: open,
+  })
 
-  const loadList = useCallback(async () => {
-    setList({ status: 'loading' })
-    try {
-      setList({ status: 'ready', items: await unwrap<NotificationView[]>(api.get('/notifications')) })
-    } catch (error: unknown) {
-      setList({
-        status: 'failed',
-        message: error instanceof Error ? error.message : 'Could not load notifications',
-      })
-    }
-  }, [])
-
-  /** Both mark routes answer the new badge value, so one call repaints everything. */
-  const markRead = useCallback(
-    async (id: string) => {
-      setUnread(await unwrap<number>(api.post(`/notifications/${id}/read`)))
-      await loadList()
-    },
-    [loadList],
-  )
-
-  const markAllRead = useCallback(async () => {
-    setUnread(await unwrap<number>(api.post('/notifications/read-all')))
-    await loadList()
-  }, [loadList])
+  const markRead = (id: string) => void api.post(`/notifications/${id}/read`).catch(() => undefined)
+  const markAllRead = () => void api.post('/notifications/read-all').catch(() => undefined)
 
   return (
     <details
       open={open}
       onToggle={(event) => {
-        const isOpen = event.currentTarget.open
-        setOpen(isOpen)
-        if (isOpen) void loadList()
+        setOpen(event.currentTarget.open)
       }}
       className="relative"
     >
@@ -117,7 +89,7 @@ export default function NotificationBell() {
           <span className="text-sm font-semibold">Notifications</span>
           <button
             type="button"
-            onClick={() => void markAllRead()}
+            onClick={markAllRead}
             disabled={unread === 0}
             className="text-sm font-medium disabled:opacity-40"
             style={{ color: 'var(--accent-primary)' }}
@@ -127,27 +99,26 @@ export default function NotificationBell() {
         </div>
 
         <div className="max-h-96 overflow-y-auto">
-          {list.status === 'ready' && list.items.length === 0 && (
+          {list.data?.length === 0 && (
             <p className="px-4 py-6 text-sm" style={{ color: 'var(--text-muted)' }}>
               Nothing yet. Case activity for you shows up here.
             </p>
           )}
-          {list.status === 'loading' && (
+          {list.isPending && list.isFetching && (
             <p className="px-4 py-6 text-sm" style={{ color: 'var(--text-muted)' }}>
               Loading…
             </p>
           )}
-          {list.status === 'failed' && (
+          {list.isError && !list.data && (
             <p className="px-4 py-6 text-sm" style={{ color: 'var(--status-red)' }}>
-              {list.message}
+              {list.error instanceof Error ? list.error.message : 'Could not load notifications'}
             </p>
           )}
-          {list.status === 'ready' &&
-            list.items.map((item) => (
+          {list.data?.map((item) => (
               <button
                 key={item.id}
                 type="button"
-                onClick={() => void markRead(item.id)}
+                onClick={() => markRead(item.id)}
                 disabled={item.read}
                 className="block w-full border-b px-4 py-3 text-left last:border-b-0"
                 style={{

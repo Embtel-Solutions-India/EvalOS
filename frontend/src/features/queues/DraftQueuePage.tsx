@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Check, ExternalLink, Eye, X } from 'lucide-react'
 import { KpiCard } from '../../components/ui/card'
@@ -32,23 +33,18 @@ const RETURN = QUICK_ACTIONS.find((action) => action.path === 'draft/pm-return')
  */
 export default function DraftQueuePage() {
   const { activeBrandId } = useFilters()
-  const [data, setData] = useState<DraftReview | null>(null)
-  const [error, setError] = useState<string | null>(null)
+  // Unit 70a: cached, refreshed by any write (a CM's upload, a PM's return) and on tab focus.
+  const queryClient = useQueryClient()
+  const review = useQuery<DraftReview>({
+    queryKey: ['draft-review', activeBrandId],
+    queryFn: ({ signal }) => fetchDraftReview(activeBrandId, signal),
+  })
+  const data = review.data ?? null
+  const error = data || !review.error ? null : review.error.message
+  const load = () => void queryClient.invalidateQueries({ queryKey: ['draft-review'] })
   const [tab, setTab] = useState<DraftStatus | 'ALL'>('ALL')
   const [selectedId, setSelectedId] = useState<string | null>(null)
 
-  const load = () => {
-    const controller = new AbortController()
-    setError(null)
-    fetchDraftReview(activeBrandId, controller.signal)
-      .then(setData)
-      .catch((cause: Error) => {
-        if (!controller.signal.aborted) setError(cause.message)
-      })
-    return () => controller.abort()
-  }
-
-  useEffect(load, [activeBrandId])
 
   const rows = useMemo(
     () => (data ? data.rows.filter((row) => tab === 'ALL' || row.status === tab) : []),
@@ -307,20 +303,17 @@ function DraftDetail({
   onClose: () => void
   onActed: () => void
 }) {
-  const [activity, setActivity] = useState<TimelineEntry[] | null>(null)
+  // The case's timeline key, shared with the case page.
+  const timeline = useQuery<TimelineEntry[]>({
+    queryKey: ['case', row.id, 'timeline'],
+    queryFn: ({ signal }) => fetchTimeline(row.id, signal),
+  })
+  const activity = timeline.data ?? (timeline.isError ? [] : null)
   const [returning, setReturning] = useState(false)
   const [reason, setReason] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  useEffect(() => {
-    const controller = new AbortController()
-    setActivity(null)
-    fetchTimeline(row.id, controller.signal)
-      .then(setActivity)
-      .catch(() => setActivity([]))
-    return () => controller.abort()
-  }, [row.id])
 
   const tone = statusTone(row.status)
   const reviewable = row.status === 'PENDING_REVIEW'

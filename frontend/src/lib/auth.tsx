@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { api, unwrap } from './api'
 import { AuthContext, type AuthState } from './authContext'
+import { queryClient } from './queryClient'
 import { clearToken, getToken, onTokenCleared, setToken, type StaffIdentity } from './session'
 
 /**
@@ -21,7 +22,11 @@ export default function AuthProvider({ children }: { children: ReactNode }) {
    * token, silently 401ing every request until the user reloaded by hand.
    */
   useEffect(() => {
-    onTokenCleared(() => setState({ status: 'anonymous' }))
+    // Unit 70a: the next person on a shared browser must never be shown the last one's cache.
+    onTokenCleared(() => {
+      queryClient.clear()
+      setState({ status: 'anonymous' })
+    })
     return () => onTokenCleared(null)
   }, [])
 
@@ -44,12 +49,14 @@ export default function AuthProvider({ children }: { children: ReactNode }) {
   const login = useCallback(async (email: string, password: string) => {
     const session = await unwrap<{ token: string }>(api.post('/auth/login', { email, password }))
     setToken(session.token)
+    queryClient.clear()
     // Role and brand come from /api/me, not the login response, so there is one source
     // of identity rather than two that can disagree.
     setState({ status: 'authenticated', me: await unwrap<StaffIdentity>(api.get('/me')) })
   }, [])
 
   const logout = useCallback(() => {
+    queryClient.clear()
     clearToken()
     setState({ status: 'anonymous' })
   }, [])

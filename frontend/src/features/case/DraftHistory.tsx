@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { fetchDocumentUrl, fetchDraftVersions, type DraftVersion } from './caseApi'
 import DraftComments from './DraftComments'
 import { mayComment } from './draftRules'
@@ -26,40 +26,27 @@ const STATUS_TONE: Record<string, { label: string; color: string }> = {
   SUPERSEDED: { label: 'Superseded', color: 'var(--text-muted)' },
 }
 
-/**
- * @param reloadKey changes when a new version lands (the case's draft count), so the list refetches
- */
 export default function DraftHistory({
   caseId,
   clientApprovalStatus,
-  reloadKey,
 }: {
   caseId: string
   clientApprovalStatus: string | null
-  reloadKey: number
 }) {
-  const [state, setState] = useState<
-    { status: 'loading' } | { status: 'ready'; versions: DraftVersion[] } | { status: 'failed' }
-  >({ status: 'loading' })
-
-  useEffect(() => {
-    const controller = new AbortController()
-    fetchDraftVersions(caseId, controller.signal)
-      .then((versions) => setState({ status: 'ready', versions }))
-      .catch(() => {
-        if (!controller.signal.aborted) setState({ status: 'failed' })
-      })
-    return () => controller.abort()
-  }, [caseId, reloadKey])
+  // Unit 70a: the case's drafts key; an upload or a review anywhere refreshes it.
+  const drafts = useQuery<DraftVersion[]>({
+    queryKey: ['case', caseId, 'drafts'],
+    queryFn: ({ signal }) => fetchDraftVersions(caseId, signal),
+  })
 
   // Minted at the click, never stored: a held presigned URL expires while the page sits open.
   async function open(documentId: string, pdf: boolean, view = false) {
     window.open(await fetchDocumentUrl(caseId, documentId, pdf, view), '_blank', 'noopener')
   }
 
-  if (state.status === 'loading') return null
+  if (!drafts.data && !drafts.isError) return null
 
-  if (state.status === 'failed') {
+  if (!drafts.data) {
     return (
       <p className="text-sm" style={{ color: 'var(--status-red)' }}>
         Could not load the draft history.
@@ -73,13 +60,13 @@ export default function DraftHistory({
         Draft history
       </h3>
 
-      {state.versions.length === 0 ?
+      {drafts.data.length === 0 ?
         // Operational copy, never "No data" — an empty history is a statement about the case.
         <p className="mt-2 text-sm" style={{ color: 'var(--text-muted)' }}>
           No draft has been submitted yet.
         </p>
       : <ol className="mt-3 flex flex-col gap-3">
-          {state.versions.map((version) => {
+          {drafts.data.map((version) => {
             const tone = STATUS_TONE[version.status] ?? {
               label: version.status,
               color: 'var(--text-muted)',

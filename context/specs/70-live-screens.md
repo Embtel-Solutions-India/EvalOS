@@ -102,19 +102,21 @@ Portal tokens are unchanged: they already subscribe to their own private channel
 
 ## 4. Staff app
 
-- `frontend/src/lib/live.ts`: `useLiveReload(reload, caseId?)`. It calls `reload` (debounced
-  500 ms) on `case.changed` for `caseId`, on **any** `case.changed` when `caseId` is omitted (lists),
-  on `reconnected`, and on `visibilitychange` to visible.
-- **Background reload:** every `load` it wraps keeps the current data while the new data loads.
-  Where a page sets `{ status: 'loading' }` today it does so only when it has no data yet.
-- Wired into: `CaseDetail` (the case and the timeline), `DocumentList`, `DocumentsPanel`,
-  `DraftPanel`, `DraftComments`, `DraftHistory`, `ChecklistSheet`; `InboxPage`, `DraftQueuePage`,
-  `DeliveryQueuePage`, `MyDraftsPage`, `ExpertAssignmentPage`, `PmNotesPage`, `ChecklistBoard`,
-  the production `BoardView`; `ExpertPayouts`, `PayoutRegister`, `PayoutBatch`, `PaymentDetail`.
-- **Not while someone is typing:** a page with an open dialog or an unsaved form defers its reload
-  until the dialog closes (`useLiveReload(reload, caseId, { paused })`).
-- `NotificationBell`: `refreshCount` on `notifications.changed`, `reconnected` and visibility; the
-  open panel's list reloads too.
+**Rewritten 2026-10-01: builds on Unit 70a** (`70a-staff-app-on-query.md`). The staff app reads
+through TanStack Query, and every screen's read sits under a case-shaped key, so there is no
+hand-written reload hook to wire into each component.
+
+- `frontend/src/lib/live.ts`: one listener on the chat client's `onLive`. `case.changed {caseId}`
+  → `queryClient.invalidateQueries({ queryKey: ['case', caseId] })` plus the list keys (`board`,
+  `checklists`, `draft-review`, `pm-notes`); `notifications.changed` → `['notifications']`;
+  `reconnected` → every case-shaped key (the missed window).
+- **Background reload** and **tab-focus re-read** already hold (70a §1): a re-read keeps the data
+  on screen.
+- **Not while someone is typing:** query re-reads replace data under an open form. A dialog whose
+  fields are seeded from a query copies them into local state when it opens (the pattern the
+  quick-action dialog already follows), so a re-read never overwrites what somebody is typing.
+- Phase 2 of 70a (payouts, experts, meetings, dashboards) lands before this, or those screens
+  keep their mount-only reads.
 
 ## 5. Portals
 

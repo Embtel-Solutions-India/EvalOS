@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useState } from 'react'
+import { useBoard } from '../board/useBoard'
 import { Link } from 'react-router-dom'
-import { fetchBoard, performAction } from '../board/boardApi'
-import { QUICK_ACTIONS, type BoardCard, type BoardData, type QuickAction } from '../board/boardRules'
+import { performAction } from '../board/boardApi'
+import { QUICK_ACTIONS, type BoardCard, type QuickAction } from '../board/boardRules'
 import QuickActionDialog from '../board/QuickActionDialog'
 import AvailabilityBoard from '../experts/AvailabilityBoard'
 import ExpertProfile from '../experts/ExpertProfile'
@@ -24,33 +25,15 @@ import { awaitingExpert, expertSignOverdue, riskColor, riskLabel } from './queue
  */
 export default function ExpertAssignmentPage() {
   const { activeBrandId } = useFilters()
-  const [data, setData] = useState<BoardData | null>(null)
-  const [error, setError] = useState<string | null>(null)
+  // Unit 70a: the cached board read, shared with the board and the other queues.
+  const { data, error, load } = useBoard(null, activeBrandId)
+  // No `dueBefore`: this screen's question is "who has no expert", which a deadline window
+  // would silently narrow — a case with no date at all would drop out of a list whose whole
+  // purpose is that nobody is working it.
   const [pending, setPending] = useState<{ card: BoardCard; action: QuickAction } | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
   const [openExpert, setOpenExpert] = useState<string | null>(null)
 
-  const load = useCallback(
-    async (signal?: AbortSignal) => {
-      try {
-        // No `dueBefore`: this screen's question is "who has no expert", which a deadline window
-        // would silently narrow — a case with no date at all would drop out of a list whose whole
-        // purpose is that nobody is working it.
-        setData(await fetchBoard(null, activeBrandId, signal))
-        setError(null)
-      } catch (cause: unknown) {
-        if (signal?.aborted) return
-        setError(cause instanceof Error ? cause.message : 'Could not load the assignment board')
-      }
-    },
-    [activeBrandId],
-  )
-
-  useEffect(() => {
-    const controller = new AbortController()
-    void load(controller.signal)
-    return () => controller.abort()
-  }, [load])
 
   /**
    * Fires the transition, then reloads rather than moving the row locally.

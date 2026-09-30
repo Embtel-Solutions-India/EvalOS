@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
+import { useBoard } from '../board/useBoard'
 import { Link } from 'react-router-dom'
-import { fetchBoard, performAction } from '../board/boardApi'
-import { QUICK_ACTIONS, type BoardCard, type BoardData } from '../board/boardRules'
+import { performAction } from '../board/boardApi'
+import { QUICK_ACTIONS, type BoardCard } from '../board/boardRules'
 import { useFilters } from '../shell/filtersContext'
 import { deliveryQueue, riskColor, riskLabel } from './queueRules'
 import { DialogContent, DialogRoot, DialogTrigger } from '../../components/ui/dialog'
@@ -20,21 +21,9 @@ const DELIVER = QUICK_ACTIONS.find((action) => action.path === 'deliver')!
  */
 export default function DeliveryQueuePage() {
   const { activeBrandId } = useFilters()
-  const [data, setData] = useState<BoardData | null>(null)
-  const [error, setError] = useState<string | null>(null)
+  // Unit 70a: the cached board read, shared with the board and the other queues.
+  const { data, error, load } = useBoard(null, activeBrandId)
 
-  const load = () => {
-    const controller = new AbortController()
-    setError(null)
-    fetchBoard(null, activeBrandId, controller.signal)
-      .then(setData)
-      .catch((cause: Error) => {
-        if (!controller.signal.aborted) setError(cause.message)
-      })
-    return () => controller.abort()
-  }
-
-  useEffect(load, [activeBrandId])
 
   const rows = data ? deliveryQueue(data) : []
 

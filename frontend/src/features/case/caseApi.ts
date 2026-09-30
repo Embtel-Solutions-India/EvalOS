@@ -229,8 +229,8 @@ export type DraftComment = {
   createdAt: string
 }
 
-export async function fetchDraftComments(caseId: string, draftId: string): Promise<DraftComment[]> {
-  return unwrap<DraftComment[]>(api.get(`/cases/${caseId}/drafts/${draftId}/comments`))
+export async function fetchDraftComments(caseId: string, draftId: string, signal?: AbortSignal): Promise<DraftComment[]> {
+  return unwrap<DraftComment[]>(api.get(`/cases/${caseId}/drafts/${draftId}/comments`, { signal }))
 }
 
 export async function postDraftComment(

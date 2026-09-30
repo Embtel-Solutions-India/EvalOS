@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { fetchPmNotes, type CaseNotes } from '../case/caseApi'
 import { useFilters } from '../shell/filtersContext'
@@ -20,47 +20,40 @@ import { useFilters } from '../shell/filtersContext'
  */
 export default function PmNotesPage() {
   const { activeBrandId } = useFilters()
-  const [state, setState] = useState<
-    { status: 'loading' } | { status: 'ready'; rows: CaseNotes[] } | { status: 'failed'; message: string }
-  >({ status: 'loading' })
+  // Unit 70a: a PM's edit on a case page shows here on the next focus, or at once in the same tab.
+  const notes = useQuery<CaseNotes[]>({
+    queryKey: ['pm-notes', activeBrandId],
+    queryFn: ({ signal }) => fetchPmNotes(activeBrandId, signal),
+  })
+  const rows = notes.data
 
-  useEffect(() => {
-    const controller = new AbortController()
-    fetchPmNotes(activeBrandId, controller.signal)
-      .then((rows) => setState({ status: 'ready', rows }))
-      .catch((cause: Error) => {
-        if (!controller.signal.aborted) setState({ status: 'failed', message: cause.message })
-      })
-    return () => controller.abort()
-  }, [activeBrandId])
-
-  if (state.status === 'loading') {
+  if (!rows && !notes.isError) {
     return <div className="h-40 animate-pulse rounded-lg" style={{ background: 'var(--bg-raised)' }} />
   }
 
-  if (state.status === 'failed') {
+  if (!rows) {
     return (
       <p className="text-sm font-medium" style={{ color: 'var(--status-red)' }}>
-        {state.message}
+        {notes.error?.message}
       </p>
     )
   }
 
   // Cases the PM has actually written for come first: the rest are on the screen so their absence
   // is visible — "no strategy yet" is a fact a CM needs before they start guessing.
-  const written = state.rows.filter((row) => row.pmStrategyNotes)
-  const awaiting = state.rows.filter((row) => !row.pmStrategyNotes)
+  const written = rows.filter((row) => row.pmStrategyNotes)
+  const awaiting = rows.filter((row) => !row.pmStrategyNotes)
 
   return (
     <section>
       <header className="flex flex-wrap items-baseline justify-between gap-2">
         <h1 className="text-2xl font-semibold tracking-tight">PM notes</h1>
         <p className="font-num text-sm tabular-nums" style={{ color: 'var(--text-muted)' }}>
-          {`${written.length} of ${state.rows.length} written`}
+          {`${written.length} of ${rows.length} written`}
         </p>
       </header>
 
-      {state.rows.length === 0 && (
+      {rows.length === 0 && (
         <p
           className="mt-4 rounded-lg border p-6 text-sm"
           style={{

@@ -117,6 +117,17 @@ request status, portal deployment) and now say so.
    kind in `QuickActionDialog`). Backend 1374/0/0/4, staff 173, portals 100. **Not
    browser-checked.** Restart the backend (Flyway applies `V82`). A deal won in GHL directly still
    has no note, and the case says so.
+18. **Unit 70a — the staff app on TanStack Query (D68 amended).** **Phase 1 built 2026-10-01**
+   (spec `70a`): `@tanstack/react-query` in `frontend/` (the portals' version range);
+   `lib/queryClient.ts` (`staleTime 0`, re-read on tab focus, `CASE_KEYS`, `afterRequest`), called
+   from the `api` response interceptor after every successful non-GET (chat and sign-in excluded);
+   the cache is cleared on sign-in, sign-out and a 401 (`auth.tsx`). Converted: `NotificationBell`
+   (count every 60 s), `CaseDetail` + `DocumentList` / `DocumentsPanel` / `DraftComments` /
+   `DraftHistory` (its `reloadKey` removed), `BoardView` and the four board queues through
+   `board/useBoard.ts`, `DraftQueuePage`, `PmNotesPage`, `CaseChecklist`, `ChecklistBoard`. Tests:
+   `queryClient.test.ts`; staff 175. **Chrome-checked** (spec 70a §4): a PC's open board and bell
+   updated on tab return after a PM assigned them, no reload. **Phase 2 not started** (payouts,
+   experts, meetings, dashboards keep mount-only reads).
 
 **Build state (all four suites re-verified 2026-09-22 after the dead-code pass below; the browser checks against the live location remain 2026-09-17):** backend `1339 tests, 0 failures, 0 errors, 4 skipped` (2026-09-30, Unit 65 after its review; `LocalPostgresIntegrationTest` on a real Postgres) (the 4 are opt-in live checks, `SmtpMailTransportLiveTest` among them); the GM board draws **1,460 deals, synced**, and a Sales desk draws its own pipeline's four;
 staff SPA `171 tests` (2026-09-30, Unit 66), `oxlint` and `tsc -b` clean; portals `100 tests` (2026-09-30, Unit 66b) and `tsc -b` clean in both `client/`
