@@ -200,8 +200,8 @@ one transaction and writes the expert offer). The **CM drafts and uploads**; the
 approves** it in the portal (`CLIENT_REVIEW` → `CLIENT_APPROVAL`); **only then** does it reach the
 **expert**, who downloads, signs and uploads it back (`EXPERT_SIGNING`, Handoff B).
 
-The open work is visibility, not lifecycle: the expert cannot open evidence documents, and there is
-no unified timeline across the request, the opportunity and the case. **Sales is not on that list**
+The expert opens the client's current files and the approved draft on their case (D63, Unit 66b).
+The open work is visibility, not lifecycle: there is no unified timeline across the request, the opportunity and the case. **Sales is not on that list**
 — they read no case by design (D19c).
 
 ---
