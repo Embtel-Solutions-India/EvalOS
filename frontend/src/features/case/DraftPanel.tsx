@@ -1,8 +1,12 @@
+import type { Role } from '../../lib/session'
 import type { CaseDetail } from './caseApi'
+import DraftHistory from './DraftHistory'
+import UploadDraftDialog from './UploadDraftDialog'
+import { mayUploadDraft } from './draftRules'
 
 /**
  * Where the draft stands: the version count and the two approval chips the draft loops turn
- * on. `ui-context.md` asks the Draft / Report column for these as sub-status chips; this is
+ * on, and since Unit 66 the version history and the upload too — one panel about one subject. `ui-context.md` asks the Draft / Report column for these as sub-status chips; this is
  * the same information at full size.
  *
  * Both statuses are null until the loop they belong to has started, which is why "not yet"
@@ -32,8 +36,16 @@ const APPROVAL_LABEL: Record<string, string> = {
   REVISION_REQUESTED: 'revisions requested',
 }
 
-export default function DraftPanel({ detail }: { detail: CaseDetail }) {
-  const { pmApprovalStatus, clientApprovalStatus, draftVersionCount } = detail.summary
+export default function DraftPanel({
+  detail,
+  role,
+  onUploaded,
+}: {
+  detail: CaseDetail
+  role: Role
+  onUploaded: () => void
+}) {
+  const { id, currentStage, pmApprovalStatus, clientApprovalStatus, draftVersionCount } = detail.summary
 
   return (
     <section
@@ -41,12 +53,24 @@ export default function DraftPanel({ detail }: { detail: CaseDetail }) {
       style={{ background: 'var(--bg-surface)', borderColor: 'var(--border-default)' }}
     >
       <div className="flex items-baseline justify-between gap-2">
-        <h2 className="text-sm font-semibold tracking-tight">Draft</h2>
-        <span className="font-num text-xs tabular-nums" style={{ color: 'var(--text-muted)' }}>
-          {draftVersionCount === 0
-            ? 'no draft yet'
-            : `version ${draftVersionCount}`}
-        </span>
+        <h2 className="text-sm font-semibold tracking-tight">
+          Draft{draftVersionCount > 0 ? ` · v${draftVersionCount}` : ''}
+        </h2>
+        {mayUploadDraft(currentStage, role) ?
+          <UploadDraftDialog
+            caseId={id}
+            nextVersion={draftVersionCount + 1}
+            onUploaded={onUploaded}
+            trigger={
+              <button type="button" className="text-xs font-medium" style={{ color: 'var(--accent-primary)' }}>
+                Upload new version
+              </button>
+            }
+          />
+        : <span className="font-num text-xs tabular-nums" style={{ color: 'var(--text-muted)' }}>
+            {draftVersionCount === 0 ? 'no draft yet' : `version ${draftVersionCount}`}
+          </span>
+        }
       </div>
 
       <dl className="mt-3 space-y-2">
@@ -54,33 +78,10 @@ export default function DraftPanel({ detail }: { detail: CaseDetail }) {
         <Row label="Client review" status={clientApprovalStatus} />
       </dl>
 
-      {/*
-        `draftLink`, not the client's own documents. This link said "Open the current draft" and pointed at the
-        client's own *documents folder* from Unit 09 until Unit 14 gave the draft its own column —
-        internally a mislabel, and a leak the moment the same field reached a client-facing screen.
-        A case with no draft link says so rather than falling back to anything.
-      */}
-      {draftVersionCount > 0 && (
-        <p className="mt-3 text-sm">
-          {detail.draftLink ? (
-            <a
-              href={detail.draftLink}
-              target="_blank"
-              rel="noreferrer noopener"
-              className="font-medium"
-              style={{ color: 'var(--accent-primary)' }}
-            >
-              Open the current draft ↗
-            </a>
-          ) : (
-            <span style={{ color: 'var(--text-muted)' }}>
-              {detail.maySeeCaseContent
-                ? 'No link on this draft — whoever submitted it did not record where it is.'
-                : 'The draft is not available to your role.'}
-            </span>
-          )}
-        </p>
-      )}
+      {/* The versions' own Word / PDF links replace the old single `draftLink` (Unit 58). */}
+      <div className="mt-3">
+        <DraftHistory caseId={id} clientApprovalStatus={clientApprovalStatus} reloadKey={draftVersionCount} />
+      </div>
     </section>
   )
 }

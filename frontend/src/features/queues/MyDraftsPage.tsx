@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
+import { useMe } from '../../lib/authContext'
 import { fetchBoard } from '../board/boardApi'
 import type { BoardCard, BoardData } from '../board/boardRules'
 import { fetchCase, fetchDraftVersions, type CaseDetail, type DraftVersion } from '../case/caseApi'
+import UploadDraftDialog from '../case/UploadDraftDialog'
+import { mayUploadDraft } from '../case/draftRules'
 import { useFilters } from '../shell/filtersContext'
 import { myDrafts } from './queueRules'
 
@@ -86,6 +89,7 @@ export default function MyDraftsPage() {
               card={card}
               expanded={open === card.id}
               onToggle={() => setOpen(open === card.id ? null : card.id)}
+              onUploaded={() => load()}
             />
           ))}
         </ul>
@@ -103,11 +107,14 @@ function Row({
   card,
   expanded,
   onToggle,
+  onUploaded,
 }: {
   card: BoardCard
   expanded: boolean
   onToggle: () => void
+  onUploaded: () => void
 }) {
+  const me = useMe()
   const [detail, setDetail] = useState<CaseDetail | null>(null)
   const [versions, setVersions] = useState<DraftVersion[] | null>(null)
   const [failed, setFailed] = useState(false)
@@ -211,13 +218,29 @@ function Row({
             </div>
           )}
 
-          <Link
-            to={`/cases/${card.id}`}
-            className="text-sm font-medium"
-            style={{ color: 'var(--accent-primary)' }}
-          >
-            Open the case
-          </Link>
+          <div className="flex items-center gap-3">
+            {/* The upload from where the CM works (Unit 66); the board card stays a link that does not act. */}
+            {/* Numbered off the case's own count, as on the case page — the history can have gaps. */}
+            {detail && mayUploadDraft(card.currentStage, me.role) && (
+              <UploadDraftDialog
+                caseId={card.id}
+                nextVersion={detail.summary.draftVersionCount + 1}
+                onUploaded={onUploaded}
+                trigger={
+                  <button
+                    type="button"
+                    className="rounded-md px-2.5 py-1 text-sm font-medium"
+                    style={{ background: 'var(--accent-primary)', color: 'var(--text-on-accent, white)' }}
+                  >
+                    Upload draft
+                  </button>
+                }
+              />
+            )}
+            <Link to={`/cases/${card.id}`} className="text-sm font-medium" style={{ color: 'var(--accent-primary)' }}>
+              Open the case
+            </Link>
+          </div>
         </div>
       )}
     </li>

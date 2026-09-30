@@ -41,6 +41,17 @@ export type ExpertCaseView = {
   /** What this case pays the expert (Unit 65) — shown before they accept; null until it is set. */
   offeredFee: number | null
   currency: string | null
+  /** The files this expert may open (Unit 66b): the approved letter, then the client's current uploads. */
+  documents: ExpertDocument[]
+}
+
+/** `ExpertPortalService.ExpertDocument`, exactly. `LETTER` is the client-approved draft. */
+export type ExpertDocument = {
+  id: string
+  kind: 'LETTER' | 'CLIENT_UPLOAD'
+  filename: string | null
+  uploadedAt: string
+  hasPdf: boolean
 }
 
 /** `ExpertPortalService.ExpertCaseSummary`, exactly — one row of a signed-in expert's cases (Unit 59). */

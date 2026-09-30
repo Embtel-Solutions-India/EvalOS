@@ -4,12 +4,15 @@ import {
   ArrowLeft,
   Building2,
   CalendarDays,
-  Clock,
+  ClipboardList,
+  Globe,
+  Info,
   Mail,
   Pencil,
   Phone,
   Signpost,
   StickyNote,
+  Tag,
   User,
   UserCheck,
   Zap,
@@ -39,11 +42,12 @@ import {
  * which meant the answers, the notes and the actions all appeared inside a 16rem column between
  * two other cards — readable for a note, useless for anything longer.
  *
- * <p><strong>Two columns as of 2026-09-23.</strong> The left is the record — who they are and
- * what has been said about them — read top to bottom. The right is
- * what you <em>do</em> and what you <em>check</em>, and it stays in view while the left scrolls.
- * That split is what stopped the actions being the last thing on a long page: a salesperson
- * opening a deal to move it a stage had to scroll past the whole record to reach the control.
+ * <p><strong>Two columns as of 2026-09-23.</strong> The left is the record — the header with the
+ * contact's details, then an Opportunity details card with the deal's (2026-09-30) — read top to
+ * bottom. The right is what you <em>do</em> — Actions, then Notes — and it stays in
+ * view while the left scrolls. That split is what stopped the actions being the last thing on a
+ * long page: a salesperson opening a deal to move it a stage had to scroll past the whole record
+ * to reach the control.
  *
  * <p><strong>Everything here is a field something actually stores.</strong> The design this
  * follows also carried a "Hot" lead-temperature badge, questionnaires and request documents
@@ -141,20 +145,47 @@ export default function DealPage() {
               )}
             </div>
 
-            {/* The three things you reach for first, on the record itself rather than only in the
-                sidebar: a salesperson opening a deal is usually about to mail or ring somebody. */}
+            {/* Who the deal is with, on the record itself (2026-09-30): a salesperson opening a
+                deal is usually about to mail or ring somebody. The deal's own facts are the card
+                below. Name only when it differs from the heading, which is usually the same person. */}
             <dl
               className="mt-5 grid gap-4 border-t pt-4 sm:grid-cols-3"
               style={{ borderColor: 'var(--border-default)' }}
             >
+              {contact?.name && contact.name !== name && (
+                <Field icon={<User />} label="Contact" value={contact.name} />
+              )}
               <Field icon={<Mail />} label="Email" value={contact?.email ?? null} href={mailto(contact?.email)} />
               <Field icon={<Phone />} label="Phone" value={contact?.phone ?? null} href={tel(contact?.phone)} />
               <Field icon={<Building2 />} label="Company" value={contact?.company ?? null} />
             </dl>
           </Surface>
 
-          <Panel title="Notes" icon={<StickyNote />}>
-            <DealNotes opportunityId={opportunityId} />
+          {/* Everything else GHL holds (2026-09-30): the deal's custom fields, source, assignee and
+              when it opened, then the contact's country, tags and custom fields. Only the three you
+              act on — email, phone, company — are in the header. This replaced a sidebar
+              "Contact details" card that split one record across two places.
+              No "Last activity" row: the header's "Updated Xd ago" chip is the same fact. */}
+          <Panel title="Opportunity details" icon={<ClipboardList />}>
+            {contactState.kind === 'error' ? (
+              <p className="text-sm" style={{ color: 'var(--status-red)' }}>
+                {contactState.note}
+              </p>
+            ) : (
+              <dl className="grid gap-4 sm:grid-cols-2">
+                {contact?.dealFields.map((field) => (
+                  <Field key={field.label} icon={<Info />} label={field.label} value={field.value} />
+                ))}
+                <Field icon={<Signpost />} label="Source" value={sourceLabel(contact?.source ?? null)} />
+                <Field icon={<UserCheck />} label="Assigned to" value={contact?.assignedTo ?? null} />
+                <Field icon={<CalendarDays />} label="Created on" value={date(contact?.createdAt ?? null)} />
+                <Field icon={<Globe />} label="Country" value={contact?.country ?? null} />
+                <Field icon={<Tag />} label="Tags" value={contact?.tags.length ? contact.tags.join(', ') : null} />
+                {contact?.contactFields.map((field) => (
+                  <Field key={field.label} icon={<Info />} label={field.label} value={field.value} />
+                ))}
+              </dl>
+            )}
           </Panel>
         </div>
 
@@ -181,23 +212,8 @@ export default function DealPage() {
             </Panel>
           )}
 
-          <Panel title="Contact details" icon={<User />}>
-            {contactState.kind === 'error' ? (
-              <p className="text-sm" style={{ color: 'var(--status-red)' }}>
-                {contactState.note}
-              </p>
-            ) : (
-              <dl className="space-y-3">
-                <Row icon={<User />} label="Name" value={contact?.name ?? null} />
-                <Row icon={<Mail />} label="Email" value={contact?.email ?? null} href={mailto(contact?.email)} />
-                <Row icon={<Phone />} label="Phone" value={contact?.phone ?? null} />
-                <Row icon={<Building2 />} label="Company" value={contact?.company ?? null} />
-                <Row icon={<Signpost />} label="Source" value={sourceLabel(contact?.source ?? null)} />
-                <Row icon={<UserCheck />} label="Assigned to" value={contact?.assignedTo ?? null} />
-                <Row icon={<CalendarDays />} label="Created on" value={date(contact?.createdAt ?? null)} />
-                <Row icon={<Clock />} label="Last activity" value={age(deal?.updatedAt ?? null)} />
-              </dl>
-            )}
+          <Panel title="Notes" icon={<StickyNote />}>
+            <DealNotes opportunityId={opportunityId} />
           </Panel>
         </div>
       </div>
@@ -240,7 +256,7 @@ function Initials({ name }: { name: string }) {
   )
 }
 
-/** A labelled fact in the header strip: icon, then label above value. */
+/** A labelled fact: icon, then label above value. The header's contact strip and Opportunity details. */
 function Field({
   icon,
   label,
@@ -265,37 +281,8 @@ function Field({
         <dt className="text-xs" style={{ color: 'var(--text-muted)' }}>
           {label}
         </dt>
-        <dd className="truncate text-sm">{renderValue(value, href)}</dd>
+        <dd className="text-sm break-words">{renderValue(value, href)}</dd>
       </div>
-    </div>
-  )
-}
-
-/** A labelled fact in the sidebar: icon, label and value on one line. */
-function Row({
-  icon,
-  label,
-  value,
-  href,
-}: {
-  icon: ReactNode
-  label: string
-  value: string | null
-  href?: string
-}) {
-  return (
-    <div className="flex items-baseline gap-2.5 text-sm">
-      <span
-        className="shrink-0 self-start pt-0.5 [&>svg]:h-3.5 [&>svg]:w-3.5"
-        style={{ color: 'var(--text-muted)' }}
-        aria-hidden
-      >
-        {icon}
-      </span>
-      <dt className="w-24 shrink-0 text-xs" style={{ color: 'var(--text-muted)' }}>
-        {label}
-      </dt>
-      <dd className="min-w-0 flex-1 truncate text-right">{renderValue(value, href)}</dd>
     </div>
   )
 }

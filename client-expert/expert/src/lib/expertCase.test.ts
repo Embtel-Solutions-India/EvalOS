@@ -37,6 +37,7 @@ function view(overrides: Partial<ExpertCaseView> = {}): ExpertCaseView {
     attestation: 'I, Dr Ada Lovelace, confirm this is my signature on this letter.',
     offeredFee: 400,
     currency: 'USD',
+    documents: [],
     ...overrides,
   }
 }

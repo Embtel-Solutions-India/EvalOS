@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft, Banknote, CheckCircle2, Clock, ExternalLink, FileSignature, FileText, Hash } from 'lucide-react'
+import { ArrowLeft, Banknote, CheckCircle2, Clock, Download, ExternalLink, FileSignature, FileText, Hash } from 'lucide-react'
 import type { ComponentType, ReactNode } from 'react'
 import { useState } from 'react'
 import { Link, Navigate, useSearchParams } from 'react-router-dom'
@@ -25,8 +25,9 @@ import {
   SIGNED_LETTER_TYPES,
   stateOf,
   type ExpertCaseView,
+  type ExpertDocument,
 } from '@/lib/expertCase'
-import { getCase, letterLink, setOpenCase, uploadSignedLetter } from '@/services/expertPortalService'
+import { documentUrl, getCase, letterLink, setOpenCase, uploadSignedLetter } from '@/services/expertPortalService'
 import { Answers } from '@/components/Answers'
 import { money } from '@/lib/dashboard'
 import { ExpertChat } from '@/components/ExpertChat'
@@ -89,6 +90,9 @@ function CaseBody({ caseId, view, onChanged }: { caseId: string; view: ExpertCas
   const state = stateOf(view)
   const signStatus = view.signStatus ? SIGN_STATUS[view.signStatus] : null
   const sla = view.signSla ? SIGN_SLA[view.signSla] : null
+  // Unit 66b: the approved draft is a file now; `draftLink` survives only for a legacy pasted link.
+  const letter = view.documents.find((d) => d.kind === 'LETTER')
+  const clientFiles = view.documents.filter((d) => d.kind === 'CLIENT_UPLOAD')
 
   return (
     <>
@@ -114,7 +118,7 @@ function CaseBody({ caseId, view, onChanged }: { caseId: string; view: ExpertCas
           {view.offeredFee !== null && view.currency ? money(view.offeredFee, view.currency) : 'Not set yet'}
         </Fact>
         <Fact icon={FileText} label="Letter">
-          {view.draftLink ? 'Ready to open' : 'Not ready yet'}
+          {letter || view.draftLink ? 'Ready to open' : 'Not ready yet'}
         </Fact>
         <Fact icon={FileSignature} label="Your signature">
           {view.signed ? `Signed${view.signedAt ? ` ${formatDate(view.signedAt)}` : ''}` : (signStatus?.label ?? 'Not yet asked')}
@@ -158,7 +162,9 @@ function CaseBody({ caseId, view, onChanged }: { caseId: string; view: ExpertCas
           <CardTitle className="text-sm">The letter</CardTitle>
         </CardHeader>
         <CardContent>
-          {view.draftLink ? (
+          {letter ? (
+            <LetterFiles letter={letter} />
+          ) : view.draftLink ? (
             <LetterButton />
           ) : (
             <p className="text-sm text-muted-foreground">
@@ -173,7 +179,7 @@ function CaseBody({ caseId, view, onChanged }: { caseId: string; view: ExpertCas
           <CardTitle className="text-sm">What the opinion rests on</CardTitle>
         </CardHeader>
         <CardContent>
-          {view.evidence.length === 0 ? (
+          {view.evidence.length === 0 && clientFiles.length === 0 ? (
             <EmptyState
               icon={FileText}
               title="No evidence recorded yet"
@@ -185,6 +191,20 @@ function CaseBody({ caseId, view, onChanged }: { caseId: string; view: ExpertCas
                 <li key={label} className="flex items-center gap-2 text-sm text-foreground">
                   <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
                   {label}
+                </li>
+              ))}
+              {/* The client's files themselves (Unit 66b), each downloaded on a URL minted at the click. */}
+              {clientFiles.map((file) => (
+                <li key={file.id} className="flex items-center justify-between gap-3 text-sm text-foreground">
+                  <span className="flex min-w-0 items-center gap-2">
+                    <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    <span className="truncate">{file.filename ?? 'Document'}</span>
+                    <span className="shrink-0 text-xs text-muted-foreground">{formatDate(file.uploadedAt)}</span>
+                  </span>
+                  <Button variant="outline" size="sm" onClick={() => void openInTab(() => documentUrl(file.id))}>
+                    <Download className="h-4 w-4" />
+                    Download
+                  </Button>
                 </li>
               ))}
             </ul>
@@ -215,39 +235,63 @@ function Fact({ icon: Icon, label, children }: { icon: ComponentType<{ className
 }
 
 /**
- * Opens the letter.
+ * Opens a URL fetched on the click, in a new tab.
  *
- * The link is fetched on the click and used immediately, the way the client's presigned downloads
- * are — and the fetch is what records that the expert opened it. `noopener` because the opened
- * document has no business reaching back into this tab.
+ * The fetch is what records that the expert opened the file, and a URL is never held: it expires in
+ * minutes. **The tab is opened synchronously and WITHOUT `noopener`, and both halves matter.**
+ * Synchronously, because a popup blocker rejects a window opened from an async continuation — the
+ * click has to be what opens it, and a blocked open looks exactly like a dead button while the audit
+ * row says the document was fetched. Without `noopener`, because per the HTML spec `window.open`
+ * returns **null** whenever `noopener` is in the features string, so the handle needed to navigate
+ * the tab afterwards would never exist. The opener reference is severed on the next line instead.
  */
+async function openInTab(fetchUrl: () => Promise<string>): Promise<void> {
+  const tab = window.open('', '_blank')
+  if (tab) tab.opener = null
+  try {
+    const url = await fetchUrl()
+    if (tab) tab.location.href = url
+    // A blocked popup is not a failure of the fetch, so it is reported as itself.
+    else toast.error('Allow pop-ups for this site to open documents.')
+  }
+  catch (openError: unknown) {
+    tab?.close()
+    toast.error(expertFailureMessage(statusOf(openError)))
+  }
+}
+
+/** The client-approved letter (Unit 66b): read the PDF in the browser, or download either file. */
+function LetterFiles({ letter }: { letter: ExpertDocument }) {
+  return (
+    <div className="flex flex-wrap gap-2">
+      {letter.hasPdf && (
+        <Button onClick={() => void openInTab(() => documentUrl(letter.id, true, true))}>
+          <ExternalLink className="h-4 w-4" />
+          View PDF
+        </Button>
+      )}
+      {letter.hasPdf && (
+        <Button variant="outline" onClick={() => void openInTab(() => documentUrl(letter.id, true))}>
+          <Download className="h-4 w-4" />
+          Download PDF
+        </Button>
+      )}
+      <Button variant="outline" onClick={() => void openInTab(() => documentUrl(letter.id))}>
+        <Download className="h-4 w-4" />
+        Download Word
+      </Button>
+    </div>
+  )
+}
+
+/** A legacy pasted draft link (before Unit 58), opened the same way. */
 function LetterButton() {
   const [busy, setBusy] = useState(false)
 
   async function open() {
     setBusy(true)
-    // **The tab is opened synchronously and WITHOUT `noopener`, and both halves matter.**
-    // Synchronously, because a popup blocker rejects a window opened from an async continuation —
-    // the click has to be what opens it, and a blocked open here looks exactly like a dead button
-    // while the audit row says the document was fetched. Without `noopener`, because per the HTML
-    // spec `window.open` returns **null** whenever `noopener` is in the features string, so the
-    // handle needed to navigate the tab afterwards would never exist. The opener reference is
-    // severed on the next line instead, which is the same protection by a different route.
-    const tab = window.open('', '_blank')
-    if (tab) tab.opener = null
-    try {
-      const url = await letterLink()
-      if (tab) tab.location.href = url
-      // A blocked popup is not a failure of the fetch, so it is reported as itself.
-      else toast.error('Allow pop-ups for this site to open the letter.')
-    }
-    catch (openError: unknown) {
-      tab?.close()
-      toast.error(expertFailureMessage(statusOf(openError)))
-    }
-    finally {
-      setBusy(false)
-    }
+    await openInTab(letterLink)
+    setBusy(false)
   }
 
   return (

@@ -7,7 +7,7 @@ import { formatMoney } from '../../lib/money'
  * One case as a card: client, service, deadline with its RAG badge, and who holds it.
  *
  * **It does not act.** The card is six pieces of data and a link, and the transitions live on
- * the case itself (`StageActions`, off `boardRules.actionsFor` — the same table) plus the draft
+ * the case itself (`CaseHeader`, off `boardRules.actionsFor` — the same table) plus the draft
  * and delivery queues. Quick actions on the card were tried twice, in flow and then as a hover
  * overlay, and both spent the board's scarcest resource — vertical room and a still layout — on
  * controls that are one click away on a screen with space for them.

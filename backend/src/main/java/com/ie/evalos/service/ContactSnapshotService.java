@@ -61,7 +61,26 @@ public class ContactSnapshotService {
 	 */
 	public record Details(String ghlContactId, String fullName, String email, String phone,
 			String company, ClientType clientType, SourceChannel sourceChannel, String utmSource,
-			String utmMedium, String utmCampaign) {
+			String utmMedium, String utmCampaign, String country, List<String> tags,
+			java.util.Map<String, String> customFields) {
+
+		/**
+		 * Without the three deal-screen extras — every caller but a full GHL read, which is the
+		 * only one that holds them. Null here is "not read", which {@code syncDetails} leaves alone.
+		 */
+		public Details(String ghlContactId, String fullName, String email, String phone,
+				String company, ClientType clientType, SourceChannel sourceChannel, String utmSource,
+				String utmMedium, String utmCampaign) {
+			this(ghlContactId, fullName, email, phone, company, clientType, sourceChannel, utmSource,
+					utmMedium, utmCampaign, null, null, null);
+		}
+
+		/** A full GHL read of the contact: identity plus the extras, no attribution. */
+		public static Details fromGhl(GhlContactClient.Contact contact) {
+			return new Details(contact.id(), contact.name(), contact.email(), contact.phone(),
+					contact.company(), null, null, null, null, null, contact.country(), contact.tags(),
+					contact.customFields());
+		}
 
 		/** What the portal knows at sign-up: a name, an address, a phone, and GHL's id. */
 		public static Details fromSignUp(String ghlContactId, String fullName, String email, String phone) {
@@ -95,6 +114,7 @@ public class ContactSnapshotService {
 		contact.syncFromGhl(details.fullName(), details.email(), details.phone(), details.company(),
 				details.clientType(), details.sourceChannel(), details.utmSource(), details.utmMedium(),
 				details.utmCampaign());
+		contact.syncDetails(details.country(), details.tags(), details.customFields());
 		return contacts.save(contact);
 	}
 
@@ -136,8 +156,7 @@ public class ContactSnapshotService {
 			// Through findOrCreate rather than a save here, so the email-match and
 			// contradiction rules above still apply: a contact the mirror holds under a
 			// different id must not become a second row just because this path found it first.
-			return Optional.of(findOrCreate(brandId, new Details(fromGhl.id(), fromGhl.name(),
-					fromGhl.email(), fromGhl.phone(), fromGhl.company(), null, null, null, null, null)));
+			return Optional.of(findOrCreate(brandId, Details.fromGhl(fromGhl)));
 		}
 		catch (GhlUnavailableException unavailable) {
 			// Logged at warn with the id, because a contact that never resolves is a screen a

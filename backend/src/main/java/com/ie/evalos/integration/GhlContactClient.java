@@ -42,8 +42,12 @@ public class GhlContactClient {
 	 * <p>{@code name} is GHL's own display name and is preferred over stitching
 	 * {@code firstName}+{@code lastName} together: GHL fills it for a contact that has only a
 	 * company, and joining two nulls produces a space.
+	 *
+	 * @param tags         GHL's tags, never null — an empty list is GHL saying "none"
+	 * @param customFields field id to value, as {@code opportunity.custom_fields} keys them
 	 */
-	public record Contact(String id, String name, String email, String phone, String company) {
+	public record Contact(String id, String name, String email, String phone, String company,
+			String country, List<String> tags, Map<String, String> customFields) {
 	}
 
 	/**
@@ -69,7 +73,13 @@ public class GhlContactClient {
 			throw new GhlUnavailableException("GHL returned no contact for " + contactId, null,
 					GhlFailure.EMPTY_RESPONSE, null);
 		}
-		return new Contact(row.id(), displayName(row), row.email(), row.phone(), row.companyName());
+		return toContact(row);
+	}
+
+	private static Contact toContact(ContactRow row) {
+		return new Contact(row.id(), displayName(row), row.email(), row.phone(), row.companyName(),
+				row.country(), row.tags() == null ? List.of() : row.tags(),
+				GhlPipelineClient.CustomFieldValue.toMap(row.customFields()));
 	}
 
 	/** GHL's own {@code name}, or the two halves joined when it did not send one. */
@@ -137,8 +147,7 @@ public class GhlContactClient {
 				? List.of() : response.contacts();
 		List<Contact> contacts = rows.stream()
 				.filter((row) -> row.id() != null && !row.id().isBlank())
-				.map((row) -> new Contact(row.id(), displayName(row), row.email(), row.phone(),
-						row.companyName()))
+				.map(GhlContactClient::toContact)
 				.toList();
 
 		// **The cursor is the LAST ROW's, and GHL puts it on the row rather than on the envelope.**
@@ -170,11 +179,15 @@ public class GhlContactClient {
 	/**
 	 * GHL's contact record, narrowed to what the deal screen shows.
 	 *
-	 * <p>The payload carries far more — tags, custom fields, DND flags, the location id. None of
-	 * it is bound: a record component here is a field some screen may quietly start depending on,
-	 * and the contact record is the single largest carrier of client PII in this API.
+	 * <p>The payload carries far more — DND flags, attribution, addresses, the location id — and
+	 * the rule is unchanged: a record component here is a field some screen may quietly start
+	 * depending on, and the contact record is the single largest carrier of client PII in this
+	 * API, so nothing is bound without a screen that reads it. <strong>Country, tags and custom
+	 * fields are bound since 2026-09-30</strong> because the deal screen now shows them (D47: mirror
+	 * what a screen reads). Custom field items carry their value under {@code value}.
 	 */
 	record ContactRow(String id, String name, String firstName, String lastName, String email,
-			String phone, String companyName, List<Object> searchAfter) {
+			String phone, String companyName, String country, List<String> tags,
+			List<GhlPipelineClient.CustomFieldValue> customFields, List<Object> searchAfter) {
 	}
 }

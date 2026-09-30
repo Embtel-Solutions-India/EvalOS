@@ -68,11 +68,10 @@ export default function DraftHistory({
   }
 
   return (
-    <section
-      className="rounded-lg border p-4"
-      style={{ background: 'var(--bg-surface)', borderColor: 'var(--border-default)' }}
-    >
-      <h2 className="text-sm font-semibold tracking-tight">Draft history</h2>
+    <div>
+      <h3 className="text-xs font-semibold tracking-wide uppercase" style={{ color: 'var(--text-muted)' }}>
+        Draft history
+      </h3>
 
       {state.versions.length === 0 ?
         // Operational copy, never "No data" — an empty history is a statement about the case.
@@ -136,6 +135,6 @@ export default function DraftHistory({
           })}
         </ol>
       }
-    </section>
+    </div>
   )
 }

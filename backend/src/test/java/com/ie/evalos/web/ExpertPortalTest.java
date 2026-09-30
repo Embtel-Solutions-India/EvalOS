@@ -115,7 +115,7 @@ class ExpertPortalTest {
 				ServiceType.EXPERT_OPINION_LETTER, VisaCategory.EB1A,
 				"https://docs.google.com/document/d/draft/edit", List.of("Passport"),
 				ExpertSignStatus.PENDING, SlaStatus.ON_TRACK, true, false, false, null, ATTESTATION,
-				new java.math.BigDecimal("400.00"), "USD");
+				new java.math.BigDecimal("400.00"), "USD", List.of());
 	}
 
 	@Test

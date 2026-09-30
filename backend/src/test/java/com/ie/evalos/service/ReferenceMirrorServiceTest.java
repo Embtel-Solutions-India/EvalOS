@@ -29,7 +29,7 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
 /**
- * The reference mirror — Unit 47.
+ * The reference mirror â€” Unit 47.
  *
  * <p>The behaviours worth pinning are the mirror's two oldest rules and this unit's one new one: a
  * row GHL stops returning is <strong>stamped, never deleted</strong>; a row that comes back
@@ -70,7 +70,7 @@ class ReferenceMirrorServiceTest {
 		given(fields.save(any())).willAnswer(record());
 		given(calendars.save(any())).willAnswer(record());
 		given(users.save(any())).willAnswer(record());
-		given(fieldClient.forOpportunities()).willReturn(List.of());
+		given(fieldClient.forModel(anyString())).willReturn(List.of());
 		given(calendarClient.calendars()).willReturn(List.of());
 		given(userClient.inLocation()).willReturn(List.of());
 		given(tagClient.inLocation()).willReturn(List.of());
@@ -179,14 +179,14 @@ class ReferenceMirrorServiceTest {
 
 	/**
 	 * <strong>One list's failure is not the sweep's failure.</strong> The three come from three
-	 * endpoints with three scopes — a location missing the users scope should still get its
+	 * endpoints with three scopes â€” a location missing the users scope should still get its
 	 * calendars, and taking the pass down for it would make one missing grant look like a dead sweep.
 	 */
 	@Test
 	void aRefusalOnOneListStillRefreshesTheOthers() {
 		willThrow(new GhlUnavailableException("no scope")).given(userClient).inLocation();
 		given(calendarClient.calendars()).willReturn(List.of(calendar("cal_1", "Sales calls")));
-		given(fieldClient.forOpportunities()).willReturn(List.of(
+		given(fieldClient.forModel(ReferenceMirrorService.OPPORTUNITY_MODEL)).willReturn(List.of(
 				new GhlCustomFieldClient.CustomField("f1", "Visa category", "visa", "SINGLE_OPTIONS",
 						List.of("H-1B", "O-1"))));
 
@@ -196,8 +196,34 @@ class ReferenceMirrorServiceTest {
 		assertThat(result.calendars()).isEqualTo(1);
 		assertThat(result.fields()).isEqualTo(1);
 		// Unit 47b: tags have their own scope (`locations/tags.readonly`), so they are their own
-		// failure too — which is the whole reason each list is refreshed independently.
+		// failure too â€” which is the whole reason each list is refreshed independently.
 		assertThat(result.tags()).isZero();
+	}
+
+	/**
+	 * <strong>Contact definitions sit beside opportunity ones, and each model's absence pass is its
+	 * own.</strong> A pass over the contact list that stamped every row it did not see would mark
+	 * all 25 opportunity fields missing, and the deal form would lose its inputs.
+	 */
+	@Test
+	void contactFieldDefinitionsAreMirroredUnderTheirOwnModel() {
+		GhlReference.CustomField opportunityField = new GhlReference.CustomField(BRAND, "f_opp",
+				ReferenceMirrorService.OPPORTUNITY_MODEL, "Service Requested");
+		given(fields.findByBrandIdAndModelOrderByNameAsc(BRAND, ReferenceMirrorService.OPPORTUNITY_MODEL))
+				.willReturn(List.of(opportunityField));
+		given(fieldClient.forModel(ReferenceMirrorService.OPPORTUNITY_MODEL)).willReturn(List.of(
+				new GhlCustomFieldClient.CustomField("f_opp", "Service Requested", "service", "TEXT", null)));
+		given(fieldClient.forModel(ReferenceMirrorService.CONTACT_MODEL)).willReturn(List.of(
+				new GhlCustomFieldClient.CustomField("f_c", "Applicant type", "applicant", "TEXT", null)));
+
+		assertThat(mirror.refresh().fields()).isEqualTo(2);
+
+		assertThat(opportunityField.isLive()).isTrue();
+		assertThat(saved).anySatisfy((row) -> assertThat(row).isInstanceOfSatisfying(
+				GhlReference.CustomField.class, (field) -> {
+					assertThat(field.getGhlId()).isEqualTo("f_c");
+					assertThat(field.getModel()).isEqualTo(ReferenceMirrorService.CONTACT_MODEL);
+				}));
 	}
 
 	/** A blank selling brand means no location to mirror, and is a log line rather than a throw. */
@@ -216,7 +242,7 @@ class ReferenceMirrorServiceTest {
 	 *
 	 * <p>{@code ghl_reference.name} is {@code NOT NULL} (V60, V62) and only the id was guarded, so a
 	 * row GHL returned with no name raised a {@code DataIntegrityViolationException} that
-	 * {@code guarded} caught, logged as a warning and reported as zero — nothing from that endpoint
+	 * {@code guarded} caught, logged as a warning and reported as zero â€” nothing from that endpoint
 	 * mirrored at all. Worse, {@code refreshIfEmpty} then re-ran the failing GHL read on every
 	 * booking-form request, because the table stayed empty. The id is a poor label and a readable
 	 * one; an empty calendar list is a broken screen.

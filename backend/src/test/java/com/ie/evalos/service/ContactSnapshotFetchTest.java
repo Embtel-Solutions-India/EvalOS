@@ -57,7 +57,8 @@ class ContactSnapshotFetchTest {
 		given(contacts.findByBrandIdAndGhlContactId(BRAND, GHL_CONTACT)).willReturn(Optional.empty());
 		given(contacts.findByBrandIdAndEmailIgnoreCase(any(), anyString())).willReturn(List.of());
 		given(ghl.byId(GHL_CONTACT)).willReturn(new GhlContactClient.Contact(GHL_CONTACT,
-				"Karim Nabil", "karim@example.com", "+15550000", "Nabil & Co"));
+				"Karim Nabil", "karim@example.com", "+15550000", "Nabil & Co", "EG",
+				List.of("stage:hot"), java.util.Map.of("f_applicant", "Individual Applicant")));
 		given(contacts.save(any(ContactSnapshot.class))).willAnswer((call) -> call.getArgument(0));
 
 		Optional<ContactSnapshot> found = service.findOrFetch(BRAND, GHL_CONTACT);
@@ -66,6 +67,11 @@ class ContactSnapshotFetchTest {
 		assertThat(found.get().getFullName()).isEqualTo("Karim Nabil");
 		assertThat(found.get().getEmail()).isEqualTo("karim@example.com");
 		assertThat(found.get().getCompany()).isEqualTo("Nabil & Co");
+		// The deal screen's extras come from the same read, so a deal opened once shows them from
+		// the mirror afterwards.
+		assertThat(found.get().getCountry()).isEqualTo("EG");
+		assertThat(found.get().getTags()).containsExactly("stage:hot");
+		assertThat(found.get().getCustomFields()).containsEntry("f_applicant", "Individual Applicant");
 		// Kept, so the second open of the same deal is a mirror read again rather than a
 		// second GHL call. Without this the gap re-opens on every page view.
 		verify(contacts).save(any(ContactSnapshot.class));

@@ -19,6 +19,7 @@ import com.ie.evalos.domain.ChecklistItemStatus;
 import com.ie.evalos.domain.ContactSnapshot;
 import com.ie.evalos.domain.DocumentChecklistItem;
 import com.ie.evalos.domain.DocumentKind;
+import com.ie.evalos.domain.DocumentStatus;
 import com.ie.evalos.domain.ExceptionState;
 import com.ie.evalos.domain.ExpertCaseOffer;
 import com.ie.evalos.domain.Expert;
@@ -55,6 +56,7 @@ import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.willThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 
@@ -377,6 +379,81 @@ class ExpertPortalServiceTest {
 		subject.setDraftLink(null);
 
 		assertThatThrownBy(() -> portal.letterLink(token(), null)).isInstanceOf(IllegalTransitionException.class);
+	}
+
+	// --- the case's documents (Unit 66b, D63) --------------------------------
+
+	private CaseDocument draft(int version, DocumentStatus status) {
+		CaseDocument d = new CaseDocument(BRAND, CASE_ID, DocumentKind.DRAFT, version, UUID.randomUUID(),
+				ActorType.STAFF, null);
+		ReflectionTestUtils.setField(d, "id", UUID.randomUUID());
+		d.storedDraft("k/v" + version + ".docx", "letter-v" + version + ".docx", 10, "k/v" + version + ".pdf",
+				"letter-v" + version + ".pdf", 10);
+		d.answered(status);
+		return d;
+	}
+
+	private CaseDocument upload(String filename, boolean superseded) {
+		CaseDocument d = new CaseDocument(BRAND, CASE_ID, DocumentKind.CLIENT_UPLOAD, 1, null, ActorType.CLIENT, null);
+		ReflectionTestUtils.setField(d, "id", UUID.randomUUID());
+		d.setObjectKey("k/" + filename);
+		d.setFilename(filename);
+		if (superseded) {
+			d.superseded();
+		}
+		return d;
+	}
+
+	@Test
+	void theExpertSeesTheApprovedLetterAndTheClientsCurrentFilesOnly() {
+		CaseDocument returned = draft(2, DocumentStatus.RETURNED);
+		CaseDocument approved = draft(1, DocumentStatus.CLIENT_APPROVED);
+		CaseDocument passport = upload("passport.pdf", false);
+		CaseDocument old = upload("old-cv.pdf", true);
+		given(documents.findByCaseIdAndKindOrderByVersionDesc(CASE_ID, DocumentKind.DRAFT))
+				.willReturn(List.of(returned, approved));
+		given(documents.findByCaseIdAndKindOrderByVersionDesc(CASE_ID, DocumentKind.CLIENT_UPLOAD))
+				.willReturn(List.of(passport, old));
+
+		assertThat(portal.view(token()).documents())
+				.extracting(ExpertPortalService.ExpertDocument::id, ExpertPortalService.ExpertDocument::kind)
+				.containsExactly(org.assertj.core.groups.Tuple.tuple(approved.getId(), "LETTER"),
+						org.assertj.core.groups.Tuple.tuple(passport.getId(), "CLIENT_UPLOAD"));
+
+		// Anything not listed is refused by id, even though it is on this case.
+		for (CaseDocument hidden : List.of(returned, old)) {
+			assertThatThrownBy(() -> portal.documentUrl(token(), null, hidden.getId(), false, false))
+					.isInstanceOf(ForbiddenException.class);
+		}
+		verifyNoInteractions(store);
+	}
+
+	@Test
+	void aListedFileOpensOnAnAuditedUrlAndOnlyTheLettersPdfOpensInline() {
+		CaseDocument approved = draft(1, DocumentStatus.CLIENT_APPROVED);
+		CaseDocument passport = upload("passport.pdf", false);
+		given(documents.findByCaseIdAndKindOrderByVersionDesc(CASE_ID, DocumentKind.DRAFT)).willReturn(List.of(approved));
+		given(documents.findByCaseIdAndKindOrderByVersionDesc(CASE_ID, DocumentKind.CLIENT_UPLOAD))
+				.willReturn(List.of(passport));
+		given(store.presignedUrl("k/passport.pdf")).willReturn("https://s3/passport");
+		given(store.presignedPdfView("k/v1.pdf")).willReturn("https://s3/letter-inline");
+
+		assertThat(portal.documentUrl(token(), null, passport.getId(), false, false)).isEqualTo("https://s3/passport");
+		assertThat(portal.documentUrl(token(), null, approved.getId(), true, true)).isEqualTo("https://s3/letter-inline");
+		assertThatThrownBy(() -> portal.documentUrl(token(), null, passport.getId(), false, true))
+				.isInstanceOf(InvalidRequestException.class);
+
+		verify(audit, times(2)).recordPortalEvent(eq(BRAND), eq(PortalAudience.EXPERT), eq("CASE_DOCUMENT"), any(),
+				eq(AuditAction.EXPORTED), eq(null), any());
+	}
+
+	@Test
+	void anExpertNoLongerOnTheCaseOpensNothing() {
+		subject.setExpertId(UUID.randomUUID());
+
+		assertThatThrownBy(() -> portal.documentUrl(token(), null, UUID.randomUUID(), false, false))
+				.isInstanceOf(ForbiddenException.class);
+		verifyNoInteractions(store);
 	}
 
 	/**

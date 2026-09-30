@@ -11,3 +11,22 @@ export function mayUploadDraft(stage: string, role: Role): boolean {
 export function mayComment(status: string, clientApprovalStatus: string | null): boolean {
   return status === 'PM_APPROVED' && clientApprovalStatus === 'PENDING'
 }
+
+export type DraftSteps = { upload: () => Promise<void>; note: (text: string) => Promise<void> }
+
+/**
+ * Upload, then the optional note to the PM (Unit 66). The upload route takes files only, so the note
+ * is a case note written after it — never before, or a failed upload would leave a note about a draft
+ * that does not exist. An upload failure throws to the dialog; a note failure does not undo the draft.
+ */
+export async function submitDraft(steps: DraftSteps, note: string): Promise<'submitted' | 'note-failed'> {
+  await steps.upload()
+  const text = note.trim()
+  if (!text) return 'submitted'
+  try {
+    await steps.note(text)
+    return 'submitted'
+  } catch {
+    return 'note-failed'
+  }
+}

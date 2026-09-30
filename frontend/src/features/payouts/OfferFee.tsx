@@ -20,7 +20,7 @@ const OUTCOME_WORD: Record<OfferOutcome, string> = {
  *
  * Loads on its own so the card never waits on it: a failure is one muted line, not a broken card.
  */
-export default function OfferFee({ caseId }: { caseId: string }) {
+export default function OfferFee({ caseId, reloadKey }: { caseId: string; reloadKey: number }) {
   const me = useMe()
   const [offer, setOffer] = useState<OfferView | null | undefined>(undefined)
   const [failure, setFailure] = useState<string | null>(null)
@@ -46,7 +46,8 @@ export default function OfferFee({ caseId }: { caseId: string }) {
     const controller = new AbortController()
     void load(controller.signal)
     return () => controller.abort()
-  }, [load])
+    // `reloadKey` (the timeline's length): a reassign or an acceptance writes a row and changes the offer.
+  }, [load, reloadKey])
 
   async function save() {
     setSaving(true)

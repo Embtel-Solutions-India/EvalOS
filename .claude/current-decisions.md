@@ -1,6 +1,6 @@
 # EvalOS — Current Decisions
 
-Confirmed and in force as of **2026-09-29**. Short and explicit. No history, no abandoned
+Confirmed and in force as of **2026-09-30**. Short and explicit. No history, no abandoned
 approaches, no proposals. Unresolved items are in `open-decisions.md`.
 
 ## Identity
@@ -214,7 +214,10 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
   production and **cannot take a new booking**. That belongs on 48's list of what degrades.
 - **D49.** **Tier 2 and tier 3 are mirrored in full, minus free slots** (Unit 47b, 2026-09-17).
   Custom field **values** (`opportunity.custom_fields`, keyed by GHL **field id** so a rename cannot
-  lose them), **GHL notes** (`ghl_note`), **tags** (`ghl_tag`), and **read-back for tasks and
+  lose them — and, since 2026-09-30, the deal's **contact's** custom field values, country and tags
+  on `contact_snapshot` (`V81`), with `model=contact` definitions in `ghl_custom_field`, because the
+  deal screen now shows everything GHL holds on the deal and its contact; D47's rule, a screen
+  reads them), **GHL notes** (`ghl_note`), **tags** (`ghl_tag`), and **read-back for tasks and
   appointments** — a task completed or an appointment cancelled in GHL now reaches EvalOS.
   *(This reverses 47 §4's cuts, which the business overruled. One of them was also wrong on the
   facts: §4 claimed tasks could only be listed per contact, but `getNotes`/`getTasks`/
@@ -454,6 +457,15 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
   (`EXPERT_DECLINED_REMATCHING`) and they are `AVAILABLE`. Whoever may reassign permits it (GM, PM,
   ENM, CM — `POST /api/cases/{id}/expert/retake`); it is the rematch transition with the
   same-expert guard lifted, back to `CLIENT_APPROVAL`, audited with a *retake* note.
+- **D63.** **Everyone on a case sees and downloads its documents; the ENM does not** (2026-09-30,
+  the business; Unit 66b, spec `66b-expert-case-documents.md`). Staff who can load the case and
+  whose role reads case content (GM, BM, PM, PC, CM) see every document and every draft version.
+  The CM uploads the draft and each new version (the PC, PM and GM may too, D51). **The case's
+  expert** sees and downloads the client's current uploads and the client-approved draft (PDF +
+  Word), from the offer on, for as long as they are the case's expert
+  (`GET /api/portal/expert/documents/{id}/url`, audited); earlier draft versions stay internal. The
+  **ENM** reads no case documents (`Tier.SUPPLY`): they staff experts, and a file name alone can
+  name the client.
 - **D52.** **No GHL conversation sidebar.** EvalOS does not mirror or send GHL conversations
   (SMS / email / WhatsApp / social); that stays in GHL. The only messaging in EvalOS is the case
   chat (Unit 57). Decided 2026-09-28. _(Closes Q10; drops tier 3 of the Unit 47 mirror.)_
