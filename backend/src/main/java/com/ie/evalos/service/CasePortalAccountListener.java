@@ -6,6 +6,9 @@ import java.util.UUID;
 
 import com.ie.evalos.domain.AuditAction;
 import com.ie.evalos.event.CaseEvents;
+import com.ie.evalos.domain.Case;
+import com.ie.evalos.domain.ServiceType;
+import com.ie.evalos.repository.CaseRepository;
 import com.ie.evalos.repository.ContactSnapshotRepository;
 import com.ie.evalos.service.ClientAccountService.CaseAccountOutcome;
 
@@ -43,14 +46,17 @@ public class CasePortalAccountListener {
 			CaseAccountOutcome.NO_GHL_CONTACT, CaseAccountOutcome.OTHER_CONTACT, CaseAccountOutcome.MAIL_UNAVAILABLE);
 
 	private final ContactSnapshotRepository contacts;
+	private final CaseRepository cases;
 	private final ClientAccountService accounts;
 	private final AuditService audit;
 	private final UUID portalBrand;
 	private final TransactionTemplate newTransaction;
 
-	CasePortalAccountListener(ContactSnapshotRepository contacts, ClientAccountService accounts, AuditService audit,
-			PlatformTransactionManager transactions, @Value("${evalos.portal.client-brand}") UUID portalBrand) {
+	CasePortalAccountListener(ContactSnapshotRepository contacts, CaseRepository cases, ClientAccountService accounts,
+			AuditService audit, PlatformTransactionManager transactions,
+			@Value("${evalos.portal.client-brand}") UUID portalBrand) {
 		this.contacts = contacts;
+		this.cases = cases;
 		this.accounts = accounts;
 		this.audit = audit;
 		this.portalBrand = portalBrand;
@@ -65,14 +71,22 @@ public class CasePortalAccountListener {
 			return;
 		}
 		try {
-			CaseAccountOutcome outcome = newTransaction.execute((status) -> event.contactId() == null
-					? CaseAccountOutcome.NO_GHL_CONTACT
-					// Unscoped by id, as the chat listener's case read: a listener has no caller whose
-					// scope applies, and the brand is checked against the event's own.
-					: contacts.findById(event.contactId())
-							.filter((contact) -> event.brandId().equals(contact.getBrandId()))
-							.map(accounts::openForCase)
-							.orElse(CaseAccountOutcome.NO_GHL_CONTACT));
+			CaseAccountOutcome outcome = newTransaction.execute((status) -> {
+				if (event.contactId() == null) {
+					return CaseAccountOutcome.NO_GHL_CONTACT;
+				}
+				// D65: the mail names the case. Unscoped by id, as the chat listener's case read: a
+				// listener has no caller whose scope applies, and the brand is checked against the
+				// event's own.
+				Case subject = cases.findById(event.caseId())
+						.filter((row) -> event.brandId().equals(row.getBrandId())).orElse(null);
+				String caseCode = subject == null ? null : subject.getCaseCode();
+				String service = serviceLabel(subject == null ? null : subject.getServiceType());
+				return contacts.findById(event.contactId())
+						.filter((contact) -> event.brandId().equals(contact.getBrandId()))
+						.map((contact) -> accounts.openForCase(contact, caseCode, service))
+						.orElse(CaseAccountOutcome.NO_GHL_CONTACT);
+			});
 			if (FLAGGED.contains(outcome)) {
 				flag(event, reasonFor(outcome));
 			}
@@ -91,6 +105,18 @@ public class CasePortalAccountListener {
 		catch (RuntimeException failed) {
 			log.warn("Could not flag case {} for its portal account", event.caseId(), failed);
 		}
+	}
+
+	/**
+	 * {@code CREDENTIAL_EVALUATION} → "Credential evaluation". Reshaped rather than looked up, so a
+	 * service type added later still reads as words; null → "Evaluation" (intake may not know it).
+	 */
+	static String serviceLabel(ServiceType type) {
+		if (type == null) {
+			return "Evaluation";
+		}
+		String words = type.name().replace('_', ' ').toLowerCase(java.util.Locale.ROOT);
+		return Character.toUpperCase(words.charAt(0)) + words.substring(1);
 	}
 
 	static String reasonFor(CaseAccountOutcome outcome) {

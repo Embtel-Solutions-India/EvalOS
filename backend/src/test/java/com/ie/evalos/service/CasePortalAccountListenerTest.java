@@ -14,6 +14,7 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.SimpleTransactionStatus;
 
 import static org.assertj.core.api.Assertions.assertThatCode;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
@@ -38,6 +39,7 @@ class CasePortalAccountListenerTest {
 	private static final UUID CONTACT_ID = UUID.randomUUID();
 
 	private final ContactSnapshotRepository contacts = mock(ContactSnapshotRepository.class);
+	private final com.ie.evalos.repository.CaseRepository cases = mock(com.ie.evalos.repository.CaseRepository.class);
 	private final ClientAccountService accounts = mock(ClientAccountService.class);
 	private final AuditService audit = mock(AuditService.class);
 	private final PlatformTransactionManager transactions = mock(PlatformTransactionManager.class);
@@ -46,7 +48,7 @@ class CasePortalAccountListenerTest {
 
 	CasePortalAccountListenerTest() {
 		given(transactions.getTransaction(any())).willReturn(new SimpleTransactionStatus());
-		listener = new CasePortalAccountListener(contacts, accounts, audit, transactions, PORTAL_BRAND);
+		listener = new CasePortalAccountListener(contacts, cases, accounts, audit, transactions, PORTAL_BRAND);
 	}
 
 	private static CaseEvents.CaseEvent created(UUID brandId) {
@@ -62,12 +64,20 @@ class CasePortalAccountListenerTest {
 	@Test
 	void aNewCaseOpensTheAccountAndFlagsNothing() {
 		ContactSnapshot contact = givenContact(PORTAL_BRAND);
-		given(accounts.openForCase(contact)).willReturn(CaseAccountOutcome.CREATED);
+		given(accounts.openForCase(contact, null, "Evaluation")).willReturn(CaseAccountOutcome.CREATED);
 
 		listener.on(created(PORTAL_BRAND));
 
-		verify(accounts).openForCase(contact);
+		verify(accounts).openForCase(contact, null, "Evaluation");
 		verifyNoInteractions(audit);
+	}
+
+	/** D65: the mail names the case's service in words; an unknown one still reads as a word. */
+	@Test
+	void theServiceIsNamedInWords() {
+		assertThat(CasePortalAccountListener.serviceLabel(com.ie.evalos.domain.ServiceType.CREDENTIAL_EVALUATION))
+				.isEqualTo("Credential evaluation");
+		assertThat(CasePortalAccountListener.serviceLabel(null)).isEqualTo("Evaluation");
 	}
 
 	/** Row 1: the portal is single-brand, so a case in another brand has no portal to open. */
@@ -90,7 +100,7 @@ class CasePortalAccountListenerTest {
 	@Test
 	void anOutcomeSomebodyMustFixIsFlaggedOnTheCase() {
 		ContactSnapshot contact = givenContact(PORTAL_BRAND);
-		given(accounts.openForCase(contact)).willReturn(CaseAccountOutcome.OTHER_CONTACT);
+		given(accounts.openForCase(contact, null, "Evaluation")).willReturn(CaseAccountOutcome.OTHER_CONTACT);
 
 		listener.on(created(PORTAL_BRAND));
 
@@ -105,7 +115,7 @@ class CasePortalAccountListenerTest {
 
 		listener.on(created(PORTAL_BRAND));
 
-		verify(accounts, never()).openForCase(any());
+		verify(accounts, never()).openForCase(any(), any(), any());
 		verify(audit).recordSystemEvent(eq(PORTAL_BRAND), eq("CASE"), eq(CASE_ID), eq(AuditAction.FLAGGED), isNull(),
 				contains("no GHL contact"));
 	}
@@ -114,7 +124,7 @@ class CasePortalAccountListenerTest {
 	@Test
 	void aFailureIsFlaggedAndNeverThrown() {
 		ContactSnapshot contact = givenContact(PORTAL_BRAND);
-		given(accounts.openForCase(contact)).willThrow(new IllegalStateException("smtp down"));
+		given(accounts.openForCase(contact, null, "Evaluation")).willThrow(new IllegalStateException("smtp down"));
 
 		assertThatCode(() -> listener.on(created(PORTAL_BRAND))).doesNotThrowAnyException();
 		verify(audit).recordSystemEvent(eq(PORTAL_BRAND), eq("CASE"), eq(CASE_ID), eq(AuditAction.FLAGGED), isNull(),

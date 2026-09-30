@@ -508,6 +508,8 @@ class ClientAccountServiceTest {
 	private void mailWorks() {
 		given(mailer.canReach(any())).willReturn(true);
 		given(mailer.sendSetPassword(any(), any(), any())).willReturn(true);
+		given(mailer.sendCaseStarted(any(), any(), any(), any(), any())).willReturn(true);
+		given(mailer.sendCaseStartedSignIn(any(), any(), any(), any())).willReturn(true);
 		given(credentials.save(any())).willAnswer((call) -> call.getArgument(0));
 		given(accounts.saveAndFlush(any())).willAnswer((call) -> call.getArgument(0));
 	}
@@ -518,7 +520,7 @@ class ClientAccountServiceTest {
 		mailWorks();
 		ContactSnapshot contact = caseContact("Ana@Example.com");
 
-		assertThat(service.openForCase(contact)).isEqualTo(ClientAccountService.CaseAccountOutcome.CREATED);
+		assertThat(service.openForCase(contact, "IE-0001", "Credential evaluation")).isEqualTo(ClientAccountService.CaseAccountOutcome.CREATED);
 
 		ArgumentCaptor<ClientAccount> saved = ArgumentCaptor.forClass(ClientAccount.class);
 		verify(accounts).saveAndFlush(saved.capture());
@@ -529,7 +531,14 @@ class ClientAccountServiceTest {
 		assertThat(saved.getValue().getContactId()).isEqualTo(contact.getId());
 		assertThat(saved.getValue().getFirstName()).isEqualTo("Ana");
 		assertThat(saved.getValue().getLastName()).isEqualTo("María Okafor");
-		verify(mailer).sendSetPassword(any(), any(), any());
+		// D65: the case-started mail names the case, and its link lives 7 days, not credential-ttl.
+		verify(mailer).sendCaseStarted(any(), eq("Ana"), org.mockito.ArgumentMatchers.startsWith("https://client.example.com/set-password#"),
+				eq("Credential evaluation"), eq("IE-0001"));
+		verify(mailer, never()).sendSetPassword(any(), any(), any());
+		ArgumentCaptor<ClientCredentialToken> token = ArgumentCaptor.forClass(ClientCredentialToken.class);
+		verify(credentials).save(token.capture());
+		assertThat(token.getValue().getExpiresAt())
+				.isAfter(java.time.Instant.now().plus(java.time.Duration.ofDays(6)));
 		// Opening an account is not a CRM write: the contact already exists in GHL.
 		verifyNoInteractions(ghlContacts);
 	}
@@ -542,13 +551,16 @@ class ClientAccountServiceTest {
 		existing.linkGhlContact("ghl-ana");
 		given(accounts.findByBrandIdAndGhlContactId(BRAND, "ghl-ana")).willReturn(Optional.of(existing));
 
-		assertThat(service.openForCase(caseContact("ana@example.com")))
+		assertThat(service.openForCase(caseContact("ana@example.com"), "IE-0001", "Credential evaluation"))
 				.isEqualTo(ClientAccountService.CaseAccountOutcome.REMINDED);
 
 		existing.setPasswordHash("hash");
-		assertThat(service.openForCase(caseContact("ana@example.com")))
+		assertThat(service.openForCase(caseContact("ana@example.com"), "IE-0002", "Credential evaluation"))
 				.isEqualTo(ClientAccountService.CaseAccountOutcome.ALREADY_ACTIVE);
-		verify(mailer).sendSetPassword(any(), any(), any());
+		// D65: without a password, the case-started link; with one, the sign-in mail and no credential.
+		verify(mailer).sendCaseStarted(any(), any(), any(), any(), eq("IE-0001"));
+		verify(mailer).sendCaseStartedSignIn(any(), any(), eq("Credential evaluation"), eq("IE-0002"));
+		verify(credentials).save(any());
 	}
 
 	/** Row 5: an unlinked account with the email is linked to this contact. */
@@ -559,7 +571,7 @@ class ClientAccountServiceTest {
 		given(accounts.findByBrandIdAndEmailIgnoreCase(eq(BRAND), eq("ana@example.com"))).willReturn(Optional.of(existing));
 		ContactSnapshot contact = caseContact("ana@example.com");
 
-		assertThat(service.openForCase(contact)).isEqualTo(ClientAccountService.CaseAccountOutcome.LINKED);
+		assertThat(service.openForCase(contact, "IE-0001", "Credential evaluation")).isEqualTo(ClientAccountService.CaseAccountOutcome.LINKED);
 		assertThat(existing.getGhlContactId()).isEqualTo("ghl-ana");
 		assertThat(existing.getContactId()).isEqualTo(contact.getId());
 	}
@@ -571,7 +583,7 @@ class ClientAccountServiceTest {
 		someoneElse.linkGhlContact("ghl-somebody-else");
 		given(accounts.findByBrandIdAndEmailIgnoreCase(eq(BRAND), eq("ana@example.com"))).willReturn(Optional.of(someoneElse));
 
-		assertThat(service.openForCase(caseContact("ana@example.com")))
+		assertThat(service.openForCase(caseContact("ana@example.com"), "IE-0001", "Credential evaluation"))
 				.isEqualTo(ClientAccountService.CaseAccountOutcome.OTHER_CONTACT);
 		assertThat(someoneElse.getGhlContactId()).isEqualTo("ghl-somebody-else");
 		verify(accounts, never()).saveAndFlush(any());
@@ -581,10 +593,10 @@ class ClientAccountServiceTest {
 	/** Rows 2–3: no email or no GHL id means no account, and nothing written. */
 	@Test
 	void aContactWithNoEmailOrNoGhlIdGetsNoAccount() {
-		assertThat(service.openForCase(caseContact(null))).isEqualTo(ClientAccountService.CaseAccountOutcome.NO_EMAIL);
+		assertThat(service.openForCase(caseContact(null), "IE-0001", "Credential evaluation")).isEqualTo(ClientAccountService.CaseAccountOutcome.NO_EMAIL);
 		ContactSnapshot noId = new ContactSnapshot(BRAND, null);
 		noId.syncFromGhl("Ana", "ana@example.com", null, null, null, null, null, null, null);
-		assertThat(service.openForCase(noId)).isEqualTo(ClientAccountService.CaseAccountOutcome.NO_GHL_CONTACT);
+		assertThat(service.openForCase(noId, "IE-0001", "Credential evaluation")).isEqualTo(ClientAccountService.CaseAccountOutcome.NO_GHL_CONTACT);
 		verifyNoInteractions(accounts, mailer);
 	}
 
