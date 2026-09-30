@@ -183,6 +183,7 @@ class CaseLifecycleServiceTest {
 		given(member.getRole()).willReturn(role);
 		given(member.getBrandId()).willReturn(BRAND);
 		given(member.getTeamId()).willReturn(teamId);
+		given(member.getDisplayName()).willReturn(role + " " + id.toString().substring(0, 4));
 		return member;
 	}
 
@@ -347,6 +348,11 @@ class CaseLifecycleServiceTest {
 		// Stage-preserving: staffing a case is not moving it.
 		assertEquals(Stage.DOC_COLLECTION, subject.getCurrentStage());
 		assertEquals(List.of(CaseEvents.Type.COORDINATOR_ASSIGNED), publishedEventTypes(1));
+		// The timeline's actor is the PM, so the row names who was put on the case.
+		ArgumentCaptor<Object> after = ArgumentCaptor.forClass(Object.class);
+		verify(audit).recordEvent(eq("CASE"), any(), eq(AuditAction.ASSIGNED), any(), any(), after.capture());
+		assertEquals("Coordinator: PROJECT_COORDINATOR " + COORDINATOR_ID.toString().substring(0, 4),
+				((CaseLifecycleService.CaseSnapshot) after.getValue()).note());
 
 		// Later in the pipeline, and to somebody else, both still legal.
 		walkToDraftGeneration();

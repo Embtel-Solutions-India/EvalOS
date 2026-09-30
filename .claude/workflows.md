@@ -206,7 +206,11 @@ Four sweeps run over this: `DOC_CHASE`, `DOC_ESCALATION`, `EXPERT_SIGN`, `STAGE_
 happens to do** (D36). Read as staffing: the case is born at Handoff A, a **PM** takes it, and the
 PM assigns the **Project Coordinator**, the **Case Manager** and the **Expert**
 (`POST /api/cases/{id}/assign-coordinator`, `…/assign-cm` — which names the CM and the expert in
-one transaction and writes the expert offer). The **CM drafts and uploads**; the **client sees and
+one transaction and writes the expert offer). **Since 2026-10-01 the PM may also put a CM on the
+case at any stage** from the case's More menu ("Assign / Change case manager",
+`PATCH …/case-manager`, stage-preserving, no offer); once a slot is filled its action reads
+"Change …". The PC and the CM are each notified when they are put on a case (`CASE_ASSIGNED`), and
+the timeline row names who was assigned. The **CM drafts and uploads**; the **client sees and
 approves** it in the portal (`CLIENT_REVIEW` → `CLIENT_APPROVAL`); **only then** does it reach the
 **expert**, who downloads, signs and uploads it back (`EXPERT_SIGNING`, Handoff B).
 

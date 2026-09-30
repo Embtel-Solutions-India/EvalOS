@@ -350,6 +350,10 @@ export type QuickAction = {
    */
   gm?: 'only' | 'never'
   fields?: readonly ActionField[]
+  /** `patch` for the stage-preserving routes that are not transitions. Absent is `post`. */
+  method?: 'patch'
+  /** The slot this action fills: once the card names someone there, "Assign" reads "Change". */
+  fills?: 'assignedCoordinator' | 'assignedCm'
 }
 
 /**
@@ -502,6 +506,19 @@ export const QUICK_ACTIONS: readonly QuickAction[] = [
     fields: [
       { name: 'coordinatorId', label: 'Coordinator', kind: 'member', memberRole: 'PROJECT_COORDINATOR' },
     ],
+    fills: 'assignedCoordinator',
+  },
+  // D36: the PM staffs the CM too, at any stage. `CaseController.reassignCaseManager` keeps the
+  // stage and mints no expert offer; `assign-cm` above is the PM_REVIEW step that also picks the
+  // expert. The server refuses a CM from another team, or the one already on the case.
+  {
+    path: 'case-manager',
+    method: 'patch',
+    label: 'Assign case manager',
+    roles: ['PROJECT_MANAGER'],
+    stages: null,
+    fields: [{ name: 'cmId', label: 'Case manager', kind: 'member', memberRole: 'CASE_MANAGER' }],
+    fills: 'assignedCm',
   },
   {
     path: 'hold',
@@ -601,7 +618,9 @@ export function actionsFor(card: BoardCard, role: Role): readonly QuickAction[] 
     // *from* this stage are withheld. The stage-preserving ones returned above are not.
     if (access === 'status') return false
     return action.stages.includes(card.currentStage)
-  })
+  }).map((action) =>
+    action.fills && card[action.fills] ? { ...action, label: action.label.replace('Assign', 'Change') } : action,
+  )
 }
 
 /**

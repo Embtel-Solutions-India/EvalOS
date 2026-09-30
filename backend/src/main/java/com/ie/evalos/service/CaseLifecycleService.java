@@ -220,7 +220,7 @@ public class CaseLifecycleService {
 		requireState(subject.getPoolStatus() == PoolStatus.IN_POOL, "case has already left the pool");
 		TeamMember pm = member(pmId, Role.PROJECT_MANAGER, subject.getBrandId());
 
-		return apply(subject, to, Action.ASSIGN_PM, null, c -> {
+		return apply(subject, to, Action.ASSIGN_PM, "Project manager: " + pm.getDisplayName(), c -> {
 			c.setAssignedPm(pm.getId());
 			c.setTeamId(pm.getTeamId());
 			c.setPoolStatus(PoolStatus.ASSIGNED);
@@ -243,7 +243,9 @@ public class CaseLifecycleService {
 		Stage to = CaseTransitions.target(subject, Action.ASSIGN_COORDINATOR);
 		TeamMember coordinator = member(coordinatorId, Role.PROJECT_COORDINATOR, subject.getBrandId());
 
-		return apply(subject, to, Action.ASSIGN_COORDINATOR, null,
+		// The name is in the note: the timeline's actor is the PM, so without it "assigned" says
+		// nobody who.
+		return apply(subject, to, Action.ASSIGN_COORDINATOR, "Coordinator: " + coordinator.getDisplayName(),
 				c -> c.setAssignedCoordinator(coordinator.getId()));
 	}
 
@@ -276,7 +278,7 @@ public class CaseLifecycleService {
 		// Priced before anything moves (Unit 65): a refused price must leave the case where it was.
 		BigDecimal price = OfferFees.price(TenantContext.current().role(), fee, expert.getStandardFee());
 
-		Case saved = apply(subject, to, Action.ASSIGN_CASE_MANAGER, null, c -> {
+		Case saved = apply(subject, to, Action.ASSIGN_CASE_MANAGER, "Case manager: " + cm.getDisplayName(), c -> {
 			c.setAssignedCm(cm.getId());
 			c.setExpertId(expert.getId());
 			c.setExpertSignStatus(ExpertSignStatus.PENDING);
@@ -317,12 +319,13 @@ public class CaseLifecycleService {
 		requireState(!cm.getId().equals(subject.getAssignedCm()),
 				"that case manager already holds this case");
 
-		CaseManagerSnapshot before = new CaseManagerSnapshot(subject.getAssignedCm());
+		CaseSnapshot before = CaseSnapshot.of(subject);
 		subject.setAssignedCm(cm.getId());
 		Case saved = cases.save(subject);
 
+		// A CaseSnapshot like every other case row, so the timeline shows the stage and who.
 		audit.recordEvent(OBJECT_TYPE, saved.getId(), AuditAction.ASSIGNED, TenantContext.current().memberId(),
-				before, new CaseManagerSnapshot(cm.getId()));
+				before, CaseSnapshot.of(saved, "Case manager: " + cm.getDisplayName()));
 		// Unit 57: the chat membership follows the Case Manager. Until now this method published
 		// nothing, so the chat would have learned of the change only on the hourly sweep.
 		events.publishEvent(CaseEvents.CaseEvent.of(CaseEvents.Type.CASE_MANAGER_REASSIGNED, saved));
@@ -416,9 +419,6 @@ public class CaseLifecycleService {
 	}
 
 	/** Who held the case. Both sides are recorded, so the trail answers "moved from whom". */
-	public record CaseManagerSnapshot(UUID assignedCm) {
-	}
-
 	/** The promised date, before and after. */
 	public record DeadlineSnapshot(Instant deadline) {
 	}

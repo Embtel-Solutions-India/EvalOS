@@ -102,7 +102,7 @@ The ones most often violated from memory:
   returning `cb.disjunction()` over `evalos_case` is **correct**, not a bug to fix. **Chat is the one
   exception** (Unit 57): Sales takes part in the Client and Internal conversations of their pipeline's
   cases, and still reads no case data.
-- **The case is staffed PM-first** (D36): Handoff A → PM → PM assigns Coordinator, Case Manager and
+- **The case is staffed PM-first** (D36; since 2026-10-01 the PM can set/change the CM at any stage via `PATCH /cases/{id}/case-manager`, and the PC/CM are notified on assignment): Handoff A → PM → PM assigns Coordinator, Case Manager and
   Expert → CM drafts and uploads → **client approves in the portal** → only then the expert
   downloads, signs and uploads back. This is what `CaseLifecycleService` already does; it is now a
   stated business rule.
