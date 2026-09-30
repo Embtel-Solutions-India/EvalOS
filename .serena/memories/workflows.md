@@ -6,7 +6,7 @@ WORKFLOW separately — never present a target as if it exists.**
 Lifecycle (**Unit 64, built 2026-09-29** — spec `64-remove-client-requests.md`):
 
 ```
-GHL (form · call · Sales · Marketing) → OPPORTUNITY → WON → CASE (+ portal account, set-password mail)
+GHL (form · call · Sales · Marketing) → OPPORTUNITY → WON → CASE (+ portal account, case-opened mail — D65: set-password 7-day link, or sign-in if a password exists)
   → PC / CM send checklist → CLIENT uploads on the case → PRODUCTION → DELIVERY
 ```
 
@@ -30,7 +30,10 @@ mail down. If GHL is down at set-password or sign-in, `ensureCrmIdentity` backfi
 
 Two GHL create paths, two verbs: `SalesDeskService.newDeal` (createOpportunity) and
 `MarketingLeadService.openLead` (**upsertOpportunity** — the one place a repeat enquiry reuses an
-open deal; **D56:** skipped when that deal has a pending `sync_outbox` push — the queued edit wins).
+open deal; **D56:** skipped when that deal has a pending `sync_outbox` push — the queued edit wins;
+**D64:** the BDE form is GHL's full opportunity form — stage + close ride the upsert, intake fields
+follow via `setOpportunityFields` since GHL's upsert has no `customFields`).
+**Unit 69 (D66):** Sales edits every deal field in `DealEditDialog` — name/value/stage queued (D44), close/owner/intake fields inline to GHL then onto the mirror — and deletes a non-won deal with no queued push (inline GHL delete, mirror row stamped missing).
 Set-password and sign-in may `upsertContact` (`ensureCrmIdentity`). The portal opens no deal.
 
 **Documents** enter **only at the case**, against a sent checklist item (D33, D60), keyed by the
