@@ -102,10 +102,7 @@ The ones most often violated from memory:
   returning `cb.disjunction()` over `evalos_case` is **correct**, not a bug to fix. **Chat is the one
   exception** (Unit 57): Sales takes part in the Client and Internal conversations of their pipeline's
   cases, and still reads no case data.
-- **The case is staffed PM-first** (D36; since 2026-10-01 the PM can set/change the CM at any stage via `PATCH /cases/{id}/case-manager`, and PM/ENM the expert before EXPERT_SIGNING via `PATCH /cases/{id}/expert` (no stage move — PM Review → Drafting is still assign-cm, pre-filled), and the PC/CM are notified on assignment): Handoff A → PM → PM assigns Coordinator, Case Manager and
-  Expert → CM drafts and uploads → **client approves in the portal** → only then the expert
-  downloads, signs and uploads back. This is what `CaseLifecycleService` already does; it is now a
-  stated business rule.
+- **The case is staffed PM-first; the expert is offered after the draft** (D36, edited 2026-10-02, Unit 73): Handoff A → PM → PM assigns the Coordinator and, at PM Review, the CM only (`assign-cm`) → CM drafts and uploads → **once a draft exists** PM / CM (also ENM, GM) offer the expert an amount (`PATCH /cases/{id}/expert`, stage kept, `DRAFT_IN_PROGRESS`…`CLIENT_APPROVAL`; CM at the standard fee only) → **client approves in the portal** (no expert needed for that) → `send-to-expert` (needs an expert) → expert accepts, signs and uploads back. The PM can change the CM at any stage; PC/CM are notified on assignment.
 - **Notifications are in-app AND push, and nothing else** (D37). No email, no SMS — invariant 14 is
   untouched, because a push is not a message to a mailbox. In-app is built; push is owed.
 - **Deployment is DevOps's, outside this repo** (D38). The portals' absence from compose and CI is

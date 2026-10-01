@@ -129,13 +129,13 @@ class ExpertShortlistControllerTest {
 	}
 
 	/**
-	 * Every role but the three that staff a case. The Expert Network Manager owns the roster and
+	 * Every role but those that offer a case to an expert (Unit 73 adds the CM). The Expert Network Manager owns the roster and
 	 * is still refused: the shortlist reveals which case needs which discipline, and supply-side
 	 * access does not extend to case content.
 	 */
 	@ParameterizedTest
 	@EnumSource(value = Role.class,
-			names = { "CASE_MANAGER", "PROJECT_COORDINATOR", "EXPERT_NETWORK_MANAGER" })
+			names = { "PROJECT_COORDINATOR", "EXPERT_NETWORK_MANAGER" })
 	void theRolesThatDoNotStaffCasesAreRefused(Role role) throws Exception {
 		mockMvc.perform(get(PATH)
 				.param("fieldTag", "MECHANICAL_ENGINEERING")
@@ -145,8 +145,8 @@ class ExpertShortlistControllerTest {
 	}
 
 	@ParameterizedTest
-	@EnumSource(value = Role.class, names = { "GM", "BRAND_MANAGER" })
-	void oversightReadsItToo(Role role) throws Exception {
+	@EnumSource(value = Role.class, names = { "GM", "BRAND_MANAGER", "CASE_MANAGER" })
+	void oversightAndTheCaseManagerReadItToo(Role role) throws Exception {
 		oneRankedExpert();
 
 		mockMvc.perform(get(PATH)

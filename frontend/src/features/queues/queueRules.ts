@@ -1,4 +1,4 @@
-import type { BoardCard, BoardData, DeadlineRisk } from '../board/boardRules'
+import { EXPERT_OFFER_STAGES, type BoardCard, type BoardData, type DeadlineRisk } from '../board/boardRules'
 
 /**
  * What the two PM queues select out of the board's data, as pure functions.
@@ -95,17 +95,20 @@ export function draftReviewQueue(data: BoardData): BoardCard[] {
 }
 
 /**
- * Cases with nobody signed up to write them: the Expert Assignment column, plus every case a
- * decline or a timeout has thrown back into the rematch lane.
+ * Cases waiting for an expert (Unit 73): a draft exists, the case is in the offer window and no
+ * expert is on it — plus every case a decline or a timeout has thrown back into the rematch lane.
+ * PM Review cases are not here any more: they wait for a CM, and the expert comes after the draft.
  *
  * **The exception lane is the half that is easy to miss.** `CaseBoardController` puts a case in a
  * stage bucket only while `exceptionState` is `NONE`, so a case in `EXPERT_DECLINED_REMATCHING`
- * has left the stage buckets entirely — reading `stages.PM_REVIEW` alone would show the
- * cases nobody has picked an expert for yet and silently drop the ones whose expert walked away,
- * which are the more urgent of the two.
+ * has left the stage buckets entirely — reading the stage buckets alone would silently drop the
+ * cases whose expert walked away, which are the more urgent kind.
  */
 export function awaitingExpert(data: BoardData): BoardCard[] {
-  return byDeadline([...data.stages.PM_REVIEW, ...data.exceptions.EXPERT_DECLINED_REMATCHING])
+  const unoffered = EXPERT_OFFER_STAGES.flatMap((stage) => data.stages[stage] ?? []).filter(
+    (card) => !card.hasExpert && (card.draftVersionCount ?? 0) > 0,
+  )
+  return byDeadline([...unoffered, ...data.exceptions.EXPERT_DECLINED_REMATCHING])
 }
 
 /**

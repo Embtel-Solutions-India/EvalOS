@@ -188,8 +188,9 @@ a new one. It stays (D56), except that a queued edit is never overwritten.
 DOC_COLLECTION ─ the PC or CM builds the checklist and SENDS it (Unit 61, D60: unsent items
                   are not in the portal; later additions wait for the next Send); PC/CM chase;
                   client uploads to S3 against each sent item
- → PM_REVIEW ─ PM writes strategy notes, assigns an expert
- → DRAFT_IN_PROGRESS → DRAFT_REVIEW ─ CM uploads the draft as Word + PDF (POST …/drafts); PM approves or returns
+ → PM_REVIEW ─ PM writes strategy notes, assigns the CM (assign-cm, CM only — Unit 73)
+ → DRAFT_IN_PROGRESS → DRAFT_REVIEW ─ CM uploads the draft as Word + PDF (POST …/drafts); PM approves or returns;
+                  once a draft exists, PM / CM offer the expert an amount (PATCH …/expert, stage kept)
  → READY_TO_SEND → CLIENT_REVIEW ─ client comments, then approves or requests changes on that version
  → CLIENT_APPROVAL → EXPERT_SIGNING ─ expert accepts / declines / signs, signed in (Unit 59)
  → FINAL_QC ─ PM passes or fails
@@ -221,16 +222,15 @@ Four sweeps run over this: `DOC_CHASE`, `DOC_ESCALATION`, `EXPERT_SIGN`, `STAGE_
 
 **Unchanged — and as of 2026-09-17 this is the stated business lifecycle, not just what the code
 happens to do** (D36). Read as staffing: the case is born at Handoff A, a **PM** takes it, and the
-PM assigns the **Project Coordinator**, the **Case Manager** and the **Expert**
-(`POST /api/cases/{id}/assign-coordinator`, `…/assign-cm` — which names the CM and the expert in
-one transaction and writes the expert offer). **Since 2026-10-01 the PM may also put a CM on the
-case at any stage** from the case's More menu ("Assign / Change case manager",
-`PATCH …/case-manager`, stage-preserving, no offer), **and the PM / ENM may set or change the
-expert before signing** ("Assign / Change expert", `PATCH …/expert` → `changeExpert`: open offer
-SUPERSEDED, old expert link revoked, new offer; refused from `EXPERT_SIGNING` on, where decline /
-timed-out → reassign applies). Neither moves the stage: **PM Review → Drafting is still
-`assign-cm`**, whose dialog is pre-filled with the CM and expert already set (`prefill`), and which
-supersedes any offer `changeExpert` opened. Once a slot is filled its action reads "Change …". The PC and the CM are each notified when they are put on a case (`CASE_ASSIGNED`), and
+PM assigns the **Project Coordinator** and, at PM Review, the **Case Manager**
+(`POST /api/cases/{id}/assign-coordinator`, `…/assign-cm` — **the CM only since Unit 73**,
+2026-10-02; no expert, no offer). **Once the CM has uploaded a draft** the PM or CM (also ENM /
+GM) offers the **expert** an amount from the case's More menu ("Assign / Change expert",
+`PATCH …/expert` → `changeExpert`, stage kept, `DRAFT_IN_PROGRESS` … `CLIENT_APPROVAL`; a CM at the
+standard fee only): any open offer SUPERSEDED, the old expert link revoked, a new offer opened, and
+`EXPERT_ASSIGNED` sends the offer mail and adds the expert to the Expert chat. Refused before a
+draft and from `EXPERT_SIGNING` on (decline / timed-out → reassign). The PM may also change the CM
+at any stage ("Assign / Change case manager", `PATCH …/case-manager`). Once a slot is filled its action reads "Change …". The PC and the CM are each notified when they are put on a case (`CASE_ASSIGNED`), and
 the timeline row names who was assigned. The **CM drafts and uploads**; the **client sees and
 approves** it in the portal (`CLIENT_REVIEW` → `CLIENT_APPROVAL`); **only then** does it reach the
 **expert**, who downloads, signs and uploads it back (`EXPERT_SIGNING`, Handoff B).

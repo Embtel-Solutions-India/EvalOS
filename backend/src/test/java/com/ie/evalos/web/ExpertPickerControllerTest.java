@@ -143,11 +143,10 @@ class ExpertPickerControllerTest {
 	}
 
 	@Test
-	void aCaseManagerDoesNotChooseTheExpert() throws Exception {
-		// They draft for the expert the PM picked; the roster is not theirs to browse.
+	void aCaseManagerChoosesTheExpertToo() throws Exception {
+		// Unit 73: the CM offers the expert once their draft exists, so they read the picker.
 		mockMvc.perform(get("/api/experts").header(HttpHeaders.AUTHORIZATION, bearer(Role.CASE_MANAGER)))
-				.andExpect(status().isForbidden())
-				.andExpect(jsonPath("$.error.code").value("FORBIDDEN"));
+				.andExpect(status().isOk());
 	}
 
 	@Test

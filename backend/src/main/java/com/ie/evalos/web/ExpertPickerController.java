@@ -50,8 +50,8 @@ public class ExpertPickerController {
 	}
 
 	/**
-	 * The roles that put an expert on a case, plus the Expert Network Manager, whose Supply
-	 * tier is the roster. A Case Manager is not here: they draft for the expert the PM chose.
+	 * The roles that put an expert on a case — since Unit 73 the Case Manager too, who offers the
+	 * expert once their draft exists — plus the Expert Network Manager, whose Supply tier is the roster.
 	 */
 	/**
 	 * @param forCase the case this pick is for, which drops the expert already on it.
@@ -76,7 +76,7 @@ public class ExpertPickerController {
 	 *                is a no-op, which is why the dialog can pass it unconditionally.
 	 */
 	@GetMapping
-	@PreAuthorize("hasAnyRole('GM', 'BRAND_MANAGER', 'PROJECT_MANAGER', 'EXPERT_NETWORK_MANAGER')")
+	@PreAuthorize("hasAnyRole('GM', 'BRAND_MANAGER', 'PROJECT_MANAGER', 'CASE_MANAGER', 'EXPERT_NETWORK_MANAGER')")
 	public ApiResponse<List<ExpertOption>> available(@RequestParam(required = false) UUID forCase) {
 		TenantContext ctx = TenantContext.current();
 		UUID onCase = forCase == null ? null

@@ -40,7 +40,7 @@ per board; cards show Value / Source / service with "—" placeholders, headers 
 field-free runs at once, with fields opens `QuickActionDialog`. Not optimistic; illegal columns refuse
 the drop; lanes are not targets. Per-column SLA rail removed the same day. Expert set/change in
 place before signing: `changeExpert` + `PATCH /cases/{id}/expert` (PM/ENM/GM), under More beside
-Assign/Change CM; `assign-cm` dialog pre-filled (`prefill`) and supersedes an open offer. Expert evidence request now
+Assign/Change CM. **Unit 73 (2026-10-02, D36 edited):** `assign-cm` = CM only; the expert is offered after the first draft (`changeExpert`, PM/CM/ENM/GM, CM standard fee only, `DRAFT_IN_PROGRESS`…`CLIENT_APPROVAL`, publishes `EXPERT_ASSIGNED` → offer mail + chat); CM reads picker + shortlist; client approval no longer needs an expert; board card `hasExpert`/`draftVersionCount`; spec `73-expert-offer-after-draft.md`. Expert evidence request now
 reaches Coordinators + CM + PM, stays on Doc checklists while held (chaseable), banner on the case page.
 
 **Unit 54a, note edit/delete — COMPLETE 2026-09-24.** Author-only `PUT`/`DELETE` on a note; `V67`

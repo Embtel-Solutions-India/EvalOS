@@ -15,9 +15,8 @@ import { useFilters } from '../shell/filtersContext'
  *
  * 1. **In the pool** — nobody owns it. One button, *Take this case*, which posts `assign-pm`
  *    with the caller's own id. That is what stamps `team_id` and opens the case to their team.
- * 2. **Taken, no Case Manager** — a link to the case page. Not a gap: `assign-cm` assigns the
- *    Case Manager *and* the expert in one call, because it advances the stage and writes the
- *    expert offer together. A popover collecting only a name would be refused with a 409.
+ * 2. **Taken, no Case Manager** — a link to the case page, where Assign CM runs (since Unit 73 it
+ *    names the CM only; the expert is offered after the draft).
  * 3. **Staffed** — the reassignment popover, with each candidate's current load in view.
  */
 export default function AssignPopover({ card, onAssigned }: { card: BoardCard; onAssigned: () => void }) {

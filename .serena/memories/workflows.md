@@ -15,8 +15,9 @@ submit, the `INTAKE` purpose, public sign-up, Sales' Application / Request docum
 Unfinished requests screen were all removed. Nothing below describes them.
 
 Production, and it is now a stated business rule rather than an accident of the code (D36):
-Handoff A creates the case → a **PM** takes it → the PM assigns **Coordinator**, **Case Manager**
-and **Expert** → the **CM uploads the draft as Word + PDF** → the **client comments and approves that
+Handoff A creates the case → a **PM** takes it → the PM assigns **Coordinator** and, at PM Review,
+the **Case Manager** only → the **CM uploads the draft as Word + PDF** → **once a draft exists the PM
+or CM offers the Expert an amount** (Unit 73, 2026-10-02) → the **client comments and approves that
 version in the portal** (Unit 58) → only then
 the **expert** downloads, signs and uploads back. `CaseLifecycleService` already implements all of
 it. From the offer on, the expert also opens the client's current files and the approved draft (D63). **Sales sees none of this** (D19c).

@@ -191,7 +191,7 @@ export default function CaseDetailPage() {
             Below the notes and separate from them, which is the visible half of the decision to
             give the rationale its own column: a Case Manager sees the notes and not this, an ENM
             sees this and not the notes. Read-only — it is written where the expert is chosen
-            (`assign-cm` / `reassign-expert`), not in a ceremony of its own.
+            (the `expert` offer / `reassign-expert`), not in a ceremony of its own.
           */}
           <ExpertRationale detail={detail} />
         </div>
