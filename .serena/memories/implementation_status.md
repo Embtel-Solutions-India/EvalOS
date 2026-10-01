@@ -7,6 +7,24 @@ Build is green: backend **1177 tests, 0 failures, 4 skipped** (2026-09-24); staf
 and oxlint; portals 30 tests plus clean tsc and a clean `npm run build`. Re-run 2026-09-22 after
 the dead-code pass below.
 
+**Unit 72 (D71), built 2026-10-01:** `V83` terms columns on client/expert accounts; `PortalTermsService` + `/api/portal/{client,expert}/terms`; `shared/src/legal/` (pages, `PolicySummary`, `TermsGate`); `AuthSplit` sign-in artwork on both portals; the portal `SiteFooter` removed (policies accepted once instead). Chrome-checked.
+
+**Board look 2026-10-01:** both boards: outlined stage-colour header (icon, name, count, Sales "+" → `/opportunities/new?stage=`), no column panel, stage-tinted cards (tag pill, title, muted line, footer: date + white chip — SLA bars+word / deal value); `board/stageColors.ts` ten non-RAG hues, Won green / Lost rose / lanes slate; `--card-text-muted` on tints.
+
+**Unit 70a phase 1, built + Chrome-checked 2026-10-01:** `lib/queryClient.ts` + `api` interceptor (`afterRequest`); bell, case page panels, board + queues (`board/useBoard.ts`), draft review, PM notes, checklists on `useQuery`. Phase 2 (payouts, experts, meetings, dashboards) not started.
+
+**Unit 71 (D69/D70), built 2026-10-01:** `V82` adds `expert_case_offer.note` + `opportunity_note.handoff`; offers refuse a blank note, retake carries it; the expert's Answers shows it; Won needs a note (`SalesDeskService.close(id, status, note)`, and `moveToStage(id, stage, note)` for a stage named Won: board drop / picker open `WinNote`); case page `SalesNote` card. Not browser-checked.
+
+**Fix 2026-10-01 (D36 staffing):** COORDINATOR_ASSIGNED / CASE_MANAGER_REASSIGNED now notify the assignee; assignment audit notes name who ("Coordinator: X"); More menu gains PM "Assign/Change case manager" (PATCH case-manager, any stage) and says "Change …" once filled. Not browser-checked.
+
+**Unit 70 (D68), BUILT 2026-10-01:** `CaseOwned` + `CaseLiveHibernate` + `CaseLive` (after-commit `case.changed` to `live:brand:{brand}` + client/expert channels; `notifications.changed` from `NotificationService`); package `onLive`/`liveChannels`; staff `lib/live.ts`, nav badges on a query; portals `LiveInvalidate`. Runtime-checked locally. Gaps closed 2026-10-02: GM token names every brand channel; `CaseLiveHibernateTest` on Postgres (mutation-checked). Deal delete (Unit 69) verified by the business. Chat not live in prod because the Ably key could not publish (40160) — root key fixed it locally; prod key needs publish+subscribe+presence. Push off in prod for want of `EVALOS_PUSH_SUBJECT`.
+
+**Unit 64c, 2026-09-30 (D58).** Case progress emails: `mail/case-update.html`, `MailTemplates.CaseUpdate`, `CaseMailListener` (checklist / draft ready / signing / delivered, + expert offer D67); not sent to a real inbox yet. **2026-10-01:** Send chase publishes `CHECKLIST_CHASED` → `CaseUpdate.CHASE` reminder mail (before, nothing listened and no client was contacted); the sweep's `CHECKLIST_REMINDER` still mails nobody.
+
+**Unit 64b, 2026-09-30 (D65).** Case-opened emails: `case-started.html` / `case-signin.html`, `openForCase(contact, caseCode, service)`, 7-day `CASE_LINK_TTL`; not sent to a real inbox yet.
+
+**Unit 39b, 2026-09-30 (D64).** The BDE's `/marketing/leads/new` renders `NewDealFields lead`; `openLead` upserts with stage + close, then `setOpportunityFields` for intake; `/api/sales/opportunity-fields` + `/api/sales/users` are SALES or MARKETING; Owner picker on both forms. Fix: opportunity create/upsert now send `locationId` (the sales Add opportunity 502). Live-verified 2026-09-30 via the API as bde-1 and sales-1 (stage, close, value, custom field land in GHL on each desk's own pipeline); forms not browser-checked.
+
 **Opportunity board, 2026-09-23.** `OpportunityBoardPage` reuses the production board's
 `StageColumn` (fixed width, pinned header, per-column scroll). SALES drags a deal between stages:
 native HTML5 DnD delegated on the strip, no state change per pointer move, optimistic
@@ -16,6 +34,14 @@ native HTML5 DnD delegated on the strip, no state change per pointer move, optim
 live on the deal's own pipeline (Q12 resolved 2026-09-24, D44). 2026-09-24: board `Deal` carries `source` and
 `service` (row fields first, then `opportunity.lead_source` / the portal request), one read each
 per board; cards show Value / Source / service with "—" placeholders, headers show stage Value.
+
+**Production board drag, 2026-10-01.** Revises spec 22's "no drag". `QuickAction.to` (the
+`CaseTransitions` target) + `boardRules.dropActionFor` pick the one action into the dropped-on column;
+field-free runs at once, with fields opens `QuickActionDialog`. Not optimistic; illegal columns refuse
+the drop; lanes are not targets. Per-column SLA rail removed the same day. Expert set/change in
+place before signing: `changeExpert` + `PATCH /cases/{id}/expert` (PM/ENM/GM), under More beside
+Assign/Change CM. **Unit 73 (2026-10-02, D36 edited):** `assign-cm` = CM only; the expert is offered after the first draft (`changeExpert`, PM/CM/ENM/GM, CM standard fee only, `DRAFT_IN_PROGRESS`…`CLIENT_APPROVAL`, publishes `EXPERT_ASSIGNED` → offer mail + chat); CM reads picker + shortlist; client approval no longer needs an expert; board card `hasExpert`/`draftVersionCount`; spec `73-expert-offer-after-draft.md`. Expert evidence request now
+reaches Coordinators + CM + PM, stays on Doc checklists while held (chaseable), banner on the case page.
 
 **Unit 54a, note edit/delete — COMPLETE 2026-09-24.** Author-only `PUT`/`DELETE` on a note; `V67`
 drops the append-only triggers; the outbox overwrites or deletes the GHL copy; audited without text.
@@ -517,7 +543,7 @@ staff 131, portals 30, all green.
 
 **2026-09-25 — client portal legal pages.** Public `/privacy`, `/disclaimer`, `/document-retention`
 (`client/src/pages/legal/`, JSX content, no markdown dependency; paths + contact in
-`constants/legal.ts`). `SiteFooter` (three summary paragraphs + links + address) under every screen
+`constants/legal.ts`). ~~`SiteFooter`~~ (removed 2026-10-01, Unit 72: the summaries are accepted on first sign-in) — was: (three summary paragraphs + links + address) under every screen
 via `PortalLayout`, a `PublicLayout` route for the signed-out screens, and `LegalPage`. Linked in
 place at sign-up, the document uploader and the send step. The business's "not reviewed by an
 attorney" drafting notes are NOT published; attorney review before go-live is theirs to decide.
@@ -626,4 +652,6 @@ an expert push opened with no tab open lands on `/case` without the fragment tok
 
 **2026-09-30 — Unit 66b (expert opens case documents, D63) BUILT** (spec `66b`, branch `feature/unit-66-case-workspace`, no migration). `ExpertCaseView.documents` = newest `CLIENT_APPROVED` draft (`LETTER`) + client's non-superseded uploads; `GET /api/portal/expert/documents/{id}/url` (view gate, unlisted id 403, inline only for the letter PDF, `EXPORTED` audit). Expert `/case`: View/Download PDF, Download Word, Download per client file. Fixed: letter card read only `draftLink`, so file drafts showed "not ready yet". ENM still refused. Backend expert tests 41 green; portals 100. Not browser-checked (no local data).
 
-**2026-09-30 — Fix: expert turnaround query failed on Postgres.** `ExpertCaseOfferRepository.resolvedTurnaroundSeconds` wrapped Hibernate 6's timestamp difference (already numeric) in `date_part('epoch', …)`, so every call errored (`date_part(unknown, numeric)`); only mocked tests covered it. Now `cast((outcomeAt - offeredAt) by second as Double)`; asserted in `LocalPostgresIntegrationTest#theOfferAggregateIsGroupedByOutcomeAndBrandIsolated`. Backend 1,348 green.
+**2026-09-30 — Unit 69 (edit every deal field + delete, D66) BUILT** (spec `69`, no migration). `PUT /api/sales/opportunities/{id}` takes name, value, stage, expectedCloseDate, assignedTo, customFields (shared three queued; the rest inline via `GhlWriteClient.updateOpportunityDetails`, then `absorbDetails` on the mirror). `DELETE /api/sales/opportunities/{id}` (SALES): refuses won / pending push, `deleteOpportunity` (404 = done, `AuditAction.DELETED`), `markDeleted` stamps `missing_since`. `ContactView` gains `assignedToId`, `dealFieldValues`. `DealEditDialog`: all fields + inline-confirmed Delete. Tests: SalesDeskServiceTest +4, SalesDeskControllerTest +1; tsc clean. Not browser-checked or run against live GHL. Limits: custom fields cannot be cleared; close date not mirrored.
+
+**2026-09-30 — ENM dashboard 500 fixed.** `resolvedTurnaroundSeconds` is native `extract(epoch from outcome_at - offered_at)::float8` (JPQL `date_part` on a Hibernate-6 duration failed on Postgres). Postgres test added; endpoint verified 200.

@@ -15,7 +15,7 @@ import jakarta.persistence.Table;
  */
 @Entity
 @Table(name = "document_checklist_item")
-public class DocumentChecklistItem extends ScopedEntity {
+public class DocumentChecklistItem extends ScopedEntity implements CaseOwned {
 
 	@Column(name = "case_id")
 	private UUID caseId;
@@ -95,5 +95,10 @@ public class DocumentChecklistItem extends ScopedEntity {
 
 	public Instant getUpdatedAt() {
 		return updatedAt;
+	}
+
+	@Override
+	public UUID liveCaseId() {
+		return getCaseId();
 	}
 }

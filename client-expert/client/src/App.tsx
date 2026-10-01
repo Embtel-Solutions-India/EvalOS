@@ -4,8 +4,8 @@ import { Toaster } from '@shared/components/ui/sonner'
 import { AppLoadingScreen } from '@shared/components/common/AppLoadingScreen'
 import { ErrorBoundary } from '@shared/components/common/ErrorBoundary'
 import { PortalLayout } from '@/layouts/PortalLayout'
-import { SiteFooter } from '@/components/layout/SiteFooter'
-import { LEGAL } from '@/constants/legal'
+import { AuthSplit } from '@shared/components/common/AuthSplit'
+import { LEGAL } from '@shared/legal/legal'
 
 /*
  * 2026-09-10 — what left this router, and the two different reasons.
@@ -90,17 +90,19 @@ const MyCases = lazy(() => import('@/pages/cases/MyCases'))
 const Invoices = lazy(() => import('@/pages/invoices/Invoices'))
 const CaseDetail = lazy(() => import('@/pages/cases/CaseDetail'))
 const Conversations = lazy(() => import('@/pages/conversations/Conversations'))
-const PrivacyPolicy = lazy(() => import('@/pages/legal/PrivacyPolicy'))
-const Disclaimer = lazy(() => import('@/pages/legal/Disclaimer'))
-const DocumentRetention = lazy(() => import('@/pages/legal/DocumentRetention'))
+const PrivacyPolicy = lazy(() => import('@shared/legal/PrivacyPolicy'))
+const Disclaimer = lazy(() => import('@shared/legal/Disclaimer'))
+const DocumentRetention = lazy(() => import('@shared/legal/DocumentRetention'))
 const NotFound = lazy(() => import('@shared/pages/NotFound'))
 
-/** The signed-out screens, with the legal footer under them (2026-09-25). */
+/** The signed-out screens: the form beside the portal artwork (Unit 72). The footer went with D71. */
 function PublicLayout() {
   return (
     <div className="flex min-h-dvh flex-col">
-      <Outlet />
-      <SiteFooter />
+      {/* Unit 72: the form on the left, the portal artwork on the right half. */}
+      <AuthSplit>
+        <Outlet />
+      </AuthSplit>
     </div>
   )
 }
@@ -118,7 +120,7 @@ function AppRoutes() {
       <Route path="/" element={<Navigate to="/welcome" replace />} />
       {/*
         The legal pages are public on purpose: a client reads them before signing in for the
-        first time. `LegalPage` carries its own footer.
+        first time. The policies are accepted on first sign-in (Unit 72), so the footer that repeated them is gone.
       */}
       <Route path={LEGAL.privacy.to} element={<PrivacyPolicy />} />
       <Route path={LEGAL.disclaimer.to} element={<Disclaimer />} />

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import type { ReactNode } from 'react'
 import { NavLink } from 'react-router-dom'
 import { useMe } from '../../lib/authContext'
@@ -8,7 +8,7 @@ import { UnreadBadge } from '@evalos/chat'
 import { BADGE_FOR_PATH, fetchNavBadges, isUrgentBadge, type NavBadges } from './navBadges'
 
 /**
- * The nav, as a **flush full-height dark rail**. Filtered by role from the one table the router
+ * The nav, as a **flush full-height tinted rail**. Filtered by role from the one table the router
  * also guards against (`navigation.ts`), so a listed item is always reachable and a reachable
  * item is always listed.
  *
@@ -28,17 +28,11 @@ import { BADGE_FOR_PATH, fetchNavBadges, isUrgentBadge, type NavBadges } from '.
  */
 export default function LeftNav() {
   const me = useMe()
-  const [badges, setBadges] = useState<NavBadges | null>(null)
-
-  useEffect(() => {
-    const controller = new AbortController()
-    // Failure is silent on purpose: a rail that renders an error where a count should be is
-    // worse than a rail with no counts. The screens themselves report their own load failures.
-    fetchNavBadges(controller.signal)
-      .then(setBadges)
-      .catch(() => {})
-    return () => controller.abort()
-  }, [])
+  // A query (Unit 70), not a mount-only read: any write, a tab refocus and a live `case.changed`
+  // re-read the counts. Failure stays silent — a rail showing an error where a count should be is
+  // worse than one with no counts; the screens report their own load failures.
+  const badges: NavBadges | null =
+    useQuery({ queryKey: ['nav-badges'], queryFn: ({ signal }) => fetchNavBadges(signal) }).data ?? null
 
   return (
     <nav

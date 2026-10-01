@@ -1,16 +1,18 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useCallback, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useMe } from '../../lib/authContext'
 import { boardPathFor } from '../shell/navigation'
 import QuickActionDialog from '../board/QuickActionDialog'
 import { performAction } from '../board/boardApi'
-import type { QuickAction } from '../board/boardRules'
+import { prefill, type BoardCard, type QuickAction } from '../board/boardRules'
 import DocumentsPanel from './DocumentsPanel'
 import DraftPanel from './DraftPanel'
 import ExpertCard from './ExpertCard'
 import CaseHeader from './CaseHeader'
 import StrategyNotes from './StrategyNotes'
 import ExpertRationale from './ExpertRationale'
+import SalesNote from './SalesNote'
 import CaseFacts from './CaseFacts'
 import Timeline from './Timeline'
 import CaseChat from './CaseChat'
@@ -20,8 +22,6 @@ import {
   postNote,
   saveIntakeFacts,
   saveStrategyNotes,
-  type CaseDetail,
-  type TimelineEntry,
 } from './caseApi'
 
 /**
@@ -34,45 +34,35 @@ import {
  * row and the trail is half of what this page is for.
  */
 
-type LoadState =
-  | { status: 'loading' }
-  | { status: 'ready'; detail: CaseDetail; timeline: readonly TimelineEntry[] }
-  | { status: 'failed'; message: string }
-
 export default function CaseDetailPage() {
   const { id } = useParams<{ id: string }>()
   const me = useMe()
 
   const way = boardPathFor(me.role)
-  const [state, setState] = useState<LoadState>({ status: 'loading' })
   const [pending, setPending] = useState<QuickAction | null>(null)
   const [busy, setBusy] = useState(false)
   const [actionError, setActionError] = useState<string | null>(null)
 
+  // Unit 70a: two cached reads under the case's key. Every write already refreshes them (the `api`
+  // interceptor), so do the other panels, the board and the bell; `load` re-reads this case now,
+  // for the callers that wait on it.
+  const queryClient = useQueryClient()
+  const detailQuery = useQuery({
+    queryKey: ['case', id],
+    queryFn: ({ signal }) => fetchCase(id!, signal),
+    enabled: !!id,
+  })
+  const timelineQuery = useQuery({
+    queryKey: ['case', id, 'timeline'],
+    queryFn: ({ signal }) => fetchTimeline(id!, signal),
+    enabled: !!id,
+  })
+  // `cancelRefetch: false`: the interceptor has usually just started this re-read after a write, so
+  // join it rather than cancel it and fetch the case and timeline a second time.
   const load = useCallback(
-    async (signal?: AbortSignal) => {
-      if (!id) return
-      try {
-        // Both reads together: a timeline that lags the case it describes is worse than a
-        // slightly slower page.
-        const [detail, timeline] = await Promise.all([fetchCase(id, signal), fetchTimeline(id, signal)])
-        setState({ status: 'ready', detail, timeline })
-      } catch (error: unknown) {
-        if (signal?.aborted) return
-        setState({
-          status: 'failed',
-          message: error instanceof Error ? error.message : 'Could not load this case',
-        })
-      }
-    },
-    [id],
+    () => queryClient.invalidateQueries({ queryKey: ['case', id] }, { cancelRefetch: false }),
+    [queryClient, id],
   )
-
-  useEffect(() => {
-    const controller = new AbortController()
-    void load(controller.signal)
-    return () => controller.abort()
-  }, [load])
 
   const run = useCallback(
     async (action: QuickAction, values: Record<string, string>) => {
@@ -135,22 +125,19 @@ export default function CaseDetailPage() {
     [id, load],
   )
 
-  if (state.status === 'loading') {
-    return (
-      <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
-        Loading the case…
-      </p>
-    )
-  }
+  const detail = detailQuery.data
+  const timeline = timelineQuery.data
+  // Only with nothing to show: a failed background re-read keeps the page it already has.
+  const failure = detail && timeline ? null : (detailQuery.error ?? timelineQuery.error)
 
-  if (state.status === 'failed') {
+  if (failure) {
     return (
       <div
         className="rounded-lg border p-4"
         style={{ background: 'var(--status-red-bg)', borderColor: 'var(--border-default)' }}
       >
         <p className="text-sm" style={{ color: 'var(--status-red)' }}>
-          {state.message}
+          {failure instanceof Error ? failure.message : 'Could not load this case'}
         </p>
         {/*
           Routed through the nav table, not hardcoded to `/board`. `/cases/:id` is open to every
@@ -170,7 +157,13 @@ export default function CaseDetailPage() {
     )
   }
 
-  const { detail, timeline } = state
+  if (!detail || !timeline) {
+    return (
+      <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
+        Loading the case…
+      </p>
+    )
+  }
 
   return (
     <div>
@@ -191,13 +184,14 @@ export default function CaseDetailPage() {
           {/* Above the expert and the notes: who the letter is about is what the rest of the
               column is in service of, and it is the one fact the header cannot carry. */}
           <CaseFacts detail={detail} role={me.role} onSave={onSaveFacts} />
+          <SalesNote detail={detail} />
           <ExpertCard detail={detail} reloadKey={timeline.length} />
           <StrategyNotes detail={detail} onSave={onSaveNotes} />
           {/*
             Below the notes and separate from them, which is the visible half of the decision to
             give the rationale its own column: a Case Manager sees the notes and not this, an ENM
             sees this and not the notes. Read-only — it is written where the expert is chosen
-            (`assign-cm` / `reassign-expert`), not in a ceremony of its own.
+            (the `expert` offer / `reassign-expert`), not in a ceremony of its own.
           */}
           <ExpertRationale detail={detail} />
         </div>
@@ -213,6 +207,7 @@ export default function CaseDetailPage() {
           action={pending}
           caseId={detail.summary.id}
           caseCode={detail.summary.caseCode}
+          initial={prefill(detail.summary as BoardCard, pending)}
           onCancel={() => setPending(null)}
           onConfirm={(values) => void run(pending, values)}
         />

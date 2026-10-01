@@ -29,7 +29,7 @@ import jakarta.persistence.Table;
  */
 @Entity
 @Table(name = "case_document")
-public class CaseDocument extends ScopedEntity {
+public class CaseDocument extends ScopedEntity implements CaseOwned {
 
 	@Column(name = "case_id", nullable = false, updatable = false)
 	private UUID caseId;
@@ -261,5 +261,10 @@ public class CaseDocument extends ScopedEntity {
 
 	public String getReviewComment() {
 		return reviewComment;
+	}
+
+	@Override
+	public UUID liveCaseId() {
+		return getCaseId();
 	}
 }

@@ -69,6 +69,10 @@ public class OpportunityNote {
 	@Column(name = "created_at", nullable = false, insertable = false, updatable = false)
 	private Instant createdAt;
 
+	/** Written with the win (D70, V82): what the production team is told about the deal. */
+	@Column(name = "handoff", nullable = false, updatable = false)
+	private boolean handoff;
+
 	protected OpportunityNote() {
 		// for JPA
 	}
@@ -84,6 +88,14 @@ public class OpportunityNote {
 
 	public UUID getId() {
 		return id;
+	}
+
+	public boolean isHandoff() {
+		return handoff;
+	}
+
+	public void markHandoff() {
+		this.handoff = true;
 	}
 
 	public String getGhlOpportunityId() {

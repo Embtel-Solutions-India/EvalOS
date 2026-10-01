@@ -51,8 +51,8 @@ they are not re-litigated per screen:
 | Retention follow-ups (30/90/180/365), Google **review request** campaigns, a client message composer | **Invariant 2:** GHL owns marketing, review campaigns and client messages. **Invariant 14:** no mail server. EvalOS records that a review request _fired_; it does not run the campaign | `architecture.md`, `17-dashboards.md` §4  |
 | An expert **recruitment pipeline** Kanban and outreach call/email tracking                           | Not in the build plan, no schema behind it, and a whole supply-side subsystem rather than a UI pass                                                                                     | `00-build-plan.md`                        |
 
-Two further brief requests were refused on engineering grounds and are recorded
-under **Deferred dependencies** and **No drag-and-drop** below.
+One further brief request was refused on engineering grounds and is recorded under
+**Deferred dependencies** below; drag-and-drop, once refused, is now built (see below).
 
 ## Decisions taken
 
@@ -324,19 +324,21 @@ cost.
 | **dnd-kit**        | See below                                                                                                                                        |
 | **Motion**         | A layout-animated list reorder is actually needed. CSS covers everything currently specified                                                     |
 
-### No drag-and-drop on the board
+### Drag-and-drop on the board (revised 2026-10-01)
 
-The brief is emphatic about dnd-kit. **Eleven of the twenty-one quick actions in
-`QUICK_ACTIONS` require a field the drop gesture cannot supply** — `reason` on PM
-return, client revisions, hold, expert decline, refund request and refund deny;
-`cmId` _and_ `expertId` on `assign-cm`; `pmId`, `coordinatorId`, `expertId` on the
-staffing actions; `draftLink` on submit. Critically, `assign-cm` is **the only way
-out of Expert Assignment**, so the single most-dragged column boundary on the board
-is one a drop cannot cross. The server refuses without the field and answers 409
-with a reason. A board where the main move fails is worse than one that opens a
-dialog.
+Originally refused: **eleven of the twenty-one quick actions need a field a drop cannot
+supply** (`reason`, `cmId` + `expertId` on `assign-cm`, the staffing pickers), and
+`assign-cm` is the only way out of PM Review. The revision keeps that constraint and
+changes what a drop *means*: **a drop picks the action, it does not perform a move.**
 
-Revisit if the transition set ever becomes majority field-free.
+- Each stage-moving action in `QUICK_ACTIONS` declares `to` (its `CaseTransitions` target).
+- `dropActionFor(card, role, columnStages)` returns the one action of this role's that leads
+  into the column, or null. A column it returns null for never accepts the drop.
+- A field-free action runs at once; one with fields opens `QuickActionDialog` — the same
+  path its button takes. Cancel leaves the card where it was.
+- Not optimistic: the server decides, the board re-reads, a refusal shows its reason.
+- Native HTML5 DnD (no dnd-kit), the opportunity board's pattern. Lanes are not drop targets;
+  hold / refund / resume stay on the case page.
 
 ### What deliberately does not change
 

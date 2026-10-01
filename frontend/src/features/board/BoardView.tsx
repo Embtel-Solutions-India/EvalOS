@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useMemo, useRef, useState, type DragEvent } from 'react'
 import {
   DEADLINE_WINDOWS,
   DEFAULT_DEADLINE_WINDOW,
@@ -12,16 +12,19 @@ import CaseCard from './CaseCard'
 import PoolLane from './PoolLane'
 import QuickActionDialog from './QuickActionDialog'
 import StageColumn from './StageColumn'
-import { fetchBoard, performAction } from './boardApi'
+import { LANE_COLOR, stageColor } from './stageColors'
+import { performAction } from './boardApi'
+import { useBoard } from './useBoard'
 import {
   EXCEPTION_LANES,
   actionsFor,
   allInsideSla,
   columnsFor,
   dueBeforeFor,
+  dropActionFor,
+  prefill,
   slaMix,
   type BoardCard,
-  type BoardData,
   type QuickAction,
   type ServiceType,
   cardsInColumn,
@@ -36,10 +39,6 @@ import {
  * the first unit that actually sends them anywhere, which is what Unit 07 held them for.
  */
 
-type LoadState =
-  | { status: 'loading' }
-  | { status: 'ready'; data: BoardData }
-  | { status: 'failed'; message: string }
 
 /**
  * Who gets the pool lane.
@@ -64,7 +63,6 @@ export default function BoardView() {
   // longer silently widen the board's deadline horizon.
   const { activeBrandId } = useFilters()
 
-  const [state, setState] = useState<LoadState>({ status: 'loading' })
   const [pending, setPending] = useState<{ card: BoardCard; action: QuickAction } | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
 
@@ -90,26 +88,9 @@ export default function BoardView() {
 
   const dueBefore = dueBeforeFor(deadlineWindow)
 
-  const load = useCallback(
-    async (signal?: AbortSignal) => {
-      try {
-        setState({ status: 'ready', data: await fetchBoard(dueBefore, activeBrandId, signal) })
-      } catch (error: unknown) {
-        if (signal?.aborted) return
-        setState({
-          status: 'failed',
-          message: error instanceof Error ? error.message : 'Could not load the board',
-        })
-      }
-    },
-    [dueBefore, activeBrandId],
-  )
-
-  useEffect(() => {
-    const controller = new AbortController()
-    void load(controller.signal)
-    return () => controller.abort()
-  }, [load])
+  // Unit 70a: cached, refreshed by any write and on tab focus — the card a PM just staffed moves
+  // here without a reload.
+  const { data: board, error: loadError, load } = useBoard(dueBefore, activeBrandId)
 
   /**
    * Runs a transition, then re-reads the board.
@@ -145,6 +126,16 @@ export default function BoardView() {
     [run],
   )
 
+  // Drag state as refs: nothing about it is drawn except the hovered column's outline.
+  const dragging = useRef<{ card: BoardCard; element: HTMLElement } | null>(null)
+  const [over, setOver] = useState<string | null>(null)
+  const overRef = useRef<string | null>(null)
+  const hover = (key: string | null) => {
+    if (overRef.current === key) return
+    overRef.current = key
+    setOver(key)
+  }
+
   /** The viewer holds this case in one of its three assignable slots. */
   const isMine = useCallback(
     (card: BoardCard) =>
@@ -164,17 +155,17 @@ export default function BoardView() {
   )
 
   const pool = useMemo(() => {
-    if (state.status !== 'ready') return []
+    if (!board) return []
     // Lanes as well as columns: the server puts a case holding an exception state in its lane
     // *instead of* its stage column, and an unassigned case awaiting client documents is
     // exactly the kind that gets held. Reading only `stages` understated the one number this
     // lane exists to give.
-    return [...Object.values(state.data.stages), ...Object.values(state.data.exceptions)]
+    return [...Object.values(board.stages), ...Object.values(board.exceptions)]
       .flat()
       .filter((card) => card.poolStatus === 'IN_POOL')
-  }, [state])
+  }, [board])
 
-  if (state.status === 'loading') {
+  if (!board && !loadError) {
     return (
       <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
         Loading the board…
@@ -182,14 +173,14 @@ export default function BoardView() {
     )
   }
 
-  if (state.status === 'failed') {
+  if (!board) {
     return (
       <div
         className="rounded-lg border p-4"
         style={{ background: 'var(--status-red-bg)', borderColor: 'var(--border-default)' }}
       >
         <p className="text-sm font-medium" style={{ color: 'var(--status-red)' }}>
-          {state.message}
+          {loadError}
         </p>
         <p className="mt-1 text-sm" style={{ color: 'var(--text-muted)' }}>
           Nothing was changed. Try the read again — if it keeps failing, your session may have expired.
@@ -206,7 +197,6 @@ export default function BoardView() {
     )
   }
 
-  const board = state.data
   const columns = columnsFor(me.role).map((column) => ({
     ...column,
     // A column can hold two stages (Unit 31), so its cards are the union.
@@ -220,6 +210,51 @@ export default function BoardView() {
   // The headline counts only what is drawn — the role's own columns plus the lanes — so the
   // number always matches what the reader can count on screen.
   const inView = [...columns, ...lanes].flatMap((group) => group.cards)
+
+  /**
+   * Drag a card onto a column (2026-10-01, revisiting spec 22's "no drag"). The drop picks the one
+   * action that leads there (`dropActionFor`) and hands it to `onAction` — so a move that needs a
+   * field (the CM to assign, a reason) opens the same dialog its button would, and a field-free
+   * one runs at once. Not optimistic, like every action here: the server decides and the board
+   * re-reads. A column no action reaches never accepts the drop, so the pointer says "no".
+   */
+  const byId = new Map(inView.map((card) => [card.id, card]))
+  const targetOf = (event: DragEvent) => {
+    const key = (event.target as HTMLElement).closest<HTMLElement>('[data-column]')?.dataset.column
+    const column = columns.find((c) => c.stages.join('+') === key)
+    const action = column && dragging.current ? dropActionFor(dragging.current.card, me.role, column.stages) : null
+    return action && key ? { key, action } : null
+  }
+  const endDrag = () => {
+    if (dragging.current) dragging.current.element.style.opacity = ''
+    dragging.current = null
+    hover(null)
+  }
+  const onDragStart = (event: DragEvent) => {
+    const element = (event.target as HTMLElement).closest<HTMLElement>('[data-case]')
+    const card = element?.dataset.case ? byId.get(element.dataset.case) : undefined
+    if (!element || !card) return event.preventDefault()
+    dragging.current = { card, element }
+    event.dataTransfer.effectAllowed = 'move'
+    // Firefox starts no drag without data.
+    event.dataTransfer.setData('text/plain', card.id)
+    element.style.opacity = '0.4'
+  }
+  const onDragOver = (event: DragEvent) => {
+    const target = targetOf(event)
+    hover(target?.key ?? null)
+    if (!target) return
+    event.preventDefault()
+    event.dataTransfer.dropEffect = 'move'
+  }
+  const onDrop = (event: DragEvent) => {
+    event.preventDefault()
+    const target = targetOf(event)
+    const card = dragging.current?.card
+    endDrag()
+    if (target && card) onAction(card, target.action)
+  }
+  const canDrag = (card: BoardCard) => actionsFor(card, me.role).some((action) => action.to)
   const mix = slaMix(inView)
 
   return (
@@ -354,20 +389,36 @@ export default function BoardView() {
         />
       )}
 
-      <div className="scroll-slim flex gap-3 overflow-x-auto pb-2">
-        {columns.map(({ stages, label, access, step, cards }) => (
-          <StageColumn
+      <div
+        className="scroll-slim flex gap-3 overflow-x-auto pb-2"
+        onDragStart={onDragStart}
+        onDragOver={onDragOver}
+        onDrop={onDrop}
+        onDragEnd={endDrag}
+      >
+        {columns.map(({ stages, label, access, step, cards }, index) => (
+          <div
             key={stages.join('+')}
-            label={label}
-            step={step}
-            count={cards.length}
-            mix={slaMix(cards)}
-            readOnly={access === 'status'}
+            data-column={stages.join('+')}
+            className="shrink-0"
+            style={{
+              borderRadius: 'var(--radius-xl)',
+              outline: over === stages.join('+') ? `2px solid ${stageColor(index)}` : undefined,
+              outlineOffset: 2,
+            }}
           >
-            {cards.map((card) => (
-              <CaseCard key={card.id} card={card} mine={isMine(card)} />
-            ))}
-          </StageColumn>
+            <StageColumn
+              label={label}
+              step={step}
+              color={stageColor(index)}
+              count={cards.length}
+              readOnly={access === 'status'}
+            >
+              {cards.map((card) => (
+                <CaseCard key={card.id} card={card} mine={isMine(card)} draggable={canDrag(card)} />
+              ))}
+            </StageColumn>
+          </div>
         ))}
       </div>
 
@@ -382,7 +433,13 @@ export default function BoardView() {
         </summary>
         <div className="scroll-slim mt-3 flex gap-3 overflow-x-auto pb-2">
           {lanes.map(({ state: lane, label, cards }) => (
-            <StageColumn key={lane} label={label} count={cards.length} mix={slaMix(cards)} tone="lane">
+            <StageColumn
+              key={lane}
+              label={label}
+              count={cards.length}
+              tone="lane"
+              color={LANE_COLOR}
+            >
               {cards.map((card) => (
                 <CaseCard key={card.id} card={card} mine={isMine(card)} />
               ))}
@@ -396,6 +453,7 @@ export default function BoardView() {
           action={pending.action}
           caseId={pending.card.id}
           caseCode={pending.card.caseCode}
+          initial={prefill(pending.card, pending.action)}
           onCancel={() => setPending(null)}
           onConfirm={(values) => void run(pending.card, pending.action, values)}
         />

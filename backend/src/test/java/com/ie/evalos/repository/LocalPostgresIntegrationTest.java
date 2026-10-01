@@ -965,9 +965,8 @@ class LocalPostgresIntegrationTest {
 				.singleElement()
 				.satisfies(row -> assertThat((UUID) row[0]).isEqualTo(xpExpert));
 
-		// Turnaround (G9) on real Postgres: the stubbed tests never ran this JPQL, and Hibernate's
-		// timestamp difference is a number, not an interval `date_part` would take. One per resolved
-		// offer in this brand; the open one has no turnaround yet.
+		// Turnaround (G9) on real Postgres, beside the brand-isolation test below: one value per
+		// resolved offer in this brand, none for the open one (the query is native since 2026-09-30).
 		assertThat(offers.resolvedTurnaroundSeconds(BRAND_IE, List.of(ieExpert, xpExpert)))
 				.hasSize(4)
 				.allSatisfy(seconds -> assertThat(seconds).isGreaterThanOrEqualTo(0.0));
@@ -989,6 +988,25 @@ class LocalPostgresIntegrationTest {
 		// And the row is untouched by either refusal, so the open offer is still open.
 		assertThat(offers.findByCaseIdAndOutcome(ieCase, OfferOutcome.OFFERED))
 				.extracting(ExpertCaseOffer::getId).containsExactly(openOffer);
+	}
+
+	/**
+	 * The ENM dashboard's turnaround read runs on Postgres (it answered 500: Hibernate rendered the
+	 * difference as numeric nanoseconds and `date_part` refused it). Seconds, brand-isolated.
+	 */
+	@Test
+	void resolvedTurnaroundIsSecondsAndBrandIsolated() {
+		UUID ieCase = cases.save(new Case(BRAND_IE, "EV-" + UUID.randomUUID(), Stage.PM_REVIEW)).getId();
+		UUID ieExpert = experts.save(new Expert(BRAND_IE, "Dr Turnaround " + UUID.randomUUID())).getId();
+		resolved(BRAND_IE, ieCase, ieExpert, OfferOutcome.ACCEPTED);
+		offers.flush();
+		jdbc.update("UPDATE expert_case_offer SET offered_at = outcome_at - interval '1 hour' "
+				+ "WHERE expert_id = ?", ieExpert);
+
+		assertThat(offers.resolvedTurnaroundSeconds(BRAND_IE, List.of(ieExpert)))
+				.singleElement().satisfies((seconds) -> assertThat(seconds).isCloseTo(3600.0,
+						org.assertj.core.data.Offset.offset(1.0)));
+		assertThat(offers.resolvedTurnaroundSeconds(BRAND_XP, List.of(ieExpert))).isEmpty();
 	}
 
 	/** Unit 65 (V79): the offer's fee round-trips, and the schema refuses a negative one. */

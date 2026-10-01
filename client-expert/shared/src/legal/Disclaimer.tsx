@@ -1,4 +1,4 @@
-import { LEGAL } from '@/constants/legal'
+import { LEGAL } from './legal'
 import { ContactBlock, LegalPage } from './LegalPage'
 
 /** The business's Disclaimer, as supplied 2026-09-25. Edit the text here, not in a copy. */

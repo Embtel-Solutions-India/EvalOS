@@ -15,6 +15,7 @@ import com.ie.evalos.domain.Case;
 import com.ie.evalos.domain.ChecklistItemStatus;
 import com.ie.evalos.domain.DocumentChecklistItem;
 import com.ie.evalos.domain.IllegalTransitionException;
+import com.ie.evalos.domain.ExceptionState;
 import com.ie.evalos.domain.Stage;
 import com.ie.evalos.event.CaseEvents;
 import com.ie.evalos.repository.AuditEventRepository;
@@ -36,9 +37,9 @@ import org.springframework.transaction.annotation.Transactional;
  * {@link CaseLifecycleService#read}, so scope is decided in the one place the rest of the
  * system decides it and an out-of-scope case is refused before a single item is fetched.
  *
- * <p><strong>The chase sends nothing.</strong> It writes an audit row and publishes
- * {@code checklist.reminder}; GHL delivers the message to the client (invariant 14). EvalOS
- * has no mail server and this is not the place one would go.
+ * <p><strong>The chase sends nothing itself.</strong> It writes an audit row and publishes
+ * {@code checklist.chased}; {@link CaseMailListener} emails the client after commit (D58,
+ * invariant 14).
  */
 @Service
 public class ChecklistService {
@@ -161,7 +162,10 @@ public class ChecklistService {
 						visible.stream().map(row -> row.subject().getBrandId()).distinct().toList());
 		List<CaseBoardService.BoardRow> waiting = visible.stream()
 				.filter(row -> row.subject().getCurrentStage() == Stage.DOC_COLLECTION
-						|| needsSend.contains(row.subject().getId()))
+						|| needsSend.contains(row.subject().getId())
+						// 2026-10-01: and stays while the case is held for the client — sending the
+						// request is not receiving the document, and the hold is the Coordinator's to lift.
+						|| row.subject().getExceptionState() == ExceptionState.ON_HOLD_AWAITING_CLIENT)
 				.toList();
 
 		List<UUID> caseIds = waiting.stream().map(row -> row.subject().getId()).toList();
@@ -305,23 +309,25 @@ public class ChecklistService {
 	/**
 	 * Asks the client again for what is outstanding.
 	 *
-	 * <p>Refused outside {@code DOC_COLLECTION}. Not a formality: this reaches a real client
-	 * through GHL, and "please send your documents" to somebody whose case is already with the
-	 * expert is a mistake EvalOS would be making outwardly, not internally. There is no
+	 * <p>Refused outside {@code DOC_COLLECTION} unless the case is held for the client
+	 * ({@code ON_HOLD_AWAITING_CLIENT}, e.g. an expert's evidence request — 2026-10-01). Not a
+	 * formality: this reaches a real client, and "please send your documents" to somebody whose case
+	 * is with the expert and owes nothing is a mistake EvalOS would be making outwardly. There is no
 	 * cool-off between chases — a Coordinator who sends two is answering a phone call, and the
 	 * trail records both.
 	 */
 	@Transactional
 	public void chase(UUID caseId) {
 		Case subject = lifecycle.read(caseId);
-		if (subject.getCurrentStage() != Stage.DOC_COLLECTION) {
+		if (subject.getCurrentStage() != Stage.DOC_COLLECTION
+				&& subject.getExceptionState() != ExceptionState.ON_HOLD_AWAITING_CLIENT) {
 			throw new IllegalTransitionException("the case is no longer collecting documents");
 		}
 
 		record(subject, AuditAction.CHASED, "Document chase sent to the client");
-		// GHL delivers it. Published inside this transaction, so a rolled-back chase cannot
-		// leave an event claiming the client was contacted.
-		events.publishEvent(CaseEvents.CaseEvent.of(CaseEvents.Type.CHECKLIST_REMINDER, subject));
+		// CaseMailListener emails the reminder after commit (D58). Published inside this
+		// transaction, so a rolled-back chase cannot leave an event claiming the client was contacted.
+		events.publishEvent(CaseEvents.CaseEvent.of(CaseEvents.Type.CHECKLIST_CHASED, subject));
 	}
 
 	// --- shared plumbing -----------------------------------------------------

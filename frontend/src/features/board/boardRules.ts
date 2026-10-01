@@ -78,6 +78,12 @@ export type BoardCard = {
   assignedPm: string | null
   assignedCm: string | null
   assignedCoordinator: string | null
+  /** On the case page's summary; the board endpoint leaves it out. */
+  expertId?: string | null
+  /** Unit 73: whether an expert is on the case — the board card carries this flag, never the id. */
+  hasExpert?: boolean
+  /** Unit 73: the expert is offered once this is above zero. */
+  draftVersionCount?: number
   expertSignStatus: 'PENDING' | 'SIGNED' | 'OVERDUE' | 'REASSIGNED' | null
   pmApprovalStatus: 'PENDING' | 'APPROVED' | 'RETURNED' | null
   clientApprovalStatus: 'PENDING' | 'APPROVED' | 'REVISION_REQUESTED' | null
@@ -319,7 +325,8 @@ export const EXCEPTION_LANES: readonly { state: Exclude<ExceptionState, 'NONE'>;
 export type ActionField = {
   name: string
   label: string
-  kind: 'text' | 'amount' | 'member' | 'expert'
+  /** `note` is multi-line text: a textarea rather than an input. */
+  kind: 'text' | 'note' | 'amount' | 'member' | 'expert'
   /** Which role to list, for `member` fields. */
   memberRole?: Role
 }
@@ -350,6 +357,14 @@ export type QuickAction = {
    */
   gm?: 'only' | 'never'
   fields?: readonly ActionField[]
+  /** `patch` for the stage-preserving routes that are not transitions. Absent is `post`. */
+  method?: 'patch'
+  /** The slot this action fills: once the card names someone there, "Assign" reads "Change". */
+  fills?: 'assignedCoordinator' | 'assignedCm' | 'expertId'
+  /** Where `CaseTransitions` sends the case. Set only on stage moves: it is what a board drop looks up. */
+  to?: Stage
+  /** Unit 73: offered only once a draft has been uploaded (`draftVersionCount > 0`). */
+  needsDraft?: true
 }
 
 /**
@@ -366,33 +381,35 @@ export function admits(action: QuickAction, role: Role): boolean {
 
 const REASON: readonly ActionField[] = [{ name: 'reason', label: 'Reason', kind: 'text' }]
 
+/** Unit 73: where an expert may be offered, once a draft exists — `CaseLifecycleService.EXPERT_CHANGEABLE`. */
+export const EXPERT_OFFER_STAGES: readonly Stage[] = [
+  'DRAFT_IN_PROGRESS',
+  'DRAFT_REVIEW',
+  'READY_TO_SEND',
+  'CLIENT_REVIEW',
+  'CLIENT_APPROVAL',
+]
+
 export const QUICK_ACTIONS: readonly QuickAction[] = [
   // Stage-specific.
   {
     path: 'docs-complete',
+    to: 'PM_REVIEW',
     label: 'Docs complete',
     // The Brand Manager is here because the checklist screen gives them every other write on
     // this stage; see the gate on CaseController.docsComplete, which this list must match.
     roles: ['BRAND_MANAGER', 'PROJECT_COORDINATOR', 'PROJECT_MANAGER'],
     stages: ['DOC_COLLECTION'],
   },
+  // Unit 73 (D36 edited): PM Review → Drafting names the CM only. The expert is offered after the
+  // draft, from `expert` below.
   {
     path: 'assign-cm',
-    label: 'Assign CM + expert',
+    to: 'DRAFT_IN_PROGRESS',
+    label: 'Assign CM',
     roles: ['PROJECT_MANAGER'],
     stages: ['PM_REVIEW'],
-    fields: [
-      { name: 'cmId', label: 'Case manager', kind: 'member', memberRole: 'CASE_MANAGER' },
-      { name: 'expertId', label: 'Expert', kind: 'expert' },
-      // Unit 32. **"(optional)" is load-bearing** — the dialog makes a field required unless the
-      // label says otherwise, and a required rationale is how "n/a" becomes a column's most
-      // common value. It is asked here, where the choice is made, rather than in an edit box on
-      // the case: a reason written after the fact is the one kind worth nothing.
-      { name: 'expertRationale', label: 'Why this expert (optional)', kind: 'text' },
-      // Unit 65. Blank = the expert's standard fee; "(optional" is what keeps the dialog from
-      // requiring it. The expert sees this amount before accepting, and it is final once they do.
-      { name: 'fee', label: "Fee (optional — blank uses the expert's standard fee)", kind: 'amount' },
-    ],
+    fields: [{ name: 'cmId', label: 'Case manager', kind: 'member', memberRole: 'CASE_MANAGER' }],
   },
   // Draft review is the Project Manager's alone, GM included (Unit 23a). Approving a draft is a
   // judgement about a Case Manager's work by the person who assigned it and will answer for it;
@@ -400,6 +417,7 @@ export const QUICK_ACTIONS: readonly QuickAction[] = [
   // drop `GM_OR` in `CaseController` to match, and `/drafts` is PM-only in the nav.
   {
     path: 'draft/pm-approve',
+    to: 'READY_TO_SEND',
     label: 'PM approve',
     roles: ['PROJECT_MANAGER'],
     gm: 'never',
@@ -407,6 +425,7 @@ export const QUICK_ACTIONS: readonly QuickAction[] = [
   },
   {
     path: 'draft/pm-return',
+    to: 'DRAFT_IN_PROGRESS',
     label: 'PM return',
     roles: ['PROJECT_MANAGER'],
     gm: 'never',
@@ -415,18 +434,21 @@ export const QUICK_ACTIONS: readonly QuickAction[] = [
   },
   {
     path: 'draft/send-to-client',
+    to: 'CLIENT_REVIEW',
     label: 'Send to client',
     roles: ['PROJECT_COORDINATOR'],
     stages: ['READY_TO_SEND'],
   },
   {
     path: 'draft/client-approve',
+    to: 'CLIENT_APPROVAL',
     label: 'Client approved',
     roles: ['PROJECT_COORDINATOR'],
     stages: ['CLIENT_REVIEW'],
   },
   {
     path: 'draft/client-revisions',
+    to: 'DRAFT_IN_PROGRESS',
     label: 'Client revisions',
     roles: ['PROJECT_COORDINATOR'],
     stages: ['CLIENT_REVIEW'],
@@ -436,6 +458,7 @@ export const QUICK_ACTIONS: readonly QuickAction[] = [
   // `reassign-expert` below: its picker reads GET /api/experts, which the CM may not.
   {
     path: 'expert/signed',
+    to: 'FINAL_QC',
     label: 'Expert signed',
     roles: ['PROJECT_MANAGER', 'EXPERT_NETWORK_MANAGER', 'CASE_MANAGER'],
     stages: ['EXPERT_SIGNING'],
@@ -451,6 +474,7 @@ export const QUICK_ACTIONS: readonly QuickAction[] = [
   // entered signing on the client's approval and nobody sent anything.
   {
     path: 'send-to-expert',
+    to: 'EXPERT_SIGNING',
     label: 'Send to expert',
     roles: ['PROJECT_MANAGER', 'CASE_MANAGER'],
     stages: ['CLIENT_APPROVAL'],
@@ -458,6 +482,7 @@ export const QUICK_ACTIONS: readonly QuickAction[] = [
   // The counterpart `qc-approve` never had. A failed QC used to have nowhere to go.
   {
     path: 'qc-fail',
+    to: 'DRAFT_IN_PROGRESS',
     label: 'Return for correction',
     roles: ['PROJECT_MANAGER'],
     stages: ['FINAL_QC'],
@@ -465,18 +490,21 @@ export const QUICK_ACTIONS: readonly QuickAction[] = [
   },
   {
     path: 'qc-approve',
+    to: 'READY_TO_DELIVER',
     label: 'QC approve',
     roles: ['PROJECT_MANAGER'],
     stages: ['FINAL_QC'],
   },
   {
     path: 'deliver',
+    to: 'DELIVERED',
     label: 'Deliver',
     roles: ['PROJECT_COORDINATOR'],
     stages: ['READY_TO_DELIVER'],
   },
   {
     path: 'close',
+    to: 'CLOSED',
     label: 'Close',
     roles: ['PROJECT_COORDINATOR'],
     stages: ['DELIVERED'],
@@ -502,6 +530,40 @@ export const QUICK_ACTIONS: readonly QuickAction[] = [
     fields: [
       { name: 'coordinatorId', label: 'Coordinator', kind: 'member', memberRole: 'PROJECT_COORDINATOR' },
     ],
+    fills: 'assignedCoordinator',
+  },
+  // D36: the PM staffs the CM too, at any stage. `CaseController.reassignCaseManager` keeps the
+  // stage and mints no expert offer; `assign-cm` above is the PM_REVIEW step that also picks the
+  // expert. The server refuses a CM from another team, or the one already on the case.
+  {
+    path: 'case-manager',
+    method: 'patch',
+    label: 'Assign case manager',
+    roles: ['PROJECT_MANAGER'],
+    stages: null,
+    fields: [{ name: 'cmId', label: 'Case manager', kind: 'member', memberRole: 'CASE_MANAGER' }],
+    fills: 'assignedCm',
+  },
+  // Unit 73: the expert is offered once the CM's draft exists — PM, CM or ENM, stage kept
+  // (`CaseController.changeExpert`). Supersedes the open offer and opens a new one with its mail.
+  // From EXPERT_SIGNING on a change goes through declined / overdue and Reassign expert.
+  {
+    path: 'expert',
+    method: 'patch',
+    label: 'Assign expert',
+    roles: ['PROJECT_MANAGER', 'CASE_MANAGER', 'EXPERT_NETWORK_MANAGER'],
+    stages: EXPERT_OFFER_STAGES,
+    needsDraft: true,
+    fields: [
+      { name: 'expertId', label: 'Expert', kind: 'expert' },
+      // Unit 32. **"(optional)" is load-bearing** — the dialog requires a field unless the label says otherwise.
+      { name: 'expertRationale', label: 'Why this expert (optional)', kind: 'text' },
+      // Unit 65. Blank = the expert's standard fee. A CM never sees it: they offer at the standard fee only.
+      { name: 'fee', label: "Fee (optional — blank uses the expert's standard fee)", kind: 'amount' },
+      // D69: the expert reads this with the offer, before answering.
+      { name: 'expertNote', label: 'Note for the expert (they see this with the offer)', kind: 'note' },
+    ],
+    fills: 'expertId',
   },
   {
     path: 'hold',
@@ -560,6 +622,9 @@ export const QUICK_ACTIONS: readonly QuickAction[] = [
       // Unit 65. Blank = the expert's standard fee; "(optional" is what keeps the dialog from
       // requiring it. The expert sees this amount before accepting, and it is final once they do.
       { name: 'fee', label: "Fee (optional — blank uses the expert's standard fee)", kind: 'amount' },
+      // D69: the expert reads this with the offer, before answering. Required, unlike the
+      // rationale above, which is the team's own record.
+      { name: 'expertNote', label: 'Note for the expert (they see this with the offer)', kind: 'note' },
     ],
   },
   {
@@ -597,11 +662,40 @@ export function actionsFor(card: BoardCard, role: Role): readonly QuickAction[] 
     if (inException) return action.requiresException === card.exceptionState
     if (action.requiresException) return false
     if (action.stages === null) return true
-    // A `status` role watches this stage rather than working it, so the actions declared
-    // *from* this stage are withheld. The stage-preserving ones returned above are not.
-    if (access === 'status') return false
+    if (action.needsDraft && !card.draftVersionCount) return false
+    // A `status` role watches this stage rather than working it, so the transitions declared
+    // *from* this stage are withheld. Stage-preserving `patch` actions are not transitions, so a
+    // CM may still offer the expert while the PM reviews (Unit 73).
+    if (access === 'status' && action.method !== 'patch') return false
     return action.stages.includes(card.currentStage)
+  }).map((action) => {
+    const filled = action.fills && (action.fills === 'expertId' ? card.expertId || card.hasExpert : card[action.fills])
+    const labelled = filled ? { ...action, label: action.label.replace('Assign', 'Change') } : action
+    // Unit 65: a CM offers at the standard fee only, so they are not shown a fee to type.
+    return role === 'CASE_MANAGER' && labelled.fields?.some((f) => f.name === 'fee')
+      ? { ...labelled, fields: labelled.fields.filter((f) => f.name !== 'fee') }
+      : labelled
   })
+}
+
+/**
+ * What a dialog starts filled with. Only `assign-cm`: a PM who already put a CM on the case from
+ * More should not have to pick them again to move it into Drafting.
+ */
+export function prefill(card: BoardCard, action: QuickAction): Record<string, string> {
+  if (action.path !== 'assign-cm' || !card.assignedCm) return {}
+  return { cmId: card.assignedCm }
+}
+
+/**
+ * The action a drop of this card on a column performs, or null when no single action of this
+ * role's takes it there. One action at most: no stage has two transitions into the same column.
+ * Spec 22's objection to dragging was that most moves need a field — the board answers that by
+ * opening the action's dialog on the drop, so the drop only ever picks *which* action.
+ */
+export function dropActionFor(card: BoardCard, role: Role, stages: readonly Stage[]): QuickAction | null {
+  if (stages.includes(card.currentStage)) return null
+  return actionsFor(card, role).find((action) => action.to && stages.includes(action.to)) ?? null
 }
 
 /**
@@ -712,4 +806,17 @@ function addMonths(date: Date, months: number): void {
   // Day 0 of the following month is the last day of this one.
   const lastDay = new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate()
   date.setDate(Math.min(day, lastDay))
+}
+
+/**
+ * A card's date: "Sep 25" this year, "Sep 25, 2025" otherwise — the year only when it tells the
+ * reader something, so the line fits a 15rem card.
+ */
+export function cardDate(iso: string, now: Date = new Date()): string {
+  const date = new Date(iso)
+  return date.toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    ...(date.getFullYear() === now.getFullYear() ? {} : { year: 'numeric' }),
+  })
 }

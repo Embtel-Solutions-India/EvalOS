@@ -5,6 +5,8 @@ public enum AuditAction {
 
 	CREATED,
 	UPDATED,
+	/** A GHL object EvalOS removed on a desk's request (Unit 69: a deal). */
+	DELETED,
 	STAGE_CHANGED,
 	ASSIGNED,
 	/**
@@ -154,5 +156,11 @@ public enum AuditAction {
 	PAYOUT_SETTLED,
 
 	/** The ENM checked an expert's credentials (Unit 63). The actor is the "who". */
-	CREDENTIALS_VERIFIED
+	CREDENTIALS_VERIFIED,
+
+	/**
+	 * A client or expert accepted the portal's policies (Unit 72, D71). The row's snapshot names the
+	 * version accepted: this row, not the account column, is the evidence.
+	 */
+	TERMS_ACCEPTED
 }

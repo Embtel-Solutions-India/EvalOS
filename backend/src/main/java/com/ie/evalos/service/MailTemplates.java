@@ -14,7 +14,7 @@ import org.springframework.stereotype.Component;
 /**
  * The client emails: a layout, three bodies, and {@code {{placeholder}}} substitution.
  *
- * <p><strong>No template engine, and that is a decision rather than an omission.</strong> Three
+ * <p><strong>No template engine, and that is a decision rather than an omission.</strong> Nine
  * messages with a handful of values each do not need Thymeleaf's dependency, its auto-configuration
  * or its second set of escaping rules — the whole substitution is ten lines below. If a fourth
  * message needs conditionals or loops, that is the moment to reconsider, not now.
@@ -145,6 +145,173 @@ public class MailTemplates {
 						%s
 						%s
 						""".formatted(greeting(fullName), link, SITE_URL, SUPPORT_EMAIL));
+	}
+
+	/**
+	 * A client's first case has opened: set a password (Unit 64b, D65). Unprompted, so the link
+	 * lives {@code ClientAccountService.CASE_LINK_TTL} — the copy says 7 days and must follow it.
+	 */
+	public Message caseStarted(String fullName, String link, String service, String caseCode) {
+		Map<String, String> values = caseValues(fullName, service, caseCode);
+		values.put("link", link);
+		values.put("footerNote", "You are receiving this because a case was opened for you at "
+				+ "International Evaluations.");
+		return render("Your case has started — set your password", "case-started",
+				"Your case " + caseCode + " is open. Set a password to follow it.", values, """
+						Thank you%s — we have opened your case and our team is getting it ready.
+
+						Service: %s
+						Case reference: %s
+
+						Set a password for your client portal, where you will see which documents we \
+						need and upload them, follow your case, and review and download your report:
+
+						%s
+
+						This link works once and expires in 7 days. If it has expired, enter your \
+						email on the sign-in page and we will send a new one.
+
+						International Evaluations
+						%s
+						%s
+						""".formatted(greeting(fullName), service, caseCode, link, SITE_URL, SUPPORT_EMAIL));
+	}
+
+	/** Another case for a client who already has a password: no credential, just sign in (D65). */
+	public Message caseStartedSignIn(String fullName, String service, String caseCode) {
+		Map<String, String> values = caseValues(fullName, service, caseCode);
+		String signIn = portalBaseUrl + "/";
+		values.put("link", signIn);
+		values.put("footerNote", "You are receiving this because a case was opened for you at "
+				+ "International Evaluations.");
+		return render("Your new case has started", "case-signin",
+				"Case " + caseCode + " is now in your client portal.", values, """
+						Thank you%s — we have opened another case for you. It is already in your \
+						client portal.
+
+						Service: %s
+						Case reference: %s
+
+						Sign in to follow it: %s
+
+						Forgot your password? Use "Forgot password" on the sign-in page.
+
+						International Evaluations
+						%s
+						%s
+						""".formatted(greeting(fullName), service, caseCode, signIn, SITE_URL, SUPPORT_EMAIL));
+	}
+
+	/**
+	 * The case progress mails (Unit 64c, D58; the offer since Q17 → D67). Words only — they share
+	 * {@code mail/case-update.html}. {@code intro} takes the greeting, then (checklist only) the
+	 * document count.
+	 */
+	public enum CaseUpdate {
+		OFFER(true, "A new case is offered to you", "A new case for you",
+				"Hello%s. We would like to offer you this case. Sign in to read it and answer: accept "
+						+ "it, ask the client for more evidence, or decline.",
+				"Review the offer"),
+		CHECKLIST(false, "Documents needed for your case", "Documents needed",
+				"Thank you%s. To move your case forward we need %d document%s from you. Sign in to see "
+						+ "the list and upload them.",
+				"Upload my documents"),
+		CHASE(false, "Reminder: documents needed for your case", "A reminder about your documents",
+				"Hello%s. We are still waiting for %d document%s from you before we can move your case "
+						+ "forward. Sign in to see the list and upload them.",
+				"Upload my documents"),
+		DRAFT_READY(false, "Your draft is ready to review", "Your draft is ready",
+				"Good news%s — the draft for your case is ready. Sign in to read it, then approve it or "
+						+ "tell us what to change.",
+				"Review my draft"),
+		SIGNING(true, "A letter is ready for your signature", "Ready for your signature",
+				"Hello%s. The client has approved the letter for this case and it is ready for your "
+						+ "signature. Please sign in and upload the signed letter within 24 hours.",
+				"Open the case"),
+		DELIVERED(false, "Your final report is ready", "Your report is ready",
+				"Thank you%s — your case is complete and your final report is ready. Sign in to "
+						+ "download it.",
+				"Download my report");
+
+		/** Whether the recipient is the case's expert rather than the client. */
+		public final boolean expert;
+		final String subject;
+		final String heading;
+		final String intro;
+		final String button;
+
+		CaseUpdate(boolean expert, String subject, String heading, String intro, String button) {
+			this.expert = expert;
+			this.subject = subject;
+			this.heading = heading;
+			this.intro = intro;
+			this.button = button;
+		}
+
+		/** The checklist and its chase name how many documents are still owed. */
+		public boolean countsDocuments() {
+			return this == CHECKLIST || this == CHASE;
+		}
+	}
+
+	/**
+	 * One case progress mail. {@code documents} is read by {@link CaseUpdate#CHECKLIST} and {@link CaseUpdate#CHASE} only.
+	 *
+	 * @param link a deep link into the recipient's portal; never a credential
+	 */
+	public Message caseUpdate(CaseUpdate kind, String fullName, String service, String caseCode, int documents,
+			String link) {
+		return caseUpdate(kind, fullName, service, caseCode, documents, null, link);
+	}
+
+	/**
+	 * @param fee the offered fee as the expert should read it ("USD 250.00"); {@link CaseUpdate#OFFER}
+	 *            only, and null leaves the sentence out rather than promising an amount
+	 */
+	public Message caseUpdate(CaseUpdate kind, String fullName, String service, String caseCode, int documents,
+			String fee, String link) {
+		String intro = kind.countsDocuments()
+				? kind.intro.formatted(greeting(fullName), documents, documents == 1 ? "" : "s")
+				: kind.intro.formatted(greeting(fullName));
+		if (kind == CaseUpdate.OFFER && fee != null) {
+			intro = intro + " The fee offered is " + fee + ".";
+		}
+		String note = kind.expert
+				? "First time signing in? Enter your email on the sign-in page and choose \"Email me a link\"."
+				: "First time signing in? Enter your email on the sign-in page and we will send you a "
+						+ "link to set a password.";
+		Map<String, String> values = caseValues(fullName, service, caseCode);
+		values.put("link", link);
+		values.put("heading", kind.heading);
+		values.put("intro", intro);
+		values.put("buttonLabel", kind.button);
+		values.put("note", note);
+		values.put("footerNote", "You are receiving this because of a case you have with "
+				+ "International Evaluations.");
+		return render(kind.subject, "case-update", kind.heading + " — case " + caseCode + ".", values, """
+				%s
+
+				%s
+
+				Service: %s
+				Case reference: %s
+
+				%s: %s
+
+				%s
+
+				International Evaluations
+				%s
+				%s
+				""".formatted(kind.heading, intro, service, caseCode, kind.button, link, note, SITE_URL,
+				SUPPORT_EMAIL));
+	}
+
+	private Map<String, String> caseValues(String fullName, String service, String caseCode) {
+		Map<String, String> values = base(fullName);
+		values.put("service", service);
+		values.put("caseCode", caseCode);
+		return values;
 	}
 
 	private Map<String, String> base(String fullName) {

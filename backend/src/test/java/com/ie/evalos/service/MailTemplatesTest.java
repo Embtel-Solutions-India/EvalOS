@@ -20,7 +20,15 @@ class MailTemplatesTest {
 
 	private List<MailTemplates.Message> all() {
 		return List.of(templates.setPassword("Ana Ruiz", "https://portal.test/set-password#tok"),
-				templates.resetPassword("Ana Ruiz", "https://portal.test/set-password#tok"));
+				templates.resetPassword("Ana Ruiz", "https://portal.test/set-password#tok"),
+				templates.caseStarted("Ana Ruiz", "https://portal.test/set-password#tok", "Credential evaluation", "IE-0001"),
+				templates.caseStartedSignIn("Ana Ruiz", "Credential evaluation", "IE-0001"),
+				templates.caseUpdate(MailTemplates.CaseUpdate.CHECKLIST, "Ana Ruiz", "Credential evaluation", "IE-0001", 3, "https://portal.test/cases/1"),
+				templates.caseUpdate(MailTemplates.CaseUpdate.CHASE, "Ana Ruiz", "Credential evaluation", "IE-0001", 2, "https://portal.test/cases/1"),
+				templates.caseUpdate(MailTemplates.CaseUpdate.DRAFT_READY, "Ana Ruiz", "Credential evaluation", "IE-0001", 0, "https://portal.test/cases/1"),
+				templates.caseUpdate(MailTemplates.CaseUpdate.SIGNING, "Chidi Okafor", "Credential evaluation", "IE-0001", 0, "https://expert.test/case?caseId=1"),
+				templates.caseUpdate(MailTemplates.CaseUpdate.DELIVERED, "Ana Ruiz", "Credential evaluation", "IE-0001", 0, "https://portal.test/cases/1"),
+				templates.caseUpdate(MailTemplates.CaseUpdate.OFFER, "Chidi Okafor", "Credential evaluation", "IE-0001", 0, "USD 250.00", "https://expert.test/case?caseId=1"));
 	}
 
 	@Test
@@ -55,7 +63,8 @@ class MailTemplatesTest {
 		String link = "https://portal.test/set-password#tok";
 
 		for (MailTemplates.Message message : List.of(templates.setPassword("Ana", link),
-				templates.resetPassword("Ana", link))) {
+				templates.resetPassword("Ana", link),
+				templates.caseStarted("Ana", link, "Credential evaluation", "IE-0001"))) {
 			assertThat(message.text()).contains(link);
 			assertThat(message.html()).contains(link);
 		}
@@ -74,6 +83,40 @@ class MailTemplatesTest {
 				templates.setPassword("<script>alert(1)</script>", "https://portal.test/x");
 
 		assertThat(message.html()).doesNotContain("<script>").contains("&lt;script&gt;");
+	}
+
+	/** D65: the case mails name the case in both parts, and the service is escaped like any value. */
+	@Test
+	void theCaseMailsNameTheCase() {
+		for (MailTemplates.Message message : List.of(
+				templates.caseStarted("Ana", "https://portal.test/x", "<b>Evaluation</b>", "IE-0001"),
+				templates.caseStartedSignIn("Ana", "<b>Evaluation</b>", "IE-0001"))) {
+			assertThat(message.html()).contains("IE-0001").contains("&lt;b&gt;Evaluation").doesNotContain("<b>Evaluation");
+			assertThat(message.text()).contains("IE-0001");
+		}
+		assertThat(templates.caseStarted("Ana", "https://portal.test/x", "S", "C").html()).contains("7 days");
+		assertThat(templates.caseStartedSignIn("Ana", "S", "C").html())
+				.contains("https://portal.internationalevaluations.com/").doesNotContain("set-password");
+	}
+
+	/** Unit 64c: the checklist count is in the copy, singular and plural; the link is in both parts. */
+	@Test
+	void theChecklistMailSaysHowManyDocuments() {
+		String link = "https://portal.test/cases/1";
+		MailTemplates.Message three = templates.caseUpdate(MailTemplates.CaseUpdate.CHECKLIST, "Ana", "S", "C", 3, link);
+		MailTemplates.Message one = templates.caseUpdate(MailTemplates.CaseUpdate.CHECKLIST, "Ana", "S", "C", 1, link);
+		assertThat(three.text()).contains("3 documents").contains(link);
+		assertThat(three.html()).contains("3 documents").contains(link);
+		assertThat(one.text()).contains("1 document from you");
+	}
+
+	/** D67: the offer names its fee when there is one, and promises no amount when there is not. */
+	@Test
+	void theOfferMailNamesTheFeeOnlyWhenPriced() {
+		assertThat(templates.caseUpdate(MailTemplates.CaseUpdate.OFFER, "C", "S", "X", 0, "USD 250.00", "https://e.test").text())
+				.contains("The fee offered is USD 250.00.");
+		assertThat(templates.caseUpdate(MailTemplates.CaseUpdate.OFFER, "C", "S", "X", 0, null, "https://e.test").text())
+				.doesNotContain("fee offered");
 	}
 
 	/** A blank name drops the greeting rather than writing "Welcome ," at somebody. */

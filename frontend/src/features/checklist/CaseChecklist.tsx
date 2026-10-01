@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useCallback, useState } from 'react'
 import {
   addChecklistItem,
   fetchChecklist,
@@ -50,21 +51,23 @@ export default function CaseChecklist({
   /** Docs complete moves the case to the PM, so the board above has to re-read. */
   onCaseLeftTheStage: () => void
 }) {
-  const [view, setView] = useState<ChecklistView | null>(null)
+  // Unit 70a: the case's checklist key, shared with the case page; a write's answer is stored
+  // into it, so both screens show the same list.
+  const queryClient = useQueryClient()
+  const checklist = useQuery<ChecklistView>({
+    queryKey: ['case', caseId, 'checklist'],
+    queryFn: ({ signal }) => fetchChecklist(caseId, signal),
+  })
+  const view = checklist.data ?? null
+  const setView = useCallback(
+    (fresh: ChecklistView) => queryClient.setQueryData(['case', caseId, 'checklist'], fresh),
+    [queryClient, caseId],
+  )
   const [busy, setBusy] = useState<Busy>('idle')
-  const [error, setError] = useState<string | null>(null)
+  const [writeError, setError] = useState<string | null>(null)
+  const loadError = view || !checklist.error ? null : checklist.error.message || 'Could not load the checklist'
+  const error = writeError ?? loadError
   const [newLabel, setNewLabel] = useState('')
-
-  useEffect(() => {
-    const controller = new AbortController()
-    fetchChecklist(caseId, controller.signal)
-      .then(setView)
-      .catch((cause: unknown) => {
-        if (controller.signal.aborted) return
-        setError(cause instanceof Error ? cause.message : 'Could not load the checklist')
-      })
-    return () => controller.abort()
-  }, [caseId])
 
   /**
    * One place every write goes through, so none of them can forget to clear the last error, to
@@ -86,7 +89,7 @@ export default function CaseChecklist({
         setBusy('idle')
       }
     },
-    [onChecklistChanged],
+    [onChecklistChanged, setView],
   )
 
   const onChase = useCallback(async () => {

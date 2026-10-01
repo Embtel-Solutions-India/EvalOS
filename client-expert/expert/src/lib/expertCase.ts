@@ -43,6 +43,8 @@ export type ExpertCaseView = {
   currency: string | null
   /** The files this expert may open (Unit 66b): the approved letter, then the client's current uploads. */
   documents: ExpertDocument[]
+  /** D69: what the team told this expert with the offer; null on an offer made before notes. */
+  offerNote: string | null
 }
 
 /** `ExpertPortalService.ExpertDocument`, exactly. `LETTER` is the client-approved draft. */
@@ -70,6 +72,8 @@ export type ExpertCaseSummary = {
   /** Unit 65: the open or accepted offer's fee, and its currency. */
   offeredFee: number | null
   currency: string | null
+  /** D69: the offer's note, read before answering. */
+  offerNote: string | null
 }
 
 /** `ExpertPortalService.ExpertMe`: who is signed in, for the greeting and the top bar. */

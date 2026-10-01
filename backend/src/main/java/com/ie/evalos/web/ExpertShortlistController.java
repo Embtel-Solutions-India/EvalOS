@@ -97,7 +97,8 @@ public class ExpertShortlistController {
 	 *                 and is the only person who knows — see {@link ExpertMatchService}
 	 */
 	@GetMapping("/api/cases/{id}/expert-shortlist")
-	@PreAuthorize("hasAnyRole('GM', 'BRAND_MANAGER', 'PROJECT_MANAGER')")
+	// Unit 73: the CM, who now offers the expert, ranks the same way the PM does.
+	@PreAuthorize("hasAnyRole('GM', 'BRAND_MANAGER', 'PROJECT_MANAGER', 'CASE_MANAGER')")
 	public ApiResponse<ShortlistView> shortlist(@PathVariable UUID id, @RequestParam FieldTag fieldTag) {
 		ExpertMatchService.Shortlist shortlist = matching.shortlist(id, fieldTag);
 		return ApiResponse.ok(new ShortlistView(

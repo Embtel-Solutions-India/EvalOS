@@ -11,12 +11,13 @@ import { accept, decline, requestEvidence } from '@/services/expertPortalService
  * Accept · Ask for more evidence · Decline. Each one says plainly what it does to the case.
  *
  * The fee comes first (Unit 65): accepting is agreeing to it, so it is shown above the buttons and
- * Accept is disabled until one is set.
+ * Accept is disabled until one is set. The PM's note (D69) sits with it: it is part of the offer.
  */
-export function Answers({ caseId, fee, currency, onChanged }: {
+export function Answers({ caseId, fee, currency, note, onChanged }: {
   caseId: string
   fee: number | null
   currency: string | null
+  note: string | null
   onChanged: () => void
 }) {
   const [missing, setMissing] = useState('')
@@ -41,6 +42,12 @@ export function Answers({ caseId, fee, currency, onChanged }: {
       <CardHeader>
         <CardTitle className="text-sm">Your answer</CardTitle>
         <p className="text-base font-semibold text-foreground tabular-nums">{feeLine(fee, currency)}</p>
+        {note && (
+          <div className="mt-2 rounded-md border bg-muted/40 p-3">
+            <p className="text-xs font-medium text-muted-foreground">Note from the team</p>
+            <p className="mt-1 whitespace-pre-wrap text-sm text-foreground">{note}</p>
+          </div>
+        )}
       </CardHeader>
       <CardContent className="grid gap-6 lg:grid-cols-3">
         <div className="flex flex-col">

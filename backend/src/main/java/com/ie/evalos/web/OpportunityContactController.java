@@ -84,7 +84,10 @@ public class OpportunityContactController {
 	 */
 	public record ContactView(String name, String email, String phone, String company,
 			String source, String assignedTo, Instant createdAt, List<Field> dealFields,
-			String country, List<String> tags, List<Field> contactFields) {
+			String country, List<String> tags, List<Field> contactFields,
+			// Unit 69: what the edit dialog pre-fills — the owner's GHL id and the deal's
+			// custom-field values by field id (`dealFields` is labelled, for reading).
+			String assignedToId, Map<String, String> dealFieldValues) {
 	}
 
 	/** A custom field value under its GHL name. The field id stays server-side, like the user id. */
@@ -129,7 +132,9 @@ public class OpportunityContactController {
 					contact == null ? null : contact.getCountry(),
 					contact == null ? List.of() : contact.getTags(),
 					contact == null ? List.of()
-							: named(deal, ReferenceMirrorService.CONTACT_MODEL, contact.getCustomFields()));
+							: named(deal, ReferenceMirrorService.CONTACT_MODEL, contact.getCustomFields()),
+					deal.getGhlAssignedTo(),
+					deal.getCustomFields());
 		});
 		return ApiResponse.ok(found.orElse(null));
 	}

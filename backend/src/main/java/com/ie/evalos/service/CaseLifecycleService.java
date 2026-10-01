@@ -220,7 +220,7 @@ public class CaseLifecycleService {
 		requireState(subject.getPoolStatus() == PoolStatus.IN_POOL, "case has already left the pool");
 		TeamMember pm = member(pmId, Role.PROJECT_MANAGER, subject.getBrandId());
 
-		return apply(subject, to, Action.ASSIGN_PM, null, c -> {
+		return apply(subject, to, Action.ASSIGN_PM, "Project manager: " + pm.getDisplayName(), c -> {
 			c.setAssignedPm(pm.getId());
 			c.setTeamId(pm.getTeamId());
 			c.setPoolStatus(PoolStatus.ASSIGNED);
@@ -243,54 +243,82 @@ public class CaseLifecycleService {
 		Stage to = CaseTransitions.target(subject, Action.ASSIGN_COORDINATOR);
 		TeamMember coordinator = member(coordinatorId, Role.PROJECT_COORDINATOR, subject.getBrandId());
 
-		return apply(subject, to, Action.ASSIGN_COORDINATOR, null,
+		// The name is in the note: the timeline's actor is the PM, so without it "assigned" says
+		// nobody who.
+		return apply(subject, to, Action.ASSIGN_COORDINATOR, "Coordinator: " + coordinator.getDisplayName(),
 				c -> c.setAssignedCoordinator(coordinator.getId()));
 	}
 
 	/**
-	 * PM → CM, with the expert the CM will draft for.
+	 * PM → CM: PM Review → Drafting (Unit 73, D36 edited 2026-10-02).
 	 *
-	 * <p><strong>The name reads as staff-only and is not:</strong> this action assigns both, and
-	 * it is where an expert offer comes from — which is why the offer row is written here rather
-	 * than by some endpoint of its own. It commits inside this transaction, so an offer and the
-	 * transition that caused it land together or not at all.
-	 *
-	 * <p>Nothing here consults the match engine. The expert given is the expert used, whether or
-	 * not they were on any shortlist — the ranking is assistance, never a precondition.
-	 *
-	 * <p><strong>This is where a case's discipline is recorded</strong> (Unit 33). Unit 12
-	 * refused a {@code field_of_expertise} column because the only source would have been an
-	 * intake webhook that carries no discipline; the source is here, where the PM has just
-	 * read the documents. Optional, like the rationale beside it — a null leaves the previous
-	 * value alone rather than erasing a discipline someone recorded on an earlier match.
+	 * <p><strong>The CM only.</strong> Until Unit 73 this also picked the expert and opened the offer,
+	 * before anything was drafted; the expert is now offered once a draft exists, through
+	 * {@link #changeExpert}. Publishes {@code CASE_MANAGER_REASSIGNED} (the CM is told, the chat
+	 * follows) rather than {@code EXPERT_ASSIGNED}, which now means an offer went out.
 	 */
 	@Transactional
-	public Case assignCaseManager(UUID caseId, UUID cmId, UUID expertId, String expertRationale,
-			FieldTag fieldOfExpertise, BigDecimal fee) {
+	public Case assignCaseManager(UUID caseId, UUID cmId) {
 		Case subject = load(caseId);
 		Stage to = CaseTransitions.target(subject, Action.ASSIGN_CASE_MANAGER);
 		TeamMember cm = member(cmId, Role.CASE_MANAGER, subject.getBrandId());
 		requireState(cm.getTeamId() != null && cm.getTeamId().equals(subject.getTeamId()),
 				"case manager is not on this case's team");
+		return apply(subject, to, Action.ASSIGN_CASE_MANAGER, "Case manager: " + cm.getDisplayName(),
+				c -> c.setAssignedCm(cm.getId()));
+	}
+
+	/**
+	 * Where the expert may be offered without moving the case (Unit 73): once a draft exists, until
+	 * the letter goes out for signature. From {@code EXPERT_SIGNING} on the expert holds a live link
+	 * and a running sign clock, so a change goes through decline / timed-out and
+	 * {@link #reassignExpert}, which is what restarts that clock.
+	 */
+	private static final java.util.Set<Stage> EXPERT_CHANGEABLE = java.util.EnumSet.of(Stage.DRAFT_IN_PROGRESS,
+			Stage.DRAFT_REVIEW, Stage.READY_TO_SEND, Stage.CLIENT_REVIEW, Stage.CLIENT_APPROVAL);
+
+	/**
+	 * Offers the case to an expert, or to a different one, without moving it — the expert's twin of
+	 * {@link #reassignCaseManager} (Unit 73, D36). PM, CM, ENM or GM; a CM at the standard fee only
+	 * ({@code OfferFees}, Unit 65). Any open offer is superseded and the outgoing expert's link
+	 * revoked before the new offer opens, so exactly one offer is ever {@code OFFERED}; then
+	 * {@code EXPERT_ASSIGNED} sends the offer mail and adds the expert to the Expert chat.
+	 *
+	 * <p><strong>This is where a case's discipline is recorded</strong> (Unit 33): optional, and a
+	 * null leaves the previous value rather than erasing it.
+	 */
+	@Transactional
+	public Case changeExpert(UUID caseId, UUID expertId, String expertRationale, FieldTag fieldOfExpertise,
+			BigDecimal fee, String expertNote) {
+		String note = requireExpertNote(expertNote);
+		Case subject = load(caseId);
+		requireState(subject.getExceptionState() == ExceptionState.NONE,
+				"a held case's expert is changed through its own way out");
+		String noDraftYet = "the expert is offered once the case manager has uploaded a draft";
+		requireState(subject.getCurrentStage().ordinal() >= Stage.DRAFT_IN_PROGRESS.ordinal(), noDraftYet);
+		requireState(EXPERT_CHANGEABLE.contains(subject.getCurrentStage()),
+				"from expert signing on, mark the expert declined or overdue, then reassign");
+		requireState(subject.getDraftVersionCount() > 0, noDraftYet);
 		Expert expert = availableExpert(expertId);
-		// Priced before anything moves (Unit 65): a refused price must leave the case where it was.
+		requireState(!expert.getId().equals(subject.getExpertId()), "that expert already holds this case");
 		BigDecimal price = OfferFees.price(TenantContext.current().role(), fee, expert.getStandardFee());
 
-		Case saved = apply(subject, to, Action.ASSIGN_CASE_MANAGER, null, c -> {
-			c.setAssignedCm(cm.getId());
-			c.setExpertId(expert.getId());
-			c.setExpertSignStatus(ExpertSignStatus.PENDING);
-			// Optional (Unit 32): a PM who has not yet put the reason into words must not be
-			// blocked from staffing a case, and a required field is how "n/a" becomes a column's
-			// most common value.
-			if (expertRationale != null && !expertRationale.isBlank()) {
-				c.setExpertSelectionRationale(expertRationale);
-			}
-			if (fieldOfExpertise != null) {
-				c.setFieldOfExpertise(fieldOfExpertise);
-			}
-		});
-		openOffer(saved, expert.getId(), price);
+		CaseSnapshot before = CaseSnapshot.of(subject);
+		resolveOpenOffer(subject, OfferOutcome.SUPERSEDED, null, null);
+		revokeExpertLink(subject);
+		subject.setExpertId(expert.getId());
+		subject.setExpertSignStatus(ExpertSignStatus.PENDING);
+		if (expertRationale != null && !expertRationale.isBlank()) {
+			subject.setExpertSelectionRationale(expertRationale);
+		}
+		if (fieldOfExpertise != null) {
+			subject.setFieldOfExpertise(fieldOfExpertise);
+		}
+		Case saved = cases.save(subject);
+		audit.recordEvent(OBJECT_TYPE, saved.getId(), AuditAction.ASSIGNED, TenantContext.current().memberId(),
+				before, CaseSnapshot.of(saved, "Expert: " + expert.getFullName()));
+		openOffer(saved, expert.getId(), price, note);
+		events.publishEvent(CaseEvents.CaseEvent.of(CaseEvents.Type.EXPERT_ASSIGNED, saved));
 		return saved;
 	}
 
@@ -317,12 +345,13 @@ public class CaseLifecycleService {
 		requireState(!cm.getId().equals(subject.getAssignedCm()),
 				"that case manager already holds this case");
 
-		CaseManagerSnapshot before = new CaseManagerSnapshot(subject.getAssignedCm());
+		CaseSnapshot before = CaseSnapshot.of(subject);
 		subject.setAssignedCm(cm.getId());
 		Case saved = cases.save(subject);
 
+		// A CaseSnapshot like every other case row, so the timeline shows the stage and who.
 		audit.recordEvent(OBJECT_TYPE, saved.getId(), AuditAction.ASSIGNED, TenantContext.current().memberId(),
-				before, new CaseManagerSnapshot(cm.getId()));
+				before, CaseSnapshot.of(saved, "Case manager: " + cm.getDisplayName()));
 		// Unit 57: the chat membership follows the Case Manager. Until now this method published
 		// nothing, so the chat would have learned of the change only on the hourly sweep.
 		events.publishEvent(CaseEvents.CaseEvent.of(CaseEvents.Type.CASE_MANAGER_REASSIGNED, saved));
@@ -416,9 +445,6 @@ public class CaseLifecycleService {
 	}
 
 	/** Who held the case. Both sides are recorded, so the trail answers "moved from whom". */
-	public record CaseManagerSnapshot(UUID assignedCm) {
-	}
-
 	/** The promised date, before and after. */
 	public record DeadlineSnapshot(Instant deadline) {
 	}
@@ -777,7 +803,8 @@ public class CaseLifecycleService {
 		Stage to = CaseTransitions.target(subject, Action.CLIENT_APPROVE_DRAFT);
 		requireState(subject.getClientApprovalStatus() == ClientApprovalStatus.PENDING,
 				"no draft is with the client");
-		requireState(subject.getExpertId() != null, "no expert is on this case");
+		// No expert check here since Unit 73: the expert may still be unoffered when the client
+		// approves. `sendToExpert` is the guard — the letter cannot go out without one.
 
 		// Unit 58: this is the version the expert signs — locked by status, not only by stage.
 		answerLatestDraft(subject, DocumentStatus.CLIENT_APPROVED);
@@ -982,13 +1009,14 @@ public class CaseLifecycleService {
 	 */
 	@Transactional
 	public Case reassignExpert(UUID caseId, UUID expertId, String expertRationale,
-			FieldTag fieldOfExpertise, BigDecimal fee) {
+			FieldTag fieldOfExpertise, BigDecimal fee, String expertNote) {
+		String note = requireExpertNote(expertNote);
 		Case subject = load(caseId);
 		Expert replacement = availableExpert(expertId);
 		requireState(!replacement.getId().equals(subject.getExpertId()),
 				"that is the expert who declined — offer it again with retake");
 		return rematch(subject, replacement, expertRationale, fieldOfExpertise, null,
-				OfferFees.price(TenantContext.current().role(), fee, replacement.getStandardFee()));
+				OfferFees.price(TenantContext.current().role(), fee, replacement.getStandardFee()), note);
 	}
 
 	/**
@@ -1003,15 +1031,19 @@ public class CaseLifecycleService {
 		requireState(subject.getExpertId() != null, "the case names no expert to offer it back to");
 		Expert again = availableExpert(subject.getExpertId());
 		// The retake is the same case to the same expert, so the base is what they were last offered.
-		BigDecimal previous = offers.findByCaseIdOrderByOfferedAtDesc(subject.getId()).stream()
-				.filter(o -> o.getExpertId().equals(again.getId()) && o.getFee() != null)
-				.map(ExpertCaseOffer::getFee).findFirst().orElse(again.getStandardFee());
+		List<ExpertCaseOffer> theirs = offers.findByCaseIdOrderByOfferedAtDesc(subject.getId()).stream()
+				.filter(o -> o.getExpertId().equals(again.getId())).toList();
+		BigDecimal previous = theirs.stream().map(ExpertCaseOffer::getFee).filter(java.util.Objects::nonNull)
+				.findFirst().orElse(again.getStandardFee());
+		// D69: the same case to the same expert, so the note they were given comes back with it.
+		String note = theirs.stream().map(ExpertCaseOffer::getNote).filter(java.util.Objects::nonNull)
+				.findFirst().orElse(null);
 		return rematch(subject, again, null, null, "Offered again to the expert who declined (retake)",
-				OfferFees.price(TenantContext.current().role(), fee, previous));
+				OfferFees.price(TenantContext.current().role(), fee, previous), note);
 	}
 
 	private Case rematch(Case subject, Expert replacement, String expertRationale, FieldTag fieldOfExpertise,
-			String note, BigDecimal price) {
+			String note, BigDecimal price, String expertNote) {
 		Stage to = CaseTransitions.target(subject, Action.REASSIGN_EXPERT);
 		resolveOpenOffer(subject, OfferOutcome.SUPERSEDED, null, null);
 		// **The one that matters.** The case is about to name a different expert; the outgoing one's
@@ -1034,7 +1066,7 @@ public class CaseLifecycleService {
 				c.setFieldOfExpertise(fieldOfExpertise);
 			}
 		});
-		openOffer(saved, replacement.getId(), price);
+		openOffer(saved, replacement.getId(), price, expertNote);
 		return saved;
 	}
 
@@ -1073,10 +1105,19 @@ public class CaseLifecycleService {
 	}
 
 	/** Opens the priced offer and logs it (Unit 65 rule 8). */
-	private void openOffer(Case saved, UUID expertId, BigDecimal price) {
+	/** D69: an offer tells its expert something. Checked before anything moves. */
+	private static String requireExpertNote(String note) {
+		if (note == null || note.isBlank()) {
+			throw new InvalidRequestException("Write a note for the expert: every offer carries one");
+		}
+		return note.strip();
+	}
+
+	private void openOffer(Case saved, UUID expertId, BigDecimal price, String note) {
 		UUID actor = TenantContext.current().memberId();
 		ExpertCaseOffer offer = new ExpertCaseOffer(saved.getBrandId(), saved.getId(), expertId);
 		offer.setFee(price, actor);
+		offer.setNote(note);
 		offers.save(offer);
 		Map<String, Object> after = new HashMap<>();
 		after.put("caseId", saved.getId());

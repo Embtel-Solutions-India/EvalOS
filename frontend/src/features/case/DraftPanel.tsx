@@ -80,7 +80,7 @@ export default function DraftPanel({
 
       {/* The versions' own Word / PDF links replace the old single `draftLink` (Unit 58). */}
       <div className="mt-3">
-        <DraftHistory caseId={id} clientApprovalStatus={clientApprovalStatus} reloadKey={draftVersionCount} />
+        <DraftHistory caseId={id} clientApprovalStatus={clientApprovalStatus} />
       </div>
     </section>
   )

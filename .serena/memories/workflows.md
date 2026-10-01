@@ -6,7 +6,7 @@ WORKFLOW separately — never present a target as if it exists.**
 Lifecycle (**Unit 64, built 2026-09-29** — spec `64-remove-client-requests.md`):
 
 ```
-GHL (form · call · Sales · Marketing) → OPPORTUNITY → WON → CASE (+ portal account, set-password mail)
+GHL (form · call · Sales · Marketing) → OPPORTUNITY → WON → CASE (+ portal account, case-opened mail — D65: set-password 7-day link, or sign-in if a password exists)
   → PC / CM send checklist → CLIENT uploads on the case → PRODUCTION → DELIVERY
 ```
 
@@ -15,8 +15,9 @@ submit, the `INTAKE` purpose, public sign-up, Sales' Application / Request docum
 Unfinished requests screen were all removed. Nothing below describes them.
 
 Production, and it is now a stated business rule rather than an accident of the code (D36):
-Handoff A creates the case → a **PM** takes it → the PM assigns **Coordinator**, **Case Manager**
-and **Expert** → the **CM uploads the draft as Word + PDF** → the **client comments and approves that
+Handoff A creates the case → a **PM** takes it → the PM assigns **Coordinator** and, at PM Review,
+the **Case Manager** only → the **CM uploads the draft as Word + PDF** → **once a draft exists the PM
+or CM offers the Expert an amount** (Unit 73, 2026-10-02) → the **client comments and approves that
 version in the portal** (Unit 58) → only then
 the **expert** downloads, signs and uploads back. `CaseLifecycleService` already implements all of
 it. From the offer on, the expert also opens the client's current files and the approved draft (D63). **Sales sees none of this** (D19c).
@@ -30,11 +31,15 @@ mail down. If GHL is down at set-password or sign-in, `ensureCrmIdentity` backfi
 
 Two GHL create paths, two verbs: `SalesDeskService.newDeal` (createOpportunity) and
 `MarketingLeadService.openLead` (**upsertOpportunity** — the one place a repeat enquiry reuses an
-open deal; **D56:** skipped when that deal has a pending `sync_outbox` push — the queued edit wins).
+open deal; **D56:** skipped when that deal has a pending `sync_outbox` push — the queued edit wins;
+**D64:** the BDE form is GHL's full opportunity form — stage + close ride the upsert, intake fields
+follow via `setOpportunityFields` since GHL's upsert has no `customFields`).
+**Unit 69 (D66):** Sales edits every deal field in `DealEditDialog` — name/value/stage queued (D44), close/owner/intake fields inline to GHL then onto the mirror — and deletes a non-won deal with no queued push (inline GHL delete, mirror row stamped missing).
 Set-password and sign-in may `upsertContact` (`ensureCrmIdentity`). The portal opens no deal.
 
 **Documents** enter **only at the case**, against a sent checklist item (D33, D60), keyed by the
 **GHL contact id** (D41 — one id names a contact everywhere; `DocumentStore.clientKey`). **Notifications** are in-app today; D37 makes them in-app **and push**, never mail.
+CURRENT since Unit 70 (D68, built 2026-10-01): a committed case change shows on every open screen of that case without a reload (`case.changed` over Ably → background REST re-read; staff `lib/live.ts`, portals `LiveInvalidate`); the bell on `notifications.changed`; sidebar counts are a query. GM hears every brand (token names each brand channel).
 
 **Conversations do not exist** — no table, no route, no component, anywhere. **Notes** are
 synced both ways (Unit 54, built 2026-09-24): pushed once to the GHL contact via the
@@ -79,6 +84,6 @@ over REST, live via each member's private Ably channel, web push when the app is
 
 **Appointments (Unit 60, 2026-09-29).** Book, reschedule, **cancel** (GHL status `cancelled`), **notes** (live from GHL), **blocked time** (the caller's own, by `team_member.ghl_user_id`) and **per-member free slots**. Every per-meeting route requires a `meeting` row on that deal. No guests: GHL has no field (Q14).
 
-**Checklist send (Unit 61, D60, 2026-09-29).** PC or CM adds items (unsent, hidden from the portal) → **Send** publishes every unsent item, stamps `sent_at/sent_by`, publishes `CHECKLIST_REQUESTED` → client uploads against each sent item. Nothing unsent = "already sent by … on …". Evidence-request items are unsent too; the board lists any case with unsent items.
+**Checklist send (Unit 61, D60, 2026-09-29).** PC or CM adds items (unsent, hidden from the portal) → **Send** publishes every unsent item, stamps `sent_at/sent_by`, publishes `CHECKLIST_REQUESTED` → client uploads against each sent item. Nothing unsent = "already sent by … on …". Evidence-request items are unsent too; the board lists any case with unsent items **or held `ON_HOLD_AWAITING_CLIENT`** (2026-10-01, chip "Expert asked for more evidence" at signing), and a held case may be chased. The request notifies Coordinators + the case's CM and PM; the case page shows it as a banner until Resume.
 
 **Expert lifecycle (Unit 63, 2026-09-29).** GHL hiring pipeline (tagged `EXPERT_HIRING`; stages are GHL's) → ENM board `/hiring` (stage moves go mirror + outbox → GHL; GHL-side moves notify the ENMs) → Onboarded → pre-filled expert create → directory (verify credentials, case history) → declined case may be retaken (D62) → delivered → payout Pending → ENM records transfer (Processing) → **expert confirms in portal** (Paid) → weekly / monthly summary + CSV. **Unit 65 (built 2026-09-30):** the offer carries the amount (editable while open, expert sees it and accepts it, stale fee → 409), delivery pays that amount, staff Payouts module = Overview · Cases register (per-offer log) · Experts · Pay run.

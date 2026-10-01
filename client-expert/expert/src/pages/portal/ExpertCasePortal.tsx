@@ -215,7 +215,7 @@ function CaseBody({ caseId, view, onChanged }: { caseId: string; view: ExpertCas
       {state === 'OPEN' && (
         <>
           <SignPanel view={view} onSigned={onChanged} />
-          <Answers caseId={caseId} fee={view.offeredFee} currency={view.currency} onChanged={onChanged} />
+          <Answers caseId={caseId} fee={view.offeredFee} currency={view.currency} note={view.offerNote} onChanged={onChanged} />
         </>
       )}
     </>

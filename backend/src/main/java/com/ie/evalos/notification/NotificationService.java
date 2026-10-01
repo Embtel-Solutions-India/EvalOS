@@ -4,6 +4,7 @@ import java.util.Collection;
 import java.util.List;
 import java.util.UUID;
 
+import com.ie.evalos.chat.live.CaseLive;
 import com.ie.evalos.common.ForbiddenException;
 import com.ie.evalos.domain.Notification;
 import com.ie.evalos.domain.NotificationType;
@@ -29,9 +30,11 @@ public class NotificationService {
 	static final int DEFAULT_PAGE_SIZE = 20;
 
 	private final NotificationRepository notifications;
+	private final CaseLive live;
 
-	NotificationService(NotificationRepository notifications) {
+	NotificationService(NotificationRepository notifications, CaseLive live) {
 		this.notifications = notifications;
+		this.live = live;
 	}
 
 	/**
@@ -45,8 +48,11 @@ public class NotificationService {
 	 */
 	@Transactional
 	public void create(UUID brandId, Collection<UUID> recipients, NotificationType type, UUID caseId, String body) {
-		recipients.forEach(recipient -> notifications.save(
-				new Notification(brandId, recipient, type, caseId, body)));
+		recipients.forEach(recipient -> {
+			notifications.save(new Notification(brandId, recipient, type, caseId, body));
+			// Unit 70 §2.3: the bell re-reads after commit, instead of on its next 60 s poll.
+			live.notificationsChanged(recipient);
+		});
 	}
 
 	/**
@@ -85,12 +91,14 @@ public class NotificationService {
 		Notification subject = notifications.findByIdAndRecipientId(id, me())
 				.orElseThrow(() -> new ForbiddenException("No such notification for this member"));
 		subject.markRead();
+		live.notificationsChanged(me()); // a second open tab clears its badge too
 		return notifications.save(subject);
 	}
 
 	/** Returns how many were still unread, so the caller can confirm the badge cleared. */
 	@Transactional
 	public int markAllRead() {
+		live.notificationsChanged(me());
 		return notifications.markAllReadFor(me());
 	}
 

@@ -60,6 +60,11 @@ sign-in (D3c). Same repair covers `V45` accounts seeded without an id.
 **This already matches the target identity model.** All three states are supported; the upsert
 reuses an existing GHL contact and never duplicates it; sign-in creates nothing.
 
+**First sign-in (Unit 72, D71):** after any client or expert sign-in, `TermsGate` asks
+`GET …/{client|expert}/terms`; while `required`, the portal shows only the acceptance screen (the
+three policies, a checkbox, Accept) and `POST …/terms` records the version. Asked once per account
+and policy version; a case-scoped link is never asked.
+
 ### TARGET WORKFLOW
 
 **Built as CURRENT above (Unit 64, 2026-09-29): the account is born with the case.** No public sign-up.
@@ -69,8 +74,8 @@ opportunity.won → Handoff A → CASE_CREATED (after commit)
   → case brand is the portal brand, contact has email + GHL id?
       no  → flag the case, no account
       yes → account for (brand, email)?
-              none                       → create (created_via CASE, linked to the contact) → set-password mail
-              linked to this contact     → no password: re-send set-password · password set: nothing
+              none                       → create (created_via CASE, linked to the contact) → case-started mail (D65)
+              linked to this contact     → no password: case-started mail · password set: new-case sign-in mail
               unlinked                   → link, then as above
               linked to another contact  → flag the case, never relink
 sign-in, unknown email → "your account opens when your first case starts"
@@ -90,6 +95,9 @@ to or merged with `contact_snapshot` so one person is one row. Spec `64` §2–�
 A deal starts in GHL               form · call · Sales (`SalesDeskService.newDeal`) · Marketing
                                     (`MarketingLeadService.openLead`). The portal opens none.
 Sales works it                     GHL pipeline stages; review → won → payment are GHL's (D11)
+Won in EvalOS (D70)                Won button, or a move to the Won stage (board or picker):
+                                   Sales writes a required note for production: a deal note
+                                   flagged `handoff` (synced to GHL), shown on the case
 
 GHL marks the opportunity won     → POST /api/webhooks/ghl/{endpointToken}
                                        WebhookGateway → WebhookRouter → GhlOpportunityHandler
@@ -97,7 +105,8 @@ GHL marks the opportunity won     → POST /api/webhooks/ghl/{endpointToken}
                                        service type from customData.serviceType
                                   → CASE_CREATED (after commit)
                                        → chat conversations (Unit 57)
-                                       → the client's portal account + set-password mail (§1)
+                                       → the client's portal account + case-opened mail (§1, D65:
+                                         set-password link valid 7 days, or sign-in if set)
 PC / CM send the checklist (D60)  → the client uploads on the case (§5)
 ```
 
@@ -123,7 +132,7 @@ Matches CURRENT above (Unit 64 built 2026-09-29).
 | Path | Contact | Opportunity | Effect on a repeat client |
 |---|---|---|---|
 | `SalesDeskService.createDeal` | `upsertContact` | **`createOpportunity`** | new opportunity; refuses a second open deal unless confirmed |
-| `MarketingLeadService.openLead` | `upsertContact` | **`upsertOpportunity`** | **reuses the open opportunity on that pipeline** |
+| `MarketingLeadService.openLead` | `upsertContact` | **`upsertOpportunity`** (+ stage, close), then `setOpportunityFields` for intake (D64) | **reuses the open opportunity on that pipeline** |
 
 **Edits do not call GHL at all** (D44, Unit 46). `SalesDeskService.update` / `moveToStage` /
 `close` and `MarketingLeadService.value` each edit the mirror row, stamp `local_updated_at` **and
@@ -131,6 +140,15 @@ record which of the four shared fields they touched** (`locally_edited_fields`, 
 `UPSERT` or `CLOSE`, and answer from the row. `SYNC_OUTBOX` (2m) sends it. `moveToStage` first
 refuses a stage that is not a live `pipeline_stage` of the row's own pipeline (Q12, 2026-09-24),
 so the merged board strip cannot turn a drag into a pipeline move.
+
+**Sales edits every field, and deletes (Unit 69, D66, 2026-09-30).** `PUT
+/api/sales/opportunities/{id}` also takes `stageId`, `expectedCloseDate`, `assignedTo` and
+`customFields`. Name / value / stage keep the queued path above; close date, owner and custom
+fields go to GHL **inline** first (`GhlWriteClient.updateOpportunityDetails`, no pipeline, no
+status), then `OpportunityMirrorService.absorbDetails` writes owner + fields onto the row.
+`DELETE /api/sales/opportunities/{id}` refuses a won deal and one with a pending outbox push,
+calls `GhlWriteClient.deleteOpportunity` (404 = done, audited `DELETED`) and stamps the row
+`missing_since` (`markDeleted`) — never a row delete. UI: `DealEditDialog` ("Edit or delete").
 
 **The push carries the edited fields only.** `updateOpportunity` omits a null from the body, so an
 unedited field is left alone in GHL rather than overwritten by whatever the mirror happens to hold
@@ -170,8 +188,9 @@ a new one. It stays (D56), except that a queued edit is never overwritten.
 DOC_COLLECTION ─ the PC or CM builds the checklist and SENDS it (Unit 61, D60: unsent items
                   are not in the portal; later additions wait for the next Send); PC/CM chase;
                   client uploads to S3 against each sent item
- → PM_REVIEW ─ PM writes strategy notes, assigns an expert
- → DRAFT_IN_PROGRESS → DRAFT_REVIEW ─ CM uploads the draft as Word + PDF (POST …/drafts); PM approves or returns
+ → PM_REVIEW ─ PM writes strategy notes, assigns the CM (assign-cm, CM only — Unit 73)
+ → DRAFT_IN_PROGRESS → DRAFT_REVIEW ─ CM uploads the draft as Word + PDF (POST …/drafts); PM approves or returns;
+                  once a draft exists, PM / CM offer the expert an amount (PATCH …/expert, stage kept)
  → READY_TO_SEND → CLIENT_REVIEW ─ client comments, then approves or requests changes on that version
  → CLIENT_APPROVAL → EXPERT_SIGNING ─ expert accepts / declines / signs, signed in (Unit 59)
  → FINAL_QC ─ PM passes or fails
@@ -188,15 +207,31 @@ decides which version is in client review (latest `PM_APPROVED` while the client
 `PENDING`), which the client may see (that one, plus approved and sent-back versions) and owns the
 comment threads.
 
+**Expert evidence request (Unit 15; reach widened 2026-10-01).** In `EXPERT_SIGNING` the expert asks
+from their portal → a REQUIRED, unsent checklist item + `ON_HOLD_AWAITING_CLIENT` + audit note (the
+request text) → `EXPERT_EVIDENCE_REQUESTED` notifies the brand's Coordinators **and the case's CM and
+PM**. The case stays on the Coordinator's **Doc checklists** board for the whole hold (labelled
+"Expert asked for more evidence"), not only while the item is unsent; the Coordinator sends the item
+and may **chase** — the chase is allowed in `DOC_COLLECTION` or while held for the client. The case
+page shows the request to everyone on the case (`caseRules.expertEvidenceRequest`) until **Resume**
+(Coordinator / PM); then the expert can sign.
+
 Four sweeps run over this: `DOC_CHASE`, `DOC_ESCALATION`, `EXPERT_SIGN`, `STAGE_SLA`.
 
 ### TARGET WORKFLOW
 
 **Unchanged — and as of 2026-09-17 this is the stated business lifecycle, not just what the code
 happens to do** (D36). Read as staffing: the case is born at Handoff A, a **PM** takes it, and the
-PM assigns the **Project Coordinator**, the **Case Manager** and the **Expert**
-(`POST /api/cases/{id}/assign-coordinator`, `…/assign-cm` — which names the CM and the expert in
-one transaction and writes the expert offer). The **CM drafts and uploads**; the **client sees and
+PM assigns the **Project Coordinator** and, at PM Review, the **Case Manager**
+(`POST /api/cases/{id}/assign-coordinator`, `…/assign-cm` — **the CM only since Unit 73**,
+2026-10-02; no expert, no offer). **Once the CM has uploaded a draft** the PM or CM (also ENM /
+GM) offers the **expert** an amount from the case's More menu ("Assign / Change expert",
+`PATCH …/expert` → `changeExpert`, stage kept, `DRAFT_IN_PROGRESS` … `CLIENT_APPROVAL`; a CM at the
+standard fee only): any open offer SUPERSEDED, the old expert link revoked, a new offer opened, and
+`EXPERT_ASSIGNED` sends the offer mail and adds the expert to the Expert chat. Refused before a
+draft and from `EXPERT_SIGNING` on (decline / timed-out → reassign). The PM may also change the CM
+at any stage ("Assign / Change case manager", `PATCH …/case-manager`). Once a slot is filled its action reads "Change …". The PC and the CM are each notified when they are put on a case (`CASE_ASSIGNED`), and
+the timeline row names who was assigned. The **CM drafts and uploads**; the **client sees and
 approves** it in the portal (`CLIENT_REVIEW` → `CLIENT_APPROVAL`); **only then** does it reach the
 **expert**, who downloads, signs and uploads it back (`EXPERT_SIGNING`, Handoff B).
 
@@ -241,6 +276,11 @@ files, history and Client conversation.
 Matches CURRENT: documents enter **only at the Case**, against a sent checklist item. The
 request-document upload, Sales' Request documents tab and the carry-forward at Handoff A were
 removed by Unit 64 (2026-09-29).
+
+**Matches CURRENT since Unit 70 (D68, built 2026-10-01):** a committed document, checklist or
+draft change shows on every open screen of that case, staff and portal, without a reload:
+`case.changed` over Ably, then a background REST re-read (staff `lib/live.ts`, portals
+`LiveInvalidate`). The GM hears every brand: their token names each brand's channel.
 
 ---
 
@@ -374,7 +414,8 @@ Directory: credentials verified (stamp + audit) · fee · availability · worklo
 Rejected (declined / timed out) while EXPERT_DECLINED_REMATCHING + expert AVAILABLE
   → "Offer again" (GM / PM / ENM / CM) → same rematch transition → CLIENT_APPROVAL → CM sends again
 PM / PC / ENM / GM offers the case with a fee (blank = standard fee; retake keeps the declined fee;
-  CM: standard fee only) → editable while the offer is open (audited, before → after)
+  CM: standard fee only) and a required note to the expert (D69; a retake re-sends the last one)
+  → editable while the offer is open (audited, before → after)
   → the expert sees "Fee for this case" and accepts it (a changed or missing fee → 409) → final
 Delivered → payout PENDING at the accepted fee (a missing amount can be set once) → PAYOUT_DUE to ENMs
   → ENM records the transfer → PAID, shown "Processing"

@@ -66,7 +66,7 @@ export default function NewCases() {
                 </Button>
               </div>
             </Card>
-            {answering === c.caseId && <Answers caseId={c.caseId} fee={c.offeredFee} currency={c.currency} onChanged={onAnswered} />}
+            {answering === c.caseId && <Answers caseId={c.caseId} fee={c.offeredFee} currency={c.currency} note={c.offerNote} onChanged={onAnswered} />}
           </li>
         ))}
       </ul>

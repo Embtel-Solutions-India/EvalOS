@@ -4,7 +4,11 @@ import { useMe } from '../../lib/authContext'
 import { useMetrics } from '../dashboards/useMetrics'
 import { formatCount, formatMoney } from '../../lib/money'
 import StageColumn from '../board/StageColumn'
-import { moveDeal } from './boardMove'
+import { stageColor } from '../board/stageColors'
+import { cardDate } from '../board/boardRules'
+import { CalendarDays } from 'lucide-react'
+import { isWonStage, moveDeal } from './boardMove'
+import WinNote from './WinNote'
 import {
   fetchOpportunityBoard,
   moveStage,
@@ -77,6 +81,8 @@ export default function OpportunityBoardPage() {
   )
 
   const [moveError, setMoveError] = useState<string | null>(null)
+  // D70: a drop on the Won column waits here for the production team's note.
+  const [pendingWin, setPendingWin] = useState<{ id: string; from: string; to: string } | null>(null)
   const [over, setOver] = useState<string | null>(null)
   // Refs, not state: none of this is drawn, and writing it must not render anything mid-drag.
   const dragging = useRef<{ id: string; from: string; card: HTMLElement } | null>(null)
@@ -150,7 +156,10 @@ export default function OpportunityBoardPage() {
     const drag = dragging.current
     const to = (event.target as HTMLElement).closest<HTMLElement>('[data-stage]')?.dataset.stage
     endDrag()
-    if (drag && to && to !== drag.from) void move(drag.id, drag.from, to)
+    if (!drag || !to || to === drag.from) return
+    const target = columns?.find((column) => column.stageId === to)
+    if (target && isWonStage(target.stageName)) setPendingWin({ id: drag.id, from: drag.from, to })
+    else void move(drag.id, drag.from, to)
   }
 
   /**
@@ -160,12 +169,12 @@ export default function OpportunityBoardPage() {
    * says why. The search and both scroll positions survive all of it, because no column remounts
    * and nothing refetches.
    */
-  async function move(id: string, from: string, to: string) {
+  async function move(id: string, from: string, to: string, note?: string) {
     saving.current.add(id)
     setMoveError(null)
     setColumns((current) => current && moveDeal(current, id, to))
     try {
-      const saved = await moveStage(id, to)
+      const saved = await moveStage(id, to, note)
       setColumns(
         (current) =>
           current &&
@@ -187,6 +196,32 @@ export default function OpportunityBoardPage() {
 
   return (
     <div className="flex min-h-0 flex-col gap-4">
+      {pendingWin && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Win this deal"
+          onKeyDown={(event) => event.key === 'Escape' && setPendingWin(null)}
+          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          style={{ background: 'rgb(0 0 0 / 0.4)' }}
+        >
+          <div
+            className="w-full max-w-md rounded-lg border p-5"
+            style={{ background: 'var(--bg-surface)', borderColor: 'var(--border-default)' }}
+          >
+            <h2 className="mb-3 text-base font-semibold">Win this deal</h2>
+            <WinNote
+              busy={false}
+              onCancel={() => setPendingWin(null)}
+              onConfirm={(note) => {
+                const { id, from, to } = pendingWin
+                setPendingWin(null)
+                void move(id, from, to, note)
+              }}
+            />
+          </div>
+        </div>
+      )}
       <header className="flex flex-wrap items-end justify-between gap-x-6 gap-y-2">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">{hiring ? 'Hiring pipeline' : 'My pipeline'}</h1>
@@ -326,8 +361,16 @@ export default function OpportunityBoardPage() {
           onDrop={canMove ? onDrop : undefined}
           onDragEnd={canMove ? endDrag : undefined}
         >
-          {shown.map((column) => (
-            <Column key={column.stageId} column={column} over={over === column.stageId} canMove={canMove} />
+          {shown.map((column, index) => (
+            <Column
+              key={column.stageId}
+              column={column}
+              color={stageColor(index, column.stageName)}
+              // Sales opens deals from the column they belong in; the form starts on this stage.
+              addHref={role === 'SALES' ? `/opportunities/new?stage=${encodeURIComponent(column.stageId)}` : undefined}
+              over={over === column.stageId}
+              canMove={canMove}
+            />
           ))}
         </div>
       )}
@@ -347,10 +390,14 @@ function narrow(column: BoardColumn, needle: string): BoardColumn {
 // column carries no actions: everything beyond moving a deal lives on `DealPage`.
 const Column = memo(function Column({
   column,
+  color,
+  addHref,
   over,
   canMove,
 }: {
   column: BoardColumn
+  color: string
+  addHref?: string
   over: boolean
   canMove: boolean
 }) {
@@ -359,8 +406,8 @@ const Column = memo(function Column({
       data-stage={column.stageId}
       className="shrink-0"
       style={{
-        borderRadius: 'var(--radius-lg)',
-        outline: over ? '2px solid var(--accent-primary)' : undefined,
+        borderRadius: 'var(--radius-xl)',
+        outline: over ? `2px solid ${color}` : undefined,
         outlineOffset: 2,
       }}
     >
@@ -368,11 +415,12 @@ const Column = memo(function Column({
         label={column.stageName}
         count={column.deals.length}
         emptyText="No deals at this stage."
-        banded
+        color={color}
+        addHref={addHref}
         // Always drawn, so every header is the same height and the value sits in the same place
         // across the strip; an empty stage reads "—" rather than a zero it has not earned.
         subtitle={
-          <p className="font-num -mt-1 px-3 pb-2 text-xs tabular-nums">
+          <p className="font-num px-2 text-xs tabular-nums">
             <span style={{ color: 'var(--text-muted)' }}>Value </span>
             <span className="font-medium">{column.deals.length > 0 ? formatMoney(column.total) : '—'}</span>
           </p>
@@ -401,10 +449,15 @@ const DealCard = memo(function DealCard({ deal, canMove }: { deal: Deal; canMove
     <article
       data-deal={deal.opportunityId}
       draggable={canMove}
-      className={`relative shrink-0 bg-(--bg-base) p-2.5 [contain-intrinsic-size:auto_4.75rem] [content-visibility:auto] hover:bg-(--bg-surface) ${
+      className={`relative shrink-0 p-3 transition-shadow [contain-intrinsic-size:auto_7.5rem] [content-visibility:auto] hover:shadow-(--shadow-pop) ${
         canMove ? 'cursor-grab active:cursor-grabbing' : ''
       }`}
-      style={{ borderRadius: 'var(--radius-lg)' }}
+      style={{
+        borderRadius: 'var(--radius-xl)',
+        // The column's colour (`--stage`, from `StageColumn`), as on `CaseCard`.
+        background:
+          'linear-gradient(180deg, color-mix(in srgb, var(--stage) 20%, #ffffff), color-mix(in srgb, var(--stage) 7%, #ffffff))',
+      }}
     >
       {/* Not draggable itself, so a drag picks up the card rather than the link's URL. */}
       <Link
@@ -413,37 +466,39 @@ const DealCard = memo(function DealCard({ deal, canMove }: { deal: Deal; canMove
         aria-label={`Open ${deal.name ?? 'untitled deal'}`}
         className="absolute inset-0 rounded-[inherit] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
       />
-      <p className="pointer-events-none relative truncate text-[14px] leading-snug font-semibold">
-        {deal.name ?? 'Untitled'}
-      </p>
-      {/* As `CaseCard` draws a case's service: small caps under the name, and said when absent. */}
-      <p
-        className="pointer-events-none relative truncate text-[10px] font-medium tracking-[0.06em] uppercase"
-        style={{ color: 'var(--text-muted)' }}
-      >
-        {deal.service ?? 'service not set'}
-      </p>
-      {/* Labels inline, as on `CaseCard`'s due line: one row, every figure named. */}
-      <p className="font-num pointer-events-none relative mt-1 flex items-baseline gap-3 text-[11px] tabular-nums">
-        <span className="shrink-0">
-          <span style={{ color: 'var(--text-muted)' }}>Value </span>
-          {/*
-            `amount` is null when GHL holds no value, and that is shown as a dash rather than as
-            a zero: "nobody has priced it" and "it is worth nothing" are different facts, and
-            the second one loses deals.
-          */}
-          <span className="font-medium">{deal.amount === null ? '—' : formatMoney(deal.amount)}</span>
-        </span>
-        <span className="min-w-0 truncate">
-          <span style={{ color: 'var(--text-muted)' }}>Source </span>
-          <span className="font-medium">{deal.source ?? '—'}</span>
+      <div className="pointer-events-none relative flex items-center justify-between gap-2">
+        <span className="min-w-0 truncate rounded-full bg-white/85 px-2.5 py-0.5 text-[11px] font-medium">
+          {deal.source ?? 'Source not set'}
         </span>
         {deal.status !== 'open' && (
-          <span className="ml-auto shrink-0 uppercase" style={{ color: 'var(--text-muted)' }}>
+          <span className="shrink-0 text-[11px] font-medium capitalize" style={{ color: 'var(--card-text-muted)' }}>
             {deal.status}
           </span>
         )}
+      </div>
+      <p className="pointer-events-none relative mt-2 truncate text-[15px] leading-snug font-semibold">
+        {deal.name ?? 'Untitled'}
       </p>
+      <p className="pointer-events-none relative truncate text-xs" style={{ color: 'var(--card-text-muted)' }}>
+        {deal.service ?? 'Service not set'}
+      </p>
+      <div
+        className="pointer-events-none relative mt-2.5 flex items-center justify-between gap-2 border-t pt-2.5"
+        style={{ borderColor: 'color-mix(in srgb, var(--stage) 18%, var(--border-default))' }}
+      >
+        <span className="font-num flex min-w-0 items-center gap-1.5 text-xs tabular-nums">
+          <CalendarDays className="h-3.5 w-3.5 shrink-0" style={{ color: 'var(--card-text-muted)' }} aria-hidden />
+          <span className="truncate">{deal.updatedAt ? `Updated ${cardDate(deal.updatedAt)}` : 'Not updated yet'}</span>
+        </span>
+        {/*
+          `amount` is null when GHL holds no value, and that is shown as a dash rather than as a
+          zero: "nobody has priced it" and "it is worth nothing" are different facts, and the second
+          one loses deals.
+        */}
+        <span className="font-num shrink-0 rounded-md bg-white px-2 py-1 text-xs font-semibold tabular-nums shadow-(--shadow-card)">
+          {deal.amount === null ? '—' : formatMoney(deal.amount)}
+        </span>
+      </div>
     </article>
   )
 })

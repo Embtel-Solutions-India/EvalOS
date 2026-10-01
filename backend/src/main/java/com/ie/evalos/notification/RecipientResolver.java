@@ -95,6 +95,10 @@ public class RecipientResolver {
 		return single(subject.getAssignedCm());
 	}
 
+	public List<UUID> assignedCoordinator(Case subject) {
+		return single(subject.getAssignedCoordinator());
+	}
+
 	/**
 	 * The case's own PM plus that brand's Brand Managers — for an alert about something
 	 * that should not have been possible, where whoever runs the case and whoever runs

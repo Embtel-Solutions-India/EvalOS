@@ -30,7 +30,7 @@ import jakarta.persistence.Version;
  */
 @Entity
 @Table(name = "expert_case_offer")
-public class ExpertCaseOffer extends ScopedEntity {
+public class ExpertCaseOffer extends ScopedEntity implements CaseOwned {
 
 	@Column(name = "case_id", nullable = false, updatable = false)
 	private UUID caseId;
@@ -65,6 +65,10 @@ public class ExpertCaseOffer extends ScopedEntity {
 
 	@Column(name = "fee_set_at")
 	private Instant feeSetAt;
+
+	/** What the PM tells the expert about this case (D69, V82). Null only on offers before V82. */
+	@Column(name = "note")
+	private String note;
 
 	/**
 	 * Optimistic lock (V80). The fee and the outcome both change on this row, from different people
@@ -150,6 +154,14 @@ public class ExpertCaseOffer extends ScopedEntity {
 	 * Sets the amount, only while nobody has answered (Unit 65 rule 3): an accepted fee is the
 	 * agreed price, and a declined or superseded offer has nothing left to price.
 	 */
+	public String getNote() {
+		return note;
+	}
+
+	public void setNote(String note) {
+		this.note = note;
+	}
+
 	public void setFee(BigDecimal fee, UUID actor) {
 		if (outcome != OfferOutcome.OFFERED) {
 			throw new IllegalTransitionException("This offer is " + outcome + " and its fee is final");
@@ -169,5 +181,10 @@ public class ExpertCaseOffer extends ScopedEntity {
 
 	public Instant getFeeSetAt() {
 		return feeSetAt;
+	}
+
+	@Override
+	public UUID liveCaseId() {
+		return getCaseId();
 	}
 }

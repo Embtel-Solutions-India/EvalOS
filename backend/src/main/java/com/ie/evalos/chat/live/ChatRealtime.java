@@ -1,5 +1,7 @@
 package com.ie.evalos.chat.live;
 
+import java.util.UUID;
+
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
@@ -51,12 +53,17 @@ public class ChatRealtime {
 	}
 
 	public AblyToken token(ChatIdentity who) {
+		return token(who, java.util.List.of());
+	}
+
+	/** @param gmBrands see {@link ChatChannels#capability(ChatIdentity, java.util.Collection)}. */
+	public AblyToken token(ChatIdentity who, java.util.Collection<UUID> gmBrands) {
 		if (rest == null) {
 			throw new RealtimeUnavailableException();
 		}
 		Auth.TokenParams params = new Auth.TokenParams();
 		params.clientId = ChatChannels.clientId(who);
-		params.capability = ChatChannels.capability(who);
+		params.capability = ChatChannels.capability(who, gmBrands);
 		params.ttl = TOKEN_TTL_MS;
 		try {
 			Auth.TokenRequest request = rest.auth.createTokenRequest(params, null);

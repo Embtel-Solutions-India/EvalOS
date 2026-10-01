@@ -128,15 +128,13 @@ public interface ExpertCaseOfferRepository extends ScopedRepository<ExpertCaseOf
 	 * <p>Returned as raw seconds per offer rather than an average, so the caller decides between
 	 * a mean and a median. A mean over a handful of offers is dragged a long way by one expert
 	 * who answered after a fortnight.
-	 *
-	 * <p>{@code by second} is Hibernate 6's own duration-to-number conversion. Hibernate already
-	 * renders a timestamp difference as a number, so wrapping it in {@code date_part('epoch', …)}
-	 * failed on Postgres with "function date_part(unknown, numeric) does not exist".
 	 */
-	@Query("""
-			select cast((o.outcomeAt - o.offeredAt) by second as Double)
-			from ExpertCaseOffer o
-			where o.brandId = :brandId and o.expertId in :expertIds and o.outcomeAt is not null
+	// Native, because Hibernate 6 renders a timestamp difference as numeric nanoseconds, and
+	// `date_part('epoch', numeric)` does not exist on Postgres — the ENM dashboard answered 500.
+	@Query(nativeQuery = true, value = """
+			select extract(epoch from o.outcome_at - o.offered_at)::float8
+			from expert_case_offer o
+			where o.brand_id = :brandId and o.expert_id in (:expertIds) and o.outcome_at is not null
 			""")
 	List<Double> resolvedTurnaroundSeconds(@Param("brandId") UUID brandId,
 			@Param("expertIds") Collection<UUID> expertIds);

@@ -1,4 +1,5 @@
 import axios from 'axios'
+import { afterRequest } from './queryClient'
 import { clearToken, getToken } from './session'
 
 /**
@@ -22,7 +23,11 @@ api.interceptors.request.use((config) => {
 })
 
 api.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    // Unit 70a: a write refreshes every case-shaped screen, here rather than in each action.
+    afterRequest(response.config.method, response.config.url)
+    return response
+  },
   (error) => {
     // Lift the server's reason onto the Error itself.
     //

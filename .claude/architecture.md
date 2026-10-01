@@ -45,13 +45,22 @@ shared pacer forward, honouring a capped `Retry-After`, so every caller backs of
 
 | Client | Reads | Writes |
 |---|---|---|
-| `GhlWriteClient` | — | contacts upsert, opportunities upsert/create/update/stage/status, contact tasks |
+| `GhlWriteClient` | — | contacts upsert, opportunities upsert/create/update/details/stage/status/**delete** (Unit 69), contact tasks |
 | `GhlPipelineClient` | pipelines, stages, opportunities in a window (optionally by status) | — |
 | `GhlOpportunityClient` | opportunity search | — |
 | `GhlCalendarClient` | calendars, free slots, contact appointments | book, reschedule, note |
 | `GhlInvoiceClient` | invoices by contact | — |
 | `GhlUserClient` | GHL users | — |
 | `GhlCustomFieldClient` | custom field definitions | — |
+
+**Ably (D50, D68)** relays, PostgreSQL is the record, and no browser token may publish. Two uses:
+chat (`ChatFanout`, each member's `chat:user:{KIND}:{id}`) and **screen refresh** (Unit 70,
+`chat/live/CaseLive`): a Hibernate listener (`CaseLiveHibernate`) sees every write of a `CaseOwned`
+row (case, document, checklist item, offer, payout row; a draft comment via its document), and after
+commit `CaseLive` publishes `case.changed {caseId}` — a signal, never data — to `live:brand:{brandId}`
+and to the case's client and experts' private channels; `NotificationService` publishes
+`notifications.changed` to the bell's owner. Screens re-read over their own scoped REST routes. JPQL
+bulk writes to those tables call `CaseLive.touched` themselves (`PayoutService`'s two).
 
 `DocumentStore` (S3): `put` and `presignedUrl` and nothing else. Unconfigured = every document
 route answers 502 naming both missing variables; the rest of the app boots.
@@ -100,8 +109,15 @@ Transitions live in `CaseTransitions`/`CaseLifecycleService`; every one writes a
 14. EvalOS hosts no files, and sends email for **two purposes and no others** — proving control of
     a mailbox (set password, reset password) and **confirming that a client's request was
     received** (one message, at submit). **Unit 64 (2026-09-29) removed the request and so the
-    confirmation**; the account opened at a case uses the existing set-password mail, so the
-    invariant is back to mailbox proof (plus D58's case emails when they ship). **A push notification is not mail** and does not touch this
+    confirmation**. **Unit 64b (D65, 2026-09-30) adds the case-opened mail** — one per case, at
+    `CASE_CREATED`: "your case has started — set your password" (a 7-day set-password link) for a
+    client without a password, "your new case has started — sign in" (no credential) for one with.
+    **Unit 64c (D58, D67, 2026-09-30) adds the case progress mails** — checklist (N documents to
+    upload), draft ready, delivered (to the client), and the offer and signing mails (to the
+    expert) — each once per transition, a deep link and never a credential — **and (2026-10-01)
+    the chase reminder, sent only when a PC/CM presses Send chase** (`checklist.chased`). So the
+    invariant is: mailbox proof, the case-opened mail, those five and the manual chase, and nothing
+    else; the `DOC_CHASE` sweep's automatic reminders send no mail. **A push notification is not mail** and does not touch this
     invariant (D37: notifications are in-app and push, and nothing else).
     **Amended 2026-09-19, on the business's instruction.** It read *"exactly one purpose: proving
     control of a mailbox (two messages)"*, and the submission confirmation is not a mailbox proof —
@@ -109,10 +125,8 @@ Transitions live in `CaseTransitions`/`CaseLifecycleService`; every one writes a
     confirmation **promises nothing the flow can fail to keep** (no price, no turnaround, no date —
     EvalOS holds no price list and the work is quoted by a person), and **nothing depends on it
     arriving**, so a failed send is logged and the submit still succeeds.
-    **This is not the four-message expansion `open-decisions.md` (c) recommends** — checklist+link,
-    draft ready, expert signing link, delivered. Those remain unbuilt and still need their own
-    decision; each one would be mail a client *acts on*, which is a different and larger question
-    than telling somebody their form arrived.
+    The four-message expansion `00d` §12 (c) recommended was decided as D58 and built as Unit 64c
+    (above).
 15. **No AI makes a production decision, and there is no AI in the system at all.**
 
 ## Build-failing structural tests

@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom'
-import { LEGAL } from '@/constants/legal'
+import { LEGAL } from './legal'
 import { ContactBlock, LegalPage } from './LegalPage'
 
 /** The business's Privacy Policy, as supplied 2026-09-25. Edit the text here, not in a copy. */

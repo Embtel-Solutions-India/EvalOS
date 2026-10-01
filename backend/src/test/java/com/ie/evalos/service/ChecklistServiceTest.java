@@ -14,6 +14,7 @@ import com.ie.evalos.domain.ChecklistItemStatus;
 import com.ie.evalos.domain.DocumentChecklistItem;
 import com.ie.evalos.domain.IllegalTransitionException;
 import com.ie.evalos.domain.Role;
+import com.ie.evalos.domain.ExceptionState;
 import com.ie.evalos.domain.Stage;
 import com.ie.evalos.event.CaseEvents;
 import com.ie.evalos.repository.AuditEventRepository;
@@ -280,17 +281,17 @@ class ChecklistServiceTest {
 	// --- the chase -----------------------------------------------------------
 
 	/**
-	 * Acceptance criterion 3. The chase is an event for GHL to deliver and an audit row —
-	 * EvalOS sends no mail (invariant 14), so there is nothing else to assert happened.
+	 * Acceptance criterion 3. The chase is its own event (the sweep's reminder emails nobody, D58)
+	 * and an audit row; CaseMailListener sends the mail.
 	 */
 	@Test
-	void aChaseEmitsTheReminderEventAndRecordsIt() {
+	void aChaseEmitsTheChasedEventAndRecordsIt() {
 		checklists.chase(CASE_ID);
 
 		ArgumentCaptor<CaseEvents.CaseEvent> published = ArgumentCaptor.forClass(CaseEvents.CaseEvent.class);
 		verify(events).publishEvent(published.capture());
-		assertThat(published.getValue().type()).isEqualTo(CaseEvents.Type.CHECKLIST_REMINDER);
-		assertThat(published.getValue().type().wireName()).isEqualTo("checklist.reminder");
+		assertThat(published.getValue().type()).isEqualTo(CaseEvents.Type.CHECKLIST_CHASED);
+		assertThat(published.getValue().type().wireName()).isEqualTo("checklist.chased");
 		assertThat(recordedNote(AuditAction.CHASED)).isEqualTo("Document chase sent to the client");
 	}
 
@@ -306,6 +307,21 @@ class ChecklistServiceTest {
 		assertThrows(IllegalTransitionException.class, () -> checklists.chase(CASE_ID));
 		verify(events, never()).publishEvent(any(CaseEvents.CaseEvent.class));
 		verify(audit, never()).recordEvent(any(), any(), any(), any(), any(), any());
+	}
+
+	/** 2026-10-01: a case held for the client is owed documents, whatever its stage. */
+	@Test
+	void aCaseHeldForTheClientCanBeChasedAndStaysOnTheBoard() {
+		Case held = aCase(Stage.EXPERT_SIGNING, Instant.now());
+		given(held.getExceptionState()).willReturn(ExceptionState.ON_HOLD_AWAITING_CLIENT);
+		given(lifecycle.read(any())).willReturn(held);
+
+		checklists.chase(CASE_ID);
+		verify(events).publishEvent(any(CaseEvents.CaseEvent.class));
+
+		given(board.forCaller(null, null)).willReturn(List.of(new CaseBoardService.BoardRow(held, "Anita Rao")));
+		given(checklistItems.findByBrandIdInAndCaseIdIn(anyList(), anyList())).willReturn(List.of());
+		assertThat(checklists.board(null)).extracting(ChecklistService.BoardRow::clientName).containsExactly("Anita Rao");
 	}
 
 	/** Nothing in this service moves a case — {@code docs-complete} is Unit 04's transition. */

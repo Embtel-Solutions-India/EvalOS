@@ -19,6 +19,21 @@ export function channelOf(clientId: string): string {
 }
 
 /**
+ * The brand signal channels a token may subscribe to (`live:brand:{id}`, Unit 70 §3).
+ * A GM's token names every brand's channel one by one (the server lists them), since no client
+ * can subscribe to a wildcard; a `*` entry, should one appear, is skipped.
+ */
+export function liveChannels(capability: string): string[] {
+  try {
+    return Object.keys(JSON.parse(capability) as Record<string, unknown>).filter(
+      (name) => name.startsWith('live:brand:') && !name.endsWith('*'),
+    )
+  } catch {
+    return []
+  }
+}
+
+/**
  * Live delivery over Ably (Unit 57 §5): subscribe and enter presence on my own channel, never
  * publish. The token is fetched once up front: if the server has no Ably key (503) this answers
  * REST-only without ever constructing Ably, so nothing retries in a loop.
@@ -51,6 +66,11 @@ export function ablyRealtime(RealtimeClass: AblyRealtimeCtor, fetchToken: () => 
       void channel.subscribe((message) => onEvent(message.data as Envelope)).catch(() => onStatus('offline'))
       // Presence is how the backend decides between a live update and a push (§6).
       void channel.presence.enter().catch(() => {})
+      // Unit 70: staff also hear their brand's "case X changed" signals. The channel is named in
+      // the token's capability, so the package learns no new configuration.
+      for (const name of liveChannels(first.capability)) {
+        void client.channels.get(name).subscribe((message) => onEvent(message.data as Envelope)).catch(() => {})
+      }
       let connectedBefore = false
       client.connection.on((change) => {
         if (change.current === 'connected') {

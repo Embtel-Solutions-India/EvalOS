@@ -79,7 +79,7 @@ public class SalesDeskService {
 	 */
 	public Deal createDeal(String firstName, String lastName, String email, String phone,
 			String name, BigDecimal monetaryValue, String stageId, String expectedCloseDate,
-			java.util.Map<String, String> customFields, boolean confirmSecondDeal) {
+			java.util.Map<String, String> customFields, String assignedTo, boolean confirmSecondDeal) {
 		// A create has to land on exactly one pipeline and the caller must not choose it — see
 		// PipelineScope.mineForWrite, which refuses rather than guessing when a desk holds several.
 		String pipelineId = scope.mineForWrite();
@@ -106,7 +106,7 @@ public class SalesDeskService {
 		}
 
 		GhlWriteClient.UpsertedOpportunity created = ghl.createOpportunity(pipelineId, contact.id(),
-				name, monetaryValue, stageId, expectedCloseDate, customFields);
+				name, monetaryValue, stageId, expectedCloseDate, customFields, assignedTo);
 
 		// Same reason as the marketing desk's: `queue` below refuses a deal the mirror has not
 		// absorbed, so a salesperson who creates a deal and immediately moves or re-prices it would
@@ -129,10 +129,12 @@ public class SalesDeskService {
 	private final SyncOutboxService outbox;
 	private final com.ie.evalos.repository.FollowUpRepository followUps;
 	private final com.ie.evalos.repository.PipelineStageRepository stages;
+	private final OpportunityNoteService notes;
 
 	SalesDeskService(GhlWriteClient ghl, PipelineScope scope, OpportunityMirrorService deals,
 			SyncOutboxService outbox, com.ie.evalos.repository.FollowUpRepository followUps,
-			com.ie.evalos.repository.PipelineStageRepository stages) {
+			com.ie.evalos.repository.PipelineStageRepository stages, OpportunityNoteService notes) {
+		this.notes = notes;
 		this.stages = stages;
 		this.deals = deals;
 		this.outbox = outbox;
@@ -167,18 +169,65 @@ public class SalesDeskService {
 	}
 
 	/**
-	 * Renames a deal or re-prices it.
+	 * Every field of the deal a desk may change (Unit 69).
 	 *
-	 * <p><strong>The mirror is written and the push is queued</strong> (Unit 46). Both fields are
-	 * shared with GHL under 45e, so the local edit is defended until the drain confirms it — and
-	 * the salesperson sees the new value at once instead of waiting for a round trip.
+	 * <p><strong>Two paths, and GHL goes first.</strong> Name, value and stage are 45e's shared
+	 * fields and take the outbox (D44). Expected close, owner and custom fields are not in the outbox's
+	 * vocabulary — the close date is not even mirrored — so they go to GHL inline, D46's reason. The
+	 * inline call runs before anything is queued, so a GHL refusal leaves the deal untouched.
 	 */
-	public Deal update(String opportunityId, String name, BigDecimal monetaryValue) {
-		scope.requireMine(opportunityId);
-		if ((name == null || name.isBlank()) && monetaryValue == null) {
-			throw new InvalidRequestException("Nothing to change: send a name, a value, or both");
+	public Deal update(String opportunityId, String name, BigDecimal monetaryValue, String stageId,
+			String expectedCloseDate, String assignedTo, java.util.Map<String, String> customFields) {
+		String pipelineId = scope.requireMine(opportunityId);
+		boolean shared = !blank(name) || monetaryValue != null || !blank(stageId);
+		boolean details = !blank(expectedCloseDate) || !blank(assignedTo)
+				|| (customFields != null && customFields.values().stream().anyMatch((v) -> !blank(v)));
+		if (!shared && !details) {
+			throw new InvalidRequestException("Nothing to change: send at least one field");
 		}
-		return queue(opportunityId, name, monetaryValue, null, null, SyncOutboxEntry.Intent.UPSERT);
+		Opportunity row = deals.byGhlId(opportunityId)
+				.orElseThrow(() -> new InvalidRequestException(
+						"That deal is not in the mirror yet, so it cannot be edited here. It arrives "
+								+ "with the next sync — run the MIRROR_DELTA job to pull it now."));
+		if (!blank(stageId)) {
+			requireStageOf(row, stageId);
+		}
+		if (details) {
+			ghl.updateOpportunityDetails(opportunityId, pipelineId, expectedCloseDate, assignedTo,
+					customFields);
+			deals.absorbDetails(opportunityId, assignedTo, customFields);
+		}
+		return shared ? queue(opportunityId, name, monetaryValue, stageId, null,
+				SyncOutboxEntry.Intent.UPSERT) : asDeal(deals.byGhlId(opportunityId).orElse(row));
+	}
+
+	/**
+	 * Deletes the deal in GHL, then stamps the mirror row missing (Unit 69).
+	 *
+	 * <p><strong>A won deal is refused</strong>: Handoff A has made, or is making, its case, and the
+	 * case names this opportunity. <strong>So is one with a push still queued</strong> — the drain
+	 * would send it to a deleted opportunity and dead-letter it; the salesperson retries after the
+	 * next drain.
+	 */
+	public void delete(String opportunityId) {
+		String pipelineId = scope.requireMine(opportunityId);
+		Opportunity row = deals.byGhlId(opportunityId)
+				.orElseThrow(() -> new InvalidRequestException(
+						"That deal is not in the mirror yet, so it cannot be deleted here."));
+		if ("won".equalsIgnoreCase(row.getStatus())) {
+			throw new InvalidRequestException(
+					"A won deal cannot be deleted: its case has been opened from it.");
+		}
+		if (outbox.isPending(row.getBrandId(), row.getId())) {
+			throw new InvalidRequestException("An edit to this deal is still on its way to GHL. "
+					+ "Try again in a couple of minutes, once it has landed.");
+		}
+		ghl.deleteOpportunity(opportunityId, pipelineId);
+		deals.markDeleted(opportunityId);
+	}
+
+	private static boolean blank(String value) {
+		return value == null || value.isBlank();
 	}
 
 	/**
@@ -194,26 +243,39 @@ public class SalesDeskService {
 	 * send another pipeline's stage id — which GHL would take as a pipeline move. The stage must be
 	 * a live mirrored stage of the row's pipeline; anything else, including a stage the mirror has
 	 * not seen yet, is refused rather than pushed.
+	 *
+	 * <p><strong>A stage named "Won" is winning the deal</strong> (D70): the move needs the
+	 * production team's note, and closes the deal won with it — otherwise a drag onto the Won
+	 * column would leave an open deal in a Won stage and a case with no word from Sales.
 	 */
-	public Deal moveToStage(String opportunityId, String stageId) {
+	@org.springframework.transaction.annotation.Transactional
+	public Deal moveToStage(String opportunityId, String stageId, String note) {
 		scope.requireMine(opportunityId);
 		if (stageId == null || stageId.isBlank()) {
 			throw new InvalidRequestException("A stage is required");
 		}
 		// A deal the mirror does not hold falls through to `queue`, whose refusal says so.
-		deals.byGhlId(opportunityId).ifPresent((row) -> requireStageOf(row, stageId));
-		return queue(opportunityId, null, null, stageId, null, SyncOutboxEntry.Intent.UPSERT);
+		boolean wins = deals.byGhlId(opportunityId).map((row) -> requireStageOf(row, stageId))
+				.map(SalesDeskService::isWonStage).orElse(false);
+		if (wins) {
+			notes.addHandoff(opportunityId, note);
+		}
+		Deal moved = queue(opportunityId, null, null, stageId, null, SyncOutboxEntry.Intent.UPSERT);
+		return wins ? queue(opportunityId, null, null, null, "won", SyncOutboxEntry.Intent.CLOSE) : moved;
 	}
 
-	private void requireStageOf(Opportunity row, String stageId) {
-		boolean onItsPipeline = stages.findByBrandIdAndGhlId(row.getBrandId(), stageId)
+	// ponytail: matched by name — every GHL pipeline here has a stage called "Won". A renamed one
+	// ("Closed won") slips through as a plain move; mark stages explicitly if that ever happens.
+	private static boolean isWonStage(com.ie.evalos.domain.PipelineStage stage) {
+		return "won".equalsIgnoreCase(stage.getName().strip());
+	}
+
+	private com.ie.evalos.domain.PipelineStage requireStageOf(Opportunity row, String stageId) {
+		return stages.findByBrandIdAndGhlId(row.getBrandId(), stageId)
 				.filter(com.ie.evalos.domain.PipelineStage::isLive)
 				.filter((stage) -> stage.getPipelineId().equals(row.getPipelineId()))
-				.isPresent();
-		if (!onItsPipeline) {
-			throw new InvalidRequestException("That stage is not on this deal's pipeline. Moving a "
-					+ "deal between pipelines is GHL's workflow, not a move here.");
-		}
+				.orElseThrow(() -> new InvalidRequestException("That stage is not on this deal's pipeline. "
+						+ "Moving a deal between pipelines is GHL's workflow, not a move here."));
 	}
 
 	/**
@@ -228,12 +290,18 @@ public class SalesDeskService {
 	 * behind it — arrives up to a couple of minutes later. Taken deliberately: what it buys is that
 	 * a win is no longer lost when GHL is unreachable, which is the more expensive failure by far.
 	 */
-	public Deal close(String opportunityId, String status) {
+	@org.springframework.transaction.annotation.Transactional
+	public Deal close(String opportunityId, String status, String note) {
 		scope.requireMine(opportunityId);
 		if (status == null || !CLOSABLE.contains(status)) {
 			// The message names what is allowed rather than what was sent: a caller who typed
 			// "closed" needs the vocabulary, not their own word repeated back.
 			throw new InvalidRequestException("Status must be one of: won, lost, abandoned");
+		}
+		// D70: GHL has no place for it, so the win carries the production team's note. One
+		// transaction with the close: a win the mirror refuses leaves no orphan note behind.
+		if ("won".equals(status)) {
+			notes.addHandoff(opportunityId, note);
 		}
 		return queue(opportunityId, null, null, null, status, SyncOutboxEntry.Intent.CLOSE);
 	}

@@ -11,7 +11,7 @@ system underneath.
 Four apps in one repo:
 
 - `backend/` — Java 21 / Spring Boot / JPA / Flyway / Postgres 16. 215 main classes.
-- `frontend/` — staff SPA, React 19 + Vite + TS. Deployed.
+- `frontend/` — staff SPA, React 19 + TanStack Query (Unit 70a) + Vite + TS. Deployed.
 - `client-expert/client/` — Client Portal. **Not deployed by this repo.**
 - `client-expert/expert/` — Expert Portal. **Not deployed by this repo.**
 - `packages/evalos-chat/` — source-only chat UI (Unit 57 §7); no `node_modules`, imported by

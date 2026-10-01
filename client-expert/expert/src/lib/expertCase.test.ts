@@ -38,6 +38,7 @@ function view(overrides: Partial<ExpertCaseView> = {}): ExpertCaseView {
     offeredFee: 400,
     currency: 'USD',
     documents: [],
+    offerNote: null,
     ...overrides,
   }
 }

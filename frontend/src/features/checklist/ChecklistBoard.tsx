@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useCallback, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useMe } from '../../lib/authContext'
 import { useFilters } from '../shell/filtersContext'
@@ -29,37 +30,22 @@ import {
  * case is one click away on its detail page.
  */
 
-type LoadState =
-  | { status: 'loading' }
-  | { status: 'ready'; cards: ChecklistCard[] }
-  | { status: 'failed'; message: string }
-
 export default function ChecklistBoard() {
   const me = useMe()
   const { activeBrandId } = useFilters()
-  const [state, setState] = useState<LoadState>({ status: 'loading' })
   const [openCaseId, setOpenCaseId] = useState<string | null>(null)
 
+  // Unit 70a: cached, refreshed by any write and on tab focus.
+  const queryClient = useQueryClient()
+  const board = useQuery<ChecklistCard[]>({
+    queryKey: ['checklists', 'board', activeBrandId],
+    queryFn: ({ signal }) => fetchChecklistBoard(activeBrandId, signal),
+  })
+  const cards = board.data
   const load = useCallback(
-    async (signal?: AbortSignal) => {
-      try {
-        setState({ status: 'ready', cards: await fetchChecklistBoard(activeBrandId, signal) })
-      } catch (error: unknown) {
-        if (signal?.aborted) return
-        setState({
-          status: 'failed',
-          message: error instanceof Error ? error.message : 'Could not load the checklist board',
-        })
-      }
-    },
-    [activeBrandId],
+    () => queryClient.invalidateQueries({ queryKey: ['checklists'] }, { cancelRefetch: false }),
+    [queryClient],
   )
-
-  useEffect(() => {
-    const controller = new AbortController()
-    void load(controller.signal)
-    return () => controller.abort()
-  }, [load])
 
   /** A completed case leaves this stage, so it has to leave this board too. */
   const onCaseLeftTheStage = useCallback(() => {
@@ -74,20 +60,18 @@ export default function ChecklistBoard() {
    * being re-read. Patched, not reloaded: a reload would re-sort every row underneath the
    * Coordinator mid-triage.
    */
-  const onChecklistChanged = useCallback((caseId: string, view: ChecklistView) => {
-    setState((current) =>
-      current.status === 'ready'
-        ? {
-            ...current,
-            cards: current.cards.map((card) =>
-              card.id === caseId ? applyChecklistToCard(card, view) : card,
-            ),
-          }
-        : current,
-    )
-  }, [])
+  // The ordering is computed here (`splitByChase`) from the card itself, so the re-read that follows
+  // every write puts this row where the patch already did; only other people's changes move rows.
+  const onChecklistChanged = useCallback(
+    (caseId: string, view: ChecklistView) => {
+      queryClient.setQueryData<ChecklistCard[]>(['checklists', 'board', activeBrandId], (current) =>
+        current?.map((card) => (card.id === caseId ? applyChecklistToCard(card, view) : card)),
+      )
+    },
+    [queryClient, activeBrandId],
+  )
 
-  if (state.status === 'loading') {
+  if (!cards && !board.isError) {
     return (
       <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
         Loading the checklist board…
@@ -95,14 +79,14 @@ export default function ChecklistBoard() {
     )
   }
 
-  if (state.status === 'failed') {
+  if (!cards) {
     return (
       <div
         className="rounded-lg border p-4"
         style={{ background: 'var(--status-red-bg)', borderColor: 'var(--border-default)' }}
       >
         <p className="text-sm font-medium" style={{ color: 'var(--status-red)' }}>
-          {state.message}
+          {board.error?.message || 'Could not load the checklist board'}
         </p>
         <p className="mt-1 text-sm" style={{ color: 'var(--text-muted)' }}>
           Nothing was changed. Try the read again — if it keeps failing, your session may have expired.
@@ -119,12 +103,12 @@ export default function ChecklistBoard() {
     )
   }
 
-  const { chase, rest } = splitByChase(state.cards)
-  const outstanding = state.cards.filter((card) => !card.checklistSatisfied).length
+  const { chase, rest } = splitByChase(cards)
+  const outstanding = cards.filter((card) => !card.checklistSatisfied).length
   // Not "ready for the PM": docs-complete also wants the case paid and staffed, and this count
   // includes unpaid cases — which the row two lines down chips as "Unpaid" for that exact
   // reason. The header states what it can actually see.
-  const documentsIn = state.cards.length - outstanding
+  const documentsIn = cards.length - outstanding
 
   return (
     <div className="flex flex-col gap-5">
@@ -139,7 +123,7 @@ export default function ChecklistBoard() {
         {/* The thesis: not how many cases are collecting, but how many are stuck. */}
         <p className="font-num mt-1 flex flex-wrap items-baseline gap-x-2 text-sm tabular-nums">
           <span style={{ color: 'var(--text-muted)' }}>
-            {state.cards.length} {state.cards.length === 1 ? 'case' : 'cases'} collecting documents
+            {cards.length} {cards.length === 1 ? 'case' : 'cases'} collecting documents
           </span>
           {chase.length > 0 && (
             <>
@@ -160,7 +144,7 @@ export default function ChecklistBoard() {
         </p>
       </header>
 
-      {state.cards.length === 0 && (
+      {cards.length === 0 && (
         <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
           Nothing is waiting on a client right now.
         </p>
@@ -310,7 +294,7 @@ function Row({
         <span
           className="font-num rounded-md px-1.5 py-0.5 text-[11px] font-semibold tabular-nums"
           style={{ color: AGING_TOKEN[band].fg, background: AGING_TOKEN[band].bg }}
-          title="Wall-clock time in Document Collection"
+          title="Wall-clock time in the case's current stage"
         >
           {agingLabel(hours)} waiting
         </span>
@@ -318,7 +302,12 @@ function Row({
         {/* Unpaid is worth showing here even though it does not block collecting: it is what
             docs-complete will refuse on, so seeing it now beats discovering it on the click. */}
         {!card.paid && <Chip>Unpaid</Chip>}
-        {card.exceptionState !== 'NONE' && <Chip>{card.exceptionState.replaceAll('_', ' ').toLowerCase()}</Chip>}
+        {/* Only the expert asks for documents during signing, so a held signing case is their request. */}
+        {card.exceptionState === 'ON_HOLD_AWAITING_CLIENT' && card.currentStage === 'EXPERT_SIGNING' ? (
+          <Chip>Expert asked for more evidence</Chip>
+        ) : (
+          card.exceptionState !== 'NONE' && <Chip>{card.exceptionState.replaceAll('_', ' ').toLowerCase()}</Chip>
+        )}
         {card.checklistSatisfied && <Chip tone="green">All documents in</Chip>}
 
         <button

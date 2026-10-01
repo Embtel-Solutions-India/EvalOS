@@ -163,16 +163,8 @@ public class CaseController {
 	public record AssignPmRequest(@NotNull UUID pmId) {
 	}
 
-	/**
-	 * @param expertRationale why this expert (Unit 32). Optional — see the service for why.
-	 * @param fieldOfExpertise the discipline the PM matched on (Unit 33). Optional and
-	 *                        recorded, not enforced: the PM is the only person who knows it
-	 *                        and they know it here, but a case must still be staffable by
-	 *                        someone who skipped the shortlist.
-	 * @param fee             what the case pays the expert (Unit 65); blank = their standard fee
-	 */
-	public record AssignCmRequest(@NotNull UUID cmId, @NotNull UUID expertId, String expertRationale,
-			FieldTag fieldOfExpertise, @DecimalMin("0") @Digits(integer = 10, fraction = 2) BigDecimal fee) {
+	/** PM Review → Drafting names the CM only (Unit 73); the expert is offered after the draft. */
+	public record AssignCmRequest(@NotNull UUID cmId) {
 	}
 
 	public record AssignCoordinatorRequest(@NotNull UUID coordinatorId) {
@@ -280,7 +272,9 @@ public class CaseController {
 			 * replaces the signature provider's viewed callback. A production fact about staffing
 			 * rather than client identity, so it is ungated like the sign status beside it.
 			 */
-			Instant expertPortalReadAt) {
+			Instant expertPortalReadAt,
+			/** D70: the win's note for production. Client-facing content, so behind {@code maySeeCaseContent}. */
+			CaseDetailService.SalesNote salesNote) {
 
 		static CaseDetail of(CaseDetailService.CaseWithContext context, TenantContext ctx) {
 			Case subject = context.subject();
@@ -307,7 +301,8 @@ public class CaseController {
 					seesContent ? subject.getApplicantName() : null,
 					subject.getFieldOfExpertise(),
 					subject.getRfeDate(),
-					subject.getExpertPortalReadAt());
+					subject.getExpertPortalReadAt(),
+					seesContent ? context.salesNote() : null);
 		}
 	}
 
@@ -319,7 +314,8 @@ public class CaseController {
 	 * @param fee             what the case pays the replacement (Unit 65); blank = their standard fee
 	 */
 	public record ExpertRequest(@NotNull UUID expertId, String expertRationale, FieldTag fieldOfExpertise,
-			@DecimalMin("0") @Digits(integer = 10, fraction = 2) BigDecimal fee) {
+			@DecimalMin("0") @Digits(integer = 10, fraction = 2) BigDecimal fee,
+			@NotBlank @jakarta.validation.constraints.Size(max = 4000) String expertNote) {
 	}
 
 	/** Unit 65: blank keeps the fee the expert declined at. */
@@ -425,6 +421,17 @@ public class CaseController {
 	 * <p>Also not a transition. The deadline drives {@code DeadlineRisk}, which is computed on
 	 * read, so the risk tiles reclassify on their next query with nothing to invalidate.
 	 */
+	/**
+	 * Offers the case to an expert, or a different one, without moving it (Unit 73): once a draft
+	 * exists, until expert signing. PM, CM (standard fee only) and ENM.
+	 */
+	@PatchMapping("/{id}/expert")
+	@PreAuthorize(GM_OR + "hasAnyRole('PROJECT_MANAGER', 'CASE_MANAGER', 'EXPERT_NETWORK_MANAGER')")
+	public ApiResponse<CaseSummary> changeExpert(@PathVariable UUID id, @Valid @RequestBody ExpertRequest request) {
+		return summary(lifecycle.changeExpert(id, request.expertId(), request.expertRationale(),
+				request.fieldOfExpertise(), request.fee(), request.expertNote()));
+	}
+
 	@PatchMapping("/{id}/deadline")
 	@PreAuthorize(GM_OR + "hasRole('PROJECT_MANAGER')")
 	public ApiResponse<CaseSummary> changeDeadline(@PathVariable UUID id,
@@ -610,8 +617,7 @@ public class CaseController {
 	@PostMapping("/{id}/assign-cm")
 	@PreAuthorize(GM_OR + "hasRole('PROJECT_MANAGER')")
 	public ApiResponse<CaseSummary> assignCm(@PathVariable UUID id, @Valid @RequestBody AssignCmRequest request) {
-		return summary(lifecycle.assignCaseManager(id, request.cmId(), request.expertId(), request.expertRationale(),
-				request.fieldOfExpertise(), request.fee()));
+		return summary(lifecycle.assignCaseManager(id, request.cmId()));
 	}
 
 	/**
@@ -756,7 +762,7 @@ public class CaseController {
 	@PreAuthorize(GM_OR + "hasAnyRole('PROJECT_MANAGER', 'EXPERT_NETWORK_MANAGER', 'CASE_MANAGER')")
 	public ApiResponse<CaseSummary> reassignExpert(@PathVariable UUID id, @Valid @RequestBody ExpertRequest request) {
 		return summary(lifecycle.reassignExpert(id, request.expertId(), request.expertRationale(),
-				request.fieldOfExpertise(), request.fee()));
+				request.fieldOfExpertise(), request.fee(), request.expertNote()));
 	}
 
 	/** Offer the case again to the expert who declined it (Unit 63, D62) — the reassign gate. */

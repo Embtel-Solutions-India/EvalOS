@@ -83,7 +83,11 @@ public class CaseBoardController {
 			ExpertSignStatus expertSignStatus,
 			PmApprovalStatus pmApprovalStatus,
 			ClientApprovalStatus clientApprovalStatus,
-			BigDecimal dealValue) {
+			BigDecimal dealValue,
+			/** Unit 73: whether an expert is on the case — a flag, never the id (the card omits it on purpose). */
+			boolean hasExpert,
+			/** Unit 73: the expert is offered once this is above zero. */
+			int draftVersionCount) {
 
 		static BoardCard of(BoardRow row, TenantContext ctx, DeadlineRisk risk) {
 			Case subject = row.subject();
@@ -93,7 +97,8 @@ public class CaseBoardController {
 					subject.getCurrentStage(), subject.getExceptionState(), subject.getPoolStatus(),
 					subject.getAssignedPm(), subject.getAssignedCm(), subject.getAssignedCoordinator(),
 					subject.getExpertSignStatus(), subject.getPmApprovalStatus(), subject.getClientApprovalStatus(),
-					CaseController.SEES_DEAL_VALUE.contains(ctx.role()) ? subject.getDealValue() : null);
+					CaseController.SEES_DEAL_VALUE.contains(ctx.role()) ? subject.getDealValue() : null,
+					subject.getExpertId() != null, subject.getDraftVersionCount());
 		}
 	}
 

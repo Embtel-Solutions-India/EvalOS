@@ -89,7 +89,7 @@ class CaseControllerTest {
 			new Route("/assign-pm", Role.BRAND_MANAGER, Role.CASE_MANAGER,
 					"{\"pmId\":\"%s\"}".formatted(SOME_ID)),
 			new Route("/assign-cm", Role.PROJECT_MANAGER, Role.PROJECT_COORDINATOR,
-					"{\"cmId\":\"%s\",\"expertId\":\"%s\"}".formatted(SOME_ID, SOME_ID)),
+					"{\"cmId\":\"%s\"}".formatted(SOME_ID)),
 			new Route("/assign-coordinator", Role.PROJECT_MANAGER, Role.CASE_MANAGER,
 					"{\"coordinatorId\":\"%s\"}".formatted(SOME_ID)),
 			new Route("/docs-complete", Role.PROJECT_COORDINATOR, Role.CASE_MANAGER, null),
@@ -110,7 +110,7 @@ class CaseControllerTest {
 			new Route("/expert/declined", Role.EXPERT_NETWORK_MANAGER, Role.PROJECT_COORDINATOR, REASON),
 			new Route("/expert/timed-out", Role.CASE_MANAGER, Role.PROJECT_COORDINATOR, null),
 			new Route("/reassign-expert", Role.CASE_MANAGER, Role.PROJECT_COORDINATOR,
-					"{\"expertId\":\"%s\"}".formatted(SOME_ID)),
+					"{\"expertId\":\"%s\",\"expertNote\":\"Read the transcript\"}".formatted(SOME_ID)),
 			// The CM sends the client-approved letter to the expert, which is what starts the
 			// signing clock (Unit 31).
 			new Route("/send-to-expert", Role.CASE_MANAGER, Role.PROJECT_COORDINATOR, null),
@@ -175,7 +175,7 @@ class CaseControllerTest {
 	void everyTransitionRouteAnswersItsDeclaredRoleAndNobodyElse() throws Exception {
 		Case result = aCase();
 		given(lifecycle.assignPm(any(), any())).willReturn(result);
-		given(lifecycle.assignCaseManager(any(), any(), any(), any(), any(), any())).willReturn(result);
+		given(lifecycle.assignCaseManager(any(), any())).willReturn(result);
 		given(lifecycle.assignCoordinator(any(), any())).willReturn(result);
 		given(lifecycle.markDocsComplete(any())).willReturn(result);
 		given(lifecycle.pmApproveDraft(any(), any())).willReturn(result);
@@ -185,7 +185,7 @@ class CaseControllerTest {
 		given(lifecycle.clientRequestRevisions(any(), any())).willReturn(result);
 		given(lifecycle.expertSigned(any())).willReturn(result);
 		given(lifecycle.expertDeclined(any(), any())).willReturn(result);
-		given(lifecycle.reassignExpert(any(), any(), any(), any(), any())).willReturn(result);
+		given(lifecycle.reassignExpert(any(), any(), any(), any(), any(), any())).willReturn(result);
 		given(lifecycle.pmQcApprove(any())).willReturn(result);
 		given(lifecycle.pmQcFail(any(), any())).willReturn(result);
 		given(lifecycle.sendToExpert(any())).willReturn(result);
@@ -327,7 +327,8 @@ class CaseControllerTest {
 	private void givenDetail() {
 		given(details.detail(any())).willReturn(new CaseDetailService.CaseWithContext(
 				withNotes(), "Anita Rao", "Zara Okonkwo", "TIER_1",
-				new CaseDetailService.ChecklistSummary(6, 4)));
+				new CaseDetailService.ChecklistSummary(6, 4),
+				new CaseDetailService.SalesNote("Rush: RFE due 10 Oct", "Sam Sales", java.time.Instant.EPOCH)));
 	}
 
 	private static Case withNotes() {
@@ -380,7 +381,9 @@ class CaseControllerTest {
 					.andExpect(status().isOk())
 					.andExpect(jsonPath("$.data.maySeeCaseContent").value(true))
 					.andExpect(jsonPath("$.data.clientName").value("Anita Rao"))
-					.andExpect(jsonPath("$.data.draftLink").value("https://drive.example/draft-1"));
+					.andExpect(jsonPath("$.data.draftLink").value("https://drive.example/draft-1"))
+					// D70: the win's note travels with the client's content.
+					.andExpect(jsonPath("$.data.salesNote.body").value("Rush: RFE due 10 Oct"));
 		}
 
 		mockMvc.perform(get("/api/cases/{id}", CASE_ID)
@@ -391,7 +394,8 @@ class CaseControllerTest {
 				.andExpect(jsonPath("$.data.expertName").value("Zara Okonkwo"))
 				.andExpect(jsonPath("$.data.maySeeCaseContent").value(false))
 				.andExpect(jsonPath("$.data.clientName").doesNotExist())
-				.andExpect(jsonPath("$.data.draftLink").doesNotExist());
+				.andExpect(jsonPath("$.data.draftLink").doesNotExist())
+				.andExpect(jsonPath("$.data.salesNote").doesNotExist());
 	}
 
 	/**
@@ -404,7 +408,7 @@ class CaseControllerTest {
 	void readAccessToStrategyNotesIsStatedSeparatelyFromWriteAccess() throws Exception {
 		Case noNotesYet = aCase();
 		given(details.detail(any())).willReturn(new CaseDetailService.CaseWithContext(
-				noNotesYet, "Anita Rao", null, null, new CaseDetailService.ChecklistSummary(0, 0)));
+				noNotesYet, "Anita Rao", null, null, new CaseDetailService.ChecklistSummary(0, 0), null));
 
 		// The Case Manager: sees, cannot edit. Both flags must disagree, and the value is null
 		// because nothing has been written — not because it was withheld.
@@ -447,6 +451,26 @@ class CaseControllerTest {
 		// The Case Manager reads them and cannot write them — the whole point of the panel.
 		for (Role refused : List.of(Role.CASE_MANAGER, Role.BRAND_MANAGER, Role.PROJECT_COORDINATOR)) {
 			mockMvc.perform(patch("/api/cases/{id}/strategy-notes", CASE_ID)
+					.header(HttpHeaders.AUTHORIZATION, bearer(refused))
+					.contentType(MediaType.APPLICATION_JSON).content(body))
+					.andExpect(status().isForbidden());
+		}
+	}
+
+	/** Unit 73: PM, CM and ENM offer the expert; the Coordinator and Brand Manager do not. */
+	@Test
+	void theCaseManagerMayOfferTheExpert() throws Exception {
+		given(lifecycle.changeExpert(any(), any(), any(), any(), any(), any())).willReturn(aCase());
+		String body = "{\"expertId\":\"%s\",\"expertNote\":\"Read the transcript\"}".formatted(SOME_ID);
+
+		for (Role allowed : List.of(Role.GM, Role.PROJECT_MANAGER, Role.CASE_MANAGER, Role.EXPERT_NETWORK_MANAGER)) {
+			mockMvc.perform(patch("/api/cases/{id}/expert", CASE_ID)
+					.header(HttpHeaders.AUTHORIZATION, bearer(allowed))
+					.contentType(MediaType.APPLICATION_JSON).content(body))
+					.andExpect(status().isOk());
+		}
+		for (Role refused : List.of(Role.PROJECT_COORDINATOR, Role.BRAND_MANAGER)) {
+			mockMvc.perform(patch("/api/cases/{id}/expert", CASE_ID)
 					.header(HttpHeaders.AUTHORIZATION, bearer(refused))
 					.contentType(MediaType.APPLICATION_JSON).content(body))
 					.andExpect(status().isForbidden());

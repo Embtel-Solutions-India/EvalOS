@@ -58,7 +58,7 @@ export async function fetchExpert(id: string, signal?: AbortSignal): Promise<Exp
  * The top-3 ranked experts for one case, with the per-factor breakdown.
  *
  * A read that sits *beside* the picker, never in front of it: `/experts` still lists everybody
- * available, and `assign-cm` does not care whether the expert it is given was on this list.
+ * available, and the expert offer does not care whether the expert it is given was on this list.
  *
  * `fieldTag` is required and is the PM's answer, not the case's — nothing stores which discipline
  * a case needs, because the PM who just read the documents is the only one who knows.

@@ -20,7 +20,7 @@ import jakarta.persistence.Table;
  */
 @Entity
 @Table(name = "payout_ledger")
-public class PayoutLedger extends ScopedEntity {
+public class PayoutLedger extends ScopedEntity implements CaseOwned {
 
 	@Column(name = "case_id", updatable = false)
 	private UUID caseId;
@@ -112,5 +112,10 @@ public class PayoutLedger extends ScopedEntity {
 
 	public void setRecordedBy(UUID recordedBy) {
 		this.recordedBy = recordedBy;
+	}
+
+	@Override
+	public UUID liveCaseId() {
+		return getCaseId();
 	}
 }

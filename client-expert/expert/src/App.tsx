@@ -1,5 +1,7 @@
 import { Suspense, lazy } from 'react'
-import { Route, BrowserRouter, Routes } from 'react-router-dom'
+import { Outlet, Route, BrowserRouter, Routes } from 'react-router-dom'
+import { AuthSplit } from '@shared/components/common/AuthSplit'
+import { LEGAL } from '@shared/legal/legal'
 import { Toaster } from '@shared/components/ui/sonner'
 import { AppLoadingScreen } from '@shared/components/common/AppLoadingScreen'
 import { ErrorBoundary } from '@shared/components/common/ErrorBoundary'
@@ -42,6 +44,22 @@ const NewCases = lazy(() => import('@/pages/NewCases'))
 const Payouts = lazy(() => import('@/pages/Payouts'))
 const Dashboard = lazy(() => import('@/pages/Dashboard'))
 const NotFound = lazy(() => import('@shared/pages/NotFound'))
+// Unit 72 (D71): the expert accepts the same three policies as the client, so it reads the same pages.
+const PrivacyPolicy = lazy(() => import('@shared/legal/PrivacyPolicy'))
+const Disclaimer = lazy(() => import('@shared/legal/Disclaimer'))
+const DocumentRetention = lazy(() => import('@shared/legal/DocumentRetention'))
+
+/** The signed-out screens: the form beside the portal artwork, as on the client portal (Unit 72). */
+function PublicLayout() {
+  return (
+    <div className="flex min-h-dvh flex-col">
+      {/* Unit 72: the form on the left, the portal artwork on the right half. */}
+      <AuthSplit>
+        <Outlet />
+      </AuthSplit>
+    </div>
+  )
+}
 
 /**
  * The expert portal, its own app on its own origin.
@@ -54,8 +72,13 @@ function AppRoutes() {
   return (
     <Routes>
       {/* Unit 59: the door, the emailed link, and a signed-in expert's cases. */}
-      <Route path="/" element={<Welcome />} />
-      <Route path="/set-password" element={<SetPassword />} />
+      <Route path={LEGAL.privacy.to} element={<PrivacyPolicy />} />
+      <Route path={LEGAL.disclaimer.to} element={<Disclaimer />} />
+      <Route path={LEGAL.retention.to} element={<DocumentRetention />} />
+      <Route element={<PublicLayout />}>
+        <Route path="/" element={<Welcome />} />
+        <Route path="/set-password" element={<SetPassword />} />
+      </Route>
       {/* Signed-in screens share the sidebar shell, which also guards the token. */}
       <Route element={<ExpertLayout />}>
         <Route path="/dashboard" element={<Dashboard />} />

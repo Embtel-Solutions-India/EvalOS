@@ -91,6 +91,8 @@ class PayoutServiceTest {
 
 	private com.ie.evalos.notification.NotificationService notifications;
 
+	private com.ie.evalos.chat.live.CaseLive live;
+
 	@BeforeEach
 	void setUp() {
 		payouts = mock(PayoutLedgerRepository.class);
@@ -102,8 +104,9 @@ class PayoutServiceTest {
 		audit = mock(AuditService.class);
 		notifications = mock(com.ie.evalos.notification.NotificationService.class);
 		offers = mock(ExpertCaseOfferRepository.class);
+		live = mock(com.ie.evalos.chat.live.CaseLive.class);
 		service = new PayoutService(payouts, payments, experts, brands, cases, teamMembers, audit, notifications,
-				mock(com.ie.evalos.notification.RecipientResolver.class), offers);
+				mock(com.ie.evalos.notification.RecipientResolver.class), offers, live);
 
 		given(payouts.save(any(PayoutLedger.class))).willAnswer(call -> call.getArgument(0));
 	}
@@ -283,6 +286,10 @@ class PayoutServiceTest {
 		// the task. Wrong brand, wrong actor or the raw (non-deduped) id list must fail this.
 		verify(payouts).attachToPayment(saved.getValue().getId(), List.of(a.getId(), b.getId(), c.getId()),
 				BRAND_IE, ACTOR_ID);
+		// Unit 70: each settled row's case is signalled, since the bulk update skips Hibernate.
+		for (PayoutLedger row : List.of(a, b, c)) {
+			verify(live).touched(row.getBrandId(), row.getCaseId());
+		}
 
 		// And the trail: delete the audit call and this is the only thing that notices.
 		ArgumentCaptor<Object> snapshot = ArgumentCaptor.forClass(Object.class);
@@ -632,11 +639,15 @@ class PayoutServiceTest {
 		PayoutPayment payment = paidPayment();
 		given(payments.findById(payment.getId())).willReturn(Optional.of(payment));
 		given(payouts.confirmForPayment(payment.getId())).willReturn(3);
+		PayoutLedger settled = pending("100.00");
+		given(payouts.findByPaymentId(payment.getId())).willReturn(List.of(settled));
 
 		service.confirmByExpert(BRAND_IE, EXPERT_ID, payment.getId());
 
 		assertThat(payment.getConfirmedAt()).isNotNull();
 		verify(payouts).confirmForPayment(payment.getId());
+		// Unit 70: the bulk update bypasses the Hibernate listener, so the service names the case.
+		verify(live).touched(settled.getBrandId(), settled.getCaseId());
 		verify(notifications).create(eq(BRAND_IE), eq(List.of(ACTOR_ID)),
 				eq(com.ie.evalos.domain.NotificationType.PAYOUT_CONFIRMED), any(), any());
 	}

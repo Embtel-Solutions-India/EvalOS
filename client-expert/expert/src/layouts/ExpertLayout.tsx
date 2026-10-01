@@ -1,3 +1,5 @@
+import { TermsGate } from '@shared/legal/TermsGate'
+import { LiveInvalidate } from '@shared/components/common/LiveInvalidate'
 import * as DialogPrimitive from '@radix-ui/react-dialog'
 import { useQuery } from '@tanstack/react-query'
 import { ChatProvider, ChatToast, UnreadBadge, useChat } from '@evalos/chat'
@@ -34,8 +36,11 @@ export function ExpertLayout() {
 
   const title = pathname === '/dashboard' ? 'Dashboard' : pathname === '/new' ? 'New cases' : pathname === '/messages' ? 'Messages' : pathname === '/payouts' ? 'Payouts' : pathname === '/case' ? 'Case' : 'Your cases'
 
+  // Unit 72 (D71): the policies are accepted once, before anything else.
   return (
+    <TermsGate audience="expert" onSignOut={() => window.location.assign('/')}>
     <ChatProvider client={chat}>
+      <LiveInvalidate prefix="expert-portal" />
       <div className="min-h-dvh bg-muted/40 lg:grid lg:grid-cols-[16rem_1fr]">
         <aside className="hidden lg:block">
           <div className="fixed inset-y-0 left-0 w-64">
@@ -83,6 +88,7 @@ export function ExpertLayout() {
         }}
       />
     </ChatProvider>
+    </TermsGate>
   )
 }
 

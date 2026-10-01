@@ -1,30 +1,31 @@
-import { useEffect, useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
+import { useState } from 'react'
 import { fetchDraftComments, postDraftComment, type DraftComment } from './caseApi'
 
 /** One version's thread with the client (Unit 58). Read-only unless the version is in client review. */
 export default function DraftComments({ caseId, draftId, open }: { caseId: string; draftId: string; open: boolean }) {
-  const [thread, setThread] = useState<DraftComment[] | null>(null)
+  // Unit 70a: re-read on focus, so the client's new comment appears; a post refreshes it too.
+  const comments = useQuery<DraftComment[]>({
+    queryKey: ['case', caseId, 'draft-comments', draftId],
+    queryFn: ({ signal }) => fetchDraftComments(caseId, draftId, signal),
+  })
+  const thread = comments.data
   const [body, setBody] = useState('')
   const [page, setPage] = useState('')
-  const [failed, setFailed] = useState(false)
-
-  useEffect(() => {
-    fetchDraftComments(caseId, draftId)
-      .then(setThread)
-      .catch(() => setFailed(true))
-  }, [caseId, draftId])
+  const [sendFailed, setSendFailed] = useState(false)
+  const failed = sendFailed || (comments.isError && !thread)
 
   async function send(event: React.FormEvent) {
     event.preventDefault()
     const text = body.trim()
     if (!text) return
     try {
-      const added = await postDraftComment(caseId, draftId, text, page ? Number(page) : null)
-      setThread((current) => [...(current ?? []), added])
+      // The `api` interceptor refreshes the thread once the post lands.
+      await postDraftComment(caseId, draftId, text, page ? Number(page) : null)
       setBody('')
       setPage('')
     } catch {
-      setFailed(true)
+      setSendFailed(true)
     }
   }
 

@@ -1,8 +1,7 @@
 import type { ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { Logo } from '@shared/components/common/Logo'
-import { SiteFooter } from '@/components/layout/SiteFooter'
-import { COMPANY, LEGAL_UPDATED } from '@/constants/legal'
+import { COMPANY, LEGAL_UPDATED } from './legal'
 
 /**
  * The shell for the three legal pages: public, outside `PortalLayout`, because a policy a client
@@ -30,7 +29,6 @@ export function LegalPage({ title, children }: { title: string; children: ReactN
           {children}
         </article>
       </main>
-      <SiteFooter />
     </div>
   )
 }

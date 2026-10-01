@@ -111,14 +111,14 @@ mirrors it.** If the two disagree, the stylesheet is right and this is the bug.
 | Muted text          | `--text-muted`        | `#6B7280` |
 | Primary accent      | `--accent-primary`    | `#2563EB` |
 | Accent hover        | `--accent-hover`      | `#1D4ED8` |
-| **Nav rail**        | `--sidebar-bg`        | `#16213C` |
-| Nav rail text       | `--sidebar-text`      | `#E8ECF5` |
-| Nav rail muted      | `--sidebar-muted`     | `#8B97B0` |
+| **Nav rail**        | `--sidebar-bg`        | `#E3EAFB` |
+| Nav rail text       | `--sidebar-text`      | `#0F1B3D` |
+| Nav rail muted      | `--sidebar-muted`     | `#2F3D5C` |
 | Nav rail active     | `--sidebar-active-bg` | `#1F3A6D` |
-| Nav rail divider    | `--sidebar-border`    | `#24304D` |
+| Nav rail divider    | `--sidebar-border`    | `#C3D0EE` |
 
-**The nav rail is its own surface and the only dark one.** Contrast was measured, not
-assumed: rail text 13.5:1, rail muted 5.4:1, active-item white 11.1:1 — all above AA.
+**The nav rail is its own surface: a pale blue, set apart from the grey canvas and white cards.** Contrast was measured, not
+assumed: rail text 11.1:1, rail muted 7.1:1, active-item white on the navy pill 11.1:1 — all above AA.
 A future change to `--sidebar-bg` re-opens those three numbers.
 | Border              | `--border-default`    | `#E3E6EB` |
 | **Status — red**    | `--status-red`        | `#DC2626` |
@@ -141,7 +141,7 @@ table above reads as one instrument and is not:
 
 | Concept | Code | Question it answers | Where it is drawn |
 | --- | --- | --- | --- |
-| **Stage SLA** | `SlaCalculator` → `SlaStatus` | is this *stage* taking too long, against a per-stage budget from `stage_entered_at`? | the board's SLA rail |
+| **Stage SLA** | `SlaCalculator` → `SlaStatus` | is this *stage* taking too long, against a per-stage budget from `stage_entered_at`? | each board card's SLA chip, and the board header's overdue count |
 | **Deadline risk** | `DeadlineRiskCalculator` → `DeadlineRisk` | will we miss the *promised date*, from `case.deadline`? | the at-risk KPI, the inbox, the deadline presets |
 
 They disagree routinely — a case sits comfortably inside a 12-hour PM-review budget
@@ -186,7 +186,8 @@ not a second formatter. Asserted in `lib/money.test.ts`.
 | Context                                        | Class          | Value |
 | ---------------------------------------------- | -------------- | ----- |
 | Inline / small UI — badges, chips, **controls** | `rounded-md`   | 6px   |
-| Cards / panels / Kanban                        | `rounded-lg`   | 8px   |
+| Cards / panels / board column headers          | `rounded-lg`   | 8px   |
+| Kanban cards on the boards (stage-tinted)      | `rounded-xl`   | 12px  |
 | Modals / drawers / overlays                    | `rounded-xl`   | 12px  |
 
 **Nothing exceeds 12px, and controls take `md`.** `--radius-xl` was 30px under the
@@ -254,11 +255,12 @@ exit are CSS keyframes keyed on it (`index.css`), under the existing
 `prefers-reduced-motion` block. Motion, dnd-kit and TanStack Table are deferred with
 written triggers in `context/specs/22-role-operations-ui.md`. **The opportunity board drags with native HTML5
 drag-and-drop** (2026-09-23) — a stage move needs no field, so spec 22's refusal (which is about
-case transitions) does not apply there; the production board still does not drag.
+case transitions) does not apply there. **The production board drags too** (2026-10-01): a drop
+opens the target action's dialog when it needs a field and runs it when it does not (spec 22).
 
 ## Layout Patterns
 
-- **App shell**: a **flush, full-height dark nav rail** on the left (role + brand-scoped
+- **App shell**: a **flush, full-height pale-blue nav rail** on the left (role + brand-scoped
   items), and a top bar with a **brand switcher** (all-brands/filter for GM, single
   locked brand otherwise), a **global date filter**, search, and a **notification bell**
   (in-app notification center).
@@ -283,7 +285,7 @@ case transitions) does not apply there; the production board still does not drag
 
   The rail is **not** a floating rounded card inset from the viewport — that was the
   previous language and is reversed. It is fixed to the edge with no gutter, so the
-  content column offsets by `--sidebar-width` alone. A dark rail is what lets the content
+  content column offsets by `--sidebar-width` alone. A tinted rail is what lets the content
   area stay quiet under a dozen panels at once; a white rail beside white cards needs a
   border to separate it and then competes with every card on screen.
 - **Dashboard**: RAG tile grid at top (KPIs from the spec), tables and charts
@@ -336,6 +338,16 @@ case transitions) does not apply there; the production board still does not drag
   true of every stage whatever order the upstream puts them in. This is the same rule as
   the RAG table's "two clocks must never share a label": a number that looks like a rate
   and is not one is worse than no number.
+- **Board look (2026-10-01, both the production and the opportunity board, `StageColumn`):** each
+  column is headed by an **outlined bar in the stage's colour** — icon, name, count, and a "+" for
+  Sales that opens Add opportunity on that stage — with no panel behind the cards. **Cards are
+  tinted with the stage's colour** (`--stage`, a top-to-bottom wash): a white tag pill (service /
+  source) and the case code or deal status, a bold title and one muted line, then a ruled footer
+  with a calendar date on the left and a white chip on the right (the SLA as bars **plus the
+  word** on a case, the value on a deal). **Each stage has its own colour** (`board/stageColors.ts`,
+  ten hues with **no red, amber, orange or green**, because RAG stays status-only): Won is green,
+  Lost rose, Refunded and exception lanes slate. Secondary text on the tint is `--card-text-muted`
+  (5.3:1), not `--text-muted` (3.4:1 there). The per-column SLA rail was removed (2026-10-01); each card's SLA chip and the board header's overdue count carry RAG.
 - **Production board (Kanban)**: horizontal columns for the EvalOS-owned stages —
   Doc Collection · Expert Assignment · Draft / Report · Expert Signing · Final
   Delivery — with exception lanes (On Hold · Rematching · Refund Requested). The
@@ -361,9 +373,7 @@ case transitions) does not apply there; the production board still does not drag
   **The board scrolls on both axes, and each axis has one owner.** The column strip
   scrolls horizontally; each column's card list scrolls vertically inside a height
   bounded by `--board-column-max`. Nothing else on the screen scrolls. That is what
-  keeps the SLA rail and the column headers fixed while cases move under them — the
-  rail is the board's one instrument, and an instrument that scrolls off the top is
-  not one. The pool lane is capped at two rows of pills for the same reason, and
+  keeps the column headers fixed while cases move under them. The pool lane is capped at two rows of pills for the same reason, and
   "Off the pipeline" is closed by default.
   **The pool lane is the Brand Manager's only, as of Unit 23.** The GM watches the board;
   the pool is a queue somebody works, and it now lives in the PM inbox where taking a case
@@ -444,11 +454,12 @@ case transitions) does not apply there; the production board still does not drag
 - **Client portal** (built in Unit 14): single centered column, one case, the
   drafted letter with big Approve / Request revisions actions and a visible
   "changes requested" note field.
-  - **Every client-portal screen ends in `SiteFooter`** (2026-09-25): three short
-    paragraphs — not a law firm, never sold, kept seven years — each ending in a link
-    to the policy that says it in full, then the three links and the address. The
-    policies live at public routes (`/privacy`, `/disclaimer`, `/document-retention`)
-    because sign-up asks a client to agree to them before an account exists. Where data
+  - **The policies are accepted, not footnoted** (Unit 72, D71, 2026-10-01): the three
+    short paragraphs — not a law firm, never sold, kept seven years — each ending in a link
+    to the policy that says it in full (`PolicySummary`), are shown on the first-sign-in
+    acceptance screen of both portals. **The `SiteFooter` that repeated them under every
+    screen was removed the same day.** The policies live at public routes (`/privacy`,
+    `/disclaimer`, `/document-retention`) on both portals. Where data
     is handed over — sign-up, the uploader, the send step — the relevant policy is
     linked in place as well.
   - **No shell, no nav, no brand switcher, and no auth provider** — `App` answers

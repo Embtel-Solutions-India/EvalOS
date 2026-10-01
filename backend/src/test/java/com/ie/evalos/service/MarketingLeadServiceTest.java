@@ -85,18 +85,36 @@ class MarketingLeadServiceTest {
 		authenticate(Role.MARKETING, MINE);
 		when(ghl.upsertContact(any(), any(), any(), any(), any()))
 				.thenReturn(new GhlWriteClient.UpsertedContact("c1", "Ada Lovelace", "ada@example.test", null));
-		when(ghl.upsertOpportunity(eq(MINE), eq("c1"), any(), any()))
+		when(ghl.upsertOpportunity(eq(MINE), eq("c1"), any(), any(), any(), any(), any()))
 				.thenReturn(new GhlWriteClient.UpsertedOpportunity("o1", "c1", MINE, "s1", "open",
 						"Ada Lovelace", new BigDecimal("500"), true));
 
 		MarketingLeadService.Lead lead = service.openLead("Ada", "Lovelace", "ada@example.test", null,
-				null, new BigDecimal("500"));
+				null, new BigDecimal("500"), null, null, null, null);
 
 		// The pipeline handed to GHL is the caller's, never anything they supplied.
-		verify(ghl).upsertOpportunity(eq(MINE), eq("c1"), eq("Ada Lovelace"), eq(new BigDecimal("500")));
+		verify(ghl).upsertOpportunity(eq(MINE), eq("c1"), eq("Ada Lovelace"), eq(new BigDecimal("500")), any(), any(), any());
 		assertThat(lead.contactId()).isEqualTo("c1");
 		assertThat(lead.opportunityId()).isEqualTo("o1");
 		assertThat(lead.created()).isTrue();
+	}
+
+	/** Unit 39b: the complete form — stage and close ride the upsert, intake fields follow it. */
+	@Test
+	void theCompleteFormReachesGhl() {
+		authenticate(Role.MARKETING, MINE);
+		when(ghl.upsertContact(any(), any(), any(), any(), any()))
+				.thenReturn(new GhlWriteClient.UpsertedContact("c1", "Ada Lovelace", "ada@example.test", null));
+		when(ghl.upsertOpportunity(any(), any(), any(), any(), any(), any(), any()))
+				.thenReturn(new GhlWriteClient.UpsertedOpportunity("o1", "c1", MINE, "s2", "open",
+						"Ada", null, true));
+		java.util.Map<String, String> fields = java.util.Map.of("f-service", "Course-by-course");
+
+		service.openLead("Ada", "Lovelace", "ada@example.test", null, "Ada", null, "s2", "2026-10-15",
+				fields, null);
+
+		verify(ghl).upsertOpportunity(eq(MINE), eq("c1"), eq("Ada"), any(), eq("s2"), eq("2026-10-15"), any());
+		verify(ghl).setOpportunityFields("o1", fields);
 	}
 
 	/**
@@ -109,11 +127,11 @@ class MarketingLeadServiceTest {
 		authenticate(Role.EXPERT_NETWORK_MANAGER, MINE);
 		when(ghl.upsertContact(any(), any(), any(), any(), any()))
 				.thenReturn(new GhlWriteClient.UpsertedContact("c1", "Grace Hopper", "grace@example.test", null));
-		when(ghl.upsertOpportunity(any(), any(), any(), any()))
+		when(ghl.upsertOpportunity(any(), any(), any(), any(), any(), any(), any()))
 				.thenReturn(new GhlWriteClient.UpsertedOpportunity("o1", "c1", MINE, "s1", "open", "Grace Hopper",
 						null, true));
 
-		service.openLead("Grace", "Hopper", "grace@example.test", null, null, null);
+		service.openLead("Grace", "Hopper", "grace@example.test", null, null, null, null, null, null, null);
 
 		verify(ghl).upsertContact("Grace", "Hopper", "grace@example.test", null, GhlWriteClient.SOURCE_HIRING_DESK);
 	}
@@ -123,11 +141,11 @@ class MarketingLeadServiceTest {
 		authenticate(Role.MARKETING, MINE);
 		when(ghl.upsertContact(any(), any(), any(), any(), any()))
 				.thenReturn(new GhlWriteClient.UpsertedContact("c1", "Ada", "ada@example.test", null));
-		when(ghl.upsertOpportunity(any(), any(), any(), any()))
+		when(ghl.upsertOpportunity(any(), any(), any(), any(), any(), any(), any()))
 				.thenReturn(new GhlWriteClient.UpsertedOpportunity("o1", "c1", MINE, "s1", "open", "Ada",
 						null, false));
 
-		assertThat(service.openLead("Ada", null, "ada@example.test", null, null, null).created()).isFalse();
+		assertThat(service.openLead("Ada", null, "ada@example.test", null, null, null, null, null, null, null).created()).isFalse();
 	}
 
 	private com.ie.evalos.domain.Opportunity givenAnOpenDealInTheMirror() {
@@ -150,9 +168,9 @@ class MarketingLeadServiceTest {
 		when(outbox.isPending(BRAND, row.getId())).thenReturn(true);
 
 		MarketingLeadService.Lead lead = service.openLead("Ada", null, "ada@example.test", null, "Ada",
-				new BigDecimal("100"));
+				new BigDecimal("100"), null, null, null, null);
 
-		verify(ghl, never()).upsertOpportunity(any(), any(), any(), any());
+		verify(ghl, never()).upsertOpportunity(any(), any(), any(), any(), any(), any(), any());
 		verify(deals, never()).absorbCreated(any(), any(), any(), any(), any(), any(), any(), any());
 		assertThat(lead.opportunityId()).isEqualTo("o1");
 		assertThat(lead.name()).isEqualTo("Ada (edited)");
@@ -168,8 +186,8 @@ class MarketingLeadServiceTest {
 		row.editedLocally(null, null, null, "won");
 		when(outbox.isPending(BRAND, row.getId())).thenReturn(true);
 
-		assertThat(service.openLead("Ada", null, "ada@example.test", null, "Ada", null).created()).isFalse();
-		verify(ghl, never()).upsertOpportunity(any(), any(), any(), any());
+		assertThat(service.openLead("Ada", null, "ada@example.test", null, "Ada", null, null, null, null, null).created()).isFalse();
+		verify(ghl, never()).upsertOpportunity(any(), any(), any(), any(), any(), any(), any());
 	}
 
 	/** D56, the other branch: nothing queued, so the upsert updates the deal as before. */
@@ -178,13 +196,13 @@ class MarketingLeadServiceTest {
 		authenticate(Role.MARKETING, MINE);
 		com.ie.evalos.domain.Opportunity row = givenAnOpenDealInTheMirror();
 		when(outbox.isPending(BRAND, row.getId())).thenReturn(false);
-		when(ghl.upsertOpportunity(any(), any(), any(), any()))
+		when(ghl.upsertOpportunity(any(), any(), any(), any(), any(), any(), any()))
 				.thenReturn(new GhlWriteClient.UpsertedOpportunity("o1", "c1", MINE, "s1", "open", "Ada",
 						new BigDecimal("100"), false));
 
-		service.openLead("Ada", null, "ada@example.test", null, "Ada", new BigDecimal("100"));
+		service.openLead("Ada", null, "ada@example.test", null, "Ada", new BigDecimal("100"), null, null, null, null);
 
-		verify(ghl).upsertOpportunity(eq(MINE), eq("c1"), eq("Ada"), eq(new BigDecimal("100")));
+		verify(ghl).upsertOpportunity(eq(MINE), eq("c1"), eq("Ada"), eq(new BigDecimal("100")), any(), any(), any());
 	}
 
 	/**
@@ -198,7 +216,7 @@ class MarketingLeadServiceTest {
 	void aLeadWithNoEmailAndNoPhoneIsRefused() {
 		authenticate(Role.MARKETING, MINE);
 
-		assertThatThrownBy(() -> service.openLead("Ada", "Lovelace", "  ", null, null, null))
+		assertThatThrownBy(() -> service.openLead("Ada", "Lovelace", "  ", null, null, null, null, null, null, null))
 				.isInstanceOf(InvalidRequestException.class)
 				.hasMessageContaining("email or a phone");
 
@@ -210,7 +228,7 @@ class MarketingLeadServiceTest {
 	void aCallerWithNoPipelineCannotOpenALead() {
 		authenticate(Role.MARKETING, null);
 
-		assertThatThrownBy(() -> service.openLead("Ada", null, "ada@example.test", null, null, null))
+		assertThatThrownBy(() -> service.openLead("Ada", null, "ada@example.test", null, null, null, null, null, null, null))
 				.isInstanceOf(ForbiddenException.class);
 
 		verify(ghl, never()).upsertContact(any(), any(), any(), any(), any());
@@ -297,11 +315,11 @@ class MarketingLeadServiceTest {
 		authenticate(Role.MARKETING, MINE);
 		when(ghl.upsertContact(any(), any(), any(), any(), any()))
 				.thenReturn(new GhlWriteClient.UpsertedContact("c1", "Ada Lovelace", "ada@example.test", null));
-		when(ghl.upsertOpportunity(eq(MINE), eq("c1"), any(), any()))
+		when(ghl.upsertOpportunity(eq(MINE), eq("c1"), any(), any(), any(), any(), any()))
 				.thenReturn(new GhlWriteClient.UpsertedOpportunity("o1", "c1", MINE, "s1", "open",
 						"Ada Lovelace", new BigDecimal("500"), true));
 
-		service.openLead("Ada", "Lovelace", "ada@example.test", null, null, new BigDecimal("500"));
+		service.openLead("Ada", "Lovelace", "ada@example.test", null, null, new BigDecimal("500"), null, null, null, null);
 
 		verify(deals).absorbCreated(MINE, "o1", "c1", "Ada Lovelace", new BigDecimal("500"), "open",
 				"s1", GhlWriteClient.SOURCE_MARKETING_DESK);

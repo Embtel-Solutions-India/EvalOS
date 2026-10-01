@@ -87,7 +87,7 @@ class SalesDeskControllerTest {
 
 	@Test
 	void aSalespersonUpdatesTheirDeal() throws Exception {
-		given(desk.update(any(), any(), any())).willReturn(DEAL);
+		given(desk.update(any(), any(), any(), any(), any(), any(), any())).willReturn(DEAL);
 
 		mockMvc.perform(put("/api/sales/opportunities/{id}", OPPORTUNITY)
 				.header(HttpHeaders.AUTHORIZATION, bearer(Role.SALES))
@@ -96,9 +96,24 @@ class SalesDeskControllerTest {
 				.andExpect(jsonPath("$.data.monetaryValue").value(1200));
 	}
 
+	/** Unit 69: SALES deletes their deal; nobody else reaches the service. */
+	@Test
+	void onlyASalespersonDeletesADeal() throws Exception {
+		mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+				.delete("/api/sales/opportunities/{id}", OPPORTUNITY)
+				.header(HttpHeaders.AUTHORIZATION, bearer(Role.SALES)))
+				.andExpect(status().isOk());
+		then(desk).should().delete(OPPORTUNITY);
+
+		mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+				.delete("/api/sales/opportunities/{id}", OPPORTUNITY)
+				.header(HttpHeaders.AUTHORIZATION, bearer(Role.MARKETING)))
+				.andExpect(status().isForbidden());
+	}
+
 	@Test
 	void aSalespersonMovesADealToAnotherStage() throws Exception {
-		given(desk.moveToStage(any(), any())).willReturn(DEAL);
+		given(desk.moveToStage(any(), any(), any())).willReturn(DEAL);
 
 		mockMvc.perform(put("/api/sales/opportunities/{id}/stage", OPPORTUNITY)
 				.header(HttpHeaders.AUTHORIZATION, bearer(Role.SALES))
@@ -108,7 +123,7 @@ class SalesDeskControllerTest {
 
 	@Test
 	void aSalespersonClosesADeal() throws Exception {
-		given(desk.close(any(), any())).willReturn(DEAL);
+		given(desk.close(any(), any(), any())).willReturn(DEAL);
 
 		mockMvc.perform(put("/api/sales/opportunities/{id}/status", OPPORTUNITY)
 				.header(HttpHeaders.AUTHORIZATION, bearer(Role.SALES))
@@ -220,7 +235,7 @@ class SalesDeskControllerTest {
 				.contentType(MediaType.APPLICATION_JSON).content("{\"status\":\"won\"}"))
 				.andExpect(status().isForbidden());
 
-		then(desk).should(never()).close(any(), any());
+		then(desk).should(never()).close(any(), any(), any());
 	}
 
 	@Test
@@ -233,7 +248,7 @@ class SalesDeskControllerTest {
 	@Test
 	void anotherDesksDealIsForbidden() throws Exception {
 		willThrow(new ForbiddenException("That opportunity is not in your pipeline"))
-				.given(desk).close(any(), any());
+				.given(desk).close(any(), any(), any());
 
 		mockMvc.perform(put("/api/sales/opportunities/{id}/status", "opp_theirs")
 				.header(HttpHeaders.AUTHORIZATION, bearer(Role.SALES))

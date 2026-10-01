@@ -5,10 +5,13 @@ import {
   STAGE_ACCESS,
   STAGE_COLUMNS,
   actionsFor,
+  cardDate,
   admits,
   allInsideSla,
   columnsFor,
   dueBeforeFor,
+  dropActionFor,
+  prefill,
   slaMix,
   type BoardCard,
   type ExceptionState,
@@ -180,6 +183,16 @@ describe('slaMix', () => {
 })
 
 describe('actionsFor', () => {
+  it('lets the PM staff the CM at any stage, and says Change once a slot is filled (D36)', () => {
+    const labels = (c: BoardCard) => actionsFor(c, 'PROJECT_MANAGER').map((action) => action.label)
+    const empty = card({ currentStage: 'DOC_COLLECTION', assignedCm: null, assignedCoordinator: null })
+    expect(labels(empty)).toEqual(expect.arrayContaining(['Assign coordinator', 'Assign case manager']))
+    const staffed = card({ currentStage: 'DOC_COLLECTION', assignedCm: 'm1', assignedCoordinator: 'm2' })
+    expect(labels(staffed)).toEqual(expect.arrayContaining(['Change coordinator', 'Change case manager']))
+    expect(actionsFor(staffed, 'PROJECT_MANAGER').find((a) => a.path === 'case-manager')?.method).toBe('patch')
+    expect(paths('DOC_COLLECTION', 'PROJECT_COORDINATOR')).not.toContain('case-manager')
+  })
+
   it('offers the stage action to the role that drives the stage', () => {
     expect(paths('DOC_COLLECTION', 'PROJECT_COORDINATOR')).toContain('docs-complete')
     expect(paths('PM_REVIEW', 'PROJECT_MANAGER')).toContain('assign-cm')
@@ -373,7 +386,8 @@ describe('dueBeforeFor', () => {
 
 describe('the case fee on an offer (Unit 65)', () => {
   it('asks for an optional fee on every action that makes an offer', () => {
-    for (const path of ['assign-cm', 'reassign-expert']) {
+    // Unit 73: the first offer is `expert` (after the draft); `assign-cm` names the CM only.
+    for (const path of ['expert', 'reassign-expert']) {
       const action = QUICK_ACTIONS.find((a) => a.path === path)
       const fee = action?.fields?.find((f) => f.name === 'fee')
       expect(fee?.kind).toBe('amount')
@@ -389,5 +403,65 @@ describe('the Case Manager on expert signing (Unit 66)', () => {
   })
   it('still does not offer reassign — its expert picker is gated away from the CM', () => {
     expect(paths('EXPERT_SIGNING', 'CASE_MANAGER', 'EXPERT_DECLINED_REMATCHING')).not.toContain('reassign-expert')
+  })
+})
+
+describe('cardDate', () => {
+  it('drops the year for this year and keeps it otherwise', () => {
+    const now = new Date('2026-10-01T12:00:00Z')
+    expect(cardDate('2026-09-25T12:00:00Z', now)).toBe('Sep 25')
+    expect(cardDate('2025-02-25T12:00:00Z', now)).toBe('Feb 25, 2025')
+  })
+})
+
+describe('dropActionFor', () => {
+  it('picks the one action into the column, fields or not', () => {
+    expect(dropActionFor(card(), 'PROJECT_COORDINATOR', ['PM_REVIEW'])?.path).toBe('docs-complete')
+    // A drop that needs a field still resolves; the board opens its dialog.
+    const assign = dropActionFor(card({ currentStage: 'PM_REVIEW' }), 'PROJECT_MANAGER', ['DRAFT_IN_PROGRESS'])
+    expect(assign?.path).toBe('assign-cm')
+    expect(assign?.fields?.length).toBeGreaterThan(0)
+    expect(dropActionFor(card({ currentStage: 'FINAL_QC' }), 'PROJECT_MANAGER', ['DRAFT_IN_PROGRESS'])?.path).toBe('qc-fail')
+  })
+
+  it('refuses a column no action of this role reaches', () => {
+    // Skipping a stage, the wrong role, and the case's own column.
+    expect(dropActionFor(card(), 'PROJECT_COORDINATOR', ['DRAFT_REVIEW'])).toBeNull()
+    expect(dropActionFor(card(), 'CASE_MANAGER', ['PM_REVIEW'])).toBeNull()
+    expect(dropActionFor(card({ currentStage: 'READY_TO_SEND' }), 'PROJECT_COORDINATOR', ['READY_TO_SEND', 'CLIENT_REVIEW'])).toBeNull()
+    // A held case takes only its way out, which is no stage move.
+    expect(dropActionFor(card({ exceptionState: 'ON_HOLD_AWAITING_CLIENT' }), 'PROJECT_COORDINATOR', ['PM_REVIEW'])).toBeNull()
+  })
+})
+
+describe('expert staffing (Unit 73: offered after the draft)', () => {
+  const drafted = card({ currentStage: 'DRAFT_REVIEW', draftVersionCount: 1 })
+  const expertAction = (c: BoardCard, role: Role) => actionsFor(c, role).find((a) => a.path === 'expert')
+
+  it('is offered once a draft exists, never at PM Review or before the upload', () => {
+    expect(expertAction(card({ currentStage: 'PM_REVIEW' }), 'PROJECT_MANAGER')).toBeUndefined()
+    expect(expertAction(card({ currentStage: 'DRAFT_IN_PROGRESS', draftVersionCount: 0 }), 'PROJECT_MANAGER')).toBeUndefined()
+    expect(expertAction(drafted, 'PROJECT_MANAGER')?.label).toBe('Assign expert')
+    // Signing has its own way to change the expert.
+    expect(expertAction(card({ currentStage: 'EXPERT_SIGNING', draftVersionCount: 1 }), 'PROJECT_MANAGER')).toBeUndefined()
+  })
+
+  it('reads Change once an expert is on the case — by id on the case page, by flag on the board', () => {
+    expect(expertAction({ ...drafted, expertId: 'e1' }, 'PROJECT_MANAGER')?.label).toBe('Change expert')
+    expect(expertAction({ ...drafted, hasExpert: true }, 'PROJECT_MANAGER')?.label).toBe('Change expert')
+  })
+
+  it('lets the CM offer while the PM reviews, at the standard fee only (no fee field)', () => {
+    const offer = expertAction(drafted, 'CASE_MANAGER')
+    expect(offer).toBeDefined()
+    expect(offer?.fields?.map((f) => f.name)).not.toContain('fee')
+    expect(expertAction(drafted, 'PROJECT_MANAGER')?.fields?.map((f) => f.name)).toContain('fee')
+  })
+
+  it('asks Assign CM for the CM only, starting with whoever More already put on', () => {
+    const assign = QUICK_ACTIONS.find((a) => a.path === 'assign-cm')!
+    expect(assign.fields?.map((f) => f.name)).toEqual(['cmId'])
+    expect(prefill(card({ currentStage: 'PM_REVIEW', assignedCm: 'cm1' }), assign)).toEqual({ cmId: 'cm1' })
+    expect(prefill(card({ currentStage: 'PM_REVIEW' }), assign)).toEqual({})
   })
 })

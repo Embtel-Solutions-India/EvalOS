@@ -56,4 +56,24 @@ public class ExpertAccount extends ScopedEntity {
 	public void recordSignIn(Instant at) {
 		this.lastSignInAt = at;
 	}
+
+	@Column(name = "terms_accepted_at")
+	private Instant termsAcceptedAt;
+
+	/** The policies' version accepted (`PortalTerms.VERSION`), or null if never. */
+	@Column(name = "terms_version")
+	private String termsVersion;
+
+	public boolean hasAccepted(String version) {
+		return version.equals(termsVersion);
+	}
+
+	public void acceptTerms(String version, Instant at) {
+		this.termsVersion = version;
+		this.termsAcceptedAt = at;
+	}
+
+	public Instant getTermsAcceptedAt() {
+		return termsAcceptedAt;
+	}
 }

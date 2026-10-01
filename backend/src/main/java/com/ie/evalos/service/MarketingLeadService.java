@@ -52,7 +52,8 @@ public class MarketingLeadService {
 	 * §3a chose upsert over create — not tidiness, recoverability.
 	 */
 	public Lead openLead(String firstName, String lastName, String email, String phone, String name,
-			BigDecimal monetaryValue) {
+			BigDecimal monetaryValue, String stageId, String expectedCloseDate,
+			java.util.Map<String, String> customFields, String assignedTo) {
 		// A create has to land on exactly one pipeline and the caller must not choose it — see
 		// PipelineScope.mineForWrite, which refuses rather than guessing when a desk holds several.
 		String pipelineId = scope.mineForWrite();
@@ -81,7 +82,13 @@ public class MarketingLeadService {
 		}
 
 		GhlWriteClient.UpsertedOpportunity opportunity = ghl.upsertOpportunity(pipelineId, contact.id(),
-				name == null || name.isBlank() ? contact.name() : name, monetaryValue);
+				name == null || name.isBlank() ? contact.name() : name, monetaryValue, stageId,
+				expectedCloseDate, assignedTo);
+		// GHL's upsert body has no customFields, so the intake answers are a second, fields-only
+		// PUT. If it fails the lead still exists and a retry re-matches it — same recoverability
+		// as the contact/opportunity pair above. Blank answers are dropped, so a repeat enquiry
+		// never erases what an earlier one recorded.
+		ghl.setOpportunityFields(opportunity.id(), customFields);
 
 		// **Into the mirror at once, or the next request cannot see it.** `value` below refuses a
 		// deal the mirror has not absorbed — correctly, since the outbox stores an id and a row

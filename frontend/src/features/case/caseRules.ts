@@ -12,9 +12,14 @@ import { ROLE_LABELS, type Role } from '../../lib/session'
  * mirrors a server gate named beside it; the server still decides.
  */
 
-/** Transitions out of the stage and ways out of an exception are the header's buttons; the rest go under More. */
+/**
+ * Transitions out of the stage and ways out of an exception are the header's buttons; the rest —
+ * staffing, and any stage-preserving `patch` — go under More.
+ */
 export function splitActions(actions: readonly QuickAction[]): { primary: QuickAction[]; more: QuickAction[] } {
-  const primary = actions.filter((action) => action.stages !== null || action.requiresException !== undefined)
+  const primary = actions.filter(
+    (action) => (action.stages !== null && action.method !== 'patch') || action.requiresException !== undefined,
+  )
   return { primary, more: actions.filter((action) => !primary.includes(action)) }
 }
 
@@ -25,6 +30,26 @@ export function nextStep(stage: Stage, exception: ExceptionState, role: Role): s
   if (owner === role) return `Your next step: ${todo}`
   if (role === 'GM' || role === 'BRAND_MANAGER') return `${ROLE_LABELS[owner]}: ${todo}`
   return `Waiting on the ${ROLE_LABELS[owner]}`
+}
+
+/**
+ * What the expert asked for, while the case is still held on it — else null (2026-10-01).
+ *
+ * The request is the expert's own timeline row (`CaseTimelineService` names portal experts "The
+ * expert") that put the case on hold. A later row back at `NONE` means a Resume ended that hold, so
+ * a different hold that follows cannot inherit the old request's banner.
+ */
+export function expertEvidenceRequest(
+  timeline: readonly { actorName: string; exceptionState: string | null; note: string | null }[],
+  exceptionState: string,
+): string | null {
+  if (exceptionState !== 'ON_HOLD_AWAITING_CLIENT') return null
+  for (let i = timeline.length - 1; i >= 0; i--) {
+    const entry = timeline[i]
+    if (entry.exceptionState === 'NONE') return null
+    if (entry.actorName === 'The expert' && entry.exceptionState === 'ON_HOLD_AWAITING_CLIENT') return entry.note
+  }
+  return null
 }
 
 /** `CaseController` PATCH /{id}/deadline: GM or PM. */
