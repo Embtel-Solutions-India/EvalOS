@@ -1,9 +1,9 @@
-import { useEffect, useState } from 'react'
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { Card, CapacityBar, ChartCard, KpiCard } from '../../components/ui/card'
 import type { CardState } from '../../components/ui/card'
 import { useFilters, rangeLabel } from '../shell/filtersContext'
 import { fetchPmMetrics, type PmMetrics } from './pmMetricsApi'
+import { useMetrics } from './useMetrics'
 
 /**
  * The Project Manager's production command centre.
@@ -14,28 +14,11 @@ import { fetchPmMetrics, type PmMetrics } from './pmMetricsApi'
  */
 export default function PmDashboard() {
   const { dateRange, activeBrandId } = useFilters()
-  const [metrics, setMetrics] = useState<PmMetrics | null>(null)
-  const [error, setError] = useState<string | null>(null)
-
-  useEffect(() => {
-    const controller = new AbortController()
-    setMetrics(null)
-    setError(null)
-    fetchPmMetrics(dateRange, activeBrandId, controller.signal)
-      .then(setMetrics)
-      .catch((cause: Error) => {
-        if (controller.signal.aborted) return
-        setError(cause.message)
-      })
-    return () => controller.abort()
-  }, [dateRange, activeBrandId])
-
-  /** One state for every tile, so a failed load cannot leave half the board showing stale zeroes. */
-  const base: CardState = error
-    ? { kind: 'error', note: error }
-    : metrics === null
-      ? { kind: 'loading' }
-      : { kind: 'ok' }
+  // One state for every tile, so a failed load cannot leave half the board showing stale zeroes.
+  const { data: metrics, state: base } = useMetrics<PmMetrics>(
+    (signal) => fetchPmMetrics(dateRange, activeBrandId, signal),
+    [dateRange, activeBrandId],
+  )
 
   const onTime = metrics?.onTime
   const onTimeState: CardState =

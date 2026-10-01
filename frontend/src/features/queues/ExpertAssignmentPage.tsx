@@ -1,12 +1,11 @@
 import { useState } from 'react'
 import { useBoard } from '../board/useBoard'
 import { Link } from 'react-router-dom'
-import { performAction } from '../board/boardApi'
-import { QUICK_ACTIONS, type BoardCard, type QuickAction } from '../board/boardRules'
-import QuickActionDialog from '../board/QuickActionDialog'
+import type { BoardCard } from '../board/boardRules'
 import AvailabilityBoard from '../experts/AvailabilityBoard'
 import ExpertProfile from '../experts/ExpertProfile'
 import { useFilters } from '../shell/filtersContext'
+import RowActions from './RowActions'
 import { awaitingExpert, expertSignOverdue, riskColor, riskLabel } from './queueRules'
 
 /**
@@ -30,32 +29,9 @@ export default function ExpertAssignmentPage() {
   // No `dueBefore`: this screen's question is "who has no expert", which a deadline window
   // would silently narrow — a case with no date at all would drop out of a list whose whole
   // purpose is that nobody is working it.
-  const [pending, setPending] = useState<{ card: BoardCard; action: QuickAction } | null>(null)
-  const [actionError, setActionError] = useState<string | null>(null)
   const [openExpert, setOpenExpert] = useState<string | null>(null)
 
 
-  /**
-   * Fires the transition, then reloads rather than moving the row locally.
-   *
-   * A timeout moves a case out of `EXPERT_SIGNING` and into the rematch lane — so it leaves the
-   * overdue table and appears in the waiting one above it, which no optimistic edit of a single
-   * row would get right.
-   */
-  const run = async (card: BoardCard, action: QuickAction, values: Record<string, string>) => {
-    setPending(null)
-    setActionError(null)
-    try {
-      await performAction(card.id, action, values)
-      await load()
-    } catch (cause: unknown) {
-      // Named, because the server's refusals are sentence *fragments* — "that is the expert who
-      // declined" alone, floating above three tables, says neither what was attempted nor on
-      // which case.
-      const why = cause instanceof Error ? cause.message : 'the server refused it'
-      setActionError(`${action.label} on ${card.caseCode} was refused — ${why}.`)
-    }
-  }
 
   const waiting = data ? awaitingExpert(data) : []
   const overdue = data ? expertSignOverdue(data) : []
@@ -75,23 +51,6 @@ export default function ExpertAssignmentPage() {
         </p>
       )}
 
-      {/*
-        A refused action is dismissible and the load failure above is not: one is a thing the user
-        just did and can now retry, the other is the screen having no data at all. Sharing one slot
-        meant a stale refusal sat there through every later success.
-      */}
-      {actionError && (
-        <p
-          className="flex items-start justify-between gap-3 rounded-lg border px-3 py-2 text-sm font-medium"
-          style={{ borderColor: 'var(--status-red)', color: 'var(--status-red)' }}
-          role="alert"
-        >
-          <span>{actionError}</span>
-          <button type="button" onClick={() => setActionError(null)} aria-label="Dismiss">
-            &times;
-          </button>
-        </p>
-      )}
 
       {data === null && !error && (
         <div className="h-40 animate-pulse rounded-lg" style={{ background: 'var(--bg-raised)' }} />
@@ -112,7 +71,6 @@ export default function ExpertAssignmentPage() {
             empty="Every expert signature is inside its budget."
             rows={overdue}
             overdue
-            onAct={setPending}
           />
 
           <Panel
@@ -120,7 +78,6 @@ export default function ExpertAssignmentPage() {
             note="In Expert Assignment, or thrown back by a decline or a timeout."
             empty="Every open case has an expert on it."
             rows={waiting}
-            onAct={setPending}
           />
 
           <div>
@@ -133,15 +90,6 @@ export default function ExpertAssignmentPage() {
         </>
       )}
 
-      {pending && (
-        <QuickActionDialog
-          action={pending.action}
-          caseId={pending.card.id}
-          caseCode={pending.card.caseCode}
-          onCancel={() => setPending(null)}
-          onConfirm={(values) => void run(pending.card, pending.action, values)}
-        />
-      )}
 
       {openExpert && (
         // `mayWrite` is false and not derived: this screen is PM-only and a PM is never on
@@ -157,14 +105,6 @@ export default function ExpertAssignmentPage() {
   )
 }
 
-/** The action each row offers, or null when the case is between the two. */
-function actionFor(card: BoardCard): QuickAction | null {
-  const path =
-    card.exceptionState === 'EXPERT_DECLINED_REMATCHING' ? 'reassign-expert'
-    : card.currentStage === 'EXPERT_SIGNING' ? 'expert/timed-out'
-    : null
-  return path ? (QUICK_ACTIONS.find((action) => action.path === path) ?? null) : null
-}
 
 function Panel({
   title,
@@ -172,14 +112,12 @@ function Panel({
   empty,
   rows,
   overdue = false,
-  onAct,
 }: {
   title: string
   note: string
   empty: string
   rows: BoardCard[]
   overdue?: boolean
-  onAct: (pending: { card: BoardCard; action: QuickAction }) => void
 }) {
   return (
     <div>
@@ -225,7 +163,6 @@ function Panel({
             </thead>
             <tbody>
               {rows.map((card) => {
-                const action = actionFor(card)
                 return (
                   <tr key={card.id} style={{ borderBottom: '1px solid var(--border-default)' }}>
                     <td className="px-3 py-2">
@@ -254,23 +191,17 @@ function Panel({
                       {stateOf(card, overdue)}
                     </td>
                     <td className="px-3 py-2 text-right">
-                      {action ?
-                        <button
-                          type="button"
-                          onClick={() => onAct({ card, action })}
-                          className="rounded-md border px-2 py-1 text-xs font-medium"
-                          style={{ borderColor: 'var(--border-default)' }}
-                        >
-                          {action.label}
-                        </button>
-                      : <Link
+                      {/* Unit 67: every action this role has on this case, a first expert included. */}
+                      <span className="inline-flex items-center gap-3">
+                        <RowActions card={card} />
+                        <Link
                           to={`/cases/${card.id}`}
                           className="text-sm font-medium"
                           style={{ color: 'var(--accent-primary)' }}
                         >
                           Open
                         </Link>
-                      }
+                      </span>
                     </td>
                   </tr>
                 )

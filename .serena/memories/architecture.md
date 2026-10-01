@@ -44,3 +44,5 @@ by several webmail clients and a `data:` URI is blocked outright by Gmail and Ou
 **2026-09-28:** Handoff C and outbound webhooks are dropped (D53); invariant 11 is struck.
 
 **2026-09-29 (Unit 63):** the ENM (`Tier.SUPPLY`) also carries a pipeline claim — their brand's `EXPERT_HIRING` pipelines, derived in `TeamMemberPipelineRepository.ghlIdsFor` — so `PipelineScope` bounds their hiring desk like a Sales desk; `CaseIntakeService` refuses a won hiring opportunity (second lock on invariant 8).
+
+**Unit 68 (2026-10-02):** `JwtFilter` re-reads `team_member.active` per staff request (one PK lookup), so a deactivated member gets 401 at once; role/brand still change on next sign-in.

@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
+import { useState } from 'react'
 
 import { formatPayout } from '../../lib/money'
 import { exportPayoutRows, fetchSummary, type ReportPeriod } from './payoutApi'
-import { summaryCsv, type SummaryRow } from './payoutRules'
+import { summaryCsv } from './payoutRules'
 
 /**
  * The ENM's payout reports (Unit 63): weekly, monthly or yearly, Pending / Processing (recorded,
@@ -12,20 +13,13 @@ import { summaryCsv, type SummaryRow } from './payoutRules'
 export default function PayoutSummary() {
   const [period, setPeriod] = useState<ReportPeriod>('MONTH')
   const [exporting, setExporting] = useState(false)
-  const [rows, setRows] = useState<SummaryRow[] | null>(null)
-  const [failure, setFailure] = useState<string | null>(null)
-
-  useEffect(() => {
-    const controller = new AbortController()
-    setRows(null)
-    setFailure(null)
-    fetchSummary(period, controller.signal)
-      .then(setRows)
-      .catch((error: unknown) => {
-        if (!controller.signal.aborted) setFailure(error instanceof Error ? error.message : 'Could not load the summary')
-      })
-    return () => controller.abort()
-  }, [period])
+  const [exportFailure, setFailure] = useState<string | null>(null)
+  const query = useQuery({
+    queryKey: ['payouts', 'summary', period],
+    queryFn: ({ signal }) => fetchSummary(period, signal),
+  })
+  const rows = query.data ?? null
+  const failure = exportFailure ?? (query.isError && !rows ? query.error.message || 'Could not load the summary' : null)
 
   function save(blob: Blob, name: string) {
     const url = URL.createObjectURL(blob)

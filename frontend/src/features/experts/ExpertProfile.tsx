@@ -1,3 +1,4 @@
+import { useQuery } from '@tanstack/react-query'
 import { useCallback, useEffect, useState } from 'react'
 import { ArrowLeft, Check, SquarePen } from 'lucide-react'
 import { SheetContent, SheetRoot } from '../../components/ui/dialog'
@@ -24,6 +25,7 @@ import {
   type FieldTag,
   type LetterType,
   type VisaCategory,
+  portalLabel,
 } from './expertRules'
 
 /**
@@ -110,23 +112,27 @@ export default function ExpertProfile({
   const [detail, setDetail] = useState('')
 
   // Keyed on the prop, never on `creating` — that flips to false the moment a create returns,
-  // and an effect watching it would re-run and fetch the expert `new`.
+  // and a query watching it would fetch the expert `new`. Unit 70a phase 2: re-read on focus,
+  // after any write and on a live signal, but copied onto the screen only in view mode, so a
+  // background re-read never overwrites what somebody is typing.
+  const query = useQuery({
+    queryKey: ['experts', expertId],
+    queryFn: ({ signal }) => fetchExpert(expertId, signal),
+    enabled: expertId !== 'new',
+  })
   useEffect(() => {
-    if (expertId === 'new') return
-    const controller = new AbortController()
-    fetchExpert(expertId, controller.signal)
-      .then((loaded) => {
-        setProfile(loaded)
-        setForm(formOf(loaded))
-        setState('ready')
-      })
-      .catch((error: unknown) => {
-        if (controller.signal.aborted) return
-        setFailure(error instanceof Error ? error.message : 'Could not load this expert')
-        setState('ready')
-      })
-    return () => controller.abort()
-  }, [expertId])
+    if (query.data && mode === 'view') {
+      setProfile(query.data)
+      setForm(formOf(query.data))
+      setState((current) => (current === 'loading' ? 'ready' : current))
+    }
+  }, [query.data, mode])
+  useEffect(() => {
+    if (query.isError && !query.data) {
+      setFailure(query.error.message || 'Could not load this expert')
+      setState('ready')
+    }
+  }, [query.isError, query.data, query.error])
 
   const save = useCallback(
     async (event: React.FormEvent) => {
@@ -415,6 +421,7 @@ export default function ExpertProfile({
                   <Fact term="Open cases" value={String(expert.activeLoad)} numeric />
                   <Fact term="Completed" value={String(expert.completedCases)} numeric />
                   <Fact term="Payout pending" value={money(expert.pendingTotal)} numeric />
+                  <Fact term="Portal account" value={portalLabel(expert.portal)} />
                   <Fact
                     term="Avg response"
                     value={profile?.avgResponseHours == null ? '—' : `${profile.avgResponseHours} h`}

@@ -142,6 +142,10 @@ export default function CaseHeader({
           <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
             {readable(card.serviceType)}
           </p>
+          {/* Unit 67: who is on the case, so "who do I ask?" is not a trip to the timeline. */}
+          <p className="mt-0.5 text-xs" style={{ color: 'var(--text-muted)' }}>
+            {teamLine(detail.team)}
+          </p>
         </div>
 
         <div className="flex flex-col items-end gap-1.5">
@@ -249,4 +253,12 @@ export default function CaseHeader({
       )}
     </header>
   )
+}
+
+function teamLine(team: CaseDetail['team']): string {
+  return [
+    `PM ${team.pm ?? '—'}`,
+    `CM ${team.cm ?? '—'}`,
+    `Coordinator ${team.coordinator ?? '—'}`,
+  ].join(' · ')
 }

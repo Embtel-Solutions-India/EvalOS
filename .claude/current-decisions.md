@@ -351,6 +351,16 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
   second door, so `mintForExpert` / `mintPartyForExpert`, the staff "portal link" button, the
   token-in-the-URL `/case` and the portal-links ledger all go in Unit 59, and live expert links are
   revoked by migration.
+- **D72.** **The GM administers staff in EvalOS** (2026-10-02, Unit 68, spec `68-gm-admin.md`):
+  create, edit (name, email, role, brand, segment, GHL user), deactivate / reactivate — never delete
+  — and set a password, GM-only and audited without the password. **The GM sets the password and
+  hands it over; no staff mail** (invariant 14; `open-decisions.md` Q18). **A deactivation bites on
+  the member's next request** (`JwtFilter` re-reads `team_member.active`), not when their 8 h token
+  expires; a role or brand change still waits for the next sign-in. The GM cannot deactivate
+  themselves or change their own role; a desk holding pipeline grants keeps its role and brand
+  until they are revoked. Pipelines (purpose, D61's screen), sync health (read-only, D43) and the
+  brands (read-only — a brand carries the webhook secret, so it changes by migration) have GM
+  screens too.
 
 ## Data
 
@@ -385,7 +395,10 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
 - **D37.** **Notifications are in-app and push — both, and only those two.** The `notification`
   table and the bell stay the record of what happened; web push is added beside them so a user
   who is not on the screen still hears about it. **No email and no SMS**, so invariant 14 is
-  untouched: a push is not a message to a mailbox. Decided 2026-09-17.
+  untouched: a push is not a message to a mailbox. Decided 2026-09-17. **Built 2026-10-02**
+  (`BellPushNotifier`, on chat's `push_subscriptions`): a recipient with the app open is not pushed,
+  since the live bell already tells them. The GM (no brand to file a browser under) and Marketing
+  (no chat connection to opt in through) stay in-app only.
 
 ## Other
 
@@ -518,7 +531,7 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
   and experts, and `notifications.changed` to a bell's owner. Open screens re-read over REST in
   the background, and also on tab focus and on reconnect. GHL-mirrored screens and chat are out of
   scope. **Built as Unit 70** (`70-live-screens.md`, 2026-10-01). **Amended 2026-10-01 (the
-  business): the staff app reads through TanStack Query (Unit 70a, phase 1 built)** — any
+  business): the staff app reads through TanStack Query (Unit 70a, both phases built — payouts and experts are case-shaped; dashboards and meetings re-read on focus)** — any
   successful write refreshes every case-shaped screen, from one interceptor; screens re-read on tab
   focus; the bell count every 60 s. That covers the acting person's own screens now and other
   people's on focus; Unit 70's push then becomes one invalidation.

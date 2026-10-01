@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
+import { useCallback, useState } from 'react'
 
 import { useMe } from '../../lib/authContext'
 import { formatPayout } from '../../lib/money'
 import OfferLogPanel from './OfferLogPanel'
 import { editOfferFee, fetchCaseOffer } from './registerApi'
-import { mayEditFee, type OfferOutcome, type OfferView } from './registerRules'
+import { mayEditFee, type OfferOutcome } from './registerRules'
 
 const OUTCOME_WORD: Record<OfferOutcome, string> = {
   OFFERED: 'offered, awaiting the expert',
@@ -20,45 +21,33 @@ const OUTCOME_WORD: Record<OfferOutcome, string> = {
  *
  * Loads on its own so the card never waits on it: a failure is one muted line, not a broken card.
  */
-export default function OfferFee({ caseId, reloadKey }: { caseId: string; reloadKey: number }) {
+export default function OfferFee({ caseId }: { caseId: string }) {
   const me = useMe()
-  const [offer, setOffer] = useState<OfferView | null | undefined>(undefined)
-  const [failure, setFailure] = useState<string | null>(null)
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState('')
   const [saving, setSaving] = useState(false)
   const [refusal, setRefusal] = useState<string | null>(null)
   const [showLog, setShowLog] = useState(false)
 
-  const load = useCallback(
-    async (signal?: AbortSignal) => {
-      try {
-        setOffer(await fetchCaseOffer(caseId, signal))
-      } catch (error: unknown) {
-        if (signal?.aborted) return
-        setFailure(error instanceof Error ? error.message : 'Could not load the fee')
-      }
-    },
-    [caseId],
-  )
-
-  useEffect(() => {
-    const controller = new AbortController()
-    void load(controller.signal)
-    return () => controller.abort()
-    // `reloadKey` (the timeline's length): a reassign or an acceptance writes a row and changes the offer.
-  }, [load, reloadKey])
+  // Case-shaped key (Unit 70a phase 2): a reassign, an acceptance or a live `case.changed` re-reads it.
+  const query = useQuery({
+    queryKey: ['case', caseId, 'offer'],
+    queryFn: ({ signal }) => fetchCaseOffer(caseId, signal),
+  })
+  const offer = query.data
+  const failure = query.isError && offer === undefined ? query.error.message || 'Could not load the fee' : null
 
   async function save() {
     setSaving(true)
     setRefusal(null)
     try {
-      setOffer(await editOfferFee(caseId, Number(draft)))
+      // The PATCH's interceptor re-reads the offer (Unit 70a).
+      await editOfferFee(caseId, Number(draft))
       setEditing(false)
     } catch (error: unknown) {
       // Most often a 409: the expert answered while this was open. Reload so the card says so.
       setRefusal(error instanceof Error ? error.message : 'The fee was not saved')
-      await load()
+      void query.refetch()
     } finally {
       setSaving(false)
     }

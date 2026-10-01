@@ -1542,13 +1542,9 @@ class LocalPostgresIntegrationTest {
 	 */
 	@Test
 	void aPipelineAndASegmentBelongToPipelineScopedRolesAndOnlyThem() {
-		// A pipeline-scoped role must have both.
-		assertThatThrownBy(() -> jdbc.update(
-				"INSERT INTO team_member (id, brand_id, role, email, password_hash, display_name, segment) "
-						+ "VALUES (?, ?, 'SALES', ?, 'x', 'No Pipeline', 'ATTORNEY')",
-				UUID.randomUUID(), BRAND_IE, "nopipe-" + UUID.randomUUID() + "@evalos.local"))
-				.hasMessageContaining("team_member_pipeline_matches_role");
-
+		// A pipeline-scoped role must have a segment. It no longer needs the old single-pipeline
+		// column (V84: its grants are `team_member_pipeline` rows) — see
+		// aDeskIsCreatedWithoutTheOldPipelineColumnAndNobodyElseCarriesIt.
 		assertThatThrownBy(() -> jdbc.update(
 				"INSERT INTO team_member "
 						+ "(id, brand_id, role, email, password_hash, display_name, ghl_pipeline_id) "
@@ -2192,4 +2188,18 @@ class LocalPostgresIntegrationTest {
 		assertThat(chatQuery.unreadTotal(who)).isZero();
 	}
 
+
+	/** V84 (Unit 68): a new desk needs no vestigial pipeline column; every other role still may not carry one. */
+	@Test
+	void aDeskIsCreatedWithoutTheOldPipelineColumnAndNobodyElseCarriesIt() {
+		jdbc.update("INSERT INTO team_member (id, brand_id, role, email, password_hash, display_name, segment) "
+				+ "VALUES (?, ?, 'SALES', ?, 'x', 'New Desk', 'ATTORNEY')",
+				UUID.randomUUID(), BRAND_IE, "desk-" + UUID.randomUUID() + "@evalos.local");
+
+		assertThatThrownBy(() -> jdbc.update(
+				"INSERT INTO team_member (id, brand_id, role, email, password_hash, display_name, ghl_pipeline_id) "
+						+ "VALUES (?, ?, 'CASE_MANAGER', ?, 'x', 'CM', 'pipe_1')",
+				UUID.randomUUID(), BRAND_IE, "cm-" + UUID.randomUUID() + "@evalos.local"))
+				.hasMessageContaining("team_member_pipeline_matches_role");
+	}
 }

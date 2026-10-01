@@ -328,7 +328,8 @@ class CaseControllerTest {
 		given(details.detail(any())).willReturn(new CaseDetailService.CaseWithContext(
 				withNotes(), "Anita Rao", "Zara Okonkwo", "TIER_1",
 				new CaseDetailService.ChecklistSummary(6, 4),
-				new CaseDetailService.SalesNote("Rush: RFE due 10 Oct", "Sam Sales", java.time.Instant.EPOCH)));
+				new CaseDetailService.SalesNote("Rush: RFE due 10 Oct", "Sam Sales", java.time.Instant.EPOCH),
+				new CaseDetailService.Team("Priya PM", "Chris CM", null)));
 	}
 
 	private static Case withNotes() {
@@ -381,6 +382,8 @@ class CaseControllerTest {
 					.andExpect(status().isOk())
 					.andExpect(jsonPath("$.data.maySeeCaseContent").value(true))
 					.andExpect(jsonPath("$.data.clientName").value("Anita Rao"))
+					.andExpect(jsonPath("$.data.team.pm").value("Priya PM"))
+					.andExpect(jsonPath("$.data.team.cm").value("Chris CM"))
 					.andExpect(jsonPath("$.data.draftLink").value("https://drive.example/draft-1"))
 					// D70: the win's note travels with the client's content.
 					.andExpect(jsonPath("$.data.salesNote.body").value("Rush: RFE due 10 Oct"));
@@ -408,7 +411,8 @@ class CaseControllerTest {
 	void readAccessToStrategyNotesIsStatedSeparatelyFromWriteAccess() throws Exception {
 		Case noNotesYet = aCase();
 		given(details.detail(any())).willReturn(new CaseDetailService.CaseWithContext(
-				noNotesYet, "Anita Rao", null, null, new CaseDetailService.ChecklistSummary(0, 0), null));
+				noNotesYet, "Anita Rao", null, null, new CaseDetailService.ChecklistSummary(0, 0), null,
+				new CaseDetailService.Team(null, null, null)));
 
 		// The Case Manager: sees, cannot edit. Both flags must disagree, and the value is null
 		// because nothing has been written — not because it was withheld.

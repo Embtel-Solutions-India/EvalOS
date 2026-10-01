@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
+import { useCallback, useId } from 'react'
 import type { CardState } from '../../components/ui/card'
 
 /**
@@ -8,70 +9,36 @@ import type { CardState } from '../../components/ui/card'
  * unmount, clear the previous payload so a stale number never sits under a new filter, and map
  * the outcome onto `loading` / `error` / `ok`.
  *
- * **The reset on re-fetch is the part that matters.** Leaving the old data in place while a new
- * request is in flight shows last month's figures under this month's header — the tile looks
- * live and is not.
+ * **Unit 70a phase 2: a TanStack query underneath**, so every dashboard, the diary and the boards
+ * re-read when the tab comes back, like the rest of the staff app. The key is this call's own
+ * `useId` plus the `deps` the caller names, so no two call sites share a cache entry and
+ * `useMetrics(load, deps)` keeps its signature. The root `metrics` is deliberately not in
+ * `CASE_KEYS`: dashboards are focus-only (spec 70 §1.8) — a live `case.changed` does not re-run
+ * the GM's figures on every write in every brand.
+ *
+ * **A changed input clears the screen; a re-read of the same inputs does not.** A new `deps` is a
+ * new key, which has no data yet, so last month's figures never sit under this month's header. A
+ * focus re-read or `reload()` keeps the figures on screen until better ones arrive.
  */
 export function useMetrics<T>(
   load: (signal: AbortSignal) => Promise<T>,
   deps: readonly unknown[],
 ): { data: T | null; state: CardState; reload: () => void } {
-  const [data, setData] = useState<T | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  /**
-   * Bumped to force a refetch after a mutation. A counter rather than exposing `setData`, because
-   * the only honest confirmation that a write landed is the next read — patching local state would
-   * show the user an outcome the server has not agreed to.
-   */
-  const [reloads, setReloads] = useState(0)
+  const id = useId()
+  const query = useQuery({ queryKey: ['metrics', id, ...deps], queryFn: ({ signal }) => load(signal) })
+  const data = query.data ?? null
 
-  /**
-   * Clear on a **change of inputs**, and only then.
-   *
-   * <p>This used to sit inside the fetch effect below, which meant `reload()` blanked the screen
-   * too — and once one caller started polling `reload` on a timer, every card dropped to its
-   * loading state on every tick. A refetch of the *same* window is not a stale-data risk: the
-   * figures on screen already answer the question being re-asked, so keeping them until better
-   * ones arrive is the correct rendering. A changed filter is the opposite, which is why the
-   * clear stays for that.
-   */
-  useEffect(() => {
-    setData(null)
-    setError(null)
-    // Deliberately not including `reloads`: that is the case this effect exists to exclude.
-  }, deps)
-
-  useEffect(() => {
-    const controller = new AbortController()
-    load(controller.signal)
-      .then((next) => {
-        setData(next)
-        // A poll that succeeds after one that failed clears the error with it, so a blip does not
-        // leave the card reading as broken once it is not.
-        setError(null)
-      })
-      .catch((cause: Error) => {
-        if (!controller.signal.aborted) setError(cause.message)
-      })
-    return () => controller.abort()
-    // `load` is deliberately not in the dependency list: callers pass an inline closure, which is
-    // a new function identity every render, so including it would re-fetch forever. The `deps`
-    // the caller names are the real inputs.
-    //
-    // No lint-suppression comment here — this project lints with oxlint, and a directive naming
-    // an eslint rule that is not enabled reads as "a linter objects to this" when none does.
-  }, [...deps, reloads])
-
-  // Error only while there is nothing to show. A poll that fails over figures already on screen
+  // Error only while there is nothing to show. A re-read that fails over figures already on screen
   // must not replace them with an error card — the figures are still the last true answer, and
   // `readAt` is what tells the reader how old they are.
-  const state: CardState = error && data === null
-    ? { kind: 'error', note: error }
+  const state: CardState = query.isError && data === null
+    ? { kind: 'error', note: query.error.message }
     : data === null
       ? { kind: 'loading' }
       : { kind: 'ok' }
 
-  return { data, state, reload: useCallback(() => setReloads((n) => n + 1), []) }
+  const { refetch } = query
+  return { data, state, reload: useCallback(() => void refetch(), [refetch]) }
 }
 
 /**

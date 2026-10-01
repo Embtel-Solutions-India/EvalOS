@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
+import { useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useMe } from '../../lib/authContext'
 import { formatPayout } from '../../lib/money'
@@ -27,37 +28,29 @@ const MAY_RECORD = ['GM', 'BRAND_MANAGER', 'EXPERT_NETWORK_MANAGER']
 export default function ExpertPayouts() {
   const { expertId = '' } = useParams()
   const me = useMe()
-  const [state, setState] = useState<LoadState>({ status: 'loading' })
   const [editing, setEditing] = useState<string | null>(null)
   const [draftAmount, setDraftAmount] = useState('')
   const [refusal, setRefusal] = useState<string | null>(null)
 
   const mayRecord = MAY_RECORD.includes(me.role)
 
-  const load = useCallback(
-    async (signal?: AbortSignal) => {
-      try {
-        const [pending, payments] = await Promise.all([
-          fetchPayouts({ expertId, status: 'PENDING' }, signal),
-          fetchPayments(expertId, signal),
-        ])
-        setState({ status: 'ready', pending, payments })
-      } catch (error: unknown) {
-        if (signal?.aborted) return
-        setState({
-          status: 'failed',
-          message: error instanceof Error ? error.message : 'Could not load this expert',
-        })
-      }
+  // Unit 70a phase 2: one query for both reads, re-read on focus, after any write and on a live signal.
+  const query = useQuery({
+    queryKey: ['payouts', 'expert', expertId],
+    queryFn: async ({ signal }) => {
+      const [pending, payments] = await Promise.all([
+        fetchPayouts({ expertId, status: 'PENDING' }, signal),
+        fetchPayments(expertId, signal),
+      ])
+      return { pending, payments }
     },
-    [expertId],
-  )
-
-  useEffect(() => {
-    const controller = new AbortController()
-    void load(controller.signal)
-    return () => controller.abort()
-  }, [load])
+  })
+  const load = () => query.refetch()
+  const state: LoadState = query.data
+    ? { status: 'ready', ...query.data }
+    : query.isError
+      ? { status: 'failed', message: query.error.message || 'Could not load this expert' }
+      : { status: 'loading' }
 
   const save = async (payoutId: string) => {
     setRefusal(null)

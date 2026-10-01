@@ -12,13 +12,14 @@ const stale = (client: QueryClient, key: unknown[]) => client.getQueryState(key)
 
 describe('afterRequest (Unit 70a)', () => {
   it('a write refreshes every case-shaped query and nothing else', () => {
-    const client = cacheWith(['case', 'c1'], ['case', 'c1', 'timeline'], ['board', null, null], ['notifications', 'count'], ['experts'])
+    const client = cacheWith(['case', 'c1'], ['case', 'c1', 'timeline'], ['board', null, null], ['notifications', 'count'], ['experts', 'roster'], ['metrics', 'gm'])
     afterRequest('post', '/cases/c1/assign-coordinator', client)
     expect(stale(client, ['case', 'c1'])).toBe(true)
     expect(stale(client, ['case', 'c1', 'timeline'])).toBe(true)
     expect(stale(client, ['board', null, null])).toBe(true)
     expect(stale(client, ['notifications', 'count'])).toBe(true)
-    expect(stale(client, ['experts'])).toBe(false)
+    expect(stale(client, ['experts', 'roster'])).toBe(true) // Unit 70a phase 2: an offer changes the roster
+    expect(stale(client, ['metrics', 'gm'])).toBe(false)
   })
 
   it('a read, a chat write and a sign-in refresh nothing', () => {

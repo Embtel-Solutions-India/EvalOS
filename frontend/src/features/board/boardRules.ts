@@ -454,8 +454,8 @@ export const QUICK_ACTIONS: readonly QuickAction[] = [
     stages: ['CLIENT_REVIEW'],
     fields: REASON,
   },
-  // The CM is admitted by `CaseController` on all three (Unit 66) — they own EXPERT_SIGNING. Not on
-  // `reassign-expert` below: its picker reads GET /api/experts, which the CM may not.
+  // The CM is admitted by `CaseController` on all three (Unit 66) — they own EXPERT_SIGNING — and on
+  // `reassign-expert` below since Unit 67 (the picker's GET /api/experts admits the CM since Unit 73).
   {
     path: 'expert/signed',
     to: 'FINAL_QC',
@@ -611,7 +611,7 @@ export const QUICK_ACTIONS: readonly QuickAction[] = [
   {
     path: 'reassign-expert',
     label: 'Reassign expert',
-    roles: ['PROJECT_MANAGER', 'EXPERT_NETWORK_MANAGER'],
+    roles: ['PROJECT_MANAGER', 'EXPERT_NETWORK_MANAGER', 'CASE_MANAGER'],
     stages: null,
     requiresException: 'EXPERT_DECLINED_REMATCHING',
     fields: [

@@ -14,7 +14,7 @@ export const queryClient = new QueryClient({
 })
 
 /** Every key that describes a case or a list of them. A new screen names its key with one of these. */
-export const CASE_KEYS = ['case', 'board', 'checklists', 'notifications', 'draft-review', 'pm-notes', 'nav-badges']
+export const CASE_KEYS = ['case', 'board', 'checklists', 'notifications', 'draft-review', 'pm-notes', 'nav-badges', 'payouts', 'experts']
 
 /**
  * Whether a finished request should refresh the case-shaped queries: any successful write, except

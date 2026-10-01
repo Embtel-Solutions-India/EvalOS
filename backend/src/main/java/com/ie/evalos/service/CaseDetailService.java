@@ -40,7 +40,12 @@ public class CaseDetailService {
 			String expertName,
 			String expertTier,
 			ChecklistSummary checklist,
-			SalesNote salesNote) {
+			SalesNote salesNote,
+			Team team) {
+	}
+
+	/** Who is on the case, by name (Unit 67). A null is an empty seat, or somebody outside the case's brand. */
+	public record Team(String pm, String cm, String coordinator) {
 	}
 
 	/** What Sales wrote when they won the deal (D70). Null when it was won in GHL instead. */
@@ -102,9 +107,21 @@ public class CaseDetailService {
 						note.getCreatedAt()))
 				.orElse(null);
 
+		// One read for the three seats, kept to the case's own brand like the note's author above.
+		java.util.Map<UUID, String> names = new java.util.HashMap<>();
+		members.findAllById(java.util.stream.Stream.of(subject.getAssignedPm(), subject.getAssignedCm(),
+				subject.getAssignedCoordinator()).filter(java.util.Objects::nonNull).distinct().toList())
+				.forEach(m -> {
+					if (subject.getBrandId().equals(m.getBrandId())) {
+						names.put(m.getId(), m.getDisplayName());
+					}
+				});
+		Team team = new Team(names.get(subject.getAssignedPm()), names.get(subject.getAssignedCm()),
+				names.get(subject.getAssignedCoordinator()));
+
 		return new CaseWithContext(subject, clientName,
 				expert.map(Expert::getFullName).orElse(null),
 				expert.map(Expert::getTier).map(Enum::name).orElse(null),
-				checklist, salesNote);
+				checklist, salesNote, team);
 	}
 }

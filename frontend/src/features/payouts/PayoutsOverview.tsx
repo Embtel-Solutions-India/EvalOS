@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 
 import { formatPayout } from '../../lib/money'
@@ -27,20 +27,13 @@ const STAGES: { key: keyof Pick<Overview, 'committed' | 'pending' | 'processing'
 export default function PayoutsOverview() {
   // The shell's period and brand switcher — one filter for the whole app, not a second one here.
   const { dateRange, activeBrandId } = useFilters()
-  const [overviews, setOverviews] = useState<Overview[] | null>(null)
-  const [failure, setFailure] = useState<string | null>(null)
-
-  useEffect(() => {
-    const controller = new AbortController()
-    setOverviews(null)
-    setFailure(null)
-    fetchOverview(dateRange, activeBrandId, controller.signal)
-      .then(setOverviews)
-      .catch((error: unknown) => {
-        if (!controller.signal.aborted) setFailure(error instanceof Error ? error.message : 'Could not load the overview')
-      })
-    return () => controller.abort()
-  }, [dateRange, activeBrandId])
+  // Unit 70a phase 2: re-read on focus, after any write, and on a live `case.changed`.
+  const query = useQuery({
+    queryKey: ['payouts', 'overview', dateRange, activeBrandId],
+    queryFn: ({ signal }) => fetchOverview(dateRange, activeBrandId, signal),
+  })
+  const overviews = query.data ?? null
+  const failure = query.isError && !overviews ? query.error.message || 'Could not load the overview' : null
 
   return (
     <div className="flex flex-col gap-6">

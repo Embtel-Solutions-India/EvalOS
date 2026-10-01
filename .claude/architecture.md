@@ -16,6 +16,10 @@ GHL ───────HMAC + token─► /api/webhooks/ghl/{endpointToken}  (
 limiter (60/min) in `PortalTokenFilter`. **The client's `sign-up` was removed by Unit 64 (2026-09-29)**, leaving eight. `permitAll` on the staff chain: `/api/auth/login`,
 `/actuator/health`, `/api/webhooks/**` (`/api/health` and its `HealthController` deleted 2026-09-30 — a hard-coded `UP` beside actuator's real one).
 
+**A staff token is re-checked on every request** (Unit 68): `JwtFilter` refuses a member whose
+`team_member.active` is false, so a GM's deactivation bites at once rather than at the 8 h expiry.
+Role and brand still travel in the token and change on the next sign-in.
+
 ## Multi-tenancy
 
 `ScopedEntity` + `ScopedRepository`. Every scoped repository declares its brand column; a scoped
