@@ -24,11 +24,15 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/brands")
 public class BrandController {
 
-	/** Only what a switcher needs. No webhook token, no signing secret — ever. */
-	public record BrandOption(UUID id, String name, String slug) {
+	/**
+	 * What the switcher and the Brands screen (Unit 68) need. No webhook token, no signing secret —
+	 * ever: a brand is created or changed by migration, never on a screen.
+	 */
+	public record BrandOption(UUID id, String name, String slug, boolean active, String currency, int payoutTermDays) {
 
 		static BrandOption of(Brand source) {
-			return new BrandOption(source.getId(), source.getName(), source.getSlug());
+			return new BrandOption(source.getId(), source.getName(), source.getSlug(), source.isActive(),
+					source.getCurrency(), source.getPayoutTermDays());
 		}
 	}
 

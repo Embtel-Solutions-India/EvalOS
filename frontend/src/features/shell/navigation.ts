@@ -438,7 +438,12 @@ export const NAV_ITEMS: readonly NavItem[] = [
   { path: '/payouts/experts', label: 'Experts', roles: PAYOUT_ROLES, becomes: 'Who is owed how much', group: 'Payouts' },
   { path: '/payouts/pay', label: 'Pay run', roles: PAYOUT_ROLES, becomes: 'Weekly payout batch', group: 'Payouts' },
 
-  { path: '/brands', label: 'Brands', roles: ['GM'], becomes: 'Brand administration', group: 'Admin' },
+  // Unit 68: the GM's admin. Staff reads the location's GHL users (its GHL user field) and Pipelines
+  // the mirrored location's pipelines, so both are marked: GM-only by invariant 1, not by choice.
+  { path: '/admin/staff', label: 'Staff', roles: ['GM'], becomes: 'Staff directory', group: 'Admin', readsGhlLocation: true },
+  { path: '/admin/pipelines', label: 'Pipelines', roles: ['GM'], becomes: 'GHL pipelines and their purpose', group: 'Admin', readsGhlLocation: true },
+  { path: '/admin/sync', label: 'Sync health', roles: ['GM'], becomes: 'Drift and the GHL push queue', group: 'Admin', readsGhlLocation: true },
+  { path: '/brands', label: 'Brands', roles: ['GM'], becomes: 'The brands, read-only', group: 'Admin' },
 
   // Unit 19's sweeps: are they still running?
   //

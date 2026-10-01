@@ -351,6 +351,16 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
   second door, so `mintForExpert` / `mintPartyForExpert`, the staff "portal link" button, the
   token-in-the-URL `/case` and the portal-links ledger all go in Unit 59, and live expert links are
   revoked by migration.
+- **D72.** **The GM administers staff in EvalOS** (2026-10-02, Unit 68, spec `68-gm-admin.md`):
+  create, edit (name, email, role, brand, segment, GHL user), deactivate / reactivate — never delete
+  — and set a password, GM-only and audited without the password. **The GM sets the password and
+  hands it over; no staff mail** (invariant 14; `open-decisions.md` Q18). **A deactivation bites on
+  the member's next request** (`JwtFilter` re-reads `team_member.active`), not when their 8 h token
+  expires; a role or brand change still waits for the next sign-in. The GM cannot deactivate
+  themselves or change their own role; a desk holding pipeline grants keeps its role and brand
+  until they are revoked. Pipelines (purpose, D61's screen), sync health (read-only, D43) and the
+  brands (read-only — a brand carries the webhook secret, so it changes by migration) have GM
+  screens too.
 
 ## Data
 

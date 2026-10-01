@@ -89,6 +89,24 @@ class SecurityFlowTest {
 	@MockitoBean
 	TeamMemberRepository teamMembers;
 
+	@MockitoBean
+	com.ie.evalos.service.TeamMemberAdminService admin;
+
+	/** Every signed token's member is active unless a test says otherwise (Unit 68's per-request check). */
+	@org.junit.jupiter.api.BeforeEach
+	void everyoneIsActive() {
+		given(teamMembers.existsByIdAndActiveTrue(ArgumentMatchers.any())).willReturn(true);
+	}
+
+	/** Unit 68: a member the GM deactivates is refused on their next request, not when the token expires. */
+	@Test
+	void aDeactivatedMembersTokenStopsWorkingAtOnce() throws Exception {
+		given(teamMembers.existsByIdAndActiveTrue(GM.memberId())).willReturn(false);
+
+		mockMvc.perform(get("/api/team-members").header(HttpHeaders.AUTHORIZATION, bearer(GM)))
+				.andExpect(status().isUnauthorized());
+	}
+
 	/**
 	 * {@code AuthController} resolves the caller's own brand name for `/api/me`, because
 	 * `GET /api/brands` is GM-only and a Brand Manager could not otherwise turn their `brandId`

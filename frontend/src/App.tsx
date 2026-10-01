@@ -41,6 +41,10 @@ import {
 import AuthProvider from './lib/auth'
 import { useAuth, useMe } from './lib/authContext'
 import JobRunsPage from './features/jobs/JobRunsPage'
+import BrandsPage from './features/admin/BrandsPage'
+import PipelinesPage from './features/admin/PipelinesPage'
+import StaffPage from './features/admin/StaffPage'
+import SyncHealthPage from './features/admin/SyncHealthPage'
 import NotFound from './pages/NotFound'
 
 /**
@@ -68,6 +72,11 @@ const SCREENS: Record<string, React.ReactNode> = {
   '/payouts/experts': <ExpertBalances />,
   '/payouts/pay': <PayoutBatch />,
   '/admin/jobs': <JobRunsPage />,
+  // Unit 68: the GM's admin.
+  '/admin/staff': <StaffPage />,
+  '/admin/pipelines': <PipelinesPage />,
+  '/admin/sync': <SyncHealthPage />,
+  '/brands': <BrandsPage />,
   // The diary. Its own screen rather than a panel on the board: a meeting booked from a deal card
   // was invisible the moment the card scrolled away, and EvalOS kept no record of it at all until
   // `V47__meeting.sql`.

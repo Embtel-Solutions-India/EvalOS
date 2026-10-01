@@ -659,3 +659,5 @@ an expert push opened with no tab open lands on `/case` without the fragment tok
 **2026-10-02 — staff see an expert's portal account.** Roster column *Portal* and profile fact *Portal account*: Not signed up / Password not set / Active · last in (`ExpertService.PortalAccount` from `expert_account`, brand-scoped batch per page).
 
 **2026-10-02 — Unit 67 built (spec 67):** `RowActions` (select of `actionsFor` → `QuickActionDialog`) on Inbox, My drafts, Expert assignment; CM may reassign an expert; case header names the PM/CM/coordinator (`CaseDetail.team`). Board card still has no buttons.
+
+**2026-10-02 — Unit 68 built (spec 68, V84, D72):** staff create/edit/deactivate/set-password routes + `/admin/staff`; `/admin/pipelines` (purpose — D61's screen); `/admin/sync` (drift + outbox, read-only); `/brands` read-only; `JwtFilter` refuses inactive members per request.

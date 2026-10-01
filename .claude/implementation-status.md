@@ -302,6 +302,21 @@ references, so `--noEmit` typechecks nothing and exits 0.)
    `findAllById`) drawn as the header's team line. The board card stays button-free. Tests:
    `boardRules.test.ts` (CM reassign without a fee), `CaseDetailServiceTeamTest`,
    `CaseControllerTest`. **Not browser-checked.** Restart the backend for `team`.
+22. **Unit 68 — GM admin (D72).** **Built 2026-10-02** (spec `68-gm-admin.md`, `V84`):
+   `TeamMemberAdminService` + `POST /api/team-members`, `PUT /{id}`, `PUT /{id}/active`,
+   `PUT /{id}/password` (GM, audited, no password in the trail; ≥ 12 characters; email and GHL user
+   unique; brand for every role but the GM; segment for desks only; no self-deactivation or own-role
+   change; a desk with grants keeps role and brand); `GET /api/team-members` gains `active`, `segment`,
+   `ghlUserId`; `JwtFilter` refuses an inactive member per request; `V84` drops the requirement for
+   the vestigial `ghl_pipeline_id`; `GET /api/brands` gains `active`, `currency`, `payoutTermDays`;
+   `GET /api/sales/users` admits the GM. Staff SPA `features/admin/`: **Staff** (`/admin/staff`:
+   directory, add / edit sheet, set password, deactivate, a desk's pipeline grants), **Pipelines**
+   (`/admin/pipelines`: purpose select — D61's screen), **Sync health** (`/admin/sync`: drift and
+   outbox, read-only), **Brands** (`/brands`, read-only; the placeholder is gone). Tests:
+   `TeamMemberAdminServiceTest`, `TeamMemberAdminRouteTest`,
+   `SecurityFlowTest#aDeactivatedMembersTokenStopsWorkingAtOnce`,
+   `LocalPostgresIntegrationTest#aDeskIsCreatedWithoutTheOldPipelineColumnAndNobodyElseCarriesIt`.
+   **Not browser-checked.** Restart the backend (Flyway applies `V84`). Staff passwords: Q18.
 
 ## Known operational state (not code)
 

@@ -83,6 +83,34 @@ public class TeamMember {
 		// for JPA
 	}
 
+	/** Unit 68: the GM creates staff. {@link com.ie.evalos.service.TeamMemberAdminService} validates first. */
+	public TeamMember(String email, String passwordHash) {
+		this.email = email;
+		this.passwordHash = passwordHash;
+	}
+
+	/**
+	 * Unit 68: who this person is and what they do. The CHECKs (brand for every role but the GM,
+	 * a segment for SALES / MARKETING and only them) are the database's; the admin service checks
+	 * the same rules first, so a bad edit is a 400 and never a 500.
+	 */
+	public void describe(String displayName, String email, Role role, UUID brandId, Segment segment, String ghlUserId) {
+		this.displayName = displayName;
+		this.email = email;
+		this.role = role;
+		this.brandId = brandId;
+		this.segment = segment;
+		this.ghlUserId = ghlUserId;
+	}
+
+	public void setActive(boolean active) {
+		this.active = active;
+	}
+
+	public void setPasswordHash(String passwordHash) {
+		this.passwordHash = passwordHash;
+	}
+
 	public UUID getId() {
 		return id;
 	}

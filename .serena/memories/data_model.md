@@ -106,3 +106,5 @@ message_reactions, message_reads (one watermark per member), push_subscriptions.
 **Unit 71 (2026-10-01):** `V82` adds `expert_case_offer.note` (D69, the PM's note to the expert; null only before V82) and `opportunity_note.handoff` (D70, the win's note for production, read by the case page).
 
 **Unit 65 (built 2026-09-30):** `V80` added `expert_case_offer.version` (@Version, a lost race is 409 CHANGED_MEANWHILE). `V79` added `expert_case_offer.fee` (numeric(12,2), >= 0) + `fee_set_by` / `fee_set_at`, nullable, open and accepted offers backfilled (payout amount, else `expert.standard_fee`); delivery reads the accepted offer's fee. No new table.
+
+**V84 (Unit 68, 2026-10-02):** `team_member_pipeline_matches_role` keeps only `role IN (SALES, MARKETING) OR ghl_pipeline_id IS NULL` — a new desk needs no vestigial pipeline column.

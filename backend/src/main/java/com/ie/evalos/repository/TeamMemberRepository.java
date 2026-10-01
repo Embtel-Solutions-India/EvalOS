@@ -22,6 +22,15 @@ public interface TeamMemberRepository extends JpaRepository<TeamMember, UUID>, J
 
 	Optional<TeamMember> findByEmailIgnoreCaseAndActiveTrue(String email);
 
+	/** Unit 68: every staff request re-checks this, so a deactivation bites at once ({@code JwtFilter}). */
+	boolean existsByIdAndActiveTrue(UUID id);
+
+	/** Unit 68: email is unique across staff, active or not (the column's UNIQUE). */
+	Optional<TeamMember> findByEmailIgnoreCase(String email);
+
+	/** Unit 68: one EvalOS login per GHL user (V74's unique index). */
+	Optional<TeamMember> findByGhlUserId(String ghlUserId);
+
 	/**
 	 * One member of one brand in one role — the lookup behind putting somebody on a
 	 * case. Brand and role are part of the query on purpose: a caller must not be

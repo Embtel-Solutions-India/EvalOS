@@ -34,3 +34,5 @@ Plus eight carried forward from `context/specs/00d-platform-audit-and-alignment.
 **If a requirement is ambiguous, add it here — never invent behaviour.**
 
 **Closed 2026-09-29:** carried-forward **i2** (GHL leads and the application table) — Unit 64 removes the table.
+
+**Q18 (2026-10-02):** staff passwords are set by the GM (D72). Mail a staff set-password link instead? Recommended: keep as built — a new mail under invariant 14, and the GM knows every hire.

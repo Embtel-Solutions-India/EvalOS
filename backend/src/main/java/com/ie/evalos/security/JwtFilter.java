@@ -31,9 +31,16 @@ public class JwtFilter extends OncePerRequestFilter {
 	private static final String BEARER = "Bearer ";
 
 	private final JwtService jwtService;
+	/**
+	 * Unit 68: a deactivated member is refused on their next request, not when their 8 h token
+	 * expires. A provider because web-slice tests build no JPA layer; there, the check is skipped.
+	 */
+	private final org.springframework.beans.factory.ObjectProvider<com.ie.evalos.repository.TeamMemberRepository> members;
 
-	JwtFilter(JwtService jwtService) {
+	JwtFilter(JwtService jwtService,
+			org.springframework.beans.factory.ObjectProvider<com.ie.evalos.repository.TeamMemberRepository> members) {
 		this.jwtService = jwtService;
+		this.members = members;
 	}
 
 	@Override
@@ -45,6 +52,12 @@ public class JwtFilter extends OncePerRequestFilter {
 				&& SecurityContextHolder.getContext().getAuthentication() == null) {
 			try {
 				StaffPrincipal principal = jwtService.verify(header.substring(BEARER.length()));
+				var repository = members.getIfAvailable();
+				if (repository != null && !repository.existsByIdAndActiveTrue(principal.memberId())) {
+					// Deactivated (or removed) since the token was signed: stay anonymous, 401.
+					chain.doFilter(request, response);
+					return;
+				}
 				var authentication = new UsernamePasswordAuthenticationToken(
 						principal, null, principal.getAuthorities());
 				authentication.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));

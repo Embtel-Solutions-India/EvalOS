@@ -29,20 +29,74 @@ import org.springframework.web.bind.annotation.RestController;
 public class TeamMemberController {
 
 	/** No password hash, no email-adjacent secrets — projection is the DTO's job. */
-	public record TeamMemberSummary(UUID id, String displayName, String email, Role role, UUID brandId, UUID teamId) {
+	public record TeamMemberSummary(UUID id, String displayName, String email, Role role, UUID brandId, UUID teamId,
+			/** Unit 68, for the staff directory. */
+			boolean active, com.ie.evalos.domain.Segment segment, String ghlUserId) {
 
 		static TeamMemberSummary of(TeamMember member) {
 			return new TeamMemberSummary(member.getId(), member.getDisplayName(), member.getEmail(),
-					member.getRole(), member.getBrandId(), member.getTeamId());
+					member.getRole(), member.getBrandId(), member.getTeamId(), member.isActive(), member.getSegment(),
+					member.getGhlUserId());
 		}
+	}
+
+	/** Unit 68: a new member. The password is the GM's to set and hand over; no mail is sent. */
+	public record CreateRequest(@jakarta.validation.constraints.NotBlank String displayName,
+			@jakarta.validation.constraints.NotBlank String email, @jakarta.validation.constraints.NotNull Role role,
+			UUID brandId, com.ie.evalos.domain.Segment segment, String ghlUserId,
+			@jakarta.validation.constraints.NotBlank String password) {
+	}
+
+	public record UpdateRequest(@jakarta.validation.constraints.NotBlank String displayName,
+			@jakarta.validation.constraints.NotBlank String email, @jakarta.validation.constraints.NotNull Role role,
+			UUID brandId, com.ie.evalos.domain.Segment segment, String ghlUserId) {
+	}
+
+	public record ActiveRequest(boolean active) {
+	}
+
+	public record PasswordRequest(@jakarta.validation.constraints.NotBlank String password) {
 	}
 
 	private final TeamMemberQueryService teamMembers;
 	private final PipelineAssignmentService pipelines;
+	private final com.ie.evalos.service.TeamMemberAdminService admin;
 
-	TeamMemberController(TeamMemberQueryService teamMembers, PipelineAssignmentService pipelines) {
+	TeamMemberController(TeamMemberQueryService teamMembers, PipelineAssignmentService pipelines,
+			com.ie.evalos.service.TeamMemberAdminService admin) {
 		this.teamMembers = teamMembers;
 		this.pipelines = pipelines;
+		this.admin = admin;
+	}
+
+	// --- Unit 68: the GM's staff directory writes ------------------------------
+
+	@org.springframework.web.bind.annotation.PostMapping
+	@PreAuthorize("hasRole('GM')")
+	public ApiResponse<TeamMemberSummary> create(@RequestBody @jakarta.validation.Valid CreateRequest r) {
+		return ApiResponse.ok(TeamMemberSummary.of(admin.create(new com.ie.evalos.service.TeamMemberAdminService.Details(
+				r.displayName(), r.email(), r.role(), r.brandId(), r.segment(), r.ghlUserId()), r.password())));
+	}
+
+	@PutMapping("/{id}")
+	@PreAuthorize("hasRole('GM')")
+	public ApiResponse<TeamMemberSummary> update(@PathVariable UUID id,
+			@RequestBody @jakarta.validation.Valid UpdateRequest r) {
+		return ApiResponse.ok(TeamMemberSummary.of(admin.update(id, new com.ie.evalos.service.TeamMemberAdminService.Details(
+				r.displayName(), r.email(), r.role(), r.brandId(), r.segment(), r.ghlUserId()))));
+	}
+
+	@PutMapping("/{id}/active")
+	@PreAuthorize("hasRole('GM')")
+	public ApiResponse<TeamMemberSummary> setActive(@PathVariable UUID id, @RequestBody ActiveRequest r) {
+		return ApiResponse.ok(TeamMemberSummary.of(admin.setActive(id, r.active())));
+	}
+
+	@PutMapping("/{id}/password")
+	@PreAuthorize("hasRole('GM')")
+	public ApiResponse<Void> setPassword(@PathVariable UUID id, @RequestBody @jakarta.validation.Valid PasswordRequest r) {
+		admin.setPassword(id, r.password());
+		return ApiResponse.ok(null);
 	}
 
 	@GetMapping

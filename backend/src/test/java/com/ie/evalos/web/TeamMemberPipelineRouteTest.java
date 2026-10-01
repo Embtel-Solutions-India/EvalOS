@@ -67,6 +67,9 @@ class TeamMemberPipelineRouteTest {
 	PipelineAssignmentService pipelines;
 
 	@MockitoBean
+	com.ie.evalos.service.TeamMemberAdminService admin;
+
+	@MockitoBean
 	EvalOsUserDetailsService userDetailsService;
 
 	private String bearer(Role role) {
