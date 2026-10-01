@@ -965,6 +965,12 @@ class LocalPostgresIntegrationTest {
 				.singleElement()
 				.satisfies(row -> assertThat((UUID) row[0]).isEqualTo(xpExpert));
 
+		// Turnaround (G9) on real Postgres, beside the brand-isolation test below: one value per
+		// resolved offer in this brand, none for the open one (the query is native since 2026-09-30).
+		assertThat(offers.resolvedTurnaroundSeconds(BRAND_IE, List.of(ieExpert, xpExpert)))
+				.hasSize(4)
+				.allSatisfy(seconds -> assertThat(seconds).isGreaterThanOrEqualTo(0.0));
+
 		// The open-offer finder the three resolving transitions use.
 		assertThat(offers.findByCaseIdAndOutcome(ieCase, OfferOutcome.OFFERED))
 				.extracting(ExpertCaseOffer::getId).containsExactly(openOffer);
