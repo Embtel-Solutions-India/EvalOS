@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { LiveInvalidate } from '@shared/components/common/LiveInvalidate'
 import { ChatProvider, ChatToast } from '@evalos/chat'
 import '@evalos/chat/chat.css'
 import { Navigate, useLocation, useNavigate } from 'react-router-dom'
@@ -68,6 +69,7 @@ export function PortalLayout() {
   return (
     <TermsGate audience="client" onSignOut={() => window.location.assign('/signin')}>
     <ChatProvider client={chat}>
+      <LiveInvalidate prefix="portal" />
       <div className="flex min-h-dvh flex-col bg-muted/30">
         <div className="flex-1 lg:grid lg:grid-cols-[16rem_1fr]">
           <aside className="hidden bg-sidebar lg:block">

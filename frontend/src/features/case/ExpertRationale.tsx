@@ -8,7 +8,7 @@ import type { CaseDetail } from "./caseApi";
  * than shown an empty box that looks like nobody has written anything.
  *
  * **Read-only here on purpose.** The rationale is written where the expert is chosen — the
- * `assign-cm` and `reassign-expert` dialogs — so that the reason and the decision are one act. An
+ * `expert` offer (Unit 73) and `reassign-expert` dialogs — so that the reason and the decision are one act. An
  * edit box here would invite a reason written after the fact, which is the one kind of rationale
  * worth nothing.
  */

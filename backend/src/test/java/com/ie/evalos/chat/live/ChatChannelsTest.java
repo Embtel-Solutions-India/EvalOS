@@ -1,5 +1,6 @@
 package com.ie.evalos.chat.live;
 
+import java.util.List;
 import java.util.UUID;
 
 import com.fasterxml.jackson.databind.JsonNode;
@@ -21,12 +22,29 @@ class ChatChannelsTest {
 	@Test
 	void aMemberMayOnlySubscribeToTheirOwnChannelAndNeverPublish() throws Exception {
 		UUID pm = UUID.randomUUID();
-		JsonNode caps = capability(new ChatIdentity(ParticipantKind.STAFF, pm, UUID.randomUUID(), Role.PROJECT_MANAGER));
+		UUID brand = UUID.randomUUID();
+		JsonNode caps = capability(new ChatIdentity(ParticipantKind.STAFF, pm, brand, Role.PROJECT_MANAGER));
 
-		assertThat(caps.size()).isEqualTo(1);
+		// Their own channel, plus (Unit 70) their brand's live signal channel — and nothing publishes.
+		assertThat(caps.fieldNames()).toIterable().containsExactly("chat:user:STAFF:" + pm, "live:brand:" + brand);
 		JsonNode own = caps.get("chat:user:STAFF:" + pm);
-		assertThat(own).isNotNull();
 		assertThat(own.toString()).contains("subscribe").contains("presence").doesNotContain("publish");
+		assertThat(caps.get("live:brand:" + brand).toString()).isEqualTo("[\"subscribe\"]");
+	}
+
+	/** Unit 70: the GM's token names every brand's live channel — a wildcard cannot be subscribed. */
+	@Test
+	void theGmHearsEveryBrandsLiveChannelAndPortalsHearNone() throws Exception {
+		UUID ie = UUID.randomUUID();
+		UUID xp = UUID.randomUUID();
+		JsonNode gm = new ObjectMapper().readTree(ChatChannels.capability(
+				new ChatIdentity(ParticipantKind.STAFF, UUID.randomUUID(), null, Role.GM), List.of(ie, xp)));
+		assertThat(gm.get("live:brand:" + ie).toString()).isEqualTo("[\"subscribe\"]");
+		assertThat(gm.get("live:brand:" + xp).toString()).isEqualTo("[\"subscribe\"]");
+		assertThat(gm.has("live:brand:*")).isFalse();
+
+		JsonNode client = capability(ChatIdentity.client(UUID.randomUUID(), UUID.randomUUID()));
+		assertThat(client.toString()).doesNotContain("live:");
 	}
 
 	@Test

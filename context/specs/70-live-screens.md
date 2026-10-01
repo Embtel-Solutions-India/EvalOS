@@ -1,7 +1,9 @@
 # Unit 70 — Screens that update themselves
 
-**Decided 2026-10-01 by the business (D68).** **Status: SPECCED, not built.** Depends on Ably
-working in production, which is itself unverified (see §8).
+**Decided 2026-10-01 by the business (D68).** **Status: BUILT 2026-10-01** (see
+`implementation-status.md` item 15). §8's cause was the Ably key lacking publish (40160); the GM's
+wildcard brand channel cannot be subscribed, so (2026-10-02) the GM's token names each brand's
+channel instead; `CaseLiveHibernateTest` (Postgres) is written.
 
 ## 0. Today, before this unit
 
@@ -84,7 +86,7 @@ too, so a second open tab clears its badge.
 ### 2.4 Token capability
 
 `ChatChannels.capability` gains, for **staff only**:
-- GM: `live:brand:*` → `subscribe`;
+- GM: `live:brand:{id}` → `subscribe` for **every brand, named** (`ChatApi.realtimeToken` lists them; a wildcard cannot be subscribed);
 - everyone else on staff: `live:brand:{their brandId}` → `subscribe`.
 
 Portal tokens are unchanged: they already subscribe to their own private channel.
@@ -94,7 +96,7 @@ Portal tokens are unchanged: they already subscribe to their own private channel
 
 - `realtime.ts`: for staff, also subscribe to `live:brand:{brandId}`. The brand comes from a
   capability key starting `live:brand:` in the token, so the package learns no new configuration.
-  A GM (`live:brand:*`) subscribes to the brands the app has open; the staff app passes them in.
+  A GM's token names every brand, so they subscribe to all of them.
 - `client.ts`: an envelope whose type is `case.changed` or `notifications.changed` goes to a new
   `onLive(listener)` subscription and **not** to the reducer (it already ignores unknown types; this
   makes that explicit). `onLive` also fires `{ type: 'reconnected' }` from the existing

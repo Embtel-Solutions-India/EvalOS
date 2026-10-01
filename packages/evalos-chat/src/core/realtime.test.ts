@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { ablyRealtime, channelOf } from './realtime'
+import { ablyRealtime, channelOf, liveChannels } from './realtime'
 import type { Envelope, TokenRequest } from './types'
 
 const token: TokenRequest = { keyName: 'k', clientId: 'CLIENT:c1', capability: '{}', ttl: 3_600_000, timestamp: 1, nonce: 'n', mac: 'm' }
@@ -92,5 +92,14 @@ describe('ablyRealtime', () => {
 
   it('names the personal channel the way the backend does', () => {
     expect(channelOf('STAFF:abc')).toBe('chat:user:STAFF:abc')
+  })
+})
+
+describe('liveChannels', () => {
+  it('names the brand channels a staff token may hear, never the wildcard', () => {
+    const cap = JSON.stringify({ 'chat:user:STAFF:1': ['subscribe'], 'live:brand:b1': ['subscribe'], 'live:brand:*': ['subscribe'] })
+    expect(liveChannels(cap)).toEqual(['live:brand:b1'])
+    expect(liveChannels('{"chat:user:CLIENT:1":["subscribe"]}')).toEqual([])
+    expect(liveChannels('not json')).toEqual([])
   })
 })

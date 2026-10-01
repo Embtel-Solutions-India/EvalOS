@@ -30,7 +30,7 @@ class ChatApiPushTest {
 	private ChatApi api(boolean pushOn) {
 		PushSettings settings = new PushSettings(pushOn ? "pub" : "", pushOn ? "priv" : "", pushOn ? "mailto:x@y" : "",
 				"http://staff", "http://client", "http://expert");
-		return new ChatApi(null, null, null, null, null, null, null, settings, subscriptions);
+		return new ChatApi(null, null, null, null, null, null, null, settings, subscriptions, null);
 	}
 
 	private static ChatApi.SubscribeRequest request(String endpoint) {

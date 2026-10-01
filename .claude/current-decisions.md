@@ -97,16 +97,16 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
   versions.
 - **D34, D35 — retired by Unit 64.** There is no request for Sales to read beside the deal, and no
   request status. Review, approval and rejection are GHL pipeline stages.
-- **D36.** **The case is staffed PM-first, and the PM staffs the rest.** Handoff A creates the case,
-  a PM takes it, and the PM assigns the **Project Coordinator**, the **Case Manager** and the
-  **Expert**. The CM drafts and uploads; the client sees and approves it in the portal; only then
-  does it reach the expert, who downloads, signs and uploads it back. `CaseLifecycleService` and
-  `CaseTransitions` already do exactly this — it is recorded here because it is a stated business
-  rule now, not an implementation detail that happened to be convenient. **Staffing is also
-  stage-preserving (2026-10-01):** from the case's More menu the PM sets or changes the CM at any
-  stage, and the PM / ENM sets or changes the expert at any stage before `EXPERT_SIGNING`
-  (`PATCH …/expert`: supersedes the open offer, revokes the old link, opens a new offer). Moving
-  PM Review → Drafting is still `assign-cm`, whose dialog starts with whoever is already on the case.
+- **D36.** **The case is staffed PM-first; the expert is offered after the draft** (edited
+  2026-10-02, Unit 73). Handoff A creates the case, a PM takes it and assigns the **Project
+  Coordinator** and, at PM Review, the **Case Manager** (`assign-cm`, CM only → Drafting). The CM
+  drafts and uploads; **once a draft exists** the **PM or CM** (also ENM / GM) offers the **Expert**
+  an amount (`PATCH …/expert`, stage kept, `DRAFT_IN_PROGRESS` … `CLIENT_APPROVAL`; a CM offers at
+  the expert's standard fee only, Unit 65). The client sees and approves the draft in the portal;
+  **only then** does it reach the expert (`send-to-expert`, refused with no expert), who accepts,
+  downloads, signs and uploads it back. Staffing is stage-preserving: the PM sets or changes the CM
+  at any stage from More, and the expert can be changed in the same window (supersedes the open
+  offer, revokes the old link, opens a new offer and its mail). Spec `73-expert-offer-after-draft.md`.
 
 ## GHL relationship
 
@@ -517,7 +517,7 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
   data**, over Ably: `case.changed {caseId}` to a per-brand staff channel and to the case's client
   and experts, and `notifications.changed` to a bell's owner. Open screens re-read over REST in
   the background, and also on tab focus and on reconnect. GHL-mirrored screens and chat are out of
-  scope. **Specced as Unit 70** (`70-live-screens.md`), **not built**. **Amended 2026-10-01 (the
+  scope. **Built as Unit 70** (`70-live-screens.md`, 2026-10-01). **Amended 2026-10-01 (the
   business): the staff app reads through TanStack Query (Unit 70a, phase 1 built)** — any
   successful write refreshes every case-shaped screen, from one interceptor; screens re-read on tab
   focus; the bell count every 60 s. That covers the acting person's own screens now and other

@@ -15,8 +15,9 @@ submit, the `INTAKE` purpose, public sign-up, Sales' Application / Request docum
 Unfinished requests screen were all removed. Nothing below describes them.
 
 Production, and it is now a stated business rule rather than an accident of the code (D36):
-Handoff A creates the case → a **PM** takes it → the PM assigns **Coordinator**, **Case Manager**
-and **Expert** → the **CM uploads the draft as Word + PDF** → the **client comments and approves that
+Handoff A creates the case → a **PM** takes it → the PM assigns **Coordinator** and, at PM Review,
+the **Case Manager** only → the **CM uploads the draft as Word + PDF** → **once a draft exists the PM
+or CM offers the Expert an amount** (Unit 73, 2026-10-02) → the **client comments and approves that
 version in the portal** (Unit 58) → only then
 the **expert** downloads, signs and uploads back. `CaseLifecycleService` already implements all of
 it. From the offer on, the expert also opens the client's current files and the approved draft (D63). **Sales sees none of this** (D19c).
@@ -38,7 +39,7 @@ Set-password and sign-in may `upsertContact` (`ensureCrmIdentity`). The portal o
 
 **Documents** enter **only at the case**, against a sent checklist item (D33, D60), keyed by the
 **GHL contact id** (D41 — one id names a contact everywhere; `DocumentStore.clientKey`). **Notifications** are in-app today; D37 makes them in-app **and push**, never mail.
-TARGET (D68, Unit 70, specced 2026-10-01, not built): a committed case change shows on every open screen of that case without a reload (`case.changed` over Ably → background REST re-read); today each screen loads once.
+CURRENT since Unit 70 (D68, built 2026-10-01): a committed case change shows on every open screen of that case without a reload (`case.changed` over Ably → background REST re-read; staff `lib/live.ts`, portals `LiveInvalidate`); the bell on `notifications.changed`; sidebar counts are a query. GM hears every brand (token names each brand channel).
 
 **Conversations do not exist** — no table, no route, no component, anywhere. **Notes** are
 synced both ways (Unit 54, built 2026-09-24): pushed once to the GHL contact via the

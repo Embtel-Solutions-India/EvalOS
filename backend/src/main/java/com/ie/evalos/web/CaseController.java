@@ -163,18 +163,8 @@ public class CaseController {
 	public record AssignPmRequest(@NotNull UUID pmId) {
 	}
 
-	/**
-	 * @param expertRationale why this expert (Unit 32). Optional — see the service for why.
-	 * @param fieldOfExpertise the discipline the PM matched on (Unit 33). Optional and
-	 *                        recorded, not enforced: the PM is the only person who knows it
-	 *                        and they know it here, but a case must still be staffable by
-	 *                        someone who skipped the shortlist.
-	 * @param fee             what the case pays the expert (Unit 65); blank = their standard fee
-	 */
-	/** {@code expertNote} is the offer's note to the expert (D69), required. */
-	public record AssignCmRequest(@NotNull UUID cmId, @NotNull UUID expertId, String expertRationale,
-			FieldTag fieldOfExpertise, @DecimalMin("0") @Digits(integer = 10, fraction = 2) BigDecimal fee,
-			@NotBlank @jakarta.validation.constraints.Size(max = 4000) String expertNote) {
+	/** PM Review → Drafting names the CM only (Unit 73); the expert is offered after the draft. */
+	public record AssignCmRequest(@NotNull UUID cmId) {
 	}
 
 	public record AssignCoordinatorRequest(@NotNull UUID coordinatorId) {
@@ -432,11 +422,11 @@ public class CaseController {
 	 * read, so the risk tiles reclassify on their next query with nothing to invalidate.
 	 */
 	/**
-	 * Sets or changes the expert without moving the case (2026-10-01), until the case reaches
-	 * expert signing. The reassign gate minus the CM, whose role cannot read the expert picker.
+	 * Offers the case to an expert, or a different one, without moving it (Unit 73): once a draft
+	 * exists, until expert signing. PM, CM (standard fee only) and ENM.
 	 */
 	@PatchMapping("/{id}/expert")
-	@PreAuthorize(GM_OR + "hasAnyRole('PROJECT_MANAGER', 'EXPERT_NETWORK_MANAGER')")
+	@PreAuthorize(GM_OR + "hasAnyRole('PROJECT_MANAGER', 'CASE_MANAGER', 'EXPERT_NETWORK_MANAGER')")
 	public ApiResponse<CaseSummary> changeExpert(@PathVariable UUID id, @Valid @RequestBody ExpertRequest request) {
 		return summary(lifecycle.changeExpert(id, request.expertId(), request.expertRationale(),
 				request.fieldOfExpertise(), request.fee(), request.expertNote()));
@@ -627,8 +617,7 @@ public class CaseController {
 	@PostMapping("/{id}/assign-cm")
 	@PreAuthorize(GM_OR + "hasRole('PROJECT_MANAGER')")
 	public ApiResponse<CaseSummary> assignCm(@PathVariable UUID id, @Valid @RequestBody AssignCmRequest request) {
-		return summary(lifecycle.assignCaseManager(id, request.cmId(), request.expertId(), request.expertRationale(),
-				request.fieldOfExpertise(), request.fee(), request.expertNote()));
+		return summary(lifecycle.assignCaseManager(id, request.cmId()));
 	}
 
 	/**

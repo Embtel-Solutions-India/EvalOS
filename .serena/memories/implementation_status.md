@@ -17,7 +17,7 @@ the dead-code pass below.
 
 **Fix 2026-10-01 (D36 staffing):** COORDINATOR_ASSIGNED / CASE_MANAGER_REASSIGNED now notify the assignee; assignment audit notes name who ("Coordinator: X"); More menu gains PM "Assign/Change case manager" (PATCH case-manager, any stage) and says "Change …" once filled. Not browser-checked.
 
-**Unit 70 (D68), specced 2026-10-01, NOT built:** live screens (`70-live-screens.md`). Prod 2026-10-01: push off for want of `EVALOS_PUSH_SUBJECT` (404 `PUSH_UNAVAILABLE`); chat not live although the Ably key is set, cause not found yet.
+**Unit 70 (D68), BUILT 2026-10-01:** `CaseOwned` + `CaseLiveHibernate` + `CaseLive` (after-commit `case.changed` to `live:brand:{brand}` + client/expert channels; `notifications.changed` from `NotificationService`); package `onLive`/`liveChannels`; staff `lib/live.ts`, nav badges on a query; portals `LiveInvalidate`. Runtime-checked locally. Gaps closed 2026-10-02: GM token names every brand channel; `CaseLiveHibernateTest` on Postgres (mutation-checked). Deal delete (Unit 69) verified by the business. Chat not live in prod because the Ably key could not publish (40160) — root key fixed it locally; prod key needs publish+subscribe+presence. Push off in prod for want of `EVALOS_PUSH_SUBJECT`.
 
 **Unit 64c, 2026-09-30 (D58).** Case progress emails: `mail/case-update.html`, `MailTemplates.CaseUpdate`, `CaseMailListener` (checklist / draft ready / signing / delivered, + expert offer D67); not sent to a real inbox yet. **2026-10-01:** Send chase publishes `CHECKLIST_CHASED` → `CaseUpdate.CHASE` reminder mail (before, nothing listened and no client was contacted); the sweep's `CHECKLIST_REMINDER` still mails nobody.
 
@@ -40,7 +40,7 @@ per board; cards show Value / Source / service with "—" placeholders, headers 
 field-free runs at once, with fields opens `QuickActionDialog`. Not optimistic; illegal columns refuse
 the drop; lanes are not targets. Per-column SLA rail removed the same day. Expert set/change in
 place before signing: `changeExpert` + `PATCH /cases/{id}/expert` (PM/ENM/GM), under More beside
-Assign/Change CM; `assign-cm` dialog pre-filled (`prefill`) and supersedes an open offer. Expert evidence request now
+Assign/Change CM. **Unit 73 (2026-10-02, D36 edited):** `assign-cm` = CM only; the expert is offered after the first draft (`changeExpert`, PM/CM/ENM/GM, CM standard fee only, `DRAFT_IN_PROGRESS`…`CLIENT_APPROVAL`, publishes `EXPERT_ASSIGNED` → offer mail + chat); CM reads picker + shortlist; client approval no longer needs an expert; board card `hasExpert`/`draftVersionCount`; spec `73-expert-offer-after-draft.md`. Expert evidence request now
 reaches Coordinators + CM + PM, stays on Doc checklists while held (chaseable), banner on the case page.
 
 **Unit 54a, note edit/delete — COMPLETE 2026-09-24.** Author-only `PUT`/`DELETE` on a note; `V67`

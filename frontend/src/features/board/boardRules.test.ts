@@ -386,7 +386,8 @@ describe('dueBeforeFor', () => {
 
 describe('the case fee on an offer (Unit 65)', () => {
   it('asks for an optional fee on every action that makes an offer', () => {
-    for (const path of ['assign-cm', 'reassign-expert']) {
+    // Unit 73: the first offer is `expert` (after the draft); `assign-cm` names the CM only.
+    for (const path of ['expert', 'reassign-expert']) {
       const action = QUICK_ACTIONS.find((a) => a.path === path)
       const fee = action?.fields?.find((f) => f.name === 'fee')
       expect(fee?.kind).toBe('amount')
@@ -433,19 +434,34 @@ describe('dropActionFor', () => {
   })
 })
 
-describe('expert staffing', () => {
-  it('reads Assign until the case names an expert, then Change', () => {
-    const at = card({ currentStage: 'PM_REVIEW' })
-    expect(actionsFor(at, 'PROJECT_MANAGER').find((a) => a.path === 'expert')?.label).toBe('Assign expert')
-    expect(actionsFor({ ...at, expertId: 'e1' }, 'PROJECT_MANAGER').find((a) => a.path === 'expert')?.label).toBe('Change expert')
+describe('expert staffing (Unit 73: offered after the draft)', () => {
+  const drafted = card({ currentStage: 'DRAFT_REVIEW', draftVersionCount: 1 })
+  const expertAction = (c: BoardCard, role: Role) => actionsFor(c, role).find((a) => a.path === 'expert')
+
+  it('is offered once a draft exists, never at PM Review or before the upload', () => {
+    expect(expertAction(card({ currentStage: 'PM_REVIEW' }), 'PROJECT_MANAGER')).toBeUndefined()
+    expect(expertAction(card({ currentStage: 'DRAFT_IN_PROGRESS', draftVersionCount: 0 }), 'PROJECT_MANAGER')).toBeUndefined()
+    expect(expertAction(drafted, 'PROJECT_MANAGER')?.label).toBe('Assign expert')
     // Signing has its own way to change the expert.
-    expect(actionsFor(card({ currentStage: 'EXPERT_SIGNING' }), 'PROJECT_MANAGER').map((a) => a.path)).not.toContain('expert')
+    expect(expertAction(card({ currentStage: 'EXPERT_SIGNING', draftVersionCount: 1 }), 'PROJECT_MANAGER')).toBeUndefined()
   })
 
-  it('starts Assign CM + expert with whoever More already put on the case', () => {
-    const staffed = card({ currentStage: 'PM_REVIEW', assignedCm: 'cm1', expertId: 'e1' })
+  it('reads Change once an expert is on the case — by id on the case page, by flag on the board', () => {
+    expect(expertAction({ ...drafted, expertId: 'e1' }, 'PROJECT_MANAGER')?.label).toBe('Change expert')
+    expect(expertAction({ ...drafted, hasExpert: true }, 'PROJECT_MANAGER')?.label).toBe('Change expert')
+  })
+
+  it('lets the CM offer while the PM reviews, at the standard fee only (no fee field)', () => {
+    const offer = expertAction(drafted, 'CASE_MANAGER')
+    expect(offer).toBeDefined()
+    expect(offer?.fields?.map((f) => f.name)).not.toContain('fee')
+    expect(expertAction(drafted, 'PROJECT_MANAGER')?.fields?.map((f) => f.name)).toContain('fee')
+  })
+
+  it('asks Assign CM for the CM only, starting with whoever More already put on', () => {
     const assign = QUICK_ACTIONS.find((a) => a.path === 'assign-cm')!
-    expect(prefill(staffed, assign)).toEqual({ cmId: 'cm1', expertId: 'e1' })
+    expect(assign.fields?.map((f) => f.name)).toEqual(['cmId'])
+    expect(prefill(card({ currentStage: 'PM_REVIEW', assignedCm: 'cm1' }), assign)).toEqual({ cmId: 'cm1' })
     expect(prefill(card({ currentStage: 'PM_REVIEW' }), assign)).toEqual({})
   })
 })

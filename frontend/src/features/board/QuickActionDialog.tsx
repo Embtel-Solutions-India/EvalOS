@@ -21,7 +21,7 @@ import type { ActionField, PickerOption, QuickAction } from './boardRules'
  * be worse than useless, since the transition looks the row up and refuses anything that is
  * not an existing member of the right role in the case's brand.
  *
- * `assign-cm` additionally gets the Unit 12 shortlist above its fields. It sits *above* the
+ * The expert offer (Unit 73: `expert`, once was `assign-cm`) additionally gets the Unit 12 shortlist above its fields. It sits *above* the
  * expert dropdown and fills it in, rather than replacing it: the ranking is assistance, and the
  * full picker has to stay one click away or the engine has quietly become a precondition.
  */
@@ -70,7 +70,7 @@ export default function QuickActionDialog({
       <form
         // Wider for the shortlist, whose cards carry four labelled bars each; the other dialogs
         // collect at most two fields and a wide box for one input reads as an empty room.
-        className={`${action.path === 'assign-cm' ? 'w-112' : 'w-88'} p-7`}
+        className={`${action.path === 'expert' ? 'w-112' : 'w-88'} p-7`}
         onSubmit={(event) => {
           event.preventDefault()
           onConfirm(values)
@@ -82,7 +82,7 @@ export default function QuickActionDialog({
         </p>
 
         <div className="mt-4 space-y-3">
-          {action.path === 'assign-cm' && (
+          {action.path === 'expert' && (
             <ShortlistPanel
               caseId={caseId}
               selectedExpertId={values.expertId ?? ''}

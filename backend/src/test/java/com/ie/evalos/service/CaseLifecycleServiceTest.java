@@ -208,7 +208,24 @@ class CaseLifecycleServiceTest {
 		actAs(Role.PROJECT_COORDINATOR);
 		lifecycle.markDocsComplete(CASE_ID);
 		actAs(Role.PROJECT_MANAGER);
-		lifecycle.assignCaseManager(CASE_ID, CM_ID, EXPERT_ID, "strongest ophthalmology record on the roster", null, null, "Please review the transcript.");
+		lifecycle.assignCaseManager(CASE_ID, CM_ID);
+	}
+
+	/** Unit 73: CM on the case and one draft uploaded — where an expert may first be offered. Acting as the PM. */
+	private void walkToOfferable() {
+		walkToDraftGeneration();
+		actAs(Role.CASE_MANAGER);
+		lifecycle.submitDraft(CASE_ID, WORD, PDF);
+		actAs(Role.PROJECT_MANAGER);
+	}
+
+	/** Unit 73: the expert is offered after the draft — the CM uploads one, then the PM offers. */
+	private void draftAndOfferExpert() {
+		actAs(Role.CASE_MANAGER);
+		lifecycle.submitDraft(CASE_ID, WORD, PDF);
+		actAs(Role.PROJECT_MANAGER);
+		lifecycle.changeExpert(CASE_ID, EXPERT_ID, "strongest ophthalmology record on the roster", null, null,
+				"Please review the transcript.");
 	}
 
 	private List<CaseEvents.Type> publishedEventTypes(int expected) {
@@ -230,9 +247,14 @@ class CaseLifecycleServiceTest {
 		lifecycle.markDocsComplete(CASE_ID);
 		actAs(Role.PROJECT_MANAGER);
 
-		// Unit 12 takes the tag as an argument and throws it away; the assignment is where it
-		// becomes a fact about the case, so a delivered case can still say what it was about.
-		lifecycle.assignCaseManager(CASE_ID, CM_ID, EXPERT_ID, null, FieldTag.MEDICINE, null, "Please review the transcript.");
+		lifecycle.assignCaseManager(CASE_ID, CM_ID);
+		actAs(Role.CASE_MANAGER);
+		lifecycle.submitDraft(CASE_ID, WORD, PDF);
+		actAs(Role.PROJECT_MANAGER);
+
+		// Unit 12 takes the tag as an argument and throws it away; the offer is where it becomes a
+		// fact about the case (Unit 73: after the draft), so a delivered case can still say what it was about.
+		lifecycle.changeExpert(CASE_ID, EXPERT_ID, null, FieldTag.MEDICINE, null, "Please review the transcript.");
 		assertEquals(FieldTag.MEDICINE, subject.getFieldOfExpertise());
 
 	}
@@ -263,6 +285,10 @@ class CaseLifecycleServiceTest {
 
 		actAs(Role.CASE_MANAGER);
 		lifecycle.submitDraft(CASE_ID, WORD, PDF);
+		// Unit 73: the expert is offered once a draft exists.
+		actAs(Role.PROJECT_MANAGER);
+		lifecycle.changeExpert(CASE_ID, EXPERT_ID, null, null, null, "Please review the transcript.");
+		actAs(Role.CASE_MANAGER);
 		assertEquals(1, subject.getDraftVersionCount());
 
 		actAs(Role.PROJECT_MANAGER);
@@ -295,16 +321,17 @@ class CaseLifecycleServiceTest {
 		assertTrue(RefundService.isRevenueRecognized(subject));
 		assertNull(subject.getSlaStatus(), "a closed case runs no clock");
 
-		// Exactly one audit entry and one event per hop, and in the declared order. Twelve as of
-		// Unit 31 — the CM's send-to-expert is a hop of its own, because it is what starts the
-		// signing clock. (It was eleven once the walk stopped opening with a payment.) Counted on the
-		// case alone: since Unit 65 the offer writes its own rows beside them (asserted below).
-		verify(audit, times(12)).recordEvent(eq("CASE"), any(), any(), any(), any(), any());
+		// Exactly one audit entry and one event per hop, and in the declared order. Thirteen as of
+		// Unit 73: the CM is assigned alone at PM Review, and the expert is offered after the first
+		// draft as a hop of its own (stage kept). Counted on the case alone: since Unit 65 the offer
+		// writes its own rows beside them (asserted below).
+		verify(audit, times(13)).recordEvent(eq("CASE"), any(), any(), any(), any(), any());
 		assertEquals(List.of(
 				CaseEvents.Type.PM_ASSIGNED,
 				CaseEvents.Type.DOCUMENTS_COMPLETED,
-				CaseEvents.Type.EXPERT_ASSIGNED,
+				CaseEvents.Type.CASE_MANAGER_REASSIGNED,
 				CaseEvents.Type.DRAFT_SUBMITTED,
+				CaseEvents.Type.EXPERT_ASSIGNED,
 				CaseEvents.Type.DRAFT_PM_APPROVED,
 				CaseEvents.Type.DRAFT_READY_FOR_CLIENT,
 				CaseEvents.Type.DRAFT_CLIENT_APPROVED,
@@ -312,7 +339,7 @@ class CaseLifecycleServiceTest {
 				CaseEvents.Type.EXPERT_SIGNED,
 				CaseEvents.Type.QC_APPROVED,
 				CaseEvents.Type.CASE_DELIVERED,
-				CaseEvents.Type.CASE_CLOSED), publishedEventTypes(12));
+				CaseEvents.Type.CASE_CLOSED), publishedEventTypes(13));
 	}
 
 	/**
@@ -542,6 +569,10 @@ class CaseLifecycleServiceTest {
 		walkToDraftGeneration();
 		actAs(Role.CASE_MANAGER);
 		lifecycle.submitDraft(CASE_ID, WORD, PDF);
+		// Unit 73: the expert is offered once a draft exists.
+		actAs(Role.PROJECT_MANAGER);
+		lifecycle.changeExpert(CASE_ID, EXPERT_ID, null, null, null, "Please review the transcript.");
+		actAs(Role.CASE_MANAGER);
 		actAs(Role.PROJECT_MANAGER);
 		lifecycle.pmApproveDraft(CASE_ID, null);
 		actAs(Role.PROJECT_COORDINATOR);
@@ -578,6 +609,10 @@ class CaseLifecycleServiceTest {
 		walkToDraftGeneration();
 		actAs(Role.CASE_MANAGER);
 		lifecycle.submitDraft(CASE_ID, WORD, PDF);
+		// Unit 73: the expert is offered once a draft exists.
+		actAs(Role.PROJECT_MANAGER);
+		lifecycle.changeExpert(CASE_ID, EXPERT_ID, null, null, null, "Please review the transcript.");
+		actAs(Role.CASE_MANAGER);
 		actAs(Role.PROJECT_MANAGER);
 		lifecycle.pmApproveDraft(CASE_ID, null);
 		actAs(Role.PROJECT_COORDINATOR);
@@ -601,6 +636,7 @@ class CaseLifecycleServiceTest {
 	@Test
 	void theOfferIsPricedAtTheStandardFeeWhenLeftBlankAndAudited() {
 		walkToDraftGeneration();
+		draftAndOfferExpert();
 
 		ExpertCaseOffer offer = savedOffers().getLast();
 		assertEquals(0, new BigDecimal("350.00").compareTo(offer.getFee()));
@@ -610,12 +646,8 @@ class CaseLifecycleServiceTest {
 
 	@Test
 	void theOfferCarriesTheFeeThePmNamed() {
-		actAs(Role.BRAND_MANAGER);
-		lifecycle.assignPm(CASE_ID, PM_ID);
-		actAs(Role.PROJECT_COORDINATOR);
-		lifecycle.markDocsComplete(CASE_ID);
-		actAs(Role.PROJECT_MANAGER);
-		lifecycle.assignCaseManager(CASE_ID, CM_ID, EXPERT_ID, null, null, new BigDecimal("420.00"), "Please review the transcript.");
+		walkToOfferable();
+		lifecycle.changeExpert(CASE_ID, EXPERT_ID, null, null, new BigDecimal("420.00"), "Please review the transcript.");
 
 		assertEquals(0, new BigDecimal("420.00").compareTo(savedOffers().getLast().getFee()));
 		assertEquals("Please review the transcript.", savedOffers().getLast().getNote());
@@ -624,16 +656,11 @@ class CaseLifecycleServiceTest {
 	/** D69: no offer without a note to the expert, refused before the case moves. */
 	@Test
 	void anOfferWithoutANoteIsRefused() {
-		actAs(Role.BRAND_MANAGER);
-		lifecycle.assignPm(CASE_ID, PM_ID);
-		actAs(Role.PROJECT_COORDINATOR);
-		lifecycle.markDocsComplete(CASE_ID);
-		Stage before = subject.getCurrentStage();
-		actAs(Role.PROJECT_MANAGER);
+		walkToOfferable();
 
 		assertThrows(com.ie.evalos.common.InvalidRequestException.class,
-				() -> lifecycle.assignCaseManager(CASE_ID, CM_ID, EXPERT_ID, null, null, null, "  "));
-		assertEquals(before, subject.getCurrentStage());
+				() -> lifecycle.changeExpert(CASE_ID, EXPERT_ID, null, null, null, "  "));
+		assertNull(subject.getExpertId());
 		verify(offers, never()).save(any(ExpertCaseOffer.class));
 	}
 
@@ -641,34 +668,22 @@ class CaseLifecycleServiceTest {
 	void aRefusedPriceChangesNothing() {
 		Expert noFee = expertWithoutFee(EXPERT_ID);
 		given(experts.findScoped(any(TenantContext.class), eq(EXPERT_ID))).willReturn(Optional.of(noFee));
-		actAs(Role.BRAND_MANAGER);
-		lifecycle.assignPm(CASE_ID, PM_ID);
-		actAs(Role.PROJECT_COORDINATOR);
-		lifecycle.markDocsComplete(CASE_ID);
-		Stage before = subject.getCurrentStage();
-		actAs(Role.PROJECT_MANAGER);
+		walkToOfferable();
 
 		assertThrows(IllegalTransitionException.class,
-				() -> lifecycle.assignCaseManager(CASE_ID, CM_ID, EXPERT_ID, null, null, null, "Please review the transcript."));
-		assertEquals(before, subject.getCurrentStage());
+				() -> lifecycle.changeExpert(CASE_ID, EXPERT_ID, null, null, null, "Please review the transcript."));
+		assertNull(subject.getExpertId());
 		verify(offers, never()).save(any(ExpertCaseOffer.class));
 	}
 
 	@Test
 	void aRetakeKeepsTheDeclinedOffersFee() {
-		actAs(Role.BRAND_MANAGER);
-		lifecycle.assignPm(CASE_ID, PM_ID);
-		actAs(Role.PROJECT_COORDINATOR);
-		lifecycle.markDocsComplete(CASE_ID);
-		actAs(Role.PROJECT_MANAGER);
-		lifecycle.assignCaseManager(CASE_ID, CM_ID, EXPERT_ID, null, null, new BigDecimal("420.00"), "Please review the transcript.");
+		walkToOfferable();
+		lifecycle.changeExpert(CASE_ID, EXPERT_ID, null, null, new BigDecimal("420.00"), "Please review the transcript.");
 		ExpertCaseOffer first = savedOffers().getLast();
 		// any(): the case built in setUp has no id outside JPA, so the service asks for null.
 		given(offers.findByCaseIdAndOutcome(any(), eq(OfferOutcome.OFFERED))).willReturn(List.of(first));
 		given(offers.findByCaseIdOrderByOfferedAtDesc(any())).willReturn(List.of(first));
-		actAs(Role.CASE_MANAGER);
-		lifecycle.submitDraft(CASE_ID, WORD, PDF);
-		actAs(Role.PROJECT_MANAGER);
 		lifecycle.pmApproveDraft(CASE_ID, null);
 		actAs(Role.PROJECT_COORDINATOR);
 		lifecycle.sendDraftToClient(CASE_ID);
@@ -709,6 +724,10 @@ class CaseLifecycleServiceTest {
 		walkToDraftGeneration();
 		actAs(Role.CASE_MANAGER);
 		lifecycle.submitDraft(CASE_ID, WORD, PDF);
+		// Unit 73: the expert is offered once a draft exists.
+		actAs(Role.PROJECT_MANAGER);
+		lifecycle.changeExpert(CASE_ID, EXPERT_ID, null, null, null, "Please review the transcript.");
+		actAs(Role.CASE_MANAGER);
 		actAs(Role.PROJECT_MANAGER);
 		lifecycle.pmApproveDraft(CASE_ID, null);
 		actAs(Role.PROJECT_COORDINATOR);
@@ -771,6 +790,7 @@ class CaseLifecycleServiceTest {
 	@Test
 	void theExpertRationaleIsWrittenOnAssignmentAndReplacedOnReassignment() {
 		walkToDraftGeneration();
+		draftAndOfferExpert();
 		assertEquals("strongest ophthalmology record on the roster",
 				subject.getExpertSelectionRationale(), "written when the expert was chosen");
 
@@ -817,18 +837,13 @@ class CaseLifecycleServiceTest {
 
 	@Test
 	void anUnavailableExpertCannotBePutOnACase() {
-		actAs(Role.BRAND_MANAGER);
-		lifecycle.assignPm(CASE_ID, PM_ID);
-		actAs(Role.PROJECT_COORDINATOR);
-		lifecycle.markDocsComplete(CASE_ID);
-
 		Expert busy = expert(EXPERT_ID, Availability.AT_CAPACITY);
 		given(experts.findScoped(any(TenantContext.class), eq(EXPERT_ID))).willReturn(Optional.of(busy));
+		walkToOfferable();
 
-		actAs(Role.PROJECT_MANAGER);
 		assertThrows(IllegalTransitionException.class,
-				() -> lifecycle.assignCaseManager(CASE_ID, CM_ID, EXPERT_ID, null, null, null, "Please review the transcript."));
-		assertEquals(Stage.PM_REVIEW, subject.getCurrentStage());
+				() -> lifecycle.changeExpert(CASE_ID, EXPERT_ID, null, null, null, "Please review the transcript."));
+		assertNull(subject.getExpertId());
 	}
 
 	// --- Unit 12: the offer rows the acceptance-rate factor is aggregated from -----
@@ -840,6 +855,7 @@ class CaseLifecycleServiceTest {
 	@Test
 	void anAssignmentOpensAnOfferAndARematchSupersedesItBeforeOpeningTheNext() {
 		walkToDraftGeneration();
+		draftAndOfferExpert();
 
 		ExpertCaseOffer first = savedOffers().getLast();
 		assertEquals(EXPERT_ID, first.getExpertId());
@@ -983,16 +999,11 @@ class CaseLifecycleServiceTest {
 		given(untagged.getPrimaryFields()).willReturn(List.of());
 		given(untagged.getSecondaryFields()).willReturn(List.of());
 		given(experts.findScoped(any(TenantContext.class), eq(OTHER_EXPERT_ID))).willReturn(Optional.of(untagged));
+		walkToOfferable();
 
-		actAs(Role.BRAND_MANAGER);
-		lifecycle.assignPm(CASE_ID, PM_ID);
-		actAs(Role.PROJECT_COORDINATOR);
-		lifecycle.markDocsComplete(CASE_ID);
+		lifecycle.changeExpert(CASE_ID, OTHER_EXPERT_ID, null, null, null, "Please review the transcript.");
 
-		actAs(Role.PROJECT_MANAGER);
-		lifecycle.assignCaseManager(CASE_ID, CM_ID, OTHER_EXPERT_ID, null, null, null, "Please review the transcript.");
-
-		assertEquals(Stage.DRAFT_IN_PROGRESS, subject.getCurrentStage());
+		assertEquals(Stage.DRAFT_REVIEW, subject.getCurrentStage());
 		assertEquals(OTHER_EXPERT_ID, subject.getExpertId());
 		assertEquals(OTHER_EXPERT_ID, savedOffers().getLast().getExpertId(),
 				"and the offer is recorded, so an off-list assignment still feeds the rate");
@@ -1165,17 +1176,85 @@ class CaseLifecycleServiceTest {
 				&& ce.type() == CaseEvents.Type.CASE_MANAGER_REASSIGNED));
 	}
 
+	/** Unit 73: PM Review → Drafting names the CM only; nobody is offered yet. */
+	@Test
+	void assigningTheCaseManagerOpensNoOffer() {
+		walkToDraftGeneration();
+
+		assertEquals(Stage.DRAFT_IN_PROGRESS, subject.getCurrentStage());
+		assertEquals(CM_ID, subject.getAssignedCm());
+		assertNull(subject.getExpertId());
+		verify(offers, never()).save(any(ExpertCaseOffer.class));
+	}
+
+	/** Unit 73: the expert is offered once a draft exists — not at PM Review, not before the upload. */
+	@Test
+	void anExpertCannotBeOfferedBeforeTheFirstDraft() {
+		actAs(Role.BRAND_MANAGER);
+		lifecycle.assignPm(CASE_ID, PM_ID);
+		actAs(Role.PROJECT_COORDINATOR);
+		lifecycle.markDocsComplete(CASE_ID);
+		actAs(Role.PROJECT_MANAGER);
+		assertThrows(IllegalTransitionException.class,
+				() -> lifecycle.changeExpert(CASE_ID, EXPERT_ID, null, null, null, "Please review the transcript."),
+				"at PM Review");
+
+		lifecycle.assignCaseManager(CASE_ID, CM_ID);
+		assertThrows(IllegalTransitionException.class,
+				() -> lifecycle.changeExpert(CASE_ID, EXPERT_ID, null, null, null, "Please review the transcript."),
+				"drafting, nothing uploaded yet");
+		assertNull(subject.getExpertId());
+	}
+
+	/** Unit 73: the offer is what sends the expert their mail and opens their chat. */
+	@Test
+	void offeringTheExpertPublishesExpertAssigned() {
+		walkToOfferable();
+		clearInvocations(events);
+
+		lifecycle.changeExpert(CASE_ID, EXPERT_ID, null, null, null, "Please review the transcript.");
+
+		assertEquals(List.of(CaseEvents.Type.EXPERT_ASSIGNED), publishedEventTypes(1));
+	}
+
+	/** Unit 73 + Unit 65: a CM may offer, but only at the expert's standard fee. */
+	@Test
+	void aCaseManagerOffersAtTheStandardFeeOnly() {
+		walkToOfferable();
+		actAs(Role.CASE_MANAGER);
+
+		assertThrows(com.ie.evalos.common.ForbiddenException.class,
+				() -> lifecycle.changeExpert(CASE_ID, EXPERT_ID, null, null, new BigDecimal("999.00"), "Please review the transcript."));
+		lifecycle.changeExpert(CASE_ID, EXPERT_ID, null, null, null, "Please review the transcript.");
+		assertEquals(EXPERT_ID, subject.getExpertId());
+		assertEquals(0, new BigDecimal("350.00").compareTo(savedOffers().getLast().getFee()));
+	}
+
+	/** Unit 73: the client may approve before anyone was offered; only the send needs an expert. */
+	@Test
+	void theClientCanApproveBeforeAnExpertIsOffered() {
+		walkToOfferable();
+		lifecycle.pmApproveDraft(CASE_ID, null);
+		actAs(Role.PROJECT_COORDINATOR);
+		lifecycle.sendDraftToClient(CASE_ID);
+		lifecycle.clientApproveDraft(CASE_ID);
+		assertEquals(Stage.CLIENT_APPROVAL, subject.getCurrentStage());
+
+		actAs(Role.CASE_MANAGER);
+		assertThrows(IllegalTransitionException.class, () -> lifecycle.sendToExpert(CASE_ID));
+	}
+
 	/** 2026-10-01: the expert changes in place before signing, and the old offer cannot linger. */
 	@Test
 	void changingTheExpertKeepsTheStageAndSupersedesTheOpenOffer() {
-		walkToDraftGeneration();
+		walkToOfferable();
 		ExpertCaseOffer open = new ExpertCaseOffer(BRAND, CASE_ID, EXPERT_ID);
 		given(offers.findByCaseIdAndOutcome(any(), eq(OfferOutcome.OFFERED))).willReturn(List.of(open));
 
 		Case changed = lifecycle.changeExpert(CASE_ID, OTHER_EXPERT_ID, null, null, null, "Please review the transcript.");
 
 		assertEquals(OTHER_EXPERT_ID, changed.getExpertId());
-		assertEquals(Stage.DRAFT_IN_PROGRESS, changed.getCurrentStage(), "a change moves the expert, never the case");
+		assertEquals(Stage.DRAFT_REVIEW, changed.getCurrentStage(), "a change moves the expert, never the case");
 		assertEquals(OfferOutcome.SUPERSEDED, open.getOutcome());
 		assertThrows(IllegalTransitionException.class,
 				() -> lifecycle.changeExpert(CASE_ID, OTHER_EXPERT_ID, null, null, null, "Please review the transcript."),
@@ -1340,8 +1419,7 @@ class CaseLifecycleServiceTest {
 	/** The walk every expert-portal test starts from: a case sitting in EXPERT_SIGNING. */
 	private void walkToExpertSigning() {
 		walkToDraftGeneration();
-		actAs(Role.CASE_MANAGER);
-		lifecycle.submitDraft(CASE_ID, WORD, PDF);
+		draftAndOfferExpert();
 		actAs(Role.PROJECT_MANAGER);
 		lifecycle.pmApproveDraft(CASE_ID, null);
 		actAs(Role.PROJECT_COORDINATOR);

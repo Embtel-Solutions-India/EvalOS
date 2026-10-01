@@ -137,7 +137,7 @@ describe('draftReviewQueue', () => {
 
 describe('awaitingExpert', () => {
   it('includes the rematch lane, which has left the stage buckets', () => {
-    const data = board([card({ caseCode: 'unstaffed', currentStage: 'PM_REVIEW' })], 'PM_REVIEW')
+    const data = board([card({ caseCode: 'unstaffed', currentStage: 'DRAFT_REVIEW', draftVersionCount: 1, hasExpert: false })], 'DRAFT_REVIEW')
     data.exceptions.EXPERT_DECLINED_REMATCHING = [
       card({
         caseCode: 'declined',
@@ -149,6 +149,18 @@ describe('awaitingExpert', () => {
 
     // Deadline order, so the dated rematch leads the undated new case.
     expect(awaitingExpert(data).map((row) => row.caseCode)).toEqual(['declined', 'unstaffed'])
+  })
+
+  it('waits for the draft: no PM Review case, no undrafted case, no case already offered (Unit 73)', () => {
+    const data = board([], 'DRAFT_IN_PROGRESS')
+    data.stages.PM_REVIEW = [card({ caseCode: 'needs-cm', currentStage: 'PM_REVIEW' })]
+    data.stages.DRAFT_IN_PROGRESS = [
+      card({ caseCode: 'undrafted', currentStage: 'DRAFT_IN_PROGRESS', draftVersionCount: 0, hasExpert: false }),
+      card({ caseCode: 'offered', currentStage: 'DRAFT_IN_PROGRESS', draftVersionCount: 2, hasExpert: true }),
+      card({ caseCode: 'ready', currentStage: 'DRAFT_IN_PROGRESS', draftVersionCount: 1, hasExpert: false }),
+    ]
+
+    expect(awaitingExpert(data).map((row) => row.caseCode)).toEqual(['ready'])
   })
 })
 

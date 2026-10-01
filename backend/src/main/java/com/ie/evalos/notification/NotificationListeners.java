@@ -57,9 +57,10 @@ public class NotificationListeners {
 					(c, r) -> r.assignedPm(c),
 					"Documents are complete on %s — it needs an expert."),
 
+			// Unit 73: an offer went out (after the draft). The CM was told when they were put on it.
 			route(CaseEvents.Type.EXPERT_ASSIGNED, NotificationType.CASE_ASSIGNED,
 					(c, r) -> r.assignedCm(c),
-					"You are the case manager on %s."),
+					"An expert has been offered %s."),
 
 			// Their SELF scope opens the case the moment the column names them; this is how they
 			// learn it did.

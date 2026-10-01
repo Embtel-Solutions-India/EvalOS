@@ -40,7 +40,8 @@ class NotificationServiceTest {
 	private static final UUID CASE_ID = UUID.randomUUID();
 
 	private final NotificationRepository notifications = mock(NotificationRepository.class);
-	private final NotificationService service = new NotificationService(notifications);
+	private final com.ie.evalos.chat.live.CaseLive live = org.mockito.Mockito.mock(com.ie.evalos.chat.live.CaseLive.class);
+	private final NotificationService service = new NotificationService(notifications, live);
 
 	@AfterEach
 	void clearCaller() {
@@ -162,5 +163,18 @@ class NotificationServiceTest {
 		service.create(BRAND, List.of(), NotificationType.NEW_LEAD, CASE_ID, "a lead");
 
 		verify(notifications, org.mockito.Mockito.never()).save(any());
+	}
+
+	/** Unit 70 §2.3: each recipient's bell is told to re-read once the rows commit. */
+	@Test
+	void creatingSignalsEveryRecipientsBell() {
+		UUID first = UUID.randomUUID();
+		UUID second = UUID.randomUUID();
+
+		service.create(UUID.randomUUID(), java.util.List.of(first, second), com.ie.evalos.domain.NotificationType.CASE_ASSIGNED,
+				UUID.randomUUID(), "body");
+
+		org.mockito.Mockito.verify(live).notificationsChanged(first);
+		org.mockito.Mockito.verify(live).notificationsChanged(second);
 	}
 }

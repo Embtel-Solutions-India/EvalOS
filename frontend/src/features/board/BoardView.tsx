@@ -214,7 +214,7 @@ export default function BoardView() {
   /**
    * Drag a card onto a column (2026-10-01, revisiting spec 22's "no drag"). The drop picks the one
    * action that leads there (`dropActionFor`) and hands it to `onAction` — so a move that needs a
-   * field (assign CM + expert, a reason) opens the same dialog its button would, and a field-free
+   * field (the CM to assign, a reason) opens the same dialog its button would, and a field-free
    * one runs at once. Not optimistic, like every action here: the server decides and the board
    * re-reads. A column no action reaches never accepts the drop, so the pointer says "no".
    */

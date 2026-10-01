@@ -33,7 +33,8 @@ public final class CaseTransitions {
 		ASSIGN_PM(CaseEvents.Type.PM_ASSIGNED, AuditAction.ASSIGNED),
 		ASSIGN_COORDINATOR(CaseEvents.Type.COORDINATOR_ASSIGNED, AuditAction.ASSIGNED),
 		MARK_DOCS_COMPLETE(CaseEvents.Type.DOCUMENTS_COMPLETED, AuditAction.STAGE_CHANGED),
-		ASSIGN_CASE_MANAGER(CaseEvents.Type.EXPERT_ASSIGNED, AuditAction.ASSIGNED),
+		// Unit 73: the CM only — the expert's offer is `changeExpert`'s EXPERT_ASSIGNED, later.
+		ASSIGN_CASE_MANAGER(CaseEvents.Type.CASE_MANAGER_REASSIGNED, AuditAction.ASSIGNED),
 		SUBMIT_DRAFT(CaseEvents.Type.DRAFT_SUBMITTED, AuditAction.UPDATED),
 		PM_RETURN_DRAFT(CaseEvents.Type.DRAFT_RETURNED, AuditAction.UPDATED),
 		PM_APPROVE_DRAFT(CaseEvents.Type.DRAFT_PM_APPROVED, AuditAction.UPDATED),
