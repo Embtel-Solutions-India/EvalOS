@@ -50,3 +50,6 @@ mail-preview/
 
 # Brainstorming visual companion mockups
 .superpowers/
+
+# Browser-check artefacts (Playwright MCP)
+.playwright-mcp/
