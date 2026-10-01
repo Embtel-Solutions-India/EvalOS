@@ -6,7 +6,6 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
-import com.ie.evalos.domain.AuditAction;
 import com.ie.evalos.domain.Case;
 import com.ie.evalos.domain.ClientAccount;
 import com.ie.evalos.domain.IllegalTransitionException;
@@ -28,7 +27,6 @@ import org.springframework.test.util.ReflectionTestUtils;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -50,7 +48,6 @@ class PortalAccessServiceTest {
 
 	private final PortalAccessRepository tokens = mock(PortalAccessRepository.class);
 	private final CaseLifecycleService lifecycle = mock(CaseLifecycleService.class);
-	private final AuditService audit = mock(AuditService.class);
 
 	/** Signing in is the only mint left (Unit 59): staff-minted expert links were removed. */
 	private final PortalAccessService links = new PortalAccessService(tokens, Duration.ofDays(7));
@@ -78,13 +75,6 @@ class PortalAccessServiceTest {
 	}
 
 	// --- Unit 35, D1: the party-scoped credential -----------------------------
-
-	/** The row handed to {@code save}, which is where the minted credential's shape is visible. */
-	private PortalAccess savedRow() {
-		org.mockito.ArgumentCaptor<PortalAccess> saved = org.mockito.ArgumentCaptor.forClass(PortalAccess.class);
-		verify(tokens).save(saved.capture());
-		return saved.getValue();
-	}
 
 	/**
 	 * Unknown, expired and revoked are one answer, so nothing about which it was is learnable.

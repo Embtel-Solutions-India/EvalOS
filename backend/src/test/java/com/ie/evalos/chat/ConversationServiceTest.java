@@ -90,7 +90,7 @@ class ConversationServiceTest {
 		// Unsaved conversations have no id, so answer by call order: CLIENT, INTERNAL, EXPERT
 		// (ConversationType.values()). The old Case Manager is held only in INTERNAL.
 		when(members.findByBrandIdAndConversationIdAndLeftAtIsNull(eq(brand), any()))
-				.thenReturn(List.of(), List.of(leaving), List.of());
+				.thenReturn(List.of()).thenReturn(List.of(leaving)).thenReturn(List.of());
 		when(members.addIfAbsent(any(), any(), any(), any(), any())).thenReturn(1);
 
 		service.ensureAndSync(c);
@@ -156,7 +156,7 @@ class ConversationServiceTest {
 		org.springframework.test.util.ReflectionTestUtils.setField(member, "id", memberId);
 		when(roster.load(c)).thenReturn(new CaseRoster(caseId, brand, null, List.of(), null, null, null, List.of(), null));
 		when(members.findByBrandIdAndConversationIdAndLeftAtIsNull(eq(brand), any()))
-				.thenReturn(List.of(), List.of(member), List.of());
+				.thenReturn(List.of()).thenReturn(List.of(member)).thenReturn(List.of());
 		when(members.leave(memberId, "REASSIGNED")).thenReturn(0);
 
 		service.ensureAndSync(c);
@@ -180,7 +180,7 @@ class ConversationServiceTest {
 		when(roster.load(c)).thenReturn(new CaseRoster(caseId, brand, null, List.of(person), null, null, person,
 				List.of(), null));
 		when(members.findByBrandIdAndConversationIdAndLeftAtIsNull(eq(brand), any()))
-				.thenReturn(List.of(), List.of(asSales), List.of());
+				.thenReturn(List.of()).thenReturn(List.of(asSales)).thenReturn(List.of());
 		when(members.leave(asSalesId, "ROLE_CHANGED")).thenReturn(1);
 		when(members.addIfAbsent(any(), any(), any(), any(), any())).thenReturn(1);
 
