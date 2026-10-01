@@ -34,6 +34,7 @@ function card(overrides: Partial<ChecklistCard> = {}): ChecklistCard {
     deadline: null,
     slaStatus: 'ON_TRACK',
     exceptionState: 'NONE',
+    currentStage: 'DOC_COLLECTION',
     stageEnteredAt: hoursAgo(30),
     assignedCoordinator: null,
     paid: true,

@@ -431,6 +431,17 @@ public class CaseController {
 	 * <p>Also not a transition. The deadline drives {@code DeadlineRisk}, which is computed on
 	 * read, so the risk tiles reclassify on their next query with nothing to invalidate.
 	 */
+	/**
+	 * Sets or changes the expert without moving the case (2026-10-01), until the case reaches
+	 * expert signing. The reassign gate minus the CM, whose role cannot read the expert picker.
+	 */
+	@PatchMapping("/{id}/expert")
+	@PreAuthorize(GM_OR + "hasAnyRole('PROJECT_MANAGER', 'EXPERT_NETWORK_MANAGER')")
+	public ApiResponse<CaseSummary> changeExpert(@PathVariable UUID id, @Valid @RequestBody ExpertRequest request) {
+		return summary(lifecycle.changeExpert(id, request.expertId(), request.expertRationale(),
+				request.fieldOfExpertise(), request.fee(), request.expertNote()));
+	}
+
 	@PatchMapping("/{id}/deadline")
 	@PreAuthorize(GM_OR + "hasRole('PROJECT_MANAGER')")
 	public ApiResponse<CaseSummary> changeDeadline(@PathVariable UUID id,

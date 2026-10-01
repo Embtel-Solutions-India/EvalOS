@@ -99,10 +99,11 @@ public class NotificationListeners {
 					(c, r) -> r.assignedCm(c),
 					"The expert accepted %s and is signing it."),
 
-			// Unit 15. Goes to the Coordinators rather than the CM: the expert's request became a
-			// required checklist item, and the checklist and the client chase are theirs.
+			// Unit 15: the Coordinators, whose checklist and client chase the request became. Since
+			// 2026-10-01 also the case's CM (who owns signing) and PM — told, though the chase is not theirs.
 			route(CaseEvents.Type.EXPERT_EVIDENCE_REQUESTED, NotificationType.EXCEPTION_RAISED,
-					(c, r) -> r.coordinators(c.getBrandId()),
+					(c, r) -> java.util.stream.Stream.of(r.coordinators(c.getBrandId()), r.assignedCm(c), r.assignedPm(c))
+							.flatMap(List::stream).distinct().toList(),
 					"The expert on %s needs more evidence before signing — the case is on hold."),
 
 			// Unit 15. Nothing routes `expert.declined` or `expert.timed_out`, and that is still

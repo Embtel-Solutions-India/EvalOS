@@ -8,7 +8,7 @@ import { UnreadBadge } from '@evalos/chat'
 import { BADGE_FOR_PATH, fetchNavBadges, isUrgentBadge, type NavBadges } from './navBadges'
 
 /**
- * The nav, as a **flush full-height dark rail**. Filtered by role from the one table the router
+ * The nav, as a **flush full-height tinted rail**. Filtered by role from the one table the router
  * also guards against (`navigation.ts`), so a listed item is always reachable and a reachable
  * item is always listed.
  *

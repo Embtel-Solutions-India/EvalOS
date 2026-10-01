@@ -33,7 +33,7 @@ export default function CoordinatorDashboard() {
             data ? `${data.documents.aging} past the collection budget` : undefined
           }
           tone={data === null ? undefined : data.documents.aging > 0 ? 'warn' : 'good'}
-          // Decision 6: the same 24-business-hour DOC_COLLECTION budget the board's SLA rail
+          // Decision 6: the same 24-business-hour DOC_COLLECTION budget the board's SLA chip
           // uses. One clock, so this tile and that rail cannot disagree about a case.
           note="Aging is measured against the stage SLA, not a separate chase clock."
         />

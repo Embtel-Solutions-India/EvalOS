@@ -5,7 +5,7 @@ import { useMe } from '../../lib/authContext'
 import { boardPathFor } from '../shell/navigation'
 import QuickActionDialog from '../board/QuickActionDialog'
 import { performAction } from '../board/boardApi'
-import type { QuickAction } from '../board/boardRules'
+import { prefill, type BoardCard, type QuickAction } from '../board/boardRules'
 import DocumentsPanel from './DocumentsPanel'
 import DraftPanel from './DraftPanel'
 import ExpertCard from './ExpertCard'
@@ -207,6 +207,7 @@ export default function CaseDetailPage() {
           action={pending}
           caseId={detail.summary.id}
           caseCode={detail.summary.caseCode}
+          initial={prefill(detail.summary as BoardCard, pending)}
           onCancel={() => setPending(null)}
           onConfirm={(values) => void run(pending, values)}
         />

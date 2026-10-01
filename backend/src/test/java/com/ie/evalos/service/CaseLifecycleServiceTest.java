@@ -1165,6 +1165,32 @@ class CaseLifecycleServiceTest {
 				&& ce.type() == CaseEvents.Type.CASE_MANAGER_REASSIGNED));
 	}
 
+	/** 2026-10-01: the expert changes in place before signing, and the old offer cannot linger. */
+	@Test
+	void changingTheExpertKeepsTheStageAndSupersedesTheOpenOffer() {
+		walkToDraftGeneration();
+		ExpertCaseOffer open = new ExpertCaseOffer(BRAND, CASE_ID, EXPERT_ID);
+		given(offers.findByCaseIdAndOutcome(any(), eq(OfferOutcome.OFFERED))).willReturn(List.of(open));
+
+		Case changed = lifecycle.changeExpert(CASE_ID, OTHER_EXPERT_ID, null, null, null, "Please review the transcript.");
+
+		assertEquals(OTHER_EXPERT_ID, changed.getExpertId());
+		assertEquals(Stage.DRAFT_IN_PROGRESS, changed.getCurrentStage(), "a change moves the expert, never the case");
+		assertEquals(OfferOutcome.SUPERSEDED, open.getOutcome());
+		assertThrows(IllegalTransitionException.class,
+				() -> lifecycle.changeExpert(CASE_ID, OTHER_EXPERT_ID, null, null, null, "Please review the transcript."),
+				"the expert already on the case is refused");
+	}
+
+	@Test
+	void theExpertCannotBeChangedInPlaceOnceSigningStarts() {
+		walkToDraftGeneration();
+		subject.setCurrentStage(Stage.EXPERT_SIGNING);
+
+		assertThrows(IllegalTransitionException.class,
+				() -> lifecycle.changeExpert(CASE_ID, OTHER_EXPERT_ID, null, null, null, "Please review the transcript."));
+	}
+
 	@Test
 	void reassigningToTheSameCaseManagerIsRefused() {
 		walkToDraftGeneration();

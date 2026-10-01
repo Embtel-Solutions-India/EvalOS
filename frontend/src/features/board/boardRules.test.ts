@@ -10,6 +10,8 @@ import {
   allInsideSla,
   columnsFor,
   dueBeforeFor,
+  dropActionFor,
+  prefill,
   slaMix,
   type BoardCard,
   type ExceptionState,
@@ -408,5 +410,42 @@ describe('cardDate', () => {
     const now = new Date('2026-10-01T12:00:00Z')
     expect(cardDate('2026-09-25T12:00:00Z', now)).toBe('Sep 25')
     expect(cardDate('2025-02-25T12:00:00Z', now)).toBe('Feb 25, 2025')
+  })
+})
+
+describe('dropActionFor', () => {
+  it('picks the one action into the column, fields or not', () => {
+    expect(dropActionFor(card(), 'PROJECT_COORDINATOR', ['PM_REVIEW'])?.path).toBe('docs-complete')
+    // A drop that needs a field still resolves; the board opens its dialog.
+    const assign = dropActionFor(card({ currentStage: 'PM_REVIEW' }), 'PROJECT_MANAGER', ['DRAFT_IN_PROGRESS'])
+    expect(assign?.path).toBe('assign-cm')
+    expect(assign?.fields?.length).toBeGreaterThan(0)
+    expect(dropActionFor(card({ currentStage: 'FINAL_QC' }), 'PROJECT_MANAGER', ['DRAFT_IN_PROGRESS'])?.path).toBe('qc-fail')
+  })
+
+  it('refuses a column no action of this role reaches', () => {
+    // Skipping a stage, the wrong role, and the case's own column.
+    expect(dropActionFor(card(), 'PROJECT_COORDINATOR', ['DRAFT_REVIEW'])).toBeNull()
+    expect(dropActionFor(card(), 'CASE_MANAGER', ['PM_REVIEW'])).toBeNull()
+    expect(dropActionFor(card({ currentStage: 'READY_TO_SEND' }), 'PROJECT_COORDINATOR', ['READY_TO_SEND', 'CLIENT_REVIEW'])).toBeNull()
+    // A held case takes only its way out, which is no stage move.
+    expect(dropActionFor(card({ exceptionState: 'ON_HOLD_AWAITING_CLIENT' }), 'PROJECT_COORDINATOR', ['PM_REVIEW'])).toBeNull()
+  })
+})
+
+describe('expert staffing', () => {
+  it('reads Assign until the case names an expert, then Change', () => {
+    const at = card({ currentStage: 'PM_REVIEW' })
+    expect(actionsFor(at, 'PROJECT_MANAGER').find((a) => a.path === 'expert')?.label).toBe('Assign expert')
+    expect(actionsFor({ ...at, expertId: 'e1' }, 'PROJECT_MANAGER').find((a) => a.path === 'expert')?.label).toBe('Change expert')
+    // Signing has its own way to change the expert.
+    expect(actionsFor(card({ currentStage: 'EXPERT_SIGNING' }), 'PROJECT_MANAGER').map((a) => a.path)).not.toContain('expert')
+  })
+
+  it('starts Assign CM + expert with whoever More already put on the case', () => {
+    const staffed = card({ currentStage: 'PM_REVIEW', assignedCm: 'cm1', expertId: 'e1' })
+    const assign = QUICK_ACTIONS.find((a) => a.path === 'assign-cm')!
+    expect(prefill(staffed, assign)).toEqual({ cmId: 'cm1', expertId: 'e1' })
+    expect(prefill(card({ currentStage: 'PM_REVIEW' }), assign)).toEqual({})
   })
 })

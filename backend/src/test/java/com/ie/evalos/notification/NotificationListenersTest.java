@@ -181,15 +181,14 @@ class NotificationListenersTest {
 	 * Unit 15's three, and the one that is not like its siblings.
 	 *
 	 * <p>Accept and decline go to the Case Manager, who owns the signing stage. <strong>An evidence
-	 * request goes to the Coordinators instead</strong>, because what the expert asked for became a
-	 * required checklist item and the checklist is theirs — routing it to the CM would put the alert
-	 * on the desk of somebody who cannot act on it.
+	 * request goes to the Coordinators</strong>, whose checklist it became — and, since 2026-10-01, to
+	 * the CM and PM too, who were otherwise left not knowing why signing stopped.
 	 */
 	@Test
 	void whatTheExpertDoesReachesWhoeverActsOnIt() {
 		assertThat(recipientsOf(CaseEvents.Type.EXPERT_ACCEPTED)).containsExactly(CM);
 		assertThat(recipientsOf(CaseEvents.Type.EXPERT_DECLINED)).containsExactly(CM);
-		assertThat(recipientsOf(CaseEvents.Type.EXPERT_EVIDENCE_REQUESTED)).containsExactly(COORDINATOR);
+		assertThat(recipientsOf(CaseEvents.Type.EXPERT_EVIDENCE_REQUESTED)).containsExactlyInAnyOrder(COORDINATOR, CM, PM);
 	}
 
 	/**

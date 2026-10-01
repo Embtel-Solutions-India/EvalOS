@@ -29,16 +29,19 @@ export default function QuickActionDialog({
   action,
   caseId,
   caseCode,
+  initial = {},
   onCancel,
   onConfirm,
 }: {
   action: QuickAction
   caseId: string
   caseCode: string
+  /** Starting values (`boardRules.prefill`). */
+  initial?: Record<string, string>
   onCancel: () => void
   onConfirm: (values: Record<string, string>) => void
 }) {
-  const [values, setValues] = useState<Record<string, string>>({})
+  const [values, setValues] = useState<Record<string, string>>(initial)
   const fields = action.fields ?? []
   const dialog = useRef<HTMLDialogElement>(null)
   const setValue = (name: string, value: string) =>

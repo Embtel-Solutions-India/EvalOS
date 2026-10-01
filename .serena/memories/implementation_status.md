@@ -35,6 +35,14 @@ live on the deal's own pipeline (Q12 resolved 2026-09-24, D44). 2026-09-24: boar
 `service` (row fields first, then `opportunity.lead_source` / the portal request), one read each
 per board; cards show Value / Source / service with "—" placeholders, headers show stage Value.
 
+**Production board drag, 2026-10-01.** Revises spec 22's "no drag". `QuickAction.to` (the
+`CaseTransitions` target) + `boardRules.dropActionFor` pick the one action into the dropped-on column;
+field-free runs at once, with fields opens `QuickActionDialog`. Not optimistic; illegal columns refuse
+the drop; lanes are not targets. Per-column SLA rail removed the same day. Expert set/change in
+place before signing: `changeExpert` + `PATCH /cases/{id}/expert` (PM/ENM/GM), under More beside
+Assign/Change CM; `assign-cm` dialog pre-filled (`prefill`) and supersedes an open offer. Expert evidence request now
+reaches Coordinators + CM + PM, stays on Doc checklists while held (chaseable), banner on the case page.
+
 **Unit 54a, note edit/delete — COMPLETE 2026-09-24.** Author-only `PUT`/`DELETE` on a note; `V67`
 drops the append-only triggers; the outbox overwrites or deletes the GHL copy; audited without text.
 An edit made during its own push is re-queued (`editedSince`), not lost. Outbox `enqueue` is a native

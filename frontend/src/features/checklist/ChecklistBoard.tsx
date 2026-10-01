@@ -294,7 +294,7 @@ function Row({
         <span
           className="font-num rounded-md px-1.5 py-0.5 text-[11px] font-semibold tabular-nums"
           style={{ color: AGING_TOKEN[band].fg, background: AGING_TOKEN[band].bg }}
-          title="Wall-clock time in Document Collection"
+          title="Wall-clock time in the case's current stage"
         >
           {agingLabel(hours)} waiting
         </span>
@@ -302,7 +302,12 @@ function Row({
         {/* Unpaid is worth showing here even though it does not block collecting: it is what
             docs-complete will refuse on, so seeing it now beats discovering it on the click. */}
         {!card.paid && <Chip>Unpaid</Chip>}
-        {card.exceptionState !== 'NONE' && <Chip>{card.exceptionState.replaceAll('_', ' ').toLowerCase()}</Chip>}
+        {/* Only the expert asks for documents during signing, so a held signing case is their request. */}
+        {card.exceptionState === 'ON_HOLD_AWAITING_CLIENT' && card.currentStage === 'EXPERT_SIGNING' ? (
+          <Chip>Expert asked for more evidence</Chip>
+        ) : (
+          card.exceptionState !== 'NONE' && <Chip>{card.exceptionState.replaceAll('_', ' ').toLowerCase()}</Chip>
+        )}
         {card.checklistSatisfied && <Chip tone="green">All documents in</Chip>}
 
         <button
