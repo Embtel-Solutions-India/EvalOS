@@ -1,6 +1,5 @@
 package com.ie.evalos.chat.push;
 
-import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Executor;
@@ -81,20 +80,7 @@ public class ChatPushNotifier {
 			String payload = payload(recipient, message, conversation, change.conversationId(), caseCode);
 			for (PushSubscription to : subscriptions.findBySubscriberKindAndSubscriberId(recipient.getKind(),
 					recipient.getMemberId())) {
-				deliver(to, payload);
-			}
-		}
-	}
-
-	private void deliver(PushSubscription to, String payload) {
-		switch (sender.send(to, payload)) {
-			case SENT -> {
-				to.markSent(Instant.now());
-				subscriptions.save(to);
-			}
-			case GONE -> subscriptions.delete(to);
-			case FAILED -> {
-				// Logged by the sender; kept, because a push service having a bad minute is not a dead browser.
+				PushSender.deliver(sender, subscriptions, to, payload);
 			}
 		}
 	}

@@ -1,6 +1,9 @@
 import { useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
+import { PushCard } from '@evalos/chat'
 import { api, unwrap } from '../../lib/api'
+import { useMe } from '../../lib/authContext'
+import { chatsFor } from '../../lib/chat'
 
 type NotificationView = {
   id: string
@@ -24,7 +27,11 @@ type NotificationView = {
  * browser. Marking read is a POST, so the `api` interceptor refreshes both queries.
  */
 export default function NotificationBell() {
+  const me = useMe()
   const [open, setOpen] = useState(false)
+  // D37: the bell also pushes. The opt-in needs the chat connection (Marketing has none) and a brand
+  // to file the browser under (the GM has none), so those two stay in-app only.
+  const mayPush = chatsFor(me.role) && me.role !== 'GM'
 
   const count = useQuery({
     queryKey: ['notifications', 'count'],
@@ -138,6 +145,7 @@ export default function NotificationBell() {
               </button>
             ))}
         </div>
+        {open && mayPush && <PushCard workerUrl="/sw.js" />}
       </div>
     </details>
   )

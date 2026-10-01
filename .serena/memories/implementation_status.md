@@ -303,8 +303,8 @@ BUILT 2026-09-15 (Unit 51): the GM dashboard — `GmDashboard.tsx` + `GET /api/m
 to its source and says which cannot be computed at all.
 
 PARTIAL and worth knowing (**re-judged 2026-09-17** — three of these were never gaps):
-notifications are in-app only and
-**push is owed** (D37 — in-app and push, never mail or SMS); request-stage documents do not exist
+notifications are in-app **and push since 2026-10-02** (`BellPushNotifier` over chat's
+`push_subscriptions`; the GM and Marketing in-app only — no brand / no chat connection); request-stage documents do not exist
 and are **Unit 53** (D33). *No longer listed as gaps:* **SALES reading no case is correct** (D19c —
 their world ends at won, so `ScopePredicate`'s empty PIPELINE arm over `evalos_case` is the rule);
 **a richer `client_application.status` is not owed** (D35 — review is a GHL pipeline stage); and

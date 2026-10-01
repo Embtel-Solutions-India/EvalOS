@@ -53,8 +53,6 @@ called — a key minted in memory and lost to a timeout is a key no retry can se
   `contact_snapshot.id` for three days) — so the carry-forward is a row insert over the same object,
   never a copy or a re-key. `contact_id` stays a real FK: naming a contact by GHL's id does not
   change a primary key (D18).
-- **A push-subscription table** (endpoint + keys per staff user) for D37. The `notification` table
-  already records *what happened*; this is delivery only.
 - ~~A richer `client_application.status`~~ — **NOT NEEDED (D35).** `DRAFT`/`SUBMITTED` are the right
   two; Sales review is a GHL pipeline stage, not an EvalOS column.
 

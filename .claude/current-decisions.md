@@ -385,7 +385,10 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
 - **D37.** **Notifications are in-app and push — both, and only those two.** The `notification`
   table and the bell stay the record of what happened; web push is added beside them so a user
   who is not on the screen still hears about it. **No email and no SMS**, so invariant 14 is
-  untouched: a push is not a message to a mailbox. Decided 2026-09-17.
+  untouched: a push is not a message to a mailbox. Decided 2026-09-17. **Built 2026-10-02**
+  (`BellPushNotifier`, on chat's `push_subscriptions`): a recipient with the app open is not pushed,
+  since the live bell already tells them. The GM (no brand to file a browser under) and Marketing
+  (no chat connection to opt in through) stay in-app only.
 
 ## Other
 

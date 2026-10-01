@@ -171,7 +171,5 @@ field id on `opportunity` and, since `V81`, on `contact_snapshot`. `ghl_custom_f
 - ~~`expert_application` plus recruitment stages — Unit 50~~ — **replaced by D61 (Unit 63)**: hiring candidates are GHL opportunities on an `EXPERT_HIRING` pipeline, mirrored like every other; no candidate table.
 - Expert accounts on the Unit 42 pattern — no table exists, **and none is designed until the
   stakeholder discussion happens** (Q6, D23).
-- A **push subscription** table (endpoint + keys per staff user) — D37 makes notifications in-app
-  **and** push; the `notification` table already holds what happened, so this is delivery only.
 - Conversations, any channel — **no table, no column, no code anywhere.**
 - Outbound webhook queue — invariant 11 describes it; nothing implements it.

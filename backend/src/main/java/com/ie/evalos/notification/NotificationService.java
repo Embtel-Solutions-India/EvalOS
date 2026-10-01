@@ -11,6 +11,7 @@ import com.ie.evalos.domain.NotificationType;
 import com.ie.evalos.repository.NotificationRepository;
 import com.ie.evalos.security.TenantContext;
 
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -31,10 +32,12 @@ public class NotificationService {
 
 	private final NotificationRepository notifications;
 	private final CaseLive live;
+	private final ApplicationEventPublisher events;
 
-	NotificationService(NotificationRepository notifications, CaseLive live) {
+	NotificationService(NotificationRepository notifications, CaseLive live, ApplicationEventPublisher events) {
 		this.notifications = notifications;
 		this.live = live;
+		this.events = events;
 	}
 
 	/**
@@ -52,6 +55,8 @@ public class NotificationService {
 			notifications.save(new Notification(brandId, recipient, type, caseId, body));
 			// Unit 70 §2.3: the bell re-reads after commit, instead of on its next 60 s poll.
 			live.notificationsChanged(recipient);
+			// D37: and a push to whoever is not on the screen (`BellPushNotifier`, after commit).
+			events.publishEvent(new BellRaised(recipient, type, caseId, body));
 		});
 	}
 

@@ -1,8 +1,9 @@
 /*
  * Chat push (Unit 57 §6) — the staff app's copy of client-expert/client/public/sw.js. Push only — no caching, no offline.
  *
- * The payload is ChatPushNotifier's { title, body, url, tag }: who and where, never what. `tag` is
- * the conversation id, so a later message replaces the earlier notification rather than stacking.
+ * The payload is ChatPushNotifier's or BellPushNotifier's { title, body, url, tag }: who and where,
+ * never what. `tag` is the conversation (or the bell's alert + case), so a later one replaces the
+ * earlier notification rather than stacking.
  */
 
 self.addEventListener('push', (event) => {
