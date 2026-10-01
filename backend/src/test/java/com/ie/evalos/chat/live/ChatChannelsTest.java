@@ -1,5 +1,6 @@
 package com.ie.evalos.chat.live;
 
+import java.util.List;
 import java.util.UUID;
 
 import com.fasterxml.jackson.databind.JsonNode;
@@ -31,11 +32,16 @@ class ChatChannelsTest {
 		assertThat(caps.get("live:brand:" + brand).toString()).isEqualTo("[\"subscribe\"]");
 	}
 
-	/** Unit 70 §2.4: the GM hears every brand; a portal token is unchanged. */
+	/** Unit 70: the GM's token names every brand's live channel — a wildcard cannot be subscribed. */
 	@Test
 	void theGmHearsEveryBrandsLiveChannelAndPortalsHearNone() throws Exception {
-		JsonNode gm = capability(new ChatIdentity(ParticipantKind.STAFF, UUID.randomUUID(), null, Role.GM));
-		assertThat(gm.get("live:brand:*").toString()).isEqualTo("[\"subscribe\"]");
+		UUID ie = UUID.randomUUID();
+		UUID xp = UUID.randomUUID();
+		JsonNode gm = new ObjectMapper().readTree(ChatChannels.capability(
+				new ChatIdentity(ParticipantKind.STAFF, UUID.randomUUID(), null, Role.GM), List.of(ie, xp)));
+		assertThat(gm.get("live:brand:" + ie).toString()).isEqualTo("[\"subscribe\"]");
+		assertThat(gm.get("live:brand:" + xp).toString()).isEqualTo("[\"subscribe\"]");
+		assertThat(gm.has("live:brand:*")).isFalse();
 
 		JsonNode client = capability(ChatIdentity.client(UUID.randomUUID(), UUID.randomUUID()));
 		assertThat(client.toString()).doesNotContain("live:");

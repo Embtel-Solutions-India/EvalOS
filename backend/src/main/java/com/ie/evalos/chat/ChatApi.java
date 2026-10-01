@@ -45,6 +45,7 @@ public class ChatApi {
 
 	private final MessageService messages;
 	private final ClientAccountRepository accounts;
+	private final com.ie.evalos.repository.BrandRepository brands;
 	private final com.ie.evalos.chat.live.ChatRealtime realtime;
 	private final com.ie.evalos.chat.live.ChatTyping typing;
 	private final com.ie.evalos.chat.live.ChatPresence presence;
@@ -56,7 +57,9 @@ public class ChatApi {
 	ChatApi(MessageService messages, ClientAccountRepository accounts, com.ie.evalos.chat.live.ChatRealtime realtime,
 			com.ie.evalos.chat.live.ChatTyping typing, com.ie.evalos.chat.live.ChatPresence presence, ChatAccess access,
 			ConversationMemberRepository members, com.ie.evalos.chat.push.PushSettings push,
-			com.ie.evalos.chat.push.PushSubscriptionRepository subscriptions) {
+			com.ie.evalos.chat.push.PushSubscriptionRepository subscriptions,
+			com.ie.evalos.repository.BrandRepository brands) {
+		this.brands = brands;
 		this.messages = messages;
 		this.accounts = accounts;
 		this.realtime = realtime;
@@ -228,8 +231,11 @@ public class ChatApi {
 				.ifPresent(subscriptions::delete);
 	}
 
-	/** An Ably TokenRequest for the caller's own channel (Unit 57 §5). */
+	/** An Ably TokenRequest for the caller's own channel (Unit 57 §5), and a GM's every brand (Unit 70). */
 	public com.ie.evalos.chat.live.AblyToken realtimeToken(ChatIdentity who) {
-		return realtime.token(who);
+		List<UUID> gmBrands = who.staffRole() == com.ie.evalos.domain.Role.GM
+				? brands.findAll().stream().map(com.ie.evalos.domain.Brand::getId).toList()
+				: List.of();
+		return realtime.token(who, gmBrands);
 	}
 }

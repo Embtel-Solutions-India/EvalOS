@@ -20,8 +20,8 @@ export function channelOf(clientId: string): string {
 
 /**
  * The brand signal channels a token may subscribe to (`live:brand:{id}`, Unit 70 §3).
- * ponytail: the GM's `live:brand:*` cannot be subscribed as a wildcard, so the GM's case screens
- * refresh on focus and on their own writes only; pass the GM's brand ids in if that falls short.
+ * A GM's token names every brand's channel one by one (the server lists them), since no client
+ * can subscribe to a wildcard; a `*` entry, should one appear, is skipped.
  */
 export function liveChannels(capability: string): string[] {
   try {

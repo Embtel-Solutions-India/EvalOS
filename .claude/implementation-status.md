@@ -82,7 +82,7 @@ request status, portal deployment) and now say so.
    `OpportunityMirrorService.absorbDetails` / `markDeleted`, `ContactView.assignedToId` /
    `dealFieldValues`; `DealEditDialog` gains stage, close, owner, intake fields and an inline-confirmed
    Delete. Tests: `SalesDeskServiceTest` (+4), `SalesDeskControllerTest.onlyASalespersonDeletesADeal`;
-   `tsc -b` clean. **Not browser-checked, not run against live GHL** (delete is irreversible).
+   `tsc -b` clean. **Delete verified working by the business on 2026-10-02.**
    Limits: a custom field cannot be cleared (blanks are not sent); the close date is not mirrored,
    so the dialog cannot show the current one. Restart the backend.
 14. **Fix 2026-09-30 — the ENM dashboard answered 500.** `ExpertCaseOfferRepository.resolvedTurnaroundSeconds` (Unit 63) was JPQL `date_part('epoch', outcomeAt - offeredAt)`; Hibernate 6 renders the difference as numeric nanoseconds and Postgres has no `date_part(numeric)`. Now native `extract(epoch …)::float8`. Mocked service tests could not see it; `LocalPostgresIntegrationTest.resolvedTurnaroundIsSecondsAndBrandIsolated` now does. `GET /api/metrics/expert-network` verified 200 locally as the seed ENM.
@@ -98,7 +98,7 @@ request status, portal deployment) and now say so.
    Backend: `CaseOwned` on Case / CaseDocument / DocumentChecklistItem / ExpertCaseOffer /
    PayoutLedger, `CaseLiveHibernate` (post insert/update/delete; DraftComment via its document),
    `CaseLive` (one publish per case per transaction, after commit, none on rollback), staff
-   capability `live:brand:{brand}` (GM `*`), `NotificationService` → `notifications.changed` on
+   capability `live:brand:{brand}` (a GM's token names every brand, `ChatApi.realtimeToken`), `NotificationService` → `notifications.changed` on
    create / markRead / markAllRead, `PayoutService` signals its two bulk writes. Chat package:
    `liveChannels`, `client.onLive` (signals bypass the reducer; `reconnected` after a gap). Staff:
    `lib/live.ts` (500 ms batch → invalidations), sidebar counts on `useQuery(['nav-badges'])`.
@@ -106,10 +106,7 @@ request status, portal deployment) and now say so.
    `ChatChannelsTest`, `NotificationServiceTest#creatingSignalsEveryRecipientsBell`,
    `PayoutServiceTest` (both bulk writes), `client.test.ts`, `realtime.test.ts#liveChannels`,
    `live.test.ts`. Runtime-checked: a deadline change reached staff (197 ms) and the client
-   (313 ms); a bell re-read in 322 ms and the badge dropped 3→2 in Chrome. **Not built:**
-   `CaseLiveHibernateTest` on Postgres (the runtime check covered `Case`; the other entities only by
-   the listener's type check); **the GM hears no brand channel** (wildcard), so their case screens
-   refresh on focus.
+   (313 ms); a bell re-read in 322 ms and the badge dropped 3→2 in Chrome. **Gaps closed 2026-10-02:** the GM hears every brand (the token names each `live:brand:{id}`; `ChatChannelsTest#theGmHearsEveryBrandsLiveChannelAndPortalsHearNone`), and `CaseLiveHibernateTest` runs on Postgres — the case, a checklist item, a document, an offer and a payout row each signal their case, a draft comment through its document; mutation-checked (dropping the insert listener fails two of its three tests).
 16. **Fix 2026-10-01 — staffing a case (D36).** A PM's assignment of a PC worked (the PC's SELF
    scope reads the case; verified locally: board, checklist board, case list), but nobody could
    tell: no alert (`COORDINATOR_ASSIGNED` had no route), the menu still said "Assign coordinator",

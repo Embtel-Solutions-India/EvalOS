@@ -43,6 +43,15 @@ public final class ChatChannels {
 	}
 
 	public static String capability(ChatIdentity who) {
+		return capability(who, List.of());
+	}
+
+	/**
+	 * @param gmBrands every brand, for a GM only: Ably can grant {@code live:brand:*} but no client
+	 *                 can subscribe to a wildcard, so the GM's token names each brand's channel and
+	 *                 the app subscribes to every one it names (Unit 70, the GM's live updates).
+	 */
+	public static String capability(ChatIdentity who, java.util.Collection<UUID> gmBrands) {
 		Map<String, List<String>> caps = new LinkedHashMap<>();
 		caps.put(personal(who.kind(), who.id()), List.of("subscribe", "presence"));
 		if (who.staffRole() == Role.GM) {
@@ -51,10 +60,10 @@ public final class ChatChannels {
 		else if (who.staffRole() == Role.BRAND_MANAGER && who.brandId() != null) {
 			caps.put("chat:view:" + who.brandId() + ":*", List.of("subscribe"));
 		}
-		// Unit 70 §2.4: staff hear their brand's case signals (the GM every brand's). Portal tokens
+		// Unit 70 §2.4: staff hear their brand's case signals (the GM each brand's, named). Portal tokens
 		// are unchanged — their case signals arrive on their own private channel.
 		if (who.staffRole() == Role.GM) {
-			caps.put("live:brand:*", List.of("subscribe"));
+			gmBrands.forEach(brand -> caps.put(liveBrand(brand), List.of("subscribe")));
 		}
 		else if (who.staffRole() != null && who.brandId() != null) {
 			caps.put(liveBrand(who.brandId()), List.of("subscribe"));

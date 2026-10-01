@@ -39,7 +39,7 @@ Set-password and sign-in may `upsertContact` (`ensureCrmIdentity`). The portal o
 
 **Documents** enter **only at the case**, against a sent checklist item (D33, D60), keyed by the
 **GHL contact id** (D41 — one id names a contact everywhere; `DocumentStore.clientKey`). **Notifications** are in-app today; D37 makes them in-app **and push**, never mail.
-CURRENT since Unit 70 (D68, built 2026-10-01): a committed case change shows on every open screen of that case without a reload (`case.changed` over Ably → background REST re-read; staff `lib/live.ts`, portals `LiveInvalidate`); the bell on `notifications.changed`; sidebar counts are a query. GM: focus refresh only.
+CURRENT since Unit 70 (D68, built 2026-10-01): a committed case change shows on every open screen of that case without a reload (`case.changed` over Ably → background REST re-read; staff `lib/live.ts`, portals `LiveInvalidate`); the bell on `notifications.changed`; sidebar counts are a query. GM hears every brand (token names each brand channel).
 
 **Conversations do not exist** — no table, no route, no component, anywhere. **Notes** are
 synced both ways (Unit 54, built 2026-09-24): pushed once to the GHL contact via the
