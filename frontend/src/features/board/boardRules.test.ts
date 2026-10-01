@@ -401,8 +401,11 @@ describe('the Case Manager on expert signing (Unit 66)', () => {
     const offered = paths('EXPERT_SIGNING', 'CASE_MANAGER')
     expect(offered).toEqual(expect.arrayContaining(['expert/signed', 'expert/declined', 'expert/timed-out']))
   })
-  it('still does not offer reassign — its expert picker is gated away from the CM', () => {
-    expect(paths('EXPERT_SIGNING', 'CASE_MANAGER', 'EXPERT_DECLINED_REMATCHING')).not.toContain('reassign-expert')
+  it('offers reassign in the rematch lane, without a fee (Unit 67; the picker admits the CM since Unit 73)', () => {
+    expect(paths('EXPERT_SIGNING', 'CASE_MANAGER', 'EXPERT_DECLINED_REMATCHING')).toContain('reassign-expert')
+    const rematch = card({ currentStage: 'EXPERT_SIGNING', exceptionState: 'EXPERT_DECLINED_REMATCHING' })
+    const reassign = actionsFor(rematch, 'CASE_MANAGER').find((a) => a.path === 'reassign-expert')
+    expect(reassign?.fields?.some((f) => f.name === 'fee')).toBe(false)
   })
 })
 

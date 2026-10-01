@@ -43,7 +43,7 @@ request status, portal deployment) and now say so.
    collapse, the top bar's filters are ~630px) and `CaseChat`'s header is ~575px — the staff SPA
    has no phone layout at all, only the portals do. No dark theme exists in the staff SPA
    (`tokens.css` is light only). The CM's signing buttons are proved by test only (no seeded
-   case in EXPERT_SIGNING). Units 67 (role queues) and 68 (GM admin) are named, not specced.
+   case in EXPERT_SIGNING). Units 67 (role queues) and 68 (GM admin): specced and built 2026-10-02 — see items 21 and 22.
 9. ~~**Unit 66b — the expert opens the case's documents (D63).**~~ **Built 2026-09-30** (spec
    `66b`, branch `feature/unit-66-case-workspace`, no migration): see the Expert workflow row.
    Restart the backend to serve `GET /api/portal/expert/documents/{id}/url`.
@@ -293,6 +293,15 @@ references, so `--noEmit` typechecks nothing and exits 0.)
 | **Calendar** | COMPLETE (Unit 60) | `GhlCalendarClient` (calendars, free-slots incl. per-user, book, reschedule, cancel, notes CRUD, blocked time; `forContact` left with the portal's Meetings page, 2026-09-28), `SalesCalendarController`; the calendar **list** is mirrored at 47 | see `workflows.md` §6; free slots stay live by design (D48) |
 | **Multi-brand** | PARTIAL | `brand` table, `BrandSwitcher`, brand-scoped everything | one GHL location globally; `/brands` nav entry renders `PlaceholderPage`; Client Portal is single-brand by config |
 | **Deployment** | **OUT OF SCOPE HERE** | `docker-compose.yml`, `backend/Dockerfile`, `frontend/Dockerfile`, `.github/workflows/ci.yml` → EC2 | **DevOps owns deployment and edits it (D38, 2026-09-17)** — the portals' absence from compose and CI is not this repository's debt. CI still triggers on `main` only, so nothing since `dee45c6` has been through it: that is a fact to know, not a task here |
+21. **Unit 67 — act from the queues.** **Built 2026-10-02** (spec `67-role-queues.md`, no
+   migration): `queues/RowActions.tsx` (a native select of `actionsFor(card, role)` → `QuickActionDialog`
+   → `performAction`; the interceptor refreshes) on `InboxPage`, `MyDraftsPage` (expanded row) and
+   `ExpertAssignmentPage` (its hand-picked `actionFor` removed, so a waiting case offers Assign
+   expert); `reassign-expert` admits the CM client-side (the server and the picker already did,
+   Unit 73); `CaseDetail.team {pm, cm, coordinator}` (`CaseDetailService.Team`, one brand-filtered
+   `findAllById`) drawn as the header's team line. The board card stays button-free. Tests:
+   `boardRules.test.ts` (CM reassign without a fee), `CaseDetailServiceTeamTest`,
+   `CaseControllerTest`. **Not browser-checked.** Restart the backend for `team`.
 
 ## Known operational state (not code)
 
