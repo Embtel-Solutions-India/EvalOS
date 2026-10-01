@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
+import { useState } from 'react'
 import { fetchShortlist } from './expertApi'
 import { FIELD_TAGS, label, type FieldTag } from './expertRules'
 import {
@@ -42,22 +43,18 @@ export default function ShortlistPanel({
   onPick: (expertId: string) => void
 }) {
   const [fieldTag, setFieldTag] = useState<FieldTag | ''>('')
-  const [state, setState] = useState<State>({ status: 'idle' })
-
-  useEffect(() => {
-    if (!fieldTag) {
-      setState({ status: 'idle' })
-      return
-    }
-    const controller = new AbortController()
-    setState({ status: 'loading' })
-    fetchShortlist(caseId, fieldTag, controller.signal)
-      .then((view) => setState({ status: 'ready', view }))
-      .catch(() => {
-        if (!controller.signal.aborted) setState({ status: 'failed' })
-      })
-    return () => controller.abort()
-  }, [caseId, fieldTag])
+  const query = useQuery({
+    queryKey: ['case', caseId, 'shortlist', fieldTag],
+    queryFn: ({ signal }) => fetchShortlist(caseId, fieldTag as FieldTag, signal),
+    enabled: fieldTag !== '',
+  })
+  const state: State = !fieldTag
+    ? { status: 'idle' }
+    : query.data
+      ? { status: 'ready', view: query.data }
+      : query.isError
+        ? { status: 'failed' }
+        : { status: 'loading' }
 
   return (
     <section

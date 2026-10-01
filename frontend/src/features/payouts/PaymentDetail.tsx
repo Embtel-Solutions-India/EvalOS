@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { Link, useParams } from 'react-router-dom'
 import { formatPayout } from '../../lib/money'
 import { fetchPayment } from './payoutApi'
@@ -26,28 +26,16 @@ type LoadState =
 
 export default function PaymentDetail() {
   const { paymentId = '' } = useParams()
-  const [state, setState] = useState<LoadState>({ status: 'loading' })
-
-  const load = useCallback(
-    async (signal?: AbortSignal) => {
-      try {
-        setState({ status: 'ready', view: await fetchPayment(paymentId, signal) })
-      } catch (error: unknown) {
-        if (signal?.aborted) return
-        setState({
-          status: 'failed',
-          message: error instanceof Error ? error.message : 'Could not load this payment',
-        })
-      }
-    },
-    [paymentId],
-  )
-
-  useEffect(() => {
-    const controller = new AbortController()
-    void load(controller.signal)
-    return () => controller.abort()
-  }, [load])
+  // Unit 70a phase 2.
+  const query = useQuery({
+    queryKey: ['payouts', 'payment', paymentId],
+    queryFn: ({ signal }) => fetchPayment(paymentId, signal),
+  })
+  const state: LoadState = query.data
+    ? { status: 'ready', view: query.data }
+    : query.isError
+      ? { status: 'failed', message: query.error.message || 'Could not load this payment' }
+      : { status: 'loading' }
 
   if (state.status === 'loading') {
     return (

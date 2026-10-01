@@ -139,8 +139,19 @@ request status, portal deployment) and now say so.
    `DraftHistory` (its `reloadKey` removed), `BoardView` and the four board queues through
    `board/useBoard.ts`, `DraftQueuePage`, `PmNotesPage`, `CaseChecklist`, `ChecklistBoard`. Tests:
    `queryClient.test.ts`; staff 175. **Chrome-checked** (spec 70a §4): a PC's open board and bell
-   updated on tab return after a PM assigned them, no reload. **Phase 2 not started** (payouts,
-   experts, meetings, dashboards keep mount-only reads).
+   updated on tab return after a PM assigned them, no reload. **Phase 2 built 2026-10-02:**
+   `CASE_KEYS` gains `payouts` and `experts`, so a write and a live `case.changed` re-read them;
+   `PayoutsOverview`, `PayoutSummary`, `ExpertBalances`, `ExpertPayouts`, `PaymentDetail`,
+   `PayoutBatch`, `PayoutRegister`, `AvailabilityBoard`, `ExpertRoster`, `CaseHistory` on
+   `['payouts' | 'experts', …]`; `OfferFee` and `ShortlistPanel` on `['case', id, …]` (`OfferFee`'s
+   and `ExpertCard`'s `reloadKey` removed); `ExpertProfile` re-reads but copies onto the sheet only in
+   view mode, so a re-read never overwrites typing; **`useMetrics` is a query** (key `['metrics',
+   useId(), ...deps]`, signature unchanged), so every dashboard, the meetings diary and blocked time,
+   the opportunity boards, contacts and job runs re-read on tab focus — `metrics` is deliberately
+   not case-shaped (spec 70 §1.8: dashboards are focus-only); `PmDashboard` moved onto it. Left
+   mount-only: dialog pickers that load on open (`QuickActionDialog`, `DealActions`' calendars,
+   `BookingForm`'s slots), `DealNotes` (GHL-mirrored), `BrandSwitcher` (the brand list). Tests:
+   `queryClient.test.ts`, `live.test.ts`; staff 189. **Not browser-checked.**
 19. **Board look (2026-10-01).** Both boards (`StageColumn`, `CaseCard`, the opportunity board's
    `DealCard`) on the business's reference layout: outlined header bar in the stage's colour (icon,
    name, count; "+" for Sales → `/opportunities/new?stage=`, which `NewDealForm` now presets), no

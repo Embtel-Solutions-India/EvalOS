@@ -18,7 +18,8 @@ describe('refreshes', () => {
     expect(refreshes([{ type: 'notifications.changed' }], ['notifications', 'count'])).toBe(true)
     expect(refreshes([{ type: 'notifications.changed' }], ['board'])).toBe(false)
     expect(refreshes([{ type: 'reconnected' }], ['case', 'c9'])).toBe(true)
-    expect(refreshes([{ type: 'reconnected' }], ['experts'])).toBe(false) // not case-shaped
+    expect(refreshes([{ type: 'reconnected' }], ['metrics', 'gm'])).toBe(false) // dashboards are focus-only (spec 70 §1.8)
+    expect(refreshes([{ type: 'case.changed', caseId: 'c1' }], ['payouts', 'batch', null])).toBe(true)
   })
 })
 

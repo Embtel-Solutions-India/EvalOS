@@ -1,7 +1,7 @@
 # Unit 70a — The staff app reads through TanStack Query
 
 **Decided 2026-10-01 by the business (D68, amended).** **Status: phase 1 BUILT 2026-10-01; phase 2
-not started.** Spec 70 §4 builds on this unit instead of a hand-written reload hook.
+BUILT 2026-10-02 (§3).** Spec 70 §4 builds on this unit instead of a hand-written reload hook.
 
 ## 0. Before this unit
 
@@ -31,10 +31,20 @@ The bell; the case page (`CaseDetail` with its timeline, `DocumentList`, `Docume
 `DraftQueuePage`, `DeliveryQueuePage`, `MyDraftsPage`, `ExpertAssignmentPage`, `PmNotesPage`); the
 checklist (`CaseChecklist`, `ChecklistBoard`).
 
-## 3. Phase 2 (not started)
+## 3. Phase 2 (built 2026-10-02)
 
-Payouts, experts, meetings, dashboards and the remaining one-off fetches: the same pattern, a key
-per read and nothing else, since the interceptor already invalidates.
+Payouts, experts, meetings, dashboards: the same pattern, a key per read and nothing else, since
+the interceptor already invalidates.
+
+- `CASE_KEYS` gains **`payouts`** and **`experts`**: a payout row and an offer are case-owned
+  (spec 70 §2.1), so the payout screens, the roster and the availability board re-read on a write
+  and on a live `case.changed`. The offer fee and the shortlist sit under `['case', id, …]`.
+- **`useMetrics` is a query** under `['metrics', useId(), ...deps]`. Its signature is unchanged, so
+  every caller (the dashboards, the diary, blocked time, the opportunity boards, contacts, job runs)
+  re-reads on tab focus. `metrics` is **not** case-shaped: dashboards are focus-only (spec 70 §1.8).
+- **A form is never overwritten**: `ExpertProfile` copies a re-read onto the sheet only in view mode.
+- Left as they are: pickers loaded when a dialog opens, `DealNotes` (GHL-mirrored, spec 70 §1.8),
+  the GM's brand list.
 
 ## 4. Verified
 

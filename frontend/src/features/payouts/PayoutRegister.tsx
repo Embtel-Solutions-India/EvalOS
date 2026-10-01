@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
+import { useCallback, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 
 import { formatPayout } from '../../lib/money'
@@ -44,29 +45,21 @@ export default function PayoutRegister() {
     }),
     [params],
   )
-  const [state, setState] = useState<LoadState>({ status: 'loading' })
   const [exporting, setExporting] = useState(false)
   const [exportFailure, setExportFailure] = useState<string | null>(null)
   const [open, setOpen] = useState<{ row: RegisterRow; entries: LogEntry[] | null; failure: string | null } | null>(null)
 
-  const load = useCallback(
-    async (signal?: AbortSignal) => {
-      setState({ status: 'loading' })
-      try {
-        setState({ status: 'ready', rows: await fetchRegister(filter, activeBrandId, signal) })
-      } catch (error: unknown) {
-        if (signal?.aborted) return
-        setState({ status: 'failed', message: error instanceof Error ? error.message : 'Could not load the cases' })
-      }
-    },
-    [filter, activeBrandId],
-  )
-
-  useEffect(() => {
-    const controller = new AbortController()
-    void load(controller.signal)
-    return () => controller.abort()
-  }, [load])
+  // Unit 70a phase 2. A changed filter is a new key, so it shows the loading state rather than old rows.
+  const query = useQuery({
+    queryKey: ['payouts', 'register', filter, activeBrandId],
+    queryFn: ({ signal }) => fetchRegister(filter, activeBrandId, signal),
+  })
+  const load = () => query.refetch()
+  const state: LoadState = query.data
+    ? { status: 'ready', rows: query.data }
+    : query.isError
+      ? { status: 'failed', message: query.error.message || 'Could not load the cases' }
+      : { status: 'loading' }
 
   function setParam(key: keyof RegisterFilter, value: string) {
     const next = new URLSearchParams(params)

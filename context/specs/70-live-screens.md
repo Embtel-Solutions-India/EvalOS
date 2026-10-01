@@ -117,8 +117,8 @@ hand-written reload hook to wire into each component.
 - **Not while someone is typing:** query re-reads replace data under an open form. A dialog whose
   fields are seeded from a query copies them into local state when it opens (the pattern the
   quick-action dialog already follows), so a re-read never overwrites what somebody is typing.
-- Phase 2 of 70a (payouts, experts, meetings, dashboards) lands before this, or those screens
-  keep their mount-only reads.
+- Phase 2 of 70a (payouts, experts, meetings, dashboards) is built (2026-10-02): payouts and
+  experts are case-shaped and live; dashboards and meetings re-read on focus.
 
 ## 5. Portals
 

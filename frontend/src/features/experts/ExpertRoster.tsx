@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
+import { useCallback, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useMe } from '../../lib/authContext'
 import { useFilters } from '../shell/filtersContext'
@@ -49,7 +50,6 @@ export default function ExpertRoster() {
   const [tab, setTab] = useState<'roster' | 'availability' | 'import'>('roster')
   const [filters, setFilters] = useState<RosterFilters>(NO_FILTERS)
   const [page, setPage] = useState(0)
-  const [state, setState] = useState<LoadState>({ status: 'loading' })
   // Unit 63: `?new=1&fullName=…` opens the create form pre-filled — the hiring pipeline's
   // "Add to expert database". Read once; closing the sheet does not reopen it.
   const [search] = useSearchParams()
@@ -67,29 +67,17 @@ export default function ExpertRoster() {
 
   const mayWrite = me.role !== 'PROJECT_MANAGER'
 
-  const load = useCallback(
-    async (signal?: AbortSignal) => {
-      try {
-        setState({
-          status: 'ready',
-          page: await fetchRoster(activeBrandId, filters, page, PAGE_SIZE, signal),
-        })
-      } catch (error: unknown) {
-        if (signal?.aborted) return
-        setState({
-          status: 'failed',
-          message: error instanceof Error ? error.message : 'Could not load the roster',
-        })
-      }
-    },
-    [activeBrandId, filters, page],
-  )
-
-  useEffect(() => {
-    const controller = new AbortController()
-    void load(controller.signal)
-    return () => controller.abort()
-  }, [load])
+  // Unit 70a phase 2. A new page or filter is a new key, so it shows the loading state, not old rows.
+  const query = useQuery({
+    queryKey: ['experts', 'roster', activeBrandId, filters, page],
+    queryFn: ({ signal }) => fetchRoster(activeBrandId, filters, page, PAGE_SIZE, signal),
+  })
+  const load = () => query.refetch()
+  const state: LoadState = query.data
+    ? { status: 'ready', page: query.data }
+    : query.isError
+      ? { status: 'failed', message: query.error.message || 'Could not load the roster' }
+      : { status: 'loading' }
 
   // A filter change re-pages from the start: page 3 of an unfiltered roster is rarely page 3
   // of a filtered one, and an empty screen with rows behind it reads as "nothing matched".

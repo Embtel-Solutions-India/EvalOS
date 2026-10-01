@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
+import { useState } from 'react'
 import { Link } from 'react-router-dom'
 
 import { fetchCaseHistory, retakeCase } from './expertApi'
-import { WORK_STATUS_LABEL, type CaseHistoryRow } from './expertRules'
+import { WORK_STATUS_LABEL } from './expertRules'
 
 /**
  * Every case this expert was offered and where the work stands (Unit 63): accepted, submitted,
@@ -10,32 +11,22 @@ import { WORK_STATUS_LABEL, type CaseHistoryRow } from './expertRules'
  * (D62) by whoever may reassign — `mayRetake` is that gate, the server's is the real one.
  */
 export default function CaseHistory({ expertId, mayRetake }: { expertId: string; mayRetake: boolean }) {
-  const [rows, setRows] = useState<CaseHistoryRow[] | null>(null)
-  const [failure, setFailure] = useState<string | null>(null)
+  const [actionFailure, setFailure] = useState<string | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
 
-  const load = useCallback(
-    (signal?: AbortSignal) =>
-      fetchCaseHistory(expertId, signal)
-        .then(setRows)
-        .catch((error: unknown) => {
-          if (!signal?.aborted) setFailure(error instanceof Error ? error.message : 'Could not load the cases')
-        }),
-    [expertId],
-  )
-
-  useEffect(() => {
-    const controller = new AbortController()
-    void load(controller.signal)
-    return () => controller.abort()
-  }, [load])
+  const query = useQuery({
+    queryKey: ['experts', expertId, 'cases'],
+    queryFn: ({ signal }) => fetchCaseHistory(expertId, signal),
+  })
+  const rows = query.data ?? null
+  const failure = actionFailure ?? (query.isError && !rows ? query.error.message || 'Could not load the cases' : null)
 
   async function retake(caseId: string) {
     setBusy(caseId)
     setFailure(null)
     try {
+      // The POST's interceptor re-reads this list (Unit 70a).
       await retakeCase(caseId)
-      await load()
     } catch (error: unknown) {
       setFailure(error instanceof Error ? error.message : 'Could not offer the case again')
     } finally {
