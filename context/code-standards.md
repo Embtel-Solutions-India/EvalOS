@@ -87,6 +87,8 @@
   `(brand_id, team_id, assigned_to, stage)`, `(brand_id, deadline)`,
   `(brand_id, sla_status)`, `(brand_id, expert_id)`.
 - Avoid N+1: use fetch joins or entity graphs for known read paths.
+- **A JPQL bulk or native write to a `CaseOwned` table calls `CaseLive.touched(brandId, caseId)`
+  itself** (Unit 70): it bypasses the Hibernate listener, so without it no open screen refreshes.
 - Every schema change is a new Flyway migration under
   `backend/src/main/resources/db/migration`. Never edit an applied migration.
 - The audit table is append-only: its repository exposes save/find only — no

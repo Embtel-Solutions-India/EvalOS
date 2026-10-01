@@ -30,7 +30,7 @@ import jakarta.persistence.Version;
  */
 @Entity
 @Table(name = "expert_case_offer")
-public class ExpertCaseOffer extends ScopedEntity {
+public class ExpertCaseOffer extends ScopedEntity implements CaseOwned {
 
 	@Column(name = "case_id", nullable = false, updatable = false)
 	private UUID caseId;
@@ -181,5 +181,10 @@ public class ExpertCaseOffer extends ScopedEntity {
 
 	public Instant getFeeSetAt() {
 		return feeSetAt;
+	}
+
+	@Override
+	public UUID liveCaseId() {
+		return getCaseId();
 	}
 }

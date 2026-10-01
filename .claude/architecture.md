@@ -53,6 +53,15 @@ shared pacer forward, honouring a capped `Retry-After`, so every caller backs of
 | `GhlUserClient` | GHL users | — |
 | `GhlCustomFieldClient` | custom field definitions | — |
 
+**Ably (D50, D68)** relays, PostgreSQL is the record, and no browser token may publish. Two uses:
+chat (`ChatFanout`, each member's `chat:user:{KIND}:{id}`) and **screen refresh** (Unit 70,
+`chat/live/CaseLive`): a Hibernate listener (`CaseLiveHibernate`) sees every write of a `CaseOwned`
+row (case, document, checklist item, offer, payout row; a draft comment via its document), and after
+commit `CaseLive` publishes `case.changed {caseId}` — a signal, never data — to `live:brand:{brandId}`
+and to the case's client and experts' private channels; `NotificationService` publishes
+`notifications.changed` to the bell's owner. Screens re-read over their own scoped REST routes. JPQL
+bulk writes to those tables call `CaseLive.touched` themselves (`PayoutService`'s two).
+
 `DocumentStore` (S3): `put` and `presignedUrl` and nothing else. Unconfigured = every document
 route answers 502 naming both missing variables; the rest of the app boots.
 

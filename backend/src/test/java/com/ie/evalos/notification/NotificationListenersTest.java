@@ -55,7 +55,7 @@ class NotificationListenersTest {
 	private final NotificationRepository notifications = mock(NotificationRepository.class);
 
 	private final RecipientResolver resolver = new RecipientResolver(teamMembers);
-	private final NotificationService service = new NotificationService(notifications);
+	private final NotificationService service = new NotificationService(notifications, org.mockito.Mockito.mock(com.ie.evalos.chat.live.CaseLive.class));
 	private final NotificationListeners listeners = new NotificationListeners(cases, resolver, service);
 
 	private Case subject;

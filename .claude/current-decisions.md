@@ -517,7 +517,7 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
   data**, over Ably: `case.changed {caseId}` to a per-brand staff channel and to the case's client
   and experts, and `notifications.changed` to a bell's owner. Open screens re-read over REST in
   the background, and also on tab focus and on reconnect. GHL-mirrored screens and chat are out of
-  scope. **Specced as Unit 70** (`70-live-screens.md`), **not built**. **Amended 2026-10-01 (the
+  scope. **Built as Unit 70** (`70-live-screens.md`, 2026-10-01). **Amended 2026-10-01 (the
   business): the staff app reads through TanStack Query (Unit 70a, phase 1 built)** — any
   successful write refreshes every case-shaped screen, from one interceptor; screens re-read on tab
   focus; the bell count every 60 s. That covers the acting person's own screens now and other

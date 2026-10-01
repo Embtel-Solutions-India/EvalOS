@@ -429,4 +429,20 @@ describe('createChatClient', () => {
     expect(client.getState().messages.v1.map((m) => m.id)).toEqual(['m1', 'm2'])
     expect(messages.mock.calls[1]).toEqual(['v1', { after: '2026-09-27T10:00:01Z|m1' }])
   })
+
+  it('hands screen signals to onLive, never to the chat state, and says when it reconnected (Unit 70)', async () => {
+    const rt = fakeRealtime()
+    const client = createChatClient(fakeApi(), rt.realtime)
+    await client.start()
+    const seen: unknown[] = []
+    client.onLive((signal) => seen.push(signal))
+    const before = client.getState()
+
+    rt.handlers().onEvent({ type: 'case.changed', conversationId: null as never, data: { caseId: 'c1' } })
+    rt.handlers().onEvent({ type: 'notifications.changed', conversationId: null as never, data: {} })
+    rt.handlers().onReconnect()
+
+    expect(client.getState()).toBe(before)
+    expect(seen).toEqual([{ type: 'case.changed', caseId: 'c1' }, { type: 'notifications.changed' }, { type: 'reconnected' }])
+  })
 })

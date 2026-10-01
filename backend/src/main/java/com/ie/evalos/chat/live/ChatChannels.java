@@ -33,6 +33,11 @@ public final class ChatChannels {
 		return "chat:view:" + brandId + ":" + conversationId;
 	}
 
+	/** Unit 70: a staff brand's "something on case X changed" signal channel. Never data. */
+	public static String liveBrand(UUID brandId) {
+		return "live:brand:" + brandId;
+	}
+
 	public static String clientId(ChatIdentity who) {
 		return who.kind() + ":" + who.id();
 	}
@@ -45,6 +50,14 @@ public final class ChatChannels {
 		}
 		else if (who.staffRole() == Role.BRAND_MANAGER && who.brandId() != null) {
 			caps.put("chat:view:" + who.brandId() + ":*", List.of("subscribe"));
+		}
+		// Unit 70 §2.4: staff hear their brand's case signals (the GM every brand's). Portal tokens
+		// are unchanged — their case signals arrive on their own private channel.
+		if (who.staffRole() == Role.GM) {
+			caps.put("live:brand:*", List.of("subscribe"));
+		}
+		else if (who.staffRole() != null && who.brandId() != null) {
+			caps.put(liveBrand(who.brandId()), List.of("subscribe"));
 		}
 		try {
 			return JSON.writeValueAsString(caps);
