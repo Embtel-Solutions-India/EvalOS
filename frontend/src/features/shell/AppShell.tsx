@@ -3,6 +3,8 @@ import { Outlet, useNavigate } from 'react-router-dom'
 import { ChatProvider, ChatToast } from '@evalos/chat'
 import '@evalos/chat/chat.css'
 import { chatsFor, createStaffChat } from '../../lib/chat'
+import { attachLive } from '../../lib/live'
+import { queryClient } from '../../lib/queryClient'
 import { useMe } from '../../lib/authContext'
 import FiltersProvider from './filters'
 import LeftNav from './LeftNav'
@@ -65,6 +67,9 @@ function Chat({ children }: { children: ReactNode }) {
     navigator.serviceWorker.addEventListener('message', onMessage)
     return () => navigator.serviceWorker.removeEventListener('message', onMessage)
   }, [navigate])
+
+  // Unit 70: other people's writes reach this screen over the chat client's live connection.
+  useEffect(() => attachLive(client, queryClient), [client])
 
   if (!chatsFor(me.role)) return children
   return (

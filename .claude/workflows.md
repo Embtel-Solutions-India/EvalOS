@@ -277,10 +277,11 @@ Matches CURRENT: documents enter **only at the Case**, against a sent checklist 
 request-document upload, Sales' Request documents tab and the carry-forward at Handoff A were
 removed by Unit 64 (2026-09-29).
 
-**Differs from CURRENT in one way (D68, Unit 70, specced 2026-10-01, not built):** a committed
-document, checklist or draft change shows on every open screen of that case, staff and portal,
-without a reload: `case.changed` over Ably, then a background REST re-read. Today each screen
-loads once.
+**Matches CURRENT since Unit 70 (D68, built 2026-10-01):** a committed document, checklist or
+draft change shows on every open screen of that case, staff and portal, without a reload:
+`case.changed` over Ably, then a background REST re-read (staff `lib/live.ts`, portals
+`LiveInvalidate`). The GM's case screens refresh on focus and their own writes only (no wildcard
+subscribe).
 
 ---
 

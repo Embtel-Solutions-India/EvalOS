@@ -14,6 +14,7 @@ export function createChatClient(api: ChatApi, realtime: Realtime | null) {
   let state: ChatState = initialState
   const listeners = new Set<() => void>()
   const incoming = new Set<(message: Message) => void>()
+  const live = new Set<(signal: LiveSignal) => void>()
   const typingTimers = new Map<string, ReturnType<typeof setTimeout>>()
   const typingSent = new Map<string, number>()
   let inboxParams: InboxParams = {}
@@ -63,7 +64,11 @@ export function createChatClient(api: ChatApi, realtime: Realtime | null) {
     }
     const close = await realtime.start({
       onEvent,
-      onReconnect: () => void catchUp().catch(() => {}),
+      onReconnect: () => {
+        void catchUp().catch(() => {})
+        // Unit 70: the screens outside chat re-read what they may have missed while offline.
+        live.forEach((listener) => listener({ type: 'reconnected' }))
+      },
       onStatus: (status) => {
         if (gen === generation) dispatch({ type: 'realtime', status })
       },
@@ -79,6 +84,15 @@ export function createChatClient(api: ChatApi, realtime: Realtime | null) {
   }
 
   function onEvent(envelope: Envelope) {
+    // Unit 70: screen-refresh signals are not chat state, so they never reach the reducer.
+    if (envelope.type === 'case.changed' || envelope.type === 'notifications.changed') {
+      const signal: LiveSignal =
+        envelope.type === 'case.changed'
+          ? { type: 'case.changed', caseId: (envelope.data as { caseId: string }).caseId }
+          : { type: 'notifications.changed' }
+      live.forEach((listener) => listener(signal))
+      return
+    }
     dispatch({ type: 'event', envelope })
     switch (envelope.type) {
       case 'typing': {
@@ -287,6 +301,13 @@ export function createChatClient(api: ChatApi, realtime: Realtime | null) {
         incoming.delete(listener)
       }
     },
+    /** Unit 70: `case.changed`, `notifications.changed`, and `reconnected` after a gap. */
+    onLive(listener: (signal: LiveSignal) => void) {
+      live.add(listener)
+      return () => {
+        live.delete(listener)
+      }
+    },
     start,
     stop: () => {
       generation++
@@ -311,3 +332,6 @@ export function createChatClient(api: ChatApi, realtime: Realtime | null) {
 }
 
 export type ChatClient = ReturnType<typeof createChatClient>
+
+/** A screen-refresh signal (Unit 70): never data — the screen re-reads over its own REST route. */
+export type LiveSignal = { type: 'case.changed'; caseId: string } | { type: 'notifications.changed' } | { type: 'reconnected' }

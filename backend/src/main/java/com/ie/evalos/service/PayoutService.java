@@ -79,10 +79,14 @@ public class PayoutService {
 
 	private final ExpertCaseOfferRepository offers;
 
+	private final com.ie.evalos.chat.live.CaseLive live;
+
 	PayoutService(PayoutLedgerRepository payouts, PayoutPaymentRepository payments, ExpertRepository experts,
 			BrandRepository brands, CaseRepository cases, TeamMemberRepository teamMembers, AuditService audit,
 			com.ie.evalos.notification.NotificationService notifications,
-			com.ie.evalos.notification.RecipientResolver recipients, ExpertCaseOfferRepository offers) {
+			com.ie.evalos.notification.RecipientResolver recipients, ExpertCaseOfferRepository offers,
+			com.ie.evalos.chat.live.CaseLive live) {
+		this.live = live;
 		this.offers = offers;
 		this.notifications = notifications;
 		this.recipients = recipients;
@@ -250,6 +254,8 @@ public class PayoutService {
 				blankToNull(form.notes()), ctx.memberId()));
 
 		int attached = payouts.attachToPayment(payment.getId(), ids, brandId, ctx.memberId());
+		// A JPQL bulk update bypasses the Hibernate listener (Unit 70 §2.1): say which cases changed.
+		rows.forEach(row -> live.touched(row.getBrandId(), row.getCaseId()));
 		if (attached != rows.size()) {
 			// Rolls back the payment insert too, which is the point: a payment that settled
 			// fewer drafts than it claims is exactly the silent disagreement rule 7 exists
@@ -566,6 +572,7 @@ public class PayoutService {
 		payment.setConfirmedAt(Instant.now());
 		payments.save(payment);
 		int confirmed = payouts.confirmForPayment(paymentId);
+		payouts.findByPaymentId(paymentId).forEach(row -> live.touched(row.getBrandId(), row.getCaseId()));
 		audit.recordPortalEvent(brandId, com.ie.evalos.domain.PortalAudience.EXPERT, "PAYOUT_PAYMENT", paymentId,
 				AuditAction.UPDATED, Map.of("confirmed", false), Map.of("confirmed", true, "draftCount", confirmed));
 		notifications.create(brandId, List.of(payment.getRecordedBy()),

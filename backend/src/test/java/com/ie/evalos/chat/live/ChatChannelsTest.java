@@ -21,12 +21,24 @@ class ChatChannelsTest {
 	@Test
 	void aMemberMayOnlySubscribeToTheirOwnChannelAndNeverPublish() throws Exception {
 		UUID pm = UUID.randomUUID();
-		JsonNode caps = capability(new ChatIdentity(ParticipantKind.STAFF, pm, UUID.randomUUID(), Role.PROJECT_MANAGER));
+		UUID brand = UUID.randomUUID();
+		JsonNode caps = capability(new ChatIdentity(ParticipantKind.STAFF, pm, brand, Role.PROJECT_MANAGER));
 
-		assertThat(caps.size()).isEqualTo(1);
+		// Their own channel, plus (Unit 70) their brand's live signal channel — and nothing publishes.
+		assertThat(caps.fieldNames()).toIterable().containsExactly("chat:user:STAFF:" + pm, "live:brand:" + brand);
 		JsonNode own = caps.get("chat:user:STAFF:" + pm);
-		assertThat(own).isNotNull();
 		assertThat(own.toString()).contains("subscribe").contains("presence").doesNotContain("publish");
+		assertThat(caps.get("live:brand:" + brand).toString()).isEqualTo("[\"subscribe\"]");
+	}
+
+	/** Unit 70 §2.4: the GM hears every brand; a portal token is unchanged. */
+	@Test
+	void theGmHearsEveryBrandsLiveChannelAndPortalsHearNone() throws Exception {
+		JsonNode gm = capability(new ChatIdentity(ParticipantKind.STAFF, UUID.randomUUID(), null, Role.GM));
+		assertThat(gm.get("live:brand:*").toString()).isEqualTo("[\"subscribe\"]");
+
+		JsonNode client = capability(ChatIdentity.client(UUID.randomUUID(), UUID.randomUUID()));
+		assertThat(client.toString()).doesNotContain("live:");
 	}
 
 	@Test

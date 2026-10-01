@@ -22,7 +22,7 @@ import jakarta.persistence.Table;
  */
 @Entity
 @Table(name = "evalos_case")
-public class Case extends ScopedEntity {
+public class Case extends ScopedEntity implements CaseOwned {
 
 	@Column(name = "team_id")
 	private UUID teamId;
@@ -571,5 +571,10 @@ public class Case extends ScopedEntity {
 
 	public void setRfeDate(LocalDate rfeDate) {
 		this.rfeDate = rfeDate;
+	}
+
+	@Override
+	public UUID liveCaseId() {
+		return getId();
 	}
 }

@@ -1,7 +1,9 @@
 # Unit 70 — Screens that update themselves
 
-**Decided 2026-10-01 by the business (D68).** **Status: SPECCED, not built.** Depends on Ably
-working in production, which is itself unverified (see §8).
+**Decided 2026-10-01 by the business (D68).** **Status: BUILT 2026-10-01** (see
+`implementation-status.md` item 15). §8's cause was the Ably key lacking publish (40160); the GM's
+wildcard brand channel cannot be subscribed, so the GM refreshes on focus only (ponytail in
+`realtime.ts`); `CaseLiveHibernateTest` (Postgres) was not written.
 
 ## 0. Today, before this unit
 
