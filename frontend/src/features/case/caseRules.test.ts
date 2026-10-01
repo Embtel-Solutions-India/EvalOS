@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { QUICK_ACTIONS } from '../board/boardRules'
-import { endOfDayIso, mayManageChecklist, maySetDeadline, nextStep, splitActions, toDateInput } from './caseRules'
+import { endOfDayIso, expertEvidenceRequest, mayManageChecklist, maySetDeadline, nextStep, splitActions, toDateInput } from './caseRules'
 
 // `lib/session` (ROLE_LABELS) reads sessionStorage on import; vitest runs in node.
 vi.hoisted(() => {
@@ -51,5 +51,30 @@ describe('deadline dates', () => {
   it('round-trips through the date input', () => {
     expect(toDateInput(endOfDayIso('2026-10-04'))).toBe('2026-10-04')
     expect(toDateInput(null)).toBe('')
+  })
+})
+
+describe('staffing under More (2026-10-01)', () => {
+  it('puts both stage-preserving staffing patches under More, never as a button', () => {
+    const { primary, more } = splitActions([byPath('expert'), byPath('case-manager'), byPath('assign-cm')])
+    expect(primary.map((a) => a.path)).toEqual(['assign-cm'])
+    expect(more.map((a) => a.path)).toEqual(['expert', 'case-manager'])
+  })
+})
+
+describe('expertEvidenceRequest', () => {
+  const row = (actorName: string, exceptionState: string | null, note: string | null = null) => ({ actorName, exceptionState, note })
+  it('shows the expert request while that hold lasts', () => {
+    const trail = [row('Test PM', 'NONE'), row('The expert', 'ON_HOLD_AWAITING_CLIENT', 'Need the 2019 transcript'), row('Test PC', null, 'chased')]
+    expect(expertEvidenceRequest(trail, 'ON_HOLD_AWAITING_CLIENT')).toBe('Need the 2019 transcript')
+    expect(expertEvidenceRequest(trail, 'NONE')).toBeNull()
+  })
+  it('does not lend an old request to a later hold', () => {
+    const trail = [
+      row('The expert', 'ON_HOLD_AWAITING_CLIENT', 'Need the 2019 transcript'),
+      row('Test PC', 'NONE'),
+      row('Test PC', 'ON_HOLD_AWAITING_CLIENT', 'client travelling'),
+    ]
+    expect(expertEvidenceRequest(trail, 'ON_HOLD_AWAITING_CLIENT')).toBeNull()
   })
 })

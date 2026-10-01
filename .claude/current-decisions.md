@@ -102,7 +102,11 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
   **Expert**. The CM drafts and uploads; the client sees and approves it in the portal; only then
   does it reach the expert, who downloads, signs and uploads it back. `CaseLifecycleService` and
   `CaseTransitions` already do exactly this — it is recorded here because it is a stated business
-  rule now, not an implementation detail that happened to be convenient.
+  rule now, not an implementation detail that happened to be convenient. **Staffing is also
+  stage-preserving (2026-10-01):** from the case's More menu the PM sets or changes the CM at any
+  stage, and the PM / ENM sets or changes the expert at any stage before `EXPERT_SIGNING`
+  (`PATCH …/expert`: supersedes the open offer, revokes the old link, opens a new offer). Moving
+  PM Review → Drafting is still `assign-cm`, whose dialog starts with whoever is already on the case.
 
 ## GHL relationship
 

@@ -78,6 +78,8 @@ export type BoardCard = {
   assignedPm: string | null
   assignedCm: string | null
   assignedCoordinator: string | null
+  /** On the case page's summary; the board endpoint leaves it out. */
+  expertId?: string | null
   expertSignStatus: 'PENDING' | 'SIGNED' | 'OVERDUE' | 'REASSIGNED' | null
   pmApprovalStatus: 'PENDING' | 'APPROVED' | 'RETURNED' | null
   clientApprovalStatus: 'PENDING' | 'APPROVED' | 'REVISION_REQUESTED' | null
@@ -354,7 +356,9 @@ export type QuickAction = {
   /** `patch` for the stage-preserving routes that are not transitions. Absent is `post`. */
   method?: 'patch'
   /** The slot this action fills: once the card names someone there, "Assign" reads "Change". */
-  fills?: 'assignedCoordinator' | 'assignedCm'
+  fills?: 'assignedCoordinator' | 'assignedCm' | 'expertId'
+  /** Where `CaseTransitions` sends the case. Set only on stage moves: it is what a board drop looks up. */
+  to?: Stage
 }
 
 /**
@@ -375,6 +379,7 @@ export const QUICK_ACTIONS: readonly QuickAction[] = [
   // Stage-specific.
   {
     path: 'docs-complete',
+    to: 'PM_REVIEW',
     label: 'Docs complete',
     // The Brand Manager is here because the checklist screen gives them every other write on
     // this stage; see the gate on CaseController.docsComplete, which this list must match.
@@ -383,6 +388,7 @@ export const QUICK_ACTIONS: readonly QuickAction[] = [
   },
   {
     path: 'assign-cm',
+    to: 'DRAFT_IN_PROGRESS',
     label: 'Assign CM + expert',
     roles: ['PROJECT_MANAGER'],
     stages: ['PM_REVIEW'],
@@ -408,6 +414,7 @@ export const QUICK_ACTIONS: readonly QuickAction[] = [
   // drop `GM_OR` in `CaseController` to match, and `/drafts` is PM-only in the nav.
   {
     path: 'draft/pm-approve',
+    to: 'READY_TO_SEND',
     label: 'PM approve',
     roles: ['PROJECT_MANAGER'],
     gm: 'never',
@@ -415,6 +422,7 @@ export const QUICK_ACTIONS: readonly QuickAction[] = [
   },
   {
     path: 'draft/pm-return',
+    to: 'DRAFT_IN_PROGRESS',
     label: 'PM return',
     roles: ['PROJECT_MANAGER'],
     gm: 'never',
@@ -423,18 +431,21 @@ export const QUICK_ACTIONS: readonly QuickAction[] = [
   },
   {
     path: 'draft/send-to-client',
+    to: 'CLIENT_REVIEW',
     label: 'Send to client',
     roles: ['PROJECT_COORDINATOR'],
     stages: ['READY_TO_SEND'],
   },
   {
     path: 'draft/client-approve',
+    to: 'CLIENT_APPROVAL',
     label: 'Client approved',
     roles: ['PROJECT_COORDINATOR'],
     stages: ['CLIENT_REVIEW'],
   },
   {
     path: 'draft/client-revisions',
+    to: 'DRAFT_IN_PROGRESS',
     label: 'Client revisions',
     roles: ['PROJECT_COORDINATOR'],
     stages: ['CLIENT_REVIEW'],
@@ -444,6 +455,7 @@ export const QUICK_ACTIONS: readonly QuickAction[] = [
   // `reassign-expert` below: its picker reads GET /api/experts, which the CM may not.
   {
     path: 'expert/signed',
+    to: 'FINAL_QC',
     label: 'Expert signed',
     roles: ['PROJECT_MANAGER', 'EXPERT_NETWORK_MANAGER', 'CASE_MANAGER'],
     stages: ['EXPERT_SIGNING'],
@@ -459,6 +471,7 @@ export const QUICK_ACTIONS: readonly QuickAction[] = [
   // entered signing on the client's approval and nobody sent anything.
   {
     path: 'send-to-expert',
+    to: 'EXPERT_SIGNING',
     label: 'Send to expert',
     roles: ['PROJECT_MANAGER', 'CASE_MANAGER'],
     stages: ['CLIENT_APPROVAL'],
@@ -466,6 +479,7 @@ export const QUICK_ACTIONS: readonly QuickAction[] = [
   // The counterpart `qc-approve` never had. A failed QC used to have nowhere to go.
   {
     path: 'qc-fail',
+    to: 'DRAFT_IN_PROGRESS',
     label: 'Return for correction',
     roles: ['PROJECT_MANAGER'],
     stages: ['FINAL_QC'],
@@ -473,18 +487,21 @@ export const QUICK_ACTIONS: readonly QuickAction[] = [
   },
   {
     path: 'qc-approve',
+    to: 'READY_TO_DELIVER',
     label: 'QC approve',
     roles: ['PROJECT_MANAGER'],
     stages: ['FINAL_QC'],
   },
   {
     path: 'deliver',
+    to: 'DELIVERED',
     label: 'Deliver',
     roles: ['PROJECT_COORDINATOR'],
     stages: ['READY_TO_DELIVER'],
   },
   {
     path: 'close',
+    to: 'CLOSED',
     label: 'Close',
     roles: ['PROJECT_COORDINATOR'],
     stages: ['DELIVERED'],
@@ -523,6 +540,23 @@ export const QUICK_ACTIONS: readonly QuickAction[] = [
     stages: null,
     fields: [{ name: 'cmId', label: 'Case manager', kind: 'member', memberRole: 'CASE_MANAGER' }],
     fills: 'assignedCm',
+  },
+  // 2026-10-01: the expert's twin of `case-manager` — `CaseController.changeExpert` keeps the stage,
+  // supersedes the open offer and opens a new one. Only before signing (`EXPERT_CHANGEABLE`); from
+  // there a change goes through declined / overdue and Reassign expert.
+  {
+    path: 'expert',
+    method: 'patch',
+    label: 'Assign expert',
+    roles: ['PROJECT_MANAGER', 'EXPERT_NETWORK_MANAGER'],
+    stages: ['DOC_COLLECTION', 'PM_REVIEW', 'DRAFT_IN_PROGRESS', 'DRAFT_REVIEW', 'READY_TO_SEND', 'CLIENT_REVIEW', 'CLIENT_APPROVAL'],
+    fields: [
+      { name: 'expertId', label: 'Expert', kind: 'expert' },
+      { name: 'expertRationale', label: 'Why this expert (optional)', kind: 'text' },
+      { name: 'fee', label: "Fee (optional — blank uses the expert's standard fee)", kind: 'amount' },
+      { name: 'expertNote', label: 'Note for the expert (they see this with the offer)', kind: 'note' },
+    ],
+    fills: 'expertId',
   },
   {
     path: 'hold',
@@ -628,6 +662,26 @@ export function actionsFor(card: BoardCard, role: Role): readonly QuickAction[] 
   }).map((action) =>
     action.fills && card[action.fills] ? { ...action, label: action.label.replace('Assign', 'Change') } : action,
   )
+}
+
+/**
+ * What a dialog starts filled with. Only `assign-cm`: a PM who already put a CM or an expert on the
+ * case from More should not have to pick them again to move it into Drafting.
+ */
+export function prefill(card: BoardCard, action: QuickAction): Record<string, string> {
+  if (action.path !== 'assign-cm') return {}
+  return { ...(card.assignedCm && { cmId: card.assignedCm }), ...(card.expertId && { expertId: card.expertId }) }
+}
+
+/**
+ * The action a drop of this card on a column performs, or null when no single action of this
+ * role's takes it there. One action at most: no stage has two transitions into the same column.
+ * Spec 22's objection to dragging was that most moves need a field — the board answers that by
+ * opening the action's dialog on the drop, so the drop only ever picks *which* action.
+ */
+export function dropActionFor(card: BoardCard, role: Role, stages: readonly Stage[]): QuickAction | null {
+  if (stages.includes(card.currentStage)) return null
+  return actionsFor(card, role).find((action) => action.to && stages.includes(action.to)) ?? null
 }
 
 /**

@@ -278,6 +278,8 @@ public class CaseLifecycleService {
 		Expert expert = availableExpert(expertId);
 		// Priced before anything moves (Unit 65): a refused price must leave the case where it was.
 		BigDecimal price = OfferFees.price(TenantContext.current().role(), fee, expert.getStandardFee());
+		// An expert set earlier through `changeExpert` has an open offer; staffing replaces it.
+		resolveOpenOffer(subject, OfferOutcome.SUPERSEDED, null, null);
 
 		Case saved = apply(subject, to, Action.ASSIGN_CASE_MANAGER, "Case manager: " + cm.getDisplayName(), c -> {
 			c.setAssignedCm(cm.getId());
@@ -293,6 +295,52 @@ public class CaseLifecycleService {
 				c.setFieldOfExpertise(fieldOfExpertise);
 			}
 		});
+		openOffer(saved, expert.getId(), price, note);
+		return saved;
+	}
+
+	/**
+	 * Stages where the expert may be set or changed without moving the case (2026-10-01): every
+	 * stage before the letter goes out for signature. From {@code EXPERT_SIGNING} on, the expert
+	 * holds a live link and a running sign clock, so a change goes through decline / timed-out and
+	 * {@link #reassignExpert}, which is what restarts that clock.
+	 */
+	private static final java.util.Set<Stage> EXPERT_CHANGEABLE = java.util.EnumSet.of(Stage.DOC_COLLECTION,
+			Stage.PM_REVIEW, Stage.DRAFT_IN_PROGRESS, Stage.DRAFT_REVIEW, Stage.READY_TO_SEND, Stage.CLIENT_REVIEW,
+			Stage.CLIENT_APPROVAL);
+
+	/**
+	 * Sets or changes the case's expert without moving the case — the expert's twin of
+	 * {@link #reassignCaseManager}. Any open offer is superseded and the outgoing expert's link
+	 * revoked before the new offer opens, so exactly one offer is ever {@code OFFERED}.
+	 */
+	@Transactional
+	public Case changeExpert(UUID caseId, UUID expertId, String expertRationale, FieldTag fieldOfExpertise,
+			BigDecimal fee, String expertNote) {
+		String note = requireExpertNote(expertNote);
+		Case subject = load(caseId);
+		requireState(subject.getExceptionState() == ExceptionState.NONE,
+				"a held case's expert is changed through its own way out");
+		requireState(EXPERT_CHANGEABLE.contains(subject.getCurrentStage()),
+				"from expert signing on, mark the expert declined or overdue, then reassign");
+		Expert expert = availableExpert(expertId);
+		requireState(!expert.getId().equals(subject.getExpertId()), "that expert already holds this case");
+		BigDecimal price = OfferFees.price(TenantContext.current().role(), fee, expert.getStandardFee());
+
+		CaseSnapshot before = CaseSnapshot.of(subject);
+		resolveOpenOffer(subject, OfferOutcome.SUPERSEDED, null, null);
+		revokeExpertLink(subject);
+		subject.setExpertId(expert.getId());
+		subject.setExpertSignStatus(ExpertSignStatus.PENDING);
+		if (expertRationale != null && !expertRationale.isBlank()) {
+			subject.setExpertSelectionRationale(expertRationale);
+		}
+		if (fieldOfExpertise != null) {
+			subject.setFieldOfExpertise(fieldOfExpertise);
+		}
+		Case saved = cases.save(subject);
+		audit.recordEvent(OBJECT_TYPE, saved.getId(), AuditAction.ASSIGNED, TenantContext.current().memberId(),
+				before, CaseSnapshot.of(saved, "Expert: " + expert.getFullName()));
 		openOffer(saved, expert.getId(), price, note);
 		return saved;
 	}

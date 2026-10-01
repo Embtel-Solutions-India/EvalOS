@@ -70,6 +70,8 @@ export type ChecklistCard = {
   deadline: string | null
   slaStatus: SlaStatus | null
   exceptionState: string
+  /** Past DOC_COLLECTION only while the case is held for the client (an expert's request, 2026-10-01). */
+  currentStage: string
   stageEnteredAt: string | null
   assignedCoordinator: string | null
   paid: boolean

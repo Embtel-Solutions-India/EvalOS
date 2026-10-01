@@ -10,6 +10,7 @@ import com.ie.evalos.domain.ChecklistItemStatus;
 import com.ie.evalos.domain.DocumentChecklistItem;
 import com.ie.evalos.domain.ExceptionState;
 import com.ie.evalos.domain.ServiceType;
+import com.ie.evalos.domain.Stage;
 import com.ie.evalos.domain.SlaStatus;
 import com.ie.evalos.service.ChecklistService;
 
@@ -127,6 +128,8 @@ public class ChecklistController {
 			Instant deadline,
 			SlaStatus slaStatus,
 			ExceptionState exceptionState,
+			/** Past DOC_COLLECTION only when held for the client — the board labels that case. */
+			Stage currentStage,
 			Instant stageEnteredAt,
 			UUID assignedCoordinator,
 			boolean paid,
@@ -139,7 +142,7 @@ public class ChecklistController {
 			Case subject = row.subject();
 			return new ChecklistCard(subject.getId(), subject.getCaseCode(), row.clientName(),
 					subject.getServiceType(), subject.getDeadline(), subject.getSlaStatus(),
-					subject.getExceptionState(), subject.getStageEnteredAt(), subject.getAssignedCoordinator(),
+					subject.getExceptionState(), subject.getCurrentStage(), subject.getStageEnteredAt(), subject.getAssignedCoordinator(),
 					subject.isPaid(), row.total(), row.complete(), row.satisfied(), row.lastChasedAt());
 		}
 	}

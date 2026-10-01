@@ -1,7 +1,6 @@
 import type { ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { CheckCheck, CircleDashed, PauseCircle, Plus, RotateCcw, XCircle } from 'lucide-react'
-import type { SlaMix } from './boardRules'
 
 /**
  * One column or lane. Always rendered, even empty — a column that disappears when it has
@@ -11,27 +10,13 @@ import type { SlaMix } from './boardRules'
  * stage's icon, name and count in it, and every card in the column tinted with it (`--stage`), so
  * the strip reads as distinct stages at a glance.
  *
- * **The SLA rail is still the board's one instrument.** Under each header runs a bar split by its
- * cases' SLA mix, so the five columns side by side read as a single line: scan
- * it once and you know not just how much work is in the pipeline but where the risk has
- * collected. RAG is load-bearing in this product (`ui-context.md`), and a count alone cannot
- * say that a quiet column is the one about to breach.
- *
  * The stage number is drawn because the stages really are a sequence and the reader needs to
  * know which end of it they are looking at. Lanes get no number: an exception is not a step.
  */
 
-const BANDS: readonly { key: keyof SlaMix; color: string; label: string }[] = [
-  { key: 'overdue', color: 'var(--status-red)', label: 'overdue' },
-  { key: 'atRisk', color: 'var(--status-amber)', label: 'at risk' },
-  { key: 'onTrack', color: 'var(--status-green)', label: 'on track' },
-  { key: 'unknown', color: 'var(--rail-unknown)', label: 'no clock running' },
-]
-
 export default function StageColumn({
   label,
   count,
-  mix,
   step,
   readOnly = false,
   tone = 'stage',
@@ -43,8 +28,6 @@ export default function StageColumn({
 }: {
   label: string
   count: number
-  /** Omitted by the opportunity board: a deal has no stage SLA, so it gets no rail. */
-  mix?: SlaMix
   /** Position in the whole pipeline. Omitted for exception lanes, which are not steps. */
   step?: number
   /** This role watches the stage rather than working it — labelled, so the missing
@@ -100,13 +83,10 @@ export default function StageColumn({
         </span>
       </header>
 
-      {/* The SLA mix stays: RAG is load-bearing here (`ui-context.md`), and a count alone cannot say
-          that a quiet column is the one about to breach. */}
-      {mix && <SlaRail mix={mix} count={count} label={label} />}
       {subtitle}
 
-      {/* The column's own scroller. Bounded by `--board-column-max` so the header and the SLA
-          rail stay pinned while the cards move under them — with the strip scrolling sideways,
+      {/* The column's own scroller. Bounded by `--board-column-max` so the header stays
+          pinned while the cards move under them — with the strip scrolling sideways,
           that is the board's second axis. */}
       <div
         className="scroll-slim flex min-h-16 flex-col gap-2.5 overflow-y-auto"
@@ -135,27 +115,4 @@ function iconFor(label: string, tone: 'stage' | 'lane') {
   if (name === 'lost' || name === 'disqualified' || name === 'dropped') return XCircle
   if (name.startsWith('refund')) return RotateCcw
   return CircleDashed
-}
-
-/**
- * The column's cases as one thin bar, red-first so the eye lands on the worst band without
- * hunting. Empty columns keep a hairline so the rail stays continuous across the board.
- */
-function SlaRail({ mix, count, label }: { mix: SlaMix; count: number; label: string }) {
-  const summary = BANDS.filter((band) => mix[band.key] > 0)
-    .map((band) => `${mix[band.key]} ${band.label}`)
-    .join(', ')
-
-  return (
-    <div
-      className="mx-1 flex h-[3px] overflow-hidden"
-      style={{ background: 'var(--rail-unknown)', borderRadius: '999px' }}
-      role="img"
-      aria-label={count === 0 ? `${label}: no cases` : `${label}: ${summary}`}
-    >
-      {BANDS.map((band) => (
-        <span key={band.key} style={{ flexGrow: mix[band.key], background: band.color }} />
-      ))}
-    </div>
-  )
 }

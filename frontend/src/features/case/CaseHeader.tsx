@@ -6,7 +6,7 @@ import type { CaseDetail, TimelineEntry } from './caseApi'
 import ProgressStrip from './ProgressStrip'
 import DeadlineDialog from './DeadlineDialog'
 import UploadDraftDialog from './UploadDraftDialog'
-import { maySetDeadline, nextStep, splitActions } from './caseRules'
+import { expertEvidenceRequest, maySetDeadline, nextStep, splitActions } from './caseRules'
 import { mayUploadDraft } from './draftRules'
 
 /**
@@ -59,6 +59,7 @@ export default function CaseHeader({
   const inException = card.exceptionState !== 'NONE'
   const next = nextStep(card.currentStage, card.exceptionState, role)
   const upload = mayUploadDraft(card.currentStage, role)
+  const evidence = expertEvidenceRequest(timeline, card.exceptionState)
   const [moreOpen, setMoreOpen] = useState(false)
   const due =
     card.deadline ?
@@ -221,6 +222,24 @@ export default function CaseHeader({
       </div>
 
       <ProgressStrip entries={timeline} current={card.currentStage} slaLabel={sla?.label ?? null} />
+
+      {/* Everyone on the case sees why signing stopped, not only the Coordinators who were told. */}
+      {evidence !== null && (
+        <div
+          role="status"
+          className="mt-3 rounded-lg border px-3 py-2 text-sm"
+          style={{ background: 'var(--status-amber-bg)', borderColor: 'var(--status-amber)' }}
+        >
+          <p className="font-semibold" style={{ color: 'var(--status-amber)' }}>
+            The expert asked for more evidence before signing
+          </p>
+          {evidence && <p className="mt-0.5 whitespace-pre-wrap">{evidence}</p>}
+          <p className="mt-1 text-xs" style={{ color: 'var(--text-muted)' }}>
+            It is on this case's document checklist. The Coordinator asks the client from Doc checklists and
+            presses Resume once it is in; the expert can sign again after that.
+          </p>
+        </div>
+      )}
 
       {/* A refused transition explains itself here rather than vanishing. */}
       {error && (

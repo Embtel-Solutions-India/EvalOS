@@ -7,11 +7,10 @@ import { formatMoney } from '../../lib/money'
 /**
  * One case as a card: client, service, deadline with its RAG badge, and who holds it.
  *
- * **It does not act.** The card is six pieces of data and a link, and the transitions live on
- * the case itself (`CaseHeader`, off `boardRules.actionsFor` — the same table) plus the draft
- * and delivery queues. Quick actions on the card were tried twice, in flow and then as a hover
- * overlay, and both spent the board's scarcest resource — vertical room and a still layout — on
- * controls that are one click away on a screen with space for them.
+ * **It carries no buttons.** Transitions live on the case itself (`CaseHeader`, off
+ * `boardRules.actionsFor`) and on the board as a drag (`BoardView`, 2026-10-01): `draggable` is set
+ * only when this role has a stage move from here. Buttons on the card were tried twice and spent
+ * the board's scarcest resource — vertical room and a still layout.
  *
  * Overdue cards are tinted with the `*-bg` status token rather than shouted at with a
  * heavier border — the badge already carries the state, and a board where three columns
@@ -51,10 +50,13 @@ function draftChip(card: BoardCard): string | null {
 export default function CaseCard({
   card,
   mine,
+  draggable = false,
 }: {
   card: BoardCard
   /** The viewer holds this case in one of its three slots. */
   mine: boolean
+  /** This role has a stage move from here, so the board lets the card be dragged. */
+  draggable?: boolean
 }) {
   const sla = card.slaStatus ? SLA_TOKEN[card.slaStatus] : null
   const draft = draftChip(card)
@@ -79,7 +81,9 @@ export default function CaseCard({
   // date and the SLA. The SLA is bars plus its word, so red/amber/green is never colour alone.
   return (
     <article
-      className="relative p-3 transition-shadow hover:shadow-(--shadow-pop)"
+      data-case={card.id}
+      draggable={draggable}
+      className={`relative p-3 transition-shadow hover:shadow-(--shadow-pop) ${draggable ? 'cursor-grab active:cursor-grabbing' : ''}`}
       style={{
         borderRadius: 'var(--radius-xl)',
         background:
@@ -88,8 +92,10 @@ export default function CaseCard({
     >
       {/* The stretched link. Everything drawn over it is `pointer-events-none`, so the click
           lands here wherever on the card it falls. */}
+      {/* Not draggable itself, so a drag picks up the card rather than the link's URL. */}
       <Link
         to={`/cases/${card.id}`}
+        draggable={false}
         aria-label={`Open ${card.caseCode}${card.clientName ? ` — ${card.clientName}` : ''}`}
         className="absolute inset-0 rounded-[inherit] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
       />

@@ -114,7 +114,7 @@ export function awaitingExpert(data: BoardData): BoardCard[] {
  * **The 24h threshold is `SlaCalculator`'s `EXPERT_SIGN` budget, not a number restated here.**
  * The brief's "responses overdue >24h" *is* that budget, so `slaStatus === 'OVERDUE'` on this
  * stage answers it exactly — measured on the same `BusinessCalendar` every other SLA runs on.
- * Re-deriving it client-side from a timestamp would give the board and the SLA rail two clocks
+ * Re-deriving it client-side from a timestamp would give the board and the SLA chip two clocks
  * that disagree over a weekend.
  *
  * `expertSignStatus` is checked as well so a case whose expert has already signed cannot appear

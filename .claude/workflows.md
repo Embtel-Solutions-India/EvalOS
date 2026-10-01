@@ -206,6 +206,15 @@ decides which version is in client review (latest `PM_APPROVED` while the client
 `PENDING`), which the client may see (that one, plus approved and sent-back versions) and owns the
 comment threads.
 
+**Expert evidence request (Unit 15; reach widened 2026-10-01).** In `EXPERT_SIGNING` the expert asks
+from their portal → a REQUIRED, unsent checklist item + `ON_HOLD_AWAITING_CLIENT` + audit note (the
+request text) → `EXPERT_EVIDENCE_REQUESTED` notifies the brand's Coordinators **and the case's CM and
+PM**. The case stays on the Coordinator's **Doc checklists** board for the whole hold (labelled
+"Expert asked for more evidence"), not only while the item is unsent; the Coordinator sends the item
+and may **chase** — the chase is allowed in `DOC_COLLECTION` or while held for the client. The case
+page shows the request to everyone on the case (`caseRules.expertEvidenceRequest`) until **Resume**
+(Coordinator / PM); then the expert can sign.
+
 Four sweeps run over this: `DOC_CHASE`, `DOC_ESCALATION`, `EXPERT_SIGN`, `STAGE_SLA`.
 
 ### TARGET WORKFLOW
@@ -216,8 +225,12 @@ PM assigns the **Project Coordinator**, the **Case Manager** and the **Expert**
 (`POST /api/cases/{id}/assign-coordinator`, `…/assign-cm` — which names the CM and the expert in
 one transaction and writes the expert offer). **Since 2026-10-01 the PM may also put a CM on the
 case at any stage** from the case's More menu ("Assign / Change case manager",
-`PATCH …/case-manager`, stage-preserving, no offer); once a slot is filled its action reads
-"Change …". The PC and the CM are each notified when they are put on a case (`CASE_ASSIGNED`), and
+`PATCH …/case-manager`, stage-preserving, no offer), **and the PM / ENM may set or change the
+expert before signing** ("Assign / Change expert", `PATCH …/expert` → `changeExpert`: open offer
+SUPERSEDED, old expert link revoked, new offer; refused from `EXPERT_SIGNING` on, where decline /
+timed-out → reassign applies). Neither moves the stage: **PM Review → Drafting is still
+`assign-cm`**, whose dialog is pre-filled with the CM and expert already set (`prefill`), and which
+supersedes any offer `changeExpert` opened. Once a slot is filled its action reads "Change …". The PC and the CM are each notified when they are put on a case (`CASE_ASSIGNED`), and
 the timeline row names who was assigned. The **CM drafts and uploads**; the **client sees and
 approves** it in the portal (`CLIENT_REVIEW` → `CLIENT_APPROVAL`); **only then** does it reach the
 **expert**, who downloads, signs and uploads it back (`EXPERT_SIGNING`, Handoff B).
