@@ -25,6 +25,7 @@ import {
   type FieldTag,
   type LetterType,
   type VisaCategory,
+  portalLabel,
 } from './expertRules'
 
 /**
@@ -420,6 +421,7 @@ export default function ExpertProfile({
                   <Fact term="Open cases" value={String(expert.activeLoad)} numeric />
                   <Fact term="Completed" value={String(expert.completedCases)} numeric />
                   <Fact term="Payout pending" value={money(expert.pendingTotal)} numeric />
+                  <Fact term="Portal account" value={portalLabel(expert.portal)} />
                   <Fact
                     term="Avg response"
                     value={profile?.avgResponseHours == null ? '—' : `${profile.avgResponseHours} h`}

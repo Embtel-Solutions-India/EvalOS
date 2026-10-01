@@ -82,7 +82,8 @@ class ExpertImportServiceTest {
 	private final Validator validator = Validation.buildDefaultValidatorFactory().getValidator();
 
 	private final ExpertService expertService =
-			new ExpertService(experts, brands, loads, payouts, ownership, audit, offers);
+			new ExpertService(experts, brands, loads, payouts, ownership, audit, offers,
+					org.mockito.Mockito.mock(com.ie.evalos.repository.ExpertAccountRepository.class));
 
 	private final ExpertImportService imports =
 			new ExpertImportService(experts, expertService, ownership, audit, validator);

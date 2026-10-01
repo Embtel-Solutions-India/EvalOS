@@ -18,6 +18,7 @@ import {
   type RosterFilters,
   type RosterPage,
   type RosterRow,
+  portalLabel,
 } from './expertRules'
 
 /**
@@ -237,6 +238,7 @@ export default function ExpertRoster() {
                       <Th numeric>Load</Th>
                       <Th numeric>Fee</Th>
                       <Th>Payment</Th>
+                      <Th>Portal</Th>
                     </tr>
                   </thead>
                   <tbody>
@@ -386,6 +388,13 @@ function Row({ expert, onOpen }: { expert: RosterRow; onOpen: () => void }) {
       <td className="px-3 py-2 text-xs" style={{ color: 'var(--text-muted)' }}>
         {/* Whether one is on file, which is all an ENM needs and all the API will ever say. */}
         {expert.paymentDetailOnFile ? 'On file' : '—'}
+      </td>
+      <td
+        className="px-3 py-2 text-xs"
+        style={{ color: expert.portal.status === 'ACTIVE' ? 'var(--status-green)' : 'var(--text-muted)' }}
+      >
+        {/* Whether they can sign in yet: staff are asked "did they set up their account?" */}
+        {portalLabel({ ...expert.portal, lastSignInAt: null })}
       </td>
     </tr>
   )

@@ -18,6 +18,7 @@ import com.ie.evalos.domain.AffiliationType;
 import com.ie.evalos.domain.AuditAction;
 import com.ie.evalos.domain.Availability;
 import com.ie.evalos.domain.Expert;
+import com.ie.evalos.domain.ExpertAccount;
 import com.ie.evalos.domain.ExpertTier;
 import com.ie.evalos.domain.FieldTag;
 import com.ie.evalos.domain.LetterType;
@@ -26,6 +27,7 @@ import com.ie.evalos.domain.VisaCategory;
 import com.ie.evalos.repository.BrandRepository;
 import com.ie.evalos.repository.ExpertCaseOfferRepository;
 import com.ie.evalos.repository.ExpertRepository;
+import com.ie.evalos.repository.ExpertAccountRepository;
 import com.ie.evalos.security.TenantContext;
 import com.ie.evalos.service.ExpertLoadService.Load;
 
@@ -127,7 +129,23 @@ public class ExpertService {
 	 * owed — derived from the payout ledger, never {@code expert.total_payments_pending},
 	 * which nothing has ever written (Unit 16).
 	 */
-	public record RosterEntry(Expert expert, Load load, BigDecimal pendingTotal) {
+	public record RosterEntry(Expert expert, Load load, BigDecimal pendingTotal, PortalAccount portal) {
+	}
+
+	/**
+	 * Whether the expert can sign in to the expert portal (Unit 59): no account yet (they have not
+	 * signed up), an account waiting on its set-password link, or one in use. Read from
+	 * {@code expert_account}; nothing here creates or mails one — sign-up is the expert's (D23).
+	 */
+	public record PortalAccount(Status status, Instant lastSignInAt) {
+
+		public enum Status { NONE, INVITED, ACTIVE }
+
+		static final PortalAccount NONE = new PortalAccount(Status.NONE, null);
+
+		static PortalAccount of(ExpertAccount account) {
+			return new PortalAccount(account.hasPassword() ? Status.ACTIVE : Status.INVITED, account.getLastSignInAt());
+		}
 	}
 
 	/**
@@ -200,9 +218,11 @@ public class ExpertService {
 	private final OwnershipGuard ownership;
 	private final AuditService audit;
 	private final ExpertCaseOfferRepository offers;
+	private final ExpertAccountRepository accounts;
 
 	ExpertService(ExpertRepository experts, BrandRepository brands, ExpertLoadService loads, PayoutService payouts,
-			OwnershipGuard ownership, AuditService audit, ExpertCaseOfferRepository offers) {
+			OwnershipGuard ownership, AuditService audit, ExpertCaseOfferRepository offers,
+			ExpertAccountRepository accounts) {
 		this.experts = experts;
 		this.brands = brands;
 		this.loads = loads;
@@ -210,6 +230,7 @@ public class ExpertService {
 		this.ownership = ownership;
 		this.audit = audit;
 		this.offers = offers;
+		this.accounts = accounts;
 	}
 
 	// --- reads ---------------------------------------------------------------
@@ -249,7 +270,8 @@ public class ExpertService {
 		Expert expert = read(id);
 		BigDecimal pendingTotal = payouts.pendingByExpert(expert.getBrandId())
 				.getOrDefault(expert.getId(), BigDecimal.ZERO);
-		RosterEntry entry = new RosterEntry(expert, loads.forExpert(expert.getId()), pendingTotal);
+		RosterEntry entry = new RosterEntry(expert, loads.forExpert(expert.getId()), pendingTotal,
+				portalAccounts(List.of(expert)).getOrDefault(expert.getId(), PortalAccount.NONE));
 		return new ProfileEntry(entry, offers.lastOfferedAt(expert.getBrandId(), expert.getId()));
 	}
 
@@ -501,10 +523,22 @@ public class ExpertService {
 
 	private List<RosterEntry> withLoad(List<Expert> page, Map<UUID, BigDecimal> pending) {
 		Map<UUID, Load> byExpert = loads.forExperts(page.stream().map(Expert::getId).toList());
+		Map<UUID, PortalAccount> portal = portalAccounts(page);
 		return page.stream()
 				.map(expert -> new RosterEntry(expert, byExpert.get(expert.getId()),
-						pending.getOrDefault(expert.getId(), BigDecimal.ZERO)))
+						pending.getOrDefault(expert.getId(), BigDecimal.ZERO),
+						portal.getOrDefault(expert.getId(), PortalAccount.NONE)))
 				.toList();
+	}
+
+	/** One brand-scoped read per distinct brand on the page, as {@link #pendingTotals}. */
+	private Map<UUID, PortalAccount> portalAccounts(List<Expert> page) {
+		Map<UUID, PortalAccount> combined = new HashMap<>();
+		page.stream().collect(java.util.stream.Collectors.groupingBy(Expert::getBrandId,
+				java.util.stream.Collectors.mapping(Expert::getId, java.util.stream.Collectors.toList())))
+				.forEach((brandId, ids) -> accounts.findByBrandIdAndExpertIdIn(brandId, ids)
+						.forEach(account -> combined.put(account.getExpertId(), PortalAccount.of(account))));
+		return combined;
 	}
 
 	/**

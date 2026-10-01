@@ -1,5 +1,7 @@
 package com.ie.evalos.repository;
 
+import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -18,4 +20,7 @@ public interface ExpertAccountRepository extends ScopedRepository<ExpertAccount>
 
 	/** The expert id has already come off a brand-scoped roster lookup; it never arrives from a request. */
 	Optional<ExpertAccount> findByExpertId(UUID expertId);
+
+	/** The roster's portal column: these experts' accounts, within one brand. */
+	List<ExpertAccount> findByBrandIdAndExpertIdIn(UUID brandId, Collection<UUID> expertIds);
 }

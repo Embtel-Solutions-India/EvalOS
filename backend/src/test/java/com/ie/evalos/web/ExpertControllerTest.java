@@ -95,7 +95,8 @@ class ExpertControllerTest {
 
 	@BeforeEach
 	void aRosterOfOneExpertWhoIsPaidSomehow() {
-		RosterEntry entry = new RosterEntry(anExpert(), new ExpertLoadService.Load(2, 7), BigDecimal.ZERO);
+		RosterEntry entry = new RosterEntry(anExpert(), new ExpertLoadService.Load(2, 7), BigDecimal.ZERO,
+				new com.ie.evalos.service.ExpertService.PortalAccount(com.ie.evalos.service.ExpertService.PortalAccount.Status.INVITED, null));
 
 		given(experts.roster(any(), any(), any(), any(), any(), any(), anyInt(), anyInt()))
 				.willReturn(new RosterPage(List.of(entry), 0, 50, 1));

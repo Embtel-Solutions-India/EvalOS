@@ -160,6 +160,15 @@ export type RosterRow = {
    * is `NOT NULL DEFAULT 0` and nothing has ever written it.
    */
   pendingTotal: number | null
+  /** Whether they can sign in to the expert portal (Unit 59): never signed up, waiting on the set-password link, or in use. */
+  portal: { status: 'NONE' | 'INVITED' | 'ACTIVE'; lastSignInAt: string | null }
+}
+
+/** The portal account in words a coordinator can repeat to the expert. */
+export function portalLabel(portal: RosterRow['portal']): string {
+  if (portal.status === 'NONE') return 'Not signed up'
+  if (portal.status === 'INVITED') return 'Password not set'
+  return portal.lastSignInAt ? `Active · last in ${new Date(portal.lastSignInAt).toLocaleDateString()}` : 'Active'
 }
 
 export type RosterPage = { rows: RosterRow[]; page: number; size: number; total: number }
