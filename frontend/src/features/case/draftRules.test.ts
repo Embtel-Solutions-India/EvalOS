@@ -2,11 +2,11 @@ import { describe, expect, it } from 'vitest'
 import { isViewable, mayComment, mayUploadDraft, submitDraft } from './draftRules'
 
 describe('mayUploadDraft', () => {
-  it('lets the case team upload while the draft is being written', () => {
+  it('lets only the CM upload while the draft is being written', () => {
     expect(mayUploadDraft('DRAFT_IN_PROGRESS', 'CASE_MANAGER')).toBe(true)
-    expect(mayUploadDraft('DRAFT_IN_PROGRESS', 'PROJECT_COORDINATOR')).toBe(true)
-    expect(mayUploadDraft('DRAFT_IN_PROGRESS', 'PROJECT_MANAGER')).toBe(true)
-    expect(mayUploadDraft('DRAFT_IN_PROGRESS', 'GM')).toBe(true)
+    expect(mayUploadDraft('DRAFT_IN_PROGRESS', 'PROJECT_COORDINATOR')).toBe(false)
+    expect(mayUploadDraft('DRAFT_IN_PROGRESS', 'PROJECT_MANAGER')).toBe(false)
+    expect(mayUploadDraft('DRAFT_IN_PROGRESS', 'GM')).toBe(false)
   })
 
   it('offers nothing at another stage or to another role', () => {

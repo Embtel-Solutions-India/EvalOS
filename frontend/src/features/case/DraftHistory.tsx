@@ -2,6 +2,8 @@ import { useQuery } from '@tanstack/react-query'
 import { fetchDocumentUrl, fetchDraftVersions, type DraftVersion } from './caseApi'
 import DraftComments from './DraftComments'
 import { mayComment } from './draftRules'
+import { Download, Eye } from 'lucide-react'
+import { button } from './caseUi'
 
 /**
  * Every version of the draft, newest first, with the PM's ruling and comment on each.
@@ -56,8 +58,8 @@ export default function DraftHistory({
 
   return (
     <div>
-      <h3 className="text-xs font-semibold tracking-wide uppercase" style={{ color: 'var(--text-muted)' }}>
-        Draft history
+      <h3 className="text-xs font-semibold" style={{ color: 'var(--text-muted)' }}>
+        Versions
       </h3>
 
       {drafts.data.length === 0 ?
@@ -93,19 +95,22 @@ export default function DraftHistory({
                   </p>
                 )}
                 {version.filename && (
-                  <p className="flex gap-3 text-sm">
+                  <p className="flex flex-wrap gap-1.5">
                     {/* View first (D51): the PDF opens in the browser; both files still download. */}
                     {version.hasPdf && (
-                      <button type="button" onClick={() => void open(version.id, true, true)} style={{ color: 'var(--accent-primary)' }}>
+                      <button type="button" onClick={() => void open(version.id, true, true)} className={button.small}>
+                        <Eye aria-hidden />
                         View PDF
                       </button>
                     )}
                     {version.hasPdf && (
-                      <button type="button" onClick={() => void open(version.id, true)} style={{ color: 'var(--accent-primary)' }}>
+                      <button type="button" onClick={() => void open(version.id, true)} className={button.small}>
+                        <Download aria-hidden />
                         Download PDF
                       </button>
                     )}
-                    <button type="button" onClick={() => void open(version.id, false)} style={{ color: 'var(--accent-primary)' }}>
+                    <button type="button" onClick={() => void open(version.id, false)} className={button.small}>
+                      <Download aria-hidden />
                       Download Word
                     </button>
                   </p>

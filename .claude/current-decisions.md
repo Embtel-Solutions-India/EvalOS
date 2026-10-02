@@ -249,7 +249,7 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
   message and rule; **Ably relays live updates only** (one private channel per person, publish never
   granted to a browser); web push for anyone without the app open. No chat platform owns the data.
 - **D51.** **Drafts are uploaded versions** (Unit 58, `58-client-portal.md`, 2026-09-27, business
-  decision). The Case Manager (or Coordinator / PM) uploads each version as **Word + PDF** onto the
+  decision). **Only the Case Manager** uploads each version (edited 2026-10-02: the PC, PM and GM no longer may; `POST …/drafts` is `CASE_MANAGER` only, no `GM_OR`) as **Word + PDF** onto the
   existing `case_document` DRAFT versions — no second version table. Each version carries an
   immutable comment thread (1–2,000 characters, optional page) open only while it is the one in
   client review. The client approves or requests changes **on a named version** (409
@@ -487,7 +487,7 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
 - **D63.** **Everyone on a case sees and downloads its documents; the ENM does not** (2026-09-30,
   the business; Unit 66b, spec `66b-expert-case-documents.md`). Staff who can load the case and
   whose role reads case content (GM, BM, PM, PC, CM) see every document and every draft version.
-  The CM uploads the draft and each new version (the PC, PM and GM may too, D51). **The case's
+  Only the CM uploads the draft and each new version (D51). **The case's
   expert** sees and downloads the client's current uploads and the client-approved draft (PDF +
   Word), from the offer on, for as long as they are the case's expert
   (`GET /api/portal/expert/documents/{id}/url`, audited); earlier draft versions stay internal. The

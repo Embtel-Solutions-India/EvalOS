@@ -69,7 +69,7 @@ No AI anywhere in the system. No Google Drive (removed, `V34`).
 
 ```
 backend/src/main/resources/db/migration/     V1..V84, all applied; prod scans this and only this
-backend/src/main/resources/db/seed-local/    V900..V911, local profile only
+backend/src/main/resources/db/seed-local/    V900..V915, local profile only (V915 = the current demo world; samples in backend/seed-local-documents/)
 backend/src/main/resources/db/seed-testprod/ V950..V951, testprod profile only
 backend/src/main/resources/db/seed-prod/     V960, prod profile only (the six IE desk logins)
 packages/evalos-chat/                      source-only chat UI (Unit 57 §7); no node_modules, imported by client-expert/ through a Vite alias

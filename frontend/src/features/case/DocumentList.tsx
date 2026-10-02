@@ -2,6 +2,8 @@ import { useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
 import { fetchCaseDocuments, fetchDocumentUrl, type DraftVersion } from './caseApi'
 import { isViewable } from './draftRules'
+import { Download, Eye, FileText } from 'lucide-react'
+import { button } from './caseUi'
 
 /**
  * A case's documents of one kind, each opening through a short-lived URL.
@@ -85,33 +87,42 @@ export default function DocumentList({
           {emptyMessage}
         </p>
       ) : (
-        <ul className="mt-2 flex flex-col gap-1">
+        <ul className="mt-2 flex flex-col">
           {docs.data.map((doc) => {
             const name = doc.filename ?? `Document ${doc.version}`
             return (
-              <li key={doc.id} className="flex flex-wrap items-baseline gap-x-3 gap-y-1 text-sm">
-                <span className="min-w-0 break-all">{name}</span>
+              <li
+                key={doc.id}
+                className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1.5 border-t py-2 text-sm first:border-t-0"
+                style={{ borderColor: 'var(--border-default)' }}
+              >
+                <span className="flex min-w-0 items-center gap-2">
+                  <FileText aria-hidden className="h-4 w-4 shrink-0" style={{ color: 'var(--text-muted)' }} />
+                  <span className="min-w-0 break-all">{name}</span>
+                </span>
                 {/* View first (Unit 74): a PDF or image opens in the browser; every file downloads. */}
-                {isViewable(doc.filename) && (
+                <span className="flex shrink-0 gap-1.5">
+                  {isViewable(doc.filename) && (
+                    <button
+                      type="button"
+                      onClick={() => void open(doc.id, true)}
+                      aria-label={`View ${name}`}
+                      className={button.small}
+                    >
+                      <Eye aria-hidden />
+                      View
+                    </button>
+                  )}
                   <button
                     type="button"
-                    onClick={() => void open(doc.id, true)}
-                    aria-label={`View ${name}`}
-                    className="font-medium"
-                    style={{ color: 'var(--accent-primary)' }}
+                    onClick={() => void open(doc.id, false)}
+                    aria-label={`Download ${name}`}
+                    className={button.small}
                   >
-                    View
+                    <Download aria-hidden />
+                    Download
                   </button>
-                )}
-                <button
-                  type="button"
-                  onClick={() => void open(doc.id, false)}
-                  aria-label={`Download ${name}`}
-                  className="font-medium"
-                  style={{ color: 'var(--accent-primary)' }}
-                >
-                  Download
-                </button>
+                </span>
               </li>
             )
           })}

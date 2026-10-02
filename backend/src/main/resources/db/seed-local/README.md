@@ -95,6 +95,42 @@ trigger and it is **not** a precedent — application code must never delete an 
 row. It is here because the audit rows being cleared describe cases that no longer
 exist.
 
+## `V915` — the fresh demo world (2026-10-02), which replaces V905's cases
+
+V905's cases had drifted from the app (stage names renamed under them by V907, drafts
+counted with no draft rows, four stages empty, one client and one expert login). **V915
+clears and rebuilds them**:
+
+- **Keeps** `brand`, `team_member` and everything the GHL mirror or a desk owns:
+  `team_member_pipeline`, `pipeline`, `pipeline_stage`, `opportunity`, the mirrored
+  contacts, `ghl_*`, sales notes / follow-ups / meetings, `sync_outbox` and the job ledger.
+- **Rebuilds** every case and what hangs off it (documents, comments, checklists, offers,
+  payouts, chat, notifications, portal links), the 13 experts (same ids as V905), 28 demo
+  contacts (`ghl-demo-1NN`) and their portal accounts.
+- **30 cases**: all twelve stages and all three exceptions, both brands; every draft count
+  matches its draft rows.
+- **Every client and every expert signs in with `DevPassw0rd!`**, like the staff logins.
+  The policy screen appears on each account's first sign-in. Try first:
+  - client `amara.okafor@northlightlaw.test`: IE-2026-5101 (upload documents), 5110 (review
+    the draft), 5117 (delivered, signed letter to view);
+  - expert `m.osei@rowanstate.test`: 5112 (answer the offer), 5113 (upload the signed letter),
+    a pending and a to-confirm payout.
+
+It disables three append-only triggers (`audit_event`, `conversation_members`,
+`draft_comments`) for one `DELETE` each, under the same rule as V905: a dev reset, never a
+precedent. Audit rows about the GHL mirror (`GHL_OPPORTUNITY`, `GHL_CONTACT`) are kept.
+
+**The seeded documents need five sample files on disk.** Every seeded document points at a key
+under `seed/`. Copy the samples into the local document directory once (the workspace root's
+`.local-documents/` by default, `EVALOS_S3_LOCAL_DIR`):
+
+```
+mkdir -p .local-documents/seed && cp backend/seed-local-documents/*.pdf backend/seed-local-documents/*.docx backend/seed-local-documents/*.png .local-documents/seed/
+```
+
+Without them every seeded document still lists, and View / Download answers "not found".
+Anything uploaded through the app writes its own key and needs nothing.
+
 ## Existing databases
 
 A database that applied these under the old layout recorded them as

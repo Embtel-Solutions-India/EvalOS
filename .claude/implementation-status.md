@@ -185,7 +185,11 @@ request status, portal deployment) and now say so.
    1421/0/0/4, staff 191, portals 112, `tsc -b` clean in all three. **The portal workspace was missing
    every `@radix-ui/*` package** (absent from `node_modules` though in the lockfile); `npm install`
    restored them, lockfile unchanged. **Not browser-checked** — restart the backend and both portal
-   dev servers first.
+   dev servers first. **Draft upload narrowed to the CM (D51 edited, 2026-10-02):**
+   `POST /api/cases/{id}/drafts` is `hasRole('CASE_MANAGER')` (PC / PM / GM now 403) and
+   `mayUploadDraft` offers Upload draft to the CM only (case header, Draft panel, My drafts).
+   Tests: `CaseControllerTest#aDraftIsUploadedAsWordAndPdfByTheCaseManagerOnly` (21 green),
+   `draftRules.test.ts` (8 green), `tsc -b` clean.
 24. **Unit 75 — the portal sign-in survives a reload (D73).** **Built 2026-10-02** (spec `75`, same
    branch, no migration). `shared/src/services/apiClient.ts`: the token is kept in `sessionStorage`
    (`evalos.portal.token`, try/catch, memory fallback) and read at load; `signOut(path)` posts
@@ -352,6 +356,15 @@ references, so `--noEmit` typechecks nothing and exits 0.)
    **Not browser-checked.** Restart the backend (Flyway applies `V84`). Staff passwords: Q18.
 
 ## Known operational state (not code)
+
+- **The local demo world is V915 (2026-10-02)**, `db/seed-local/V915__seed_local_fresh_demo_world.sql`,
+  replacing V905's cases: 30 cases over all 12 stages and all 3 exceptions, 13 experts, 28 demo
+  clients, **every client and expert account on `DevPassw0rd!`**, team members and the whole GHL
+  mirror kept. Applies on the next backend start (Flyway, `local` profile only). Its documents
+  point at five samples under `seed/` that must be in `.local-documents/seed/` (copy from
+  `backend/seed-local-documents/`; done on this machine). Verified: a rolled-back run on `public`
+  (draft counts all match their rows) and Flyway applying it to `evalos_test`
+  (`LocalPostgresIntegrationTest` 60 and `CaseLiveHibernateTest` 3, green).
 
 - **The six IE desk logins are `sales-1..3` and `bde-1..3`** (`@evalos.local` locally), password
   **`DevPassw0rd!`** — the same seeded throwaway as every other local login, kept on the business's

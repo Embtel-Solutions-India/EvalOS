@@ -658,7 +658,7 @@ public class CaseController {
 	 * here, so a renamed file never reaches S3.
 	 */
 	@PostMapping(value = "/{id}/drafts", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-	@PreAuthorize(GM_OR + "hasAnyRole('CASE_MANAGER', 'PROJECT_COORDINATOR', 'PROJECT_MANAGER')")
+	@PreAuthorize("hasRole('CASE_MANAGER')") // D51 (2026-10-02): the CM only, GM_OR deliberately absent
 	public ApiResponse<CaseSummary> submitDraft(@PathVariable UUID id, @RequestParam("docx") MultipartFile docx,
 			@RequestParam("pdf") MultipartFile pdf) throws IOException {
 		UploadedFileType.require(docx, EnumSet.of(UploadedFileType.Kind.DOCX));

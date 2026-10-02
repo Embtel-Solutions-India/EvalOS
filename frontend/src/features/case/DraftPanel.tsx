@@ -3,6 +3,10 @@ import type { CaseDetail } from './caseApi'
 import DraftHistory from './DraftHistory'
 import UploadDraftDialog from './UploadDraftDialog'
 import { mayUploadDraft } from './draftRules'
+import { FilePen, Upload } from 'lucide-react'
+import { Panel } from '../../components/ui/panel'
+import { button, sentence, type Tone } from './caseUi'
+import { StatusPill } from './StatusPill'
 
 /**
  * Where the draft stands: the version count and the two approval chips the draft loops turn
@@ -13,27 +17,11 @@ import { mayUploadDraft } from './draftRules'
  * is a state rather than a blank.
  */
 
-type ChipTone = 'pending' | 'good' | 'bad' | 'idle'
-
-const TONE: Record<ChipTone, { fg: string; bg: string }> = {
-  pending: { fg: 'var(--status-amber)', bg: 'var(--status-amber-bg)' },
-  good: { fg: 'var(--status-green)', bg: 'var(--status-green-bg)' },
-  bad: { fg: 'var(--status-red)', bg: 'var(--status-red-bg)' },
-  idle: { fg: 'var(--text-muted)', bg: 'var(--bg-raised)' },
-}
-
-function approvalTone(status: string | null): ChipTone {
-  if (status === 'APPROVED') return 'good'
-  if (status === 'PENDING') return 'pending'
-  if (status === 'RETURNED' || status === 'REVISION_REQUESTED') return 'bad'
-  return 'idle'
-}
-
-const APPROVAL_LABEL: Record<string, string> = {
-  PENDING: 'awaiting review',
-  APPROVED: 'approved',
-  RETURNED: 'returned',
-  REVISION_REQUESTED: 'revisions requested',
+const APPROVAL: Record<string, { tone: Tone; label: string }> = {
+  PENDING: { tone: 'pending', label: 'Awaiting review' },
+  APPROVED: { tone: 'done', label: 'Approved' },
+  RETURNED: { tone: 'blocked', label: 'Returned' },
+  REVISION_REQUESTED: { tone: 'blocked', label: 'Changes requested' },
 }
 
 export default function DraftPanel({
@@ -48,56 +36,61 @@ export default function DraftPanel({
   const { id, currentStage, pmApprovalStatus, clientApprovalStatus, draftVersionCount } = detail.summary
 
   return (
-    <section
-      className="rounded-lg border p-4"
-      style={{ background: 'var(--bg-surface)', borderColor: 'var(--border-default)' }}
-    >
-      <div className="flex items-baseline justify-between gap-2">
-        <h2 className="text-sm font-semibold tracking-tight">
-          Draft{draftVersionCount > 0 ? ` · v${draftVersionCount}` : ''}
-        </h2>
-        {mayUploadDraft(currentStage, role) ?
+    <Panel
+      title="Draft"
+      icon={<FilePen />}
+      action={
+        mayUploadDraft(currentStage, role) ?
           <UploadDraftDialog
             caseId={id}
             nextVersion={draftVersionCount + 1}
             onUploaded={onUploaded}
             trigger={
-              <button type="button" className="text-xs font-medium" style={{ color: 'var(--accent-primary)' }}>
-                Upload new version
+              <button type="button" className={button.tertiary}>
+                <Upload aria-hidden />
+                {draftVersionCount === 0 ? 'Upload first draft' : 'Upload new version'}
               </button>
             }
           />
-        : <span className="font-num text-xs tabular-nums" style={{ color: 'var(--text-muted)' }}>
-            {draftVersionCount === 0 ? 'no draft yet' : `version ${draftVersionCount}`}
-          </span>
-        }
-      </div>
-
-      <dl className="mt-3 space-y-2">
+        : draftVersionCount > 0 && (
+            <StatusPill tone="idle">
+              <span className="font-num tabular-nums">Version {draftVersionCount}</span>
+            </StatusPill>
+          )
+      }
+    >
+      <dl className="grid gap-2 sm:grid-cols-2">
         <Row label="PM review" status={pmApprovalStatus} />
         <Row label="Client review" status={clientApprovalStatus} />
       </dl>
 
       {/* The versions' own Word / PDF links replace the old single `draftLink` (Unit 58). */}
-      <div className="mt-3">
-        <DraftHistory caseId={id} clientApprovalStatus={clientApprovalStatus} />
+      <div className="mt-4 border-t pt-4" style={{ borderColor: 'var(--border-default)' }}>
+        {/* The versions are case content: a role that may not read them (the ENM) does not ask
+            for them, rather than asking and showing the refusal as an error (audit F-10). */}
+        {detail.maySeeCaseContent ?
+          <DraftHistory caseId={id} clientApprovalStatus={clientApprovalStatus} />
+        : <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
+            The draft itself is not available to your role.
+          </p>
+        }
       </div>
-    </section>
+    </Panel>
   )
 }
 
 function Row({ label, status }: { label: string; status: string | null }) {
-  const tone = TONE[approvalTone(status)]
+  const shown = status ? (APPROVAL[status] ?? { tone: 'idle' as Tone, label: sentence(status) }) : null
   return (
-    <div className="flex items-center justify-between gap-2">
+    <div
+      className="flex items-center justify-between gap-2 rounded-md px-3 py-2"
+      style={{ background: 'var(--bg-raised)' }}
+    >
       <dt className="text-sm" style={{ color: 'var(--text-muted)' }}>
         {label}
       </dt>
-      <dd
-        className="rounded-md px-1.5 py-0.5 text-xs font-semibold"
-        style={{ color: tone.fg, background: tone.bg }}
-      >
-        {status ? (APPROVAL_LABEL[status] ?? status.toLowerCase()) : 'not yet'}
+      <dd>
+        <StatusPill tone={shown?.tone ?? 'idle'}>{shown?.label ?? 'Not yet'}</StatusPill>
       </dd>
     </div>
   )

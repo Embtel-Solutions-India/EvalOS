@@ -1,47 +1,24 @@
-import type { CaseDetail } from "./caseApi";
+import { Scale } from 'lucide-react'
+import { Panel } from '../../components/ui/panel'
+import type { CaseDetail } from './caseApi'
 
 /**
- * Why this expert was chosen (Unit 32).
- *
- * **Three states, and the middle one is the point** — the same shape `StrategyNotes` uses, for the
- * same reason: a role that may not read this is told the field exists and is not theirs, rather
- * than shown an empty box that looks like nobody has written anything.
- *
- * **Read-only here on purpose.** The rationale is written where the expert is chosen — the
- * `expert` offer (Unit 73) and `reassign-expert` dialogs — so that the reason and the decision are one act. An
- * edit box here would invite a reason written after the fact, which is the one kind of rationale
- * worth nothing.
+ * Why this expert was chosen (Unit 32). A different audience from the PM's strategy notes: the
+ * ENM and the Brand Manager read this and not the notes, the Case Manager the reverse. Read-only —
+ * it is written where the expert is chosen. A role that may not read it does not see the panel.
  */
 export default function ExpertRationale({ detail }: { detail: CaseDetail }) {
+  if (!detail.maySeeExpertRationale) return null
   return (
-    <section
-      className="rounded-lg border p-4"
-      style={{
-        background: "var(--bg-surface)",
-        borderColor: "var(--border-default)",
-      }}
-    >
-      <h2 className="text-sm font-semibold tracking-tight">
-        Expert selection reason
-      </h2>
-
-      {!detail.maySeeExpertRationale ? (
-        <p className="mt-2 text-sm" style={{ color: "var(--text-muted)" }}>
-          Not visible to your role.
-        </p>
-      ) : detail.expertSelectionRationale ? (
-        <p
-          className="mt-2 text-sm whitespace-pre-wrap"
-          style={{ color: "var(--text-primary)" }}
-        >
+    <Panel title="Expert selection reason" icon={<Scale />}>
+      {detail.expertSelectionRationale ?
+        <p className="text-sm whitespace-pre-wrap" style={{ color: 'var(--text-primary)' }}>
           {detail.expertSelectionRationale}
         </p>
-      ) : (
-        <p className="mt-2 text-sm" style={{ color: "var(--text-muted)" }}>
-          No reason recorded. It is written when the expert is assigned or
-          reassigned.
+      : <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
+          No reason recorded. It is written when the expert is assigned or reassigned.
         </p>
-      )}
-    </section>
-  );
+      }
+    </Panel>
+  )
 }
