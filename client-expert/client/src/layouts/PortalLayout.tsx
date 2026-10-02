@@ -12,6 +12,7 @@ import { PortalSidebar } from '@/components/layout/PortalSidebar'
 import { TermsGate } from '@shared/legal/TermsGate'
 import { PRIMARY_NAV } from '@/constants/navigation'
 import { createPortalChat } from '@shared/services/portalChat'
+import { signOut } from '@shared/services/apiClient'
 
 /**
  * The title bar's text.
@@ -29,12 +30,9 @@ function getPageTitle(pathname: string): string {
 /**
  * With no credential, the door — not a page explaining a link.
  *
- * **The token is memory-only and that is not changing.** It lives in `apiClient`'s module scope,
- * never `localStorage`, so a reload or a bookmark loses it by design. Before Unit 42 the only way
- * to have one was a mailed link, so every screen's "open the full link we sent you" was true.
- * It stopped being true the moment a password could mint one: `signIn` navigates to `/dashboard`
- * with no fragment, so the first refresh dropped the client onto a page telling them to go find
- * an email that, for them, does not exist.
+ * **The token is kept in `sessionStorage` (Unit 75, D72)**, so a reload stays signed in and
+ * closing the tab ends the session; a new tab or a bookmark opened elsewhere starts at sign-in.
+ * (It was memory-only until then, so every reload signed the client out.)
  *
  * **Guarded here rather than in six pages**, because every authenticated route is already inside
  * this layout and `usePortalToken` lifts the fragment on first render — which happens here,
@@ -64,10 +62,9 @@ export function PortalLayout() {
     return <Navigate to="/signin" replace state={{ from: location.pathname + location.search }} />
   }
 
-  // Unit 72 (D71): the policies are accepted once, before anything else; a reload of `/signin`
-  // drops the memory-only token, which is how this portal signs out.
+  // Unit 72 (D71): the policies are accepted once, before anything else. Declining signs out (D72).
   return (
-    <TermsGate audience="client" onSignOut={() => window.location.assign('/signin')}>
+    <TermsGate audience="client" onSignOut={() => void signOut('/signin')}>
     <ChatProvider client={chat}>
       <LiveInvalidate prefix="portal" />
       <div className="flex min-h-dvh flex-col bg-muted/30">

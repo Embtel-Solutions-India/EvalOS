@@ -5,7 +5,7 @@ import { Card } from '@shared/components/ui/card'
 import { FormField } from '@shared/components/common/FormField'
 import { Input } from '@shared/components/ui/input'
 import { Logo } from '@shared/components/common/Logo'
-import { statusOf } from '@shared/services/apiClient'
+import { statusOf, takeSessionEnded } from '@shared/services/apiClient'
 import {
   authFailureMessage,
   forgotPassword,
@@ -66,6 +66,7 @@ export default function SignIn() {
   const [password, setPassword] = useState('')
   const [signingIn, setSigningIn] = useState(false)
   const [signInError, setSignInError] = useState<string | undefined>()
+  const [sessionEnded] = useState(takeSessionEnded)
 
   const [sendingReset, setSendingReset] = useState(false)
   const [resetSent, setResetSent] = useState(false)
@@ -213,6 +214,11 @@ export default function SignIn() {
           <h1 className="text-xl font-semibold tracking-tight text-foreground">Sign in</h1>
           <p className="mt-1 text-sm text-muted-foreground">Enter your email to continue.</p>
         </div>
+        {sessionEnded && (
+          <p role="status" className="rounded-md border bg-muted/50 px-3 py-2 text-sm text-foreground">
+            Your session has ended. Sign in again.
+          </p>
+        )}
 
         <form onSubmit={state === 'PASSWORD_SET' ? onSignIn : onIdentify} className="space-y-4">
           <FormField label="Email" htmlFor="email" required error={identifyError}>

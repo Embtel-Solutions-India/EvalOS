@@ -5,7 +5,7 @@ import { Card } from '@shared/components/ui/card'
 import { Input } from '@shared/components/ui/input'
 import { FormField } from '@shared/components/common/FormField'
 import { Logo } from '@shared/components/common/Logo'
-import { statusOf } from '@shared/services/apiClient'
+import { statusOf, takeSessionEnded } from '@shared/services/apiClient'
 import { authFailureMessage, sendLink, signIn } from '@/services/expertAuthService'
 
 const REFUSED = "That email and password don't match. Please try again."
@@ -24,6 +24,7 @@ export default function Welcome() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string>()
   const [linkSent, setLinkSent] = useState(false)
+  const [sessionEnded] = useState(takeSessionEnded)
 
   async function onSignIn(event: FormEvent) {
     event.preventDefault()
@@ -61,6 +62,11 @@ export default function Welcome() {
 
       <Card className="w-full max-w-md space-y-4 p-6">
         <h1 className="text-base font-semibold text-foreground">Sign in</h1>
+        {sessionEnded && (
+          <p role="status" className="rounded-md border bg-muted/50 px-3 py-2 text-sm text-foreground">
+            Your session has ended. Sign in again.
+          </p>
+        )}
         {linkSent ? (
           <p className="text-sm text-muted-foreground" role="status">
             If that address is on our expert panel, a link to set your password is on its way. It works once and

@@ -516,6 +516,11 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
   policy version, recorded on the account and as a `TERMS_ACCEPTED` audit row; fail closed. Both
   portals' sign-in screens carry the portal artwork on the right half. Built as Unit 72
   (`72-portal-terms-acceptance.md`).
+- **D72.** **A portal sign-in survives a reload** (2026-10-02, the business). The client's and the
+  expert's token is kept in `sessionStorage` (per tab, gone when the tab closes), replacing the
+  memory-only token. Both portals have a **Sign out** that revokes the token on the server
+  (`POST /api/portal/sign-out`); a 401 while signed in returns to sign-in with "Your session has
+  ended". Built as Unit 75 (`75-portal-session-survives-reload.md`).
 - **D68.** **EvalOS screens update themselves** (2026-10-01, the business). A committed write to a
   case (the case, its documents, checklist, offers, payouts, draft comments) sends a **signal, never
   data**, over Ably: `case.changed {caseId}` to a per-brand staff channel and to the case's client

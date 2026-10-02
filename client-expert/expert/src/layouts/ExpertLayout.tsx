@@ -9,7 +9,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Navigate, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { Button } from '@shared/components/ui/button'
 import { Logo } from '@shared/components/common/Logo'
-import { hasPortalToken } from '@shared/services/apiClient'
+import { hasPortalToken, signOut } from '@shared/services/apiClient'
 import { createPortalChat } from '@shared/services/portalChat'
 import { cn } from '@shared/utils/cn'
 import { transfersToConfirm } from '@/lib/expertCase'
@@ -31,14 +31,14 @@ export function ExpertLayout() {
   const navigate = useNavigate()
   const { pathname } = useLocation()
 
-  // The token is memory-only, so a reload lands here without one: back to the door.
+  // The token is in sessionStorage (Unit 75, D72): a reload keeps it; a new tab arrives without one.
   if (!hasPortalToken()) return <Navigate to="/" replace />
 
   const title = pathname === '/dashboard' ? 'Dashboard' : pathname === '/new' ? 'New cases' : pathname === '/messages' ? 'Messages' : pathname === '/payouts' ? 'Payouts' : pathname === '/case' ? 'Case' : 'Your cases'
 
   // Unit 72 (D71): the policies are accepted once, before anything else.
   return (
-    <TermsGate audience="expert" onSignOut={() => window.location.assign('/')}>
+    <TermsGate audience="expert" onSignOut={() => void signOut('/')}>
     <ChatProvider client={chat}>
       <LiveInvalidate prefix="expert-portal" />
       <div className="min-h-dvh bg-muted/40 lg:grid lg:grid-cols-[16rem_1fr]">
@@ -166,10 +166,10 @@ function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
           </p>
           <p className="mt-1 text-sidebar-foreground/70">Message the case team from the case itself, or from Messages.</p>
         </div>
-        {/* The token lives only in memory, so a full load of the door is the whole of signing out. */}
+        {/* Ends the token on the server and in this tab (Unit 75, D72). */}
         <button
           type="button"
-          onClick={() => window.location.assign('/')}
+          onClick={() => void signOut('/')}
           className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm text-sidebar-foreground hover:bg-white/5 hover:text-white"
         >
           <LogOut className="h-4 w-4" />
@@ -217,8 +217,8 @@ function TopBarActions() {
         </button>
         {open && (
           <div role="menu" className="absolute right-0 z-40 mt-1 w-44 rounded-lg border bg-popover p-1 shadow-lg">
-            {/* The token lives only in memory, so a full load of the door is the whole of signing out. */}
-            <button type="button" role="menuitem" onClick={() => window.location.assign('/')} className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-foreground hover:bg-muted">
+            {/* Ends the token on the server and in this tab (Unit 75, D72). */}
+            <button type="button" role="menuitem" onClick={() => void signOut('/')} className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-foreground hover:bg-muted">
               <LogOut className="h-4 w-4" /> Sign out
             </button>
           </div>

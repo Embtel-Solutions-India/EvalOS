@@ -225,6 +225,26 @@ public class PortalAccessService {
 				});
 	}
 
+	/**
+	 * Ends a session now rather than in seven days (Unit 75, D72): the presented token's row is
+	 * revoked, so a copy of it left in another tab or a log stops working. Unknown, expired or
+	 * already-revoked tokens are a no-op — signing out twice is not an error.
+	 */
+	@Transactional
+	public void revoke(String presented) {
+		if (presented == null || presented.isBlank()) {
+			return;
+		}
+		String presentedHash = hash(presented);
+		tokens.findByTokenHash(presentedHash)
+				.filter(access -> access.matches(presentedHash))
+				.filter(access -> access.getRevokedAt() == null)
+				.ifPresent(access -> {
+					access.revoke(Instant.now());
+					tokens.save(access);
+				});
+	}
+
 	// --- the token itself ----------------------------------------------------
 
 	/** 256 bits, base64url, no padding — safe in a URL fragment without escaping. */

@@ -21,7 +21,7 @@ type TermsStatus = { required: boolean; version: string }
  * acceptance is the one screen a person may not skip.
  *
  * @param audience whose routes to call: `/api/portal/client/terms` or `/api/portal/expert/terms`
- * @param onSignOut how this portal signs out (both drop a memory-only token)
+ * @param onSignOut how this portal signs out (both call `signOut`, which revokes the token, Unit 75)
  */
 export function TermsGate({
   audience,

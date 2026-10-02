@@ -1,6 +1,8 @@
+import { LogOut } from 'lucide-react'
 import { NavLink } from 'react-router-dom'
 import { UnreadBadge } from '@evalos/chat'
 import { Logo } from '@shared/components/common/Logo'
+import { signOut } from '@shared/services/apiClient'
 import { PRIMARY_NAV, type NavItem } from '@/constants/navigation'
 import { cn } from '@shared/utils/cn'
 
@@ -37,15 +39,23 @@ export function PortalSidebar({ onNavigate }: { onNavigate?: () => void }) {
         <Logo variant="light" />
       </div>
       {/* The "New Request" button stood here and opened /start/service. It went with the intake
-          funnel — a client starts a request in GHL, which is the front of house.
-
-          **There is no Logout, and that is not an omission (34d).** There is no session to end:
-          the credential is a scoped link held in memory for the tab, and closing the tab is the
-          whole of logging out. A button that cleared it would strand the client on a page they
-          could only return to by finding the original email. */}
+          funnel — a client starts a request in GHL, which is the front of house. */}
       <nav className="no-scrollbar flex-1 space-y-6 overflow-y-auto px-3 py-5">
         <NavSection items={PRIMARY_NAV} onNavigate={onNavigate} />
       </nav>
+      {/* Unit 75 (D72): the sign-in survives a reload, so leaving needs a real Sign out. It also
+          ends the token on the server. Every client signs in with a password, so the way back is
+          the sign-in page, not an old email. */}
+      <div className="border-t border-sidebar-border px-3 py-3">
+        <button
+          type="button"
+          onClick={() => void signOut('/signin')}
+          className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm font-medium text-sidebar-foreground transition duration-150 hover:bg-sidebar-accent/60 hover:text-white"
+        >
+          <LogOut className="h-4 w-4 shrink-0" />
+          Sign out
+        </button>
+      </div>
     </div>
   )
 }

@@ -102,6 +102,28 @@ class PortalAccessServiceTest {
 		assertThat(links.resolve(token)).isEmpty();
 	}
 
+	/**
+	 * <strong>Signing out ends the token on the server</strong> (Unit 75, D72): it stops resolving at
+	 * once instead of living out its seven days, and signing out again is a no-op.
+	 */
+	@Test
+	void signingOutRevokesTheTokenAndASecondSignOutIsHarmless() {
+		String token = "a-signed-in-token";
+		PortalAccess live = new PortalAccess(BRAND, CASE_ID, PortalAudience.CLIENT, null,
+				PortalAccessService.hash(token), Instant.now().plus(Duration.ofDays(7)));
+		given(tokens.findByTokenHash(PortalAccessService.hash(token))).willReturn(Optional.of(live));
+
+		links.revoke(token);
+
+		assertThat(live.getRevokedAt()).isNotNull();
+		assertThat(links.resolve(token)).isEmpty();
+		Instant first = live.getRevokedAt();
+		links.revoke(token);
+		links.revoke(null);
+		assertThat(live.getRevokedAt()).isEqualTo(first);
+		verify(tokens).save(live);
+	}
+
 	/** A live token yields the principal, and using it moves last-seen — the field support needs. */
 	@Test
 	void aLiveTokenResolvesToItsOwnCaseAndStampsLastSeen() {
