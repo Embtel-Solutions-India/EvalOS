@@ -1,6 +1,9 @@
 import { useState } from 'react'
 import type { CaseDetail } from './caseApi'
 import type { Role } from '../../lib/session'
+import { Info, Pencil } from 'lucide-react'
+import { Panel } from '../../components/ui/panel'
+import { button } from './caseUi'
 
 /**
  * Who the deliverable is about, what discipline it needs, and the deadline USCIS set (Unit 33).
@@ -53,13 +56,11 @@ export default function CaseFacts({
   }
 
   return (
-    <section
-      className="rounded-lg border p-4"
-      style={{ background: 'var(--bg-surface)', borderColor: 'var(--border-default)' }}
-    >
-      <div className="flex items-baseline justify-between gap-2">
-        <h2 className="text-sm font-semibold tracking-tight">Case facts</h2>
-        {mayEdit && !editing && (
+    <Panel
+      title="Case facts"
+      icon={<Info />}
+      action={
+        mayEdit && !editing && (
           <button
             type="button"
             onClick={() => {
@@ -67,17 +68,17 @@ export default function CaseFacts({
               setRfeDate(detail.rfeDate ?? '')
               setEditing(true)
             }}
-            className="text-sm font-medium"
-            style={{ color: 'var(--accent-primary)' }}
+            className={button.tertiary}
           >
+            <Pencil aria-hidden />
             Edit
           </button>
-        )}
-      </div>
-
+        )
+      }
+    >
       {editing ? (
         <>
-          <div className="mt-2 grid gap-3 sm:grid-cols-2">
+          <div className="grid gap-3 sm:grid-cols-2">
             <label className="block text-xs font-medium">
               Applicant (the beneficiary)
               <input
@@ -105,29 +106,17 @@ export default function CaseFacts({
               {error}
             </p>
           )}
-          <div className="mt-2 flex justify-end gap-2">
-            <button
-              type="button"
-              disabled={saving}
-              onClick={() => setEditing(false)}
-              className="rounded-md px-3 py-1.5 text-sm font-medium disabled:opacity-40"
-              style={{ background: 'var(--bg-raised)' }}
-            >
+          <div className="mt-3 flex justify-end gap-2">
+            <button type="button" disabled={saving} onClick={() => setEditing(false)} className={button.secondary}>
               Cancel
             </button>
-            <button
-              type="button"
-              disabled={saving}
-              onClick={() => void save()}
-              className="rounded-md px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40"
-              style={{ background: 'var(--accent-primary)' }}
-            >
+            <button type="button" disabled={saving} onClick={() => void save()} className={button.primary}>
               {saving ? 'Saving…' : 'Save'}
             </button>
           </div>
         </>
       ) : (
-        <dl className="mt-2 grid grid-cols-2 gap-x-4 gap-y-3">
+        <dl className="grid grid-cols-2 gap-x-4 gap-y-3">
           <Fact
             term="Applicant"
             /* Withheld and unset are different facts and must not share a label, the same rule
@@ -147,17 +136,17 @@ export default function CaseFacts({
           <Fact term="RFE deadline" value={detail.rfeDate ?? 'None set'} numeric />
         </dl>
       )}
-    </section>
+    </Panel>
   )
 }
 
 function Fact({ term, value, numeric }: { term: string; value: string; numeric?: boolean }) {
   return (
     <div className="min-w-0">
-      <dt className="text-[10px] font-medium tracking-[0.06em] uppercase" style={{ color: 'var(--text-muted)' }}>
+      <dt className="text-xs" style={{ color: 'var(--text-muted)' }}>
         {term}
       </dt>
-      <dd className={`truncate text-sm ${numeric ? 'font-num tabular-nums' : ''}`} title={value}>
+      <dd className={`truncate text-sm font-medium ${numeric ? 'font-num tabular-nums' : ''}`} title={value}>
         {value}
       </dd>
     </div>

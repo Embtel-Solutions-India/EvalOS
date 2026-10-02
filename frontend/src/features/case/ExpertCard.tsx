@@ -1,6 +1,10 @@
 import type { CaseDetail } from './caseApi'
 import DocumentList from './DocumentList'
 import OfferFee from '../payouts/OfferFee'
+import { UserCheck } from 'lucide-react'
+import { Panel } from '../../components/ui/panel'
+import { sentence, type Tone } from './caseUi'
+import { StatusPill } from './StatusPill'
 
 /**
  * Who is signing and where their signature stands.
@@ -13,58 +17,44 @@ import OfferFee from '../payouts/OfferFee'
  * password and signs in; the case appears in their list.
  */
 
-const SIGN_TONE: Record<string, { fg: string; bg: string; label: string }> = {
-  PENDING: { fg: 'var(--status-amber)', bg: 'var(--status-amber-bg)', label: 'awaiting signature' },
-  SIGNED: { fg: 'var(--status-green)', bg: 'var(--status-green-bg)', label: 'signed' },
-  OVERDUE: { fg: 'var(--status-red)', bg: 'var(--status-red-bg)', label: 'overdue' },
-  REASSIGNED: { fg: 'var(--text-muted)', bg: 'var(--bg-raised)', label: 'reassigned' },
+const SIGN: Record<string, { tone: Tone; label: string }> = {
+  PENDING: { tone: 'pending', label: 'Awaiting signature' },
+  SIGNED: { tone: 'done', label: 'Signed' },
+  OVERDUE: { tone: 'blocked', label: 'Signature overdue' },
+  REASSIGNED: { tone: 'idle', label: 'Reassigned' },
 }
 
 export default function ExpertCard({ detail }: { detail: CaseDetail }) {
   const status = detail.summary.expertSignStatus
-  const tone = status ? SIGN_TONE[status] : null
+  const sign = status ? SIGN[status] : null
 
   return (
-    <section
-      className="rounded-lg border p-4"
-      style={{ background: 'var(--bg-surface)', borderColor: 'var(--border-default)' }}
+    <Panel
+      title="Expert & offer"
+      icon={<UserCheck />}
+      action={sign && <StatusPill tone={sign.tone}>{sign.label}</StatusPill>}
     >
-      <h2 className="text-sm font-semibold tracking-tight">Expert &amp; offer</h2>
-
       {detail.expertName ? (
         <>
-          <p className="mt-2 text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
+          <p className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
             {detail.expertName}
           </p>
-          {detail.expertTier && (
-            <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
-              {detail.expertTier.replace('_', ' ').toLowerCase()}
-            </p>
-          )}
-          {tone && (
-            <span
-              className="mt-2 inline-block rounded-md px-1.5 py-0.5 text-xs font-semibold"
-              style={{ color: tone.fg, background: tone.bg }}
-            >
-              {tone.label}
-            </span>
-          )}
+          <p className="mt-0.5 text-xs" style={{ color: 'var(--text-muted)' }}>
+            {[detail.expertTier ? sentence(detail.expertTier) : null,
+              // The read receipt: "not opened" is a delivery problem, "opened, not signed" is a chase.
+              detail.expertPortalReadAt
+                ? `Opened the case ${new Date(detail.expertPortalReadAt).toLocaleDateString()}`
+                : 'Has not opened the case yet']
+              .filter(Boolean)
+              .join('. ')}
+          </p>
 
           {/* Unit 65: what this case pays the expert, and whether they have agreed to it. */}
           <OfferFee caseId={detail.summary.id} />
 
-          {/*
-            The read receipt, and it is worth its line: "they have not opened it" and "they opened
-            it and have not signed" are different problems with different next moves — one is a
-            delivery failure, the other is a chase.
-          */}
-          <p className="mt-2 text-xs" style={{ color: 'var(--text-muted)' }}>
-            {detail.expertPortalReadAt
-              ? `Opened the case ${new Date(detail.expertPortalReadAt).toLocaleDateString()}`
-              : 'Has not opened the case yet'}
-          </p>
-
-          <h3 className="mt-3 text-xs font-semibold tracking-tight">Signed letter</h3>
+          <h3 className="mt-5 text-xs font-semibold" style={{ color: 'var(--text-muted)' }}>
+            Signed letter
+          </h3>
           <DocumentList
             caseId={detail.summary.id}
             maySee={detail.maySeeCaseContent}
@@ -73,16 +63,17 @@ export default function ExpertCard({ detail }: { detail: CaseDetail }) {
           />
 
           {/* No link to send (Unit 59): the expert signs up and signs in with their roster email. */}
-          <p className="mt-3 text-xs" style={{ color: 'var(--text-muted)' }}>
+          <p className="mt-4 text-xs" style={{ color: 'var(--text-muted)' }}>
             The expert reaches this case by signing in to the expert portal with the email on their
             expert record.
           </p>
         </>
       ) : (
-        <p className="mt-2 text-sm" style={{ color: 'var(--text-muted)' }}>
-          No expert assigned yet — that happens with the case manager.
+        // Unit 73: the expert is offered once a draft exists, by the PM, CM, ENM or GM.
+        <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
+          No expert yet. One is offered once the first draft is in.
         </p>
       )}
-    </section>
+    </Panel>
   )
 }

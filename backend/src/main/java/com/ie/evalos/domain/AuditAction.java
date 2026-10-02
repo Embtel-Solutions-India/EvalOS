@@ -71,6 +71,11 @@ public enum AuditAction {
 	EXPERT_SIGN_IN_REFUSED,
 	EXPERT_PASSWORD_SET,
 	/**
+	 * A client or expert signed out and their portal token was revoked (Unit 75, D73). One action
+	 * for both audiences: the row's actor type and the token's audience already say which.
+	 */
+	PORTAL_SIGNED_OUT,
+	/**
 	 * A Case Manager raised a blocked case to the Project Managers on its brand (Unit 22, slice 3).
 	 *
 	 * <p>Its own action rather than an {@code UPDATED} row, for the reason {@link #CHASED} is:

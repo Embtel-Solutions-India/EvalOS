@@ -6,6 +6,10 @@ import type { CaseDetail } from './caseApi'
 import ChecklistSheet from './ChecklistSheet'
 import DocumentList from './DocumentList'
 import { mayManageChecklist } from './caseRules'
+import { FolderOpen, ListChecks } from 'lucide-react'
+import { Panel } from '../../components/ui/panel'
+import { button, checklistTone, sentence } from './caseUi'
+import { StatusPill } from './StatusPill'
 
 /**
  * The client's own documents (Unit 30).
@@ -42,80 +46,96 @@ export default function DocumentsPanel({
   const done = checklistTotal > 0 && outstanding === 0
 
   return (
-    <section
-      className="rounded-lg border p-4"
-      style={{ background: 'var(--bg-surface)', borderColor: 'var(--border-default)' }}
+    <Panel
+      title="Documents & checklist"
+      icon={<FolderOpen />}
+      action={
+        // Gated on the server's COORDINATION rule, not the nav table: the CM may manage it here
+        // without being able to reach the Coordinator's /checklists screen.
+        mayManageChecklist(role) && (
+          <ChecklistSheet
+            caseId={detail.summary.id}
+            onChecklistChanged={setView}
+            onCaseLeftTheStage={onChanged}
+            trigger={
+              <button type="button" className={button.tertiary}>
+                <ListChecks aria-hidden />
+                Manage checklist
+              </button>
+            }
+          />
+        )
+      }
     >
-      <h2 className="text-sm font-semibold tracking-tight">Documents &amp; checklist</h2>
-
-      {/*
-        **The client's documents, not a folder link.** Until Unit 30 this pointed at a Google Drive
-        folder whose contents and sharing EvalOS did not control. Documents are S3 objects now, and
-        each one opens through a URL minted at the click and good for five minutes.
-      */}
-      <DocumentList caseId={detail.summary.id} maySee={detail.maySeeCaseContent} />
-
-      <div className="mt-3 flex items-center gap-2">
-        <span
-          className="font-num rounded-md px-1.5 py-0.5 text-xs font-semibold tabular-nums"
-          style={{
-            color: done ? 'var(--status-green)' : 'var(--status-amber)',
-            background: done ? 'var(--status-green-bg)' : 'var(--status-amber-bg)',
-          }}
-        >
-          {checklistComplete} / {checklistTotal}
-        </span>
-        <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
-          {checklistTotal === 0
-            ? 'no checklist yet'
-            : done
-              ? 'all documents in'
-              : `${outstanding} still outstanding`}
-        </span>
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-sm font-medium">
+          {checklistTotal === 0 ?
+            'No checklist yet'
+          : done ?
+            'All documents are in'
+          : `${outstanding} of ${checklistTotal} still outstanding`}
+        </p>
+        <StatusPill tone={checklistTotal === 0 ? 'idle' : done ? 'done' : 'pending'}>
+          <span className="font-num tabular-nums">
+            {checklistComplete} / {checklistTotal}
+          </span>
+        </StatusPill>
       </div>
+      {checklistTotal > 0 && (
+        <div
+          className="mt-2 h-1.5 overflow-hidden rounded-full"
+          style={{ background: 'var(--bg-raised)' }}
+          role="progressbar"
+          aria-label="Checklist complete"
+          aria-valuemin={0}
+          aria-valuemax={checklistTotal}
+          aria-valuenow={checklistComplete}
+        >
+          <div
+            className="h-full rounded-full"
+            style={{
+              width: `${(checklistComplete / checklistTotal) * 100}%`,
+              background: done ? 'var(--status-green)' : 'var(--accent-primary)',
+            }}
+          />
+        </div>
+      )}
 
       {view && view.items.length > 0 && (
         <>
-          <ul className="mt-2 flex flex-col text-sm">
+          <ul className="mt-3 flex flex-col">
             {view.items.map((item) => (
               <li
                 key={item.id}
-                className="flex justify-between gap-2 border-t py-1"
-                style={{ borderColor: 'var(--bg-raised)' }}
+                className="flex items-center justify-between gap-3 border-t py-2 text-sm"
+                style={{ borderColor: 'var(--border-default)' }}
               >
-                <span>{item.label}</span>
+                <span className="min-w-0">{item.label}</span>
                 {/* An unsent item is invisible to the client, whatever its status says (D60). */}
-                <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
-                  {item.sentAt ? item.status.toLowerCase().replaceAll('_', ' ') : 'not sent'}
-                </span>
+                <StatusPill tone={checklistTone(item.status, item.sentAt !== null)}>
+                  {item.sentAt ? sentence(item.status) : 'Not sent'}
+                </StatusPill>
               </li>
             ))}
           </ul>
-          <p className="mt-1 text-xs" style={{ color: 'var(--text-muted)' }}>
-            {[
-              view.unsent > 0 ? `${view.unsent} item${view.unsent === 1 ? ' waits' : 's wait'} for the next Send` : null,
-              view.lastChasedAt ? `chased ${new Date(view.lastChasedAt).toLocaleDateString()}` : null,
-            ]
-              .filter(Boolean)
-              .join(' · ')}
-          </p>
+          {(view.unsent > 0 || view.lastChasedAt) && (
+            <p className="mt-1 text-xs" style={{ color: 'var(--text-muted)' }}>
+              {[
+                view.unsent > 0 ? `${view.unsent} item${view.unsent === 1 ? ' waits' : 's wait'} for the next Send.` : null,
+                view.lastChasedAt ? `Client last chased ${new Date(view.lastChasedAt).toLocaleDateString()}.` : null,
+              ]
+                .filter(Boolean)
+                .join(' ')}
+            </p>
+          )}
         </>
       )}
 
-      {/* Gated on the server's COORDINATION rule, not the nav table: the CM may manage it here
-          without being able to reach the Coordinator's /checklists screen. */}
-      {mayManageChecklist(role) && (
-        <ChecklistSheet
-          caseId={detail.summary.id}
-          onChecklistChanged={setView}
-          onCaseLeftTheStage={onChanged}
-          trigger={
-            <button type="button" className="mt-2 text-sm font-medium" style={{ color: 'var(--accent-primary)' }}>
-              Manage checklist →
-            </button>
-          }
-        />
-      )}
-    </section>
+      <h3 className="mt-5 text-xs font-semibold" style={{ color: 'var(--text-muted)' }}>
+        Sent by the client
+      </h3>
+      {/* Objects in the document store, each opened through a URL minted at the click (Unit 30). */}
+      <DocumentList caseId={detail.summary.id} maySee={detail.maySeeCaseContent} />
+    </Panel>
   )
 }

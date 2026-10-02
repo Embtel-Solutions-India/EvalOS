@@ -1,11 +1,11 @@
 import { type FormEvent, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Navigate, useNavigate } from 'react-router-dom'
 import { Button } from '@shared/components/ui/button'
 import { Card } from '@shared/components/ui/card'
 import { Input } from '@shared/components/ui/input'
 import { FormField } from '@shared/components/common/FormField'
 import { Logo } from '@shared/components/common/Logo'
-import { statusOf } from '@shared/services/apiClient'
+import { hasPortalToken, statusOf, takeSessionEnded } from '@shared/services/apiClient'
 import { authFailureMessage, sendLink, signIn } from '@/services/expertAuthService'
 
 const REFUSED = "That email and password don't match. Please try again."
@@ -24,6 +24,7 @@ export default function Welcome() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string>()
   const [linkSent, setLinkSent] = useState(false)
+  const [sessionEnded] = useState(takeSessionEnded)
 
   async function onSignIn(event: FormEvent) {
     event.preventDefault()
@@ -52,6 +53,9 @@ export default function Welcome() {
     }
   }
 
+  // Already signed in (Unit 75, D73): the session survives a reload, so skip the form.
+  if (hasPortalToken()) return <Navigate to="/dashboard" replace />
+
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-8 px-4 py-12">
       <div className="flex flex-col items-center gap-1">
@@ -61,6 +65,11 @@ export default function Welcome() {
 
       <Card className="w-full max-w-md space-y-4 p-6">
         <h1 className="text-base font-semibold text-foreground">Sign in</h1>
+        {sessionEnded && (
+          <p role="status" className="rounded-md border bg-muted/50 px-3 py-2 text-sm text-foreground">
+            Your session has ended. Sign in again.
+          </p>
+        )}
         {linkSent ? (
           <p className="text-sm text-muted-foreground" role="status">
             If that address is on our expert panel, a link to set your password is on its way. It works once and

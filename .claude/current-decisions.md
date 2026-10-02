@@ -249,7 +249,7 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
   message and rule; **Ably relays live updates only** (one private channel per person, publish never
   granted to a browser); web push for anyone without the app open. No chat platform owns the data.
 - **D51.** **Drafts are uploaded versions** (Unit 58, `58-client-portal.md`, 2026-09-27, business
-  decision). The Case Manager (or Coordinator / PM) uploads each version as **Word + PDF** onto the
+  decision). **Only the Case Manager** uploads each version (edited 2026-10-02: the PC, PM and GM no longer may; `POST …/drafts` is `CASE_MANAGER` only, no `GM_OR`) as **Word + PDF** onto the
   existing `case_document` DRAFT versions — no second version table. Each version carries an
   immutable comment thread (1–2,000 characters, optional page) open only while it is the one in
   client review. The client approves or requests changes **on a named version** (409
@@ -259,8 +259,12 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
   **The client portal is case-first** (Unit 58 phase 3, 2026-09-28): Home lists every case, each
   opens its own page, and no client route resolves a case from the token — which closes Q8.
   **The draft PDF is viewed first** (2026-09-28, closes Q13): it opens in the browser's own viewer,
-  with Download PDF and Download Word beside it. Only a staff-uploaded, sniffed `DRAFT` PDF is served
-  inline; everything a client or expert uploads stays `attachment`.
+  with Download PDF and Download Word beside it. **Edited 2026-10-02 (Unit 74,
+  `74-view-and-download.md`): every document anyone may read has View and Download**, View first.
+  A view is served `inline` with its type **forced** to `application/pdf`, `image/png` or
+  `image/jpeg` from the filename's extension, so the browser opens it only in its PDF or image
+  viewer and never as a page; Word files have no viewer and stay Download only. Everything else is
+  still `attachment`. Who may read which document is unchanged.
 - **D18.** The target is an **id-faithful mirror** of GHL (same pipeline/stage/contact/opportunity
   ids both sides), synced both ways, that keeps working when sync is off. Units 44–48
   (`context/specs/00c-ghl-independence-programme.md`). EvalOS mints its own primary key and keeps
@@ -483,7 +487,7 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
 - **D63.** **Everyone on a case sees and downloads its documents; the ENM does not** (2026-09-30,
   the business; Unit 66b, spec `66b-expert-case-documents.md`). Staff who can load the case and
   whose role reads case content (GM, BM, PM, PC, CM) see every document and every draft version.
-  The CM uploads the draft and each new version (the PC, PM and GM may too, D51). **The case's
+  Only the CM uploads the draft and each new version (D51). **The case's
   expert** sees and downloads the client's current uploads and the client-approved draft (PDF +
   Word), from the offer on, for as long as they are the case's expert
   (`GET /api/portal/expert/documents/{id}/url`, audited); earlier draft versions stay internal. The
@@ -525,6 +529,11 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
   policy version, recorded on the account and as a `TERMS_ACCEPTED` audit row; fail closed. Both
   portals' sign-in screens carry the portal artwork on the right half. Built as Unit 72
   (`72-portal-terms-acceptance.md`).
+- **D73.** **A portal sign-in survives a reload** (2026-10-02, the business). The client's and the
+  expert's token is kept in `sessionStorage` (per tab, gone when the tab closes), replacing the
+  memory-only token. Both portals have a **Sign out** that revokes the token on the server
+  (`POST /api/portal/sign-out`); a 401 while signed in returns to sign-in with "Your session has
+  ended". Built as Unit 75 (`75-portal-session-survives-reload.md`).
 - **D68.** **EvalOS screens update themselves** (2026-10-01, the business). A committed write to a
   case (the case, its documents, checklist, offers, payouts, draft comments) sends a **signal, never
   data**, over Ably: `case.changed {caseId}` to a per-brand staff channel and to the case's client

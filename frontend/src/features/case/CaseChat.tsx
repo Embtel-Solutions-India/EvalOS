@@ -16,8 +16,8 @@ export default function CaseChat({ caseId }: { caseId: string }) {
 
   return (
     <section
-      className="flex h-[40rem] max-h-[calc(100svh-6rem)] flex-col gap-2 rounded-lg border p-4"
-      style={{ background: 'var(--bg-surface)', borderColor: 'var(--border-default)' }}
+      className="flex h-[28rem] max-h-[calc(100svh-6rem)] min-w-0 flex-col gap-2 rounded-lg border p-4 xl:h-[40rem]"
+      style={{ background: 'var(--bg-surface)', borderColor: 'var(--border-default)', boxShadow: 'var(--shadow-card)' }}
     >
       <div className="flex gap-1" role="tablist" aria-label="Conversations">
         {TYPES.map((t) => (
@@ -27,7 +27,7 @@ export default function CaseChat({ caseId }: { caseId: string }) {
             role="tab"
             aria-selected={type === t.type}
             onClick={() => setType(t.type)}
-            className="rounded-md px-3 py-1 text-sm font-medium"
+            className="rounded-md px-3 py-1 text-sm font-medium focus-visible:shadow-[var(--ring-focus)] focus-visible:outline-none"
             style={
               type === t.type
                 ? { background: 'var(--accent-soft)', color: 'var(--accent-primary)' }

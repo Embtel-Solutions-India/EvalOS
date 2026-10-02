@@ -12,6 +12,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
+import com.ie.evalos.domain.AuditAction;
 import com.ie.evalos.domain.ClientAccount;
 import com.ie.evalos.domain.IllegalTransitionException;
 import com.ie.evalos.domain.PortalAccess;
@@ -53,11 +54,13 @@ public class PortalAccessService {
 
 	private final PortalAccessRepository tokens;
 	private final Duration partyTtl;
+	private final AuditService audit;
 
 	PortalAccessService(PortalAccessRepository tokens,
-			@Value("${evalos.portal.party-link-ttl}") Duration partyTtl) {
+			@Value("${evalos.portal.party-link-ttl}") Duration partyTtl, AuditService audit) {
 		this.tokens = tokens;
 		this.partyTtl = partyTtl;
+		this.audit = audit;
 	}
 
 	// --- mint ----------------------------------------------------------------
@@ -222,6 +225,29 @@ public class PortalAccessService {
 				.map(access -> {
 					access.seen(now);
 					return PortalPrincipal.of(tokens.save(access));
+				});
+	}
+
+	/**
+	 * Ends a session now rather than in seven days (Unit 75, D73): the presented token's row is
+	 * revoked, so a copy of it left in another tab or a log stops working. Unknown, expired or
+	 * already-revoked tokens are a no-op — signing out twice is not an error.
+	 */
+	@Transactional
+	public void revoke(String presented) {
+		if (presented == null || presented.isBlank()) {
+			return;
+		}
+		String presentedHash = hash(presented);
+		tokens.findByTokenHash(presentedHash)
+				.filter(access -> access.matches(presentedHash))
+				.filter(access -> access.getRevokedAt() == null)
+				.ifPresent(access -> {
+					access.revoke(Instant.now());
+					tokens.save(access);
+					// Sign-in is audited, so sign-out is too: support can see when a session ended.
+					audit.recordPortalEvent(access.getBrandId(), access.getAudience(), "PORTAL_ACCESS", access.getId(),
+							AuditAction.PORTAL_SIGNED_OUT, null, "signed out");
 				});
 	}
 

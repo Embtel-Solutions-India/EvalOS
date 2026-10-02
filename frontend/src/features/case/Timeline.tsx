@@ -52,7 +52,7 @@ export default function Timeline({
   return (
     <section
       className="flex flex-col rounded-lg border"
-      style={{ background: 'var(--bg-surface)', borderColor: 'var(--border-default)' }}
+      style={{ background: 'var(--bg-surface)', borderColor: 'var(--border-default)', boxShadow: 'var(--shadow-card)' }}
     >
       <header className="border-b px-4 py-3" style={{ borderColor: 'var(--border-default)' }}>
         <h2 className="text-sm font-semibold tracking-tight">Notes &amp; timeline</h2>

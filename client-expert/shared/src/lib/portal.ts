@@ -42,10 +42,9 @@ export type ClientDocumentsView = {
  * The token, out of the URL fragment.
  *
  * A fragment and not a query parameter, because a fragment is never sent to a server: it stays out
- * of access logs, `Referer` headers and every redirect in between. It is held in memory only —
- * nothing is written to `localStorage`, which the rest of this app uses for its mock session. A
- * link forwarded to a shared machine is a different risk from a person signing in at their own
- * desk, and this surface is the forwarded-link one.
+ * of access logs, `Referer` headers and every redirect in between. Once lifted it is kept the way a
+ * signed-in token is (Unit 75, D73): `sessionStorage` for that tab, never `localStorage`, so it is
+ * gone when the tab closes — which bounds the risk of a link opened on a shared machine.
  */
 export function tokenFromFragment(hash: string): string | null {
   const token = hash.replace(/^#/, '').trim()
@@ -239,4 +238,12 @@ export type DeliveredFile = {
   kind: 'SIGNED_LETTER' | 'APPROVED_DRAFT'
   filename: string | null
   at: string
+}
+
+/**
+ * Whether the browser has a viewer for this file (Unit 74): a PDF, PNG or JPEG. The server applies
+ * the same rule and forces the type when it serves a view; a Word file only downloads.
+ */
+export function isViewable(filename: string | null | undefined): boolean {
+  return /\.(pdf|png|jpe?g)$/i.test(filename ?? '')
 }

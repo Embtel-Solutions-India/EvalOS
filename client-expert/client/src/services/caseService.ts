@@ -50,8 +50,9 @@ export function uploadDocument(
 }
 
 /** Five-minute links, fetched per click and never stored — a stored one is a stored credential. */
-export async function documentUrl(caseId: string, documentId: string): Promise<string> {
-  return (await unwrap(apiClient.get<ApiResponse<Url>>(`${base(caseId)}/documents/${documentId}/url`))).url
+export async function documentUrl(caseId: string, documentId: string, view = false): Promise<string> {
+  const params = view ? { view: true } : {}
+  return (await unwrap(apiClient.get<ApiResponse<Url>>(`${base(caseId)}/documents/${documentId}/url`, { params }))).url
 }
 
 export function listDrafts(caseId: string, signal?: AbortSignal): Promise<ClientDraftVersion[]> {
@@ -93,6 +94,8 @@ export function listDelivered(caseId: string, signal?: AbortSignal): Promise<Del
   return unwrap(apiClient.get<ApiResponse<DeliveredFile[]>>(`${base(caseId)}/delivered`, { signal }))
 }
 
-export async function deliveredUrl(caseId: string, documentId: string): Promise<string> {
-  return (await unwrap(apiClient.get<ApiResponse<Url>>(`${base(caseId)}/delivered/${documentId}/url`))).url
+/** `view` opens the file in the browser's PDF viewer (Unit 74); both delivered files are PDFs. */
+export async function deliveredUrl(caseId: string, documentId: string, view = false): Promise<string> {
+  const params = view ? { view: true } : {}
+  return (await unwrap(apiClient.get<ApiResponse<Url>>(`${base(caseId)}/delivered/${documentId}/url`, { params }))).url
 }

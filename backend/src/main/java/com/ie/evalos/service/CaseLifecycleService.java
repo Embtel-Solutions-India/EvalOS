@@ -695,17 +695,17 @@ public class CaseLifecycleService {
 		// `pdf` names a draft's second file (Unit 58); every other document has only the one.
 		String key = pdf ? document.getPdfObjectKey() : document.getObjectKey();
 		requireState(key != null, "that document has no such file behind it");
-		// Viewing in the browser is a draft PDF's alone (D51); everything else stays a download.
-		if (view && !(pdf && document.getKind() == DocumentKind.DRAFT)) {
-			throw new InvalidRequestException("only a draft's PDF can be viewed");
-		}
+		// Minted before the audit row, so a refused view (a Word file, Unit 74) records nothing.
+		String url = !view ? store.presignedUrl(key)
+				: pdf ? store.presignedPdfView(key)
+				: store.presignedView(key, document.getFilename());
 
 		// The brand is deliberately not passed: `recordEvent` takes it from the authenticated
 		// caller, never from an argument a caller could get wrong.
 		audit.recordEvent("CASE_DOCUMENT", document.getId(), AuditAction.EXPORTED,
 				TenantContext.current().memberId(), null,
 				Map.of("opened", String.valueOf(pdf ? document.getPdfFilename() : document.getFilename())));
-		return view ? store.presignedPdfView(key) : store.presignedUrl(key);
+		return url;
 	}
 
 	/**

@@ -45,7 +45,7 @@ Since the Units 36–41 pivot it is **also** the interface Sales and Marketing w
 | System | Direction | Used for |
 |---|---|---|
 | GoHighLevel | read + write | contacts, opportunities, pipelines, calendars/appointments, tasks, invoices, custom fields, users |
-| AWS S3 | write + presign | all documents; two capabilities only (`put`, `presignedUrl`) |
+| AWS S3 | write + presign | all documents; `put` and presigned reads only — a download (`attachment`) or a view (`inline`, type forced to PDF / PNG / JPEG, Unit 74) |
 | SMTP (Spring Mail) — Brevo, Resend, Mailgun, Postmark or SES | out | **two messages only** — set-password and reset-password. **The provider is `spring.mail.*`, not a class** (D3e, 2026-09-18): four environment variables and a restart, no build. The Brevo API transport is deleted |
 
 No AI anywhere in the system. No Google Drive (removed, `V34`).
@@ -69,7 +69,7 @@ No AI anywhere in the system. No Google Drive (removed, `V34`).
 
 ```
 backend/src/main/resources/db/migration/     V1..V84, all applied; prod scans this and only this
-backend/src/main/resources/db/seed-local/    V900..V911, local profile only
+backend/src/main/resources/db/seed-local/    V900..V915, local profile only (V915 = the current demo world; samples in backend/seed-local-documents/)
 backend/src/main/resources/db/seed-testprod/ V950..V951, testprod profile only
 backend/src/main/resources/db/seed-prod/     V960, prod profile only (the six IE desk logins)
 packages/evalos-chat/                      source-only chat UI (Unit 57 §7); no node_modules, imported by client-expert/ through a Vite alias

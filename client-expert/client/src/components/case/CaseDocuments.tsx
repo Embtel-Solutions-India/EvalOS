@@ -14,6 +14,7 @@ import {
   actionFirst,
   CHECKLIST_STATUS,
   failureMessage,
+  isViewable,
   MAX_UPLOAD_MB,
   needsClientAction,
   type ChecklistItem,
@@ -70,9 +71,17 @@ export function CaseDocuments({ caseId }: { caseId: string }) {
                   v{document.version} · {document.checklistLabel ?? '—'} · {formatDate(document.uploadedAt, 'short')}
                 </span>
               </span>
-              <Button variant="ghost" size="sm" onClick={() => void openFile(() => documentUrl(caseId, document.id))}>
-                Download
-              </Button>
+              {/* View first (Unit 74): a PDF or image opens in the browser; every file downloads. */}
+              <span className="flex shrink-0 gap-1">
+                {isViewable(document.filename) && (
+                  <Button variant="ghost" size="sm" onClick={() => void openFile(() => documentUrl(caseId, document.id, true))}>
+                    View
+                  </Button>
+                )}
+                <Button variant="ghost" size="sm" onClick={() => void openFile(() => documentUrl(caseId, document.id))}>
+                  Download
+                </Button>
+              </span>
             </div>
           ))}
         </div>

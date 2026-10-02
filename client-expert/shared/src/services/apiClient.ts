@@ -28,14 +28,75 @@ import axios from 'axios'
 
 const PORTAL_HEADER = 'X-Portal-Token'
 
-let token: string | null = null
+/**
+ * **The sign-in lives in `sessionStorage` (Unit 75, D73)**: a reload keeps it, closing the tab ends
+ * it, and a new tab starts signed out. The client and expert portals are separate origins, so one
+ * key cannot collide. A browser that refuses storage falls back to memory only, as before.
+ */
+const STORAGE_KEY = 'evalos.portal.token'
+const ENDED_KEY = 'evalos.portal.sessionEnded'
+
+function stored(key: string): string | null {
+  try {
+    return sessionStorage.getItem(key)
+  } catch {
+    return null
+  }
+}
+
+function store(key: string, value: string | null): void {
+  try {
+    if (value === null) sessionStorage.removeItem(key)
+    else sessionStorage.setItem(key, value)
+  } catch {
+    // Storage refused (private mode, blocked site data): the in-memory token still works.
+  }
+}
+
+let token: string | null = stored(STORAGE_KEY)
 
 export function setPortalToken(value: string): void {
   token = value
+  store(STORAGE_KEY, value)
 }
 
 export function hasPortalToken(): boolean {
   return token !== null
+}
+
+function clearPortalToken(): void {
+  token = null
+  store(STORAGE_KEY, null)
+}
+
+/**
+ * Whether the last session was ended by the server (a 401 while signed in), read once: the sign-in
+ * screen shows "Your session has ended" and the flag is gone.
+ */
+let sessionEnded: boolean | null = null
+
+export function takeSessionEnded(): boolean {
+  // Cached for the page load, so StrictMode's double render reads the same answer.
+  if (sessionEnded === null) {
+    sessionEnded = stored(ENDED_KEY) !== null
+    store(ENDED_KEY, null)
+  }
+  return sessionEnded
+}
+
+/**
+ * Sign out: the server revokes the token (it would otherwise live seven days), then the browser
+ * forgets it and goes to `signInPath`. A full navigation, so every cache and the chat client go too.
+ * A failed revoke still signs this browser out.
+ */
+export async function signOut(signInPath: string): Promise<void> {
+  try {
+    if (token) await apiClient.post('/sign-out')
+  } catch {
+    // The token is dropped below either way.
+  }
+  clearPortalToken()
+  window.location.assign(signInPath)
 }
 
 const base = (import.meta.env.VITE_API_URL || '') as string
@@ -48,6 +109,20 @@ export const apiClient = axios.create({
 apiClient.interceptors.request.use((config) => {
   if (token) config.headers[PORTAL_HEADER] = token
   return config
+})
+
+// A 401 while signed in means the server no longer honours this token (expired or revoked):
+// forget it and reload, and the layout's guard sends the user to sign-in, which says why. The
+// auth routes are excluded, so a wrong password shows its own message rather than reloading.
+apiClient.interceptors.response.use(undefined, (error: unknown) => {
+  const status = axios.isAxiosError(error) ? error.response?.status : undefined
+  const url = axios.isAxiosError(error) ? (error.config?.url ?? '') : ''
+  if (status === 401 && token && !url.startsWith('/auth/') && url !== '/sign-out') {
+    clearPortalToken()
+    store(ENDED_KEY, '1')
+    window.location.reload()
+  }
+  return Promise.reject(error)
 })
 
 /** The HTTP status, for `failureMessage` — the server's own words are not written for a client. */

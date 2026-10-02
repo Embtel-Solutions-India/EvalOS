@@ -1,11 +1,11 @@
 import { type FormEvent, type ReactNode, useState } from 'react'
-import { useLocation, useNavigate } from 'react-router-dom'
+import { Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { Button } from '@shared/components/ui/button'
 import { Card } from '@shared/components/ui/card'
 import { FormField } from '@shared/components/common/FormField'
 import { Input } from '@shared/components/ui/input'
 import { Logo } from '@shared/components/common/Logo'
-import { statusOf } from '@shared/services/apiClient'
+import { hasPortalToken, statusOf, takeSessionEnded } from '@shared/services/apiClient'
 import {
   authFailureMessage,
   forgotPassword,
@@ -66,6 +66,7 @@ export default function SignIn() {
   const [password, setPassword] = useState('')
   const [signingIn, setSigningIn] = useState(false)
   const [signInError, setSignInError] = useState<string | undefined>()
+  const [sessionEnded] = useState(takeSessionEnded)
 
   const [sendingReset, setSendingReset] = useState(false)
   const [resetSent, setResetSent] = useState(false)
@@ -204,6 +205,9 @@ export default function SignIn() {
     ),
   }
 
+  // Already signed in (Unit 75, D73): the session survives a reload, so skip the form.
+  if (hasPortalToken()) return <Navigate to="/dashboard" replace />
+
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-8 px-4 py-8">
       <Logo size="lg" showTagline />
@@ -213,6 +217,11 @@ export default function SignIn() {
           <h1 className="text-xl font-semibold tracking-tight text-foreground">Sign in</h1>
           <p className="mt-1 text-sm text-muted-foreground">Enter your email to continue.</p>
         </div>
+        {sessionEnded && (
+          <p role="status" className="rounded-md border bg-muted/50 px-3 py-2 text-sm text-foreground">
+            Your session has ended. Sign in again.
+          </p>
+        )}
 
         <form onSubmit={state === 'PASSWORD_SET' ? onSignIn : onIdentify} className="space-y-4">
           <FormField label="Email" htmlFor="email" required error={identifyError}>

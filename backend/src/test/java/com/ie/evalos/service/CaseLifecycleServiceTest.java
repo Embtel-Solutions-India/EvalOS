@@ -835,6 +835,27 @@ class CaseLifecycleServiceTest {
 		lifecycle.versionsOf(CASE_ID, DocumentKind.DRAFT);
 	}
 
+	/**
+	 * <strong>Staff view any PDF or image, not only a draft's PDF</strong> (Unit 74, D51 edited): the
+	 * client's scan opens in the browser through {@link DocumentStore#presignedView}, which forces
+	 * the type, and still downloads through {@link DocumentStore#presignedUrl}.
+	 */
+	@Test
+	void staffViewOrDownloadAClientUpload() {
+		CaseDocument scan = new CaseDocument(BRAND, CASE_ID, DocumentKind.CLIENT_UPLOAD, 1, null, ActorType.CLIENT, null);
+		org.springframework.test.util.ReflectionTestUtils.setField(scan, "id", UUID.randomUUID());
+		org.springframework.test.util.ReflectionTestUtils.setField(subject, "id", CASE_ID);
+		scan.setObjectKey("k/passport");
+		scan.setFilename("passport.jpg");
+		given(documents.findById(scan.getId())).willReturn(Optional.of(scan));
+		given(store.presignedView("k/passport", "passport.jpg")).willReturn("https://s3/inline");
+		given(store.presignedUrl("k/passport")).willReturn("https://s3/attachment");
+		actAs(Role.PROJECT_MANAGER);
+
+		assertEquals("https://s3/inline", lifecycle.readUrl(CASE_ID, scan.getId(), false, true));
+		assertEquals("https://s3/attachment", lifecycle.readUrl(CASE_ID, scan.getId(), false, false));
+	}
+
 	@Test
 	void anUnavailableExpertCannotBePutOnACase() {
 		Expert busy = expert(EXPERT_ID, Availability.AT_CAPACITY);

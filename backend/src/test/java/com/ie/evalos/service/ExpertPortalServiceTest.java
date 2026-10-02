@@ -429,21 +429,27 @@ class ExpertPortalServiceTest {
 	}
 
 	@Test
-	void aListedFileOpensOnAnAuditedUrlAndOnlyTheLettersPdfOpensInline() {
+	void aListedFileOpensOnAnAuditedUrlAndAnyPdfOrImageOpensInline() {
 		CaseDocument approved = draft(1, DocumentStatus.CLIENT_APPROVED);
 		CaseDocument passport = upload("passport.pdf", false);
+		CaseDocument diploma = upload("diploma.docx", false);
 		given(documents.findByCaseIdAndKindOrderByVersionDesc(CASE_ID, DocumentKind.DRAFT)).willReturn(List.of(approved));
 		given(documents.findByCaseIdAndKindOrderByVersionDesc(CASE_ID, DocumentKind.CLIENT_UPLOAD))
-				.willReturn(List.of(passport));
+				.willReturn(List.of(passport, diploma));
 		given(store.presignedUrl("k/passport.pdf")).willReturn("https://s3/passport");
 		given(store.presignedPdfView("k/v1.pdf")).willReturn("https://s3/letter-inline");
+		given(store.presignedView("k/passport.pdf", "passport.pdf")).willReturn("https://s3/passport-inline");
+		given(store.presignedView("k/diploma.docx", "diploma.docx"))
+				.willThrow(new InvalidRequestException("that file can't be opened in the browser - download it instead"));
 
 		assertThat(portal.documentUrl(token(), null, passport.getId(), false, false)).isEqualTo("https://s3/passport");
 		assertThat(portal.documentUrl(token(), null, approved.getId(), true, true)).isEqualTo("https://s3/letter-inline");
-		assertThatThrownBy(() -> portal.documentUrl(token(), null, passport.getId(), false, true))
+		// Unit 74: the client's own PDF views too; a Word file is refused before it is audited.
+		assertThat(portal.documentUrl(token(), null, passport.getId(), false, true)).isEqualTo("https://s3/passport-inline");
+		assertThatThrownBy(() -> portal.documentUrl(token(), null, diploma.getId(), false, true))
 				.isInstanceOf(InvalidRequestException.class);
 
-		verify(audit, times(2)).recordPortalEvent(eq(BRAND), eq(PortalAudience.EXPERT), eq("CASE_DOCUMENT"), any(),
+		verify(audit, times(3)).recordPortalEvent(eq(BRAND), eq(PortalAudience.EXPERT), eq("CASE_DOCUMENT"), any(),
 				eq(AuditAction.EXPORTED), eq(null), any());
 	}
 

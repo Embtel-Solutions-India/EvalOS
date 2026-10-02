@@ -202,7 +202,7 @@ export async function fetchCaseDocuments(
  * missing document. Ask, then open.
  */
 export async function fetchDocumentUrl(caseId: string, documentId: string, pdf = false, view = false): Promise<string> {
-  // `view` opens a draft's PDF in the browser instead of downloading it (D51, view first).
+  // `view` opens a PDF or image in the browser instead of downloading it (Unit 74).
   const params = { ...(pdf ? { pdf: true } : {}), ...(view ? { view: true } : {}) }
   const { url } = await unwrap<{ url: string }>(api.get(`/cases/${caseId}/documents/${documentId}/url`, { params }))
   return url

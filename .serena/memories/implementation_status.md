@@ -661,3 +661,11 @@ an expert push opened with no tab open lands on `/case` without the fragment tok
 **2026-10-02 — Unit 67 built (spec 67):** `RowActions` (select of `actionsFor` → `QuickActionDialog`) on Inbox, My drafts, Expert assignment; CM may reassign an expert; case header names the PM/CM/coordinator (`CaseDetail.team`). Board card still has no buttons.
 
 **2026-10-02 — Unit 68 built (spec 68, V84, D72):** staff create/edit/deactivate/set-password routes + `/admin/staff`; `/admin/pipelines` (purpose — D61's screen); `/admin/sync` (drift + outbox, read-only); `/brands` read-only; `JwtFilter` refuses inactive members per request.
+
+**2026-10-02 — Unit 74 (View and Download on every document, D51 edited) BUILT** (spec `74`, no migration). `DocumentStore.presignedView(key, filename)` serves `inline` with the type forced to PDF / PNG / JPEG from the extension (else 400; Word stays download-only); `view` accepted on staff, expert, client document and client delivered routes. Every document list shows View (when viewable) and Download; staff draft history reads View PDF · Download PDF · Download Word. Read rules and `EXPORTED` audit unchanged. Not browser-checked yet.
+
+**2026-10-02 — Unit 75 (portal sign-in survives a reload, D73) BUILT** (spec `75`, no migration). Token in `sessionStorage`; `signOut` revokes via `POST /api/portal/sign-out` (`PortalAccessService.revoke`); a 401 clears it and returns to sign-in with "Your session has ended". Client portal gains Sign out; expert Sign outs now call `signOut`. Not browser-checked yet.
+
+**2026-10-02 — Draft upload CM-only (D51 edited):** `POST …/drafts` `hasRole('CASE_MANAGER')`, `mayUploadDraft` CM only. `CaseControllerTest` 21 green, `draftRules.test.ts` 8 green.
+
+**2026-10-02 — local demo world V915.** Replaces V905's cases: 30 cases (all 12 stages, all 3 exceptions), 13 experts, 28 demo clients; every client/expert account on `DevPassw0rd!`; team members + GHL mirror kept. Samples in `backend/seed-local-documents/` -> `.local-documents/seed/`. Applies on next backend start.

@@ -2,7 +2,7 @@ import { apiClient, setPortalToken, unwrap, type ApiResponse } from '@shared/ser
 
 /**
  * The expert portal's door (Unit 59). Like the client's: a password is a second way to obtain the
- * existing party-scoped expert token, held in memory, never a second kind of session.
+ * existing party-scoped expert token, kept for the tab (Unit 75), never a second kind of session.
  */
 
 export type Session = { token: string; expiresAt: string }

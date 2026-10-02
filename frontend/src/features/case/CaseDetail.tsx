@@ -158,10 +158,15 @@ export default function CaseDetailPage() {
   }
 
   if (!detail || !timeline) {
+    // The page's own outline while it loads, so nothing jumps when it arrives.
     return (
-      <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
-        Loading the case…
-      </p>
+      <div aria-busy="true" aria-label="Loading the case" className="flex flex-col gap-4">
+        <div className="h-36 animate-pulse rounded-lg" style={{ background: 'var(--bg-raised)' }} />
+        <div className="grid gap-4 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)]">
+          <div className="h-72 animate-pulse rounded-lg" style={{ background: 'var(--bg-raised)' }} />
+          <div className="h-72 animate-pulse rounded-lg" style={{ background: 'var(--bg-raised)' }} />
+        </div>
+      </div>
     )
   }
 
@@ -177,15 +182,18 @@ export default function CaseDetailPage() {
         onChanged={() => void load()}
       />
 
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-        <div className="flex flex-col gap-4">
+      {/* Two columns from `xl` (the work, then the conversation); one column below, where two
+          would squeeze the chat and the documents side by side on a tablet. */}
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)]">
+        <div className="flex min-w-0 flex-col gap-4">
+          {/* The work, in the order the case moves through it: documents, draft, expert. */}
           <DocumentsPanel detail={detail} role={me.role} onChanged={() => void load()} />
           <DraftPanel detail={detail} role={me.role} onUploaded={() => void load()} />
-          {/* Above the expert and the notes: who the letter is about is what the rest of the
-              column is in service of, and it is the one fact the header cannot carry. */}
+          <ExpertCard detail={detail} />
+          {/* Then what the case is about. Each note panel renders nothing for a role that may not
+              read it, so the column holds only what this reader can use. */}
           <CaseFacts detail={detail} role={me.role} onSave={onSaveFacts} />
           <SalesNote detail={detail} />
-          <ExpertCard detail={detail} />
           <StrategyNotes detail={detail} onSave={onSaveNotes} />
           {/*
             Below the notes and separate from them, which is the visible half of the decision to
@@ -196,7 +204,7 @@ export default function CaseDetailPage() {
           <ExpertRationale detail={detail} />
         </div>
 
-        <div className="flex flex-col gap-4">
+        <div className="flex min-w-0 flex-col gap-4">
           <CaseChat caseId={detail.summary.id} />
           <Timeline entries={timeline} onPostNote={onPostNote} />
         </div>

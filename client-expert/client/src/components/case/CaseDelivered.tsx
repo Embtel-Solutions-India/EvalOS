@@ -25,9 +25,15 @@ export function CaseDelivered({ caseId }: { caseId: string }) {
             <strong>{LABEL[file.kind]}</strong>
             {file.filename && <span className="ml-2 text-muted-foreground">{file.filename}</span>}
           </span>
-          <Button variant="outline" size="sm" onClick={() => void openFile(() => deliveredUrl(caseId, file.id))}>
-            Download
-          </Button>
+          {/* View first (Unit 74): both delivered files are PDFs, so both open in the browser. */}
+          <span className="flex shrink-0 gap-2">
+            <Button size="sm" onClick={() => void openFile(() => deliveredUrl(caseId, file.id, true))}>
+              View
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => void openFile(() => deliveredUrl(caseId, file.id))}>
+              Download
+            </Button>
+          </span>
         </div>
       ))}
     </div>

@@ -529,23 +529,24 @@ class CaseControllerTest {
 				.andExpect(jsonPath("$.error.code").value("VALIDATION_FAILED"));
 	}
 
-	/** Unit 58 §3: the CM, Coordinator or PM uploads both files; nobody else. */
+	/** D51 (2026-10-02): the Case Manager uploads both files; nobody else. */
 	@Test
-	void aDraftIsUploadedAsWordAndPdfByTheCaseTeamOnly() throws Exception {
+	void aDraftIsUploadedAsWordAndPdfByTheCaseManagerOnly() throws Exception {
 		given(lifecycle.submitDraft(any(), any(), any())).willReturn(aCase());
 		var docx = new org.springframework.mock.web.MockMultipartFile("docx", "Draft.docx",
 				"application/octet-stream", new byte[] { 'P', 'K', 3, 4, 0 });
 		var pdf = new org.springframework.mock.web.MockMultipartFile("pdf", "Draft.pdf", "application/pdf",
 				"%PDF-1.7".getBytes());
 
-		for (Role role : List.of(Role.CASE_MANAGER, Role.PROJECT_COORDINATOR, Role.PROJECT_MANAGER, Role.GM)) {
+		mockMvc.perform(multipart("/api/cases/{id}/drafts", CASE_ID).file(docx).file(pdf)
+				.header(HttpHeaders.AUTHORIZATION, bearer(Role.CASE_MANAGER)))
+				.andExpect(status().isOk());
+		for (Role role : List.of(Role.PROJECT_COORDINATOR, Role.PROJECT_MANAGER, Role.GM,
+				Role.EXPERT_NETWORK_MANAGER)) {
 			mockMvc.perform(multipart("/api/cases/{id}/drafts", CASE_ID).file(docx).file(pdf)
 					.header(HttpHeaders.AUTHORIZATION, bearer(role)))
-					.andExpect(status().isOk());
+					.andExpect(status().isForbidden());
 		}
-		mockMvc.perform(multipart("/api/cases/{id}/drafts", CASE_ID).file(docx).file(pdf)
-				.header(HttpHeaders.AUTHORIZATION, bearer(Role.EXPERT_NETWORK_MANAGER)))
-				.andExpect(status().isForbidden());
 	}
 
 	/** A renamed file is refused at the door, before the lifecycle is called. */
