@@ -27,6 +27,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -50,7 +51,8 @@ class PortalAccessServiceTest {
 	private final CaseLifecycleService lifecycle = mock(CaseLifecycleService.class);
 
 	/** Signing in is the only mint left (Unit 59): staff-minted expert links were removed. */
-	private final PortalAccessService links = new PortalAccessService(tokens, Duration.ofDays(7));
+	private final AuditService audit = mock(AuditService.class);
+	private final PortalAccessService links = new PortalAccessService(tokens, Duration.ofDays(7), audit);
 
 	private Case subject;
 
@@ -103,7 +105,7 @@ class PortalAccessServiceTest {
 	}
 
 	/**
-	 * <strong>Signing out ends the token on the server</strong> (Unit 75, D72): it stops resolving at
+	 * <strong>Signing out ends the token on the server</strong> (Unit 75, D73): it stops resolving at
 	 * once instead of living out its seven days, and signing out again is a no-op.
 	 */
 	@Test
@@ -122,6 +124,9 @@ class PortalAccessServiceTest {
 		links.revoke(null);
 		assertThat(live.getRevokedAt()).isEqualTo(first);
 		verify(tokens).save(live);
+		// Audited once, like sign-in — the repeat sign-out finds nothing live and records nothing.
+		verify(audit).recordPortalEvent(eq(BRAND), eq(PortalAudience.CLIENT), eq("PORTAL_ACCESS"), any(),
+				eq(com.ie.evalos.domain.AuditAction.PORTAL_SIGNED_OUT), eq(null), any());
 	}
 
 	/** A live token yields the principal, and using it moves last-seen — the field support needs. */

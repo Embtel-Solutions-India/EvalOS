@@ -31,7 +31,7 @@ export function ExpertLayout() {
   const navigate = useNavigate()
   const { pathname } = useLocation()
 
-  // The token is in sessionStorage (Unit 75, D72): a reload keeps it; a new tab arrives without one.
+  // The token is in sessionStorage (Unit 75, D73): a reload keeps it; a new tab arrives without one.
   if (!hasPortalToken()) return <Navigate to="/" replace />
 
   const title = pathname === '/dashboard' ? 'Dashboard' : pathname === '/new' ? 'New cases' : pathname === '/messages' ? 'Messages' : pathname === '/payouts' ? 'Payouts' : pathname === '/case' ? 'Case' : 'Your cases'
@@ -166,7 +166,7 @@ function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
           </p>
           <p className="mt-1 text-sidebar-foreground/70">Message the case team from the case itself, or from Messages.</p>
         </div>
-        {/* Ends the token on the server and in this tab (Unit 75, D72). */}
+        {/* Ends the token on the server and in this tab (Unit 75, D73). */}
         <button
           type="button"
           onClick={() => void signOut('/')}
@@ -217,7 +217,7 @@ function TopBarActions() {
         </button>
         {open && (
           <div role="menu" className="absolute right-0 z-40 mt-1 w-44 rounded-lg border bg-popover p-1 shadow-lg">
-            {/* Ends the token on the server and in this tab (Unit 75, D72). */}
+            {/* Ends the token on the server and in this tab (Unit 75, D73). */}
             <button type="button" role="menuitem" onClick={() => void signOut('/')} className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-foreground hover:bg-muted">
               <LogOut className="h-4 w-4" /> Sign out
             </button>

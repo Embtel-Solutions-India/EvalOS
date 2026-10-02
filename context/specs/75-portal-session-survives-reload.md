@@ -1,6 +1,6 @@
 # Unit 75 — The portal session survives a reload
 
-**Decided 2026-10-02 by the business (D72)**: keep the client's and the expert's sign-in in
+**Decided 2026-10-02 by the business (D73)**: keep the client's and the expert's sign-in in
 `sessionStorage`. **Status: BUILT 2026-10-02** (branch `feature/unit-74-view-and-download`; see
 `implementation-status.md`).
 
@@ -27,6 +27,9 @@
 | 3 | Sign out | **A Sign out control in both portals** (client: sidebar and mobile drawer; expert: the existing two) that **revokes the token on the server** (`POST /api/portal/sign-out`), clears storage and goes to the sign-in page. A failed revoke still signs the browser out. |
 | 4 | A 401 while signed in | **Clear the token and return to sign-in**, which says "Your session has ended. Sign in again." The portal auth routes are excluded, so a wrong password still shows its own message. |
 | 5 | Server | `PortalAccessService.revoke(presented)` sets `revoked_at` on the presented token's row; unknown or already-revoked tokens are a no-op. The route sits on the portal chain as an authenticated `POST`, not in the `permitAll` list. |
+| 6 | Audit | A sign-out writes `PORTAL_SIGNED_OUT` (object `PORTAL_ACCESS`), as sign-in writes `CLIENT_SIGNED_IN` / `EXPERT_SIGNED_IN`. |
+| 7 | A token in the link (`#token`) | Lifted once and **removed from the address bar** (`liftFragmentToken`, `history.replaceState`). Otherwise a reload would read it again, and an expired one would loop through the 401 handler. |
+| 8 | A signed-in user on the sign-in page | Sent to `/dashboard`. |
 
 ## 2. Not in this unit
 

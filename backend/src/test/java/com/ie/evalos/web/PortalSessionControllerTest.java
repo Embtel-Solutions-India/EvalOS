@@ -25,7 +25,7 @@ import static org.mockito.Mockito.verify;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-/** Sign out (Unit 75, D72): only a live token can end itself, and it does. */
+/** Sign out (Unit 75, D73): only a live token can end itself, and it does. */
 @WebMvcTest(controllers = PortalSessionController.class)
 @Import({ PortalSecurityConfig.class, SecurityConfig.class, JwtService.class, ApiErrors.class })
 @TestPropertySource(properties = {

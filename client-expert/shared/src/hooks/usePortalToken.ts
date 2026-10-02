@@ -21,10 +21,22 @@ import { hasPortalToken, setPortalToken } from '@shared/services/apiClient'
  * @returns whether a token is now available, which is what a screen gates its query on
  */
 export function usePortalToken(): boolean {
-  const [present] = useState(() => {
-    const token = tokenFromFragment(window.location.hash)
-    if (token) setPortalToken(token)
-    return hasPortalToken()
-  })
+  const [present] = useState(liftFragmentToken)
   return present
+}
+
+/**
+ * Takes a token out of the fragment and **out of the address bar** (Unit 75, D73). With the
+ * sign-in now kept across reloads, a fragment left in place would be read again on every load: an
+ * expired link would 401, the session-ended handler would reload, and the same dead token would
+ * come back — a reload loop. Dropping it also keeps the credential out of browser history. The
+ * router's own history state is kept, so nothing else about the entry changes.
+ */
+export function liftFragmentToken(): boolean {
+  const token = tokenFromFragment(window.location.hash)
+  if (token) {
+    setPortalToken(token)
+    window.history.replaceState(window.history.state, '', window.location.pathname + window.location.search)
+  }
+  return hasPortalToken()
 }

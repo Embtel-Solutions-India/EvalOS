@@ -9,7 +9,7 @@ import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * Sign out of either portal (Unit 75, D72). Authenticated like every other portal route — it is not
+ * Sign out of either portal (Unit 75, D73). Authenticated like every other portal route — it is not
  * in the chain's {@code permitAll} list — so only a live token can end itself.
  */
 @RestController

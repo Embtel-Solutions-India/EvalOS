@@ -9,7 +9,7 @@ Structure and enforced rules. Product facts are in `project-context.md`; rulings
 Staff SPA ──JWT──────────► SecurityConfig (@Order 2) ── /api/**            ── TenantContext(brand,role)
 Client SPA ─portal token─► PortalSecurityConfig (@Order 1) ── /api/portal/** ── PortalPrincipal
 Expert SPA ─portal token─► same chain, audience=EXPERT
-(portal token kept in sessionStorage per tab, D72; `POST /api/portal/sign-out` revokes it)
+(portal token kept in sessionStorage per tab, D73; `POST /api/portal/sign-out` revokes it)
 GHL ───────HMAC + token─► /api/webhooks/ghl/{endpointToken}  (permitAll, brand from token)
 ```
 

@@ -29,7 +29,7 @@ import axios from 'axios'
 const PORTAL_HEADER = 'X-Portal-Token'
 
 /**
- * **The sign-in lives in `sessionStorage` (Unit 75, D72)**: a reload keeps it, closing the tab ends
+ * **The sign-in lives in `sessionStorage` (Unit 75, D73)**: a reload keeps it, closing the tab ends
  * it, and a new tab starts signed out. The client and expert portals are separate origins, so one
  * key cannot collide. A browser that refuses storage falls back to memory only, as before.
  */

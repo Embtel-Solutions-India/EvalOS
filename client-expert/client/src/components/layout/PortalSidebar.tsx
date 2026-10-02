@@ -43,7 +43,7 @@ export function PortalSidebar({ onNavigate }: { onNavigate?: () => void }) {
       <nav className="no-scrollbar flex-1 space-y-6 overflow-y-auto px-3 py-5">
         <NavSection items={PRIMARY_NAV} onNavigate={onNavigate} />
       </nav>
-      {/* Unit 75 (D72): the sign-in survives a reload, so leaving needs a real Sign out. It also
+      {/* Unit 75 (D73): the sign-in survives a reload, so leaving needs a real Sign out. It also
           ends the token on the server. Every client signs in with a password, so the way back is
           the sign-in page, not an old email. */}
       <div className="border-t border-sidebar-border px-3 py-3">

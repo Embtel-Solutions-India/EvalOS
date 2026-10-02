@@ -1,11 +1,11 @@
 import { type FormEvent, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Navigate, useNavigate } from 'react-router-dom'
 import { Button } from '@shared/components/ui/button'
 import { Card } from '@shared/components/ui/card'
 import { Input } from '@shared/components/ui/input'
 import { FormField } from '@shared/components/common/FormField'
 import { Logo } from '@shared/components/common/Logo'
-import { statusOf, takeSessionEnded } from '@shared/services/apiClient'
+import { hasPortalToken, statusOf, takeSessionEnded } from '@shared/services/apiClient'
 import { authFailureMessage, sendLink, signIn } from '@/services/expertAuthService'
 
 const REFUSED = "That email and password don't match. Please try again."
@@ -52,6 +52,9 @@ export default function Welcome() {
       setBusy(false)
     }
   }
+
+  // Already signed in (Unit 75, D73): the session survives a reload, so skip the form.
+  if (hasPortalToken()) return <Navigate to="/dashboard" replace />
 
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-8 px-4 py-12">

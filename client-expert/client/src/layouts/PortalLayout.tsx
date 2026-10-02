@@ -30,7 +30,7 @@ function getPageTitle(pathname: string): string {
 /**
  * With no credential, the door — not a page explaining a link.
  *
- * **The token is kept in `sessionStorage` (Unit 75, D72)**, so a reload stays signed in and
+ * **The token is kept in `sessionStorage` (Unit 75, D73)**, so a reload stays signed in and
  * closing the tab ends the session; a new tab or a bookmark opened elsewhere starts at sign-in.
  * (It was memory-only until then, so every reload signed the client out.)
  *
@@ -62,7 +62,7 @@ export function PortalLayout() {
     return <Navigate to="/signin" replace state={{ from: location.pathname + location.search }} />
   }
 
-  // Unit 72 (D71): the policies are accepted once, before anything else. Declining signs out (D72).
+  // Unit 72 (D71): the policies are accepted once, before anything else. Declining signs out (D73).
   return (
     <TermsGate audience="client" onSignOut={() => void signOut('/signin')}>
     <ChatProvider client={chat}>

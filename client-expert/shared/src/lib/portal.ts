@@ -43,7 +43,7 @@ export type ClientDocumentsView = {
  *
  * A fragment and not a query parameter, because a fragment is never sent to a server: it stays out
  * of access logs, `Referer` headers and every redirect in between. Once lifted it is kept the way a
- * signed-in token is (Unit 75, D72): `sessionStorage` for that tab, never `localStorage`, so it is
+ * signed-in token is (Unit 75, D73): `sessionStorage` for that tab, never `localStorage`, so it is
  * gone when the tab closes — which bounds the risk of a link opened on a shared machine.
  */
 export function tokenFromFragment(hash: string): string | null {

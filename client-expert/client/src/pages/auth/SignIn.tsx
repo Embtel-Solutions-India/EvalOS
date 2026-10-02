@@ -1,11 +1,11 @@
 import { type FormEvent, type ReactNode, useState } from 'react'
-import { useLocation, useNavigate } from 'react-router-dom'
+import { Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { Button } from '@shared/components/ui/button'
 import { Card } from '@shared/components/ui/card'
 import { FormField } from '@shared/components/common/FormField'
 import { Input } from '@shared/components/ui/input'
 import { Logo } from '@shared/components/common/Logo'
-import { statusOf, takeSessionEnded } from '@shared/services/apiClient'
+import { hasPortalToken, statusOf, takeSessionEnded } from '@shared/services/apiClient'
 import {
   authFailureMessage,
   forgotPassword,
@@ -204,6 +204,9 @@ export default function SignIn() {
       </div>
     ),
   }
+
+  // Already signed in (Unit 75, D73): the session survives a reload, so skip the form.
+  if (hasPortalToken()) return <Navigate to="/dashboard" replace />
 
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-8 px-4 py-8">

@@ -168,7 +168,7 @@ request status, portal deployment) and now say so.
    sign-in screens. Tests: `PortalTermsServiceTest`; backend 1379/0/0/4, portals 100. **Chrome-
    checked** (client sign-in, acceptance, second sign-in skips it; expert sign-in and `/privacy`);
    the expert gate checked through its routes. Restart the backend (Flyway applies `V83`).
-21. **Unit 74 — View and Download on every document (D51 edited).** **Built 2026-10-02** (spec
+23. **Unit 74 — View and Download on every document (D51 edited).** **Built 2026-10-02** (spec
    `74`, branch `feature/unit-74-view-and-download`, no migration). `DocumentStore.presignedView`
    (inline, type **forced** from the filename to `application/pdf` / `image/png` / `image/jpeg`,
    anything else refused 400) beside `presignedPdfView`; the local reader carries the forced type
@@ -181,14 +181,12 @@ request status, portal deployment) and now say so.
    read still writes `EXPORTED`, and a refused view writes nothing. Tests:
    `DocumentStoreLocalModeTest#onlyAPdfOrAnImageOpensInTheBrowser`,
    `CaseLifecycleServiceTest#staffViewOrDownloadAClientUpload`, `ExpertPortalServiceTest`,
-   `PortalCaseServiceTest`, `draftRules.test.ts`, `portal.test.ts`. Backend 1400/1/0/4 — the one
-   failure is pre-existing and unrelated: `LocalPostgresIntegrationTest.aPipelineAndASegment…`
-   asserts the V39 form of `team_member_pipeline_matches_role`, which V64 relaxed in the test
-   schema. Staff 190, portals 103, `tsc -b` clean in all three. **The portal workspace was missing
+   `PortalCaseServiceTest`, `draftRules.test.ts`, `portal.test.ts`. After merging `main` (PR #45 review): backend
+   1421/0/0/4, staff 191, portals 112, `tsc -b` clean in all three. **The portal workspace was missing
    every `@radix-ui/*` package** (absent from `node_modules` though in the lockfile); `npm install`
    restored them, lockfile unchanged. **Not browser-checked** — restart the backend and both portal
    dev servers first.
-22. **Unit 75 — the portal sign-in survives a reload (D72).** **Built 2026-10-02** (spec `75`, same
+24. **Unit 75 — the portal sign-in survives a reload (D73).** **Built 2026-10-02** (spec `75`, same
    branch, no migration). `shared/src/services/apiClient.ts`: the token is kept in `sessionStorage`
    (`evalos.portal.token`, try/catch, memory fallback) and read at load; `signOut(path)` posts
    `POST /api/portal/sign-out`, clears it and navigates; a 401 on any non-auth route clears it,
@@ -198,7 +196,10 @@ request status, portal deployment) and now say so.
    `signOut` — before, they only reloaded, which would no longer sign anyone out. Backend:
    `PortalAccessService.revoke` + `PortalSessionController` (authenticated, not `permitAll`). Tests:
    `apiClient.test.ts` (7), `PortalAccessServiceTest#signingOutRevokesTheTokenAndASecondSignOutIsHarmless`,
-   `PortalSessionControllerTest` (2). Portals 110, both `tsc -b` clean. **Not browser-checked** —
+   `PortalSessionControllerTest` (2). **Review fixes (PR #45, 2026-10-02):** renumbered D72 → D73
+   (main's Unit 68 took D72); a fragment token is removed from the URL once lifted
+   (`liftFragmentToken`), closing a reload loop on an expired link; sign-out writes
+   `PORTAL_SIGNED_OUT`; a signed-in user on the sign-in page goes to `/dashboard`. **Not browser-checked** —
    restart the backend and both portal dev servers.
 
 **Build state (all four suites re-verified 2026-09-22 after the dead-code pass below; the browser checks against the live location remain 2026-09-17):** backend `1339 tests, 0 failures, 0 errors, 4 skipped` (2026-09-30, Unit 65 after its review; `LocalPostgresIntegrationTest` on a real Postgres) (the 4 are opt-in live checks, `SmtpMailTransportLiveTest` among them); the GM board draws **1,460 deals, synced**, and a Sales desk draws its own pipeline's four;
