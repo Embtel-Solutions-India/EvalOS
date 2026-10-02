@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
 import { fetchCaseDocuments, fetchDocumentUrl, type DraftVersion } from './caseApi'
+import { isViewable } from './draftRules'
 
 /**
  * A case's documents of one kind, each opening through a short-lived URL.
@@ -37,7 +38,7 @@ export default function DocumentList({
   })
   const [error, setError] = useState<string | null>(null)
 
-  const open = async (documentId: string) => {
+  const open = async (documentId: string, view: boolean) => {
     // **The tab is opened synchronously and WITHOUT `noopener`, and both halves matter.**
     // Synchronously, because a popup blocker rejects a window opened from an async continuation —
     // the click has to be what opens it. Without `noopener`, because per the HTML spec
@@ -48,7 +49,7 @@ export default function DocumentList({
     const tab = window.open('', '_blank')
     if (tab) tab.opener = null
     try {
-      const url = await fetchDocumentUrl(caseId, documentId)
+      const url = await fetchDocumentUrl(caseId, documentId, false, view)
       if (tab) tab.location.href = url
       // A blocked popup is not a failure of the fetch, so it is reported as itself.
       else setError('Allow pop-ups for this site to open documents.')
@@ -85,18 +86,35 @@ export default function DocumentList({
         </p>
       ) : (
         <ul className="mt-2 flex flex-col gap-1">
-          {docs.data.map((doc) => (
-            <li key={doc.id}>
-              <button
-                type="button"
-                onClick={() => void open(doc.id)}
-                className="text-sm font-medium"
-                style={{ color: 'var(--accent-primary)' }}
-              >
-                {doc.filename ?? `Document ${doc.version}`} ↗
-              </button>
-            </li>
-          ))}
+          {docs.data.map((doc) => {
+            const name = doc.filename ?? `Document ${doc.version}`
+            return (
+              <li key={doc.id} className="flex flex-wrap items-baseline gap-x-3 gap-y-1 text-sm">
+                <span className="min-w-0 break-all">{name}</span>
+                {/* View first (Unit 74): a PDF or image opens in the browser; every file downloads. */}
+                {isViewable(doc.filename) && (
+                  <button
+                    type="button"
+                    onClick={() => void open(doc.id, true)}
+                    aria-label={`View ${name}`}
+                    className="font-medium"
+                    style={{ color: 'var(--accent-primary)' }}
+                  >
+                    View
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => void open(doc.id, false)}
+                  aria-label={`Download ${name}`}
+                  className="font-medium"
+                  style={{ color: 'var(--accent-primary)' }}
+                >
+                  Download
+                </button>
+              </li>
+            )
+          })}
         </ul>
       )}
       {error && (

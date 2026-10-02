@@ -62,7 +62,9 @@ and to the case's client and experts' private channels; `NotificationService` pu
 `notifications.changed` to the bell's owner. Screens re-read over their own scoped REST routes. JPQL
 bulk writes to those tables call `CaseLive.touched` themselves (`PayoutService`'s two).
 
-`DocumentStore` (S3): `put` and `presignedUrl` and nothing else. Unconfigured = every document
+`DocumentStore` (S3): `put`, `presignedUrl` (always `attachment`) and the two view mints —
+`presignedPdfView` for a known PDF and `presignedView` for any PDF / PNG / JPEG, both `inline` with
+the type **forced** (Unit 74, D51) — and nothing else. Unconfigured = every document
 route answers 502 naming both missing variables; the rest of the app boots.
 
 ## Background jobs

@@ -318,11 +318,11 @@ public class PortalCaseService {
 	 * than an inference from a web log.
 	 */
 	@Transactional
-	public String documentUrl(PortalPrincipal principal, UUID caseId, UUID documentId) {
-		return documentUrlOf(authorized(principal, caseId), documentId);
+	public String documentUrl(PortalPrincipal principal, UUID caseId, UUID documentId, boolean view) {
+		return documentUrlOf(authorized(principal, caseId), documentId, view);
 	}
 
-	private String documentUrlOf(Case subject, UUID documentId) {
+	private String documentUrlOf(Case subject, UUID documentId, boolean view) {
 		CaseDocument document = documents.findById(documentId)
 				.filter(row -> row.getCaseId().equals(subject.getId()))
 				.filter(row -> row.getKind() == DocumentKind.CLIENT_UPLOAD)
@@ -330,11 +330,14 @@ public class PortalCaseService {
 
 		requireState(document.getObjectKey() != null,
 				"that document predates the document store and has no file behind it");
+		// A PDF or image views in the browser with its type forced (Unit 74); a Word file is refused here.
+		String url = view ? store.presignedView(document.getObjectKey(), document.getFilename())
+				: store.presignedUrl(document.getObjectKey());
 
 		audit.recordPortalEvent(subject.getBrandId(), PortalAudience.CLIENT, "CASE_DOCUMENT",
 				document.getId(), AuditAction.EXPORTED, null,
 				java.util.Map.of("opened", String.valueOf(document.getFilename())));
-		return store.presignedUrl(document.getObjectKey());
+		return url;
 	}
 
 	/**
@@ -509,9 +512,12 @@ public class PortalCaseService {
 		return out;
 	}
 
-	/** The approved draft is served as its PDF; the letter as itself. */
+	/**
+	 * The approved draft is served as its PDF; the letter as itself. Both are PDFs — a signed letter
+	 * is accepted only as a sniffed PDF — so either may open in the browser's viewer (Unit 74).
+	 */
 	@Transactional
-	public String deliveredUrl(PortalPrincipal principal, UUID caseId, UUID documentId) {
+	public String deliveredUrl(PortalPrincipal principal, UUID caseId, UUID documentId, boolean view) {
 		Case subject = deliveredCase(principal, caseId);
 		String key = documents.findFirstByCaseIdAndKindOrderByVersionDesc(subject.getId(), DocumentKind.SIGNED_LETTER)
 				.filter(d -> d.getId().equals(documentId))
@@ -521,7 +527,7 @@ public class PortalCaseService {
 				.orElseThrow(() -> new NotFoundException("No such delivered file"));
 		audit.recordPortalEvent(subject.getBrandId(), PortalAudience.CLIENT, "CASE_DOCUMENT", documentId,
 				AuditAction.EXPORTED, null, java.util.Map.of("opened", "delivered file"));
-		return store.presignedUrl(key);
+		return view ? store.presignedPdfView(key) : store.presignedUrl(key);
 	}
 
 	private Case deliveredCase(PortalPrincipal principal, UUID caseId) {

@@ -384,10 +384,14 @@ class PortalCaseServiceTest {
 		given(documents.findById(own.getId())).willReturn(Optional.of(own));
 		given(store.presignedUrl("key/passport")).willReturn("https://s3.example/presigned");
 
-		String url = portal.documentUrl(tokenFor(BRAND, CASE_ID), CASE_ID, own.getId());
+		String url = portal.documentUrl(tokenFor(BRAND, CASE_ID), CASE_ID, own.getId(), false);
 
 		assertThat(url).isEqualTo("https://s3.example/presigned");
-		verify(audit).recordPortalEvent(eq(BRAND), eq(PortalAudience.CLIENT), eq("CASE_DOCUMENT"),
+		// Unit 74: the same upload opens in the browser with its type forced from the filename.
+		given(store.presignedView("key/passport", "passport.pdf")).willReturn("https://s3.example/inline");
+		assertThat(portal.documentUrl(tokenFor(BRAND, CASE_ID), CASE_ID, own.getId(), true))
+				.isEqualTo("https://s3.example/inline");
+		verify(audit, times(2)).recordPortalEvent(eq(BRAND), eq(PortalAudience.CLIENT), eq("CASE_DOCUMENT"),
 				eq(own.getId()), eq(AuditAction.EXPORTED), any(), any());
 	}
 
@@ -403,7 +407,7 @@ class PortalCaseServiceTest {
 			CaseDocument notTheirs = documentOn(CASE_ID, kind, "letter.pdf", "key/letter");
 			given(documents.findById(notTheirs.getId())).willReturn(Optional.of(notTheirs));
 
-			assertThatThrownBy(() -> portal.documentUrl(tokenFor(BRAND, CASE_ID), CASE_ID, notTheirs.getId()))
+			assertThatThrownBy(() -> portal.documentUrl(tokenFor(BRAND, CASE_ID), CASE_ID, notTheirs.getId(), false))
 					.isInstanceOf(ForbiddenException.class);
 		}
 		// Refused before anything was minted — a URL created ahead of the check has already leaked.
@@ -416,7 +420,7 @@ class PortalCaseServiceTest {
 				"someone-else.pdf", "key/other");
 		given(documents.findById(elsewhere.getId())).willReturn(Optional.of(elsewhere));
 
-		assertThatThrownBy(() -> portal.documentUrl(tokenFor(BRAND, CASE_ID), CASE_ID, elsewhere.getId()))
+		assertThatThrownBy(() -> portal.documentUrl(tokenFor(BRAND, CASE_ID), CASE_ID, elsewhere.getId(), false))
 				.isInstanceOf(ForbiddenException.class);
 		verify(store, never()).presignedUrl(any());
 	}
@@ -482,7 +486,7 @@ class PortalCaseServiceTest {
 		subject.setCurrentStage(Stage.FINAL_QC);
 
 		assertThatThrownBy(() -> portal.delivered(me, CASE_ID)).isInstanceOf(com.ie.evalos.common.NotFoundException.class);
-		assertThatThrownBy(() -> portal.deliveredUrl(me, CASE_ID, UUID.randomUUID()))
+		assertThatThrownBy(() -> portal.deliveredUrl(me, CASE_ID, UUID.randomUUID(), false))
 				.isInstanceOf(com.ie.evalos.common.NotFoundException.class);
 		verify(store, never()).presignedUrl(any());
 	}
@@ -506,7 +510,12 @@ class PortalCaseServiceTest {
 
 		assertThat(portal.delivered(me, CASE_ID)).extracting(PortalCaseService.DeliveredFile::kind)
 				.containsExactly("SIGNED_LETTER", "APPROVED_DRAFT");
-		assertThat(portal.deliveredUrl(me, CASE_ID, letter.getId())).isEqualTo("https://s3/signed");
+		assertThat(portal.deliveredUrl(me, CASE_ID, letter.getId(), false)).isEqualTo("https://s3/signed");
+		// Unit 74: both delivered files are PDFs, so either opens in the browser's viewer.
+		given(store.presignedPdfView("signed.pdf")).willReturn("https://s3/signed-inline");
+		given(store.presignedPdfView("d.pdf")).willReturn("https://s3/draft-inline");
+		assertThat(portal.deliveredUrl(me, CASE_ID, letter.getId(), true)).isEqualTo("https://s3/signed-inline");
+		assertThat(portal.deliveredUrl(me, CASE_ID, approved.getId(), true)).isEqualTo("https://s3/draft-inline");
 	}
 
 	@Test

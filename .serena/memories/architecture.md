@@ -11,7 +11,8 @@ with a `PortalStageProjection.forSales`, never by widening a tier.
 
 Integration: `GhlHttp` is the only transport and its verb list is closed (get, post, put, delete).
 A fifth verb fails the build, and every write-verb caller must reach `AuditService`. Seven GHL
-clients sit on it. `DocumentStore` does `put` and `presignedUrl` and nothing else.
+clients sit on it. `DocumentStore` does `put` and presigned reads and nothing else: `presignedUrl` (attachment) and,
+since Unit 74, a view (`presignedPdfView` / `presignedView`, inline with a forced PDF / PNG / JPEG type).
 
 Case lifecycle: 12 stages, `DOC_COLLECTION` through `CLOSED`, plus an orthogonal `exception_state`.
 Four scheduled sweeps, each taking a database lock and writing a `scheduled_job` ledger row.

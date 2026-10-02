@@ -5,6 +5,7 @@ import {
   serviceLabel,
   CHECKLIST_STATUS,
   failureMessage,
+  isViewable,
   needsClientAction,
   tokenFromFragment,
   type ChecklistItem,
@@ -103,5 +104,12 @@ describe('DRAFT_STATUS', () => {
 describe('serviceLabel', () => {
   it('reads an enum name as a sentence', () => {
     expect(serviceLabel('COURSE_BY_COURSE')).toBe('Course by course')
+  })
+})
+
+describe('isViewable', () => {
+  it('opens a PDF or an image in the browser and leaves Word files to download (Unit 74)', () => {
+    expect(['a.pdf', 'scan.PNG', 'id.jpg', 'id.JPEG'].map(isViewable)).toEqual([true, true, true, true])
+    expect(['letter.docx', 'old.doc', 'page.svg', '', null].map(isViewable)).toEqual([false, false, false, false, false])
   })
 })

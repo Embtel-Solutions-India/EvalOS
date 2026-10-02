@@ -100,14 +100,14 @@ export default function DraftHistory({
                         View PDF
                       </button>
                     )}
-                    <button type="button" onClick={() => void open(version.id, false)} style={{ color: 'var(--accent-primary)' }}>
-                      Word
-                    </button>
                     {version.hasPdf && (
                       <button type="button" onClick={() => void open(version.id, true)} style={{ color: 'var(--accent-primary)' }}>
-                        PDF
+                        Download PDF
                       </button>
                     )}
+                    <button type="button" onClick={() => void open(version.id, false)} style={{ color: 'var(--accent-primary)' }}>
+                      Download Word
+                    </button>
                   </p>
                 )}
                 {version.hasPdf && (

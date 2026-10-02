@@ -157,6 +157,26 @@ request status, portal deployment) and now say so.
    sign-in screens. Tests: `PortalTermsServiceTest`; backend 1379/0/0/4, portals 100. **Chrome-
    checked** (client sign-in, acceptance, second sign-in skips it; expert sign-in and `/privacy`);
    the expert gate checked through its routes. Restart the backend (Flyway applies `V83`).
+21. **Unit 74 — View and Download on every document (D51 edited).** **Built 2026-10-02** (spec
+   `74`, branch `feature/unit-74-view-and-download`, no migration). `DocumentStore.presignedView`
+   (inline, type **forced** from the filename to `application/pdf` / `image/png` / `image/jpeg`,
+   anything else refused 400) beside `presignedPdfView`; the local reader carries the forced type
+   (`localReadInlineType`). `view` now accepted for any readable PDF or image on the staff document
+   route and the expert document route, and added to the client's document and delivered-file
+   routes. Screens: staff `DocumentList` (client uploads, signed letter) View · Download; staff
+   `DraftHistory` reads View PDF · Download PDF · Download Word; client `CaseDocuments` and
+   `CaseDelivered`, and the expert's client files, View · Download. `isViewable` mirrors the rule in
+   `draftRules.ts` and `shared/src/lib/portal.ts`. Who may read which document is unchanged; every
+   read still writes `EXPORTED`, and a refused view writes nothing. Tests:
+   `DocumentStoreLocalModeTest#onlyAPdfOrAnImageOpensInTheBrowser`,
+   `CaseLifecycleServiceTest#staffViewOrDownloadAClientUpload`, `ExpertPortalServiceTest`,
+   `PortalCaseServiceTest`, `draftRules.test.ts`, `portal.test.ts`. Backend 1400/1/0/4 — the one
+   failure is pre-existing and unrelated: `LocalPostgresIntegrationTest.aPipelineAndASegment…`
+   asserts the V39 form of `team_member_pipeline_matches_role`, which V64 relaxed in the test
+   schema. Staff 190, portals 103, `tsc -b` clean in all three. **The portal workspace was missing
+   every `@radix-ui/*` package** (absent from `node_modules` though in the lockfile); `npm install`
+   restored them, lockfile unchanged. **Not browser-checked** — restart the backend and both portal
+   dev servers first.
 
 **Build state (all four suites re-verified 2026-09-22 after the dead-code pass below; the browser checks against the live location remain 2026-09-17):** backend `1339 tests, 0 failures, 0 errors, 4 skipped` (2026-09-30, Unit 65 after its review; `LocalPostgresIntegrationTest` on a real Postgres) (the 4 are opt-in live checks, `SmtpMailTransportLiveTest` among them); the GM board draws **1,460 deals, synced**, and a Sales desk draws its own pipeline's four;
 staff SPA `171 tests` (2026-09-30, Unit 66), `oxlint` and `tsc -b` clean; portals `100 tests` (2026-09-30, Unit 66b) and `tsc -b` clean in both `client/`

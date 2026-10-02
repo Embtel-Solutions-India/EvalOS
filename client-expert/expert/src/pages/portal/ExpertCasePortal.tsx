@@ -14,6 +14,7 @@ import { ErrorState } from '@shared/components/common/ErrorState'
 import { FileDropzone, validateFile } from '@shared/components/common/FileDropzone'
 import { ListSkeleton } from '@shared/components/common/LoadingState'
 import { PageHeader } from '@shared/components/common/PageHeader'
+import { isViewable } from '@shared/lib/portal'
 import { statusOf } from '@shared/services/apiClient'
 import { formatDate } from '@shared/utils/formatters'
 import {
@@ -201,10 +202,18 @@ function CaseBody({ caseId, view, onChanged }: { caseId: string; view: ExpertCas
                     <span className="truncate">{file.filename ?? 'Document'}</span>
                     <span className="shrink-0 text-xs text-muted-foreground">{formatDate(file.uploadedAt)}</span>
                   </span>
-                  <Button variant="outline" size="sm" onClick={() => void openInTab(() => documentUrl(file.id))}>
-                    <Download className="h-4 w-4" />
-                    Download
-                  </Button>
+                  {/* View first (Unit 74): a PDF or image opens in the browser; every file downloads. */}
+                  <span className="flex shrink-0 gap-2">
+                    {isViewable(file.filename) && (
+                      <Button variant="outline" size="sm" onClick={() => void openInTab(() => documentUrl(file.id, false, true))}>
+                        View
+                      </Button>
+                    )}
+                    <Button variant="outline" size="sm" onClick={() => void openInTab(() => documentUrl(file.id))}>
+                      <Download className="h-4 w-4" />
+                      Download
+                    </Button>
+                  </span>
                 </li>
               ))}
             </ul>

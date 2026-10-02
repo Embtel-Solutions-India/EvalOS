@@ -147,8 +147,9 @@ public class ClientPortalController {
 	}
 
 	@GetMapping("/cases/{caseId}/documents/{documentId}/url")
-	public ApiResponse<ReadUrl> caseDocumentUrl(@PathVariable UUID caseId, @PathVariable UUID documentId) {
-		return ApiResponse.ok(new ReadUrl(portal.documentUrl(client(), caseId, documentId)));
+	public ApiResponse<ReadUrl> caseDocumentUrl(@PathVariable UUID caseId, @PathVariable UUID documentId,
+			@RequestParam(defaultValue = "false") boolean view) {
+		return ApiResponse.ok(new ReadUrl(portal.documentUrl(client(), caseId, documentId, view)));
 	}
 
 	@GetMapping("/cases/{caseId}/drafts")
@@ -207,7 +208,8 @@ public class ClientPortalController {
 	}
 
 	@GetMapping("/cases/{caseId}/delivered/{documentId}/url")
-	public ApiResponse<ReadUrl> deliveredUrl(@PathVariable UUID caseId, @PathVariable UUID documentId) {
-		return ApiResponse.ok(new ReadUrl(portal.deliveredUrl(client(), caseId, documentId)));
+	public ApiResponse<ReadUrl> deliveredUrl(@PathVariable UUID caseId, @PathVariable UUID documentId,
+			@RequestParam(defaultValue = "false") boolean view) {
+		return ApiResponse.ok(new ReadUrl(portal.deliveredUrl(client(), caseId, documentId, view)));
 	}
 }

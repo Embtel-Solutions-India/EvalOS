@@ -259,8 +259,12 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
   **The client portal is case-first** (Unit 58 phase 3, 2026-09-28): Home lists every case, each
   opens its own page, and no client route resolves a case from the token — which closes Q8.
   **The draft PDF is viewed first** (2026-09-28, closes Q13): it opens in the browser's own viewer,
-  with Download PDF and Download Word beside it. Only a staff-uploaded, sniffed `DRAFT` PDF is served
-  inline; everything a client or expert uploads stays `attachment`.
+  with Download PDF and Download Word beside it. **Edited 2026-10-02 (Unit 74,
+  `74-view-and-download.md`): every document anyone may read has View and Download**, View first.
+  A view is served `inline` with its type **forced** to `application/pdf`, `image/png` or
+  `image/jpeg` from the filename's extension, so the browser opens it only in its PDF or image
+  viewer and never as a page; Word files have no viewer and stay Download only. Everything else is
+  still `attachment`. Who may read which document is unchanged.
 - **D18.** The target is an **id-faithful mirror** of GHL (same pipeline/stage/contact/opportunity
   ids both sides), synced both ways, that keeps working when sync is off. Units 44–48
   (`context/specs/00c-ghl-independence-programme.md`). EvalOS mints its own primary key and keeps

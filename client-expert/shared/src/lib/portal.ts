@@ -240,3 +240,11 @@ export type DeliveredFile = {
   filename: string | null
   at: string
 }
+
+/**
+ * Whether the browser has a viewer for this file (Unit 74): a PDF, PNG or JPEG. The server applies
+ * the same rule and forces the type when it serves a view; a Word file only downloads.
+ */
+export function isViewable(filename: string | null | undefined): boolean {
+  return /\.(pdf|png|jpe?g)$/i.test(filename ?? '')
+}

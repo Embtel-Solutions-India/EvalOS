@@ -16,6 +16,8 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
+import com.ie.evalos.common.InvalidRequestException;
+
 import software.amazon.awssdk.core.exception.SdkClientException;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.regions.Region;
@@ -250,24 +252,59 @@ public class DocumentStore {
 	 * rule each caller has to remember.
 	 */
 	public String presignedUrl(String key) {
-		return presign(key, false);
+		return presign(key, null);
 	}
 
 	/**
-	 * The one exception to "always an attachment" (D51, 2026-09-28): a draft's PDF opens in the
-	 * browser's own viewer. <strong>Only for a {@code DRAFT} row's PDF</strong> — staff uploaded it and
-	 * {@code UploadedFileType} sniffed it as a real PDF — and served as {@code application/pdf}, so the
-	 * browser renders it with its PDF viewer and never as a page. Anything a client or expert uploads
-	 * keeps {@link #presignedUrl}.
+	 * A file known to be a PDF, opened in the browser's own viewer (D51, 2026-09-28): a draft's PDF or
+	 * a signed letter, both sniffed as a real PDF at upload. Served as {@code application/pdf}, so the
+	 * browser renders it with its PDF viewer and never as a page. Any other file views through
+	 * {@link #presignedView}, which picks the forced type from its name (Unit 74).
 	 */
 	public String presignedPdfView(String key) {
-		return presign(key, true);
+		return presign(key, PDF);
 	}
 
-	private String presign(String key, boolean inlinePdf) {
+	/**
+	 * Any document opened in the browser's own viewer (Unit 74, D51 edited): a PDF, PNG or JPEG.
+	 *
+	 * <p><strong>The type is forced from the extension, never taken from the file.</strong> Served
+	 * {@code inline} as exactly {@code application/pdf}, {@code image/png} or {@code image/jpeg}, the
+	 * browser hands it to its PDF or image viewer and never renders it as a page — so a client upload
+	 * still cannot execute, which is the property {@link #presignedUrl} protects. Bytes that do not
+	 * match the extension show as a broken image or a PDF error, and nothing else. A Word file has no
+	 * browser viewer and is refused, so the caller downloads it instead.
+	 */
+	public String presignedView(String key, String filename) {
+		String type = viewTypeOf(filename);
+		if (type == null) {
+			throw new InvalidRequestException("that file can't be opened in the browser - download it instead");
+		}
+		return presign(key, type);
+	}
+
+	/** The forced viewer type for a filename, or null when the browser has no viewer for it. */
+	static String viewTypeOf(String filename) {
+		String name = filename == null ? "" : filename.toLowerCase(java.util.Locale.ROOT);
+		if (name.endsWith(".pdf")) {
+			return PDF;
+		}
+		if (name.endsWith(".png")) {
+			return "image/png";
+		}
+		if (name.endsWith(".jpg") || name.endsWith(".jpeg")) {
+			return "image/jpeg";
+		}
+		return null;
+	}
+
+	private static final String PDF = "application/pdf";
+
+	/** @param inlineType the forced type of a view, or null for a download */
+	private String presign(String key, String inlineType) {
 		requireConfigured();
 		if (localDir != null) {
-			return localUrl(key, inlinePdf);
+			return localUrl(key, inlineType);
 		}
 		try {
 			return presigner.presignGetObject(GetObjectPresignRequest.builder()
@@ -278,8 +315,8 @@ public class DocumentStore {
 							// The filename is deliberately not set: it would put client-supplied text
 							// into a response header, and the browser's own default (the key's last
 							// segment, a UUID) is safe and sufficient.
-							.responseContentDisposition(inlinePdf ? "inline" : "attachment")
-							.responseContentType(inlinePdf ? "application/pdf" : null)
+							.responseContentDisposition(inlineType != null ? "inline" : "attachment")
+							.responseContentType(inlineType)
 							.build())
 					.build())
 					.url()
@@ -370,7 +407,7 @@ public class DocumentStore {
 	 * <p>Held in memory on purpose: these are capability URLs with a five-minute life, and a
 	 * restart invalidating them is correct rather than a limitation.
 	 */
-	private record LocalRead(String key, Instant expiresAt, boolean inlinePdf) {
+	private record LocalRead(String key, Instant expiresAt, String inlineType) {
 	}
 
 	private final Map<String, LocalRead> localReads = new ConcurrentHashMap<>();
@@ -397,9 +434,9 @@ public class DocumentStore {
 	 * is already on and reaches the same route through the same proxy — and every caller opens it
 	 * with {@code window.open}, which handles both.
 	 */
-	private String localUrl(String key, boolean inlinePdf) {
+	private String localUrl(String key, String inlineType) {
 		String token = UUID.randomUUID().toString().replace("-", "");
-		localReads.put(token, new LocalRead(key, Instant.now().plus(READ_WINDOW), inlinePdf));
+		localReads.put(token, new LocalRead(key, Instant.now().plus(READ_WINDOW), inlineType));
 		// Swept here rather than on a timer: the map is bounded by how often somebody clicks a
 		// document on a laptop, and a scheduled job for that would be machinery with no user.
 		localReads.values().removeIf((held) -> held.expiresAt().isBefore(Instant.now()));
@@ -412,10 +449,10 @@ public class DocumentStore {
 	 * <p>Expiry is enforced here and not only at mint time, which is the whole point of the window:
 	 * a URL that was forwarded rather than clicked has to stop working.
 	 */
-	/** Whether a handed-out token was minted by {@link #presignedPdfView}. */
-	public boolean localReadIsPdfView(String token) {
+	/** The forced type of a handed-out view token, or null for a download (or no such token). */
+	public String localReadInlineType(String token) {
 		LocalRead held = localReads.get(token);
-		return held != null && held.inlinePdf();
+		return held == null ? null : held.inlineType();
 	}
 
 	public java.util.Optional<Path> resolveLocalRead(String token) {

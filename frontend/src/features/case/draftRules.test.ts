@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { mayComment, mayUploadDraft, submitDraft } from './draftRules'
+import { isViewable, mayComment, mayUploadDraft, submitDraft } from './draftRules'
 
 describe('mayUploadDraft', () => {
   it('lets the case team upload while the draft is being written', () => {
@@ -52,5 +52,14 @@ describe('submitDraft', () => {
   it('keeps the draft when only the note fails', async () => {
     const result = await submitDraft({ upload: async () => {}, note: async () => { throw new Error('500') } }, 'hi')
     expect(result).toBe('note-failed')
+  })
+})
+
+describe('isViewable', () => {
+  it('opens a PDF or an image in the browser and leaves Word files to download (Unit 74)', () => {
+    expect(['a.pdf', 'scan.PNG', 'id.jpg', 'id.JPEG'].map(isViewable)).toEqual([true, true, true, true])
+    expect(['letter.docx', 'old.doc', 'page.svg', 'noext', '', null, undefined].map(isViewable)).toEqual(
+      [false, false, false, false, false, false, false],
+    )
   })
 })

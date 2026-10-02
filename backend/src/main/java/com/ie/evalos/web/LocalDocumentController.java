@@ -49,16 +49,16 @@ public class LocalDocumentController {
 
 	@GetMapping("/{token}")
 	public ResponseEntity<Resource> read(@PathVariable String token) {
-		boolean pdfView = store.localReadIsPdfView(token);
+		String inlineType = store.localReadInlineType(token);
 		return store.resolveLocalRead(token)
-				.map((file) -> serve(file, pdfView))
+				.map((file) -> serve(file, inlineType))
 				// One answer for "no such token", "expired" and "the file is gone". They are the
 				// same to the reader, and distinguishing them would tell a guesser which tokens
 				// once existed.
 				.orElseGet(() -> ResponseEntity.notFound().build());
 	}
 
-	private static ResponseEntity<Resource> serve(Path file, boolean pdfView) {
+	private static ResponseEntity<Resource> serve(Path file, String inlineType) {
 		long length;
 		try {
 			length = Files.size(file);
@@ -67,12 +67,12 @@ public class LocalDocumentController {
 			return ResponseEntity.notFound().build();
 		}
 		return ResponseEntity.ok()
-				// A draft PDF opened to view (D51) is the one inline read; see DocumentStore.presignedPdfView.
-				.contentType(pdfView ? MediaType.APPLICATION_PDF : MediaType.APPLICATION_OCTET_STREAM)
+				// A view (Unit 74) is inline with its forced PDF or image type; see DocumentStore.presignedView.
+				.contentType(inlineType != null ? MediaType.parseMediaType(inlineType) : MediaType.APPLICATION_OCTET_STREAM)
 				.contentLength(length)
 				// The filename is the key's last segment, a UUID — never client-supplied text in a
 				// response header, which is the same rule the presigned path follows.
-				.header(HttpHeaders.CONTENT_DISPOSITION, pdfView ? "inline" : "attachment")
+				.header(HttpHeaders.CONTENT_DISPOSITION, inlineType != null ? "inline" : "attachment")
 				.body(new FileSystemResource(file));
 	}
 }

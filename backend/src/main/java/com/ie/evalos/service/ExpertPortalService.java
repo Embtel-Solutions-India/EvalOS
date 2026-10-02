@@ -344,7 +344,7 @@ public class ExpertPortalService {
 	 *
 	 * <p>The case gate runs first and the document is then matched against <em>that list</em>, not
 	 * merely against the case: a document id from this case that the expert may not see (a returned
-	 * draft) is refused the same as one from another case. Only the letter's PDF opens inline (D51).
+	 * draft) is refused the same as one from another case. Any PDF or image may open inline (Unit 74).
 	 */
 	@Transactional
 	public String documentUrl(PortalPrincipal principal, UUID caseId, UUID documentId, boolean pdf, boolean view) {
@@ -353,17 +353,18 @@ public class ExpertPortalService {
 				.filter(d -> d.getId().equals(documentId))
 				.findFirst()
 				.orElseThrow(() -> new ForbiddenException("No such document on this case"));
-		if (view && !(pdf && document.getKind() == DocumentKind.DRAFT)) {
-			throw new InvalidRequestException("only the letter's PDF can be viewed");
-		}
 		String key = pdf ? document.getPdfObjectKey() : document.getObjectKey();
 		if (key == null) {
 			throw new IllegalTransitionException("that document has no such file behind it");
 		}
+		// Any PDF or image views in the browser (Unit 74); a Word file is refused before the audit row.
+		String url = !view ? store.presignedUrl(key)
+				: pdf ? store.presignedPdfView(key)
+				: store.presignedView(key, document.getFilename());
 		audit.recordPortalEvent(subject.getBrandId(), PortalAudience.EXPERT, "CASE_DOCUMENT", document.getId(),
 				AuditAction.EXPORTED, null,
 				Map.of("opened", String.valueOf(pdf ? document.getPdfFilename() : document.getFilename())));
-		return view ? store.presignedPdfView(key) : store.presignedUrl(key);
+		return url;
 	}
 
 	/**

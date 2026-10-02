@@ -67,11 +67,31 @@ class DocumentStoreLocalModeTest {
 		String token = url.substring(url.lastIndexOf('/') + 1);
 		assertThat(store.resolveLocalRead(token)).hasValueSatisfying(
 				(file) -> assertThat(file).isEqualTo(dir.resolve(key).toAbsolutePath().normalize()));
-		assertThat(store.localReadIsPdfView(token)).isFalse();
+		assertThat(store.localReadInlineType(token)).isNull();
 
-		// D51: only presignedPdfView mints a token that is served inline.
+		// Unit 74: a view token carries its forced type; a download token carries none.
 		String view = store.presignedPdfView(key);
-		assertThat(store.localReadIsPdfView(view.substring(view.lastIndexOf('/') + 1))).isTrue();
+		assertThat(store.localReadInlineType(view.substring(view.lastIndexOf('/') + 1))).isEqualTo("application/pdf");
+		String image = store.presignedView(key, "Passport.JPG");
+		assertThat(store.localReadInlineType(image.substring(image.lastIndexOf('/') + 1))).isEqualTo("image/jpeg");
+	}
+
+	/**
+	 * <strong>The viewer type comes from a fixed list, never from the file</strong> (Unit 74): only a
+	 * PDF, PNG or JPEG opens in the browser, and a Word file is refused so the caller downloads it.
+	 */
+	@Test
+	void onlyAPdfOrAnImageOpensInTheBrowser(@TempDir Path dir) {
+		DocumentStore store = localStore(dir);
+
+		assertThat(DocumentStore.viewTypeOf("a.pdf")).isEqualTo("application/pdf");
+		assertThat(DocumentStore.viewTypeOf("a.PNG")).isEqualTo("image/png");
+		assertThat(DocumentStore.viewTypeOf("a.jpeg")).isEqualTo("image/jpeg");
+		assertThat(DocumentStore.viewTypeOf("a.docx")).isNull();
+		assertThat(DocumentStore.viewTypeOf("a.svg")).isNull();
+		assertThat(DocumentStore.viewTypeOf(null)).isNull();
+		assertThatThrownBy(() -> store.presignedView("k", "letter.docx"))
+				.isInstanceOf(com.ie.evalos.common.InvalidRequestException.class);
 	}
 
 	/**

@@ -220,8 +220,9 @@ stay in GHL; EvalOS messaging is the case chat (Unit 57) only. Closes Q10; drops
 **2026-09-28 — four business answers.** **Q6 → D23:** expert sign-up checks the email against the
 expert database; found → set-password mail, account bound to that `expert.id`; not found → a mail
 whose text the business will give (Q6b; sends nothing until then), same screen answer either way.
-**Q13 → D51:** the draft PDF is viewed first (inline, staff-uploaded DRAFT PDFs only) with both
-downloads beside it. **Q11 → D54** (a DRAFT-requests screen) — **retired by Unit 64**, there are no requests.
+**Q13 → D51 (edited 2026-10-02, Unit 74):** every document anyone may read has **View and
+Download**, View first. A view is `inline` with its type forced to PDF / PNG / JPEG from the
+filename, so it opens only in the browser's viewer; Word files stay Download only. Read rules unchanged. **Q11 → D54** (a DRAFT-requests screen) — **retired by Unit 64**, there are no requests.
 **D53:** no outbound webhooks, no Handoff C (invariant 11 struck).
 
 **D23 built (Unit 59):** one expert account per roster row, brand from `evalos.portal.expert-brand`; two panels = two accounts. No staff-minted links.

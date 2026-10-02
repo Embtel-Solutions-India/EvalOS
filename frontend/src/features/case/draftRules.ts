@@ -30,3 +30,11 @@ export async function submitDraft(steps: DraftSteps, note: string): Promise<'sub
     return 'note-failed'
   }
 }
+
+/**
+ * Whether the browser has a viewer for this file (Unit 74): a PDF, PNG or JPEG. The server applies
+ * the same rule (`DocumentStore.viewTypeOf`) and forces the type; a Word file only downloads.
+ */
+export function isViewable(filename: string | null | undefined): boolean {
+  return /\.(pdf|png|jpe?g)$/i.test(filename ?? '')
+}
