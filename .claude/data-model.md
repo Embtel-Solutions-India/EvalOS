@@ -18,7 +18,7 @@ live in `backend/src/main/resources/db/migration/`.
 | Table | Purpose | Brand-scoped |
 |---|---|---|
 | `brand` | tenant; webhook endpoint token, GHL webhook secret, currency, payout terms | — |
-| `team_member` | staff login, role, `segment`; `ghl_pipeline_id` is **VESTIGIAL** as of 44b; **`ghl_user_id`** (`V74`, Unit 60): the member's GHL user, unique where set, linked by email on `REFERENCE_MIRROR` | yes (nullable for GM) |
+| `team_member` | staff login, role, `segment`; `ghl_pipeline_id` is **VESTIGIAL** as of 44b and, since `V84` (Unit 68), **no longer required** for SALES/MARKETING (still forbidden for every other role); **`ghl_user_id`** (`V74`, Unit 60): the member's GHL user, unique where set, linked by email on `REFERENCE_MIRROR` | yes (nullable for GM) |
 | `team_member_pipeline` | **which pipelines a member may work** (44b, `V54`): FK to `pipeline`, many-to-many, `granted_at`/`granted_by`, `revoked_at` (`V64`). **A revoke stamps, never deletes** — the row is what stops `backfillFromLegacyColumn` re-creating the grant from `team_member.ghl_pipeline_id`, which `V39` forbids emptying for SALES/MARKETING. Every read filters `revoked_at IS NULL` | via the member |
 | `client_account` | **portal identity**: email, password_hash, ghl_contact_id, `contact_id` (`V55` — FK to the CRM row), name, phone, `created_via` (`V59` — SEED / SIGNUP / STAFF, **CASE** since `V78`: opened when the client's case was created, Unit 64; the only thing `PORTAL_CLEANUP` is allowed to delete on) | yes |
 | `client_credential_token` | single-use SET / RESET password links | yes |
@@ -171,7 +171,5 @@ field id on `opportunity` and, since `V81`, on `contact_snapshot`. `ghl_custom_f
 - ~~`expert_application` plus recruitment stages — Unit 50~~ — **replaced by D61 (Unit 63)**: hiring candidates are GHL opportunities on an `EXPERT_HIRING` pipeline, mirrored like every other; no candidate table.
 - Expert accounts on the Unit 42 pattern — no table exists, **and none is designed until the
   stakeholder discussion happens** (Q6, D23).
-- A **push subscription** table (endpoint + keys per staff user) — D37 makes notifications in-app
-  **and** push; the `notification` table already holds what happened, so this is delivery only.
 - Conversations, any channel — **no table, no column, no code anywhere.**
 - Outbound webhook queue — invariant 11 describes it; nothing implements it.

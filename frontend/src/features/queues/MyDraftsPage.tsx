@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
 import { useBoard } from '../board/useBoard'
 import { Link } from 'react-router-dom'
+import RowActions from './RowActions'
 import { useMe } from '../../lib/authContext'
 import type { BoardCard } from '../board/boardRules'
 import { fetchCase, fetchDraftVersions, type CaseDetail, type DraftVersion } from '../case/caseApi'
@@ -219,6 +220,8 @@ function Row({
                 }
               />
             )}
+            {/* Unit 67: send to the expert, reassign, signed / declined — whatever the CM has here. */}
+            <RowActions card={card} />
             <Link to={`/cases/${card.id}`} className="text-sm font-medium" style={{ color: 'var(--accent-primary)' }}>
               Open the case
             </Link>

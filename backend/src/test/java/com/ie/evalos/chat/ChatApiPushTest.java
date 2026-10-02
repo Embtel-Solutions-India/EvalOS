@@ -43,7 +43,7 @@ class ChatApiPushTest {
 		assertThat(api(true).publicKey()).containsEntry("publicKey", "pub");
 	}
 
-	/** The GM takes part in no conversation, so there is nothing to notify them about. */
+	/** The GM has no brand to file a browser under (`push_subscriptions.brand_id`), so the bell stays in-app. */
 	@Test
 	void aGmCannotSubscribe() {
 		ChatIdentity gm = new ChatIdentity(ParticipantKind.STAFF, UUID.randomUUID(), null, Role.GM);
@@ -51,6 +51,17 @@ class ChatApiPushTest {
 		assertThatThrownBy(() -> api(true).subscribe(gm, request("https://fcm.googleapis.com/fcm/send/1")))
 				.isInstanceOf(ForbiddenException.class);
 		verify(subscriptions, never()).save(any());
+	}
+
+	/** A Brand Manager reads chat only, but has a bell, and the bell pushes (D37). */
+	@Test
+	void aBrandManagerCanSubscribeForTheBell() {
+		ChatIdentity bm = new ChatIdentity(ParticipantKind.STAFF, UUID.randomUUID(), brand, Role.BRAND_MANAGER);
+		when(subscriptions.findByEndpoint("https://fcm.googleapis.com/fcm/send/3")).thenReturn(Optional.empty());
+
+		api(true).subscribe(bm, request("https://fcm.googleapis.com/fcm/send/3"));
+
+		verify(subscriptions).save(any());
 	}
 
 	@Test

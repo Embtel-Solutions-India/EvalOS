@@ -184,9 +184,10 @@ public class ChatApi {
 	 */
 	@Transactional
 	public void subscribe(ChatIdentity who, SubscribeRequest request) {
-		if (who.isViewerRole() || who.brandId() == null) {
-			throw new ForbiddenException(
-					"Oversight does not take part in conversations, so there is nothing to notify you about.");
+		// A Brand Manager only reads chat, but has a bell, and the bell pushes (D37). The GM has no
+		// brand to file the browser under (`push_subscriptions.brand_id`), so stays in-app only.
+		if (who.brandId() == null) {
+			throw new ForbiddenException("Notifications on this device need a brand; the GM's bell is in-app only.");
 		}
 		requireKnownPushService(request.endpoint());
 		subscriptions.findByEndpoint(request.endpoint()).ifPresent((previous) -> {

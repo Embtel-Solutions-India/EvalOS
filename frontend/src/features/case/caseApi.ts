@@ -79,6 +79,8 @@ export type CaseDetail = {
   expertPortalReadAt: string | null
   /** D70: what Sales wrote when they won the deal in EvalOS. Null when won in GHL, or withheld. */
   salesNote: { body: string; author: string | null; writtenAt: string } | null
+  /** Unit 67: the PM, CM and coordinator by name; null is an empty seat. */
+  team: { pm: string | null; cm: string | null; coordinator: string | null }
 }
 
 export type AuditAction =

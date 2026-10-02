@@ -117,7 +117,9 @@ public class ExpertController {
 			int activeLoad,
 			int completedCases,
 			boolean paymentDetailOnFile,
-			BigDecimal pendingTotal) {
+			BigDecimal pendingTotal,
+			/** Whether they can sign in to the expert portal: NONE, INVITED (no password yet), ACTIVE. */
+			ExpertService.PortalAccount portal) {
 
 		static RosterRow of(RosterEntry entry) {
 			Expert expert = entry.expert();
@@ -126,7 +128,7 @@ public class ExpertController {
 					expert.getSecondaryFields(), expert.getLetterTypes(), expert.getTier(),
 					expert.getAvailability(), expert.getQualityScore(), expert.getStandardFee(),
 					entry.load().active(), entry.load().completed(), expert.hasPaymentDetail(),
-					entry.pendingTotal());
+					entry.pendingTotal(), entry.portal());
 		}
 	}
 

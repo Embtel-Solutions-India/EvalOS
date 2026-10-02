@@ -20,7 +20,7 @@ const SIGN_TONE: Record<string, { fg: string; bg: string; label: string }> = {
   REASSIGNED: { fg: 'var(--text-muted)', bg: 'var(--bg-raised)', label: 'reassigned' },
 }
 
-export default function ExpertCard({ detail, reloadKey }: { detail: CaseDetail; reloadKey: number }) {
+export default function ExpertCard({ detail }: { detail: CaseDetail }) {
   const status = detail.summary.expertSignStatus
   const tone = status ? SIGN_TONE[status] : null
 
@@ -51,7 +51,7 @@ export default function ExpertCard({ detail, reloadKey }: { detail: CaseDetail; 
           )}
 
           {/* Unit 65: what this case pays the expert, and whether they have agreed to it. */}
-          <OfferFee caseId={detail.summary.id} reloadKey={reloadKey} />
+          <OfferFee caseId={detail.summary.id} />
 
           {/*
             The read receipt, and it is worth its line: "they have not opened it" and "they opened

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { useFilters } from '../shell/filtersContext'
 import { fetchAvailabilityBoard } from './expertApi'
 import { AVAILABILITY_TOKEN, label, type AvailabilityColumn, type RosterRow } from './expertRules'
@@ -17,30 +17,19 @@ import { AVAILABILITY_TOKEN, label, type AvailabilityColumn, type RosterRow } fr
  */
 export default function AvailabilityBoard({ onOpen }: { onOpen: (expertId: string) => void }) {
   const { activeBrandId } = useFilters()
-  const [state, setState] = useState<
-    { status: 'loading' } | { status: 'ready'; columns: AvailabilityColumn[] } | { status: 'failed'; message: string }
-  >({ status: 'loading' })
-
-  const load = useCallback(
-    async (signal?: AbortSignal) => {
-      try {
-        setState({ status: 'ready', columns: await fetchAvailabilityBoard(activeBrandId, signal) })
-      } catch (error: unknown) {
-        if (signal?.aborted) return
-        setState({
-          status: 'failed',
-          message: error instanceof Error ? error.message : 'Could not load the availability board',
-        })
-      }
-    },
-    [activeBrandId],
-  )
-
-  useEffect(() => {
-    const controller = new AbortController()
-    void load(controller.signal)
-    return () => controller.abort()
-  }, [load])
+  // Unit 70a phase 2: an offer accepted or an availability change elsewhere moves a card here.
+  const query = useQuery({
+    queryKey: ['experts', 'availability', activeBrandId],
+    queryFn: ({ signal }) => fetchAvailabilityBoard(activeBrandId, signal),
+  })
+  const state:
+    | { status: 'loading' }
+    | { status: 'ready'; columns: AvailabilityColumn[] }
+    | { status: 'failed'; message: string } = query.data
+    ? { status: 'ready', columns: query.data }
+    : query.isError
+      ? { status: 'failed', message: query.error.message || 'Could not load the availability board' }
+      : { status: 'loading' }
 
   if (state.status === 'loading') {
     return (

@@ -11,7 +11,7 @@ the dead-code pass below.
 
 **Board look 2026-10-01:** both boards: outlined stage-colour header (icon, name, count, Sales "+" → `/opportunities/new?stage=`), no column panel, stage-tinted cards (tag pill, title, muted line, footer: date + white chip — SLA bars+word / deal value); `board/stageColors.ts` ten non-RAG hues, Won green / Lost rose / lanes slate; `--card-text-muted` on tints.
 
-**Unit 70a phase 1, built + Chrome-checked 2026-10-01:** `lib/queryClient.ts` + `api` interceptor (`afterRequest`); bell, case page panels, board + queues (`board/useBoard.ts`), draft review, PM notes, checklists on `useQuery`. Phase 2 (payouts, experts, meetings, dashboards) not started.
+**Unit 70a phase 1, built + Chrome-checked 2026-10-01:** `lib/queryClient.ts` + `api` interceptor (`afterRequest`); bell, case page panels, board + queues (`board/useBoard.ts`), draft review, PM notes, checklists on `useQuery`. Phase 2 built 2026-10-02: `payouts`/`experts` join `CASE_KEYS` (live + after writes); payouts, roster, availability, case history, offer fee, shortlist on queries; `useMetrics` is a query (`['metrics', useId(), ...deps]`, focus-only), covering dashboards, meetings, boards; `ExpertProfile` never overwrites an open edit.
 
 **Unit 71 (D69/D70), built 2026-10-01:** `V82` adds `expert_case_offer.note` + `opportunity_note.handoff`; offers refuse a blank note, retake carries it; the expert's Answers shows it; Won needs a note (`SalesDeskService.close(id, status, note)`, and `moveToStage(id, stage, note)` for a stage named Won: board drop / picker open `WinNote`); case page `SalesNote` card. Not browser-checked.
 
@@ -303,8 +303,8 @@ BUILT 2026-09-15 (Unit 51): the GM dashboard — `GmDashboard.tsx` + `GET /api/m
 to its source and says which cannot be computed at all.
 
 PARTIAL and worth knowing (**re-judged 2026-09-17** — three of these were never gaps):
-notifications are in-app only and
-**push is owed** (D37 — in-app and push, never mail or SMS); request-stage documents do not exist
+notifications are in-app **and push since 2026-10-02** (`BellPushNotifier` over chat's
+`push_subscriptions`; the GM and Marketing in-app only — no brand / no chat connection); request-stage documents do not exist
 and are **Unit 53** (D33). *No longer listed as gaps:* **SALES reading no case is correct** (D19c —
 their world ends at won, so `ScopePredicate`'s empty PIPELINE arm over `evalos_case` is the rule);
 **a richer `client_application.status` is not owed** (D35 — review is a GHL pipeline stage); and
@@ -656,6 +656,12 @@ an expert push opened with no tab open lands on `/case` without the fragment tok
 
 **2026-09-30 — ENM dashboard 500 fixed.** `resolvedTurnaroundSeconds` is native `extract(epoch from outcome_at - offered_at)::float8` (JPQL `date_part` on a Hibernate-6 duration failed on Postgres). Postgres test added; endpoint verified 200.
 
+**2026-10-02 — staff see an expert's portal account.** Roster column *Portal* and profile fact *Portal account*: Not signed up / Password not set / Active · last in (`ExpertService.PortalAccount` from `expert_account`, brand-scoped batch per page).
+
+**2026-10-02 — Unit 67 built (spec 67):** `RowActions` (select of `actionsFor` → `QuickActionDialog`) on Inbox, My drafts, Expert assignment; CM may reassign an expert; case header names the PM/CM/coordinator (`CaseDetail.team`). Board card still has no buttons.
+
+**2026-10-02 — Unit 68 built (spec 68, V84, D72):** staff create/edit/deactivate/set-password routes + `/admin/staff`; `/admin/pipelines` (purpose — D61's screen); `/admin/sync` (drift + outbox, read-only); `/brands` read-only; `JwtFilter` refuses inactive members per request.
+
 **2026-10-02 — Unit 74 (View and Download on every document, D51 edited) BUILT** (spec `74`, no migration). `DocumentStore.presignedView(key, filename)` serves `inline` with the type forced to PDF / PNG / JPEG from the extension (else 400; Word stays download-only); `view` accepted on staff, expert, client document and client delivered routes. Every document list shows View (when viewable) and Download; staff draft history reads View PDF · Download PDF · Download Word. Read rules and `EXPORTED` audit unchanged. Not browser-checked yet.
 
-**2026-10-02 — Unit 75 (portal sign-in survives a reload, D72) BUILT** (spec `75`, no migration). Token in `sessionStorage`; `signOut` revokes via `POST /api/portal/sign-out` (`PortalAccessService.revoke`); a 401 clears it and returns to sign-in with "Your session has ended". Client portal gains Sign out; expert Sign outs now call `signOut`. Not browser-checked yet.
+**2026-10-02 — Unit 75 (portal sign-in survives a reload, D73) BUILT** (spec `75`, no migration). Token in `sessionStorage`; `signOut` revokes via `POST /api/portal/sign-out` (`PortalAccessService.revoke`); a 401 clears it and returns to sign-in with "Your session has ended". Client portal gains Sign out; expert Sign outs now call `signOut`. Not browser-checked yet.

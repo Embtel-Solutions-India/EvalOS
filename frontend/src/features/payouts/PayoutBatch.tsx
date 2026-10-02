@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
+import { useMemo, useState } from 'react'
 import { useMe } from '../../lib/authContext'
 import { formatPayout } from '../../lib/money'
 import PaymentForm from './PaymentForm'
@@ -32,33 +33,21 @@ const MAY_RECORD = ['GM', 'BRAND_MANAGER', 'EXPERT_NETWORK_MANAGER']
 export default function PayoutBatch() {
   const me = useMe()
   const [weekOf, setWeekOf] = useState<string | null>(null)
-  const [state, setState] = useState<LoadState>({ status: 'loading' })
   const [settling, setSettling] = useState<ExpertGroup | null>(null)
 
   const mayRecord = MAY_RECORD.includes(me.role)
 
-  const load = useCallback(
-    async (signal?: AbortSignal) => {
-      try {
-        setState({ status: 'ready', view: await fetchBatch(weekOf, signal) })
-      } catch (error: unknown) {
-        // StrictMode double-invokes effects in dev and the cleanup aborts the first request,
-        // so an abort is the normal path rather than a failure.
-        if (signal?.aborted) return
-        setState({
-          status: 'failed',
-          message: error instanceof Error ? error.message : 'Could not load this week',
-        })
-      }
-    },
-    [weekOf],
-  )
-
-  useEffect(() => {
-    const controller = new AbortController()
-    void load(controller.signal)
-    return () => controller.abort()
-  }, [load])
+  // Unit 70a phase 2: a payment recorded elsewhere, or an expert's confirmation, shows without a reload.
+  const query = useQuery({
+    queryKey: ['payouts', 'batch', weekOf],
+    queryFn: ({ signal }) => fetchBatch(weekOf, signal),
+  })
+  const load = () => query.refetch()
+  const state: LoadState = query.data
+    ? { status: 'ready', view: query.data }
+    : query.isError
+      ? { status: 'failed', message: query.error.message || 'Could not load this week' }
+      : { status: 'loading' }
 
   const view = state.status === 'ready' ? state.view : null
 

@@ -22,6 +22,12 @@ _Nothing open here: Q6b (unknown-email mail) was answered on 2026-09-28 — no m
 | --- | -------- | -------------- |
 | Q14 | D55 names **guests** on an appointment, but GHL's appointment API has no guest field (one `contactId`; `users[]` is response-only; extra recipients exist only per calendar in `/calendars/{id}/notifications`). What should "guests" mean? | **Drop guests from EvalOS.** Extra people are added in GHL — the calendar's notification settings or a GHL workflow — so GHL stays the sender (invariant 14). Revisit only if GHL adds an attendee field. Spec `60` §4. |
 
+## Staff accounts
+
+| #   | Question | Recommendation |
+| --- | -------- | -------------- |
+| Q18 | Staff passwords are set by the GM and handed over (D72, Unit 68). Should EvalOS instead mail a staff member a set-password link, as it does clients and experts? | **Keep it as built.** A staff credential mail is a new message under invariant 14, and the GM already knows every hire personally. Revisit if staff numbers grow past what one person hands over. |
+
 ## Client and expert mail
 
 _Q17 (expert offer mail) was answered on 2026-09-30 — yes, D67, built with Unit 64c._

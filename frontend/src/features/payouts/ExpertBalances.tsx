@@ -1,11 +1,12 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
+import { useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 
 import { formatPayout } from '../../lib/money'
 import { useFilters } from '../shell/filtersContext'
 import { EXPERT_PAYOUTS_PATH } from '../shell/navigation'
 import { fetchExpertTotals } from './registerApi'
-import { day, type ExpertTotals } from './registerRules'
+import { day } from './registerRules'
 
 /**
  * Who is owed how much (Unit 65): one row per expert and currency, committed through paid.
@@ -27,21 +28,13 @@ const COLUMNS: { key: SortKey; label: string; money: boolean }[] = [
 export default function ExpertBalances() {
   const navigate = useNavigate()
   const { activeBrandId } = useFilters()
-  const [rows, setRows] = useState<ExpertTotals[] | null>(null)
-  const [failure, setFailure] = useState<string | null>(null)
+  const query = useQuery({
+    queryKey: ['payouts', 'experts', activeBrandId],
+    queryFn: ({ signal }) => fetchExpertTotals(activeBrandId, signal),
+  })
+  const rows = query.data ?? null
+  const failure = query.isError && !rows ? query.error.message || 'Could not load the experts' : null
   const [sort, setSort] = useState<{ key: SortKey; dir: 1 | -1 }>({ key: 'pending', dir: -1 })
-
-  useEffect(() => {
-    const controller = new AbortController()
-    setRows(null)
-    setFailure(null)
-    fetchExpertTotals(activeBrandId, controller.signal)
-      .then(setRows)
-      .catch((error: unknown) => {
-        if (!controller.signal.aborted) setFailure(error instanceof Error ? error.message : 'Could not load the experts')
-      })
-    return () => controller.abort()
-  }, [activeBrandId])
 
   const sorted = useMemo(() => {
     if (!rows) return null

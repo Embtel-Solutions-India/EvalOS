@@ -3,6 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom'
 import type { BoardCard } from '../board/boardRules'
 import { useFilters } from '../shell/filtersContext'
 import { INBOX_VIEWS, inboxQueue, isInboxView, riskColor, riskLabel } from './queueRules'
+import RowActions from './RowActions'
 import AssignPopover from './AssignPopover'
 
 /**
@@ -189,9 +190,13 @@ function Row({ card, onAssigned }: { card: BoardCard; onAssigned: () => void }) 
         <AssignPopover card={card} onAssigned={onAssigned} />
       </td>
       <td className="px-3 py-2 text-right">
-        <Link to={`/cases/${card.id}`} className="text-sm font-medium" style={{ color: 'var(--accent-primary)' }}>
-          Open
-        </Link>
+        {/* Unit 67: assign the CM or coordinator, hold, … without opening the case. */}
+        <span className="inline-flex items-center gap-3">
+          <RowActions card={card} />
+          <Link to={`/cases/${card.id}`} className="text-sm font-medium" style={{ color: 'var(--accent-primary)' }}>
+            Open
+          </Link>
+        </span>
       </td>
     </tr>
   )

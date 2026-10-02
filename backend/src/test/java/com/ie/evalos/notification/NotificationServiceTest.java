@@ -41,7 +41,9 @@ class NotificationServiceTest {
 
 	private final NotificationRepository notifications = mock(NotificationRepository.class);
 	private final com.ie.evalos.chat.live.CaseLive live = org.mockito.Mockito.mock(com.ie.evalos.chat.live.CaseLive.class);
-	private final NotificationService service = new NotificationService(notifications, live);
+	private final org.springframework.context.ApplicationEventPublisher events =
+			org.mockito.Mockito.mock(org.springframework.context.ApplicationEventPublisher.class);
+	private final NotificationService service = new NotificationService(notifications, live, events);
 
 	@AfterEach
 	void clearCaller() {
@@ -176,5 +178,20 @@ class NotificationServiceTest {
 
 		org.mockito.Mockito.verify(live).notificationsChanged(first);
 		org.mockito.Mockito.verify(live).notificationsChanged(second);
+	}
+
+	/** D37: each row also raises its push, which `BellPushNotifier` sends after commit. */
+	@Test
+	void creatingRaisesAPushPerRecipient() {
+		UUID first = UUID.randomUUID();
+		UUID second = UUID.randomUUID();
+
+		service.create(BRAND, java.util.List.of(first, second), com.ie.evalos.domain.NotificationType.CASE_ASSIGNED,
+				CASE_ID, "body");
+
+		org.mockito.Mockito.verify(events).publishEvent(
+				new BellRaised(first, com.ie.evalos.domain.NotificationType.CASE_ASSIGNED, CASE_ID, "body"));
+		org.mockito.Mockito.verify(events).publishEvent(
+				new BellRaised(second, com.ie.evalos.domain.NotificationType.CASE_ASSIGNED, CASE_ID, "body"));
 	}
 }

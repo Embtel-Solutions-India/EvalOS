@@ -1,5 +1,6 @@
 package com.ie.evalos.service;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -64,9 +65,11 @@ class ExpertServiceTest {
 	private final PayoutService payouts = mock(PayoutService.class);
 	private final AuditService audit = mock(AuditService.class);
 	private final ExpertCaseOfferRepository offers = mock(ExpertCaseOfferRepository.class);
+	private final com.ie.evalos.repository.ExpertAccountRepository accounts =
+			mock(com.ie.evalos.repository.ExpertAccountRepository.class);
 
 	private final ExpertService service =
-			new ExpertService(experts, brands, loads, payouts, new OwnershipGuard(), audit, offers);
+			new ExpertService(experts, brands, loads, payouts, new OwnershipGuard(), audit, offers, accounts);
 
 	@BeforeEach
 	void anEnmWithARoster() {
@@ -124,6 +127,29 @@ class ExpertServiceTest {
 		var second = service.roster(null, null, null, null, null, null, 1, 2);
 		assertThat(second.entries()).hasSize(1);
 		assertThat(second.total()).isEqualTo(3);
+	}
+
+	/** Staff see whether each expert can sign in to the portal: none, invited, or in use. */
+	@Test
+	void eachRowSaysWhetherTheExpertHasSetUpTheirPortalAccount() {
+		Expert never = expert("Never Signed Up", FieldTag.LAW, ExpertTier.TIER_1, Availability.AVAILABLE);
+		Expert invited = expert("Invited Only", FieldTag.LAW, ExpertTier.TIER_1, Availability.AVAILABLE);
+		Expert active = expert("Active User", FieldTag.LAW, ExpertTier.TIER_1, Availability.AVAILABLE);
+		for (Expert e : List.of(never, invited, active)) {
+			org.springframework.test.util.ReflectionTestUtils.setField(e, "id", UUID.randomUUID());
+		}
+		given(experts.findScoped(any(TenantContext.class))).willReturn(List.of(never, invited, active));
+		com.ie.evalos.domain.ExpertAccount waiting = new com.ie.evalos.domain.ExpertAccount(BRAND_IE, invited.getId());
+		com.ie.evalos.domain.ExpertAccount inUse = new com.ie.evalos.domain.ExpertAccount(BRAND_IE, active.getId());
+		inUse.setPasswordHash("$2a$hash");
+		inUse.recordSignIn(Instant.parse("2026-10-01T09:00:00Z"));
+		given(accounts.findByBrandIdAndExpertIdIn(eq(BRAND_IE), anyCollection())).willReturn(List.of(waiting, inUse));
+
+		var rows = service.roster(null, null, null, null, null, null, 0, 50).entries();
+
+		assertThat(rows).extracting(entry -> entry.expert().getFullName() + ":" + entry.portal().status())
+				.containsExactly("Active User:ACTIVE", "Invited Only:INVITED", "Never Signed Up:NONE");
+		assertThat(rows.get(0).portal().lastSignInAt()).isEqualTo(Instant.parse("2026-10-01T09:00:00Z"));
 	}
 
 	@Test

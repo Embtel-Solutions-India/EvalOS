@@ -37,6 +37,25 @@ public class PushSender {
 		this.service = built;
 	}
 
+	/**
+	 * Send, then keep the subscription's record honest: stamped on success, deleted when the push
+	 * service says the browser is gone, kept on a failure (a bad minute is not a dead browser). The
+	 * one delivery step chat and the bell share.
+	 */
+	public static void deliver(PushSender sender, PushSubscriptionRepository subscriptions, PushSubscription to,
+			String json) {
+		switch (sender.send(to, json)) {
+			case SENT -> {
+				to.markSent(java.time.Instant.now());
+				subscriptions.save(to);
+			}
+			case GONE -> subscriptions.delete(to);
+			case FAILED -> {
+				// Logged by the sender.
+			}
+		}
+	}
+
 	public Outcome send(PushSubscription to, String json) {
 		if (service == null) {
 			return Outcome.FAILED;

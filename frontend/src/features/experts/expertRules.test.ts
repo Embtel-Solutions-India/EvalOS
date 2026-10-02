@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  portalLabel,
   AVAILABILITIES,
   AVAILABILITY_TOKEN,
   FIELD_TAGS,
@@ -155,5 +156,14 @@ describe('initials', () => {
     expect(initials(null)).toBe('—')
     expect(initials('')).toBe('—')
     expect(initials('Dr.')).toBe('—')
+  })
+})
+
+describe('portalLabel', () => {
+  it('says whether the expert can sign in to the portal yet', () => {
+    expect(portalLabel({ status: 'NONE', lastSignInAt: null })).toBe('Not signed up')
+    expect(portalLabel({ status: 'INVITED', lastSignInAt: null })).toBe('Password not set')
+    expect(portalLabel({ status: 'ACTIVE', lastSignInAt: null })).toBe('Active')
+    expect(portalLabel({ status: 'ACTIVE', lastSignInAt: '2026-10-01T09:00:00Z' })).toMatch(/^Active · last in /)
   })
 })

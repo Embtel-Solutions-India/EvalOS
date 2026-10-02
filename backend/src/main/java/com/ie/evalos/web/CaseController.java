@@ -274,7 +274,9 @@ public class CaseController {
 			 */
 			Instant expertPortalReadAt,
 			/** D70: the win's note for production. Client-facing content, so behind {@code maySeeCaseContent}. */
-			CaseDetailService.SalesNote salesNote) {
+			CaseDetailService.SalesNote salesNote,
+			/** The PM, CM and coordinator by name (Unit 67). Staff names, not client identity, so ungated. */
+			CaseDetailService.Team team) {
 
 		static CaseDetail of(CaseDetailService.CaseWithContext context, TenantContext ctx) {
 			Case subject = context.subject();
@@ -302,7 +304,8 @@ public class CaseController {
 					subject.getFieldOfExpertise(),
 					subject.getRfeDate(),
 					subject.getExpertPortalReadAt(),
-					seesContent ? context.salesNote() : null);
+					seesContent ? context.salesNote() : null,
+					context.team());
 		}
 	}
 
