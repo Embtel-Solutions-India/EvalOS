@@ -344,8 +344,19 @@ export default function OpportunityBoardPage() {
             yet, or no pipeline assigned. The server fails closed on the second (a caller with
             no pipeline matches nothing), so "ask your GM" is the actionable half.
           */}
-          No opportunities. If you expect some, check that a GM has assigned you a GHL pipeline —
-          a member without one sees an empty board by design.
+          {hiring ? (
+            // An ENM is never *assigned* a pipeline (the server refuses it, D61): the grant is a GM tagging a
+            // mirrored pipeline "Expert hiring" in Admin → Pipelines, and it must belong to the ENM's own brand.
+            <>
+              No hiring pipeline is set up for you. A GM tags one as <strong>Expert hiring</strong> in Admin →
+              Pipelines, and it has to be in your own brand. Until then this screen stays empty by design.
+            </>
+          ) : (
+            <>
+              No opportunities. If you expect some, check that a GM has assigned you a GHL pipeline — a
+              member without one sees an empty board by design.
+            </>
+          )}
         </p>
       ) : (
         <div
