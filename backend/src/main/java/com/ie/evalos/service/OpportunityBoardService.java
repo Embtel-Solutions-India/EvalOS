@@ -363,7 +363,8 @@ public class OpportunityBoardService {
 							// it: a card that vanishes is a card somebody goes looking for.
 							stage == null ? entry.getKey() : stage.name(),
 							stage == null ? Integer.MAX_VALUE : stage.position(),
-							deals, sum(entry.getValue()));
+							// Open deals only, like the board total: a column's value is what is still in play.
+							deals, sum(entry.getValue().stream().filter(OpportunityBoardService::isOpen).toList()));
 				})
 				.sorted(Comparator.comparingInt(BoardColumn::position))
 				.toList();

@@ -1,3 +1,4 @@
+import { openSummary } from './dealOpen'
 import type { BoardColumn, Deal } from './opportunityApi'
 
 /**
@@ -26,22 +27,19 @@ export function moveDeal(
 
   return columns.map((column) => {
     if (column === from && column.stageId === toStageId) {
-      return { ...column, deals: column.deals.map((d) => (d === deal ? next : d)), total: sumOf(column.deals, deal, next) }
+      return { ...column, deals: column.deals.map((d) => (d === deal ? next : d)), total: openSummary(column.deals.map((d) => (d === deal ? next : d))).value }
     }
     if (column === from) {
-      return { ...column, deals: column.deals.filter((d) => d !== deal), total: column.total - (deal.amount ?? 0) }
+      return { ...column, deals: column.deals.filter((d) => d !== deal), total: openSummary(column.deals.filter((d) => d !== deal)).value }
     }
     // Prepended: the card you just dropped is the one you are looking for.
     if (column.stageId === toStageId) {
-      return { ...column, deals: [next, ...column.deals], total: column.total + (next.amount ?? 0) }
+      return { ...column, deals: [next, ...column.deals], total: openSummary([next, ...column.deals]).value }
     }
     return column
   })
 }
 
-function sumOf(deals: readonly Deal[], replaced: Deal, next: Deal): number {
-  return deals.reduce((total, d) => total + ((d === replaced ? next : d).amount ?? 0), 0)
-}
 
 /**
  * Every GHL pipeline here has a stage called "Won"; moving a deal there is winning it (D70), so it

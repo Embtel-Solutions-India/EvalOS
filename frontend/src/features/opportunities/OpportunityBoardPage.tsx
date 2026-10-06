@@ -8,6 +8,7 @@ import { stageColor } from '../board/stageColors'
 import { cardDate } from '../board/boardRules'
 import { CalendarDays } from 'lucide-react'
 import { isWonStage, moveDeal } from './boardMove'
+import { openSummary } from './dealOpen'
 import WinNote from './WinNote'
 import {
   fetchOpportunityBoard,
@@ -393,7 +394,7 @@ export default function OpportunityBoardPage() {
 function narrow(column: BoardColumn, needle: string): BoardColumn {
   const deals = column.deals.filter((deal) => deal.name?.toLowerCase().includes(needle))
   if (deals.length === column.deals.length) return column
-  return { ...column, deals, total: deals.reduce((total, deal) => total + (deal.amount ?? 0), 0) }
+  return { ...column, deals, total: openSummary(deals).value }
 }
 
 // Memoised because a drop hands every untouched column back by identity (`moveDeal`) and the
@@ -424,7 +425,7 @@ const Column = memo(function Column({
     >
       <StageColumn
         label={column.stageName}
-        count={column.deals.length}
+        count={openSummary(column.deals).count}
         emptyText="No deals at this stage."
         color={color}
         addHref={addHref}
@@ -433,7 +434,7 @@ const Column = memo(function Column({
         subtitle={
           <p className="font-num px-2 text-xs tabular-nums">
             <span style={{ color: 'var(--text-muted)' }}>Value </span>
-            <span className="font-medium">{column.deals.length > 0 ? formatMoney(column.total) : '—'}</span>
+            <span className="font-medium">{openSummary(column.deals).count > 0 ? formatMoney(openSummary(column.deals).value) : '—'}</span>
           </p>
         }
       >

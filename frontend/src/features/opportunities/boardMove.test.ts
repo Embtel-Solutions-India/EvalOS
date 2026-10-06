@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { isWonStage, moveDeal } from './boardMove'
+import { openSummary } from './dealOpen'
 import type { BoardColumn, Deal } from './opportunityApi'
 
 const deal = (id: string, amount: number | null): Deal => ({
@@ -48,5 +49,22 @@ describe('isWonStage', () => {
     expect(isWonStage('WON')).toBe(true)
     expect(isWonStage('Invoice Sent')).toBe(false)
     expect(isWonStage('Lost')).toBe(false)
+  })
+})
+
+describe('a column counts only open deals', () => {
+  const closed = (id: string, amount: number, status: string): Deal => ({ ...deal(id, amount), status })
+
+  it('openSummary leaves won and lost out of both the count and the value', () => {
+    expect(openSummary([deal('a', 100), closed('b', 900, 'won'), closed('c', 50, 'lost')])).toEqual({ count: 1, value: 100 })
+  })
+
+  it('winning a deal takes it out of the column value, and a drop never adds a closed deal', () => {
+    const from = column('s1', [deal('a', 100), deal('b', 40)])
+    const won = moveDeal([from, column('s2', [])], 'a', 's1', { status: 'won' })
+    expect(won[0].total).toBe(40)
+
+    const into = moveDeal([column('s1', [closed('w', 700, 'won')]), column('s2', [deal('x', 5)])], 'w', 's2')
+    expect(into[1].total).toBe(5)
   })
 })

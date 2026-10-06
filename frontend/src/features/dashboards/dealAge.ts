@@ -1,3 +1,4 @@
+import { isOpenDeal } from '../opportunities/dealOpen'
 import type { Deal, OpportunityBoard } from '../opportunities/opportunityApi'
 
 /**
@@ -25,7 +26,7 @@ export function allDeals(board: OpportunityBoard | null): readonly Deal[] {
  * status yet is EvalOS's own and not answered for by GHL: still open.
  */
 export function openDeals(board: OpportunityBoard | null): readonly Deal[] {
-  return allDeals(board).filter((deal) => !deal.status || deal.status.toLowerCase() === 'open')
+  return allDeals(board).filter(isOpenDeal)
 }
 
 /**
