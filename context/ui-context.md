@@ -60,8 +60,8 @@ are its own:
 |---|---|---|
 | Tokens | `frontend/src/styles/tokens.css` | `client-expert/shared/src/styles/globals.css` |
 | Shape | hex custom properties, Tailwind 4 | HSL triples behind shadcn names, Tailwind 3 |
-| Type | Inter + IBM Plex Mono | DM Sans + DM Serif Display |
-| Accent | `#2563EB` | IE navy `#003152`, crimson `#c8102e` |
+| Type | Inter + IBM Plex Mono | Inter (Arial fallback) |
+| Accent | `#2563EB` | Logo navy `#10264A` (text `#142B4A`), red `#E31B23`, page `#F5F7FA` (2026-10-06; was navy `#003152` / crimson `#c8102e`) |
 | Radius | see *Border Radius* below | `0.625rem` |
 | Dark mode | none | `.dark` class, full palette |
 
