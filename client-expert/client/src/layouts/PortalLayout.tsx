@@ -2,30 +2,17 @@ import { useEffect, useState } from 'react'
 import { LiveInvalidate } from '@shared/components/common/LiveInvalidate'
 import { ChatProvider, ChatToast } from '@evalos/chat'
 import '@evalos/chat/chat.css'
+import { Menu } from 'lucide-react'
 import { Navigate, useLocation, useNavigate } from 'react-router-dom'
+import { Button } from '@shared/components/ui/button'
 import { usePortalToken } from '@shared/hooks/usePortalToken'
 import { LiquidBackground } from '@shared/components/common/LiquidBackground'
 import { PageTransition } from '@shared/components/common/PageTransition'
 import { MobileNavDrawer } from '@/components/layout/MobileNavDrawer'
-import { PortalHeader } from '@/components/layout/PortalHeader'
 import { PortalSidebar } from '@/components/layout/PortalSidebar'
 import { TermsGate } from '@shared/legal/TermsGate'
-import { PRIMARY_NAV } from '@/constants/navigation'
 import { createPortalChat } from '@shared/services/portalChat'
 import { signOut } from '@shared/services/apiClient'
-
-/**
- * The title bar's text.
- *
- * One nav list now, since 34d left only real screens — the account and "More" groups went with
- * the shell. A case page is reached from Home, not from a menu, so it gets its own name here
- * rather than falling through to "Home".
- */
-function getPageTitle(pathname: string): string {
-  if (pathname.startsWith('/cases/')) return 'Your case'
-  const match = PRIMARY_NAV.find((item) => pathname.startsWith(item.to))
-  return match?.label ?? 'Home'
-}
 
 /**
  * With no credential, the door — not a page explaining a link.
@@ -79,8 +66,11 @@ export function PortalLayout() {
 
           <div className="relative flex h-full flex-col overflow-hidden">
             <LiquidBackground className="opacity-30" />
-            <PortalHeader title={getPageTitle(location.pathname)} onMenuClick={() => setMobileNavOpen(true)} />
             <main className="relative flex-1 px-4 py-6 sm:px-6 lg:px-8">
+              {/* No top bar; on phones the sidebar is the drawer, so its button stays. */}
+              <Button variant="ghost" size="icon" className="-ml-2 mb-2 lg:hidden" onClick={() => setMobileNavOpen(true)} aria-label="Open menu">
+                <Menu className="h-5 w-5" />
+              </Button>
               <PageTransition />
             </main>
           </div>
