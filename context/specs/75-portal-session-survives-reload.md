@@ -1,7 +1,7 @@
 # Unit 75 — The portal session survives a reload
 
 **Decided 2026-10-02 by the business (D73)**: keep the client's and the expert's sign-in in
-`sessionStorage`. **Status: BUILT 2026-10-02** (branch `feature/unit-74-view-and-download`; see
+`sessionStorage`. **Edited 2026-10-07 (D73): the token is now in `localStorage`, not `sessionStorage`** — so rows 1 and 2 of the table below no longer hold: it survives a closed browser and a new tab, ending only at the server's 7-day expiry, Sign out or a 401. **Status: BUILT 2026-10-02** (branch `feature/unit-74-view-and-download`; see
 `implementation-status.md`).
 
 ## 0. Today, before this unit

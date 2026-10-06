@@ -38,8 +38,7 @@ self.addEventListener('notificationclick', (event) => {
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((windows) => {
       const open = windows.find((w) => new URL(w.url).origin === target.origin)
       if (!open) return self.clients.openWindow(target.href)
-      // Not open.navigate(): a reload drops the portal token, which lives in memory only. The
-      // page routes itself (PortalLayout listens for this message).
+      // Not open.navigate(): the page routes itself in place (PortalLayout listens for this message).
       open.postMessage({ type: 'evalos:open', path: target.pathname + target.search })
       return open.focus()
     }),

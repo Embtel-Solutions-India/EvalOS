@@ -224,7 +224,7 @@ whose text the business will give (Q6b; sends nothing until then), same screen a
 **Q13 → D51 (edited 2026-10-02, Unit 74):** every document anyone may read has **View and
 Download**, View first. A view is `inline` with its type forced to PDF / PNG / JPEG from the
 filename, so it opens only in the browser's viewer; Word files stay Download only. Read rules unchanged. **Q11 → D54** (a DRAFT-requests screen) — **retired by Unit 64**, there are no requests.
-**D73 (2026-10-02, Unit 75):** the portal sign-in survives a reload — token in `sessionStorage` (per tab);
+**D73 (2026-10-02, Unit 75):** the portal sign-in survives a reload — token in `localStorage` (amended 2026-10-07 from `sessionStorage`, so a closed browser stays signed in; 7-day server expiry, Sign out revokes) (per tab);
 Sign out in both portals revokes it on the server (`POST /api/portal/sign-out`); a 401 returns to sign-in.
 **D53:** no outbound webhooks, no Handoff C (invariant 11 struck).
 

@@ -537,9 +537,8 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
   policy version, recorded on the account and as a `TERMS_ACCEPTED` audit row; fail closed. Both
   portals' sign-in screens carry the portal artwork on the right half. Built as Unit 72
   (`72-portal-terms-acceptance.md`).
-- **D73.** **A portal sign-in survives a reload** (2026-10-02, the business). The client's and the
-  expert's token is kept in `sessionStorage` (per tab, gone when the tab closes), replacing the
-  memory-only token. Both portals have a **Sign out** that revokes the token on the server
+- **D73.** **A portal sign-in survives a reload and a closed browser** (2026-10-02, the business). The client's and the
+  expert's token is kept in `localStorage`, replacing the memory-only token. **Edited 2026-10-07 (the business): the token is kept in `localStorage`, not `sessionStorage`.** Closing the browser on a phone ended the session, and a push notification opened in a new tab arrived signed out. The token now survives a closed browser and a new tab; what bounds it is the server (absolute expiry `evalos.portal.party-link-ttl`, 7 days by default), **Sign out** (revokes it) and a 401 (clears it). **Accepted cost:** a script injected into a portal can read it, and a shared device stays signed in until Sign out. Both portals have a **Sign out** that revokes the token on the server
   (`POST /api/portal/sign-out`); a 401 while signed in returns to sign-in with "Your session has
   ended". Built as Unit 75 (`75-portal-session-survives-reload.md`).
 - **D74.** **The client sees a status card, not a progress bar** (2026-10-06, the business; Unit 76,

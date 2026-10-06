@@ -16,7 +16,7 @@ beforeEach(() => {
   vi.resetModules()
   store = new Map()
   replaceState = vi.fn()
-  vi.stubGlobal('sessionStorage', {
+  vi.stubGlobal('localStorage', {
     getItem: (key: string) => store.get(key) ?? null,
     setItem: (key: string, value: string) => void store.set(key, value),
     removeItem: (key: string) => void store.delete(key),
@@ -26,7 +26,7 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals())
 
 describe('liftFragmentToken', () => {
-  it('keeps the token for the tab and drops it from the URL, so a reload cannot replay it', async () => {
+  it('keeps the token for the browser and drops it from the URL, so a reload cannot replay it', async () => {
     at('#link-token')
     const { liftFragmentToken } = await import('./usePortalToken')
 

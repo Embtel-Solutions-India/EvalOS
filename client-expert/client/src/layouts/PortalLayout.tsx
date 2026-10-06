@@ -17,9 +17,9 @@ import { signOut } from '@shared/services/apiClient'
 /**
  * With no credential, the door — not a page explaining a link.
  *
- * **The token is kept in `sessionStorage` (Unit 75, D73)**, so a reload stays signed in and
- * closing the tab ends the session; a new tab or a bookmark opened elsewhere starts at sign-in.
- * (It was memory-only until then, so every reload signed the client out.)
+ * **The token is kept in `localStorage` (D73, amended 2026-10-07)**, so a reload stays signed in and
+ * closing the browser does not end it; the server's 7-day expiry, Sign out and a 401 do.
+ * (It was `sessionStorage` from Unit 75, which ended the session with the tab.)
  *
  * **Guarded here rather than in six pages**, because every authenticated route is already inside
  * this layout and `usePortalToken` lifts the fragment on first render — which happens here,

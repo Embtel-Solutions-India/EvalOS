@@ -31,7 +31,7 @@ export function ExpertLayout() {
   const navigate = useNavigate()
   const { pathname } = useLocation()
 
-  // The token is in sessionStorage (Unit 75, D73): a reload keeps it; a new tab arrives without one.
+  // The token is in localStorage (D73): a reload, a new tab and a restarted browser all keep it.
   if (!hasPortalToken()) return <Navigate to="/" replace />
 
   const title = pathname === '/dashboard' ? 'Dashboard' : pathname === '/new' ? 'New cases' : pathname === '/messages' ? 'Messages' : pathname === '/payouts' ? 'Payouts' : pathname === '/case' ? 'Case' : 'Your cases'
