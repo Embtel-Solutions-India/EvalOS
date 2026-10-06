@@ -36,6 +36,8 @@ export default function PipelineDashboard({ audience }: { audience: 'sales' | 'm
   const { data, state } = useMetrics<OpportunityBoard>(
     (signal) => fetchOpportunityBoard(signal),
     [audience],
+    // The mirror is rewritten by the sweeps with no signal to the browser; see useMetrics.
+    { refreshEvery: 60_000 },
   )
 
   const copy = COPY[audience]

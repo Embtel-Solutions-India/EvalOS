@@ -19,13 +19,26 @@ import type { CardState } from '../../components/ui/card'
  * **A changed input clears the screen; a re-read of the same inputs does not.** A new `deps` is a
  * new key, which has no data yet, so last month's figures never sit under this month's header. A
  * focus re-read or `reload()` keeps the figures on screen until better ones arrive.
+ *
+ * **`refreshEvery` (ms) re-reads on a timer while the tab is visible** — for a screen over the mirror
+ * only, whose rows the sweeps rewrite with nothing to tell the browser (D68 leaves mirrored screens
+ * out of live updates). Never for one that reads GHL live, such as the GM overview: a poll there
+ * would spend the shared 100-requests-per-10-seconds budget. A hidden tab does not poll.
  */
+/** The timer half of a metrics query, apart from the hook so it can be tested without a DOM. */
+export function refreshOptions(options?: { refreshEvery?: number }) {
+  return { refetchInterval: options?.refreshEvery, refetchIntervalInBackground: false }
+}
+
 export function useMetrics<T>(
   load: (signal: AbortSignal) => Promise<T>,
   deps: readonly unknown[],
+  options?: { refreshEvery?: number },
 ): { data: T | null; state: CardState; reload: () => void } {
   const id = useId()
-  const query = useQuery({ queryKey: ['metrics', id, ...deps], queryFn: ({ signal }) => load(signal) })
+  const query = useQuery({ queryKey: ['metrics', id, ...deps], queryFn: ({ signal }) => load(signal),
+    ...refreshOptions(options),
+  })
   const data = query.data ?? null
 
   // Error only while there is nothing to show. A re-read that fails over figures already on screen

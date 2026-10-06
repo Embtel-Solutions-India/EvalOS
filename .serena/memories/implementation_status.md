@@ -689,3 +689,5 @@ an expert push opened with no tab open lands on `/case` without the fragment tok
 **2026-10-07 — GM 'By desk' fixed.** It read the legacy `team_member.ghl_pipeline_id` (unwritten since 44b); now sums each desk over its granted set (`ghlIdsFor`), same as the board. Unit 36 is built and was widened by 44b. Backend 1438/0/0/4.
 
 **2026-10-07 — 'Open' meant every deal.** Board totals (and the GM/desk 'Open deals', 'No movement 7d+') counted won and lost rows; now open only (`isOpen`, `openDeals`). Sweeps healthy, no drift. Column header counts/values are open-only too (`openSummary`, `dealOpen.ts`). Backend 1439/0/0/4, staff 196.
+
+**2026-10-07 — 60 s board refresh.** `useMetrics(..., { refreshEvery })` (visible tab only) on the desk/hiring board and `PipelineDashboard`, not the GM or any live-GHL screen. Mirror verified fresh (< 3 min, none stale). Staff 201 tests.

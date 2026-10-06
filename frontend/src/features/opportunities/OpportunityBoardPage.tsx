@@ -48,16 +48,23 @@ import {
  * column under the pointer changes — never per pointer move. The drop moves the card at once,
  * sends one `PUT`, and puts the card back if the server refuses; nothing refetches.
  */
+/** How often a desk's open board re-reads the mirror. The sweep itself runs every 5 minutes. */
+const BOARD_REFRESH_MS = 60_000
+
 export default function OpportunityBoardPage() {
   // **`reload` from the hook, not a counter in the deps.** Passing a counter as a dependency made
   // `useMetrics` clear `data` on every refresh, so adding a note or moving a card blanked the whole
   // board to a skeleton and lost the reader's scroll position — the exact behaviour the hook
   // documents itself as having been fixed to avoid by returning a separate `reload` that keeps the
   // last good data on screen while the new read is in flight.
-  const { data, state, reload } = useMetrics((signal) => fetchOpportunityBoard(signal), [])
+  const role = useMe().role
+  // The sweeps rewrite the mirror every few minutes and tell no browser, so a desk's board re-reads once a
+  // minute while visible. Not the GM's: theirs is every pipeline (thousands of cards) and a poll would be heavy.
+  const { data, state, reload } = useMetrics((signal) => fetchOpportunityBoard(signal), [], {
+    refreshEvery: role === 'GM' ? undefined : BOARD_REFRESH_MS,
+  })
   const [syncing, setSyncing] = useState(false)
   // The server refuses a stage move to anyone else, and a drag that 403s is worse than none.
-  const role = useMe().role
   // Unit 63: the ENM moves candidates on their hiring pipeline, through the same stage route.
   const canMove = role === 'SALES' || role === 'EXPERT_NETWORK_MANAGER'
   const hiring = role === 'EXPERT_NETWORK_MANAGER'
