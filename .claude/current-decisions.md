@@ -77,6 +77,14 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
   code path may create one; `DomainInvariantsTest` fails the build if a second class injects
   `CaseIntakeService`. (Invariant 8.) The service type comes from the webhook's
   `customData.serviceType`.
+  **Amended 2026-10-07 (security review): the win is confirmed with GHL first.** The endpoint token is the
+  webhook's whole credential (GHL's Custom Webhook cannot sign), so a delivery is a trigger, not proof:
+  `GhlOpportunityHandler` re-reads the contact's deals from GHL and creates the case only if one is won
+  (and, if the payload names an opportunity id, that exact deal). A GHL outage is a 5xx GHL redelivers; no
+  won deal is a 409 `NOT_WON_IN_GHL`. **Knowingly not checked:** a brand that does not own the GHL
+  location (D19d) and a deployment with no GHL token — refusing those would lose paid cases, so they are
+  accepted with a WARN log. Still open: the token travels in the URL path, is stored unhashed, and has no
+  rate limit or rotation runbook.
 - **D10, D10a, D10b, D10c, D12, D13 — retired by Unit 64.** EvalOS opens no opportunity, writes no
   requested-service or submitted field, and has no `INTAKE` pipeline purpose (`V78` moves any to
   `UNASSIGNED`); there is no request, questionnaire or submit. The funnel is GHL's end to end until

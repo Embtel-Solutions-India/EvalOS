@@ -677,3 +677,5 @@ an expert push opened with no tab open lands on `/case` without the fragment tok
 **2026-10-06 — Brand colours.** Both portals (`shared/src/styles/globals.css`) and all client emails now use the logo's palette: navy `#10264A`, red `#E31B23`, text `#142B4A`, page `#F5F7FA`, Inter/Arial. Emails put the logo in a banner (320x75) over a red stripe in a white 14px card. Supersedes crimson `#C8102E` / navy `#003152` and DM Sans.
 
 **2026-10-07 — Installable apps.** Staff app and both portals have a web app manifest, 192/512 icons and apple-touch-icon so iOS can install them and deliver web push (Home Screen only). Not tested on a device. DevOps must serve the manifest and icons as static files.
+
+**2026-10-07 — Security review.** Won webhook now confirmed with GHL (`GhlOpportunityHandler`). No live secret found in git history; owner must rotate the GHL token and use non-committed `JWT_SECRET` / `EVALOS_FIELD_KEY` in prod. Header token, rate limit, hashed token, rotation runbook not done.

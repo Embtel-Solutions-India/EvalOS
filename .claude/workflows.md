@@ -70,7 +70,7 @@ and policy version; a case-scoped link is never asked.
 **Built as CURRENT above (Unit 64, 2026-09-29): the account is born with the case.** No public sign-up.
 
 ```
-opportunity.won → Handoff A → CASE_CREATED (after commit)
+opportunity.won → GHL confirms a won deal for the contact (D9) → Handoff A → CASE_CREATED (after commit)
   → case brand is the portal brand, contact has email + GHL id?
       no  → flag the case, no account
       yes → account for (brand, email)?
