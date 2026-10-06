@@ -11,6 +11,7 @@ import com.ie.evalos.domain.GhlReference;
 import com.ie.evalos.domain.Opportunity;
 import com.ie.evalos.repository.GhlCustomFieldRepository;
 import com.ie.evalos.repository.GhlUserRepository;
+import com.ie.evalos.service.CaseOpportunityService;
 import com.ie.evalos.service.ContactSnapshotService;
 import com.ie.evalos.service.PipelineScope;
 import com.ie.evalos.service.ReferenceMirrorService;
@@ -52,7 +53,7 @@ import org.springframework.web.bind.annotation.RestController;
  * pasting its id — the same gate {@code SalesDeskService} applies before it edits one.
  */
 @RestController
-@RequestMapping("/api/opportunities/{opportunityId}/contact")
+@RequestMapping("/api/opportunities")
 public class OpportunityContactController {
 
 	/**
@@ -98,45 +99,59 @@ public class OpportunityContactController {
 	private final ContactSnapshotService contacts;
 	private final GhlUserRepository ghlUsers;
 	private final GhlCustomFieldRepository customFields;
+	private final CaseOpportunityService caseDeals;
 
 	OpportunityContactController(PipelineScope scope, ContactSnapshotService contacts,
-			GhlUserRepository ghlUsers, GhlCustomFieldRepository customFields) {
+			GhlUserRepository ghlUsers, GhlCustomFieldRepository customFields, CaseOpportunityService caseDeals) {
+		this.caseDeals = caseDeals;
 		this.scope = scope;
 		this.contacts = contacts;
 		this.ghlUsers = ghlUsers;
 		this.customFields = customFields;
 	}
 
-	@GetMapping
+	@GetMapping("/{opportunityId}/contact")
 	@PreAuthorize("hasAnyRole('SALES', 'MARKETING', 'GM', 'EXPERT_NETWORK_MANAGER')")
 	public ApiResponse<ContactView> read(@PathVariable String opportunityId) {
 		// `requireVisible` returns the deal it authorised, so this is one lookup rather than two —
 		// and it is the read-side check, which a GM and a Brand Manager pass. `requireMine` refused
 		// both here: a GM holds no pipelines by design, so the contact card on a deal their own
 		// board had listed answered "not permitted for this role, brand, or assignment".
-		Optional<ContactView> found = Optional.of(scope.requireVisible(opportunityId)).map((deal) -> {
-			// The contact may be absent — a deal GHL holds no contact against — while the deal's
-			// own three facts are always there. So the panel is built from the deal and the
-			// contact fills what it can, rather than the whole card vanishing with the person.
-			ContactSnapshot contact = contactFor(deal).orElse(null);
-			return new ContactView(
-					contact == null ? null : contact.getFullName(),
-					contact == null ? null : contact.getEmail(),
-					contact == null ? null : contact.getPhone(),
-					contact == null ? null : contact.getCompany(),
-					contact == null || contact.getSourceChannel() == null
-							? null : contact.getSourceChannel().name(),
-					assigneeName(deal),
-					deal.getGhlCreatedAt(),
-					named(deal, ReferenceMirrorService.OPPORTUNITY_MODEL, deal.getCustomFields()),
-					contact == null ? null : contact.getCountry(),
-					contact == null ? List.of() : contact.getTags(),
-					contact == null ? List.of()
-							: named(deal, ReferenceMirrorService.CONTACT_MODEL, contact.getCustomFields()),
-					deal.getGhlAssignedTo(),
-					deal.getCustomFields());
-		});
-		return ApiResponse.ok(found.orElse(null));
+		return ApiResponse.ok(view(scope.requireVisible(opportunityId)));
+	}
+
+	/**
+	 * The same card for the staff who work the case the deal became — authorised by the case, not by a
+	 * pipeline, so a PM, coordinator or case manager can open it. Null data when the case has no deal.
+	 */
+	@GetMapping("/for-case/{caseId}")
+	@PreAuthorize("hasAnyRole('GM', 'BRAND_MANAGER', 'PROJECT_MANAGER', 'PROJECT_COORDINATOR', 'CASE_MANAGER')")
+	public ApiResponse<ContactView> readForCase(@PathVariable java.util.UUID caseId) {
+		return ApiResponse.ok(caseDeals.of(caseId).map(this::view).orElse(null));
+	}
+
+	/**
+	 * The contact may be absent — a deal GHL holds no contact against — while the deal's own facts are
+	 * always there, so the panel is built from the deal and the contact fills what it can.
+	 */
+	private ContactView view(Opportunity deal) {
+		ContactSnapshot contact = contactFor(deal).orElse(null);
+		return new ContactView(
+				contact == null ? null : contact.getFullName(),
+				contact == null ? null : contact.getEmail(),
+				contact == null ? null : contact.getPhone(),
+				contact == null ? null : contact.getCompany(),
+				contact == null || contact.getSourceChannel() == null
+						? null : contact.getSourceChannel().name(),
+				assigneeName(deal),
+				deal.getGhlCreatedAt(),
+				named(deal, ReferenceMirrorService.OPPORTUNITY_MODEL, deal.getCustomFields()),
+				contact == null ? null : contact.getCountry(),
+				contact == null ? List.of() : contact.getTags(),
+				contact == null ? List.of()
+						: named(deal, ReferenceMirrorService.CONTACT_MODEL, contact.getCustomFields()),
+				deal.getGhlAssignedTo(),
+				deal.getCustomFields());
 	}
 
 	/**

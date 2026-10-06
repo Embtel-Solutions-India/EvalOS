@@ -1,5 +1,6 @@
 import { api, unwrap } from '../../lib/api'
 import type { BoardCard } from '../board/boardRules'
+import type { DealContact } from '../opportunities/opportunityApi'
 
 /**
  * The case detail reads and its one write.
@@ -277,4 +278,9 @@ export function fetchClientRemarks(caseId: string, signal?: AbortSignal): Promis
 
 export async function postClientRemark(caseId: string, body: string): Promise<void> {
   await unwrap(api.post(`/cases/${caseId}/client-remarks`, { body }))
+}
+
+/** The deal the case was won from, as the opportunity screen's details card reads it. Null when there is none. */
+export function fetchCaseDeal(caseId: string, signal?: AbortSignal): Promise<DealContact | null> {
+  return unwrap<DealContact | null>(api.get(`/opportunities/for-case/${caseId}`, { signal }))
 }

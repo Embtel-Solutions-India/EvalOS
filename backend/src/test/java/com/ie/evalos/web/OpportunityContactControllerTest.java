@@ -32,7 +32,7 @@ class OpportunityContactControllerTest {
 	private final GhlUserRepository users = mock(GhlUserRepository.class);
 	private final GhlCustomFieldRepository fields = mock(GhlCustomFieldRepository.class);
 	private final OpportunityContactController controller =
-			new OpportunityContactController(scope, contacts, users, fields);
+			new OpportunityContactController(scope, contacts, users, fields, org.mockito.Mockito.mock(com.ie.evalos.service.CaseOpportunityService.class));
 
 	private static GhlReference.CustomField field(String id, String model, String name) {
 		return new GhlReference.CustomField(BRAND, id, model, name);
