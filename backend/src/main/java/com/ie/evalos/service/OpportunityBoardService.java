@@ -389,7 +389,12 @@ public class OpportunityBoardService {
 		// written out in `application.yml` beside the value. A comment claiming the opposite of the
 		// configured default is worse than no comment: it is what a reader trusts instead of
 		// looking.
-		return new Board(columns, rows.size(), sum(rows), lastSynced,
+		// **The totals are the OPEN deals** — every screen labels them "open" (the board header, the GM's
+		// "Open deals", the desk tiles), and GHL's pipeline view counts open work. They used to be every
+		// live row, so a pipeline with 85 open, 15 won and 7 lost read "107 open" and its value included
+		// closed money. The cards themselves still show every status, as before.
+		List<Opportunity> open = rows.stream().filter(OpportunityBoardService::isOpen).toList();
+		return new Board(columns, open.size(), sum(open), lastSynced,
 				lastSynced == null
 						|| Duration.between(lastSynced, Instant.now()).compareTo(staleAfter) >= 0,
 				sellingBrandId != null);
@@ -403,6 +408,11 @@ public class OpportunityBoardService {
 	private static String firstOf(String preferred, String fallback) {
 		return preferred != null && !preferred.isBlank() ? preferred
 				: fallback != null && !fallback.isBlank() ? fallback : null;
+	}
+
+	/** A null status is a deal EvalOS created and GHL has not answered for yet: still open. */
+	static boolean isOpen(Opportunity row) {
+		return row.getStatus() == null || row.getStatus().isBlank() || "open".equalsIgnoreCase(row.getStatus());
 	}
 
 	private static BigDecimal sum(List<Opportunity> rows) {
