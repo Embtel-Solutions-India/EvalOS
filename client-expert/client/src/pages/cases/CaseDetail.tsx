@@ -1,14 +1,12 @@
 import { useQuery } from '@tanstack/react-query'
-import { Check } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { useParams } from 'react-router-dom'
 import { Card } from '@shared/components/ui/card'
 import { ErrorState } from '@shared/components/common/ErrorState'
 import { ListSkeleton } from '@shared/components/common/LoadingState'
 import { PageHeader } from '@shared/components/common/PageHeader'
-import { CLIENT_STEPS, DELIVERED_STEP, failureMessage, serviceLabel, type Milestone } from '@shared/lib/portal'
+import { DELIVERED_STEP, failureMessage, serviceLabel, type StatusEntry } from '@shared/lib/portal'
 import { statusOf } from '@shared/services/apiClient'
-import { cn } from '@shared/utils/cn'
 import { formatDate } from '@shared/utils/formatters'
 import { CaseDelivered } from '@/components/case/CaseDelivered'
 import { CaseChecklist, CaseDocuments } from '@/components/case/CaseDocuments'
@@ -20,8 +18,9 @@ import { readCase } from '@/services/caseService'
  * document checklist with the draft under it on the right. The case's conversation is not on this
  * page — it lives in Conversations (2026-09-30).
  *
- * **Every step, label and flag is the server's.** `stepIndex` places the stepper, `milestones` are
- * already in client words, and which draft version is answerable is `inReview`.
+ * **Every status, label and remark is the server's** (D74): the current status card and the dated
+ * history are `status` and `history`, already in client words, and which draft version is answerable
+ * is `inReview`. A hold shows its reason as the remark.
  */
 export default function CaseDetail() {
   const { caseId = '' } = useParams<{ caseId: string }>()
@@ -46,10 +45,10 @@ export default function CaseDetail() {
   return (
     <div className="mx-auto max-w-6xl space-y-6">
       <PageHeader title={`Case #${data.caseReference}`} description={serviceLabel(data.serviceType)} />
-      <Stepper index={data.stepIndex} />
+      {data.status && <StatusCard status={data.status} />}
 
-      <div className="grid items-start gap-6 lg:grid-cols-[1fr_24rem]">
-        <div className="space-y-6">
+      <div className="grid grid-cols-[minmax(0,1fr)] items-start gap-6 lg:grid-cols-[minmax(0,1fr)_24rem]">
+        <div className="min-w-0 space-y-6">
           <Section id="documents" title="Documents">
             <CaseDocuments caseId={caseId} />
           </Section>
@@ -59,11 +58,11 @@ export default function CaseDetail() {
             </Section>
           )}
           <Section title="History">
-            <History milestones={data.milestones} />
+            <History history={data.history} />
           </Section>
         </div>
 
-        <div className="order-first space-y-6 lg:order-none">
+        <div className="order-first min-w-0 space-y-6 lg:order-none">
           <Section title="Document checklist">
             <CaseChecklist caseId={caseId} />
           </Section>
@@ -78,37 +77,44 @@ export default function CaseDetail() {
 
 function Section({ id, title, children }: { id?: string; title: string; children: ReactNode }) {
   return (
-    <Card id={id} className="scroll-mt-20 space-y-3 p-5">
+    <Card id={id} className="min-w-0 scroll-mt-20 space-y-3 p-4 sm:p-5">
       <h2 className="text-sm font-semibold text-foreground">{title}</h2>
       {children}
     </Card>
   )
 }
 
-function Stepper({ index }: { index: number }) {
+function StatusCard({ status }: { status: StatusEntry }) {
   return (
-    <ol className="grid grid-cols-4 gap-2" aria-label="Case progress">
-      {CLIENT_STEPS.map((label, i) => (
-        <li key={label} aria-current={i === index ? 'step' : undefined} className="space-y-1">
-          <div className={cn('h-1.5 rounded-full', i <= index ? 'bg-primary' : 'bg-muted')} />
-          <p className={cn('flex items-center gap-1 text-xs', i === index ? 'font-semibold text-foreground' : 'text-muted-foreground')}>
-            {i < index && <Check className="h-3 w-3" aria-hidden="true" />}
-            {label}
-          </p>
-        </li>
-      ))}
-    </ol>
+    <Card className="space-y-2 p-4 sm:p-5" aria-label="Current status">
+      <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Current status</p>
+      <p className="text-lg font-semibold text-foreground">{status.label}</p>
+      <p className="text-sm text-muted-foreground">{status.description}</p>
+      <Remark entry={status} />
+    </Card>
   )
 }
 
-function History({ milestones }: { milestones: Milestone[] }) {
-  if (milestones.length === 0) return <p className="text-sm text-muted-foreground">Nothing yet.</p>
+/** The latest client-facing remark under a status, with its date; nothing when staff wrote none. */
+function Remark({ entry }: { entry: StatusEntry }) {
+  if (!entry.remark) return null
   return (
-    <ol className="space-y-2 border-l pl-4">
-      {milestones.map((m, i) => (
-        <li key={`${m.label}-${i}`} className="text-sm">
-          <span className="font-medium text-foreground">{m.label}</span>
-          <span className="ml-2 text-xs text-muted-foreground">{formatDate(m.at, 'short')}</span>
+    <div className="rounded-md bg-muted/50 p-3 text-sm">
+      <p className="whitespace-pre-wrap text-foreground">{entry.remark.body}</p>
+      <p className="mt-1 text-xs text-muted-foreground">{formatDate(entry.remark.at, 'short')}</p>
+    </div>
+  )
+}
+
+function History({ history }: { history: StatusEntry[] }) {
+  if (history.length === 0) return <p className="text-sm text-muted-foreground">Nothing yet.</p>
+  return (
+    <ol className="space-y-3 border-l pl-4">
+      {history.map((entry, i) => (
+        <li key={`${entry.key}-${i}`} className="space-y-1 text-sm">
+          <span className="font-medium text-foreground">{entry.label}</span>
+          <span className="ml-2 text-xs text-muted-foreground">{formatDate(entry.at, 'short')}</span>
+          <Remark entry={entry} />
         </li>
       ))}
     </ol>

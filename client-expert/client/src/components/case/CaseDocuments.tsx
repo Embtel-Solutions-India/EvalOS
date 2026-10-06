@@ -64,15 +64,15 @@ export function CaseDocuments({ caseId }: { caseId: string }) {
         <div className="space-y-1">
           <p className="text-xs font-semibold text-muted-foreground">What you have sent</p>
           {data.uploaded.map((document) => (
-            <div key={document.id} className="flex items-center justify-between gap-2 text-sm">
-              <span className="min-w-0 truncate">
+            <div key={document.id} className="flex flex-col gap-1 text-sm sm:flex-row sm:items-center sm:justify-between sm:gap-2">
+              <span className="min-w-0 break-words sm:truncate">
                 {document.filename ?? 'Document'}
                 <span className="ml-2 text-xs text-muted-foreground">
                   v{document.version} · {document.checklistLabel ?? '—'} · {formatDate(document.uploadedAt, 'short')}
                 </span>
               </span>
               {/* View first (Unit 74): a PDF or image opens in the browser; every file downloads. */}
-              <span className="flex shrink-0 gap-1">
+              <span className="flex shrink-0 gap-1 self-start sm:self-auto">
                 {isViewable(document.filename) && (
                   <Button variant="ghost" size="sm" onClick={() => void openFile(() => documentUrl(caseId, document.id, true))}>
                     View
@@ -120,7 +120,7 @@ export function CaseChecklist({ caseId }: { caseId: string }) {
               }}
               className="flex items-center justify-between gap-3 py-2.5 text-sm hover:text-primary"
             >
-              <span className="min-w-0">{item.label}</span>
+              <span className="min-w-0 break-words">{item.label}</span>
               <Badge variant={status.variant} className="shrink-0">
                 {status.label}
               </Badge>
@@ -158,8 +158,8 @@ function ChecklistRow({ caseId, item, onUploaded }: { caseId: string; item: Chec
 
   return (
     <Card id={`doc-${item.id}`} className="scroll-mt-20 p-4">
-      <div className="mb-3 flex items-center justify-between gap-3">
-        <p className="text-sm font-medium text-foreground">{item.label}</p>
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <p className="min-w-0 break-words text-sm font-medium text-foreground">{item.label}</p>
         <Badge variant={status.variant}>{status.label}</Badge>
       </div>
       {progress !== null ? (

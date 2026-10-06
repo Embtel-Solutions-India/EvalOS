@@ -152,8 +152,14 @@ export type ClientInvoice = {
 /** The server's `ClientApprovalStatus`, carried on the case view. */
 export type ClientApprovalStatus = 'PENDING' | 'APPROVED' | 'REVISION_REQUESTED'
 
-/** One client-language milestone (`CaseMilestones.Milestone`). The label is the server's. */
-export type Milestone = { label: string; at: string }
+/** What staff told the client, and when (`CaseStatusHistory.Remark`, D74). */
+export type ClientRemark = { body: string; at: string }
+
+/**
+ * One status the case has been in (`CaseStatusHistory.Entry`, D74). `label` and `description` are the
+ * server's words; `remark` is the latest client-facing remark written during that status, or null.
+ */
+export type StatusEntry = { key: string; label: string; description: string; at: string; remark: ClientRemark | null }
 
 /**
  * One case as the client sees it (`PortalCaseService.ClientDraftView`).
@@ -171,9 +177,12 @@ export type ClientDraftView = {
   /** Whether EvalOS is waiting on the client right now — the server decides, not this app. */
   awaitingAnswer: boolean
   step: string
-  /** Stepper position, 0–3 over `CLIENT_STEPS`. */
+  /** Active (0–2) or delivered (3), over `CLIENT_STEPS` — what Home splits on. */
   stepIndex: number
-  milestones: Milestone[]
+  /** The status now, with its latest remark; the last of `history`. */
+  status: StatusEntry | null
+  /** Every status change, oldest first. */
+  history: StatusEntry[]
 }
 
 /** The client stepper (58 §4). The server says which one a case is on (`stepIndex`). */

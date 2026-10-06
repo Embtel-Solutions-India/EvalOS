@@ -267,3 +267,14 @@ export async function fetchPmNotes(brandId: string | null, signal?: AbortSignal)
   return unwrap<CaseNotes[]>(api.get('/cases/pm-notes', { params: brandId ? { brandId } : {}, signal }))
 }
 
+
+/** What the client is told about the case (D74): written here, shown in their portal, never edited. */
+export type ClientRemark = { id: string; body: string; authorName: string | null; createdAt: string }
+
+export function fetchClientRemarks(caseId: string, signal?: AbortSignal): Promise<ClientRemark[]> {
+  return unwrap<ClientRemark[]>(api.get(`/cases/${caseId}/client-remarks`, { signal }))
+}
+
+export async function postClientRemark(caseId: string, body: string): Promise<void> {
+  await unwrap(api.post(`/cases/${caseId}/client-remarks`, { body }))
+}

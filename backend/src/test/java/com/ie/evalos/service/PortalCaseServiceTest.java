@@ -63,10 +63,10 @@ class PortalCaseServiceTest {
 	private final ObjectMapper objectMapper = new ObjectMapper();
 
 	private final CaseDrafts drafts = mock(CaseDrafts.class);
-	private final CaseMilestones milestones = mock(CaseMilestones.class);
+	private final CaseStatusHistory statusHistory = mock(CaseStatusHistory.class);
 
 	private final PortalCaseService portal = new PortalCaseService(cases, contacts, lifecycle, checklistItems, documents,
-			store, audit, drafts, milestones);
+			store, audit, drafts, statusHistory);
 
 	private Case subject;
 
@@ -248,7 +248,7 @@ class PortalCaseServiceTest {
 		assertThat(PortalCaseService.ClientDraftView.class.getRecordComponents())
 				.extracting(java.lang.reflect.RecordComponent::getName)
 				.containsExactly("clientName", "serviceType", "caseReference", "draftLink", "draftVersion",
-						"approvalStatus", "awaitingAnswer", "step", "stepIndex", "milestones");
+						"approvalStatus", "awaitingAnswer", "step", "stepIndex", "status", "history");
 	}
 
 	/**
@@ -519,16 +519,18 @@ class PortalCaseServiceTest {
 	}
 
 	@Test
-	void theCaseDetailCarriesTheStepAndMilestones() {
+	void theCaseDetailCarriesTheStepAndStatusHistory() {
 		PortalPrincipal me = partyTokenFor(BRAND, "ghl-1");
 		subject.setCurrentStage(Stage.CLIENT_REVIEW);
-		given(milestones.of(subject)).willReturn(java.util.List.of(new CaseMilestones.Milestone("Case opened", Instant.now())));
+		CaseStatusHistory.Entry entry = new CaseStatusHistory.Entry("AWAITING_CLIENT_REVIEW", "Awaiting Client Review", "d", Instant.now(), null);
+		given(statusHistory.of(subject)).willReturn(java.util.List.of(entry));
 
 		PortalCaseService.ClientDraftView view = portal.clientView(me, CASE_ID);
 
 		assertThat(view.step()).isEqualTo("Review");
 		assertThat(view.stepIndex()).isEqualTo(1);
-		assertThat(view.milestones()).hasSize(1);
+		assertThat(view.history()).hasSize(1);
+		assertThat(view.status()).isSameAs(entry);
 	}
 
 	/** Final review #1: a draft uploaded as files, with no link, still opens in the live portal. */

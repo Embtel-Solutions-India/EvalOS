@@ -534,6 +534,16 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
   memory-only token. Both portals have a **Sign out** that revokes the token on the server
   (`POST /api/portal/sign-out`); a 401 while signed in returns to sign-in with "Your session has
   ended". Built as Unit 75 (`75-portal-session-survives-reload.md`).
+- **D74.** **The client sees a status card, not a progress bar** (2026-10-06, the business; Unit 76,
+  spec `76-client-status-card.md`). Six client statuses — Awaiting Documents, In Preparation, Awaiting
+  Client Review, Under Expert Review, Delivered, On Hold — are a **projection** of stage + exception
+  state (`PortalStageProjection.ClientStatus`), never stored. Each status shows the **latest
+  client-facing remark and its date**; the client also reads a **dated history of status changes**.
+  Remarks are `case_client_remark` (`V85`), written by GM / PM / PC / CM, **append-only and apart from
+  every internal note**, which never reaches the portal. Changes requested → In Preparation (the
+  existing revision transition). **On Hold requires a reason, which the client sees, and the case
+  keeps its stage so Resume returns to it.** A service that skips a review step simply never shows
+  that status. Replaces Unit 58's milestones.
 - **D68.** **EvalOS screens update themselves** (2026-10-01, the business). A committed write to a
   case (the case, its documents, checklist, offers, payouts, draft comments) sends a **signal, never
   data**, over Ably: `case.changed {caseId}` to a per-brand staff channel and to the case's client

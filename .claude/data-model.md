@@ -13,7 +13,7 @@ live in `backend/src/main/resources/db/migration/`.
 > migrations produce, confirmed against a real applied instance. Row counts cited anywhere are the
 > **local seeded** database and say nothing about production.
 
-### Tables (26, including `flyway_schema_history`)
+### Tables (27, including `flyway_schema_history`)
 
 | Table | Purpose | Brand-scoped |
 |---|---|---|
@@ -32,6 +32,7 @@ live in `backend/src/main/resources/db/migration/`.
 | `evalos_case` | the production case, 60 columns | yes |
 | `case_document` | DRAFT / CLIENT_UPLOAD / SIGNED_LETTER, versioned, S3 `object_key`. A DRAFT (`V70`, Unit 58) holds its Word file in `object_key`/`filename`/`size_bytes` and its PDF in `pdf_object_key`/`pdf_filename`/`pdf_size_bytes` | yes |
 | `draft_comments` | **one comment on one draft version** (`V70`, Unit 58): `document_id` → `case_document`, `author_kind` STAFF/CLIENT, `author_id` (team member, or the client's portal credential), body 1–2,000, `page` ≥ 1 or null. **A trigger refuses UPDATE and DELETE** | yes |
+| `case_client_remark` | **what staff tell the client about a case** (`V85`, Unit 76, D74): `case_id`, `author_id`, `body` 1–2,000, `created_at`. Shown under the status the case was in when written. **A trigger refuses UPDATE and DELETE.** Internal notes are other tables and never reach the portal | yes |
 | `document_checklist_item` | what the client still owes, per case; **`sent_at`/`sent_by`** (`V75`, Unit 61): null = unsent, not in the portal; `sent_by` null on a sent row = sent before D60 | yes |
 | `expert` | expert roster, 50 columns incl. taxonomy arrays and encrypted `payment_detail`; **`credentials_verified_at`** (`V76`, Unit 63): when the ENM checked the credentials, null = not yet (who is on the `CREDENTIALS_VERIFIED` audit row) | yes |
 | `expert_case_offer` | offer to ACCEPTED / DECLINED / TIMED_OUT / SUPERSEDED; **`note`** (`V82`, D69: the PM's note to the expert, required on every offer since, null only before); **`fee` / `fee_set_by` / `fee_set_at`** (`V79`, Unit 65): what the case pays the expert, editable only while `OFFERED`, nullable only for offers closed before V79 (open and accepted ones were backfilled from the payout, else `expert.standard_fee`; `V914` / `V953` do the same for the seed trees). Delivery opens `payout_ledger.amount` from the accepted offer's fee. **`version`** (`V80`): optimistic lock — staff edit the fee and the expert answers on the same row | yes |

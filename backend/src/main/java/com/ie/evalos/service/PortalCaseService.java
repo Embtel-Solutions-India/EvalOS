@@ -86,8 +86,10 @@ public class PortalCaseService {
 			String step,
 			/** Stepper position, Upload 0 → Delivered 3 (Unit 58 §4). */
 			int stepIndex,
-			/** Client-language history (Unit 58 §3). */
-			java.util.List<CaseMilestones.Milestone> milestones) {
+			/** The case's current status, with its latest client-facing remark (D74). */
+			CaseStatusHistory.Entry status,
+			/** Dated status changes, oldest first (D74). */
+			java.util.List<CaseStatusHistory.Entry> history) {
 	}
 
 	/**
@@ -122,14 +124,14 @@ public class PortalCaseService {
 	private final DocumentStore store;
 	private final AuditService audit;
 	private final CaseDrafts drafts;
-	private final CaseMilestones milestones;
+	private final CaseStatusHistory statusHistory;
 
 	PortalCaseService(CaseRepository cases, ContactSnapshotRepository contacts,
 			CaseLifecycleService lifecycle, DocumentChecklistItemRepository checklistItems,
 			CaseDocumentRepository documents, DocumentStore store, AuditService audit, CaseDrafts drafts,
-			CaseMilestones milestones) {
+			CaseStatusHistory statusHistory) {
 		this.drafts = drafts;
-		this.milestones = milestones;
+		this.statusHistory = statusHistory;
 		this.cases = cases;
 		this.contacts = contacts;
 		this.lifecycle = lifecycle;
@@ -195,6 +197,7 @@ public class PortalCaseService {
 
 	/** The projection itself, shared with the two writes so they answer the page's new state. */
 	private ClientDraftView view(Case subject) {
+		java.util.List<CaseStatusHistory.Entry> history = statusHistory.of(subject);
 		// Both lookups are by an id that came off the authorized case, which is the same
 		// provenance the batched staff finders rely on — and unlike them there is no
 		// TenantContext here to scope with. Neither id ever arrives from a request.
@@ -213,7 +216,12 @@ public class PortalCaseService {
 				subject.getClientApprovalStatus() == ClientApprovalStatus.PENDING,
 				PortalStageProjection.forClient(subject.getCurrentStage()).label(),
 				PortalStageProjection.clientStepIndex(subject.getCurrentStage()),
-				milestones.of(subject));
+				current(history), history);
+	}
+
+	/** The last entry is the status now; an empty history (no trail to read) still answers one. */
+	private static CaseStatusHistory.Entry current(java.util.List<CaseStatusHistory.Entry> history) {
+		return history.isEmpty() ? null : history.get(history.size() - 1);
 	}
 
 	/**

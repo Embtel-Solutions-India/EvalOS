@@ -108,3 +108,5 @@ message_reactions, message_reads (one watermark per member), push_subscriptions.
 **Unit 65 (built 2026-09-30):** `V80` added `expert_case_offer.version` (@Version, a lost race is 409 CHANGED_MEANWHILE). `V79` added `expert_case_offer.fee` (numeric(12,2), >= 0) + `fee_set_by` / `fee_set_at`, nullable, open and accepted offers backfilled (payout amount, else `expert.standard_fee`); delivery reads the accepted offer's fee. No new table.
 
 **V84 (Unit 68, 2026-10-02):** `team_member_pipeline_matches_role` keeps only `role IN (SALES, MARKETING) OR ghl_pipeline_id IS NULL` — a new desk needs no vestigial pipeline column.
+
+`case_client_remark` (`V85`, Unit 76): what staff tell the client — `case_id`, `author_id`, `body` 1–2,000; append-only (trigger). Never mixed with internal notes.

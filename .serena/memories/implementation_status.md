@@ -562,7 +562,7 @@ events) and reactions now carry `{ kind, id, name }` per reactor (`MessageServic
 the portal subset of `packages/evalos-chat` is BUILT — see the Unit 58 entry below.
 
 **Unit 58 phases 1–2 (2026-09-27 / 2026-09-28): BUILT.** Phase 1: V70 draft files + comments;
-`POST /api/cases/{id}/drafts` (Word + PDF); `CaseDrafts`, `CaseMilestones`; per-case client routes
+`POST /api/cases/{id}/drafts` (Word + PDF); `CaseDrafts`, `CaseStatusHistory` (was `CaseMilestones`, Unit 76); per-case client routes
 (documents, drafts, comments, approve / request changes by version, delivered files gated to
 DELIVERED, paid invoices); staff Upload draft + comment thread. Phase 2: `packages/evalos-chat` —
 the portal subset (inbox, conversation panel, composer, replies, reactions, unread badge, the Ably
@@ -669,3 +669,5 @@ an expert push opened with no tab open lands on `/case` without the fragment tok
 **2026-10-02 — Draft upload CM-only (D51 edited):** `POST …/drafts` `hasRole('CASE_MANAGER')`, `mayUploadDraft` CM only. `CaseControllerTest` 21 green, `draftRules.test.ts` 8 green.
 
 **2026-10-02 — local demo world V915.** Replaces V905's cases: 30 cases (all 12 stages, all 3 exceptions), 13 experts, 28 demo clients; every client/expert account on `DevPassw0rd!`; team members + GHL mirror kept. Samples in `backend/seed-local-documents/` -> `.local-documents/seed/`. Applies on next backend start.
+
+**2026-10-06 — Unit 76 (client status card, remarks, history; D74) BUILT** (spec `76`, `V85`). `PortalStageProjection.ClientStatus`, `CaseStatusHistory` (replaces `CaseMilestones`), `case_client_remark`, `ClientRemarkService`/`Controller` (`/api/cases/{id}/client-remarks`); `ClientDraftView` has `status` + `history` instead of `milestones`. Client portal: Current status card + History, stepper removed; staff: Update for the client panel, hold reason shown to client. Backend 1423/0/0/4, staff 194, portals 112. Not browser-checked.
