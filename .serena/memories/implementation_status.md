@@ -685,3 +685,5 @@ an expert push opened with no tab open lands on `/case` without the fragment tok
 **2026-10-07 — D73 amended:** the portal token moved from `sessionStorage` to `localStorage` (closed browser stays signed in; push notification opens signed in). Server expiry 7 days (`PORTAL_PARTY_LINK_TTL`), Sign out revokes, 401 clears. Portals 114 tests.
 
 **2026-10-07 — Case-event push.** `CasePushNotifier` + `CaseEvents.Type.CLIENT_REMARK_ADDED`; `CasePushNotifierTest` (5); backend 1437/0/0/4. Same VAPID prerequisites as chat push. Not device-tested.
+
+**2026-10-07 — GM 'By desk' fixed.** It read the legacy `team_member.ghl_pipeline_id` (unwritten since 44b); now sums each desk over its granted set (`ghlIdsFor`), same as the board. Unit 36 is built and was widened by 44b. Backend 1438/0/0/4.

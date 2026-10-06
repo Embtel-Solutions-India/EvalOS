@@ -23,6 +23,7 @@ import com.ie.evalos.domain.Stage;
 import com.ie.evalos.domain.TeamMember;
 import com.ie.evalos.integration.GhlPipelineClient;
 import com.ie.evalos.integration.GhlUnavailableException;
+import com.ie.evalos.repository.TeamMemberPipelineRepository;
 import com.ie.evalos.repository.TeamMemberRepository;
 
 import org.slf4j.Logger;
@@ -100,13 +101,15 @@ public class GmOverviewService {
 	private final BigDecimal monthlyGoal;
 	private final int wonLookbackDays;
 	private final JdbcTemplate jdbc;
+	private final TeamMemberPipelineRepository assignments;
 
 	GmOverviewService(CaseLifecycleService lifecycle, TeamMemberRepository teamMembers, GhlPipelineClient ghl,
-			SellingBrand sellingBrand, JdbcTemplate jdbc,
+			SellingBrand sellingBrand, JdbcTemplate jdbc, TeamMemberPipelineRepository assignments,
 			@Value("${evalos.sales.monthly-goal}") BigDecimal monthlyGoal,
 			@Value("${evalos.sales.won-lookback-days}") int wonLookbackDays) {
 		this.lifecycle = lifecycle;
 		this.jdbc = jdbc;
+		this.assignments = assignments;
 		this.teamMembers = teamMembers;
 		this.ghl = ghl;
 		this.monthlyGoal = monthlyGoal;
@@ -238,13 +241,18 @@ public class GmOverviewService {
 		BigDecimal previousWonValue = BigDecimal.ZERO;
 
 		for (TeamMember desk : desks) {
-			String pipelineId = desk.getGhlPipelineId();
-			List<GhlPipelineClient.Opportunity> created = ghl.opportunitiesIn(pipelineId, from, to);
+			// The desk's pipelines are the set they are granted (D19b), the same one their board draws —
+			// not `team_member.ghl_pipeline_id`, which nothing has written since Unit 44b. A desk on two
+			// pipelines is both of them here, and a desk granted one after that migration is on this card.
+			List<GhlPipelineClient.Opportunity> created = new ArrayList<>();
+			List<GhlPipelineClient.Opportunity> wins = new ArrayList<>();
+			for (String pipelineId : assignments.ghlIdsFor(desk.getId())) {
+				created.addAll(ghl.opportunitiesIn(pipelineId, from, to));
 			// Wins are read over a wider created-window and bucketed here: GHL's date filter is on
 			// createdAt, so a deal opened before this month and won inside it is invisible to the
 			// query above. See GhlPipelineClient.opportunitiesIn(.., status).
-			List<GhlPipelineClient.Opportunity> wins = ghl.opportunitiesIn(pipelineId,
-					from.minusDays(wonLookbackDays), to, WON);
+				wins.addAll(ghl.opportunitiesIn(pipelineId, from.minusDays(wonLookbackDays), to, WON));
+			}
 
 			int deskNew = created.size();
 			int deskWon = 0;
@@ -327,7 +335,7 @@ public class GmOverviewService {
 		List<TeamMember> all = new ArrayList<>();
 		all.addAll(teamMembers.findByActiveTrueAndRoleAndBrandId(Role.SALES, sellingBrandId));
 		all.addAll(teamMembers.findByActiveTrueAndRoleAndBrandId(Role.MARKETING, sellingBrandId));
-		return all.stream().filter((member) -> !isBlank(member.getGhlPipelineId())).toList();
+		return all.stream().filter((member) -> !assignments.ghlIdsFor(member.getId()).isEmpty()).toList();
 	}
 
 	private Headline headline(DateWindow window, BigDecimal won) {

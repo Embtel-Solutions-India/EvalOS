@@ -224,7 +224,7 @@ export default function GmDashboard() {
           )}
           /* Keyed on `team_member.ghl_pipeline_id`, not on GHL's `assignedTo`: EvalOS has no
              mapping from a GHL user to a team member, and the pipeline link is the one it owns. */
-          note="One row per desk — the pipeline that person works, as Unit 36 assigned it."
+          note="One row per desk — the pipelines that person is granted, the same ones their board shows."
         >
           <table className="w-full text-sm">
             <thead>
