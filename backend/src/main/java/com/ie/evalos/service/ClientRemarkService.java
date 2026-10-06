@@ -36,9 +36,11 @@ public class ClientRemarkService {
 	private final CaseClientRemarkRepository remarks;
 	private final TeamMemberRepository teamMembers;
 	private final AuditService audit;
+	private final org.springframework.context.ApplicationEventPublisher events;
 
 	ClientRemarkService(CaseLifecycleService lifecycle, CaseClientRemarkRepository remarks,
-			TeamMemberRepository teamMembers, AuditService audit) {
+			TeamMemberRepository teamMembers, AuditService audit, org.springframework.context.ApplicationEventPublisher events) {
+		this.events = events;
 		this.lifecycle = lifecycle;
 		this.remarks = remarks;
 		this.teamMembers = teamMembers;
@@ -62,6 +64,7 @@ public class ClientRemarkService {
 				caller.memberId(), body.strip()));
 		audit.recordEvent(OBJECT_TYPE, saved.getId(), AuditAction.NOTE_ADDED, caller.memberId(), null,
 				Map.of("caseId", subject.getId()));
+		events.publishEvent(com.ie.evalos.event.CaseEvents.CaseEvent.of(com.ie.evalos.event.CaseEvents.Type.CLIENT_REMARK_ADDED, subject));
 		String name = teamMembers.findById(caller.memberId()).map(TeamMember::getDisplayName).orElse(null);
 		return view(saved, name);
 	}

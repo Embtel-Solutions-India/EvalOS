@@ -411,6 +411,12 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
   (`BellPushNotifier`, on chat's `push_subscriptions`): a recipient with the app open is not pushed,
   since the live bell already tells them. The GM (no brand to file a browser under) and Marketing
   (no chat connection to opt in through) stay in-app only.
+  **Edited 2026-10-07 (the business): clients and experts are pushed case events too** (`CasePushNotifier`, beside
+  the D58 / D67 emails, which stay). Client: documents requested, the chase, draft ready, delivered, case on hold,
+  case resumed, and an update staff wrote for them (D74). Expert: a case offered, a letter to sign. A fixed line
+  plus the case code — never the text of an update or a hold's reason. Skipped while the person has the portal
+  open. Opt-in is the card on each portal's Home (and Conversations); `PushRefresh` keeps an allowed browser
+  subscribed.
 
 ## Other
 
