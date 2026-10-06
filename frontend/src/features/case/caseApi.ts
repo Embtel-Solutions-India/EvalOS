@@ -282,5 +282,6 @@ export async function postClientRemark(caseId: string, body: string): Promise<vo
 
 /** The deal the case was won from, as the opportunity screen's details card reads it. Null when there is none. */
 export function fetchCaseDeal(caseId: string, signal?: AbortSignal): Promise<DealContact | null> {
-  return unwrap<DealContact | null>(api.get(`/opportunities/for-case/${caseId}`, { signal }))
+  // A case with no deal answers no `data` at all, and a query may not resolve to undefined.
+  return unwrap<DealContact | null>(api.get(`/opportunities/for-case/${caseId}`, { signal })).then((deal) => deal ?? null)
 }
