@@ -679,3 +679,5 @@ an expert push opened with no tab open lands on `/case` without the fragment tok
 **2026-10-07 — Installable apps.** Staff app and both portals have a web app manifest, 192/512 icons and apple-touch-icon so iOS can install them and deliver web push (Home Screen only). Not tested on a device. DevOps must serve the manifest and icons as static files.
 
 **2026-10-07 — Security review.** Won webhook now confirmed with GHL (`GhlOpportunityHandler`). No live secret found in git history; owner must rotate the GHL token and use non-committed `JWT_SECRET` / `EVALOS_FIELD_KEY` in prod. Header token, rate limit, hashed token, rotation runbook not done.
+
+**2026-10-07 — Push to a closed browser.** `refreshPush`/`<PushRefresh>` re-subscribe silently on every signed-in load (key change, expired subscription); `PushSender` uses `Urgency.HIGH` and logs refused sends; opt-in card on both Home pages. Needs `EVALOS_PUSH_VAPID_*` + `EVALOS_PUSH_SUBJECT` on the server and `/sw.js` static. Portal sign-in storage (sessionStorage, D73) unchanged pending the owner's decision. Not device-tested.

@@ -5,6 +5,7 @@ import java.security.Security;
 import nl.martijndwars.webpush.Notification;
 import nl.martijndwars.webpush.PushService;
 import nl.martijndwars.webpush.Subscription;
+import nl.martijndwars.webpush.Urgency;
 
 import org.bouncycastle.jce.provider.BouncyCastleProvider;
 import org.slf4j.Logger;
@@ -63,11 +64,19 @@ public class PushSender {
 		try {
 			Subscription subscription = new Subscription(to.getEndpoint(),
 					new Subscription.Keys(to.getP256dh(), to.getAuth()));
-			int status = service.send(new Notification(subscription, json)).getStatusLine().getStatusCode();
+			// High urgency: a chat message is time-sensitive, and the default (normal) is what Android
+			// holds back in Doze — so a phone with the browser closed heard minutes or hours late.
+			int status = service.send(new Notification(subscription, json, Urgency.HIGH)).getStatusLine().getStatusCode();
 			if (status == 404 || status == 410) {
 				return Outcome.GONE;
 			}
-			return status >= 200 && status < 300 ? Outcome.SENT : Outcome.FAILED;
+			if (status < 200 || status >= 300) {
+				// Was silent. 401/403 means the subscription was made with another VAPID key (rotated, or
+				// another environment) and will never deliver; 413/429/5xx are the push service's own.
+				log.warn("Web push to {} was refused with HTTP {}", to.getEndpoint(), status);
+				return Outcome.FAILED;
+			}
+			return Outcome.SENT;
 		}
 		catch (Exception failed) {
 			log.warn("Web push to {} failed", to.getEndpoint(), failed);

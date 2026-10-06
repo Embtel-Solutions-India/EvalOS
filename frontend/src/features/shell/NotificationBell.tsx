@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { useEffect, useRef, useState } from 'react'
-import { PushCard } from '@evalos/chat'
+import { PushCard, PushRefresh } from '@evalos/chat'
 import { api, unwrap } from '../../lib/api'
 import { useMe } from '../../lib/authContext'
 import { chatsFor } from '../../lib/chat'
@@ -67,6 +67,8 @@ export default function NotificationBell() {
   const markAllRead = () => void api.post('/notifications/read-all').catch(() => undefined)
 
   return (
+    <>
+      {mayPush && <PushRefresh workerUrl="/sw.js" />}
     <details
       ref={root}
       open={open}
@@ -165,6 +167,7 @@ export default function NotificationBell() {
         {open && mayPush && <PushCard workerUrl="/sw.js" />}
       </div>
     </details>
+    </>
   )
 }
 

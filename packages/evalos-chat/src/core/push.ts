@@ -48,19 +48,41 @@ export async function pushState(api: ChatApi, workerUrl: string): Promise<PushSt
   return 'off'
 }
 
+/** Whether a browser subscription was made with this VAPID key. Unreadable options count as a match. */
+export function sameKey(subscription: PushSubscription, key: Uint8Array): boolean {
+  const have = subscription.options?.applicationServerKey
+  if (!have) return true
+  const bytes = new Uint8Array(have)
+  return bytes.length === key.length && bytes.every((b, i) => b === key[i])
+}
+
+/**
+ * Keeps a person who already allowed notifications actually reachable, **without ever prompting**.
+ * Run on every signed-in load. A subscription silently stops working when (a) the server's VAPID key
+ * was changed or the person subscribed against another environment — the push service then answers
+ * 403 forever while this browser still reads "on"; (b) the browser expired or dropped it, which
+ * Chrome does for sites not visited in a while; or (c) the server deleted it after a 404/410. Each
+ * is repaired here by subscribing again with the current key and telling the server.
+ */
+export async function refreshPush(api: ChatApi, workerUrl: string): Promise<void> {
+  if (!pushSupported() || Notification.permission !== 'granted') return
+  const key = keyBytes(await api.pushPublicKey())
+  const registration = await navigator.serviceWorker.register(workerUrl)
+  await navigator.serviceWorker.ready
+  let subscription = await registration.pushManager.getSubscription()
+  if (subscription && !sameKey(subscription, key)) {
+    await subscription.unsubscribe()
+    subscription = null
+  }
+  subscription ??= await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: key })
+  await api.subscribePush(subscription.toJSON())
+}
+
 /** Call from a click. Resolves to the new state; a refused prompt answers `denied` or `off`. */
 export async function enablePush(api: ChatApi, workerUrl: string): Promise<PushState> {
   const permission = await Notification.requestPermission()
   if (permission !== 'granted') return permission === 'denied' ? 'denied' : 'off'
-  const registration = await navigator.serviceWorker.register(workerUrl)
-  await navigator.serviceWorker.ready
-  const subscription =
-    (await registration.pushManager.getSubscription()) ??
-    (await registration.pushManager.subscribe({
-      userVisibleOnly: true,
-      applicationServerKey: keyBytes(await api.pushPublicKey()),
-    }))
-  await api.subscribePush(subscription.toJSON())
+  await refreshPush(api, workerUrl)
   return 'on'
 }
 

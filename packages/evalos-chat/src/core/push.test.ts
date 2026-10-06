@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { createChatApi, type Request } from './api'
-import { keyBytes, pushState } from './push'
+import { keyBytes, pushState, sameKey } from './push'
 
 describe('keyBytes', () => {
   it('decodes a base64url VAPID key, padding included', () => {
@@ -30,5 +30,19 @@ describe('pushState', () => {
       throw new Error('should not be called')
     })
     expect(await pushState(api, '/sw.js')).toBe('unsupported')
+  })
+})
+
+describe('sameKey', () => {
+  const sub = (key: number[] | null) => ({ options: { applicationServerKey: key ? new Uint8Array(key).buffer : null } }) as unknown as PushSubscription
+
+  it('matches the key the subscription was made with, and no other', () => {
+    expect(sameKey(sub([1, 2, 3]), new Uint8Array([1, 2, 3]))).toBe(true)
+    expect(sameKey(sub([1, 2, 3]), new Uint8Array([1, 2, 4]))).toBe(false)
+    expect(sameKey(sub([1, 2, 3]), new Uint8Array([1, 2]))).toBe(false)
+  })
+
+  it('cannot tell when the browser hides the key, and does not resubscribe for that', () => {
+    expect(sameKey(sub(null), new Uint8Array([1]))).toBe(true)
   })
 })
