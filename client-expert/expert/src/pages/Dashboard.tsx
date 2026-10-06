@@ -1,5 +1,6 @@
 import { useMemo, useState, type ReactNode } from 'react'
 import { useQuery } from '@tanstack/react-query'
+import { PushCard } from '@evalos/chat'
 import { Link } from 'react-router-dom'
 import { ArrowDown, ArrowRight, ArrowUp, ChevronRight, CircleCheck, Clock, Coins, FileText, History, Hourglass, Wallet } from 'lucide-react'
 import { Card } from '@shared/components/ui/card'
@@ -94,6 +95,9 @@ export default function Dashboard() {
         </div>
         <RangeMenu<RangeKey> calendar ariaLabel="Date range" value={rangeKey} options={RANGES} label={rangeLabel(range)} onChange={setRangeKey} />
       </header>
+
+      {/* The opt-in for new-case and message alerts while the portal is closed (also on Messages). */}
+      <PushCard workerUrl="/sw.js" />
 
       {loading && <ListSkeleton />}
       {failed && !loading && <ErrorState description={expertFailureMessage(statusOf(failed))} onRetry={() => void Promise.all([cases.refetch(), payouts.refetch()])} />}
