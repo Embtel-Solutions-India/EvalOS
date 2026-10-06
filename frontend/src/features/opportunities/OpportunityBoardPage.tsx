@@ -81,6 +81,13 @@ export default function OpportunityBoardPage() {
     [columns, needle],
   )
 
+  // The header's total is the sum of the columns as drawn, so it can never disagree with them — it also
+  // follows a drag, which the server's figure (read once) cannot.
+  const openTotals = useMemo(
+    () => (columns ? columns.reduce((t, c) => { const o = openSummary(c.deals); return { count: t.count + o.count, value: t.value + o.value } }, { count: 0, value: 0 }) : null),
+    [columns],
+  )
+
   const [moveError, setMoveError] = useState<string | null>(null)
   // D70: a drop on the Won column waits here for the production team's note.
   const [pendingWin, setPendingWin] = useState<{ id: string; from: string; to: string } | null>(null)
@@ -233,9 +240,9 @@ export default function OpportunityBoardPage() {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-3 text-sm" style={{ color: 'var(--text-muted)' }}>
-          {data && (
+          {data && openTotals && (
             <span className="font-num tabular-nums">
-              {formatCount(data.totalDeals)} open · {formatMoney(data.totalValue)}
+              {formatCount(openTotals.count)} open · {formatMoney(openTotals.value)}
             </span>
           )}
           {/*
