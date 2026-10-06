@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { createChatApi, type Request } from './api'
-import { keyBytes, pushState, sameKey } from './push'
+import { keyBytes, optedOutOfPush, pushState, sameKey } from './push'
 
 describe('keyBytes', () => {
   it('decodes a base64url VAPID key, padding included', () => {
@@ -44,5 +44,12 @@ describe('sameKey', () => {
 
   it('cannot tell when the browser hides the key, and does not resubscribe for that', () => {
     expect(sameKey(sub(null), new Uint8Array([1]))).toBe(true)
+  })
+})
+
+describe('optedOutOfPush', () => {
+  it('is false when storage is unavailable, so a repair is never blocked by a missing flag', () => {
+    // vitest runs in node: no localStorage.
+    expect(optedOutOfPush()).toBe(false)
   })
 })
