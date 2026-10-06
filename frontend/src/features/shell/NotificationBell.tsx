@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
-import { useState } from 'react'
-import { PushCard } from '@evalos/chat'
+import { useEffect, useRef, useState } from 'react'
+import { PushCard, PushRefresh } from '@evalos/chat'
 import { api, unwrap } from '../../lib/api'
 import { useMe } from '../../lib/authContext'
 import { chatsFor } from '../../lib/chat'
@@ -29,6 +29,22 @@ type NotificationView = {
 export default function NotificationBell() {
   const me = useMe()
   const [open, setOpen] = useState(false)
+  const root = useRef<HTMLDetailsElement>(null)
+
+  // A click anywhere outside the panel, or Escape, closes it — not only the bell itself.
+  useEffect(() => {
+    if (!open) return
+    const outside = (event: PointerEvent) => {
+      if (root.current && !root.current.contains(event.target as Node)) setOpen(false)
+    }
+    const escape = (event: KeyboardEvent) => event.key === 'Escape' && setOpen(false)
+    document.addEventListener('pointerdown', outside)
+    document.addEventListener('keydown', escape)
+    return () => {
+      document.removeEventListener('pointerdown', outside)
+      document.removeEventListener('keydown', escape)
+    }
+  }, [open])
   // D37: the bell also pushes. The opt-in needs the chat connection (Marketing has none) and a brand
   // to file the browser under (the GM has none), so those two stay in-app only.
   const mayPush = chatsFor(me.role) && me.role !== 'GM'
@@ -51,7 +67,10 @@ export default function NotificationBell() {
   const markAllRead = () => void api.post('/notifications/read-all').catch(() => undefined)
 
   return (
+    <>
+      {mayPush && <PushRefresh workerUrl="/sw.js" />}
     <details
+      ref={root}
       open={open}
       onToggle={(event) => {
         setOpen(event.currentTarget.open)
@@ -148,6 +167,7 @@ export default function NotificationBell() {
         {open && mayPush && <PushCard workerUrl="/sw.js" />}
       </div>
     </details>
+    </>
   )
 }
 

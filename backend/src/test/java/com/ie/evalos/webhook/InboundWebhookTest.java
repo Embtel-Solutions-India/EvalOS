@@ -88,6 +88,13 @@ class InboundWebhookTest {
 	@MockitoBean
 	com.ie.evalos.integration.GhlPipelineClient ghl;
 
+	/** The won handler's GHL confirmation: unconfigured here, so it accepts as before. */
+	@MockitoBean
+	com.ie.evalos.integration.GhlHttp ghlHttp;
+
+	@MockitoBean
+	com.ie.evalos.config.SellingBrand sellingBrand;
+
 	@MockitoBean
 	EvalOsUserDetailsService userDetailsService;
 

@@ -562,7 +562,7 @@ events) and reactions now carry `{ kind, id, name }` per reactor (`MessageServic
 the portal subset of `packages/evalos-chat` is BUILT — see the Unit 58 entry below.
 
 **Unit 58 phases 1–2 (2026-09-27 / 2026-09-28): BUILT.** Phase 1: V70 draft files + comments;
-`POST /api/cases/{id}/drafts` (Word + PDF); `CaseDrafts`, `CaseMilestones`; per-case client routes
+`POST /api/cases/{id}/drafts` (Word + PDF); `CaseDrafts`, `CaseStatusHistory` (was `CaseMilestones`, Unit 76); per-case client routes
 (documents, drafts, comments, approve / request changes by version, delivered files gated to
 DELIVERED, paid invoices); staff Upload draft + comment thread. Phase 2: `packages/evalos-chat` —
 the portal subset (inbox, conversation panel, composer, replies, reactions, unread badge, the Ably
@@ -669,3 +669,27 @@ an expert push opened with no tab open lands on `/case` without the fragment tok
 **2026-10-02 — Draft upload CM-only (D51 edited):** `POST …/drafts` `hasRole('CASE_MANAGER')`, `mayUploadDraft` CM only. `CaseControllerTest` 21 green, `draftRules.test.ts` 8 green.
 
 **2026-10-02 — local demo world V915.** Replaces V905's cases: 30 cases (all 12 stages, all 3 exceptions), 13 experts, 28 demo clients; every client/expert account on `DevPassw0rd!`; team members + GHL mirror kept. Samples in `backend/seed-local-documents/` -> `.local-documents/seed/`. Applies on next backend start.
+
+**2026-10-06 — Unit 76 (client status card, remarks, history; D74) BUILT** (spec `76`, `V85`). `PortalStageProjection.ClientStatus`, `CaseStatusHistory` (replaces `CaseMilestones`), `case_client_remark`, `ClientRemarkService`/`Controller` (`/api/cases/{id}/client-remarks`); `ClientDraftView` has `status` + `history` instead of `milestones`. Client portal: Current status card + History, stepper removed; staff: Update for the client panel, hold reason shown to client. Backend 1423/0/0/4, staff 194, portals 112. Not browser-checked.
+
+**2026-10-06 — Case header opens the opportunity.** Name / card click opens a read-only *Opportunity details* pop-up (`CaseDealDialog`) via `GET /api/opportunities/for-case/{caseId}` (`CaseOpportunityService`; GM/BM/PM/PC/CM, not the ENM). Backend 1427/0/0/4. Not browser-checked.
+
+**2026-10-06 — Brand colours.** Both portals (`shared/src/styles/globals.css`) and all client emails now use the logo's palette: navy `#10264A`, red `#E31B23`, text `#142B4A`, page `#F5F7FA`, Inter/Arial. Emails put the logo in a banner (320x75) over a red stripe in a white 14px card. Supersedes crimson `#C8102E` / navy `#003152` and DM Sans.
+
+**2026-10-07 — Installable apps.** Staff app and both portals have a web app manifest, 192/512 icons and apple-touch-icon so iOS can install them and deliver web push (Home Screen only). Not tested on a device. DevOps must serve the manifest and icons as static files.
+
+**2026-10-07 — Security review.** Won webhook now confirmed with GHL (`GhlOpportunityHandler`). No live secret found in git history; owner must rotate the GHL token and use non-committed `JWT_SECRET` / `EVALOS_FIELD_KEY` in prod. Header token, rate limit, hashed token, rotation runbook not done.
+
+**2026-10-07 — Push to a closed browser.** `refreshPush`/`<PushRefresh>` re-subscribe silently on every signed-in load (key change, expired subscription); `PushSender` uses `Urgency.HIGH` and logs refused sends; opt-in card on both Home pages. Needs `EVALOS_PUSH_VAPID_*` + `EVALOS_PUSH_SUBJECT` on the server and `/sw.js` static. Portal sign-in storage (sessionStorage, D73) unchanged pending the owner's decision. Not device-tested.
+
+**2026-10-07 — D73 amended:** the portal token moved from `sessionStorage` to `localStorage` (closed browser stays signed in; push notification opens signed in). Server expiry 7 days (`PORTAL_PARTY_LINK_TTL`), Sign out revokes, 401 clears. Portals 114 tests.
+
+**2026-10-07 — Case-event push.** `CasePushNotifier` + `CaseEvents.Type.CLIENT_REMARK_ADDED`; `CasePushNotifierTest` (5); backend 1437/0/0/4. Same VAPID prerequisites as chat push. Not device-tested.
+
+**2026-10-07 — GM 'By desk' fixed.** It read the legacy `team_member.ghl_pipeline_id` (unwritten since 44b); now sums each desk over its granted set (`ghlIdsFor`), same as the board. Unit 36 is built and was widened by 44b. Backend 1438/0/0/4.
+
+**2026-10-07 — 'Open' meant every deal.** Board totals (and the GM/desk 'Open deals', 'No movement 7d+') counted won and lost rows; now open only (`isOpen`, `openDeals`). Sweeps healthy, no drift. Column header counts/values are open-only too (`openSummary`, `dealOpen.ts`). Backend 1439/0/0/4, staff 196.
+
+**2026-10-07 — 60 s board refresh.** `useMetrics(..., { refreshEvery })` (visible tab only) on the desk/hiring board and `PipelineDashboard`, not the GM or any live-GHL screen. Mirror verified fresh (< 3 min, none stale). Staff 201 tests.
+
+**2026-10-07 — GM 'By desk' Open now.** New/Won/Value follow the date range (New = created in it); new `open`/`openValue` = open deals on the desk's pipelines today (mirror). Restart backend. Backend 1440/0/0/4.

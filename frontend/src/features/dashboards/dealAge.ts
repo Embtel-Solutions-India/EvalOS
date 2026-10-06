@@ -1,3 +1,4 @@
+import { isOpenDeal } from '../opportunities/dealOpen'
 import type { Deal, OpportunityBoard } from '../opportunities/opportunityApi'
 
 /**
@@ -20,6 +21,15 @@ export function allDeals(board: OpportunityBoard | null): readonly Deal[] {
 }
 
 /**
+ * The deals still being worked. A won or lost deal never moves again, so counting it as "no
+ * movement" made most of a pipeline read as stale (1,598 of 1,771 on the GM's tile). A deal with no
+ * status yet is EvalOS's own and not answered for by GHL: still open.
+ */
+export function openDeals(board: OpportunityBoard | null): readonly Deal[] {
+  return allDeals(board).filter(isOpenDeal)
+}
+
+/**
  * Deals with a known date older than the threshold, oldest first.
  *
  * **A null `updatedAt` is excluded here and counted separately.** Treating "no date" as stale
@@ -28,13 +38,13 @@ export function allDeals(board: OpportunityBoard | null): readonly Deal[] {
  */
 export function staleDeals(board: OpportunityBoard | null): readonly Deal[] {
   const cutoff = Date.now() - STALE_DAYS * 24 * 60 * 60 * 1000
-  return allDeals(board)
+  return openDeals(board)
     .filter((deal) => deal.updatedAt !== null && Date.parse(deal.updatedAt) < cutoff)
     .sort((a, b) => Date.parse(a.updatedAt ?? '') - Date.parse(b.updatedAt ?? ''))
 }
 
 export function countUndated(board: OpportunityBoard | null): number {
-  return allDeals(board).filter((deal) => deal.updatedAt === null).length
+  return openDeals(board).filter((deal) => deal.updatedAt === null).length
 }
 
 export function daysSince(iso: string | null): number {

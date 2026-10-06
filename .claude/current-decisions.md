@@ -77,6 +77,14 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
   code path may create one; `DomainInvariantsTest` fails the build if a second class injects
   `CaseIntakeService`. (Invariant 8.) The service type comes from the webhook's
   `customData.serviceType`.
+  **Amended 2026-10-07 (security review): the win is confirmed with GHL first.** The endpoint token is the
+  webhook's whole credential (GHL's Custom Webhook cannot sign), so a delivery is a trigger, not proof:
+  `GhlOpportunityHandler` re-reads the contact's deals from GHL and creates the case only if one is won
+  (and, if the payload names an opportunity id, that exact deal). A GHL outage is a 5xx GHL redelivers; no
+  won deal is a 409 `NOT_WON_IN_GHL`. **Knowingly not checked:** a brand that does not own the GHL
+  location (D19d) and a deployment with no GHL token — refusing those would lose paid cases, so they are
+  accepted with a WARN log. Still open: the token travels in the URL path, is stored unhashed, and has no
+  rate limit or rotation runbook.
 - **D10, D10a, D10b, D10c, D12, D13 — retired by Unit 64.** EvalOS opens no opportunity, writes no
   requested-service or submitted field, and has no `INTAKE` pipeline purpose (`V78` moves any to
   `UNASSIGNED`); there is no request, questionnaire or submit. The funnel is GHL's end to end until
@@ -403,6 +411,12 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
   (`BellPushNotifier`, on chat's `push_subscriptions`): a recipient with the app open is not pushed,
   since the live bell already tells them. The GM (no brand to file a browser under) and Marketing
   (no chat connection to opt in through) stay in-app only.
+  **Edited 2026-10-07 (the business): clients and experts are pushed case events too** (`CasePushNotifier`, beside
+  the D58 / D67 emails, which stay). Client: documents requested, the chase, draft ready, delivered, case on hold,
+  case resumed, and an update staff wrote for them (D74). Expert: a case offered, a letter to sign. A fixed line
+  plus the case code — never the text of an update or a hold's reason. Skipped while the person has the portal
+  open. Opt-in is the card on each portal's Home (and Conversations); `PushRefresh` keeps an allowed browser
+  subscribed.
 
 ## Other
 
@@ -529,11 +543,20 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
   policy version, recorded on the account and as a `TERMS_ACCEPTED` audit row; fail closed. Both
   portals' sign-in screens carry the portal artwork on the right half. Built as Unit 72
   (`72-portal-terms-acceptance.md`).
-- **D73.** **A portal sign-in survives a reload** (2026-10-02, the business). The client's and the
-  expert's token is kept in `sessionStorage` (per tab, gone when the tab closes), replacing the
-  memory-only token. Both portals have a **Sign out** that revokes the token on the server
+- **D73.** **A portal sign-in survives a reload and a closed browser** (2026-10-02, the business). The client's and the
+  expert's token is kept in `localStorage`, replacing the memory-only token. **Edited 2026-10-07 (the business): the token is kept in `localStorage`, not `sessionStorage`.** Closing the browser on a phone ended the session, and a push notification opened in a new tab arrived signed out. The token now survives a closed browser and a new tab; what bounds it is the server (absolute expiry `evalos.portal.party-link-ttl`, 7 days by default), **Sign out** (revokes it) and a 401 (clears it). **Accepted cost:** a script injected into a portal can read it, and a shared device stays signed in until Sign out. Both portals have a **Sign out** that revokes the token on the server
   (`POST /api/portal/sign-out`); a 401 while signed in returns to sign-in with "Your session has
   ended". Built as Unit 75 (`75-portal-session-survives-reload.md`).
+- **D74.** **The client sees a status card, not a progress bar** (2026-10-06, the business; Unit 76,
+  spec `76-client-status-card.md`). Six client statuses — Awaiting Documents, In Preparation, Awaiting
+  Client Review, Under Expert Review, Delivered, On Hold — are a **projection** of stage + exception
+  state (`PortalStageProjection.ClientStatus`), never stored. Each status shows the **latest
+  client-facing remark and its date**; the client also reads a **dated history of status changes**.
+  Remarks are `case_client_remark` (`V85`), written by GM / PM / PC / CM, **append-only and apart from
+  every internal note**, which never reaches the portal. Changes requested → In Preparation (the
+  existing revision transition). **On Hold requires a reason, which the client sees, and the case
+  keeps its stage so Resume returns to it.** A service that skips a review step simply never shows
+  that status. Replaces Unit 58's milestones.
 - **D68.** **EvalOS screens update themselves** (2026-10-01, the business). A committed write to a
   case (the case, its documents, checklist, offers, payouts, draft comments) sends a **signal, never
   data**, over Ably: `case.changed {caseId}` to a per-brand staff channel and to the case's client

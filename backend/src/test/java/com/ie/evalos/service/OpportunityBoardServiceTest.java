@@ -137,6 +137,25 @@ class OpportunityBoardServiceTest {
 		assertThat(board.totalValue()).isEqualByComparingTo("350");
 	}
 
+	/** The headline counts what is still open — the label every screen puts on it — not won and lost deals too. */
+	@Test
+	void theTotalsCountOnlyOpenDealsWhileEveryCardStaysOnTheBoard() {
+		authenticate(Role.SALES, MINE);
+		Opportunity won = mirrored("w", MINE, "s1", "1000", Instant.now());
+		won.syncFromGhl("contact_w", won.getPipelineId(), "s1", "Deal w", new BigDecimal("1000"), "won", null, null, null,
+				Instant.now(), null, null);
+		Opportunity lost = mirrored("l", MINE, "s1", "500", Instant.now());
+		lost.syncFromGhl("contact_l", lost.getPipelineId(), "s1", "Deal l", new BigDecimal("500"), "lost", null, null, null,
+				Instant.now(), null, null);
+		givenMirrored(List.of(mirrored("o", MINE, "s1", "100", Instant.now()), won, lost), MINE);
+
+		OpportunityBoardService.Board board = service().forCaller();
+
+		assertThat(board.totalDeals()).isEqualTo(1);
+		assertThat(board.totalValue()).isEqualByComparingTo("100");
+		assertThat(board.columns().stream().mapToInt((column) -> column.deals().size()).sum()).isEqualTo(3);
+	}
+
 	/**
 	 * The card's service and source: the row's own values first, then the fallbacks — the lead
 	 * source field, and the portal request a deal with no service field was opened from. Resolved

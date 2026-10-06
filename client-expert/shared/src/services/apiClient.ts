@@ -9,9 +9,8 @@ import axios from 'axios'
  * failure mode. `withCredentials: true` was on this instance and is gone — with it set, every
  * cross-origin call is refused at the preflight.
  *
- * **The token is held in a module variable and never persisted.** The rest of this app keeps its
- * mock session in `localStorage`; this is a forwarded-link credential and a shared machine is the
- * risk. A reload still has the fragment in the address bar.
+ * **The token is persisted in `localStorage` (D73, amended 2026-10-07)** so it survives closing the
+ * browser — see `STORAGE_KEY` below for the trade.
  *
  * **The chain accepts `GET`, `POST`, `PUT`, `DELETE` and `OPTIONS`**, and the only request headers
  * it allows are `Content-Type` and `X-Portal-Token`. A verb outside that list fails its preflight
@@ -29,16 +28,21 @@ import axios from 'axios'
 const PORTAL_HEADER = 'X-Portal-Token'
 
 /**
- * **The sign-in lives in `sessionStorage` (Unit 75, D73)**: a reload keeps it, closing the tab ends
- * it, and a new tab starts signed out. The client and expert portals are separate origins, so one
- * key cannot collide. A browser that refuses storage falls back to memory only, as before.
+ * **The sign-in lives in `localStorage` (D73, amended 2026-10-07, the business)**: a reload, closing the
+ * browser, swiping the app away on a phone, and opening a push notification in a new tab all keep it. It
+ * was `localStorage` (Unit 75), which ended the session with the tab — so a client who came back from
+ * a notification landed on sign-in. What bounds it now is the server: the token expires
+ * `evalos.portal.party-link-ttl` after sign-in (7 days by default, absolute), Sign out revokes it, and a
+ * 401 clears it. The cost, accepted: a script injected into the portal can read it, and a shared device
+ * stays signed in until Sign out. The client and expert portals are separate origins, so one key cannot
+ * collide. A browser that refuses storage falls back to memory only.
  */
 const STORAGE_KEY = 'evalos.portal.token'
 const ENDED_KEY = 'evalos.portal.sessionEnded'
 
 function stored(key: string): string | null {
   try {
-    return sessionStorage.getItem(key)
+    return localStorage.getItem(key)
   } catch {
     return null
   }
@@ -46,8 +50,8 @@ function stored(key: string): string | null {
 
 function store(key: string, value: string | null): void {
   try {
-    if (value === null) sessionStorage.removeItem(key)
-    else sessionStorage.setItem(key, value)
+    if (value === null) localStorage.removeItem(key)
+    else localStorage.setItem(key, value)
   } catch {
     // Storage refused (private mode, blocked site data): the in-memory token still works.
   }

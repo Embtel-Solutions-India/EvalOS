@@ -8,6 +8,7 @@ import { stageColor } from '../board/stageColors'
 import { cardDate } from '../board/boardRules'
 import { CalendarDays } from 'lucide-react'
 import { isWonStage, moveDeal } from './boardMove'
+import { openSummary } from './dealOpen'
 import WinNote from './WinNote'
 import {
   fetchOpportunityBoard,
@@ -47,16 +48,23 @@ import {
  * column under the pointer changes — never per pointer move. The drop moves the card at once,
  * sends one `PUT`, and puts the card back if the server refuses; nothing refetches.
  */
+/** How often a desk's open board re-reads the mirror. The sweep itself runs every 5 minutes. */
+const BOARD_REFRESH_MS = 60_000
+
 export default function OpportunityBoardPage() {
   // **`reload` from the hook, not a counter in the deps.** Passing a counter as a dependency made
   // `useMetrics` clear `data` on every refresh, so adding a note or moving a card blanked the whole
   // board to a skeleton and lost the reader's scroll position — the exact behaviour the hook
   // documents itself as having been fixed to avoid by returning a separate `reload` that keeps the
   // last good data on screen while the new read is in flight.
-  const { data, state, reload } = useMetrics((signal) => fetchOpportunityBoard(signal), [])
+  const role = useMe().role
+  // The sweeps rewrite the mirror every few minutes and tell no browser, so a desk's board re-reads once a
+  // minute while visible. Not the GM's: theirs is every pipeline (thousands of cards) and a poll would be heavy.
+  const { data, state, reload } = useMetrics((signal) => fetchOpportunityBoard(signal), [], {
+    refreshEvery: role === 'GM' ? undefined : BOARD_REFRESH_MS,
+  })
   const [syncing, setSyncing] = useState(false)
   // The server refuses a stage move to anyone else, and a drag that 403s is worse than none.
-  const role = useMe().role
   // Unit 63: the ENM moves candidates on their hiring pipeline, through the same stage route.
   const canMove = role === 'SALES' || role === 'EXPERT_NETWORK_MANAGER'
   const hiring = role === 'EXPERT_NETWORK_MANAGER'
@@ -78,6 +86,13 @@ export default function OpportunityBoardPage() {
   const shown = useMemo(
     () => (needle && columns ? columns.map((column) => narrow(column, needle)) : columns),
     [columns, needle],
+  )
+
+  // The header's total is the sum of the columns as drawn, so it can never disagree with them — it also
+  // follows a drag, which the server's figure (read once) cannot.
+  const openTotals = useMemo(
+    () => (columns ? columns.reduce((t, c) => { const o = openSummary(c.deals); return { count: t.count + o.count, value: t.value + o.value } }, { count: 0, value: 0 }) : null),
+    [columns],
   )
 
   const [moveError, setMoveError] = useState<string | null>(null)
@@ -232,9 +247,9 @@ export default function OpportunityBoardPage() {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-3 text-sm" style={{ color: 'var(--text-muted)' }}>
-          {data && (
+          {data && openTotals && (
             <span className="font-num tabular-nums">
-              {formatCount(data.totalDeals)} open · {formatMoney(data.totalValue)}
+              {formatCount(openTotals.count)} open · {formatMoney(openTotals.value)}
             </span>
           )}
           {/*
@@ -344,8 +359,19 @@ export default function OpportunityBoardPage() {
             yet, or no pipeline assigned. The server fails closed on the second (a caller with
             no pipeline matches nothing), so "ask your GM" is the actionable half.
           */}
-          No opportunities. If you expect some, check that a GM has assigned you a GHL pipeline —
-          a member without one sees an empty board by design.
+          {hiring ? (
+            // An ENM is never *assigned* a pipeline (the server refuses it, D61): the grant is a GM tagging a
+            // mirrored pipeline "Expert hiring" in Admin → Pipelines, and it must belong to the ENM's own brand.
+            <>
+              No hiring pipeline is set up for you. A GM tags one as <strong>Expert hiring</strong> in Admin →
+              Pipelines, and it has to be in your own brand. Until then this screen stays empty by design.
+            </>
+          ) : (
+            <>
+              No opportunities. If you expect some, check that a GM has assigned you a GHL pipeline — a
+              member without one sees an empty board by design.
+            </>
+          )}
         </p>
       ) : (
         <div
@@ -382,7 +408,7 @@ export default function OpportunityBoardPage() {
 function narrow(column: BoardColumn, needle: string): BoardColumn {
   const deals = column.deals.filter((deal) => deal.name?.toLowerCase().includes(needle))
   if (deals.length === column.deals.length) return column
-  return { ...column, deals, total: deals.reduce((total, deal) => total + (deal.amount ?? 0), 0) }
+  return { ...column, deals, total: openSummary(deals).value }
 }
 
 // Memoised because a drop hands every untouched column back by identity (`moveDeal`) and the
@@ -413,7 +439,7 @@ const Column = memo(function Column({
     >
       <StageColumn
         label={column.stageName}
-        count={column.deals.length}
+        count={openSummary(column.deals).count}
         emptyText="No deals at this stage."
         color={color}
         addHref={addHref}
@@ -422,7 +448,7 @@ const Column = memo(function Column({
         subtitle={
           <p className="font-num px-2 text-xs tabular-nums">
             <span style={{ color: 'var(--text-muted)' }}>Value </span>
-            <span className="font-medium">{column.deals.length > 0 ? formatMoney(column.total) : '—'}</span>
+            <span className="font-medium">{openSummary(column.deals).count > 0 ? formatMoney(openSummary(column.deals).value) : '—'}</span>
           </p>
         }
       >

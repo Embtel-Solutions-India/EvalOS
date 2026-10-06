@@ -380,6 +380,8 @@ export function admits(action: QuickAction, role: Role): boolean {
 }
 
 const REASON: readonly ActionField[] = [{ name: 'reason', label: 'Reason', kind: 'text' }]
+/** A hold's reason is shown to the client as the reason their case is paused (D74). */
+const HOLD_REASON: readonly ActionField[] = [{ name: 'reason', label: 'Reason (the client sees this)', kind: 'text' }]
 
 /** Unit 73: where an expert may be offered, once a draft exists — `CaseLifecycleService.EXPERT_CHANGEABLE`. */
 export const EXPERT_OFFER_STAGES: readonly Stage[] = [
@@ -570,7 +572,7 @@ export const QUICK_ACTIONS: readonly QuickAction[] = [
     label: 'Put on hold',
     roles: ['PROJECT_COORDINATOR', 'PROJECT_MANAGER'],
     stages: null,
-    fields: REASON,
+    fields: HOLD_REASON,
   },
   {
     path: 'refund/request',

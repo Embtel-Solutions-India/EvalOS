@@ -2,7 +2,7 @@ import { TermsGate } from '@shared/legal/TermsGate'
 import { LiveInvalidate } from '@shared/components/common/LiveInvalidate'
 import * as DialogPrimitive from '@radix-ui/react-dialog'
 import { useQuery } from '@tanstack/react-query'
-import { ChatProvider, ChatToast, UnreadBadge, useChat } from '@evalos/chat'
+import { ChatProvider, ChatToast, PushRefresh, UnreadBadge, useChat } from '@evalos/chat'
 import '@evalos/chat/chat.css'
 import { Bell, BriefcaseBusiness, ChevronDown, Inbox, LayoutDashboard, LifeBuoy, LogOut, Menu, MessagesSquare, Wallet, X } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
@@ -31,7 +31,7 @@ export function ExpertLayout() {
   const navigate = useNavigate()
   const { pathname } = useLocation()
 
-  // The token is in sessionStorage (Unit 75, D73): a reload keeps it; a new tab arrives without one.
+  // The token is in localStorage (D73): a reload, a new tab and a restarted browser all keep it.
   if (!hasPortalToken()) return <Navigate to="/" replace />
 
   const title = pathname === '/dashboard' ? 'Dashboard' : pathname === '/new' ? 'New cases' : pathname === '/messages' ? 'Messages' : pathname === '/payouts' ? 'Payouts' : pathname === '/case' ? 'Case' : 'Your cases'
@@ -40,6 +40,7 @@ export function ExpertLayout() {
   return (
     <TermsGate audience="expert" onSignOut={() => void signOut('/')}>
     <ChatProvider client={chat}>
+      <PushRefresh workerUrl="/sw.js" />
       <LiveInvalidate prefix="expert-portal" />
       <div className="min-h-dvh bg-muted/40 lg:grid lg:grid-cols-[16rem_1fr]">
         <aside className="hidden lg:block">

@@ -125,7 +125,7 @@ class ClientPortalTest {
 	private static PortalCaseService.ClientDraftView view(String reference) {
 		return new PortalCaseService.ClientDraftView("Anita Rao", ServiceType.EXPERT_OPINION_LETTER, reference,
 				"https://docs.google.com/document/d/draft/edit", 2, ClientApprovalStatus.PENDING, true, "Review", 1,
-				java.util.List.of());
+				null, java.util.List.of());
 	}
 
 	/**

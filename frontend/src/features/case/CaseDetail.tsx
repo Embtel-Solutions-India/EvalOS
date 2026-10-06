@@ -12,6 +12,7 @@ import ExpertCard from './ExpertCard'
 import CaseHeader from './CaseHeader'
 import StrategyNotes from './StrategyNotes'
 import ExpertRationale from './ExpertRationale'
+import ClientRemarks from './ClientRemarks'
 import SalesNote from './SalesNote'
 import CaseFacts from './CaseFacts'
 import Timeline from './Timeline'
@@ -190,6 +191,7 @@ export default function CaseDetailPage() {
           <DocumentsPanel detail={detail} role={me.role} onChanged={() => void load()} />
           <DraftPanel detail={detail} role={me.role} onUploaded={() => void load()} />
           <ExpertCard detail={detail} />
+          <ClientRemarks detail={detail} role={me.role} />
           {/* Then what the case is about. Each note panel renders nothing for a role that may not
               read it, so the column holds only what this reader can use. */}
           <CaseFacts detail={detail} role={me.role} onSave={onSaveFacts} />

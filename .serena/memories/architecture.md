@@ -4,7 +4,7 @@
 
 Two Spring Security chains: `/api/portal/**` on an opaque portal token (order 1), everything else
 on staff JWT (order 2). Webhooks are `permitAll` and brand-resolved from their endpoint token.
-The portals keep their token in `sessionStorage` per tab (D73); `POST /api/portal/sign-out` revokes it.
+The portals keep their token in `localStorage` (D73, amended 2026-10-07; 7-day server expiry); `POST /api/portal/sign-out` revokes it.
 
 Multi-tenancy: `ScopedEntity` plus `ScopedRepository` plus `ScopePredicate`. **Known hole:** `Case`
 has no pipeline column, so the PIPELINE tier (SALES and MARKETING) matches no case at all. Fix it

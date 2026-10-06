@@ -5,7 +5,10 @@ import java.math.BigDecimal;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.PropertyNamingStrategies;
 import com.fasterxml.jackson.databind.annotation.JsonNaming;
+import com.ie.evalos.config.SellingBrand;
 import com.ie.evalos.domain.Brand;
+import com.ie.evalos.integration.GhlHttp;
+import com.ie.evalos.integration.GhlPipelineClient;
 import com.ie.evalos.domain.ServiceType;
 import com.ie.evalos.service.CaseIntakeService;
 
@@ -13,6 +16,9 @@ import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Positive;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
 
 /**
@@ -138,16 +144,61 @@ public class GhlOpportunityHandler {
 		}
 	}
 
+	private static final Logger log = LoggerFactory.getLogger(GhlOpportunityHandler.class);
+
 	private final CaseIntakeService intake;
 	private final WebhookPayload payloads;
+	private final GhlPipelineClient ghl;
+	private final GhlHttp ghlHttp;
+	private final SellingBrand sellingBrand;
 
-	GhlOpportunityHandler(CaseIntakeService intake, WebhookPayload payloads) {
+	GhlOpportunityHandler(CaseIntakeService intake, WebhookPayload payloads, GhlPipelineClient ghl, GhlHttp ghlHttp,
+			SellingBrand sellingBrand) {
 		this.intake = intake;
 		this.payloads = payloads;
+		this.ghl = ghl;
+		this.ghlHttp = ghlHttp;
+		this.sellingBrand = sellingBrand;
 	}
 
 	void handle(Brand brand, String rawBody) {
-		intake.intake(brand, toCommand(payloads.read(rawBody, OpportunityWon.class, "opportunity")));
+		OpportunityWon payload = payloads.read(rawBody, OpportunityWon.class, "opportunity");
+		confirmWonInGhl(brand, payload);
+		intake.intake(brand, toCommand(payload));
+	}
+
+	/**
+	 * The endpoint token is the whole credential for this webhook (GHL's Custom Webhook cannot sign),
+	 * and a case, a portal account and an email all follow from a win — so a delivery is a
+	 * <em>trigger</em> here as it is for every other event (D39): GHL is asked whether this contact
+	 * really has a won deal before anything is created. A leaked token can then no longer mint
+	 * cases out of thin air.
+	 *
+	 * <p><strong>Fails closed where it can check.</strong> A GHL outage surfaces as a 5xx, which the
+	 * gateway archives unprocessed and GHL redelivers; a contact with no matching won deal is
+	 * refused 409, also retried by GHL, so a status that was a moment behind the workflow still
+	 * lands. If the payload names an opportunity id, that exact deal must be the contact's and won.
+	 *
+	 * <p><strong>Where it cannot check, it says so and carries on:</strong> GHL is one location,
+	 * owned by the selling brand (D19d). Another brand's contact is not in it, and a deployment with
+	 * no GHL token has nothing to ask — refusing those would lose every paid case, which is the
+	 * worse failure (the same ruling as {@link #DEFAULT_SERVICE}). Both are logged at WARN.
+	 */
+	private void confirmWonInGhl(Brand brand, OpportunityWon payload) {
+		if (!ghlHttp.isConfigured() || !sellingBrand.isConfigured() || !sellingBrand.id().equals(brand.getId())) {
+			log.warn("Won delivery for contact {} accepted WITHOUT confirming it in GHL: brand {} has no reachable GHL location",
+					payload.contactId(), brand.getId());
+			return;
+		}
+		String wanted = payload.customData() == null ? null : payload.customData().opportunityId();
+		boolean won = ghl.forContact(payload.contactId()).stream()
+				.filter((deal) -> wanted == null || wanted.isBlank() || wanted.equals(deal.id()))
+				.anyMatch((deal) -> "won".equalsIgnoreCase(deal.status()));
+		if (!won) {
+			log.warn("Refused a won delivery for contact {}: GHL holds no matching won opportunity", payload.contactId());
+			throw new WebhookRejected(HttpStatus.CONFLICT, "NOT_WON_IN_GHL",
+					"GHL does not show a won opportunity for this contact");
+		}
 	}
 
 	/**

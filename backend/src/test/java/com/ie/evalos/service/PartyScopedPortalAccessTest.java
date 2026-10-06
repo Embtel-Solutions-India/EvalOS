@@ -73,7 +73,7 @@ class PartyScopedPortalAccessTest {
 
 	private final PortalCaseService clientPortal = new PortalCaseService(
 			cases, contacts, lifecycle, checklistItems, documents, store, audit, mock(CaseDrafts.class),
-			mock(CaseMilestones.class));
+			mock(CaseStatusHistory.class));
 
 	private final ExpertPortalService expertPortal = new ExpertPortalService(
 			cases, contacts, experts, checklistItems, documents, lifecycle, sla, store, audit, offers, payouts, payments,

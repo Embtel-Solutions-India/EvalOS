@@ -104,7 +104,7 @@ version. `SUBMITTED`, `RETURNED` and `SUPERSEDED` never reach the client.
 | Route | Does |
 |---|---|
 | `GET cases` | active and delivered cases, each with case code, service, client-facing step, "needs you" |
-| `GET cases/{id}` | detail: the existing view plus `step`, `stepIndex` (stepper position) and `milestones`; the checklist comes from `GET cases/{id}/documents` |
+| `GET cases/{id}` | detail: the existing view plus `step`, `stepIndex` (active vs delivered) and — **edited by Unit 76** — `status` and `history` in place of `milestones` and the stepper; the checklist comes from `GET cases/{id}/documents` |
 | `GET cases/{id}/documents`, `POST cases/{id}/documents?checklistItemId=` | this case's checklist and uploads (replaces the case-less `/documents`) |
 | `GET cases/{id}/documents/{docId}/url` | 5-minute download link to the client's own file |
 | `GET cases/{id}/drafts` | client-visible versions only (§1) |

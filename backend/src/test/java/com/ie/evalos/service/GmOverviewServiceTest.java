@@ -27,6 +27,8 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 
 /**
  * The GM overview, and specifically the three ways it could quietly report a wrong number.
@@ -47,12 +49,20 @@ class GmOverviewServiceTest {
 	private final CaseLifecycleService lifecycle = mock(CaseLifecycleService.class);
 	private final TeamMemberRepository teamMembers = mock(TeamMemberRepository.class);
 	private final GhlPipelineClient ghl = mock(GhlPipelineClient.class);
+	private final OpportunityMirrorService mirror = mock(OpportunityMirrorService.class);
+	private final com.ie.evalos.repository.TeamMemberPipelineRepository assignments =
+			mock(com.ie.evalos.repository.TeamMemberPipelineRepository.class);
+
+	/** Each test desk's granted pipelines, by id — what `team_member_pipeline` answers (D19b). */
+	private static final java.util.Map<UUID, List<String>> HELD = new java.util.concurrent.ConcurrentHashMap<>();
 
 	private GmOverviewService service(String goal) {
+		org.mockito.Mockito.doAnswer((call) -> HELD.getOrDefault(call.<UUID>getArgument(0), List.of()))
+				.when(assignments).ghlIdsFor(any());
 		// A mocked JdbcTemplate answers every query with an empty list: no goal set on the
 		// dashboard, so SALES_MONTHLY_GOAL (`goal`) is the fallback these tests exercise.
 		return new GmOverviewService(lifecycle, teamMembers, ghl, new SellingBrand(BRAND), mock(JdbcTemplate.class),
-				new BigDecimal(goal), 180);
+				assignments, mirror, new BigDecimal(goal), 180);
 	}
 
 	private static DateWindow window(String range) {
@@ -73,6 +83,7 @@ class GmOverviewServiceTest {
 		ReflectionTestUtils.setField(desk, "brandId", BRAND);
 		ReflectionTestUtils.setField(desk, "displayName", role + " desk");
 		ReflectionTestUtils.setField(desk, "ghlPipelineId", pipeline);
+		HELD.put(desk.getId(), List.of(pipeline));
 		ReflectionTestUtils.setField(desk, "active", true);
 		return desk;
 	}
@@ -103,6 +114,65 @@ class GmOverviewServiceTest {
 			assertThat(row.role()).isEqualTo(Role.MARKETING);
 			assertThat(row.wonValue()).isEqualByComparingTo("5000");
 		});
+	}
+
+	/**
+	 * "By desk" reads the pipelines a desk is <em>granted</em> (D19b) — the set their board draws — and
+	 * not the legacy `ghl_pipeline_id` column, which nothing has written since Unit 44b. So a desk on
+	 * two pipelines counts both, and one whose grants were all revoked drops off the card even though
+	 * the old column still names a pipeline.
+	 */
+	@Test
+	void aDeskIsTheSetOfPipelinesItIsGrantedNotTheLegacyColumn() {
+		TeamMember onTwo = desk(Role.SALES, "legacy-one");
+		HELD.put(onTwo.getId(), List.of("pipe-a", "pipe-b"));
+		TeamMember revoked = desk(Role.SALES, "legacy-revoked");
+		HELD.put(revoked.getId(), List.of());
+		given(teamMembers.findByActiveTrueAndRoleAndBrandId(Role.SALES, BRAND)).willReturn(List.of(onTwo, revoked));
+		given(teamMembers.findByActiveTrueAndRoleAndBrandId(Role.MARKETING, BRAND)).willReturn(List.of());
+		given(ghl.opportunitiesIn(any(), any(), any())).willReturn(List.of());
+		given(ghl.opportunitiesIn(any(), any(), any(), eq("won"))).willReturn(List.of());
+		given(ghl.opportunitiesIn(eq("pipe-a"), any(), any(), eq("won")))
+				.willReturn(List.of(won("100", at("2026-09-04"), at("2026-09-01"), "Referral")));
+		given(ghl.opportunitiesIn(eq("pipe-b"), any(), any(), eq("won")))
+				.willReturn(List.of(won("250", at("2026-09-05"), at("2026-09-02"), "Referral")));
+
+		var overview = service("0").forCaller(window("month"), BRAND);
+
+		assertThat(overview.desks()).singleElement().satisfies((row) -> {
+			assertThat(row.won()).isEqualTo(2);
+			assertThat(row.wonValue()).isEqualByComparingTo("350");
+		});
+		verify(ghl, never()).opportunitiesIn(eq("legacy-one"), any(), any());
+		verify(ghl, never()).opportunitiesIn(eq("legacy-revoked"), any(), any());
+	}
+
+	/**
+	 * "Open now" is what the desk holds today — won and lost deals out — whatever the date range, so it
+	 * can be set against the desk's own board header. It is not the date-windowed "New".
+	 */
+	@Test
+	void aDeskReportsWhatItHoldsOpenRightNowWhateverTheRange() {
+		givenOneSalesDesk();
+		given(ghl.opportunitiesIn(any(), any(), any())).willReturn(List.of());
+		given(ghl.opportunitiesIn(any(), any(), any(), eq("won"))).willReturn(List.of());
+		given(mirror.onPipelines(any())).willReturn(List.of(
+				mirrorRow("open", "100"), mirrorRow("open", "50"), mirrorRow("won", "900"), mirrorRow("lost", "30")));
+
+		var overview = service("0").forCaller(window("week"), BRAND);
+
+		assertThat(overview.desks()).singleElement().satisfies((row) -> {
+			assertThat(row.open()).isEqualTo(2);
+			assertThat(row.openValue()).isEqualByComparingTo("150");
+			assertThat(row.newLeads()).isZero();
+		});
+	}
+
+	private static com.ie.evalos.domain.Opportunity mirrorRow(String status, String amount) {
+		var row = new com.ie.evalos.domain.Opportunity(BRAND, UUID.randomUUID().toString(), UUID.randomUUID());
+		row.syncFromGhl("c", row.getPipelineId(), "s", "Deal", new BigDecimal(amount), status, null, null, null,
+				Instant.now(), null, null);
+		return row;
 	}
 
 	private static GhlPipelineClient.Opportunity won(String amount, Instant wonAt, Instant createdAt,

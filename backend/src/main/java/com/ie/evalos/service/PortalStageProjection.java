@@ -1,5 +1,6 @@
 package com.ie.evalos.service;
 
+import com.ie.evalos.domain.ExceptionState;
 import com.ie.evalos.domain.Stage;
 
 /**
@@ -32,6 +33,54 @@ public final class PortalStageProjection {
 	 * @param actionRequired whether this step is waiting on <em>this</em> caller
 	 */
 	public record PortalStep(String label, boolean actionRequired) {
+	}
+
+	/**
+	 * The six statuses a client reads on their case (D74), in the business's words. A status is a
+	 * <em>projection</em> of stage and exception state, never stored: a service that skips a review
+	 * step simply never enters the stage that maps to it, so its history has no row for it.
+	 */
+	public enum ClientStatus {
+		AWAITING_DOCUMENTS("Awaiting Documents", "Required documents are being collected and checked."),
+		IN_PREPARATION("In Preparation", "Documents are complete, and assessment or drafting is underway."),
+		AWAITING_CLIENT_REVIEW("Awaiting Client Review",
+				"The draft is ready for you to review and confirm factual details."),
+		UNDER_EXPERT_REVIEW("Under Expert Review", "The expert is independently reviewing and finalizing the opinion."),
+		DELIVERED("Delivered", "Final documents are available to download."),
+		ON_HOLD("On Hold", "Work is paused.");
+
+		private final String label;
+		private final String description;
+
+		ClientStatus(String label, String description) {
+			this.label = label;
+			this.description = description;
+		}
+
+		public String label() {
+			return label;
+		}
+
+		public String description() {
+			return description;
+		}
+
+		/**
+		 * A hold keeps the stage (it is an exception state), so the stage a case resumes to is the one
+		 * it stopped at — which is why a hold needs no "previous stage" column.
+		 */
+		public static ClientStatus of(Stage stage, ExceptionState exception) {
+			if (exception == ExceptionState.ON_HOLD_AWAITING_CLIENT) {
+				return ON_HOLD;
+			}
+			return switch (stage) {
+				case DOC_COLLECTION -> AWAITING_DOCUMENTS;
+				case PM_REVIEW, DRAFT_IN_PROGRESS, DRAFT_REVIEW, READY_TO_SEND -> IN_PREPARATION;
+				case CLIENT_REVIEW -> AWAITING_CLIENT_REVIEW;
+				case CLIENT_APPROVAL, EXPERT_SIGNING, FINAL_QC, READY_TO_DELIVER -> UNDER_EXPERT_REVIEW;
+				case DELIVERED, CLOSED -> DELIVERED;
+			};
+		}
 	}
 
 	private static final PortalStep IN_PROGRESS = new PortalStep("In progress", false);

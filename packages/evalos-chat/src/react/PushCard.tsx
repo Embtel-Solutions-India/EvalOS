@@ -63,8 +63,8 @@ export function PushCard({ workerUrl }: { workerUrl: string }) {
       : state === 'denied'
         ? ['Notifications are blocked', "You can allow them in your browser's settings."]
         : state === 'on'
-          ? ['Notifications are on', 'You will hear about new messages even when this site is closed.']
-          : ['Get notified when new messages arrive', "Stay updated even when you're away."]
+          ? ['Notifications are on', 'You will hear about new messages and case updates even when this site is closed.']
+          : ['Get notified of new messages and updates', "Stay up to date even when you're away."]
 
   return (
     <div className="ec-push" role="region" aria-label="Notifications">

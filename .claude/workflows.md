@@ -70,7 +70,7 @@ and policy version; a case-scoped link is never asked.
 **Built as CURRENT above (Unit 64, 2026-09-29): the account is born with the case.** No public sign-up.
 
 ```
-opportunity.won → Handoff A → CASE_CREATED (after commit)
+opportunity.won → GHL confirms a won deal for the contact (D9) → Handoff A → CASE_CREATED (after commit)
   → case brand is the portal brand, contact has email + GHL id?
       no  → flag the case, no account
       yes → account for (brand, email)?
@@ -252,7 +252,7 @@ Client Portal /cases/:caseId (Unit 58 — every route names its case; the case-l
         → S3 key built from brand + the GHL contact id + a fresh document uuid (D41)
         → PUT to S3 → INSERT case_document (CLIENT_UPLOAD, versioned)
         → checklist item → UPLOADED → audit
-  GET  /api/portal/client/cases/{id}                    view + step, stepIndex, milestones
+  GET  /api/portal/client/cases/{id}                    view + step, stepIndex, status (current + latest remark), history (dated status changes)
   GET  /api/portal/client/cases/{id}/documents          POST …/documents?checklistItemId=  GET …/documents/{doc}/url
   GET  /api/portal/client/cases/{id}/drafts             client-visible versions only
   GET  …/drafts/{draft}/files/{docx|pdf}/url            GET|POST …/drafts/{draft}/comments
@@ -265,7 +265,7 @@ Staff     GET /api/cases/{id}/documents, …/{documentId}/url[?pdf=true]
 Expert    GET /api/portal/expert/letter, POST /api/portal/expert/signed-letter
 ```
 
-`PortalCaseService`, `CaseDrafts`, `CaseMilestones`, `DocumentStore`. The portal UI over them is
+`PortalCaseService`, `CaseDrafts`, `CaseStatusHistory`, `DocumentStore`. The portal UI over them is
 Unit 58 phase 3: Home lists every case, and each case page holds its documents, drafts, delivered
 files, history and Client conversation.
 

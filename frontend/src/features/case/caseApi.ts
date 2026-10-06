@@ -1,5 +1,6 @@
 import { api, unwrap } from '../../lib/api'
 import type { BoardCard } from '../board/boardRules'
+import type { DealContact } from '../opportunities/opportunityApi'
 
 /**
  * The case detail reads and its one write.
@@ -267,3 +268,20 @@ export async function fetchPmNotes(brandId: string | null, signal?: AbortSignal)
   return unwrap<CaseNotes[]>(api.get('/cases/pm-notes', { params: brandId ? { brandId } : {}, signal }))
 }
 
+
+/** What the client is told about the case (D74): written here, shown in their portal, never edited. */
+export type ClientRemark = { id: string; body: string; authorName: string | null; createdAt: string }
+
+export function fetchClientRemarks(caseId: string, signal?: AbortSignal): Promise<ClientRemark[]> {
+  return unwrap<ClientRemark[]>(api.get(`/cases/${caseId}/client-remarks`, { signal }))
+}
+
+export async function postClientRemark(caseId: string, body: string): Promise<void> {
+  await unwrap(api.post(`/cases/${caseId}/client-remarks`, { body }))
+}
+
+/** The deal the case was won from, as the opportunity screen's details card reads it. Null when there is none. */
+export function fetchCaseDeal(caseId: string, signal?: AbortSignal): Promise<DealContact | null> {
+  // A case with no deal answers no `data` at all, and a query may not resolve to undefined.
+  return unwrap<DealContact | null>(api.get(`/opportunities/for-case/${caseId}`, { signal })).then((deal) => deal ?? null)
+}

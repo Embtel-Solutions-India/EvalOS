@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-/** Unit 75 (D73): the portal sign-in lives in sessionStorage, and a server-side end returns to sign-in. */
+/** D73 (amended 2026-10-07): the portal sign-in lives in localStorage, so it outlives the tab, and a server-side end returns to sign-in. */
 
 type Store = Map<string, string>
 
@@ -22,7 +22,7 @@ beforeEach(() => {
   vi.resetModules()
   store = new Map()
   location = { assign: vi.fn(), reload: vi.fn() }
-  vi.stubGlobal('sessionStorage', fakeSessionStorage(store))
+  vi.stubGlobal('localStorage', fakeSessionStorage(store))
   vi.stubGlobal('window', { location })
 })
 
@@ -52,7 +52,7 @@ describe('the portal session', () => {
     expect(api.hasPortalToken()).toBe(true)
   })
 
-  it('writes a new sign-in to sessionStorage', async () => {
+  it('writes a new sign-in to localStorage', async () => {
     const api = await import('./apiClient')
     expect(api.hasPortalToken()).toBe(false)
     api.setPortalToken('fresh')
@@ -60,7 +60,7 @@ describe('the portal session', () => {
   })
 
   it('still works in memory when the browser refuses storage', async () => {
-    vi.stubGlobal('sessionStorage', fakeSessionStorage(store, true))
+    vi.stubGlobal('localStorage', fakeSessionStorage(store, true))
     const api = await import('./apiClient')
     api.setPortalToken('memory-only')
     expect(api.hasPortalToken()).toBe(true)

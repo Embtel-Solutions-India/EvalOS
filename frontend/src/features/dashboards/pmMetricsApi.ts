@@ -246,6 +246,9 @@ export type GmDeskRow = {
   newLeads: number
   won: number
   wonValue: number
+  /** Deals still open on this desk's pipelines right now (the board's header), whatever the date range. */
+  open: number
+  openValue: number
 }
 
 /** `noSourcePct` is null, never 0, when the window held no opportunities to attribute. */

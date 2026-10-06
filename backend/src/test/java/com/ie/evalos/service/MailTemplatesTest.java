@@ -153,30 +153,30 @@ class MailTemplatesTest {
 		assertThat(html)
 				.contains("https://internationalevaluations.com/assets/logo-horizontal-main.png")
 				.doesNotContain("www.internationalevaluations.com/assets")
-				.contains("width=\"240\" height=\"57\"")
-				.contains("width:240px; height:57px;");
+				.contains("width=\"320\" height=\"75\"")
+				.contains("width:320px;");
 	}
 
 	/**
-	 * The accent is the client portal's {@code --brand-crimson}, everywhere it appears.
+	 * The palette is the logo's, shared with the portals: navy headings and text, one red button.
 	 *
-	 * <p>Pins two things a recolour gets wrong. <strong>No navy survives</strong> — a palette swap
-	 * that misses one button leaves a single blue control in an otherwise crimson email, which
-	 * reads as a rendering fault rather than a design. And <strong>the neutrals are untouched</strong>:
-	 * body text stays {@code #11212C}, because an email whose prose is red reads as a warning and
-	 * every message here is routine.
+	 * <p>Pins that no retired colour survives (the old crimson and the old blue) — a palette swap that
+	 * misses one control leaves a single off-brand button, which reads as a rendering fault — and that
+	 * the button is the brand red.
 	 */
 	@Test
-	void theAccentIsThePortalsCrimsonAndTheNeutralsAreNot() {
+	void thePaletteIsTheLogosNavyAndRed() {
 		for (String html : java.util.List.of(
 				templates.setPassword("Ana", "https://portal.test/x").html(),
 				templates.resetPassword("Ana", "https://portal.test/x").html())) {
 
 			assertThat(html.toUpperCase())
-					.contains("#C8102E")
+					.contains("#E31B23")
+					.contains("#10264A")
+					.contains("#142B4A")
+					.doesNotContain("#C8102E")
 					.doesNotContain("#003152")
-					.doesNotContain("#085A91")
-					.contains("#11212C");
+					.doesNotContain("#085A91");
 		}
 	}
 }

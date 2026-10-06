@@ -1,8 +1,8 @@
 /*
  * Chat push (Unit 57 §6) — the expert portal's copy of client/public/sw.js. Push only.
  *
- * The expert's token is memory-only, so a click with no portal tab open reaches /case without it
- * and the page sends them to sign in. With a tab open, that tab is focused and keeps its token.
+ * The expert's sign-in is kept in localStorage (D73), so a click with no portal tab open opens the case
+ * already signed in (until the token's 7 days end). With a tab open, that tab is focused.
  *
  * The payload is ChatPushNotifier's { title, body, url, tag }: who and where, never what. `tag` is
  * the conversation id, so a later message replaces the earlier notification rather than stacking.
@@ -20,7 +20,8 @@ self.addEventListener('push', (event) => {
       body: data.body || '',
       tag: data.tag,
       renotify: Boolean(data.tag),
-      icon: '/favicon.svg',
+      icon: '/icon-192.png',
+      badge: '/icon-192.png',
       data: { url: data.url },
     }),
   )

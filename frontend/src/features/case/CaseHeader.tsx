@@ -7,6 +7,7 @@ import type { CaseDetail, TimelineEntry } from './caseApi'
 import ProgressStrip from './ProgressStrip'
 import DeadlineDialog from './DeadlineDialog'
 import UploadDraftDialog from './UploadDraftDialog'
+import CaseDealDialog from './CaseDealDialog'
 import { STAGE_SHORT } from './caseProgress'
 import { button, sentence, type Tone } from './caseUi'
 import { StatusPill } from './StatusPill'
@@ -70,6 +71,14 @@ export default function CaseHeader({
   const upload = mayUploadDraft(card.currentStage, role)
   const evidence = expertEvidenceRequest(timeline, card.exceptionState)
   const [moreOpen, setMoreOpen] = useState(false)
+  const [dealOpen, setDealOpen] = useState(false)
+  // The opportunity pop-up: the contact name, or a click on the card that lands on nothing else.
+  // Portalled children (menus, dialogs) bubble through React, so only clicks inside this DOM node count.
+  const openDealFromCard = (event: React.MouseEvent<HTMLElement>) => {
+    const target = event.target as HTMLElement
+    if (!event.currentTarget.contains(target) || target.closest('button, a, input, textarea, select, [role="menuitem"]')) return
+    setDealOpen(true)
+  }
   const finished = FINISHED.has(card.currentStage)
 
   const due =
@@ -90,7 +99,8 @@ export default function CaseHeader({
 
   return (
     <header
-      className="z-10 mb-5 border-b lg:sticky"
+      onClick={detail.maySeeCaseContent ? openDealFromCard : undefined}
+      className={`z-10 mb-5 border-b lg:sticky${detail.maySeeCaseContent ? ' cursor-pointer' : ''}`}
       style={{
         top: 'var(--header-height)',
         background: 'var(--bg-surface)',
@@ -159,7 +169,9 @@ export default function CaseHeader({
               linked to it. `maySeeCaseContent` is the server's own answer to which one this is. */}
           <h1 className="mt-2 text-xl font-semibold tracking-tight text-balance">
             {detail.maySeeCaseContent ?
-              (detail.clientName ?? 'Unnamed contact')
+              <button type="button" onClick={() => setDealOpen(true)} className="text-left hover:underline" title="Open opportunity details">
+                {detail.clientName ?? 'Unnamed contact'}
+              </button>
             : <span style={{ color: 'var(--text-muted)' }}>Client withheld</span>}
           </h1>
           <p className="mt-0.5 text-sm" style={{ color: 'var(--text-muted)' }}>
@@ -263,6 +275,7 @@ export default function CaseHeader({
           {error}
         </p>
       )}
+      {detail.maySeeCaseContent && <CaseDealDialog caseId={card.id} open={dealOpen} onOpenChange={setDealOpen} />}
     </header>
   )
 }

@@ -6,6 +6,7 @@ import { Card } from '@shared/components/ui/card'
 import { EmptyState } from '@shared/components/common/EmptyState'
 import { ErrorState } from '@shared/components/common/ErrorState'
 import { ListSkeleton } from '@shared/components/common/LoadingState'
+import { PushCard } from '@evalos/chat'
 import { PageHeader } from '@shared/components/common/PageHeader'
 import { usePortalToken } from '@shared/hooks/usePortalToken'
 import { DELIVERED_STEP, failureMessage, NO_TOKEN, serviceLabel, type ClientCaseSummary } from '@shared/lib/portal'
@@ -50,6 +51,10 @@ export default function Dashboard() {
   return (
     <div className="space-y-6">
       <p className="text-2xl font-bold tracking-tight text-foreground sm:text-3xl">{greeting()}!</p>
+
+      {/* The opt-in for messages while the portal is closed. It used to live only on Conversations, which
+          most clients never open, so nobody was subscribed to be notified. */}
+      <PushCard workerUrl="/sw.js" />
 
       <PageHeader
         title="Your cases"

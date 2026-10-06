@@ -224,7 +224,7 @@ whose text the business will give (Q6b; sends nothing until then), same screen a
 **Q13 → D51 (edited 2026-10-02, Unit 74):** every document anyone may read has **View and
 Download**, View first. A view is `inline` with its type forced to PDF / PNG / JPEG from the
 filename, so it opens only in the browser's viewer; Word files stay Download only. Read rules unchanged. **Q11 → D54** (a DRAFT-requests screen) — **retired by Unit 64**, there are no requests.
-**D73 (2026-10-02, Unit 75):** the portal sign-in survives a reload — token in `sessionStorage` (per tab);
+**D73 (2026-10-02, Unit 75):** the portal sign-in survives a reload — token in `localStorage` (amended 2026-10-07 from `sessionStorage`, so a closed browser stays signed in; 7-day server expiry, Sign out revokes) (per tab);
 Sign out in both portals revokes it on the server (`POST /api/portal/sign-out`); a 401 returns to sign-in.
 **D53:** no outbound webhooks, no Handoff C (invariant 11 struck).
 
@@ -244,3 +244,9 @@ payments are managed manually by the ENM; the expert portal shows what was recor
 **D68 (2026-10-01):** EvalOS screens update themselves: a committed case write sends a signal (never data) over Ably — `case.changed {caseId}` to a per-brand staff channel plus the case's client/experts, `notifications.changed` to the bell owner; screens re-read REST in the background, also on focus/reconnect; GHL-mirrored screens and chat out of scope. Spec `70-live-screens.md`, BUILT 2026-10-01 (GM hears every brand: token names each channel, 2026-10-02).
 
 **D72 (2026-10-02, Unit 68):** the GM administers staff in EvalOS — create / edit / deactivate (never delete) / set password, GM-only, audited without the password; no staff mail (Q18); a deactivation bites on the next request (`JwtFilter` re-reads `active`); the GM cannot deactivate self or change own role; a desk with grants keeps role and brand until revoked. GM screens for pipelines (purpose), sync health (read-only) and brands (read-only).
+
+**D74 (2026-10-06, Unit 76):** the client sees a status card, not a progress bar. Six statuses (Awaiting Documents, In Preparation, Awaiting Client Review, Under Expert Review, Delivered, On Hold) are a projection of stage + exception state, never stored. Latest client-facing remark + date per status; dated status history. Remarks = `case_client_remark` (`V85`), GM/PM/PC/CM write, append-only, apart from internal notes. On Hold needs a reason the client sees; stage kept, so Resume returns to it. Replaces milestones.
+
+**D9 amended (2026-10-07):** `opportunity.won` is confirmed with GHL (the contact must have a won deal, the named one if the payload names it) before a case is created; GHL outage = retriable 5xx, no won deal = 409. Unverifiable cases (non-selling brand, no GHL token) are accepted with a WARN.
+
+**D37 edited (2026-10-07):** clients and experts are pushed case events too (`CasePushNotifier`): client — documents requested/chased, draft ready, delivered, on hold, resumed, staff update; expert — offer, letter to sign. Fixed line + case code, never the text; skipped while online. Emails stay.

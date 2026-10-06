@@ -70,6 +70,8 @@ class DomainInvariantsTest {
 				// Unit 58. Brand only: reached through its version, through an authorized case.
 				arguments(com.ie.evalos.repository.DraftCommentRepository.SCOPE, DraftComment.class),
 				arguments(DocumentChecklistItemRepository.SCOPE, DocumentChecklistItem.class),
+				// Unit 76 (D74). Brand only: reached through an authorized case.
+				arguments(com.ie.evalos.repository.CaseClientRemarkRepository.SCOPE, com.ie.evalos.domain.CaseClientRemark.class),
 				arguments(ExpertRepository.SCOPE, Expert.class),
 				arguments(ExpertCaseOfferRepository.SCOPE, ExpertCaseOffer.class),
 				arguments(PayoutLedgerRepository.SCOPE, PayoutLedger.class),

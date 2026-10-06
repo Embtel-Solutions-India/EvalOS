@@ -130,7 +130,7 @@ export function Composer({
           )}
         </div>
         <button type="button" className="ec-send" disabled={!body.trim() || sending} onClick={() => void send()}>
-          <SendIcon size={16} /> {compact ? 'Reply' : 'Send'}
+          <SendIcon size={16} /> <span className="ec-send__label">{compact ? 'Reply' : 'Send'}</span>
         </button>
       </div>
       {body.length > MAX_BODY - 200 && <p className="ec-muted ec-count">{body.length}/{MAX_BODY}</p>}

@@ -142,7 +142,10 @@ public final class CaseEvents {
 		 * a routine notice, which is why {@code NotificationListeners.ROUTES} raises it past
 		 * the case's own PM to that brand's Brand Managers as well.
 		 */
-		CASE_DELIVERED_NO_EXPERT("case.delivered_no_expert");
+		CASE_DELIVERED_NO_EXPERT("case.delivered_no_expert"),
+
+		/** Staff wrote an update for the client (D74). Announced by push only; the update itself is the record. */
+		CLIENT_REMARK_ADDED("case.client_remark_added");
 
 		private final String wireName;
 
