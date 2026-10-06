@@ -57,9 +57,6 @@ export default function CaseDetail() {
               <CaseDelivered caseId={caseId} />
             </Section>
           )}
-          <Section title="History">
-            <History history={data.history} />
-          </Section>
         </div>
 
         <div className="order-first min-w-0 space-y-6 lg:order-none">
@@ -68,6 +65,9 @@ export default function CaseDetail() {
           </Section>
           <Section title="Draft">
             <CaseDraft caseId={caseId} legacyLink={data.draftLink} />
+          </Section>
+          <Section title="History">
+            <History history={data.history} />
           </Section>
         </div>
       </div>
