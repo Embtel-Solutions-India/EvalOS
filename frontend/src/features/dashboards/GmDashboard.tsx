@@ -224,15 +224,16 @@ export default function GmDashboard() {
           )}
           /* Keyed on `team_member.ghl_pipeline_id`, not on GHL's `assignedTo`: EvalOS has no
              mapping from a GHL user to a team member, and the pipeline link is the one it owns. */
-          note="One row per desk — the pipelines that person is granted, the same ones their board shows."
+          note="One row per desk — the pipelines that person is granted. New, Won and Value follow the date range; Open now is what the desk holds today."
         >
           <table className="w-full text-sm">
             <thead>
               <tr style={{ color: 'var(--text-muted)' }}>
                 <th className="pb-1 text-left text-xs font-medium uppercase">Desk</th>
-                <th className="pb-1 text-right text-xs font-medium uppercase">New</th>
+                <th className="pb-1 text-right text-xs font-medium uppercase" title="Deals created in the selected date range">New</th>
                 <th className="pb-1 text-right text-xs font-medium uppercase">Won</th>
                 <th className="pb-1 text-right text-xs font-medium uppercase">Value</th>
+                <th className="pb-1 text-right text-xs font-medium uppercase" title="Open on the desk's pipelines right now — what their board's header shows">Open now</th>
               </tr>
             </thead>
             <tbody>
@@ -250,6 +251,12 @@ export default function GmDashboard() {
                   <td className="font-num py-1 text-right tabular-nums">{row.won}</td>
                   <td className="font-num py-1 text-right tabular-nums">
                     {formatMoney(Math.round(row.wonValue))}
+                  </td>
+                  <td className="font-num py-1 text-right tabular-nums">
+                    {row.open}
+                    <span className="ml-1 text-xs" style={{ color: 'var(--text-muted)' }}>
+                      {formatMoney(Math.round(row.openValue))}
+                    </span>
                   </td>
                 </tr>
               ))}

@@ -691,3 +691,5 @@ an expert push opened with no tab open lands on `/case` without the fragment tok
 **2026-10-07 — 'Open' meant every deal.** Board totals (and the GM/desk 'Open deals', 'No movement 7d+') counted won and lost rows; now open only (`isOpen`, `openDeals`). Sweeps healthy, no drift. Column header counts/values are open-only too (`openSummary`, `dealOpen.ts`). Backend 1439/0/0/4, staff 196.
 
 **2026-10-07 — 60 s board refresh.** `useMetrics(..., { refreshEvery })` (visible tab only) on the desk/hiring board and `PipelineDashboard`, not the GM or any live-GHL screen. Mirror verified fresh (< 3 min, none stale). Staff 201 tests.
+
+**2026-10-07 — GM 'By desk' Open now.** New/Won/Value follow the date range (New = created in it); new `open`/`openValue` = open deals on the desk's pipelines today (mirror). Restart backend. Backend 1440/0/0/4.

@@ -49,6 +49,7 @@ class GmOverviewServiceTest {
 	private final CaseLifecycleService lifecycle = mock(CaseLifecycleService.class);
 	private final TeamMemberRepository teamMembers = mock(TeamMemberRepository.class);
 	private final GhlPipelineClient ghl = mock(GhlPipelineClient.class);
+	private final OpportunityMirrorService mirror = mock(OpportunityMirrorService.class);
 	private final com.ie.evalos.repository.TeamMemberPipelineRepository assignments =
 			mock(com.ie.evalos.repository.TeamMemberPipelineRepository.class);
 
@@ -61,7 +62,7 @@ class GmOverviewServiceTest {
 		// A mocked JdbcTemplate answers every query with an empty list: no goal set on the
 		// dashboard, so SALES_MONTHLY_GOAL (`goal`) is the fallback these tests exercise.
 		return new GmOverviewService(lifecycle, teamMembers, ghl, new SellingBrand(BRAND), mock(JdbcTemplate.class),
-				assignments, new BigDecimal(goal), 180);
+				assignments, mirror, new BigDecimal(goal), 180);
 	}
 
 	private static DateWindow window(String range) {
@@ -144,6 +145,34 @@ class GmOverviewServiceTest {
 		});
 		verify(ghl, never()).opportunitiesIn(eq("legacy-one"), any(), any());
 		verify(ghl, never()).opportunitiesIn(eq("legacy-revoked"), any(), any());
+	}
+
+	/**
+	 * "Open now" is what the desk holds today — won and lost deals out — whatever the date range, so it
+	 * can be set against the desk's own board header. It is not the date-windowed "New".
+	 */
+	@Test
+	void aDeskReportsWhatItHoldsOpenRightNowWhateverTheRange() {
+		givenOneSalesDesk();
+		given(ghl.opportunitiesIn(any(), any(), any())).willReturn(List.of());
+		given(ghl.opportunitiesIn(any(), any(), any(), eq("won"))).willReturn(List.of());
+		given(mirror.onPipelines(any())).willReturn(List.of(
+				mirrorRow("open", "100"), mirrorRow("open", "50"), mirrorRow("won", "900"), mirrorRow("lost", "30")));
+
+		var overview = service("0").forCaller(window("week"), BRAND);
+
+		assertThat(overview.desks()).singleElement().satisfies((row) -> {
+			assertThat(row.open()).isEqualTo(2);
+			assertThat(row.openValue()).isEqualByComparingTo("150");
+			assertThat(row.newLeads()).isZero();
+		});
+	}
+
+	private static com.ie.evalos.domain.Opportunity mirrorRow(String status, String amount) {
+		var row = new com.ie.evalos.domain.Opportunity(BRAND, UUID.randomUUID().toString(), UUID.randomUUID());
+		row.syncFromGhl("c", row.getPipelineId(), "s", "Deal", new BigDecimal(amount), status, null, null, null,
+				Instant.now(), null, null);
+		return row;
 	}
 
 	private static GhlPipelineClient.Opportunity won(String amount, Instant wonAt, Instant createdAt,

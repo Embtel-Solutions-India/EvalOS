@@ -102,14 +102,17 @@ public class GmOverviewService {
 	private final int wonLookbackDays;
 	private final JdbcTemplate jdbc;
 	private final TeamMemberPipelineRepository assignments;
+	private final OpportunityMirrorService mirror;
 
 	GmOverviewService(CaseLifecycleService lifecycle, TeamMemberRepository teamMembers, GhlPipelineClient ghl,
 			SellingBrand sellingBrand, JdbcTemplate jdbc, TeamMemberPipelineRepository assignments,
+			OpportunityMirrorService mirror,
 			@Value("${evalos.sales.monthly-goal}") BigDecimal monthlyGoal,
 			@Value("${evalos.sales.won-lookback-days}") int wonLookbackDays) {
 		this.lifecycle = lifecycle;
 		this.jdbc = jdbc;
 		this.assignments = assignments;
+		this.mirror = mirror;
 		this.teamMembers = teamMembers;
 		this.ghl = ghl;
 		this.monthlyGoal = monthlyGoal;
@@ -168,7 +171,8 @@ public class GmOverviewService {
 	 * {@code team_member.ghl_pipeline_id}, which is the link Unit 36 built the whole
 	 * pipeline-scoped role on. A desk is therefore exactly what that member can already see.
 	 */
-	public record DeskRow(UUID memberId, String name, Role role, int newLeads, int won, BigDecimal wonValue) {
+	public record DeskRow(UUID memberId, String name, Role role, int newLeads, int won, BigDecimal wonValue,
+			int open, BigDecimal openValue) {
 	}
 
 	/**
@@ -246,7 +250,8 @@ public class GmOverviewService {
 			// pipelines is both of them here, and a desk granted one after that migration is on this card.
 			List<GhlPipelineClient.Opportunity> created = new ArrayList<>();
 			List<GhlPipelineClient.Opportunity> wins = new ArrayList<>();
-			for (String pipelineId : assignments.ghlIdsFor(desk.getId())) {
+			List<String> held = assignments.ghlIdsFor(desk.getId());
+			for (String pipelineId : held) {
 				created.addAll(ghl.opportunitiesIn(pipelineId, from, to));
 			// Wins are read over a wider created-window and bucketed here: GHL's date filter is on
 			// createdAt, so a deal opened before this month and won inside it is invisible to the
@@ -296,8 +301,14 @@ public class GmOverviewService {
 				salesWon += deskWon;
 				salesWonValue = salesWonValue.add(deskWonValue);
 			}
+			// What the desk holds open right now, from the mirror — the figure their board's header shows.
+			// Independent of the date window, which only scopes New / Won / Value.
+			List<com.ie.evalos.domain.Opportunity> openNow = mirror.onPipelines(held).stream()
+					.filter(OpportunityBoardService::isOpen).toList();
+			BigDecimal openValue = openNow.stream().map(com.ie.evalos.domain.Opportunity::getAmount)
+					.filter((amount) -> amount != null).reduce(BigDecimal.ZERO, BigDecimal::add);
 			deskRows.add(new DeskRow(desk.getId(), desk.getDisplayName(), desk.getRole(), deskNew, deskWon,
-					deskWonValue));
+					deskWonValue, openNow.size(), openValue));
 		}
 
 		bySource.addAll(sourceTotals.values().stream()
