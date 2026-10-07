@@ -693,3 +693,6 @@ an expert push opened with no tab open lands on `/case` without the fragment tok
 **2026-10-07 — 60 s board refresh.** `useMetrics(..., { refreshEvery })` (visible tab only) on the desk/hiring board and `PipelineDashboard`, not the GM or any live-GHL screen. Mirror verified fresh (< 3 min, none stale). Staff 201 tests.
 
 **2026-10-07 — GM 'By desk' Open now.** New/Won/Value follow the date range (New = created in it); new `open`/`openValue` = open deals on the desk's pipelines today (mirror). Restart backend. Backend 1440/0/0/4.
+
+## Opportunity source attribution (2026-10-07)
+A blank opportunity source is attributed from the contact's own GHL source, read-only: `GhlContactClient.sourceOf` -> `OpportunityMirrorService.sourceFor` (GHL wins, else held, else contact; <=25 reads per absorb, 6h cache). `GmOverviewService` falls back to the Lead Source custom field then the mirror. GHL's API cannot set an opportunity Source; no GHL write approved (open decision Q19, `scripts/source-backfill-dryrun.py --apply` not run). ~675 opportunities have no source anywhere and stay Unattributed.

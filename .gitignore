@@ -53,3 +53,6 @@ mail-preview/
 
 # Browser-check artefacts (Playwright MCP)
 .playwright-mcp/
+
+# Output of scripts/source-backfill-dryrun.py: client names
+source-backfill-*.csv

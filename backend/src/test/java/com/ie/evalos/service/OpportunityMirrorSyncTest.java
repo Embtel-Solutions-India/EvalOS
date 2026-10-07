@@ -40,6 +40,8 @@ class OpportunityMirrorSyncTest {
 	private static final UUID BRAND = UUID.randomUUID();
 
 	private final GhlPipelineClient ghl = mock(GhlPipelineClient.class);
+	private final com.ie.evalos.integration.GhlContactClient contacts =
+			mock(com.ie.evalos.integration.GhlContactClient.class);
 
 	private final OpportunityRepository opportunities = mock(OpportunityRepository.class);
 
@@ -53,7 +55,7 @@ class OpportunityMirrorSyncTest {
 			mock(com.ie.evalos.repository.MeetingRepository.class);
 
 	private final OpportunityMirrorService mirror =
-			new OpportunityMirrorService(ghl, opportunities, pipelines, notes, followUps, meetings,
+			new OpportunityMirrorService(ghl, contacts, opportunities, pipelines, notes, followUps, meetings,
 					new SellingBrand(BRAND), mock(com.ie.evalos.notification.HiringPipelineNotifier.class));
 
 	private final List<Opportunity> saved = new ArrayList<>();
@@ -82,6 +84,63 @@ class OpportunityMirrorSyncTest {
 		return new GhlPipelineClient.Opportunity(id, name, "ghl-c-1", pipelineId, stageId, status,
 				new BigDecimal("1450.00"), "CRM UI", "ghl-user-7", Instant.parse("2026-09-01T00:00:00Z"),
 				Instant.parse("2026-09-17T00:00:00Z"), null, null);
+	}
+
+	private static GhlPipelineClient.Opportunity noSource(String id, String contactId) {
+		return new GhlPipelineClient.Opportunity(id, "Rao", contactId, "pipe-1", "stage-1", "open",
+				new BigDecimal("100"), null, null, Instant.parse("2026-09-01T00:00:00Z"),
+				Instant.parse("2026-09-17T00:00:00Z"), null, null);
+	}
+
+	/** GHL's API cannot set an opportunity's Source; the contact usually has one. Read it, never write. */
+	@Test
+	void aDealGhlHoldsNoSourceForTakesItsContactsSource() {
+		given(opportunities.findByBrandIdAndGhlId(BRAND, "opp-1")).willReturn(Optional.empty());
+		given(contacts.sourceOf("c-1")).willReturn("Google Ads");
+
+		mirror.absorbForContact(List.of(noSource("opp-1", "c-1")));
+
+		assertThat(saved).singleElement().satisfies((row) -> assertThat(row.getSource()).isEqualTo("Google Ads"));
+	}
+
+	@Test
+	void ghlsOwnSourceWinsOverTheContactsAndTheContactIsNotAsked() {
+		given(opportunities.findByBrandIdAndGhlId(BRAND, "opp-1")).willReturn(Optional.empty());
+
+		mirror.absorbForContact(List.of(fromGhl("opp-1", "pipe-1", "stage-2", "Rao", "open")));
+
+		assertThat(saved).singleElement().satisfies((row) -> assertThat(row.getSource()).isEqualTo("CRM UI"));
+		verify(contacts, never()).sourceOf(any());
+	}
+
+	@Test
+	void aDerivedSourceSurvivesTheNextSyncAndAContactWithNoneIsAskedOnlyOnce() {
+		given(opportunities.findByBrandIdAndGhlId(BRAND, "opp-1")).willReturn(Optional.empty());
+		given(contacts.sourceOf("c-1")).willReturn("SEO/Call");
+		given(contacts.sourceOf("c-2")).willReturn(null);
+		mirror.absorbForContact(List.of(noSource("opp-1", "c-1")));
+		Opportunity held = saved.get(0);
+		given(opportunities.findByBrandIdAndGhlId(BRAND, "opp-1")).willReturn(Optional.of(held));
+
+		mirror.absorbForContact(List.of(noSource("opp-1", "c-1"), noSource("opp-2", "c-2")));
+		mirror.absorbForContact(List.of(noSource("opp-2", "c-2")));
+
+		assertThat(held.getSource()).isEqualTo("SEO/Call");
+		verify(contacts, org.mockito.Mockito.times(1)).sourceOf("c-2");
+	}
+
+	@Test
+	void aSyncReadsAtMostAFewContactsSoADesksRequestIsNotHeldUpByHundreds() {
+		given(opportunities.findByBrandIdAndGhlId(any(), any())).willReturn(Optional.empty());
+		List<GhlPipelineClient.Opportunity> many = new ArrayList<>();
+		for (int i = 0; i < 40; i++) {
+			many.add(noSource("opp-" + i, "c-" + i));
+		}
+
+		mirror.absorbForContact(many);
+
+		verify(contacts, org.mockito.Mockito.times(25)).sourceOf(any());
+		assertThat(saved).hasSize(40);
 	}
 
 	@Test
