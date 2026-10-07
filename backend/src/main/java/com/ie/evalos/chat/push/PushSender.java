@@ -89,14 +89,16 @@ public class PushSender {
 					new Subscription.Keys(to.getP256dh(), to.getAuth()));
 			// High urgency: a chat message is time-sensitive, and the default (normal) is what Android
 			// holds back in Doze — so a phone with the browser closed heard minutes or hours late.
-			int status = service.send(new Notification(subscription, json, Urgency.HIGH)).getStatusLine().getStatusCode();
+			org.apache.http.HttpResponse response = service.send(new Notification(subscription, json, Urgency.HIGH));
+			int status = response.getStatusLine().getStatusCode();
 			if (status == 404 || status == 410) {
 				return Outcome.GONE;
 			}
 			if (status < 200 || status >= 300) {
 				// Was silent. 401/403 means the subscription was made with another VAPID key (rotated, or
 				// another environment) and will never deliver; 413/429/5xx are the push service's own.
-				log.warn("Web push to {} was refused with HTTP {}", to.getEndpoint(), status);
+				// The push service says why in the body (sender-id mismatch, bad JWT, expired): the status alone cannot tell them apart.
+				log.warn("Web push to {} was refused with HTTP {}: {}", to.getEndpoint(), status, reason(response));
 				return Outcome.FAILED;
 			}
 			return Outcome.SENT;
@@ -104,6 +106,16 @@ public class PushSender {
 		catch (Exception failed) {
 			log.warn("Web push to {} failed; will retry", to.getEndpoint(), failed);
 			return Outcome.RETRY;
+		}
+	}
+
+	private static String reason(org.apache.http.HttpResponse response) {
+		try {
+			String body = response.getEntity() == null ? "" : org.apache.http.util.EntityUtils.toString(response.getEntity());
+			return body.length() > 300 ? body.substring(0, 300) : body;
+		}
+		catch (Exception unreadable) {
+			return "(body unreadable)";
 		}
 	}
 }
