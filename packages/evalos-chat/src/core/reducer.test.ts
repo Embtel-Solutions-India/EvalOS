@@ -11,6 +11,7 @@ function msg(id: string, over: Partial<Message> = {}): Message {
     authorKind: 'STAFF',
     authorId: 'staff-1',
     authorName: 'Cam',
+    authorRole: null,
     body: `body ${id}`,
     parentId: null,
     replyCount: 0,
@@ -26,6 +27,7 @@ function msg(id: string, over: Partial<Message> = {}): Message {
 function conv(over: Partial<Conversation> = {}): Conversation {
   return {
     id: 'v1',
+    brandId: 'b1',
     caseId: 'c1',
     caseCode: 'IE-1042',
     clientName: null,

@@ -78,7 +78,7 @@ the next edit of a just-created deal is refused as "not in the mirror yet" for a
 
 **Case chat (Unit 57 phase 1, backend).** Three conversations per case created at CASE_CREATED; membership
 follows assignment and expert-offer events and the hourly CHAT_RECONCILE; read-only at CLOSED. Messages
-over REST, live via each member's private Ably channel, web push when the app is closed. No screens yet.
+over REST, live via each member's private Ably channel, web push when the app is closed. No screens yet. **Unit 77 (D75):** a GM who is not a member may write in any open conversation (PARTICIPANT, labelled GM, no member row, no read position); non-members listen on `chat:view:{brand}:{conversation}` while it is open.
 
 **Expert sign-in (Unit 59):** sign-up → roster match in the portal's brand → set/reset mail (else nothing, by decision; 204 always) → set-password → party-scoped token → `/cases` → `/case?caseId=`. No staff-minted links exist (V73 revoked the live ones).
 

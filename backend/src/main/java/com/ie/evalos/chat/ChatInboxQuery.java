@@ -8,9 +8,11 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 import com.ie.evalos.domain.Role;
@@ -233,6 +235,16 @@ public class ChatInboxQuery {
 		sql.append("ORDER BY m.created_at DESC, m.id DESC LIMIT ?");
 		args.add(limit);
 		return jdbc.query(sql.toString(), ChatInboxQuery::row, args.toArray());
+	}
+
+	/** Which of these staff ids are General Managers; their messages carry the "GM" label (D75). */
+	public Set<UUID> gmAmong(Collection<UUID> staffIds) {
+		List<UUID> distinct = staffIds.stream().distinct().toList();
+		if (distinct.isEmpty()) {
+			return Set.of();
+		}
+		return new HashSet<>(jdbc.query("SELECT id FROM team_member WHERE role = 'GM' AND id IN ("
+				+ placeholders(distinct) + ")", (rs, n) -> rs.getObject(1, UUID.class), distinct.toArray()));
 	}
 
 	/**

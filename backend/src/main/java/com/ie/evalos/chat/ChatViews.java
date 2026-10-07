@@ -29,11 +29,11 @@ public final class ChatViews {
 	 */
 	public record MessageView(UUID id, UUID conversationId, ParticipantKind authorKind, UUID authorId,
 			String authorName, String body, UUID parentId, int replyCount, Instant createdAt, Instant editedAt,
-			boolean deleted, Map<Reaction, List<Reactor>> reactions, boolean mine) {
+			boolean deleted, Map<Reaction, List<Reactor>> reactions, boolean mine, String authorRole) {
 	}
 
 	/** An inbox row: the conversation with its case context. {@code unread} is 0 for a viewer. */
-	public record ConversationView(UUID id, UUID caseId, String caseCode, String clientName, String serviceType, String stage,
+	public record ConversationView(UUID id, UUID brandId, UUID caseId, String caseCode, String clientName, String serviceType, String stage,
 			ConversationType type, ConversationStatus status, ChatAccessLevel access, long unread,
 			MessageView lastMessage, List<Participant> participants, Instant lastMessageAt) {
 	}
