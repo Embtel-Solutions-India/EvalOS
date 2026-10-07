@@ -28,6 +28,12 @@ _Nothing open here: Q6b (unknown-email mail) was answered on 2026-09-28 — no m
 | --- | -------- | -------------- |
 | Q18 | Staff passwords are set by the GM and handed over (D72, Unit 68). Should EvalOS instead mail a staff member a set-password link, as it does clients and experts? | **Keep it as built.** A staff credential mail is a new message under invariant 14, and the GM already knows every hire personally. Revisit if staff numbers grow past what one person hands over. |
 
+## Sales attribution
+
+| #   | Question | Recommendation |
+| --- | -------- | -------------- |
+| Q19 | ~675 opportunities have no source in GHL and no source on their contact. Who fills them, and may EvalOS write `Lead Source` back to GHL (`scripts/source-backfill-dryrun.py --apply`, 172 won deals)? **No GHL write is approved as of 2026-10-07.** | **Fill them in GHL** (bulk edit from the script's CSV), and make Source required where opportunities are created there. Approve the `--apply` write only if a person would rather not do 172 by hand. |
+
 ## Client and expert mail
 
 _Q17 (expert offer mail) was answered on 2026-09-30 — yes, D67, built with Unit 64c._

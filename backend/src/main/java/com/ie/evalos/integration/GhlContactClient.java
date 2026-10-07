@@ -59,21 +59,38 @@ public class GhlContactClient {
 	 *                                 still the source and a blank card is better than a 502.
 	 */
 	public Contact byId(String contactId) {
-		ContactEnvelope response;
-		try {
-			response = http.get(ContactEnvelope.class,
-					(uri) -> uri.path("/contacts/{contactId}").build(contactId));
-		}
-		catch (GhlUnavailableException refused) {
-			throw missingScopeHint(refused);
-		}
-
-		ContactRow row = response == null ? null : response.contact();
+		ContactRow row = fetch(contactId);
 		if (row == null || row.id() == null) {
 			throw new GhlUnavailableException("GHL returned no contact for " + contactId, null,
 					GhlFailure.EMPTY_RESPONSE, null);
 		}
 		return toContact(row);
+	}
+
+	private ContactRow fetch(String contactId) {
+		try {
+			ContactEnvelope response = http.get(ContactEnvelope.class,
+					(uri) -> uri.path("/contacts/{contactId}").build(contactId));
+			return response == null ? null : response.contact();
+		}
+		catch (GhlUnavailableException refused) {
+			throw missingScopeHint(refused);
+		}
+	}
+
+	/**
+	 * Where GHL says this contact came from — its {@code source} — or null when it holds none.
+	 *
+	 * <p>Bound because a screen now reads it (D47): an opportunity with no source of its own is
+	 * attributed to its contact's, which is how the General Manager's "by source" and the board
+	 * stop counting a deal as unattributed when GHL knows where the person came from. A separate
+	 * method rather than a field on {@link Contact}, because only the mirror's source fallback wants it.
+	 *
+	 * @throws GhlUnavailableException if GHL is not configured here or refused the request
+	 */
+	public String sourceOf(String contactId) {
+		ContactRow row = fetch(contactId);
+		return row == null || row.source() == null || row.source().isBlank() ? null : row.source().trim();
 	}
 
 	private static Contact toContact(ContactRow row) {
@@ -187,7 +204,7 @@ public class GhlContactClient {
 	 * what a screen reads). Custom field items carry their value under {@code value}.
 	 */
 	record ContactRow(String id, String name, String firstName, String lastName, String email,
-			String phone, String companyName, String country, List<String> tags,
+			String phone, String companyName, String country, String source, List<String> tags,
 			List<GhlPipelineClient.CustomFieldValue> customFields, List<Object> searchAfter) {
 	}
 }

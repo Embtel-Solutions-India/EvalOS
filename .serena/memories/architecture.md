@@ -41,7 +41,7 @@ need their own decision.
 
 All three messages are HTML + plain text (`multipart/alternative`), rendered by `MailTemplates`
 from `resources/mail/` with `{{placeholder}}` substitution — no template engine dependency. The
-logo is served by the portal at `{client-base-url}/brand/logo.png`: a `cid:` attachment is stripped
+logo is linked from the marketing site's apex host, `https://internationalevaluations.com/assets/logo-horizontal-main.png` (never the portal origin, never `www` — it 301s and image proxies drop it): a `cid:` attachment is stripped
 by several webmail clients and a `data:` URI is blocked outright by Gmail and Outlook.com.
 **2026-09-28:** Handoff C and outbound webhooks are dropped (D53); invariant 11 is struck.
 

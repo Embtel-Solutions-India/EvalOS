@@ -229,6 +229,21 @@ public class GmOverviewService {
 		Instant windowEnd = window.endInstant();
 		Instant previousStart = from.minusDays(span).atStartOfDay(window.zone()).toInstant();
 
+		// GHL's API cannot set an opportunity's native Source, so the back-fill (and any desk that
+		// fills it) writes the "Lead Source" custom field. A blank Source falls back to it, the
+		// same fallback the board's cards already make.
+		String leadSourceFieldId = jdbc.query(
+				"SELECT ghl_id FROM ghl_custom_field WHERE brand_id = ? AND model = 'opportunity' "
+						+ "AND field_key = 'opportunity.lead_source'",
+				(rs, row) -> rs.getString(1), sellingBrandId).stream().findFirst().orElse(null);
+
+		// The mirror holds the contact's source for a deal GHL has none for (OpportunityMirrorService
+		// takes it as the deal arrives), and this reads GHL live, so it asks the mirror too.
+		Map<String, String> mirrored = new java.util.HashMap<>();
+		jdbc.query("SELECT ghl_id, source FROM opportunity WHERE brand_id = ? AND ghl_id IS NOT NULL "
+				+ "AND btrim(coalesce(source, '')) <> ''",
+				(rs, row) -> mirrored.put(rs.getString(1), rs.getString(2)), sellingBrandId);
+
 		List<SourceRow> bySource = new ArrayList<>();
 		Map<String, SourceRow> sourceTotals = new LinkedHashMap<>();
 		List<DeskRow> deskRows = new ArrayList<>();
@@ -267,7 +282,7 @@ public class GmOverviewService {
 			for (GhlPipelineClient.Opportunity opportunity : created) {
 				deskNewValue = deskNewValue.add(amountOf(opportunity));
 				opportunities++;
-				if (isBlank(opportunity.source())) {
+				if (isBlank(sourceOf(opportunity, leadSourceFieldId, mirrored))) {
 					unattributed++;
 				}
 			}
@@ -282,7 +297,7 @@ public class GmOverviewService {
 					deskWonValue = deskWonValue.add(amountOf(win));
 					// Sales wins only, same rule as the headline these bars split.
 					if (desk.getRole() != Role.MARKETING) {
-						merge(sourceTotals, win);
+						merge(sourceTotals, win, leadSourceFieldId, mirrored);
 					}
 				}
 				else if (!at.isBefore(previousStart) && at.isBefore(windowStart)) {
@@ -400,8 +415,23 @@ public class GmOverviewService {
 				.divide(previous, 0, RoundingMode.HALF_UP).intValue();
 	}
 
-	private static void merge(Map<String, SourceRow> totals, GhlPipelineClient.Opportunity opportunity) {
-		String name = isBlank(opportunity.source()) ? UNATTRIBUTED : opportunity.source().trim();
+	/** The native Source, else the Lead Source custom field, else the mirror's (the contact's); null if none. */
+	private static String sourceOf(GhlPipelineClient.Opportunity opportunity, String leadSourceFieldId,
+			Map<String, String> mirrored) {
+		if (!isBlank(opportunity.source())) {
+			return opportunity.source();
+		}
+		String custom = leadSourceFieldId == null ? null : opportunity.customFields().stream()
+				.filter((field) -> leadSourceFieldId.equals(field.id()) && !isBlank(field.value()))
+				.map(GhlPipelineClient.CustomFieldValue::value)
+				.findFirst().orElse(null);
+		return custom != null ? custom : mirrored.get(opportunity.id());
+	}
+
+	private static void merge(Map<String, SourceRow> totals, GhlPipelineClient.Opportunity opportunity,
+			String leadSourceFieldId, Map<String, String> mirrored) {
+		String source = sourceOf(opportunity, leadSourceFieldId, mirrored);
+		String name = isBlank(source) ? UNATTRIBUTED : source.trim();
 		totals.merge(name.toLowerCase(Locale.ROOT), new SourceRow(name, 1, amountOf(opportunity)),
 				(a, b) -> new SourceRow(a.source(), a.deals() + b.deals(), a.value().add(b.value())));
 	}
