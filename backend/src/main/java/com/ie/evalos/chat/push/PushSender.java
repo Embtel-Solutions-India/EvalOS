@@ -21,8 +21,6 @@ public class PushSender {
 
 	public enum Outcome { SENT, GONE, FAILED, RETRY }
 
-	/** A push service holds a message this long for a device that is offline, and delivers it when it is back. */
-	private static final int TTL_SECONDS = 24 * 60 * 60;
 	/** Waits before each retry of a push the push service could not take right now (network, 429, 5xx). */
 	private static final long[] RETRY_SECONDS = { 30, 120, 600 };
 
@@ -91,8 +89,7 @@ public class PushSender {
 					new Subscription.Keys(to.getP256dh(), to.getAuth()));
 			// High urgency: a chat message is time-sensitive, and the default (normal) is what Android
 			// holds back in Doze — so a phone with the browser closed heard minutes or hours late.
-			int status = service.send(Notification.builder().subscription(subscription).payload(json).urgency(Urgency.HIGH)
-					.ttl(TTL_SECONDS).build()).getStatusLine().getStatusCode();
+			int status = service.send(new Notification(subscription, json, Urgency.HIGH)).getStatusLine().getStatusCode();
 			if (status == 404 || status == 410) {
 				return Outcome.GONE;
 			}
