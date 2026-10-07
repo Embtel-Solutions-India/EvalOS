@@ -11,6 +11,7 @@ function msg(id: string, over: Partial<Message> = {}): Message {
     authorKind: 'STAFF',
     authorId: 'staff-1',
     authorName: 'Cam',
+    authorRole: null,
     body: `body ${id}`,
     parentId: null,
     replyCount: 0,

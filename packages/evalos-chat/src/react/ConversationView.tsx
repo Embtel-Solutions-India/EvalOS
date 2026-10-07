@@ -1,4 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react'
+import { accessBanner } from '../core/labels'
 import { caseTitle, serviceLabel } from '../core/text'
 import type { Message } from '../core/types'
 import { useChat, useChatClient } from './ChatProvider'
@@ -40,6 +41,7 @@ export function ConversationView({
   const viewer = conversation.access === 'VIEWER'
   const readOnly = viewer || conversation.status === 'READ_ONLY'
   const service = serviceLabel(conversation.serviceType)
+  const banner = accessBanner(conversation)
   const status = viewer ? { label: 'Read only', tone: 'off' } : conversation.status === 'READ_ONLY' ? { label: 'Closed', tone: 'off' } : { label: 'Open', tone: 'on' }
 
   return (
@@ -65,8 +67,7 @@ export function ConversationView({
         {tabs}
         <Participants conversationId={conversationId} />
       </header>
-      {viewer && <p className="ec-banner">Oversight — read only</p>}
-      {!viewer && conversation.status === 'READ_ONLY' && <p className="ec-banner">This case is closed. The conversation is kept as its history.</p>}
+      {banner && <p className="ec-banner">{banner}</p>}
       {realtime === 'offline' && <p className="ec-banner ec-muted">Live updates are paused; new messages appear when you reopen this.</p>}
       {failed ? (
         <p className="ec-error ec-pad" role="alert">

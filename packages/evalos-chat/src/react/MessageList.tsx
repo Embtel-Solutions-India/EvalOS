@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
+import { authorBadge } from '../core/labels'
 import { seenBy } from '../core/reducer'
 import { initials, linkify, rowsWithDays } from '../core/text'
 import { keyOf, type Message } from '../core/types'
@@ -157,7 +158,8 @@ export function MessageRow({
         <div className="ec-msg__line">
           <div className="ec-bubble">
             <p className="ec-meta">
-              <strong>{mine ? 'You' : (message.authorName ?? 'Unknown')}</strong>{' '}
+              <strong>{mine ? 'You' : (message.authorName ?? 'Unknown')}</strong>
+              {authorBadge(message) && <span className="ec-muted"> · {authorBadge(message)}</span>}{' '}
               <span className="ec-muted">{new Date(message.createdAt).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}</span>
             </p>
             {mode === 'editing' ? (
