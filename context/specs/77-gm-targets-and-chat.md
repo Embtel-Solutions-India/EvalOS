@@ -46,12 +46,15 @@ updated or deleted. A `LEADS` amount is a whole number: the API rejects a fracti
 
 ### 1.3 API (GM only; every query brand-scoped)
 
-- `GET /api/gm/targets?month=YYYY-MM` → one row per active Sales and Marketing member: member,
-  role, `kind`, the current target (or `null` = not set), and progress for the month.
+- `GET /api/gm/targets?month=YYYY-MM` → `[{ memberId, target }]` for the members who have one; a
+  member with none is absent ("not set"). **Amounts only and no GHL read:** the GM dashboard already
+  holds each desk's progress from the overview it loaded, and a second overview read per page load
+  would double its heaviest request. The unit follows the desk's role, which the overview carries.
 - `PUT /api/gm/targets/{teamMemberId}` `{ month, amount }` → appends a row; the `kind` is taken
   from the member's role, not the body. 403 for anyone but the GM; 404 for a member outside the
   caller's scope.
-- A member reads **only their own** target and progress: `GET /api/me/target?month=` (any Sales or
+- A member reads **only their own** target and progress (one overview read, filtered to the
+  caller's own row server-side): `GET /api/me/target?month=` (any Sales or
   Marketing member; returns the same shape for themselves, 404 if the caller has no target kind).
 
 A month with no row is **"not set"**, never 0: a zero target is a deliberate choice and must not

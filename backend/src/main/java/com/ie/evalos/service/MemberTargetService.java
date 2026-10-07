@@ -2,7 +2,9 @@ package com.ie.evalos.service;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -82,6 +84,20 @@ public class MemberTargetService {
 						current(brandId, desk.memberId(), month).orElse(null),
 						kind == TargetKind.WON_VALUE ? desk.wonValue() : BigDecimal.valueOf(desk.newLeads()))))
 				.toList();
+	}
+
+	/**
+	 * Every member's newest target for the month in one read, keyed by member. A member with no row is
+	 * absent from the map, which is "not set" and not 0.
+	 */
+	public Map<UUID, BigDecimal> latestForMonth(UUID brandId, LocalDate month) {
+		Map<UUID, BigDecimal> latest = new HashMap<>();
+		jdbc.query("SELECT DISTINCT ON (team_member_id) team_member_id, amount FROM member_monthly_target "
+				+ "WHERE brand_id = ? AND month = ? ORDER BY team_member_id, set_at DESC",
+				(rs) -> {
+					latest.put(rs.getObject(1, UUID.class), rs.getBigDecimal(2));
+				}, brandId, month.withDayOfMonth(1));
+		return latest;
 	}
 
 	/** The newest target for this member and month in this brand; empty means "not set", which is not 0. */

@@ -290,3 +290,28 @@ export async function fetchGmOverview(
 export async function setGmGoal(month: string, amount: number): Promise<void> {
   await unwrap<null>(api.put('/metrics/gm/goal', { month, amount }))
 }
+
+/** A member's target for a month. A member with none is absent from the list: "not set", not 0. */
+export type TargetAmount = { memberId: string; target: number }
+
+/** The month's targets (the month is the overview's `goalMonth`, `YYYY-MM-01`). Amounts only; progress is on the overview. */
+export async function fetchTargets(month: string, signal?: AbortSignal): Promise<TargetAmount[]> {
+  return unwrap<TargetAmount[]>(api.get('/gm/targets', { params: { month: month.slice(0, 7) }, signal }))
+}
+
+/** The GM sets one member's target. Append-only on the server: the newest counts. */
+export async function setMemberTarget(memberId: string, month: string, amount: number): Promise<void> {
+  await unwrap<null>(api.put(`/gm/targets/${memberId}`, { month, amount }))
+}
+
+/** The caller's own target and progress for a month; null when their role has no target. */
+export type MyTarget = { kind: 'WON_VALUE' | 'LEADS'; target: number | null; progress: number }
+
+export async function fetchMyTarget(month: string, signal?: AbortSignal): Promise<MyTarget | null> {
+  try {
+    return await unwrap<MyTarget>(api.get('/me/target', { params: { month: month.slice(0, 7) }, signal }))
+  } catch (error: unknown) {
+    if ((error as { response?: { status?: number } }).response?.status === 404) return null
+    throw error
+  }
+}

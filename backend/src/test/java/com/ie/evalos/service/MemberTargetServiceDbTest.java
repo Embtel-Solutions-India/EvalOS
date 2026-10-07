@@ -83,6 +83,16 @@ class MemberTargetServiceDbTest {
 	}
 
 	@Test
+	void theMonthsAmountsAreTheNewestPerMemberAndOnlyThatBrands() {
+		service.set(sales.getId(), month, new BigDecimal("1000"), gm);
+		service.set(sales.getId(), month, new BigDecimal("1500"), gm);
+
+		assertThat(service.latestForMonth(sales.getBrandId(), month)).hasEntrySatisfying(sales.getId(),
+				(target) -> assertThat(target).isEqualByComparingTo("1500"));
+		assertThat(service.latestForMonth(UUID.randomUUID(), month)).isEmpty();
+	}
+
+	@Test
 	void aTargetIsInvisibleToAnotherBrand() {
 		service.set(sales.getId(), month, new BigDecimal("1000"), gm);
 

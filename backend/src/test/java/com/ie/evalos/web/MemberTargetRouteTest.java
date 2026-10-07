@@ -76,6 +76,7 @@ class MemberTargetRouteTest {
 				List.of(), null, List.of(), null, null, Instant.parse("2026-10-08T00:00:00Z"), null));
 		given(targets.overview(eq(BRAND_IE), eq(OCT), any())).willReturn(List.of(
 				row(salesId, "Sam", "1000", "900"), row(otherSalesId, "Oz", "500", "10")));
+		given(targets.latestForMonth(BRAND_IE, OCT)).willReturn(java.util.Map.of(salesId, new BigDecimal("1000")));
 	}
 
 	private static MemberTargetService.TargetRow row(UUID id, String name, String target, String progress) {
@@ -90,13 +91,24 @@ class MemberTargetRouteTest {
 	}
 
 	@Test
-	void theGmListsEveryMembersTargetForTheMonthAskedFor() throws Exception {
+	void theGmListsTheMonthsTargetsWithoutAskingGhlAnything() throws Exception {
 		mockMvc.perform(get("/api/gm/targets").param("month", "2026-10")
 				.header(HttpHeaders.AUTHORIZATION, bearer(Role.GM, UUID.randomUUID())))
 				.andExpect(status().isOk())
-				.andExpect(jsonPath("$.data.length()").value(2))
-				.andExpect(jsonPath("$.data[0].target").value(1000))
-				.andExpect(jsonPath("$.data[0].progress").value(900));
+				.andExpect(jsonPath("$.data.length()").value(1))
+				.andExpect(jsonPath("$.data[0].memberId").value(salesId.toString()))
+				.andExpect(jsonPath("$.data[0].target").value(1000));
+
+		// The dashboard already holds each desk's progress from the overview it loaded; asking again
+		// would double the heaviest GHL read on the screen.
+		then(overview).should(never()).forCaller(any(), any());
+	}
+
+	@Test
+	void aMemberViewAsksForTheMonthAsAWholeAndBorrowsTheDeskProgress() throws Exception {
+		mockMvc.perform(get("/api/me/target").param("month", "2026-10")
+				.header(HttpHeaders.AUTHORIZATION, bearer(Role.SALES, salesId)))
+				.andExpect(status().isOk());
 
 		ArgumentCaptor<DateWindow> window = ArgumentCaptor.forClass(DateWindow.class);
 		then(overview).should().forCaller(window.capture(), any());
@@ -111,7 +123,7 @@ class MemberTargetRouteTest {
 				.header(HttpHeaders.AUTHORIZATION, bearer(role, UUID.randomUUID())))
 				.andExpect(status().isForbidden());
 
-		then(targets).should(never()).overview(any(), any(), any());
+		then(targets).should(never()).latestForMonth(any(), any());
 	}
 
 	@ParameterizedTest

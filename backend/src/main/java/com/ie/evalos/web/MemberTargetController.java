@@ -59,10 +59,19 @@ public class MemberTargetController {
 		this.sellingBrand = sellingBrand;
 	}
 
+	/** A member's target for the month. A member with none is absent from the list: "not set", not 0. */
+	public record TargetAmount(UUID memberId, BigDecimal target) {
+	}
+
+	/**
+	 * The month's targets, amounts only and no GHL read: the GM dashboard already holds each desk's
+	 * progress from the overview it loaded, and asking for it again would double that read.
+	 */
 	@GetMapping("/gm/targets")
 	@PreAuthorize("hasRole('GM')")
-	public ApiResponse<List<MemberTargetService.TargetRow>> list(@RequestParam String month) {
-		return ApiResponse.ok(rowsFor(parse(month)));
+	public ApiResponse<List<TargetAmount>> list(@RequestParam String month) {
+		return ApiResponse.ok(targets.latestForMonth(sellingBrand.id(), parse(month)).entrySet().stream()
+				.map((entry) -> new TargetAmount(entry.getKey(), entry.getValue())).toList());
 	}
 
 	@PutMapping("/gm/targets/{memberId}")
