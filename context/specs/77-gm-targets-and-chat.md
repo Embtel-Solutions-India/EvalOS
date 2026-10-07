@@ -1,6 +1,6 @@
 # Unit 77 — Monthly targets per member, and the GM takes part in every chat
 
-**Decided 2026-10-07 by the business (D75).** **Status: SPECIFIED, not built** (see
+**Decided 2026-10-07 by the business (D75).** **Status: BUILT 2026-10-08** (see
 `implementation-status.md`). Two independent changes shipped as one unit because the GM asked for
 both together; they share no code and can be built and merged separately.
 
