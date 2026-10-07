@@ -204,7 +204,7 @@ the staff "Send link" button, the portal-links ledger and the token-in-the-URL `
 Unit 59, and `V73` revoked the live links. Signing in is the only mint.
 
 **D50 (2026-09-25/26, Unit 57): case chat is EvalOS-owned.** Three conversations per case (Client,
-Internal, Expert), membership computed from assignments, GM/BM as viewers, text only, read-only at
+Internal, Expert), membership computed from assignments, GM takes part (D75) and BM as viewer, text only, read-only at
 CLOSED. PostgreSQL is the record; Ably relays live updates (one private channel per person, no
 browser publish); web push when the app is closed. Spec `57-case-chat.md`.
 
@@ -250,3 +250,5 @@ payments are managed manually by the ENM; the expert portal shows what was recor
 **D9 amended (2026-10-07):** `opportunity.won` is confirmed with GHL (the contact must have a won deal, the named one if the payload names it) before a case is created; GHL outage = retriable 5xx, no won deal = 409. Unverifiable cases (non-selling brand, no GHL token) are accepted with a WARN.
 
 **D37 edited (2026-10-07):** clients and experts are pushed case events too (`CasePushNotifier`): client — documents requested/chased, draft ready, delivered, on hold, resumed, staff update; expert — offer, letter to sign. Fixed line + case code, never the text; skipped while online. Emails stay.
+
+**D75 (2026-10-07, Unit 77, spec 77): the GM sets monthly member targets and takes part in every chat.** Sales target = won value (money), Marketing target = count of new leads; role picks the kind, GM sets the amount. Append-only `member_monthly_target`; no row = "not set", never 0; `sales_monthly_goal` unchanged. GM may write in any open conversation, labelled General Manager, without becoming a member; closed case still read-only; Brand Manager still only reads. SPECIFIED, not built.
