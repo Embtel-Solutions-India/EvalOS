@@ -27,6 +27,7 @@ function msg(id: string, over: Partial<Message> = {}): Message {
 function conv(over: Partial<Conversation> = {}): Conversation {
   return {
     id: 'v1',
+    brandId: 'b1',
     caseId: 'c1',
     caseCode: 'IE-1042',
     clientName: null,

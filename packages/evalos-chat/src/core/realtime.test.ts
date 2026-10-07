@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { ablyRealtime, channelOf, liveChannels } from './realtime'
+import { ablyRealtime, channelOf, liveChannels, viewChannel } from './realtime'
 import type { Envelope, TokenRequest } from './types'
 
 const token: TokenRequest = { keyName: 'k', clientId: 'CLIENT:c1', capability: '{}', ttl: 3_600_000, timestamp: 1, nonce: 'n', mac: 'm' }
@@ -101,5 +101,74 @@ describe('liveChannels', () => {
     expect(liveChannels(cap)).toEqual(['live:brand:b1'])
     expect(liveChannels('{"chat:user:CLIENT:1":["subscribe"]}')).toEqual([])
     expect(liveChannels('not json')).toEqual([])
+  })
+})
+
+describe('viewChannel', () => {
+  it('names the per-conversation channel the backend publishes every chat event to', () => {
+    expect(viewChannel('b1', 'c9')).toBe('chat:view:b1:c9')
+  })
+})
+
+/** A fake that remembers every channel's listeners, so a test can publish to any one of them. */
+class ChannelsFake {
+  static last: ChannelsFake | null = null
+  listeners = new Map<string, Set<(m: { data: unknown }) => void>>()
+  constructor(public options: unknown) {
+    ChannelsFake.last = this
+  }
+  publish(channel: string, data: unknown) {
+    this.listeners.get(channel)?.forEach((l) => l({ data }))
+  }
+  channels = {
+    get: (name: string) => ({
+      subscribe: async (cb: (m: { data: unknown }) => void) => {
+        if (!this.listeners.has(name)) this.listeners.set(name, new Set())
+        this.listeners.get(name)!.add(cb)
+      },
+      unsubscribe: (cb: (m: { data: unknown }) => void) => this.listeners.get(name)?.delete(cb),
+      presence: { enter: async () => {} },
+    }),
+  }
+  connection = { on: () => {} }
+  close() {}
+}
+
+describe('ablyRealtime.watch', () => {
+  const envelope: Envelope = { type: 'message.created', conversationId: 'c9', data: {} }
+
+  it('relays a conversation channel the connector was asked to watch after it started', async () => {
+    const h = handlers()
+    const rt = ablyRealtime(ChannelsFake as never, vi.fn().mockResolvedValue(token))
+    await rt.start(h)
+
+    const stop = rt.watch!('chat:view:b1:c9')
+    ChannelsFake.last!.publish('chat:view:b1:c9', envelope)
+    expect(h.onEvent).toHaveBeenCalledWith(envelope)
+
+    stop()
+    ChannelsFake.last!.publish('chat:view:b1:c9', envelope)
+    expect(h.onEvent).toHaveBeenCalledTimes(1)
+  })
+
+  it('subscribes a channel asked for before the connection existed, once it does', async () => {
+    const h = handlers()
+    const rt = ablyRealtime(ChannelsFake as never, vi.fn().mockResolvedValue(token))
+    rt.watch!('chat:view:b1:early')
+
+    await rt.start(h)
+    ChannelsFake.last!.publish('chat:view:b1:early', envelope)
+
+    expect(h.onEvent).toHaveBeenCalledWith(envelope)
+  })
+
+  it('forgets a channel stopped before the connection existed', async () => {
+    const h = handlers()
+    const rt = ablyRealtime(ChannelsFake as never, vi.fn().mockResolvedValue(token))
+    rt.watch!('chat:view:b1:gone')()
+
+    await rt.start(h)
+
+    expect(ChannelsFake.last!.listeners.has('chat:view:b1:gone')).toBe(false)
   })
 })

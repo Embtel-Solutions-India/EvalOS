@@ -1,11 +1,15 @@
 package com.ie.evalos.web;
 
 import java.math.BigDecimal;
+import java.time.Duration;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.YearMonth;
 import java.time.format.DateTimeParseException;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 
 import com.ie.evalos.common.ApiResponse;
 import com.ie.evalos.common.DateWindow;
@@ -38,8 +42,10 @@ import org.springframework.web.bind.annotation.RestController;
  * token and never from a parameter. Progress is the GM overview's per-desk figure for the same
  * month, so a target and the desk row beside it cannot disagree.
  *
- * <p>Each read asks {@link GmOverviewService} for the month, which is a GHL read per request.
- * ponytail: no cache yet; add a short per-month one if a member's board load proves slow.
+ * <p>A member's line needs the month's desk figures, which {@link GmOverviewService} reads from GHL
+ * live (two reads per pipeline, for every desk). Every Sales and Marketing board mounts it and every
+ * tab focus re-reads it, and a 429 pauses the shared pacer for the whole location, so the month's
+ * desks are kept for {@link #TTL}: a minute of members costs one overview. A failed read is not kept.
  */
 @RestController
 @RequestMapping("/api")
@@ -49,6 +55,13 @@ public class MemberTargetController {
 	public record SetRequest(@NotNull LocalDate month, @NotNull @PositiveOrZero BigDecimal amount) {
 	}
 
+	/** How long a month's desk figures are reused by the member view. */
+	static final Duration TTL = Duration.ofSeconds(60);
+
+	private record Kept(List<GmOverviewService.DeskRow> desks, Instant at) {
+	}
+
+	private final Map<LocalDate, Kept> kept = new ConcurrentHashMap<>();
 	private final MemberTargetService targets;
 	private final GmOverviewService overview;
 	private final SellingBrand sellingBrand;
@@ -93,10 +106,20 @@ public class MemberTargetController {
 				.orElseThrow(() -> new NotFoundException("No monthly target applies to you"));
 	}
 
+	/** Forgets every kept month. Public because the controller is proxied for {@code @PreAuthorize}. */
+	public void clearCache() {
+		kept.clear();
+	}
+
 	private List<MemberTargetService.TargetRow> rowsFor(LocalDate first) {
-		DateWindow window = DateWindow.of("custom", first.toString(), first.plusMonths(1).minusDays(1).toString(),
-				BusinessCalendar.clock());
-		return targets.overview(sellingBrand.id(), first, overview.forCaller(window, null).desks());
+		Kept held = kept.get(first);
+		if (held == null || Duration.between(held.at(), Instant.now()).compareTo(TTL) >= 0) {
+			DateWindow window = DateWindow.of("custom", first.toString(),
+					first.plusMonths(1).minusDays(1).toString(), BusinessCalendar.clock());
+			held = new Kept(overview.forCaller(window, null).desks(), Instant.now());
+			kept.put(first, held);
+		}
+		return targets.overview(sellingBrand.id(), first, held.desks());
 	}
 
 	private static LocalDate parse(String month) {

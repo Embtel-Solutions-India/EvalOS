@@ -60,6 +60,9 @@ class MemberTargetRouteTest {
 	@Autowired
 	JwtService jwtService;
 
+	@Autowired
+	MemberTargetController controller;
+
 	@MockitoBean
 	MemberTargetService targets;
 	@MockitoBean
@@ -71,6 +74,7 @@ class MemberTargetRouteTest {
 
 	@BeforeEach
 	void anOverviewWithTwoSalesDesks() {
+		controller.clearCache();
 		given(sellingBrand.id()).willReturn(BRAND_IE);
 		given(overview.forCaller(any(), any())).willReturn(new GmOverviewService.GmOverview(null, List.of(),
 				List.of(), null, List.of(), null, null, Instant.parse("2026-10-08T00:00:00Z"), null));
@@ -138,6 +142,31 @@ class MemberTargetRouteTest {
 		then(targets).should(role == Role.GM ? times(1) : never()).set(any(), any(), any(), any());
 	}
 
+	/** The app's validation status is 400 (`InvalidRequestException`), not 422: a refusal is not stored. */
+	@Test
+	void aTargetForAMemberWhoCannotHaveOneIsRefusedAs400() throws Exception {
+		org.mockito.BDDMockito.willThrow(new com.ie.evalos.common.InvalidRequestException(
+				"Only Sales and Marketing members have a monthly target")).given(targets).set(any(), any(), any(), any());
+
+		mockMvc.perform(put("/api/gm/targets/" + salesId)
+				.header(HttpHeaders.AUTHORIZATION, bearer(Role.GM, UUID.randomUUID()))
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("{\"month\":\"2026-10-15\",\"amount\":5}"))
+				.andExpect(status().isBadRequest())
+				.andExpect(jsonPath("$.error.message").value("Only Sales and Marketing members have a monthly target"));
+	}
+
+	@Test
+	void aNegativeTargetIsRefusedAs400BeforeTheServiceIsAsked() throws Exception {
+		mockMvc.perform(put("/api/gm/targets/" + salesId)
+				.header(HttpHeaders.AUTHORIZATION, bearer(Role.GM, UUID.randomUUID()))
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("{\"month\":\"2026-10-15\",\"amount\":-1}"))
+				.andExpect(status().isBadRequest());
+
+		then(targets).should(never()).set(any(), any(), any(), any());
+	}
+
 	@Test
 	void aMonthThatIsNotAMonthIsABadRequestNotAServerError() throws Exception {
 		mockMvc.perform(get("/api/gm/targets").param("month", "2026-13")
@@ -152,6 +181,35 @@ class MemberTargetRouteTest {
 				.andExpect(status().isOk())
 				.andExpect(jsonPath("$.data.name").value("Sam"))
 				.andExpect(jsonPath("$.data.target").value(1000));
+	}
+
+	/**
+	 * Every Sales and Marketing board mounts this, and every tab focus re-reads it. Each uncached call is
+	 * a full GM overview against GHL (two reads per pipeline), and a 429 pauses the shared pacer for the
+	 * whole location, so a minute of members must cost one overview, not one each.
+	 */
+	@Test
+	void membersLoadingTheirBoardsWithinAMinuteShareOneOverviewRead() throws Exception {
+		for (UUID member : List.of(salesId, otherSalesId, salesId)) {
+			mockMvc.perform(get("/api/me/target").param("month", "2026-10")
+					.header(HttpHeaders.AUTHORIZATION, bearer(Role.SALES, member)))
+					.andExpect(status().isOk());
+		}
+
+		then(overview).should(times(1)).forCaller(any(), any());
+	}
+
+	@Test
+	void aFailedOverviewReadIsNotRememberedSoTheNextLoadTriesAgain() throws Exception {
+		given(overview.forCaller(any(), any())).willThrow(new IllegalStateException("GHL down"))
+				.willReturn(new GmOverviewService.GmOverview(null, List.of(), List.of(), null, List.of(), null, null,
+						Instant.parse("2026-10-08T00:00:00Z"), null));
+
+		mockMvc.perform(get("/api/me/target").param("month", "2026-10")
+				.header(HttpHeaders.AUTHORIZATION, bearer(Role.SALES, salesId)));
+		mockMvc.perform(get("/api/me/target").param("month", "2026-10")
+				.header(HttpHeaders.AUTHORIZATION, bearer(Role.SALES, salesId)))
+				.andExpect(status().isOk());
 	}
 
 	@Test

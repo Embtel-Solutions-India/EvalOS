@@ -10,7 +10,7 @@ function msg(id: string, conversationId = 'v1', over: Partial<Message> = {}): Me
   return { id, conversationId, authorKind: 'STAFF', authorId: 'staff-1', authorName: 'Cam', authorRole: null, body: id, parentId: null, replyCount: 0, createdAt: `2026-09-27T10:00:0${id.slice(-1)}Z`, editedAt: null, deleted: false, reactions: {}, mine: false, ...over }
 }
 function conv(id: string, over: Partial<Conversation> = {}): Conversation {
-  return { id, caseId: `case-${id}`, caseCode: 'IE-1', clientName: null, serviceType: null, stage: 'CLIENT_REVIEW', type: 'CLIENT', status: 'ACTIVE', access: 'MEMBER', unread: 0, lastMessage: null, participants: [], lastMessageAt: null, ...over }
+  return { id, brandId: 'b1', caseId: `case-${id}`, caseCode: 'IE-1', clientName: null, serviceType: null, stage: 'CLIENT_REVIEW', type: 'CLIENT', status: 'ACTIVE', access: 'MEMBER', unread: 0, lastMessage: null, participants: [], lastMessageAt: null, ...over }
 }
 const page = (items: Message[], nextCursor: string | null = null): Page<Message> => ({ items, nextCursor })
 
@@ -34,14 +34,17 @@ function fakeApi(over: Partial<ChatApi> = {}): ChatApi {
 
 function fakeRealtime() {
   let h: RealtimeHandlers | null = null
+  const unwatch = vi.fn()
+  const watch = vi.fn((_channel: string) => unwatch)
   const realtime: Realtime = {
     start: async (handlers) => {
       h = handlers
       handlers.onStatus('live')
       return () => {}
     },
+    watch,
   }
-  return { realtime, handlers: () => h! }
+  return { realtime, handlers: () => h!, watch, unwatch }
 }
 
 describe('createChatClient', () => {
@@ -58,6 +61,37 @@ describe('createChatClient', () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+
+  it('watches the conversation channel for someone who is not a member, so a GM sees replies live', async () => {
+    const api = fakeApi({
+      inbox: vi.fn().mockResolvedValue({ items: [conv('v1', { access: 'PARTICIPANT' }), conv('v2')], nextCursor: null }),
+    })
+    const rt = fakeRealtime()
+    const client = createChatClient(api, rt.realtime)
+    await client.start()
+
+    await client.openConversation('v1')
+    await client.openConversation('v2')
+
+    expect(rt.watch).toHaveBeenCalledTimes(1)
+    expect(rt.watch).toHaveBeenCalledWith('chat:view:b1:v1')
+  })
+
+  it('stops watching when the conversation is closed, and never twice for one open', async () => {
+    const api = fakeApi({
+      inbox: vi.fn().mockResolvedValue({ items: [conv('v1', { access: 'VIEWER' })], nextCursor: null }),
+    })
+    const rt = fakeRealtime()
+    const client = createChatClient(api, rt.realtime)
+    await client.start()
+
+    await client.openConversation('v1')
+    await client.openConversation('v1')
+    expect(rt.watch).toHaveBeenCalledTimes(1)
+    client.closeConversation('v1')
+
+    expect(rt.unwatch).toHaveBeenCalledTimes(1)
   })
 
   it('sends one typing per 3 seconds, whatever the keystrokes', async () => {

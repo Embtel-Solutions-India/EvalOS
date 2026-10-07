@@ -116,6 +116,16 @@ class MessageServiceTest {
 	}
 
 	@Test
+	void aGmsViewOfAConversationSaysItParticipatesAndNamesTheBrandItsChannelIsIn() {
+		// A non-member hears a conversation only on its own channel, chat:view:{brand}:{conversation},
+		// so the view must say which brand that is, and that this caller is not a member.
+		ChatViews.ConversationView view = service.conversation(gm, conversationId);
+
+		assertThat(view.access()).isEqualTo(ChatAccessLevel.PARTICIPANT);
+		assertThat(view.brandId()).isEqualTo(brand);
+	}
+
+	@Test
 	void aGmCannotMarkReadBecauseItHasNoReadPosition() {
 		Message message = existing(pm, "hello", null);
 		when(access.level(any(), eq(conversation))).thenReturn(ChatAccessLevel.PARTICIPANT);

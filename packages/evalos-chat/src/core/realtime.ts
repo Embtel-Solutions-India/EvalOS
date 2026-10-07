@@ -8,7 +8,14 @@ export type RealtimeHandlers = {
   onStatus(status: RealtimeStatus): void
 }
 
-export type Realtime = { start(handlers: RealtimeHandlers): Promise<() => void> }
+export type Realtime = {
+  start(handlers: RealtimeHandlers): Promise<() => void>
+  /**
+   * Hears every event of one conversation, for someone who is not a member of it (a GM taking part,
+   * a viewer): their personal channel carries only the conversations they belong to. Returns the stop.
+   */
+  watch?(channel: string): () => void
+}
 
 /** ably-js's `Realtime` constructor, passed in by the app so this package never imports Ably at runtime. */
 export type AblyRealtimeCtor = new (options: Ably.ClientOptions) => Ably.Realtime
@@ -16,6 +23,11 @@ export type AblyRealtimeCtor = new (options: Ably.ClientOptions) => Ably.Realtim
 /** The backend's personal channel (`ChatChannels.personal`); a token's clientId is `KIND:uuid`. */
 export function channelOf(clientId: string): string {
   return `chat:user:${clientId}`
+}
+
+/** The backend's per-conversation channel (`ChatChannels.view`): every chat event of one conversation. */
+export function viewChannel(brandId: string, conversationId: string): string {
+  return `chat:view:${brandId}:${conversationId}`
 }
 
 /**
@@ -39,7 +51,29 @@ export function liveChannels(capability: string): string[] {
  * REST-only without ever constructing Ably, so nothing retries in a loop.
  */
 export function ablyRealtime(RealtimeClass: AblyRealtimeCtor, fetchToken: () => Promise<TokenRequest>): Realtime {
+  let live: Ably.Realtime | null = null
+  let emit: ((envelope: Envelope) => void) | null = null
+  /** Channels asked for before the connection existed; subscribed the moment it does. */
+  const waiting = new Map<string, () => void>()
+
+  function subscribeTo(name: string): () => void {
+    const channel = live!.channels.get(name)
+    const listener = (message: Ably.InboundMessage) => emit?.(message.data as Envelope)
+    void channel.subscribe(listener).catch(() => {})
+    return () => channel.unsubscribe(listener)
+  }
+
   return {
+    watch(name) {
+      if (live) return subscribeTo(name)
+      let stop = () => {
+        waiting.delete(name)
+      }
+      waiting.set(name, () => {
+        stop = subscribeTo(name)
+      })
+      return () => stop()
+    },
     async start({ onEvent, onReconnect, onStatus }) {
       let first: TokenRequest
       try {
@@ -60,6 +94,10 @@ export function ablyRealtime(RealtimeClass: AblyRealtimeCtor, fetchToken: () => 
           )
         },
       })
+      live = client
+      emit = onEvent
+      waiting.forEach((subscribe) => subscribe())
+      waiting.clear()
       const channel = client.channels.get(channelOf(first.clientId))
       // A rejected subscribe (attach refused) would otherwise be silent: status would still say
       // 'live' while no events ever arrive.
@@ -81,7 +119,10 @@ export function ablyRealtime(RealtimeClass: AblyRealtimeCtor, fetchToken: () => 
           onStatus('offline')
         }
       })
-      return () => client.close()
+      return () => {
+        client.close()
+        if (live === client) live = null
+      }
     },
   }
 }

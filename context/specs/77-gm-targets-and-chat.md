@@ -14,7 +14,7 @@ both together; they share no code and can be built and merged separately.
 | Marketing | `LEADS` | a count of new opportunities | opportunities **created** on the member's desk in the month |
 
 The role decides the kind. The GM never picks a unit, and a member whose role is neither Sales nor
-Marketing cannot be given a target (422). Progress reuses the per-desk figures
+Marketing cannot be given a target (400, the app's validation status for `InvalidRequestException`; nothing is stored). Progress reuses the per-desk figures
 `GmOverviewService` already derives (`deskWonValue`, `deskNew`), so there is one source of truth
 for "what did this desk do this month" and no second calculation.
 

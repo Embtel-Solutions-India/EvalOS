@@ -341,6 +341,14 @@ through REST on `/api/chat`, `/api/portal/client/chat` and `/api/portal/expert/c
 `ChatPushNotifier` sends a web push to members who are not present on theirs. **No app screen yet**
 (phases 2–3). `opportunity_note` (Unit 54a) is unchanged and separate.
 
+**The GM takes part (Unit 77, D75, 2026-10-08).** A GM who is not a member may write in any open
+conversation of any brand (`ChatAccessLevel.PARTICIPANT`); the post is labelled `GM`
+(`MessageView.authorRole`), creates no member row and no read position, and the GM has no unread. A
+closed case stays read-only and the Brand Manager still only reads. Because the GM is in no member
+list, `ChatFanout` never reaches the GM's own channel: a non-member listens on the conversation's
+own `chat:view:{brand}:{conversation}` channel while it is open (`Realtime.watch`, driven by
+`ConversationView.access` and `.brandId`).
+
 ### TARGET WORKFLOW
 
 **Notes, both ways (Unit 54, built 2026-09-24).** A note written on a deal is queued and pushed

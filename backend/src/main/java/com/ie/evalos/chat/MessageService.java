@@ -377,7 +377,7 @@ public class MessageService {
 							lastRow.editedAt(), lastRow.deletedAt() != null, Map.of(),
 							lastRow.authorKind() == who.kind() && lastRow.authorId().equals(who.id()),
 							roleLabel(lastRow.authorKind(), lastRow.authorId(), gms));
-			views.add(new ChatViews.ConversationView(c.getId(), c.getCaseId(),
+			views.add(new ChatViews.ConversationView(c.getId(), c.getBrandId(), c.getCaseId(),
 					context == null ? null : context.caseCode(), context == null ? null : context.clientName(),
 					context == null ? null : context.serviceType(),
 					context == null ? null : context.stage(), c.getType(), c.getStatus(),

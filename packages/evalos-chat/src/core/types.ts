@@ -42,6 +42,8 @@ export type Message = {
 
 export type Conversation = {
   id: string
+  /** The conversation's brand: names the `chat:view` channel a non-member watches (D75). */
+  brandId: string
   caseId: string
   caseCode: string
   /** The applicant, the conversation's title; null when the case holds no name yet. */
