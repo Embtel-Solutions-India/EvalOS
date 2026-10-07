@@ -275,7 +275,7 @@ export default function GmDashboard() {
                   </td>
                   {targetMonth && (
                     <td className="py-1 text-right">
-                      <DeskTarget row={row} target={targetOf(row.memberId)} month={targetMonth} onSaved={targets.reload} />
+                      <DeskTarget row={row} target={targetOf(row.memberId)} known={targets.state.kind === 'ok'} month={targetMonth} onSaved={targets.reload} />
                     </td>
                   )}
                 </tr>

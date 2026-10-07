@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { formatMoney } from '../../lib/money'
 import { setMemberTarget, type GmDeskRow } from './pmMetricsApi'
-import { progressPct } from './targetProgress'
+import { progressPct, targetInput, targetState } from './targetProgress'
 
 /**
  * One desk's monthly target on the GM's "By desk" row (D75): the target, how far the desk is, and an
@@ -11,12 +11,15 @@ import { progressPct } from './targetProgress'
 export function DeskTarget({
   row,
   target,
+  known,
   month,
   onSaved,
 }: {
   row: GmDeskRow
   /** Null when nobody has set one — shown as "Not set", never as 0. */
   target: number | null
+  /** False while the targets are loading or failed to load: then nothing is claimed about this desk. */
+  known: boolean
   /** The overview's month, `YYYY-MM-01`. */
   month: string
   onSaved(): void
@@ -24,6 +27,8 @@ export function DeskTarget({
   const money = row.role === 'SALES'
   const progress = money ? row.wonValue : row.newLeads
   const pct = progressPct(progress, target)
+  const state = targetState(target, known)
+  const input = targetInput(row.role, target)
   const show = (n: number) => (money ? formatMoney(Math.round(n)) : String(Math.round(n)))
 
   const [editing, setEditing] = useState(false)
@@ -57,7 +62,7 @@ export function DeskTarget({
         <input
           type="number"
           min={0}
-          step={1}
+          step={input.step}
           required
           autoFocus
           aria-label={`Monthly target for ${row.name}`}
@@ -86,17 +91,25 @@ export function DeskTarget({
     )
   }
 
+  if (state === 'unknown') {
+    return (
+      <span className="font-num" style={{ color: 'var(--text-muted)' }} title="The targets are not loaded">
+        …
+      </span>
+    )
+  }
+
   return (
     <button
       type="button"
       onClick={() => {
-        setAmount(target === null ? '' : String(Math.round(target)))
+        setAmount(input.initial)
         setEditing(true)
       }}
       className="font-num text-right tabular-nums"
       title="Set this month's target"
     >
-      {target === null ? (
+      {state === 'unset' || target === null ? (
         <span style={{ color: 'var(--text-muted)' }}>Not set</span>
       ) : (
         <>

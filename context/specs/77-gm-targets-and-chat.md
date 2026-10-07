@@ -42,7 +42,7 @@ CREATE INDEX member_monthly_target_latest
 ```
 
 Ships as a Flyway migration in the main migration tree (never a hand-run script). Rows are never
-updated or deleted. A `LEADS` amount is a whole number: the API rejects a fraction.
+updated or deleted: a `V87` trigger makes the database refuse it. A `LEADS` amount is a whole number: the API rejects a fraction, and any amount is at most 10 integer and 2 decimal digits.
 
 ### 1.3 API (GM only; every query brand-scoped)
 
@@ -51,10 +51,11 @@ updated or deleted. A `LEADS` amount is a whole number: the API rejects a fracti
   holds each desk's progress from the overview it loaded, and a second overview read per page load
   would double its heaviest request. The unit follows the desk's role, which the overview carries.
 - `PUT /api/gm/targets/{teamMemberId}` `{ month, amount }` → appends a row; the `kind` is taken
-  from the member's role, not the body. 403 for anyone but the GM; 404 for a member outside the
-  caller's scope.
+  from the member's role, not the body. 403 for anyone but the GM; 404 for a member who is
+  inactive or outside the selling brand (a row for them would be stored and never shown).
 - A member reads **only their own** target and progress (one overview read, filtered to the
-  caller's own row server-side): `GET /api/me/target?month=` (any Sales or
+  caller's own row server-side): `GET /api/me/target` (`month` optional: it defaults to this month by
+  the business calendar, the one the GM's dashboard counts in, not the browser's) (any Sales or
   Marketing member; returns the same shape for themselves, 404 if the caller has no target kind).
 
 A month with no row is **"not set"**, never 0: a zero target is a deliberate choice and must not

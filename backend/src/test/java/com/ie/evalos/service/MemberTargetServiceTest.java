@@ -7,6 +7,8 @@ import java.util.Optional;
 import java.util.UUID;
 
 import com.ie.evalos.common.InvalidRequestException;
+import com.ie.evalos.common.NotFoundException;
+import com.ie.evalos.config.SellingBrand;
 import com.ie.evalos.domain.Role;
 import com.ie.evalos.domain.TeamMember;
 import com.ie.evalos.repository.TeamMemberRepository;
@@ -34,8 +36,15 @@ class MemberTargetServiceTest {
 
 	private final JdbcTemplate jdbc = mock(JdbcTemplate.class);
 	private final TeamMemberRepository members = mock(TeamMemberRepository.class);
-	private final MemberTargetService service = new MemberTargetService(jdbc, members);
+	private final SellingBrand sellingBrand = sellingBrand();
+	private final MemberTargetService service = new MemberTargetService(jdbc, members, sellingBrand);
 	private final UUID setBy = UUID.randomUUID();
+
+	private static SellingBrand sellingBrand() {
+		SellingBrand brand = mock(SellingBrand.class);
+		given(brand.id()).willReturn(BRAND);
+		return brand;
+	}
 
 	private TeamMember member(Role role) {
 		TeamMember member = new TeamMember() {
@@ -83,6 +92,27 @@ class MemberTargetServiceTest {
 		verify(jdbc, never()).update(anyString(), any(Object[].class));
 	}
 
+	/** The member's target is read from the selling brand only, so a row stored anywhere else would never show. */
+	@Test
+	void aMemberOutsideTheSellingBrandCannotBeGivenATarget() {
+		TeamMember elsewhere = member(Role.SALES);
+		ReflectionTestUtils.setField(elsewhere, "brandId", UUID.randomUUID());
+
+		assertThatThrownBy(() -> service.set(elsewhere.getId(), OCT, BigDecimal.TEN, setBy))
+				.isInstanceOf(NotFoundException.class);
+		verify(jdbc, never()).update(anyString(), any(Object[].class));
+	}
+
+	@Test
+	void aDeactivatedMemberCannotBeGivenATarget() {
+		TeamMember gone = member(Role.SALES);
+		ReflectionTestUtils.setField(gone, "active", false);
+
+		assertThatThrownBy(() -> service.set(gone.getId(), OCT, BigDecimal.TEN, setBy))
+				.isInstanceOf(NotFoundException.class);
+		verify(jdbc, never()).update(anyString(), any(Object[].class));
+	}
+
 	@Test
 	void aLeadsTargetMustBeAWholeNumber() {
 		TeamMember marketing = member(Role.MARKETING);
@@ -105,7 +135,7 @@ class MemberTargetServiceTest {
 		given(members.findById(any())).willReturn(Optional.empty());
 
 		assertThatThrownBy(() -> service.set(UUID.randomUUID(), OCT, BigDecimal.TEN, setBy))
-				.isInstanceOf(InvalidRequestException.class);
+				.isInstanceOf(NotFoundException.class);
 	}
 
 	private static GmOverviewService.DeskRow desk(UUID id, String name, Role role, int newLeads, String wonValue) {
@@ -116,10 +146,11 @@ class MemberTargetServiceTest {
 	void aSalesRowShowsWonValueAgainstItsTargetAndAMarketingRowShowsLeads() {
 		UUID salesId = UUID.randomUUID();
 		UUID marketingId = UUID.randomUUID();
-		given(jdbc.query(contains("member_monthly_target"), org.mockito.ArgumentMatchers.<org.springframework.jdbc.core.RowMapper<BigDecimal>>any(),
-				eq(BRAND), eq(salesId), eq(OCT))).willReturn(List.of(new BigDecimal("1000.00")));
+		MemberTargetService reading = org.mockito.Mockito.spy(service);
+		org.mockito.Mockito.doReturn(java.util.Map.of(salesId, new BigDecimal("1000.00"))).when(reading)
+				.latestForMonth(BRAND, OCT);
 
-		List<MemberTargetService.TargetRow> rows = service.overview(BRAND, OCT, List.of(
+		List<MemberTargetService.TargetRow> rows = reading.overview(BRAND, OCT, List.of(
 				desk(salesId, "Sam", Role.SALES, 9, "900"), desk(marketingId, "Mia", Role.MARKETING, 7, "0")));
 
 		assertThat(rows).hasSize(2);
@@ -129,6 +160,9 @@ class MemberTargetServiceTest {
 		assertThat(rows.get(1).kind()).isEqualTo(MemberTargetService.TargetKind.LEADS);
 		assertThat(rows.get(1).target()).as("a member with no row is not set, never 0").isNull();
 		assertThat(rows.get(1).progress()).isEqualByComparingTo("7");
+		// One read for the whole month, not one per desk.
+		verify(reading, org.mockito.Mockito.times(1)).latestForMonth(BRAND, OCT);
+		verify(reading, never()).current(any(), any(), any());
 	}
 
 	@Test

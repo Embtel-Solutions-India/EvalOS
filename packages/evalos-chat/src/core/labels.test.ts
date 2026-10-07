@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { accessBanner, authorBadge } from './labels'
-import type { Conversation, Message } from './types'
+import { accessBanner, authorBadge, typingNames } from './labels'
+import type { Conversation, Message, Participant } from './types'
 
 const message = (authorRole: string | null) => ({ authorRole }) as Message
 const conversation = (access: Conversation['access'], status: Conversation['status'] = 'ACTIVE') =>
@@ -28,5 +28,21 @@ describe('accessBanner', () => {
   })
   it('says nothing to an ordinary member of an open conversation', () => {
     expect(accessBanner(conversation('MEMBER'))).toBeNull()
+  })
+})
+
+describe('typingNames', () => {
+  const participants = [{ kind: 'STAFF', id: 'pm-1', role: 'PM', name: 'Pat' }] as Participant[]
+  const said = (id: string, name: string) => ({ authorKind: 'STAFF', authorId: id, authorName: name }) as Message
+
+  it('names a member from the roster', () => {
+    expect(typingNames(['STAFF:pm-1'], participants, [])).toEqual(['Pat'])
+  })
+  it('names a GM taking part from the messages they sent, since the roster does not list them', () => {
+    expect(typingNames(['STAFF:gm-1'], participants, [said('gm-1', 'Gina')])).toEqual(['Gina'])
+  })
+  it('says Someone only when neither the roster nor any message knows the name', () => {
+    expect(typingNames(['STAFF:gm-2'], participants, [said('gm-1', 'Gina')])).toEqual(['Someone'])
+    expect(typingNames(['STAFF:pm-1'], undefined, [])).toEqual(['Someone'])
   })
 })

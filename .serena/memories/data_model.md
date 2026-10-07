@@ -3,7 +3,7 @@
 **The authoritative file is `.claude/data-model.md`. It separates CURRENT DATABASE from REQUIRED
 FUTURE MODEL — never mix them.**
 
-25 tables, Flyway V1 to V65 all applied (see `.claude/data-model.md` for the current count — latest `V86` `member_monthly_target`, a Sales/Marketing member's monthly target, append-only by convention; `V77` `sales_monthly_goal` is the brand-wide goal) (V1–V49 verified against a live Postgres instance on
+25 tables, Flyway V1 to V65 all applied (see `.claude/data-model.md` for the current count — latest `V87` (`member_monthly_target` is append-only, enforced by trigger) on `V86` `member_monthly_target`, a Sales/Marketing member's monthly target; `V77` `sales_monthly_goal` is the brand-wide goal) (V1–V49 verified against a live Postgres instance on
 2026-09-16; V50–V62 are Units 44–47b, V63–V64 the 2026-09-18 review pass).
 Migrations live in `backend/src/main/resources/db/migration/`. New schema means a new migration; an
 applied one is never edited.

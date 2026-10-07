@@ -9,6 +9,8 @@ import java.util.Optional;
 import java.util.UUID;
 
 import com.ie.evalos.common.InvalidRequestException;
+import com.ie.evalos.common.NotFoundException;
+import com.ie.evalos.config.SellingBrand;
 import com.ie.evalos.domain.Role;
 import com.ie.evalos.domain.TeamMember;
 import com.ie.evalos.repository.TeamMemberRepository;
@@ -32,10 +34,12 @@ public class MemberTargetService {
 
 	private final JdbcTemplate jdbc;
 	private final TeamMemberRepository members;
+	private final SellingBrand sellingBrand;
 
-	MemberTargetService(JdbcTemplate jdbc, TeamMemberRepository members) {
+	MemberTargetService(JdbcTemplate jdbc, TeamMemberRepository members, SellingBrand sellingBrand) {
 		this.jdbc = jdbc;
 		this.members = members;
+		this.sellingBrand = sellingBrand;
 	}
 
 	/** Sales are held to what they win, Marketing to the leads they open; no other role has a target. */
@@ -50,8 +54,11 @@ public class MemberTargetService {
 	/** Appends a target for one member and month. The brand is the member's own, never the caller's input. */
 	@Transactional
 	public void set(UUID teamMemberId, LocalDate month, BigDecimal amount, UUID setBy) {
+		// Targets are read from the selling brand's desks only, so a row for anyone else, or for someone
+		// no longer on a desk, would be stored and never shown. They are out of scope, not a bad request.
 		TeamMember member = members.findById(teamMemberId)
-				.orElseThrow(() -> new InvalidRequestException("That team member does not exist"));
+				.filter((found) -> found.isActive() && sellingBrand.id() != null && sellingBrand.id().equals(found.getBrandId()))
+				.orElseThrow(() -> new NotFoundException("That team member is not on a desk with a target"));
 		TargetKind kind = kindOf(member.getRole()).orElseThrow(
 				() -> new InvalidRequestException("Only Sales and Marketing members have a monthly target"));
 		if (amount == null || amount.signum() < 0) {
@@ -78,10 +85,11 @@ public class MemberTargetService {
 
 	/** A row per desk whose role has a target, in the order the overview lists them. */
 	public List<TargetRow> overview(UUID brandId, LocalDate month, List<GmOverviewService.DeskRow> desks) {
+		Map<UUID, BigDecimal> targets = latestForMonth(brandId, month);
 		return desks.stream()
 				.flatMap((desk) -> kindOf(desk.role()).stream().map((kind) -> new TargetRow(desk.memberId(),
 						desk.name(), desk.role(), kind,
-						current(brandId, desk.memberId(), month).orElse(null),
+						targets.get(desk.memberId()),
 						kind == TargetKind.WON_VALUE ? desk.wonValue() : BigDecimal.valueOf(desk.newLeads()))))
 				.toList();
 	}

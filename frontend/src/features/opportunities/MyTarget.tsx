@@ -3,20 +3,13 @@ import { fetchMyTarget, type MyTarget as Target } from '../dashboards/pmMetricsA
 import { progressPct } from '../dashboards/targetProgress'
 import { formatMoney } from '../../lib/money'
 
-/** The first of this month, `YYYY-MM-01`, in the browser's own calendar. */
-function thisMonth(): string {
-  const now = new Date()
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`
-}
-
 /**
  * The signed-in Sales or Marketing member's own monthly target and progress (D75), beside the totals
  * they already see. Read-only: only the GM sets it. Draws nothing for a role with no target, and nothing
  * while loading or if the read fails: a target line is not worth an error card on someone's board.
  */
 export default function MyTarget() {
-  const month = thisMonth()
-  const mine = useMetrics<Target | null>((signal) => fetchMyTarget(month, signal), [month])
+  const mine = useMetrics<Target | null>((signal) => fetchMyTarget(signal), [])
   const target = mine.data
   if (!target) return null
 

@@ -9,22 +9,23 @@ vi.mock('../../lib/api', () => ({
 import { fetchMyTarget } from './pmMetricsApi'
 
 describe('fetchMyTarget', () => {
-  it('asks for the month, trimmed to yyyy-MM', async () => {
+  it('asks for this month and leaves the month to the server', async () => {
     get.mockResolvedValue({ data: { data: { kind: 'WON_VALUE', target: 1000, progress: 900 } } })
 
-    expect(await fetchMyTarget('2026-10-01')).toEqual({ kind: 'WON_VALUE', target: 1000, progress: 900 })
-    expect(get).toHaveBeenCalledWith('/me/target', expect.objectContaining({ params: { month: '2026-10' } }))
+    expect(await fetchMyTarget()).toEqual({ kind: 'WON_VALUE', target: 1000, progress: 900 })
+    // No month on the wire: the server's business calendar says what "this month" is, not the browser's.
+    expect(get.mock.calls[0][1].params).toBeUndefined()
   })
 
   it('is null when the caller has no target, so the desk page shows nothing rather than an error', async () => {
     get.mockImplementation(() => Promise.reject({ response: { status: 404 } }))
 
-    expect(await fetchMyTarget('2026-10-01')).toBeNull()
+    expect(await fetchMyTarget()).toBeNull()
   })
 
   it('still fails on a real error, so a server fault is not hidden as "no target"', async () => {
     get.mockImplementation(() => Promise.reject({ response: { status: 500 } }))
 
-    await expect(fetchMyTarget('2026-10-01')).rejects.toBeDefined()
+    await expect(fetchMyTarget()).rejects.toBeDefined()
   })
 })

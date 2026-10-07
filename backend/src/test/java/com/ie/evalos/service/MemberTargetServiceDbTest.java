@@ -92,6 +92,20 @@ class MemberTargetServiceDbTest {
 		assertThat(service.latestForMonth(UUID.randomUUID(), month)).isEmpty();
 	}
 
+	/** The data model says append-only; the database now enforces it, not just the service's habits. */
+	@Test
+	void aTargetRowCanNeitherBeChangedNorDeleted() {
+		service.set(sales.getId(), month, new BigDecimal("1000"), gm);
+
+		org.assertj.core.api.Assertions.assertThatThrownBy(() -> jdbc.update(
+				"UPDATE member_monthly_target SET amount = 1 WHERE team_member_id = ? AND month = ?", sales.getId(), month))
+				.hasMessageContaining("append-only");
+		org.assertj.core.api.Assertions.assertThatThrownBy(() -> jdbc.update(
+				"DELETE FROM member_monthly_target WHERE team_member_id = ? AND month = ?", sales.getId(), month))
+				.hasMessageContaining("append-only");
+		assertThat(rows()).isEqualTo(1);
+	}
+
 	@Test
 	void aTargetIsInvisibleToAnotherBrand() {
 		service.set(sales.getId(), month, new BigDecimal("1000"), gm);

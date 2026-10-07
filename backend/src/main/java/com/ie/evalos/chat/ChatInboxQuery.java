@@ -237,10 +237,7 @@ public class ChatInboxQuery {
 		return jdbc.query(sql.toString(), ChatInboxQuery::row, args.toArray());
 	}
 
-	/**
-	 * Display names keyed {@code KIND:id}: staff by display name, a client by first and last name
-	 * ("Client" when blank), an expert by full name. Ids come from rows already brand-scoped.
-	 */
+	/** Which of these staff ids are General Managers; their messages carry the "GM" label (D75). */
 	public Set<UUID> gmAmong(Collection<UUID> staffIds) {
 		List<UUID> distinct = staffIds.stream().distinct().toList();
 		if (distinct.isEmpty()) {
@@ -250,6 +247,10 @@ public class ChatInboxQuery {
 				+ placeholders(distinct) + ")", (rs, n) -> rs.getObject(1, UUID.class), distinct.toArray()));
 	}
 
+	/**
+	 * Display names keyed {@code KIND:id}: staff by display name, a client by first and last name
+	 * ("Client" when blank), an expert by full name. Ids come from rows already brand-scoped.
+	 */
 	public Map<String, String> names(Collection<Map.Entry<ParticipantKind, UUID>> people) {
 		Map<ParticipantKind, List<UUID>> byKind = new LinkedHashMap<>();
 		for (Map.Entry<ParticipantKind, UUID> person : people) {

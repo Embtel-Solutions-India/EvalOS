@@ -307,9 +307,11 @@ export async function setMemberTarget(memberId: string, month: string, amount: n
 /** The caller's own target and progress for a month; null when their role has no target. */
 export type MyTarget = { kind: 'WON_VALUE' | 'LEADS'; target: number | null; progress: number }
 
-export async function fetchMyTarget(month: string, signal?: AbortSignal): Promise<MyTarget | null> {
+export async function fetchMyTarget(signal?: AbortSignal): Promise<MyTarget | null> {
   try {
-    return await unwrap<MyTarget>(api.get('/me/target', { params: { month: month.slice(0, 7) }, signal }))
+    // No month: the server's business calendar decides what "this month" is, the one the GM's dashboard
+    // counts in. The browser's clock is up to a day ahead of it for a team in another zone.
+    return await unwrap<MyTarget>(api.get('/me/target', { signal }))
   } catch (error: unknown) {
     if ((error as { response?: { status?: number } }).response?.status === 404) return null
     throw error

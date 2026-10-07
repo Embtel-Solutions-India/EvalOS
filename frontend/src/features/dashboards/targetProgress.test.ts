@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { progressPct } from './targetProgress'
+import { progressPct, targetInput, targetState } from './targetProgress'
 
 describe('progressPct', () => {
   it('is null when no target is set, so "not set" never reads as 0%', () => {
@@ -14,5 +14,30 @@ describe('progressPct', () => {
   })
   it('does not cap a member who beat their target', () => {
     expect(progressPct(1500, 1000)).toBe(150)
+  })
+})
+
+describe('targetState', () => {
+  it('is unknown while the targets are still loading or failed to load, never "not set"', () => {
+    expect(targetState(null, false)).toBe('unknown')
+    expect(targetState(500, false)).toBe('unknown')
+  })
+  it('is unset only once the targets are known and this desk has none', () => {
+    expect(targetState(null, true)).toBe('unset')
+  })
+  it('keeps a zero target as a target', () => {
+    expect(targetState(0, true)).toBe('set')
+  })
+})
+
+describe('targetInput', () => {
+  it('lets a Sales target keep and take cents, and starts from the exact stored amount', () => {
+    expect(targetInput('SALES', 1500.5)).toEqual({ step: '0.01', initial: '1500.5' })
+  })
+  it('keeps a Marketing target to whole leads', () => {
+    expect(targetInput('MARKETING', 40)).toEqual({ step: '1', initial: '40' })
+  })
+  it('starts empty when nothing is set', () => {
+    expect(targetInput('SALES', null).initial).toBe('')
   })
 })

@@ -168,6 +168,47 @@ class MemberTargetRouteTest {
 	}
 
 	@Test
+	void aMoreThanTwoDecimalOrAbsurdlyLargeAmountIsRefusedNotRoundedOrA500() throws Exception {
+		for (String amount : List.of("12.345", "12345678901")) {
+			mockMvc.perform(put("/api/gm/targets/" + salesId)
+					.header(HttpHeaders.AUTHORIZATION, bearer(Role.GM, UUID.randomUUID()))
+					.contentType(MediaType.APPLICATION_JSON)
+					.content("{\"month\":\"2026-10-15\",\"amount\":" + amount + "}"))
+					.andExpect(status().isBadRequest());
+		}
+		mockMvc.perform(put("/api/gm/targets/" + salesId)
+				.header(HttpHeaders.AUTHORIZATION, bearer(Role.GM, UUID.randomUUID()))
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("{\"month\":\"2026-10-15\",\"amount\":1500.50}"))
+				.andExpect(status().isOk());
+	}
+
+	@Test
+	void aMonthWithJunkAfterTheMonthIsRefused() throws Exception {
+		mockMvc.perform(get("/api/gm/targets").param("month", "2026-10zzz")
+				.header(HttpHeaders.AUTHORIZATION, bearer(Role.GM, UUID.randomUUID())))
+				.andExpect(status().isBadRequest());
+	}
+
+	/**
+	 * With no month, the member's own view means "this month" by the business calendar, the same one the GM's
+	 * dashboard counts in, not the browser's: a browser in India is a day ahead of it for half of every 1st.
+	 */
+	@Test
+	void aMemberViewWithNoMonthMeansTheBusinessCalendarsCurrentMonth() throws Exception {
+		LocalDate thisMonth = LocalDate.now(com.ie.evalos.service.BusinessCalendar.clock()).withDayOfMonth(1);
+		given(targets.overview(eq(BRAND_IE), eq(thisMonth), any())).willReturn(List.of(row(salesId, "Sam", "1000", "900")));
+
+		mockMvc.perform(get("/api/me/target").header(HttpHeaders.AUTHORIZATION, bearer(Role.SALES, salesId)))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.data.name").value("Sam"));
+
+		ArgumentCaptor<DateWindow> window = ArgumentCaptor.forClass(DateWindow.class);
+		then(overview).should().forCaller(window.capture(), any());
+		assertThat(window.getValue().from()).isEqualTo(thisMonth);
+	}
+
+	@Test
 	void aMonthThatIsNotAMonthIsABadRequestNotAServerError() throws Exception {
 		mockMvc.perform(get("/api/gm/targets").param("month", "2026-13")
 				.header(HttpHeaders.AUTHORIZATION, bearer(Role.GM, UUID.randomUUID())))

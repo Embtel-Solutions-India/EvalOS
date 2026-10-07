@@ -22,6 +22,7 @@ import com.ie.evalos.service.GmOverviewService;
 import com.ie.evalos.service.MemberTargetService;
 
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Digits;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.PositiveOrZero;
 
@@ -52,7 +53,8 @@ import org.springframework.web.bind.annotation.RestController;
 public class MemberTargetController {
 
 	/** {@code month} is any day of the month; the first is what is stored. */
-	public record SetRequest(@NotNull LocalDate month, @NotNull @PositiveOrZero BigDecimal amount) {
+	public record SetRequest(@NotNull LocalDate month,
+			@NotNull @PositiveOrZero @Digits(integer = 10, fraction = 2) BigDecimal amount) {
 	}
 
 	/** How long a month's desk figures are reused by the member view. */
@@ -97,9 +99,12 @@ public class MemberTargetController {
 
 	@GetMapping("/me/target")
 	@PreAuthorize("hasAnyRole('SALES', 'MARKETING')")
-	public ApiResponse<MemberTargetService.TargetRow> mine(@RequestParam String month,
+	public ApiResponse<MemberTargetService.TargetRow> mine(@RequestParam(required = false) String month,
 			@AuthenticationPrincipal StaffPrincipal principal) {
-		return rowsFor(parse(month)).stream()
+		// No month means this month by the business calendar, the one the GM's dashboard counts in; a
+		// browser's own clock is up to a day ahead of it for a team in another zone.
+		LocalDate first = month == null ? LocalDate.now(BusinessCalendar.clock()).withDayOfMonth(1) : parse(month);
+		return rowsFor(first).stream()
 				.filter((row) -> row.memberId().equals(principal.memberId()))
 				.findFirst()
 				.map(ApiResponse::ok)
@@ -124,7 +129,7 @@ public class MemberTargetController {
 
 	private static LocalDate parse(String month) {
 		try {
-			return YearMonth.parse(month.length() > 7 ? month.substring(0, 7) : month).atDay(1);
+			return YearMonth.parse(month).atDay(1);
 		}
 		catch (DateTimeParseException malformed) {
 			throw new InvalidRequestException("month must be yyyy-MM");
