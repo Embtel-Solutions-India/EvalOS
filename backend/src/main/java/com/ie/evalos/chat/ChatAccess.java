@@ -42,7 +42,7 @@ public class ChatAccess {
 			return ChatAccessLevel.MEMBER;
 		}
 		if (who.staffRole() == Role.GM) {
-			return ChatAccessLevel.VIEWER;
+			return ChatAccessLevel.PARTICIPANT;
 		}
 		if (who.staffRole() == Role.BRAND_MANAGER && conversation.getBrandId().equals(who.brandId())) {
 			return ChatAccessLevel.VIEWER;

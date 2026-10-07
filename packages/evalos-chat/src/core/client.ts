@@ -1,6 +1,6 @@
 import { cursorOf, type ChatApi, type InboxParams } from './api'
 import { initialState, reactedByMe, reduce, type Action, type ChatState } from './reducer'
-import type { Realtime } from './realtime'
+import { viewChannel, type Realtime } from './realtime'
 import { keyOf, MAX_BODY, type Envelope, type Me, type Message, type Reaction } from './types'
 
 /** How long a "typing" lasts without another; the backend relays at most one per 3s. */
@@ -19,6 +19,8 @@ export function createChatClient(api: ChatApi, realtime: Realtime | null) {
   const typingSent = new Map<string, number>()
   let inboxParams: InboxParams = {}
   let onScreen: string | null = null
+  /** Stops for the conversations a non-member has open (D75): one watch per open conversation. */
+  const watching = new Map<string, () => void>()
   let stopRealtime: (() => void) | null = null
   /**
    * Bumped by `stop()`, and on every `start()`. A `start()` whose generation is no longer current
@@ -137,6 +139,12 @@ export function createChatClient(api: ChatApi, realtime: Realtime | null) {
   async function openConversation(id: string) {
     onScreen = id
     syncViewing()
+    // A GM taking part, or a viewer, is in no member list: replies to them are published only on the
+    // conversation's own channel, so listen there while it is open.
+    const held = state.conversations[id]
+    if (held && held.access !== 'MEMBER' && realtime?.watch && !watching.has(id)) {
+      watching.set(id, realtime.watch(viewChannel(held.brandId, id)))
+    }
     // Whether to fetch depends on whether the first page actually loaded, not on whether the
     // list exists: the placeholder below makes it exist before that is known, so a failed fetch
     // must stay retryable on the next open instead of looking permanently (silently) loaded.
@@ -177,6 +185,8 @@ export function createChatClient(api: ChatApi, realtime: Realtime | null) {
       onScreen = null
       syncViewing()
     }
+    watching.get(id)?.()
+    watching.delete(id)
   }
 
   async function loadOlder(id: string) {

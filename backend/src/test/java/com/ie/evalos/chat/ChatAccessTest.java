@@ -46,10 +46,32 @@ class ChatAccessTest {
 	}
 
 	@Test
-	void theGmViewsEveryBrand() {
+	void theGmTakesPartInEveryBrand() {
 		ChatIdentity gm = new ChatIdentity(ParticipantKind.STAFF, UUID.randomUUID(), null, Role.GM);
 		isMember(gm, false);
-		assertThat(access.level(gm, conversation(ConversationType.EXPERT))).isEqualTo(ChatAccessLevel.VIEWER);
+		assertThat(access.level(gm, conversation(ConversationType.EXPERT))).isEqualTo(ChatAccessLevel.PARTICIPANT);
+	}
+
+	@Test
+	void aGmWhoIsNotAMemberMayWrite() {
+		ChatIdentity gm = new ChatIdentity(ParticipantKind.STAFF, UUID.randomUUID(), null, Role.GM);
+		Conversation open = conversation(ConversationType.CLIENT);
+		when(conversations.findById(any())).thenReturn(Optional.of(open));
+		isMember(gm, false);
+
+		assertThat(access.requireWrite(gm, UUID.randomUUID())).isSameAs(open);
+	}
+
+	@Test
+	void aGmCannotWriteToAClosedCase() {
+		ChatIdentity gm = new ChatIdentity(ParticipantKind.STAFF, UUID.randomUUID(), null, Role.GM);
+		Conversation closed = conversation(ConversationType.INTERNAL);
+		closed.makeReadOnly(java.time.Instant.now());
+		when(conversations.findById(any())).thenReturn(Optional.of(closed));
+		isMember(gm, false);
+
+		assertThatThrownBy(() -> access.requireWrite(gm, UUID.randomUUID()))
+				.isInstanceOf(ConversationReadOnlyException.class);
 	}
 
 	@Test
@@ -92,12 +114,12 @@ class ChatAccessTest {
 	}
 
 	@Test
-	void aViewerCannotWrite() {
-		ChatIdentity gm = new ChatIdentity(ParticipantKind.STAFF, UUID.randomUUID(), null, Role.GM);
-		when(conversations.findById(any())).thenReturn(Optional.of(conversation(ConversationType.CLIENT)));
-		isMember(gm, false);
+	void aBrandManagerStillCannotWrite() {
+		ChatIdentity bm = new ChatIdentity(ParticipantKind.STAFF, UUID.randomUUID(), brand, Role.BRAND_MANAGER);
+		when(conversations.findByIdAndBrandId(any(), any())).thenReturn(Optional.of(conversation(ConversationType.CLIENT)));
+		isMember(bm, false);
 
-		assertThatThrownBy(() -> access.requireWrite(gm, UUID.randomUUID())).isInstanceOf(ForbiddenException.class);
+		assertThatThrownBy(() -> access.requireWrite(bm, UUID.randomUUID())).isInstanceOf(ForbiddenException.class);
 	}
 
 	@Test

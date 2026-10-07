@@ -252,8 +252,8 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
   case has three conversations — Client (client, pipeline Sales, PM/Coordinator/Case Manager),
   Internal (pipeline Sales, PM/Coordinator/Case Manager, brand ENMs) and Expert
   (PM/Coordinator/Case Manager, brand ENMs, the expert from offer). EvalOS computes membership from
-  assignments and never lets a browser create a conversation or change a member. GM and Brand
-  Manager read as viewers. Text only; read-only at `CLOSED`. Spring Boot and PostgreSQL hold every
+  assignments and never lets a browser create a conversation or change a member. The GM takes part in
+  every conversation (D75); the Brand Manager reads as a viewer. Text only; read-only at `CLOSED`. Spring Boot and PostgreSQL hold every
   message and rule; **Ably relays live updates only** (one private channel per person, publish never
   granted to a browser); web push for anyone without the app open. No chat platform owns the data.
 - **D51.** **Drafts are uploaded versions** (Unit 58, `58-client-portal.md`, 2026-09-27, business
@@ -559,6 +559,7 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
   existing revision transition). **On Hold requires a reason, which the client sees, and the case
   keeps its stage so Resume returns to it.** A service that skips a review step simply never shows
   that status. Replaces Unit 58's milestones.
+- **D75.** **The GM sets a monthly target for every sales and marketing member, and takes part in every chat** (2026-10-07, the business, Unit 77, spec `77-gm-targets-and-chat.md`). A Sales member's target is won value in money, a Marketing member's is a count of new leads; the role picks the kind and the GM sets only the amount. Targets are append-only rows per (member, month); a month with none reads "not set", never 0. `sales_monthly_goal` stays the brand-wide goal. A GM may write in any open conversation of any brand, labelled General Manager, **without becoming a member** (membership stays computed from assignments); a closed case is still read-only, and the Brand Manager still only reads.
 - **D68.** **EvalOS screens update themselves** (2026-10-01, the business). A committed write to a
   case (the case, its documents, checklist, offers, payouts, draft comments) sends a **signal, never
   data**, over Ably: `case.changed {caseId}` to a per-brand staff channel and to the case's client

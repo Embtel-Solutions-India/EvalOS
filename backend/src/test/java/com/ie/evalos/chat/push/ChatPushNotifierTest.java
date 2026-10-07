@@ -64,7 +64,7 @@ class ChatPushNotifierTest {
 	private ChatChanged fromPm(UUID conversation, String text) {
 		return new ChatChanged(brand, conversation, ChatChanged.Kind.MESSAGE_CREATED, new ChatViews.MessageView(
 				UUID.randomUUID(), conversation, ParticipantKind.STAFF, pm, "Priya", text, null, 0, Instant.now(), null,
-				false, Map.of(), false));
+				false, Map.of(), false, null));
 	}
 
 	private PushSubscription subscription(ParticipantKind kind, UUID id) {

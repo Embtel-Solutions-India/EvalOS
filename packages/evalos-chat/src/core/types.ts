@@ -27,6 +27,8 @@ export type Message = {
   authorKind: ParticipantKind
   authorId: string
   authorName: string | null
+  /** 'GM' for a General Manager's message, else null (members are labelled by the roster). */
+  authorRole: string | null
   body: string
   parentId: string | null
   replyCount: number
@@ -40,6 +42,8 @@ export type Message = {
 
 export type Conversation = {
   id: string
+  /** The conversation's brand: names the `chat:view` channel a non-member watches (D75). */
+  brandId: string
   caseId: string
   caseCode: string
   /** The applicant, the conversation's title; null when the case holds no name yet. */
@@ -48,7 +52,7 @@ export type Conversation = {
   stage: string
   type: ConversationType
   status: 'ACTIVE' | 'READ_ONLY'
-  access: 'MEMBER' | 'VIEWER'
+  access: 'MEMBER' | 'VIEWER' | 'PARTICIPANT'
   unread: number
   lastMessage: Message | null
   participants: Participant[]

@@ -11,12 +11,15 @@ import {
   fetchGmOverview,
   fetchPmMetrics,
   fetchRevenueMetrics,
+  fetchTargets,
   setGmGoal,
   type ExpertNetworkMetrics,
   type GmOverview,
   type PmMetrics,
   type RevenueMetrics,
+  type TargetAmount,
 } from './pmMetricsApi'
+import { DeskTarget } from './DeskTarget'
 import { emptyWhen, useMetrics } from './useMetrics'
 
 /**
@@ -67,6 +70,15 @@ export default function GmDashboard() {
 
   const data = gm.data
   const period = rangeLabel(dateRange).toLowerCase()
+
+  // A desk's monthly target is for a calendar month, so the column exists only while the range is one
+  // (the overview names the month in `goalMonth`). Amounts only: progress is on the rows already.
+  const targetMonth = data?.headline?.goalMonth ?? null
+  const targets = useMetrics<TargetAmount[]>(
+    (signal) => (targetMonth ? fetchTargets(targetMonth, signal) : Promise.resolve([])),
+    [targetMonth],
+  )
+  const targetOf = (memberId: string) => targets.data?.find((t) => t.memberId === memberId)?.target ?? null
 
   /**
    * The state for a tile fed by the GHL half of `/metrics/gm`.
@@ -234,6 +246,9 @@ export default function GmDashboard() {
                 <th className="pb-1 text-right text-xs font-medium uppercase">Won</th>
                 <th className="pb-1 text-right text-xs font-medium uppercase">Value</th>
                 <th className="pb-1 text-right text-xs font-medium uppercase" title="Open on the desk's pipelines right now — what their board's header shows">Open now</th>
+                {targetMonth && (
+                  <th className="pb-1 text-right text-xs font-medium uppercase" title="Sales: won value. Marketing: new leads. Click a cell to set the month's target.">Target</th>
+                )}
               </tr>
             </thead>
             <tbody>
@@ -258,6 +273,11 @@ export default function GmDashboard() {
                       {formatMoney(Math.round(row.openValue))}
                     </span>
                   </td>
+                  {targetMonth && (
+                    <td className="py-1 text-right">
+                      <DeskTarget row={row} target={targetOf(row.memberId)} known={targets.state.kind === 'ok'} month={targetMonth} onSaved={targets.reload} />
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>

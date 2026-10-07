@@ -9,6 +9,7 @@ import { cardDate } from '../board/boardRules'
 import { CalendarDays } from 'lucide-react'
 import { isWonStage, moveDeal } from './boardMove'
 import { openSummary } from './dealOpen'
+import MyTarget from './MyTarget'
 import WinNote from './WinNote'
 import {
   fetchOpportunityBoard,
@@ -247,6 +248,7 @@ export default function OpportunityBoardPage() {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-3 text-sm" style={{ color: 'var(--text-muted)' }}>
+          {(role === 'SALES' || role === 'MARKETING') && <MyTarget />}
           {data && openTotals && (
             <span className="font-num tabular-nums">
               {formatCount(openTotals.count)} open · {formatMoney(openTotals.value)}

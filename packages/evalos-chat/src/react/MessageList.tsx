@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
+import { authorBadge, typingNames } from '../core/labels'
 import { seenBy } from '../core/reducer'
 import { initials, linkify, rowsWithDays } from '../core/text'
 import { keyOf, type Message } from '../core/types'
@@ -34,8 +35,9 @@ export function MessageBody({ message }: { message: Message }) {
 export function TypingLine({ conversationId }: { conversationId: string }) {
   const keys = useChat((s) => s.typing[conversationId] ?? NOBODY)
   const participants = useChat((s) => s.conversations[conversationId]?.participants)
+  const messages = useChat((s) => s.messages[conversationId] ?? EMPTY)
   if (keys.length === 0) return null
-  const names = keys.map((k) => participants?.find((p) => keyOf(p) === k)?.name ?? 'Someone')
+  const names = typingNames(keys, participants, messages)
   return (
     <p className="ec-typing ec-muted" aria-live="polite">
       {names.join(' and ')} {names.length === 1 ? 'is' : 'are'} typing…
@@ -157,7 +159,8 @@ export function MessageRow({
         <div className="ec-msg__line">
           <div className="ec-bubble">
             <p className="ec-meta">
-              <strong>{mine ? 'You' : (message.authorName ?? 'Unknown')}</strong>{' '}
+              <strong>{mine ? 'You' : (message.authorName ?? 'Unknown')}</strong>
+              {authorBadge(message) && <span className="ec-muted"> · {authorBadge(message)}</span>}{' '}
               <span className="ec-muted">{new Date(message.createdAt).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}</span>
             </p>
             {mode === 'editing' ? (

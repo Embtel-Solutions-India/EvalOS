@@ -6,6 +6,7 @@ import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 import com.ie.evalos.common.ForbiddenException;
@@ -76,6 +77,62 @@ class MessageServiceTest {
 		when(messages.findByIdAndBrandId(m.getId(), brand)).thenReturn(Optional.of(m));
 		when(messages.findById(m.getId())).thenReturn(Optional.of(m));
 		return m;
+	}
+
+	private final ChatIdentity gm = new ChatIdentity(ParticipantKind.STAFF, UUID.randomUUID(), null, Role.GM);
+
+	@Test
+	void aGmWhoIsNotAMemberCanPostAndLeavesNoReadPosition() {
+		when(access.level(any(), eq(conversation))).thenReturn(ChatAccessLevel.PARTICIPANT);
+
+		service.send(gm, conversationId, "Please prioritise this one", null);
+
+		verify(messages).save(any(Message.class));
+		verify(reads, never()).advance(any(), any(), any(), any(), any(), any());
+	}
+
+	@Test
+	void aMemberStillGetsAReadPositionWhenTheyPost() {
+		service.send(pm, conversationId, "On it", null);
+
+		verify(reads).advance(any(), any(), any(), eq(pm.id()), any(), any());
+	}
+
+	@Test
+	void aGmsMessageIsLabelledGmAndAMembersIsNot() {
+		when(query.gmAmong(any())).thenReturn(Set.of(gm.id()));
+		when(access.level(any(), eq(conversation))).thenReturn(ChatAccessLevel.PARTICIPANT);
+
+		assertThat(service.send(gm, conversationId, "Looking at this", null).authorRole()).isEqualTo("GM");
+		assertThat(service.send(pm, conversationId, "Thanks", null).authorRole()).isNull();
+	}
+
+	@Test
+	void aGmCanEditOnlyItsOwnMessages() {
+		Message someoneElses = existing(pm, "mine, not yours", null);
+
+		assertThatThrownBy(() -> service.edit(gm, someoneElses.getId(), "changed"))
+				.isInstanceOf(ForbiddenException.class).hasMessage("Only the author can change a message.");
+	}
+
+	@Test
+	void aGmsViewOfAConversationSaysItParticipatesAndNamesTheBrandItsChannelIsIn() {
+		// A non-member hears a conversation only on its own channel, chat:view:{brand}:{conversation},
+		// so the view must say which brand that is, and that this caller is not a member.
+		ChatViews.ConversationView view = service.conversation(gm, conversationId);
+
+		assertThat(view.access()).isEqualTo(ChatAccessLevel.PARTICIPANT);
+		assertThat(view.brandId()).isEqualTo(brand);
+	}
+
+	@Test
+	void aGmCannotMarkReadBecauseItHasNoReadPosition() {
+		Message message = existing(pm, "hello", null);
+		when(access.level(any(), eq(conversation))).thenReturn(ChatAccessLevel.PARTICIPANT);
+
+		assertThatThrownBy(() -> service.markRead(gm, conversationId, message.getId()))
+				.isInstanceOf(ForbiddenException.class);
+		verify(reads, never()).advance(any(), any(), any(), any(), any(), any());
 	}
 
 	@Test
