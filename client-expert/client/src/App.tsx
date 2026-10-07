@@ -82,7 +82,6 @@ import { LEGAL } from '@shared/legal/legal'
  * client something.
  */
 
-const Welcome = lazy(() => import('@/pages/auth/Welcome'))
 const SignIn = lazy(() => import('@/pages/auth/SignIn'))
 const SetPassword = lazy(() => import('@/pages/auth/SetPassword'))
 const Dashboard = lazy(() => import('@/pages/dashboard/Dashboard'))
@@ -117,7 +116,7 @@ function AppRoutes() {
   return (
     <Routes>
       {/* A link that names them still works; this is only where an empty visit lands. */}
-      <Route path="/" element={<Navigate to="/welcome" replace />} />
+      <Route path="/" element={<Navigate to="/signin" replace />} />
       {/*
         The legal pages are public on purpose: a client reads them before signing in for the
         first time. The policies are accepted on first sign-in (Unit 72), so the footer that repeated them is gone.
@@ -127,7 +126,8 @@ function AppRoutes() {
       <Route path={LEGAL.retention.to} element={<DocumentRetention />} />
 
       <Route element={<PublicLayout />}>
-        <Route path="/welcome" element={<Welcome />} />
+        {/* The welcome page is gone (2026-10-07): sign-in is the front door. Old links land there. */}
+        <Route path="/welcome" element={<Navigate to="/signin" replace />} />
         <Route path="/signin" element={<SignIn />} />
         <Route path="/set-password" element={<SetPassword />} />
         {/*

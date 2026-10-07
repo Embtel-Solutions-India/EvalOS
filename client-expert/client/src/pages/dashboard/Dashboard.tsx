@@ -11,18 +11,15 @@ import { PageHeader } from '@shared/components/common/PageHeader'
 import { usePortalToken } from '@shared/hooks/usePortalToken'
 import { DELIVERED_STEP, failureMessage, NO_TOKEN, serviceLabel, type ClientCaseSummary } from '@shared/lib/portal'
 import { statusOf } from '@shared/services/apiClient'
-import { listCases } from '@/services/caseService'
+import { getMe, listCases } from '@/services/caseService'
 
 /**
  * Where the client lands: what needs them, then everything else (34d).
  *
- * **Real cases, and a greeting by time of day only.** This screen used to open with "Good morning,
- * {firstName}" from a mock account session over mock data. **There is an account now** — Unit 42
- * brought one back, and since Unit 64 it is opened when the client's case is — and `client_account` even holds
- * a first name. The name still does not come back: EvalOS does not hand the portal a client's
- * name for decoration, and the objection that killed it was never only that the session was fake.
- * What the credential is has also changed: a scoped portal link *or* a token minted by signing in,
- * and this screen cannot tell which, by design.
+ * **Real cases, and a greeting by time of day plus the client's first name (2026-10-07).** The
+ * name once came from a mock session and was dropped; it is back because the business asked, and now
+ * from `GET /portal/client/me` — the token's own `client_account` in the token's brand, first name
+ * only. A token with no account (or no first name) greets by time of day alone.
  *
  * **Active cases, then delivered ones (Unit 58 §4), and within active, action first.**
  * `actionRequired` and `stepIndex` are the server's, from `PortalStageProjection` — the one thing
@@ -39,6 +36,9 @@ export default function Dashboard() {
     retry: false,
   })
 
+  // The first name for the greeting; without one (or while it loads) the greeting stands alone.
+  const { data: me } = useQuery({ queryKey: ['portal', 'me'], queryFn: ({ signal }) => getMe(signal), enabled: tokenPresent, retry: false, staleTime: Infinity })
+
   if (!tokenPresent) {
     return <PageHeader title="Your cases" description={NO_TOKEN} />
   }
@@ -50,7 +50,7 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-6">
-      <p className="text-2xl font-bold tracking-tight text-foreground sm:text-3xl">{greeting()}!</p>
+      <p className="font-serif text-2xl font-normal tracking-tight text-foreground sm:text-3xl">{me?.firstName ? `${greeting()}, ${me.firstName}!` : `${greeting()}!`}</p>
 
       {/* The opt-in for messages while the portal is closed. It used to live only on Conversations, which
           most clients never open, so nobody was subscribed to be notified. */}
@@ -104,7 +104,7 @@ export default function Dashboard() {
   )
 }
 
-/** By the client's own clock — the greeting names nobody (see above). */
+/** By the client's own clock. */
 function greeting(hour = new Date().getHours()): string {
   if (hour < 12) return 'Good morning'
   if (hour < 18) return 'Good afternoon'
@@ -125,7 +125,7 @@ function CaseRow({ item }: { item: ClientCaseSummary }) {
             {serviceLabel(item.serviceType)} · {item.step}
           </p>
         </div>
-        {item.actionRequired && <Badge className="rounded-full px-3 py-1 text-sm">Needs you</Badge>}
+        {item.actionRequired && <Badge variant="destructive" className="rounded-full bg-destructive px-3 py-1 text-sm text-destructive-foreground">Needs you</Badge>}
       </Card>
     </Link>
   )

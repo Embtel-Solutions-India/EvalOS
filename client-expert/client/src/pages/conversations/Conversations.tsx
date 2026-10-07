@@ -1,4 +1,4 @@
-import { Link, useNavigate, useSearchParams } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { ChatScreen } from '@evalos/chat'
 
 /**
@@ -14,17 +14,10 @@ export default function Conversations() {
   const navigate = useNavigate()
 
   return (
-    <div className="mx-auto h-[calc(100dvh-7rem)] max-w-7xl">
+    <div className="mx-auto h-[calc(100dvh-8rem)] max-w-7xl lg:h-[calc(100dvh-7rem)]">
       <ChatScreen
         title="Conversations"
         description="Talk to the team working on each of your cases."
-        breadcrumb={
-          <>
-            <Link to="/">Home</Link>
-            <span aria-hidden="true">/</span>
-            <strong>Conversations</strong>
-          </>
-        }
         selectedId={open ?? undefined}
         onOpen={setOpen}
         onBack={() => setOpen(null)}

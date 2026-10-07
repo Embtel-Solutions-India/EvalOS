@@ -17,6 +17,11 @@ const base = (caseId: string) => `/client/cases/${caseId}`
 
 type Url = { url: string }
 
+/** Who is signed in — the dashboard greeting. */
+export function getMe(signal?: AbortSignal): Promise<{ firstName: string | null }> {
+  return unwrap(apiClient.get<ApiResponse<{ firstName: string | null }>>('/client/me', { signal }))
+}
+
 export function listCases(signal?: AbortSignal): Promise<ClientCaseSummary[]> {
   return unwrap(apiClient.get<ApiResponse<ClientCaseSummary[]>>('/client/cases', { signal }))
 }
