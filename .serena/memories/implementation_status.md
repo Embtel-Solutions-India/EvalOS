@@ -693,3 +693,16 @@ an expert push opened with no tab open lands on `/case` without the fragment tok
 **2026-10-07 — 60 s board refresh.** `useMetrics(..., { refreshEvery })` (visible tab only) on the desk/hiring board and `PipelineDashboard`, not the GM or any live-GHL screen. Mirror verified fresh (< 3 min, none stale). Staff 201 tests.
 
 **2026-10-07 — GM 'By desk' Open now.** New/Won/Value follow the date range (New = created in it); new `open`/`openValue` = open deals on the desk's pipelines today (mirror). Restart backend. Backend 1440/0/0/4.
+
+**2026-10-07 — client portal Welcome page removed.** `/` and `/welcome` now redirect to `/signin`; `client/src/pages/auth/Welcome.tsx` deleted; shared `LegalPage` logo links to `/`. Expert portal keeps its own `Welcome.tsx` (its `/` is sign-in/sign-up).
+
+**2026-10-07 — push card × no longer silences it for good.** In `PushCard`, × while notifications are off hides the card for that visit only (state, not localStorage); the card is back on the next reload. A stored dismissal still applies in the other states, never while `off`. Staff see the card only inside the bell dropdown.
+
+**2026-10-07 — client portal phone nav is a bottom tab bar** (`client/src/components/layout/MobileTabBar.tsx`, icon over text, five tabs incl. Sign out); `MobileNavDrawer` deleted. Expert/staff apps unchanged.
+
+**2026-10-07 — expert portal phone nav is a bottom tab bar** (`MobileTabBar` in `expert/src/layouts/ExpertLayout.tsx`, five tabs with badges, Sign out stays in the top-bar menu); drawer removed.
+
+**2026-10-07 — portal polish.** Client greeting shows first name (`GET /api/portal/client/me`, in `PortalTermsController`/`PortalTermsService.clientMe`, untested). Brand site tokens applied to client+expert: h1/h2 DM Serif Display, body DM Sans, red #C8102E. Enable-notifications button red via `--chat-push`; Needs-you badges red; breadcrumbs removed from Conversations/Messages.
+
+## Opportunity source attribution (2026-10-07)
+A blank opportunity source is attributed from the contact's own GHL source, read-only: `GhlContactClient.sourceOf` -> `OpportunityMirrorService.sourceFor` (GHL wins, else held, else contact; <=25 reads per absorb, 6h cache). `GmOverviewService` falls back to the Lead Source custom field then the mirror. GHL's API cannot set an opportunity Source; no GHL write approved (open decision Q19, `scripts/source-backfill-dryrun.py --apply` not run). ~675 opportunities have no source anywhere and stay Unattributed.
