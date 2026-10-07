@@ -10,6 +10,8 @@ export type RealtimeHandlers = {
 
 export type Realtime = {
   start(handlers: RealtimeHandlers): Promise<() => void>
+  /** Whether this person is looking at a conversation; only then does the server hold their push back. */
+  setViewing?(on: boolean): void
   /**
    * Hears every event of one conversation, for someone who is not a member of it (a GM taking part,
    * a viewer): their personal channel carries only the conversations they belong to. Returns the stop.
@@ -51,6 +53,8 @@ export function liveChannels(capability: string): string[] {
  * REST-only without ever constructing Ably, so nothing retries in a loop.
  */
 export function ablyRealtime(RealtimeClass: AblyRealtimeCtor, fetchToken: () => Promise<TokenRequest>): Realtime {
+  let wanted = false
+  let setViewing: (on: boolean) => void = () => {}
   let live: Ably.Realtime | null = null
   let emit: ((envelope: Envelope) => void) | null = null
   /** Channels asked for before the connection existed; subscribed the moment it does. */
@@ -64,6 +68,10 @@ export function ablyRealtime(RealtimeClass: AblyRealtimeCtor, fetchToken: () => 
   }
 
   return {
+    setViewing(on) {
+      wanted = on
+      setViewing(on)
+    },
     watch(name) {
       if (live) return subscribeTo(name)
       let stop = () => {
@@ -102,8 +110,10 @@ export function ablyRealtime(RealtimeClass: AblyRealtimeCtor, fetchToken: () => 
       // A rejected subscribe (attach refused) would otherwise be silent: status would still say
       // 'live' while no events ever arrive.
       void channel.subscribe((message) => onEvent(message.data as Envelope)).catch(() => onStatus('offline'))
-      // Presence is how the backend decides between a live update and a push (§6).
-      void channel.presence.enter().catch(() => {})
+      // Presence is how the backend decides between a live update and a push (§6). It means "reading chat
+      // right now", not "connected": the app calls setViewing, so any other screen still gets the push.
+      setViewing = (on) => void (on ? channel.presence.enter() : channel.presence.leave()).catch(() => {})
+      if (wanted) setViewing(true)
       // Unit 70: staff also hear their brand's "case X changed" signals. The channel is named in
       // the token's capability, so the package learns no new configuration.
       for (const name of liveChannels(first.capability)) {

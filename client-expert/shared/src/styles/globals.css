@@ -207,6 +207,8 @@ body {
   --chat-accent-text: hsl(var(--primary-foreground));
   /* The Enable-notifications button: the logo's red, so the one call to action stands out. */
   --chat-push: hsl(var(--destructive));
+  /* The unread count sits on the navy nav, where the navy accent vanished: brand red. */
+  --chat-badge: var(--brand-crimson);
   --chat-mine-bg: hsl(var(--accent));
   --chat-danger: hsl(var(--destructive));
   --chat-radius: var(--radius);

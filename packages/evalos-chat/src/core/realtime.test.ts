@@ -28,6 +28,9 @@ class FakeRealtime {
           enter: async () => {
             this.entered = true
           },
+          leave: async () => {
+            this.entered = false
+          },
         },
       }
     },
@@ -55,10 +58,16 @@ describe('ablyRealtime', () => {
   it('subscribes to my own channel, enters presence and relays envelopes', async () => {
     const h = handlers()
     const fetchToken = vi.fn().mockResolvedValue(token)
-    const stop = await ablyRealtime(FakeRealtime as never, fetchToken).start(h)
+    const realtime = ablyRealtime(FakeRealtime as never, fetchToken)
+    const stop = await realtime.start(h)
     const fake = FakeRealtime.last!
     expect(fake.channelName).toBe('chat:user:CLIENT:c1')
+    // Connected is not present: only reading a conversation holds the push back.
+    expect(fake.entered).toBe(false)
+    realtime.setViewing!(true)
     expect(fake.entered).toBe(true)
+    realtime.setViewing!(false)
+    expect(fake.entered).toBe(false)
     const envelope: Envelope = { type: 'message.created', conversationId: 'v1', data: {} }
     fake.subscribed!({ data: envelope })
     expect(h.onEvent).toHaveBeenCalledWith(envelope)

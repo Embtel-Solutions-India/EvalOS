@@ -251,4 +251,6 @@ payments are managed manually by the ENM; the expert portal shows what was recor
 
 **D37 edited (2026-10-07):** clients and experts are pushed case events too (`CasePushNotifier`): client — documents requested/chased, draft ready, delivered, on hold, resumed, staff update; expert — offer, letter to sign. Fixed line + case code, never the text; skipped while online. Emails stay.
 
+**D37 edited (2026-10-08):** push is held back only while the recipient is reading a conversation in a visible tab; everything else is pushed. library-default TTL, in-memory retries on transient failures.
+
 **D75 (2026-10-07, Unit 77, spec 77): the GM sets monthly member targets and takes part in every chat.** Sales target = won value (money), Marketing target = count of new leads; role picks the kind, GM sets the amount. Append-only `member_monthly_target`; no row = "not set", never 0; `sales_monthly_goal` unchanged. GM may write in any open conversation, labelled General Manager, without becoming a member; closed case still read-only; Brand Manager still only reads. BUILT 2026-10-08 (Unit 77): PARTICIPANT access level + authorRole GM, member_monthly_target (V86) + MemberTargetService, GET/PUT /api/gm/targets (amounts only), GET /api/me/target, By-desk Target column, MyTarget on the board. Not exercised in a browser.

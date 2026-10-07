@@ -32,6 +32,12 @@ export function createChatClient(api: ChatApi, realtime: Realtime | null) {
   /** Conversations whose first page loaded (Review Focus: a failed first fetch must be retryable). */
   const loaded = new Set<string>()
 
+  /** Presence = reading a conversation in a visible tab; anything else and the server pushes. */
+  function syncViewing() {
+    realtime?.setViewing?.(onScreen !== null && !(typeof document !== 'undefined' && document.hidden))
+  }
+  if (typeof document !== 'undefined') document.addEventListener('visibilitychange', syncViewing)
+
   function dispatch(action: Action) {
     state = reduce(state, action)
     listeners.forEach((listener) => listener())
@@ -132,6 +138,7 @@ export function createChatClient(api: ChatApi, realtime: Realtime | null) {
 
   async function openConversation(id: string) {
     onScreen = id
+    syncViewing()
     // A GM taking part, or a viewer, is in no member list: replies to them are published only on the
     // conversation's own channel, so listen there while it is open.
     const held = state.conversations[id]
@@ -174,7 +181,10 @@ export function createChatClient(api: ChatApi, realtime: Realtime | null) {
   }
 
   function closeConversation(id: string) {
-    if (onScreen === id) onScreen = null
+    if (onScreen === id) {
+      onScreen = null
+      syncViewing()
+    }
     watching.get(id)?.()
     watching.delete(id)
   }
