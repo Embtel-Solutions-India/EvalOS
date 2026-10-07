@@ -250,3 +250,5 @@ payments are managed manually by the ENM; the expert portal shows what was recor
 **D9 amended (2026-10-07):** `opportunity.won` is confirmed with GHL (the contact must have a won deal, the named one if the payload names it) before a case is created; GHL outage = retriable 5xx, no won deal = 409. Unverifiable cases (non-selling brand, no GHL token) are accepted with a WARN.
 
 **D37 edited (2026-10-07):** clients and experts are pushed case events too (`CasePushNotifier`): client — documents requested/chased, draft ready, delivered, on hold, resumed, staff update; expert — offer, letter to sign. Fixed line + case code, never the text; skipped while online. Emails stay.
+
+**D37 edited (2026-10-08):** push is held back only while the recipient is reading a conversation in a visible tab; everything else is pushed. 24 h TTL, in-memory retries on transient failures.

@@ -408,8 +408,10 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
   table and the bell stay the record of what happened; web push is added beside them so a user
   who is not on the screen still hears about it. **No email and no SMS**, so invariant 14 is
   untouched: a push is not a message to a mailbox. Decided 2026-09-17. **Built 2026-10-02**
-  (`BellPushNotifier`, on chat's `push_subscriptions`): a recipient with the app open is not pushed,
-  since the live bell already tells them. The GM (no brand to file a browser under) and Marketing
+  (`BellPushNotifier`, on chat's `push_subscriptions`): a recipient is held back only while they are **reading a conversation in a visible tab**
+  (edited 2026-10-08: presence used to mean "connected", which silenced every page and a locked phone);
+  any other screen, a hidden tab or a closed app is pushed, and the push is held 24 h by the push service for an
+  offline device and retried 30 s / 2 min / 10 min on a network, 429 or 5xx failure. The GM (no brand to file a browser under) and Marketing
   (no chat connection to opt in through) stay in-app only.
   **Edited 2026-10-07 (the business): clients and experts are pushed case events too** (`CasePushNotifier`, beside
   the D58 / D67 emails, which stay). Client: documents requested, the chase, draft ready, delivered, case on hold,

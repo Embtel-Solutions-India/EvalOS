@@ -706,3 +706,5 @@ an expert push opened with no tab open lands on `/case` without the fragment tok
 
 ## Opportunity source attribution (2026-10-07)
 A blank opportunity source is attributed from the contact's own GHL source, read-only: `GhlContactClient.sourceOf` -> `OpportunityMirrorService.sourceFor` (GHL wins, else held, else contact; <=25 reads per absorb, 6h cache). `GmOverviewService` falls back to the Lead Source custom field then the mirror. GHL's API cannot set an opportunity Source; no GHL write approved (open decision Q19, `scripts/source-backfill-dryrun.py --apply` not run). ~675 opportunities have no source anywhere and stay Unattributed.
+
+**2026-10-08 — push presence.** Ably presence now means "reading a conversation in a visible tab" (`realtime.setViewing`, `client.ts` syncViewing), not "connected"; `PushSender` has a 24 h TTL and retries RETRY outcomes (30s/2m/10m, in memory); portal unread badge is brand red (`--chat-badge`). Not device-tested.

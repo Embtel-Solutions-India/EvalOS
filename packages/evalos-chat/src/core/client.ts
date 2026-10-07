@@ -30,6 +30,12 @@ export function createChatClient(api: ChatApi, realtime: Realtime | null) {
   /** Conversations whose first page loaded (Review Focus: a failed first fetch must be retryable). */
   const loaded = new Set<string>()
 
+  /** Presence = reading a conversation in a visible tab; anything else and the server pushes. */
+  function syncViewing() {
+    realtime?.setViewing?.(onScreen !== null && !(typeof document !== 'undefined' && document.hidden))
+  }
+  if (typeof document !== 'undefined') document.addEventListener('visibilitychange', syncViewing)
+
   function dispatch(action: Action) {
     state = reduce(state, action)
     listeners.forEach((listener) => listener())
@@ -130,6 +136,7 @@ export function createChatClient(api: ChatApi, realtime: Realtime | null) {
 
   async function openConversation(id: string) {
     onScreen = id
+    syncViewing()
     // Whether to fetch depends on whether the first page actually loaded, not on whether the
     // list exists: the placeholder below makes it exist before that is known, so a failed fetch
     // must stay retryable on the next open instead of looking permanently (silently) loaded.
@@ -166,7 +173,10 @@ export function createChatClient(api: ChatApi, realtime: Realtime | null) {
   }
 
   function closeConversation(id: string) {
-    if (onScreen === id) onScreen = null
+    if (onScreen === id) {
+      onScreen = null
+      syncViewing()
+    }
   }
 
   async function loadOlder(id: string) {

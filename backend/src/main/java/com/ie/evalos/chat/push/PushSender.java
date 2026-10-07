@@ -1,6 +1,9 @@
 package com.ie.evalos.chat.push;
 
 import java.security.Security;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 
 import nl.martijndwars.webpush.Notification;
 import nl.martijndwars.webpush.PushService;
@@ -16,11 +19,22 @@ import org.springframework.stereotype.Component;
 @Component
 public class PushSender {
 
-	public enum Outcome { SENT, GONE, FAILED }
+	public enum Outcome { SENT, GONE, FAILED, RETRY }
+
+	/** A push service holds a message this long for a device that is offline, and delivers it when it is back. */
+	private static final int TTL_SECONDS = 24 * 60 * 60;
+	/** Waits before each retry of a push the push service could not take right now (network, 429, 5xx). */
+	private static final long[] RETRY_SECONDS = { 30, 120, 600 };
 
 	private static final Logger log = LoggerFactory.getLogger(PushSender.class);
 
 	private final PushService service;
+	// ponytail: in-memory retries are lost on a restart; move to a DB outbox if restarts during a push outage matter.
+	private final ScheduledExecutorService retries = Executors.newSingleThreadScheduledExecutor((r) -> {
+		Thread t = new Thread(r, "push-retry");
+		t.setDaemon(true);
+		return t;
+	});
 
 	PushSender(PushSettings settings) {
 		if (Security.getProvider(BouncyCastleProvider.PROVIDER_NAME) == null) {
@@ -45,14 +59,25 @@ public class PushSender {
 	 */
 	public static void deliver(PushSender sender, PushSubscriptionRepository subscriptions, PushSubscription to,
 			String json) {
+		deliver(sender, subscriptions, to, json, 0);
+	}
+
+	private static void deliver(PushSender sender, PushSubscriptionRepository subscriptions, PushSubscription to,
+			String json, int attempt) {
 		switch (sender.send(to, json)) {
 			case SENT -> {
 				to.markSent(java.time.Instant.now());
 				subscriptions.save(to);
 			}
 			case GONE -> subscriptions.delete(to);
+			case RETRY -> {
+				if (attempt < RETRY_SECONDS.length) {
+					sender.retries.schedule(() -> deliver(sender, subscriptions, to, json, attempt + 1),
+							RETRY_SECONDS[attempt], TimeUnit.SECONDS);
+				}
+			}
 			case FAILED -> {
-				// Logged by the sender.
+				// Logged by the sender; retrying would not change a refusal.
 			}
 		}
 	}
@@ -66,7 +91,8 @@ public class PushSender {
 					new Subscription.Keys(to.getP256dh(), to.getAuth()));
 			// High urgency: a chat message is time-sensitive, and the default (normal) is what Android
 			// holds back in Doze — so a phone with the browser closed heard minutes or hours late.
-			int status = service.send(new Notification(subscription, json, Urgency.HIGH)).getStatusLine().getStatusCode();
+			int status = service.send(Notification.builder().subscription(subscription).payload(json).urgency(Urgency.HIGH)
+					.ttl(TTL_SECONDS).build()).getStatusLine().getStatusCode();
 			if (status == 404 || status == 410) {
 				return Outcome.GONE;
 			}
@@ -79,8 +105,8 @@ public class PushSender {
 			return Outcome.SENT;
 		}
 		catch (Exception failed) {
-			log.warn("Web push to {} failed", to.getEndpoint(), failed);
-			return Outcome.FAILED;
+			log.warn("Web push to {} failed; will retry", to.getEndpoint(), failed);
+			return Outcome.RETRY;
 		}
 	}
 }

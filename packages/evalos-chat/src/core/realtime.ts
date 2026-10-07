@@ -8,7 +8,11 @@ export type RealtimeHandlers = {
   onStatus(status: RealtimeStatus): void
 }
 
-export type Realtime = { start(handlers: RealtimeHandlers): Promise<() => void> }
+export type Realtime = {
+  start(handlers: RealtimeHandlers): Promise<() => void>
+  /** Whether this person is looking at a conversation; only then does the server hold their push back. */
+  setViewing?(on: boolean): void
+}
 
 /** ably-js's `Realtime` constructor, passed in by the app so this package never imports Ably at runtime. */
 export type AblyRealtimeCtor = new (options: Ably.ClientOptions) => Ably.Realtime
@@ -39,7 +43,13 @@ export function liveChannels(capability: string): string[] {
  * REST-only without ever constructing Ably, so nothing retries in a loop.
  */
 export function ablyRealtime(RealtimeClass: AblyRealtimeCtor, fetchToken: () => Promise<TokenRequest>): Realtime {
+  let wanted = false
+  let setViewing: (on: boolean) => void = () => {}
   return {
+    setViewing(on) {
+      wanted = on
+      setViewing(on)
+    },
     async start({ onEvent, onReconnect, onStatus }) {
       let first: TokenRequest
       try {
@@ -64,8 +74,10 @@ export function ablyRealtime(RealtimeClass: AblyRealtimeCtor, fetchToken: () => 
       // A rejected subscribe (attach refused) would otherwise be silent: status would still say
       // 'live' while no events ever arrive.
       void channel.subscribe((message) => onEvent(message.data as Envelope)).catch(() => onStatus('offline'))
-      // Presence is how the backend decides between a live update and a push (§6).
-      void channel.presence.enter().catch(() => {})
+      // Presence is how the backend decides between a live update and a push (§6). It means "reading chat
+      // right now", not "connected": the app calls setViewing, so any other screen still gets the push.
+      setViewing = (on) => void (on ? channel.presence.enter() : channel.presence.leave()).catch(() => {})
+      if (wanted) setViewing(true)
       // Unit 70: staff also hear their brand's "case X changed" signals. The channel is named in
       // the token's capability, so the package learns no new configuration.
       for (const name of liveChannels(first.capability)) {
