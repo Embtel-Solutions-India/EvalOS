@@ -37,7 +37,7 @@ class ChatFanoutTest {
 
 	private ChatViews.MessageView fromPm() {
 		return new ChatViews.MessageView(UUID.randomUUID(), conversation, ParticipantKind.STAFF, pm, "Priya", "hi",
-				null, 0, Instant.now(), null, false, Map.of(), false);
+				null, 0, Instant.now(), null, false, Map.of(), false, null);
 	}
 
 	private void twoMembers() {

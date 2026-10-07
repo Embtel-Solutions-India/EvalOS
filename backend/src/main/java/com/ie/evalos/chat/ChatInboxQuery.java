@@ -8,9 +8,11 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 import com.ie.evalos.domain.Role;
@@ -239,6 +241,15 @@ public class ChatInboxQuery {
 	 * Display names keyed {@code KIND:id}: staff by display name, a client by first and last name
 	 * ("Client" when blank), an expert by full name. Ids come from rows already brand-scoped.
 	 */
+	public Set<UUID> gmAmong(Collection<UUID> staffIds) {
+		List<UUID> distinct = staffIds.stream().distinct().toList();
+		if (distinct.isEmpty()) {
+			return Set.of();
+		}
+		return new HashSet<>(jdbc.query("SELECT id FROM team_member WHERE role = 'GM' AND id IN ("
+				+ placeholders(distinct) + ")", (rs, n) -> rs.getObject(1, UUID.class), distinct.toArray()));
+	}
+
 	public Map<String, String> names(Collection<Map.Entry<ParticipantKind, UUID>> people) {
 		Map<ParticipantKind, List<UUID>> byKind = new LinkedHashMap<>();
 		for (Map.Entry<ParticipantKind, UUID> person : people) {

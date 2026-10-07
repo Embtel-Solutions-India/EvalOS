@@ -89,7 +89,9 @@ if (level == ChatAccessLevel.VIEWER && who.staffRole() != Role.GM) {
 
 Membership is computed from assignments; the recompute is untouched. A GM post therefore:
 
-- is shown as sent by the **General Manager**: `ChatRole` gains `GM`, and the web labels render it;
+- is shown as sent by the **General Manager**: the message carries `authorRole = "GM"` (`ChatRole`
+  labels stored member rows and a GM is never one, so it is left alone) and the web renders a
+  General Manager badge;
 - creates **no** `conversation_member` row, so the GM's inbox is not filled with every case and the
   assignment recompute has nothing to evict;
 - reaches the conversation's members through the existing publish and push paths;

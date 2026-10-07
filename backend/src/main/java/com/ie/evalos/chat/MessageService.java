@@ -18,6 +18,7 @@ import com.ie.evalos.common.ForbiddenException;
 import com.ie.evalos.common.InvalidRequestException;
 import com.ie.evalos.domain.AuditAction;
 import com.ie.evalos.domain.PortalAudience;
+import com.ie.evalos.domain.Role;
 import com.ie.evalos.service.AuditService;
 
 import org.springframework.context.ApplicationEventPublisher;
@@ -87,8 +88,12 @@ public class MessageService {
 				text, parentId));
 		conversation.touch(saved.getCreatedAt());
 		conversations.save(conversation);
-		reads.advance(conversation.getBrandId(), conversationId, who.kind().name(), who.id(), saved.getId(),
-				saved.getCreatedAt());
+		// A member's own post moves their read position. A GM taking part is not a member and holds
+		// none (D75): oversight leaves no read trace.
+		if (access.level(who, conversation) == ChatAccessLevel.MEMBER) {
+			reads.advance(conversation.getBrandId(), conversationId, who.kind().name(), who.id(), saved.getId(),
+					saved.getCreatedAt());
+		}
 
 		ChatViews.MessageView view = views(who, List.of(rowOf(saved, 0))).get(0);
 		publish(conversation, ChatChanged.Kind.MESSAGE_CREATED, view);
@@ -142,7 +147,7 @@ public class MessageService {
 	public void markRead(ChatIdentity who, UUID conversationId, UUID messageId) {
 		Conversation conversation = access.requireRead(who, conversationId);
 		if (access.level(who, conversation) != ChatAccessLevel.MEMBER) {
-			throw new ForbiddenException("Oversight reads conversations; it does not take part in them.");
+			throw new ForbiddenException("Only a member of a conversation has a read position.");
 		}
 		Message message = messages.findByIdAndBrandId(messageId, conversation.getBrandId())
 				.filter((m) -> m.getConversationId().equals(conversationId))
@@ -311,6 +316,8 @@ public class MessageService {
 		List<MessageReaction> given = reactions.findByMessageIdIn(ids);
 		given.forEach((r) -> people.add(entry(r.getReactorKind(), r.getReactorId())));
 		Map<String, String> names = query.names(people);
+		Set<UUID> gms = query.gmAmong(rows.stream().filter((r) -> r.authorKind() == ParticipantKind.STAFF)
+				.map(ChatInboxQuery.Row::authorId).toList());
 
 		Map<UUID, Map<Reaction, List<ChatViews.Reactor>>> byMessage = new LinkedHashMap<>();
 		for (MessageReaction r : given) {
@@ -323,7 +330,13 @@ public class MessageService {
 				row.authorId(), names.get(row.authorKind() + ":" + row.authorId()), row.body(), row.parentId(),
 				row.replyCount(), row.createdAt(), row.editedAt(), row.deletedAt() != null,
 				byMessage.getOrDefault(row.id(), Map.of()),
-				row.authorKind() == who.kind() && row.authorId().equals(who.id()))).toList();
+				row.authorKind() == who.kind() && row.authorId().equals(who.id()),
+				roleLabel(row.authorKind(), row.authorId(), gms))).toList();
+	}
+
+	/** The label beside a message: "GM" for a General Manager, else none (members are labelled by the roster). */
+	private static String roleLabel(ParticipantKind kind, UUID id, Set<UUID> gms) {
+		return kind == ParticipantKind.STAFF && gms.contains(id) ? "GM" : null;
 	}
 
 	private List<ChatViews.ConversationView> conversationViews(ChatIdentity who, List<Conversation> list) {
@@ -332,6 +345,9 @@ public class MessageService {
 		}
 		List<UUID> ids = list.stream().map(Conversation::getId).toList();
 		boolean viewer = who.isViewerRole();
+		// A GM takes part (D75) but is no member: it may write and has no unread. A Brand Manager reads.
+		ChatAccessLevel level = who.staffRole() == Role.GM ? ChatAccessLevel.PARTICIPANT
+				: viewer ? ChatAccessLevel.VIEWER : ChatAccessLevel.MEMBER;
 		Map<UUID, Long> unread = viewer ? Map.of() : query.unread(who.kind(), who.id(), ids);
 		Map<UUID, ChatInboxQuery.Row> last = query.lastMessages(ids);
 		List<ChatInboxQuery.MemberRow> members = query.currentMembers(ids);
@@ -342,6 +358,8 @@ public class MessageService {
 		members.forEach((m) -> people.add(entry(m.kind(), m.id())));
 		last.values().forEach((r) -> people.add(entry(r.authorKind(), r.authorId())));
 		Map<String, String> names = query.names(people);
+		Set<UUID> gms = query.gmAmong(last.values().stream().filter((r) -> r.authorKind() == ParticipantKind.STAFF)
+				.map(ChatInboxQuery.Row::authorId).toList());
 
 		Map<UUID, List<ChatViews.Participant>> participants = new LinkedHashMap<>();
 		for (ChatInboxQuery.MemberRow m : members) {
@@ -357,12 +375,13 @@ public class MessageService {
 							lastRow.authorId(), names.get(lastRow.authorKind() + ":" + lastRow.authorId()),
 							lastRow.body(), lastRow.parentId(), lastRow.replyCount(), lastRow.createdAt(),
 							lastRow.editedAt(), lastRow.deletedAt() != null, Map.of(),
-							lastRow.authorKind() == who.kind() && lastRow.authorId().equals(who.id()));
+							lastRow.authorKind() == who.kind() && lastRow.authorId().equals(who.id()),
+							roleLabel(lastRow.authorKind(), lastRow.authorId(), gms));
 			views.add(new ChatViews.ConversationView(c.getId(), c.getCaseId(),
 					context == null ? null : context.caseCode(), context == null ? null : context.clientName(),
 					context == null ? null : context.serviceType(),
 					context == null ? null : context.stage(), c.getType(), c.getStatus(),
-					viewer ? ChatAccessLevel.VIEWER : ChatAccessLevel.MEMBER, unread.getOrDefault(c.getId(), 0L),
+					level, unread.getOrDefault(c.getId(), 0L),
 					lastView, participants.getOrDefault(c.getId(), List.of()), c.getLastMessageAt()));
 		}
 		return views;
